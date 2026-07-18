@@ -8,25 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-778b",
-      "title": "SD-068 zero-injected-content null control (per-phase sigma-slope ratio)",
-      "script": "experiments/v3_exq_sd068_null_content_control_diagnostic.py",
-      "priority": 55,
-      "machine_affinity": "any",
-      "estimated_minutes": 8,
-      "claim_id": "SD-068",
-      "note": "Control-arm addition to the V3-EXQ-778 lineage (scientific question unchanged; not a redesign). Adds the odour-contingency-style null that SD-068 lacked (Bar et al. 2020, Curr Biol, DOI 10.1016/j.cub.2020.01.091; lit entry REE_assembly/evidence/literature/targeted_review_sd_068/entries/2026-07-18_sd_068_local_tmr_injected_content_bar2020/). Runs the identical sigma sweep with content_scale=0.0 so each per-phase readout is exercised on noise alone, holding the delivered perturbation numerically identical, and reports null_slope_ratio per phase (not a bare pass/fail) so a partial null is visible. Guards the 778 damage-tolerance order (nrem, rem, sws) against being an ordering of raw noise sensitivity. Confounded phases are flagged in the harness CONFOUND REGISTER, never dropped. Experiment-layer only; zero ree_core change. Injected arm verified BIT-IDENTICAL to the pre-778b harness (778 unaffected). MECH-121 NOT tagged (standing hold; NREM leg is substrate-plumbing-fidelity only); EXPERIMENT_PURPOSE=diagnostic. Seeds 42/7 for comparability with 778. GOV-REUSE-1: decisive readout (null-arm sigma-slope) absent from all 3 SD-068 manifests on substrate_hash 3bafe754/e9a22a91 -- null arm never ran -> not recoverable, ran.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-07-18T06:56:02Z"
-      },
-      "conditions": 1,
-      "episodes_per_run": 5,
-      "experiment_type": "v3_exq_sd068_null_content_control_diagnostic",
-      "seeds": 2
-    },
-    {
       "queue_id": "V3-EXQ-780",
       "title": "MECH-457 GOV-FANOUT-1 H-bc-prior: competence-directed behavioral-prior (imitation) discrimination",
       "script": "experiments/v3_exq_780_mech457_bc_prior_discrimination.py",
