@@ -115,9 +115,15 @@ confirmed or refuted by the V3-EXQ-778b measurement rather than assumed:
     function of the injected corruption with no content term. This leg is already
     documented above as "PASSTHROUGH by construction"; the null control makes that
     structural admission MEASURABLE instead of merely stated.
-  * sws -- EXPECTED CONFOUNDED. `_shy` is affine, so shy(clean+noise) - shy(clean) =
-    shy_centred(noise) exactly, independent of `clean`. The residual-noise fraction
-    is therefore ~sigma^2 whatever the content is.
+  * sws -- WAS CONFOUNDED, REPAIRED 2026-07-18. The prediction was confirmed
+    decisively by V3-EXQ-778c: `_shy` is affine, so shy(clean+noise) - shy(clean) =
+    shy_centred(noise) exactly, independent of `clean`, and the measured
+    null_slope_ratio was 1.0000 (sd 2.7e-8) on 8/8 seeds -- an analytic identity, not
+    a statistical near-miss. The SNR readout has been REPLACED as the scored series by
+    `_sws_pattern_completion` (retrieval-margin against the injected prototypes), the
+    same repair `rem_terrain_variance` -> `rem_generative_fidelity` made. The SNR keys
+    remain emitted as telemetry. Pending re-measurement by V3-EXQ-778g; do NOT treat
+    the repair as validated until that run reports null_slope_ratio_sws <= 0.25.
   * nrem -- AT RISK. The injected "trace" is an isotropic randn offset, which is
     statistically indistinguishable from the corruption it is damaged with, so the
     consolidation pass may close the same fraction of a noise target as of a content
@@ -356,7 +362,7 @@ def sws_denoising_snr(
     live = agent.run_sws_schema_pass(anchor_weight=1.0)
     agent.exit_sleep_mode()
 
-    return {
+    out: Dict[str, float] = {
         "phase": 0.0,  # sws index
         "denoising_snr_db": float(snr_db),
         "signal_power": signal_power,
@@ -364,6 +370,149 @@ def sws_denoising_snr(
         "content_scale": float(content_scale),
         "sws_slot_diversity": float(live.get("sws_slot_diversity", 0.0)),
         "sws_n_writes": float(live.get("sws_n_writes", 0.0)),
+    }
+
+    # The CONTENT-SCORED readout that replaces denoising_snr_db as the scored series.
+    # Computed on the SAME injected prototypes / damage realisation, so it is a strict
+    # add: every key above is emitted unchanged.
+    out.update(
+        _sws_pattern_completion(
+            clean=clean,
+            damaged=damaged,
+            probes=base[:k],
+            shy=_shy,
+        )
+    )
+    return out
+
+
+def _cos_sim_matrix(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """Row-wise cosine similarity matrix [n_a, n_b], zero-safe.
+
+    Norms are floored rather than left to divide by zero, so an all-zero row (the
+    NULL arm's content-free store) yields similarity 0 to everything instead of NaN.
+    """
+    an = a / a.norm(dim=1, keepdim=True).clamp(min=1e-12)
+    bn = b / b.norm(dim=1, keepdim=True).clamp(min=1e-12)
+    return an @ bn.t()
+
+
+def _sws_pattern_completion(
+    *,
+    clean: torch.Tensor,
+    damaged: torch.Tensor,
+    probes: torch.Tensor,
+    shy: Callable[[torch.Tensor], torch.Tensor],
+) -> Dict[str, float]:
+    """Content-scored pattern-completion readout for the SWS phase (replaces the SNR).
+
+    WHY THE SNR READOUT HAD TO GO (V3-EXQ-778c, null_slope_ratio 1.0000 on 8/8 seeds,
+    sd 2.7e-8 -- analytic, not statistical). `denoising_snr_db` is
+    `10*log10(signal_power / noise_power)` where
+    `noise_power = ||shy(damaged) - shy(clean)||^2`. But `shy` is AFFINE, so
+    `shy(clean + n) - shy(clean) == shy_centred(n)` EXACTLY, independent of `clean`.
+    `noise_power` is therefore a pure functional of the corruption; since
+    `diffuse_perturb` references its scale to the UNSCALED content (`rms_ref`), that
+    corruption is numerically identical in the injected and null arms, and
+    `_common_error_series` divides both arms by the same injected denominator. The
+    content term is a constant offset that DIFFERENTIATES AWAY, so the null-arm
+    sigma-slope is identically the injected-arm slope. The readout carried zero
+    content information by construction.
+
+    THE FIX -- score a RELATIONAL IDENTITY, not a residual energy. Any readout of the
+    form `f(shy(damaged) - shy(clean))` is content-free for an affine `shy`. This one
+    asks the question SWS's attractor store actually exists to answer (MECH-120:
+    flatten dominant attractors while PRESERVING the relational structure of the
+    traces): after damage and denoising, can each injected prototype still be
+    IDENTIFIED in the store?
+
+        sims[i, j]  = cos(probe_i, shy(store)_j)
+        margin_i    = sims[i, i] - max_{j != i} sims[i, j]
+        retrieval   = 1 if argmax_j sims[i, j] == i
+
+    The score is a RATIO of correct-vs-incorrect similarity whose denominators carry
+    `clean`, so the affine cancellation no longer removes the content term. This is
+    the same escape `rem_generative_fidelity` made from `rem_terrain_variance` (ree-v3
+    main da873a1): route the readout through an operation the content genuinely
+    survives in, and score against the KNOWN injection.
+
+    THE PROBES ARE THE UNSCALED PROTOTYPES -- this is the load-bearing detail. Probing
+    with `clean` (== `base * content_scale`) would make the null arm's probe the zero
+    vector, and the readout would be 0/0-degenerate: a zero from an undefined
+    similarity, which is exactly the failure mode the `rem` leg already exhibits
+    (a zero slope off a saturated constant is NOT evidence of content-contingency).
+    Probing with `base` instead delivers a REAL, non-degenerate, arm-identical probe
+    that simply is not planted in the null arm's store -- the direct analog of Bar et
+    al. 2020's "same odour delivered, no prior pairing". The null arm then reads
+    margin ~ 0 with no systematic sigma trend (a genuine absence of retrievable
+    content), not an undefined quantity.
+
+    EXPECTED BEHAVIOUR:
+      injected arm -- margin large at sigma=0, decaying monotonically as damage
+                      scrambles the slot identities => a real sigma-slope;
+      null arm     -- probe uncorrelated with a content-free store at every sigma
+                      => margin ~ 0, flat => null_slope_ratio well under the
+                      NULL_SLOPE_RATIO_CEILING of 0.25.
+
+    Both margins are computed through the SAME analytic `shy` the caller uses, so the
+    clean-vs-damaged ratio is symmetric (the live `shy_normalise` mutates agent state
+    and could not be run twice without compounding; it is still driven once by the
+    caller for liveness telemetry, exactly as before).
+
+    Emits `sws_completion_margin_clean` (the undamaged reference, which
+    `_injected_denominators` uses as the shared cross-arm denominator) and
+    `sws_completion_error` (self-normalised, UNAVAILABLE in the null arm by
+    construction -- structurally the same contract `nrem` already has with
+    `gap_before` / `transfer_fidelity`).
+    """
+    k = int(probes.shape[0])
+    if k < 2:
+        # A margin needs at least one competitor to discriminate against.
+        return {
+            "sws_completion_available": 0.0,
+            "sws_completion_margin": UNAVAILABLE,
+            "sws_completion_margin_clean": UNAVAILABLE,
+            "sws_completion_error": UNAVAILABLE,
+            "sws_retrieval_accuracy": UNAVAILABLE,
+        }
+
+    def _score(store: torch.Tensor) -> Tuple[float, float]:
+        sims = _cos_sim_matrix(probes, shy(store))  # [k, num_slots]
+        margins: List[float] = []
+        hits = 0
+        for i in range(k):
+            row = sims[i]
+            correct = float(row[i].item())
+            competitor = row.clone()
+            competitor[i] = float("-inf")
+            best_other = float(competitor.max().item())
+            margins.append(correct - best_other)
+            if int(row.argmax().item()) == i:
+                hits += 1
+        return (sum(margins) / len(margins), hits / k)
+
+    margin_clean, acc_clean = _score(clean)
+    margin_dam, acc_dam = _score(damaged)
+
+    if margin_clean > 1e-9:
+        completion_error = 1.0 - (margin_dam / margin_clean)
+    else:
+        # NULL arm: no injected content => no discriminability to lose. The error is
+        # UNAVAILABLE here rather than 0 or 1; run_null_content_control scores the null
+        # arm against the INJECTED arm's margin_clean instead (see _common_error_series).
+        completion_error = UNAVAILABLE
+
+    return {
+        "sws_completion_available": 1.0,
+        "sws_completion_margin": float(margin_dam),
+        "sws_completion_margin_clean": float(margin_clean),
+        "sws_completion_error": (
+            float(completion_error) if completion_error != UNAVAILABLE else UNAVAILABLE
+        ),
+        "sws_retrieval_accuracy": float(acc_dam),
+        "sws_retrieval_accuracy_clean": float(acc_clean),
+        "sws_completion_n_prototypes": float(k),
+        "sws_completion_chance_accuracy": float(1.0 / k),
     }
 
 
@@ -1035,17 +1184,26 @@ def _phase_error_series(pr_by_sigma: Dict[float, Dict[str, Dict[str, float]]], p
     so the cross-phase tolerance comparison is fair (the log-SNR dB scale, kept as a
     reported diagnostic, is NOT used here because its noiseless sentinel dominates a
     min-max normalisation and spuriously makes SWS "fail first"):
-        sws  : noise_power / signal_power        (residual-noise fraction)
+        sws  : sws_completion_error              (lost-discriminability fraction)
         nrem : 1 - transfer_fidelity             (residual-gap fraction)
         rem  : calibration_error / clean_variance (relative calibration error)
+
+    SWS CHANGED 2026-07-18 (V3-EXQ-778c repair). This series previously read
+    `noise_power / signal_power`, which is content-free: `shy` is affine, so
+    `noise_power` does not depend on the injected content at all (null_slope_ratio
+    1.0000, 8/8 seeds). It is now the pattern-completion error -- the fraction of the
+    injected prototypes' retrieval discriminability that the damage destroys.
+    CONSEQUENCE, stated plainly: the sws tolerance / staging numbers this feeds are
+    NOT comparable to V3-EXQ-778 / 778a's. That is intentional -- those numbers were
+    retracted as staging evidence by the 778c autopsy precisely because this series
+    was blind. A rerun is the only way to get valid ones.
     """
     out: List[float] = []
     for s in sigmas:
         row = pr_by_sigma[s][phase]
         if phase == "sws":
-            sig = row.get("signal_power", 0.0)
-            noi = row.get("noise_power", 0.0)
-            out.append((noi / sig) if sig > 1e-12 else float("nan"))
+            v = row.get("sws_completion_error", UNAVAILABLE)
+            out.append(float(v) if v != UNAVAILABLE else float("nan"))
         elif phase == "nrem":
             v = row.get("transfer_fidelity", UNAVAILABLE)
             out.append((1.0 - v) if v != UNAVAILABLE else float("nan"))
@@ -1228,9 +1386,19 @@ def _common_error_series(
     answers exactly "how much of this readout's sigma-response survives when the
     content is removed?".
 
-        sws  : noise_power            / injected signal_power
+        sws  : 1 - (completion_margin / injected completion_margin_clean)
         nrem : gap_after              / injected gap_before
         rem  : calibration_error      / clean_target_variance
+
+    `sws` CHANGED 2026-07-18 (V3-EXQ-778c repair): was `noise_power / injected
+    signal_power`, which made the null slope IDENTICALLY the injected slope (`shy` is
+    affine => `noise_power` is content-independent => the content term differentiates
+    away). It is now the fraction of the INJECTED arm's retrieval discriminability
+    that this arm's damaged store retains, which is content-contingent by
+    construction: the null arm's store holds no planted prototypes, so its margin sits
+    at ~0 with no sigma trend. This mirrors the `nrem` contract exactly -- the null
+    arm's own `margin_clean` collapses with the content, so the INJECTED arm's
+    supplies the shared denominator.
 
     `rem_error_key` (V3-EXQ-778e) selects which rem readout the series is built from.
     "calibration_error" (the DEFAULT) is the variance-units readout every prior run
@@ -1244,8 +1412,12 @@ def _common_error_series(
         row = pr_by_sigma[s][phase]
         if phase == "sws":
             d = denom.get("sws", 0.0)
-            noi = row.get("noise_power", float("nan"))
-            out.append((noi / d) if d > 1e-12 else float("nan"))
+            m = row.get("sws_completion_margin", UNAVAILABLE)
+            out.append(
+                (1.0 - (float(m) / d))
+                if (m != UNAVAILABLE and d > 1e-12)
+                else float("nan")
+            )
         elif phase == "nrem":
             d = denom.get("nrem", 0.0)
             ga = row.get("gap_after", float("nan"))
@@ -1264,10 +1436,16 @@ def _common_error_series(
 def _injected_denominators(
     pr_by_sigma: Dict[float, Dict[str, Dict[str, float]]], sigmas: List[float]
 ) -> Dict[str, float]:
-    """The injected arm's reference scales, taken at the intact (lowest) sigma."""
+    """The injected arm's reference scales, taken at the intact (lowest) sigma.
+
+    `sws` CHANGED 2026-07-18: was `signal_power` (the denominator of the retired
+    content-free SNR); is now the injected arm's undamaged pattern-completion margin.
+    """
     s0 = min(sigmas)
     return {
-        "sws": float(pr_by_sigma[s0]["sws"].get("signal_power", 0.0)),
+        "sws": float(
+            pr_by_sigma[s0]["sws"].get("sws_completion_margin_clean", 0.0)
+        ),
         "nrem": float(pr_by_sigma[s0]["nrem"].get("gap_before", 0.0)),
         "rem": float(pr_by_sigma[s0]["rem"].get("clean_target_variance", 0.0)),
     }
