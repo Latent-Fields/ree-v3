@@ -128,6 +128,34 @@
       "episodes_per_run": 3000,
       "experiment_type": "v3_exq_781_mech457_approach_primitive_discrimination",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-783",
+      "title": "z_world under-differentiation: separate untrained-encoder (a1) from the world_dim=32 granularity ceiling (a2) via a 2x2 dim x training crossing",
+      "script": "experiments/v3_exq_783_zworld_granularity_training_crossing.py",
+      "priority": 6,
+      "machine_affinity": "any",
+      "estimated_minutes": 120,
+      "claim_id": "Q-002",
+      "note": "z_world under-differentiation: separates (a1) untrained-encoder from (a2) the world_dim=32 discriminative-granularity ceiling. DIAGNOSTIC -- discriminates WHY z_world is under-differentiated; PROMOTES/DEMOTES NOTHING, excluded from governance scoring. Runs the USER-CONFIRMED retest spec of failure_autopsy_zworld-integration-cluster_2026-06-06.md section 7 (world_dim=128 + a behaviourally-balanced exploratory policy, re-measuring event selectivity + counterfactual attribution + fine-vs-coarse residue accuracy together), extended to cross {dim 32,128} x {encoder untrained, trained} -- which is what actually separates (a1) from (a2), since every cell measured on 2026-07-18 was dim=32 AND untrained and the two were perfectly confounded. 4 arms x 8 seeds. UNBLOCKED BY SD-070 (ree-v3 main f418400, 2026-07-18). This experiment was authored on 2026-07-18 and deliberately NOT queued, because the P0 the substrate then prescribed (SD-009 event-contrastive CE + SD-018 MSE, online batch=1) was measured to COLLAPSE z_world to participation ratio ~1.06 at world_dim=128 (untrained 9.21). Its TRAINED arms would have produced a collapsed representation whose necessarily-low contrast ratio says 'the recipe destroyed the manifold', NOT 'the dim=32 ceiling holds' -- exactly the trivial-prediction signature its own anti-collapse readiness assert exists to catch. The TRAINED arms now run the SD-070 recipe instead (static scene-structure grounding targets + class-balanced CE + VICReg variance/covariance anti-collapse + mini-batching), which was validated AGAINST THIS HARNESS'S OWN GATE before adoption: retained_fraction 0.625 (needs >=0.50), absolute PR 5.079 (needs >=2.0), contrast ratio raised 3/3 seeds (0.137 -> 0.238), held-out balanced-accuracy lift +0.23 to +0.47 on all four grounding heads. The gate is RETAINED AT FULL STRENGTH, not relaxed: an off-line validation still has to clear it in-run, on 8 seeds, at both dims. SELF-ROUTES to substrate_not_ready_requeue (never a substrate verdict) if readiness fails on any of: raw-channel contrast degenerate, a TRAINED arm's encoder weights not moving, P1 leaking gradient into the encoder, or a TRAINED arm collapsing. SCOPE: bears on INV-088's ANTECEDENT only -- NOT tagged for the INV-088 coupling leg (V3-EXQ-744a's WEAKENS reading stands), NO bearing on MECH-459 / return-scale, and NO bearing on either leg of the live GOV-FANOUT-1 discrimination (V3-EXQ-780 H-bc-prior vs V3-EXQ-781 H-approach-primitive) -- both remain claimed and that discrimination stays open. Does NOT tag SD-009 or MECH-100: SD-070 routes around SD-009 rather than adjudicating it (see evidence/planning/sd009_event_contrastive_channel_mismatch_2026-07-18.md). GOV-REUSE-1: decisive readout is z_world contrast ratio under a TRAINED encoder; reanalysis_query returned NO substrate-compatible match (no recorded run measures contrast under a trained encoder at either dim) -> run. RE-DERIVE BRAKE: Q-002 count 1, SD-031 count 0, neither braked. VALIDATION: validate_experiments --strict OK; validate_queue OK; 31 SD-070 contracts + full suite 1590 pass; dry-run smoke PASS on all 4 arms. Mints a cross-driver reusable OFF-arm baseline (experiments/_lib/baselines/exq783_zworld_granularity.py, include_driver_script_in_hash=False).",
+      "status": "pending",
+      "experiment_type": "v3_exq_783_zworld_granularity_training_crossing",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49
+      ],
+      "conditions": [
+        "D32_UNTRAINED",
+        "D32_TRAINED",
+        "D128_UNTRAINED",
+        "D128_TRAINED"
+      ]
     }
   ]
 }
