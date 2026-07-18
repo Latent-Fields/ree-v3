@@ -17,8 +17,16 @@ Env:
   DISPATCH_TOKEN          bearer token for the service                [required]
   DISPATCH_MACHINE        this machine's label (default: hostname)
   DISPATCH_POLL_SECONDS   poll interval (default 20)
-  DISPATCH_DEFAULT_CWD    repo to use when a job has no cwd
-                          (default /Users/dgolden/REE_Working/REE_assembly)
+  DISPATCH_DEFAULT_CWD    repo to use when a job has no cwd. DEFAULT EMPTY:
+                          a job with no cwd FAILS LOUDLY rather than running in
+                          a guessed repo. Set it explicitly only if you want the
+                          old silent-fallback behaviour (see routing notes below).
+  DISPATCH_STRICT_REPO_MATCH
+                          "1" (default) pre-flight check: fail a job whose prompt
+                          references absolute paths in git repos OTHER than the
+                          one its cwd resolves to. "0" disables the check.
+  DISPATCH_PATH_ROOT      only paths under this root are considered by the
+                          strict check (default /Users/dgolden/REE_Working)
   DISPATCH_WORKTREE_BASE  where worktrees go
                           (default <repo>/../.dispatch-worktrees)
   DISPATCH_LOG_DIR        where run logs go (default ./dispatch-logs)
@@ -31,9 +39,34 @@ Env:
   DISPATCH_JOB_TIMEOUT    seconds before a job is killed (default 3600)
   DISPATCH_KEEP_WORKTREE  "1" keep (default), "0" remove on success
   DISPATCH_ONESHOT        "1" process at most one job then exit (for testing)
+
+Routing (why a job can be REFUSED instead of run)
+-------------------------------------------------
+A dispatched job runs in a worktree of ONE repo. REE_Working is a *container* of
+several independent repos (REE_assembly, ree-v3, ree-v2, ...) -- it is not a
+superrepo and tracks none of their files -- so the repo a job runs in has to be
+chosen correctly or the work lands nowhere:
+
+  * no cwd            -> we do NOT guess. Silently defaulting sent every
+                         cwd-less chip into a REE_assembly worktree, including
+                         chips whose prompts only touch ree-v3/ paths that do
+                         not exist there (audited 2026-07-18).
+  * cwd inside an existing worktree (.claude/worktrees/, .dispatch-worktrees/)
+                      -> refused: a worktree holds only its own repo's files,
+                         so work in the sibling repos would land nowhere.
+  * prompt/cwd repo mismatch
+                      -> refused when the prompt's absolute paths live in other
+                         repos than cwd's (DISPATCH_STRICT_REPO_MATCH).
+  * cwd is the container itself, prompt names a sibling repo by relative path
+                      -> refused for the same reason (a container worktree has
+                         none of the sibling repos' files).
+
+Refusals fail the job with an actionable summary. Repair a staged job's cwd via
+the phone page's "cwd" button or POST /api/set-cwd, then Launch it.
 """
 import json
 import os
+import re
 import shlex
 import socket
 import subprocess
@@ -47,8 +80,13 @@ URL = os.environ.get("DISPATCH_URL", "").rstrip("/")
 TOKEN = os.environ.get("DISPATCH_TOKEN", "")
 MACHINE = os.environ.get("DISPATCH_MACHINE", socket.gethostname())
 POLL_SECONDS = float(os.environ.get("DISPATCH_POLL_SECONDS", "20"))
-DEFAULT_CWD = os.environ.get(
-    "DISPATCH_DEFAULT_CWD", "/Users/dgolden/REE_Working/REE_assembly")
+# Empty by default ON PURPOSE: a job with no cwd is refused, not guessed.
+DEFAULT_CWD = os.environ.get("DISPATCH_DEFAULT_CWD", "").strip()
+STRICT_REPO_MATCH = os.environ.get("DISPATCH_STRICT_REPO_MATCH", "1") == "1"
+PATH_ROOT = os.environ.get("DISPATCH_PATH_ROOT",
+                           "/Users/dgolden/REE_Working").rstrip("/")
+# A cwd inside one of these is a worktree, not a repo checkout (see docstring).
+WORKTREE_MARKERS = (".claude/worktrees/", ".dispatch-worktrees/")
 WORKTREE_BASE = os.environ.get("DISPATCH_WORKTREE_BASE", "")
 LOG_DIR = os.environ.get(
     "DISPATCH_LOG_DIR",
@@ -147,11 +185,136 @@ def _bot_git_env():
 
 
 def repo_root_for(cwd):
-    cwd = cwd or DEFAULT_CWD
+    """git repo root containing `cwd`, or None. No fallback -- see resolve_repo."""
+    if not cwd:
+        return None
     res = _run(["git", "-C", cwd, "rev-parse", "--show-toplevel"])
     if res.returncode != 0:
         return None
     return res.stdout.strip()
+
+
+PATH_RE = None
+
+
+def prompt_repo_paths(prompt):
+    """Absolute paths under PATH_ROOT that a prompt references, deepest-first.
+
+    Only used to VALIDATE a cwd the human chose -- never to pick one.
+    """
+    global PATH_RE  # noqa: PLW0603  compiled once, cheap
+    if PATH_RE is None:
+        PATH_RE = re.compile(re.escape(PATH_ROOT) + r"/[A-Za-z0-9._/\-]+")
+    seen = []
+    for m in PATH_RE.finditer(prompt or ""):
+        p = m.group(0).rstrip(".,;:)`'\"")
+        if p not in seen:
+            seen.append(p)
+    return seen
+
+
+def _repo_of_path(path):
+    """Repo root for `path`, walking up to the nearest EXISTING ancestor.
+
+    A prompt may name a file that does not exist yet (something to create), so
+    resolve the deepest existing directory on its way up.
+    """
+    cur = path
+    while cur.startswith(PATH_ROOT) and len(cur) > len(PATH_ROOT):
+        if os.path.isdir(cur):
+            root = repo_root_for(cur)
+            return root
+        cur = os.path.dirname(cur)
+    return None
+
+
+def prompt_repo_mismatch(prompt, repo):
+    """Error string if the prompt's paths all live in OTHER repos than `repo`.
+
+    Returns None when the check passes, is disabled, or is inconclusive (no
+    resolvable paths) -- it only refuses on positive evidence of a mismatch.
+    """
+    if not STRICT_REPO_MATCH:
+        return None
+    repos = []
+    for p in prompt_repo_paths(prompt):
+        r = _repo_of_path(p)
+        if r and r not in repos:
+            repos.append(r)
+    if not repos or repo in repos:
+        return None
+    return ("prompt targets %s but cwd resolves to %s -- set the job's cwd to "
+            "the repo the work belongs in (POST /api/set-cwd), then Launch"
+            % (", ".join(repos), repo))
+
+
+SIBLING_REPOS = None
+
+
+def sibling_repos():
+    """Names of git repos nested directly under PATH_ROOT (REE_assembly, ree-v3...).
+
+    PATH_ROOT is a *container* directory, not a superrepo: it tracks none of
+    their files. So a worktree of the container has none of them either.
+    """
+    global SIBLING_REPOS  # noqa: PLW0603  discovered once per process
+    if SIBLING_REPOS is None:
+        names = []
+        try:
+            for name in sorted(os.listdir(PATH_ROOT)):
+                d = os.path.join(PATH_ROOT, name)
+                if os.path.isdir(os.path.join(d, ".git")):
+                    names.append(name)
+        except OSError:
+            pass
+        SIBLING_REPOS = names
+    return SIBLING_REPOS
+
+
+def container_repo_mismatch(prompt, repo):
+    """Error if cwd is the container repo but the prompt targets a sibling repo.
+
+    Catches prompts written with repo-RELATIVE paths ("REE_assembly/docs/x.md"),
+    which the absolute-path check cannot see. Running those in a container
+    worktree silently lands the work nowhere.
+    """
+    if not STRICT_REPO_MATCH or os.path.realpath(repo) != os.path.realpath(PATH_ROOT):
+        return None
+    hits = [n for n in sibling_repos() if (n + "/") in (prompt or "")]
+    if not hits:
+        return None
+    return ("cwd is the container %s, but the prompt targets %s -- a worktree "
+            "of the container holds none of their files. Set the job's cwd to "
+            "the repo the work belongs in (POST /api/set-cwd), then Launch"
+            % (PATH_ROOT, ", ".join(hits)))
+
+
+def resolve_repo(job):
+    """(repo_root, error). Refuses rather than guessing -- see module docstring."""
+    cwd = (job.get("cwd") or "").strip() or DEFAULT_CWD
+    if not cwd:
+        return None, ("job has no cwd and DISPATCH_DEFAULT_CWD is unset -- "
+                      "refusing to guess a repo. Set the job's cwd (POST "
+                      "/api/set-cwd) to the repo this work belongs in, then "
+                      "Launch it.")
+    if not os.path.isdir(cwd):
+        return None, "cwd does not exist: %s" % cwd
+    norm = os.path.abspath(cwd) + "/"
+    for marker in WORKTREE_MARKERS:
+        if marker in norm:
+            return None, ("cwd %s is inside a git worktree (%s) -- a worktree "
+                          "carries only its own repo's files, so work in the "
+                          "sibling repos would land nowhere. Use the real repo "
+                          "checkout." % (cwd, marker.rstrip("/")))
+    repo = repo_root_for(cwd)
+    if not repo:
+        return None, "no git repo at cwd=%s" % cwd
+    prompt = job.get("prompt") or ""
+    for check in (prompt_repo_mismatch, container_repo_mismatch):
+        err = check(prompt, repo)
+        if err:
+            return None, err
+    return repo, None
 
 
 def make_worktree(repo, job_id):
@@ -220,11 +383,11 @@ def process(job):
     if not ok:
         return False  # someone else got it / race
     log("claimed %s (%s)" % (job_id, job.get("title") or ""))
-    repo = repo_root_for(job.get("cwd"))
-    if not repo:
-        update(job_id, "failed", exit_code=2,
-               summary="no git repo at cwd=%s" % (job.get("cwd") or DEFAULT_CWD))
-        log("FAILED %s: no repo" % job_id)
+    repo, err = resolve_repo(job)
+    if repo is None:
+        update(job_id, "failed", exit_code=3,
+               summary=("routing refused: " + err)[:280])
+        log("REFUSED %s: %s" % (job_id, err))
         return True
     wt, branch, err = make_worktree(repo, job_id)
     if wt is None:

@@ -243,7 +243,10 @@ class DispatchTest(unittest.TestCase):
         mirror = os.path.join(HERE, "hooks", "mirror_chip_to_dispatch.py")
         env = {k: v for k, v in os.environ.items()
                if k not in ("DISPATCH_URL", "DISPATCH_TOKEN")}
-        # point CLIENT_CONFIG lookup at a dir with no config by running from /tmp
+        # MUST point CLIENT_CONFIG at a nonexistent path: it resolves relative
+        # to the hook FILE, so clearing the env vars alone leaves the real
+        # on-disk config in play and this test posts to the LIVE queue.
+        env["DISPATCH_CLIENT_CONFIG"] = os.path.join(self.tmp, "no-such.json")
         res = subprocess.run([sys.executable, mirror],
                              input='{"tool_input":{"prompt":"x"}}',
                              env=env, capture_output=True, text=True, timeout=15)
@@ -273,6 +276,133 @@ class SummarizeUnitTest(unittest.TestCase):
     def test_stderr_on_failure(self):
         s = self.ex._summarize("", "traceback boom", 1)
         self.assertTrue(s.startswith("error: traceback boom"))
+
+
+class RoutingUnitTest(unittest.TestCase):
+    """Chip misrouting guards (audited 2026-07-18).
+
+    Before this, a job with cwd='' silently fell back to REE_assembly and got a
+    worktree of the WRONG repo -- e.g. a chip whose prompt only touches ree-v3/
+    paths that do not exist there. Routing now refuses rather than guesses.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        os.environ.setdefault("DISPATCH_URL", "http://x")
+        os.environ.setdefault("DISPATCH_TOKEN", "x")
+        sys.path.insert(0, HERE)
+        import dispatch_executor  # noqa: E402
+        cls.ex = dispatch_executor
+        cls.tmp = tempfile.mkdtemp(prefix="dispatch-routing-")
+        # Two sibling repos under a shared root, mirroring REE_Working.
+        cls.repo_a = os.path.join(cls.tmp, "repo_a")
+        cls.repo_b = os.path.join(cls.tmp, "repo_b")
+        for repo in (cls.repo_a, cls.repo_b):
+            os.makedirs(os.path.join(repo, "sub"))
+            subprocess.run(["git", "init", "-q", repo], check=True)
+        cls.ex.PATH_ROOT = cls.tmp
+        cls.ex.PATH_RE = None          # recompile against the temp root
+        cls.ex.DEFAULT_CWD = ""
+        cls.ex.STRICT_REPO_MATCH = True
+
+    def test_empty_cwd_refused_not_guessed(self):
+        repo, err = self.ex.resolve_repo({"cwd": "", "prompt": "do a thing"})
+        self.assertIsNone(repo)
+        self.assertIn("no cwd", err)
+
+    def test_explicit_default_cwd_still_honoured(self):
+        self.ex.DEFAULT_CWD = self.repo_a
+        try:
+            repo, err = self.ex.resolve_repo({"cwd": "", "prompt": "do a thing"})
+            self.assertIsNone(err)
+            self.assertEqual(os.path.realpath(repo),
+                             os.path.realpath(self.repo_a))
+        finally:
+            self.ex.DEFAULT_CWD = ""
+
+    def test_good_cwd_resolves(self):
+        job = {"cwd": os.path.join(self.repo_a, "sub"),
+               "prompt": "edit %s/sub/x.py" % self.repo_a}
+        repo, err = self.ex.resolve_repo(job)
+        self.assertIsNone(err)
+        self.assertEqual(os.path.realpath(repo), os.path.realpath(self.repo_a))
+
+    def test_prompt_targets_other_repo_refused(self):
+        # The audited case: cwd says repo_a, every path in the prompt is repo_b.
+        job = {"cwd": self.repo_a,
+               "prompt": "update %s/sub/queue.json please" % self.repo_b}
+        repo, err = self.ex.resolve_repo(job)
+        self.assertIsNone(repo)
+        self.assertIn("prompt targets", err)
+        self.assertIn(os.path.realpath(self.repo_b), os.path.realpath(err))
+
+    def test_mismatch_check_can_be_disabled(self):
+        self.ex.STRICT_REPO_MATCH = False
+        try:
+            job = {"cwd": self.repo_a, "prompt": "%s/sub/x" % self.repo_b}
+            repo, err = self.ex.resolve_repo(job)
+            self.assertIsNone(err)
+            self.assertIsNotNone(repo)
+        finally:
+            self.ex.STRICT_REPO_MATCH = True
+
+    def test_cwd_inside_worktree_refused(self):
+        wt = os.path.join(self.repo_a, ".claude", "worktrees", "slug")
+        os.makedirs(wt, exist_ok=True)
+        repo, err = self.ex.resolve_repo({"cwd": wt, "prompt": "x"})
+        self.assertIsNone(repo)
+        self.assertIn("worktree", err)
+
+    def test_missing_cwd_dir_refused(self):
+        repo, err = self.ex.resolve_repo(
+            {"cwd": os.path.join(self.tmp, "nope"), "prompt": "x"})
+        self.assertIsNone(repo)
+        self.assertIn("does not exist", err)
+
+    def test_nonexistent_prompt_path_resolves_via_ancestor(self):
+        # A prompt may name a file to CREATE; resolve the deepest real ancestor.
+        job = {"cwd": self.repo_a,
+               "prompt": "create %s/sub/brand_new.py" % self.repo_a}
+        repo, err = self.ex.resolve_repo(job)
+        self.assertIsNone(err)
+        self.assertEqual(os.path.realpath(repo), os.path.realpath(self.repo_a))
+
+    def test_container_cwd_with_relative_sibling_path_refused(self):
+        # Prompts written with repo-RELATIVE paths ("repo_b/x.md") are invisible
+        # to the absolute-path check; running them in a worktree of the
+        # container lands the work nowhere.
+        subprocess.run(["git", "init", "-q", self.tmp], check=True)
+        self.ex.SIBLING_REPOS = None
+        try:
+            job = {"cwd": self.tmp, "prompt": "update repo_b/notes.md please"}
+            repo, err = self.ex.resolve_repo(job)
+            self.assertIsNone(repo)
+            self.assertIn("container", err)
+            self.assertIn("repo_b", err)
+        finally:
+            subprocess.run(["rm", "-rf", os.path.join(self.tmp, ".git")],
+                           check=True)
+            self.ex.SIBLING_REPOS = None
+
+    def test_container_cwd_without_sibling_reference_allowed(self):
+        # Work genuinely ON the container repo itself must still run.
+        subprocess.run(["git", "init", "-q", self.tmp], check=True)
+        self.ex.SIBLING_REPOS = None
+        try:
+            job = {"cwd": self.tmp, "prompt": "update the top-level README"}
+            repo, err = self.ex.resolve_repo(job)
+            self.assertIsNone(err)
+            self.assertEqual(os.path.realpath(repo), os.path.realpath(self.tmp))
+        finally:
+            subprocess.run(["rm", "-rf", os.path.join(self.tmp, ".git")],
+                           check=True)
+            self.ex.SIBLING_REPOS = None
+
+    def test_prompt_with_no_paths_is_inconclusive_not_refused(self):
+        repo, err = self.ex.resolve_repo(
+            {"cwd": self.repo_a, "prompt": "no absolute paths here at all"})
+        self.assertIsNone(err)
+        self.assertIsNotNone(repo)
 
 
 if __name__ == "__main__":

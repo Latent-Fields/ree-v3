@@ -191,10 +191,37 @@ is auto-merged — review the branch, then merge/discard.
 ## Test / troubleshoot
 
 ```
-python3 test_dispatch.py        # 11 tests: API state machine, auth, e2e w/ fake claude
+python3 test_dispatch.py        # 24 tests: API state machine, auth, routing, e2e w/ fake claude
 ```
 - `401` on the phone → tap **Token**, re-paste.
 - Jobs stuck `pending` → Mac asleep, executor down, or `claude` not on the
   plist `PATH`. Check `/tmp/ree-dispatch-executor.{out,err}`.
 - `failed` immediately → usually a permission stall or bad `cwd`; read the job's
   summary + `dispatch-logs/dispatch-<id>.log` on the Mac.
+- `failed` with **`routing refused: ...`** (exit 3) → the job's `cwd` does not
+  identify the repo the work belongs in. Nothing ran and no worktree was made.
+  Tap **cwd** on the phone card (or `POST /api/set-cwd {id, cwd}`) to set an
+  absolute repo checkout path, then **Launch**. See "Routing" below.
+
+## Routing: which repo does a job run in?
+
+`REE_Working` is a *container* of independent repos, not a superrepo — it tracks
+none of their files. A job runs in a worktree of exactly ONE repo, so the wrong
+`cwd` means the work lands nowhere. The executor therefore **refuses rather than
+guesses** (audited 2026-07-18, when every cwd-less chip was silently running in
+a `REE_assembly` worktree):
+
+| situation | outcome |
+|---|---|
+| no `cwd` | refused — set one and relaunch |
+| `cwd` missing / not a git repo | refused |
+| `cwd` inside `.claude/worktrees/` or `.dispatch-worktrees/` | refused |
+| prompt's absolute paths all in other repos than `cwd` | refused |
+| `cwd` is the container **and** the prompt names a sibling repo (`ree-v3/...`) | refused |
+
+`DISPATCH_DEFAULT_CWD` is **unset on purpose** — setting it restores the silent
+fallback. `DISPATCH_STRICT_REPO_MATCH=0` disables the two prompt/cwd checks.
+
+**Staged jobs never auto-run.** A mirrored chip lands as `staged` and only the
+phone's **Launch** tap moves it to `pending`, where the executor can claim it.
+That gate is deliberate: keep it.

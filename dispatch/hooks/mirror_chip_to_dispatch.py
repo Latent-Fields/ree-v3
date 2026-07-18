@@ -14,8 +14,14 @@ tool has already executed).
 
 Config (first match wins):
   env DISPATCH_URL + DISPATCH_TOKEN
-  else  <this-dir>/../.dispatch_client.json  ({"url": ..., "token": ...})
+  else  $DISPATCH_CLIENT_CONFIG, else <this-dir>/../.dispatch_client.json
+        ({"url": ..., "token": ...})
 Both are git-ignored; the token never enters settings.json or git.
+
+DISPATCH_CLIENT_CONFIG exists so tests can point the lookup at a path that does
+not exist. The on-disk config is found relative to THIS FILE, so a test that
+merely clears DISPATCH_URL/TOKEN still finds it and posts to the real queue
+(that leak put two junk jobs in the live DB before it was fixed, 2026-07-18).
 """
 import json
 import os
@@ -23,7 +29,8 @@ import sys
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-CLIENT_CONFIG = os.path.join(HERE, "..", ".dispatch_client.json")
+CLIENT_CONFIG = (os.environ.get("DISPATCH_CLIENT_CONFIG", "").strip()
+                 or os.path.join(HERE, "..", ".dispatch_client.json"))
 
 
 def _config():

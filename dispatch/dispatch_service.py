@@ -342,6 +342,23 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {"ok": True, "job": row})
             return
 
+        if path == "/api/set-cwd":
+            # Repair path for a job whose cwd is missing/wrong. staged-only:
+            # once launched the executor may already have claimed it, and the
+            # repo a job runs in must not change under a running session.
+            job_id = body.get("id")
+            new_cwd = (body.get("cwd") or "").strip()
+            if not new_cwd.startswith("/"):
+                self._send(400, {"error": "cwd must be an absolute path"})
+                return
+            row = set_status_guarded(job_id, "staged", ("staged",),
+                                     cwd=new_cwd)
+            if row is None:
+                self._send(409, {"error": "not in staged state"})
+                return
+            self._send(200, {"ok": True, "job": row})
+            return
+
         if path == "/api/cancel":
             job_id = body.get("id")
             row = set_status_guarded(job_id, "cancelled", ("staged", "pending"))
@@ -480,10 +497,13 @@ function esc(s){return (s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":
 function jobHtml(j){
   let a="";
   if(j.status==="staged")a+=`<button onclick="act('launch','${j.id}')">Launch</button>`;
+  if(j.status==="staged")a+=`<button class="sec" onclick="setCwd('${j.id}')">cwd</button>`;
   if(j.status==="staged"||j.status==="pending")a+=`<button class="warn" onclick="act('cancel','${j.id}')">Cancel</button>`;
-  const meta=[j.source,j.created_at,j.cwd].filter(Boolean).join(" &middot; ");
+  // No cwd => the executor will refuse the job rather than guess a repo.
+  const cwd=j.cwd?j.cwd:"⚠ no cwd — set one before launching";
+  const meta=[j.source,j.created_at,cwd].filter(Boolean).join(" &middot; ");
   const tail=j.summary?`<div class="meta">${esc(j.summary)}</div>`:"";
-  return `<div class="job"><div class="row"><span class="title">${esc(j.title||j.id)}</span>
+  return `<div class="job" data-id="${j.id}" data-cwd="${esc(j.cwd||"")}"><div class="row"><span class="title">${esc(j.title||j.id)}</span>
     <span class="pill s-${j.status}">${j.status}</span></div>
     <div class="prompt">${esc(j.prompt)}</div>
     <div class="meta">${esc(meta)}</div>${tail}
@@ -496,6 +516,14 @@ async function load(){
   }catch(e){}
 }
 async function act(kind,id){try{await api("/api/"+kind,"POST",{id});load();}catch(e){}}
+async function setCwd(id){
+  const cur=(document.querySelector(`[data-id="${id}"]`)||{}).dataset;
+  const c=prompt("Repo checkout on the Mac (absolute path):",
+                 (cur&&cur.cwd)||"/Users/dgolden/REE_Working/ree-v3");
+  if(c===null)return;
+  try{const r=await api("/api/set-cwd","POST",{id,cwd:c.trim()});
+    if(r.error)st(r.error);load();}catch(e){}
+}
 async function enqueue(status){
   const prompt=document.getElementById("np").value.trim();
   if(!prompt){st("Prompt required.");return;}

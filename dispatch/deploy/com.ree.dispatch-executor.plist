@@ -28,7 +28,10 @@
     <key>DISPATCH_URL</key><string>http://10.8.0.1:8799</string>
     <key>DISPATCH_TOKEN</key><string>PASTE_TOKEN_HERE</string>
     <key>DISPATCH_MACHINE</key><string>macbook</string>
-    <key>DISPATCH_DEFAULT_CWD</key><string>/Users/dgolden/REE_Working/REE_assembly</string>
+    <!-- DISPATCH_DEFAULT_CWD is deliberately UNSET: REE_Working holds several
+         independent repos, so a job with no cwd must be refused (with an
+         actionable message) rather than silently run in a guessed repo.
+         Setting it here re-enables the silent fallback. -->
     <key>DISPATCH_POLL_SECONDS</key><string>20</string>
     <key>DISPATCH_CLAUDE_BIN</key><string>claude</string>
     <key>DISPATCH_CLAUDE_FLAGS</key><string></string>
