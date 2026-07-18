@@ -6,25 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-778e",
-      "title": "SD-068 GOV-FANOUT-1 leg 2/3 H-rem-genuinely-content-free: REM de-clamped readout (axis=representation)",
-      "script": "experiments/v3_exq_sd068_rem_declamped_readout_diagnostic.py",
-      "priority": 45,
-      "machine_affinity": "ree-cloud-3",
-      "estimated_minutes": 20,
-      "claim_id": "SD-068",
-      "note": "GOV-FANOUT-1 discrimination portfolio on the SD-068 REM leg, leg 2 of 3 (axis=REPRESENTATION, hypothesis H-rem-genuinely-content-free, pre-registered 2026-07-18T08:41:15Z in hypothesis_space_registry.v1.json question consolidation_readout_validity). Routed by failure_autopsy_V3-EXQ-778c_2026-07-18.json targets[0].fanout_recommendation. The rival reading to leg 1: the rem calibration readout is GENUINELY content-independent -- like the sws leg 778c eliminated at null_slope_ratio 1.0000 (sd 2.7e-8, 8/8) -- and the clamping is incidental, which would make rem a SECOND content-free leg and leave SD-068's non-vacuity contract carried by the nrem leg alone. PROBE: score the rem leg against the injected precision target DIRECTLY in PRECISION units (direct_precision_error = |1/rv_after - clean_target| / clean_target) instead of via running_variance_after in VARIANCE units (calibration_error = |rv_after - 1/clean_target|). Inverting back to precision UNDOES the 1/x blow-up that pinned 778c's null arm at 998.5009992509989 on 5/8 seeds and sent it off-scale 1801-9143 on 3/8: the precision-units readout is bounded and its sigma-response stays graded on both arms. Everything else is held at the EXACT 778c condition (step=1.0, zero-content null, same 8 seeds, same sigma grid, same RNG streams), so the READOUT DEFINITION is the only difference. ANTI-ALIAS: (1) WITHIN-RUN READOUT CONTROL -- the 778c readout (calibration_error) is scored on the IDENTICAL cells, so any difference is attributable to the readout definition ALONE and a de-clamped ratio near 1.0 cannot alias 'genuinely content-free' against 'this run differs from 778c'; (2) NON-DEGENERACY GATE on the NULL arm's own spread and distinct-value count -- a ratio ~0.0 is ambiguous between 'inert on noise' (the finding) and 'saturated constant' (no finding), which is exactly what left 778c unresolved, so a still-degenerate null routes to measurement_still_degenerate_requeue rather than letting a fresh degeneracy satisfy the declared null; (3) seed-stability is a REPORTED outcome -- a ceiling inside the 95% CI self-routes to an explicit ..._seed_unstable_underpowered branch rather than reading the mean as a verdict (778c's rem verdict flipped across seeds). DECLARED NULL: if the de-clamped readout yields null_slope_ratio <= 0.25, this leg is REFUTED -- the rem readout DOES track content once scored in a non-degenerate representation. Smoke observation (1 seed, toy grid): de-clamped ratio 0.9926 with null_sd 0.0270 and non_degenerate True, against the legacy anchor's off-scale 31127 -- the representation swap genuinely de-clamps. GOV-REUSE-1: the decisive readout is the null/injected sigma-slope ratio under a PRECISION-units error; no recorded manifest carries it (778/778a/778b/778c scored calibration_error in variance units only, and direct_precision_error did not exist before this leg) -> not recoverable by reanalysis -> run. Re-derive brake: does NOT fire (see V3-EXQ-778d note). Siblings: V3-EXQ-778d, V3-EXQ-778f. DIAGNOSTIC (experiment_purpose=diagnostic -> excluded from governance confidence/conflict scoring); PROMOTES/DEMOTES NOTHING -> resolution via /failure-autopsy Step 9b Mode B against the frozen ledger, NOT by the script's self-route. SD-068 is the subject; MECH-168 / INV-047 / MECH-169 are CONTEXT only. MECH-121 deliberately NOT tagged (held, candidate/substrate_conditional; the NREM leg is substrate-plumbing-fidelity only and must not accrue promotion evidence). rem phase ONLY -- the sws repair is a single unambiguous build routed to /implement-substrate and exempt from GOV-FANOUT-1, and nrem is already confirmed content-contingent (ratio 0.1445, 0/8 confounded). Experiment-layer only; zero ree_core change; the harness edits are ADDITIVE and the INJECTED arm was verified to reproduce the recorded 778c seed-42 sigma grid to 1e-13 (JSON round-trip precision), so 778/778a/778c stay comparable. Cloud-pinned so the three legs run in PARALLEL, per GOV-FANOUT-1 (a single re-posed sequential probe can inherit the prior confound and return a confident-but-wrong verdict). Smoke: dry-run PASS (self-route exercised, readiness gate live not decorative); validate_experiments --strict OK (no readiness / magnitude-vs-range warning); 1484/1484 contract tests pass (1 pre-existing unrelated SD-054 failure, verified failing without this change); ASCII-clean; per-cell arm_fingerprint (reuse-eligible mint).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-07-18T16:26:43Z"
-      },
-      "conditions": 1,
-      "episodes_per_run": 5,
-      "experiment_type": "v3_exq_sd068_rem_declamped_readout_diagnostic",
-      "seeds": 8
-    }
-  ]
+  "items": []
 }
