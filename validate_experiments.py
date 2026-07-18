@@ -37,7 +37,8 @@ PROTOCOL_MODULE = "experiment_protocol"
 # scripts/precommit_contracts.sh -- passes `--checks manifest_writer`, which keeps
 # that gate surgical: it does NOT expand the emit_outcome conformance / degeneracy /
 # arm-fingerprint contracts onto the broader (non-v3_exq_) script set the gate scopes.
-CHECK_NAMES = ("conformance", "readiness", "arm_fingerprint", "degeneracy", "manifest_writer")
+CHECK_NAMES = ("conformance", "readiness", "arm_fingerprint", "degeneracy", "manifest_writer",
+               "anchor_reachability")
 
 # Readiness-gate static lint (proposal_trivial_prediction_readiness_gate_2026-06-06).
 # A diagnostic/baseline script whose interpretation grid self-routes to one of
@@ -321,6 +322,177 @@ _MANIFEST_WRITER_EXEMPT_MARKER = "MANIFEST_WRITER_EXEMPT"
 _CHOKEPOINT_WRITER_NAMES = ("write_flat_manifest", "write_pack", "ExperimentPackWriter")
 _RAW_JSON_DUMP_NAMES = ("dump", "dumps")
 _MANIFEST_IDENTITY_TOKENS = ("run_id", "evidence_direction")
+
+
+# Readiness-anchor reachability enforcement (Learning 1, failure_autopsy_SD-068-rem-
+# fanout-cluster_2026-07-18 sec 2; the guard landed 2026-07-18 as
+# experiments/_lib/readiness_anchor.assert_anchor_reachable).
+#
+# An ANCHOR-KIND readiness precondition asserts that a NAMED KNOWN-POSITIVE / known-
+# degenerate CONTROL reproduces a signature above a numeric gate. It is scored by a
+# hand-written predicate. If that predicate is NARROWER than the state it anchors to,
+# a bit-perfect replication of the control cannot clear the gate -- the precondition is
+# unmeetable by construction, reports met=false on every run forever, and mislabels an
+# instrument-specification gap as a substrate or scientific verdict. Confirmed instance:
+# V3-EXQ-778d's `null_zero_anchor_reproduces_778c_railed_signature` scored only the
+# SATURATION rail of a TWO-rail degeneracy, so a perfect replication topped out at
+# 5/8 = 0.625 against a 0.75 gate -- and because
+# `criteria_non_degenerate.C1_unpaired_null_derails = (readiness_ok and anchor_ok)`,
+# that one mis-specified statistic accounted for the ENTIRE degeneracy flag on the
+# load-bearing criterion.
+#
+# The obligation is discharged by replaying a frozen reference of the control through
+# THE SHIPPED predicate at setup: assert_anchor_reachable(...). Opt-out marker for an
+# anchor whose reachability is true by construction (e.g. an exact-equality/structural
+# reproduction check, where the predicate IS the degeneracy definition).
+_ANCHOR_GUARD_NAMES = ("assert_anchor_reachable", "score_reference")
+_ANCHOR_REACHABILITY_EXEMPT_MARKER = "ANCHOR_REACHABILITY_EXEMPT"
+# The self-route labels that make an unmeetable anchor CONSEQUENTIAL. Note this is
+# deliberately WIDER than SUBSTRATE_VERDICT_LABELS: the motivating defect (778d) does
+# NOT route to any of those labels -- it routes to `substrate_not_ready_requeue`, which
+# is precisely the self-route an anchor governs. Scoping this gate to
+# SUBSTRATE_VERDICT_LABELS alone would exempt the very run that motivated it (verified
+# against the corpus 2026-07-18: 106 of 112 anchor-kind scripts are requeue-route and
+# NOT substrate-verdict-class).
+_ANCHOR_CONSEQUENTIAL_ROUTES = ("substrate_not_ready_requeue", "P0NotReady")
+
+
+def _anchor_kind_preconditions(tree: ast.Module) -> List[str]:
+    """Names of ANCHOR-KIND readiness preconditions in the script's dict literals.
+
+    Anchor-kind = a readiness-kind precondition dict (a `name` + numeric
+    `measured`/`threshold` pair, and NOT a criterion -- no `load_bearing`/`passed`)
+    that ALSO carries a `control` key naming the known-positive control it anchors to.
+    The `control` key is what separates an ANCHOR ("this known-degenerate reference
+    reproduces its signature") from a generic readiness gate ("the substrate is trained
+    enough"); only the former can be unmeetable-by-construction in the 778d way, and
+    only the former is what assert_anchor_reachable guards.
+
+    Same static limits as _readiness_and_criterion_names: a precondition assembled at
+    runtime (f-string / comprehension / helper) is invisible to this scan.
+    """
+    anchors: List[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Dict):
+            continue
+        str_keys = {}
+        for k, v in zip(node.keys, node.values):
+            if isinstance(k, ast.Constant) and isinstance(k.value, str):
+                str_keys[k.value] = v
+        name_node = str_keys.get("name")
+        if not (isinstance(name_node, ast.Constant) and isinstance(name_node.value, str)):
+            continue
+        if ("load_bearing" in str_keys) or ("passed" in str_keys):
+            continue  # a criterion, not a precondition
+        if not ("measured" in str_keys and "threshold" in str_keys):
+            continue  # not readiness-kind
+        if "control" not in str_keys:
+            continue  # a generic readiness gate, not an anchor
+        anchors.append(name_node.value)
+    return anchors
+
+
+def anchor_reachability_lint(path: Path) -> Optional[str]:
+    """Readiness-anchor reachability check. Return a warning string, or None.
+
+    A `diagnostic` / `baseline` script that (a) declares an ANCHOR-KIND readiness
+    precondition -- one naming a known-positive `control` it must reproduce -- and
+    (b) self-routes on that precondition to a consequential label (a
+    SUBSTRATE_VERDICT_LABELS verdict, a `*_nondiscriminative` / `*_unmeetable`
+    suffix, or a `substrate_not_ready_requeue` / P0-readiness requeue) MUST assert at
+    setup that its frozen reference clears the gate under THE SHIPPED predicate, via
+    experiments/_lib/readiness_anchor.assert_anchor_reachable(...).
+
+    Without that assertion nothing checks the predicate against the control it claims
+    to score, and a predicate narrower than the degeneracy it anchors to yields a
+    guaranteed false negative that is indistinguishable, in the manifest, from a real
+    substrate limitation (V3-EXQ-778d; autopsy sec 2, Learning 1).
+
+    Opt-out: ANCHOR_REACHABILITY_EXEMPT = "<reason>" -- appropriate when the predicate
+    IS the degeneracy definition (an exact-equality / structural reproduction check),
+    so reachability holds by construction and a replay would be tautological.
+
+    Static name/string/dict-literal scan only -- the same limitation class as
+    readiness_lint / arm_fingerprint_lint / degeneracy_selfreport_lint. It can MISS an
+    anchor whose precondition dict is assembled at runtime, and can OVER-FIRE when a
+    `control` key documents provenance on a precondition that anchors nothing
+    reproducible. WARN-ONLY by design and in BOTH modes -- unlike the arm-fingerprint /
+    degeneracy / manifest-writer gates it never becomes a hard failure under --paths,
+    because whether a given anchor's gate is reachable is NOT statically decidable
+    (`measured` is computed from live run data), so this can only ever flag a missing
+    GUARD, never an actually-unreachable gate. Full-glob mode therefore surfaces the
+    pre-2026-07-18 backlog without blocking, and --paths is where an author writing a
+    new anchor sees it. Harden only if the guard becomes universal.
+    """
+    try:
+        src = path.read_text(encoding="utf-8")
+        tree = ast.parse(src, filename=str(path))
+    except (OSError, UnicodeDecodeError, SyntaxError):
+        return None  # check_script already reports unreadable / syntax errors
+
+    if _has_main_block(tree) is None:
+        return None  # library-style helper, no entry point -- exempt
+
+    names: set = set()
+    strings: set = set()
+    purposes: set = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            names.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            names.add(node.attr)
+        elif isinstance(node, ast.alias):
+            names.add((node.asname or node.name).split(".")[-1])
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+            strings.add(node.value)
+        if isinstance(node, ast.keyword) and node.arg == "experiment_purpose":
+            val = node.value
+            if isinstance(val, ast.Constant) and isinstance(val.value, str):
+                purposes.add(val.value)
+        if isinstance(node, ast.Assign):
+            for tgt in node.targets:
+                if isinstance(tgt, ast.Name) and tgt.id.lower() == "experiment_purpose":
+                    val = node.value
+                    if isinstance(val, ast.Constant) and isinstance(val.value, str):
+                        purposes.add(val.value)
+
+    if _ANCHOR_REACHABILITY_EXEMPT_MARKER in names or _ANCHOR_REACHABILITY_EXEMPT_MARKER in strings:
+        return None
+    if not (purposes & {"diagnostic", "baseline"}):
+        return None
+
+    anchors = _anchor_kind_preconditions(tree)
+    if not anchors:
+        return None  # no anchor-kind precondition -- nothing to guard
+
+    consequential = (
+        any(s in SUBSTRATE_VERDICT_LABELS or s.endswith(SUBSTRATE_VERDICT_SUFFIXES)
+            for s in strings)
+        or any(r in strings or r in names for r in _ANCHOR_CONSEQUENTIAL_ROUTES)
+    )
+    if not consequential:
+        return None  # the anchor gates no consequential self-route
+
+    if any(n in names for n in _ANCHOR_GUARD_NAMES):
+        return None  # guard present
+
+    return ("declares anchor-kind readiness precondition(s) "
+            + ", ".join(sorted(anchors))
+            + " -- each asserting a known-positive `control` reproduces a signature "
+            "above a numeric gate -- and self-routes on them to a substrate-verdict / "
+            "substrate_not_ready_requeue label, but never asserts the gate is REACHABLE "
+            "by that control. A hand-written predicate NARROWER than the state it "
+            "anchors to is unmeetable by construction: it reports met=false on every "
+            "run forever and mislabels an instrument-specification gap as a substrate "
+            "verdict (V3-EXQ-778d scored one rail of a two-rail degeneracy -> max 5/8 "
+            "= 0.625 against a 0.75 gate, and that alone flagged the load-bearing "
+            "criterion degenerate). Add a setup-time "
+            "`from experiments._lib.readiness_anchor import assert_anchor_reachable` + "
+            "`assert_anchor_reachable(anchor_name=..., reference_cells=<frozen recorded "
+            "control>, score_fn=<THE SHIPPED PREDICATE, not a copy>, threshold=...)`. "
+            "Exempt with ANCHOR_REACHABILITY_EXEMPT = \"<reason>\" when the predicate IS "
+            "the degeneracy definition. See experiments/_lib/readiness_anchor.py + "
+            "failure_autopsy_SD-068-rem-fanout-cluster_2026-07-18.md sec 2 (Learning 1).")
 
 
 def arm_fingerprint_lint(path: Path) -> Optional[str]:
@@ -614,6 +786,7 @@ def main() -> int:
     arm_fp_warnings: List[Tuple[Path, str]] = []
     degen_warnings: List[Tuple[Path, str]] = []
     manifest_writer_warnings: List[Tuple[Path, str]] = []
+    anchor_warnings: List[Tuple[Path, str]] = []
     for p in paths:
         rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
         if "conformance" in selected:
@@ -654,6 +827,12 @@ def main() -> int:
                     failures.append((p, mw))
                 else:
                     manifest_writer_warnings.append((p, mw))
+        if "anchor_reachability" in selected:
+            anch = anchor_reachability_lint(p)
+            if anch:
+                # WARN-only in BOTH modes -- see anchor_reachability_lint() for why
+                # this one never hardens under --paths.
+                anchor_warnings.append((p, anch))
 
     print("", flush=True)
     print(f"[validate_experiments] checked {len(paths)} scripts: "
@@ -661,7 +840,17 @@ def main() -> int:
           f"{len(warnings)} readiness-warning(s), "
           f"{len(arm_fp_warnings)} arm-fingerprint-backlog, "
           f"{len(degen_warnings)} degeneracy-self-report-backlog, "
-          f"{len(manifest_writer_warnings)} manifest-writer-backlog", flush=True)
+          f"{len(manifest_writer_warnings)} manifest-writer-backlog, "
+          f"{len(anchor_warnings)} anchor-reachability-warning(s)", flush=True)
+    if anchor_warnings:
+        # Advisory in BOTH modes (never hardens -- reachability is not statically
+        # decidable, so this flags a missing GUARD, not a proven-unreachable gate).
+        # Pre-2026-07-18 backlog: anchors authored before assert_anchor_reachable.
+        print("", flush=True)
+        print("[validate_experiments] Readiness-anchor REACHABILITY WARNINGS (advisory, non-blocking):", flush=True)
+        for p, warn in anchor_warnings:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
+            print(f"  - {rel}: {warn}", flush=True)
     if manifest_writer_warnings:
         # Advisory in full-glob mode only (hard failures route to `failures` when
         # --paths is explicit). This is the pre-2026-07-12 backlog -- the ~1028
