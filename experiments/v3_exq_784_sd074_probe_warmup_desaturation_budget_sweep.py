@@ -341,6 +341,19 @@ def _run_seed(
                 "n_selections": int(read["n_selections"]),
                 "readable": bool(readable),
                 "probe_stop_reason": read["stop_reason"],
+                # Realised probe BUDGET, not just which cap fired. `probe_stop_reason`
+                # says which cap DID bind; these say which cap COULD have and how much
+                # of the budget the read actually spent -- so a cell that met its
+                # selection floor CHEAPLY is distinguishable from one cut short by the
+                # step cap. Field names and types mirror WarmupOutcome.as_manifest_fields
+                # exactly, so a reader can join per_cell here against the per_seed rows
+                # any saturation_summary()-emitting sibling writes.
+                "n_probe_env_steps": int(read["n_env_steps"]),
+                "n_probe_episodes": int(read["n_episodes"]),
+                "probe_max_env_steps": int(read["max_env_steps"]),
+                "probe_max_episodes": int(read["max_episodes"]),
+                "probe_episode_cap_can_bind": bool(read["episode_cap_can_bind"]),
+                "probe_floors_met": bool(read["floors_met"]),
                 "warmup_episodes_cumulative": trained_so_far,
             }
             cell.stamp(row)
@@ -427,6 +440,49 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
     n_readable = sum(1 for r in rows if r["readable"])
     readable_frac = (n_readable / n_cells) if n_cells else 0.0
     instrument_ready = readable_frac >= MIN_CELLS_READABLE_FRAC
+
+    # ---- Probe budget audit -----------------------------------------------------
+    # Mirrors probe_warmup.saturation_summary()'s budget block, at CELL granularity
+    # (this sweep's unit is seed x budget, not seed). It answers the question the
+    # readable-cells fraction above cannot: a cell can clear MIN_SELECTS_FOR_READ and
+    # STILL have been budget-limited, so `readable` alone does not certify the read.
+    # NOT a criterion and NOT a precondition -- this run's budget is safe BY
+    # CONSTRUCTION (PROBE_MAX_EPISODES is derived from PROBE_MAX_ENV_STEPS, so the
+    # episode cap cannot bind), which is exactly why this is recorded as an audit a
+    # reader can verify rather than as a gate that would always pass.
+    measured_cells = [r for r in rows if r["saturation_regime"] != "unmeasured"]
+    starved_cells = [
+        {"seed": r["seed"], "budget": r["budget"]}
+        for r in measured_cells
+        if not r["probe_floors_met"]
+    ]
+    cap_bind_cells = [
+        {"seed": r["seed"], "budget": r["budget"]}
+        for r in measured_cells
+        if r["probe_episode_cap_can_bind"]
+    ]
+    env_steps_spent = [r["n_probe_env_steps"] for r in measured_cells]
+    probe_budget = {
+        "n_cells": len(rows),
+        "n_cells_measured": len(measured_cells),
+        "n_probe_starved": len(starved_cells),
+        "probe_starved_cells": starved_cells,
+        "n_probe_episode_cap_can_bind": len(cap_bind_cells),
+        "probe_episode_cap_can_bind_cells": cap_bind_cells,
+        "probe_budget_clean": bool(not starved_cells and not cap_bind_cells),
+        "max_env_steps_spent": max(env_steps_spent) if env_steps_spent else None,
+        "median_env_steps_spent": (
+            statistics.median(env_steps_spent) if env_steps_spent else None
+        ),
+        "probe_budget_note": (
+            "probe_budget_clean=False means at least one cell's de-saturation read was "
+            "budget-limited (starved below its selection floor, or run under an episode "
+            "cap that can bind before the step cap). Qualify the informative yield "
+            "accordingly -- a starved read's saturation verdict is low-confidence. The "
+            "spend fields let a reader see how close a floors_met cell came to the cap; "
+            "without them a cheap read and a nearly-truncated one look identical."
+        ),
+    }
 
     # The budget-0 control must reproduce 777a's saturation, else the instrument or env
     # differs from the run this whole comparison is anchored on. Expressed as a FLOOR on
@@ -537,6 +593,7 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         "budget_checkpoints": budgets,
         "per_cell": rows,
         "per_budget": by_budget,
+        "probe_budget": probe_budget,
         "best_swept_budget": best,
         "control_budget0": control,
         "criteria": [
