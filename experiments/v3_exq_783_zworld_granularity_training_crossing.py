@@ -56,15 +56,39 @@ achieved balance is recorded in `label_balance` for the SD-009 event labels, sep
 the TRAINING and the EVAL partitions, so a saturated training label cannot silently
 invalidate the run.
 
-ENCODER TRAINING PATH. The TRAINED arms backprop two auxiliary losses into latent_stack via
-the reusable agent methods, which are documented to carry gradient through the world encoder:
-  SD-009  agent.compute_event_contrastive_loss(prev_transition_type, latent_state)   [CE]
-  SD-018  agent.compute_resource_proximity_loss(resource_prox_target, latent_state)  [MSE]
-optimised by Adam(agent.latent_stack.parameters()). This is exactly the P0 the substrate
-records as the precondition: `substrate_queue.json:971` (E2WorldForward) states "P0 must
-train the z_world encoder (SD-009 + SD-018) before the forward model -- a random encoder
-gives a vacuous zero comparator (MECH-353/V3-EXQ-642 lesson)", and `e2_world.py` lines
-42-54 specify the same phased P0/P1/P2.
+ENCODER TRAINING PATH -- SD-070, NOT the previously-prescribed SD-009 + SD-018 P0.
+`substrate_queue.json:971` (E2WorldForward) states "P0 must train the z_world encoder
+(SD-009 + SD-018) before the forward model -- a random encoder gives a vacuous zero
+comparator (MECH-353/V3-EXQ-642 lesson)", and `e2_world.py:42-54` specifies the same phased
+P0/P1/P2. That P0 was MEASURED on 2026-07-18 not to train the encoder but to COLLAPSE it:
+
+    untrained                       PR = 9.21   CR = 0.1222
+    SD-009 + SD-018 (lr 1e-4)       PR = 1.06   CR = 0.0726
+
+Root cause (see the SD-070 doc for the full table): the SD-009 target is unlearnable from
+the channel its loss reads. `transition_type` is a property of the TRANSITION (t-1 -> t)
+while z_world is a STATIC single-frame encoding, and an MLP-128 probe on RAW world_obs with
+no encoder in the path scores AT OR BELOW CHANCE (lift -0.014 3-class, -0.060 on a repaired
+6-class map), while the same label probes at +0.240 / +0.427 from the BODY delta that SD-005
+routes to z_self. It is a wiring fault, not a labelling one -- class rebalancing cannot
+recover information that is not there.
+
+The TRAINED arms therefore run the SD-070 recipe (`ree_core/latent/zworld_p0.py`):
+  static scene-structure grounding targets derived from world_obs ALONE
+    (hazard/resource presence + bucketed nearest-Chebyshev distance)
+  + class-balanced CE
+  + VICReg variance/covariance anti-collapse penalty  (the covariance term is the PR lever)
+  + optional world_obs reconstruction head
+  + mini-batching over a rollout buffer               (the old loop was online at batch=1,
+                                                       leaving variance stats undefined)
+optimised over exactly `world_encoder` + `world_precision_logit` -- the same world-path
+tensors the readiness check below counts. SD-018's resource-proximity head is RETAINED
+inside the recipe: it is the one leg of the old P0 that does learn.
+
+SD-009 is ROUTED AROUND here, not adjudicated. Its own validity is a governance question,
+recorded in `REE_assembly/evidence/planning/sd009_event_contrastive_channel_mismatch_
+2026-07-18.md`. This experiment tags neither SD-009 nor MECH-100 and must not be read as
+bearing on either.
 
 PHASED TRAINING (mandatory protocol; also the SD-031 design-doc phasing):
   P0  encoder warmup    -- SD-009 + SD-018 into latent_stack. No downstream loss.
@@ -131,6 +155,7 @@ import os
 import random
 import sys
 import time
+from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -149,6 +174,7 @@ from experiments._lib.capability_eval import LocalViewGreedyPolicy, RandomPolicy
 from experiments._lib.baselines import exq783_zworld_granularity as base
 
 from ree_core.agent import REEAgent
+from ree_core.latent.zworld_p0 import ZWorldP0Config, ZWorldP0Trainer
 from ree_core.predictors.e2_world import (
     MIN_DISCRIMINATIVE_WORLD_DIM,
     E2WorldConfig,
@@ -199,11 +225,9 @@ TOTAL_TRAIN_EPISODES = P0_ENCODER_EPISODES + P1_E2_EPISODES
 STEPS_PER_EPISODE = base.OFF_STEPS_PER_EPISODE
 MEASURE_EPISODES = base.OFF_MEASURE_EPISODES
 
-ENCODER_LR = 1e-4
+# P0 hyperparameters now live in ZWorldP0Config (SD-070) so the driver cannot drift from
+# the recipe it declares. Only the P1 learning rate remains a driver-level constant.
 E2_WORLD_LR = 3e-4
-SD009_WEIGHT = 1.0
-SD018_WEIGHT = 0.5
-MAX_GRAD_NORM = 1.0
 
 # Exploratory epsilon for the behaviourally-balanced policy (retest-spec requirement).
 EXPLORE_EPSILON = 0.35
@@ -230,18 +254,24 @@ RAW_CR_READINESS_FLOOR = 0.20
 # Readiness: a TRAINED arm must actually move world-path encoder weights.
 MIN_CHANGED_WORLD_TENSORS = 1
 # Readiness (ANTI-COLLAPSE): a TRAINED arm must not have DESTROYED the representation.
-# Authoring-time measurement on this substrate (2026-07-18, world_dim=128, seed 42, 40 eval
-# episodes) found the prescribed P0 collapses z_world to ~1 effective dimension:
+# This gate was written against the PREVIOUSLY-PRESCRIBED P0 (SD-009 CE + SD-018 MSE, online
+# at batch=1), which authoring-time measurement found collapses z_world to ~1 effective
+# dimension (2026-07-18, world_dim=128, seed 42, 40 eval episodes):
 #     untrained                       PR = 9.67   CR = 0.1538
 #     SD-009 + SD-018 (lr 1e-4)       PR = 1.07   CR = 0.0824
 #     SD-009 only (w_018 = 0)         PR = 1.14   CR = 0.0930
-# i.e. the collapse is NOT merely the scalar SD-018 regression -- the SD-009 CE is saturated
-# at ~95% class-0 in this env, and predicting a near-constant class is trivially achieved by
-# collapsing z_world onto one axis. A PR ~1 representation has NO discriminative geometry, so
-# its (necessarily low) contrast ratio says "the training recipe destroyed the manifold", NOT
-# "the dim=32 ceiling holds". Reading a collapsed arm as an (a1)/(a2) verdict would be exactly
-# the trivial-prediction signature the P0 readiness-assert rule exists to catch. Below-floor
-# therefore routes to substrate_not_ready_requeue, never to a substrate verdict.
+# A PR ~1 representation has NO discriminative geometry, so its (necessarily low) contrast
+# ratio says "the training recipe destroyed the manifold", NOT "the dim=32 ceiling holds".
+# Reading a collapsed arm as an (a1)/(a2) verdict would be exactly the trivial-prediction
+# signature the P0 readiness-assert rule exists to catch. Below-floor therefore routes to
+# substrate_not_ready_requeue, never to a substrate verdict.
+#
+# The TRAINED arms now run SD-070 instead, which was validated against this very gate before
+# being adopted (world_dim=128, 3 seeds): mean trained PR 5.079 vs mean untrained 8.132 ->
+# retained_fraction 0.625 (needs >=0.50), absolute 5.079 (needs >=2.0), CR raised 3/3
+# (0.137 -> 0.238). The gate is DELIBERATELY RETAINED at full strength rather than relaxed:
+# it is the guard that catches a P0 regression, and a recipe validated against it off-line
+# still has to clear it in-run, on 8 seeds, at both dims.
 MIN_TRAINED_PR_ABSOLUTE = 2.0
 MIN_TRAINED_PR_FRACTION_OF_UNTRAINED = 0.5
 # Sample floor for the manifold statistics.
@@ -405,45 +435,39 @@ def _train_encoder_phase(
     arm_id: str,
     episodes: int,
     steps_per_episode: int,
+    dry_run: bool = False,
 ) -> Dict[str, Any]:
-    """Run P0. Rollouts and losses are computed for EVERY arm (matched env exposure);
-    the optimiser is stepped only when encoder_training is True."""
+    """Run P0 via the SD-070 recipe.
+
+    ENV EXPOSURE IS MATCHED ACROSS ARMS BY CONSTRUCTION: every arm runs the identical
+    rollout under the identical policy and buffers the identical observations. Only the
+    trainer's optimiser pass is gated on encoder_training, so the arms differ in weight
+    updates ONLY, never in what they saw -- the state-distribution confound the 2026-07-18
+    grid controlled by holding the encoder fixed within a cell.
+
+    Note the rollout consumes no RNG differently between arms: the policy draws are
+    identical and the SD-070 buffering is side-effect-free, so the UNTRAINED arms visit
+    exactly the state sequence they would have visited under the old loop.
+    """
     policy = ExploratoryBalancedPolicy(seed=seed)
-    opt = torch.optim.Adam(agent.latent_stack.parameters(), lr=ENCODER_LR)
+    # A dry run buffers only a few dozen observations, far too few for the recipe's batch
+    # statistics -- the trainer refuses such a buffer by design rather than returning a
+    # confident-looking result. Scale the batch down EXPLICITLY for the smoke path so it
+    # still exercises the real training code, and never touch the real-run config.
+    p0_cfg = ZWorldP0Config(seed=int(seed))
+    if dry_run:
+        p0_cfg = ZWorldP0Config(seed=int(seed), batch_size=8, epochs=2)
+    trainer = ZWorldP0Trainer(agent.latent_stack, p0_cfg)
 
     label_counts: Dict[str, int] = {}
-    losses: List[float] = []
 
     for ep in range(episodes):
         _flat0, obs_dict = env.reset()
         policy.reset(env)
-        prev_ttype: Optional[str] = None
 
         for _step in range(steps_per_episode):
-            latent = x724_sense(agent, obs_dict)
-
-            loss = torch.zeros((), dtype=torch.float32)
-            if prev_ttype is not None:
-                loss = loss + SD009_WEIGHT * agent.compute_event_contrastive_loss(
-                    prev_ttype, latent
-                )
-            prox_target = _resource_prox_target(obs_dict)
-            if prox_target is not None:
-                loss = loss + SD018_WEIGHT * agent.compute_resource_proximity_loss(
-                    prox_target, latent
-                )
-
-            if encoder_training and loss.requires_grad:
-                opt.zero_grad(set_to_none=True)
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(
-                    agent.latent_stack.parameters(), max_norm=MAX_GRAD_NORM
-                )
-                opt.step()
-            if torch.is_tensor(loss):
-                lv = float(loss.detach().item())
-                if math.isfinite(lv):
-                    losses.append(lv)
+            world_obs = obs_dict["world_state"].float()
+            trainer.observe(world_obs, _resource_prox_target(obs_dict))
 
             action = policy.act(env, obs_dict)
             with torch.no_grad():
@@ -452,22 +476,43 @@ def _train_encoder_phase(
                 info = {}
             ttype = str(info.get("transition_type", "none"))
             label_counts[ttype] = label_counts.get(ttype, 0) + 1
-            prev_ttype = ttype
             if done:
                 break
 
         if ep == 0 or (ep + 1) % 20 == 0:
             print(
-                "  [train] %s seed=%d ep %d/%d (P0 encoder)"
+                "  [train] %s seed=%d ep %d/%d (P0 encoder, SD-070)"
                 % (arm_id, seed, ep + 1, TOTAL_TRAIN_EPISODES),
                 flush=True,
             )
 
-    return {
-        "p0_mean_loss": float(np.mean(losses)) if losses else None,
+    out: Dict[str, Any] = {
+        "p0_recipe": "sd070",
+        "p0_n_buffered": int(trainer.n_buffered),
         "p0_label_counts": dict(label_counts),
         "p0_n_labelled_steps": int(sum(label_counts.values())),
     }
+    if not encoder_training:
+        # UNTRAINED arm: buffer and discard. Nothing is optimised, so the encoder stays at
+        # initialisation while env exposure matches the trained arms exactly.
+        out["p0_trained"] = False
+        return out
+
+    stats = trainer.train()
+    out["p0_trained"] = True
+    out["p0_mean_loss"] = stats.get("mean_loss")
+    out["p0_final_loss"] = stats.get("final_loss")
+    out["p0_n_steps"] = stats.get("n_steps")
+    out["p0_variance_term"] = stats.get("variance_term")
+    out["p0_covariance_term"] = stats.get("covariance_term")
+    out["p0_grounding_label_balance"] = stats.get("label_balance")
+    # The discriminativeness readout. Recorded because the anti-collapse gate can be
+    # satisfied VACUOUSLY -- a regulariser can hold the participation ratio up while the
+    # encoder learns nothing -- so a PR verdict is not interpretable without it.
+    out["p0_holdout"] = stats.get("holdout")
+    ho = stats.get("holdout") or {}
+    out["p0_holdout_mean_lift"] = ho.get("mean_lift")
+    return out
 
 
 def x724_sense(agent: REEAgent, obs_dict: Dict[str, Any]):
@@ -792,7 +837,9 @@ def _config_slice_for(arm: Dict[str, Any]) -> Dict[str, Any]:
         "env_kwargs": base.env_kwargs(),
         "world_dim": arm["world_dim"],
         "encoder_training": arm["encoder_training"],
-        "use_event_classifier": arm["encoder_training"],
+        # False on every arm now: SD-070 does not use the SD-009 event classifier head.
+        "use_event_classifier": False,
+        "p0_recipe": "sd070",
         "alpha_world": 0.9,
         "schedule": {
             "p0_encoder_episodes": P0_ENCODER_EPISODES,
@@ -833,7 +880,7 @@ def _run_cell(arm: Dict[str, Any], seed: int, dry_run: bool) -> Dict[str, Any]:
 
         pre = _snapshot_world_path(agent)
         p0 = _train_encoder_phase(
-            agent, env, seed, encoder_training, arm_id, p0_eps, steps
+            agent, env, seed, encoder_training, arm_id, p0_eps, steps, dry_run=dry_run
         )
         changed, total, max_delta = _count_changed(agent, pre)
         row.update(p0)
@@ -1236,10 +1283,11 @@ def _build_manifest(result: Dict[str, Any], timestamp_utc: str,
         "total_train_episodes": TOTAL_TRAIN_EPISODES,
         "steps_per_episode": STEPS_PER_EPISODE,
         "measure_episodes": MEASURE_EPISODES,
-        "encoder_lr": ENCODER_LR,
         "e2_world_lr": E2_WORLD_LR,
-        "sd009_weight": SD009_WEIGHT,
-        "sd018_weight": SD018_WEIGHT,
+        # P0 hyperparameters come from the SD-070 recipe itself, recorded verbatim so the
+        # manifest can never disagree with what the trainer actually ran.
+        "p0_recipe": "sd070",
+        "p0_config": asdict(ZWorldP0Config()),
         "explore_epsilon": EXPLORE_EPSILON,
         "residue_coarse_centers": RESIDUE_COARSE_CENTERS,
         "residue_fine_centers": RESIDUE_FINE_CENTERS,

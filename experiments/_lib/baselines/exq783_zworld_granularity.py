@@ -74,11 +74,22 @@ def agent_config_kwargs(env: CausalGridWorldV2, world_dim: int,
     """Agent config for one cell of the crossing.
 
     Built from the x724 all-ON config builders so the substrate superstructure is IDENTICAL
-    to the configuration the 2026-07-18 diagnostic measured. Exactly TWO things vary across
-    the 2x2 crossing:
+    to the configuration the 2026-07-18 diagnostic measured. Exactly ONE thing varies in the
+    AGENT CONFIG across the 2x2 crossing:
 
-      world_dim           -- 32 vs 128        (the (a2) granularity axis)
-      use_event_classifier -- False vs True   (the (a1) encoder-training axis, SD-009 head)
+      world_dim -- 32 vs 128   (the (a2) granularity axis)
+
+    The (a1) encoder-training axis is NOT a config difference at all: it is whether the
+    SD-070 P0 trainer's optimiser is stepped. Both training arms are therefore built from a
+    BIT-IDENTICAL agent config, which is strictly cleaner than the previous design where the
+    trained arms additionally carried use_event_classifier=True.
+
+    use_event_classifier is now False on EVERY arm. SD-070 does not use the SD-009 event
+    classifier head -- that head's CE target was measured to be undecodable from the world
+    channel it reads (see the SD-070 doc), so the recipe replaces it with scene-structure
+    grounding targets owned by the trainer. Leaving the head enabled would attach an
+    untrained Linear(world_dim, 3) that nothing reads. This also keeps the OFF cell
+    bit-identical to the measured 2026-07-18 configuration, which had it False.
 
     DELIBERATELY NOT REEConfig.large(). The `large` preset would move world_dim to 128 but
     ALSO self_dim 32->128, action_object_dim 16->64, e1/e2/hippocampal hidden_dim ->256,
@@ -92,16 +103,16 @@ def agent_config_kwargs(env: CausalGridWorldV2, world_dim: int,
 
     SD-018 (use_resource_proximity_head) is already True in the x724 base kwargs, but its
     loss is never computed in the x724/x734 P0 loop -- the head exists and is never trained.
-    The TRAINED arms of this crossing add the SD-009 classifier head AND actually backprop
-    both auxiliary losses into latent_stack (see the driver's encoder-warmup phase).
+    The SD-070 recipe RETAINS and actually trains that head: it is the one leg of the
+    previously-prescribed P0 that does learn (held-out R^2 0.794 from raw obs).
+
+    `encoder_training` is accepted for call-site symmetry and is deliberately NOT read: it
+    selects whether the trainer's optimiser runs, not what the agent is built as.
     """
     kwargs = x724._base_config_kwargs(env)
     kwargs.update(x724._all_on_extra_kwargs())
     kwargs["world_dim"] = int(world_dim)
-    # SD-009 event-contrastive head. Only meaningful on a trained arm; enabling it on an
-    # untrained arm would add an untrained Linear(world_dim,3) that nothing reads, so it is
-    # gated to keep the OFF cell bit-identical to the measured 2026-07-18 configuration.
-    kwargs["use_event_classifier"] = bool(encoder_training)
+    kwargs["use_event_classifier"] = False
     return kwargs
 
 
@@ -127,6 +138,11 @@ def off_path_config_slice() -> Dict[str, Any]:
         "world_dim": OFF_WORLD_DIM,
         "encoder_training": OFF_ENCODER_TRAINING,
         "use_event_classifier": False,
+        # The P0 recipe is part of the computation even on the OFF cell, because it
+        # determines what the rollout buffers and therefore what a TRAINED sibling would
+        # have done with the same exposure. Declaring it prevents a future consumer running
+        # a different P0 from false-hitting this fingerprint.
+        "p0_recipe": "sd070",
         "alpha_world": 0.9,
         "schedule": {
             "p0_encoder_episodes": OFF_P0_ENCODER_EPISODES,
