@@ -26,25 +26,6 @@
       "episodes_per_run": 2400,
       "experiment_type": "v3_exq_779b_mech063_tonic_phasic_dissociation",
       "seeds": 5
-    },
-    {
-      "queue_id": "V3-EXQ-784",
-      "title": "SD-074 probe-warmup de-saturation budget sweep (DIAGNOSTIC; validates the trained-enough-agent substrate, tags NO claims)",
-      "script": "experiments/v3_exq_784_sd074_probe_warmup_desaturation_budget_sweep.py",
-      "priority": 6,
-      "machine_affinity": "any",
-      "estimated_minutes": 480,
-      "note": "DIAGNOSTIC validation of SD-074 (probe.trained_enough_agent_warmup, IMPLEMENTED 2026-07-18, ree-v3 136aa54a97). claim_ids is EMPTY and experiment_purpose=diagnostic: this weights NO claim's confidence. It is NOT a V3-EXQ-777b and NOT a test of MECH-063 sub-claim (i) -- the re-derive brake (failure_autopsy_MECH-063-777a-779a-cluster_2026-07-18, user-confirmed 'Fire on 777 lineage, exempt 779') refuses that, and this run measures only the substrate precondition (dynamic range of the E3 pre-commit action-value distribution), computing no control-axis quantity at all. DESIGN: per seed ONE agent trained incrementally with a non-destructive D_action_mass read at each budget checkpoint [0,4,10,25]; budget 0 is the untrained positive control. Valid only because SD-074's measure_action_mass restores state_dict + non-buffer E3 scalars (verified max|dw|=0.000e+00), so the read does not perturb the training trajectory. Cells within a seed share a mutable agent and are therefore stamped reuse-INELIGIBLE by design. COMPARATOR CORRECTION: compares against 777a's HEADROOM fraction 5/14 = 0.357, NOT the autopsy's headline informative yield 4/14 = 0.286. 777a's 'informative' required non-saturation AND an authority (norm_v_score effect-floor) test; this run measures saturation only, so 0.286 would be the wrong comparator and would flatter the result by 0.071. SIZED FROM MEASURED COST: warmup_train timed at 0.52 s/env-step on this substrate (780 s for 5 ep x 300 steps); a first-drafted [0,20,60,150] x 300-step sweep would have been ~91 h, hence these budgets. Train uses 100 steps/ep (pure cost lever; 777a did no training so nothing is confounded), READ held at 777a's 300 steps/ep since the read is the compared measurement. GOV-REUSE-1: decisive readout is D_action_mass_mean on a WARMED agent; checked V3-EXQ-777/777a (the only runs recording D_action_mass) -- both measured it on an UNTRAINED agent, which is precisely the gap SD-074 fills, so the readout is NOT recoverable from recorded manifests and the run is necessary. Readiness anchor: assert_anchor_reachable scores 777a's own recorded per_seed D_seed_mean (14 cells) with the SHIPPED saturation predicate at setup, proving the control gate is reachable (9/14 = 0.643 vs 0.5) before any fleet time is spent. Smoke PASS 2026-07-18 (exit 0, manifest + sentinel written, dry manifest relocated out of evidence/, validate_experiments --strict 1 OK / 0 warnings, validate_recording OK). Smoke also caught and fixed a live EpisodeCapWarning: PROBE_MAX_EPISODES is now DERIVED from PROBE_MAX_ENV_STEPS, since the earlier independent 400 would have let the episode cap bind first for short-episode seeds -- the V3-EXQ-779a seed-23 defect, and seed 23 is in this seed list.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-07-18T20:20:56Z"
-      },
-      "claim_ids": [],
-      "conditions": 4,
-      "episodes_per_run": 25,
-      "experiment_type": "v3_exq_784_sd074_probe_warmup_desaturation_budget_sweep",
-      "seeds": 14
     }
   ]
 }
