@@ -679,7 +679,14 @@ def precondition_recomputability_lint(path: Path) -> Optional[str]:
     no_direction: List[str] = []
     mismatched: List[str] = []
     for name, fields in preconds:
-        if "direction" not in fields:
+        # `comparator` satisfies the requirement too, and at HIGHER priority than
+        # `direction` in _precondition_direction (comparator ">="/">" -> lower,
+        # "<="/"<" -> upper; direction is only consulted when comparator is absent
+        # or unrecognised). Verified against
+        # REE_assembly/evidence/experiments/scripts/build_experiment_indexes.py
+        # 2026-07-18. Keying this branch on `direction` alone would false-fire on a
+        # precondition authored the comparator way -- fully recomputable, no defect.
+        if not ({"direction", "comparator"} & set(fields)):
             no_direction.append(name)
         met_node = fields.get("met")
         if met_node is None:
@@ -717,7 +724,9 @@ def precondition_recomputability_lint(path: Path) -> Optional[str]:
               "check (`stayed BELOW threshold`, healthy at measured << threshold) as "
               "`precondition_unmet` (the 2026-06-07 V3-EXQ-648a/649 directionality bug). "
               "Add \"direction\": \"lower\" (floor: met when measured >= threshold) or "
-              "\"upper\" (ceiling: met when measured <= threshold)"
+              "\"upper\" (ceiling: met when measured <= threshold) -- or equivalently a "
+              "\"comparator\" of \">=\"/\">\" resp. \"<=\"/\"<\", which the indexer honours "
+              "at higher priority"
         )
     return ("; ".join(parts)
             + ". The indexer RECOMPUTES `met` and does not trust the author's value, so a "

@@ -146,6 +146,22 @@ def test_r3_missing_direction_alone_flagged():
     assert "CENTRAL-TENDENCY" not in issue
 
 
+def test_r3b_comparator_key_also_satisfies_the_direction_requirement():
+    """`comparator` is an EQUIVALENT declaration, not a missing one.
+
+    build_experiment_indexes._precondition_direction consults `comparator` FIRST
+    (">="/">" -> lower, "<="/"<" -> upper) and only falls back to `direction`. A
+    precondition authored the comparator way is fully recomputable, so keying this
+    branch on `direction` alone would false-fire on correct code. Verified against
+    the indexer 2026-07-18; no corpus script uses `comparator` yet, so this test is
+    the only thing holding the behaviour.
+    """
+    src = _RECOMPUTABLE.replace('                "direction": "lower",\n',
+                                '                "comparator": ">=",\n')
+    assert '"direction"' not in src
+    assert _lint(src) is None
+
+
 def test_r4_shared_variable_suppresses_the_mismatch_branch():
     """THE CONSERVATISM GUARD.
 
