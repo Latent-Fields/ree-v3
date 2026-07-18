@@ -208,6 +208,174 @@ def test_sd069_phasic_burst_fires_and_changes_the_action_stream():
     )
 
 
+def _sleep_cycle_probe(seed: int = 0, steps: int = 12, **overrides) -> dict:
+    """Run waking steps, then one SD-017 sleep cycle; report both sides of it.
+
+    The waking steps are the ACTIVATING CONDITION and are the whole reason the
+    2026-07-18 batch sweep could not probe these flags: `run_sws_schema_pass`
+    early-returns unless `_world_experience_buffer` holds >= 2 entries, and
+    `run_rem_attribution_pass` early-returns unless `theta_buffer.recent` is
+    populated. Both buffers are filled only by `_e1_tick` on the waking path, so
+    flipping the flag without stepping first measures nothing. (Every sleep test
+    in tests/contracts/ runs zero waking steps, so they all exercise the
+    zeroed early-return path and assert key presence only -- these two probes
+    are the first to drive a pass that actually fires.)
+
+    Returns the cycle metrics plus the two DOWNSTREAM observables the passes
+    write into, captured across the cycle only:
+      * context_memory_changed -- E1 ContextMemory slots (the SWS write target)
+      * n_hippocampal_replay   -- calls into HippocampalModule.replay (REM's)
+    """
+    from ree_core.agent import REEAgent
+    from tests.fixtures.seed_utils import set_all_seeds
+    from tests.fixtures.tiny_configs import make_tiny_config
+    from tests.fixtures.tiny_env import make_tiny_env
+    from tests.fixtures.tiny_loop import run_episode
+
+    set_all_seeds(seed)
+    env = make_tiny_env(seed=seed)
+    agent = REEAgent(make_tiny_config(env, **overrides))
+    run_episode(agent, env, steps=steps)  # supply the activating condition
+
+    mem_before = agent.e1.context_memory.memory.detach().clone()
+    calls = {"n": 0}
+    original_replay = agent.hippocampal.replay
+
+    def _spy(*args, **kwargs):
+        calls["n"] += 1
+        return original_replay(*args, **kwargs)
+
+    agent.hippocampal.replay = _spy  # type: ignore[assignment]
+    metrics = agent.run_sleep_cycle()
+    mem_after = agent.e1.context_memory.memory.detach().clone()
+
+    return {
+        "metrics": metrics,
+        "context_memory_changed": not torch.equal(mem_before, mem_after),
+        "n_hippocampal_replay": calls["n"],
+        "world_buffer": len(agent._world_experience_buffer),
+        "theta_recent_present": agent.theta_buffer.recent is not None,
+    }
+
+
+def test_sd017_sws_enabled_fires_and_writes_into_context_memory():
+    """SD-017: `sws_enabled` must run the schema pass AND mutate ContextMemory.
+
+    Seven landed contributory manifests toggled this flag as their manipulated
+    variable (265a / 385 / 418 / 429 x2 / 503a / 691), so a silently inert
+    `sws_enabled` would make all seven false nulls.
+
+    Asserting BOTH levels matters, and they are different failure modes:
+      * fires    -- `sws_n_writes > 0` proves the pass got past its guards
+                    (flag check, then the >= 2 buffer-size check).
+      * lands    -- the E1 ContextMemory tensor actually changed. Without this a
+                    pass could count writes that go nowhere; ContextMemory IS
+                    the SWS write target (hippocampus-to-cortex schema
+                    installation), so this is the propagation step.
+
+    Deliberately no assertion on the DIRECTION or MAGNITUDE of slot diversity --
+    whether consolidation helps is the owning experiment's question. The bar
+    here is only "not inert".
+    """
+    off = _sleep_cycle_probe()
+    on = _sleep_cycle_probe(sws_enabled=True)
+
+    # The activating condition really was supplied (otherwise ON would return
+    # zeros for a reason that has nothing to do with the flag).
+    assert on["world_buffer"] >= 2, (
+        f"waking steps did not fill the world-experience buffer "
+        f"(size {on['world_buffer']}); the probe cannot distinguish an inert "
+        f"flag from an unmet precondition"
+    )
+
+    assert off["metrics"] == {}, (
+        f"sws_enabled=False still produced sleep metrics {off['metrics']}"
+    )
+    assert not off["context_memory_changed"], (
+        "a sleep cycle with sws_enabled=False mutated ContextMemory; the SWS "
+        "write path is not actually gated by the flag"
+    )
+
+    n_writes = on["metrics"].get("sws_n_writes", 0.0)
+    assert n_writes > 0, (
+        f"sws_enabled=True performed zero schema writes over {on['world_buffer']} "
+        f"buffered waking observations; the pass ticks but never writes (inert). "
+        f"metrics={on['metrics']}"
+    )
+    assert on["context_memory_changed"], (
+        f"sws_enabled=True reported {n_writes} schema writes but E1 ContextMemory "
+        f"is byte-identical -- the writes do not reach their target (inert flag)"
+    )
+
+    # Dissociation from rem_enabled: the SWS pass must not be driving the REM
+    # replay path. If this ever starts firing, the two flags have been coupled
+    # and BOTH probes need re-pointing rather than being left stale.
+    assert on["n_hippocampal_replay"] == 0, (
+        "the SWS pass now drives HippocampalModule.replay; sws_enabled and "
+        "rem_enabled are no longer dissociable -- revisit both probes"
+    )
+
+
+def test_sd017_rem_enabled_fires_and_drives_hippocampal_replay():
+    """SD-017: `rem_enabled` must run the attribution pass AND reach the hippocampus.
+
+    Same seven contributory runs as `sws_enabled` manipulate this flag, and 691's
+    ARM_REPLAY_ABLATED contrasts it against SWS specifically -- so it is probed
+    separately, not bundled into one "sleep on" test.
+
+    Two levels again:
+      * fires -- `rem_n_rollouts > 0` proves the pass cleared its guards (flag
+                 check, then the `theta_buffer.recent is not None` check).
+      * lands -- HippocampalModule.replay was actually invoked. The REM pass is
+                 read-only by design (MECH-094: it scores residue terrain with
+                 hypothesis_tag semantics and writes no residue), so a
+                 state-delta assertion is the wrong instrument; the honest
+                 propagation evidence is that the rollouts genuinely execute in
+                 the hippocampal module rather than being counted locally.
+
+    NOTE on `rem_n_reverse`: it stays 0 on this fixture. That is correct, not a
+    failure -- `_exploration_buffer` is empty after a plain waking episode, so
+    the pass takes its documented else-branch (extra forward rollouts) instead
+    of `diverse_replay(mode="reverse")`. Probing the reverse arm needs the
+    exploration buffer seeded (MECH-165 / replay_diversity_enabled), which is
+    that flag's probe to write, not this one's.
+    """
+    off = _sleep_cycle_probe()
+    on = _sleep_cycle_probe(rem_enabled=True)
+
+    assert on["theta_recent_present"], (
+        "waking steps did not populate theta_buffer.recent; the probe cannot "
+        "distinguish an inert flag from an unmet precondition"
+    )
+
+    assert off["metrics"] == {}, (
+        f"rem_enabled=False still produced sleep metrics {off['metrics']}"
+    )
+    assert off["n_hippocampal_replay"] == 0, (
+        "a sleep cycle with rem_enabled=False drove hippocampal replay; the REM "
+        "pass is not actually gated by the flag"
+    )
+
+    n_rollouts = on["metrics"].get("rem_n_rollouts", 0.0)
+    assert n_rollouts > 0, (
+        f"rem_enabled=True produced zero attribution rollouts despite a "
+        f"populated theta buffer; the pass ticks but never replays (inert). "
+        f"metrics={on['metrics']}"
+    )
+    assert on["n_hippocampal_replay"] > 0, (
+        f"rem_enabled=True reported {n_rollouts} rollouts but never called "
+        f"HippocampalModule.replay -- the rollouts are counted without being "
+        f"executed against the hippocampus (inert flag)"
+    )
+
+    # Dissociation from sws_enabled: REM is slot-FILLING, not slot-formation,
+    # so it must not be installing schema content. Same re-point rule as above.
+    assert not on["context_memory_changed"], (
+        "the REM pass now writes ContextMemory; sws_enabled and rem_enabled are "
+        "no longer dissociable -- revisit both probes"
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Batch probes                                                                #
 # --------------------------------------------------------------------------- #
@@ -309,6 +477,8 @@ PROBED = {
     "use_bla_analog",       #   (gated by use_amygdala_analog; default True)
     "dacc_saturation_enabled",  # F-C3 wiring spy
     "use_phasic_burst",  # SD-069 fires-and-propagates probe (instantaneous_pe)
+    "sws_enabled",  # SD-017 schema pass: writes -> E1 ContextMemory
+    "rem_enabled",  # SD-017 attribution pass: rollouts -> HippocampalModule.replay
 } | set(FLAGS_WITH_DEFAULT_BEHAVIOURAL_DELTA) | set(FLAGS_WITH_LOUD_PRECONDITION)
 
 # Audit-confirmed inert / mis-wired flags (finding id -> reason). Documented here
@@ -350,7 +520,6 @@ KNOWN_INERT = {
 #
 # Corrected ranking (2026-07-18 arm-level audit, N contributory runs where the
 # flag was manipulated):
-#   sws_enabled (7), rem_enabled (7)            -- 265a/385/418/429x2/503a/691
 #   use_noise_floor (4)                          -- 544/544a UC-OFF vs ON; 614a/615
 #   use_suffering_derivative_comparator (4)      -- 516/517c/517d/519b
 #   valence_liking_enabled (3)                   -- 516/517c/517d
@@ -386,8 +555,8 @@ KNOWN_INERT = {
 # construction in ree-v3/experiments/.
 KNOWN_UNPROBED = {
     "action_loop_gate_enabled", "harm_descending_mod_enabled",
-    "harm_surprise_pe_enabled", "rem_enabled", "replay_diversity_enabled",
-    "shy_enabled", "sws_enabled",
+    "harm_surprise_pe_enabled", "replay_diversity_enabled",
+    "shy_enabled",
     "use_aic_analog", "use_blocked_agency",
     "use_broadcast_override", "use_cea_analog",
     "use_closure_commit_beta_coupling", "use_closure_env_completion_hook",
