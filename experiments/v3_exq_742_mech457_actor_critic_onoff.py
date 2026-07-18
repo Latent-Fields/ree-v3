@@ -218,7 +218,11 @@ ARM_ORDER = (
 # ---------------------------------------------------------------------------
 # Agent factories + obs sensing.
 # ---------------------------------------------------------------------------
-def _make_actor_critic_agent(env, cotrain: bool, sf: bool, hidden: int = 128):
+def _make_actor_critic_agent(
+    env, cotrain: bool, sf: bool, hidden: int = 128,
+    distributional: bool = False, n_value_bins: int = 41,
+    value_bin_limit: float = 10.0, value_bin_sigma: float = 0.75,
+):
     """All-ON REE stack (724 config) + the MECH-457 actor-critic substrate enabled.
 
     `hidden` sets the actor-critic policy/critic trunk width. Default 128 preserves the 742
@@ -234,6 +238,10 @@ def _make_actor_critic_agent(env, cotrain: bool, sf: bool, hidden: int = 128):
             actor_critic_use_sf_critic=bool(sf),
             actor_critic_hidden=int(hidden),
             actor_critic_sf_feature_dim=32,
+            actor_critic_use_distributional_critic=bool(distributional),
+            actor_critic_n_value_bins=int(n_value_bins),
+            actor_critic_value_bin_limit=float(value_bin_limit),
+            actor_critic_value_bin_sigma=float(value_bin_sigma),
         )
     )
     cfg = x724.REEConfig.from_dims(**kwargs)

@@ -316,6 +316,12 @@ class REEAgent(nn.Module):
                 hidden_dim=getattr(config, "actor_critic_hidden", 128),
                 use_sf_critic=getattr(config, "actor_critic_use_sf_critic", False),
                 sf_feature_dim=getattr(config, "actor_critic_sf_feature_dim", 32),
+                use_distributional_critic=getattr(
+                    config, "actor_critic_use_distributional_critic", False
+                ),
+                n_value_bins=getattr(config, "actor_critic_n_value_bins", 41),
+                value_bin_limit=getattr(config, "actor_critic_value_bin_limit", 10.0),
+                value_bin_sigma=getattr(config, "actor_critic_value_bin_sigma", 0.75),
             )
 
         # SD-006: multi-rate clock

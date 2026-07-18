@@ -204,6 +204,11 @@ class RepAgent:
     def eval_policy(self, label: str) -> Policy:
         raise NotImplementedError
 
+    def policy(self):
+        """The underlying ActorCriticPolicy (MECH-457 H-retention-critic: the critic-loss
+        dispatch asks it whether the critic is distributional)."""
+        raise NotImplementedError
+
 
 class ZWorldRep(RepAgent):
     """z_world path: an all-ON 742 agent. Two modes selected by `cotrain_encoder`:
@@ -221,10 +226,12 @@ class ZWorldRep(RepAgent):
     def __init__(
         self, env: Any, seed: int, p0: int, steps: int,
         cotrain_encoder: bool = True, actor_critic_hidden: int = fan.ACTOR_CRITIC_HIDDEN,
+        use_distributional_critic: bool = False,
     ) -> None:
         self._cotrain = bool(cotrain_encoder)
         self.agent = fan.make_zworld_agent(
-            env, cotrain=self._cotrain, actor_critic_hidden=int(actor_critic_hidden)
+            env, cotrain=self._cotrain, actor_critic_hidden=int(actor_critic_hidden),
+            use_distributional_critic=bool(use_distributional_critic),
         )
         fan.warmup_zworld(self.agent, env, seed=seed, p0=p0, steps=steps)
         self.feature_dim = int(self.agent.config.latent.world_dim)
@@ -253,6 +260,9 @@ class ZWorldRep(RepAgent):
     def eval_policy(self, label: str) -> Policy:
         return x742.ActorCriticEvalPolicy(self.agent, label)
 
+    def policy(self):
+        return getattr(self.agent, "action_critic", None)
+
 
 class RawViewRep(RepAgent):
     """Raw 5x5 resource_field_view: a standalone ActorCriticPolicy(world_dim=25). No REE encoder,
@@ -261,8 +271,14 @@ class RawViewRep(RepAgent):
 
     representation = "raw_view"
 
-    def __init__(self, env: Any, actor_critic_hidden: int = fan.ACTOR_CRITIC_HIDDEN) -> None:
-        self.ac = fan.make_rawview_ac(hidden_dim=int(actor_critic_hidden))
+    def __init__(
+        self, env: Any, actor_critic_hidden: int = fan.ACTOR_CRITIC_HIDDEN,
+        use_distributional_critic: bool = False,
+    ) -> None:
+        self.ac = fan.make_rawview_ac(
+            hidden_dim=int(actor_critic_hidden),
+            use_distributional_critic=bool(use_distributional_critic),
+        )
         self.feature_dim = RAW_VIEW_DIM
         self.action_dim = int(env.action_dim)
 
@@ -281,10 +297,14 @@ class RawViewRep(RepAgent):
     def eval_policy(self, label: str) -> Policy:
         return fan.RawViewACEvalPolicy(self.ac, label)
 
+    def policy(self):
+        return self.ac
+
 
 def make_rep(
     representation: str, env: Any, seed: int, p0: int, steps: int,
     actor_critic_hidden: int = fan.ACTOR_CRITIC_HIDDEN, cotrain_encoder: bool = True,
+    use_distributional_critic: bool = False,
 ) -> RepAgent:
     """Build the representation adapter. `actor_critic_hidden` sets the policy/critic capacity
     (both reps); `cotrain_encoder` selects the z_world co-shape-vs-frozen mode (no-op for raw).
@@ -293,9 +313,13 @@ def make_rep(
         return ZWorldRep(
             env, seed, p0, steps,
             cotrain_encoder=bool(cotrain_encoder), actor_critic_hidden=int(actor_critic_hidden),
+            use_distributional_critic=bool(use_distributional_critic),
         )
     if representation == "raw_view":
-        return RawViewRep(env, actor_critic_hidden=int(actor_critic_hidden))
+        return RawViewRep(
+            env, actor_critic_hidden=int(actor_critic_hidden),
+            use_distributional_critic=bool(use_distributional_critic),
+        )
     raise ValueError(f"unknown representation {representation!r}")
 
 
@@ -592,6 +616,7 @@ def train_a2c(
         ep_value_t: List[torch.Tensor] = []
         ep_entropy: List[torch.Tensor] = []
         ep_value_f: List[float] = []
+        ep_value_logits: List[torch.Tensor] = []   # distributional critic only (else empty)
         ep_rewards: List[float] = []
         # For H-credit prioritized replay: keep the detached obs + action + reward per step.
         replay_obs: List[Dict[str, Any]] = []
@@ -667,6 +692,8 @@ def train_a2c(
             ep_entropy.append(step.entropy.reshape(-1)[0])
             ep_value_f.append(float(step.value.reshape(-1)[0].item()))
             ep_rewards.append(shaped)
+            if step.value_logits is not None:
+                ep_value_logits.append(step.value_logits.reshape(-1))
 
             if archive is not None:
                 archive.observe(env, score=float(cum_resources))
@@ -696,7 +723,8 @@ def train_a2c(
             if T > 1:
                 adv_t = (adv_t - adv_t.mean()) / (adv_t.std() + 1e-8)
             policy_loss = -(logp_t * adv_t.detach()).mean()
-            value_loss = AC_VALUE_COEF * 0.5 * (value_t - ret_t.detach()).pow(2).mean()
+            vlogits_t = torch.stack(ep_value_logits) if ep_value_logits else None
+            value_loss = fan.critic_value_loss(rep.policy(), vlogits_t, value_t, ret_t)
             entropy_bonus = entropy_t.mean()
             loss = policy_loss + value_loss - beta_eff * entropy_bonus
             if bc_demo is not None and bc_aux_coef > 0.0 and bc_logits:
@@ -777,6 +805,7 @@ def _prioritized_credit_replay(
     for _p in range(int(passes)):
         logps: List[torch.Tensor] = []
         values: List[torch.Tensor] = []
+        value_logits: List[torch.Tensor] = []   # distributional critic only (else empty)
         credits: List[float] = []
         ret_targets: List[float] = []
         for rank, t in enumerate(order):
@@ -785,6 +814,8 @@ def _prioritized_credit_replay(
             logp = _action_logprob(step, int(replay_actions[t]))
             logps.append(logp)
             values.append(step.value.reshape(-1)[0])
+            if step.value_logits is not None:
+                value_logits.append(step.value_logits.reshape(-1))
             # credit = advantage backward-discounted by rank distance from the endpoint.
             adv = float(rets[t]) - float(values_f[t])
             credits.append(adv * (CREDIT_GAMMA ** rank))
@@ -796,7 +827,8 @@ def _prioritized_credit_replay(
         credit_t = torch.tensor(credits, dtype=torch.float32, device=DEVICE)
         ret_t = torch.tensor(ret_targets, dtype=torch.float32, device=DEVICE)
         policy_loss = -(logp_t * credit_t.detach()).mean()
-        value_loss = AC_VALUE_COEF * 0.5 * (value_t - ret_t.detach()).pow(2).mean()
+        vlogits_t = torch.stack(value_logits) if value_logits else None
+        value_loss = fan.critic_value_loss(rep.policy(), vlogits_t, value_t, ret_t)
         loss = CREDIT_LR_SCALE * (policy_loss + value_loss)
         if torch.isfinite(loss):
             optimiser.zero_grad(set_to_none=True)

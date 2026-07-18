@@ -4489,6 +4489,14 @@ class REEConfig:
     actor_critic_use_sf_critic: bool = False
     actor_critic_hidden: int = 128
     actor_critic_sf_feature_dim: int = 32
+    # MECH-457 H-retention-critic (2026-07-18): distributional (two-hot / HL-Gauss)
+    # critic as an alternative VALUE ESTIMATOR. False -> the scalar value head,
+    # byte-identical. See ree_core/action_learning/distributional_value.py and
+    # REE_assembly/docs/architecture/sd_mech457_distributional_critic.md.
+    actor_critic_use_distributional_critic: bool = False
+    actor_critic_n_value_bins: int = 41
+    actor_critic_value_bin_limit: float = 10.0
+    actor_critic_value_bin_sigma: float = 0.75   # HL-Gauss sigma in bin widths; 0.0 -> two-hot
 
     def __post_init__(self) -> None:
         # MECH-307 master flag resolver. When the convenience master flag
@@ -4843,6 +4851,10 @@ class REEConfig:
         actor_critic_use_sf_critic: bool = False,
         actor_critic_hidden: int = 128,
         actor_critic_sf_feature_dim: int = 32,
+        actor_critic_use_distributional_critic: bool = False,
+        actor_critic_n_value_bins: int = 41,
+        actor_critic_value_bin_limit: float = 10.0,
+        actor_critic_value_bin_sigma: float = 0.75,
         # ARC-063 v1: distributed CandidateRule field (GAP-B rule-creator)
         use_candidate_rule_field: bool = False,
         crf_n_slots: int = 16,
@@ -5930,6 +5942,10 @@ class REEConfig:
         config.actor_critic_use_sf_critic = actor_critic_use_sf_critic
         config.actor_critic_hidden = actor_critic_hidden
         config.actor_critic_sf_feature_dim = actor_critic_sf_feature_dim
+        config.actor_critic_use_distributional_critic = actor_critic_use_distributional_critic
+        config.actor_critic_n_value_bins = actor_critic_n_value_bins
+        config.actor_critic_value_bin_limit = actor_critic_value_bin_limit
+        config.actor_critic_value_bin_sigma = actor_critic_value_bin_sigma
 
         # ARC-063 v1: distributed CandidateRule field (GAP-B rule-creator)
         config.use_candidate_rule_field = use_candidate_rule_field

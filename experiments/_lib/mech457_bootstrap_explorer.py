@@ -149,6 +149,17 @@ class BootstrapExplorerConfig:
     use_approach_primitive: bool = False
     approach_coef: float = 0.0
 
+    # DISTRIBUTIONAL CRITIC (GOV-FANOUT-1 H-retention-critic, 2026-07-18; routed by
+    # failure_autopsy_MECH-457-gov-fanout-1-cluster-780-781-782). Swaps the VALUE ESTIMATOR
+    # only -- the scalar value head becomes a categorical head over a symlog bin support,
+    # trained by cross-entropy against an HL-Gauss projection of the return and decoded to a
+    # scalar by expectation. Motivated by the measured V3-EXQ-782 R-(b) reading: the shared
+    # CTRL critic is flat and uninformed (std(V)/std(G)=0.041 vs a 0.25 collapse threshold).
+    # Applied at REP CONSTRUCTION (make_rep), like actor_critic_hidden/cotrain_encoder.
+    # ANTI-ALIAS: leaves the policy update untouched (that locus is mech457_policy_kl_anchor
+    # / H-retention-consolidation). OFF: False -> the scalar-MSE critic, byte-identical.
+    use_distributional_critic: bool = False
+
     def as_slice(self) -> Dict[str, Any]:
         """Config fields for the arm_fingerprint config_slice / manifest (declared)."""
         return {
@@ -168,6 +179,7 @@ class BootstrapExplorerConfig:
             "bc_aux_coef": float(self.bc_aux_coef),
             "use_approach_primitive": bool(self.use_approach_primitive),
             "approach_coef": float(self.approach_coef),
+            "use_distributional_critic": bool(self.use_distributional_critic),
         }
 
 
@@ -241,8 +253,9 @@ def train_bootstrap_explorer(
     Composition: RND drive (cfg.use_rnd) + developmental warm-start+coef/entropy anneal
     (warm_then_anneal over cfg.warm_start_fraction/cfg.anneal_fraction) + prioritized credit-
     replay (cfg.credit_replay, cfg.credit_replay_passes/credit_topk). The policy capacity
-    (cfg.actor_critic_hidden) and the z_world co-shape-vs-frozen mode (cfg.cotrain_encoder) are
-    applied at REP CONSTRUCTION (make_rep), not here. With default (OFF) cfg this is the 751
+    (cfg.actor_critic_hidden), the z_world co-shape-vs-frozen mode (cfg.cotrain_encoder) and the
+    distributional-critic swap (cfg.use_distributional_critic) are applied at REP CONSTRUCTION
+    (make_rep), not here. With default (OFF) cfg this is the 751
     RND-plateau arm (constant coef, no warm-start, no anneal, no credit, plateau budget/width).
 
     bc_demo (H-bc-prior, V3-EXQ-780): OPTIONAL demonstrator Policy for the persistent imitation

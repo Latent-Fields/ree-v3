@@ -131,6 +131,12 @@ DRY_STEPS = 15
 
 ANCHOR_ARMS: Tuple[str, ...] = ("local_view_greedy", "greedy_oracle", "random_walk")
 
+# Distributional-critic bin support (MECH-457 H-retention-critic). Only consulted when a
+# caller enables the distributional critic; the scalar path never reads these.
+DIST_CRITIC_N_BINS = 41       # categorical head width
+DIST_CRITIC_LIMIT = 10.0      # support half-width in SYMLOG space
+DIST_CRITIC_SIGMA = 0.75      # HL-Gauss sigma in bin widths (Farebrother 2024); 0.0 -> two-hot
+
 
 # ---------------------------------------------------------------------------
 # Potential-based reward shaping (Ng et al. 1999): Phi(s) = -manhattan_to_nearest_resource.
@@ -141,16 +147,49 @@ def _potential(env: Any) -> float:
 
 
 # ---------------------------------------------------------------------------
+# Critic loss dispatch (MECH-457 H-retention-critic, 2026-07-18).
+# ---------------------------------------------------------------------------
+def critic_value_loss(policy, value_logits_t, value_t, ret_t):
+    """The AC_VALUE_COEF-weighted critic term for one batch of returns.
+
+    Distributional critic ON  -> cross-entropy of the predicted value distribution
+                                 against the two-hot / HL-Gauss projection of the return.
+    Distributional critic OFF -> the pre-existing 0.5 * (V - G)^2 scalar MSE, byte-identical.
+
+    ANTI-ALIAS: only the VALUE term is dispatched here. policy_loss, the entropy bonus, the
+    advantage weighting, the BC auxiliary and the credit-replay policy term are untouched on
+    both branches -- the update rule is identical, only what the baseline knows differs.
+    """
+    if (
+        policy is not None
+        and getattr(policy, "use_distributional_critic", False)
+        and value_logits_t is not None
+    ):
+        return AC_VALUE_COEF * policy.critic_loss(value_logits_t, ret_t.detach())
+    return AC_VALUE_COEF * 0.5 * (value_t - ret_t.detach()).pow(2).mean()
+
+
+# ---------------------------------------------------------------------------
 # R1 (raw 5x5 view) actor-critic: a STANDALONE ActorCriticPolicy(world_dim=25). No REE
 # encoder, no P0 warmup. Reads obs_dict["resource_field_view"] directly.
 # ---------------------------------------------------------------------------
-def make_rawview_ac(hidden_dim: int = ACTOR_CRITIC_HIDDEN) -> ActorCriticPolicy:
+def make_rawview_ac(
+    hidden_dim: int = ACTOR_CRITIC_HIDDEN,
+    use_distributional_critic: bool = False,
+    n_value_bins: int = DIST_CRITIC_N_BINS,
+    value_bin_limit: float = DIST_CRITIC_LIMIT,
+    value_bin_sigma: float = DIST_CRITIC_SIGMA,
+) -> ActorCriticPolicy:
     """Standalone raw-view actor-critic. `hidden_dim` defaults to the 742/734 trunk width
     (128, byte-identical for the fanout legs); the MECH-457 capacity-amend build passes a
     larger width to raise policy capacity on the raw 5x5 path."""
     return ActorCriticPolicy(
         world_dim=RAW_VIEW_DIM, action_dim=5,
         hidden_dim=int(hidden_dim), use_sf_critic=False,
+        use_distributional_critic=bool(use_distributional_critic),
+        n_value_bins=int(n_value_bins),
+        value_bin_limit=float(value_bin_limit),
+        value_bin_sigma=float(value_bin_sigma),
     ).to(DEVICE)
 
 
@@ -188,6 +227,7 @@ def train_rawview_ac_rl(
     potential-based distance-to-nearest-resource shaping (the E1 shaped variant); ==0 is the
     sparse foraging teacher (E0)."""
     optimiser = torch.optim.Adam(ac.parameters(), lr=AC_LR)
+    _policy = ac
     reward_std = x734._RunningStd()
     novelty_counter: Dict[Tuple[int, int], int] = {}
     train_forage_recent: deque = deque(maxlen=TRAIN_FORAGE_WINDOW)
@@ -198,6 +238,7 @@ def train_rawview_ac_rl(
         ep_value_t: List[torch.Tensor] = []
         ep_entropy: List[torch.Tensor] = []
         ep_value_f: List[float] = []
+        ep_value_logits: List[torch.Tensor] = []   # distributional critic only (else empty)
         ep_rewards: List[float] = []
         terminal = False
         bootstrap_value = 0.0
@@ -228,6 +269,8 @@ def train_rawview_ac_rl(
             ep_entropy.append(step.entropy.reshape(-1)[0])
             ep_value_f.append(float(step.value.reshape(-1)[0].item()))
             ep_rewards.append(shaped)
+            if step.value_logits is not None:
+                ep_value_logits.append(step.value_logits.reshape(-1))
 
             if done:
                 terminal = True
@@ -252,7 +295,8 @@ def train_rawview_ac_rl(
             if T > 1:
                 adv_t = (adv_t - adv_t.mean()) / (adv_t.std() + 1e-8)
             policy_loss = -(logp_t * adv_t.detach()).mean()
-            value_loss = AC_VALUE_COEF * 0.5 * (value_t - ret_t.detach()).pow(2).mean()
+            vlogits_t = torch.stack(ep_value_logits) if ep_value_logits else None
+            value_loss = critic_value_loss(_policy, vlogits_t, value_t, ret_t)
             entropy_bonus = entropy_t.mean()
             loss = policy_loss + value_loss - AC_ENTROPY_BETA * entropy_bonus
             if torch.isfinite(loss):
@@ -320,7 +364,11 @@ def bc_warmup_rawview(
 # co-shaping path is byte-identical to 742's cotrain arms. cotrain=True (best-shot; pinned).
 # ---------------------------------------------------------------------------
 def make_zworld_agent(
-    env: Any, cotrain: bool = True, actor_critic_hidden: int = ACTOR_CRITIC_HIDDEN
+    env: Any, cotrain: bool = True, actor_critic_hidden: int = ACTOR_CRITIC_HIDDEN,
+    use_distributional_critic: bool = False,
+    n_value_bins: int = DIST_CRITIC_N_BINS,
+    value_bin_limit: float = DIST_CRITIC_LIMIT,
+    value_bin_sigma: float = DIST_CRITIC_SIGMA,
 ):
     """742-style agent: all-ON REE stack + MECH-457 actor-critic, plain critic (742 showed SF
     adds nothing).
@@ -332,7 +380,11 @@ def make_zworld_agent(
     765 retest showed cotrain is DESTRUCTIVE on z_world (ON 0.35 < OFF 5.22) -- and a larger
     actor_critic_hidden to raise policy capacity."""
     return x742._make_actor_critic_agent(
-        env, cotrain=bool(cotrain), sf=False, hidden=int(actor_critic_hidden)
+        env, cotrain=bool(cotrain), sf=False, hidden=int(actor_critic_hidden),
+        distributional=bool(use_distributional_critic),
+        n_value_bins=int(n_value_bins),
+        value_bin_limit=float(value_bin_limit),
+        value_bin_sigma=float(value_bin_sigma),
     )
 
 
@@ -354,6 +406,7 @@ def train_zworld_ac_shaped(
     LIVE z_world so the gradient reaches latent_stack (cotrain)."""
     params = list(agent.actor_critic_parameters()) + list(agent.actor_critic_encoder_parameters())
     optimiser = torch.optim.Adam(params, lr=AC_LR)
+    _policy = getattr(agent, "action_critic", None)
     reward_std = x734._RunningStd()
     novelty_counter: Dict[Tuple[int, int], int] = {}
     train_forage_recent: deque = deque(maxlen=TRAIN_FORAGE_WINDOW)
@@ -365,6 +418,7 @@ def train_zworld_ac_shaped(
         ep_value_t: List[torch.Tensor] = []
         ep_entropy: List[torch.Tensor] = []
         ep_value_f: List[float] = []
+        ep_value_logits: List[torch.Tensor] = []   # distributional critic only (else empty)
         ep_rewards: List[float] = []
         terminal = False
         bootstrap_value = 0.0
@@ -395,6 +449,8 @@ def train_zworld_ac_shaped(
             ep_entropy.append(step.entropy.reshape(-1)[0])
             ep_value_f.append(float(step.value.reshape(-1)[0].item()))
             ep_rewards.append(shaped)
+            if step.value_logits is not None:
+                ep_value_logits.append(step.value_logits.reshape(-1))
 
             if done:
                 terminal = True
@@ -419,7 +475,8 @@ def train_zworld_ac_shaped(
             if T > 1:
                 adv_t = (adv_t - adv_t.mean()) / (adv_t.std() + 1e-8)
             policy_loss = -(logp_t * adv_t.detach()).mean()
-            value_loss = AC_VALUE_COEF * 0.5 * (value_t - ret_t.detach()).pow(2).mean()
+            vlogits_t = torch.stack(ep_value_logits) if ep_value_logits else None
+            value_loss = critic_value_loss(_policy, vlogits_t, value_t, ret_t)
             entropy_bonus = entropy_t.mean()
             loss = policy_loss + value_loss - AC_ENTROPY_BETA * entropy_bonus
             if torch.isfinite(loss):
