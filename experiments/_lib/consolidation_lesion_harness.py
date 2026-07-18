@@ -498,6 +498,8 @@ def rem_precision_error(
     step: float = 1.0,
     run_generative: bool = True,
     content_scale: float = 1.0,
+    null_mode: str = "zero_content",
+    unpaired_target_precision: Optional[float] = None,
 ) -> Dict[str, float]:
     """Precision-calibration-error of the REM phase against an injected clean target.
 
@@ -511,6 +513,25 @@ def rem_precision_error(
     NOT swamped by the un-reachable-in-one-step residual that a partial step
     (the substrate default 0.1) leaves. This is a measurement choice for the
     passthrough baseline, distinct from the substrate's partial-step default.
+
+    DO NOT SWEEP `step` TO ESCAPE THE NULL-ARM CLAMP -- it is provably inert
+    (established 2026-07-18 while auditing the V3-EXQ-778c GOV-FANOUT-1 portfolio,
+    BEFORE queuing; the leg was redesigned rather than run). The substrate computes
+    rv_after = (1 - step) * rv_before + step * (1 / (corrupt_target + 1e-6))
+    (ree_core/predictors/e3_selector.py recalibrate_precision_to). Two consequences:
+      1. the `max(1e-3, raw_target)` positivity clamp is applied to corrupt_target
+         UPSTREAM of `step`, so `target_clamped` and the null arm's clamp fraction are
+         EXACTLY invariant to step; and
+      2. both arms' sigma-slopes carry the same linear factor `step`, so it CANCELS in
+         null_slope_ratio = |null slope| / |injected slope|.
+    Verified numerically over step in {0.1, 0.25, 0.5, 1.0}: the ratio is identical to
+    12 significant figures (14569.1833719598-...602, float round-off only) and the clamp
+    fraction / distinct-value count are bit-identical. A step ladder therefore CANNOT
+    de-rail the null arm and would return the declared null of H-rem-clamp-artifact by
+    construction -- a false elimination, not a measurement. The clamp's actual root is
+    that MULTIPLICATIVE content scaling sends the null arm's target precision to ZERO,
+    so a strictly-positive reference clamps on ~half the draws at ANY floor value. The
+    measurement-axis knob that does bite is `null_mode` (below), not `step` or the floor.
 
     Damage: the precision REFERENCE fed to recalibration is corrupted by `sigma`
     (the corruption channel). Error is scored against the CLEAN target:
@@ -534,13 +555,51 @@ def rem_precision_error(
     unscaled `target_precision`). NOTE: this leg is PASSTHROUGH BY CONSTRUCTION
     (step=1.0 makes the output exactly 1/corrupt_target), so it is a priori expected
     to fail the null control -- see the CONFOUND REGISTER in the module docstring.
+
+    `null_mode` (SD-068 GOV-FANOUT-1 leg H-rem-clamp-artifact, V3-EXQ-778d) selects HOW
+    the null arm is OPERATIONALISED. This is the measurement-axis knob that actually
+    bites (see the `step` warning above for the one that provably does not):
+
+      "zero_content" (DEFAULT, bit-identical to 778b/778c) -- the null target is
+        clean_target * content_scale, i.e. ZERO when content_scale is 0. A precision of
+        zero is a DEGENERATE POINT of this parameterisation: the corrupt reference is
+        then pure jitter centred on zero, so the positivity clamp fires on ~half the
+        draws and the readout pins at the saturation constant 998.5009992509989. The
+        resulting null slope is identically zero -- degenerate, NOT content-contingent.
+
+      "unpaired_target" -- the null target is an INDEPENDENT positive draw of the same
+        magnitude class (`unpaired_target_precision`), UNPAIRED with the clean target
+        the error is scored against. This is the faithful analog of the Bar et al. 2020
+        odour control that SD-068 follows: "same odour, NO PRIOR PAIRING", not "no
+        odour". The reference stays in range so nothing clamps, the delivered
+        perturbation is unchanged (jitter is always referenced to the UNSCALED
+        clean_target), and the content PAIRING -- the thing whose contribution is under
+        test -- is what is removed. A zero-content null removes the pairing AND pushes
+        the parameterisation off a cliff; this one removes only the pairing.
+
+    Under "unpaired_target", `content_scale` is not applied to the target (the unpaired
+    draw replaces it); it is still reported so the arm is identifiable in the manifest.
     """
+    if null_mode not in ("zero_content", "unpaired_target"):
+        raise ValueError(
+            f"null_mode must be 'zero_content' or 'unpaired_target', got {null_mode!r}"
+        )
+    if null_mode == "unpaired_target" and unpaired_target_precision is None:
+        raise ValueError(
+            "null_mode='unpaired_target' requires unpaired_target_precision"
+        )
     e3 = getattr(agent, "e3", None)
     if e3 is None:
         return {"phase": 2.0, "calibration_error": UNAVAILABLE, "available": 0.0}
 
     clean_target = float(target_precision)
-    injected_target = clean_target * float(content_scale)
+    if null_mode == "unpaired_target":
+        # The reference points at an INDEPENDENT positive target of the same magnitude
+        # class; the error is still scored against clean_target, so the PAIRING is what
+        # has been removed. content_scale does not scale the target in this mode.
+        injected_target = float(unpaired_target_precision)
+    else:
+        injected_target = clean_target * float(content_scale)
     # Corrupt the reference precision by sigma (relative), floored positive. The
     # jitter is always scaled by the UNSCALED clean_target so the null arm receives
     # the SAME absolute perturbation as the injected arm.
@@ -548,7 +607,11 @@ def rem_precision_error(
         jitter = float(torch.randn(1, generator=gen).item()) * sigma * clean_target
         raw_target = injected_target + jitter
     else:
-        raw_target = injected_target if content_scale != 1.0 else clean_target
+        raw_target = (
+            injected_target
+            if (null_mode == "unpaired_target" or content_scale != 1.0)
+            else clean_target
+        )
     corrupt_target = max(1e-3, raw_target)
     # Clamp saturation flag (V3-EXQ-778b): with no injected target the reference can
     # collapse onto the 1e-3 positivity floor, and 1/1e-3 = 1000 then DOMINATES the
@@ -564,6 +627,28 @@ def rem_precision_error(
     clean_var = 1.0 / (clean_target + 1e-6)
     calibration_error = abs(float(rv_after) - clean_var)
 
+    # DE-CLAMPED companion readout (SD-068 GOV-FANOUT-1 leg H-rem-genuinely-content-free,
+    # V3-EXQ-778e). ADDITIVE: emitted alongside `calibration_error`, never replacing it,
+    # so every prior run's scored series is bit-identical.
+    #
+    # WHY a second readout at all. `calibration_error` is scored in VARIANCE units as
+    # |rv_after - 1/clean_target|. At step=1.0 the substrate returns
+    # rv_after = 1/(corrupt_target + 1e-6), so when the null arm's reference collapses
+    # onto the 1e-3 positivity floor the readout jumps to 1/(1e-3 + 1e-6) = 999.001 and
+    # the error pins at the constant 998.5009992509989 -- an identically ZERO sigma-slope
+    # that is degenerate, not content-contingent (V3-EXQ-778c: exactly that constant on
+    # 5/8 seeds). On the seeds that escape the floor, 1/jitter instead blows the ratio
+    # off-scale (1801-9143 on 3/8). Both rails are artifacts of inverting a near-zero
+    # precision into variance units.
+    #
+    # Scoring in PRECISION units against the injected target directly UNDOES that
+    # inversion: achieved_precision = 1/rv_after is ~ corrupt_target itself, so the
+    # readout is bounded and dimensionless and its sigma-response is graded on both
+    # arms. `rem_reference_clamped` (== target_clamped) is carried alongside so a
+    # consumer can gate on residual clamp incidence rather than assume it away.
+    achieved_precision = 1.0 / max(float(rv_after), 1e-12)
+    direct_precision_error = abs(achieved_precision - clean_target) / max(clean_target, 1e-12)
+
     out: Dict[str, float] = {
         "phase": 2.0,
         "calibration_error": float(calibration_error),
@@ -574,6 +659,16 @@ def rem_precision_error(
         "corrupt_target_precision": float(corrupt_target),
         "clean_target_variance": float(clean_var),
         "target_clamped": float(target_clamped),
+        "rem_step": float(step),
+        "null_mode_unpaired": 1.0 if null_mode == "unpaired_target" else 0.0,
+        "unpaired_target_precision": float(
+            unpaired_target_precision if unpaired_target_precision is not None else 0.0
+        ),
+        "injected_target_precision": float(injected_target),
+        "achieved_precision": float(achieved_precision),
+        "direct_precision_error": float(direct_precision_error),
+        "clean_target_precision": float(clean_target),
+        "rem_reference_clamped": float(target_clamped),
     }
 
     if run_generative:
@@ -754,7 +849,12 @@ def rem_generative_fidelity(
 # --------------------------------------------------------------------------- #
 
 def phase_integrity_at_sigma(
-    *, seed: int, sigma: float, warm_steps: int = 40, content_scale: float = 1.0
+    *,
+    seed: int,
+    sigma: float,
+    warm_steps: int = 40,
+    content_scale: float = 1.0,
+    rem_step: float = 1.0,
 ) -> Dict[str, Dict[str, float]]:
     """Run all three per-phase readouts at UNIFORM damage `sigma` on one seed.
 
@@ -767,6 +867,13 @@ def phase_integrity_at_sigma(
     bit-identical), 0.0 == the SD-068 null-content control arm. The agent build, the
     warm-up drive, the RNG streams, and the delivered damage are IDENTICAL across the
     two arms -- only the injected known content is removed.
+
+    `rem_step` (SD-068 GOV-FANOUT-1 leg H-rem-clamp-artifact, V3-EXQ-778d) is the
+    adoption fraction handed to recalibrate_precision_to. 1.0 == FULL adoption == the
+    778/778a/778b/778c measurement choice, bit-identical. Values below 1.0 leave the
+    output a convex blend of the injected start_variance and the corrupt reference,
+    which is the knob the step-ladder leg sweeps to test whether the null arm's
+    both-rails degeneracy is a clamp artifact of full adoption.
     """
     results: Dict[str, Dict[str, float]] = {}
 
@@ -788,10 +895,121 @@ def phase_integrity_at_sigma(
     a_rem = build_pipeline_agent(seed=seed)
     _warm_encoders(a_rem, n_steps=warm_steps, gen=g)
     results["rem"] = rem_precision_error(
-        a_rem, sigma=sigma, gen=g, content_scale=content_scale
+        a_rem, sigma=sigma, gen=g, content_scale=content_scale, step=float(rem_step)
     )
 
     return results
+
+
+def rem_only_integrity_at_sigma(
+    *,
+    seed: int,
+    sigma: float,
+    warm_steps: int = 40,
+    content_scale: float = 1.0,
+    rem_step: float = 1.0,
+    run_generative: bool = True,
+    null_mode: str = "zero_content",
+    unpaired_target_precision: Optional[float] = None,
+) -> Dict[str, Dict[str, float]]:
+    """The REM phase readout ONLY, on the SAME RNG stream phase_integrity_at_sigma uses.
+
+    The SD-068 GOV-FANOUT-1 portfolio (V3-EXQ-778d/e/f) is scoped to the rem leg alone
+    -- the sws repair is a single unambiguous build and is exempt, and the nrem leg is
+    already confirmed content-contingent. Running the full three-phase sweep for those
+    legs would triple their compute to recompute two phases nothing reads.
+
+    CRITICALLY, this reproduces `phase_integrity_at_sigma`'s rem cell EXACTLY: the same
+    generator seeding (`_gen(seed * 1009 + 3)`), the same fresh agent, the same warm-up.
+    It is therefore numerically comparable to the rem cell of V3-EXQ-778/778a/778c --
+    which is what lets the portfolio legs carry a within-run replication ANCHOR against
+    778c's recorded degeneracy signature rather than merely asserting comparability.
+
+    Returned in the same `{phase: {metric: value}}` shape as phase_integrity_at_sigma so
+    it drops straight into run_null_content_control / _common_error_series; the sws and
+    nrem keys are simply absent (those phases are not swept).
+    """
+    g = _gen(seed * 1009 + 3)
+    a_rem = build_pipeline_agent(seed=seed)
+    _warm_encoders(a_rem, n_steps=warm_steps, gen=g)
+    return {
+        "rem": rem_precision_error(
+            a_rem,
+            sigma=sigma,
+            gen=g,
+            content_scale=content_scale,
+            step=float(rem_step),
+            run_generative=run_generative,
+            null_mode=null_mode,
+            unpaired_target_precision=unpaired_target_precision,
+        )
+    }
+
+
+def rem_null_slope_ratio(
+    *,
+    sigmas: List[float],
+    injected_pr_by_sigma: Dict[float, Dict[str, Dict[str, float]]],
+    null_pr_by_sigma: Dict[float, Dict[str, Dict[str, float]]],
+    rem_error_key: str = "calibration_error",
+) -> Dict[str, float]:
+    """Rem-only null-slope ratio + null-arm degeneracy telemetry.
+
+    A thin rem-scoped wrapper over the same slope machinery run_null_content_control
+    uses, for the portfolio legs that sweep the rem phase alone. Returns the ratio, both
+    arms' slopes, the clamp fraction, and the NULL-ARM non-degeneracy telemetry
+    (`null_series_sd` / `null_series_n_distinct`) that separates "inert on noise"
+    (content-contingent) from "saturated constant" (degenerate) -- the ambiguity that
+    left V3-EXQ-778c's rem leg unresolved at both rails.
+    """
+    denom = {
+        "rem": float(
+            injected_pr_by_sigma[min(sigmas)]["rem"].get("clean_target_variance", 0.0)
+        )
+    }
+    inj_errs = _common_error_series(
+        injected_pr_by_sigma, "rem", sigmas, denom, rem_error_key=rem_error_key
+    )
+    null_errs = _common_error_series(
+        null_pr_by_sigma, "rem", sigmas, denom, rem_error_key=rem_error_key
+    )
+    inj_slope = _slope_of(sigmas, inj_errs)
+    null_slope = _slope_of(sigmas, null_errs)
+
+    available = (
+        not math.isnan(inj_slope)
+        and not math.isnan(null_slope)
+        and abs(inj_slope) > NULL_MIN_INJECTED_SLOPE
+    )
+    ratio = (abs(null_slope) / abs(inj_slope)) if available else UNAVAILABLE
+
+    finite_null = [e for e in null_errs if not math.isnan(e)]
+    if len(finite_null) >= 2:
+        mn = sum(finite_null) / len(finite_null)
+        null_sd = math.sqrt(
+            sum((e - mn) ** 2 for e in finite_null) / (len(finite_null) - 1)
+        )
+    else:
+        null_sd = UNAVAILABLE
+
+    clamped = [
+        float(null_pr_by_sigma[s]["rem"].get("target_clamped", 0.0)) for s in sigmas
+    ]
+    return {
+        "rem_error_key": rem_error_key,
+        "injected_slope": float(inj_slope) if not math.isnan(inj_slope) else UNAVAILABLE,
+        "null_slope": float(null_slope) if not math.isnan(null_slope) else UNAVAILABLE,
+        "null_slope_ratio": float(ratio) if available else UNAVAILABLE,
+        "available": 1.0 if available else 0.0,
+        "content_contingent": 1.0
+        if (available and ratio <= NULL_SLOPE_RATIO_CEILING)
+        else 0.0,
+        "null_series_sd": float(null_sd) if null_sd != UNAVAILABLE else UNAVAILABLE,
+        "null_series_n_distinct": float(len({round(e, 12) for e in finite_null})),
+        "null_series": [float(e) for e in null_errs],
+        "injected_series": [float(e) for e in inj_errs],
+        "null_target_clamped_frac": float(sum(clamped) / len(clamped)) if clamped else 0.0,
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -999,6 +1217,7 @@ def _common_error_series(
     phase: str,
     sigmas: List[float],
     denom: Dict[str, float],
+    rem_error_key: str = "calibration_error",
 ) -> List[float]:
     """Per-phase error series in COMMON units across the injected and null arms.
 
@@ -1012,6 +1231,13 @@ def _common_error_series(
         sws  : noise_power            / injected signal_power
         nrem : gap_after              / injected gap_before
         rem  : calibration_error      / clean_target_variance
+
+    `rem_error_key` (V3-EXQ-778e) selects which rem readout the series is built from.
+    "calibration_error" (the DEFAULT) is the variance-units readout every prior run
+    scored, kept bit-identical. "direct_precision_error" is the de-clamped
+    precision-units companion, which is ALREADY a relative fraction, so its
+    denominator is 1.0 rather than clean_target_variance -- dividing an
+    already-normalised error by a variance would silently rescale it.
     """
     out: List[float] = []
     for s in sigmas:
@@ -1025,8 +1251,10 @@ def _common_error_series(
             ga = row.get("gap_after", float("nan"))
             out.append((ga / d) if d > 1e-12 else float("nan"))
         else:  # rem
-            d = denom.get("rem", 0.0)
-            err = row.get("calibration_error", UNAVAILABLE)
+            # An already-relative readout carries its own scale; only the
+            # variance-units calibration_error needs the injected denominator.
+            d = 1.0 if rem_error_key != "calibration_error" else denom.get("rem", 0.0)
+            err = row.get(rem_error_key, UNAVAILABLE)
             out.append(
                 (err / d) if (err != UNAVAILABLE and d > 1e-12) else float("nan")
             )
@@ -1058,6 +1286,7 @@ def run_null_content_control(
     warm_steps: int = 40,
     injected_pr_by_sigma: Optional[Dict[float, Dict[str, Dict[str, float]]]] = None,
     null_pr_by_sigma: Optional[Dict[float, Dict[str, Dict[str, float]]]] = None,
+    rem_error_key: str = "calibration_error",
 ) -> Dict[str, float]:
     """Zero-injected-content NULL CONTROL for the per-phase damage readouts.
 
@@ -1126,8 +1355,12 @@ def run_null_content_control(
     out: Dict[str, float] = {}
     confounded: List[str] = []
     for phase in ("sws", "nrem", "rem"):
-        inj_errs = _common_error_series(injected_pr_by_sigma, phase, sigmas, denom)
-        null_errs = _common_error_series(null_pr_by_sigma, phase, sigmas, denom)
+        inj_errs = _common_error_series(
+            injected_pr_by_sigma, phase, sigmas, denom, rem_error_key=rem_error_key
+        )
+        null_errs = _common_error_series(
+            null_pr_by_sigma, phase, sigmas, denom, rem_error_key=rem_error_key
+        )
         inj_slope = _slope_of(sigmas, inj_errs)
         null_slope = _slope_of(sigmas, null_errs)
 
@@ -1146,6 +1379,26 @@ def run_null_content_control(
         )
         out[f"null_slope_ratio_{phase}"] = float(ratio) if available else UNAVAILABLE
         out[f"null_control_available_{phase}"] = 1.0 if available else 0.0
+
+        # NULL-ARM NON-DEGENERACY telemetry (V3-EXQ-778e). A ratio of ~0.0 is
+        # ambiguous between "the readout is genuinely inert on noise" (content-
+        # contingent, the finding we want) and "the null series is a SATURATED
+        # CONSTANT" (degenerate, no finding at all) -- V3-EXQ-778c's rem leg was
+        # exactly the latter on 5/8 seeds. Recording the null series' own spread and
+        # distinct-value count lets a consumer gate on that difference instead of
+        # reading a degenerate zero as a clean pass.
+        finite_null = [e for e in null_errs if not math.isnan(e)]
+        if len(finite_null) >= 2:
+            mn = sum(finite_null) / len(finite_null)
+            null_sd = math.sqrt(
+                sum((e - mn) ** 2 for e in finite_null) / (len(finite_null) - 1)
+            )
+        else:
+            null_sd = UNAVAILABLE
+        out[f"null_series_sd_{phase}"] = float(null_sd) if null_sd != UNAVAILABLE else UNAVAILABLE
+        out[f"null_series_n_distinct_{phase}"] = float(
+            len({round(e, 12) for e in finite_null})
+        )
         contingent = bool(available and ratio <= NULL_SLOPE_RATIO_CEILING)
         out[f"content_contingent_{phase}"] = 1.0 if contingent else 0.0
         # An UNAVAILABLE ratio is NOT a pass -- it is an uninterpretable phase, and
