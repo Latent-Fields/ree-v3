@@ -42,6 +42,12 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    import daemon_code_drift
+except ImportError:  # pragma: no cover -- checker absent is not fatal
+    daemon_code_drift = None
+
 
 DEFAULT_COORDINATOR_URL = "http://10.8.0.1:8787"
 DEFAULT_QUEUE_PATH = "/home/ree/REE_Working/ree-v3/experiment_queue.json"
@@ -152,7 +158,24 @@ def _eta_cell(m):
     return "~%.1fh" % (sr / 3600.0)
 
 
-def build_markdown(status_doc, queue_items, now):
+def collect_drift():
+    """Return (markdown_lines, findings). Never raises -- a fault in the
+    drift checker must degrade to a visible 'unavailable' note, never take
+    down the fleet snapshot the operator relies on."""
+    if daemon_code_drift is None:
+        return (["## Daemon code freshness", "",
+                 "_(checker module not importable on this host)_", ""], [])
+    try:
+        findings = daemon_code_drift.check_all()
+        return daemon_code_drift.render_markdown(findings), findings
+    except Exception as exc:  # noqa: BLE001
+        log("WARN daemon code-drift check failed (%r)" % exc)
+        return (["## Daemon code freshness", "",
+                 "_(check failed this tick: %s)_" % type(exc).__name__,
+                 ""], [])
+
+
+def build_markdown(status_doc, queue_items, now, drift_lines=None):
     """Build the phone-readable FLEET_STATUS.md content (ASCII)."""
     lines = []
     lines.append("# REE Fleet -- Live Status")
@@ -172,6 +195,10 @@ def build_markdown(status_doc, queue_items, now):
                      "when this snapshot was written (%s). The fleet may "
                      "still be running; this branch will refresh on the next "
                      "successful tick." % utcnow_iso())
+        # Drift is independent of coordinator reachability -- and a wedged
+        # coordinator is exactly when "is it running current code?" matters.
+        lines.append("")
+        lines.extend(drift_lines or [])
         return "\n".join(lines) + "\n"
 
     machines = status_doc.get("machines") or []
@@ -213,6 +240,7 @@ def build_markdown(status_doc, queue_items, now):
     else:
         lines.append("_(queue empty)_")
     lines.append("")
+    lines.extend(drift_lines or [])
     return "\n".join(lines) + "\n"
 
 
@@ -288,10 +316,17 @@ def main(argv=None):
     now = datetime.now(timezone.utc)
     status_doc = fetch_coordinator_status(coordinator_url, coordinator_token)
     queue_items = load_queue(args.queue)
-    md = build_markdown(status_doc, queue_items, now)
+    drift_lines, drift_findings = collect_drift()
+    md = build_markdown(status_doc, queue_items, now, drift_lines=drift_lines)
+    stale = [f for f in drift_findings
+             if f.get("status") in ("DRIFT", "BEHIND-ORIGIN")]
+    if stale:
+        log("WARN %d daemon(s) running stale code: %s"
+            % (len(stale), ", ".join(f["unit"] for f in stale)))
     snapshot = {
         "updated_utc": utcnow_iso(),
         "coordinator_reachable": status_doc is not None,
+        "daemon_code_drift": drift_findings,
         "machines": (status_doc or {}).get("machines", []),
         "queue_pending": sum(
             1 for i in queue_items if i.get("status") == "pending"),

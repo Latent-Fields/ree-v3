@@ -365,6 +365,7 @@ The panel and this guide exist to keep the story at your three-step level.
 | Cloud SSH FAILED in result | Wrong SSH host from Mac | Public IPs in `coordinator.env` |
 | Cloud runner exits right away | Pending `stop` in runner_commands | Clear/supersede command file |
 | HEALTHY but only 1-2 machines | Others not in shadow.conf | FLEET_CHECKLIST per host |
+| Landed fix has no effect on hub | Daemon started before the commit | "Daemon code drift" below -- restart with pre-flight |
 | DIVERGENCE state-reconcile | Git-only machine claimed | Flip that host to shadow (E1 in SOAK_LOG) |
 
 ---
@@ -416,6 +417,82 @@ drop-in live in `/etc` and are **not auto-applied** -- re-apply on a hub rebuild
 
 Also live (no git): the explorer `/machines` dashboard and coordinator
 `/shadow/status` -- both sub-second fresh from the DB.
+
+## Daemon code drift -- a landed fix that never reached the process
+
+**The failure.** Python binds a module at import, so a long-running daemon
+executes the bytecode that existed when it started, forever, regardless of what
+lands in the checkout underneath it. Nothing on the hub restarts these daemons
+when their source changes, and trunk-first means coordinator code lands
+continuously. A fix can be committed, pushed, tested and sitting on disk while
+the live process keeps running the broken code -- no error, no log line, nothing.
+
+Confirmed 2026-07-18: `b2d2ef1` fixed a permanent self-deadlock in
+`phase3_queue_writer` (a staged `experiment_queue.json` wedged the queue
+snapshot for 5h31m -- `last_error=None`, tick loop still running -- while
+workers re-claimed already-completed work off the frozen git file). It landed
+`origin/main` 16:31Z. `ree-sync-daemon` had been running since 2026-07-09
+18:28:38Z, ~8.9 days earlier, so the live process ran pre-fix bytecode for
+~3.4h and would have done so indefinitely. The original wedge was cleared by
+hand, not by the new guard. `ree-coordinator` was audited at the same time and
+was current only *by luck* -- nothing had touched its source since 2026-06-18.
+
+**The check.** `deploy/daemon_code_drift.py` compares each unit's
+`ExecMainStartTimestamp` against the last commit touching that daemon's *import
+surface* -- the modules bound into the process, not everything the service can
+execute (the runner launches experiment scripts and `ree_core` as fresh
+subprocesses, so those are never stale-bound and are deliberately excluded).
+
+It runs inside the **ree-live-status** timer, which is `Type=oneshot` on a
+3-minute cadence: a fresh process every tick, so the checker itself can never go
+stale. That is why it does not live in `sync_daemon` -- a checker inside a
+long-running daemon is subject to the exact bug it detects, and would go silent
+precisely when `sync_daemon` is the thing running old code.
+
+Results surface on the `live-status` branch, under **Daemon code freshness**:
+<https://github.com/Latent-Fields/REE_assembly/blob/live-status/FLEET_STATUS.md>
+The section renders even when all-clear -- a block that appears only on failure
+is indistinguishable from one that silently stopped running.
+
+Run it by hand any time (read-only; exit 1 if anything is stale):
+
+```bash
+ssh ree@91.98.130.117 'python3 ~/REE_Working/ree-v3/coordinator/deploy/daemon_code_drift.py'
+```
+
+**Two statuses, two different fixes:**
+
+| Status | Meaning | Fix |
+|--------|---------|-----|
+| `DRIFT` | Commit is in the local checkout; the daemon started before it | Restart the unit (pre-flight below) |
+| `BEHIND-ORIGIN` | Commit is on origin but not in the local checkout | `git pull` **then** restart |
+
+`BEHIND-ORIGIN` is reported in preference to `CURRENT` on purpose: a daemon can
+be newer than everything in a stale checkout and still be running old code, so a
+drift-only check would give a false all-clear.
+
+**Restart pre-flight (mandatory -- especially for `ree-sync-daemon`).** The
+check never restarts anything itself. `sync_daemon` is the sole git writer for
+coordination data, so an ill-timed restart is its own hazard: a restart mid-tick
+can abandon in-flight work, and the Phase-3 writers refuse to commit on a dirty
+tree. Verify all three before restarting, then confirm after:
+
+```bash
+ssh ree@91.98.130.117
+git -C ~/REE_Working/REE_assembly status --porcelain   # must be empty
+git -C ~/REE_Working/ree-v3 status --porcelain         # must be empty
+ls /home/ree/coordinator-spool/pending/                # must be empty
+sudo systemctl restart ree-sync-daemon
+systemctl status ree-sync-daemon --no-pager | head -5
+journalctl -u ree-sync-daemon -n 40 --no-pager         # expect zero errors
+```
+
+If a tree is dirty or the spool is non-empty, resolve that first -- do not
+restart through it. Do **not** install the pre-push commit guard on the hub to
+"protect" this: its phase3 writers push continuously and gating them wedges the
+coordination-data plane (see `REE_Working/CLAUDE.md`).
+
+---
 
 ## File map
 
