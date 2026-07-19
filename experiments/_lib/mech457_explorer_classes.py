@@ -185,6 +185,10 @@ class RepAgent:
     representation: str = "?"
     feature_dim: int = 0
     action_dim: int = 5
+    # Audit record from the untrained-encoder guard (z_world only; None for reps with no
+    # learned encoder). Drivers embed this in the run manifest so `zworld_encoder_trained`
+    # is checkable after the fact, not only at runtime. See fan.latent_stack_weight_delta.
+    encoder_training_report: Optional[Dict[str, Any]] = None
 
     def reset_episode(self) -> None:
         return None
@@ -215,11 +219,23 @@ class ZWorldRep(RepAgent):
       * cotrain=True  -- the actor reads LIVE z_world so the policy gradient reaches latent_stack
         (co-shaping; the 742/751/765 OFF arm). The encoder params join the optimizer.
       * cotrain=False -- the actor reads z_world.detach() (agent.actor_critic_step gates this on
-        config.actor_critic_cotrain_encoder), training the policy on the FROZEN prediction-
-        trained encoder (Stooke 2021). The encoder params are EXCLUDED from the optimizer. This
-        is the MECH-457 capacity-amend ON default -- the 765 retest showed cotrain is DESTRUCTIVE
-        on z_world (ON 0.35 < OFF 5.22).
-    state = the encoded LatentState. `actor_critic_hidden` sets the policy/critic trunk width."""
+        config.actor_critic_cotrain_encoder), training the policy on a FROZEN encoder
+        (Stooke 2021). The encoder params are EXCLUDED from the optimizer. This is the MECH-457
+        capacity-amend ON default -- the 765 retest showed cotrain is DESTRUCTIVE on z_world
+        (ON 0.35 < OFF 5.22).
+    state = the encoded LatentState. `actor_critic_hidden` sets the policy/critic trunk width.
+
+    CORRECTED 2026-07-19 -- this docstring previously described the cotrain=False mode as
+    training on "the FROZEN PREDICTION-TRAINED encoder". It is frozen AT RANDOM INITIALISATION.
+    The P0 warmup changes 0 of 61 latent_stack tensors (world_encoder max|delta| = 0.000e+00),
+    because the P0 loop buffers latent.z_world.detach(). See
+    REE_assembly/evidence/planning/zworld_bc_install_failure_V3-EXQ-780_2026-07-19.md.
+
+    `require_trained_encoder` (default True) makes that condition LOUD: construction raises
+    fan.ZWorldEncoderUntrainedError when the warmup leaves the world encoder bit-identical, so
+    no future experiment silently runs a z_world arm on a random projection. Pass False only
+    for a DELIBERATE frozen-random-encoder ablation -- the choice then appears explicitly in
+    `encoder_training_report`, which drivers should embed in the run manifest."""
 
     representation = "z_world"
 
@@ -227,13 +243,17 @@ class ZWorldRep(RepAgent):
         self, env: Any, seed: int, p0: int, steps: int,
         cotrain_encoder: bool = True, actor_critic_hidden: int = fan.ACTOR_CRITIC_HIDDEN,
         use_distributional_critic: bool = False,
+        require_trained_encoder: bool = True,
     ) -> None:
         self._cotrain = bool(cotrain_encoder)
         self.agent = fan.make_zworld_agent(
             env, cotrain=self._cotrain, actor_critic_hidden=int(actor_critic_hidden),
             use_distributional_critic=bool(use_distributional_critic),
         )
-        fan.warmup_zworld(self.agent, env, seed=seed, p0=p0, steps=steps)
+        self.encoder_training_report = fan.warmup_zworld(
+            self.agent, env, seed=seed, p0=p0, steps=steps,
+            strict=bool(require_trained_encoder),
+        )
         self.feature_dim = int(self.agent.config.latent.world_dim)
         self.action_dim = int(env.action_dim)
 
@@ -305,15 +325,21 @@ def make_rep(
     representation: str, env: Any, seed: int, p0: int, steps: int,
     actor_critic_hidden: int = fan.ACTOR_CRITIC_HIDDEN, cotrain_encoder: bool = True,
     use_distributional_critic: bool = False,
+    require_trained_encoder: bool = True,
 ) -> RepAgent:
     """Build the representation adapter. `actor_critic_hidden` sets the policy/critic capacity
     (both reps); `cotrain_encoder` selects the z_world co-shape-vs-frozen mode (no-op for raw).
-    Defaults reproduce the fanout/765 arms byte-identical."""
+    Defaults reproduce the fanout/765 arms byte-identical.
+
+    `require_trained_encoder` (z_world only) is the untrained-encoder guard: True (default)
+    raises fan.ZWorldEncoderUntrainedError if the P0 warmup leaves the world encoder
+    bit-identical to its random initialisation."""
     if representation == "z_world":
         return ZWorldRep(
             env, seed, p0, steps,
             cotrain_encoder=bool(cotrain_encoder), actor_critic_hidden=int(actor_critic_hidden),
             use_distributional_critic=bool(use_distributional_critic),
+            require_trained_encoder=bool(require_trained_encoder),
         )
     if representation == "raw_view":
         return RawViewRep(
@@ -1078,6 +1104,23 @@ def readiness_from_anchors(local_view_mean: float, oracle_mean: float) -> bool:
     return bool(
         local_view_mean >= COMPETENCE_RESOURCE_FLOOR and oracle_mean >= COMPETENCE_RESOURCE_FLOOR
     )
+
+
+def encoder_audit(rep: RepAgent) -> Dict[str, Any]:
+    """Manifest-ready record of whether this rep's learned encoder was actually trained.
+
+    Embed this per (arm x seed) cell so `zworld_encoder_trained` is auditable AFTER the fact,
+    not only at runtime -- the V3-EXQ-780 fault (a z_world arm running on a frozen random
+    projection) was invisible in every one of the ten legs that carried it, and a recorded
+    boolean is what makes a re-read of an old manifest decisive. `checked: False` means the
+    rep has no learned encoder to audit (raw_view) or no warmup was requested (p0=0)."""
+    rec = getattr(rep, "encoder_training_report", None)
+    if not rec:
+        return {"representation": rep.representation, "checked": False,
+                "zworld_encoder_trained": None}
+    out = {"representation": rep.representation, "checked": bool(rec.get("guard_checked"))}
+    out.update(rec)
+    return out
 
 
 def reference_band() -> Dict[str, Any]:

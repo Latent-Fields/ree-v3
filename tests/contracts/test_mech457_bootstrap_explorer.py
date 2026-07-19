@@ -22,6 +22,7 @@ Contracts:
 from pathlib import Path
 
 import pytest
+import torch
 
 import experiments._lib.mech457_bootstrap_explorer as boot
 import experiments._lib.mech457_explorer_classes as mech
@@ -350,3 +351,74 @@ def test_c17_explorer_classes_source_is_ascii():
     src = Path(mech.__file__).read_text(encoding="utf-8")
     non_ascii = [(i, ch) for i, ch in enumerate(src) if ord(ch) > 127]
     assert not non_ascii, f"non-ASCII in explorer-classes source: {non_ascii[:5]}"
+
+
+# --------------------------------------------------------------------------- C18
+# Untrained-encoder guard (V3-EXQ-780 z_world BC install-failure, diagnosed 2026-07-19).
+# The fault: warmup_zworld -> x734._train_all_on_agent changes 0 of 61 latent_stack tensors
+# because the P0 loop buffers latent.z_world.detach(), so z_world is a frozen RANDOM
+# projection. It ran silently across ten MECH-457 legs (742-782). These contracts pin the
+# detection, not a fix -- the training path is deliberately unchanged.
+def test_c18_untrained_zworld_encoder_raises_by_default():
+    """A z_world rep whose P0 warmup leaves the world encoder bit-identical must FAIL LOUDLY
+    at construction rather than hand back a random projection."""
+    env = x734._make_env(42, x734._env_kwargs_for_rung(fan.RUNG))
+    with pytest.raises(fan.ZWorldEncoderUntrainedError, match="world_encoder"):
+        mech.make_rep("z_world", env, seed=42, p0=3, steps=15)
+
+
+def test_c18b_untrained_guard_escape_hatch_is_explicit_and_recorded():
+    """require_trained_encoder=False downgrades the guard to a warning for a deliberate
+    frozen-encoder ablation -- and the untrained state is recorded for the manifest."""
+    env = x734._make_env(42, x734._env_kwargs_for_rung(fan.RUNG))
+    rep = mech.make_rep("z_world", env, seed=42, p0=3, steps=15,
+                        require_trained_encoder=False)
+    rec = rep.encoder_training_report
+    assert rec["guard_checked"] is True
+    assert rec["zworld_encoder_trained"] is False
+    assert rec["n_world_encoder_changed"] == 0
+    assert rec["n_world_encoder_tensors"] > 0
+    assert rec["world_encoder_max_abs_delta"] == 0.0
+    # The exact 780 signature, so the guard and the diagnosis note agree.
+    assert rec["n_latent_stack_changed"] == 0
+    assert any(n.startswith("split_encoder.world_encoder.")
+               for n in rec["unchanged_world_encoder_tensors"])
+
+
+def test_c18c_no_warmup_requested_is_not_a_guard_failure():
+    """p0=0 requests no warmup at all -- a caller's explicit choice, not the silent failure
+    being detected -- so the guard records that it did not check and never fires."""
+    env = x734._make_env(42, x734._env_kwargs_for_rung(fan.RUNG))
+    rep = mech.make_rep("z_world", env, seed=42, p0=0, steps=6)   # strict default: no raise
+    assert rep.encoder_training_report["guard_checked"] is False
+    assert rep.encoder_training_report["p0_episodes"] == 0
+
+
+def test_c18d_guard_passes_when_the_encoder_actually_moves():
+    """Positive control: the delta check is not vacuously failing. One real gradient step on
+    the world encoder must flip zworld_encoder_trained to True."""
+    env = x734._make_env(42, x734._env_kwargs_for_rung(fan.RUNG))
+    agent = fan.make_zworld_agent(env, cotrain=False)
+    before = fan._latent_stack_snapshot(agent)
+    assert before, "latent_stack snapshot must be non-empty for the guard to mean anything"
+    enc = agent.latent_stack.split_encoder.world_encoder
+    sum(p.sum() for p in enc.parameters()).backward()
+    with torch.no_grad():
+        for p in enc.parameters():
+            p -= 1e-3 * p.grad
+    rec = fan.latent_stack_weight_delta(agent, before)
+    assert rec["zworld_encoder_trained"] is True
+    assert rec["n_world_encoder_changed"] == rec["n_world_encoder_tensors"]
+    assert rec["world_encoder_max_abs_delta"] > 0.0
+
+
+def test_c18e_raw_view_rep_carries_no_encoder_report():
+    """The guard is z_world-specific; raw_view has no learned encoder to guard."""
+    env = x734._make_env(42, x734._env_kwargs_for_rung(fan.RUNG))
+    assert mech.make_rep("raw_view", env, seed=42, p0=0, steps=8).encoder_training_report is None
+
+
+def test_c18f_fanout_source_is_ascii():
+    src = Path(fan.__file__).read_text(encoding="utf-8")
+    non_ascii = [(i, ch) for i, ch in enumerate(src) if ord(ch) > 127]
+    assert not non_ascii, f"non-ASCII in fanout source: {non_ascii[:5]}"
