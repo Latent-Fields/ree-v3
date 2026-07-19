@@ -2288,6 +2288,16 @@ def test_c17_reinforce_loss_gradient_reaches_rule_bias_head():
     non-zero gradients on the head. 460d set the flag but never put the head in any
     optimizer, so no gradient ever reached it."""
     cfg = ScaffoldedSD054OnboardingConfig()
+    # Deterministic: seeds BOTH the head's random init (train_rule_bias_head=True
+    # deliberately leaves the last Linear un-zeroed) and the feature draws below.
+    # Unseeded, this test was flaky at ~3.5% (7/200 seeds): compute_bias clamps to
+    # +/-bias_scale (0.1), and an unlucky draw puts all 8 raw scores on the same side
+    # of the clamp, so every candidate saturates to the SAME value -> log_softmax sees
+    # a constant vector -> the gradient through the clamp is zero everywhere and the
+    # final assertion trips. Seed 19 keeps the bias vector non-degenerate (6 and 5
+    # distinct values across the two snaps) with every head param taking a healthy
+    # gradient, so the contract is exercised rather than passed trivially.
+    torch.manual_seed(19)
     agent = _mk_rule_bias_agent(train_head=True)
     wd = agent.config.latent.world_dim
     # Two distinct candidate-feature snapshots with selected indices + returns whose
@@ -2295,6 +2305,15 @@ def test_c17_reinforce_loss_gradient_reaches_rule_bias_head():
     feats_a = torch.randn(8, wd)
     feats_b = torch.randn(8, wd)
     outcome_buf = [(feats_a, 1, -2.0), (feats_b, 3, 1.0)]
+    # Precondition, not the contract: guard the degeneracy that made this flaky, so a
+    # substrate change that re-saturates the clamp fails HERE with a clear cause
+    # rather than as an opaque "all head grads are zero" below.
+    for _name, _f in (("a", feats_a), ("b", feats_b)):
+        _bias = agent.lateral_pfc.compute_bias(_f).detach()
+        assert len(set(round(float(x), 9) for x in _bias)) > 1, (
+            f"feats_{_name} bias vector is fully clamp-saturated -- the gradient path "
+            "is dead before the contract is tested (re-pick the seed)"
+        )
     loss = _rule_bias_reinforce_loss(
         agent, outcome_buf, baseline=0.0, batch_size=8,
         temperature=1.0, adv_min=0.0, device=torch.device("cpu"),
