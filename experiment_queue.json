@@ -17,7 +17,11 @@
       "supersedes": "V3-EXQ-785",
       "claim_id": "MECH-463",
       "note": "Re-queue per failure_autopsy_V3-EXQ-785_2026-07-19 (REE_assembly ccb4a35e67) targets[0].requeue_spec; substrate action=none. Load-bearing change: urgency is MANIPULATED EXOGENOUSLY (e3.config.urgency_weight = target/||z_harm_a||, solved against e3_selector.py:2704-2711), breaking 785's high-urgency==near-hazard confound by construction; verified fidelity 2.8e-17 and corr(assigned_urgency, hazard_prox)=-0.038 on a 600-tick probe. Also: P7 regime-conditioned (785 applied it whole-run so one arm's structural RED vacated the other's valid result); AMPLIFICATION and CONCENTRATION scored as SEPARATE criteria; monotone-DECREASE added as a first-class signed grid cell; hazard-proximity covariate recorded per tick from the learner's own hazard_field_view (not a global oracle -- the 732a confound) and the share profile reported within proximity tertiles; commit RATE per urgency level recorded. TWO DEFECTS FOUND IN 785 AND FIXED HERE: (1) it read e3.last_score_diagnostics without clearing, so commitment-latched ticks re-recorded stale rows -- ~9.0x pseudo-replication measured (600 rows from 67 genuine selections), so 785's '~40 SE' is really ~15 SE (direction survives, precision overstated); (2) its per_tick_sink sidecar is absent because 785 ran on ree-cloud-2 and Phase 3 transports ONLY manifest_bytes -- sidecars cannot survive a cloud run, so the per-tick record is now embedded IN the manifest. The entropy regime is DROPPED, not replaced: an entropy_bias_scale scan over {0.15,0.30,0.50,1.00} found CH:mech341 absorbing ~99-115% of cross-candidate variance at every setting, so channel-AGNOSTICISM is explicitly UNTESTED here. NOTE the autopsy's admission-threshold sign is BACKWARDS: committed = variance < threshold*(1-urgency) is an UPPER bound, so urgency makes admission STRICTER (measured commit rate 1.000 -> 0.889); C3 tests this directly and is NOT load-bearing. GOV-REUSE-1: decisive readout is incumbent share under EXOGENOUS urgency; only 785 records urgency_applied at all and its urgency is endogenous by construction with no per-tick sink on disk -> not recoverable, must run. claim_ids=[MECH-463] only; MECH-439 NOT tagged. Smoke PASS.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-07-19T13:20:43Z"
+      },
       "conditions": 1,
       "episodes_per_run": 3000,
       "experiment_type": "v3_exq_785a_mech463_arousal_exogenous_urgency_decomp",
