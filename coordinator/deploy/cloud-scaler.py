@@ -91,6 +91,16 @@ DEFAULTS = {
     # cloud-4 when cloud-2/3 are already saturated.
     "SURGE_QUEUE_THRESHOLD": 2,
     "HUB_NAME": "ree-worker-1",
+    # Lease veto (see read_lease). A worker running non-queue work -- today
+    # only REE_Working/scripts/remote_pytest.sh -- holds a lease file here so
+    # the scaler does not shut it down mid-run. Hub-local; the scaler runs on
+    # the hub, so no extra transport is involved.
+    "PYTEST_LEASE_DIR": "/home/ree/pytest_leases",
+    # HARD CAP on how far ahead a lease may expire, regardless of what the
+    # file asks for. This is the billing guard: if a lease holder dies without
+    # cleaning up, the worker is protected for at most this long and then
+    # returns to normal auto-shutdown. Do NOT raise this casually.
+    "PYTEST_LEASE_MAX_MIN": 30,
 }
 
 
@@ -370,12 +380,73 @@ def announce_shutdown(affinity, announce_script, dry_run=False):
             "(%r) (proceeding)" % (affinity, exc))
 
 
+def read_lease(lease_dir, affinity, max_lease_min, now=None):
+    """Return (held: bool, reason: str) for a non-queue work lease.
+
+    A worker running work that produces NO queue claim -- today only the
+    remote pytest wrapper (REE_Working/scripts/remote_pytest.sh) -- is
+    indistinguishable from an idle worker to every other signal the scaler
+    reads: claimable=0, held_by_self=0, heartbeat state=idle. Verified
+    2026-07-19: a worker woken for a 5m33s test suite was shut down 43s
+    later with reason=clean_idle, before rsync had even finished. This lease
+    is how such a worker says "busy" without inventing a fake queue claim.
+
+    Lease file: <lease_dir>/<affinity>.lease, JSON with at least
+    {"expires_at": "<ISO-8601 UTC>"}; "owner" and "purpose" are logged if
+    present.
+
+    FAILS SAFE in every direction -- missing, unreadable, malformed, absent
+    or unparseable expires_at, and expired all return (False, ...), i.e.
+    exactly the pre-lease behaviour. The ONLY way to veto a shutdown is a
+    well-formed, unexpired lease.
+
+    BILLING GUARD: expires_at is CLAMPED to now + max_lease_min. A lease
+    holder that dies without cleaning up therefore protects the worker for
+    at most max_lease_min, after which normal auto-shutdown resumes. Without
+    this clamp a single bad timestamp could keep a VM billing indefinitely,
+    which is the opposite of what the scaler exists to do.
+    """
+    if now is None:
+        now = datetime.now(timezone.utc)
+    path = os.path.join(lease_dir, "%s.lease" % affinity)
+    try:
+        with open(path, "r") as fh:
+            data = json.load(fh)
+    except FileNotFoundError:
+        return False, "no_lease"
+    except Exception as exc:                     # unreadable / malformed
+        return False, "lease_unreadable(%s)" % type(exc).__name__
+    if not isinstance(data, dict):
+        return False, "lease_not_object"
+    expires = parse_utc(data.get("expires_at"))
+    if expires is None:
+        return False, "lease_no_expiry"
+    cap = now + timedelta(minutes=max_lease_min)
+    clamped = False
+    if expires > cap:
+        expires = cap
+        clamped = True
+    if expires <= now:
+        return False, "lease_expired"
+    mins = int((expires - now).total_seconds() // 60)
+    detail = "lease_held owner=%s purpose=%s expires_in=%dmin%s" % (
+        data.get("owner", "?"), data.get("purpose", "?"), mins,
+        " (CLAMPED to max %dmin)" % max_lease_min if clamped else "",
+    )
+    return True, detail
+
+
 def run_once(queue_path, heartbeats_dir, announce_script,
              idle_grace_min, heartbeat_fresh_min, surge_queue_threshold,
              hub_name, workers, dry_run=False,
-             coordinator_url=None, coordinator_token=None):
+             coordinator_url=None, coordinator_token=None,
+             lease_dir=None, max_lease_min=None):
     """One pass over the WORKERS list. Mirrors the bash for-loop body
     one-to-one. Returns 0 on success."""
+    if lease_dir is None:
+        lease_dir = DEFAULTS["PYTEST_LEASE_DIR"]
+    if max_lease_min is None:
+        max_lease_min = DEFAULTS["PYTEST_LEASE_MAX_MIN"]
     queue = load_queue(queue_path)
     if queue is None:
         return 1
@@ -411,6 +482,8 @@ def run_once(queue_path, heartbeats_dir, announce_script,
 
         claimable = count_claimable(queue, affinity)
         held_by_self = count_held_by_self(queue, affinity)
+        lease_held, lease_reason = read_lease(
+            lease_dir, affinity, max_lease_min)
         coord_row = coord_status.get(affinity)
         idle_ok, idle_reason = evaluate_heartbeat(
             heartbeats_dir, affinity, idle_grace_min, heartbeat_fresh_min,
@@ -424,9 +497,10 @@ def run_once(queue_path, heartbeats_dir, announce_script,
         worker_held[affinity] = held_by_self
 
         log("[%s affinity=%s] claimable=%d held_by_self=%d status=%s "
-            "idle_ok=%d reason=%s hb_src=%s"
+            "idle_ok=%d reason=%s hb_src=%s lease=%s"
             % (server_name, affinity, claimable, held_by_self, status,
-               idle_ok, idle_reason, hb_src))
+               idle_ok, idle_reason, hb_src,
+               "held" if lease_held else "none"))
 
         if status == "unknown":
             log("  -> server not provisioned yet, skipping")
@@ -478,6 +552,14 @@ def run_once(queue_path, heartbeats_dir, announce_script,
             # 2026-05-30 fleet incident guard.
             log("  -> worker holds %d active claim(s), keeping %s running"
                 % (held_by_self, server_name))
+
+        elif lease_held and status == "running":
+            # LEASE VETO. A worker doing non-queue work (remote pytest) is
+            # invisible to claimable / held_by_self / heartbeat-state, so
+            # without this it reads as clean_idle and gets shut down mid-run.
+            # Bounded by PYTEST_LEASE_MAX_MIN -- see read_lease.
+            log("  -> %s holds a work lease, keeping %s running (%s)"
+                % (affinity, server_name, lease_reason))
 
         elif (claimable == 0 and status == "running" and idle_ok == 1):
             log("  -> no matching work AND runner idle past grace "
@@ -580,6 +662,10 @@ def main(argv=None):
         dry_run=args.dry_run,
         coordinator_url=coordinator_url,
         coordinator_token=coordinator_token,
+        lease_dir=os.environ.get("PYTEST_LEASE_DIR")
+        or DEFAULTS["PYTEST_LEASE_DIR"],
+        max_lease_min=env_int("PYTEST_LEASE_MAX_MIN",
+                              DEFAULTS["PYTEST_LEASE_MAX_MIN"]),
     )
     return rc
 
