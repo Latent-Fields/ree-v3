@@ -63,7 +63,7 @@ ASCII-only in all runtime strings (repo rule).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from experiments._lib.capability_eval import COMPETENCE_RESOURCE_FLOOR
 import experiments._lib.mech457_explorer_classes as mech
@@ -170,6 +170,20 @@ class BootstrapExplorerConfig:
     # / H-retention-consolidation). OFF: False -> the scalar-MSE critic, byte-identical.
     use_distributional_critic: bool = False
 
+    # RETENTION TRAJECTORY PROBE (mech457_retention_trajectory_probe, 2026-07-19). Episode
+    # cadence for the non-perturbing mid-training competence probe. The competence_floor
+    # retention legs must read a post-installation competence TRAJECTORY rather than terminal
+    # competence (portfolio 2026-07-18 sec 53); terminal-only measurement is what kept the
+    # deficit invisible for ten legs. INSTRUMENTATION ONLY -- no update rule, loss term,
+    # schedule or value estimator changes, so it is orthogonal to all three manipulation knobs
+    # above. OFF: None -> no probe, empty trajectory, byte-identical.
+    # Declared in as_slice() for the same reason bc_aux_coef_end is: a varyable knob absent from
+    # the config_slice would let two materially different arms share an arm fingerprint. It is
+    # declared even though the probe cannot change the learned result, because a probed and an
+    # unprobed cell are not interchangeable ARTIFACTS -- only one carries the trajectory a
+    # consumer may later read.
+    retention_probe_every: Optional[int] = None
+
     def as_slice(self) -> Dict[str, Any]:
         """Config fields for the arm_fingerprint config_slice / manifest (declared)."""
         return {
@@ -194,6 +208,9 @@ class BootstrapExplorerConfig:
             "use_approach_primitive": bool(self.use_approach_primitive),
             "approach_coef": float(self.approach_coef),
             "use_distributional_critic": bool(self.use_distributional_critic),
+            "retention_probe_every": (
+                None if self.retention_probe_every is None else int(self.retention_probe_every)
+            ),
         }
 
 
@@ -260,6 +277,7 @@ def train_bootstrap_explorer(
     rep: mech.RepAgent, env: Any, seed: int, steps: int, arm_label: str,
     cfg: BootstrapExplorerConfig, denom: Optional[int] = None,
     bc_demo: Optional[Any] = None,
+    probe_fn: Optional[Callable[[int], Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Train the composed bootstrap explorer on `rep` (z_world cotrain or raw 5x5) for
     cfg.n_episodes episodes, returning the mech457_explorer_classes.train_a2c guard dict.
@@ -292,6 +310,17 @@ def train_bootstrap_explorer(
         raise ValueError(
             "train_bootstrap_explorer: a nonzero BC auxiliary weight (cfg.bc_aux_coef or "
             "cfg.bc_aux_coef_end) requires a bc_demo demonstrator."
+        )
+    # Retention trajectory probe: the cadence lives on the config (so it is fingerprint-declared)
+    # while the probe CLOSURE is passed by the driver (it needs a fresh env + the demonstrator-
+    # free eval policy, neither of which this module owns). Both-or-neither is enforced by
+    # train_a2c, which raises on a half-wired probe rather than silently returning an empty
+    # trajectory.
+    if (cfg.retention_probe_every is None) != (probe_fn is None):
+        raise ValueError(
+            "train_bootstrap_explorer: cfg.retention_probe_every and probe_fn must be supplied "
+            "together (got retention_probe_every=%r, probe_fn=%r)."
+            % (cfg.retention_probe_every, "set" if probe_fn is not None else None)
         )
     intrinsic = mech.RNDModule(rep.feature_dim) if cfg.use_rnd else None
     approach_drive = mech.resource_proximity if bool(cfg.use_approach_primitive) else None
@@ -332,6 +361,8 @@ def train_bootstrap_explorer(
         bc_aux_schedule=bc_aux_schedule,
         approach_drive=approach_drive,
         approach_coef=float(cfg.approach_coef),
+        probe_every=cfg.retention_probe_every,
+        probe_fn=probe_fn,
     )
 
 

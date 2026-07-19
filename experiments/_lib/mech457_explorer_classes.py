@@ -89,6 +89,7 @@ SLEEP DRIVER: none (no sleep loop; use_sleep_loop / sws_enabled / rem_enabled al
 from __future__ import annotations
 
 from collections import deque
+import random
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -588,6 +589,8 @@ def train_a2c(
     bc_aux_schedule: Optional[Callable[[int, int], float]] = None,
     approach_drive: Optional[Callable[[Dict[str, Any]], float]] = None,
     approach_coef: float = 0.0,
+    probe_every: Optional[int] = None,
+    probe_fn: Optional[Callable[[int], Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     # coef_schedule / entropy_schedule (MECH-457 bootstrap-explorer, 2026-07-16): OPTIONAL
     # training-progress schedules for the intrinsic coefficient and rollout entropy, computed
@@ -604,6 +607,34 @@ def train_a2c(
             "train_a2c: coef_schedule/entropy_schedule are mutually exclusive with mode_gate "
             "(schedule anneal vs utility-gate anneal); pass at most one."
         )
+    # probe_every / probe_fn (mech457_retention_trajectory_probe, 2026-07-19): OPTIONAL
+    # non-perturbing mid-training COMPETENCE PROBE. Every probe_every episodes, probe_fn(ep) is
+    # called at the episode boundary and its reading appended to the returned
+    # competence_trajectory. This is the MEASUREMENT prerequisite of the competence_floor
+    # retention legs (portfolio 2026-07-18 sec 53): every leg must record the post-installation
+    # competence TRAJECTORY, not terminal competence -- terminal-only measurement is what kept
+    # the retention deficit invisible for ten legs (V3-EXQ-780 the worked failure).
+    # INSTRUMENTATION ONLY: this changes no update rule, loss term, schedule or value estimator,
+    # so it cannot contaminate the three-way retention anti-alias (value estimator =
+    # mech457_distributional_critic / update constraint = mech457_policy_kl_anchor / auxiliary
+    # persistence = mech457_bc_aux_schedule). Both default None -> no call site and an empty
+    # trajectory, byte-identical to the pre-change callers.
+    # HALF-WIRED IS AN ERROR, not a silent no-op: one without the other means a caller asked for
+    # a trajectory and will silently receive an empty one (or configured a cadence that never
+    # fires) -- the degenerate-arm-read-as-a-verdict failure the distributional critic's
+    # raise-on-scalar-path guards against. Fail loudly on the config instead.
+    if (probe_every is None) != (probe_fn is None):
+        raise ValueError(
+            "train_a2c: probe_every and probe_fn must be supplied together "
+            "(got probe_every=%r, probe_fn=%r); a half-wired probe would yield an empty "
+            "competence_trajectory that is indistinguishable from a genuinely flat one."
+            % (probe_every, "set" if probe_fn is not None else None)
+        )
+    if probe_every is not None and int(probe_every) <= 0:
+        raise ValueError(
+            "train_a2c: probe_every must be a positive episode cadence (got %r)." % (probe_every,)
+        )
+    competence_trajectory: List[Dict[str, Any]] = []
     # bc_demo / bc_aux_coef (H-bc-prior, V3-EXQ-780): OPTIONAL persistent imitation AUXILIARY.
     # When bc_demo is set and bc_aux_coef>0, at each rollout step the demonstrator's action for
     # the (on-policy) visited state is recorded and a cross-entropy CE(actor_logits, demo_action)
@@ -814,6 +845,38 @@ def train_a2c(
                 flush=True,
             )
 
+        # Mid-training competence probe (mech457_retention_trajectory_probe). Fires at the
+        # EPISODE BOUNDARY -- after the optimiser step, the credit-replay sweep, the RND update
+        # and the deque appends -- so it observes a fully-settled episode and can touch none of
+        # the in-flight per-episode state.
+        #
+        # RNG ISOLATION. The probe's own consumption is already narrow: probe_fn is expected to
+        # build a SEPARATE env (CausalGridWorldV2 owns a per-instance np.random.default_rng, so
+        # it draws from no shared stream) and to evaluate through the deterministic-argmax
+        # ActorCriticEvalPolicy (no sampling). But "narrow" is not "none" -- that eval policy
+        # falls back to a GLOBAL np.random.randint when logits go non-finite, and nothing stops a
+        # future probe_fn from consuming torch RNG. An unguarded probe would then advance a
+        # shared stream and silently desynchronise training from the same run measured without a
+        # probe, which is exactly the confound a retention trajectory cannot tolerate. Snapshot
+        # and restore all three streams so measurement neutrality is a GUARANTEE rather than an
+        # observation about today's probe_fn.
+        if probe_every is not None and probe_fn is not None and cur % int(probe_every) == 0:
+            _torch_rng_state = torch.get_rng_state()
+            _np_rng_state = np.random.get_state()
+            _py_rng_state = random.getstate()
+            try:
+                reading = probe_fn(cur)
+            finally:
+                torch.set_rng_state(_torch_rng_state)
+                np.random.set_state(_np_rng_state)
+                random.setstate(_py_rng_state)
+            row: Dict[str, Any] = {"episode": int(cur)}
+            if isinstance(reading, dict):
+                row.update(reading)
+            else:
+                row["foraging_competence"] = float(reading)
+            competence_trajectory.append(row)
+
     mtf = float(sum(train_forage_recent) / len(train_forage_recent)) if train_forage_recent else 0.0
     mir = float(sum(intrinsic_recent) / len(intrinsic_recent)) if intrinsic_recent else 0.0
     mar = float(sum(approach_recent) / len(approach_recent)) if approach_recent else 0.0
@@ -825,6 +888,9 @@ def train_a2c(
         "mean_bc_aux_action_match_recent": round(mbm, 6),
         "bc_aux_coef_first": round(float(bc_coef_first), 6) if bc_coef_first is not None else None,
         "bc_aux_coef_last": round(float(bc_coef_last), 6),
+        # Emitted unconditionally (empty when unprobed), matching the bc_aux_coef_first/_last
+        # precedent: a consumer can then read one stable key rather than branching on presence.
+        "competence_trajectory": list(competence_trajectory),
         "n_return_episodes": int(n_returns),
         "n_credit_replay_passes": int(n_credit_passes),
     }
