@@ -623,7 +623,7 @@ if __name__ == "__main__":
 def test_r0o_partition_scoped_band_flagged():
     out = _lint(_PARTITION_SCOPED)
     assert out is not None
-    assert "SATURATION BAND" in out, out
+    assert "SATURATION GUARD" in out, out
     assert "baseline_entropy_headroom" in out, out
 
 
@@ -645,7 +645,7 @@ def test_r0p_band_over_unfiltered_collection_not_flagged():
         'all(E_SAT_LOW < r["S"] < E_SAT_HIGH for r in baseline_rows)',
         'all(E_SAT_LOW < r["S"] < E_SAT_HIGH for r in rows)')
     out = _lint(src)
-    assert out is None or "SATURATION BAND" not in out, out
+    assert out is None or "SATURATION GUARD" not in out, out
 
 
 def test_r0q_no_sibling_partition_not_flagged():
@@ -656,19 +656,145 @@ def test_r0q_no_sibling_partition_not_flagged():
         'all(r["lift"] >= FLOOR for r in t1_rows)',
         'all(r["lift"] >= FLOOR for r in rows)')
     out = _lint(src)
-    assert out is None or "SATURATION BAND" not in out, out
+    assert out is None or "SATURATION GUARD" not in out, out
 
 
-def test_r0r_one_sided_precondition_not_flagged():
-    """CONSERVATISM: a one-sided floor is not a saturation guard. Only a two-sided
-    band makes the 'can the readout still move' claim this branch is about."""
+def test_r0r_one_sided_floor_not_flagged():
+    """CONSERVATISM, and the load-bearing half of the ceiling/floor asymmetry.
+
+    A one-sided FLOOR is not a saturation guard: `S > LOW` asserts the readout is
+    above a minimum, which says nothing about whether it has room left to MOVE. A
+    one-sided CEILING is a saturation guard (test_r0t), and conflating the two is
+    exactly the over-generalisation that made this branch miss V3-EXQ-777. This test
+    pins the floor half -- it must keep NOT firing after the ceiling widening."""
     src = _PARTITION_SCOPED.replace(
         'all(E_SAT_LOW < r["S"] < E_SAT_HIGH for r in baseline_rows)',
         'all(r["S"] > E_SAT_LOW for r in baseline_rows)').replace(
         '"threshold_low": E_SAT_LOW,\n                "threshold_high": E_SAT_HIGH,',
         '"threshold": E_SAT_LOW,')
     out = _lint(src)
-    assert out is None or "SATURATION BAND" not in out, out
+    assert out is None or "SATURATION GUARD" not in out, out
+
+
+# ---------------------------------------------------------------------------
+# r0t-r0w: branch (e) widened to ONE-SIDED CEILINGS (2026-07-19).
+#
+# Branch (e) originally required _is_two_sided. The stated rationale -- "a one-sided
+# floor is not a saturation guard" -- is true of a FLOOR but was over-generalised to
+# CEILINGS, which are exactly saturation guards. Confirmed miss, same claim family:
+# v3_exq_777_mech063_orthogonal_control_axes_dissociation.py:441-444 scoped
+# `r["E_norm_entropy_mean"] < E_SAT_CEIL` to `baseline_rows` (arm == A0B0) with
+# `a1_rows` / `b1_rows` sibling partitions unchecked -- structurally identical to
+# 779b, and it did not fire. Note _is_two_sided is CORRECT to decline it: the
+# conjunction's two Compares have different subjects (E_norm_entropy_mean vs
+# D_action_mass_std), so it is not a band on one subject. The defect was branch (e)'s
+# two-sided requirement, not that predicate.
+#
+# Fire rate re-measured over all 1142 scripts in experiments/ after widening: 5 hits,
+# all `baseline_entropy_headroom` (779/779a/779b two-sided + 777/777a ceiling), zero
+# false positives -- so no name-substring or constant-name narrowing was needed.
+#
+# 777/777a have RUN. They are the detection witness, not files to repair: the lint is
+# WARN-only and gates NEW scripts, and retro-editing a completed run's pre-registered
+# emission is off-limits (user decision 2026-07-19, mean-vs-all lint).
+
+_PARTITION_SCOPED_CEILING = '''
+E_SAT_CEIL = 0.98
+FLOOR = 0.05
+
+
+def main():
+    rows = [
+        {"arm": "A0B0", "S": 0.61, "spread": 0.3, "lift": 0.2},
+        {"arm": "A1B0", "S": 0.97, "spread": 0.3, "lift": 0.2},
+        {"arm": "A1B1", "S": 0.97, "spread": 0.3, "lift": 0.2},
+    ]
+    a1_rows = [r for r in rows if r["arm"] != "A0B0"]
+    baseline_rows = [r for r in rows if r["arm"] == "A0B0"]
+    headroom = bool(baseline_rows) and all(
+        r["S"] < E_SAT_CEIL and r["spread"] > 0.0 for r in baseline_rows
+    )
+    axis_live = all(r["lift"] >= FLOOR for r in a1_rows)
+    interpretation = {
+        "preconditions": [
+            {
+                "name": "baseline_entropy_headroom",
+                "measured": min(r["S"] for r in baseline_rows),
+                "threshold": E_SAT_CEIL,
+                "direction": "upper",
+                "met": bool(headroom),
+            },
+        ],
+        "axis_live": axis_live,
+    }
+    return interpretation
+
+if __name__ == "__main__":
+    main()
+'''
+
+
+def test_r0t_partition_scoped_one_sided_ceiling_flagged():
+    """The V3-EXQ-777 shape: a baseline-scoped CEILING with unchecked sibling arms.
+
+    This is the whole point of the widening -- before it, this returned None."""
+    out = _lint(_PARTITION_SCOPED_CEILING)
+    assert out is not None
+    assert "SATURATION GUARD" in out, out
+    assert "baseline_entropy_headroom" in out, out
+
+
+def test_r0t2_ceiling_hit_gets_the_same_diagnostic_advice():
+    """The remedy for a ceiling hit is the same as for a band hit: the NON-GATING
+    per-arm diagnostic, never widening the precondition to all arms."""
+    out = _lint(_PARTITION_SCOPED_CEILING)
+    assert "NON-GATING diagnostic" in out, out
+    assert "per_arm_headroom" in out, out
+    assert "do NOT" in out and "widen the precondition" in out, out
+
+
+def test_r0u_ceiling_over_unfiltered_collection_not_flagged():
+    """CONSERVATISM carries over: a ceiling already covering every row guards nothing
+    less than the full collection, sibling partitions notwithstanding."""
+    src = _PARTITION_SCOPED_CEILING.replace(
+        'for r in baseline_rows\n    )', 'for r in rows\n    )')
+    out = _lint(src)
+    assert out is None or "SATURATION GUARD" not in out, out
+
+
+def test_r0v_ceiling_with_no_sibling_partition_not_flagged():
+    """CONSERVATISM carries over: one partition means no unchecked sibling arms."""
+    src = _PARTITION_SCOPED_CEILING.replace(
+        '    a1_rows = [r for r in rows if r["arm"] != "A0B0"]\n', '').replace(
+        'all(r["lift"] >= FLOOR for r in a1_rows)',
+        'all(r["lift"] >= FLOOR for r in rows)')
+    out = _lint(src)
+    assert out is None or "SATURATION GUARD" not in out, out
+
+
+def test_r0w_ceiling_branch_is_warn_only():
+    """INVARIANT: the widened branch never blocks either, in either mode."""
+    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False,
+                                     dir=str(EXPERIMENTS_DIR)) as f:
+        f.write(_PARTITION_SCOPED_CEILING)
+        name = f.name
+    try:
+        r = _run("--checks", "precondition_recomputability", "--quiet", "--strict",
+                 "--paths", name)
+        assert r.returncode == 0, r.stdout[-2000:]
+        assert "SATURATION GUARD" in r.stdout
+    finally:
+        os.unlink(name)
+
+
+def test_r0x_real_777_is_the_detection_witness():
+    """Pins the confirmed miss against the real file, not just a synthetic shape."""
+    real = EXPERIMENTS_DIR / "v3_exq_777_mech063_orthogonal_control_axes_dissociation.py"
+    if not real.exists():
+        return
+    out = V.precondition_recomputability_lint(real)
+    assert out is not None and "SATURATION GUARD" in out, out
+    assert "baseline_entropy_headroom" in out, out
 
 
 def test_r0s_partition_branch_is_warn_only():
@@ -681,6 +807,6 @@ def test_r0s_partition_branch_is_warn_only():
         r = _run("--checks", "precondition_recomputability", "--quiet", "--strict",
                  "--paths", name)
         assert r.returncode == 0, r.stdout[-2000:]
-        assert "SATURATION BAND" in r.stdout
+        assert "SATURATION GUARD" in r.stdout
     finally:
         os.unlink(name)

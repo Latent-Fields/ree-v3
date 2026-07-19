@@ -638,6 +638,40 @@ def _is_two_sided(node: ast.expr) -> bool:
     return False
 
 
+def _is_one_sided_ceiling(node: ast.expr) -> bool:
+    """True when an expression contains a ONE-SIDED CEILING on a row-subscript.
+
+    Branch (e)'s second admissible saturation shape, alongside `_is_two_sided`. A
+    CEILING (`r[K] < HIGH` / `<=`) is exactly a saturation guard: it asserts the
+    readout has not pinned to its upper bound. A FLOOR (`>` / `>=`) is NOT -- it
+    asserts the readout is above some minimum, which says nothing about headroom --
+    and must never match here. That asymmetry is the whole point of this predicate:
+    branch (e) originally required `_is_two_sided`, whose stated rationale ("a
+    one-sided floor is not a saturation guard") is true of a floor but was
+    over-generalised to ceilings, so it missed V3-EXQ-777/777a.
+
+    The subject must be an ast.Subscript (`r["E_norm_entropy_mean"]`), i.e. a
+    PER-ROW readout rather than a scalar aggregate. Measured over the full 1142-script
+    corpus 2026-07-19, dropping this requirement changes nothing (both variants fire
+    on exactly the same 5 scripts), so it is free prospective conservatism rather
+    than a restriction paid for today: an upper bound on a scalar (`sd < X`) is
+    usually a tolerance, not a headroom guard.
+
+    Deliberately does NOT require the bound to be a `*_SAT_*`/`*_CEIL*` constant nor
+    the precondition name to contain "headroom"/"saturation". Those narrowings were
+    held in reserve for a noisy fire rate that did not materialise -- the real
+    narrowing work is done by branch (e)'s other three conjuncts (filtered partition
+    of a bare-Name source, sibling partitions exist, band does not also cover the
+    unfiltered source), which is why the widened branch adds only 2 hits corpus-wide.
+    """
+    for sub in ast.walk(node):
+        if (isinstance(sub, ast.Compare) and len(sub.ops) == 1
+                and isinstance(sub.ops[0], _HIGH_OPS)
+                and isinstance(sub.left, ast.Subscript)):
+            return True
+    return False
+
+
 def _filtered_subsets(tree: ast.Module) -> Dict[str, Tuple[str, str]]:
     """Map `X = [r for r in SRC if COND]` -> {X: (SRC, dump(COND))}, for branch (e).
 
@@ -727,11 +761,14 @@ def precondition_recomputability_lint(path: Path) -> Optional[str]:
           past it. V3-EXQ-779b `tonic_axis_live` is the worked case. Note the shared-
           variable test below is INVERTED for (d): sharing the collection is what
           proves both sides read the same rows, so it is required, not exempting.
-      (e) checks a TWO-SIDED SATURATION BAND against only ONE partition of a row
-          collection while SIBLING partitions of that same collection exist unchecked --
-          so the readout is guaranteed to have room to move on the arm that was measured
-          and is entirely unguarded on the arms that carry the manipulation
-          (V3-EXQ-779b baseline_entropy_headroom; autopsy 2026-07-19 section 7).
+      (e) checks a SATURATION GUARD -- a two-sided band OR a one-sided CEILING on a
+          row readout -- against only ONE partition of a row collection while SIBLING
+          partitions of that same collection exist unchecked, so the readout is
+          guaranteed to have room to move on the arm that was measured and is entirely
+          unguarded on the arms that carry the manipulation (V3-EXQ-779b and V3-EXQ-777
+          baseline_entropy_headroom; autopsy 2026-07-19 section 7). A one-sided FLOOR is
+          NOT a saturation guard and never fires -- the ceiling/floor asymmetry is the
+          load-bearing distinction, see _is_one_sided_ceiling.
 
     The shared-variable test is what keeps (b) conservative and is why the post-fix 726
     goes silent: there `measured = round(latch_seeds_frac, 4)` and `met` resolves to
@@ -789,19 +826,38 @@ def precondition_recomputability_lint(path: Path) -> Optional[str]:
         # band-checked. Seed 23 passed at baseline 0.6093 with its tonic-ON arms at
         # 0.8489 / 0.8587 against E_SAT_HIGH = 0.98.
         #
+        # V3-EXQ-777 is the ONE-SIDED CEILING case, and the reason the original
+        # two-sided-only form was too narrow: `r["E_norm_entropy_mean"] < E_SAT_CEIL`
+        # over `baseline_rows = [r for r in rows if r["arm"] == "A0B0"]`, with
+        # `a1_rows` / `b1_rows` unchecked -- structurally identical to 779b but with a
+        # bare ceiling instead of a band. (`_is_two_sided` correctly declines it: the
+        # conjunction's two Compares have DIFFERENT subjects -- E_norm_entropy_mean vs
+        # D_action_mass_std -- so it is not a band on one subject. The gap was branch
+        # (e)'s two-sided REQUIREMENT, not that predicate.)
+        #
         # Four conjuncts keep it narrow:
-        #   1. the resolved `met` is a genuine two-sided band (a one-sided floor is
-        #      not a saturation guard and must never fire),
+        #   1. the resolved `met` is a genuine two-sided band OR a one-sided CEILING
+        #      on a row-subscript (a one-sided FLOOR is not a saturation guard and
+        #      must never fire -- see _is_one_sided_ceiling),
         #   2. it ranges over a name that is a single-condition filtered subset of a
         #      bare-Name source collection,
         #   3. that same source has at least one OTHER subset with a DIFFERENT
         #      condition -- i.e. sibling partitions demonstrably exist, and
         #   4. `met` does not also reference the unfiltered source directly, which
         #      would mean the band already covers every row.
+        #
+        # Fire rate measured over all 1142 scripts in experiments/ before widening
+        # (2026-07-19): 5 hits, all named `baseline_entropy_headroom` -- the 3
+        # pre-existing two-sided (779/779a/779b) plus exactly 2 new ceilings
+        # (777/777a). No false positives to narrow away, so the reserve narrowings
+        # (name must contain "headroom"/"saturation"; bound must be a `*_SAT_*`
+        # constant) were NOT applied. Re-measure if this branch is widened again: a
+        # check that fires on judgement calls gets routed around, which is worse than
+        # no check at all.
         met_node_e = fields.get("met")
         if met_node_e is not None:
             resolved_e = _resolve_one_level(met_node_e, tree)
-            if _is_two_sided(resolved_e):
+            if _is_two_sided(resolved_e) or _is_one_sided_ceiling(resolved_e):
                 e_names, _ = _expr_atoms(resolved_e)
                 for sub_name in sorted(e_names & set(subsets)):
                     src, cond = subsets[sub_name]
@@ -880,17 +936,21 @@ def precondition_recomputability_lint(path: Path) -> Optional[str]:
     if partition_scoped:
         parts.append(
             "precondition(s) " + ", ".join(sorted(set(partition_scoped)))
-            + " check a TWO-SIDED SATURATION BAND against only ONE partition of the row "
-              "collection while SIBLING partitions of that same collection exist "
-              "unchecked. A headroom band certifies that the readout can still MOVE -- "
-              "but the MANIPULATION is what pushes it toward a bound, so scoping the band "
+            + " check a SATURATION GUARD (a two-sided band, or a one-sided CEILING on a "
+              "row readout) against only ONE partition of the row collection while "
+              "SIBLING partitions of that same collection exist unchecked. A headroom "
+              "guard certifies that the readout can still MOVE -- "
+              "but the MANIPULATION is what pushes it toward a bound, so scoping the guard "
               "to the baseline partition inspects the arm LEAST likely to saturate and "
               "leaves the effect-carrying arms entirely unguarded. V3-EXQ-779b "
               "baseline_entropy_headroom is the worked case: it ranged over "
               "`baseline_rows` (arm == T0P0) while `t1_rows` / `p1_rows` were never "
               "band-checked, so seed 23 reported met=True at baseline 0.6093 with its "
               "tonic-ON arms at 0.8489 / 0.8587 against E_SAT_HIGH = 0.98 -- an "
-              "unguarded near-ceiling exposure that surfaced only in autopsy. FIX: do NOT "
+              "unguarded near-ceiling exposure that surfaced only in autopsy. V3-EXQ-777 "
+              "is the same defect in one-sided form: `r[\"E_norm_entropy_mean\"] < "
+              "E_SAT_CEIL` over the A0B0 partition with `a1_rows` / `b1_rows` unchecked. "
+              "A one-sided FLOOR is NOT a saturation guard and does not fire. FIX: do NOT "
               "widen the precondition to all arms -- a saturating TREATMENT arm is not a "
               "substrate-readiness failure and self-routing it as one mislabels the cause "
               "(the substrate was ready; the manipulation exceeded the readout's dynamic "
