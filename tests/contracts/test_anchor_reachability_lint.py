@@ -242,3 +242,213 @@ def test_a15_selector_is_surgical():
     r = _run("--checks", "anchor_reachability", "--quiet", "--paths", str(_D778))
     assert r.returncode == 0
     assert "0 non-conforming" in r.stdout
+
+
+# ---- (4) the SECOND exemption category: already-ran-and-superseded ----------
+#
+# WHY THIS EXISTS. Before 2026-07-19 the only opt-out was ANCHOR_REACHABILITY_EXEMPT,
+# framed narrowly ("the predicate IS the degeneracy definition") but implemented as a
+# free-text marker that silences the lint regardless of what the reason says. That
+# single category does not cover a script which HAS the defect, has ALREADY RUN, and
+# whose repair belongs in a successor EXQ letter -- an in-place guard would force a
+# threshold change that retroactively alters what its recorded evidence means.
+#
+# Reaching for EXEMPT there is the documented error: it makes an unrepaired defect
+# indistinguishable from a fixed one. ANCHOR_REACHABILITY_SUPERSEDED records the status
+# machine-readably and pointedly does NOT suppress -- the tests below pin BOTH halves of
+# that (status readable; warning still fires).
+
+_SUPERSEDED_SRC = (
+    'ANCHOR_REACHABILITY_SUPERSEDED = "repaired in V3-EXQ-778h; already ran"\n'
+    + _ANCHOR_UNGUARDED
+)
+
+
+def test_a16_superseded_marker_does_NOT_suppress_the_warning():
+    """THE LOAD-BEARING CONTRACT. SUPERSEDED annotates; only EXEMPT silences.
+
+    If this inverts, an already-ran defective anchor goes quiet and becomes
+    indistinguishable from a repaired one -- which is exactly the 2026-07-19 mistake
+    this whole category exists to prevent.
+    """
+    issue = _lint(_SUPERSEDED_SRC)
+    assert issue is not None, (
+        "ANCHOR_REACHABILITY_SUPERSEDED must NOT silence the lint -- the defect is "
+        "real, it is merely not repairable in place")
+    assert "null_zero_anchor_reproduces_control_signature" in issue
+
+
+def test_a17_superseded_status_is_machine_readable():
+    """The status is a parsed payload, not a free-text string a human must read."""
+    src = _SUPERSEDED_SRC
+    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False,
+                                     dir=str(EXPERIMENTS_DIR)) as f:
+        f.write(src)
+        name = f.name
+    try:
+        sup = V.anchor_supersession_lint(Path(name))
+    finally:
+        os.unlink(name)
+    assert sup is not None
+    assert "778h" in sup["reason"]
+    assert sup["lineage_ok"] is True, "reason names V3-EXQ-778h, so lineage is checkable"
+    assert sup["note"] is None
+
+
+def test_a18_no_marker_means_no_supersession_payload():
+    """SILENT DIRECTION: an ordinary unguarded anchor declares no supersession."""
+    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False,
+                                     dir=str(EXPERIMENTS_DIR)) as f:
+        f.write(_ANCHOR_UNGUARDED)
+        name = f.name
+    try:
+        assert V.anchor_supersession_lint(Path(name)) is None
+    finally:
+        os.unlink(name)
+
+
+def test_a19_superseded_without_a_named_successor_is_flagged():
+    """A supersession claim naming no successor is unfalsifiable prose -> note set.
+
+    Advisory only: 778d itself carries no SUPERSEDES constant despite genuinely being
+    superseded, so absence is a smell, not a proof. The lint still fires either way.
+    """
+    src = ('ANCHOR_REACHABILITY_SUPERSEDED = "fixed elsewhere, trust me"\n'
+           + _ANCHOR_UNGUARDED)
+    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False,
+                                     dir=str(EXPERIMENTS_DIR)) as f:
+        f.write(src)
+        name = f.name
+    try:
+        sup = V.anchor_supersession_lint(Path(name))
+    finally:
+        os.unlink(name)
+    assert sup is not None
+    assert sup["lineage_ok"] is False
+    assert sup["note"] is not None and "no successor" in sup["note"]
+
+
+def test_a20_supersedes_constant_satisfies_the_cross_check():
+    """The corpus's existing SUPERSEDES constant is accepted as the successor id."""
+    src = ('ANCHOR_REACHABILITY_SUPERSEDED = "fixed elsewhere"\n'
+           'SUPERSEDES = "V3-EXQ-778h"\n' + _ANCHOR_UNGUARDED)
+    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False,
+                                     dir=str(EXPERIMENTS_DIR)) as f:
+        f.write(src)
+        name = f.name
+    try:
+        sup = V.anchor_supersession_lint(Path(name))
+    finally:
+        os.unlink(name)
+    assert sup is not None
+    assert sup["lineage"]["SUPERSEDES"] == "V3-EXQ-778h"
+    assert sup["lineage_ok"] is True
+    assert sup["note"] is None
+
+
+def test_a21_exempt_still_silences_and_the_two_markers_are_distinct():
+    """REGRESSION GUARD ON THE DISTINCTION ITSELF.
+
+    Fails if someone 'unifies' the two markers -- in either direction. EXEMPT must keep
+    silencing (it means 'no defect'); SUPERSEDED must keep warning (it means 'real
+    defect, repaired elsewhere').
+    """
+    exempt_src = 'ANCHOR_REACHABILITY_EXEMPT = "predicate IS the definition"\n' + _ANCHOR_UNGUARDED
+    assert _lint(exempt_src) is None, "EXEMPT must still silence"
+    assert _lint(_SUPERSEDED_SRC) is not None, "SUPERSEDED must still warn"
+
+
+# ---- (5) the lint-specimen guard -------------------------------------------
+
+def test_a22_specimen_registry_matches_the_files_these_tests_depend_on():
+    """The registry must name exactly the corpus files asserted on above.
+
+    This is the discoverability contract: a file whose lint status these tests pin MUST
+    be findable from the SCRIPT side. If someone adds a new real-corpus assertion here
+    without registering the file, the guard would silently not cover it.
+    """
+    assert _D778.name in V._LINT_SPECIMEN_FILES
+    assert _H778.name in V._LINT_SPECIMEN_FILES
+    for reason in V._LINT_SPECIMEN_FILES.values():
+        assert "test_anchor_reachability_lint.py" in reason, (
+            "each specimen entry must name the test file that depends on it")
+
+
+def test_a23_the_778d_specimen_is_unmarked_and_still_warns():
+    """LIVE STATE: 778d carries neither marker, so the canary is audible.
+
+    Pairs with a11/a14. Those assert the lint fires; this asserts WHY it still can --
+    no marker has crept onto the specimen.
+    """
+    if not _D778.exists():
+        return
+    src = _D778.read_text(encoding="utf-8")
+    assert "ANCHOR_REACHABILITY_EXEMPT" not in src, (
+        "778d must never be exempted -- it is the gate's own regression specimen "
+        "(confirmed 2026-07-19: an exemption here broke a11 + a14)")
+    assert V.anchor_specimen_lint(_D778) is None, "unmarked specimen -> no guard warning"
+    assert V.anchor_reachability_lint(_D778) is not None
+
+
+def test_a24_marking_a_specimen_fires_the_guard():
+    """FIRES DIRECTION: a marker on a registered specimen produces a loud warning."""
+    if not _D778.exists():
+        return
+    marked = 'ANCHOR_REACHABILITY_EXEMPT = "already ran, superseded by 778h"\n' + \
+        _D778.read_text(encoding="utf-8")
+    # Write into a TEMP DIR under the specimen's own NAME -- the registry keys on the
+    # basename, so this exercises the guard without ever touching the real corpus file
+    # (these are shared multi-session checkouts; mutating a tracked file in a test that
+    # might crash mid-run is how you hand the next session a dirty tree).
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td) / _D778.name
+        tmp.write_text(marked, encoding="utf-8")
+        warn = V.anchor_specimen_lint(tmp)
+        assert warn is not None
+        assert "LINT SPECIMEN" in warn
+        assert "test_anchor_reachability_lint" in warn
+        # and the exemption really would have silenced the gate -- which is the harm
+        assert V.anchor_reachability_lint(tmp) is None
+
+
+def test_a25_specimen_guard_silent_on_unregistered_files():
+    """SILENT DIRECTION: the guard is scoped to the registry, not to all markers."""
+    src = 'ANCHOR_REACHABILITY_EXEMPT = "predicate IS the definition"\n' + _ANCHOR_UNGUARDED
+    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False,
+                                     dir=str(EXPERIMENTS_DIR)) as f:
+        f.write(src)
+        name = f.name
+    try:
+        assert V.anchor_specimen_lint(Path(name)) is None
+    finally:
+        os.unlink(name)
+
+
+def test_a26_superseded_marker_on_a_specimen_also_warns_but_stays_audible():
+    """Both halves at once, on the real specimen: annotated AND still warning."""
+    if not _D778.exists():
+        return
+    marked = 'ANCHOR_REACHABILITY_SUPERSEDED = "V3-EXQ-778h"\n' + \
+        _D778.read_text(encoding="utf-8")
+    with tempfile.TemporaryDirectory() as td:  # never mutate the real corpus file
+        tmp = Path(td) / _D778.name
+        tmp.write_text(marked, encoding="utf-8")
+        assert V.anchor_specimen_lint(tmp) is not None, "annotating a specimen is worth flagging"
+        assert V.anchor_reachability_lint(tmp) is not None, (
+            "SUPERSEDED must leave the specimen's warning audible -- this is what makes "
+            "it a safe marker to apply to 778d, unlike EXEMPT")
+
+
+def test_a27_module_level_only_a_marker_inside_a_function_is_not_a_declaration():
+    """A string mentioning the marker in a docstring/body is not a declaration."""
+    src = _ANCHOR_UNGUARDED.replace(
+        "def main():",
+        "def main():\n    _note = 'see ANCHOR_REACHABILITY_SUPERSEDED for the policy'", 1)
+    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False,
+                                     dir=str(EXPERIMENTS_DIR)) as f:
+        f.write(src)
+        name = f.name
+    try:
+        assert V.anchor_supersession_lint(Path(name)) is None
+    finally:
+        os.unlink(name)

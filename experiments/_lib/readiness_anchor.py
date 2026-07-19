@@ -85,12 +85,41 @@ Two rules for a population-readiness anchor:
    scores exactly at its gate flips to unmeetable on any seed-level drift. Either set
    a margin, or record an explicit comment that the zero margin is known and intended.
 
-Known-defective instances, recorded but NOT fixed (lineage blocked, all five already
-ran -- a fix needs a new EXQ letter, not an in-place edit): the `591b/c/d/e/f`
-ISEF-005 family's `early_policy_produces_nontrivial_h_pos` (rule 3) and `591d/e/f`'s
-`false_advancer_present` (rule 4, zero margin on a 0.06-nat threshold). See
-`REE_assembly/evidence/planning/infant_substrate_plan.md` `infant_substrate:GAP-14`
-governance_2026_07_18.
+ALREADY-RAN DEFECTS: RECORD THEM, DO NOT SILENCE THEM
+-----------------------------------------------------
+A script that HAS one of these defects, has ALREADY RUN, and whose repair belongs in a
+successor EXQ letter is a THIRD status, distinct from both "guarded" and "exempt".
+Adding a guard in place would force a threshold or predicate change that RETROACTIVELY
+ALTERS WHAT THE RECORDED EVIDENCE MEANS: the manifest on disk was produced by the
+shipped predicate, and a repaired predicate no longer describes it. So the old script
+must keep its defect exactly as it ran.
+
+Declare that with `ANCHOR_REACHABILITY_SUPERSEDED = "<successor EXQ + reason>"`.
+
+    NOT `ANCHOR_REACHABILITY_EXEMPT`. EXEMPT means "there is no defect -- reachability
+    holds by construction", and it SILENCES the lint. Using it here makes an unrepaired
+    defect indistinguishable from a fixed one. SUPERSEDED deliberately does NOT silence
+    the warning: it annotates it with the successor, so the backlog stays visible and
+    stays triageable. Confirmed error, 2026-07-19: V3-EXQ-778d was given an EXEMPT on
+    exactly these grounds. The reasoning was defensible and the reason string was
+    specific; it was still wrong, and it silenced the anchor-reachability gate's own
+    live regression specimen (breaking two contract tests). It was reverted -- 778d
+    deliberately keeps its warning.
+
+Known-defective instances, recorded but NOT fixed (lineage blocked, already ran -- a fix
+needs a new EXQ letter, not an in-place edit):
+
+  * the `591b/c/d/e/f` ISEF-005 family's `early_policy_produces_nontrivial_h_pos`
+    (rule 3) and `591d/e/f`'s `false_advancer_present` (rule 4, zero margin on a
+    0.06-nat threshold). See
+    `REE_assembly/evidence/planning/infant_substrate_plan.md` `infant_substrate:GAP-14`
+    governance_2026_07_18.
+  * `v3_exq_sd068_rem_unpaired_null_diagnostic.py` V3-EXQ-778d -- the originating
+    instance described at the top of this file, superseded by V3-EXQ-778h
+    (`v3_exq_sd068_rem_unpaired_null_anchorfix_diagnostic.py`). It additionally serves
+    as the live regression specimen for the lint, so its warning is load-bearing;
+    `validate_experiments._LINT_SPECIMEN_FILES` records that and warns anyone about to
+    mark it.
 
 ASCII-only output (Windows runner terminals).
 """

@@ -23,9 +23,10 @@ from __future__ import annotations
 
 import argparse
 import ast
+import re
 import sys
 from pathlib import Path
-from typing import List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parent
 EXPERIMENTS_DIR = REPO_ROOT / "experiments"
@@ -348,6 +349,67 @@ _MANIFEST_IDENTITY_TOKENS = ("run_id", "evidence_direction")
 # reproduction check, where the predicate IS the degeneracy definition).
 _ANCHOR_GUARD_NAMES = ("assert_anchor_reachable", "score_reference")
 _ANCHOR_REACHABILITY_EXEMPT_MARKER = "ANCHOR_REACHABILITY_EXEMPT"
+
+# THE SECOND CATEGORY: already-ran-and-superseded. -----------------------------------
+#
+# EXEMPT says "there is no defect here -- reachability holds by construction". That is
+# the ONLY thing it should ever say, and it is why EXEMPT silences the lint outright.
+#
+# A different and equally real case has no marker at all: a script that HAS the defect,
+# has ALREADY RUN, and whose repair correctly lives in a successor EXQ letter rather
+# than an in-place edit. Editing such a script to add a guard would force a threshold or
+# predicate change that RETROACTIVELY ALTERS WHAT ITS RECORDED EVIDENCE MEANS -- the
+# manifest on disk was produced by the shipped predicate, and a repaired predicate no
+# longer describes it. So the correct repair is a new letter, and the old script must
+# keep its defect exactly as it ran. Worked examples: the `591b/c/d/e/f` ISEF-005 family
+# (readiness_anchor.py rules 3+4, lineage blocked) and V3-EXQ-778d (superseded by 778h).
+#
+# ANCHOR_REACHABILITY_SUPERSEDED records that status MACHINE-READABLY. Critically it
+# does *NOT* silence the lint, because the defect is REAL -- it is merely not actionable
+# in place. The warning still fires and still counts; it is annotated with its successor
+# so a reader can tell "unrepaired backlog" from "repaired in a successor" without
+# parsing a free-text reason. Silencing here would repeat the 2026-07-19 mistake in a
+# new costume: an already-ran defective anchor whose warning has gone quiet is
+# indistinguishable from one that was actually fixed.
+_ANCHOR_REACHABILITY_SUPERSEDED_MARKER = "ANCHOR_REACHABILITY_SUPERSEDED"
+# Lineage constants the corpus already uses; a SUPERSEDED marker should agree with them.
+_ANCHOR_LINEAGE_NAMES = ("SUPERSEDES", "SUPERSEDES_RUN_ID")
+
+# LINT-SPECIMEN REGISTRY -------------------------------------------------------------
+#
+# Some corpus files are load-bearing for the lint's OWN contract tests: they are the
+# live regression specimens that prove the gate still fires on the defect that motivated
+# it. Exempting one silences the canary and breaks those tests.
+#
+# This is not hypothetical. On 2026-07-19, closing the SD-068 anchor warnings, an
+# ANCHOR_REACHABILITY_EXEMPT was added to `v3_exq_sd068_rem_unpaired_null_diagnostic.py`
+# on defensible already-ran-and-superseded grounds -- and broke
+# `test_a11_fires_on_the_778d_defect` + `test_a14_warn_only_under_paths_and_strict`,
+# because 778d IS the specimen. Nothing in the lint said so; it was caught only by
+# running the full suite, and reverted.
+#
+# The dependency was always deliberate (the tests carry an explicit
+# `if not _D778.exists(): return  # script retired` retirement hatch) -- it just was not
+# discoverable from the SCRIPT's side. This registry makes it discoverable, and
+# `anchor_specimen_lint` makes it LOUD at the moment an author reaches for a marker.
+_LINT_SPECIMEN_FILES = {
+    "v3_exq_sd068_rem_unpaired_null_diagnostic.py": (
+        "the live regression specimen for the anchor-reachability gate itself "
+        "(V3-EXQ-778d, the confirmed originating defect). "
+        "tests/contracts/test_anchor_reachability_lint.py::test_a11_fires_on_the_778d_defect "
+        "and ::test_a14_warn_only_under_paths_and_strict both assert this file STILL "
+        "warns. It is superseded by V3-EXQ-778h "
+        "(v3_exq_sd068_rem_unpaired_null_anchorfix_diagnostic.py), which is the "
+        "specimen for the SILENT direction (::test_a12_silent_on_the_778h_fix)"
+    ),
+    "v3_exq_sd068_rem_unpaired_null_anchorfix_diagnostic.py": (
+        "the live regression specimen for the anchor-reachability gate's SILENT "
+        "direction (V3-EXQ-778h, the repaired successor). "
+        "tests/contracts/test_anchor_reachability_lint.py::test_a12_silent_on_the_778h_fix "
+        "asserts this file does NOT warn -- i.e. that its assert_anchor_reachable guard "
+        "stays in place. Removing the guard would break that contract"
+    ),
+}
 # The self-route labels that make an unmeetable anchor CONSEQUENTIAL. Note this is
 # deliberately WIDER than SUBSTRATE_VERDICT_LABELS: the motivating defect (778d) does
 # NOT route to any of those labels -- it routes to `substrate_not_ready_requeue`, which
@@ -393,6 +455,129 @@ def _anchor_kind_preconditions(tree: ast.Module) -> List[str]:
     return anchors
 
 
+def _module_marker_strings(tree: ast.Module, marker: str) -> List[str]:
+    """Values of module-level `<marker> = "..."` assignments, in source order.
+
+    Returns [] when the marker is absent, and [""] when it is present but not a plain
+    string literal (assigned from an f-string, a call, a name...). The caller can then
+    distinguish "no marker" from "marker with an unreadable reason".
+    """
+    out: List[str] = []
+    for node in tree.body:  # module level only -- a marker inside a function is not a declaration
+        if not isinstance(node, ast.Assign):
+            continue
+        for tgt in node.targets:
+            if isinstance(tgt, ast.Name) and tgt.id == marker:
+                val = node.value
+                out.append(val.value if isinstance(val, ast.Constant)
+                           and isinstance(val.value, str) else "")
+    return out
+
+
+def anchor_supersession_lint(path: Path) -> Optional[Dict[str, Any]]:
+    """Machine-readable already-ran-and-superseded status for an anchor-kind script.
+
+    Returns None when the script makes no supersession declaration. Otherwise a dict:
+
+        {"reason": <the marker's string>,          # "" if not a plain literal
+         "lineage": {"SUPERSEDES": "V3-EXQ-778h", ...},   # cross-checked constants
+         "lineage_ok": bool,                        # a successor id was actually found
+         "note": <str or None>}                     # cross-check complaint, if any
+
+    WHY THIS IS A SEPARATE FUNCTION FROM THE LINT, AND WHY IT DOES NOT SUPPRESS.
+    `anchor_reachability_lint` answers "is there an unguarded anchor here" -- a property
+    of the CODE. This answers "is the defect repairable in place" -- a property of the
+    script's LINEAGE. They are orthogonal, and collapsing them is what produced the
+    2026-07-19 mistake: a superseded script was treated as an exempt one, its warning
+    went quiet, and the gate's own regression specimen was silenced. So the two are
+    reported side by side and the warning is annotated, never withdrawn.
+
+    THE CROSS-CHECK. A SUPERSEDED declaration asserts a successor exists. The corpus
+    already encodes lineage in `SUPERSEDES` / `SUPERSEDES_RUN_ID` module constants, so
+    the claim is checkable: if neither constant is present AND the marker's reason names
+    no `V3-EXQ-*` / `*_v3` successor, the declaration is unfalsifiable prose and says so
+    in `note`. That is advisory -- 778d itself carries no SUPERSEDES constant despite
+    genuinely being superseded by 778h, so absence is a smell, not a proof.
+
+    Static module-level scan only, same limitation class as the other lints.
+    """
+    try:
+        src = path.read_text(encoding="utf-8")
+        tree = ast.parse(src, filename=str(path))
+    except (OSError, UnicodeDecodeError, SyntaxError):
+        return None
+
+    declared = _module_marker_strings(tree, _ANCHOR_REACHABILITY_SUPERSEDED_MARKER)
+    if not declared:
+        return None
+    reason = declared[0]
+
+    lineage: Dict[str, Any] = {}
+    for const in _ANCHOR_LINEAGE_NAMES:
+        vals = _module_marker_strings(tree, const)
+        if vals and vals[0]:
+            lineage[const] = vals[0]
+
+    names_a_successor = bool(re.search(r"V3-EXQ-[0-9]+[a-z]*|v3_exq_[0-9]+[a-z]*", reason))
+    lineage_ok = bool(lineage) or names_a_successor
+
+    note: Optional[str] = None
+    if not reason:
+        note = (f"{_ANCHOR_REACHABILITY_SUPERSEDED_MARKER} is not a plain string literal; "
+                "the successor EXQ + reason cannot be read statically. Assign a literal.")
+    elif not lineage_ok:
+        note = (f"{_ANCHOR_REACHABILITY_SUPERSEDED_MARKER} names no successor: its reason "
+                "matches no V3-EXQ-* / v3_exq_* id and the script declares neither "
+                + " nor ".join(_ANCHOR_LINEAGE_NAMES)
+                + ". A supersession claim that does not identify its successor cannot be "
+                "checked, and is exactly the free-text opacity this marker exists to "
+                "replace. Add SUPERSEDES = \"V3-EXQ-<letter>\" (the corpus convention) "
+                "or name the successor in the reason.")
+
+    return {"reason": reason, "lineage": lineage, "lineage_ok": lineage_ok, "note": note}
+
+
+def anchor_specimen_lint(path: Path) -> Optional[str]:
+    """Loud warning when a marker is applied to a file the lint's own tests depend on.
+
+    A lint specimen is a real corpus file whose CURRENT lint status is asserted by
+    `tests/contracts/test_anchor_reachability_lint.py`. Marking one exempt (or removing
+    its guard) silences the gate's canary and breaks those contracts. Returns a warning
+    string when a marker is present on a registered specimen, else None.
+
+    This fires on ANY marker, including ANCHOR_REACHABILITY_SUPERSEDED -- even though
+    SUPERSEDED does not itself suppress the warning. The point is not "this WILL break
+    the tests"; it is "you are about to annotate the gate's own specimen, and the next
+    step in that reasoning is usually to silence it". The 2026-07-19 mistake was
+    precisely that reasoning chain, and it was defensible right up to the point it
+    broke two contracts.
+    """
+    if path.name not in _LINT_SPECIMEN_FILES:
+        return None
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    except (OSError, UnicodeDecodeError, SyntaxError):
+        return None
+
+    present = [m for m in (_ANCHOR_REACHABILITY_EXEMPT_MARKER,
+                           _ANCHOR_REACHABILITY_SUPERSEDED_MARKER)
+               if _module_marker_strings(tree, m)]
+    if not present:
+        return None
+
+    return ("carries " + " + ".join(present) + ", but THIS FILE IS A LINT SPECIMEN: "
+            + _LINT_SPECIMEN_FILES[path.name] + ". "
+            "Confirm the change against tests/contracts/test_anchor_reachability_lint.py "
+            "before landing it -- an ANCHOR_REACHABILITY_EXEMPT here SILENCES the gate's "
+            "own regression canary and WILL fail those contracts (confirmed 2026-07-19: "
+            "an exemption added on defensible already-ran-and-superseded grounds broke "
+            "a11 + a14 and was reverted). If the script is genuinely retired, delete it "
+            "-- the tests carry an explicit `if not <path>.exists(): return` hatch for "
+            "that -- and drop it from _LINT_SPECIMEN_FILES in validate_experiments.py. "
+            "If it merely needs its already-ran status recorded, "
+            "ANCHOR_REACHABILITY_SUPERSEDED does that WITHOUT silencing the warning.")
+
+
 def anchor_reachability_lint(path: Path) -> Optional[str]:
     """Readiness-anchor reachability check. Return a warning string, or None.
 
@@ -409,9 +594,23 @@ def anchor_reachability_lint(path: Path) -> Optional[str]:
     guaranteed false negative that is indistinguishable, in the manifest, from a real
     substrate limitation (V3-EXQ-778d; autopsy sec 2, Learning 1).
 
-    Opt-out: ANCHOR_REACHABILITY_EXEMPT = "<reason>" -- appropriate when the predicate
-    IS the degeneracy definition (an exact-equality / structural reproduction check),
-    so reachability holds by construction and a replay would be tautological.
+    TWO MARKERS, AND THEY ARE NOT INTERCHANGEABLE:
+
+      ANCHOR_REACHABILITY_EXEMPT = "<reason>"     -- SILENCES this lint. Appropriate
+        ONLY when there is no defect: the predicate IS the degeneracy definition (an
+        exact-equality / structural reproduction check), so reachability holds by
+        construction and a replay would be tautological.
+
+      ANCHOR_REACHABILITY_SUPERSEDED = "<successor EXQ + reason>"  -- does NOT silence
+        this lint. For a script that HAS the defect but has ALREADY RUN, where the
+        repair correctly lives in a successor EXQ letter: adding a guard in place would
+        force a threshold or predicate change that retroactively alters what the
+        recorded evidence means. The warning is annotated, not withdrawn -- see
+        `anchor_supersession_lint`. Worked examples: the 591b/c/d/e/f ISEF-005 family
+        and V3-EXQ-778d (superseded by 778h).
+
+    Reaching for EXEMPT on an already-ran script is the documented error (2026-07-19),
+    not a shortcut: it makes an unrepaired defect indistinguishable from a fixed one.
 
     Static name/string/dict-literal scan only -- the same limitation class as
     readiness_lint / arm_fingerprint_lint / degeneracy_selfreport_lint. It can MISS an
@@ -491,8 +690,14 @@ def anchor_reachability_lint(path: Path) -> Optional[str]:
             "`from experiments._lib.readiness_anchor import assert_anchor_reachable` + "
             "`assert_anchor_reachable(anchor_name=..., reference_cells=<frozen recorded "
             "control>, score_fn=<THE SHIPPED PREDICATE, not a copy>, threshold=...)`. "
-            "Exempt with ANCHOR_REACHABILITY_EXEMPT = \"<reason>\" when the predicate IS "
-            "the degeneracy definition. See experiments/_lib/readiness_anchor.py + "
+            "Exempt with ANCHOR_REACHABILITY_EXEMPT = \"<reason>\" ONLY when the "
+            "predicate IS the degeneracy definition (no defect, reachable by "
+            "construction). If instead the script has ALREADY RUN and its repair belongs "
+            "in a successor EXQ letter -- because an in-place guard would force a "
+            "threshold change that retroactively alters what its recorded evidence means "
+            "-- use ANCHOR_REACHABILITY_SUPERSEDED = \"<successor EXQ + reason>\", which "
+            "RECORDS that status without silencing this warning (591b-f, 778d->778h). "
+            "See experiments/_lib/readiness_anchor.py + "
             "failure_autopsy_SD-068-rem-fanout-cluster_2026-07-18.md sec 2 (Learning 1).")
 
 
@@ -1265,8 +1470,18 @@ def manifest_writer_lint(path: Path) -> Optional[str]:
             "pack_writer_single_writer_migration_plan.md.")
 
 
+# All SIX are assigned ONLY inside `E3Selector.select()` -- verified by AST scan of
+# `ree_core/predictors/e3_selector.py` (2026-07-19): last_raw_scores:2103,
+# last_score_diagnostics:2452, last_scores:2657, last_score_decomp:2659,
+# last_channel_terms:2680, last_precommit_probs:2687. There is no `__init__` default and
+# no reset path, so every one of them latches identically and none is a weaker signal
+# than the others. `last_raw_scores` was MISSING from this tuple until 2026-07-19 -- a
+# coverage hole, not a deliberate narrowing: V3-EXQ-722 carried TWO latched reads and
+# `last_raw_scores` was the second one, so the attribute the lint was blind to is one the
+# defect demonstrably uses. Adding it moved the corpus count by ZERO (measured), so it
+# buys future coverage at no backlog cost.
 _E3_LATCHED_ATTRS = ("last_score_diagnostics", "last_score_decomp", "last_channel_terms",
-                     "last_scores", "last_precommit_probs")
+                     "last_scores", "last_precommit_probs", "last_raw_scores")
 _E3_STALENESS_EXEMPT_MARKER = "E3_DIAGNOSTICS_STALENESS_EXEMPT"
 
 
@@ -1295,12 +1510,66 @@ def _clears_an_e3_latch(tree: ast.Module) -> bool:
     return False
 
 
+def _guards_e3_latch_by_identity(tree: ast.Module) -> bool:
+    """`pid = id(probs); fresh = pid != prev_probs_id` -- the identity-freshness idiom.
+
+    An alternative, equally sound discharge of the same obligation. A latched read hands
+    back the SAME object on every skipped tick, while a genuine `select()` allocates a new
+    tensor -- so gating the record on `id(...)` changing admits exactly the fresh
+    selections, which is what clear-before-select achieves by the other route.
+
+    It is sound in the direction that matters. The failure mode of identity comparison is
+    an address collision after garbage collection, which would read a FRESH value as stale
+    and DROP a row -- an under-count. It cannot manufacture the inflation this lint exists
+    to catch, so a false negative here costs power, never a phantom sample size.
+
+    Recognised: `id(<latched read>)`, or `id(v)` where `v` was assigned from a latched
+    read, whose result participates in a comparison. Like exemptions (a)-(c) this is
+    detected file-wide rather than per-read-site (see the lint docstring's limitation
+    note) -- a driver that computes the identity check but forgets to gate the append on
+    it is exempted. Acceptable at WARN level, and the shape is rare enough to be a
+    deliberate act: exactly ONE script in the 2026-07-19 corpus uses it.
+    """
+    latched_vars = set()
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Assign) and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+                and any(a in ast.dump(node.value) for a in _E3_LATCHED_ATTRS)):
+            latched_vars.add(node.targets[0].id)
+
+    def _is_latched_id_call(n: ast.AST) -> bool:
+        return (isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                and n.func.id == "id" and len(n.args) == 1
+                and ((isinstance(n.args[0], ast.Name) and n.args[0].id in latched_vars)
+                     or any(a in ast.dump(n.args[0]) for a in _E3_LATCHED_ATTRS)))
+
+    # Walk INTO the assigned value: the idiom is usually guarded, e.g.
+    # `pid = id(probs) if probs is not None else None` (an IfExp, not a bare Call).
+    id_vars = set()
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Assign) and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+                and any(_is_latched_id_call(x) for x in ast.walk(node.value))):
+            id_vars.add(node.targets[0].id)
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Compare):
+            continue
+        for side in [node.left] + list(node.comparators):
+            if _is_latched_id_call(side):
+                return True
+            if isinstance(side, ast.Name) and side.id in id_vars:
+                return True
+    return False
+
+
 def e3_diagnostics_staleness_lint(path: Path) -> Optional[str]:
     """Stale-E3-diagnostics pseudo-replication check. Return an issue string, or None.
 
-    `ree_core/predictors/e3_selector.py` populates `last_score_diagnostics` /
-    `last_score_decomp` / `last_channel_terms` / `last_scores` / `last_precommit_probs`
-    ONLY inside `select()`. The attributes LATCH: after a tick on which `select()` did
+    `ree_core/predictors/e3_selector.py` populates all six of `last_score_diagnostics` /
+    `last_score_decomp` / `last_channel_terms` / `last_scores` / `last_precommit_probs` /
+    `last_raw_scores` ONLY inside `select()` (see `_E3_LATCHED_ATTRS` for the verified
+    per-attribute assignment lines). The attributes LATCH: after a tick on which `select()` did
     not run, they still hold the PREVIOUS selection's values. A driver that reads them
     once per env step, in a loop, WITHOUT clearing them first therefore re-records one
     selection as many independent observations. Nothing raises; the run simply reports
@@ -1322,7 +1591,10 @@ def e3_diagnostics_staleness_lint(path: Path) -> Optional[str]:
           `select_action(...)`, then record a row ONLY if it was repopulated),
       (b) a `ticks["e3_tick"]` guard (the driver already knows about the cadence), or
       (c) a direct `e3.select(...)` call site (the driver drives selection itself, so
-          every read follows a selection it just caused).
+          every read follows a selection it just caused), or
+      (d) an identity-freshness guard -- `pid = id(probs)`, record only when `pid`
+          changed. Equivalent in effect to (a): a latched read returns the SAME object,
+          a real selection allocates a new one. See `_guards_e3_latch_by_identity`.
 
     Reference implementation:
     `experiments/v3_exq_785a_mech463_arousal_exogenous_urgency_decomp.py` -- clears
@@ -1359,8 +1631,11 @@ def e3_diagnostics_staleness_lint(path: Path) -> Optional[str]:
     if _E3_STALENESS_EXEMPT_MARKER in src:
         return None
 
-    # (a) clear-before-select, (b) cadence guard, (c) driver owns the select call.
+    # (a) clear-before-select, (b) cadence guard, (c) driver owns the select call,
+    # (d) identity-freshness guard.
     if _clears_an_e3_latch(tree):
+        return None
+    if _guards_e3_latch_by_identity(tree):
         return None
     if any(isinstance(n, ast.Constant) and n.value == "e3_tick" for n in ast.walk(tree)):
         return None
@@ -1457,6 +1732,8 @@ def main() -> int:
     degen_warnings: List[Tuple[Path, str]] = []
     manifest_writer_warnings: List[Tuple[Path, str]] = []
     anchor_warnings: List[Tuple[Path, str]] = []
+    specimen_warnings: List[Tuple[Path, str]] = []
+    n_anchor_superseded = 0
     recomput_warnings: List[Tuple[Path, str]] = []
     e3_stale_warnings: List[Tuple[Path, str]] = []
     for p in paths:
@@ -1504,7 +1781,23 @@ def main() -> int:
             if anch:
                 # WARN-only in BOTH modes -- see anchor_reachability_lint() for why
                 # this one never hardens under --paths.
+                sup = anchor_supersession_lint(p)
+                if sup:
+                    # ANNOTATE, never withdraw: the defect is real, just not
+                    # actionable in place. Prefixing (rather than re-bucketing into a
+                    # separate section) is deliberate -- it keeps the warning in the
+                    # REACHABILITY WARNINGS count and section, so an already-ran
+                    # defect can never become invisible by being reclassified.
+                    lineage = sup["lineage"].get("SUPERSEDES") or sup["reason"] or "(unstated)"
+                    anch = f"[SUPERSEDED -> {lineage}] " + anch
+                    if sup["note"]:
+                        anch += " SUPERSESSION NOTE: " + sup["note"]
+                    n_anchor_superseded += 1
                 anchor_warnings.append((p, anch))
+        if "anchor_reachability" in selected:
+            spec = anchor_specimen_lint(p)
+            if spec:
+                specimen_warnings.append((p, spec))
         if "precondition_recomputability" in selected:
             rec = precondition_recomputability_lint(p)
             if rec:
@@ -1525,7 +1818,8 @@ def main() -> int:
           f"{len(arm_fp_warnings)} arm-fingerprint-backlog, "
           f"{len(degen_warnings)} degeneracy-self-report-backlog, "
           f"{len(manifest_writer_warnings)} manifest-writer-backlog, "
-          f"{len(anchor_warnings)} anchor-reachability-warning(s), "
+          f"{len(anchor_warnings)} anchor-reachability-warning(s)"
+          + (f" ({n_anchor_superseded} superseded)" if n_anchor_superseded else "") + ", "
           f"{len(recomput_warnings)} precondition-recomputability-warning(s), "
           f"{len(e3_stale_warnings)} stale-e3-diagnostics-warning(s)", flush=True)
     if e3_stale_warnings:
@@ -1555,6 +1849,15 @@ def main() -> int:
         print("", flush=True)
         print("[validate_experiments] Readiness-anchor REACHABILITY WARNINGS (advisory, non-blocking):", flush=True)
         for p, warn in anchor_warnings:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
+            print(f"  - {rel}: {warn}", flush=True)
+    if specimen_warnings:
+        # Advisory, but the loudest of the advisory sections: this one says a change
+        # is about to break the gate's OWN contract tests. Printed AFTER the
+        # reachability list so it is the last anchor-related thing on screen.
+        print("", flush=True)
+        print("[validate_experiments] *** LINT-SPECIMEN WARNING -- read before landing ***", flush=True)
+        for p, warn in specimen_warnings:
             rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
             print(f"  - {rel}: {warn}", flush=True)
     if manifest_writer_warnings:
