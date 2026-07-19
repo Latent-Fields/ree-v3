@@ -71,6 +71,7 @@ sys.path.insert(0, str(REPO_ROOT))
 from experiment_protocol import emit_outcome  # noqa: E402
 from experiments._lib import consolidation_lesion_harness as H  # noqa: E402
 from experiments._lib.arm_fingerprint import arm_cell  # noqa: E402
+from experiments._lib.readiness_anchor import assert_anchor_reachable  # noqa: E402
 from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_sd068_consolidation_staging_power_diagnostic"
@@ -238,6 +239,65 @@ def _intact_nondegenerate(res: "H.StagedSweepResult") -> Dict[str, float]:
     return {"sws_signal_power": float(sws_sig), "nrem_gap_before": float(nrem_gap), "rem_clean_variance": float(rem_cv)}
 
 
+def _intact_ok(intact: Dict[str, float]) -> bool:
+    """THE SHIPPED per-seed P0 predicate for `intact_readouts_nondegenerate`.
+
+    Factored out of `_score_seed` (where it was inlined) so that the LIVE scoring path
+    and the setup-time reachability guard route through ONE callable. Scoring the guard
+    with a re-implementation would defeat its purpose: the defect the guard exists to
+    catch IS a mis-specified predicate.
+
+    Semantics unchanged from the shipped inline form -- STRICT `>` against
+    INTACT_SIGNAL_FLOOR on both readouts (matching the declared precondition
+    `comparator: ">"`).
+    """
+    return bool(
+        intact["sws_signal_power"] > INTACT_SIGNAL_FLOOR
+        and intact["rem_clean_variance"] > INTACT_SIGNAL_FLOOR
+    )
+
+
+# The KNOWN-HEALTHY POSITIVE CONTROL for this anchor, frozen as a literal. These are the
+# recorded per-seed sigma=0 `intact` readouts of the completed run
+# `v3_exq_sd068_consolidation_staging_power_diagnostic_20260717T163507Z_v3.json`
+# (V3-EXQ-778a), which PASSed with C2_intact_nondegenerate true on 8/8 seeds -- so its
+# non-degeneracy is already established. Frozen so the guard needs zero compute and
+# cannot drift with the substrate.
+#
+# NOTE on the shape of this anchor's control. Unlike the 778c/778h REM anchor (whose
+# reference is a known-DEGENERATE control that the predicate must FLAG), this
+# precondition asserts HEALTH, so its known-positive control is a healthy intact sweep
+# point that the predicate must PASS. The reachability question is the same one either
+# way: can the gate be cleared by the control it anchors to.
+_REFERENCE_INTACT_READOUTS: List[Dict[str, float]] = [
+    {"seed": 42, "sws_signal_power": 5585.71875,
+     "nrem_gap_before": 5118.628191895783, "rem_clean_variance": 0.499999750000125},
+    {"seed": 7, "sws_signal_power": 5414.7451171875,
+     "nrem_gap_before": 5090.733087381348, "rem_clean_variance": 0.499999750000125},
+    {"seed": 123, "sws_signal_power": 5555.212890625,
+     "nrem_gap_before": 5111.400592057034, "rem_clean_variance": 0.499999750000125},
+    {"seed": 2024, "sws_signal_power": 5582.0166015625,
+     "nrem_gap_before": 5104.783885657787, "rem_clean_variance": 0.499999750000125},
+    {"seed": 99, "sws_signal_power": 6048.06689453125,
+     "nrem_gap_before": 5077.76932322979, "rem_clean_variance": 0.499999750000125},
+    {"seed": 7777, "sws_signal_power": 5406.7509765625,
+     "nrem_gap_before": 5114.5476481467485, "rem_clean_variance": 0.499999750000125},
+    {"seed": 314, "sws_signal_power": 5673.28125,
+     "nrem_gap_before": 5102.619315904565, "rem_clean_variance": 0.499999750000125},
+    {"seed": 1000, "sws_signal_power": 5409.17919921875,
+     "nrem_gap_before": 5117.180706441402, "rem_clean_variance": 0.499999750000125},
+]
+_REFERENCE_SOURCE = (
+    "V3-EXQ-778a per-seed sigma=0 intact readouts, run_id "
+    "v3_exq_sd068_consolidation_staging_power_diagnostic_20260717T163507Z_v3 "
+    "(PASS; C2_intact_nondegenerate true on 8/8 seeds)"
+)
+# The shipped gate is `all(seeds)`, so the guard's fraction threshold is 1.0 -- every
+# reference cell must clear the floor. Re-expression of `substrate_ready = all(...)`,
+# NOT a new gate.
+ANCHOR_MIN_INTACT_SEEDS_FRAC = 1.0
+
+
 def _score_seed(res: "H.StagedSweepResult") -> Dict[str, Any]:
     monotone: Dict[str, bool] = {}
     corr: Dict[str, float] = {}
@@ -251,10 +311,9 @@ def _score_seed(res: "H.StagedSweepResult") -> Dict[str, Any]:
         monotone[phase] = (c >= MONOTONE_CORR_FLOOR) and (sp >= SPAN_FLOOR)
 
     intact = _intact_nondegenerate(res)
-    intact_ok = (
-        intact["sws_signal_power"] > INTACT_SIGNAL_FLOOR
-        and intact["rem_clean_variance"] > INTACT_SIGNAL_FLOOR
-    )
+    # THE SHIPPED PREDICATE -- the same callable the setup-time reachability guard
+    # replays the frozen known-healthy reference through.
+    intact_ok = _intact_ok(intact)
     staging_computable = len(res.observed_order) == 3
     rem_contrast_computable = (
         res.gains.get("rem_passthrough_calibration_slope", H.UNAVAILABLE) != H.UNAVAILABLE
@@ -395,6 +454,37 @@ def run_experiment(*, dry_run: bool = False) -> Dict[str, Any]:
     print("V3-EXQ-778a: SD-068 consolidation staged-damage POWER-UP diagnostic", flush=True)
     print(f"  seeds={seeds} sigmas={sigmas} warm_steps={warm} dry_run={dry_run}", flush=True)
 
+    # Readiness-anchor reachability guard. Replay the frozen, known-healthy V3-EXQ-778a
+    # sigma=0 intact readouts through THE SHIPPED predicate (_intact_ok) BEFORE spending
+    # any compute, and refuse to run if the gate exceeds what that reference can itself
+    # score. A precondition its own positive control cannot pass is a guaranteed false
+    # negative that would self-route to substrate_not_ready_requeue while nothing about
+    # the substrate was unready. Raises AnchorUnreachable (an AssertionError) -> non-zero
+    # exit -> runner classifies ERROR, the correct loud failure. Runs on dry-run too: the
+    # reference is frozen, so the guard is dry-run-invariant and the smoke test exercises
+    # it.
+    # margin_cells=0 is KNOWN AND INTENDED here: the shipped gate is `all(seeds)`, i.e.
+    # a fraction of 1.0, so ANY positive cell margin would be unsatisfiable by
+    # construction. The real headroom is in the values, not the cell count -- the
+    # reference clears INTACT_SIGNAL_FLOOR (1e-9) by 9 orders of magnitude on
+    # rem_clean_variance (0.5) and by 12 on sws_signal_power (~5.4e3), so seed-level
+    # jitter cannot flip it.
+    anchor_guard = assert_anchor_reachable(
+        anchor_name="intact_readouts_nondegenerate",
+        reference_cells=_REFERENCE_INTACT_READOUTS,
+        score_fn=_intact_ok,
+        threshold=ANCHOR_MIN_INTACT_SEEDS_FRAC,
+        reference_source=_REFERENCE_SOURCE,
+    )
+    print(
+        f"  [guard] anchor reachability OK: the known-healthy reference scores "
+        f"{anchor_guard['n_reference_scored_true']}/"
+        f"{anchor_guard['n_reference_cells']} = "
+        f"{anchor_guard['reference_score']:.3f} under the shipped intact predicate "
+        f"(gate {ANCHOR_MIN_INTACT_SEEDS_FRAC:.2f}, floor {INTACT_SIGNAL_FLOOR})",
+        flush=True,
+    )
+
     config_slice = {
         "sigmas": sigmas,
         "warm_steps": warm,
@@ -516,6 +606,9 @@ def run_experiment(*, dry_run: bool = False) -> Dict[str, Any]:
             "n_seeds": int(n),
             "note": "staging match is REPORTED, not gated; a robust non-match / seed-variability is a valid diagnostic outcome.",
         },
+        # Provenance for the reachability guard: proof, recorded in the shipped
+        # artifact, that this run's P0 gate is clearable by its own positive control.
+        "anchor_reachability_guard": anchor_guard,
         "tolerance_distribution": tol_dist,
         "staging_statistics": staging_stats,
     }

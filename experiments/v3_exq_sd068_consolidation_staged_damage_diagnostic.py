@@ -58,6 +58,7 @@ sys.path.insert(0, str(REPO_ROOT))
 from experiment_protocol import emit_outcome  # noqa: E402
 from experiments._lib import consolidation_lesion_harness as H  # noqa: E402
 from experiments._lib.arm_fingerprint import arm_cell  # noqa: E402
+from experiments._lib.readiness_anchor import assert_anchor_reachable  # noqa: E402
 from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_sd068_consolidation_staged_damage_diagnostic"
@@ -119,6 +120,57 @@ def _intact_nondegenerate(res: "H.StagedSweepResult") -> Dict[str, float]:
     return {"sws_signal_power": float(sws_sig), "nrem_gap_before": float(nrem_gap), "rem_clean_variance": float(rem_cv)}
 
 
+def _intact_ok(cell: Dict[str, Any]) -> bool:
+    """THE SHIPPED PER-SEED P0 PREDICATE: are this seed's intact readouts non-degenerate?
+
+    Factored out of `_score_seed` so the LIVE cells and the frozen reachability-guard
+    reference are scored through ONE callable. Re-implementing it for the guard would
+    defeat the guard's purpose, since the defect being caught IS a mis-specified
+    predicate (Learning 1, failure_autopsy_SD-068-rem-fanout-cluster_2026-07-18).
+
+    Comparator is STRICTLY `>`, matching the shipped criterion and the `comparator: ">"`
+    declared on the `intact_readouts_nondegenerate` precondition. Unchanged.
+    """
+    return bool(
+        float(cell["sws_signal_power"]) > INTACT_SIGNAL_FLOOR
+        and float(cell["rem_clean_variance"]) > INTACT_SIGNAL_FLOOR
+    )
+
+
+# Reachability-guard reference: the recorded per-seed sigma=0 intact readouts of the
+# KNOWN-HEALTHY control -- V3-EXQ-778 run
+# `v3_exq_sd068_consolidation_staged_damage_diagnostic_20260717T161157Z_v3` (PASS,
+# 3/3 seeds, C2_intact_nondegenerate true on every seed). The 20260717T160320Z run
+# recorded bit-identical values on all three seeds, so the fixture is a replicated
+# reading, not a single observation. Frozen as a literal so the guard needs zero
+# compute and cannot drift with the substrate.
+_REFERENCE_778_INTACT: List[Dict[str, Any]] = [
+    {"seed": 42, "sws_signal_power": 5585.71875,
+     "nrem_gap_before": 5118.628191895783, "rem_clean_variance": 0.499999750000125},
+    {"seed": 7, "sws_signal_power": 5414.7451171875,
+     "nrem_gap_before": 5090.733087381348, "rem_clean_variance": 0.499999750000125},
+    {"seed": 123, "sws_signal_power": 5555.212890625,
+     "nrem_gap_before": 5111.400592057034, "rem_clean_variance": 0.499999750000125},
+]
+_REFERENCE_SOURCE = (
+    "V3-EXQ-778 sigma=0 intact sweep point, run_id "
+    "v3_exq_sd068_consolidation_staged_damage_diagnostic_20260717T161157Z_v3 "
+    "(bit-identical in the 20260717T160320Z run)"
+)
+# The precondition is an ALL-SEEDS gate (`substrate_ready = all(C2)`), so the faithful
+# re-expression as a FRACTION is: score_fn = the per-seed `> floor` predicate above,
+# threshold = 1.0. This preserves the shipped comparator and the shipped quantifier;
+# it does not re-tune either.
+ANCHOR_INTACT_MIN_SEEDS_FRAC = 1.0
+# margin_cells is deliberately 0 and CANNOT be otherwise: the gate is 1.0, so any
+# positive cell-margin would demand a fraction above 1.0 and be unmeetable by
+# construction -- the very defect this guard exists to catch. The zero cell-margin is
+# known and intended (readiness_anchor.py rule 4). Note the margin in VALUE terms is
+# enormous, not thin: the smallest reference readout is 0.4999997 against a 1e-9 floor,
+# ~5e8x headroom, so no plausible seed-level jitter approaches the gate.
+ANCHOR_INTACT_MARGIN_CELLS = 0
+
+
 def _score_seed(res: "H.StagedSweepResult") -> Dict[str, Any]:
     monotone: Dict[str, bool] = {}
     corr: Dict[str, float] = {}
@@ -132,10 +184,9 @@ def _score_seed(res: "H.StagedSweepResult") -> Dict[str, Any]:
         monotone[phase] = (c >= MONOTONE_CORR_FLOOR) and (sp >= SPAN_FLOOR)
 
     intact = _intact_nondegenerate(res)
-    intact_ok = (
-        intact["sws_signal_power"] > INTACT_SIGNAL_FLOOR
-        and intact["rem_clean_variance"] > INTACT_SIGNAL_FLOOR
-    )
+    # Scored through the SHIPPED predicate -- the same callable the reachability guard
+    # replays the frozen V3-EXQ-778 intact reference through.
+    intact_ok = _intact_ok(intact)
     staging_computable = len(res.observed_order) == 3
     rem_contrast_computable = (
         res.gains.get("rem_passthrough_calibration_slope", H.UNAVAILABLE) != H.UNAVAILABLE
@@ -169,6 +220,33 @@ def run_experiment(*, dry_run: bool = False) -> Dict[str, Any]:
     sigmas = [0.0, 1.0] if dry_run else SIGMAS
     print(f"V3-EXQ-778: SD-068 consolidation staged-damage diagnostic", flush=True)
     print(f"  seeds={seeds} sigmas={sigmas} warm_steps={warm} dry_run={dry_run}", flush=True)
+
+    # Reachability guard. Replay the frozen, known-healthy V3-EXQ-778 intact reference
+    # through the SHIPPED per-seed predicate BEFORE spending any compute, and refuse to
+    # run if the `intact_readouts_nondegenerate` gate exceeds what that reference can
+    # itself score. A precondition that a faithful replication of the known-positive
+    # control CANNOT pass is a guaranteed false negative: it would report met=false on
+    # every run and mislabel an instrument-specification gap as substrate_not_ready.
+    # Raises AnchorUnreachable (an AssertionError) -> non-zero exit -> ERROR, which is
+    # the correct loud failure. Runs on dry-run too: the reference is frozen, so the
+    # guard is dry-run-invariant and the smoke test exercises it.
+    anchor_guard = assert_anchor_reachable(
+        anchor_name="intact_readouts_nondegenerate",
+        reference_cells=_REFERENCE_778_INTACT,
+        score_fn=_intact_ok,
+        threshold=ANCHOR_INTACT_MIN_SEEDS_FRAC,
+        reference_source=_REFERENCE_SOURCE,
+        margin_cells=ANCHOR_INTACT_MARGIN_CELLS,
+    )
+    print(
+        f"  [guard] anchor reachability OK: the known-healthy intact reference scores "
+        f"{anchor_guard['n_reference_scored_true']}/"
+        f"{anchor_guard['n_reference_cells']} = "
+        f"{anchor_guard['reference_score']:.3f} under the shipped per-seed predicate "
+        f"(gate {ANCHOR_INTACT_MIN_SEEDS_FRAC:.2f}, margin "
+        f"{ANCHOR_INTACT_MARGIN_CELLS} cell(s))",
+        flush=True,
+    )
 
     config_slice = {
         "sigmas": sigmas,
@@ -284,6 +362,9 @@ def run_experiment(*, dry_run: bool = False) -> Dict[str, Any]:
                 "met": bool(substrate_ready),
             },
         ],
+        # Provenance for the reachability guard: proof, recorded in the shipped
+        # artifact, that this run's readiness gate is reachable by its own reference.
+        "anchor_reachability_guard": anchor_guard,
         "criteria_non_degenerate": {
             "C1_monotone_degradation": bool(all(s["C1_monotone_all_phases"] for s in seed_scores)),
             "C2_intact_nondegenerate": bool(substrate_ready),

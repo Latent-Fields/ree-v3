@@ -117,6 +117,7 @@ from experiment_protocol import emit_outcome  # noqa: E402
 from experiments._lib import consolidation_lesion_harness as H  # noqa: E402
 from experiments._lib.arm_fingerprint import arm_cell  # noqa: E402
 from experiments._lib.manifest_core import stamp_recording_core  # noqa: E402
+from experiments._lib.readiness_anchor import assert_anchor_reachable  # noqa: E402
 from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_sd068_rem_gen_gain_content_scale_diagnostic"
@@ -146,6 +147,91 @@ GAIN_SEPARATION_SD_MULT = 2.0
 # RANGE check on that slope's x-axis (the injected seed's relative corruption) -- the
 # same statistic the gain routes on, measured on the content_scale=1.0 positive control.
 INPUT_CORRUPTION_RANGE_FLOOR = 0.05
+# The SHIPPED aggregation over seeds is `all(r["readiness_met"] ...)`. Expressed as the
+# fraction the reachability guard needs, that is exactly 1.0. This constant introduces NO
+# new gate and changes NO comparator -- it only names the existing all-seeds requirement
+# so the guard can be handed the same bar the run itself applies.
+ANCHOR_MIN_READY_SEEDS_FRAC = 1.0
+
+
+def _gains_available(cell: Dict[str, Any]) -> bool:
+    """Are all three per-seed content-scale gains finite and available?"""
+    return all(
+        g != H.UNAVAILABLE and not (isinstance(g, float) and math.isnan(g))
+        for g in (cell["gain_at_0"], cell["gain_at_mid"], cell["gain_at_1"])
+    )
+
+
+def _seed_readiness_met(cell: Dict[str, Any]) -> bool:
+    """THE SHIPPED READINESS PREDICATE for one seed's cell.
+
+    `rem_generative_gain` is a SLOPE of output relative deviation against input relative
+    seed corruption across the sigma grid, so a seed is ready only if (a) all three
+    content-scale gains came back available and (b) the content_scale=1.0 POSITIVE
+    CONTROL's input-corruption range -- the slope's x-axis spread -- clears the floor.
+    A degenerate x-range means the gain was fitted through a point cloud with no spread.
+
+    THE LIVE CELLS AND THE FROZEN REACHABILITY-GUARD REFERENCE ARE BOTH SCORED THROUGH
+    THIS ONE CALLABLE. Re-implementing it for the guard would defeat the guard's purpose,
+    since the defect it exists to catch IS a mis-specified predicate. Factored out of the
+    inline expression in `run_experiment` for exactly that reason; the comparator (`>=`
+    against INPUT_CORRUPTION_RANGE_FLOOR) is unchanged from as-shipped.
+    """
+    return bool(
+        _gains_available(cell)
+        and float(cell["control_input_corruption_range"])
+        >= INPUT_CORRUPTION_RANGE_FLOOR
+    )
+
+
+# The known-good POSITIVE CONTROL, frozen as a literal. These are the recorded per-seed
+# values from the completed V3-EXQ-778f run
+# `v3_exq_sd068_rem_gen_gain_content_scale_diagnostic_20260718T122200Z_v3` (full 8-seed,
+# non-dry-run, outcome PASS, label gen_gain_content_free_intact_seed_gloss_unsupported),
+# on the SAME seed set, sigma grid, warm_steps and content scales this script ships.
+# Frozen so the guard needs zero compute and cannot drift with the substrate.
+#
+# NOTE FOR THE READER (recorded, deliberately NOT "fixed" here -- tuning a threshold is
+# out of scope for a guard addition): this anchor is reachable by an ENORMOUS margin. The
+# smallest recorded control range is 1.5646 against a floor of 0.05 -- a factor of ~31.
+# So the floor discriminates almost nothing: it is a true-by-construction non-degeneracy
+# check rather than a live readiness gate. That is the MIRROR of the V3-EXQ-778d defect
+# (see experiments/_lib/readiness_anchor.py, "THE MIRROR FAILURE THIS GUARD DOES *NOT*
+# CATCH"), and `assert_anchor_reachable` certifies it as reachable without commenting on
+# it. It is recorded here so a governance reader sees the vacuity rather than reading
+# `met: true` as an informative signal.
+_REFERENCE_778F_CONTROL: List[Dict[str, Any]] = [
+    {"seed": 42, "gain_at_0": 0.20979866262452163, "gain_at_mid": 0.2012239099168554,
+     "gain_at_1": 0.19040652976683883,
+     "control_input_corruption_range": 2.147368305997097},
+    {"seed": 7, "gain_at_0": 0.4112506912194843, "gain_at_mid": 0.4003498476268583,
+     "gain_at_1": 0.4090537622233029,
+     "control_input_corruption_range": 2.4457822450048097},
+    {"seed": 123, "gain_at_0": 0.06341494381844262, "gain_at_mid": 0.06386779119660321,
+     "gain_at_1": 0.06693074050499667,
+     "control_input_corruption_range": 2.3081206353895283},
+    {"seed": 2024, "gain_at_0": 0.09963868601594081, "gain_at_mid": 0.08455964713270404,
+     "gain_at_1": 0.07614154407787953,
+     "control_input_corruption_range": 1.5645720812331672},
+    {"seed": 99, "gain_at_0": 0.023938431395183722, "gain_at_mid": 0.03152478921186942,
+     "gain_at_1": 0.03979016565450359,
+     "control_input_corruption_range": 1.9461980865135264},
+    {"seed": 7777, "gain_at_0": 0.22605349959478457, "gain_at_mid": 0.21679886505267512,
+     "gain_at_1": 0.21217453262512848,
+     "control_input_corruption_range": 1.9093458885157586},
+    {"seed": 314, "gain_at_0": 0.0787535365457736, "gain_at_mid": 0.07821290336686115,
+     "gain_at_1": 0.07668021601683392,
+     "control_input_corruption_range": 1.8638205194808994},
+    {"seed": 1000, "gain_at_0": 0.1586142171501127, "gain_at_mid": 0.13975896939471225,
+     "gain_at_1": 0.12298538736253195,
+     "control_input_corruption_range": 2.219043867756969},
+]
+_REFERENCE_SOURCE = (
+    "V3-EXQ-778f content_scale=1.0 positive control, recorded per-seed in run_id "
+    "v3_exq_sd068_rem_gen_gain_content_scale_diagnostic_20260718T122200Z_v3 "
+    "(8 seeds, non-dry-run, outcome PASS); same seeds / sigmas / warm_steps / "
+    "content_scales as shipped here"
+)
 
 
 def _fmt(v: float) -> str:
@@ -256,6 +342,34 @@ def run_experiment(*, dry_run: bool = False) -> Dict[str, Any]:
         flush=True,
     )
 
+    # Reachability guard (Learning 1, failure_autopsy_SD-068-rem-fanout-cluster). Replay
+    # the frozen, recorded 778f positive control through THE SHIPPED readiness predicate
+    # BEFORE spending any compute, and refuse to run if the all-seeds gate exceeds what
+    # that control can itself score. A precondition the control cannot pass is a
+    # guaranteed false negative that would self-route to substrate_not_ready_requeue and
+    # mislabel an instrument-specification gap as an unready substrate. Raises
+    # AnchorUnreachable (an AssertionError) -> non-zero exit -> runner classifies ERROR,
+    # which is the correct loud failure. Runs on dry-run too: the reference is frozen, so
+    # the guard is dry-run-invariant and the smoke test exercises it.
+    anchor_guard = assert_anchor_reachable(
+        anchor_name="control_input_corruption_range_supra_floor",
+        reference_cells=_REFERENCE_778F_CONTROL,
+        score_fn=_seed_readiness_met,
+        threshold=ANCHOR_MIN_READY_SEEDS_FRAC,
+        reference_source=_REFERENCE_SOURCE,
+    )
+    print(
+        f"  [guard] anchor reachability OK: the recorded positive control scores "
+        f"{anchor_guard['n_reference_scored_true']}/"
+        f"{anchor_guard['n_reference_cells']} = "
+        f"{anchor_guard['reference_score']:.3f} under the shipped readiness predicate "
+        f"(gate {ANCHOR_MIN_READY_SEEDS_FRAC:.2f} = the all-seeds aggregation). "
+        f"NOTE: smallest recorded control range 1.5646 vs floor "
+        f"{INPUT_CORRUPTION_RANGE_FLOOR} -- ~31x headroom, so this anchor is a "
+        "non-degeneracy check, not a discriminating readiness gate.",
+        flush=True,
+    )
+
     config_slice = {
         "sigmas": sigmas,
         "content_scales": list(scales),
@@ -299,17 +413,21 @@ def run_experiment(*, dry_run: bool = False) -> Dict[str, Any]:
             g0 = by_scale[str(scales[0])]["rem_generative_gain"]
             gmid = by_scale[str(scales[1])]["rem_generative_gain"]
             g1 = by_scale[str(scales[-1])]["rem_generative_gain"]
-            have_all = all(
-                g != H.UNAVAILABLE and not math.isnan(g) for g in (g0, gmid, g1)
-            )
-            delta = (g1 - g0) if have_all else H.UNAVAILABLE
-            monotonic = bool(have_all and ((g0 < gmid < g1) or (g0 > gmid > g1)))
             # Readiness is asserted on the POSITIVE CONTROL arm (content_scale=1.0):
             # the gain is a slope, so its x-range must be non-degenerate.
             ctrl_range = by_scale[str(scales[-1])]["input_corruption_range"]
-            readiness = bool(
-                have_all and ctrl_range >= INPUT_CORRUPTION_RANGE_FLOOR
-            )
+            # Scored through THE SHIPPED predicate -- the same callable the setup-time
+            # reachability guard replays the frozen 778f reference through.
+            readiness_cell = {
+                "gain_at_0": g0,
+                "gain_at_mid": gmid,
+                "gain_at_1": g1,
+                "control_input_corruption_range": float(ctrl_range),
+            }
+            have_all = _gains_available(readiness_cell)
+            delta = (g1 - g0) if have_all else H.UNAVAILABLE
+            monotonic = bool(have_all and ((g0 < gmid < g1) or (g0 > gmid > g1)))
+            readiness = _seed_readiness_met(readiness_cell)
             attenuates_all = all(
                 bool(by_scale[str(cs)]["rem_generative_attenuates"]) for cs in scales
             )
@@ -434,6 +552,12 @@ def run_experiment(*, dry_run: bool = False) -> Dict[str, Any]:
                 "met": bool(readiness_ok),
             },
         ],
+        # Provenance for the reachability guard: proof, recorded in the shipped artifact,
+        # that this run's readiness gate is reachable by its own recorded control. Read
+        # `reference_score` together with the margin note -- the control clears the floor
+        # by ~31x, so this anchor certifies non-degeneracy rather than discriminating
+        # readiness.
+        "anchor_reachability_guard": anchor_guard,
         "criteria_non_degenerate": {
             "C1_gain_flat_in_content_scale": bool(readiness_ok),
             # Monotonicity is vacuous without three distinct content scales.

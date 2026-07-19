@@ -123,6 +123,7 @@ from experiment_protocol import emit_outcome  # noqa: E402
 from experiments._lib import consolidation_lesion_harness as H  # noqa: E402
 from experiments._lib.arm_fingerprint import arm_cell  # noqa: E402
 from experiments._lib.manifest_core import stamp_recording_core  # noqa: E402
+from experiments._lib.readiness_anchor import assert_anchor_reachable  # noqa: E402
 from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_sd068_rem_declamped_readout_diagnostic"
@@ -152,6 +153,118 @@ NULL_SLOPE_RATIO_CEILING = H.NULL_SLOPE_RATIO_CEILING  # 0.25
 INJECTED_SLOPE_FLOOR = 1e-6      # readiness on the DE-CLAMPED readout's own slope
 NULL_SERIES_MIN_DISTINCT = 3     # non-degeneracy: the null series must not be constant
 NULL_SERIES_MIN_SD = 1e-9        # ...and must carry real spread
+
+# Both readiness anchors are `all(seeds)` gates. Expressed as the FRACTION of reference
+# cells the reachability guard must see scored True, that is exactly 1.0. This is not a
+# new gate: it is the existing all(...) semantics restated in the fraction units
+# assert_anchor_reachable takes. A margin is unsatisfiable against a 1.0 fraction by
+# construction (required = 1.0 + margin/n > 1.0), so margin_cells stays 0 -- KNOWN AND
+# INTENDED, per readiness_anchor.py rule 4, rather than an unconsidered default.
+ANCHOR_REACHABILITY_MIN_FRAC = 1.0
+
+
+# --- THE SHIPPED PREDICATES ---------------------------------------------------------
+# Both were INLINED in run_experiment. They are factored out here so the LIVE cells and
+# the frozen reachability-guard references are scored through ONE callable each --
+# scoring a guard with a re-implementation defeats its entire purpose, since the defect
+# being guarded against IS a mis-specified predicate (V3-EXQ-778d, autopsy sec 2).
+# Semantics, comparators and thresholds are UNCHANGED from the inlined originals.
+
+
+def _injected_slope_supra_floor(cell: Dict[str, Any]) -> bool:
+    """Did the known-damaged INJECTED arm move the de-clamped readout at all?
+
+    THE SHIPPED PREDICATE for `declamped_injected_arm_sigma_slope_supra_floor`. This is
+    the ratio's DENOMINATOR: below floor, no ratio is interpretable.
+    """
+    inj_slope = cell["injected_slope"]
+    return bool(
+        inj_slope != H.UNAVAILABLE
+        and not math.isnan(inj_slope)
+        and abs(inj_slope) >= INJECTED_SLOPE_FLOOR
+    )
+
+
+def _null_series_non_degenerate(cell: Dict[str, Any]) -> bool:
+    """Does this de-clamped error series carry real spread, or is it a saturated constant?
+
+    THE SHIPPED PREDICATE for `declamped_null_series_non_degenerate`.
+
+    RAIL COVERAGE. V3-EXQ-778c's rem degeneracy had TWO rails -- (a) SATURATION (the
+    reference clamped across the grid -> constant series -> zero slope) and (b)
+    POSITIVITY-FLOOR COLLAPSE (the reference touched the 1e-3 floor and the
+    VARIANCE-units fit went off-scale, |ratio| 1801-9143). V3-EXQ-778d's predicate
+    tested rail (a) only and was therefore unmeetable. This predicate tests rail (a)
+    directly (n_distinct / sd), and rail (b) is covered because the PRECISION-units
+    readout this leg swaps in is BOUNDED: a floored reference (rv_after ~ 1/1e-3) maps
+    to direct_precision_error = |1/rv_after - clean| / clean ~ 0.9995, a CONSTANT --
+    i.e. under this readout rail (b) arrives AS rail (a) and is caught by the same
+    test, instead of escaping as an off-scale-but-graded series. Confirmed on the
+    recorded run: the 5 seeds 778c railed by saturation are exactly the 5 that come back
+    constant here (n_distinct 1, sd 0), and the 3 seeds 778c railed by floor collapse
+    (42/123/99) come back graded (n_distinct 5, sd 0.061-0.586). The non-finite /
+    UNAVAILABLE sd case is handled explicitly, so there is no third escape.
+    """
+    null_sd = cell["null_series_sd"]
+    return bool(
+        cell["null_series_n_distinct"] >= NULL_SERIES_MIN_DISTINCT
+        and null_sd != H.UNAVAILABLE
+        and not math.isnan(null_sd)
+        and null_sd >= NULL_SERIES_MIN_SD
+    )
+
+
+# --- FROZEN KNOWN-POSITIVE REFERENCES for the setup-time reachability guards ---------
+# Recorded values, frozen as literals so the guards need zero compute and cannot drift
+# with the substrate. Both are read off the completed run
+# `v3_exq_sd068_rem_declamped_readout_diagnostic_20260718T163318Z_v3.json`
+# (V3-EXQ-778e, this same script), whose INJECTED arm is the established known-positive
+# control: it is the known-damaged arm, swept across the same sigma grid, and its
+# de-clamped response was graded on 8/8 seeds.
+
+# Reference A -- per-seed de-clamped injected sigma-slopes. The control this anchor's
+# own `control` key names ("injected arm swept to sigma=max").
+_REFERENCE_DECLAMPED_INJECTED_SLOPE: List[Dict[str, Any]] = [
+    {"seed": 42, "injected_slope": 0.1953635811805725},
+    {"seed": 7, "injected_slope": 0.35048487584800714},
+    {"seed": 123, "injected_slope": 0.07712462544441223},
+    {"seed": 2024, "injected_slope": 0.464908588053894},
+    {"seed": 99, "injected_slope": 1.3731259107589722},
+    {"seed": 7777, "injected_slope": 0.41504868281097407},
+    {"seed": 314, "injected_slope": 0.4997496999999999},
+    {"seed": 1000, "injected_slope": 0.4997496999999999},
+]
+
+# Reference B -- the spread statistics of the INJECTED arm's own de-clamped error series
+# on the same 8 seeds, computed from the recorded `declamped.injected_series` by the
+# identical statistic H.rem_null_slope_ratio applies to the null series (sample sd over
+# the finite entries; distinct count over values rounded to 12 dp). The injected arm is
+# used deliberately rather than the null arm's 3 healthy seeds: it is a control whose
+# non-degeneracy is established INDEPENDENTLY of the quantity under test (it is the arm
+# that by construction responds to sigma), and it exercises the gate at the full n=8 the
+# live all(...) gate demands, instead of at a cherry-picked healthy subset.
+_REFERENCE_DECLAMPED_GRADED_SERIES: List[Dict[str, Any]] = [
+    {"seed": 42, "null_series_n_distinct": 5.0, "null_series_sd": 0.154448472094454},
+    {"seed": 7, "null_series_n_distinct": 5.0, "null_series_sd": 0.27708262328051964},
+    {"seed": 123, "null_series_n_distinct": 5.0, "null_series_sd": 0.06097237002292964},
+    {"seed": 2024, "null_series_n_distinct": 4.0, "null_series_sd": 0.4341168261194272},
+    {"seed": 99, "null_series_n_distinct": 5.0, "null_series_sd": 1.0855513480478642},
+    {"seed": 7777, "null_series_n_distinct": 4.0, "null_series_sd": 0.4397063677455669},
+    {"seed": 314, "null_series_n_distinct": 5.0, "null_series_sd": 0.4328804790823687},
+    {"seed": 1000, "null_series_n_distinct": 5.0, "null_series_sd": 0.39656500561045827},
+]
+
+_REFERENCE_SOURCE_SLOPE = (
+    "V3-EXQ-778e run_id v3_exq_sd068_rem_declamped_readout_diagnostic_"
+    "20260718T163318Z_v3, arm_results[].declamped.injected_slope (de-clamped readout, "
+    "INJECTED arm = the known-damaged positive control; recorded met=true on 8/8 seeds)"
+)
+_REFERENCE_SOURCE_SERIES = (
+    "V3-EXQ-778e run_id v3_exq_sd068_rem_declamped_readout_diagnostic_"
+    "20260718T163318Z_v3, spread statistics of arm_results[].declamped.injected_series "
+    "(the INJECTED arm's own de-clamped error series -- a series whose gradedness is "
+    "established independently of the null arm under test)"
+)
 
 
 def _fmt(v: float) -> str:
@@ -192,6 +305,50 @@ def run_experiment(*, dry_run: bool = False) -> Dict[str, Any]:
     print(
         f"  seeds={seeds} sigmas={sigmas} warm_steps={warm} arms={ARMS} "
         f"step={REM_STEP} dry_run={dry_run}",
+        flush=True,
+    )
+
+    # SETUP-TIME REACHABILITY GUARDS -- before any compute. Each replays a frozen,
+    # known-positive reference through THE SHIPPED PREDICATE and refuses to run if the
+    # gate exceeds what that reference can itself score. A precondition that a faithful
+    # positive control CANNOT pass is a guaranteed false negative: it reports met=false
+    # on every run and mislabels an instrument-specification gap as
+    # `substrate_not_ready_requeue` / `measurement_still_degenerate_requeue`. This is the
+    # check that would have caught the V3-EXQ-778d defect at design-audit time. Raises
+    # AnchorUnreachable (an AssertionError) -> non-zero exit -> runner classifies ERROR,
+    # which is the correct loud failure. The references are frozen, so the guards are
+    # dry-run-invariant and the smoke test exercises them.
+    slope_guard = assert_anchor_reachable(
+        anchor_name="declamped_injected_arm_sigma_slope_supra_floor",
+        reference_cells=_REFERENCE_DECLAMPED_INJECTED_SLOPE,
+        score_fn=_injected_slope_supra_floor,
+        threshold=ANCHOR_REACHABILITY_MIN_FRAC,
+        reference_source=_REFERENCE_SOURCE_SLOPE,
+    )
+    print(
+        f"  [guard] anchor reachability OK: "
+        f"declamped_injected_arm_sigma_slope_supra_floor -- the known-damaged reference "
+        f"scores {slope_guard['n_reference_scored_true']}/"
+        f"{slope_guard['n_reference_cells']} = "
+        f"{slope_guard['reference_score']:.3f} under the shipped predicate "
+        f"(gate {ANCHOR_REACHABILITY_MIN_FRAC:.2f} = the live all-seeds gate)",
+        flush=True,
+    )
+    series_guard = assert_anchor_reachable(
+        anchor_name="declamped_null_series_non_degenerate",
+        reference_cells=_REFERENCE_DECLAMPED_GRADED_SERIES,
+        score_fn=_null_series_non_degenerate,
+        threshold=ANCHOR_REACHABILITY_MIN_FRAC,
+        reference_source=_REFERENCE_SOURCE_SERIES,
+    )
+    print(
+        f"  [guard] anchor reachability OK: declamped_null_series_non_degenerate -- the "
+        f"known-graded reference scores {series_guard['n_reference_scored_true']}/"
+        f"{series_guard['n_reference_cells']} = "
+        f"{series_guard['reference_score']:.3f} under the shipped predicate "
+        f"(gate {ANCHOR_REACHABILITY_MIN_FRAC:.2f} = the live all-seeds gate); the "
+        "predicate covers BOTH 778c rails, floor-collapse arriving as a bounded "
+        "constant under the precision-units readout",
         flush=True,
     )
 
@@ -261,19 +418,10 @@ def run_experiment(*, dry_run: bool = False) -> Dict[str, Any]:
                 rem_error_key=READOUT_LEGACY,
             )
 
-            inj_slope = declamped["injected_slope"]
-            readiness = bool(
-                inj_slope != H.UNAVAILABLE
-                and not math.isnan(inj_slope)
-                and abs(inj_slope) >= INJECTED_SLOPE_FLOOR
-            )
-            null_sd = declamped["null_series_sd"]
-            non_degenerate = bool(
-                declamped["null_series_n_distinct"] >= NULL_SERIES_MIN_DISTINCT
-                and null_sd != H.UNAVAILABLE
-                and not math.isnan(null_sd)
-                and null_sd >= NULL_SERIES_MIN_SD
-            )
+            # Scored through the SHIPPED predicates -- the same two callables the
+            # setup-time reachability guards replay their frozen references through.
+            readiness = _injected_slope_supra_floor(declamped)
+            non_degenerate = _null_series_non_degenerate(declamped)
             ratio = declamped["null_slope_ratio"]
             content_free = bool(
                 ratio != H.UNAVAILABLE
@@ -464,6 +612,12 @@ def run_experiment(*, dry_run: bool = False) -> Dict[str, Any]:
             },
         ],
         "readout_summary": readout_summary,
+        # Proof, recorded in the shipped artifact, that BOTH readiness gates are
+        # reachable by their own known-positive references under the shipped predicates.
+        "anchor_reachability_guards": {
+            "declamped_injected_arm_sigma_slope_supra_floor": slope_guard,
+            "declamped_null_series_non_degenerate": series_guard,
+        },
         "portfolio": {
             "gov_rule": "GOV-FANOUT-1",
             "question": HYPOTHESIS_QUESTION,

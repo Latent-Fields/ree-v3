@@ -126,6 +126,7 @@ from experiment_protocol import emit_outcome  # noqa: E402
 from experiments._lib import consolidation_lesion_harness as H  # noqa: E402
 from experiments._lib.arm_fingerprint import arm_cell  # noqa: E402
 from experiments._lib.manifest_core import stamp_recording_core  # noqa: E402
+from experiments._lib.readiness_anchor import assert_anchor_reachable  # noqa: E402
 from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_sd068_sws_content_scored_readout_diagnostic"
@@ -196,6 +197,122 @@ def _finite(v: Any) -> bool:
     )
 
 
+# --- THE SHIPPED PRECONDITION PREDICATES -------------------------------------------
+# Each of the three declared readiness preconditions is a PER-SEED boolean aggregated
+# with `all(...)` over seeds (see `readiness_ok` / `c3a_all` / `c3b_all` below), so the
+# faithful re-expression for `assert_anchor_reachable` is: score_fn = the per-seed
+# predicate, threshold = 1.0.
+#
+# These are factored out to MODULE LEVEL precisely so the live scoring path in
+# `_score_seed` and the setup-time reachability guards run THE SAME CALLABLE. Scoring
+# the guard with a re-implementation would defeat its purpose -- the defect class being
+# guarded against IS a mis-specified predicate (SD-068 REM fanout autopsy, Learning 1).
+#
+# A `cell` is one seed's recorded values:
+#   {"injected_slope_sws": float, "ladder_slopes": {content_scale: sigma_slope}}
+# `ladder_slopes` keys may be float or str (the manifest round-trips them as str).
+
+
+def _ladder_by_scale(cell: Dict[str, Any]) -> Dict[float, float]:
+    """Float-keyed view of a cell's ladder, so recorded (str-keyed) cells score too."""
+    return {float(k): v for k, v in (cell.get("ladder_slopes") or {}).items()}
+
+
+def _zero_rung_slope(cell: Dict[str, Any]) -> float:
+    """The content_scale=0 rung's sigma-slope (nan if that rung is absent)."""
+    return _ladder_by_scale(cell).get(0.0, float("nan"))
+
+
+def _positive_rung_slopes(cell: Dict[str, Any]) -> List[float]:
+    """The finite content_scale>0 rung slopes, in LADDER_SCALES order."""
+    ladder = _ladder_by_scale(cell)
+    return [ladder[c] for c in LADDER_SCALES if c > 0.0 and _finite(ladder.get(c))]
+
+
+def _injected_slope_supra_floor(cell: Dict[str, Any]) -> bool:
+    """C2 readiness, per seed: the ratio's DENOMINATOR clears the floor.
+
+    Precondition `injected_arm_sws_sigma_slope_supra_floor`. FLOOR-shaped, INCLUSIVE
+    (`>=`) -- comparator preserved exactly as shipped.
+    """
+    inj = cell.get("injected_slope_sws", H.UNAVAILABLE)
+    return bool(_finite(inj) and abs(float(inj)) >= INJECTED_SLOPE_FLOOR)
+
+
+def _ladder_signal_ratio_supra_floor(cell: Dict[str, Any]) -> bool:
+    """C3(a) SIGNAL, per seed. Precondition `ladder_content_signal_ratio_supra_floor`.
+
+    Relative, not absolute: see the LADDER_SIGNAL_RATIO calibration note. The zero-content
+    rung carries a small nonzero slope from the sigma=0 store-is-exactly-zero
+    discontinuity, so every content-bearing rung must respond SEVERAL-FOLD more strongly.
+    FLOOR-shaped, STRICT (`>`) -- comparator preserved exactly as shipped.
+    """
+    pos = _positive_rung_slopes(cell)
+    zero_slope = _zero_rung_slope(cell)
+    return bool(pos) and _finite(zero_slope) and min(abs(v) for v in pos) > (
+        LADDER_SIGNAL_RATIO * max(abs(zero_slope), 1e-12)
+    )
+
+
+def _ladder_slope_spread_supra_floor(cell: Dict[str, Any]) -> bool:
+    """C3(b) SPREAD, per seed. Precondition `ladder_content_slope_spread_supra_floor`.
+
+    The response must VARY with content amplitude, not merely switch on. This is what
+    separates "tracks content" from "detects a non-empty store". FLOOR-shaped, STRICT
+    (`>`) -- comparator preserved exactly as shipped.
+    """
+    pos = _positive_rung_slopes(cell)
+    return bool(pos) and (max(pos) - min(pos)) > LADDER_SPREAD_FLOOR
+
+
+# The KNOWN-HEALTHY POSITIVE CONTROL for all three preconditions, frozen as a literal.
+# These are the per-seed recorded values of the completed V3-EXQ-778g run
+# `v3_exq_sd068_sws_content_scored_readout_diagnostic_20260718T130139Z_v3` (outcome PASS,
+# label `sws_readout_content_contingent_validated`, 8/8 seeds passing C1/C2/C3 on the
+# repaired `_sws_pattern_completion` readout). That run is the established-health control
+# for exactly these three gates: it is the same script, same seeds, same sigma grid and
+# same ladder, and it is the run that demonstrated the rebuilt readout is interpretable
+# and content-tracking. Frozen as literals so the guards need zero compute and cannot
+# drift with the substrate.
+#   injected_slope_sws -> arm_results[i].injected_slope_sws
+#   ladder_slopes      -> arm_results[i].ladder_slopes
+_REFERENCE_778G_HEALTHY: List[Dict[str, Any]] = [
+    {"seed": 42, "injected_slope_sws": 0.3245777508559374,
+     "ladder_slopes": {0.0: 0.031980300752911715, 0.25: 0.4487783819465478,
+                       0.5: 0.4301830271776864, 1.0: 0.3245777508559374}},
+    {"seed": 7, "injected_slope_sws": 0.343413371789214,
+     "ladder_slopes": {0.0: 0.0489227172889514, 0.25: 0.47966099185402555,
+                       0.5: 0.4588255786464148, 1.0: 0.343413371789214}},
+    {"seed": 123, "injected_slope_sws": 0.35778482921581956,
+     "ladder_slopes": {0.0: 0.046219069304061125, 0.25: 0.4686332760975656,
+                       0.5: 0.45804626607801335, 1.0: 0.35778482921581956}},
+    {"seed": 2024, "injected_slope_sws": 0.3231758770786943,
+     "ladder_slopes": {0.0: 0.034861253030248916, 0.25: 0.45336767073688355,
+                       0.5: 0.43151976762780286, 1.0: 0.3231758770786943}},
+    {"seed": 99, "injected_slope_sws": 0.3374661845218423,
+     "ladder_slopes": {0.0: 0.04022558314609341, 0.25: 0.46361007502789997,
+                       0.5: 0.4458609185345739, 1.0: 0.3374661845218423}},
+    {"seed": 7777, "injected_slope_sws": 0.3404493347147325,
+     "ladder_slopes": {0.0: 0.042277684759551445, 0.25: 0.4655831592527425,
+                       0.5: 0.4479344040397212, 1.0: 0.3404493347147325}},
+    {"seed": 314, "injected_slope_sws": 0.34553358192374584,
+     "ladder_slopes": {0.0: 0.04762528844294138, 0.25: 0.47052610168852027,
+                       0.5: 0.4524028295265678, 1.0: 0.34553358192374584}},
+    {"seed": 1000, "injected_slope_sws": 0.34239332795877564,
+     "ladder_slopes": {0.0: 0.05012439275524231, 0.25: 0.47684803545852555,
+                       0.5: 0.4536756876553808, 1.0: 0.34239332795877564}},
+]
+_REFERENCE_SOURCE = (
+    "V3-EXQ-778g completed run "
+    "v3_exq_sd068_sws_content_scored_readout_diagnostic_20260718T130139Z_v3 "
+    "(outcome PASS, sws_readout_content_contingent_validated, 8/8 seeds; per-seed "
+    "injected_slope_sws + ladder_slopes recorded in arm_results)"
+)
+# All three preconditions are per-seed booleans aggregated with `all(...)` over seeds,
+# so the reachability threshold is the FRACTION 1.0 -- every reference cell must score.
+ANCHOR_ALL_SEEDS_FRAC = 1.0
+
+
 def _ladder_slope(
     *, seed: int, content_scale: float, sigmas: List[float], warm: int,
     cached: Dict[float, Dict[str, Dict[str, float]]] = None,
@@ -242,22 +359,16 @@ def _score_seed(
     inj = control.get(f"injected_slope_{GATED_PHASE}", H.UNAVAILABLE)
     null = control.get(f"null_slope_{GATED_PHASE}", H.UNAVAILABLE)
 
-    # C2 readiness asserts the SAME statistic C1 routes on: the ratio's denominator.
-    c2 = _finite(inj) and abs(float(inj)) >= INJECTED_SLOPE_FLOOR
     c1 = bool(_finite(ratio) and float(ratio) <= NULL_SLOPE_RATIO_CEILING)
 
-    zero_slope = ladder.get(0.0, float("nan"))
-    pos = [ladder[c] for c in LADDER_SCALES if c > 0.0 and _finite(ladder.get(c))]
-    # C3(a) SIGNAL -- relative, not absolute: see the LADDER_SIGNAL_RATIO calibration
-    # note. The zero-content rung carries a small nonzero slope from the sigma=0
-    # store-is-exactly-zero discontinuity, so what must hold is that every
-    # content-bearing rung responds SEVERAL-FOLD more strongly than the content-free one.
-    c3a = bool(pos) and _finite(zero_slope) and min(abs(v) for v in pos) > (
-        LADDER_SIGNAL_RATIO * max(abs(zero_slope), 1e-12)
-    )
-    # C3(b) SPREAD -- the response must VARY with content amplitude, not merely switch
-    # on. This is what separates "tracks content" from "detects a non-empty store".
-    c3b = bool(pos) and (max(pos) - min(pos)) > LADDER_SPREAD_FLOOR
+    # The three declared preconditions are scored HERE through the SAME module-level
+    # callables the setup-time reachability guards replay the frozen reference through.
+    cell = {"injected_slope_sws": inj, "ladder_slopes": dict(ladder)}
+    # C2 readiness asserts the SAME statistic C1 routes on: the ratio's denominator.
+    c2 = _injected_slope_supra_floor(cell)
+    zero_slope = _zero_rung_slope(cell)
+    c3a = _ladder_signal_ratio_supra_floor(cell)
+    c3b = _ladder_slope_spread_supra_floor(cell)
     c3 = bool(c3a and c3b)
 
     return {
@@ -294,6 +405,49 @@ def run_experiment(*, dry_run: bool = False) -> Dict[str, Any]:
         f"ladder={ladder_scales} dry_run={dry_run}",
         flush=True,
     )
+
+    # ---- READINESS-ANCHOR REACHABILITY GUARDS (setup-time, BEFORE any compute) -------
+    # This script declares three anchor-kind readiness preconditions and self-routes on
+    # them to `substrate_not_ready_requeue`. A precondition that its own known-healthy
+    # control CANNOT pass is a guaranteed false negative: it would report met=false on
+    # every run and mislabel an instrument-specification gap as a substrate verdict
+    # (the confirmed V3-EXQ-778d defect; see experiments/_lib/readiness_anchor.py).
+    #
+    # Each guard replays the FROZEN V3-EXQ-778g reference through THE SHIPPED PREDICATE
+    # -- the same module-level callable `_score_seed` scores the live cells with. All
+    # three preconditions are per-seed booleans aggregated with `all(...)` over seeds, so
+    # the faithful re-expression is threshold=1.0 (every reference cell must score).
+    # Raises AnchorUnreachable (an AssertionError) -> non-zero exit -> runner classifies
+    # ERROR, which is the correct loud failure. Runs on dry-run too: the reference is
+    # frozen, so the guards are dry-run-invariant and the smoke test exercises them.
+    anchor_guards: Dict[str, Any] = {}
+    for _anchor_name, _score_fn in (
+        ("injected_arm_sws_sigma_slope_supra_floor", _injected_slope_supra_floor),
+        ("ladder_content_signal_ratio_supra_floor", _ladder_signal_ratio_supra_floor),
+        ("ladder_content_slope_spread_supra_floor", _ladder_slope_spread_supra_floor),
+    ):
+        _g = assert_anchor_reachable(
+            anchor_name=_anchor_name,
+            reference_cells=_REFERENCE_778G_HEALTHY,
+            score_fn=_score_fn,
+            threshold=ANCHOR_ALL_SEEDS_FRAC,
+            reference_source=_REFERENCE_SOURCE,
+            # margin_cells=0 is KNOWN AND INTENDED, not an oversight (readiness_anchor
+            # rule 4). The shipped aggregation is `all(...)` over seeds, so the gate is
+            # already the maximum possible fraction (1.0) and no cell-level headroom
+            # above it is expressible. The headroom that matters here is instead at the
+            # per-cell level, and it is large: the reference's tightest cells sit at
+            # signal ratio 6.83 vs a gate of 3.0, spread 0.111 vs 0.01, and injected
+            # slope 0.323 vs 1e-6 -- none is a thin-margin pass.
+        )
+        anchor_guards[_anchor_name] = _g
+        print(
+            f"  [guard] anchor reachable: {_anchor_name} -- the known-healthy "
+            f"V3-EXQ-778g reference scores {_g['n_reference_scored_true']}/"
+            f"{_g['n_reference_cells']} = {_g['reference_score']:.3f} under the shipped "
+            f"predicate (gate {ANCHOR_ALL_SEEDS_FRAC:.2f})",
+            flush=True,
+        )
 
     config_slice = {
         "sigmas": sigmas,
@@ -620,6 +774,10 @@ def run_experiment(*, dry_run: bool = False) -> Dict[str, Any]:
             {"name": "C3_ladder_tracks_content", "load_bearing": True,
              "passed": bool(c3_all)},
         ],
+        # Provenance for the setup-time guards: proof, recorded in the shipped artifact,
+        # that each declared readiness precondition is reachable by its own known-healthy
+        # reference under the SHIPPED predicate.
+        "anchor_reachability_guards": anchor_guards,
         "gated_phase": GATED_PHASE,
         "context_phases_not_gated": list(CONTEXT_PHASES),
         "rem_leg_owner": "V3-EXQ-778d/e/f (GOV-FANOUT-1 portfolio)",

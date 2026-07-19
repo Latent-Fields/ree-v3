@@ -106,6 +106,7 @@ from experiment_protocol import emit_outcome  # noqa: E402
 from experiments._lib import consolidation_lesion_harness as H  # noqa: E402
 from experiments._lib.arm_fingerprint import arm_cell  # noqa: E402
 from experiments._lib.manifest_core import stamp_recording_core  # noqa: E402
+from experiments._lib.readiness_anchor import assert_anchor_reachable  # noqa: E402
 from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_sd068_null_content_control_diagnostic"
@@ -164,6 +165,93 @@ def _fmt(v: float) -> str:
     return f"{v:.4f}"
 
 
+# --- THE SHIPPED READINESS PREDICATE ------------------------------------------------
+# The single declared precondition, `injected_arm_sigma_slope_supra_floor`, is a PER-SEED
+# boolean (`C2_ratio_interpretable_all_phases`) aggregated with `all(...)` over seeds
+# (`readiness_ok` below), so the faithful re-expression for `assert_anchor_reachable` is:
+# score_fn = the per-seed predicate, threshold = the FRACTION 1.0.
+#
+# These are factored to MODULE LEVEL precisely so the live scoring path in `_score_seed`
+# and the setup-time reachability guard run THE SAME CALLABLE. Scoring the guard with a
+# re-implementation would defeat its purpose -- the defect class being guarded against IS
+# a mis-specified predicate (SD-068 REM fanout autopsy, Learning 1; see
+# experiments/_lib/readiness_anchor.py).
+#
+# A `cell` is one seed's recorded values: {"seed": int, "injected_slope": {phase: float}}
+# -- exactly the shape `arm_results[i].injected_slope` is written out with.
+
+
+def _phase_slope_supra_floor(inj: Any) -> bool:
+    """One phase's injected-arm sigma-slope clears the interpretability floor.
+
+    FLOOR-shaped, INCLUSIVE (`>=`) -- comparator preserved exactly as shipped.
+    """
+    return bool(
+        inj != H.UNAVAILABLE
+        and not math.isnan(inj)
+        and abs(inj) >= INJECTED_SLOPE_FLOOR
+    )
+
+
+def _injected_slopes_all_supra_floor(cell: Dict[str, Any]) -> bool:
+    """C2 readiness, per seed: the ratio's DENOMINATOR is interpretable on ALL 3 phases.
+
+    Precondition `injected_arm_sigma_slope_supra_floor`. A near-zero injected slope means
+    the sweep never damaged that readout, so null/injected has no referent.
+    """
+    slopes = cell.get("injected_slope") or {}
+    return all(
+        _phase_slope_supra_floor(slopes.get(p, H.UNAVAILABLE))
+        for p in ("sws", "nrem", "rem")
+    )
+
+
+# The KNOWN-DAMAGED POSITIVE CONTROL the precondition's own `control` key names ("injected
+# arm swept to sigma=max"), frozen as a literal. These are the per-seed
+# `arm_results[i].injected_slope` values recorded by the completed V3-EXQ-778c run
+# `v3_exq_sd068_null_content_control_diagnostic_20260718T072318Z_v3` -- the same script,
+# same 8 seeds, same sigma grid -- which reported `ratio_interpretable` true on 3/3 phases
+# for 8/8 seeds. Frozen so the guard needs zero compute and cannot drift with the
+# substrate. (Note the run's overall outcome was FAIL on C1 content-contingency; that is
+# irrelevant here -- what makes it the right reference for THIS anchor is that its
+# injected arm was demonstrably damaged, which is the only thing the precondition asserts.)
+_REFERENCE_778C_INJECTED_SLOPES: List[Dict[str, Any]] = [
+    {"seed": 42, "injected_slope": {
+        "sws": 2.269717072399339, "nrem": 0.09671970039873905,
+        "rem": 0.1386070204874681}},
+    {"seed": 7, "injected_slope": {
+        "sws": 2.151620459920367, "nrem": 0.09867377313414635,
+        "rem": 1.1855791050165805}},
+    {"seed": 123, "injected_slope": {
+        "sws": 2.384814913120032, "nrem": 0.09667174055435042,
+        "rem": 0.06648187008701933}},
+    {"seed": 2024, "injected_slope": {
+        "sws": 2.0791972446568705, "nrem": 0.0967143029598984,
+        "rem": 1197.8934429238284}},
+    {"seed": 99, "injected_slope": {
+        "sws": 2.2589915022805984, "nrem": 0.09865533298549493,
+        "rem": 0.3325760259971743}},
+    {"seed": 7777, "injected_slope": {
+        "sws": 2.2808525420241947, "nrem": 0.09687813173177665,
+        "rem": 1196.8272982267972}},
+    {"seed": 314, "injected_slope": {
+        "sws": 2.2748340739382793, "nrem": 0.0974091445154601,
+        "rem": 999.5480676256806}},
+    {"seed": 1000, "injected_slope": {
+        "sws": 2.343211152122328, "nrem": 0.09708835577665026,
+        "rem": 998.5654418183228}},
+]
+_REFERENCE_SOURCE = (
+    "V3-EXQ-778c completed run "
+    "v3_exq_sd068_null_content_control_diagnostic_20260718T072318Z_v3 "
+    "(same script, same 8 seeds, same sigma grid; ratio_interpretable true on 3/3 "
+    "phases for 8/8 seeds; per-seed injected_slope recorded in arm_results)"
+)
+# The precondition is a per-seed boolean aggregated with `all(...)` over seeds, so the
+# reachability threshold is the FRACTION 1.0 -- every reference cell must score.
+ANCHOR_ALL_SEEDS_FRAC = 1.0
+
+
 def _score_seed(control: Dict[str, float]) -> Dict[str, Any]:
     """Score one seed's null control. Returns per-phase ratios + criteria."""
     ratios: Dict[str, float] = {}
@@ -179,16 +267,15 @@ def _score_seed(control: Dict[str, float]) -> Dict[str, Any]:
         contingent[p] = control.get(f"content_contingent_{p}", 0.0) >= 1.0
         # C2 readiness asserts the SAME statistic C1 routes on: the ratio's
         # denominator. A near-zero injected slope makes the ratio uninterpretable.
-        inj = inj_slopes[p]
-        interpretable[p] = (
-            inj != H.UNAVAILABLE
-            and not math.isnan(inj)
-            and abs(inj) >= INJECTED_SLOPE_FLOOR
-        )
+        # Scored through the MODULE-LEVEL shipped predicate -- the same callable the
+        # setup-time reachability guard replays the frozen 778c reference through.
+        interpretable[p] = _phase_slope_supra_floor(inj_slopes[p])
 
     confounded = H.confounded_phase_names(control)
     c1 = all(contingent.values())
-    c2 = all(interpretable.values())
+    # The per-seed precondition, evaluated on a cell of exactly the shape the guard's
+    # frozen reference cells carry.
+    c2 = _injected_slopes_all_supra_floor({"injected_slope": inj_slopes})
     return {
         # Carried so H.subgroup_ratio_stats can NAME the seeds it excludes -- its
         # default seed_of reads this key, and a scoped statistic whose excluded_seeds
@@ -232,6 +319,43 @@ def run_experiment(*, dry_run: bool = False) -> Dict[str, Any]:
     print(
         f"  seeds={seeds} sigmas={sigmas} warm_steps={warm} "
         f"arms={ARMS} dry_run={dry_run}",
+        flush=True,
+    )
+
+    # ---- READINESS-ANCHOR REACHABILITY GUARD (setup-time, BEFORE any compute) --------
+    # This script declares an anchor-kind readiness precondition
+    # (`injected_arm_sigma_slope_supra_floor`) and self-routes on it to
+    # `substrate_not_ready_requeue`. A precondition its own known-damaged positive control
+    # CANNOT pass is a guaranteed false negative: it would report met=false on every run
+    # and mislabel an instrument-specification gap as a substrate verdict (the confirmed
+    # V3-EXQ-778d defect; see experiments/_lib/readiness_anchor.py).
+    #
+    # The guard replays the FROZEN V3-EXQ-778c reference through THE SHIPPED PREDICATE --
+    # the same module-level callable `_score_seed` scores the live cells with. Raises
+    # AnchorUnreachable (an AssertionError) -> non-zero exit -> runner classifies ERROR,
+    # which is the correct loud failure. Runs on dry-run too: the reference is frozen, so
+    # the guard is dry-run-invariant and the smoke test exercises it.
+    anchor_guard = assert_anchor_reachable(
+        anchor_name="injected_arm_sigma_slope_supra_floor",
+        reference_cells=_REFERENCE_778C_INJECTED_SLOPES,
+        score_fn=_injected_slopes_all_supra_floor,
+        threshold=ANCHOR_ALL_SEEDS_FRAC,
+        reference_source=_REFERENCE_SOURCE,
+        # margin_cells=0 is KNOWN AND INTENDED, not an oversight (readiness_anchor rule
+        # 4). The shipped aggregation is `all(...)` over seeds, so the gate is already the
+        # maximum expressible fraction (1.0) and ANY margin would make required > 1.0 --
+        # unsatisfiable by construction. The headroom that matters is instead at the
+        # per-cell level, and it is enormous: the reference's tightest phase slope is
+        # nrem ~0.0967 against a floor of 1e-6, five orders of magnitude clear.
+        margin_cells=0,
+    )
+    print(
+        f"  [guard] anchor reachable: injected_arm_sigma_slope_supra_floor -- the "
+        f"known-damaged V3-EXQ-778c reference scores "
+        f"{anchor_guard['n_reference_scored_true']}/"
+        f"{anchor_guard['n_reference_cells']} = "
+        f"{anchor_guard['reference_score']:.3f} under the shipped predicate "
+        f"(gate {ANCHOR_ALL_SEEDS_FRAC:.2f}, floor {INJECTED_SLOPE_FLOOR})",
         flush=True,
     )
 
@@ -506,6 +630,10 @@ def run_experiment(*, dry_run: bool = False) -> Dict[str, Any]:
                 "met": bool(readiness_ok),
             },
         ],
+        # Provenance for the setup-time guard: proof, recorded in the shipped artifact,
+        # that this run's declared readiness precondition is reachable by its own
+        # known-damaged positive control under the SHIPPED predicate.
+        "anchor_reachability_guard": anchor_guard,
         "criteria_non_degenerate": {
             # Each is False if it passed/failed for a degenerate reason.
             "C1_all_phases_content_contingent": bool(readiness_ok),
