@@ -44,6 +44,22 @@
       "episodes_per_run": 3000,
       "experiment_type": "v3_exq_785b_mech463_channel_agnosticism_decomp",
       "seeds": 5
+    },
+    {
+      "queue_id": "V3-EXQ-699a",
+      "title": "P-comp: MECH-448 demotion x MECH-449 Go/No-Go composition at committed-class entropy (2x2 diagnostic; 699 re-run for adjudicable preconditions)",
+      "experiment_type": "v3_exq_699_pcomp_demotion_x_gonogo_composition",
+      "script": "experiments/v3_exq_699_pcomp_demotion_x_gonogo_composition.py",
+      "priority": 5,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 600,
+      "episodes_per_run": 350,
+      "seeds": 3,
+      "conditions": 4,
+      "claim_id": "MECH-448",
+      "supersedes": "V3-EXQ-699",
+      "note": "RE-RUN of V3-EXQ-699 for a CLEANLY ADJUDICABLE manifest. The shipped run (v3_exq_699_pcomp_demotion_x_gonogo_composition_20260623T053755Z_v3) is a sound PASS (interpretation_label levers_compound) that the REE_assembly indexer adjudicates `precondition_unmet` from a DECLARATION bug alone -- the science is unaffected. The gapa_consumed_summary_divergence_all_arms entry reported min(consumed_summary_pairwise_dist_mean)=0.004852 against a 0.05 continuous floor while its `met` was a COUNT-of-seeds predicate (c1b_holds = _maj_all(gapa_divergence), i.e. >=2 of 3 seeds divergent in EVERY arm). min-over-cells is strictly HARSHER than 'a majority of seeds': the run's own per-seed data has 11 of 12 arm-seeds divergent (only ARM_DEM/seed 43 below floor), so the author's met=True was correct and the reported statistic was the wrong aggregator. Driver corrected in ree-v3 0bfbb42 (_min_arm_count; entries now report min(per-arm satisfying-seed count) >= MIN_SEEDS_FOR_PASS, reproducing all(_maj(...)) exactly) -- PROSPECTIVE only, so it cannot fix the existing manifest. WHY RE-RUN NOT MANIFEST-EDIT: the indexer scores the PACK copy (<experiment_type>/runs/<run_id>/manifest.json, build_experiment_indexes.py:868); the flat <run_id>.json is an overlay restricted to _FLAT_AUTHORITATIVE_FIELDS, which deliberately excludes interpretation.preconditions -- so a flat edit is inert and a pack edit would rewrite the historical scoring source. Prior manifest is SUPERSEDED, not corrected. GOV-REUSE-1: the decisive readout (committed-class entropy C2 + the 7 readiness preconditions) IS recorded in the 20260623 manifest, but it is unusable as-adjudicated for the reason above, and correcting it in place is the rejected retroactive-edit path -- so this is a re-run, not a reanalysis. Design UNCHANGED from 699 (2x2 demotion {OFF,ON} x Go/No-Go {OFF,ON}, matched stack, 3 seeds x 4 arms, 350 ep/run); only QUEUE_ID and a new manifest `supersedes` field differ. Re-derive brake CLEAR (MECH-448 and MECH-449 each have 0 substrate_ceiling/non_contributory autopsies). experiment_purpose=diagnostic; PROMOTES NOTHING, scoring-excluded. Priority 5 = below the live MECH-463 probes (787 pri=60, 785b pri=6): the scientific answer is already known, only the record needs repair, so it should run on idle capacity. KNOWN CAVEAT (pre-existing, NOT introduced here, deliberately NOT fixed): validate_experiments flags stale-E3-diagnostics -- the driver reads last_score_diagnostics per env-step (line ~945) without clearing the latch, and with the default heartbeat.e3_steps_per_tick=10 each genuine E3 selection is re-recorded ~10x. The load-bearing readiness gates are RATIOS and MEANS (demotion_active_frac, excluded_count_mean, nogo_suppressed_mean, rank_preserving_frac), which are invariant under uniform replication, so the PASS is not threatened; what IS inflated is the reported tick COUNTS (n_p2_ticks, f_eligibility_demotion_active_ticks, go_nogo_active_ticks) as sample sizes. Fixing the latch would change the statistics and make this a DIFFERENT experiment (new number, not a letter), defeating the purpose of a faithful re-emission -- so it is left as-is and flagged for a separate follow-up. validate_experiments --strict OK; validate_recording --strict OK on the dry-run manifest (always-core complete, queue_id=V3-EXQ-699a, supersedes set); dry-run smoke PASS (4 arms end-to-end, 12 verdict lines at full scale, toy-scale self-routes substrate_not_ready_requeue as designed)."
     }
   ]
 }

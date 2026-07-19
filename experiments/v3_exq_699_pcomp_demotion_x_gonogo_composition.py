@@ -222,7 +222,23 @@ from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_699_pcomp_demotion_x_gonogo_composition"
-QUEUE_ID = "V3-EXQ-699"
+QUEUE_ID = "V3-EXQ-699a"
+# The V3-EXQ-699 shipped run was a sound PASS (interpretation_label
+# levers_compound) that the REE_assembly indexer adjudicated
+# `precondition_unmet` from a DECLARATION bug alone: the
+# gapa_consumed_summary_divergence_all_arms entry reported
+# min(consumed_summary_pairwise_dist_mean) against a continuous floor while its
+# `met` was a COUNT-of-seeds predicate (_maj_all), and min-over-cells is
+# strictly harsher than "a majority of seeds" -- 11 of 12 arm-seeds were
+# divergent, only ARM_DEM/seed 43 sat below. The declarations were corrected to
+# the recomputable COUNT form in ree-v3 0bfbb42 (see _min_arm_count), which is
+# PROSPECTIVE: it cannot change the already-written manifest. 699a re-runs to
+# emit a clean pack. The prior manifest is SUPERSEDED, never edited -- the
+# indexer scores the PACK copy (build_experiment_indexes.py:868) and a pack
+# edit would rewrite the historical scoring source.
+SUPERSEDES_RUN_ID = (
+    "v3_exq_699_pcomp_demotion_x_gonogo_composition_20260623T053755Z_v3"
+)
 CLAIM_IDS: List[str] = ["MECH-448", "MECH-449"]
 EXPERIMENT_PURPOSE = "diagnostic"
 
@@ -1799,6 +1815,7 @@ def _build_manifest(
         "run_id": run_id,
         "experiment_type": EXPERIMENT_TYPE,
         "queue_id": QUEUE_ID,
+        "supersedes": SUPERSEDES_RUN_ID,
         "claim_ids": CLAIM_IDS,
         "experiment_purpose": EXPERIMENT_PURPOSE,
         "architecture_epoch": "ree_hybrid_guardrails_v1",
