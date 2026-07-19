@@ -97,18 +97,70 @@ def _sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+_TORCH_TAG: Optional[str] = None
+TORCH_ABSENT_TAG = "torchNA"
+
+
+def torch_version_tag() -> str:
+    """The torch build identity that joins machine_class(). Memoised.
+
+    Returns torch.__version__ verbatim (e.g. "2.5.1+cu121") -- INCLUDING the local
+    version segment, so a CUDA-build change is a different class too (over-inclusion
+    -> false misses only, per the governing asymmetry). When torch cannot be imported
+    at all, returns the reserved TORCH_ABSENT_TAG, which can never collide with a real
+    version string; a torchless host therefore gets its own class rather than silently
+    joining a torch-bearing one.
+
+    Lazy + memoised on purpose. Module-level `import torch` would break this module's
+    stdlib-only importability, which manifest_core.py documents and depends on ("safe to
+    import without torch/ree_core"). Importing on FIRST CALL keeps that property while
+    still forcing a real resolution -- deliberately NOT `sys.modules.get("torch")`, which
+    would make the tag depend on whether torch happened to be imported yet and so make
+    the fingerprint nondeterministic across call sites.
+    """
+    global _TORCH_TAG
+    if _TORCH_TAG is None:
+        try:
+            import torch as _torch  # noqa
+            _TORCH_TAG = str(_torch.__version__)
+        except Exception:
+            _TORCH_TAG = TORCH_ABSENT_TAG
+    return _TORCH_TAG
+
+
 def machine_class() -> str:
     """Coarse architecture tag. Regime A only reuses within one class.
 
-    Intentionally coarse (system + machine arch + py major.minor). Two hosts of
-    the same OS/arch/python are treated as one class; float-rounding determinism
-    is assumed stable within a class and NOT across classes.
+    system + machine arch + py major.minor + TORCH VERSION. Two hosts matching on all
+    four are treated as one class; float-rounding determinism is assumed stable within
+    a class and NOT across classes.
+
+    WHY TORCH IS IN THE TAG (added 2026-07-19; plan sections 7b/9). Without it the tag
+    was blind to the single most likely source of float-behaviour drift in this fleet.
+    Upgrading torch on the cloud workers leaves python at 3.10, so the old tag stayed
+    BYTE-IDENTICAL across the upgrade -- every one of the 1170 banked linux fingerprints
+    would have remained matchable, and a post-upgrade consumer would have compared its
+    new-torch treatment arms against old-torch baselines with no cache miss and no
+    warning. That is precisely the false HIT the whole design exists to prevent (a false
+    hit corrupts a conclusion; a false miss only wastes compute). Putting torch in the
+    tag converts that silent corruption into a visible, cheap re-run.
+
+    This is a HARD CUT, and deliberately so: it invalidates every fingerprint minted
+    before it. No migration was possible -- the fingerprint hashes `config_slice`, which
+    is persisted NOWHERE (neither the index entry nor the stored per-cell payload keeps
+    it), so an old fingerprint cannot be recomputed under a new tag by any means. Old
+    entries simply stop matching, which is the correct and safe failure direction.
+
+    The same tag also keys maturation_curriculum._prefix_key (frozen prefix TENSORS on
+    disk) and probe_warmup._cache_key, so both inherit the torch discrimination from
+    this one change rather than each needing its own guard.
     """
-    return "{sys}-{arch}-py{maj}.{minr}".format(
+    return "{sys}-{arch}-py{maj}.{minr}-torch{torch}".format(
         sys=platform.system().lower(),
         arch=(platform.machine() or "unknown").lower(),
         maj=sys.version_info.major,
         minr=sys.version_info.minor,
+        torch=torch_version_tag(),
     )
 
 
@@ -377,6 +429,12 @@ def compute_arm_fingerprint(
         "substrate_hash": sub["substrate_hash"],
         "substrate_n_files": sub["n_files"],
         "machine_class": mc,
+        # Recorded SEPARATELY as well as inside machine_class, so a future miss can be
+        # triaged ("missed because torch moved") instead of being an unexplained miss,
+        # and so a later tag change has the data this one did not: the pre-2026-07-19
+        # corpus records no torch anywhere, which is exactly why that cut could not be
+        # migrated. Observability only -- machine_class is what enters the hash.
+        "torch_version": torch_version_tag(),
         "regime": REGIME,
         "seed": int(seed),
         "config_slice_declared": bool(config_slice_declared),
