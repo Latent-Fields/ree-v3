@@ -8,9 +8,9 @@ Surfaces under test:
       the invariant that this gate is WARN-ONLY IN BOTH MODES (never hardens under
       --paths, never affects the exit code even under --strict).
 
-WHY THIS GATE EXISTS. `ree_core/predictors/e3_selector.py` sets
+WHY THIS GATE EXISTS. `ree_core/predictors/e3_selector.py` sets all SIX of
 last_score_diagnostics / last_score_decomp / last_channel_terms / last_scores /
-last_precommit_probs ONLY inside `select()`. The attributes LATCH: on a tick where
+last_precommit_probs / last_raw_scores ONLY inside `select()`. The attributes LATCH: on a tick where
 `select()` did not run they still hold the PREVIOUS selection. A driver reading them
 once per env step therefore records the same selection repeatedly. Nothing raises --
 the run just reports a sample size it does not have. Confirmed 2026-07-19 on the
@@ -90,6 +90,104 @@ def main():
 if __name__ == "__main__":
     main()
 '''
+
+
+_IDENTITY_GUARDED = '''
+def main():
+    prev_probs_id = None
+    for step in range(100):
+        agent.select_action(obs)
+        probs = getattr(agent.e3, "last_precommit_probs", None)
+        pid = id(probs) if probs is not None else None
+        fresh = probs is not None and pid != prev_probs_id
+        prev_probs_id = pid
+        if fresh:
+            rows.append(probs)
+
+if __name__ == "__main__":
+    main()
+'''
+
+_DEFECTIVE_RAW_SCORES = '''
+def main():
+    for step in range(100):
+        agent.select_action(obs)
+        raw = getattr(agent.e3, "last_raw_scores", None)
+        rows.append(raw)
+
+if __name__ == "__main__":
+    main()
+'''
+
+
+def test_e3s_identity_freshness_guard_is_exempt():
+    """Exemption (d): dedupe by object identity discharges the same obligation as (a).
+
+    A latched read hands back the SAME object on a skipped tick; a real select()
+    allocates a new one. Gating the append on id(...) changing therefore admits exactly
+    the fresh selections. This is the shape v3_exq_777 uses, and it was the ONE false
+    positive in the 2026-07-19 landed corpus of 65.
+    """
+    assert _lint_src(_IDENTITY_GUARDED) is None
+
+
+def test_e3s_identity_guard_does_not_blanket_exempt_unrelated_id_calls():
+    """Guard against (d) being over-broad: id() on a NON-latched value must not exempt.
+
+    23 of the landed 65 call id() for unrelated reasons -- 708 and 709 among them, both
+    CONFIRMED carriers. If (d) keyed on the mere presence of id() it would silently
+    exempt them and the backlog would collapse for a bookkeeping reason.
+    """
+    src = _DEFECTIVE.replace("rows.append(diag)",
+                             "prev = id(obs)\n        rows.append((diag, prev != 0))")
+    out = _lint_src(src)
+    assert out is not None and "STALE E3 DIAGNOSTICS" in out, out
+
+
+def test_e3s_covers_last_raw_scores():
+    """last_raw_scores latches like the other five (e3_selector.py:2103, inside select()).
+
+    It was absent from _E3_LATCHED_ATTRS until 2026-07-19. Not academic: V3-EXQ-722
+    carried TWO latched reads and this was the second, with a comment asserting exactly
+    the assumption the defect refutes.
+    """
+    assert "last_raw_scores" in V._E3_LATCHED_ATTRS
+    out = _lint_src(_DEFECTIVE_RAW_SCORES)
+    assert out is not None and "last_raw_scores" in out, out
+
+
+def test_e3s_all_six_latched_attrs_are_select_only_in_the_substrate():
+    """The lint's premise, asserted against the substrate rather than assumed.
+
+    Every name in _E3_LATCHED_ATTRS must be assigned ONLY inside E3Selector.select().
+    If a future refactor adds an __init__ default or a reset path, that attribute stops
+    latching and its fires become false positives -- this fails first and says so.
+    """
+    import ast as _ast
+    sel = REPO_ROOT / "ree_core" / "predictors" / "e3_selector.py"
+    tree = _ast.parse(sel.read_text(encoding="utf-8"))
+    funcs = []
+    for n in _ast.walk(tree):
+        if isinstance(n, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
+            last = max((getattr(x, "lineno", n.lineno) for x in _ast.walk(n)),
+                       default=n.lineno)
+            funcs.append((n.lineno, last, n.name))
+
+    def _owner(lineno):
+        c = [f for f in funcs if f[0] <= lineno <= f[1]]
+        return min(c, key=lambda f: f[1] - f[0])[2] if c else "<module>"
+
+    seen = {a: [] for a in V._E3_LATCHED_ATTRS}
+    for n in _ast.walk(tree):
+        if isinstance(n, _ast.Assign):
+            for t in n.targets:
+                if isinstance(t, _ast.Attribute) and t.attr in seen:
+                    seen[t.attr].append(_owner(t.lineno))
+    for attr, owners in seen.items():
+        assert owners, f"{attr} is never assigned in e3_selector.py -- stale lint entry?"
+        assert set(owners) == {"select"}, (
+            f"{attr} is assigned outside select() ({sorted(set(owners))}). It no longer "
+            f"latches unconditionally, so the lint's premise does not hold for it.")
 
 
 def test_e3s_bare_loop_read_is_flagged():
@@ -256,12 +354,56 @@ def test_e3s_is_warn_only_under_strict_and_paths():
 
 # Pinned 2026-07-19 against the v3_exq_*.py corpus (66 at first measurement, 65 after
 # fixing V3-EXQ-722 -- the one carrier that had never run, so fixing it cost nothing).
-# This is a BACKLOG SIZE, not a
-# target -- the landed scripts have all run and are deliberately NOT retro-edited
+# Re-pinned 65 -> 64 the same day; see RECONCILIATION below. This is a BACKLOG SIZE, not
+# a target -- the landed scripts have all run and are deliberately NOT retro-edited
 # (a completed run's pre-registered emission is not rewritten). The pin exists so a
 # NEW script carrying the defect shows up as a rise, and so a later widening of the
 # rule announces its own blast radius instead of drifting silently.
-_PINNED_CORPUS_FIRE_COUNT = 65
+#
+# ---- RECONCILIATION: why 65, not the ~52 the commissioning brief predicted ----------
+# Both numbers were right about different questions, and NEITHER was a mis-measurement.
+# The ~52 came from the 2026-07-19 corpus audit (session `upbeat-gauss-918164`, recorded
+# in WORKSPACE_STATE.md 15:30Z): a grep returning "61 grep hits triaged", of which "~9
+# cleanly UNAFFECTED" were set aside -- 61 - 9 = 52. That audit's unit of measurement
+# differs from this lint's in THREE compounding ways, each verified by re-running the
+# landed lint against the corpus as it stood at the audit-era commit (fa52889, 1086
+# scripts):
+#   (1) ATTRIBUTE SET -- dominant. The audit grepped the ONE confirmed attribute,
+#       `last_score_diagnostics`. The lint covers every attribute that latches. A
+#       diagnostics-only variant of this lint fires on 46 of 1086 at that commit, where
+#       the full rule fires on 66 -- so the attribute set alone accounts for ~20 files.
+#       On today's corpus: 45 of the fires read last_score_diagnostics, 20 fire on a
+#       DIFFERENT latching attribute only. Those 20 are true positives, not slack: all
+#       six attributes are assigned exclusively inside select() (asserted against the
+#       substrate by test_e3s_all_six_latched_attrs_are_select_only_in_the_substrate),
+#       so a driver latching last_scores pseudo-replicates exactly as one latching
+#       last_score_diagnostics does.
+#   (2) GLOB. The lint's corpus is `v3_exq_*.py`; the brief said `experiments/*.py`. At
+#       the audit commit the single-attribute grep hit 60 files under the lint's glob but
+#       63 under the broader one. The audit's own `v4_exq_001`/`v4_exq_003` exemptions
+#       are outside this lint's corpus entirely -- correctly, they drive a bare selector.
+#   (3) COUNTING UNIT. This lint reports one finding per FILE; the audit triaged grep
+#       HITS, and a grep hit includes docstring and comment mentions that are not reads
+#       at all. That is why ~52 sits ABOVE the 46 an attribute-matched AST scan yields.
+# The audit's ~9 hand-triaged exemptions (the 485h-m + 696 family, 689g/689h) need no
+# special handling -- they call `e3.select()` directly and are already discharged by
+# exemption (c). The audit and the lint agree about them.
+# CONCLUSION: 65 was the better measure of the defect and is kept as the basis. The
+# brief's ~52 was a single-attribute, hand-triaged lower bound, not a competing count.
+#
+# ---- What actually changed at the 65 -> 64 re-pin ------------------------------------
+# Reconciling the two definitions surfaced one genuine error in each direction. Both were
+# fixed on their merits; neither was chosen to move the number toward ~52 (and note they
+# nearly cancel, so fitting to ~52 was never available anyway):
+#   NARROWED, -1: exemption (d), the identity-freshness guard. v3_exq_777 dedupes by
+#     `id(last_precommit_probs)` and records only on change -- semantically equivalent to
+#     clear-before-select, and the ONLY false positive in the 65. Checked precisely: 23
+#     other fires call id() for unrelated reasons and all still fire, 708 and 709 among
+#     them (both CONFIRMED carriers per the 708 re-adjudication).
+#   WIDENED, +0: `last_raw_scores` added to _E3_LATCHED_ATTRS -- a coverage hole, since
+#     V3-EXQ-722's SECOND latched read was exactly that attribute. Measured net effect on
+#     the corpus: ZERO. Future coverage at no backlog cost.
+_PINNED_CORPUS_FIRE_COUNT = 64
 
 
 def test_e3s_corpus_fire_rate_is_pinned():
