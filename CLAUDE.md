@@ -13959,6 +13959,15 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
   Unblocks H-retention-critic + H-retention-auxiliary-decay for queueing as a pair (both
   manipulations already built: 8e88ffc, 9a8dbae). MECH-457 stays candidate/v3_pending; INV-088
   unchanged; this build promotes and demotes nothing.
+  Validation experiment: V3-EXQ-788 (v3_exq_788_mech457_retention_critic.py, H-retention-critic)
+  + V3-EXQ-789 (v3_exq_789_mech457_retention_auxiliary_decay.py, H-retention-auxiliary-decay),
+  queued as a PAIR 2026-07-19 (ree-v3 5a7bcf9). Both wire retention_probe_every/probe_fn and read
+  guard["competence_trajectory"] -- they are the consuming validation of this probe. Audited
+  against the four measurement_requirement constraints: trajectory probe wired, explicit
+  succeeded_then_decayed branches, substrate_not_ready_requeue self-route,
+  post_bc_foraging_competence genuinely CONSUMED (not merely declared -- the V3-EXQ-780 failure),
+  same-statistic evaluate_seed/foraging_competence. Anti-alias holds both ways: 789 pins
+  use_distributional_critic False on all arms, 788 does not touch the bc_aux schedule.
   See REE_assembly/docs/architecture/sd_mech457_retention_trajectory_probe.md and
   REE_assembly/evidence/planning/mech457_retention_portfolio_2026-07-18.md.
 
