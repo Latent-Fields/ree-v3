@@ -90,6 +90,14 @@ PHASES = ("sws", "nrem", "rem")
 # Pre-registered acceptance floors (identical to 778).
 SPAN_FLOOR = 1e-3            # min fractional-degradation span for a phase to count as "degrading"
 MONOTONE_CORR_FLOOR = 0.5    # min Pearson corr(sigma, error) for "monotone degradation"
+# KNOWN-DEFECTIVE (recorded 2026-07-19, NOT fixed -- 778/778a already ran; a fix needs a
+# new EXQ letter, not an in-place retune). Vacuous anchor, the mirror of the 778d defect.
+# Identical to 778's; the full statement lives at INTACT_SIGNAL_FLOOR in
+# v3_exq_sd068_consolidation_staged_damage_diagnostic.py. In short: C1 routes on
+# H._normalise_degradation() (a min-max rescale to [0,1]) and is therefore SCALE-INVARIANT
+# to the raw levels this floor gates, and the ratio denominators are separately guarded by
+# inline `> 1e-12` tests at every sigma -- so raising this floor would not repair it.
+# See REE_assembly/evidence/planning/vacuous_readiness_anchors_SD-068_2026-07-19.md.
 INTACT_SIGNAL_FLOOR = 1e-9   # sigma=0 readouts must be non-degenerate (positive control)
 PASS_FRACTION = 2.0 / 3.0
 PREDICTED_ORDER = list(H.REVERSE_DEPENDENCY_ORDER)  # ("rem","nrem","sws")
@@ -465,10 +473,12 @@ def run_experiment(*, dry_run: bool = False) -> Dict[str, Any]:
     # it.
     # margin_cells=0 is KNOWN AND INTENDED here: the shipped gate is `all(seeds)`, i.e.
     # a fraction of 1.0, so ANY positive cell margin would be unsatisfiable by
-    # construction. The real headroom is in the values, not the cell count -- the
-    # reference clears INTACT_SIGNAL_FLOOR (1e-9) by 9 orders of magnitude on
-    # rem_clean_variance (0.5) and by 12 on sws_signal_power (~5.4e3), so seed-level
-    # jitter cannot flip it.
+    # construction. The reference clears INTACT_SIGNAL_FLOOR (1e-9) by 9 orders of
+    # magnitude on rem_clean_variance (0.5) and by 12 on sws_signal_power (~5.4e3).
+    # CORRECTION (2026-07-19): an earlier version of this comment offered that as
+    # reassurance ("seed-level jitter cannot flip it"). That reads the defect backwards --
+    # 9-to-12 orders of headroom is the VACUITY, not the strength. See the KNOWN-DEFECTIVE
+    # block at INTACT_SIGNAL_FLOOR. Rule 4 (margin) holds; rule 3 does not.
     anchor_guard = assert_anchor_reachable(
         anchor_name="intact_readouts_nondegenerate",
         reference_cells=_REFERENCE_INTACT_READOUTS,

@@ -144,8 +144,25 @@ ARMS = ["CONTENT_0.0", "CONTENT_0.5", "CONTENT_1.0"]
 GAIN_SEPARATION_ABS_FLOOR = 0.05
 GAIN_SEPARATION_SD_MULT = 2.0
 # Readiness: the gain is a SLOPE fitted over the sigma grid, so the readiness check is a
-# RANGE check on that slope's x-axis (the injected seed's relative corruption) -- the
-# same statistic the gain routes on, measured on the content_scale=1.0 positive control.
+# RANGE check on that slope's x-axis (the injected seed's relative corruption),
+# measured on the content_scale=1.0 positive control.
+# CORRECTED 2026-07-19: this comment previously claimed the range is "the same statistic
+# the gain routes on". It is not -- it is that statistic's INPUT (the x-axis of the fit),
+# while C1 routes on the mean per-seed delta of the fitted gain. Under readiness_anchor.py
+# this is the EXISTENCE / non-degeneracy form, which the module explicitly sanctions, not
+# a rule-3 same-statistic gate. Do not cite it as the latter.
+# The existence form is nonetheless the right one here, for a specific reason: the slope
+# fit degenerates SILENTLY. _slope_of returns 0.0 (not UNAVAILABLE) when
+# den = sum((x-mx)^2) <= 1e-12, so a collapsed x-spread would be scored as a real
+# zero gain rather than skipped. This range check is what catches that.
+# WIDE MARGIN, KNOWN: recorded control ranges are 1.5646-2.4458 against a 0.05 floor
+# (~31x-49x), and sigma=0 contributes corruption 0 by construction while sigma=2.0 is
+# O(1), so the range is near-guaranteed. `met: true` is close to true-by-construction and
+# carries little information. Already recorded at the frozen reference below; see also
+# REE_assembly/evidence/planning/vacuous_readiness_anchors_SD-068_2026-07-19.md.
+# NOTE the 0.05 shared with GAIN_SEPARATION_ABS_FLOOR above is COINCIDENTAL -- different
+# quantities in different units (gain-delta vs relative seed-corruption spread), neither
+# derived from the other. Do not refactor them into one constant.
 INPUT_CORRUPTION_RANGE_FLOOR = 0.05
 # The SHIPPED aggregation over seeds is `all(r["readiness_met"] ...)`. Expressed as the
 # fraction the reachability guard needs, that is exactly 1.0. This constant introduces NO

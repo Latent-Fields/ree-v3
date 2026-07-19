@@ -74,6 +74,20 @@ WARM_STEPS = 40
 # Pre-registered acceptance floors.
 SPAN_FLOOR = 1e-3            # min fractional-degradation span for a phase to count as "degrading"
 MONOTONE_CORR_FLOOR = 0.5    # min Pearson corr(sigma, error) for "monotone degradation"
+# KNOWN-DEFECTIVE (recorded 2026-07-19, NOT fixed -- 778/778a already ran; a fix needs a
+# new EXQ letter, not an in-place retune). This floor is a VACUOUS anchor, the mirror of
+# the 778d defect: see readiness_anchor.py "THE MIRROR FAILURE THIS GUARD DOES *NOT*
+# CATCH" and REE_assembly/evidence/planning/vacuous_readiness_anchors_SD-068_2026-07-19.md.
+# Two facts, both verified in code, and note the SECOND is the load-bearing one:
+#   (1) Headroom is ~5e8x (rem_clean_variance 0.5) to ~1e12x (sws_signal_power ~5.4e3).
+#   (2) Raising the floor would NOT repair it. C1 -- the load-bearing criterion -- routes
+#       on H._normalise_degradation(), a min-max rescale to [0,1] over each phase's OWN
+#       sigma series, so C1 is SCALE-INVARIANT to the raw levels this floor gates. And
+#       the ratio denominators are already guarded independently by separate inline
+#       `> 1e-12` tests in _phase_error_frac, at EVERY sigma, not just sigma=0.
+# So this anchor certifies a statistic its criterion cannot be affected by, and does no
+# denominator-protection work either. `met: true` here carries no information about C1
+# readiness. Do NOT read it as one, and do NOT "fix" it by raising 1e-9.
 INTACT_SIGNAL_FLOOR = 1e-9   # sigma=0 readouts must be non-degenerate (positive control)
 PASS_FRACTION = 2.0 / 3.0
 PREDICTED_ORDER = list(H.REVERSE_DEPENDENCY_ORDER)  # ("rem","nrem","sws")
@@ -165,9 +179,13 @@ ANCHOR_INTACT_MIN_SEEDS_FRAC = 1.0
 # margin_cells is deliberately 0 and CANNOT be otherwise: the gate is 1.0, so any
 # positive cell-margin would demand a fraction above 1.0 and be unmeetable by
 # construction -- the very defect this guard exists to catch. The zero cell-margin is
-# known and intended (readiness_anchor.py rule 4). Note the margin in VALUE terms is
-# enormous, not thin: the smallest reference readout is 0.4999997 against a 1e-9 floor,
-# ~5e8x headroom, so no plausible seed-level jitter approaches the gate.
+# known and intended (readiness_anchor.py rule 4). The margin in VALUE terms is enormous:
+# the smallest reference readout is 0.4999997 against a 1e-9 floor, ~5e8x headroom.
+# CORRECTION (2026-07-19): an earlier version of this comment offered that headroom as
+# REASSURANCE ("no plausible seed-level jitter approaches the gate"). That reads the
+# defect backwards. The headroom is the VACUITY -- see the KNOWN-DEFECTIVE block at
+# INTACT_SIGNAL_FLOOR. Rule 4 (margin) is satisfied; rule 3 (score the statistic the
+# criterion routes on) is NOT. An anchor nothing can fail is not a strong anchor.
 ANCHOR_INTACT_MARGIN_CELLS = 0
 
 

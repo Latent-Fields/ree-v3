@@ -154,6 +154,14 @@ ARMS = ["INJECTED", "NULL"]
 
 # Pre-registered thresholds.
 NULL_SLOPE_RATIO_CEILING = H.NULL_SLOPE_RATIO_CEILING  # 0.25
+# WIDE MARGIN, KNOWN AND INTENDED (audited 2026-07-19). Tightest recorded phase slope is
+# ~0.0967 against this 1e-6 floor -- ~5 orders of headroom. NOT the rule-3 defect: this
+# gates the literal DENOMINATOR of null_slope_ratio_<phase>, the statistic C1 routes on,
+# so a tripwire orders below the working range is the correct shape. But `met: true` says
+# only "the ratio was computable", not "the substrate was ready"; and it is largely
+# REDUNDANT with the harness's own NULL_MIN_INJECTED_SLOPE = 1e-9 0/0 guard
+# (consolidation_lesion_harness.py:1409), which already reports the phase UNAVAILABLE.
+# Deliberately NOT retuned -- the run has already executed.
 INJECTED_SLOPE_FLOOR = 1e-6   # C2 readiness: min |injected slope| for an interpretable ratio
 PASS_FRACTION = 1.0           # ALL seeds must be clean for C1 (a control, not a vote)
 

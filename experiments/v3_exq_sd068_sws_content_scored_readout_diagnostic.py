@@ -98,8 +98,14 @@ ACCEPTANCE (pre-registered)
   C3 (anti-artifact, LOAD-BEARING): the content-scale ladder shows (a) SIGNAL --
      |slope| at every content_scale>0 exceeds LADDER_SIGNAL_RATIO x |slope| at
      content_scale=0; and (b) SPREAD -- the spread across the content>0 slopes exceeds
-     LADDER_SPREAD_FLOOR. Both are RELATIVE tests. An absolute floor on the
-     zero-content slope was tried and rejected at authoring time: the zero-content arm
+     LADDER_SPREAD_FLOOR.
+     (a) is a RELATIVE test; (b) is an ABSOLUTE one. [Corrected 2026-07-19: this line
+     previously read "Both are RELATIVE tests", which misdescribes (b). (a) compares
+     min|slope| against LADDER_SIGNAL_RATIO x |zero-rung slope|; (b) compares a SIGNED
+     range, max(pos) - min(pos) -- note no abs(), unlike (a) -- against a fixed 0.01.
+     The rejection of an absolute floor recorded below applies to (a) only.]
+     An absolute floor on the zero-content slope
+     was tried and rejected at authoring time: the zero-content arm
      has a real discontinuity at sigma=0 (store exactly zero) which gives it a small
      nonzero fitted slope no absolute bound can sensibly cover. See the
      LADDER_SIGNAL_RATIO calibration note.
@@ -157,6 +163,19 @@ LADDER_EXTRA_SCALES = [0.25, 0.5]
 
 # Pre-registered thresholds.
 NULL_SLOPE_RATIO_CEILING = H.NULL_SLOPE_RATIO_CEILING  # 0.25
+# WIDE MARGIN, KNOWN AND INTENDED (audited 2026-07-19). Recorded reference min |injected
+# sws slope| is 0.323 against this 1e-6 floor -- ~5.5 orders of headroom. That is NOT the
+# rule-3 defect: this floor gates the literal DENOMINATOR of null_slope_ratio_sws, the
+# statistic C1 routes on (harness _content_contingency: ratio = |null_slope|/|inj_slope|),
+# so it scores the right statistic and a divide-by-almost-zero tripwire BELONGS orders
+# below the working range. Two consequences a governance reader should not over-read:
+#   - `met: true` here is near-automatic and says only "the ratio was computable", never
+#     "the substrate was ready" in any stronger sense.
+#   - It is largely REDUNDANT: the harness already fails the same denominator closed at
+#     NULL_MIN_INJECTED_SLOPE = 1e-9 (consolidation_lesion_harness.py:1409), reporting the
+#     phase UNAVAILABLE rather than scoring it. This floor only adds 3 orders over that.
+# Deliberately NOT retuned: the run has already executed, and a floor this far below the
+# working range is the correct shape for a denominator guard regardless.
 INJECTED_SLOPE_FLOOR = 1e-6   # C2 readiness: min |injected sws slope| for interpretability
 PASS_FRACTION = 1.0           # ALL seeds must be clean for C1 (a control, not a vote)
 # C3 thresholds. CALIBRATION NOTE (recorded so these are auditable rather than tuned):
