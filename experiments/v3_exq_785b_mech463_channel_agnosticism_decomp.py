@@ -94,14 +94,23 @@ valid, well-powered result. Fixed here with experiments/_lib/precondition_gate.p
 highest-priority GREEN regime, and `arm_criteria_non_degenerate` keys each criterion to its
 owning arm's gate. A red secondary can no longer vacate a green primary.
 
-=== INCIDENTAL DEFECT IN 785a, FIXED HERE: torch NEVER SEEDED ===
-785a seeds the environment (CausalGridWorldV2(seed=seed), with a docstring comment stressing
-that omitting it makes bit-identity checks meaningless) but never calls torch.manual_seed, so
-agent weight initialisation varies run to run. Observed directly during the spike: an
-identical baseline config produced incumbent share 0.9313 and 0.9649 on two runs of the same
-seed. 785a's aggregate conclusions are not threatened (5 seeds x 3000 ticks, and its null is
-wide of any plausible init effect) but its individual cells are not reproducible. This run
-calls torch.manual_seed(seed) at every cell build.
+=== A NON-DEFECT, RECORDED SO IT IS NOT RE-RAISED: torch SEEDING IN 785a ===
+The scoping spike initially reported 785a as failing to seed torch, on the grounds that the
+file never calls torch.manual_seed directly and an identical baseline config produced
+incumbent share 0.9313 and 0.9649 on two runs of the same seed. THAT FINDING WAS WRONG and
+is retracted here. 785a's operative agent is built inside _collect_cell, which runs INSIDE
+the `with arm_cell(seed, ...)` context, and arm_cell's entry calls reset_all_rng(seed) ->
+torch.manual_seed(seed) (+cuda, numpy, random, and the _harness fallback RNG). So 785a's
+cells ARE pure functions of (substrate, config, seed) and its arm_fingerprint
+reuse-eligibility is sound. The variation the spike measured came from the spike's OWN
+scratch harness, which built agents directly with no arm_cell wrapper and therefore no RNG
+reset -- a defect in the throwaway scan script, not in 785a.
+
+This run keeps an explicit torch.manual_seed(seed) in _build_agent_and_env anyway. It is
+REDUNDANT with arm_cell's reset on the production path and is retained only so the builder
+is self-contained for a direct caller (a future scratch probe or contract test that
+constructs an agent outside a cell) -- i.e. so the exact confusion above cannot recur. It
+is not a fix for anything in 785a.
 
 === EVERYTHING ELSE IS 785a's DESIGN, DELIBERATELY UNCHANGED ===
 Preserved verbatim because they are what make the readout interpretable at all:
@@ -438,12 +447,13 @@ def _component_shares(components: Dict[str, np.ndarray]) -> Optional[Dict[str, f
 
 
 def _build_agent_and_env(seed: int, regime: Dict[str, Any]):
-    # 785a seeded the ENV but NEVER called torch.manual_seed, so agent weight init varied
-    # run-to-run: an identical baseline config produced incumbent share 0.9313 and 0.9649
-    # on two runs of the SAME seed during the scoping spike. Its aggregate conclusions are
-    # unthreatened (5 seeds x 3000 ticks) but its individual cells are not reproducible.
-    # Seeded here so a cell IS a pure function of (substrate, config, seed) -- which is
-    # also what arm_fingerprint reuse-eligibility assumes.
+    # REDUNDANT on the production path, deliberately kept. arm_cell's entry already calls
+    # reset_all_rng(seed) -> torch.manual_seed(seed), and _collect_cell builds the agent
+    # inside that context -- so 785a was NOT unseeded (see the docstring retraction; the
+    # spike's contrary finding came from its own arm_cell-less scratch harness). This line
+    # exists so the builder is self-contained for a DIRECT caller outside a cell -- a
+    # scratch probe or contract test -- where the RNG would otherwise be whatever the
+    # previous work left it.
     torch.manual_seed(seed)
     # CausalGridWorld carries its OWN np.random.default_rng(seed) -- omitting seed= here
     # makes the run non-reproducible (and any bit-identity check meaningless).
@@ -1292,13 +1302,18 @@ def run_experiment(dry_run: bool):
                 "carries GREEN arms only because _compute_adjudication reads that list "
                 "flat and arm-blind."
             ),
-            "torch_seeding_note": (
-                "785a seeded the env but never torch, so its agent init varied run to "
-                "run (an identical baseline config gave incumbent share 0.9313 and 0.9649 "
-                "on two runs of the same seed during the scoping spike). Its aggregate "
-                "conclusions are unthreatened; its individual cells are not reproducible "
-                "and its arm_cell fingerprints cannot be reuse-matched with confidence. "
-                "torch.manual_seed(seed) is called at every cell build here."
+            "torch_seeding_retraction_note": (
+                "RETRACTION. The scoping spike initially reported 785a as failing to seed "
+                "torch (it never calls torch.manual_seed directly, and an identical config "
+                "gave incumbent share 0.9313 and 0.9649 on two runs of one seed). That "
+                "finding was WRONG. 785a builds its operative agent inside _collect_cell, "
+                "which runs INSIDE the arm_cell context, and arm_cell entry calls "
+                "reset_all_rng(seed) -> torch.manual_seed(seed) (+cuda/numpy/random/harness). "
+                "785a's cells ARE pure functions of (substrate, config, seed) and its "
+                "reuse-eligibility is sound. The variation came from the spike's OWN scratch "
+                "harness, which built agents with no arm_cell wrapper. The explicit "
+                "torch.manual_seed here is REDUNDANT on the production path and retained "
+                "only to make the builder self-contained for direct callers."
             ),
             "mechanism_sign_note": (
                 "The autopsy flagged (as candidate) that the commit threshold is an "
