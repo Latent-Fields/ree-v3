@@ -10,17 +10,21 @@
     {
       "queue_id": "V3-EXQ-785b",
       "title": "MECH-463 channel-agnosticism: exogenous-urgency variance decomposition at a SECOND incumbent identity (residue_weighted primary, f secondary)",
-      "experiment_type": "v3_exq_785b_mech463_channel_agnosticism_decomp",
       "script": "experiments/v3_exq_785b_mech463_channel_agnosticism_decomp.py",
       "priority": 6,
       "machine_affinity": "any",
-      "status": "pending",
       "estimated_minutes": 45,
-      "episodes_per_run": 3000,
-      "seeds": 5,
-      "conditions": 2,
       "claim_id": "MECH-463",
-      "note": "Closes the channel-agnosticism half that V3-EXQ-785a explicitly left UNTESTED. 785a refuted MECH-463 concentration at ONE incumbent identity (harm_weighted; var_total fold 0.970, share gap +0.0036 under 1 SE), so MECH-463 was left at candidate rather than demoted. Two regimes from the scoping spike (REE_assembly/evidence/planning/mech463_channel_agnosticism_scoping_spike_2026-07-19.md): PRIMARY residue_incumbent (rho_residue=20.0, harm channel ON -- a reweighting, not an ablation; incumbent share .585/.887/.868 across seeds 0/1/2 with harm surviving as a genuine second component), SECONDARY f_incumbent (lambda_ethical=0.05). The entropy axis stays EXCLUDED (CH:mech341 absorbs ~99-115% at every setting -- arithmetically forced), and D1/D2 gain + softmax temperature were ruled out structurally in code: both act downstream of the per-candidate component vectors so neither can change incumbent identity. novelty_weighted is DEAD BY CONSTRUCTION (e3_selector.py:963-971), so licensed breadth is TWO cost-side primary components, not the full channel set. FIXES one 785a defect: whole-run gate AND-aggregation (all(gate_green)) replaced with _lib/precondition_gate.aggregate_arm_gates any-arm-green -- at two regimes the old form is exactly the V3-EXQ-785 autopsy defect where one red arm vacates a green arm; Does NOT supersede 785a -- its harm_weighted result is this run comparison arm. GOV-REUSE-1: decisive readout is incumbent share under exogenous urgency at a NON-harm incumbent; checked 785 and 785a (the only runs carrying urgency_applied at all), both run rho_residue at its 0.5 default, so not recoverable by reanalysis. Smoke PASS: both regimes produce their pre-registered incumbent, fidelity err 2.8e-17."
+      "note": "Closes the channel-agnosticism half that V3-EXQ-785a explicitly left UNTESTED. 785a refuted MECH-463 concentration at ONE incumbent identity (harm_weighted; var_total fold 0.970, share gap +0.0036 under 1 SE), so MECH-463 was left at candidate rather than demoted. Two regimes from the scoping spike (REE_assembly/evidence/planning/mech463_channel_agnosticism_scoping_spike_2026-07-19.md): PRIMARY residue_incumbent (rho_residue=20.0, harm channel ON -- a reweighting, not an ablation; incumbent share .585/.887/.868 across seeds 0/1/2 with harm surviving as a genuine second component), SECONDARY f_incumbent (lambda_ethical=0.05). The entropy axis stays EXCLUDED (CH:mech341 absorbs ~99-115% at every setting -- arithmetically forced), and D1/D2 gain + softmax temperature were ruled out structurally in code: both act downstream of the per-candidate component vectors so neither can change incumbent identity. novelty_weighted is DEAD BY CONSTRUCTION (e3_selector.py:963-971), so licensed breadth is TWO cost-side primary components, not the full channel set. FIXES one 785a defect: whole-run gate AND-aggregation (all(gate_green)) replaced with _lib/precondition_gate.aggregate_arm_gates any-arm-green -- at two regimes the old form is exactly the V3-EXQ-785 autopsy defect where one red arm vacates a green arm; Does NOT supersede 785a -- its harm_weighted result is this run comparison arm. GOV-REUSE-1: decisive readout is incumbent share under exogenous urgency at a NON-harm incumbent; checked 785 and 785a (the only runs carrying urgency_applied at all), both run rho_residue at its 0.5 default, so not recoverable by reanalysis. Smoke PASS: both regimes produce their pre-registered incumbent, fidelity err 2.8e-17.",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-07-19T20:28:40Z"
+      },
+      "conditions": 2,
+      "episodes_per_run": 3000,
+      "experiment_type": "v3_exq_785b_mech463_channel_agnosticism_decomp",
+      "seeds": 5
     }
   ]
 }
