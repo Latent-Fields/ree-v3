@@ -452,40 +452,149 @@ class P0NotReady(Exception):
         super().__init__(reason)
 
 
+# -- Non-finite readiness measurements (the NaN hole) ------------------------ #
+#
+# The gate computes `met` with `>=` / `<=`; the REE_assembly indexer RECOMPUTES it
+# from the reported (measured, threshold) pair with the negated `<` / `>`, and
+# treats its own recompute as AUTHORITATIVE. For every finite measurement the two
+# agree. For NaN they do NOT: every comparison against NaN is False, so the gate
+# reads `nan >= t` as False (UNMET) while the indexer reads `nan < t` as False
+# (MET). A genuine premise failure is silently cleared and the run is wrongly
+# trusted -- the confirmed V3-EXQ-680c mis-scoring of
+# `r1_grad_cosine_not_net_negative` (nan vs 0.0, met False, read as met).
+#
+# Fix: substitute a sentinel that sits beyond ANY plausible threshold on the
+# UNMET side of the bound, so the entry recomputes to its own `met` on its own.
+# Direction matters -- a large NEGATIVE sentinel is below any floor but would read
+# as MET against a ceiling -- so the sentinel is chosen per resolved direction.
+# The true value is not lost: it is preserved verbatim (as a string, since NaN is
+# not valid JSON) on the non-bound diagnostic keys `measured_non_finite` /
+# `non_finite`, which the indexer ignores and a human reader sees.
+#
+# +/-inf is deliberately NOT substituted: it already compares identically in the
+# gate and in the recompute, on both bound directions.
+#
+# Relation to the 680-series precedent: 680/680a/680b/680c patched this
+# per-driver with a local `_nan_floor_guard()` (same sentinel value) PLUS a
+# sibling `r1_grad_cosine_finite` precondition. Those drivers are left untouched
+# -- they pre-substitute a FINITE value, so this gate passes it through unchanged
+# and their shipped manifests are bit-identical. The finiteness sibling is now
+# redundant (it relied on the adjudicator returning at the FIRST unmet entry,
+# which is ordering-dependent; per-entry recomputability does not), but it is
+# harmless and gate-equivalent, and removing it would edit drivers with shipped
+# manifests for no behavioural gain.
+NON_FINITE_FLOOR_SENTINEL = -1e30    # below any floor  -> recomputes UNMET
+NON_FINITE_CEILING_SENTINEL = 1e30   # above any ceiling -> recomputes UNMET
+
+_UPPER_DIRECTIONS = ("upper", "ceiling", "max", "upper_bound")
+_LOWER_DIRECTIONS = ("lower", "floor", "min", "lower_bound")
+_VALID_COMPARATORS = (">=", ">", "<=", "<")
+
+
+def _readiness_is_upper(direction: str, comparator: str) -> bool:
+    """Resolve a readiness check's bound side, mirroring the indexer's
+    _precondition_direction EXACTLY -- comparator first, then direction, then the
+    "lower" default. Kept in lockstep so the gate's `met` and the indexer's
+    recompute cannot disagree about which side of the bound a check lives on."""
+    if comparator in ("<=", "<"):
+        return True
+    if comparator in (">=", ">"):
+        return False
+    return direction.strip().lower() in _UPPER_DIRECTIONS
+
+
 def p0_readiness_gate(checks: list) -> list:
     """Pre-registered P0 abort gate -- assert the substrate is trained enough to
     make the measurement non-vacuous BEFORE burning compute on P1/P2.
 
     `checks` is a list of dicts, each:
         {"name": str, "measured": float, "threshold": float,
-         "direction": "lower"|"upper"}   # lower=floor: met iff measured>=threshold
-                                         # upper=ceiling: met iff measured<=threshold
-    (direction defaults to "lower"). The semantics mirror the REE_assembly indexer's
-    _precondition_direction so the recorded preconditions[] adjudicate consistently.
+         "direction": "lower"|"upper",    # lower=floor: met iff measured>=threshold
+                                          # upper=ceiling: met iff measured<=threshold
+         "comparator": ">="|">"|"<="|"<"} # OPTIONAL: the PASS comparison, i.e.
+                                          # met == (measured <comparator> threshold)
+    (direction defaults to "lower"; comparator defaults to the inclusive form of
+    the resolved direction). The semantics mirror the REE_assembly indexer's
+    _precondition_direction / _precondition_unmet so the recorded preconditions[]
+    adjudicate consistently.
 
-    Returns a manifest-ready preconditions[] list (each entry carries measured/
-    threshold/direction/met/kind="readiness") when ALL checks are met. Raises
+    STRICTNESS. A driver whose shipped predicate is strict (`>` / `<`) must pass
+    `comparator`, otherwise its `met` is computed inclusively at the boundary and
+    disagrees with its own science. `met` mirrors the comparator exactly, and the
+    key is passed through to the manifest, where the indexer honours it. Absent a
+    comparator the behaviour is the pre-existing inclusive one, bit-identical.
+
+    EXTRA KEYS. Any key beyond name/measured/threshold/direction/comparator is
+    passed through to the manifest entry untouched, so a driver can attach
+    non-bound diagnostics (counts, per-seed detail, notes) in the same dict
+    instead of re-attaching them after the call. `kind` defaults to "readiness"
+    but may be overridden by the caller.
+
+    NON-FINITE measurements are sentinel-substituted -- see NON_FINITE_*_SENTINEL
+    above for the mechanism and why it is needed.
+
+    Returns a manifest-ready preconditions[] list when ALL checks are met. Raises
     P0NotReady (with the same payload) when any check fails, so the caller writes
     interpretation={"label": "substrate_not_ready_requeue", "preconditions": ...}
     and self-routes to non_contributory instead of a misleading FAIL.
+
+    SINGLE-BOUND ONLY. A two-sided band (threshold_low/threshold_high) is not
+    expressible here and is REFUSED rather than silently read as a one-legged
+    floor -- that mis-read is the exact defect family this gate is being kept
+    honest against. Build such an entry directly.
     """
     preconditions = []
     unmet = []
     for c in checks:
+        name = str(c["name"])
+        if "threshold_low" in c or "threshold_high" in c or \
+                str(c.get("direction", "")).strip().lower() in \
+                ("interval", "between", "band", "range", "two_sided", "two-sided"):
+            raise ValueError(
+                f"p0_readiness_gate: check {name!r} declares a two-sided band; "
+                "the gate is single-bound only. Build the interval precondition "
+                "entry directly (the indexer supports threshold_low/high).")
+
+        comparator = c.get("comparator")
+        comparator = comparator.strip() if isinstance(comparator, str) else ""
+        if comparator and comparator not in _VALID_COMPARATORS:
+            # Never fall back silently: an unrecognised comparator would default to
+            # an inclusive bound, i.e. a typo would quietly loosen the gate.
+            raise ValueError(
+                f"p0_readiness_gate: check {name!r} has comparator "
+                f"{comparator!r}; expected one of {_VALID_COMPARATORS}.")
+        direction = str(c.get("direction", "lower"))
+        is_upper = _readiness_is_upper(direction, comparator)
+        strict = comparator in (">", "<")
+
         m = float(c["measured"])
         t = float(c["threshold"])
-        direction = str(c.get("direction", "lower"))
-        met = (m <= t) if direction == "upper" else (m >= t)
-        preconditions.append({
-            "name": str(c["name"]),
+        entry = dict(c)   # pass through any caller diagnostics / unknown keys
+        if m != m:        # NaN -- substitute so the entry recomputes to its own met
+            entry["measured_non_finite"] = "nan"
+            entry["non_finite"] = True
+            m = NON_FINITE_CEILING_SENTINEL if is_upper else NON_FINITE_FLOOR_SENTINEL
+
+        if is_upper:
+            met = (m < t) if strict else (m <= t)
+        else:
+            met = (m > t) if strict else (m >= t)
+
+        entry.update({
+            "name": name,
             "measured": m,
             "threshold": t,
             "direction": direction,
             "met": bool(met),
-            "kind": "readiness",
+            "kind": str(c.get("kind", "readiness")),
         })
+        if comparator:
+            entry["comparator"] = comparator
+        else:
+            entry.pop("comparator", None)
+        preconditions.append(entry)
         if not met:
-            unmet.append(str(c["name"]))
+            unmet.append(name)
     if unmet:
         raise P0NotReady(preconditions, "P0 readiness unmet: " + ", ".join(unmet))
     return preconditions
