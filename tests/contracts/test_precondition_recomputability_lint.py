@@ -572,3 +572,115 @@ def test_r14_selector_is_surgical():
         assert "0 non-conforming" in r.stdout
     finally:
         os.unlink(name)
+
+
+# ---- (1e) saturation band scoped to ONE partition (2026-07-19) ------------
+# V3-EXQ-779b autopsy section 7. `baseline_entropy_headroom` ranged over
+# `baseline_rows` (arm == T0P0) while `t1_rows` / `p1_rows` -- sibling partitions
+# of the same `rows` -- were never band-checked. Seed 23 reported met=True at
+# baseline 0.6093 while its tonic-ON arms sat at 0.8489 / 0.8587 against
+# E_SAT_HIGH = 0.98: an unguarded near-ceiling exposure on the arms carrying the
+# manipulation, which surfaced only when a human read the per-arm numbers.
+
+_PARTITION_SCOPED = '''
+E_SAT_LOW = 0.02
+E_SAT_HIGH = 0.98
+FLOOR = 0.05
+
+
+def main():
+    rows = [
+        {"arm": "T0P0", "S": 0.61, "lift": 0.2},
+        {"arm": "T1P0", "S": 0.85, "lift": 0.2},
+        {"arm": "T1P1", "S": 0.86, "lift": 0.2},
+    ]
+    baseline_rows = [r for r in rows if r["arm"] == "T0P0"]
+    t1_rows = [r for r in rows if r["arm"] != "T0P0"]
+    headroom = all(E_SAT_LOW < r["S"] < E_SAT_HIGH for r in baseline_rows)
+    tonic_live = all(r["lift"] >= FLOOR for r in t1_rows)
+    interpretation = {
+        "preconditions": [
+            {
+                "name": "baseline_entropy_headroom",
+                "measured": min(r["S"] for r in baseline_rows),
+                "threshold_low": E_SAT_LOW,
+                "threshold_high": E_SAT_HIGH,
+                "comparator_low": ">",
+                "comparator_high": "<",
+                "direction": "interval",
+                "met": headroom,
+            },
+        ],
+        "tonic_live": tonic_live,
+    }
+    return interpretation
+
+if __name__ == "__main__":
+    main()
+'''
+
+
+def test_r0o_partition_scoped_band_flagged():
+    out = _lint(_PARTITION_SCOPED)
+    assert out is not None
+    assert "SATURATION BAND" in out, out
+    assert "baseline_entropy_headroom" in out, out
+
+
+def test_r0o2_fix_advice_is_diagnostic_not_wider_precondition():
+    """The remedy must NOT be 'check all arms'. A saturating TREATMENT arm is not a
+    substrate-readiness failure, and self-routing it as one mislabels the cause -- the
+    substrate was ready, the manipulation exceeded the readout's dynamic range. The
+    message has to steer to the non-gating diagnostic, and say so explicitly."""
+    out = _lint(_PARTITION_SCOPED)
+    assert "NON-GATING diagnostic" in out, out
+    assert "per_arm_headroom" in out, out
+    assert "do NOT" in out and "widen the precondition" in out, out
+
+
+def test_r0p_band_over_unfiltered_collection_not_flagged():
+    """CONSERVATISM: a band that already ranges over every row has nothing unguarded,
+    even though sibling partitions exist elsewhere in the file for other purposes."""
+    src = _PARTITION_SCOPED.replace(
+        'all(E_SAT_LOW < r["S"] < E_SAT_HIGH for r in baseline_rows)',
+        'all(E_SAT_LOW < r["S"] < E_SAT_HIGH for r in rows)')
+    out = _lint(src)
+    assert out is None or "SATURATION BAND" not in out, out
+
+
+def test_r0q_no_sibling_partition_not_flagged():
+    """CONSERVATISM: with only ONE partition there are no unchecked sibling arms, so
+    the band's scope is not evidence of anything."""
+    src = _PARTITION_SCOPED.replace(
+        '    t1_rows = [r for r in rows if r["arm"] != "T0P0"]\n', '').replace(
+        'all(r["lift"] >= FLOOR for r in t1_rows)',
+        'all(r["lift"] >= FLOOR for r in rows)')
+    out = _lint(src)
+    assert out is None or "SATURATION BAND" not in out, out
+
+
+def test_r0r_one_sided_precondition_not_flagged():
+    """CONSERVATISM: a one-sided floor is not a saturation guard. Only a two-sided
+    band makes the 'can the readout still move' claim this branch is about."""
+    src = _PARTITION_SCOPED.replace(
+        'all(E_SAT_LOW < r["S"] < E_SAT_HIGH for r in baseline_rows)',
+        'all(r["S"] > E_SAT_LOW for r in baseline_rows)').replace(
+        '"threshold_low": E_SAT_LOW,\n                "threshold_high": E_SAT_HIGH,',
+        '"threshold": E_SAT_LOW,')
+    out = _lint(src)
+    assert out is None or "SATURATION BAND" not in out, out
+
+
+def test_r0s_partition_branch_is_warn_only():
+    """INVARIANT: never blocks, like every other branch of this gate."""
+    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False,
+                                     dir=str(EXPERIMENTS_DIR)) as f:
+        f.write(_PARTITION_SCOPED)
+        name = f.name
+    try:
+        r = _run("--checks", "precondition_recomputability", "--quiet", "--strict",
+                 "--paths", name)
+        assert r.returncode == 0, r.stdout[-2000:]
+        assert "SATURATION BAND" in r.stdout
+    finally:
+        os.unlink(name)

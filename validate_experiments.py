@@ -638,6 +638,34 @@ def _is_two_sided(node: ast.expr) -> bool:
     return False
 
 
+def _filtered_subsets(tree: ast.Module) -> Dict[str, Tuple[str, str]]:
+    """Map `X = [r for r in SRC if COND]` -> {X: (SRC, dump(COND))}, for branch (e).
+
+    Only single-generator comprehensions with exactly one `if` over a bare Name source
+    count. That narrowness is the point: this is used to recognise ARM/CONDITION
+    PARTITIONS of a shared row collection (the `baseline_rows` / `t1_rows` / `p1_rows`
+    idiom), not comprehensions in general. A multi-source or multi-condition
+    comprehension is not a clean partition and is skipped rather than guessed at.
+
+    Last assignment wins, matching _resolve_one_level -- a heuristic, not dataflow.
+    """
+    out: Dict[str, Tuple[str, str]] = {}
+    for sub in ast.walk(tree):
+        if not isinstance(sub, ast.Assign) or len(sub.targets) != 1:
+            continue
+        tgt = sub.targets[0]
+        if not isinstance(tgt, ast.Name):
+            continue
+        comp = sub.value
+        if not isinstance(comp, ast.ListComp) or len(comp.generators) != 1:
+            continue
+        gen = comp.generators[0]
+        if len(gen.ifs) != 1 or not isinstance(gen.iter, ast.Name):
+            continue
+        out[tgt.id] = (gen.iter.id, ast.dump(gen.ifs[0]))
+    return out
+
+
 def _precondition_dicts(tree: ast.Module) -> List[Tuple[str, Dict[str, ast.expr]]]:
     """(name, string-keyed fields) for every precondition-shaped dict literal.
 
@@ -699,6 +727,11 @@ def precondition_recomputability_lint(path: Path) -> Optional[str]:
           past it. V3-EXQ-779b `tonic_axis_live` is the worked case. Note the shared-
           variable test below is INVERTED for (d): sharing the collection is what
           proves both sides read the same rows, so it is required, not exempting.
+      (e) checks a TWO-SIDED SATURATION BAND against only ONE partition of a row
+          collection while SIBLING partitions of that same collection exist unchecked --
+          so the readout is guaranteed to have room to move on the arm that was measured
+          and is entirely unguarded on the arms that carry the manipulation
+          (V3-EXQ-779b baseline_entropy_headroom; autopsy 2026-07-19 section 7).
 
     The shared-variable test is what keeps (b) conservative and is why the post-fix 726
     goes silent: there `measured = round(latch_seeds_frac, 4)` and `met` resolves to
@@ -742,7 +775,45 @@ def precondition_recomputability_lint(path: Path) -> Optional[str]:
     mismatched: List[str] = []
     undeclared_band: List[str] = []
     central_vs_worst: List[str] = []
+    partition_scoped: List[str] = []
+    subsets = _filtered_subsets(tree)
     for name, fields in preconds:
+        # (e) TWO-SIDED SATURATION BAND scoped to ONE partition while SIBLING
+        # partitions of the same collection go unchecked. A headroom band exists to
+        # certify that the readout can still MOVE; the manipulation is the thing that
+        # pushes it toward a bound, so checking only the baseline partition inspects
+        # the arm LEAST likely to saturate and leaves the effect-carrying arms
+        # unguarded. V3-EXQ-779b is the worked case: baseline_entropy_headroom ranged
+        # over `baseline_rows = [r for r in rows if r["arm"] == "T0P0"]` while
+        # `t1_rows` / `p1_rows` -- sibling partitions of the same `rows` -- were never
+        # band-checked. Seed 23 passed at baseline 0.6093 with its tonic-ON arms at
+        # 0.8489 / 0.8587 against E_SAT_HIGH = 0.98.
+        #
+        # Four conjuncts keep it narrow:
+        #   1. the resolved `met` is a genuine two-sided band (a one-sided floor is
+        #      not a saturation guard and must never fire),
+        #   2. it ranges over a name that is a single-condition filtered subset of a
+        #      bare-Name source collection,
+        #   3. that same source has at least one OTHER subset with a DIFFERENT
+        #      condition -- i.e. sibling partitions demonstrably exist, and
+        #   4. `met` does not also reference the unfiltered source directly, which
+        #      would mean the band already covers every row.
+        met_node_e = fields.get("met")
+        if met_node_e is not None:
+            resolved_e = _resolve_one_level(met_node_e, tree)
+            if _is_two_sided(resolved_e):
+                e_names, _ = _expr_atoms(resolved_e)
+                for sub_name in sorted(e_names & set(subsets)):
+                    src, cond = subsets[sub_name]
+                    if src in e_names:
+                        continue  # band also covers the unfiltered collection
+                    siblings = [
+                        other for other, (osrc, ocond) in subsets.items()
+                        if other != sub_name and osrc == src and ocond != cond
+                    ]
+                    if siblings:
+                        partition_scoped.append(name)
+                        break
         # (c) TWO-SIDED backing check declared with a SINGLE bound. The
         # direction/comparator vocabulary describes one bound, so an interval
         # check (`LOW < x < HIGH`) can only declare ONE of its two legs and the
@@ -801,10 +872,35 @@ def precondition_recomputability_lint(path: Path) -> Optional[str]:
         if (m_calls & set(_CENTRAL_TENDENCY_CALLS)) and (t_calls & set(_CARDINALITY_CALLS)):
             mismatched.append(name)
 
-    if not (no_direction or mismatched or undeclared_band or central_vs_worst):
+    if not (no_direction or mismatched or undeclared_band or central_vs_worst
+            or partition_scoped):
         return None
 
     parts: List[str] = []
+    if partition_scoped:
+        parts.append(
+            "precondition(s) " + ", ".join(sorted(set(partition_scoped)))
+            + " check a TWO-SIDED SATURATION BAND against only ONE partition of the row "
+              "collection while SIBLING partitions of that same collection exist "
+              "unchecked. A headroom band certifies that the readout can still MOVE -- "
+              "but the MANIPULATION is what pushes it toward a bound, so scoping the band "
+              "to the baseline partition inspects the arm LEAST likely to saturate and "
+              "leaves the effect-carrying arms entirely unguarded. V3-EXQ-779b "
+              "baseline_entropy_headroom is the worked case: it ranged over "
+              "`baseline_rows` (arm == T0P0) while `t1_rows` / `p1_rows` were never "
+              "band-checked, so seed 23 reported met=True at baseline 0.6093 with its "
+              "tonic-ON arms at 0.8489 / 0.8587 against E_SAT_HIGH = 0.98 -- an "
+              "unguarded near-ceiling exposure that surfaced only in autopsy. FIX: do NOT "
+              "widen the precondition to all arms -- a saturating TREATMENT arm is not a "
+              "substrate-readiness failure and self-routing it as one mislabels the cause "
+              "(the substrate was ready; the manipulation exceeded the readout's dynamic "
+              "range). Emit per-arm headroom as a NON-GATING diagnostic instead: "
+              "`from experiments._lib.entropy_headroom import per_arm_headroom`, then "
+              "`manifest[\"diagnostics\"][\"entropy_headroom_per_arm\"] = "
+              "per_arm_headroom(rows, value_key=..., low=..., high=...)`. Emit it on PASS "
+              "runs too -- a diagnostic that appears only when something already looks "
+              "wrong cannot establish that anything was ever right"
+        )
     if central_vs_worst:
         parts.append(
             "precondition(s) " + ", ".join(sorted(central_vs_worst))
