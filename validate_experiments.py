@@ -524,6 +524,10 @@ _CENTRAL_TENDENCY_CALLS = (
 )
 # Cardinality constructs -- the `met` side of the 726 mismatch.
 _CARDINALITY_CALLS = ("len", "sum", "count", "bincount", "count_nonzero")
+# Worst-case constructs -- the `met` side of the mean-vs-all mismatch (branch (d)).
+# `all`/`any` quantify over a collection; `min`/`max` reduce it to an extremum. Either
+# way the resulting claim is about the WORST row, not about the collection's centre.
+_QUANTIFIER_CALLS = ("all", "any", "min", "max", "amin", "amax", "nanmin", "nanmax")
 
 
 def _dict_str_keys(node: ast.Dict) -> Dict[str, ast.expr]:
@@ -684,7 +688,17 @@ def precondition_recomputability_lint(path: Path) -> Optional[str]:
       (b) computes `met` from a demonstrably DIFFERENT expression than the one feeding
           `measured` -- specifically a central-tendency `measured` (median / mean /
           percentile) against a cardinality `met` (`len(...) >= N` seed-count), with no
-          variable shared between them. That is the V3-EXQ-726 shape exactly.
+          variable shared between them. That is the V3-EXQ-726 shape exactly; or
+      (c) computes `met` from a TWO-SIDED band while declaring only a SINGLE bound, so
+          the undeclared leg is absent from the manifest and the indexer recomputes
+          from half the check (V3-EXQ-779b baseline_entropy_headroom); or
+      (d) reports a CENTRAL-TENDENCY `measured` while `met` is a WORST-CASE claim over
+          the SAME collection -- an `all()`/`any()` quantifier or a `min()`/`max()`
+          extremum. Same class as (b) (mean vs worst-case are different statistics),
+          but (b) only fires on central-tendency-vs-CARDINALITY, so this shape slips
+          past it. V3-EXQ-779b `tonic_axis_live` is the worked case. Note the shared-
+          variable test below is INVERTED for (d): sharing the collection is what
+          proves both sides read the same rows, so it is required, not exempting.
 
     The shared-variable test is what keeps (b) conservative and is why the post-fix 726
     goes silent: there `measured = round(latch_seeds_frac, 4)` and `met` resolves to
@@ -727,6 +741,7 @@ def precondition_recomputability_lint(path: Path) -> Optional[str]:
     no_direction: List[str] = []
     mismatched: List[str] = []
     undeclared_band: List[str] = []
+    central_vs_worst: List[str] = []
     for name, fields in preconds:
         # (c) TWO-SIDED backing check declared with a SINGLE bound. The
         # direction/comparator vocabulary describes one bound, so an interval
@@ -757,15 +772,54 @@ def precondition_recomputability_lint(path: Path) -> Optional[str]:
             continue
         m_names, m_calls = _expr_atoms(fields["measured"])
         t_names, t_calls = _expr_atoms(_resolve_one_level(met_node, tree))
+        # (d) CENTRAL-TENDENCY `measured` against a WORST-CASE `met` over the SAME
+        # collection. Same class of defect as (b) -- two different statistics -- but
+        # the (b) shared-variable exemption below is exactly backwards for it: here
+        # sharing the collection is what PROVES both sides read the same rows, so the
+        # shared name is the anchor rather than the let-off. Must therefore be tested
+        # BEFORE that `continue`. Four conjuncts keep it narrow:
+        #   1. `measured` is a central-tendency reduction (mean/median/percentile),
+        #   2. the resolved `met` quantifies (`all`/`any`) or takes an extremum
+        #      (`min`/`max`) -- i.e. it is a claim about the WORST row,
+        #   3. `measured` does NOT itself quantify/reduce to an extremum -- a
+        #      `measured = min(...)` worst-cell report recomputes exactly and is the
+        #      shape this steers toward, so it must never fire, and
+        #   4. the two sides share a variable (the collection being reduced).
+        # V3-EXQ-779b is the worked case: tonic_axis_live reports
+        # `statistics.fmean([r["noise_floor_temp_lift_mean"] for r in t1_rows])` while
+        # `met` is `all(r["noise_floor_temp_lift_mean"] >= FLOOR for r in t1_rows)`.
+        # One out-of-band row hidden by an in-band mean recomputes MET while the
+        # script's own `met` is False. Its SAMPLE-kind siblings in the same file get
+        # this right via a `_worst_cell(...)` helper, so `measured` IS the worst case.
+        if ((m_calls & set(_CENTRAL_TENDENCY_CALLS))
+                and (t_calls & set(_QUANTIFIER_CALLS))
+                and not (m_calls & set(_QUANTIFIER_CALLS))
+                and (m_names & t_names)):
+            central_vs_worst.append(name)
         if m_names & t_names:
             continue  # measured and met visibly route through a shared statistic
         if (m_calls & set(_CENTRAL_TENDENCY_CALLS)) and (t_calls & set(_CARDINALITY_CALLS)):
             mismatched.append(name)
 
-    if not (no_direction or mismatched or undeclared_band):
+    if not (no_direction or mismatched or undeclared_band or central_vs_worst):
         return None
 
     parts: List[str] = []
+    if central_vs_worst:
+        parts.append(
+            "precondition(s) " + ", ".join(sorted(central_vs_worst))
+            + " report a CENTRAL-TENDENCY `measured` (mean/median/percentile) while `met` "
+              "is a WORST-CASE claim over the SAME collection (an all()/any() quantifier or "
+              "a min()/max() extremum) -- two DIFFERENT statistics, so a single out-of-band "
+              "row whose deviation is masked by an in-band mean recomputes as MET while the "
+              "script's own `met` is False. V3-EXQ-779b tonic_axis_live is the worked case: "
+              "measured = fmean over the TONIC-ON cells, met = all(cell >= FLOOR). Report "
+              "the WORST CELL as `measured` instead (779b's SAMPLE-kind preconditions in the "
+              "same file already do exactly this via a `_worst_cell(rows, key)` helper "
+              "returning the extremum plus its offending cell id, which recomputes exactly "
+              "and additionally names the culprit); or, if the collection's centre really is "
+              "the quantity of interest, make `met` the same central-tendency comparison"
+        )
     if undeclared_band:
         parts.append(
             "precondition(s) " + ", ".join(sorted(undeclared_band))

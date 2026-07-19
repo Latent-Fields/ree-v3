@@ -247,6 +247,133 @@ def test_r0g_band_branch_is_warn_only():
         os.unlink(name)
 
 
+# ---- (1d) central-tendency `measured` vs worst-case `met` (2026-07-19) -----
+# V3-EXQ-779b tonic_axis_live: `measured` is an fmean over the TONIC-ON cells while
+# `met` is `all(cell >= FLOOR)`. Mean and worst-case are different statistics, so a
+# single out-of-band row masked by an in-band mean recomputes MET while the script's
+# own `met` is False. Same CLASS as the 726 branch (b), but (b) only fires on
+# central-tendency-vs-CARDINALITY, so this shape slipped through. Note the sibling
+# SAMPLE-kind preconditions in the same file get it right via a `_worst_cell(...)`
+# helper -- `measured` IS the worst case there, and recomputes exactly.
+
+_MEAN_VS_ALL = '''
+import statistics
+FLOOR = 0.05
+
+def main():
+    t1_rows = [{"lift": 0.20}, {"lift": 0.01}]
+    live = bool(t1_rows) and all(r["lift"] >= FLOOR for r in t1_rows)
+    interpretation = {
+        "preconditions": [
+            {
+                "name": "tonic_axis_live",
+                "kind": "capability",
+                "measured": (statistics.fmean([r["lift"] for r in t1_rows])
+                             if t1_rows else 0.0),
+                "threshold": FLOOR,
+                "direction": "lower",
+                "met": bool(live),
+            },
+        ],
+    }
+    return interpretation
+
+if __name__ == "__main__":
+    main()
+'''
+
+# The fix: report the WORST cell, so `measured` and `met` are one statistic.
+_WORST_CELL = _MEAN_VS_ALL.replace(
+    '"measured": (statistics.fmean([r["lift"] for r in t1_rows])\n'
+    '                             if t1_rows else 0.0),',
+    '"measured": (min(r["lift"] for r in t1_rows) if t1_rows else 0.0),')
+
+
+def test_r0h_mean_measured_vs_all_met_flagged():
+    out = _lint(_MEAN_VS_ALL)
+    assert out is not None
+    assert "WORST-CASE claim over the SAME collection" in out, out
+    assert "tonic_axis_live" in out, out
+
+
+def test_r0i_any_and_extremum_met_are_the_same_defect():
+    """`any(...)` and a `min()/max()` reduction are the other spellings of a
+    worst-case `met`; all three are claims about a ROW, not about the centre."""
+    for repl in ('any(r["lift"] >= FLOOR for r in t1_rows)',
+                 'min(r["lift"] for r in t1_rows) >= FLOOR'):
+        src = _MEAN_VS_ALL.replace('all(r["lift"] >= FLOOR for r in t1_rows)', repl)
+        out = _lint(src)
+        assert out is not None and "WORST-CASE claim" in out, (repl, out)
+
+
+def test_r0j_worst_cell_measured_silences_it():
+    """The fix, and the shape this branch steers toward: `measured = min(...)`
+    recomputes exactly against an `all(... >= FLOOR)` met. Nothing may fire."""
+    assert _lint(_WORST_CELL) is None
+
+
+def test_r0k_extremum_over_group_means_is_not_flagged():
+    """Conservatism guard for conjunct 3. A central-tendency call INSIDE a
+    worst-case reduction (`max` of per-group means) is still a worst-case
+    `measured`, so the presence of `fmean` must not on its own trip the branch."""
+    src = _MEAN_VS_ALL.replace(
+        '(statistics.fmean([r["lift"] for r in t1_rows])\n'
+        '                             if t1_rows else 0.0)',
+        '(min(statistics.fmean(r["lift"]) for r in t1_rows) if t1_rows else 0.0)')
+    out = _lint(src)
+    assert out is None or "WORST-CASE claim" not in out, out
+
+
+def test_r0l_different_collections_are_not_flagged():
+    """Conservatism guard for conjunct 4. The shared variable is the ANCHOR for
+    this branch (it proves both sides read the same rows) -- inverted relative to
+    the (b) branch, where a shared variable is the let-off. With no collection in
+    common there is no evidence the two statistics describe the same thing.
+
+    Note the empty-guard subtlety this test had to be written around: the idiomatic
+    `fmean(...) if rows else 0.0` mentions the collection in its GUARD as well as in
+    the reduction, so swapping only the reduction leaves the name shared and the
+    branch still (correctly, on its own terms) fires. Both had to move for the
+    collections to be genuinely disjoint."""
+    src = _MEAN_VS_ALL.replace(
+        '(statistics.fmean([r["lift"] for r in t1_rows])\n'
+        '                             if t1_rows else 0.0)',
+        '(statistics.fmean([q["lift"] for q in other_rows])\n'
+        '                             if other_rows else 0.0)').replace(
+        '    t1_rows = [{"lift": 0.20}, {"lift": 0.01}]',
+        '    t1_rows = [{"lift": 0.20}, {"lift": 0.01}]\n'
+        '    other_rows = [{"lift": 0.20}]')
+    out = _lint(src)
+    assert out is None or "WORST-CASE claim" not in out, out
+
+
+def test_r0m_central_tendency_on_both_sides_is_not_flagged():
+    """A mean `measured` against a mean `met` is ONE statistic -- recomputable,
+    and outside this branch entirely (there is no quantifier in `met`)."""
+    src = _MEAN_VS_ALL.replace(
+        'all(r["lift"] >= FLOOR for r in t1_rows)',
+        'statistics.fmean([r["lift"] for r in t1_rows]) >= FLOOR')
+    out = _lint(src)
+    assert out is None or "WORST-CASE claim" not in out, out
+
+
+def test_r0n_central_vs_worst_branch_is_warn_only():
+    """INVARIANT: like every branch of this gate, this one never blocks -- see
+    test_r13/test_r0g. `measured` is computed from live run data, so a static scan
+    can only ever flag a SUSPECTED mismatch, never prove one."""
+    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False,
+                                     dir=str(EXPERIMENTS_DIR)) as f:
+        f.write(_MEAN_VS_ALL)
+        name = f.name
+    try:
+        r = _run("--checks", "precondition_recomputability", "--quiet", "--strict",
+                 "--paths", name)
+        assert r.returncode == 0, r.stdout[-2000:]
+        assert "WORST-CASE claim" in r.stdout
+    finally:
+        os.unlink(name)
+
+
 # ---- (1) lint detection branches -------------------------------------------
 
 def test_r1_median_measured_vs_count_met_flagged():
