@@ -430,93 +430,29 @@ def make_zworld_agent(
 # changed only when max|delta| > 0. Bit-identity is the signature being detected, so the
 # comparison is exact rather than tolerance-based; the realised magnitudes are reported
 # alongside so a "changed but negligibly" case is visible rather than silently passing.
+#
+# LIFTED 2026-07-19 into experiments/_lib/zworld_encoder_guard.py, and RE-EXPORTED here so
+# the existing MECH-457 contracts (C18*) keep importing it through this module unchanged.
+# The lift was forced by a fanout audit of the OTHER _train_all_on_agent callers: the
+# exposure is NOT MECH-457-specific and is NOT gated on p1_episodes. Measured with this
+# module's own method (0/61 latent_stack, 0/4 world_encoder, max|delta| = 0.000e+00 in every
+# case) on x734 ree_trained_allon (p1>0), x728's own copy (p1>0), x737 warmup_all_on (p1>0),
+# x742 actor-critic P0 at cotrain=True AND cotrain=False (p1=0), and the exq742 bias-head
+# baseline (p1>0). Root cause, verified structurally: NO optimizer inside
+# _train_all_on_agent covers a latent_stack parameter -- e2.parameters() (18),
+# lateral_pfc.bias_head_parameters() (4) and ofc.devaluation_bias_head_parameters() (4) all
+# have ZERO overlap with the 61 latent_stack tensors. P1 trains two heads DOWNSTREAM of the
+# encoder, so more P1 episodes cannot rescue it. See zworld_encoder_guard.py.
 # ---------------------------------------------------------------------------
-WORLD_ENCODER_PREFIX = "split_encoder.world_encoder."
-WORLD_PATH_PREFIXES: Tuple[str, ...] = (
-    "split_encoder.world_encoder.",       # the encoder itself -- sets z_world content
-    "split_encoder.event_classifier",     # SD-009 head reading z_world
-    "split_encoder.resource_proximity_head.",   # SD-018 head reading z_world
+from experiments._lib.zworld_encoder_guard import (  # noqa: E402  (re-export path)
+    WORLD_ENCODER_PREFIX,
+    WORLD_PATH_PREFIXES,
+    ZWorldEncoderUntrainedError,
+    assert_world_encoder_trained,
+    latent_stack_snapshot as _latent_stack_snapshot,
+    latent_stack_weight_delta,
+    untrained_encoder_message as _untrained_encoder_message,
 )
-
-
-class ZWorldEncoderUntrainedError(RuntimeError):
-    """Raised when a z_world warmup leaves the world encoder bit-identical to its random
-    initialisation, i.e. the arm would run on a frozen random projection."""
-
-
-def _latent_stack_snapshot(agent: Any) -> Dict[str, torch.Tensor]:
-    """Detached clones of every latent_stack parameter, keyed by name. Empty dict when the
-    agent has no latent_stack (nothing to guard)."""
-    stack = getattr(agent, "latent_stack", None)
-    if stack is None:
-        return {}
-    return {name: p.detach().clone() for name, p in stack.named_parameters()}
-
-
-def latent_stack_weight_delta(agent: Any, before: Dict[str, torch.Tensor]) -> Dict[str, Any]:
-    """Compare the agent's current latent_stack parameters against a `_latent_stack_snapshot`.
-
-    Returns an audit record (JSON-safe, manifest-embeddable). `zworld_encoder_trained` is the
-    load-bearing bit: True only when at least one split_encoder.world_encoder tensor moved."""
-    stack = getattr(agent, "latent_stack", None)
-    after = {} if stack is None else dict(stack.named_parameters())
-    n_total = 0
-    n_changed = 0
-    world_path: List[str] = []
-    world_path_changed: List[str] = []
-    enc_names: List[str] = []
-    enc_changed: List[str] = []
-    enc_unchanged: List[str] = []
-    enc_max_delta = 0.0
-    for name, prev in before.items():
-        cur = after.get(name)
-        if cur is None:
-            continue
-        n_total += 1
-        delta = float((cur.detach() - prev).abs().max().item())
-        moved = delta > 0.0
-        if moved:
-            n_changed += 1
-        if name.startswith(WORLD_PATH_PREFIXES):
-            world_path.append(name)
-            if moved:
-                world_path_changed.append(name)
-        if name.startswith(WORLD_ENCODER_PREFIX):
-            enc_names.append(name)
-            enc_max_delta = max(enc_max_delta, delta)
-            (enc_changed if moved else enc_unchanged).append(name)
-    return {
-        "n_latent_stack_tensors": n_total,
-        "n_latent_stack_changed": n_changed,
-        "n_world_path_tensors": len(world_path),
-        "n_world_path_changed": len(world_path_changed),
-        "n_world_encoder_tensors": len(enc_names),
-        "n_world_encoder_changed": len(enc_changed),
-        "world_encoder_max_abs_delta": enc_max_delta,
-        "unchanged_world_encoder_tensors": sorted(enc_unchanged),
-        "zworld_encoder_trained": bool(enc_changed),
-    }
-
-
-def _untrained_encoder_message(report: Dict[str, Any], p0: int) -> str:
-    frozen = ", ".join(report.get("unchanged_world_encoder_tensors") or []) or "(none enumerated)"
-    return (
-        "z_world UNTRAINED-ENCODER GUARD TRIPPED: the P0 warmup changed 0 of "
-        f"{report.get('n_world_encoder_tensors', 0)} split_encoder.world_encoder tensors "
-        f"across {int(p0)} episode(s) -- max|delta| = "
-        f"{report.get('world_encoder_max_abs_delta', 0.0):.3e} (bit-identical). "
-        f"latent_stack: {report.get('n_latent_stack_changed', 0)}/"
-        f"{report.get('n_latent_stack_tensors', 0)} tensors changed. "
-        f"Frozen: {frozen}. "
-        "This arm's z_world is a FROZEN RANDOM PROJECTION at initialisation, NOT a "
-        "prediction-trained encoder, so any result it produces is uninterpretable as "
-        "evidence about z_world. Known cause: the P0 loop buffers latent.z_world.detach(), "
-        "so no gradient reaches the world encoder. See REE_assembly/evidence/planning/"
-        "zworld_bc_install_failure_V3-EXQ-780_2026-07-19.md. "
-        "If a frozen random projection is the DELIBERATE condition under test, pass "
-        "require_trained_encoder=False (make_rep / ZWorldRep) or strict=False "
-        "(warmup_zworld) so the choice is explicit and auditable in the manifest."
-    )
 
 
 def warmup_zworld(
@@ -540,19 +476,14 @@ def warmup_zworld(
         agent, env, seed=seed, p0_episodes=p0, p1_episodes=0,
         steps_per_episode=steps, rung_id=RUNG_ID, total_denominator=max(1, p0),
     )
-    report = latent_stack_weight_delta(agent, before)
-    report["p0_episodes"] = int(p0)
-    report["guard_checked"] = bool(int(p0) > 0 and before)
-    if not report["guard_checked"]:
-        return report
-    if report["zworld_encoder_trained"]:
-        return report
-    message = _untrained_encoder_message(report, p0)
-    if strict:
-        raise ZWorldEncoderUntrainedError(message)
-    print(f"[GUARD-WARNING] {message}", file=sys.stderr, flush=True)
-    print(f"[GUARD-WARNING] {message}", flush=True)
-    return report
+    return assert_world_encoder_trained(
+        agent, before, p0=p0, strict=strict,
+        context="mech457_fanout.warmup_zworld",
+        escape_hint=(
+            "pass require_trained_encoder=False (make_rep / ZWorldRep) or strict=False "
+            "(warmup_zworld) so the choice is explicit and auditable in the manifest"
+        ),
+    )
 
 
 def train_zworld_ac_shaped(
