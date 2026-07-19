@@ -229,9 +229,26 @@ def run_experiment(*, dry_run: bool = False) -> Dict[str, Any]:
 
     # Staging summary across seeds (reported, NOT gated).
     from collections import Counter
-    order_counter = Counter(tuple(s["observed_order"]) for s in seed_scores)
-    modal_order, modal_count = order_counter.most_common(1)[0]
-    n_match_pred = sum(1 for s in seed_scores if s["staging_matches_prediction"])
+
+    # Staging order is only DEFINED on seeds whose full 3-phase order was computable
+    # (C3). A truncated observed_order cannot match the prediction by construction, so
+    # pooling those seeds silently votes NO on seeds that were never eligible to vote --
+    # and lets a 1- or 2-element tuple be elected modal_observed_order. Same
+    # subgroup-superset defect as the V3-EXQ-778h C2 aggregation; scoped and the
+    # exclusion emitted rather than left silent.
+    staging_rows = [
+        s for s in seed_scores if s["C3_staging_and_rem_contrast_computable"]
+    ]
+    staging_excluded_seeds = [
+        s.get("seed") for s in seed_scores if not s["C3_staging_and_rem_contrast_computable"]
+    ]
+    n_staging = len(staging_rows)
+    staging_need = math.ceil(PASS_FRACTION * n_staging)
+    order_counter = Counter(tuple(s["observed_order"]) for s in staging_rows)
+    modal_order, modal_count = (
+        order_counter.most_common(1)[0] if order_counter else ((), 0)
+    )
+    n_match_pred = sum(1 for s in staging_rows if s["staging_matches_prediction"])
 
     # Interpretation: self-routed label (falsifiable via preconditions + non-degeneracy).
     intact_measured = min(
@@ -243,7 +260,7 @@ def run_experiment(*, dry_run: bool = False) -> Dict[str, Any]:
         label = "substrate_not_ready_requeue"
     elif not overall_pass:
         label = "harness_nonmonotone_uninstrumented"
-    elif n_match_pred >= need:
+    elif n_staging and n_match_pred >= staging_need:
         label = "harness_operational_staging_matches_reverse_dependency"
     else:
         label = "harness_operational_staging_partial_or_inverted"
@@ -273,7 +290,12 @@ def run_experiment(*, dry_run: bool = False) -> Dict[str, Any]:
             "modal_observed_order": list(modal_order),
             "modal_order_seed_count": int(modal_count),
             "n_seeds_matching_prediction": int(n_match_pred),
-            "note": "staging match is REPORTED, not gated; a partial-match/inversion is a valid diagnostic outcome.",
+            # Subgroup scoping, emitted so the narrowing is auditable.
+            "staging_subgroup_predicate": "C3_staging_and_rem_contrast_computable",
+            "staging_subgroup_n": int(n_staging),
+            "staging_excluded_seeds": staging_excluded_seeds,
+            "staging_match_threshold": int(staging_need),
+            "note": "staging match is REPORTED, not gated; a partial-match/inversion is a valid diagnostic outcome. Order statistics are scoped to the C3-computable subgroup.",
         },
     }
 

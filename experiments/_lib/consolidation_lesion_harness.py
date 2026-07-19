@@ -164,7 +164,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import torch
 
@@ -1402,6 +1402,76 @@ NULL_SLOPE_RATIO_CEILING = 0.25
 # Below this injected-arm slope the ratio is not interpretable (0/0) -- the phase is
 # reported UNAVAILABLE rather than silently scored as a pass.
 NULL_MIN_INJECTED_SLOPE = 1e-9
+
+
+def subgroup_ratio_stats(
+    rows: List[Dict[str, Any]],
+    *,
+    eligible: Callable[[Dict[str, Any]], bool],
+    value: Callable[[Dict[str, Any]], float],
+    seed_of: Callable[[Dict[str, Any]], Any] = lambda r: r.get("seed"),
+    ceiling: float = NULL_SLOPE_RATIO_CEILING,
+) -> Dict[str, Any]:
+    """Mean / sd / CI95 of a per-seed ratio over the SUBGROUP that defines the criterion.
+
+    THE DEFECT THIS EXISTS TO PREVENT (V3-EXQ-778h autopsy, 2026-07-19 governance cycle).
+    A criterion such as `C2_unpaired_ratio_content_contingent` is DEFINED on the seeds
+    that passed a prior de-rail predicate (C1), but its summary statistics were computed
+    over ALL seeds -- including seeds whose de-rail predicate FAILED, i.e. seeds whose
+    ratio is a measurement artefact of a railed reference rather than a reading of the
+    quantity under test. In 778h the single C1-failing seed (7777: clamp_frac 0.6,
+    2 unclamped sigmas) carried ratio 85.18 against a 0.0011-3.30 range for the other
+    seven, inflating sd to 29.77 and widening CI95 to [-9.08, 32.18] so that the 0.25
+    ceiling sat INSIDE it -- reading as "underpowered, cannot conclude" when the
+    subgroup reading is TIGHTER (6/7 above ceiling, CI95 [0.252, 1.811], ceiling
+    outside). That it erred conservative there was luck: a C1-failing seed with a
+    near-zero ratio pulls the interval the other way and manufactures false confidence
+    in content-contingency.
+
+    The exclusion is EMITTED, never silent -- a quietly-narrowed subgroup is its own
+    hazard. Callers must surface `subgroup_n` and `excluded_seeds` in the manifest.
+
+    `eligible` is the subgroup predicate (the SAME callable the criterion routes on, not
+    a re-implementation). Non-finite / UNAVAILABLE values are dropped on top of it and
+    reported separately in `n_non_finite`, so an eligible-but-unmeasurable seed is
+    distinguishable from an ineligible one.
+    """
+    in_group = [r for r in rows if eligible(r)]
+    excluded = [seed_of(r) for r in rows if not eligible(r)]
+
+    vals: List[float] = []
+    n_non_finite = 0
+    for r in in_group:
+        v = value(r)
+        if v == UNAVAILABLE or (isinstance(v, float) and math.isnan(v)):
+            n_non_finite += 1
+            continue
+        vals.append(float(v))
+
+    mean = (sum(vals) / len(vals)) if vals else UNAVAILABLE
+    if len(vals) >= 2:
+        var = sum((v - mean) ** 2 for v in vals) / (len(vals) - 1)
+        sd = math.sqrt(var)
+        sem = sd / math.sqrt(len(vals))
+        ci_lo, ci_hi = mean - 1.96 * sem, mean + 1.96 * sem
+    else:
+        sd = ci_lo = ci_hi = UNAVAILABLE
+
+    return {
+        "mean": mean,
+        "sd": sd,
+        "ci95_low": ci_lo,
+        "ci95_high": ci_hi,
+        "ceiling_inside_ci95": bool(
+            ci_lo != UNAVAILABLE and ci_lo <= ceiling <= ci_hi
+        ),
+        # Auditability of the narrowing -- both halves, always emitted.
+        "subgroup_n": len(vals),
+        "n_eligible": len(in_group),
+        "n_non_finite": n_non_finite,
+        "excluded_seeds": excluded,
+        "n_excluded": len(excluded),
+    }
 
 
 def _common_error_series(

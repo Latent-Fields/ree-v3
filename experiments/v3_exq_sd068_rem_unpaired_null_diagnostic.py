@@ -420,28 +420,32 @@ def run_experiment(*, dry_run: bool = False) -> Dict[str, Any]:
     n = len(arm_results)
     n_anchor_railed = sum(1 for r in arm_results if r["anchor_null_zero_railed"])
     n_derail = sum(1 for r in arm_results if r["unpaired_derailed"])
-    n_contingent = sum(1 for r in arm_results if r["unpaired_content_contingent"])
     anchor_frac = (n_anchor_railed / n) if n else 0.0
     anchor_ok = anchor_frac >= ANCHOR_MIN_RAILED_SEEDS_FRAC
     readiness_ok = all(r["readiness_met"] for r in arm_results)
 
     derail_majority = n_derail > n / 2
-    contingent_majority = n_contingent > n / 2
 
-    ratios = [
-        r["arms"]["NULL_UNPAIRED"]["null_slope_ratio_unclamped"]
-        for r in arm_results
-        if r["arms"]["NULL_UNPAIRED"]["null_slope_ratio_unclamped"] != H.UNAVAILABLE
-        and not math.isnan(r["arms"]["NULL_UNPAIRED"]["null_slope_ratio_unclamped"])
-    ]
-    mean_ratio = (sum(ratios) / len(ratios)) if ratios else H.UNAVAILABLE
-    if len(ratios) >= 2:
-        var = sum((v - mean_ratio) ** 2 for v in ratios) / (len(ratios) - 1)
-        sd_ratio = math.sqrt(var)
-        sem = sd_ratio / math.sqrt(len(ratios))
-        ci_lo, ci_hi = mean_ratio - 1.96 * sem, mean_ratio + 1.96 * sem
-    else:
-        sd_ratio = ci_lo = ci_hi = H.UNAVAILABLE
+    # C2 is DEFINED on the C1-passing (de-railed) subgroup, so its statistics and its
+    # PASS predicate are scoped to that subgroup. Mirrors the V3-EXQ-778h fix; see
+    # H.subgroup_ratio_stats for the defect and the concrete instance.
+    def _derailed(r: Dict[str, Any]) -> bool:
+        return bool(r["unpaired_derailed"])
+
+    ratio_stats = H.subgroup_ratio_stats(
+        arm_results,
+        eligible=_derailed,
+        value=lambda r: r["arms"]["NULL_UNPAIRED"]["null_slope_ratio_unclamped"],
+        ceiling=NULL_SLOPE_RATIO_CEILING,
+    )
+    mean_ratio = ratio_stats["mean"]
+    sd_ratio = ratio_stats["sd"]
+    ci_lo, ci_hi = ratio_stats["ci95_low"], ratio_stats["ci95_high"]
+
+    derailed_rows = [r for r in arm_results if _derailed(r)]
+    n_derailed_group = len(derailed_rows)
+    n_contingent = sum(1 for r in derailed_rows if r["unpaired_content_contingent"])
+    contingent_majority = n_contingent > n_derailed_group / 2 if n_derailed_group else False
 
     arm_summary = {
         "NULL_ZERO": {
@@ -461,9 +465,14 @@ def run_experiment(*, dry_run: bool = False) -> Dict[str, Any]:
             "sd_null_slope_ratio_unclamped": sd_ratio,
             "ci95_low": ci_lo,
             "ci95_high": ci_hi,
-            "ceiling_inside_ci95": bool(
-                ci_lo != H.UNAVAILABLE and ci_lo <= NULL_SLOPE_RATIO_CEILING <= ci_hi
-            ),
+            "ceiling_inside_ci95": ratio_stats["ceiling_inside_ci95"],
+            "c2_subgroup_predicate": "unpaired_derailed (C1 de-rail predicate)",
+            "c2_subgroup_n": ratio_stats["subgroup_n"],
+            "c2_n_eligible": ratio_stats["n_eligible"],
+            "c2_n_non_finite_in_subgroup": ratio_stats["n_non_finite"],
+            "c2_excluded_seeds": ratio_stats["excluded_seeds"],
+            "c2_n_excluded": ratio_stats["n_excluded"],
+            "c2_contingent_denominator": n_derailed_group,
             "per_seed_clamp_frac": [
                 r["arms"]["NULL_UNPAIRED"]["null_target_clamped_frac"]
                 for r in arm_results

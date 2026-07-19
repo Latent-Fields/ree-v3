@@ -662,28 +662,42 @@ def run_experiment(*, dry_run: bool = False) -> Dict[str, Any]:
     n = len(arm_results)
     n_anchor_railed = sum(1 for r in arm_results if r["anchor_null_zero_railed"])
     n_derail = sum(1 for r in arm_results if r["unpaired_derailed"])
-    n_contingent = sum(1 for r in arm_results if r["unpaired_content_contingent"])
     anchor_frac = (n_anchor_railed / n) if n else 0.0
     anchor_ok = anchor_frac >= ANCHOR_MIN_RAILED_SEEDS_FRAC
     readiness_ok = all(r["readiness_met"] for r in arm_results)
 
     derail_majority = n_derail > n / 2
-    contingent_majority = n_contingent > n / 2
 
-    ratios = [
-        r["arms"]["NULL_UNPAIRED"]["null_slope_ratio_unclamped"]
-        for r in arm_results
-        if r["arms"]["NULL_UNPAIRED"]["null_slope_ratio_unclamped"] != H.UNAVAILABLE
-        and not math.isnan(r["arms"]["NULL_UNPAIRED"]["null_slope_ratio_unclamped"])
-    ]
-    mean_ratio = (sum(ratios) / len(ratios)) if ratios else H.UNAVAILABLE
-    if len(ratios) >= 2:
-        var = sum((v - mean_ratio) ** 2 for v in ratios) / (len(ratios) - 1)
-        sd_ratio = math.sqrt(var)
-        sem = sd_ratio / math.sqrt(len(ratios))
-        ci_lo, ci_hi = mean_ratio - 1.96 * sem, mean_ratio + 1.96 * sem
-    else:
-        sd_ratio = ci_lo = ci_hi = H.UNAVAILABLE
+    # ---- C2 is DEFINED on the C1-passing subgroup, so its statistics are too. ----
+    # A railed seed's unclamped ratio is an artefact of a degenerate reference, not a
+    # reading of content-contingency; pooling it corrupts both the point estimate and
+    # the interval. See H.subgroup_ratio_stats for the 778h instance this prevents.
+    # NOTE this is a MAJORITY gate, not an `all(...)` gate -- unlike the readiness gates
+    # elsewhere in this family, the subgroup and the full seed set genuinely diverge
+    # here, which is exactly why the aggregation must be scoped explicitly.
+    def _derailed(r: Dict[str, Any]) -> bool:
+        return bool(r["unpaired_derailed"])
+
+    ratio_stats = H.subgroup_ratio_stats(
+        arm_results,
+        eligible=_derailed,
+        value=lambda r: r["arms"]["NULL_UNPAIRED"]["null_slope_ratio_unclamped"],
+        ceiling=NULL_SLOPE_RATIO_CEILING,
+    )
+    mean_ratio = ratio_stats["mean"]
+    sd_ratio = ratio_stats["sd"]
+    ci_lo, ci_hi = ratio_stats["ci95_low"], ratio_stats["ci95_high"]
+
+    # Same subgroup scoping for C2's PASS predicate. A railed seed reports
+    # content_contingent_unclamped=False by construction (the unclamped grid stub
+    # returns content_contingent=0.0 when fewer than 2 clean sigmas survive), so
+    # counting it against the full-seed denominator silently votes NO on a seed that
+    # was never eligible to vote -- making the contingent branch unreachable in the
+    # regime where this leg is interesting.
+    derailed_rows = [r for r in arm_results if _derailed(r)]
+    n_derailed_group = len(derailed_rows)
+    n_contingent = sum(1 for r in derailed_rows if r["unpaired_content_contingent"])
+    contingent_majority = n_contingent > n_derailed_group / 2 if n_derailed_group else False
 
     arm_summary = {
         "NULL_ZERO": {
@@ -720,13 +734,21 @@ def run_experiment(*, dry_run: bool = False) -> Dict[str, Any]:
         "NULL_UNPAIRED": {
             "n_seeds_derailed": n_derail,
             "n_seeds_content_contingent": n_contingent,
+            # --- C2 statistics: C1-PASSING (de-railed) SUBGROUP ONLY. ---
+            # The scope is part of the reading. c2_subgroup_n / c2_excluded_seeds make
+            # the narrowing auditable rather than silent.
             "mean_null_slope_ratio_unclamped": mean_ratio,
             "sd_null_slope_ratio_unclamped": sd_ratio,
             "ci95_low": ci_lo,
             "ci95_high": ci_hi,
-            "ceiling_inside_ci95": bool(
-                ci_lo != H.UNAVAILABLE and ci_lo <= NULL_SLOPE_RATIO_CEILING <= ci_hi
-            ),
+            "ceiling_inside_ci95": ratio_stats["ceiling_inside_ci95"],
+            "c2_subgroup_predicate": "unpaired_derailed (C1 de-rail predicate)",
+            "c2_subgroup_n": ratio_stats["subgroup_n"],
+            "c2_n_eligible": ratio_stats["n_eligible"],
+            "c2_n_non_finite_in_subgroup": ratio_stats["n_non_finite"],
+            "c2_excluded_seeds": ratio_stats["excluded_seeds"],
+            "c2_n_excluded": ratio_stats["n_excluded"],
+            "c2_contingent_denominator": n_derailed_group,
             "per_seed_clamp_frac": [
                 r["arms"]["NULL_UNPAIRED"]["null_target_clamped_frac"]
                 for r in arm_results
