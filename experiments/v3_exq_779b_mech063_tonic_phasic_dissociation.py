@@ -831,7 +831,15 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
              "kind": "capability",
              "control": "T0P0 sustained entropy strictly inside (E_SAT_LOW, E_SAT_HIGH)",
              "measured": (statistics.fmean([r["S_sustained_entropy"] for r in baseline_rows]) if baseline_rows else 0.0),
-             "threshold": E_SAT_HIGH, "direction": "upper", "met": bool(r5_headroom)},
+             # Two-sided: the backing check is STRICT on both legs
+             # (E_SAT_LOW < S < E_SAT_HIGH). Declaring only the ceiling left the
+             # 0.02 floor leg absent from the manifest, so the indexer recomputed
+             # `met` from half the check and a saturated-to-zero baseline -- the
+             # exact degeneracy this precondition exists to catch -- recomputed
+             # as MET. See build_experiment_indexes._precondition_unmet.
+             "threshold_low": E_SAT_LOW, "threshold_high": E_SAT_HIGH,
+             "comparator_low": ">", "comparator_high": "<",
+             "direction": "interval", "met": bool(r5_headroom)},
         ],
         "criteria": [
             {"name": "double_dissociation_C1_and_C2", "load_bearing": True, "passed": bool(dissociation)},

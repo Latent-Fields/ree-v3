@@ -596,6 +596,44 @@ def _resolve_one_level(node: ast.expr, tree: ast.Module) -> ast.expr:
     return found if found is not None else node
 
 
+_LOW_OPS = (ast.Gt, ast.GtE)
+_HIGH_OPS = (ast.Lt, ast.LtE)
+
+
+def _is_two_sided(node: ast.expr) -> bool:
+    """True when an expression contains a genuine TWO-SIDED numeric band check.
+
+    Two recognised spellings, both requiring the SAME subject to be bounded on
+    both sides -- which is what makes this conservative enough to be WARN-worthy:
+
+      1. Chained:  LOW < x < HIGH   -- one ast.Compare with two ops that point
+         the same way (both `<`/`<=` or both `>`/`>=`), so the middle operand is
+         squeezed. A chain whose ops point OPPOSITE ways (`a < b > c`) does not
+         bound anything and is ignored.
+      2. Conjoined:  x > LOW and x < HIGH  -- an ast.BoolOp(And) with two
+         Compare children whose ops oppose AND whose subject expression is
+         textually identical (compared via ast.dump, so `r["S"] > LO and
+         r["S"] < HI` matches but `a > LO and b < HI` does not).
+    """
+    for sub in ast.walk(node):
+        if isinstance(sub, ast.Compare) and len(sub.ops) == 2:
+            a, bb = sub.ops
+            if (isinstance(a, _HIGH_OPS) and isinstance(bb, _HIGH_OPS)) or \
+               (isinstance(a, _LOW_OPS) and isinstance(bb, _LOW_OPS)):
+                return True
+        if isinstance(sub, ast.BoolOp) and isinstance(sub.op, ast.And):
+            cmps = [v for v in sub.values
+                    if isinstance(v, ast.Compare) and len(v.ops) == 1]
+            for i, c1 in enumerate(cmps):
+                for c2 in cmps[i + 1:]:
+                    o1, o2 = c1.ops[0], c2.ops[0]
+                    opposed = ((isinstance(o1, _LOW_OPS) and isinstance(o2, _HIGH_OPS))
+                               or (isinstance(o1, _HIGH_OPS) and isinstance(o2, _LOW_OPS)))
+                    if opposed and ast.dump(c1.left) == ast.dump(c2.left):
+                        return True
+    return False
+
+
 def _precondition_dicts(tree: ast.Module) -> List[Tuple[str, Dict[str, ast.expr]]]:
     """(name, string-keyed fields) for every precondition-shaped dict literal.
 
@@ -616,9 +654,19 @@ def _precondition_dicts(tree: ast.Module) -> List[Tuple[str, Dict[str, ast.expr]
             continue
         if ("load_bearing" in fields) or ("passed" in fields):
             continue  # a criterion, not a precondition
-        if not ("measured" in fields and "threshold" in fields):
+        if "measured" not in fields or not _is_numericish(fields["measured"]):
             continue
-        if not (_is_numericish(fields["measured"]) and _is_numericish(fields["threshold"])):
+        # A precondition declares EITHER a single `threshold` or the two-sided
+        # INTERVAL pair `threshold_low`/`threshold_high` (indexer
+        # _precondition_unmet, 2026-07-19). An interval entry carries no single
+        # `threshold`, so requiring one here would silently drop exactly the
+        # shape this lint most needs to see.
+        has_single = "threshold" in fields and _is_numericish(fields["threshold"])
+        has_interval = all(
+            k in fields and _is_numericish(fields[k])
+            for k in ("threshold_low", "threshold_high")
+        )
+        if not (has_single or has_interval):
             continue
         out.append((name_node.value, fields))
     return out
@@ -678,7 +726,23 @@ def precondition_recomputability_lint(path: Path) -> Optional[str]:
 
     no_direction: List[str] = []
     mismatched: List[str] = []
+    undeclared_band: List[str] = []
     for name, fields in preconds:
+        # (c) TWO-SIDED backing check declared with a SINGLE bound. The
+        # direction/comparator vocabulary describes one bound, so an interval
+        # check (`LOW < x < HIGH`) can only declare ONE of its two legs and the
+        # other vanishes from the manifest -- the indexer then recomputes `met`
+        # from half the check and silently passes a violation of the undeclared
+        # leg. V3-EXQ-779b baseline_entropy_headroom is the worked case: strict
+        # band 0.02 < S < 0.98 declared as direction:"upper" + threshold 0.98,
+        # so a saturated-to-zero baseline (S -> 0, exactly what the check exists
+        # to catch) recomputed as MET. Fix: emit threshold_low + threshold_high
+        # (+ comparator_low/comparator_high for strictness).
+        has_interval = "threshold_low" in fields and "threshold_high" in fields
+        met_node_c = fields.get("met")
+        if not has_interval and met_node_c is not None:
+            if _is_two_sided(_resolve_one_level(met_node_c, tree)):
+                undeclared_band.append(name)
         # `comparator` satisfies the requirement too, and at HIGHER priority than
         # `direction` in _precondition_direction (comparator ">="/">" -> lower,
         # "<="/"<" -> upper; direction is only consulted when comparator is absent
@@ -698,10 +762,26 @@ def precondition_recomputability_lint(path: Path) -> Optional[str]:
         if (m_calls & set(_CENTRAL_TENDENCY_CALLS)) and (t_calls & set(_CARDINALITY_CALLS)):
             mismatched.append(name)
 
-    if not (no_direction or mismatched):
+    if not (no_direction or mismatched or undeclared_band):
         return None
 
     parts: List[str] = []
+    if undeclared_band:
+        parts.append(
+            "precondition(s) " + ", ".join(sorted(undeclared_band))
+            + " compute `met` from a TWO-SIDED band (`LOW < x < HIGH`) but declare only a "
+              "SINGLE bound -- the other leg is absent from the manifest entirely, so "
+              "build_experiment_indexes recomputes `met` from HALF the check and silently "
+              "passes a violation of the undeclared leg. V3-EXQ-779b "
+              "baseline_entropy_headroom is the worked case: a strict 0.02 < S < 0.98 band "
+              "shipped as direction:\"upper\" + threshold 0.98, so a saturated-to-zero "
+              "baseline (S -> 0 -- precisely the degeneracy the check exists to catch) "
+              "recomputed as MET. Emit the interval instead: \"threshold_low\": LOW, "
+              "\"threshold_high\": HIGH (and \"comparator_low\": \">\" / "
+              "\"comparator_high\": \"<\" for strict legs; both default to inclusive). Drop "
+              "the single \"threshold\" -- the indexer's _precondition_unmet prefers the "
+              "interval and the legacy key is then dead weight that can drift"
+        )
     if mismatched:
         parts.append(
             "precondition(s) " + ", ".join(sorted(mismatched))

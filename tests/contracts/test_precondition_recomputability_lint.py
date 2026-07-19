@@ -108,6 +108,64 @@ if __name__ == "__main__":
 '''
 
 
+_BAND_SINGLE_BOUND = '''
+E_SAT_LOW = 0.02
+E_SAT_HIGH = 0.98
+
+def main():
+    rows = [{"S": 0.53}]
+    headroom = bool(rows) and all(E_SAT_LOW < r["S"] < E_SAT_HIGH for r in rows)
+    interpretation = {
+        "preconditions": [
+            {
+                "name": "baseline_entropy_headroom",
+                "measured": rows[0]["S"],
+                "threshold": E_SAT_HIGH,
+                "direction": "upper",
+                "met": bool(headroom),
+            },
+        ],
+    }
+    return interpretation
+
+if __name__ == "__main__":
+    main()
+'''
+
+
+_BAND_CONJOINED = _BAND_SINGLE_BOUND.replace(
+    'all(E_SAT_LOW < r["S"] < E_SAT_HIGH for r in rows)',
+    'all(r["S"] > E_SAT_LOW and r["S"] < E_SAT_HIGH for r in rows)')
+
+
+_BAND_INTERVAL = '''
+E_SAT_LOW = 0.02
+E_SAT_HIGH = 0.98
+
+def main():
+    rows = [{"S": 0.53}]
+    headroom = bool(rows) and all(E_SAT_LOW < r["S"] < E_SAT_HIGH for r in rows)
+    interpretation = {
+        "preconditions": [
+            {
+                "name": "baseline_entropy_headroom",
+                "measured": rows[0]["S"],
+                "threshold_low": E_SAT_LOW,
+                "threshold_high": E_SAT_HIGH,
+                "comparator_low": ">",
+                "comparator_high": "<",
+                "direction": "interval",
+                "met": bool(headroom),
+            },
+        ],
+    }
+    return interpretation
+
+if __name__ == "__main__":
+    main()
+'''
+
+
 def _lint(src: str):
     """Write src to a temp .py under experiments/ and return the lint result."""
     with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False,
@@ -116,6 +174,75 @@ def _lint(src: str):
         name = f.name
     try:
         return V.precondition_recomputability_lint(Path(name))
+    finally:
+        os.unlink(name)
+
+
+# ---- (1c) two-sided band declared with a single bound (2026-07-19) ---------
+# V3-EXQ-779b baseline_entropy_headroom: a strict 0.02 < S < 0.98 band shipped as
+# direction:"upper" + threshold 0.98. It passed the (a) branch (it HAS a direction)
+# while its floor leg was absent from the manifest entirely, so the indexer
+# recomputed `met` from the ceiling alone and a saturated-to-zero baseline -- the
+# exact degeneracy the check exists to catch -- recomputed as MET.
+
+def test_r0a_chained_band_with_single_bound_flagged():
+    out = _lint(_BAND_SINGLE_BOUND)
+    assert out is not None
+    assert "TWO-SIDED band" in out, out
+    assert "baseline_entropy_headroom" in out, out
+
+
+def test_r0b_conjoined_band_with_single_bound_flagged():
+    """`x > LOW and x < HIGH` is the same defect spelled differently."""
+    out = _lint(_BAND_CONJOINED)
+    assert out is not None
+    assert "TWO-SIDED band" in out, out
+
+
+def test_r0c_interval_declaration_silences_it():
+    """The fix: threshold_low + threshold_high. Nothing else may fire either --
+    notably the (a) no-direction branch must not trip on an interval entry that
+    carries no single `threshold`."""
+    assert _lint(_BAND_INTERVAL) is None
+
+
+def test_r0d_single_bound_check_is_not_flagged_as_a_band():
+    """Conservatism guard: an ordinary one-sided floor must NOT trip the band
+    branch. Regression target is over-firing, which would bury the real hits."""
+    out = _lint(_RECOMPUTABLE)
+    assert out is None or "TWO-SIDED band" not in out, out
+
+
+def test_r0e_opposed_chain_is_not_a_band():
+    """`a < b > c` bounds nothing -- the ops must point the SAME way to squeeze
+    the middle operand."""
+    src = _BAND_SINGLE_BOUND.replace(
+        'all(E_SAT_LOW < r["S"] < E_SAT_HIGH for r in rows)',
+        'all(E_SAT_LOW < r["S"] > E_SAT_HIGH for r in rows)')
+    out = _lint(src)
+    assert out is None or "TWO-SIDED band" not in out, out
+
+
+def test_r0f_conjunction_on_different_subjects_is_not_a_band():
+    """`a > LOW and b < HIGH` bounds two different things, not one interval."""
+    src = _BAND_SINGLE_BOUND.replace(
+        'all(E_SAT_LOW < r["S"] < E_SAT_HIGH for r in rows)',
+        'all(r["S"] > E_SAT_LOW and r["T"] < E_SAT_HIGH for r in rows)')
+    out = _lint(src)
+    assert out is None or "TWO-SIDED band" not in out, out
+
+
+def test_r0g_band_branch_is_warn_only():
+    """INVARIANT: like every branch of this gate, the band branch never blocks."""
+    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False,
+                                     dir=str(EXPERIMENTS_DIR)) as f:
+        f.write(_BAND_SINGLE_BOUND)
+        name = f.name
+    try:
+        r = _run("--checks", "precondition_recomputability", "--quiet", "--strict",
+                 "--paths", name)
+        assert r.returncode == 0, r.stdout[-2000:]
+        assert "TWO-SIDED band" in r.stdout
     finally:
         os.unlink(name)
 
