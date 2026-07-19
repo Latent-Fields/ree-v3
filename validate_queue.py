@@ -12,6 +12,7 @@ Exit codes:
     2  -- queue file missing or unparseable JSON
 """
 
+import ast
 import json
 import re
 import subprocess
@@ -63,6 +64,214 @@ EMIT_OUTCOME_DISALLOWED_KWARGS = (
     "experiment_purpose",
     "architecture_epoch",
 )
+
+# ------------------------------------------------------------------
+# Pre-registration feasibility: share-decomposition non-triviality gate
+# ------------------------------------------------------------------
+# A gate expressed over a quantity the design ALSO pre-registers a value for is
+# checkable before any compute is spent. This check applies that principle to the
+# one shape where the arithmetic is unambiguous: a SHARE DECOMPOSITION.
+#
+# Canonical incident -- V3-EXQ-785 (MECH-463 arousal variance-amplifier decomp,
+# 2026-07-19, autopsy REE_assembly/evidence/planning/failure_autopsy_V3-EXQ-785_2026-07-19.md
+# section 2a). The script committed, in its own config:
+#     REGIMES[1]["expected_incumbent_share"] = 1.043
+# while gating that same regime on precondition
+#     n_components_with_nontrivial_share  ( >= 2 components holding |share| > 0.01 )
+# The decomposition is a FULL covariance attribution, so its shares sum to exactly
+# 1.0 by construction. An incumbent share at or above unity therefore leaves <= 0
+# for every other component combined, and the ">= 2 non-trivial" gate cannot be
+# satisfied. The regime could not pass its own gate, and the number proving it was
+# sitting in the config. Realised cost: 460s of compute, one vacated arm, and a
+# GREEN arm's well-powered finding buried under a whole-run "substrate not ready"
+# label until an autopsy recovered it.
+#
+# TRIGGER (deliberately narrow -- both conditions must hold in one script):
+#   (a) a non-triviality COUNT gate over a shares mapping: a counting comprehension
+#       of the form  sum(1 for v in <...share...> if abs(v) > <floor>)  . Such a gate
+#       is only meaningful when it demands >= 2 components (a count gate of >= 1 is
+#       vacuous), so the required-count threshold is NOT parsed -- see below.
+#   (b) a PRE-REGISTERED share literal >= 1.0 under a dict key naming it as expected
+#       / pre-registered / predicted.
+#
+# WHY >= 1.0 AND NOT THE TIGHTER INEQUALITY. The general non-negativity condition is
+# infeasible iff  (1 - S) < floor * (K - 1)  -- which for S=0.995, floor=0.01 would
+# also fire. That is deliberately NOT implemented. Real covariance attributions do
+# produce small negative components (785 measured f = -0.0013), so a near-unity
+# pre-registration is a margin judgement, not an arithmetic impossibility. Firing on
+# judgement calls would get this check routed around, which is worse than not having
+# it. S >= 1.0 leaves literally nothing for the other components and needs no
+# tolerance argument. Keep it that way.
+#
+# Scoped to 'share' mappings on purpose: sum-to-one is what makes >= 1.0 fatal.
+# An unrelated counting comprehension over a non-share mapping must not trip this.
+RE_PREREG_SHARE_KEY = re.compile(
+    r"(?:expect|prereg|pre_reg|pre_registered|predicted|declared)\w*share"
+    r"|share\w*(?:expect|prereg|pre_reg|predicted|declared)",
+    re.IGNORECASE,
+)
+
+# Names/descriptions identifying the precondition, used only to make the error
+# message point at the actual gate. Absence downgrades to a line number.
+RE_NONTRIVIAL_SHARE_LABEL = re.compile(
+    r"non[_\-\s]?trivial.*share|share.*non[_\-\s]?trivial", re.IGNORECASE
+)
+
+
+def _module_numeric_constants(tree) -> "dict[str, float]":
+    """Module-level NAME = <number> bindings, for resolving a gate floor that is
+    factored into a named constant rather than inlined.
+
+    V3-EXQ-785 inlined its floor (`abs(v) > 0.01`); its successor 785a factored it
+    into NONTRIVIAL_SHARE_FLOOR. Without this resolution the check would silently
+    stop applying to the successor lineage -- i.e. exactly the scripts most likely
+    to inherit the defect. Only simple module-level literals are resolved; anything
+    computed is left unresolved and the gate is skipped (fail-soft, never a guess).
+    """
+    out: "dict[str, float]" = {}
+    for node in getattr(tree, "body", []):
+        if not isinstance(node, ast.Assign):
+            continue
+        val = node.value
+        if not (isinstance(val, ast.Constant)
+                and isinstance(val.value, (int, float))
+                and not isinstance(val.value, bool)):
+            continue
+        for tgt in node.targets:
+            if isinstance(tgt, ast.Name):
+                out[tgt.id] = float(val.value)
+    return out
+
+
+def _share_nontriviality_gate(tree) -> "tuple[float, int] | None":
+    """Locate a share-decomposition non-triviality COUNT gate.
+
+    Matches a counting comprehension  sum(1 for v in <iter> if abs(v) > <floor>)
+    where <iter> mentions 'share'. Returns (floor, lineno) for the first match,
+    or None. Structural (AST) rather than name-based so it does not depend on the
+    785 script's particular identifiers.
+    """
+    consts = _module_numeric_constants(tree)
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "sum"
+                and len(node.args) == 1
+                and isinstance(node.args[0], ast.GeneratorExp)):
+            continue
+        gen = node.args[0]
+        # elt must be the literal 1 (a COUNT, not a magnitude sum).
+        if not (isinstance(gen.elt, ast.Constant)
+                and isinstance(gen.elt.value, int)
+                and not isinstance(gen.elt.value, bool)
+                and gen.elt.value == 1):
+            continue
+        if not gen.generators:
+            continue
+        comp = gen.generators[0]
+        try:
+            iter_src = ast.unparse(comp.iter)
+        except Exception:
+            continue
+        if "share" not in iter_src.lower():
+            continue
+        # condition must be an absolute-value floor test: abs(x) > <number>
+        for cond in comp.ifs:
+            if not (isinstance(cond, ast.Compare)
+                    and len(cond.ops) == 1
+                    and isinstance(cond.ops[0], ast.Gt)
+                    and isinstance(cond.left, ast.Call)
+                    and isinstance(cond.left.func, ast.Name)
+                    and cond.left.func.id == "abs"):
+                continue
+            rhs = cond.comparators[0]
+            if isinstance(rhs, ast.Constant) and isinstance(rhs.value, (int, float)) \
+                    and not isinstance(rhs.value, bool):
+                return (float(rhs.value), getattr(node, "lineno", 0))
+            # Floor factored into a module-level named constant (785a pattern).
+            if isinstance(rhs, ast.Name) and rhs.id in consts:
+                return (consts[rhs.id], getattr(node, "lineno", 0))
+    return None
+
+
+def _preregistered_shares_at_or_above_unity(tree) -> "list[tuple[str, float, int]]":
+    """Pre-registered share literals >= 1.0 in dict literals.
+
+    Returns a list of (key, value, lineno). Only plain numeric Constants are read;
+    a computed expression is not a pre-registration this check can reason about.
+    """
+    out: "list[tuple[str, float, int]]" = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Dict):
+            continue
+        for key, val in zip(node.keys, node.values):
+            if not (isinstance(key, ast.Constant) and isinstance(key.value, str)):
+                continue
+            if not RE_PREREG_SHARE_KEY.search(key.value):
+                continue
+            if not (isinstance(val, ast.Constant)
+                    and isinstance(val.value, (int, float))
+                    and not isinstance(val.value, bool)):
+                continue
+            if float(val.value) >= 1.0:
+                out.append((key.value, float(val.value),
+                            getattr(val, "lineno", getattr(node, "lineno", 0))))
+    return out
+
+
+def prereg_share_feasibility_lint(source: str) -> list[str]:
+    """Reject a pre-registered incumbent share that its own non-triviality gate
+    makes unreachable. Returns a list of message bodies (empty == clean).
+
+    Fail-soft: an unparseable script yields no findings (other checks report it).
+    """
+    try:
+        tree = ast.parse(source)
+    except (SyntaxError, ValueError):
+        return []
+
+    gate = _share_nontriviality_gate(tree)
+    if gate is None:
+        return []
+    floor, gate_line = gate
+
+    offenders = _preregistered_shares_at_or_above_unity(tree)
+    if not offenders:
+        return []
+
+    # Name the precondition if the script labels it, else point at the line.
+    # Identifier-like strings ONLY (the precondition's `name` field, e.g.
+    # "n_components_with_nontrivial_share"). Prose is deliberately excluded: a
+    # docstring describing the gate matches the same regex, and quoting it back as
+    # if it were the precondition name sends the author to the wrong place.
+    label = ""
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Constant) and isinstance(node.value, str)):
+            continue
+        cand = node.value.strip()
+        if len(cand.split()) != 1 or len(cand) > 80:
+            continue
+        if RE_NONTRIVIAL_SHARE_LABEL.search(cand):
+            label = cand
+            break
+    gate_ref = f"'{label}'" if label else f"the gate at line {gate_line}"
+
+    findings = []
+    for key, value, lineno in offenders:
+        findings.append(
+            f"pre-registered '{key}' = {value} (line {lineno}) is unreachable under "
+            f"its own precondition {gate_ref} (line {gate_line}), which requires at "
+            f"least 2 components holding |share| > {floor}. Decomposition shares sum "
+            f"to 1.0 by construction, so an incumbent share at or above unity leaves "
+            f"<= 0 for all other components combined and none can clear the floor -- "
+            f"the gate is unsatisfiable before the run starts. Either re-check the "
+            f"pre-registered value, or condition the gate on the regimes where it is "
+            f"meaningful (the script's own P1 note gives the pattern). Canonical "
+            f"incident: V3-EXQ-785 2026-07-19, 460s burned on an un-passable gate "
+            f"(failure_autopsy_V3-EXQ-785_2026-07-19.md section 2a)."
+        )
+    return findings
+
 
 # ------------------------------------------------------------------
 # Re-derive brake backstop (MOVE-3, assembly_vs_closure_plan.md)
@@ -617,6 +826,12 @@ def validate(queue_path: Path = QUEUE_FILE) -> list[str]:
                                 f"(canonical incident: V3-EXQ-610a 2026-05-29)."
                             )
                             break  # one error per call site is enough
+
+                # Pre-registration feasibility: a pre-registered share >= 1.0
+                # cannot coexist with a ">= 2 non-trivial components" gate over a
+                # sum-to-one decomposition (V3-EXQ-785, 2026-07-19).
+                for finding in prereg_share_feasibility_lint(source):
+                    errors.append(f"{prefix}: script {script_val} {finding}")
 
         # Silent re-queue guard: queue_id must not already have a completion
         # record in any per-machine runner_status file, unless force_rerun=true.
