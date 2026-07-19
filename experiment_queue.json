@@ -6,5 +6,21 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-786",
+      "title": "MECH-163 dual-system recruitment signature (wall-independent, leg 1 only)",
+      "experiment_type": "v3_exq_786_mech163_dual_system_recruitment",
+      "script": "experiments/v3_exq_786_mech163_dual_system_recruitment.py",
+      "priority": 55,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 90,
+      "episodes_per_run": 60,
+      "seeds": 5,
+      "conditions": 1,
+      "claim_id": "MECH-163",
+      "note": "GOV-CONFIRM-1 confirmer for IGW-20260719-214: MECH-163 is a candidate with built substrate, lit_conf 0.89 and ZERO experimental evidence. SCOPE -- LEG (1) ONLY (novel-context recruitment). Legs (2) long-horizon benefit accumulation and (3) prosocial planning are OUT OF SCOPE and a PASS must NOT be read as confirming them: (2) is blocked by ARC-007 STRICT (Q-020) value-flat hippocampal proposals, (3) has no V3 substrate, and ARC-071 (the planned->habit transition mechanism MECH-163's own note names) is unbuilt in ree-v3. claim_ids=[MECH-163] only. DV IS RECRUITMENT, NOT PERFORMANCE, BY DESIGN: the obvious ablation-x-familiarity performance test is floor-pinned (capability_eval COMPETENCE_RESOURCE_FLOOR=1.0 vs measured all-ON foraging 0.065/0.0/0.455, 0/3 seeds, failure_autopsy_V3-EXQ-719a) and a horizon ablation changes terrain_prior's output width, so each arm would need its own agent (capacity confound). Instead: ONE agent per seed, and the agent's OWN scorer is applied at two depths on the same candidate set -- recruitment = 1 - spearman(full_horizon residue_field.evaluate_trajectory, first-step-only). Familiar = practiced layouts (env re-instantiated at a fixed seed reproduces a layout exactly); novel = held-out env seeds. Zero substrate change. CIRCULARITY AVOIDED: familiarity is read from an EXPERIMENT-OWNED FamiliarityTracker, NOT agent.hippocampal.familiarity_tracker -- that one exists only when curiosity_weight>0, and that same flag makes the CEM scorer novelty-sensitive (score -= curiosity_weight*novelty), which would guarantee the predicted effect by construction. The instrument is wired into nothing; agent behaviour is bit-identical to the curiosity_weight=0.0 master no-op. SMOKE PASS (ran end-to-end, no crash) BUT READINESS IS THE OPEN RISK -- STATED HONESTLY: at dry-run scale the familiarity manipulation did NOT separate (fam_sep 0.0033, then -0.0150 with more accumulation; familiarity saturates 0.89-0.92 on BOTH conditions and seed 0 read novel as MORE familiar than practiced). That is the INV-088 z_world under-differentiation signature: if z_world cannot distinguish layouts, 'novel context' is not representationally real and the P0 gate self-routes substrate_not_ready_requeue (purpose->diagnostic, non_contributory, weighting NOTHING). Queued anyway because (a) the run CANNOT emit a false verdict -- worst case is a non-weighting self-route, and (b) whether a properly trained encoder (60 practice episodes/seed here vs 6 in the dry run) differentiates contexts is a real unknown only the full run answers. If it self-routes, the finding localizes MECH-163's blocker to z_world differentiation (INV-088) rather than to the claim. The 0.05 separation floor was NOT lowered to make the gate pass. Re-derive brake: 0 prior substrate_ceiling/non_contributory autopsies on MECH-163. GOV-REUSE-1: decisive readout is depth-contrastive candidate-ranking divergence split by layout novelty; no recorded manifest carries it (checked evidence/experiments for novel/held-out layout splits; 712/716/716a match on probe train/test splits, not layout novelty; v3_exq_103 is an E2 TRAINING-horizon ablation for MECH-135, a different question) -> not recoverable, must run. validate_experiments --strict OK; 0 non-ASCII."
+    }
+  ]
 }
