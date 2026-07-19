@@ -141,8 +141,16 @@ def test_c8_agent_on_sources_and_mints():
         body = body.unsqueeze(0)
     if world.dim() == 1:
         world = world.unsqueeze(0)
+    # 60 steps, not 25: the field is clock-gated and only ticks ~1 step in 8,
+    # so 25 steps yields crf_step==3 -- right at mint_recurrence_threshold=2,
+    # making the mint a coin flip on which contexts the rollout happens to
+    # visit. That made this a cross-machine-class flake: identical seeds pick
+    # different actions on linux-x86_64 vs darwin-arm64 (torch.multinomial is
+    # not reproducible across machine classes), so the Mac minted 1 and the
+    # fleet minted 0. At 60 steps both classes reach crf_step>=6 and mint.
+    # See WORKSPACE_STATE.md 2026-07-19 (session governance-c4a10d).
     with torch.no_grad():
-        for _ in range(25):
+        for _ in range(60):
             act = agent.act_with_split_obs(body, world)
             _flat, _h, _d, _i, obs = env.step(int(act.argmax().item()))
             body = obs["body_state"]; world = obs["world_state"]

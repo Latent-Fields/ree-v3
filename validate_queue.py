@@ -514,6 +514,13 @@ def _is_tracked(repo_root: Path, rel_path: str) -> bool:
         )
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return True  # fail-open when git is unavailable
+    # No .git at all (fresh tarball extraction, rsync staging dir such as
+    # scripts/remote_pytest.sh's) -- git exits 128 "not a git repository".
+    # This is the case the docstring's fail-open was written for; without
+    # this branch it fell through to `returncode == 0` and failed CLOSED,
+    # reporting every on-disk script as untracked.
+    if result.returncode == 128 and "not a git repository" in result.stderr:
+        return True  # fail-open: non-git checkout
     return result.returncode == 0
 
 

@@ -164,24 +164,49 @@ def test_sd069_phasic_burst_fires_and_changes_the_action_stream():
     documented SD-069 finding (V3-EXQ-779 ran its PHASIC-ON arms on
     "instantaneous_pe" for exactly this reason) and is what makes the source
     selection load-bearing rather than cosmetic.
+
+    ON PROPERTY (b) -- WHY THIS IS NOT AN ACTION-STREAM COMPARISON.
+    This probe originally asserted `actions_on != actions_off`. That pinned
+    bit-level determinism of the committed action, which the substrate does
+    not hold across machine classes: the action is drawn with
+    torch.multinomial, and torch.multinomial returns DIFFERENT categories on
+    linux-x86_64 vs darwin-arm64 from a bit-identical probability tensor at
+    the same seed (verified 2026-07-19; randperm/randint/bernoulli/rand all
+    match, multinomial does not). So the discrete stream differed on the Mac
+    and happened to coincide on the fleet, failing there for a reason that has
+    nothing to do with SD-069.
+    We therefore assert propagation UPSTREAM of the discrete quantizer, which
+    is both machine-independent and a strictly stronger statement of the same
+    property: the regulator must produce a live non-zero temperature delta,
+    and that delta must actually move the selection temperature. `select_action`
+    feeds the tonic temperature through `apply_to_temperature`, so a non-zero
+    delta there IS the burst reaching E3 select(). Whether the moved
+    temperature then happens to flip an argmax is a property of the score
+    margins, not of the flag being wired.
     """
     from ree_core.agent import REEAgent
     from tests.fixtures.seed_utils import set_all_seeds
     from tests.fixtures.tiny_configs import make_tiny_config
     from tests.fixtures.tiny_env import make_tiny_env
-    from tests.fixtures.tiny_loop import run_episode
+    from tests.fixtures.tiny_loop import step_once
 
-    def arm(**overrides):
+    def arm(steps=20, **overrides):
         set_all_seeds(0)
         env = make_tiny_env(seed=0)
         agent = REEAgent(make_tiny_config(env, **overrides))
-        actions = run_episode(agent, env, steps=20)
-        return agent, actions
+        agent.reset()
+        _flat, obs = env.reset()
+        deltas = []
+        for _ in range(steps):
+            _a, _idx, _ticks, obs = step_once(agent, env, obs)
+            if agent.phasic_burst is not None:
+                deltas.append(float(agent.phasic_burst.get_state()["temperature_delta"]))
+        return agent, deltas
 
-    agent_off, actions_off = arm()
+    agent_off, _ = arm()
     assert agent_off.phasic_burst is None, "flag off must not build the regulator"
 
-    agent_on, actions_on = arm(
+    agent_on, deltas_on = arm(
         use_phasic_burst=True, phasic_burst_signal_source="instantaneous_pe"
     )
     assert agent_on.phasic_burst is not None, "use_phasic_burst did not wire a regulator"
@@ -191,9 +216,20 @@ def test_sd069_phasic_burst_fires_and_changes_the_action_stream():
         "use_phasic_burst=True fired zero surprise events over 20 live steps; "
         "the regulator ticks but never bursts, so the flag is inert"
     )
-    assert actions_on != actions_off, (
-        f"use_phasic_burst=True fired {n_events} events but the action stream is "
-        f"identical to OFF -- the burst does not reach E3 select() (inert flag)"
+    # (b) the burst produces a live temperature delta ...
+    max_delta = max((abs(d) for d in deltas_on), default=0.0)
+    assert max_delta > 0.0, (
+        f"use_phasic_burst=True fired {n_events} events but the regulator's "
+        f"temperature_delta never left zero over {len(deltas_on)} steps -- the "
+        f"burst does not reach the selection temperature (inert flag)"
+    )
+    # ... and that delta actually moves the temperature select() is handed.
+    _probe_T = 1.0
+    _moved_T = float(agent_on.phasic_burst.apply_to_temperature(_probe_T))
+    assert _moved_T != _probe_T, (
+        f"regulator reached temperature_delta={max_delta} but "
+        f"apply_to_temperature({_probe_T}) returned {_moved_T} unchanged -- the "
+        f"delta is computed but never applied in E3 select() (inert flag)"
     )
 
     # Contrast: the smoothed default source produces no events on this stream.

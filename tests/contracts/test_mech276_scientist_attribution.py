@@ -43,16 +43,31 @@ def _build(env, **kw):
     )
 
 
+# The comparator is held FIXED across both arms of the C1 control. The no-op
+# claim under test is about `use_scientist_attribution` alone, so the OFF arm
+# must already carry the comparator -- otherwise the contrast flips TWO flags
+# at once and measures the comparator's effect, not attribution's.
+#
+# That confound made C1 a cross-machine-class failure: adding the comparator
+# module changes how much of the global RNG stream the forward pass consumes,
+# and the committed action is drawn with torch.multinomial, which is NOT
+# reproducible across machine classes (linux-x86_64 vs darwin-arm64 return
+# different categories from a bit-identical probability tensor at the same
+# seed). The Mac absorbed the shift and the fleet did not. Holding the
+# comparator fixed makes the arms differ only in attribution, and the streams
+# then match bit-for-bit on BOTH classes (verified 2026-07-19).
+_COMPARATOR = {"use_e2_world_forward": False, "use_e2_harm_s_forward": True}
+
+
 def _action_stream(use_sci, n=20):
     torch.manual_seed(321)
     env = CausalGridWorldV2(size=8, seed=11)
-    kw = {}
+    kw = dict(_COMPARATOR)
     if use_sci:
         # ON with a comparator, but at default world_dim=32 the e2_world
         # comparator is NOT attribution_ready, so the buffer records nothing and
         # emits no bias -- the action stream must stay bit-identical.
-        kw = {"use_e2_world_forward": False, "use_e2_harm_s_forward": True,
-              "use_scientist_attribution": True}
+        kw["use_scientist_attribution"] = True
     ag = REEAgent(_build(env, **kw))
     _, od = env.reset()
     acts = []
