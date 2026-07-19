@@ -1187,6 +1187,20 @@ def run_experiment(
         and _maj(intact_rows, lambda r: r.get("fcg_delta_nonflat", False))
         and _maj(ablated_rows, lambda r: r.get("fcg_delta_nonflat", False))
     )
+    # Per-leg COUNTS behind the _maj calls above, reduced across arms by MIN. Each leg is an
+    # AND of three per-arm counts against the SAME MIN_SEEDS_FOR_PASS threshold, so the MIN of
+    # the three counts reproduces the conjunction exactly from a single (measured, threshold)
+    # pair. The two legs (moved / delta-nonflat) are DIFFERENT statistics and are declared as
+    # two separate recomputable preconditions -- the single entry that used to carry both had
+    # `met = fcg_moved_ok and fcg_delta_nonflat_ok`, which no one pair can reproduce.
+    n_fcg_moved_min_arm = min(
+        sum(1 for r in rows if r.get("fcg_moved", False))
+        for rows in (off_rows, intact_rows, ablated_rows)
+    )
+    n_fcg_delta_nonflat_min_arm = min(
+        sum(1 for r in rows if r.get("fcg_delta_nonflat", False))
+        for rows in (off_rows, intact_rows, ablated_rows)
+    )
 
     # CRF maturity (matched constant; majority of seeds on all arms).
     crf_matured = bool(
@@ -1285,6 +1299,11 @@ def run_experiment(
                 "control": "consumed cand_world_summary pairwise spread > floor (GAP-A); per-seed",
                 "measured": float(n_primary_div),
                 "threshold": float(MIN_DIVERGENT_SEEDS),
+                # COUNT-shaped, INCLUSIVE floor: `met` is exactly
+                # `n_primary_div >= MIN_DIVERGENT_SEEDS`. Declared rather than left to the
+                # indexer's default so the boundary case is explicit.
+                "comparator": ">=",
+                "direction": "lower",
                 "met": bool(enough_divergent),
             },
             {
@@ -1296,13 +1315,29 @@ def run_experiment(
                     "soft_competitive_settling_round_delta over active P2 ticks > ROUND_DELTA_FLOOR "
                     "-- on a strict-majority of DIVERGENT seeds. At gain 0.0 / when the field never "
                     "moves round_delta <= 0 -> the settling is a no-op and a 'no lift' is "
-                    "meaningless => substrate_not_ready_requeue (NEVER a weakens). measured = max "
-                    "across INTACT seeds of the mean round_delta; SAME statistic (round_delta = L2 "
-                    "field movement) the mechanism depends on."
+                    "meaningless => substrate_not_ready_requeue (NEVER a weakens). measured = the "
+                    "NUMBER of DIVERGENT seeds on which the INTACT arm's field moved; the "
+                    "per-seed test uses the SAME statistic (round_delta = L2 field movement) the "
+                    "mechanism depends on."
                 ),
                 "control": "INTACT scs_mean_round_delta (mean soft_competitive_settling_round_delta over active P2 ticks)",
-                "measured": float(round(intact_mean_round_delta_max, 8)),
-                "threshold": float(ROUND_DELTA_FLOOR),
+                # COUNT-shaped, INCLUSIVE floor: `met` is
+                # `enough_divergent and _div_pass(len(field_moved_div), n_primary_div)`, and
+                # _div_pass is `n_ok >= max(MIN_SEEDS_FOR_PASS, ceil(FRACTION * n_div))` -- the
+                # threshold reported here -- guarded by `n_div >= MIN_DIVERGENT_SEEDS`, the same
+                # leg as `enough_divergent`, declared separately as `enough_divergent_seeds`.
+                # This entry previously reported MAX across INTACT seeds of scs_mean_round_delta
+                # against ROUND_DELTA_FLOOR, strictly LOOSER than the shipped strict-majority
+                # count (one seed clearing the floor satisfies a max), and the per-seed boolean
+                # is a THREE-way conjunction (scs_on AND active_ticks > 0 AND round_delta >
+                # floor), which no single delta statistic can reproduce. The max-delta number is
+                # kept as a NON-BOUND diagnostic (extra keys are ignored by the recompute).
+                "measured": float(len(field_moved_div)),
+                "threshold": float(max(MIN_SEEDS_FOR_PASS, int(math.ceil(DIVERGENT_PASS_FRACTION * max(n_primary_div, 1))))),
+                "comparator": ">=",
+                "direction": "lower",
+                "observed_intact_mean_round_delta_max": float(round(intact_mean_round_delta_max, 8)),
+                "observed_round_delta_floor": float(ROUND_DELTA_FLOOR),
                 "met": bool(settling_field_moved),
             },
             {
@@ -1313,38 +1348,107 @@ def run_experiment(
                     "EXCLUDED >= 1 candidate (f_eligibility_excluded_count > 0) on a fraction of P2 "
                     "ticks > ELIG_EXCLUDED_FRAC_FLOOR, on a strict-majority of DIVERGENT seeds -- so "
                     "there was a real within-eligible competition for the settling to act on. An "
-                    "all-admit envelope leaves nothing to settle. measured = max across INTACT seeds "
-                    "of the fraction of ticks the envelope excluded >= 1 candidate."
+                    "all-admit envelope leaves nothing to settle. measured = the NUMBER of "
+                    "DIVERGENT seeds whose INTACT eligible set is non-degenerate."
                 ),
                 "control": "INTACT f_elig_frac_excluded_gt0 (fraction of P2 f-eligibility ticks with excluded_count > 0)",
-                "measured": float(round(intact_frac_excluded_max, 6)),
-                "threshold": float(ELIG_EXCLUDED_FRAC_FLOOR),
+                # COUNT-shaped, INCLUSIVE floor: `met` is
+                # `enough_divergent and _div_pass(len(elig_nondeg_div), n_primary_div)`,
+                # threshold as reported; the `n_div >= MIN_DIVERGENT_SEEDS` leg is declared
+                # separately as `enough_divergent_seeds`. This entry previously reported MAX
+                # across INTACT seeds of f_elig_frac_excluded_gt0 against
+                # ELIG_EXCLUDED_FRAC_FLOOR, strictly LOOSER than the shipped strict-majority
+                # count, and the per-seed boolean is a CONJUNCTION (diag_ticks > 0 AND frac >
+                # floor), so no fraction statistic can reproduce `met`. The max-fraction number
+                # is kept as a NON-BOUND diagnostic.
+                "measured": float(len(elig_nondeg_div)),
+                "threshold": float(max(MIN_SEEDS_FOR_PASS, int(math.ceil(DIVERGENT_PASS_FRACTION * max(n_primary_div, 1))))),
+                "comparator": ">=",
+                "direction": "lower",
+                "observed_intact_frac_excluded_max": float(round(intact_frac_excluded_max, 6)),
+                "observed_elig_excluded_frac_floor": float(ELIG_EXCLUDED_FRAC_FLOOR),
                 "met": bool(elig_non_degenerate),
             },
             {
-                "name": "learning_engaged_finer_channels_dissociable_delta_nonflat",
+                "name": "learning_engaged_finer_channels_dissociable",
                 "kind": "readiness",
                 "description": (
                     "on ALL arms the finer w_chan_finer entries MOVED + carry cross-channel range "
-                    "above floor AND the signed-RPE delta_t carries cross-tick variance, on a "
-                    "majority of seeds -- learning is engaged. Below floor => "
+                    "above floor, on a majority of seeds -- learning is engaged. measured = the "
+                    "WORST arm's count of fcg_moved seeds. Below floor => "
                     "substrate_not_ready_requeue."
                 ),
-                "control": "fcg_w_chan_finer_range_max + fcg_delta_t_std (all arms)",
-                "measured": float(min([r["fcg_w_chan_finer_range_max"] for r in all_rows] or [0.0])),
-                "threshold": float(W_CHAN_FINER_RANGE_FLOOR),
-                "met": bool(fcg_moved_ok and fcg_delta_nonflat_ok),
+                "control": "fcg_w_chan_finer_range_max (all arms)",
+                # COUNT-shaped, INCLUSIVE floor: `met` is `_maj(fcg_moved)` on EACH of the three
+                # arms -- three counts against the SAME MIN_SEEDS_FOR_PASS threshold -- so the
+                # MIN of the three counts reproduces the conjunction exactly. SPLIT from the
+                # delta_t leg below, a DIFFERENT statistic: the single entry that used to carry
+                # both had `met = fcg_moved_ok and fcg_delta_nonflat_ok`, which no one pair can
+                # reproduce, and it reported min over all rows of fcg_w_chan_finer_range_max --
+                # a per-seed magnitude strictly harsher than a majority count, and silent on the
+                # delta_t leg. The min-magnitude number is kept as a NON-BOUND diagnostic.
+                "measured": float(n_fcg_moved_min_arm),
+                "threshold": float(MIN_SEEDS_FOR_PASS),
+                "comparator": ">=",
+                "direction": "lower",
+                "observed_min_w_chan_finer_range_max": float(
+                    min([r["fcg_w_chan_finer_range_max"] for r in all_rows] or [0.0])
+                ),
+                "observed_w_chan_finer_range_floor": float(W_CHAN_FINER_RANGE_FLOOR),
+                "met": bool(fcg_moved_ok),
+            },
+            {
+                "name": "learning_engaged_delta_nonflat",
+                "kind": "readiness",
+                "description": (
+                    "on ALL arms the signed-RPE delta_t carries cross-tick variance above floor "
+                    "on a majority of seeds -- the second leg of the learning-engaged guard. "
+                    "measured = the WORST arm's count of fcg_delta_nonflat seeds."
+                ),
+                "control": "fcg_delta_t_std (all arms)",
+                # COUNT-shaped, INCLUSIVE floor: `met` is `_maj(fcg_delta_nonflat)` on each of
+                # the three arms, again three counts against the same threshold, so the MIN
+                # reproduces it exactly. See the entry above for why the legs are separate;
+                # their conjunction is the shipped predicate and routing still reads the
+                # booleans.
+                "measured": float(n_fcg_delta_nonflat_min_arm),
+                "threshold": float(MIN_SEEDS_FOR_PASS),
+                "comparator": ">=",
+                "direction": "lower",
+                "observed_min_delta_t_std": float(
+                    min([r["fcg_delta_t_std"] for r in all_rows] or [0.0])
+                ),
+                "observed_delta_t_std_floor": float(DELTA_T_STD_FLOOR),
+                "met": bool(fcg_delta_nonflat_ok),
             },
             {
                 "name": "candidate_pool_divergent",
                 "kind": "readiness",
                 "description": (
                     "consumed cand_world_summaries (e2.world_forward) per-candidate SPREAD clears "
-                    "the floor on a majority of seeds (GAP-A non-vacuity)."
+                    "the GAP-A non-vacuity floor on enough seeds: measured = the NUMBER of seeds "
+                    "DIVERGENT on all three arms, threshold = MIN_DIVERGENT_SEEDS."
                 ),
                 "control": "SD-056 e2 trained online in P0; candidate_summary_source=e2_world_forward",
-                "measured": float(min([r["consumed_summary_pairwise_dist_mean"] for r in all_rows] or [0.0])),
-                "threshold": float(CONSUMED_SPREAD_FLOOR),
+                # COUNT-shaped, INCLUSIVE floor: `met` is `enough_divergent`, i.e.
+                # `n_primary_div >= MIN_DIVERGENT_SEEDS` -- a COUNT of seeds divergent on ALL
+                # THREE arms. This entry previously reported min over all_rows of
+                # consumed_summary_pairwise_dist_mean against CONSUMED_SPREAD_FLOOR, strictly
+                # HARSHER than the shipped count predicate (a majority of seeds can clear the
+                # floor while the min does not), so the indexer's authoritative recompute
+                # wrongly flagged sound diagnostics precondition_unmet. No spread statistic CAN
+                # reproduce `met`: the per-seed divergence boolean is itself a CONJUNCTION
+                # (spread > CONSUMED_SPREAD_FLOOR and dist_max < CONSUMED_MAGNITUDE_CEIL)
+                # evaluated on EACH arm, and a count over a conjunction does not distribute into
+                # per-leg counts. The min-spread number is preserved as a NON-BOUND diagnostic.
+                "measured": float(n_primary_div),
+                "threshold": float(MIN_DIVERGENT_SEEDS),
+                "comparator": ">=",
+                "direction": "lower",
+                "observed_min_consumed_spread": float(
+                    min([r["consumed_summary_pairwise_dist_mean"] for r in all_rows] or [0.0])
+                ),
+                "observed_consumed_spread_floor": float(CONSUMED_SPREAD_FLOOR),
                 "met": bool(enough_divergent),
             },
         ],

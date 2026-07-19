@@ -1773,10 +1773,24 @@ def run_experiment(
                     "family as C2 (class multiplicity bounds class entropy)."
                 ),
                 "control": "SP-CEM multi-class candidate pool, both arms",
-                "measured": float(
+                # COUNT-shaped, INCLUSIVE floor: `met` is c1a_holds, i.e.
+                # `n_off_axis >= MIN_SEEDS_FOR_PASS and n_on_axis >= MIN_SEEDS_FOR_PASS`,
+                # and min(counts) >= k iff every count >= k, so `measured >= threshold`
+                # reproduces `met` EXACTLY. This entry previously reported the min
+                # frac_pre_ge2 across ALL cells against FRAC_PRE_GE2_FLOOR, which is
+                # strictly HARSHER than "a majority of seeds clear the floor" -- the
+                # indexer's authoritative recompute therefore wrongly flagged sound
+                # diagnostics precondition_unmet (FALSE_UNMET). The min-fraction number
+                # is preserved below as a NON-BOUND diagnostic (extra keys are ignored by
+                # the recompute) so no information is lost.
+                "measured": float(min(n_off_axis, n_on_axis)),
+                "threshold": float(MIN_SEEDS_FOR_PASS),
+                "comparator": ">=",
+                "direction": "lower",
+                "observed_min_frac_pre_ge2": float(
                     min([r["frac_pre_ge2"] for r in (off_rows + on_rows)] or [0.0])
                 ),
-                "threshold": float(FRAC_PRE_GE2_FLOOR),
+                "observed_frac_pre_ge2_floor": float(FRAC_PRE_GE2_FLOOR),
                 "met": bool(c1a_holds),
             },
             {
@@ -1789,13 +1803,29 @@ def run_experiment(
                     "GAP-A readiness asserts."
                 ),
                 "control": "ARM_OFF + ARM_ON: SD-056 e2 trained online in P0; candidate_summary_source=e2_world_forward",
-                "measured": float(
+                # COUNT-shaped, INCLUSIVE floor: `met` is c1b_holds, i.e.
+                # `n_off_gapa >= MIN_SEEDS_FOR_PASS and n_on_gapa >= MIN_SEEDS_FOR_PASS`,
+                # and min(counts) >= k iff every count >= k, so this reproduces `met`
+                # EXACTLY. This entry previously reported min(consumed_summary_pairwise_
+                # dist_mean) across all cells against CONSUMED_SPREAD_FLOOR -- strictly
+                # HARSHER than "a majority of seeds", so the indexer's authoritative
+                # recompute wrongly flagged sound diagnostics precondition_unmet
+                # (confirmed live on 654h/654j). No single spread statistic CAN reproduce
+                # `met`: the per-seed boolean is a CONJUNCTION (consumed_spread_mean >
+                # FLOOR and consumed_dist_max < CEIL), and a count over a conjunction
+                # does not distribute into per-leg counts. The min-spread number is
+                # preserved as a NON-BOUND diagnostic.
+                "measured": float(min(n_off_gapa, n_on_gapa)),
+                "threshold": float(MIN_SEEDS_FOR_PASS),
+                "comparator": ">=",
+                "direction": "lower",
+                "observed_min_consumed_spread": float(
                     min(
                         [r["consumed_summary_pairwise_dist_mean"] for r in (off_rows + on_rows)]
                         or [0.0]
                     )
                 ),
-                "threshold": float(CONSUMED_SPREAD_FLOOR),
+                "observed_consumed_spread_floor": float(CONSUMED_SPREAD_FLOOR),
                 "met": bool(c1b_holds),
             },
             {
@@ -1813,6 +1843,13 @@ def run_experiment(
                     )
                 ),
                 "threshold": float(CONSUMED_MAGNITUDE_CEIL),
+                # CEILING-shaped, and STRICTLY so: both the per-seed leg and this
+                # entry's own `met` are `< CONSUMED_MAGNITUDE_CEIL`. `direction` was
+                # already declared; `comparator` was not, so the recompute defaulted to
+                # an INCLUSIVE ceiling and would have flipped the measured == threshold
+                # boundary. Aggregation is sound as-is: `met` here is the max over all
+                # cells against the ceiling, which is exactly what is reported.
+                "comparator": "<",
                 "direction": "upper",
                 "met": bool(
                     max(
@@ -1833,10 +1870,24 @@ def run_experiment(
                     "substrate_not_ready_requeue."
                 ),
                 "control": "ARM_ON crf frac-active (matured pool) + crf_n_minted_total",
-                "measured": float(
+                # COUNT-shaped, INCLUSIVE floor: `met` is c1c_holds, i.e.
+                # `n_on_differentiated >= MIN_SEEDS_FOR_PASS` -- a COUNT over ARM_ON
+                # seeds, so this single count reproduces `met` EXACTLY. This entry
+                # previously reported the MAX crf_frac_active_ge_floor across ARM_ON
+                # cells, which is strictly LAXER than "a majority of seeds" (one good
+                # seed clears it), so the recompute could silently clear a genuine
+                # premise failure (MISSED_UNMET). No frac statistic CAN reproduce `met`
+                # either way: crf_differentiated is a CONJUNCTION (crf_present and
+                # n_minted >= CRF_MIN_MINTED and frac_active >= CRF_FRAC_ACTIVE_FLOOR).
+                # The max-frac number is preserved as a NON-BOUND diagnostic.
+                "measured": float(n_on_differentiated),
+                "threshold": float(MIN_SEEDS_FOR_PASS),
+                "comparator": ">=",
+                "direction": "lower",
+                "observed_max_crf_frac_active": float(
                     max([r["crf_frac_active_ge_floor"] for r in on_rows] or [0.0])
                 ),
-                "threshold": float(CRF_FRAC_ACTIVE_FLOOR),
+                "observed_crf_frac_active_floor": float(CRF_FRAC_ACTIVE_FLOOR),
                 "met": bool(c1c_holds),
             },
             {
@@ -1853,10 +1904,22 @@ def run_experiment(
                     "counterfactual delta (zeroing rule_state changes the bias)."
                 ),
                 "control": "paired ARM_ON vs ARM_OFF mean lateral_pfc bias on the matched stack",
-                "measured": float(
+                # COUNT-shaped, INCLUSIVE floor: `met` is c1d_holds, i.e.
+                # `n_prop_nonvac_seeds >= MIN_SEEDS_FOR_PASS`, so this count reproduces
+                # `met` EXACTLY. This entry previously reported the MAX paired diff
+                # across seeds against PROP_NONVAC_FLOOR, which is strictly LAXER than
+                # "a majority of seeds" (a single non-vacuous seed clears it), so the
+                # recompute could silently clear a genuine premise failure
+                # (MISSED_UNMET). The max-diff number is preserved as a NON-BOUND
+                # diagnostic.
+                "measured": float(n_prop_nonvac_seeds),
+                "threshold": float(MIN_SEEDS_FOR_PASS),
+                "comparator": ">=",
+                "direction": "lower",
+                "observed_max_paired_bias_diff": float(
                     max(list(prop_diff_by_seed.values()) or [0.0])
                 ),
-                "threshold": float(PROP_NONVAC_FLOOR),
+                "observed_prop_nonvac_floor": float(PROP_NONVAC_FLOOR),
                 "met": bool(c1d_holds),
             },
             {
@@ -1874,13 +1937,41 @@ def run_experiment(
                     "V3-EXQ-689d READINESS(c) non-degeneracy gate."
                 ),
                 "control": "f_demotion envelope active-frac + excluded_count on both arms (matched lever)",
-                "measured": float(
+                # COUNT-shaped, INCLUSIVE floor: `met` is c1e_holds, i.e.
+                # `n_off_demotion >= MIN_SEEDS_FOR_PASS and n_on_demotion >=
+                # MIN_SEEDS_FOR_PASS`, and min(counts) >= k iff every count >= k, so
+                # this reproduces `met` EXACTLY.
+                #
+                # The previous declaration was DEGENERATE as well as mis-aggregated: it
+                # reported min(excluded_count_mean) against EXCLUDED_COUNT_FLOOR, which
+                # is 0.0 -- so the shipped manifest carried `0.0 vs 0.0`, a bound that
+                # cannot discriminate, and which the recompute read as MET even when the
+                # author's `met` was False (MISSED_UNMET: a genuine premise failure
+                # silently cleared). It was also missing a leg entirely: the per-seed
+                # demotion_non_vacuous boolean is a CONJUNCTION (active_frac >=
+                # DEMOTION_ACTIVE_FRAC_FLOOR AND excluded_count_mean >
+                # EXCLUDED_COUNT_FLOOR), so `met` was gated on an active-frac leg that
+                # was never reported. The seed COUNT carries both legs and both arms in
+                # one recomputable pair; both underlying statistics are preserved below
+                # as NON-BOUND diagnostics.
+                "measured": float(min(n_off_demotion, n_on_demotion)),
+                "threshold": float(MIN_SEEDS_FOR_PASS),
+                "comparator": ">=",
+                "direction": "lower",
+                "observed_min_excluded_count_mean": float(
                     min(
                         [r["f_eligibility_excluded_count_mean"] for r in (off_rows + on_rows)]
                         or [0.0]
                     )
                 ),
-                "threshold": float(EXCLUDED_COUNT_FLOOR),
+                "observed_excluded_count_floor": float(EXCLUDED_COUNT_FLOOR),
+                "observed_min_demotion_active_frac": float(
+                    min(
+                        [r["f_eligibility_demotion_active_frac"] for r in (off_rows + on_rows)]
+                        or [0.0]
+                    )
+                ),
+                "observed_demotion_active_frac_floor": float(DEMOTION_ACTIVE_FRAC_FLOOR),
                 "met": bool(c1e_holds),
             },
             {
@@ -1901,13 +1992,35 @@ def run_experiment(
                     "non-degeneracy gate."
                 ),
                 "control": "Go/No-Go constitution active-frac + suppressed-count on both arms (matched lever)",
-                "measured": float(
+                # COUNT-shaped, INCLUSIVE floor: `met` is c1f_holds, i.e.
+                # `n_off_nogo >= MIN_SEEDS_FOR_PASS and n_on_nogo >= MIN_SEEDS_FOR_PASS`,
+                # and min(counts) >= k iff every count >= k, so this reproduces `met`
+                # EXACTLY. Same two defects as the MECH-448 entry above: the old
+                # declaration reported min(suppressed_per_tick_mean) against
+                # NOGO_SUPPRESSED_FLOOR, which is 0.0 -- a DEGENERATE `0.0 vs 0.0` bound
+                # that cannot discriminate and that the recompute read as met even with
+                # the author's `met` False (MISSED_UNMET) -- and it omitted a leg
+                # entirely: nogo_non_vacuous is a CONJUNCTION (active_frac >=
+                # NOGO_ACTIVE_FRAC_FLOOR AND suppressed_mean > NOGO_SUPPRESSED_FLOOR).
+                # Both underlying statistics are preserved as NON-BOUND diagnostics.
+                "measured": float(min(n_off_nogo, n_on_nogo)),
+                "threshold": float(MIN_SEEDS_FOR_PASS),
+                "comparator": ">=",
+                "direction": "lower",
+                "observed_min_nogo_suppressed_per_tick": float(
                     min(
                         [r["go_nogo_suppressed_per_tick_mean"] for r in (off_rows + on_rows)]
                         or [0.0]
                     )
                 ),
-                "threshold": float(NOGO_SUPPRESSED_FLOOR),
+                "observed_nogo_suppressed_floor": float(NOGO_SUPPRESSED_FLOOR),
+                "observed_min_nogo_active_frac": float(
+                    min(
+                        [r["go_nogo_active_frac"] for r in (off_rows + on_rows)]
+                        or [0.0]
+                    )
+                ),
+                "observed_nogo_active_frac_floor": float(NOGO_ACTIVE_FRAC_FLOOR),
                 "met": bool(c1f_holds),
             },
             {
@@ -1931,10 +2044,34 @@ def run_experiment(
                     "(BIAS_RANGE_FLOOR == DEVAL_SHIFT_MARGIN)."
                 ),
                 "control": "OFC devaluation-head trained-delta + devalued-range on both arms (matched valuation lever)",
-                "measured": float(
+                # COUNT-shaped, INCLUSIVE floor: `met` is c1g_holds, i.e.
+                # `n_off_ofc >= MIN_SEEDS_FOR_PASS and n_on_ofc >= MIN_SEEDS_FOR_PASS`,
+                # and min(counts) >= k iff every count >= k, so this reproduces `met`
+                # EXACTLY. This entry previously reported min(ofc_deval_range_mean)
+                # across all cells against OFC_DEVAL_RANGE_FLOOR, which is strictly
+                # HARSHER than "a majority of seeds" (FALSE_UNMET), and no range
+                # statistic CAN reproduce `met`: seed_ofc_valuation_non_vacuous is a
+                # THREE-WAY conjunction (head trained-delta > OFC_HEAD_DELTA_MIN AND
+                # range_mean > OFC_DEVAL_RANGE_FLOOR AND range_active_frac >=
+                # OFC_DEVAL_ACTIVE_FRAC_FLOOR), so two of its three legs were absent
+                # from the declaration entirely. All three underlying statistics are
+                # preserved below as NON-BOUND diagnostics.
+                "measured": float(min(n_off_ofc, n_on_ofc)),
+                "threshold": float(MIN_SEEDS_FOR_PASS),
+                "comparator": ">=",
+                "direction": "lower",
+                "observed_min_ofc_deval_range_mean": float(
                     min([r["ofc_deval_range_mean"] for r in (off_rows + on_rows)] or [0.0])
                 ),
-                "threshold": float(OFC_DEVAL_RANGE_FLOOR),
+                "observed_ofc_deval_range_floor": float(OFC_DEVAL_RANGE_FLOOR),
+                "observed_min_ofc_deval_head_delta": float(
+                    min([r["ofc_deval_head_delta"] for r in (off_rows + on_rows)] or [0.0])
+                ),
+                "observed_ofc_head_delta_min": float(OFC_HEAD_DELTA_MIN),
+                "observed_min_ofc_deval_range_active_frac": float(
+                    min([r["ofc_deval_range_active_frac"] for r in (off_rows + on_rows)] or [0.0])
+                ),
+                "observed_ofc_deval_active_frac_floor": float(OFC_DEVAL_ACTIVE_FRAC_FLOOR),
                 "met": bool(c1g_holds),
             },
         ],

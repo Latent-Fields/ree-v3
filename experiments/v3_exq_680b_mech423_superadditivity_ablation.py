@@ -236,6 +236,36 @@ EPS = 1e-8
 
 
 # --------------------------------------------------------------------------- #
+# Precondition recomputability: NaN-guard for the FLOOR-shaped readiness bounds
+# --------------------------------------------------------------------------- #
+# `p0_readiness_gate` computes met as `measured >= threshold`, which is FALSE for
+# a NaN measurement. The REE_assembly indexer
+# (build_experiment_indexes._precondition_unmet) RECOMPUTES met from the reported
+# (measured, threshold) pair and treats its own recompute as AUTHORITATIVE; for a
+# floor it evaluates `unmet := measured < threshold`, which is ALSO false for NaN.
+# So a NaN measurement recomputes as MET while the author's met is False -- the
+# dangerous MISSED_UNMET direction: a genuine premise failure silently cleared and
+# the run wrongly trusted. V3-EXQ-680c's shipped manifest is exactly this case
+# (r1_grad_cosine_not_net_negative: `nan vs 0.0`, met False, recompute met).
+#
+# A NaN can never satisfy any bound, so report a SENTINEL strictly below every
+# floor used here instead of the raw NaN. This mirrors the shipped predicate
+# exactly -- `nan >= t` and `-1e30 >= t` are both False -- so `met`, the P0 gate
+# outcome and the label routing are all bit-identical; only the DECLARATION
+# changes, and it now recomputes correctly. FLOOR-shaped bounds only: on a
+# `direction: "upper"` ceiling a large negative sentinel would read as MET.
+# +/-inf is deliberately NOT substituted: it already compares identically in the
+# gate and in the recompute.
+NAN_FLOOR_SENTINEL = -1e30
+
+
+def _nan_floor_guard(x: float) -> float:
+    """Map a NaN floor measurement to a below-any-floor sentinel (see above)."""
+    x = float(x)
+    return NAN_FLOOR_SENTINEL if x != x else x
+
+
+# --------------------------------------------------------------------------- #
 # Proxy object-binding stream -- a stand-in ATTACHMENT SURFACE for the ARC-080
 # object spine (V4, not in V3). NOT ARC-080; the TRIPLE delta is exploratory.
 # --------------------------------------------------------------------------- #
@@ -624,8 +654,13 @@ def main(dry_run: bool = False):
 
     # ---------------- readiness gate (load-bearing ARM_INTEGRATED_PAIR) -------
     pair_rows = [rows[("ARM_INTEGRATED_PAIR", s)] for s in seeds]
-    min_min_grad = min(r["R1"]["min_grad_norm"] for r in pair_rows)
-    min_cos = min(r["R1"]["mean_pairwise_cosine"] for r in pair_rows)
+    # NaN-guarded so the reported (measured, threshold) pair recomputes to the
+    # same `met` the P0 gate computes -- see _nan_floor_guard. The raw per-seed
+    # values remain in arm_results[].R1 for diagnosis.
+    min_min_grad = _nan_floor_guard(
+        min(r["R1"]["min_grad_norm"] for r in pair_rows))
+    min_cos_raw = min(r["R1"]["mean_pairwise_cosine"] for r in pair_rows)
+    min_cos = _nan_floor_guard(min_cos_raw)
     min_n_iters = min(r["R2"]["n_iters"] for r in pair_rows)
     min_updates_e2 = min(r["R3"]["updates_e2_interleaved"] for r in pair_rows)
     inter_share_ok = all(r["R3"]["interleaved_share"] > 0.0 for r in pair_rows)
@@ -637,6 +672,15 @@ def main(dry_run: bool = False):
     readiness_checks = [
         {"name": "r1_shared_latent_grad_coupled", "measured": float(min_min_grad),
          "threshold": float(MIN_GRAD_FLOOR), "direction": "lower"},
+        # The finiteness leg of the R1 cosine check, declared as its OWN
+        # precondition with its own reportable (measured, threshold) pair so the
+        # reason a NaN cosine fails is legible rather than buried in a sentinel.
+        # Gate-equivalent by construction: it fails exactly when the cosine bound
+        # below also fails (a NaN sentinel is below MIN_COSINE), so the set of
+        # runs that route substrate_not_ready_requeue is unchanged.
+        {"name": "r1_grad_cosine_finite",
+         "measured": float(0.0 if min_cos_raw != min_cos_raw else 1.0),
+         "threshold": 1.0, "direction": "lower"},
         {"name": "r1_grad_cosine_not_net_negative", "measured": float(min_cos),
          "threshold": float(MIN_COSINE), "direction": "lower"},
         {"name": "r2_iterative_loop_iterated", "measured": float(min_n_iters),

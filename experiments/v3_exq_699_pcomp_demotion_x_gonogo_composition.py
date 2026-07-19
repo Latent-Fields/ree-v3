@@ -1288,6 +1288,30 @@ def run_experiment(
             for arm_rows in (off_rows, dem_rows, gng_rows, both_rows)
         )
 
+    def _min_arm_count(pred, groups=None) -> int:
+        """The WORST per-arm count of seeds satisfying `pred` -- the recomputable form of
+        the `_maj_all` / per-arm-majority rule, for the precondition DECLARATIONS below.
+
+        `min(per-arm counts) >= MIN_SEEDS_FOR_PASS` is EXACTLY `all(count >=
+        MIN_SEEDS_FOR_PASS)`, so the adjudication gate
+        (build_experiment_indexes._precondition_unmet), which RECOMPUTES each
+        precondition's `met` from its own (measured, threshold) pair and treats the
+        recompute as AUTHORITATIVE, reproduces the shipped boolean. The min-over-cells of
+        the underlying CONTINUOUS statistic that these entries used to report does not:
+        it is strictly HARSHER than "on a majority of seeds" (one bad seed sinks it), so
+        the recompute wrongly flagged sound diagnostics `precondition_unmet`. And no
+        single continuous statistic CAN reproduce these -- most of the per-seed flags are
+        CONJUNCTIONS (e.g. gapa_divergence is `spread > floor AND dist_max < ceil`), and a
+        count over a conjunction does not distribute into per-leg counts. The original
+        continuous statistics are preserved on each entry as NON-BOUND `observed_*`
+        diagnostics; extra keys are ignored by the recompute, so nothing is lost.
+        """
+        if groups is None:
+            groups = (off_rows, dem_rows, gng_rows, both_rows)
+        return int(min(
+            [sum(1 for r in arm_rows if pred(r)) for arm_rows in groups] or [0]
+        ))
+
     # C1(a): committed-class axis exercisable on majority of seeds in ALL arms.
     c1a_holds = _maj_all(lambda r: r["class_axis_exercisable"])
     # C1(b): GAP-A divergence real on majority of seeds in ALL arms.
@@ -1431,8 +1455,17 @@ def run_experiment(
                     "entropy)."
                 ),
                 "control": "SP-CEM multi-class candidate pool, all arms",
-                "measured": float(min([r["frac_pre_ge2"] for r in all_rows] or [0.0])),
-                "threshold": float(FRAC_PRE_GE2_FLOOR),
+                "measured": float(_min_arm_count(lambda r: r["class_axis_exercisable"])),
+                "threshold": float(MIN_SEEDS_FOR_PASS),
+                # COUNT-shaped, INCLUSIVE floor: `met` is a per-arm-majority rule, i.e.
+                # `min(per-arm satisfying-seed counts) >= MIN_SEEDS_FOR_PASS`. See
+                # _min_arm_count above for why the previous min-over-cells continuous
+                # statistic could not reproduce it.
+                "comparator": ">=",
+                "direction": "lower",
+                "observed_min_frac_pre_ge2": float(
+                    min([r["frac_pre_ge2"] for r in all_rows] or [0.0])),
+                "observed_frac_pre_ge2_floor": float(FRAC_PRE_GE2_FLOOR),
                 "met": bool(c1a_holds),
             },
             {
@@ -1444,10 +1477,18 @@ def run_experiment(
                     "is non-degenerate. Same range statistic the 649 GAP-A readiness asserts."
                 ),
                 "control": "SD-056 e2 trained online in P0; candidate_summary_source=e2_world_forward",
-                "measured": float(
+                "measured": float(_min_arm_count(lambda r: r["gapa_divergence"])),
+                "threshold": float(MIN_SEEDS_FOR_PASS),
+                # COUNT-shaped, INCLUSIVE floor: `met` is a per-arm-majority rule, i.e.
+                # `min(per-arm satisfying-seed counts) >= MIN_SEEDS_FOR_PASS`. See
+                # _min_arm_count above for why the previous min-over-cells continuous
+                # statistic could not reproduce it.
+                "comparator": ">=",
+                "direction": "lower",
+                "observed_min_consumed_summary_pairwise_dist_mean": float(
                     min([r["consumed_summary_pairwise_dist_mean"] for r in all_rows] or [0.0])
                 ),
-                "threshold": float(CONSUMED_SPREAD_FLOOR),
+                "observed_consumed_spread_floor": float(CONSUMED_SPREAD_FLOOR),
                 "met": bool(c1b_holds),
             },
             {
@@ -1462,7 +1503,12 @@ def run_experiment(
                     max([r["consumed_summary_pairwise_dist_max"] for r in all_rows] or [0.0])
                 ),
                 "threshold": float(CONSUMED_MAGNITUDE_CEIL),
+                # CEILING-shaped and STRICT: `met` below is `max(...) < CEIL`. The
+                # `direction` was already declared; the `comparator` is added so the
+                # recompute mirrors the shipped predicate's strictness rather than
+                # defaulting to an inclusive bound.
                 "direction": "upper",
+                "comparator": "<",
                 "met": bool(
                     max([r["consumed_summary_pairwise_dist_max"] for r in all_rows] or [0.0])
                     < CONSUMED_MAGNITUDE_CEIL
@@ -1479,8 +1525,17 @@ def run_experiment(
                     "convert is absent => substrate_not_ready_requeue."
                 ),
                 "control": "crf frac-active (matured pool) + crf_n_minted_total, all arms",
-                "measured": float(min([r["crf_frac_active_ge_floor"] for r in all_rows] or [0.0])),
-                "threshold": float(CRF_FRAC_ACTIVE_FLOOR),
+                "measured": float(_min_arm_count(lambda r: r["crf_differentiated"])),
+                "threshold": float(MIN_SEEDS_FOR_PASS),
+                # COUNT-shaped, INCLUSIVE floor: `met` is a per-arm-majority rule, i.e.
+                # `min(per-arm satisfying-seed counts) >= MIN_SEEDS_FOR_PASS`. See
+                # _min_arm_count above for why the previous min-over-cells continuous
+                # statistic could not reproduce it.
+                "comparator": ">=",
+                "direction": "lower",
+                "observed_min_crf_frac_active": float(
+                    min([r["crf_frac_active_ge_floor"] for r in all_rows] or [0.0])),
+                "observed_crf_frac_active_floor": float(CRF_FRAC_ACTIVE_FLOOR),
                 "met": bool(c1c_holds),
             },
             {
@@ -1494,8 +1549,17 @@ def run_experiment(
                     "counterfactual delta (zeroing rule_state changes the bias)."
                 ),
                 "control": "mean lateral_pfc bias on the matched trained-head stack, all arms",
-                "measured": float(min([r["mean_lateral_pfc_bias_abs"] for r in all_rows] or [0.0])),
-                "threshold": float(PROP_NONVAC_FLOOR),
+                "measured": float(_min_arm_count(lambda r: r["prop_non_vacuous"])),
+                "threshold": float(MIN_SEEDS_FOR_PASS),
+                # COUNT-shaped, INCLUSIVE floor: `met` is a per-arm-majority rule, i.e.
+                # `min(per-arm satisfying-seed counts) >= MIN_SEEDS_FOR_PASS`. See
+                # _min_arm_count above for why the previous min-over-cells continuous
+                # statistic could not reproduce it.
+                "comparator": ">=",
+                "direction": "lower",
+                "observed_min_mean_lateral_pfc_bias_abs": float(
+                    min([r["mean_lateral_pfc_bias_abs"] for r in all_rows] or [0.0])),
+                "observed_prop_nonvac_floor": float(PROP_NONVAC_FLOOR),
                 "met": bool(c1d_holds),
             },
             {
@@ -1511,10 +1575,19 @@ def run_experiment(
                     "(inactivity there is correct, NOT vacuous). Mirrors V3-EXQ-689d readiness."
                 ),
                 "control": "f_demotion active-frac + excluded_count on the demotion-armed arms",
-                "measured": float(
+                "measured": float(_min_arm_count(
+                    lambda r: r["demotion_non_vacuous"], groups=(dem_rows, both_rows))),
+                "threshold": float(MIN_SEEDS_FOR_PASS),
+                # COUNT-shaped, INCLUSIVE floor: `met` is a per-arm-majority rule, i.e.
+                # `min(per-arm satisfying-seed counts) >= MIN_SEEDS_FOR_PASS`. See
+                # _min_arm_count above for why the previous min-over-cells continuous
+                # statistic could not reproduce it.
+                "comparator": ">=",
+                "direction": "lower",
+                "observed_min_f_eligibility_excluded_count_mean": float(
                     min([r["f_eligibility_excluded_count_mean"] for r in demotion_armed_rows] or [0.0])
                 ),
-                "threshold": float(EXCLUDED_COUNT_FLOOR),
+                "observed_excluded_count_floor": float(EXCLUDED_COUNT_FLOOR),
                 "met": bool(c1e_holds),
             },
             {
@@ -1530,10 +1603,19 @@ def run_experiment(
                     "by design on ARM_OFF/ARM_DEM. Mirrors the V3-EXQ-689g non-degeneracy gate."
                 ),
                 "control": "Go/No-Go active-frac + suppressed-count on the gng-armed arms",
-                "measured": float(
+                "measured": float(_min_arm_count(
+                    lambda r: r["nogo_non_vacuous"], groups=(gng_rows, both_rows))),
+                "threshold": float(MIN_SEEDS_FOR_PASS),
+                # COUNT-shaped, INCLUSIVE floor: `met` is a per-arm-majority rule, i.e.
+                # `min(per-arm satisfying-seed counts) >= MIN_SEEDS_FOR_PASS`. See
+                # _min_arm_count above for why the previous min-over-cells continuous
+                # statistic could not reproduce it.
+                "comparator": ">=",
+                "direction": "lower",
+                "observed_min_go_nogo_suppressed_per_tick_mean": float(
                     min([r["go_nogo_suppressed_per_tick_mean"] for r in gng_armed_rows] or [0.0])
                 ),
-                "threshold": float(NOGO_SUPPRESSED_FLOOR),
+                "observed_nogo_suppressed_floor": float(NOGO_SUPPRESSED_FLOOR),
                 "met": bool(c1f_holds),
             },
         ],

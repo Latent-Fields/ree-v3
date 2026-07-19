@@ -684,6 +684,34 @@ def _mean_key(rows: List[Dict[str, Any]], key: str) -> float:
     vals = [float(r.get(key, 0.0)) for r in rows]
     return float(sum(vals) / len(vals)) if vals else 0.0
 
+def _kth_best(values: List[float], k: int, threshold: float,
+              *, upper: bool = False, strict: bool = True) -> float:
+    """The k-th BEST per-seed value -- k-th LARGEST for a floor, k-th SMALLEST
+    for a ceiling.
+
+    Reported in a precondition's `measured` INSTEAD of a mean/min/max so that a
+    COUNT-OF-SEEDS predicate ("holds on >= k of n seeds") is exactly
+    reproducible from the entry's own (measured, threshold) pair:
+    `kth_largest > floor` IS "at least k seeds cleared the floor". A mean is not
+    a function of that count at all, `min` is strictly harsher than the shipped
+    predicate (it demands all n) and `max` strictly looser (it demands only 1),
+    so each makes the indexer's AUTHORITATIVE recompute in
+    build_experiment_indexes._precondition_unmet disagree with the author's
+    `met` -- the 2026-06-07 V3-EXQ-648a/649 mis-scoring shape.
+
+    Fewer than k values (the dry run ships 1 seed against k=2) means the
+    predicate CANNOT hold, so return the value that recomputes as UNMET under
+    this bound's own strictness rather than a real observation.
+    """
+    vals = sorted((float(v) for v in values), reverse=not upper)
+    if k <= 0 or len(vals) < k:
+        t = float(threshold)
+        if strict:
+            return t  # a strict bound reads measured == threshold as UNMET
+        eps = abs(t) * 1e-9 + 1e-9
+        return t + eps if upper else t - eps
+    return vals[k - 1]
+
 
 def _evaluate(arm_results: List[Dict[str, Any]]) -> Dict[str, Any]:
     by_id = {a["arm_id"]: _arm_rows(arm_results, a["arm_id"]) for a in ARMS}
@@ -701,6 +729,13 @@ def _evaluate(arm_results: List[Dict[str, Any]]) -> Dict[str, Any]:
     highest_weight_cand_dist_mean = _mean_key(
         highest_weight_rows, "cand_world_pairwise_dist_mean"
     )
+    # Statistic leg A's PRECONDITION reports (the mean stays as a diagnostic):
+    # the MIN_SEEDS_FOR_PASS-th largest per-seed value, so `measured > floor`
+    # reproduces `cand_dist_seeds_ok >= MIN_SEEDS_FOR_PASS` exactly.
+    highest_weight_cand_dist_kth = _kth_best(
+        [float(r.get("cand_world_pairwise_dist_mean", 0.0)) for r in highest_weight_rows],
+        MIN_SEEDS_FOR_PASS, CAND_DIST_FLOOR,
+    )
 
     # --- READINESS leg B: channel live (curiosity bias non-zero per-candidate range) ---
     bias_range_seeds_ok = _n_seeds_satisfying(
@@ -709,6 +744,11 @@ def _evaluate(arm_results: List[Dict[str, Any]]) -> Dict[str, Any]:
     )
     highest_weight_bias_range_mean = _mean_key(
         highest_weight_rows, "curiosity_bias_range_mean"
+    )
+    # Same k-th-best treatment for leg B's precondition.
+    highest_weight_bias_range_kth = _kth_best(
+        [float(r.get("curiosity_bias_range_mean", 0.0)) for r in highest_weight_rows],
+        MIN_SEEDS_FOR_PASS, BIAS_RANGE_FLOOR,
     )
 
     # --- READINESS leg C (SAME statistic the Goldilocks routes on): committed_class_entropy
@@ -722,12 +762,28 @@ def _evaluate(arm_results: List[Dict[str, Any]]) -> Dict[str, Any]:
         float(max(entropy_arm_means) - min(entropy_arm_means)) if entropy_arm_means else 0.0
     )
     entropy_range_ok = bool(entropy_range_across_arms >= ENTROPY_RANGE_FLOOR)
+    # Statistic leg C's PRECONDITION reports. NaN ONLY (an infinite range still
+    # satisfies `>= floor` in both the shipped predicate and the recompute, so it
+    # needs no special case): a NaN range fails EVERY comparison, so
+    # `entropy_range_ok` is False while the indexer's recompute
+    # (`unmet == measured < threshold`) would read NaN as MET. Report a value just
+    # below the floor instead -- the sentinel that recomputes as UNMET under this
+    # inclusive `>=` bound.
+    entropy_range_measured = (
+        ENTROPY_RANGE_FLOOR - (abs(ENTROPY_RANGE_FLOOR) * 1e-9 + 1e-9)
+        if math.isnan(entropy_range_across_arms) else entropy_range_across_arms
+    )
 
     # --- READINESS leg D: finite / explosion guard ---
     max_pairwise = max(
         [float(r.get("cand_world_pairwise_dist_max", 0.0)) for r in arm_results] or [0.0]
     )
     magnitude_ok = bool(math.isfinite(max_pairwise) and max_pairwise < MAGNITUDE_CEIL)
+    # Statistic the ceiling PRECONDITION reports. A NaN spread fails EVERY
+    # comparison, so reporting it raw would make the indexer's recompute read the
+    # entry as MET while the isfinite leg says otherwise; the ceiling itself is
+    # the sentinel that recomputes as UNMET under the strict `<` bound.
+    magnitude_measured = max_pairwise if math.isfinite(max_pairwise) else MAGNITUDE_CEIL
 
     readiness_ok = bool(
         cand_dist_seeds_ok >= MIN_SEEDS_FOR_PASS
@@ -846,8 +902,24 @@ def _evaluate(arm_results: List[Dict[str, Any]]) -> Dict[str, Any]:
                     "novelty channel."
                 ),
                 "control": "highest curiosity_novelty_weight arm, cand_world_pairwise_dist_mean",
-                "measured": round(highest_weight_cand_dist_mean, 6),
+                                # NOT rounded: rounding can cross the bound and break the
+                # round-trip (round(1e-9, 6) == 0.0 against a 0.0 floor reads as
+                # UNMET while the shipped strict `>` on the raw value says met).
+                # The rounded means below are diagnostics only, never the bound.
+                "measured": float(highest_weight_cand_dist_kth),
                 "threshold": CAND_DIST_FLOOR,
+                # FLOOR-shaped, STRICTLY so: the per-seed predicate is
+                # `cand_world_pairwise_dist_mean > CAND_DIST_FLOOR` and `met`
+                # counts seeds ("holds on >= MIN_SEEDS_FOR_PASS of 3"), so
+                # `measured` is the MIN_SEEDS_FOR_PASS-th LARGEST per-seed value
+                # rather than the mean it used to report -- a mean is not a
+                # function of that seed count, so the indexer's recompute could
+                # not reproduce `met`.
+                "comparator": ">",
+                "direction": "lower",
+                "mean_across_seeds": round(highest_weight_cand_dist_mean, 6),
+                "seeds_above_floor": int(cand_dist_seeds_ok),
+                "min_seeds_required": MIN_SEEDS_FOR_PASS,
                 "met": bool(cand_dist_seeds_ok >= MIN_SEEDS_FOR_PASS),
             },
             {
@@ -860,8 +932,21 @@ def _evaluate(arm_results: List[Dict[str, Any]]) -> Dict[str, Any]:
                     "arbitrate on (the 643a 'scaling zero is still zero' guard)."
                 ),
                 "control": "highest curiosity_novelty_weight arm, curiosity_candidate_source=e2_world_forward",
-                "measured": round(highest_weight_bias_range_mean, 8),
+                                # NOT rounded: rounding can cross the bound and break the
+                # round-trip (round(1e-9, 6) == 0.0 against a 0.0 floor reads as
+                # UNMET while the shipped strict `>` on the raw value says met).
+                # The rounded means below are diagnostics only, never the bound.
+                "measured": float(highest_weight_bias_range_kth),
                 "threshold": BIAS_RANGE_FLOOR,
+                # FLOOR-shaped, STRICTLY so: per-seed predicate is
+                # `curiosity_bias_range_mean > BIAS_RANGE_FLOOR`, `met` counts
+                # seeds, so `measured` is the k-th LARGEST per-seed value (same
+                # aggregation fix as the entry above).
+                "comparator": ">",
+                "direction": "lower",
+                "mean_across_seeds": round(highest_weight_bias_range_mean, 8),
+                "seeds_above_floor": int(bias_range_seeds_ok),
+                "min_seeds_required": MIN_SEEDS_FOR_PASS,
                 "met": bool(bias_range_seeds_ok >= MIN_SEEDS_FOR_PASS),
             },
             {
@@ -878,8 +963,18 @@ def _evaluate(arm_results: List[Dict[str, Any]]) -> Dict[str, Any]:
                     "MECH-314 / DEV-NEED-003 weakens."
                 ),
                 "control": "RANGE of per-arm mean committed_class_entropy across weights {0,0.05,0.25,1.0}",
-                "measured": round(entropy_range_across_arms, 6),
+                                # NOT rounded: rounding can cross the bound and break the
+                # round-trip (round(1e-9, 6) == 0.0 against a 0.0 floor reads as
+                # UNMET while the shipped strict `>` on the raw value says met).
+                # The rounded means below are diagnostics only, never the bound.
+                "measured": float(entropy_range_measured),
                 "threshold": ENTROPY_RANGE_FLOOR,
+                # FLOOR-shaped and INCLUSIVE: the predicate is
+                # `entropy_range_across_arms >= ENTROPY_RANGE_FLOOR`, a single
+                # cross-arm scalar (no seed count to aggregate). Declared rather
+                # than left to the default so the strictness is explicit.
+                "comparator": ">=",
+                "direction": "lower",
                 "met": entropy_range_ok,
             },
             {
@@ -890,8 +985,19 @@ def _evaluate(arm_results: List[Dict[str, Any]]) -> Dict[str, Any]:
                     "ceiling (SD-056 online training numerical stability; rollout clamp ON)."
                 ),
                 "control": "max cand_world_pairwise_dist across all arms",
-                "measured": round(max_pairwise, 6),
+                                # NOT rounded: rounding can cross the bound and break the
+                # round-trip (round(1e-9, 6) == 0.0 against a 0.0 floor reads as
+                # UNMET while the shipped strict `>` on the raw value says met).
+                # The rounded means below are diagnostics only, never the bound.
+                "measured": float(magnitude_measured),
                 "threshold": MAGNITUDE_CEIL,
+                # CEILING-shaped, and STRICTLY so: the predicate is
+                # `math.isfinite(max_pairwise) and max_pairwise < MAGNITUDE_CEIL`.
+                # `direction` alone was not enough -- without a comparator the
+                # indexer reads an upper bound as INCLUSIVE, so a run sitting
+                # exactly on the ceiling would recompute as met while the shipped
+                # strict `<` says otherwise.
+                "comparator": "<",
                 "direction": "upper",
                 "met": magnitude_ok,
             },

@@ -1316,6 +1316,10 @@ def run_experiment(
     # non-motor loop carries pref range > 0) on a majority of seeds. A "segregated" loop
     # pinned to the motor winner is a vacuous split -> requeue. -----
     loop_cross_variance_ok = _maj(a1_rows, lambda r: r.get("loop_cross_variance", False))
+    # The COUNT behind the _maj above. Reported by the precondition entry so the
+    # indexer's authoritative recompute can reproduce `met`; see that entry for why
+    # the min-fraction statistic it used to report could not.
+    n_a1_loop_cross_variance = sum(1 for r in a1_rows if r.get("loop_cross_variance", False))
     a1_loop_flip_min = float(min([r.get("loop_frac_committed_neq_motor", 0.0) for r in a1_rows] or [0.0]))
     a1_loop_disagree_min = float(min([r.get("loop_frac_disagree", 0.0) for r in a1_rows] or [0.0]))
 
@@ -1332,6 +1336,13 @@ def run_experiment(
     # ----- Precondition: learning engaged on A1 (finer channels dissociable + delta_t nonflat) -----
     fcg_moved_ok = _maj(a1_rows, lambda r: r.get("fcg_moved", False))
     fcg_delta_nonflat_ok = _maj(a1_rows, lambda r: r.get("fcg_delta_nonflat", False))
+    # Per-leg COUNTS behind the _maj calls above. The two legs are declared as SEPARATE
+    # recomputable preconditions because the single entry that used to carry both had
+    # `met = fcg_moved_ok and fcg_delta_nonflat_ok` -- an AND of two independent counts,
+    # which NO single (measured, threshold) pair can reproduce. Their conjunction is the
+    # same predicate, and the label routing still reads the two booleans directly.
+    n_fcg_moved = sum(1 for r in a1_rows if r.get("fcg_moved", False))
+    n_fcg_delta_nonflat = sum(1 for r in a1_rows if r.get("fcg_delta_nonflat", False))
 
     # CRF maturity (matched constant; majority of seeds on all arms).
     crf_matured = all(
@@ -1419,6 +1430,11 @@ def run_experiment(
                 "control": "consumed cand_world_summary pairwise spread > floor (GAP-A); per-seed",
                 "measured": float(n_primary_div),
                 "threshold": float(MIN_DIVERGENT_SEEDS),
+                # COUNT-shaped, INCLUSIVE floor: `met` is exactly
+                # `n_primary_div >= MIN_DIVERGENT_SEEDS`. Declared rather than left to the
+                # indexer's default so the boundary case is explicit.
+                "comparator": ">=",
+                "direction": "lower",
                 "met": bool(enough_divergent),
             },
             {
@@ -1430,12 +1446,30 @@ def run_experiment(
                     "or the loops must DISAGREE (loop_cross_loop_winner_disagreement) on a "
                     "non-trivial fraction of P2 ticks, AND a non-motor loop must carry per-loop "
                     "preference RANGE > 0 -- on a majority of seeds. A loop pinned to the motor "
-                    "winner is a vacuous split => substrate_not_ready_requeue. measured = min "
-                    "across A1 seeds of the flip fraction."
+                    "winner is a vacuous split => substrate_not_ready_requeue. measured = the "
+                    "NUMBER of A1 seeds carrying live cross-loop variance."
                 ),
                 "control": "A1_LOOPS loop_frac_committed_neq_motor / loop_frac_disagree + per-loop pref range",
-                "measured": float(round(max(a1_loop_flip_min, a1_loop_disagree_min), 6)),
-                "threshold": float(LOOP_CROSS_VARIANCE_FRAC_FLOOR),
+                # COUNT-shaped, INCLUSIVE floor: `met` is `_maj(a1_rows, loop_cross_variance)`,
+                # i.e. `n_a1_loop_cross_variance >= MIN_SEEDS_FOR_PASS` -- a COUNT of seeds.
+                # This entry previously reported min(flip/disagree fraction) across A1 seeds
+                # against LOOP_CROSS_VARIANCE_FRAC_FLOOR, which is strictly HARSHER than the
+                # shipped predicate (a majority of seeds can clear the floor while the min does
+                # not), so the indexer's authoritative recompute wrongly flagged sound
+                # diagnostics precondition_unmet. No single fraction statistic CAN reproduce
+                # `met`: the per-seed boolean is a CONJUNCTION ((flip frac > floor OR disagree
+                # frac > floor) AND a non-motor pref range > floor), and a count over a
+                # conjunction does not distribute into per-leg counts. The min-fraction number
+                # is preserved below as a NON-BOUND diagnostic (extra keys are ignored by the
+                # recompute) so no information is lost.
+                "measured": float(n_a1_loop_cross_variance),
+                "threshold": float(MIN_SEEDS_FOR_PASS),
+                "comparator": ">=",
+                "direction": "lower",
+                "observed_min_a1_flip_or_disagree_frac": float(
+                    round(max(a1_loop_flip_min, a1_loop_disagree_min), 6)
+                ),
+                "observed_cross_loop_variance_frac_floor": float(LOOP_CROSS_VARIANCE_FRAC_FLOOR),
                 "met": bool(loop_cross_variance_ok),
             },
             {
@@ -1452,34 +1486,101 @@ def run_experiment(
                     "(NOT a weakens). measured = n seeds the null lifts."
                 ),
                 "control": "ARM_NOISE committed-class entropy vs A0, divergent seeds, paired",
+                # COUNT-shaped, INCLUSIVE floor. `met` is
+                # `enough_divergent and _div_pass(n_noise_lifts, n_primary_div)`, and
+                # `_div_pass` ITSELF carries a second leg -- it returns False outright when
+                # `n_div < MIN_DIVERGENT_SEEDS`, regardless of n_ok. So the plain `needed`
+                # threshold does not reproduce `met` in one real corner: n_div == 2 gives
+                # needed == 2 and n_ok can also reach 2, which recomputes MET while the
+                # shipped predicate says False (the MISSED_UNMET direction).
+                # Closed by making the bound UNREACHABLE when the divergent-seed floor
+                # fails, which is what the predicate means there. `met` is unchanged.
                 "measured": float(n_noise_lifts),
-                "threshold": float(max(MIN_SEEDS_FOR_PASS, int(math.ceil(DIVERGENT_PASS_FRACTION * max(n_primary_div, 1))))),
+                "threshold": (
+                    float(max(MIN_SEEDS_FOR_PASS,
+                              int(math.ceil(DIVERGENT_PASS_FRACTION * max(n_primary_div, 1)))))
+                    if enough_divergent else float(n_noise_lifts + 1)
+                ),
+                "comparator": ">=",
+                "direction": "lower",
                 "met": bool(noise_verified_lifting),
             },
             {
-                "name": "learning_engaged_finer_channels_dissociable_delta_nonflat",
+                # SPLIT from a single `learning_engaged_..._delta_nonflat` entry whose
+                # `met` was `fcg_moved_ok and fcg_delta_nonflat_ok` -- an AND of two
+                # INDEPENDENT `_maj` counts reported against a single min-magnitude
+                # statistic. No one (measured, threshold) pair can reproduce an AND of
+                # two counts, so the indexer was adjudicating that entry on neither of
+                # its own legs. Declared as two recomputable counts that must BOTH hold,
+                # which is the same predicate; the label still routes off the two
+                # booleans directly (`preconditions_met`, L1342), so nothing moves.
+                "name": "learning_engaged_finer_channels_dissociable",
                 "kind": "readiness",
                 "description": (
                     "on A1_LOOPS the finer w_chan_finer entries MOVED + carry cross-channel "
-                    "range above floor AND the signed-RPE delta_t carries cross-tick variance, "
-                    "on a majority of seeds -- learning is engaged (else the loops are reading "
-                    "an un-trained gate). Below floor => substrate_not_ready_requeue."
+                    "range above floor, on a majority of seeds -- learning is engaged (else "
+                    "the loops are reading an un-trained gate). measured = the NUMBER of A1 "
+                    "seeds clearing it. Below => substrate_not_ready_requeue."
                 ),
-                "control": "A1 fcg_w_chan_finer_range_max + fcg_delta_t_std",
-                "measured": float(min([r["fcg_w_chan_finer_range_max"] for r in a1_rows] or [0.0])),
-                "threshold": float(W_CHAN_FINER_RANGE_FLOOR),
-                "met": bool(fcg_moved_ok and fcg_delta_nonflat_ok),
+                "control": "A1 fcg_w_chan_finer_range_max",
+                # COUNT-shaped, INCLUSIVE floor: `met` is `_maj(a1_rows, fcg_moved)`,
+                # i.e. `n_fcg_moved >= MIN_SEEDS_FOR_PASS`.
+                "measured": float(n_fcg_moved),
+                "threshold": float(MIN_SEEDS_FOR_PASS),
+                "comparator": ">=",
+                "direction": "lower",
+                "observed_min_fcg_w_chan_finer_range_max": float(
+                    min([r["fcg_w_chan_finer_range_max"] for r in a1_rows] or [0.0])),
+                "observed_w_chan_finer_range_floor": float(W_CHAN_FINER_RANGE_FLOOR),
+                "met": bool(fcg_moved_ok),
+            },
+            {
+                "name": "learning_engaged_delta_nonflat",
+                "kind": "readiness",
+                "description": (
+                    "on A1_LOOPS the signed-RPE delta_t carries cross-tick variance on a "
+                    "majority of seeds -- the second leg of the learning-engaged check. "
+                    "measured = the NUMBER of A1 seeds clearing it."
+                ),
+                "control": "A1 fcg_delta_t_std",
+                # COUNT-shaped, INCLUSIVE floor: `met` is `_maj(a1_rows, fcg_delta_nonflat)`.
+                "measured": float(n_fcg_delta_nonflat),
+                "threshold": float(MIN_SEEDS_FOR_PASS),
+                "comparator": ">=",
+                "direction": "lower",
+                "met": bool(fcg_delta_nonflat_ok),
             },
             {
                 "name": "candidate_pool_divergent",
                 "kind": "readiness",
                 "description": (
                     "consumed cand_world_summaries (e2.world_forward) per-candidate SPREAD "
-                    "clears the floor on a majority of seeds (GAP-A non-vacuity)."
+                    "clears the floor on a majority of seeds (GAP-A non-vacuity). measured = "
+                    "the NUMBER of seeds divergent on ALL C1 comparison arms."
                 ),
                 "control": "SD-056 e2 trained online in P0; candidate_summary_source=e2_world_forward",
-                "measured": float(min([r["consumed_summary_pairwise_dist_mean"] for r in all_rows] or [0.0])),
-                "threshold": float(CONSUMED_SPREAD_FLOOR),
+                # COUNT-shaped, INCLUSIVE floor: `met` is exactly
+                # `n_primary_div >= MIN_DIVERGENT_SEEDS`.
+                #
+                # This entry previously reported min(consumed_summary_pairwise_dist_mean)
+                # across ALL rows against CONSUMED_SPREAD_FLOOR, which is strictly HARSHER
+                # than the shipped predicate -- a majority of seeds can clear the floor
+                # while the min does not -- so the indexer's AUTHORITATIVE recompute
+                # wrongly flagged this sound diagnostic precondition_unmet (confirmed on
+                # the shipped run: measured 0.026277 vs 0.05 with met=True).
+                #
+                # No spread statistic CAN reproduce `met`: the per-seed divergence boolean
+                # is itself a CONJUNCTION (`consumed_spread_mean > CONSUMED_SPREAD_FLOOR
+                # and consumed_dist_max < CONSUMED_MAGNITUDE_CEIL`, L1082) evaluated on
+                # EACH C1 arm, and a count over a conjunction does not distribute into
+                # per-leg counts. Hence the count, not a k-th-worst spread.
+                "measured": float(n_primary_div),
+                "threshold": float(MIN_DIVERGENT_SEEDS),
+                "comparator": ">=",
+                "direction": "lower",
+                "observed_min_consumed_spread": float(
+                    min([r["consumed_summary_pairwise_dist_mean"] for r in all_rows] or [0.0])),
+                "observed_consumed_spread_floor": float(CONSUMED_SPREAD_FLOOR),
                 "met": bool(enough_divergent),
             },
         ],

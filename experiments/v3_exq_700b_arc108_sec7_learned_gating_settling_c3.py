@@ -1246,6 +1246,40 @@ def run_experiment(
         and crf_matured
     )
 
+    # ----- COUNT-shaped restatements of the majority-of-seeds preconditions -----
+    # The indexer RECOMPUTES interpretation.preconditions[].met from the reported
+    # (measured, threshold) pair and treats the recompute as AUTHORITATIVE over the
+    # author's `met` (build_experiment_indexes._precondition_unmet).
+    #
+    # `wlat_*_ok` / `lcg_*_ok` are k-of-n COUNTS over per-seed predicates
+    # (`_maj` == ">= MIN_SEEDS_FOR_PASS seeds satisfy pred"), and the settling leg
+    # of "weights moved" is itself a per-seed CONJUNCTION (`wlat_moved and
+    # settling_moved_field`). A min over a spread statistic cannot reproduce either:
+    # it is strictly harsher than "a majority of seeds", and a count over a
+    # conjunction does not distribute into per-leg counts. Reported instead as the
+    # satisfying-seed COUNT minimised over arm groups vs MIN_SEEDS_FOR_PASS with
+    # comparator ">=" -- exact, because min(counts) >= k iff every count >= k.
+    def _n_seeds(rows: List[Dict[str, Any]], pred) -> int:
+        return sum(1 for r in rows if pred(r))
+
+    n_delta_nonflat_min_arm = min(
+        [_n_seeds(rows, lambda r: r["wlat_delta_nonflat"]) for rows in (a2_rows, a3_rows, c3u_rows)]
+        + [_n_seeds(a3_rows, lambda r: r["lcg_delta_nonflat"])]
+    )
+    n_weights_moved_min_arm = min(
+        [
+            _n_seeds(rows, lambda r: r["wlat_moved"] and r["settling_moved_field"])
+            for rows in (a2_rows, a3_rows, c3u_rows)
+        ]
+        + [_n_seeds(a3_rows, lambda r: r["lcg_moved"])]
+    )
+    # The fraction leg of `noise_verified_lifting`, split out so it is recomputable
+    # on its own bounds -- see the entry below.
+    noise_lift_needed = max(
+        MIN_SEEDS_FOR_PASS, int(math.ceil(DIVERGENT_PASS_FRACTION * max(n_primary_div, 1)))
+    )
+    noise_lift_fraction_ok = bool(n_noise_lifts >= noise_lift_needed)
+
     # ----- C1 (conversion): a learning arm strict-above BOTH A0 AND the noise control,
     # on the per-arm divergent seeds (A0 AND that arm AND noise all divergent) -----
     def _converts(arm_ent: Dict[int, float], arm_gap: Dict[int, bool]) -> Tuple[int, int, List[int]]:
@@ -1376,8 +1410,13 @@ def run_experiment(
                     "substrate_not_ready_requeue (pool too collapsed to test conversion)."
                 ),
                 "control": "consumed cand_world_summary pairwise spread > floor (GAP-A); per-seed",
+                # COUNT-shaped and already correct; comparator declared so the
+                # recompute mirrors the source (`n_primary_div >= MIN_DIVERGENT_SEEDS`)
+                # rather than taking the default.
                 "measured": float(n_primary_div),
                 "threshold": float(MIN_DIVERGENT_SEEDS),
+                "comparator": ">=",
+                "direction": "lower",
                 "met": bool(enough_divergent),
             },
             {
@@ -1392,9 +1431,24 @@ def run_experiment(
                     "substrate_not_ready_requeue (re-tune the noise alpha)."
                 ),
                 "control": "ARM_NOISE committed-class entropy vs A0, divergent seeds, paired",
+                # COUNT-shaped. `noise_verified_lifting` is `_div_pass(...)`, a
+                # CONJUNCTION of (i) n_primary_div >= MIN_DIVERGENT_SEEDS and (ii)
+                # n_noise_lifts >= noise_lift_needed. Only (ii) is expressible on this
+                # entry's bounds, so with the old declaration the recompute could say
+                # "met" on a run with 2 divergent seeds that both lifted while the
+                # shipped predicate said unmet. Leg (i) is ALREADY declared as its own
+                # recomputable precondition (`enough_divergent_seeds` above), so this
+                # entry now carries leg (ii) alone -- the same split as SD-068
+                # c7d398c2e0. The conjunction is unchanged and still routes the label
+                # via `noise_verified_lifting` / preconditions_met, which are computed
+                # from the underlying booleans, not from these entries.
                 "measured": float(n_noise_lifts),
-                "threshold": float(max(MIN_SEEDS_FOR_PASS, int(math.ceil(DIVERGENT_PASS_FRACTION * max(n_primary_div, 1))))),
-                "met": bool(noise_verified_lifting),
+                "threshold": float(noise_lift_needed),
+                "comparator": ">=",
+                "direction": "lower",
+                "observed_enough_divergent_seeds": bool(enough_divergent),
+                "observed_noise_verified_lifting_conjunction": bool(noise_verified_lifting),
+                "met": bool(noise_lift_fraction_ok),
             },
             {
                 "name": "delta_t_carries_variance_on_learning_arms",
@@ -1408,11 +1462,18 @@ def run_experiment(
                     "STARVED, not 'unsigned fails')."
                 ),
                 "control": "wlat_delta_t_std (A2/A3/C3) + lcg_delta_t_std (A3) on the armed arms",
-                "measured": float(min(
+                # COUNT-shaped: `met` is the conjunction of four per-arm majority
+                # counts over two DIFFERENT statistics (wlat_delta_t_std on A2/A3/C3,
+                # lcg_delta_t_std on A3), so no single pooled min reproduces it.
+                "measured": float(n_delta_nonflat_min_arm),
+                "threshold": float(MIN_SEEDS_FOR_PASS),
+                "comparator": ">=",
+                "direction": "lower",
+                "observed_min_delta_t_std": float(min(
                     [r["wlat_delta_t_std"] for r in (a2_rows + a3_rows + c3u_rows)]
                     + [r["lcg_delta_t_std"] for r in a3_rows] or [0.0]
                 )),
-                "threshold": float(DELTA_T_STD_FLOOR),
+                "observed_delta_t_std_floor": float(DELTA_T_STD_FLOOR),
                 "met": bool(wlat_delta_nonflat_ok and lcg_delta_nonflat_ok),
             },
             {
@@ -1426,11 +1487,31 @@ def run_experiment(
                     "moving => eligibility never credited => substrate_not_ready_requeue."
                 ),
                 "control": "wlat_range_max + settling_round_delta (A2/A3/C3) + lcg_w_chan_range_max (A3)",
-                "measured": float(min(
+                # COUNT-shaped, INCLUSIVE floor. `met` is
+                # `wlat_moved_ok and lcg_moved_ok` = `all(_maj(...))` over four arm
+                # groups, i.e. four k-of-n COUNTS -- not a bound on a range statistic.
+                # `n_weights_moved_min_arm` is the min of those four counts, so
+                # `measured >= MIN_SEEDS_FOR_PASS` reproduces the conjunction EXACTLY
+                # (min(counts) >= k iff every count >= k).
+                #
+                # The old min-range declaration could not reproduce it for two
+                # independent reasons: a min over rows is strictly HARSHER than "a
+                # majority of seeds", and the settling leg is a per-seed CONJUNCTION
+                # (`wlat_moved and settling_moved_field`) whose second leg was absent
+                # from the reported statistic entirely -- a count over a conjunction
+                # does not distribute into per-leg counts. Confirmed live on the dry
+                # run: measured 0.01020736 cleared the 0.0001 floor while met=False
+                # (the MISSED_UNMET direction -- a genuine premise failure silently
+                # cleared).
+                "measured": float(n_weights_moved_min_arm),
+                "threshold": float(MIN_SEEDS_FOR_PASS),
+                "comparator": ">=",
+                "direction": "lower",
+                "observed_min_moved_range": float(min(
                     [r["wlat_range_max"] for r in (a2_rows + a3_rows + c3u_rows)]
                     + [r["lcg_w_chan_range_max"] for r in a3_rows] or [0.0]
                 )),
-                "threshold": float(WLAT_RANGE_FLOOR),
+                "observed_wlat_range_floor": float(WLAT_RANGE_FLOOR),
                 "met": bool(wlat_moved_ok and lcg_moved_ok),
             },
             {

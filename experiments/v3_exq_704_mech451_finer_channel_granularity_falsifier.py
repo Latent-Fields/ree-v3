@@ -1270,6 +1270,41 @@ def run_experiment(
         and crf_matured
     )
 
+    # ----- COUNT-shaped restatements of the majority-of-seeds preconditions -----
+    # The indexer RECOMPUTES interpretation.preconditions[].met from the reported
+    # (measured, threshold) pair and treats the recompute as AUTHORITATIVE over the
+    # author's `met` (build_experiment_indexes._precondition_unmet).
+    #
+    # `fcg_*_ok` / `lcg_*_ok` are k-of-n COUNTS over per-seed predicates
+    # (`_maj` == ">= MIN_SEEDS_FOR_PASS seeds satisfy pred"). A min over the
+    # underlying statistic cannot reproduce them: min(...) over rows is strictly
+    # HARSHER than "a majority of seeds" (2-of-3 seeds can clear the floor while the
+    # min does not, flagging a sound run precondition_unmet), and where `met` is a
+    # conjunction of counts over two DIFFERENT statistics on two DIFFERENT arms, no
+    # single pooled statistic exists at all. Reported instead as the satisfying-seed
+    # COUNT minimised over arm groups vs MIN_SEEDS_FOR_PASS with comparator ">=" --
+    # exact, because min(counts) >= k iff every count >= k. The old min numbers are
+    # preserved on each entry as NON-BOUND diagnostic keys (extra keys are ignored by
+    # the recompute), so no information is lost.
+    def _n_seeds(rows: List[Dict[str, Any]], pred) -> int:
+        return sum(1 for r in rows if pred(r))
+
+    n_delta_nonflat_min_arm = min([
+        _n_seeds(a2_rows, lambda r: r["fcg_delta_nonflat"]),
+        _n_seeds(a1_rows, lambda r: r["lcg_delta_nonflat"]),
+    ])
+    n_weights_moved_min_arm = min([
+        _n_seeds(a2_rows, lambda r: r["fcg_moved"]),
+        _n_seeds(a1_rows, lambda r: r["lcg_moved"]),
+    ])
+    n_fcg_dissociable = _n_seeds(a2_rows, lambda r: r["fcg_moved"])
+    # The fraction leg of `noise_verified_lifting`, split out so it is recomputable
+    # on its own bounds -- see the entry below.
+    noise_lift_needed = max(
+        MIN_SEEDS_FOR_PASS, int(math.ceil(DIVERGENT_PASS_FRACTION * max(n_primary_div, 1)))
+    )
+    noise_lift_fraction_ok = bool(n_noise_lifts >= noise_lift_needed)
+
     # ----- C1 (conversion): A2 strict-above BOTH A0 AND A1 AND the noise control, on the
     # per-seed divergent seeds. A1 IN THE BAR is the ARC-106 cargo-cult guard (collapse-
     # to-blend ablation: if the single global w_chan reproduces the lift, the finer
@@ -1375,8 +1410,13 @@ def run_experiment(
                     "test conversion)."
                 ),
                 "control": "consumed cand_world_summary pairwise spread > floor (GAP-A); per-seed",
+                # COUNT-shaped and already correct; comparator declared so the
+                # recompute mirrors the source (`n_primary_div >= MIN_DIVERGENT_SEEDS`)
+                # rather than taking the default.
                 "measured": float(n_primary_div),
                 "threshold": float(MIN_DIVERGENT_SEEDS),
+                "comparator": ">=",
+                "direction": "lower",
                 "met": bool(enough_divergent),
             },
             {
@@ -1390,8 +1430,19 @@ def run_experiment(
                     "genuine decomposition. Below floor => substrate_not_ready_requeue."
                 ),
                 "control": "A2 fcg_w_chan_finer_range_max vs floor (softplus-unity init => range 0)",
-                "measured": float(min([r["fcg_w_chan_finer_range_max"] for r in a2_rows] or [0.0])),
-                "threshold": float(W_CHAN_FINER_RANGE_FLOOR),
+                # COUNT-shaped: `met` is `_maj(a2_rows, fcg_moved)`, a k-of-n count of
+                # A2 seeds whose finer range clears the floor. Single-leg predicate
+                # (`fcg_moved` == `fcg_w_chan_finer_range_max > W_CHAN_FINER_RANGE_FLOOR`),
+                # but still a count, so min(range) over A2 is strictly harsher than the
+                # shipped bar and would flag a sound 2-of-3 run precondition_unmet.
+                "measured": float(n_fcg_dissociable),
+                "threshold": float(MIN_SEEDS_FOR_PASS),
+                "comparator": ">=",
+                "direction": "lower",
+                "observed_min_a2_fcg_range": float(
+                    min([r["fcg_w_chan_finer_range_max"] for r in a2_rows] or [0.0])
+                ),
+                "observed_w_chan_finer_range_floor": float(W_CHAN_FINER_RANGE_FLOOR),
                 "met": bool(fcg_dissociable_ok),
             },
             {
@@ -1404,11 +1455,19 @@ def run_experiment(
                     "Flat => substrate_not_ready_requeue."
                 ),
                 "control": "fcg_delta_t_std (A2) + lcg_delta_t_std (A1) on the armed arms",
-                "measured": float(min(
+                # COUNT-shaped: `met` is the conjunction of two per-arm majority counts
+                # over two DIFFERENT statistics (fcg_delta_t_std on A2, lcg_delta_t_std
+                # on A1), so no single pooled min reproduces it. Counted per arm group
+                # against its own leg, then minimised.
+                "measured": float(n_delta_nonflat_min_arm),
+                "threshold": float(MIN_SEEDS_FOR_PASS),
+                "comparator": ">=",
+                "direction": "lower",
+                "observed_min_delta_t_std": float(min(
                     [r["fcg_delta_t_std"] for r in a2_rows]
                     + [r["lcg_delta_t_std"] for r in a1_rows] or [0.0]
                 )),
-                "threshold": float(DELTA_T_STD_FLOOR),
+                "observed_delta_t_std_floor": float(DELTA_T_STD_FLOOR),
                 "met": bool(fcg_delta_nonflat_ok and lcg_delta_nonflat_ok),
             },
             {
@@ -1421,11 +1480,21 @@ def run_experiment(
                     "eligibility never credited => substrate_not_ready_requeue."
                 ),
                 "control": "A2 fcg_w_chan_finer_range_max + A1 lcg_w_chan_range_max",
-                "measured": float(min(
+                # COUNT-shaped: `met` is the conjunction of two per-arm majority counts
+                # over two DIFFERENT statistics against two DIFFERENT floors
+                # (fcg_w_chan_finer_range_max vs W_CHAN_FINER_RANGE_FLOOR on A2,
+                # lcg_w_chan_range_max vs W_CHAN_RANGE_FLOOR on A1), so no single pooled
+                # min against one floor reproduces it.
+                "measured": float(n_weights_moved_min_arm),
+                "threshold": float(MIN_SEEDS_FOR_PASS),
+                "comparator": ">=",
+                "direction": "lower",
+                "observed_min_learned_weight_range": float(min(
                     [r["fcg_w_chan_finer_range_max"] for r in a2_rows]
                     + [r["lcg_w_chan_range_max"] for r in a1_rows] or [0.0]
                 )),
-                "threshold": float(W_CHAN_FINER_RANGE_FLOOR),
+                "observed_w_chan_finer_range_floor": float(W_CHAN_FINER_RANGE_FLOOR),
+                "observed_w_chan_range_floor": float(W_CHAN_RANGE_FLOOR),
                 "met": bool(fcg_dissociable_ok and lcg_moved_ok),
             },
             {
@@ -1440,9 +1509,25 @@ def run_experiment(
                     "requeue (re-tune FCG_NOISE_SCALE, the correct layer)."
                 ),
                 "control": "ARM_NOISE committed-class entropy vs A0, divergent seeds, paired",
+                # COUNT-shaped. `noise_verified_lifting` is `enough_divergent and
+                # _div_pass(...)`, a CONJUNCTION of (i) n_primary_div >=
+                # MIN_DIVERGENT_SEEDS and (ii) n_noise_lifts >= noise_lift_needed.
+                # Only (ii) is expressible on this entry's bounds, so with the old
+                # declaration the recompute could say "met" on a run with 2 divergent
+                # seeds that both lifted while the shipped predicate said unmet. Leg
+                # (i) is ALREADY declared as its own recomputable precondition
+                # (`enough_divergent_seeds` above), so this entry now carries leg (ii)
+                # alone -- the same split as SD-068 c7d398c2e0. The conjunction is
+                # unchanged and still routes the label via `noise_verified_lifting` /
+                # preconditions_met, which are computed from the underlying booleans,
+                # not from these entries.
                 "measured": float(n_noise_lifts),
-                "threshold": float(max(MIN_SEEDS_FOR_PASS, int(math.ceil(DIVERGENT_PASS_FRACTION * max(n_primary_div, 1))))),
-                "met": bool(noise_verified_lifting),
+                "threshold": float(noise_lift_needed),
+                "comparator": ">=",
+                "direction": "lower",
+                "observed_enough_divergent_seeds": bool(enough_divergent),
+                "observed_noise_verified_lifting_conjunction": bool(noise_verified_lifting),
+                "met": bool(noise_lift_fraction_ok),
             },
             {
                 "name": "fcg_noise_magnitude_matched",
@@ -1456,8 +1541,20 @@ def run_experiment(
                     "time re-tune is FCG_NOISE_SCALE)."
                 ),
                 "control": "median ARM_NOISE fcg_w_chan_finer_range_max vs median A2 learned range",
+                # TWO-SIDED (interval). A bare list `threshold` is not a numeric bound
+                # spec, so the recompute returned None and fell through to the legacy
+                # author-trusted path -- legible now as the indexer's INTERVAL shape.
+                # Both legs are INCLUSIVE, mirroring the source predicate
+                # `LO <= ratio <= HI`. The guard leg (`median_a2_fcg_range > 0.0`) needs
+                # no separate declaration: when it fails the ratio is set to 0.0, which
+                # is below LO=0.25, so the interval already reports unmet.
                 "measured": float(round(fcg_noise_magnitude_ratio, 6)),
                 "threshold": [float(FCG_NOISE_MAGNITUDE_MATCH_LO), float(FCG_NOISE_MAGNITUDE_MATCH_HI)],
+                "threshold_low": float(FCG_NOISE_MAGNITUDE_MATCH_LO),
+                "threshold_high": float(FCG_NOISE_MAGNITUDE_MATCH_HI),
+                "comparator_low": ">=",
+                "comparator_high": "<=",
+                "direction": "interval",
                 "met": bool(fcg_noise_magnitude_matched),
             },
             {
@@ -1469,8 +1566,35 @@ def run_experiment(
                     "non-vacuity). This is the per-seed divergence the gating reads."
                 ),
                 "control": "SD-056 e2 trained online in P0; candidate_summary_source=e2_world_forward",
-                "measured": float(min([r["consumed_summary_pairwise_dist_mean"] for r in all_rows] or [0.0])),
-                "threshold": float(CONSUMED_SPREAD_FLOOR),
+                # COUNT-shaped. `met` is `enough_divergent`, i.e. a k-of-n COUNT of
+                # seeds divergent on ALL C1 comparison arms -- NOT a bound on the
+                # pool-spread statistic. Two reasons the old min-spread declaration
+                # could not reproduce it: (1) min(spread) over all rows is strictly
+                # HARSHER than "a majority of seeds", so a sound run with 3 of 6 seeds
+                # divergent was flagged precondition_unmet; (2) per-seed
+                # `gapa_divergence` is a CONJUNCTION (`consumed_spread_mean >
+                # CONSUMED_SPREAD_FLOOR and consumed_dist_max < CONSUMED_MAGNITUDE_CEIL`),
+                # and a count over a conjunction does not distribute into per-leg
+                # counts, so no single spread statistic exists that could carry it.
+                # Reported as the same divergent-seed count `enough_divergent` is
+                # defined on -- exact by construction. (It therefore duplicates
+                # `enough_divergent_seeds` above; that is the shipped predicate, which
+                # is unchanged.)
+                "measured": float(n_primary_div),
+                "threshold": float(MIN_DIVERGENT_SEEDS),
+                "comparator": ">=",
+                "direction": "lower",
+                # Non-bound diagnostics: the statistics the divergence count ranges
+                # over, preserved verbatim from the pre-fix declaration. Ignored by the
+                # indexer's recompute.
+                "observed_min_consumed_spread": float(
+                    min([r["consumed_summary_pairwise_dist_mean"] for r in all_rows] or [0.0])
+                ),
+                "observed_consumed_spread_floor": float(CONSUMED_SPREAD_FLOOR),
+                "observed_max_consumed_dist": float(
+                    max([r["consumed_summary_pairwise_dist_max"] for r in all_rows] or [0.0])
+                ),
+                "observed_consumed_magnitude_ceil": float(CONSUMED_MAGNITUDE_CEIL),
                 "met": bool(enough_divergent),
             },
         ],

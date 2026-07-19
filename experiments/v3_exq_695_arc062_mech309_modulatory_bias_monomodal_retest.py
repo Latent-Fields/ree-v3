@@ -1222,26 +1222,80 @@ def run_experiment(
     )
     max_prop_diff = float(max(list(prop_diff_by_seed.values()) or [0.0]))
 
+    # Each R* below is a COUNT-of-seeds rule (r1..r5_holds above), so each check reports
+    # the COUNT against MIN_SEEDS_FOR_PASS. p0_readiness_gate derives `met` from
+    # (measured, threshold, direction) with floor semantics `measured >= threshold`,
+    # and REE_assembly's build_experiment_indexes._precondition_unmet RECOMPUTES `met`
+    # the same way and treats its recompute as AUTHORITATIVE -- so a count against
+    # MIN_SEEDS_FOR_PASS reproduces r1..r5_holds EXACTLY, in both places.
+    #
+    # These previously reported continuous worst/best-case magnitudes against their
+    # scientific floors, which did NOT reproduce the shipped booleans in either
+    # direction:
+    #   R1/R2  min over ALL cells vs the floor -- strictly HARSHER than "a majority of
+    #          seeds in each arm" (one bad seed sinks it), so a sound run was flagged
+    #          `precondition_unmet` (699's sibling entry shipped 0.004852 vs a 0.05
+    #          floor while its per-arm majorities held).
+    #   R4     max over seeds vs the floor -- strictly LOOSER than "on >= 2 seeds", so a
+    #          genuinely-failed premise would have been silently CLEARED.
+    #   R3/R5  already used the k-th-best form, which is exact for a SINGLE-leg floor --
+    #          but `crf_differentiated` is a CONJUNCTION (crf_present AND n_minted >=
+    #          CRF_MIN_MINTED AND frac_active >= floor) that a count over the frac_active
+    #          leg alone cannot reproduce, and `route_range_nonvac` is STRICT (`>`) where
+    #          the gate's floor is inclusive. Counts fix both.
+    # No single continuous statistic CAN reproduce a count over a conjunction, since the
+    # count does not distribute into per-leg counts. The original magnitudes are attached
+    # below as NON-BOUND `observed_*` diagnostics (extra keys are ignored by the
+    # recompute), so nothing is lost.
     readiness_checks = [
         {"name": "R1_committed_class_axis_exercisable_both_arms",
-         "measured": min_frac_pre_ge2, "threshold": float(FRAC_PRE_GE2_FLOOR),
-         "direction": "lower"},
+         "measured": float(min(n_off_axis, n_on_axis)),
+         "threshold": float(MIN_SEEDS_FOR_PASS), "direction": "lower"},
         {"name": "R2_gapa_consumed_summary_divergence_both_arms",
-         "measured": min_consumed_spread, "threshold": float(CONSUMED_SPREAD_FLOOR),
-         "direction": "lower"},
+         "measured": float(min(n_off_gapa, n_on_gapa)),
+         "threshold": float(MIN_SEEDS_FOR_PASS), "direction": "lower"},
+        # R2b is NOT a count rule: it is a standalone ceiling on the observed magnitude,
+        # with no per-seed boolean behind it, so it keeps its magnitude form. (The same
+        # ceiling also appears as the second leg of the per-seed `gapa_divergence`
+        # conjunction that R2 counts.)
         {"name": "R2b_gapa_consumed_summary_bounded",
          "measured": max_consumed_spread, "threshold": float(CONSUMED_MAGNITUDE_CEIL),
          "direction": "upper"},
         {"name": "R3_arm_on_rule_field_differentiated_and_matured",
-         "measured": on_crf_frac_majority, "threshold": float(CRF_FRAC_ACTIVE_FLOOR),
-         "direction": "lower"},
+         "measured": float(n_on_differentiated),
+         "threshold": float(MIN_SEEDS_FOR_PASS), "direction": "lower"},
         {"name": "R4_propagation_non_vacuity_arm_on_bias_differs_from_arm_off",
-         "measured": max_prop_diff, "threshold": float(PROP_NONVAC_FLOOR),
-         "direction": "lower"},
+         "measured": float(n_prop_nonvac_seeds),
+         "threshold": float(MIN_SEEDS_FOR_PASS), "direction": "lower"},
         {"name": "R5_modulatory_route_range_non_vacuity_same_statistic",
-         "measured": on_route_range_majority, "threshold": float(ROUTE_RANGE_FLOOR),
-         "direction": "lower"},
+         "measured": float(n_on_route_range),
+         "threshold": float(MIN_SEEDS_FOR_PASS), "direction": "lower"},
     ]
+    # NON-BOUND diagnostics, merged onto the gate's payload below. The gate emits only
+    # name/measured/threshold/direction/met/kind, so the magnitudes the checks used to
+    # bind on are re-attached here rather than dropped.
+    readiness_diagnostics = {
+        "R1_committed_class_axis_exercisable_both_arms": {
+            "observed_min_frac_pre_ge2": min_frac_pre_ge2,
+            "observed_frac_pre_ge2_floor": float(FRAC_PRE_GE2_FLOOR),
+        },
+        "R2_gapa_consumed_summary_divergence_both_arms": {
+            "observed_min_consumed_summary_pairwise_dist_mean": min_consumed_spread,
+            "observed_consumed_spread_floor": float(CONSUMED_SPREAD_FLOOR),
+        },
+        "R3_arm_on_rule_field_differentiated_and_matured": {
+            "observed_kth_best_crf_frac_active": float(on_crf_frac_majority),
+            "observed_crf_frac_active_floor": float(CRF_FRAC_ACTIVE_FLOOR),
+        },
+        "R4_propagation_non_vacuity_arm_on_bias_differs_from_arm_off": {
+            "observed_max_paired_bias_diff": max_prop_diff,
+            "observed_prop_nonvac_floor": float(PROP_NONVAC_FLOOR),
+        },
+        "R5_modulatory_route_range_non_vacuity_same_statistic": {
+            "observed_kth_best_arm_on_route_range": float(on_route_range_majority),
+            "observed_route_range_floor": float(ROUTE_RANGE_FLOOR),
+        },
+    }
 
     # Build the manifest-ready preconditions[] payload regardless of pass/fail, and the
     # composite readiness flag (use the per-seed majority logic, which is the binding
@@ -1253,6 +1307,8 @@ def run_experiment(
     except P0NotReady as exc:
         preconditions = exc.preconditions
         gate_raised = True
+    for _pc in preconditions:
+        _pc.update(readiness_diagnostics.get(_pc.get("name", ""), {}))
 
     readiness_holds = bool(r1_holds and r2_holds and r3_holds and r4_holds and r5_holds)
 

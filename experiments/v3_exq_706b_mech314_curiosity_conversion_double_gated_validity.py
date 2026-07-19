@@ -945,6 +945,34 @@ def _mean_key(rows: List[Dict[str, Any]], key: str) -> float:
     vals = [float(r.get(key, 0.0)) for r in rows]
     return float(sum(vals) / len(vals)) if vals else 0.0
 
+def _kth_best(values: List[float], k: int, threshold: float,
+              *, upper: bool = False, strict: bool = True) -> float:
+    """The k-th BEST per-seed value -- k-th LARGEST for a floor, k-th SMALLEST
+    for a ceiling.
+
+    Reported in a precondition's `measured` INSTEAD of a mean/min/max so that a
+    COUNT-OF-SEEDS predicate ("holds on >= k of n seeds") is exactly
+    reproducible from the entry's own (measured, threshold) pair:
+    `kth_largest > floor` IS "at least k seeds cleared the floor". A mean is not
+    a function of that count at all, `min` is strictly harsher than the shipped
+    predicate (it demands all n) and `max` strictly looser (it demands only 1),
+    so each makes the indexer's AUTHORITATIVE recompute in
+    build_experiment_indexes._precondition_unmet disagree with the author's
+    `met` -- the 2026-06-07 V3-EXQ-648a/649 mis-scoring shape.
+
+    Fewer than k values (the dry run ships 1 seed against k=2) means the
+    predicate CANNOT hold, so return the value that recomputes as UNMET under
+    this bound's own strictness rather than a real observation.
+    """
+    vals = sorted((float(v) for v in values), reverse=not upper)
+    if k <= 0 or len(vals) < k:
+        t = float(threshold)
+        if strict:
+            return t  # a strict bound reads measured == threshold as UNMET
+        eps = abs(t) * 1e-9 + 1e-9
+        return t + eps if upper else t - eps
+    return vals[k - 1]
+
 
 def _evaluate(arm_results: List[Dict[str, Any]]) -> Dict[str, Any]:
     on = _arm_rows(arm_results, PRIMARY_ARM)
@@ -965,11 +993,21 @@ def _evaluate(arm_results: List[Dict[str, Any]]) -> Dict[str, Any]:
     on_cand_dist_mean = _mean_key(on, PDIST)
     legA_seeds = _n_seeds(on, lambda r: float(r.get(PDIST, 0.0)) > CAND_DIST_FLOOR)
     legA_ok = bool(legA_seeds >= MIN_SEEDS_FOR_PASS)
+    # Statistic leg A's PRECONDITION reports (the mean stays as a diagnostic):
+    # the MIN_SEEDS_FOR_PASS-th largest per-seed value, so `measured > floor`
+    # reproduces `legA_seeds >= MIN_SEEDS_FOR_PASS` exactly.
+    on_cand_dist_kth = _kth_best(
+        [float(r.get(PDIST, 0.0)) for r in on], MIN_SEEDS_FOR_PASS, CAND_DIST_FLOOR
+    )
 
     # Leg B: curiosity per-candidate range at the non-saturation arm.
     on_curiosity_range_mean = _mean_key(on, RANGE)
     legB_seeds = _n_seeds(on, lambda r: float(r.get(RANGE, 0.0)) > BIAS_RANGE_FLOOR)
     legB_ok = bool(legB_seeds >= MIN_SEEDS_FOR_PASS)
+    # Same k-th-best treatment for leg B's precondition.
+    on_curiosity_range_kth = _kth_best(
+        [float(r.get(RANGE, 0.0)) for r in on], MIN_SEEDS_FOR_PASS, BIAS_RANGE_FLOOR
+    )
 
     # Leg C: MECH-448 demotion non-degeneracy (active + actually excludes).
     def _dem_non_degen(r: Dict[str, Any]) -> bool:
@@ -985,11 +1023,20 @@ def _evaluate(arm_results: List[Dict[str, Any]]) -> Dict[str, Any]:
         [float(r.get("cand_world_pairwise_dist_max", 0.0)) for r in arm_results] or [0.0]
     )
     legD_ok = bool(math.isfinite(max_pairwise) and max_pairwise < MAGNITUDE_CEIL)
+    # Statistic the ceiling PRECONDITION reports. A NaN spread fails EVERY
+    # comparison, so reporting it raw would make the indexer's recompute read the
+    # entry as MET while legD's isfinite leg says otherwise; the ceiling itself is
+    # the sentinel that recomputes as UNMET under the strict `<` bound.
+    magnitude_measured = max_pairwise if math.isfinite(max_pairwise) else MAGNITUDE_CEIL
 
     # Leg E: MECH-449 Go/No-Go gate non-degeneracy.
     on_gng_soft_applied_mean = _mean_key(on, GNG)
     legE_seeds = _n_seeds(on, lambda r: float(r.get(GNG, 0.0)) > GNG_SOFT_APPLIED_FLOOR)
     legE_ok = bool(legE_seeds >= MIN_SEEDS_FOR_PASS)
+    # Same k-th-best treatment for leg E's precondition.
+    on_gng_soft_applied_kth = _kth_best(
+        [float(r.get(GNG, 0.0)) for r in on], MIN_SEEDS_FOR_PASS, GNG_SOFT_APPLIED_FLOOR
+    )
 
     # Leg F (FIX 1): per-seed budget balanced -- count seeds where ALL THREE arms reached
     # the full committed budget (so the scored seeds are sample-balanced).
@@ -1214,8 +1261,24 @@ def _evaluate(arm_results: List[Dict[str, Any]]) -> Dict[str, Any]:
                     "precondition."
                 ),
                 "control": "ARM_CURIOSITY (w=0.25), cand_world_pairwise_dist_mean",
-                "measured": round(on_cand_dist_mean, 6),
+                                # NOT rounded: rounding can cross the bound and break the
+                # round-trip (round(1e-9, 6) == 0.0 against a 0.0 floor reads as
+                # UNMET while the shipped strict `>` on the raw value says met).
+                # The rounded means below are diagnostics only, never the bound.
+                "measured": float(on_cand_dist_kth),
                 "threshold": CAND_DIST_FLOOR,
+                # FLOOR-shaped, STRICTLY so: the per-seed predicate is
+                # `cand_world_pairwise_dist_mean > CAND_DIST_FLOOR` and legA_ok
+                # counts seeds ("holds on >= MIN_SEEDS_FOR_PASS of 3"), so
+                # `measured` is the MIN_SEEDS_FOR_PASS-th LARGEST per-seed value
+                # rather than the mean it used to report -- a mean is not a
+                # function of that seed count, so the indexer's recompute could
+                # not reproduce `met`.
+                "comparator": ">",
+                "direction": "lower",
+                "mean_across_seeds": round(on_cand_dist_mean, 6),
+                "seeds_above_floor": int(legA_seeds),
+                "min_seeds_required": MIN_SEEDS_FOR_PASS,
                 "met": legA_ok,
             },
             {
@@ -1228,8 +1291,21 @@ def _evaluate(arm_results: List[Dict[str, Any]]) -> Dict[str, Any]:
                     "(w=0.25). 590c confounded-precondition fix."
                 ),
                 "control": "ARM_CURIOSITY (w=0.25, non-saturation), curiosity_bias_range_mean",
-                "measured": round(on_curiosity_range_mean, 8),
+                                # NOT rounded: rounding can cross the bound and break the
+                # round-trip (round(1e-9, 6) == 0.0 against a 0.0 floor reads as
+                # UNMET while the shipped strict `>` on the raw value says met).
+                # The rounded means below are diagnostics only, never the bound.
+                "measured": float(on_curiosity_range_kth),
                 "threshold": BIAS_RANGE_FLOOR,
+                # FLOOR-shaped, STRICTLY so: per-seed predicate is
+                # `curiosity_bias_range_mean > BIAS_RANGE_FLOOR`, legB_ok counts
+                # seeds, so `measured` is the k-th LARGEST per-seed value (same
+                # aggregation fix as the entry above).
+                "comparator": ">",
+                "direction": "lower",
+                "mean_across_seeds": round(on_curiosity_range_mean, 8),
+                "seeds_above_floor": int(legB_seeds),
+                "min_seeds_required": MIN_SEEDS_FOR_PASS,
                 "met": legB_ok,
             },
             {
@@ -1241,8 +1317,30 @@ def _evaluate(arm_results: List[Dict[str, Any]]) -> Dict[str, Any]:
                     "f_eligibility_excluded_count > floor)."
                 ),
                 "control": "ARM_CURIOSITY, f_eligibility_demotion_active_frac + excluded_count",
-                "measured": round(_mean_key(on, "f_eligibility_excluded_count_mean"), 6),
-                "threshold": EXCLUDED_COUNT_FLOOR,
+                # Reported as a SEED COUNT, not as a statistic. Leg C's per-seed
+                # predicate is a CONJUNCTION over two different readouts
+                # (`f_eligibility_demotion_active_frac >= DEMOTION_ACTIVE_FRAC_FLOOR`
+                # AND `f_eligibility_excluded_count_mean > EXCLUDED_COUNT_FLOOR`),
+                # and `count(A and B) >= k` is NOT implied by `count(A) >= k and
+                # count(B) >= k`, so -- unlike the single-statistic legs above --
+                # no k-th-best value of either readout can reproduce `met`. The
+                # entry previously reported the excluded-count mean against a
+                # threshold of 0.0, which both dropped the active_frac leg from
+                # the manifest entirely and gave the indexer a DEGENERATE bound
+                # that could not discriminate. Declaring the seed count against
+                # MIN_SEEDS_FOR_PASS makes `measured >= threshold` EXACTLY the
+                # shipped predicate `legC_seeds >= MIN_SEEDS_FOR_PASS`. Both
+                # underlying readouts are kept below as non-bound diagnostics.
+                "measured": int(legC_seeds),
+                "threshold": MIN_SEEDS_FOR_PASS,
+                "comparator": ">=",
+                "direction": "lower",
+                "excluded_count_mean_across_seeds": round(
+                    _mean_key(on, "f_eligibility_excluded_count_mean"), 6),
+                "excluded_count_floor": EXCLUDED_COUNT_FLOOR,
+                "demotion_active_frac_mean_across_seeds": round(
+                    _mean_key(on, "f_eligibility_demotion_active_frac"), 6),
+                "demotion_active_frac_floor": DEMOTION_ACTIVE_FRAC_FLOOR,
                 "met": legC_ok,
             },
             {
@@ -1253,8 +1351,19 @@ def _evaluate(arm_results: List[Dict[str, Any]]) -> Dict[str, Any]:
                     "ceiling (SD-056 online numerical stability; rollout clamp ON)."
                 ),
                 "control": "max cand_world_pairwise_dist across all arms",
-                "measured": round(max_pairwise, 6),
+                                # NOT rounded: rounding can cross the bound and break the
+                # round-trip (round(1e-9, 6) == 0.0 against a 0.0 floor reads as
+                # UNMET while the shipped strict `>` on the raw value says met).
+                # The rounded means below are diagnostics only, never the bound.
+                "measured": float(magnitude_measured),
                 "threshold": MAGNITUDE_CEIL,
+                # CEILING-shaped, and STRICTLY so: the predicate is
+                # `math.isfinite(max_pairwise) and max_pairwise < MAGNITUDE_CEIL`.
+                # `direction` alone was not enough -- without a comparator the
+                # indexer reads an upper bound as INCLUSIVE, so a run sitting
+                # exactly on the ceiling would recompute as met while the shipped
+                # strict `<` says otherwise.
+                "comparator": "<",
                 "direction": "upper",
                 "met": legD_ok,
             },
@@ -1267,8 +1376,21 @@ def _evaluate(arm_results: List[Dict[str, Any]]) -> Dict[str, Any]:
                     "floor) at ARM_CURIOSITY on >= MIN_SEEDS seeds."
                 ),
                 "control": "ARM_CURIOSITY, go_nogo_n_soft_applied_mean",
-                "measured": round(on_gng_soft_applied_mean, 6),
+                                # NOT rounded: rounding can cross the bound and break the
+                # round-trip (round(1e-9, 6) == 0.0 against a 0.0 floor reads as
+                # UNMET while the shipped strict `>` on the raw value says met).
+                # The rounded means below are diagnostics only, never the bound.
+                "measured": float(on_gng_soft_applied_kth),
                 "threshold": GNG_SOFT_APPLIED_FLOOR,
+                # FLOOR-shaped, STRICTLY so: per-seed predicate is
+                # `go_nogo_n_soft_applied_mean > GNG_SOFT_APPLIED_FLOOR`, legE_ok
+                # counts seeds, so `measured` is the k-th LARGEST per-seed value
+                # (same aggregation fix as legs A and B).
+                "comparator": ">",
+                "direction": "lower",
+                "mean_across_seeds": round(on_gng_soft_applied_mean, 6),
+                "seeds_above_floor": int(legE_seeds),
+                "min_seeds_required": MIN_SEEDS_FOR_PASS,
                 "met": legE_ok,
             },
             {
@@ -1283,6 +1405,13 @@ def _evaluate(arm_results: List[Dict[str, Any]]) -> Dict[str, Any]:
                 "control": "all 3 arms, budget_reached per seed",
                 "measured": int(legF_seeds),
                 "threshold": MIN_SEEDS_FOR_PASS,
+                # Already a SEED COUNT against the seed requirement, so
+                # `measured >= threshold` IS the shipped predicate
+                # `legF_seeds >= MIN_SEEDS_FOR_PASS`. Declared explicitly (the
+                # default is the same inclusive floor) so the strictness is not
+                # left to be inferred.
+                "comparator": ">=",
+                "direction": "lower",
                 "met": legF_ok,
             },
             {
@@ -1299,6 +1428,13 @@ def _evaluate(arm_results: List[Dict[str, Any]]) -> Dict[str, Any]:
                 "control": "ARM_NOISE, noise_injected_range / ARM_CURIOSITY curiosity range ratio + counts != ARM_FONLY",
                 "measured": int(legG_seeds),
                 "threshold": MIN_SEEDS_FOR_PASS,
+                # Already a SEED COUNT against the seed requirement, so
+                # `measured >= threshold` IS the shipped predicate
+                # `legG_seeds >= MIN_SEEDS_FOR_PASS`. Declared explicitly (the
+                # default is the same inclusive floor) so the strictness is not
+                # left to be inferred.
+                "comparator": ">=",
+                "direction": "lower",
                 "met": legG_ok,
             },
         ],

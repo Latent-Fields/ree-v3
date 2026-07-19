@@ -252,6 +252,30 @@ FROZEN_SILENCE_EPS = 1e-9
 MIN_PASS_SEEDS = 2
 
 
+def _kth_largest(values, k: int, default: float = 0.0) -> float:
+    """The k-th LARGEST value, so `result > floor` is exactly "at least k values
+    > floor".
+
+    The readiness gates below are k-of-n COUNT-OF-SEEDS predicates
+    (`... >= MIN_PASS_SEEDS`), but the manifest used to report `max(...)` over
+    seeds for them. The REE_assembly indexer
+    (build_experiment_indexes._precondition_unmet) RECOMPUTES every
+    interpretation.preconditions[] entry's `met` from that entry's OWN reported
+    (measured, threshold) pair and treats the recompute as AUTHORITATIVE over the
+    author's value. A max-over-seeds statistic declared against a PER-SEED floor
+    therefore recomputes as MET as soon as ONE seed clears the floor -- strictly
+    LOOSER than the shipped k-of-n gate, i.e. it silently clears real premise
+    failures (the dangerous MISSED_UNMET direction). The k-th largest is the exact
+    statistic for a floor needing k of n.
+
+    Fewer than k values -> `default` (0.0), which is below every floor here, so
+    the entry recomputes UNMET -- matching the count predicate, which also cannot
+    reach k.
+    """
+    vals = sorted((float(v) for v in values), reverse=True)
+    return vals[k - 1] if len(vals) >= k else float(default)
+
+
 # --------------------------------------------------------------------------- #
 # helpers
 # --------------------------------------------------------------------------- #
@@ -1111,6 +1135,19 @@ def run(seeds: Optional[List[int]] = None, dry_run: bool = False) -> Dict:
         "ready_seeds": ready_seeds,
         "nondegen_seeds": nondegen_seeds,
         "readiness_met": readiness_met,
+        # Per-leg k-of-n readiness statistics, declared in interpretation.preconditions[]
+        # so the indexer's authoritative recompute reproduces each entry's `met`
+        # from its own (measured, threshold) pair. Routing is UNCHANGED: the label
+        # and evidence_direction still come from `readiness_met`, which is the
+        # per-seed CONJUNCTION count, not from these entries.
+        "n_bias_range_seeds": sum(
+            1 for r in test if r["bias_range_high_threat"] > BIAS_RANGE_FLOOR),
+        "n_head_delta_seeds": sum(
+            1 for r in test if r["head_weight_delta_norm"] > HEAD_DELTA_MIN),
+        "kth_test_bias_range": _kth_largest(
+            [r["bias_range_high_threat"] for r in test], MIN_PASS_SEEDS),
+        "kth_test_head_delta": _kth_largest(
+            [r["head_weight_delta_norm"] for r in test], MIN_PASS_SEEDS),
         "max_test_head_delta": max((r["head_weight_delta_norm"] for r in test), default=0.0),
         "max_test_bias_range": max((r["bias_range_high_threat"] for r in test), default=0.0),
         "max_test_bias_range_devalued": max((r["bias_range_devalued"] for r in test), default=0.0),
@@ -1151,22 +1188,47 @@ def _interpretation(result: Dict) -> Dict:
                 "load-bearing DVs route on). RANGE not magnitude. Below floor -> "
                 "substrate_not_ready_requeue, NEVER a weakens."
             ),
-            "measured": float(result["max_test_bias_range"]),
+            # k-OF-n, DECLARED AS SUCH. The shipped readiness leg is the per-seed
+            # `bias_range_high_threat > BIAS_RANGE_FLOOR`, counted and required on
+            # >= MIN_PASS_SEEDS seeds; `measured` is therefore the MIN_PASS_SEEDS-th
+            # LARGEST per-seed range, for which `measured > threshold` is exactly
+            # "at least MIN_PASS_SEEDS seeds cleared the floor". It previously
+            # reported max-over-seeds, which the indexer's AUTHORITATIVE recompute
+            # reads as met on a SINGLE clearing seed. Strict floor (`>`), declared
+            # rather than left to the inclusive default.
+            "measured": float(result["kth_test_bias_range"]),
             "threshold": BIAS_RANGE_FLOOR,
+            "comparator": ">",
+            "direction": "lower",
+            "seeds_required": MIN_PASS_SEEDS,
+            "seeds_clearing_floor": int(result["n_bias_range_seeds"]),
+            "max_over_seeds_diagnostic": float(result["max_test_bias_range"]),
             "control": "ARM_2 trained-arm bias over a real candidate bank at the high-threat state",
-            "met": result["max_test_bias_range"] > BIAS_RANGE_FLOOR,
+            "met": result["n_bias_range_seeds"] >= MIN_PASS_SEEDS,
         },
         {
             "name": "ofc_head_weight_delta_supra_floor",
             "description": (
                 "ARM_2 state_bias_head weight-delta-from-init L2 norm clears "
-                "HEAD_DELTA_MIN -- the head genuinely trained under the paired "
-                "threat-conditioned driver."
+                "HEAD_DELTA_MIN on >= MIN_PASS_SEEDS seeds -- the head genuinely "
+                "trained under the paired threat-conditioned driver."
             ),
-            "measured": float(result["max_test_head_delta"]),
+            # k-OF-n, DECLARED AS SUCH (see the bias-range entry above): `measured`
+            # is the MIN_PASS_SEEDS-th LARGEST per-seed head delta, for which
+            # `measured > threshold` is exactly "at least MIN_PASS_SEEDS seeds
+            # cleared the floor". It previously reported max-over-seeds, which the
+            # indexer's authoritative recompute reads as met on a SINGLE clearing
+            # seed -- strictly looser than the shipped gate. Strict floor (`>`),
+            # declared rather than left to the inclusive default.
+            "measured": float(result["kth_test_head_delta"]),
             "threshold": HEAD_DELTA_MIN,
+            "comparator": ">",
+            "direction": "lower",
+            "seeds_required": MIN_PASS_SEEDS,
+            "seeds_clearing_floor": int(result["n_head_delta_seeds"]),
+            "max_over_seeds_diagnostic": float(result["max_test_head_delta"]),
             "control": "trainable-arm head trained on frozen-encoder state_code in P1",
-            "met": result["max_test_head_delta"] > HEAD_DELTA_MIN,
+            "met": result["n_head_delta_seeds"] >= MIN_PASS_SEEDS,
         },
         {
             "name": "mech448_f_eligibility_excluded_count_supra_zero",
@@ -1174,11 +1236,33 @@ def _interpretation(result: Dict) -> Dict:
                 "MECH-448 NON-DEGENERACY: on ARM_2 the F->eligibility envelope actually "
                 "EXCLUDED at least one candidate (f_eligibility_excluded_count > 0) AND "
                 "the demotion path was active -- F was genuinely demoted on a divergent "
-                "F pool, not an all-admit no-op. excluded_count == 0 (non-divergent F) -> "
-                "substrate_not_ready_requeue, NEVER a weakens."
+                "F pool, not an all-admit no-op -- on >= MIN_PASS_SEEDS seeds. "
+                "excluded_count == 0 (non-divergent F) -> substrate_not_ready_requeue, "
+                "NEVER a weakens. `measured` is the COUNT of seeds satisfying that "
+                "per-seed conjunction; `threshold` is MIN_PASS_SEEDS."
             ),
-            "measured": float(result["max_test_excluded_count"]),
-            "threshold": 0.0,
+            # WAS UNRECOMPUTABLE, and in the MISSED_UNMET direction: it reported
+            # `max_test_excluded_count` against a threshold of 0.0, and under the
+            # indexer's default inclusive floor `measured >= 0.0` holds for every
+            # non-negative count -- the bound could not discriminate AT ALL, so a
+            # genuine premise failure recomputed as MET. `met` was meanwhile gated
+            # on `nondegen_seeds >= MIN_PASS_SEEDS`: a k-of-n count over a PER-SEED
+            # CONJUNCTION (excluded_count > 0 AND demotion_active) whose second leg
+            # was absent from the entry entirely.
+            #
+            # Declared here as that COUNT itself, which is exact and reproducible --
+            # `nondegen_seeds >= MIN_PASS_SEEDS` IS the shipped predicate, verbatim.
+            # A per-leg split (the usual conjunction fix) was rejected: unlike
+            # `all()`, a k-of-n count does NOT distribute over a conjunction -- two
+            # legs each cleared by k seeds can be cleared by DIFFERENT seeds while
+            # the conjunction is cleared by fewer -- so splitting would have been
+            # strictly LOOSER than the shipped gate. The raw max excluded count is
+            # kept as a non-bound diagnostic key; extra keys the recompute ignores.
+            "measured": float(result["nondegen_seeds"]),
+            "threshold": float(MIN_PASS_SEEDS),
+            "comparator": ">=",
+            "direction": "lower",
+            "max_excluded_count_over_seeds_diagnostic": float(result["max_test_excluded_count"]),
             "control": "ARM_2 demotion-on E3.select diagnostics on the trained-agent eval bank",
             "met": result["nondegen_seeds"] >= MIN_PASS_SEEDS,
         },

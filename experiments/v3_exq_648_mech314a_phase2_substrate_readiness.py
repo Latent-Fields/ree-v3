@@ -763,6 +763,35 @@ def _mean_key(rows: List[Dict[str, Any]], key: str) -> float:
     return float(sum(vals) / len(vals)) if vals else 0.0
 
 
+def _kth_best(values: List[float], k: int, threshold: float,
+              *, upper: bool = False, strict: bool = True) -> float:
+    """The k-th BEST per-seed value -- k-th LARGEST for a floor, k-th SMALLEST
+    for a ceiling.
+
+    Reported in a precondition's `measured` INSTEAD of a mean/min/max so that a
+    COUNT-OF-SEEDS predicate ("holds on >= k of n seeds") is exactly
+    reproducible from the entry's own (measured, threshold) pair:
+    `kth_largest > floor` IS "at least k seeds cleared the floor". A mean is not
+    a function of that count at all, `min` is strictly harsher than the shipped
+    predicate (it demands all n) and `max` strictly looser (it demands only 1),
+    so each makes the indexer's AUTHORITATIVE recompute in
+    build_experiment_indexes._precondition_unmet disagree with the author's
+    `met` -- the 2026-06-07 V3-EXQ-648a/649 mis-scoring shape.
+
+    Fewer than k values (the dry run ships 1 seed against k=2) means the
+    predicate CANNOT hold, so return the value that recomputes as UNMET under
+    this bound's own strictness rather than a real observation.
+    """
+    vals = sorted((float(v) for v in values), reverse=not upper)
+    if k <= 0 or len(vals) < k:
+        t = float(threshold)
+        if strict:
+            return t  # a strict bound reads measured == threshold as UNMET
+        eps = abs(t) * 1e-9 + 1e-9
+        return t + eps if upper else t - eps
+    return vals[k - 1]
+
+
 def _evaluate(arm_results: List[Dict[str, Any]], c4: Dict[str, Any]) -> Dict[str, Any]:
     by_id = {a["arm_id"]: _arm_rows(arm_results, a["arm_id"]) for a in ARMS}
     arm0 = by_id["ARM_0_BASELINE"]
@@ -777,11 +806,24 @@ def _evaluate(arm_results: List[Dict[str, Any]], c4: Dict[str, Any]) -> Dict[str
         arm1, lambda r: float(r.get("cand_world_pairwise_dist_mean", 0.0)) > C0_PAIRWISE_DIST_FLOOR
     )
     arm1_pairwise_mean = _mean_key(arm1, "cand_world_pairwise_dist_mean")
+    # Statistic the readiness PRECONDITION reports (the mean above stays as a
+    # diagnostic): the MIN_SEEDS_FOR_PASS-th largest per-seed value, so
+    # `measured > floor` reproduces `readiness_seeds_ok >= MIN_SEEDS_FOR_PASS`.
+    arm1_pairwise_kth = _kth_best(
+        [float(r.get("cand_world_pairwise_dist_mean", 0.0)) for r in arm1],
+        MIN_SEEDS_FOR_PASS, C0_PAIRWISE_DIST_FLOOR,
+    )
     # Non-finite / explosion guard (643a): rolled-out z_world magnitude bounded.
     max_pairwise = max(
         [float(r.get("cand_world_pairwise_dist_max", 0.0)) for r in arm_results] or [0.0]
     )
     magnitude_ok = bool(math.isfinite(max_pairwise) and max_pairwise < C0_MAGNITUDE_CEIL)
+    # Statistic the ceiling PRECONDITION reports. A NaN spread fails EVERY
+    # comparison, so reporting it raw would make the indexer's recompute read
+    # the entry as MET while `magnitude_ok`'s isfinite leg says otherwise;
+    # reporting the ceiling itself is the sentinel that recomputes as UNMET
+    # under the strict `<` bound declared below.
+    magnitude_measured = max_pairwise if math.isfinite(max_pairwise) else C0_MAGNITUDE_CEIL
     readiness_ok = bool(readiness_seeds_ok >= MIN_SEEDS_FOR_PASS and magnitude_ok)
 
     # --- C1: ARM_0 Phase-1 residue baseline collapses to ~0 ---
@@ -885,8 +927,25 @@ def _evaluate(arm_results: List[Dict[str, Any]], c4: Dict[str, Any]) -> Dict[str
                     "cross-candidate range statistic C2 routes on (not a magnitude)."
                 ),
                 "control": "ARM_1: SD-056 contrastive trained online; candidates differ in first action (SP-CEM)",
-                "measured": round(arm1_pairwise_mean, 6),
+                                # NOT rounded: rounding can cross the bound and break the
+                # round-trip (round(1e-9, 6) == 0.0 against a 0.0 floor reads as
+                # UNMET while the shipped strict `>` on the raw value says met).
+                # The rounded means below are diagnostics only, never the bound.
+                "measured": float(arm1_pairwise_kth),
                 "threshold": C0_PAIRWISE_DIST_FLOOR,
+                # FLOOR-shaped, STRICTLY so: the per-seed predicate is
+                # `cand_world_pairwise_dist_mean > C0_PAIRWISE_DIST_FLOOR` and
+                # `met` counts seeds ("holds on >= MIN_SEEDS_FOR_PASS of 3").
+                # `measured` is therefore the MIN_SEEDS_FOR_PASS-th LARGEST
+                # per-seed value, not the mean it used to report: a mean is not
+                # a function of that seed count, so the indexer's recompute
+                # could not reproduce `met`. The k-th largest makes
+                # `measured > threshold` EXACTLY "at least k seeds cleared".
+                "comparator": ">",
+                "direction": "lower",
+                "mean_across_seeds": round(arm1_pairwise_mean, 6),
+                "seeds_above_floor": int(readiness_seeds_ok),
+                "min_seeds_required": MIN_SEEDS_FOR_PASS,
                 "met": bool(readiness_seeds_ok >= MIN_SEEDS_FOR_PASS),
             },
             {
@@ -897,8 +956,22 @@ def _evaluate(arm_results: List[Dict[str, Any]], c4: Dict[str, Any]) -> Dict[str
                     "explosion ceiling (SD-056 online training numerical stability)."
                 ),
                 "control": "max cand_world_pairwise_dist across all arms",
-                "measured": round(max_pairwise, 6),
+                                # NOT rounded: rounding can cross the bound and break the
+                # round-trip (round(1e-9, 6) == 0.0 against a 0.0 floor reads as
+                # UNMET while the shipped strict `>` on the raw value says met).
+                # The rounded means below are diagnostics only, never the bound.
+                "measured": float(magnitude_measured),
                 "threshold": C0_MAGNITUDE_CEIL,
+                # CEILING-shaped, and STRICTLY so: the predicate is
+                # `math.isfinite(max_pairwise) and max_pairwise < C0_MAGNITUDE_CEIL`.
+                # Declared because the indexer DEFAULTS to a floor when no
+                # direction is given, which reads "stayed below the explosion
+                # ceiling" backwards and flags a sound run precondition_unmet --
+                # the literal 2026-06-07 V3-EXQ-648a/649 directionality bug. The
+                # isfinite leg needs no separate declaration: a non-finite
+                # max_pairwise is +inf, and `inf < CEIL` is False either way.
+                "comparator": "<",
+                "direction": "upper",
                 "met": magnitude_ok,
             },
         ],

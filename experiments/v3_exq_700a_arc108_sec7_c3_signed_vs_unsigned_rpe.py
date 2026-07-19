@@ -1154,6 +1154,41 @@ def run_experiment(
         and noise_verified_lifting
     )
 
+    # ----- COUNT-shaped restatements of the majority-of-seeds preconditions -----
+    # The indexer RECOMPUTES interpretation.preconditions[].met from the reported
+    # (measured, threshold) pair and treats the recompute as AUTHORITATIVE over the
+    # author's `met` (build_experiment_indexes._precondition_unmet).
+    #
+    # Every `*_ok` above is a k-of-n COUNT over a per-seed predicate
+    # (`_maj` == "at least MIN_SEEDS_FOR_PASS seeds satisfy pred"), in the all-arms
+    # cases wrapped in `all(arms: ...)`. A spread statistic cannot carry that:
+    #   (1) `min(...)` over rows is strictly HARSHER than "a majority of seeds" --
+    #       2-of-3 seeds can clear the floor while the min does not, wrongly
+    #       flagging a sound run precondition_unmet; and
+    #   (2) gapa_divergence is itself a CONJUNCTION (`consumed_spread_mean >
+    #       CONSUMED_SPREAD_FLOOR and consumed_dist_max < CONSUMED_MAGNITUDE_CEIL`),
+    #       and a count over a conjunction does not distribute into per-leg counts.
+    # Reported instead as the satisfying-seed COUNT (minimised over arm groups where
+    # `met` is an `all` over arms) vs MIN_SEEDS_FOR_PASS with comparator ">=", which
+    # reproduces the shipped predicate EXACTLY: min(counts) >= k iff every count >= k.
+    # The old min-statistic numbers are preserved on each entry as NON-BOUND
+    # diagnostic keys (extra keys are ignored by the recompute).
+    def _n_seeds(rows: List[Dict[str, Any]], pred) -> int:
+        return sum(1 for r in rows if pred(r))
+
+    _all_arm_groups = (a0_rows, signed_rows, unsigned_rows, noise_rows)
+    n_pool_divergent_min_arm = min(
+        _n_seeds(rows, lambda r: r["gapa_divergence"]) for rows in _all_arm_groups
+    )
+    n_class_axis_min_arm = min(
+        _n_seeds(rows, lambda r: r["class_axis_exercisable"]) for rows in _all_arm_groups
+    )
+    # Single-arm counts (these `*_ok` are a bare `_maj`, not an `all` over arms).
+    n_signed_delta_nonflat = _n_seeds(signed_rows, lambda r: r["lcg_delta_nonflat"])
+    n_signed_moved = _n_seeds(signed_rows, lambda r: r["lcg_moved"])
+    n_unsigned_signal_nonflat = _n_seeds(unsigned_rows, lambda r: r["lcg_delta_nonflat"])
+    n_unsigned_moved = _n_seeds(unsigned_rows, lambda r: r["lcg_moved"])
+
     # ----- Conversion: an arm strict-above BOTH A0 AND the noise control -----
     signed_ent = _by_seed(signed_rows, "committed_class_entropy_nats")
     unsigned_ent = _by_seed(unsigned_rows, "committed_class_entropy_nats")
@@ -1243,8 +1278,21 @@ def run_experiment(
                     "Below floor => nothing to convert => substrate_not_ready_requeue."
                 ),
                 "control": "SD-056 e2 trained online in P0; candidate_summary_source=e2_world_forward",
-                "measured": float(min([r["consumed_summary_pairwise_dist_mean"] for r in all_rows] or [0.0])),
-                "threshold": float(CONSUMED_SPREAD_FLOOR),
+                # COUNT-shaped (see the n_*_min_arm block above): `met` is
+                # `all(arms: >= MIN_SEEDS_FOR_PASS seeds divergent)` and per-seed
+                # divergence is a CONJUNCTION (spread > floor AND dist_max < ceil).
+                "measured": float(n_pool_divergent_min_arm),
+                "threshold": float(MIN_SEEDS_FOR_PASS),
+                "comparator": ">=",
+                "direction": "lower",
+                "observed_min_consumed_spread": float(
+                    min([r["consumed_summary_pairwise_dist_mean"] for r in all_rows] or [0.0])
+                ),
+                "observed_consumed_spread_floor": float(CONSUMED_SPREAD_FLOOR),
+                "observed_max_consumed_dist": float(
+                    max([r["consumed_summary_pairwise_dist_max"] for r in all_rows] or [0.0])
+                ),
+                "observed_consumed_magnitude_ceil": float(CONSUMED_MAGNITUDE_CEIL),
                 "met": bool(pool_divergent),
             },
             {
@@ -1255,8 +1303,16 @@ def run_experiment(
                     "on a majority of seeds in ALL arms (the committed-class DV is exercisable)."
                 ),
                 "control": "SP-CEM multi-class candidate pool, all arms",
-                "measured": float(min([r["frac_pre_ge2"] for r in all_rows] or [0.0])),
-                "threshold": float(FRAC_PRE_GE2_FLOOR),
+                # COUNT-shaped: `all(arms: >= MIN_SEEDS_FOR_PASS seeds with
+                # frac_pre_ge2 > FRAC_PRE_GE2_FLOOR)`.
+                "measured": float(n_class_axis_min_arm),
+                "threshold": float(MIN_SEEDS_FOR_PASS),
+                "comparator": ">=",
+                "direction": "lower",
+                "observed_min_frac_pre_ge2": float(
+                    min([r["frac_pre_ge2"] for r in all_rows] or [0.0])
+                ),
+                "observed_frac_pre_ge2_floor": float(FRAC_PRE_GE2_FLOOR),
                 "met": bool(class_axis_ok),
             },
             {
@@ -1269,8 +1325,16 @@ def run_experiment(
                     "substrate_not_ready_requeue (design 5.3)."
                 ),
                 "control": "lcg_delta_t_std on A1_SIGNED",
-                "measured": float(min([r["lcg_delta_t_std"] for r in signed_rows] or [0.0])),
-                "threshold": float(DELTA_T_STD_FLOOR),
+                # COUNT-shaped: `_maj(signed_rows, lcg_delta_nonflat)`, i.e.
+                # >= MIN_SEEDS_FOR_PASS seeds with lcg_delta_t_std > DELTA_T_STD_FLOOR.
+                "measured": float(n_signed_delta_nonflat),
+                "threshold": float(MIN_SEEDS_FOR_PASS),
+                "comparator": ">=",
+                "direction": "lower",
+                "observed_min_lcg_delta_t_std_signed": float(
+                    min([r["lcg_delta_t_std"] for r in signed_rows] or [0.0])
+                ),
+                "observed_delta_t_std_floor": float(DELTA_T_STD_FLOOR),
                 "met": bool(signed_delta_nonflat_ok),
             },
             {
@@ -1282,8 +1346,15 @@ def run_experiment(
                     "moving => eligibility never credited => substrate_not_ready_requeue."
                 ),
                 "control": "lcg_w_chan_range_max on A1_SIGNED",
-                "measured": float(min([r["lcg_w_chan_range_max"] for r in signed_rows] or [0.0])),
-                "threshold": float(W_CHAN_RANGE_FLOOR),
+                # COUNT-shaped: `_maj(signed_rows, lcg_moved)`.
+                "measured": float(n_signed_moved),
+                "threshold": float(MIN_SEEDS_FOR_PASS),
+                "comparator": ">=",
+                "direction": "lower",
+                "observed_min_w_chan_range_signed": float(
+                    min([r["lcg_w_chan_range_max"] for r in signed_rows] or [0.0])
+                ),
+                "observed_w_chan_range_floor": float(W_CHAN_RANGE_FLOOR),
                 "met": bool(signed_moved_ok),
             },
             {
@@ -1298,8 +1369,15 @@ def run_experiment(
                     "NOT a falsification of signed-RPE."
                 ),
                 "control": "lcg_delta_t_std on C3_A1_UNSIGNED (abs running_variance)",
-                "measured": float(min([r["lcg_delta_t_std"] for r in unsigned_rows] or [0.0])),
-                "threshold": float(DELTA_T_STD_FLOOR),
+                # COUNT-shaped: `_maj(unsigned_rows, lcg_delta_nonflat)`.
+                "measured": float(n_unsigned_signal_nonflat),
+                "threshold": float(MIN_SEEDS_FOR_PASS),
+                "comparator": ">=",
+                "direction": "lower",
+                "observed_min_lcg_delta_t_std_unsigned": float(
+                    min([r["lcg_delta_t_std"] for r in unsigned_rows] or [0.0])
+                ),
+                "observed_delta_t_std_floor": float(DELTA_T_STD_FLOOR),
                 "met": bool(unsigned_signal_nonflat_ok),
             },
             {
@@ -1313,8 +1391,15 @@ def run_experiment(
                     "falsification of signed-RPE."
                 ),
                 "control": "lcg_w_chan_range_max on C3_A1_UNSIGNED",
-                "measured": float(min([r["lcg_w_chan_range_max"] for r in unsigned_rows] or [0.0])),
-                "threshold": float(W_CHAN_RANGE_FLOOR),
+                # COUNT-shaped: `_maj(unsigned_rows, lcg_moved)`.
+                "measured": float(n_unsigned_moved),
+                "threshold": float(MIN_SEEDS_FOR_PASS),
+                "comparator": ">=",
+                "direction": "lower",
+                "observed_min_w_chan_range_unsigned": float(
+                    min([r["lcg_w_chan_range_max"] for r in unsigned_rows] or [0.0])
+                ),
+                "observed_w_chan_range_floor": float(W_CHAN_RANGE_FLOOR),
                 "met": bool(unsigned_moved_ok),
             },
             {
@@ -1328,8 +1413,12 @@ def run_experiment(
                     "(re-tune the noise alpha)."
                 ),
                 "control": "ARM_NOISE committed-class entropy vs A0, paired seeds",
+                # Already COUNT-shaped and correct; comparator declared so the
+                # recompute mirrors the source rather than taking the default.
                 "measured": float(n_noise_lifts),
                 "threshold": float(MIN_SEEDS_FOR_PASS),
+                "comparator": ">=",
+                "direction": "lower",
                 "met": bool(noise_verified_lifting),
             },
         ],

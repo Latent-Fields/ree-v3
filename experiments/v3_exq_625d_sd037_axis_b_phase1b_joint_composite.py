@@ -847,6 +847,37 @@ def _frac(flags: List[bool]) -> float:
     return float(sum(1 for f in flags if f)) / float(len(flags)) if flags else 0.0
 
 
+# --- Precondition-DECLARATION helpers. No scientific predicate changes; these exist only
+# so the adjudication gate can reproduce the shipped `met`. ---
+#
+# build_experiment_indexes._precondition_unmet RECOMPUTES each
+# interpretation.preconditions[].met from that entry's own (measured, threshold) pair and
+# treats the recompute as AUTHORITATIVE over the author's value. A k-of-n predicate
+# ("holds on >= 2/3 seeds") therefore has to be reported as a statistic whose comparison
+# against the threshold reproduces the k-of-n COUNT exactly. A max() over seeds does NOT:
+# it is strictly LOOSER than "on >= k seeds" (a single good seed satisfies it), so the
+# recompute silently CLEARS a genuinely-failed premise -- the dangerous direction, and the
+# one these entries previously shipped.
+def _min_count(n: int) -> int:
+    """Smallest seed COUNT k for which `_frac` clears MIN_FRACTION -- the integer form of
+    the k-of-n rule at this n (3 seeds -> 2, 1 dry-run seed -> 1). Derived by re-running
+    _frac's OWN division rather than math.ceil(MIN_FRACTION * n), so the two agree
+    bit-for-bit instead of risking an off-by-one on the float boundary."""
+    for k in range(n + 1):
+        if (float(k) / float(n) if n else 0.0) >= MIN_FRACTION:
+            return k
+    return n + 1
+
+
+def _kth_best(values: List[float], k: int) -> float:
+    """The k-th LARGEST value. For a per-seed FLOOR predicate, `_kth_best(vals, k) <op>
+    floor` is EXACTLY "at least k seeds satisfied `value <op> floor`", so it reproduces
+    the k-of-n `met` under the indexer's recompute where a max() cannot."""
+    if not values or k < 1 or k > len(values):
+        return 0.0
+    return float(sorted(values, reverse=True)[k - 1])
+
+
 def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
     print(f"[{EXPERIMENT_TYPE}] starting (dry_run={dry_run})", flush=True)
     seeds = SEEDS[:1] if dry_run else SEEDS
@@ -883,6 +914,24 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
     pairwise_max = max((r.get("cand_world_pairwise_dist_mean", 0.0) for r in per_seed), default=0.0)
     entropy_max = max((r.get("selected_action_class_entropy", 0.0) for r in per_seed), default=0.0)
 
+    # --- Recomputable forms of the R2/R3/R4 k-of-n aggregates, for the precondition
+    # DECLARATIONS below. The *_max statistics above stay exactly as they are and keep
+    # feeding `readiness` / criteria_non_degenerate; they are simply no longer the number
+    # the adjudicator recomputes `met` from. ---
+    k_seeds = _min_count(n)
+    z_harm_nonzero_kth = _kth_best(
+        [float(r.get("z_harm_a_nonzero_fraction", 0.0)) for r in per_seed], k_seeds)
+    entropy_kth = _kth_best(
+        [float(r.get("selected_action_class_entropy", 0.0)) for r in per_seed], k_seeds)
+    route_range_kth = _kth_best(
+        [float(r.get("modulatory_channel_route_range_mean", 0.0)) for r in per_seed], k_seeds)
+    # R3's per-seed flag is a CONJUNCTION (route_range > floor AND cand_world pairwise
+    # dist > floor), and a count over a conjunction does not distribute into per-leg
+    # counts -- so NO single route-range statistic can reproduce r3_pass. The count of
+    # satisfying seeds is reported instead; route_range_kth is carried alongside as a
+    # non-bound diagnostic.
+    n_r3_operative = sum(1 for r in per_seed if r["r3_conversion_operative"])
+
     # --- Routing (diagnostic adjudication gate). ---
     if not preconditions_met:
         outcome = "FAIL"
@@ -909,6 +958,12 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
                        "(scheduled_external_hazard interval=20 prob=0.7 adjacent_only).",
             "measured": float(min((r["external_hazard_event_count"] for r in per_seed), default=0)),
             "threshold": 1.0,
+            # FLOOR-shaped, INCLUSIVE, and an ALL-seeds rule: `met` is
+            # `all(count > 0)` over an integer count, which for the min over seeds is
+            # exactly `min >= 1`. Declared rather than left to the indexer's default so
+            # the boundary is explicit (the 2026-06-07 V3-EXQ-648a/649 directionality bug).
+            "comparator": ">=",
+            "direction": "lower",
             "met": bool(r1_all),
         },
         {
@@ -919,8 +974,21 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
                            "cross). Below -> affective stream not engaged -> requeue.",
             "control": "use_affective_harm_stream=True + scaffold_feed_harm_stream=True; "
                        "axis-(b) hazard_harm=0.2 + proximity_harm_scale=0.2 lift the signal.",
-            "measured": float(max((r["z_harm_a_nonzero_fraction"] for r in per_seed), default=0.0)),
+            # k-of-n FLOOR, INCLUSIVE: the per-seed predicate is
+            # `z_harm_a_nonzero_fraction >= Z_HARM_A_NONZERO_FLOOR` and `met` is that on
+            # >= 2/3 seeds, so the k-th LARGEST per-seed value clearing the floor is
+            # exactly "at least k seeds cleared it". This entry previously reported the
+            # MAX over seeds, which is strictly LOOSER than the k-of-n rule -- one good
+            # seed satisfies it -- so the indexer's authoritative recompute would have
+            # silently CLEARED a failed premise. The max is preserved below as a
+            # NON-BOUND diagnostic (extra keys are ignored by the recompute).
+            "measured": float(z_harm_nonzero_kth),
             "threshold": float(Z_HARM_A_NONZERO_FLOOR),
+            "comparator": ">=",
+            "direction": "lower",
+            "seeds_required": int(k_seeds),
+            "observed_max_z_harm_a_nonzero_fraction": float(
+                max((r["z_harm_a_nonzero_fraction"] for r in per_seed), default=0.0)),
             "met": bool(r2_pass),
         },
         {
@@ -934,8 +1002,25 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
             "control": "569i-validated conversion config ON + SD-056 trained online on the "
                        "axis-(b) env; positive control = e2_world_forward source with genuine "
                        "per-candidate range.",
-            "measured": float(route_range_max),
-            "threshold": float(ROUTE_RANGE_FLOOR),
+            # COUNT-shaped, INCLUSIVE floor: `met` is `r3_frac >= MIN_FRACTION`, i.e.
+            # `n_r3_operative >= k_seeds` -- a COUNT of seeds. This entry previously
+            # reported the MAX route-range over seeds against ROUTE_RANGE_FLOOR, which is
+            # strictly LOOSER than "on >= 2/3 seeds", so the indexer's authoritative
+            # recompute silently CLEARED a premise the author had marked FAILED (625d
+            # shipped 0.084518 vs a 0.01 floor with met=False; 625e 0.197728).
+            # A count is used rather than the k-th-largest route range because the
+            # per-seed flag is a CONJUNCTION (route_range > ROUTE_RANGE_FLOOR AND
+            # cand_world_pairwise_dist > C1_PAIRWISE_DIST_FLOOR) and a count over a
+            # conjunction does not distribute into per-leg counts -- no single
+            # route-range statistic CAN reproduce r3_pass. Both route-range aggregates
+            # are preserved below as NON-BOUND diagnostics.
+            "measured": float(n_r3_operative),
+            "threshold": float(k_seeds),
+            "comparator": ">=",
+            "direction": "lower",
+            "observed_route_range_floor": float(ROUTE_RANGE_FLOOR),
+            "observed_kth_best_route_range": float(route_range_kth),
+            "observed_max_route_range": float(route_range_max),
             "met": bool(r3_pass),
         },
         {
@@ -950,8 +1035,17 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
                            "criterion presupposes.",
             "control": "scaffold-trained competent policy + 569i conversion config; positive "
                        "control = 569i ARM_1 selected-action entropy strict-above controls.",
-            "measured": float(entropy_max),
+            # k-of-n FLOOR, STRICT: the per-seed predicate is
+            # `selected_action_class_entropy > C3_SELECTED_ENTROPY_FLOOR` (strict) on
+            # >= 2/3 seeds, so the k-th LARGEST per-seed entropy strictly above the floor
+            # is exactly "at least k seeds cleared it". Same latent max()-is-looser defect
+            # as R2/R3; the max is preserved as a NON-BOUND diagnostic.
+            "measured": float(entropy_kth),
             "threshold": float(C3_SELECTED_ENTROPY_FLOOR),
+            "comparator": ">",
+            "direction": "lower",
+            "seeds_required": int(k_seeds),
+            "observed_max_selected_entropy": float(entropy_max),
             "met": bool(r4_pass),
         },
     ]
