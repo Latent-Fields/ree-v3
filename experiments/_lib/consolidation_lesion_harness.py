@@ -1178,6 +1178,10 @@ def rem_null_slope_ratio(
     clamped = [
         float(null_pr_by_sigma[s]["rem"].get("target_clamped", 0.0)) for s in sigmas
     ]
+    n_distinct = len({round(e, 12) for e in finite_null})
+    # A constant null series carries no slope to compare -- see
+    # NULL_MIN_NULL_SERIES_DISTINCT. Degenerate is NOT contingent.
+    null_degenerate = n_distinct < NULL_MIN_NULL_SERIES_DISTINCT
     return {
         "rem_error_key": rem_error_key,
         "injected_slope": float(inj_slope) if not math.isnan(inj_slope) else UNAVAILABLE,
@@ -1185,10 +1189,11 @@ def rem_null_slope_ratio(
         "null_slope_ratio": float(ratio) if available else UNAVAILABLE,
         "available": 1.0 if available else 0.0,
         "content_contingent": 1.0
-        if (available and ratio <= NULL_SLOPE_RATIO_CEILING)
+        if (available and not null_degenerate and ratio <= NULL_SLOPE_RATIO_CEILING)
         else 0.0,
+        "null_series_degenerate": 1.0 if null_degenerate else 0.0,
         "null_series_sd": float(null_sd) if null_sd != UNAVAILABLE else UNAVAILABLE,
-        "null_series_n_distinct": float(len({round(e, 12) for e in finite_null})),
+        "null_series_n_distinct": float(n_distinct),
         "null_series": [float(e) for e in null_errs],
         "injected_series": [float(e) for e in inj_errs],
         "null_target_clamped_frac": float(sum(clamped) / len(clamped)) if clamped else 0.0,
@@ -1402,6 +1407,24 @@ NULL_SLOPE_RATIO_CEILING = 0.25
 # Below this injected-arm slope the ratio is not interpretable (0/0) -- the phase is
 # reported UNAVAILABLE rather than silently scored as a pass.
 NULL_MIN_INJECTED_SLOPE = 1e-9
+# The NULL arm must vary across the sigma grid for its slope to mean anything. A
+# CONSTANT null series (every sigma point identical) has slope exactly 0 -> ratio
+# exactly 0.0 -> it would clear the 0.25 ceiling and score CONTENT-CONTINGENT, but a
+# zero slope from a saturated constant is the ABSENCE of a measurement, not evidence
+# that the readout is inert on noise. This is the null-arm counterpart of
+# NULL_MIN_INJECTED_SLOPE, which guards only the DENOMINATOR.
+#
+# WHY 2 AND NOT 3. This is the minimal line that separates "no measurement" from "a
+# real measurement that happens to be small", and it is deliberately weaker than the
+# consumer-side gate in v3_exq_sd068_rem_declamped_readout_diagnostic.py
+# (NULL_SERIES_MIN_DISTINCT = 3, plus a positive-sd floor). A 2-distinct-value null
+# series is a genuine graded response, not a rail: V3-EXQ-778g's sws leg sits at
+# n_distinct 2 on 8/8 seeds with a real non-zero null slope (0.038-0.062, ratio
+# 0.116-0.180), and that leg is the LOAD-BEARING C1 of a PASS run. Importing the
+# consumer's 3 here would flip that PASS to FAIL on a phase that is not degenerate at
+# all. The harness therefore guards only the absence-of-measurement rail; a consumer
+# wanting a stricter gradedness requirement imposes it on top, as 778e does.
+NULL_MIN_NULL_SERIES_DISTINCT = 2
 
 
 def subgroup_ratio_stats(
@@ -1601,8 +1624,15 @@ def run_null_content_control(
         injected_slope_<p>      -- d(error)/d(sigma) with content injected
         null_slope_<p>          -- d(error)/d(sigma) on noise alone
         null_slope_ratio_<p>    -- |null| / |injected|  (the REPORTED number)
-        content_contingent_<p>  -- 1.0 if ratio <= NULL_SLOPE_RATIO_CEILING
+        content_contingent_<p>  -- 1.0 if ratio <= NULL_SLOPE_RATIO_CEILING *and* the
+                                   null series is non-degenerate (see below)
         null_control_available_<p>
+        null_series_degenerate_<p> -- 1.0 if the NULL series is a constant across the
+                                   sigma grid. Such a phase is NOT content-contingent:
+                                   its slope is exactly 0 and so its ratio is exactly
+                                   0.0, which would otherwise clear the ceiling as a
+                                   clean pass. A zero slope from a saturated constant
+                                   is the ABSENCE of a measurement.
 
     The RATIO is reported per phase rather than a bare pass/fail so a PARTIAL null is
     visible: 0.0 == fully content-contingent (the readout is inert on noise), 1.0 ==
@@ -1678,10 +1708,19 @@ def run_null_content_control(
         else:
             null_sd = UNAVAILABLE
         out[f"null_series_sd_{phase}"] = float(null_sd) if null_sd != UNAVAILABLE else UNAVAILABLE
-        out[f"null_series_n_distinct_{phase}"] = float(
-            len({round(e, 12) for e in finite_null})
+        n_distinct = len({round(e, 12) for e in finite_null})
+        out[f"null_series_n_distinct_{phase}"] = float(n_distinct)
+        # A CONSTANT null series is the absence of a measurement, not a clean pass --
+        # see NULL_MIN_NULL_SERIES_DISTINCT. Guarding this here rather than leaving it
+        # to consumers: the telemetry above shipped in V3-EXQ-778e precisely so a
+        # consumer COULD gate on it, but no consumer of the per-phase fields ever did,
+        # so a railed null arm scored CONTENT-CONTINGENT unopposed (V3-EXQ-778c's rem
+        # leg, 5/8 seeds).
+        null_degenerate = n_distinct < NULL_MIN_NULL_SERIES_DISTINCT
+        out[f"null_series_degenerate_{phase}"] = 1.0 if null_degenerate else 0.0
+        contingent = bool(
+            available and not null_degenerate and ratio <= NULL_SLOPE_RATIO_CEILING
         )
-        contingent = bool(available and ratio <= NULL_SLOPE_RATIO_CEILING)
         out[f"content_contingent_{phase}"] = 1.0 if contingent else 0.0
         # An UNAVAILABLE ratio is NOT a pass -- it is an uninterpretable phase, and
         # it is named alongside the confounded ones so it cannot pass silently.
