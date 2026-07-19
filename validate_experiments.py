@@ -38,7 +38,8 @@ PROTOCOL_MODULE = "experiment_protocol"
 # that gate surgical: it does NOT expand the emit_outcome conformance / degeneracy /
 # arm-fingerprint contracts onto the broader (non-v3_exq_) script set the gate scopes.
 CHECK_NAMES = ("conformance", "readiness", "arm_fingerprint", "degeneracy", "manifest_writer",
-               "anchor_reachability", "precondition_recomputability")
+               "anchor_reachability", "precondition_recomputability",
+               "e3_diagnostics_staleness")
 
 # Readiness-gate static lint (proposal_trivial_prediction_readiness_gate_2026-06-06).
 # A diagnostic/baseline script whose interpretation grid self-routes to one of
@@ -1264,6 +1265,143 @@ def manifest_writer_lint(path: Path) -> Optional[str]:
             "pack_writer_single_writer_migration_plan.md.")
 
 
+_E3_LATCHED_ATTRS = ("last_score_diagnostics", "last_score_decomp", "last_channel_terms",
+                     "last_scores", "last_precommit_probs")
+_E3_STALENESS_EXEMPT_MARKER = "E3_DIAGNOSTICS_STALENESS_EXEMPT"
+
+
+def _e3_latched_reads(tree: ast.Module) -> List[ast.expr]:
+    """Every read of an E3 `last_*` diagnostic: `x.e3.last_scores` or getattr(x.e3, "last_scores")."""
+    reads: List[ast.expr] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr in _E3_LATCHED_ATTRS:
+            reads.append(node)
+        elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                and node.func.id == "getattr" and len(node.args) >= 2
+                and isinstance(node.args[1], ast.Constant)
+                and node.args[1].value in _E3_LATCHED_ATTRS):
+            reads.append(node)
+    return reads
+
+
+def _clears_an_e3_latch(tree: ast.Module) -> bool:
+    """`agent.e3.last_score_diagnostics = None` -- the clear-before-select idiom."""
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant)
+                and node.value.value is None
+                and any(isinstance(t, ast.Attribute) and t.attr in _E3_LATCHED_ATTRS
+                        for t in node.targets)):
+            return True
+    return False
+
+
+def e3_diagnostics_staleness_lint(path: Path) -> Optional[str]:
+    """Stale-E3-diagnostics pseudo-replication check. Return an issue string, or None.
+
+    `ree_core/predictors/e3_selector.py` populates `last_score_diagnostics` /
+    `last_score_decomp` / `last_channel_terms` / `last_scores` / `last_precommit_probs`
+    ONLY inside `select()`. The attributes LATCH: after a tick on which `select()` did
+    not run, they still hold the PREVIOUS selection's values. A driver that reads them
+    once per env step, in a loop, WITHOUT clearing them first therefore re-records one
+    selection as many independent observations. Nothing raises; the run simply reports
+    a sample size it does not have. Measured on the V3-EXQ-785 config: 67 genuine
+    `select()` calls behind 600 recorded rows (~9.0x inflation).
+
+    MECHANISM -- the widely-assumed cause is WRONG, and the correction is why this lint
+    exists. The skip is NOT `beta_gate.is_elevated`. `ree_core/agent.py` returns the
+    held/stepped action on `if not ticks["e3_tick"] and self._last_action is not None:`
+    BEFORE the only `e3.select()` call site; `beta_gate.is_elevated` merely chooses
+    step-vs-hold WITHIN an already-skipped tick. The real driver is the E3 CADENCE:
+    `heartbeat.e3_steps_per_tick` defaults to 10. CONSEQUENCE: "commitment was
+    effectively disabled for this run" does NOT exculpate a driver -- a per-env-step
+    diagnostics read is ~10x pseudo-replicated regardless of commitment config. A guard
+    written against the beta gate would be wrong.
+
+    The obligation is discharged by ANY of:
+      (a) a `<...>.last_* = None` clear (the reference idiom -- clear immediately before
+          `select_action(...)`, then record a row ONLY if it was repopulated),
+      (b) a `ticks["e3_tick"]` guard (the driver already knows about the cadence), or
+      (c) a direct `e3.select(...)` call site (the driver drives selection itself, so
+          every read follows a selection it just caused).
+
+    Reference implementation:
+    `experiments/v3_exq_785a_mech463_arousal_exogenous_urgency_decomp.py` -- clears
+    before every `agent.select_action(...)`, records only on repopulation, and counts
+    the skipped ticks separately as `n_latched_ticks` telemetry (real run: 1757 genuine
+    selections from 15000 ticks, yield ~0.12). Emitting that counter is the convention:
+    it makes the true denominator auditable from the manifest.
+
+    SCOPE -- fires only on a read that is INSIDE a `for`/`while` body in a script that
+    also calls `select_action`, i.e. the per-env-step driver-loop shape that actually
+    pseudo-replicates. A one-shot read after a known selection is correctly exempt.
+
+    Static AST scan, so it shares the limitation class of the other name-scan lints: the
+    clear/guard/select exemptions are detected file-wide rather than per-read-site, so a
+    script that clears one attribute but latches another is exempted (a miss), and a
+    driver that reaches selection through a helper this scan cannot see may over-fire.
+    Both are acceptable at WARN level. WARN-ONLY IN BOTH MODES -- it never hardens under
+    `--paths`. It flags a SUSPECTED inflated denominator, never a proven one, and the
+    landed corpus carries a large pre-2026-07-19 backlog whose runs are already complete
+    (a completed run's pre-registered emission is not rewritten). This gates NEW scripts.
+
+    Opt-out: E3_DIAGNOSTICS_STALENESS_EXEMPT = "<reason>".
+    """
+    try:
+        src = path.read_text(encoding="utf-8")
+        tree = ast.parse(src, filename=str(path))
+    except (OSError, UnicodeDecodeError, SyntaxError):
+        return None  # check_script already reports unreadable / syntax errors
+
+    reads = _e3_latched_reads(tree)
+    if not reads:
+        return None
+
+    if _E3_STALENESS_EXEMPT_MARKER in src:
+        return None
+
+    # (a) clear-before-select, (b) cadence guard, (c) driver owns the select call.
+    if _clears_an_e3_latch(tree):
+        return None
+    if any(isinstance(n, ast.Constant) and n.value == "e3_tick" for n in ast.walk(tree)):
+        return None
+    if any(isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+           and n.func.attr == "select" and isinstance(n.func.value, ast.Attribute)
+           and n.func.value.attr == "e3" for n in ast.walk(tree)):
+        return None
+
+    # Scope to the shape that actually pseudo-replicates: a read inside a loop, in a
+    # script that drives the agent per env step.
+    if "select_action" not in src:
+        return None
+    loop_spans = []
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.For, ast.While)):
+            last = max((getattr(x, "lineno", node.lineno) for x in ast.walk(node)),
+                       default=node.lineno)
+            loop_spans.append((node.lineno, last))
+    looped = sorted({r.lineno for r in reads
+                     if any(lo <= r.lineno <= hi for lo, hi in loop_spans)})
+    if not looped:
+        return None
+
+    attrs = sorted({(n.attr if isinstance(n, ast.Attribute) else n.args[1].value)
+                    for n in reads})
+    return (f"STALE E3 DIAGNOSTICS: reads {', '.join(attrs)} inside a driver loop "
+            f"(line(s) {', '.join(str(n) for n in looped[:6])}) without clearing the "
+            "latch first. E3 populates these ONLY inside select(), which runs on ~1 tick "
+            "in heartbeat.e3_steps_per_tick (default 10) -- so a per-env-step read "
+            "re-records the PREVIOUS selection as a new independent observation and the "
+            "run reports a sample size it does not have (V3-EXQ-785: 600 rows behind 67 "
+            "genuine selections, ~9.0x). NOTE the cause is the E3 CADENCE, not "
+            "beta_gate.is_elevated -- agent.py returns early on `not ticks[\"e3_tick\"]` "
+            "BEFORE select() is reached, so disabled commitment does NOT exculpate this. "
+            "FIX: set `agent.e3.<attr> = None` immediately before every "
+            "select_action(...), record a row ONLY if it was repopulated, and emit the "
+            "skipped-tick count as `n_latched_ticks` so the true denominator is auditable. "
+            "Reference: experiments/v3_exq_785a_mech463_arousal_exogenous_urgency_decomp.py. "
+            "Exempt with E3_DIAGNOSTICS_STALENESS_EXEMPT = \"<reason>\".")
+
+
 def _candidate_paths(paths: Sequence[str]) -> List[Path]:
     if paths:
         return [Path(p).resolve() for p in paths]
@@ -1320,6 +1458,7 @@ def main() -> int:
     manifest_writer_warnings: List[Tuple[Path, str]] = []
     anchor_warnings: List[Tuple[Path, str]] = []
     recomput_warnings: List[Tuple[Path, str]] = []
+    e3_stale_warnings: List[Tuple[Path, str]] = []
     for p in paths:
         rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
         if "conformance" in selected:
@@ -1372,6 +1511,12 @@ def main() -> int:
                 # WARN-only in BOTH modes -- see precondition_recomputability_lint()
                 # for why this one never hardens under --paths.
                 recomput_warnings.append((p, rec))
+        if "e3_diagnostics_staleness" in selected:
+            e3s = e3_diagnostics_staleness_lint(p)
+            if e3s:
+                # WARN-only in BOTH modes -- see e3_diagnostics_staleness_lint() for why
+                # this one never hardens under --paths.
+                e3_stale_warnings.append((p, e3s))
 
     print("", flush=True)
     print(f"[validate_experiments] checked {len(paths)} scripts: "
@@ -1381,7 +1526,18 @@ def main() -> int:
           f"{len(degen_warnings)} degeneracy-self-report-backlog, "
           f"{len(manifest_writer_warnings)} manifest-writer-backlog, "
           f"{len(anchor_warnings)} anchor-reachability-warning(s), "
-          f"{len(recomput_warnings)} precondition-recomputability-warning(s)", flush=True)
+          f"{len(recomput_warnings)} precondition-recomputability-warning(s), "
+          f"{len(e3_stale_warnings)} stale-e3-diagnostics-warning(s)", flush=True)
+    if e3_stale_warnings:
+        # Advisory in BOTH modes (never hardens -- the clear/guard/select exemptions are
+        # detected file-wide, so this flags a SUSPECTED inflated denominator, never a
+        # proven one). Pre-2026-07-19 backlog: drivers authored before the
+        # clear-before-select requirement, whose runs are already complete.
+        print("", flush=True)
+        print("[validate_experiments] STALE-E3-DIAGNOSTICS WARNINGS (advisory, non-blocking):", flush=True)
+        for p, warn in e3_stale_warnings:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
+            print(f"  - {rel}: {warn}", flush=True)
     if recomput_warnings:
         # Advisory in BOTH modes (never hardens -- `measured` is computed from live run
         # data, so this flags a SUSPECTED mismatch between two expressions, never a

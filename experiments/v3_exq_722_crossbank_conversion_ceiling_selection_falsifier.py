@@ -862,6 +862,18 @@ def _run_cell(
     demotion_excluded_counts: List[float] = []
     demotion_winner_neq_f_argmin_ticks = 0
     demotion_rank_preserving_active_ticks = 0
+    # E3 diagnostics LATCH: e3_selector populates last_score_diagnostics /
+    # last_raw_scores ONLY inside select(), and agent.py returns the held action on
+    # `not ticks["e3_tick"]` BEFORE select() is reached -- so on a non-select tick the
+    # attributes still hold the PREVIOUS selection. Reading them per env step without
+    # clearing re-records one selection as many observations (V3-EXQ-785: 600 rows
+    # behind 67 genuine selections, ~9.0x). The cause is the E3 CADENCE
+    # (heartbeat.e3_steps_per_tick, default 10), NOT beta_gate.is_elevated, so a
+    # commitment-free config does not make this safe. We clear before every
+    # select_action and count only FRESH selections; n_latched_ticks makes the true
+    # denominator auditable from the manifest.
+    n_p2_selections = 0
+    n_latched_ticks = 0
     # R6 divergent-by-construction probes (BEFORE calibration): the count-invariant
     # top-1 merit share (the real structural-divergence statistic) + the raw default-floor
     # excluded_count (kept as a diagnostic; count-dominated, NOT the R6 gate).
@@ -935,7 +947,18 @@ def _run_cell(
                 if cs is not None and torch.isfinite(cs).all():
                     p1_snap_summaries = cs.clone()
 
+            # Clear the E3 latches IMMEDIATELY before selection so a read below is
+            # provably this tick's (see the n_latched_ticks note at the counters).
+            agent.e3.last_score_diagnostics = None
+            agent.e3.last_raw_scores = None
+
             action = agent.select_action(candidates, ticks)
+
+            # Repopulated => select() actually ran this tick.
+            e3_fresh = agent.e3.last_score_diagnostics is not None
+            if not e3_fresh:
+                n_latched_ticks += 1
+
             if action is None:
                 idx = int(np.random.randint(0, env.action_dim))
                 action = torch.zeros(1, env.action_dim, device=agent.device)
@@ -952,8 +975,11 @@ def _run_cell(
 
             committed_class = int(action[0].argmax().item())
 
-            # R6 + calibration: select_action just populated agent.e3.last_raw_scores
-            # (this tick's F pool). On demotion-ON arms in P2, FIRST record the
+            # R6 + calibration: select_action populated agent.e3.last_raw_scores IFF
+            # select() actually ran this tick (see e3_fresh above -- the attribute is
+            # cleared before every select_action, so a held tick leaves it None and the
+            # `_raw is not None` test below correctly skips rather than re-reading the
+            # previous tick's F pool). On demotion-ON arms in P2, FIRST record the
             # default-floor excluded_count (R6: does the peaked bankC pool fire the
             # envelope WITHOUT calibration?), THEN re-calibrate the ABSOLUTE floor so the
             # envelope excludes on the NEXT tick even where the raw pool is spread.
@@ -1016,7 +1042,11 @@ def _run_cell(
                     if isinstance(lb_mean, (int, float)):
                         lateral_pfc_bias_abs_vals.append(float(lb_mean))
 
-                diag = getattr(agent.e3, "last_score_diagnostics", {}) or {}
+                # FRESH selections only -- a latched read would pseudo-replicate this
+                # tick's demotion stats across every held tick that follows it.
+                diag = (getattr(agent.e3, "last_score_diagnostics", None) or {}) if e3_fresh else {}
+                if e3_fresh:
+                    n_p2_selections += 1
                 if bool(diag.get("f_eligibility_demotion_active", False)):
                     demotion_active_ticks += 1
                     env_size = float(diag.get("f_eligibility_envelope_size", -1))
@@ -1186,8 +1216,13 @@ def _run_cell(
     head_final = _head_weight_vector(agent)
     head_weight_delta = float(torch.norm(head_final - head_init).item())
 
+    # Denominated on FRESH P2 selections, not env ticks: demotion_active_ticks can only
+    # increment on a tick where select() ran, so dividing by n_p2_ticks (~10x larger at
+    # the default e3_steps_per_tick) would understate the fraction and let the R5
+    # non-vacuity gate below adjudicate on an inflated denominator.
     demotion_active_frac = (
-        float(demotion_active_ticks) / float(n_p2_ticks) if n_p2_ticks > 0 else 0.0
+        float(demotion_active_ticks) / float(n_p2_selections)
+        if n_p2_selections > 0 else 0.0
     )
     demotion_excluded_count_mean = (
         float(sum(demotion_excluded_counts) / len(demotion_excluded_counts))
@@ -1239,6 +1274,11 @@ def _run_cell(
         "n_p0_ticks": int(n_p0_ticks),
         "n_p1_ticks": int(n_p1_ticks),
         "n_p2_ticks": int(n_p2_ticks),
+        # True denominator for every E3-diagnostics readout below, plus the count of
+        # ticks on which the E3 latch held (no fresh select()). Emitted so a reader can
+        # audit the sample size instead of assuming one row per env tick.
+        "n_p2_selections": int(n_p2_selections),
+        "n_latched_ticks": int(n_latched_ticks),
         "n_p0_contrastive_steps": int(n_p0_contrastive_steps),
         "n_p1_bias_updates": int(n_p1_bias_updates),
         "error_note": error_note,
