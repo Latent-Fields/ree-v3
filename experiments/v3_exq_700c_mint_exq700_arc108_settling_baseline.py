@@ -60,8 +60,13 @@ criteria. The outcome is PASS iff all reusable cells ran to completion (no error
 FAIL otherwise. run_id ends _v3; architecture_epoch is "ree_hybrid_guardrails_v1".
 
 Machine class: the mint should run on the same machine class as the future consumer
-(linux-x86_64-py3.10; ree-cloud-4). A Mac-minted baseline cannot be reused by a cloud
-consumer (machine_class enters the fingerprint) and vice-versa.
+(a ree-cloud worker; ree-cloud-4). A Mac-minted baseline cannot be reused by a cloud
+consumer (machine_class enters the fingerprint) and vice-versa. Since 2026-07-19 the tag
+also carries the TORCH BUILD -- currently `linux-x86_64-py3.10-torch2.5.1+cu121`; the
+authority is `machine_class()` in experiments/_lib/arm_fingerprint.py, not this docstring.
+Two consequences: a fleet torch upgrade retires this mint the same way an OS or python
+change always did, and every baseline minted BEFORE that hard cut is dead -- it cannot be
+migrated and must be re-minted under the new class (plan section 12).
 
 See experiments/v3_exq_700c_arc108_sec7_learned_gating_settling_samelayer_null.py (the
 consumer harness this mints for), experiments/_lib/baselines/exq700_arc108_settling_baseline.py

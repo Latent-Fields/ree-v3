@@ -44,9 +44,14 @@ inert on every reusable arm), so a 700b->700c OFF/settling arm matches.
 
 REUSE MACHINE-CLASS
 -------------------
-linux-x86_64-py3.10 (the 700b run + the mint run on ree-cloud-4). A Mac-run iteration
-cannot match a cloud-minted baseline (machine_class enters the fingerprint), so reuse is
-intrinsically cloud-scoped.
+A ree-cloud worker class (the 700b run + the mint run on ree-cloud-4). Since 2026-07-19 the
+tag also carries the TORCH BUILD -- currently `linux-x86_64-py3.10-torch2.5.1+cu121`. The
+authority is `machine_class()` in experiments/_lib/arm_fingerprint.py; treat any tag written
+here as indicative only. A Mac-run iteration cannot match a cloud-minted baseline
+(machine_class enters the fingerprint), so reuse is intrinsically cloud-scoped. A fleet
+torch upgrade now retires a banked baseline as an OS or python change always did, and any
+baseline minted BEFORE that hard cut -- including the pre-cut 700b arms -- is DEAD: it
+cannot be migrated and must be re-minted under the new class (plan section 12).
 
 MINT RUN_ID
 -----------

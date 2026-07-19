@@ -1639,7 +1639,10 @@ def run_experiment(
                 # unknowable). The per-cell training (online e2 + two-head REINFORCE) is a
                 # DETERMINISTIC pure function of (config_slice, seed, substrate) under the
                 # cell-entry reset_all_rng(seed) -- no state is shared ACROSS cells -- so it
-                # is legitimately reusable on the linux-x86_64-py3.10 cloud machine-class
+                # is legitimately reusable on the cloud machine-class -- which since
+                # 2026-07-19 includes the torch build (currently linux-x86_64-py3.10-
+                # torch2.5.1+cu121; machine_class() in _lib/arm_fingerprint.py is the
+                # authority, and a pre-cut mint is dead, not migratable)
                 # (arm_reuse_fingerprint_plan.md determinism gate). include_driver_script_
                 # _in_hash=False so a future consumer's own driver can match this mint.
                 include_driver_script_in_hash=False,

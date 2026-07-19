@@ -17,9 +17,14 @@ insurance). A false cache-miss is free; a false hit corrupts science -- this mod
 matched by the arm-fingerprint substrate glob ``experiments/_lib/**/*.py``, so any edit
 here correctly flips the substrate hash and refuses a stale reuse.
 
-REUSE MACHINE-CLASS. linux-x86_64-py3.10 (the mint runs on a ree-cloud worker; the
-fingerprint carries machine_class, so a Mac-run consumer cannot match a cloud mint and
-just re-runs -- reuse is intrinsically cloud-scoped).
+REUSE MACHINE-CLASS. A ree-cloud worker class -- since 2026-07-19 the tag includes the
+TORCH BUILD, currently `linux-x86_64-py3.10-torch2.5.1+cu121`. The authority is
+`machine_class()` in experiments/_lib/arm_fingerprint.py; treat any tag written here as
+indicative only. The fingerprint carries machine_class, so a Mac-run consumer cannot match
+a cloud mint and just re-runs -- reuse is intrinsically cloud-scoped. A fleet torch upgrade
+now retires a banked baseline the same way an OS or python change always did, and any
+baseline minted BEFORE the 2026-07-19 hard cut is DEAD: the pre-cut bank (1212 fingerprints)
+cannot be migrated and must be re-minted under the new class (plan section 12).
 
 MINT RUN_ID. Recorded by the parent session once V3-EXQ-742-m completes, then cited via
 ``reuse_baseline_from`` in a future consumer. Until then reuse_baseline_from=None and the

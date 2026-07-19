@@ -17,8 +17,13 @@ STRICTLY AFTER 742 lands a clean manifest. This mint banks the OFF baseline REGA
 whether/when 742 runs, completes, or is superseded -- the order-independent insurance.
 Terminality is unknowable (a first-of-lineage experiment is exactly the paradigm mint case,
 not a skip case); the cost of an unneeded mint is idle low-priority cloud compute, never
-correctness. Pinned to a ree-cloud worker so the fingerprint is the reusable
-linux-x86_64-py3.10 machine-class (a Mac mint would be a different class, dead on arrival).
+correctness. Pinned to a ree-cloud worker so the fingerprint is the reusable cloud
+machine-class (a Mac mint would be a different class, dead on arrival). That class now
+carries the TORCH BUILD as well -- currently `linux-x86_64-py3.10-torch2.5.1+cu121`; see
+`machine_class()` in experiments/_lib/arm_fingerprint.py, which is the authority. A fleet
+torch upgrade retires this mint exactly as an OS or python change always did, and any
+baseline minted BEFORE the 2026-07-19 hard cut is dead and needs re-minting under the new
+class (plan section 12).
 
 Both this mint and the V3-EXQ-742 consumer construct the OFF cell + its fingerprint slice
 from the ONE shared module experiments/_lib/baselines/exq742_mech457_bias_head_baseline.py
@@ -56,7 +61,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from experiment_protocol import emit_outcome  # noqa: E402
-from experiments._lib.arm_fingerprint import arm_cell  # noqa: E402
+from experiments._lib.arm_fingerprint import arm_cell, machine_class  # noqa: E402
 from experiments._lib.baselines import exq742_mech457_bias_head_baseline as ac_baseline  # noqa: E402
 from experiments._lib.capability_eval import COMPETENCE_RESOURCE_FLOOR  # noqa: E402
 import experiments.v3_exq_734_env_difficulty_competence_recovery_sweep as x734  # noqa: E402
@@ -152,7 +157,9 @@ def _build_manifest(result: Dict[str, Any], timestamp_utc: str, dry_run: bool) -
         "outcome": result["outcome"],
         "lineage": ac_baseline.LINEAGE,
         "mints_arm": ac_baseline.REUSABLE_ARM_ID,
-        "reuse_machine_class": "linux-x86_64-py3.10 (ree-cloud worker)",
+        # Computed, never hardcoded: the tag gained the torch version on 2026-07-19 and a
+        # literal here would silently go stale again on the next fleet torch upgrade.
+        "reuse_machine_class": machine_class(),
         "n_cells": result["n_cells"],
         "n_supra_floor": result["n_supra_floor"],
         "arm_results": result["arm_results"],
@@ -170,7 +177,8 @@ def _build_manifest(result: Dict[str, Any], timestamp_utc: str, dry_run: bool) -
             "(724-A0 all-ON) OFF arm. PROMOTES/DEMOTES NOTHING; excluded from governance "
             "scoring. Order-independent reuse insurance: cite this run_id via reuse_baseline_from "
             "in a future MECH-457 iteration. include_driver_script_in_hash=False on both sides. "
-            "Pinned to a ree-cloud worker for the reusable linux-x86_64-py3.10 machine-class."
+            "Pinned to a ree-cloud worker for the reusable cloud machine-class (torch build "
+            "included in the tag since 2026-07-19; see reuse_machine_class for this run's value)."
         ),
     }
 
