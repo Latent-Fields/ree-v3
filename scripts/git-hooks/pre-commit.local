@@ -15,7 +15,7 @@
 # Runs precommit_contracts.sh -- which SELF-GATES on what is staged:
 #   Block 1   emit_outcome conformance on staged experiments/v3_exq_*.py
 #   Block 1b  manifest-writer chokepoint gate on staged experiments/v3_*.py  <-- sec 7.3
-#   Block 2   ree_core/** contracts test suite
+#   Block 2   ree_core/** OR experiments/_lib/** contracts test suite
 # A docs / queue-only / unrelated commit stages none of those, so the gate is a silent
 # no-op -- the hook does NOT block on unrelated work.
 #

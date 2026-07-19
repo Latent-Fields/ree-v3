@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # precommit_contracts.sh -- run ree-v3/tests/contracts when staged changes
-# touch ree_core/**, AND run validate_experiments.py --strict on staged
-# experiments/v3_exq_*.py paths. Both checks self-gate: if no relevant
-# paths are staged, the corresponding block is a no-op.
+# touch ree_core/** or experiments/_lib/**, AND run validate_experiments.py
+# --strict on staged experiments/v3_exq_*.py paths. Both checks self-gate: if
+# no relevant paths are staged, the corresponding block is a no-op.
 #
 # Called from the PreToolUse hook in REE_Working/.claude/settings.json on
-# any `git commit` bash invocation. Self-gates: if no ree_core/** paths are
-# staged in the ree-v3 repo, this script exits 0 with no output so commits
-# to REE_assembly / other repos aren't penalised.
+# any `git commit` bash invocation. Self-gates: if no ree_core/** or
+# experiments/_lib/** paths are staged in the ree-v3 repo, this script exits 0
+# with no output so commits to REE_assembly / other repos aren't penalised.
 #
 # Exit codes:
 #   0 -- nothing to check, or contracts passed
@@ -107,12 +107,32 @@ if [ -n "$STAGED_V3" ] && [ -f "$REPO/validate_experiments.py" ]; then
     fi
 fi
 
-# Block 2: ree_core/** -> contracts test suite.
-if ! echo "$STAGED" | grep -q '^ree_core/'; then
+# Block 2: ree_core/** OR experiments/_lib/** -> contracts test suite.
+#
+# experiments/_lib/ was added to this trigger 2026-07-19. It holds the SHARED
+# training substrate consumed by every mech457-family experiment and bound into
+# substrate_hash -- mech457_explorer_classes.py (train_a2c),
+# mech457_bootstrap_explorer.py, mech457_fanout.py, capability_eval.py,
+# arm_fingerprint.py and others. Before this it matched no block: Block 1 globs
+# experiments/v3_exq_*.py, Block 1b globs experiments/v3_*.py, and Block 2 keyed
+# on ^ree_core/ only. So a change to the actual A2C training loop committed with
+# NO contract run and no warning, while a one-line ree_core/ change ran the full
+# suite -- a fail-open guard, the dangerous direction. Concrete instance: the
+# mech457_retention_trajectory_probe build (ree-v3 7e4f6e932b) added a hook inside
+# train_a2c and modified BootstrapExplorerConfig; the gate never fired, and it was
+# caught only because that session happened to run the suite by hand.
+#
+# FULL suite, not a targeted subset -- deliberately the same treatment ree_core/
+# already gets. 21 of 171 contract files import experiments/_lib directly, but
+# _lib is reached transitively from far more (train_a2c sits under the mech457
+# drivers, the arm-fingerprint/reuse lints and the recording-standard checks), so
+# any file-glob selection would itself be a fail-open guard with an unprincipled
+# boundary. Matching the existing ree_core/ policy keeps one rule, not two.
+if ! echo "$STAGED" | grep -qE '^(ree_core/|experiments/_lib/)'; then
     exit 0
 fi
 
-echo "[precommit_contracts] ree_core/ change staged -- running contracts" >&2
+echo "[precommit_contracts] ree_core/ or experiments/_lib/ change staged -- running contracts" >&2
 if (cd "$REPO" && "$PY" -m pytest -q --tb=line tests/contracts) >&2; then
     exit 0
 fi
