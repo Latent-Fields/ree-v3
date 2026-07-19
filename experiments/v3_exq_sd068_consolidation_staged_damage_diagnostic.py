@@ -273,6 +273,13 @@ def run_experiment(*, dry_run: bool = False) -> Dict[str, Any]:
                 "description": "at sigma=0 the injected-content readouts (SWS signal_power, REM clean variance) are non-degenerate -- the P0 positive control that the phases actually operate",
                 "measured": float(intact_measured),
                 "threshold": INTACT_SIGNAL_FLOOR,
+                # FLOOR-shaped, and STRICTLY so: C2 is `> INTACT_SIGNAL_FLOOR` per
+                # seed, and `measured` is the min over seeds of both readouts, so
+                # `measured > threshold` reproduces `met` exactly. Declared so the
+                # indexer's recompute matches rather than defaulting (the 2026-06-07
+                # V3-EXQ-648a/649 directionality bug).
+                "comparator": ">",
+                "direction": "lower",
                 "control": "sigma=0 intact sweep point",
                 "met": bool(substrate_ready),
             },

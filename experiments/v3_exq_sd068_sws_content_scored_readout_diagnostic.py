@@ -425,6 +425,10 @@ def run_experiment(*, dry_run: bool = False) -> Dict[str, Any]:
     readiness_ok = all(s["C2_ratio_interpretable"] for s in seed_scores)
     c1_all = all(s["C1_sws_content_contingent"] for s in seed_scores)
     c3_all = all(s["C3_ladder_tracks_content"] for s in seed_scores)
+    # C3's legs, aggregated separately for the two recomputable preconditions.
+    # c3_all == (c3a_all and c3b_all): `all` over a conjunction distributes.
+    c3a_all = all(s["C3_detail"]["signal"] for s in seed_scores)
+    c3b_all = all(s["C3_detail"]["spread"] for s in seed_scores)
     overall_pass = bool(readiness_ok and n_pass >= need)
 
     ratios = [
@@ -505,14 +509,31 @@ def run_experiment(*, dry_run: bool = False) -> Dict[str, Any]:
          if _finite(s["injected_slope_sws"])),
         default=0.0,
     )
+    # C3's two legs are aggregated SEPARATELY because each is declared as its own
+    # adjudication precondition. `C3_ladder_tracks_content` is `c3a and c3b`, so a
+    # single precondition carrying only the spread statistic could not reproduce
+    # `met` from its own (measured, threshold) pair -- the signal leg would be
+    # undeclared and the indexer's recompute would silently adjudicate on half the
+    # check. A seed with NO content-bearing rung fails both legs by construction
+    # (`bool(pos)` guards each), so it contributes a 0.0 worst case rather than
+    # being skipped -- otherwise the min over seeds could clear a floor that the
+    # shipped predicate did not.
     ladder_spreads = []
+    ladder_signal_ratios = []
     for s in seed_scores:
         pos = [
             v for k, v in s["ladder_slopes"].items()
             if float(k) > 0.0 and _finite(v)
         ]
-        if pos:
-            ladder_spreads.append(max(pos) - min(pos))
+        zero_slope = s["C3_detail"]["zero_slope"]
+        # c3b guards on bool(pos) alone; c3a additionally needs a finite zero rung.
+        # The guards are mirrored separately so each reported statistic reproduces
+        # its OWN predicate, not the conjunction.
+        ladder_spreads.append(max(pos) - min(pos) if pos else 0.0)
+        ladder_signal_ratios.append(
+            min(abs(v) for v in pos) / max(abs(float(zero_slope)), 1e-12)
+            if pos and _finite(zero_slope) else 0.0
+        )
 
     interpretation = {
         "label": label,
@@ -528,7 +549,34 @@ def run_experiment(*, dry_run: bool = False) -> Dict[str, Any]:
                 "control": "injected arm (content_scale=1.0) across the full sigma grid",
                 "measured": float(min_inj),
                 "threshold": float(INJECTED_SLOPE_FLOOR),
+                # FLOOR-shaped, INCLUSIVE: C2 is `abs(inj) >= INJECTED_SLOPE_FLOOR`
+                # and `measured` is the min over seeds of that same absolute slope.
+                "comparator": ">=",
+                "direction": "lower",
                 "met": bool(readiness_ok),
+            },
+            {
+                # C3(a). Declared SEPARATELY from the spread leg below: C3 is
+                # `signal and spread`, two different statistics, so one entry could
+                # not carry both and the undeclared leg would drop out of the
+                # indexer's recompute entirely.
+                "name": "ladder_content_signal_ratio_supra_floor",
+                "description": (
+                    "C3(a). The content-bearing rungs must respond SEVERAL-FOLD "
+                    "more strongly in sigma than the content-free rung. Relative, "
+                    "not absolute: the zero-content rung carries a small nonzero "
+                    "slope from the sigma=0 store-is-exactly-zero discontinuity, so "
+                    "an absolute floor here would be met by that artifact alone."
+                ),
+                "control": "content_scale ladder on the injected path",
+                "measured": float(min(ladder_signal_ratios)) if ladder_signal_ratios else 0.0,
+                "threshold": float(LADDER_SIGNAL_RATIO),
+                # FLOOR-shaped, STRICT: c3a is `min|pos| > RATIO * max(|zero|, 1e-12)`,
+                # reported here in already-divided ratio form so the comparison is a
+                # plain (measured, threshold) pair.
+                "comparator": ">",
+                "direction": "lower",
+                "met": bool(c3a_all),
             },
             {
                 "name": "ladder_content_slope_spread_supra_floor",
@@ -542,7 +590,16 @@ def run_experiment(*, dry_run: bool = False) -> Dict[str, Any]:
                 "control": "content_scale ladder on the injected path",
                 "measured": float(min(ladder_spreads)) if ladder_spreads else 0.0,
                 "threshold": float(LADDER_SPREAD_FLOOR),
-                "met": bool(c3_all),
+                # FLOOR-shaped, STRICT: c3b is `(max(pos) - min(pos)) > LADDER_SPREAD_FLOOR`.
+                # `met` is the SPREAD leg alone -- previously it carried the full C3
+                # conjunction, which no (measured, threshold) pair on the spread
+                # statistic could reproduce. The conjunction still routes the label
+                # via criteria_non_degenerate["C3"] / c3_all; it is now expressed to
+                # the adjudicator as two recomputable preconditions that must BOTH
+                # hold, which is the same predicate.
+                "comparator": ">",
+                "direction": "lower",
+                "met": bool(c3b_all),
             },
         ],
         "criteria_non_degenerate": {
