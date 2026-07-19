@@ -1690,21 +1690,39 @@ def test_c12_build_env_hazard_phase_matches_obs_dim_and_hazards():
     assert env_h.world_obs_dim == env_p0.world_obs_dim == env_p2.world_obs_dim
     assert env_h.num_hazards == 4
     # Midline spawn (default): agent never spawns in the reef half across resets.
-    for _ in range(30):
+    # Seeded per reset (C2 runtime-mutation convention) so the band contract is
+    # a deterministic assertion rather than a sample of OS entropy.
+    for s in range(30):
+        env_h._rng = np.random.default_rng(s)
         env_h.reset()
-        assert env_h.agent_x in {5, 6, 7}
+        assert env_h.agent_x in {5, 6, 7}, (
+            f"default hazard-phase spawn must stay in midline band, got {env_h.agent_x} at seed {s}"
+        )
 
 
 def test_c12_build_env_hazard_spawn_in_reef_half_optional():
     """scaffold_hazard_stage_spawn_in_reef_half=True widens the spawn to the
-    reef half (gentler isolated stage); default False stays midline."""
+    reef half (gentler isolated stage); default False stays midline.
+
+    Seeded (seed=s over 40 seeds, the C1/C2 convention) so this is a genuine
+    contract rather than a probabilistic one. Unseeded it drew 40 samples from
+    OS entropy where P(row >= 8) ~ 0.06 per draw, so the existence assertion
+    false-failed ~8% of runs -- a flake in the local suite that is the merge
+    gate for the ree-v3 code plane. Seeds 0..39 yield 4 reef-half spawns.
+    """
     cfg = ScaffoldedSD054OnboardingConfig(scaffold_hazard_stage_spawn_in_reef_half=True)
     rows = []
-    for _ in range(40):
-        env_h = _build_env(cfg, "hazard")
+    for s in range(40):
+        env_h = _build_env(cfg, "hazard", seed=s)
         env_h.reset()
         rows.append(env_h.agent_x)
-    assert sum(1 for r in rows if r >= 8) > 0
+    assert sum(1 for r in rows if r >= 8) > 0, (
+        f"spawn widening must produce reef-half spawns over 40 seeds, got {sorted(set(rows))}"
+    )
+    # Widened pool is still bounded: agent band union reef half, never forage half.
+    assert all(r in {5, 6, 7, 8, 9, 10} for r in rows), (
+        f"spawn rows must be in agent-band union reef-half, got {sorted(set(rows))}"
+    )
 
 
 def test_c12_run_hazard_avoidance_goal_frozen_and_zgoal_untouched():
