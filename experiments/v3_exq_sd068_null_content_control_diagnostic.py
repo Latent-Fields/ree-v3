@@ -190,6 +190,10 @@ def _score_seed(control: Dict[str, float]) -> Dict[str, Any]:
     c1 = all(contingent.values())
     c2 = all(interpretable.values())
     return {
+        # Carried so H.subgroup_ratio_stats can NAME the seeds it excludes -- its
+        # default seed_of reads this key, and a scoped statistic whose excluded_seeds
+        # list is [null, null, ...] is not auditable.
+        "seed": int(control.get("null_control_seed", -1)),
         "rem_ratio_off_scale": bool(
             control.get("null_slope_ratio_rem_off_scale", 0.0) >= 1.0
         ),
@@ -364,44 +368,108 @@ def run_experiment(*, dry_run: bool = False) -> Dict[str, Any]:
     readiness_ok = all(s["C2_ratio_interpretable_all_phases"] for s in seed_scores)
     overall_pass = readiness_ok and n_pass >= need
 
-    # Per-phase aggregation across seeds (mean ratio + confound stability).
+    # ---- Per-phase aggregation across seeds (mean ratio + confound stability). ----
+    #
+    # SCOPING DECISION (family audit follow-on to the V3-EXQ-778h C2 fix, ree-v3
+    # b42f69ffa3). The rem leg's MAGNITUDE statistics -- mean/sd/ci95 and the derived
+    # ceiling_inside_ci95 -- are scoped to the ON-SCALE subgroup, i.e. seeds whose
+    # `null_slope_ratio_rem_off_scale` flag is clear.
+    #
+    # WHY. That flag is the harness's own statement (see the block setting
+    # `null_slope_ratio_rem_off_scale` in consolidation_lesion_harness.py) that the
+    # ratio is NOT on a common scale with the other seeds': when the null arm's rem
+    # precision reference collapses onto the 1e-3 positivity floor, the 1/1e-3 = 1000
+    # term dominates the calibration error, so the number reads "this leg is
+    # structurally content-free", never a calibrated N-fold noise sensitivity. Pooling
+    # a quantity with no common scale into a mean produces a number with no referent,
+    # and -- because the off-scale values are 3-4 orders of magnitude out -- an SEM
+    # large enough to swallow the ceiling, so `ceiling_inside_ci95` goes True and reads
+    # as "underpowered, cannot conclude" regardless of what the on-scale seeds show.
+    #
+    # THE CONCRETE INSTANCE, run ..._20260718T072318Z_v3 (V3-EXQ-778c): all 8 seeds are
+    # off-scale (5 at clamp_frac 1.0 reporting ratio 0.0, 3 at 0.2 reporting
+    # 1801.6 / 4348.5 / 9142.8). Pooled that is mean 1911.6, sd 3306.1,
+    # CI95 [-379.4, 4202.6], ceiling_inside_ci95 true -- a published point estimate and
+    # interval for a quantity that was never measured on scale, plus a NEGATIVE lower
+    # bound on a ratio of magnitudes. Scoped, subgroup_n is 0 and the mean/sd/CI are
+    # UNAVAILABLE: "there is no on-scale rem ratio at this n" is the honest reading, and
+    # it is the one the off-scale flag was written to convey.
+    #
+    # THE POOLING WAS NOT A DELIBERATE REGISTER CHOICE. The follow-on leg's own
+    # docstring (v3_exq_sd068_rem_declamped_readout_diagnostic.py, V3-EXQ-778e) already
+    # reads this run the scoped way in prose -- "DEGENERATE AT BOTH RAILS ... the 5
+    # apparently-clean seeds are clean only BY DEGENERACY -- a zero slope from a
+    # saturated constant is the absence of a measurement, not evidence of
+    # content-contingency". The family had therefore already discounted the pooled
+    # number; this change makes the register emit what its consumers were reading
+    # around it, so the two cannot drift apart.
+    #
+    # WHAT IS *NOT* SCOPED. The per-seed confound VERDICT (`confounded_phases`,
+    # n_seeds_confounded, confound_verdict_stable) stays over ALL seeds, per the
+    # register's standing rule that confounded phases are reported and never dropped --
+    # off-scale bears on the magnitude, not on whether the phase is confounded. The
+    # per_seed_null_slope_ratio audit trail likewise stays complete, so a reader can
+    # always see the values the narrowing excluded.
+    #
+    # sws/nrem have no off-scale concept (the flag is rem-specific in the harness), so
+    # their predicate is trivially true and their statistics are unchanged. They are
+    # routed through the same helper deliberately: a uniform call site is what stops a
+    # future edit reintroducing an unscoped comprehension for one phase only.
+    def _ratio_on_scale(phase: str):
+        if phase != "rem":
+            return lambda s: True
+        return lambda s: not s["rem_ratio_off_scale"]
+
     phase_summary: Dict[str, Any] = {}
     for p in ("sws", "nrem", "rem"):
-        vals = [
-            s["null_slope_ratio"][p]
-            for s in seed_scores
-            if s["null_slope_ratio"][p] != H.UNAVAILABLE
-            and not math.isnan(s["null_slope_ratio"][p])
-        ]
-        n_conf = sum(1 for s in seed_scores if p in s["confounded_phases"])
         # Distribution, not just a mean -- the per-phase damage tolerance is strongly
         # heteroscedastic across seeds (778a: sws SD ~8.6e-9 vs rem SD ~0.396), so a
         # bare mean would hide that the rem leg's ratio is the seed-variable one.
-        mean_v = (sum(vals) / len(vals)) if vals else H.UNAVAILABLE
-        if len(vals) >= 2:
-            var = sum((v - mean_v) ** 2 for v in vals) / (len(vals) - 1)
-            sd = math.sqrt(var)
-            sem = sd / math.sqrt(len(vals))
-            ci_lo, ci_hi = mean_v - 1.96 * sem, mean_v + 1.96 * sem
-        else:
-            sd = ci_lo = ci_hi = H.UNAVAILABLE
+        stats = H.subgroup_ratio_stats(
+            seed_scores,
+            eligible=_ratio_on_scale(p),
+            value=lambda s, _p=p: s["null_slope_ratio"][_p],
+            ceiling=NULL_SLOPE_RATIO_CEILING,
+        )
+        n_conf = sum(1 for s in seed_scores if p in s["confounded_phases"])
         phase_summary[p] = {
-            "mean_null_slope_ratio": mean_v,
-            "sd_null_slope_ratio": sd,
-            "ci95_low": ci_lo,
-            "ci95_high": ci_hi,
-            "n_seeds_with_ratio": len(vals),
+            "mean_null_slope_ratio": stats["mean"],
+            "sd_null_slope_ratio": stats["sd"],
+            "ci95_low": stats["ci95_low"],
+            "ci95_high": stats["ci95_high"],
+            # The n BEHIND the mean/sd/CI -- i.e. the on-scale, finite subgroup.
+            "n_seeds_with_ratio": stats["subgroup_n"],
+            # The narrowing, emitted rather than silent (H.subgroup_ratio_stats
+            # contract). ratio_subgroup_basis names the predicate in words so the
+            # manifest is readable without the source.
+            "ratio_subgroup_n": stats["subgroup_n"],
+            "ratio_subgroup_n_eligible": stats["n_eligible"],
+            "ratio_subgroup_n_non_finite": stats["n_non_finite"],
+            "ratio_excluded_seeds": stats["excluded_seeds"],
+            "ratio_n_excluded": stats["n_excluded"],
+            "ratio_subgroup_basis": (
+                "on-scale seeds only (null_slope_ratio_rem_off_scale clear)"
+                if p == "rem"
+                else "all seeds (no off-scale condition on this phase)"
+            ),
+            # Audit trail: ALL seeds, unscoped, so the exclusion is checkable.
             "per_seed_null_slope_ratio": [s["null_slope_ratio"][p] for s in seed_scores],
             "n_seeds_confounded": n_conf,
             "confounded_all_seeds": bool(n_conf == n),
             "confound_verdict_stable": bool(n_conf == 0 or n_conf == n),
             # A ceiling INSIDE the CI means the confound verdict is not resolved for
             # this phase at this n -- reported so it cannot read as a clean verdict.
-            "ceiling_inside_ci95": bool(
-                ci_lo != H.UNAVAILABLE
-                and ci_lo <= NULL_SLOPE_RATIO_CEILING <= ci_hi
-            ),
+            # With an empty subgroup there is no interval and this degrades to False;
+            # ratio_subgroup_n == 0 is then the readout that carries the information.
+            "ceiling_inside_ci95": stats["ceiling_inside_ci95"],
         }
+        if p == "rem":
+            phase_summary[p]["per_seed_rem_ratio_off_scale"] = [
+                bool(s["rem_ratio_off_scale"]) for s in seed_scores
+            ]
+            phase_summary[p]["per_seed_null_rem_target_clamped_frac"] = [
+                s["null_rem_target_clamped_frac"] for s in seed_scores
+            ]
     c3_stable = all(v["confound_verdict_stable"] for v in phase_summary.values())
 
     confounded_all = sorted(
@@ -475,7 +543,15 @@ def run_experiment(*, dry_run: bool = False) -> Dict[str, Any]:
                 "positivity floor, 1/1e-3 = 1000 dominates the calibration error, so a "
                 "large rem null_slope_ratio is OFF-SCALE -- read it as 'this leg is "
                 "structurally content-free' (it is passthrough by construction at "
-                "step=1.0), NEVER as a calibrated N-fold noise sensitivity."
+                "step=1.0), NEVER as a calibrated N-fold noise sensitivity. Because "
+                "such a ratio is not on a common scale with the on-scale seeds', the "
+                "rem MAGNITUDE statistics (mean/sd/ci95/ceiling_inside_ci95) are "
+                "scoped to the on-scale subgroup -- see per_phase.rem."
+                "ratio_subgroup_n / ratio_excluded_seeds, and note that "
+                "ratio_subgroup_n == 0 means NO on-scale rem ratio exists at this n, "
+                "which is a stronger statement than a wide interval. The per-seed "
+                "confound VERDICT is unscoped: off-scale bears on magnitude, not on "
+                "whether the phase is confounded."
             ),
             "note": (
                 "A confounded phase's readout moves with sigma even with NO injected "
@@ -517,6 +593,12 @@ def run_experiment(*, dry_run: bool = False) -> Dict[str, Any]:
             f"ci95=[{_fmt(ps['ci95_low'])}, {_fmt(ps['ci95_high'])}] "
             f"confounded_seeds={ps['n_seeds_confounded']}/{n} "
             f"stable={ps['confound_verdict_stable']}"
+            # The narrowing is announced on the console too, not only in the manifest:
+            # a mean silently computed over a subset is the hazard H.subgroup_ratio_stats
+            # exists to prevent, and n/a with no reason given is its quieter cousin.
+            + (f" [magnitude over {ps['ratio_subgroup_n']}/{n} on-scale seeds;"
+               f" excluded {ps['ratio_excluded_seeds']}]"
+               if ps["ratio_n_excluded"] else "")
             + ("  [CEILING INSIDE CI -- verdict unresolved at this n]"
                if ps["ceiling_inside_ci95"] else ""),
             flush=True,
