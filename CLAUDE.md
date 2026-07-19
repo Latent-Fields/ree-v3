@@ -1182,6 +1182,16 @@ Three-layer test suite in `tests/`:
   `python3 scripts/run_regression_suite.py --changed <subsystem>` (~1-4s).
 - Before committing a cross-cutting change: `pytest tests/contracts -q` or
   `python3 scripts/run_regression_suite.py --contracts` (~14s).
+- **The FULL suite (`pytest tests/`, ~1800 tests, ~6 min) goes to a cloud worker,
+  not the Mac:** `/Users/dgolden/REE_Working/scripts/remote_pytest.sh`. It ships
+  your uncommitted edits and holds a cross-session lock. The targeted runs above
+  are seconds long -- keep those local; it is only the full suite, run by several
+  parallel sessions at once, that drives the laptop to load 25-30. Workers may
+  need waking (`hcloud server poweron ree-worker-3`) -- the scaler will not wake
+  one for a pytest run because it queues no claimable work. A worker-green result
+  is a pre-filter, not a gate: 4 contracts currently fail on the fleet and pass on
+  the Mac at the same commit (undiagnosed). See REE_Working/CLAUDE.md "Running the
+  test suite".
 - Preflight + contracts together:
   `python3 scripts/run_regression_suite.py --preflight && \
    python3 scripts/run_regression_suite.py --contracts`.
