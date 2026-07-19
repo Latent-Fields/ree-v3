@@ -75,13 +75,81 @@ DISTINCTION FROM MECH-313 (tonic)
 MECH-094
 
   simulation_mode=True returns the cached burst_level unchanged and does NOT
-  advance the EMA baseline, decay the envelope, or increment counters. Replay
-  / DMN content must not trigger waking phasic arousal (matches the
-  noise_floor / broadcast_override simulation_mode contract).
+  advance the EMA baseline, decay the envelope, or increment counters
+  (INCLUDING the SD-075 lifetime counters). Replay / DMN content must not
+  trigger waking phasic arousal (matches the noise_floor / broadcast_override
+  simulation_mode contract).
+
+SD-075: EPISODE-BOUNDARY BASELINE CONTINUITY + CONVERGENCE-GATED ACCOUNTING
+
+  THE DEFECT. As shipped, reset() cleared the surprise-EMA cold at every
+  episode boundary, and the first waking tick of an episode can never fire an
+  event (it seeds the baseline; `event_fired` requires `_ema_initialized`).
+  With surprise_ema_decay 0.1 the baseline has a ~10-tick time constant. A
+  seed whose episodes are SHORTER than that never runs against a converged
+  baseline, so n_event_ticks becomes a function of episode LENGTH rather than
+  of surprise.
+
+  This is not hypothetical. In V3-EXQ-779b
+  (v3_exq_779b_mech063_tonic_phasic_dissociation_20260718T233554Z_v3) seed 23
+  ran ~6.9-step episodes while seeds 29/37 ran 300-step episodes -- a 43x
+  spread. Raising seed 23's budget from 835 to 2400 env steps delivered those
+  steps as 345 episodes of ~7, NOT as longer episodes, and the
+  phasic_fires_real_events precondition did not move (6 vs threshold 10). No
+  step-budget increase can reach this: the binding axis is episode length.
+  Autopsy: REE_assembly evidence/planning/failure_autopsy_V3-EXQ-779b_2026-07-19.json.
+
+  LEG (a) -- baseline_continuity="carry". reset() preserves _surprise_ema and
+  _ema_initialized while still clearing the envelope, the cached delta, and
+  the PER-EPISODE diagnostics. The baseline then reflects the agent's surprise
+  distribution across its lifetime instead of the current episode's first
+  tick.
+
+  Biologically this is the faithful setting, and the shipped default is the
+  divergence: LC baseline adaptation is continuous across behavioural
+  episodes, and a baseline that resets at every episode boundary has no
+  biological counterpart. "reset" remains the DEFAULT purely for
+  bit-identical backward compatibility with every run recorded against
+  SD-069 -- not because it is the better model. New work should declare
+  "carry" deliberately.
+
+  A partial-decay "warm" mode (re-seed the new episode's baseline with a
+  fraction of the carried value) is DELIBERATELY NOT BUILT. It is a second
+  knob with no question that needs it; "carry" is the clean form and the
+  autopsy's requirement is satisfied by it.
+
+  LEG (b) -- warmup_ticks. Lifetime tick/episode counters survive reset() in
+  BOTH continuity modes. While _lifetime_ticks < resolved_warmup_ticks the
+  baseline is treated as unconverged and event ticks accrue to
+  n_events_prewarmup instead of n_events_converged.
+
+  ACCOUNTING ONLY -- IT DOES NOT SUPPRESS THE BURST. During warmup the
+  regulator still fires, still sets the envelope, and still perturbs the
+  softmax temperature exactly as before; only the REPORTING splits. This is
+  deliberate: suppressing the burst would change agent BEHAVIOUR in the first
+  ticks of a lifetime, layering a second mechanism change on top of the
+  continuity fix, and the MECH-063 (ii) retest would then confound the two.
+  The defect being repaired is a MEASUREMENT defect, so the gate is a
+  measurement instrument.
+
+  WHAT A CONSUMER SHOULD DO. Read n_events_converged (not n_events) as the
+  event count, and n_converged_ticks as its denominator. When
+  n_converged_ticks is too small to support the read, declare the cell
+  UNINFORMATIVE rather than reporting a near-zero count -- a MIN-across-cells
+  precondition otherwise treats a starved cell as a real measurement, which is
+  precisely how 779b was withheld.
+
+  BLAST RADIUS. Both fields are no-op by default, so every existing consumer
+  of phasic_surprise_burst is bit-identical. Note separately that ANY edit to
+  ree_core busts every experiments/_lib/probe_warmup.py cache, because
+  _warmup_key() hashes compute_substrate_hash(scope=None) -- the whole
+  substrate. That is by design there (a false HIT corrupts a conclusion, a
+  false MISS only wastes compute) and needs no WarmupRecipe change.
 """
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Dict, Optional
 
@@ -111,6 +179,22 @@ class PhasicSurpriseBurstConfig:
         excess_saturation : surprise-excess (s_t / baseline - trigger_ratio)
             at which the injection drive saturates to 1.0. Larger = a burst
             needs a bigger spike to reach full amplitude.
+        baseline_continuity : SD-075 leg (a). "reset" (default, no-op) clears
+            the surprise-EMA baseline at every episode boundary -- the SD-069
+            shipping behaviour. "carry" preserves the baseline across
+            reset(), so it reflects the agent's surprise distribution rather
+            than the current episode's first tick. See the SD-075 block in
+            the module docstring for why "carry" is the biologically faithful
+            setting and "reset" is nonetheless the default.
+        warmup_ticks : SD-075 leg (b). Number of LIFETIME waking ticks the
+            baseline is treated as unconverged. 0 (default, no-op) = no
+            gating. -1 = DERIVE as ceil(3 / surprise_ema_decay), i.e. three
+            EMA time constants (30 ticks at the default decay 0.1). A
+            positive value is used verbatim. Gates ACCOUNTING ONLY: the
+            regulator still fires and still perturbs temperature during
+            warmup; the event counts are merely split into pre-warmup and
+            converged so a consumer can report honestly or declare the cell
+            uninformative. See the SD-075 block for why it does not suppress.
     """
 
     enabled: bool = True
@@ -121,6 +205,9 @@ class PhasicSurpriseBurstConfig:
     decay: float = 0.5
     min_temperature: float = 0.1
     excess_saturation: float = 1.0
+    # SD-075. Both no-op by default -> SD-069 behaviour is bit-identical.
+    baseline_continuity: str = "reset"
+    warmup_ticks: int = 0
 
 
 class PhasicSurpriseBurst:
@@ -172,6 +259,32 @@ class PhasicSurpriseBurst:
             raise ValueError(
                 f"excess_saturation must be > 0. Got {c.excess_saturation}."
             )
+        # SD-075 leg (a).
+        if str(c.baseline_continuity) not in ("reset", "carry"):
+            raise ValueError(
+                "baseline_continuity must be 'reset' (per-episode cold clear, "
+                "SD-069 default) or 'carry' (preserve the surprise-EMA across "
+                f"episode boundaries, SD-075). Got {c.baseline_continuity!r}."
+            )
+        # SD-075 leg (b). 0 = OFF, -1 = DERIVE, positive = verbatim. Any other
+        # negative value is a typo for -1 and must not silently mean OFF.
+        wt = int(c.warmup_ticks)
+        if wt < -1:
+            raise ValueError(
+                "warmup_ticks must be 0 (no gating), -1 (derive as "
+                "ceil(3 / surprise_ema_decay)), or a positive tick count. Got "
+                f"{wt}."
+            )
+        if wt == -1:
+            wt = int(math.ceil(3.0 / float(c.surprise_ema_decay)))
+        self._resolved_warmup_ticks: int = wt
+        # SD-075: LIFETIME counters -- these survive reset() in BOTH continuity
+        # modes, because the convergence question is about the regulator's
+        # whole history, not the current episode.
+        self._lifetime_ticks: int = 0
+        self._lifetime_episodes: int = 0
+        self._n_events_converged: int = 0
+        self._n_events_prewarmup: int = 0
         # Per-episode state.
         self._surprise_ema: float = 0.0
         self._ema_initialized: bool = False
@@ -208,6 +321,11 @@ class PhasicSurpriseBurst:
 
         s_t = max(0.0, float(surprise))
         self._n_waking_ticks += 1
+        # SD-075 leg (b): the convergence verdict for THIS tick is taken
+        # BEFORE incrementing, so the first lifetime tick (which only seeds the
+        # baseline and cannot fire) is counted as pre-warmup, not converged.
+        tick_is_converged = self._lifetime_ticks >= self._resolved_warmup_ticks
+        self._lifetime_ticks += 1
         self._last_surprise = s_t
 
         # Decay the existing envelope first (a tick with no event still lets
@@ -232,6 +350,15 @@ class PhasicSurpriseBurst:
             # still-decaying burst.
             new_level = max(decayed, drive)
             self._n_events += 1
+            # SD-075 leg (b): ACCOUNTING ONLY. The burst above is unchanged --
+            # the envelope is set and the temperature will be perturbed
+            # whether or not the baseline has converged. Only the bookkeeping
+            # splits, so a consumer can exclude events measured against an
+            # unconverged baseline without altering behaviour.
+            if tick_is_converged:
+                self._n_events_converged += 1
+            else:
+                self._n_events_prewarmup += 1
         else:
             new_level = decayed
 
@@ -276,9 +403,29 @@ class PhasicSurpriseBurst:
     # Lifecycle
     # ------------------------------------------------------------------
     def reset(self) -> None:
-        """Clear per-episode EMA baseline, envelope, and diagnostics."""
-        self._surprise_ema = 0.0
-        self._ema_initialized = False
+        """Clear per-episode envelope and diagnostics.
+
+        SD-075 leg (a): whether the surprise-EMA baseline is ALSO cleared is
+        governed by config.baseline_continuity.
+
+          "reset" (default) -- clear it. SD-069 shipping behaviour, retained
+              bit-identically. Each episode re-seeds its baseline from its own
+              first tick, which is the defect documented in the module
+              docstring; kept as the default only for backward compatibility.
+          "carry" -- preserve it. The envelope, the cached temperature delta,
+              and the per-episode diagnostics are still cleared, so an
+              in-flight burst never leaks across an episode boundary; only the
+              slow baseline persists, which is the LC-faithful behaviour.
+
+        The SD-075 LIFETIME counters are never cleared here in either mode --
+        they measure the regulator's whole history, which is what the
+        convergence gate is a question about. Use a fresh instance for a fresh
+        lifetime.
+        """
+        self._lifetime_episodes += 1
+        if str(self.config.baseline_continuity) == "reset":
+            self._surprise_ema = 0.0
+            self._ema_initialized = False
         self._burst_level = 0.0
         self._temperature_delta = 0.0
         self._last_surprise = 0.0
@@ -298,6 +445,28 @@ class PhasicSurpriseBurst:
             "n_events": int(self._n_events),
             "n_waking_ticks": int(self._n_waking_ticks),
             "n_simulation_skips": int(self._n_simulation_skips),
+            # ---- SD-075 ----
+            # Config echo, so a manifest reader can tell which regime ran
+            # without re-deriving it from the experiment's config block.
+            "baseline_continuity": str(self.config.baseline_continuity),
+            "warmup_ticks": int(self._resolved_warmup_ticks),
+            "warmup_ticks_derived": bool(int(self.config.warmup_ticks) == -1),
+            # Lifetime accounting (survives reset() in both continuity modes).
+            "lifetime_ticks": int(self._lifetime_ticks),
+            "lifetime_episodes": int(self._lifetime_episodes),
+            "baseline_converged": bool(
+                self._lifetime_ticks >= self._resolved_warmup_ticks
+            ),
+            "n_converged_ticks": int(
+                max(0, self._lifetime_ticks - self._resolved_warmup_ticks)
+            ),
+            "n_prewarmup_ticks": int(
+                min(self._lifetime_ticks, self._resolved_warmup_ticks)
+            ),
+            # THE event count a consumer should read. n_events above is the
+            # unsplit total and is retained only for SD-069 continuity.
+            "n_events_converged": int(self._n_events_converged),
+            "n_events_prewarmup": int(self._n_events_prewarmup),
         }
 
     # Alias for parity with broadcast_override's `.diagnostics` property.

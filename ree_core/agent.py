@@ -961,6 +961,13 @@ class REEAgent(nn.Module):
                 temp_delta=config.phasic_burst_temp_delta,
                 decay=config.phasic_burst_decay,
                 min_temperature=config.phasic_burst_min_temperature,
+                # SD-075: episode-boundary baseline continuity + convergence-
+                # gated event accounting. Both getattr-defaulted to the SD-069
+                # no-op values so an older config object still constructs.
+                baseline_continuity=getattr(
+                    config, "phasic_burst_baseline_continuity", "reset"
+                ),
+                warmup_ticks=getattr(config, "phasic_burst_warmup_ticks", 0),
             )
             self.phasic_burst = PhasicSurpriseBurst(config=pb_cfg)
 
@@ -2701,9 +2708,17 @@ class REEAgent(nn.Module):
             self.gated_policy.reset()
         if self.noise_floor is not None:
             self.noise_floor.reset()
-        # SD-069 (MECH-063 ii): reset the phasic surprise-burst EMA baseline
-        # and envelope per episode (fresh surprise stream each episode;
-        # mirrors the noise_floor / tonic_vigor per-episode reset).
+        # SD-069 (MECH-063 ii): end-of-episode boundary for the phasic
+        # surprise-burst. The envelope, cached delta, and per-episode
+        # diagnostics are always cleared here.
+        #
+        # SD-075: whether the surprise-EMA BASELINE is also cleared is now the
+        # regulator's decision, via phasic_burst_baseline_continuity. Default
+        # "reset" keeps the original mirror-the-noise_floor behaviour
+        # bit-identically; "carry" preserves the baseline across episodes
+        # because a per-episode cold reset makes n_event_ticks a function of
+        # episode LENGTH rather than surprise (V3-EXQ-779b seed 23). Do NOT
+        # re-add a baseline clear here -- it would defeat "carry" silently.
         if self.phasic_burst is not None:
             self.phasic_burst.reset()
         # MECH-314 (ARC-065): reset structured-curiosity diagnostics + 314c

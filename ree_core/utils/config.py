@@ -2872,6 +2872,38 @@ class REEConfig:
     # salience, not a smoothed average). No-op default keeps existing
     # experiments bit-identical.
     phasic_burst_signal_source: str = "running_variance"
+    # SD-075 leg (a): episode-boundary continuity of the surprise-EMA
+    # baseline. "reset" (default, no-op) clears it at every episode boundary
+    # -- the SD-069 shipping behaviour, retained bit-identically. "carry"
+    # preserves it across episodes so the baseline reflects the agent's
+    # surprise distribution rather than the current episode's first tick.
+    #
+    # WHY THIS EXISTS: with a per-episode cold reset the first tick of an
+    # episode cannot fire (it seeds the baseline) and the ~10-tick EMA time
+    # constant (decay 0.1) exceeds a short seed's whole episode, so
+    # n_event_ticks measures episode LENGTH rather than surprise. V3-EXQ-779b
+    # seed 23 ran ~6.9-step episodes against seeds 29/37 at 300 steps (43x);
+    # raising its budget 835 -> 2400 env steps bought 345 MORE short episodes
+    # and the phasic_fires_real_events precondition did not move. "carry" is
+    # also the biologically faithful setting (LC baseline adaptation is
+    # continuous across behavioural episodes); "reset" is the default only for
+    # backward compatibility. See
+    # REE_assembly/docs/architecture/sd_075_phasic_ema_episode_continuity.md.
+    phasic_burst_baseline_continuity: str = "reset"
+    # SD-075 leg (b): lifetime waking ticks for which the baseline counts as
+    # unconverged. 0 (default, no-op) = no gating; -1 = DERIVE as
+    # ceil(3 / phasic_burst_surprise_ema_decay) = 3 EMA time constants (30 at
+    # the default decay); positive = verbatim.
+    #
+    # ACCOUNTING ONLY -- it does NOT suppress the burst. During warmup the
+    # regulator still fires and still perturbs the softmax temperature; only
+    # the event counts split into n_events_prewarmup / n_events_converged, so
+    # a consumer can report honestly (or declare a cell UNINFORMATIVE) instead
+    # of emitting a near-zero count that a MIN-across-cells precondition then
+    # treats as a real measurement. Suppression was rejected because it would
+    # change behaviour in the first ticks of a lifetime and confound the
+    # MECH-063 (ii) retest with a second mechanism change.
+    phasic_burst_warmup_ticks: int = 0
 
     # ----------------------------------------------------------------
     # MECH-314 (ARC-065): structured_curiosity_bonus. Frontopolar
@@ -4930,6 +4962,8 @@ class REEConfig:
         phasic_burst_decay: float = 0.5,
         phasic_burst_min_temperature: float = 0.1,
         phasic_burst_signal_source: str = "running_variance",
+        phasic_burst_baseline_continuity: str = "reset",
+        phasic_burst_warmup_ticks: int = 0,
         # MECH-314 (ARC-065): structured_curiosity_bonus (frontopolar /
         # EFE analog) + 3 sub-flavour switches (314a/b/c)
         use_structured_curiosity: bool = False,
@@ -6048,6 +6082,9 @@ class REEConfig:
         config.phasic_burst_decay = phasic_burst_decay
         config.phasic_burst_min_temperature = phasic_burst_min_temperature
         config.phasic_burst_signal_source = phasic_burst_signal_source
+        # SD-075.
+        config.phasic_burst_baseline_continuity = phasic_burst_baseline_continuity
+        config.phasic_burst_warmup_ticks = phasic_burst_warmup_ticks
 
         # MECH-314 (ARC-065): structured_curiosity_bonus
         config.use_structured_curiosity = use_structured_curiosity
