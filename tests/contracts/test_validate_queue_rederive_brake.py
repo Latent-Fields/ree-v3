@@ -10,10 +10,13 @@ This suite locks it in.
 
 The brake re-applies the /queue-experiment Step 2.5b + /failure-autopsy Step 7
 counting logic: for a queued item tagging a claim with
->= RE_DERIVE_BRAKE_THRESHOLD (default 2) substrate_ceiling/non_contributory
-autopsies (one hit per failure_autopsy_*.json per claim, matched on
-'substrate_ceiling' in recommended_epistemic_category OR 'non_contributory' in
-recommended_evidence_direction) whose named upstream substrate
+>= RE_DERIVE_BRAKE_THRESHOLD (default 2) counted autopsies (one hit per
+failure_autopsy_*.json per claim; the counting predicate is
+validate_queue._autopsy_counts_toward_brake -- a genuine substrate_ceiling
+category, or a non_contributory direction that is neither an instrument /
+measurement defect owing no build nor an explicit producer release; that
+category exclusion landed 2026-07-20 and is pinned separately in
+test_validate_queue_rederive_brake_category.py) whose named upstream substrate
 (recommended_substrate_queue_entry.target_sd_id / sd_id_suggested /
 re_derive_brake.upstream_substrate) is NOT shown IMPLEMENTED/VALIDATED on a
 single ree-v3/CLAUDE.md line, it appends a non-blocking _LAST_WARNINGS advisory.

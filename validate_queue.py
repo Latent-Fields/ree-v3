@@ -294,6 +294,36 @@ RE_DERIVE_BRAKE_THRESHOLD = 2
 # recommended_substrate_queue_entry names the current upstream substrate).
 RE_AUTOPSY_DATE = re.compile(r"_(\d{4}-\d{2}-\d{2})\.json$")
 
+# Epistemic-category markers for an INSTRUMENT / MEASUREMENT defect -- a run that
+# failed to MEASURE its DV, not a claim that hit a substrate ceiling. Such an autopsy
+# almost always carries recommended_evidence_direction "non_contributory" (the run
+# measured nothing usable), so a direction-only predicate counts it toward the brake
+# even when the autopsy explicitly states no substrate build is owed -- inverting the
+# brake's purpose, since instrument repair is exactly the right route and the brake
+# exists to divert to /implement-substrate. Confirmed 2026-07-20: MECH-448 tripped the
+# threshold on 3 measurement_test_design_defect autopsies (689d, 689d-D3, 699), all
+# recording action "none" + "the substrate is built and validated -- this is instrument
+# repair, not a substrate gap"; the ARC-110 V3-EXQ-707c author independently hit the
+# same false positive. Both had to be adjudicated released by hand.
+RE_DERIVE_INSTRUMENT_CATEGORY_MARKERS = (
+    "measurement",
+    "instrumentation",
+    "test_design",
+    "test-design",
+    "vacuous_pass",
+)
+
+# A category may NEGATE a ceiling in prose ("measurement_calibration_not_substrate_ceiling",
+# "precondition_unmet (642-pattern, NOT substrate_ceiling)"). Strip those occurrences
+# before asking whether a genuine substrate_ceiling reading survives.
+RE_NEGATED_CEILING = re.compile(r"not[_ -]+substrate_ceiling")
+
+# Substrate-queue actions that OWE a build. An instrument-category autopsy that still
+# names a substrate to create/amend is routing to /implement-substrate anyway, so it
+# KEEPS counting: a re-test before that build lands does re-derive the ceiling
+# regardless of how the category was labelled.
+RE_DERIVE_BUILD_OWING_ACTIONS = ("create", "amend")
+
 # ------------------------------------------------------------------
 # Field specs: (field_name, required, expected_type_or_None_for_any)
 # ------------------------------------------------------------------
@@ -419,8 +449,80 @@ def _read_ree_v3_claude_md() -> str:
     return ""
 
 
+def _autopsy_owes_substrate_build(target: dict) -> bool:
+    """True iff the target's recommended_substrate_queue_entry.action owes a build
+    (create/amend). An autopsy that owes a build routes to /implement-substrate, so it
+    counts toward the brake whatever its epistemic category says."""
+    rsqe = target.get("recommended_substrate_queue_entry") or {}
+    if not isinstance(rsqe, dict):
+        return False
+    action = str(rsqe.get("action") or "").strip().lower()
+    return action in RE_DERIVE_BUILD_OWING_ACTIONS
+
+
+def _autopsy_counts_toward_brake(target: dict) -> bool:
+    """Does this autopsy target count toward the MOVE-3 re-derive brake?
+
+    The brake exists to stop a claim being re-tested letter after letter against a
+    substrate ceiling that has already been autopsied twice or more. It must therefore
+    count the epistemic CATEGORY, not the evidence DIRECTION alone -- an instrument
+    repair carries direction "non_contributory" but owes no substrate build, and
+    braking it is the opposite of the brake's purpose (see
+    RE_DERIVE_INSTRUMENT_CATEGORY_MARKERS).
+
+    Order matters:
+      1. A GENUINE substrate_ceiling reading always counts (a category that merely
+         negates a ceiling in prose does not qualify).
+      2. Otherwise an INSTRUMENT/MEASUREMENT category that owes NO build does not count.
+      3. Otherwise an EXPLICIT producer release does not count -- but only in the
+         unambiguous form `fired: false` AND `literal_count_meets_threshold: true`,
+         i.e. the producer saw the count meet the threshold and still chose to release.
+         A bare `fired: false` is NOT authoritative: it is the value every first
+         autopsy in a lineage carries (count below threshold at write time), and
+         honouring it blanket would drop 42 counted targets corpus-wide and gut the
+         brake. Measured 2026-07-20: 42 counted targets carry `fired: false`, exactly
+         ONE carries `literal_count_meets_threshold`.
+      4. Otherwise fall back to the direction reading.
+    """
+    cat = str(target.get("recommended_epistemic_category") or "")
+    direction = str(target.get("recommended_evidence_direction") or "")
+    if not ("substrate_ceiling" in cat or "non_contributory" in direction):
+        return False
+
+    cat_low = cat.lower()
+    # (1) A genuine ceiling reading survives stripping any negated occurrences.
+    if "substrate_ceiling" in cat_low and "substrate_ceiling" in RE_NEGATED_CEILING.sub(
+        "", cat_low
+    ):
+        return True
+
+    owes_build = _autopsy_owes_substrate_build(target)
+
+    # (2) Instrument / measurement defect that owes no build -- instrument repair.
+    if not owes_build and any(
+        m in cat_low for m in RE_DERIVE_INSTRUMENT_CATEGORY_MARKERS
+    ):
+        return False
+
+    # (3) Explicit, unambiguous producer release.
+    rdb = target.get("re_derive_brake") or {}
+    if (
+        not owes_build
+        and isinstance(rdb, dict)
+        and rdb.get("fired") is False
+        and rdb.get("literal_count_meets_threshold") is True
+    ):
+        return False
+
+    return True
+
+
 def _scan_substrate_ceiling_autopsies() -> "dict[str, list[tuple[str, str, dict]]]":
-    """Scan failure_autopsy_*.json for substrate_ceiling / non_contributory readings.
+    """Scan failure_autopsy_*.json for autopsies that count toward the re-derive brake.
+
+    Counting predicate: `_autopsy_counts_toward_brake` (genuine substrate_ceiling, or a
+    non_contributory reading that is neither an instrument/measurement defect owing no
+    build nor an explicit producer release).
 
     Returns claim_id -> list of (autopsy_filename, date_str, matching_target_dict),
     one entry per (file, claim) using the first matching target in that file --
@@ -444,9 +546,7 @@ def _scan_substrate_ceiling_autopsies() -> "dict[str, list[tuple[str, str, dict]
         for t in data.get("targets", []) or []:
             if not isinstance(t, dict):
                 continue
-            cat = str(t.get("recommended_epistemic_category") or "")
-            direction = str(t.get("recommended_evidence_direction") or "")
-            if not ("substrate_ceiling" in cat or "non_contributory" in direction):
+            if not _autopsy_counts_toward_brake(t):
                 continue
             for claim in t.get("claim_ids", []) or []:
                 if isinstance(claim, str) and claim not in first_match:
@@ -762,8 +862,10 @@ def validate(queue_path: Path = QUEUE_FILE) -> list[str]:
                     )
                     _LAST_WARNINGS.append(
                         f"{prefix}: re-derive brake -- claim '{_claim}' has "
-                        f"{len(_counted)} substrate_ceiling/non_contributory autopsies "
-                        f"on record (recent: {_slugs}) and {_sub_txt}. A same-granularity "
+                        f"{len(_counted)} counted substrate_ceiling/non_contributory "
+                        f"autopsies on record (instrument-repair autopsies owing no "
+                        f"substrate build are excluded) "
+                        f"(recent: {_slugs}) and {_sub_txt}. A same-granularity "
                         f"lettered re-test re-derives the ceiling; build the upstream "
                         f"substrate via /implement-substrate first (see /queue-experiment "
                         f"Step 2.5b). EXEMPT (verify, then ignore): a redesign of a "
