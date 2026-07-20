@@ -4946,6 +4946,21 @@ class REEAgent(nn.Module):
         Layer 2 (MECH-091 urgency interrupt): when beta is elevated and z_harm_a
         norm exceeds urgency_interrupt_threshold, abort commitment and re-select.
         """
+        # MECH-204 Phase 7 / Option B: accuracy-anchored BROADCAST recalibration.
+        # Applied at the TOP of select_action so the anchored running_variance is
+        # what this tick's commit gate (running_variance < commit_threshold) and
+        # current_precision consumers actually see. Reads the F1 cumulative
+        # reference (_persistent_zero_point) per lit choice (a); runs alongside
+        # the per-cycle F1 WRITEBACK lever, not instead of it. Ungated from V4
+        # deferral by the confirmed failure_autopsy_V3-EXQ-774_2026-07-17.
+        # No-op unless the master flag is on AND a REM phase has been entered
+        # (compute_recalibration_target returns 0.0 as the "no target" sentinel).
+        if getattr(self.config, "use_rem_precision_broadcast", False):
+            self.e3.broadcast_precision_pull(
+                target_precision=self.serotonin.compute_recalibration_target(),
+                gain=float(getattr(self.config, "rem_precision_broadcast_gain", 0.0)),
+            )
+
         # SD-011: extract z_harm_a for E3 urgency gating and ethical cost amplification.
         z_harm_a = None
         if self._current_latent is not None and self._current_latent.z_harm_a is not None:
@@ -8664,6 +8679,66 @@ class REEAgent(nn.Module):
                          info["sd049_consumed_type_tag_this_tick"]. Only consumed by
                          the SD-057 incentive bank; ignored (legacy path) otherwise.
         """
+        # SD-024 LIVE-PATH PRODUCER (2026-07-20): write the benefit attractor at
+        # the consummatory contact location. This is the missing producer -- until
+        # this block existed, ResidueField.accumulate_benefit had NO caller in
+        # ree_core/ (its only write sites are field.py:673 and :682), so
+        # benefit_rbf_field stayed empty in every live run,
+        # RBFLayer.compute_local_density early-returned zeros on the empty active
+        # mask, and the SD-025 curiosity bonus in
+        # HippocampalModule._curiosity_bonus was exactly 0.0 on every call
+        # (novelty = density * (1 - familiarity) = 0) regardless of
+        # curiosity_weight.
+        #
+        # Site rationale: update_z_goal is the canonical reward-CONTACT hook and
+        # carries both ingredients accumulate_benefit's docstring names for the
+        # SD-024 phasic DA signal -- benefit_exposure and drive_level. The
+        # MECH-303 safety terrain (accumulate_safety, in sense()) is the closest
+        # structural precedent, but it lives per-tick in sense() because passive
+        # safety accrues continuously; benefit accrues on contact, so the
+        # consummatory path is the correct analog rather than a literal mirror.
+        #
+        # THIS BLOCK DELIBERATELY PRECEDES THE goal_state GUARD BELOW. The benefit
+        # terrain is a ResidueField concern and SD-024 has no dependency on
+        # GoalState; gating accumulation on goal_state being non-None would make
+        # the terrain silently un-populatable for every config that runs the
+        # curiosity drive without goal seeding -- a second instance of exactly the
+        # no-producer defect this block exists to fix. This is not hypothetical:
+        # the block was FIRST written after the guard, and contracts C2/C4/C5 in
+        # tests/contracts/test_sd024_benefit_terrain_live_producer.py failed at 0
+        # active centers because the default config has goal_state None.
+        #
+        # dopamine_signal uses the BASE drive_level, not pacc.effective_drive nor
+        # the SD-037 override-amplified value computed further down: both of those
+        # are goal-SEEDING gains (they scale how hard z_goal is pulled), whereas
+        # the SD-012 phasic reward signal accumulate_benefit documents is
+        # benefit_magnitude * drive_level.
+        #
+        # MECH-094: update_z_goal is a waking path, but the tag is read off the
+        # live latent rather than hardcoded False so a future replay/DMN caller
+        # cannot build benefit terrain by accident. accumulate_benefit applies the
+        # gate internally too (field.py:665) -- belt-and-braces, and the explicit
+        # read is what makes the guarantee auditable at the call site.
+        if (
+            getattr(self.config.residue, "benefit_terrain_live_producer", False)
+            and self._current_latent is not None
+            and self._current_latent.z_world is not None
+        ):
+            producer_thresh = float(
+                getattr(
+                    self.config.residue, "benefit_live_producer_threshold", 0.1
+                )
+            )
+            if float(benefit_exposure) >= producer_thresh:
+                self.residue_field.accumulate_benefit(
+                    self._current_latent.z_world,
+                    benefit_magnitude=float(benefit_exposure),
+                    hypothesis_tag=bool(
+                        getattr(self._current_latent, "hypothesis_tag", False)
+                    ),
+                    dopamine_signal=float(benefit_exposure) * float(drive_level),
+                )
+
         if self.goal_state is None or self._current_latent is None:
             return
 

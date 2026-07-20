@@ -483,6 +483,35 @@ class E3Config:
     precision_ema_alpha: float = 0.05     # EMA decay for running variance estimate
     precision_init: float = 0.5          # initial running variance (starts uncommitted)
 
+    # SD-076: waking confidence-inflation source (asymmetric precision EMA).
+    # PROBLEM this solves (V3-EXQ-774 / failure_autopsy 2026-07-17): the
+    # symmetric EMA in update_running_variance makes _running_variance a
+    # faithful tracker of true prediction error, so rv ~= true error BY
+    # CONSTRUCTION. The MECH-173 overconfidence_index -- (true_error_ref -
+    # mean_rv) / true_error_ref -- is therefore pinned near zero no matter what
+    # is ablated (774 measured -0.0001 / -0.0009 on the suppressed arms). The
+    # agent cannot express ABSOLUTE overconfidence, so MECH-204's corrective
+    # function has nothing to correct and the DV is a tautology, not a null.
+    # MECHANISM: asymmetric EMA -- rv falls FAST when error improves
+    # (alpha * (1 + asymmetry)) and rises SLOWLY when error worsens
+    # (alpha * (1 - asymmetry)). Net effect is a systematic UNDER-estimate of
+    # true error = genuine waking overconfidence, which sleep recalibration
+    # (MECH-204 F1 per-cycle + Phase 7 Option B per-step) can then correct.
+    # Biological grounding: optimism / positive-outcome bias in waking belief
+    # updating; the "sleep corrects daytime drift" framing MECH-204 rests on
+    # presupposes a daytime drift source, which V3 did not have until now.
+    # asymmetry=0.0 is symmetric == current behaviour; the OFF path is gated
+    # on the master flag and is BIT-IDENTICAL (the original expression is
+    # evaluated unchanged, not re-derived at asymmetry 0).
+    use_waking_confidence_inflation: bool = False
+    # Asymmetry in [0, 1). 0.0 = symmetric. Higher = stronger inflation.
+    waking_confidence_inflation_asymmetry: float = 0.0
+    # Floor on the inflated running variance. rv feeds an ABSOLUTE commit
+    # threshold (commitment_threshold) and current_precision = 1/(rv + 1e-6),
+    # so unbounded downward drift would both pin the agent permanently
+    # "committed" and explode precision. Applied ONLY on the inflation path.
+    waking_confidence_rv_floor: float = 0.01
+
     # SD-063: conditional predictive-precision commit gate. When True AND a
     # conditional_predictive_variance is passed to select(), the ARC-016 commit
     # decision compares that per-input predictive variance (from the SD-063
@@ -1698,7 +1727,24 @@ class HippocampalConfig:
     curiosity_weight: float = 0.0
     familiarity_ema_alpha: float = 0.01
     use_curiosity_familiarity: bool = True
-    familiarity_bandwidth: float = 1.0
+    # Lowered 1.0 -> 0.20 on 2026-07-20. FamiliarityTracker.query is a CLAMPED SUM
+    # over anchors (curiosity.py:72-100), not a normalised average, and the same
+    # constant is the association threshold in update() (thresh_sq = bw*bw,
+    # curiosity.py:115). At bw=1.0 a visited state activates only ~3 anchors whose
+    # near-unit weights pin the clamp at 1.0, so familiarity saturates and the
+    # (1 - familiarity) novelty discount collapses to 0. V3-EXQ-786a swept this on
+    # real z_world: 0.05 -> +0.019, 0.10 -> +0.103, 0.20 -> +0.171, 0.30 -> +0.065,
+    # 0.50 -> -0.053 (INVERTED), 1.00 -> +0.000. The old default was the one value
+    # measured at exactly zero effect -- the degenerate case, not a safe choice.
+    # Same root cause as SD-067's dedicated safety bandwidth: the shared 1.0 is
+    # ~15x too wide for the z_world residual scale.
+    #
+    # Consulted ONLY when curiosity_weight > 0 (default 0.0), so this is a no-op
+    # for every default config; it changes behaviour only for curiosity-enabled
+    # scripts that relied on the default -- none of which received a non-zero
+    # bonus anyway, because the benefit terrain was never populated (see
+    # ResidueConfig.benefit_terrain_live_producer).
+    familiarity_bandwidth: float = 0.20
     # MECH-267: mode-conditioned hippocampal proposals (Pfeiffer & Foster 2013).
     # When enabled and an operating_mode dict is supplied to
     # propose_trajectories(), the per-mode noise multiplier is applied to the
@@ -1932,6 +1978,31 @@ class ResidueConfig:
     integration_rate: float = 0.01
     # ARC-030 / MECH-117: benefit terrain (liking -- separate from z_goal wanting)
     benefit_terrain_enabled: bool = False
+    # SD-024 live-path producer (2026-07-20). benefit_terrain_enabled builds the
+    # field and enables the READ (evaluate_benefit / compute_benefit_density), but
+    # until this flag existed nothing in ree_core/ ever CALLED accumulate_benefit --
+    # its only two write sites (field.py:673, :682) had no caller outside
+    # experiments/ and tests/. Consequence: benefit_rbf_field.active_mask stayed
+    # empty in every live run, compute_local_density early-returned zeros on the
+    # empty mask, and the SD-025 curiosity bonus was therefore exactly 0.0 on every
+    # call regardless of curiosity_weight.
+    #
+    # When True, REEAgent.update_z_goal() writes a benefit attractor at the
+    # consummatory contact location, supplying dopamine_signal =
+    # benefit_exposure * effective_drive (the SD-012 phasic reward signal named in
+    # accumulate_benefit's own docstring).
+    #
+    # Deliberately a SEPARATE flag rather than reusing benefit_terrain_enabled:
+    # V3-EXQ-767/767a set benefit_terrain_enabled=True and populate the terrain
+    # THEMSELVES via direct rf.accumulate_benefit() calls. Gating the live producer
+    # on benefit_terrain_enabled would silently double-populate those in-vitro
+    # designs on re-run. Default False -> bit-identical for every existing config.
+    benefit_terrain_live_producer: bool = False
+    # Consummatory-contact gate for the live producer, mirroring the
+    # liking_threshold convention used by REEAgent.update_liking(): below this
+    # benefit_exposure the contact is proximity gradient, not consumption, and must
+    # not lay down benefit terrain.
+    benefit_live_producer_threshold: float = 0.1
     # MECH-303: contextual passive safety terrain (separate from benefit_terrain and VALENCE_LIKING).
     # Accumulates harm-absence signal per step at current z_world; read in select_action()
     # to lower background avoidance commitment. Disabled by default (bit-identical OFF).
@@ -4278,6 +4349,41 @@ class REEConfig:
     # See REE_assembly/evidence/literature/targeted_review_q_042/ for the
     # biological-defensibility band derivation.
     rem_precision_recalibration_step: float = 0.25
+
+    # MECH-204 Phase 7 / Option B: accuracy-anchored BROADCAST recalibration.
+    # Ungated from the V4-deferred state 2026-07-20 by the confirmed
+    # failure_autopsy_V3-EXQ-774_2026-07-17 (adjudicated substrate_ceiling:
+    # "F1 alone insufficient" -- precision saturates before the per-cycle
+    # WRITEBACK lever gains headroom; effect present on 1/3 seeds only).
+    # WHAT IT DOES: reads serotonin.compute_recalibration_target() -- the F1
+    # cumulative _persistent_zero_point, lit choice (a) per
+    # evidence/literature/targeted_review_rem_precision_recalibration_timing/
+    # SYNTHESIS.md (Hobson-Hong-Friston 2014 + Walker-Stickgold 2006) -- at
+    # select_action() time each waking step, and pulls E3._running_variance
+    # toward it by rem_precision_broadcast_gain. Runs ALONGSIDE F1, not
+    # replacing it (the Q-042 dual-arm pattern).
+    # WHY IT IS NOT A SCORE BIAS: the 2026-05-09 spec said "additive bias on
+    # E3 score". A BROADCAST scalar is one value for all K candidates, and
+    # e3_selector applies score_bias as `scores = scores + bias_tensor` --
+    # a uniform shift, which is invariant under argmax AND softmax. Every
+    # downstream consumer is relative (raw_scores.max() - raw_scores[i],
+    # raw_score_range, topk, cutoff/envelope) and several read raw_scores,
+    # which score_bias never touches. The spec'd site is provably
+    # SELECTION-INERT -- it would register a nonzero modulatory channel while
+    # changing no behaviour (exactly what the inert_arm_knob lint catches).
+    # The lit-pull adjudicated WHAT TO READ, never WHERE TO WRITE. Precision
+    # space is the non-inert site: rv feeds the ABSOLUTE commit threshold
+    # (running_variance < commit_threshold) and current_precision =
+    # 1/(rv + 1e-6), and it is where V3-EXQ-774's own DV lives. Write-site
+    # correction recorded in evidence/planning/sleep_substrate_plan.md
+    # decision log 2026-07-20. Bit-identical OFF preserved.
+    use_rem_precision_broadcast: bool = False
+    # Per-step pull strength in [0, 1]. This is a PER-WAKING-STEP gain, so it
+    # must be far smaller than rem_precision_recalibration_step (which fires
+    # once per sleep cycle): at 0.01 and ~200 steps/episode the broadcast
+    # applies a gentle continuous anchor rather than a jolt. 0.0 = no pull.
+    rem_precision_broadcast_gain: float = 0.0
+
     # Offline learning-rate scale relative to the waking E2_harm_s LR.
     # Default 0.1 per the C6 architectural commitment.
     mech273_offline_lr_scale: float = 0.1
@@ -5571,6 +5677,10 @@ class REEConfig:
         # dataclass for V3-EXQ-541c rationale + the biologically-defensible
         # band {0.05, 0.10, 0.25} per Q-042 Option A verdict.
         rem_precision_recalibration_step: float = 0.25,
+        # MECH-204 Phase 7 / Option B: broadcast read at select_action time.
+        # Per-step gain -- keep well below the per-cycle recalibration step.
+        use_rem_precision_broadcast: bool = False,
+        rem_precision_broadcast_gain: float = 0.0,
         mech273_offline_lr_scale: float = 0.1,
         mech273_offline_n_steps: int = 100,
         mech273_partial_decay_factor: float = 0.5,
@@ -6726,6 +6836,8 @@ class REEConfig:
         # MECH-204 Option A: precision recalibration consumer
         config.use_rem_precision_recalibration = use_rem_precision_recalibration
         config.rem_precision_recalibration_step = rem_precision_recalibration_step
+        config.use_rem_precision_broadcast = use_rem_precision_broadcast
+        config.rem_precision_broadcast_gain = rem_precision_broadcast_gain
         config.mech273_offline_lr_scale = mech273_offline_lr_scale
         config.mech273_offline_n_steps = mech273_offline_n_steps
         config.mech273_partial_decay_factor = mech273_partial_decay_factor

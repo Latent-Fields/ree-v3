@@ -566,10 +566,34 @@ class E3TrajectorySelector(nn.Module):
         # it is smoothed into _running_variance below (no-op unless the phasic
         # burst reads it via phasic_burst_signal_source == "instantaneous_pe").
         self._last_instantaneous_pe = float(error_var)
-        self._running_variance = (
-            (1 - self._ema_alpha) * self._running_variance
-            + self._ema_alpha * error_var
-        )
+        # SD-076: waking confidence-inflation source (asymmetric EMA). OFF path
+        # below is the original symmetric expression, evaluated unchanged --
+        # bit-identical by construction, not by arithmetic coincidence at
+        # asymmetry 0. See E3Config.use_waking_confidence_inflation for why a
+        # drift source is needed at all (without it rv tracks true error and
+        # the MECH-173 overconfidence DV is a tautology).
+        if getattr(self.config, "use_waking_confidence_inflation", False):
+            asym = float(
+                getattr(self.config, "waking_confidence_inflation_asymmetry", 0.0)
+            )
+            asym = max(0.0, min(0.999, asym))
+            # Improving (error below current estimate) -> believe it FAST.
+            # Worsening (error above current estimate) -> believe it SLOWLY.
+            # Net: rv settles BELOW the true error mean = overconfidence.
+            if error_var < self._running_variance:
+                alpha = min(1.0, self._ema_alpha * (1.0 + asym))
+            else:
+                alpha = max(0.0, self._ema_alpha * (1.0 - asym))
+            rv_new = (1 - alpha) * self._running_variance + alpha * error_var
+            # rv feeds an ABSOLUTE commit threshold and 1/(rv + 1e-6); floor it
+            # so inflation cannot pin the agent committed or explode precision.
+            floor = float(getattr(self.config, "waking_confidence_rv_floor", 0.01))
+            self._running_variance = max(floor, rv_new)
+        else:
+            self._running_variance = (
+                (1 - self._ema_alpha) * self._running_variance
+                + self._ema_alpha * error_var
+            )
         # Q-007: track rv history and compute volatility estimate
         self._rv_history.append(self._running_variance)
         if len(self._rv_history) >= 10:
@@ -606,6 +630,42 @@ class E3TrajectorySelector(nn.Module):
         target_variance = 1.0 / (float(target_precision) + 1e-6)
         self._running_variance = (
             (1.0 - step_clamped) * rv_before + step_clamped * target_variance
+        )
+        return rv_before, float(self._running_variance)
+
+    def broadcast_precision_pull(
+        self, target_precision: float, gain: float
+    ) -> Tuple[float, float]:
+        """
+        MECH-204 Phase 7 / Option B: accuracy-anchored BROADCAST recalibration.
+
+        Same interpolation as recalibrate_precision_to(), but applied at
+        ``select_action()`` time on every waking step rather than once per
+        sleep cycle at WRITEBACK. That timing difference is the entire point:
+        failure_autopsy_V3-EXQ-774_2026-07-17 adjudicated the F1-only
+        substrate ``substrate_ceiling`` because precision saturates DURING
+        waking, before the per-cycle lever ever gains headroom. A continuous
+        anchor resists that within-episode collapse; a per-cycle correction
+        arrives after it.
+
+        ``target_precision`` is the F1 cumulative reference
+        (SerotoninModule.compute_recalibration_target() ->
+        _persistent_zero_point), per lit choice (a). Runs ALONGSIDE F1, not
+        replacing it -- the Q-042 dual-arm pattern.
+
+        Returns (running_variance_before, running_variance_after). No-op when
+        target_precision <= 0.0 (the "no REM entered yet" sentinel) or when
+        gain <= 0.0. Caller gates on config.use_rem_precision_broadcast.
+        """
+        rv_before = float(self._running_variance)
+        if target_precision <= 0.0:
+            return rv_before, rv_before
+        if gain <= 0.0:
+            return rv_before, rv_before
+        gain_clamped = min(1.0, float(gain))
+        target_variance = 1.0 / (float(target_precision) + 1e-6)
+        self._running_variance = (
+            (1.0 - gain_clamped) * rv_before + gain_clamped * target_variance
         )
         return rv_before, float(self._running_variance)
 
