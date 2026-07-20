@@ -623,6 +623,17 @@ KNOWN_UNPROBED = {
     "use_noise_floor", "use_object_file_buffer",
     "use_ofc_devaluation_head", "use_ofc_outcome_oracle", "use_pacc_analog",
     "use_pag_freeze_gate", "use_pcc_analog", "use_rem_precision_recalibration",
+    # use_rem_precision_broadcast: MECH-204 Phase 7 Option B (accuracy-anchored
+    # broadcast REM), landed in 8ac193d. Registered here rather than probed for
+    # the same reason as its already-registered sibling
+    # use_rem_precision_recalibration directly above -- the pair is the MECH-204
+    # REM-precision family, and behavioural probes for it are pending that
+    # cluster's own validation. Added by a THIRD-PARTY session (SD-024
+    # benefit-terrain work) to unbreak trunk: 8ac193d landed the flag without
+    # its registry entry, so test_flag_registry_is_current was red on main for
+    # every session. The owning session should replace this with a real probe,
+    # or a more specific reason, when Phase 7 validates.
+    "use_rem_precision_broadcast",
     "use_salience_coordinator",
     "use_sd049_per_axis_consumer_cascade",
     "use_shared_harm_trunk", "use_simulation_mode_rule_gate",
