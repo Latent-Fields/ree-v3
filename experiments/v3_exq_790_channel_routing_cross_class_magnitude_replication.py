@@ -1,76 +1,92 @@
-"""V3-EXQ-663: modulatory-bias-selection-authority route-range AMEND
-substrate-readiness diagnostic (P0 routed-range gate).
+"""V3-EXQ-790 / V3-EXQ-791: channel-routing route_range MAGNITUDE
+cross-machine-class replication (metrology diagnostic).
 
-Routed by failure_autopsy_569f-661-654a_2026-06-10 (confirmed; user-adjudicated).
-Validates the route-range AMEND landed 2026-06-10 (E3Config.use_modulatory_channel_routing
-+ REEConfig.modulatory_channel_route_source + project_channel_range in e3_selector.py).
+ONE script, TWO queue entries, pinned to the two machine classes:
+  V3-EXQ-790  machine_affinity ree-cloud-3     (linux-x86_64, torch 2.5.1)
+  V3-EXQ-791  machine_affinity DLAPTOP-4.local (darwin-arm64, torch 2.10.0)
+QUEUE_ID is read from the runner's REE_QUEUE_ID env var so each run self-labels.
 
-THE GAP (569f/661/654a, one structural property): a channel whose REPRESENTATION
-carries genuine cross-candidate range (569f consumed world-summary spread 0.196;
-654a minted rule_state; 661 coherence) still does NOT move committed action, because
-that range is flattened by the consuming bias head before it reaches the modulatory
-accumulator the authority rescales -- so the authority has nothing to amplify (569f
-selected-action entropy bit-identical 0.549141 across e2wf / proposer / matched-noise).
-V3-EXQ-643 established "no range -> no authority"; this cluster extends it one link:
-the channel range must be ROUTED into the per-candidate modulatory bias the authority
-rescales, not merely exist in the representation.
+THE QUESTION (metrology, NOT a claim test -- claim_ids=[]): the 2026-07-19
+machine-class divergence root-cause (torch.multinomial returns different
+categories on linux-x86_64/torch 2.5.1 vs darwin-arm64/torch 2.10.0 from a
+bit-identical probability tensor at the same seed) concluded that no completed
+experiment's CONCLUSION is at risk, because machine_class is inside the
+arm-fingerprint hash and every queue item runs all its arms on one machine --
+so the class offset is common-mode WITHIN each contrast and cancels.
 
-THE FIX UNDER TEST: project_channel_range folds a parameter-free, range-preserving
-projection of the channel-under-test's per-candidate representation into the
-modulatory accumulator BEFORE the authority's range computation. The P0 readiness
-diagnostic modulatory_channel_route_range exposes the routed bias's RAW cross-candidate
-range (pre-normalise, pre-rescale) so a retest can assert the modulatory bias ITSELF
-carries cross-candidate range derived from the channel under test before any behavioural
-falsifier is scored.
+That common-mode-cancellation is an ASSUMPTION, and V3-EXQ-662 (ree-cloud-3)
+vs V3-EXQ-663 (DLAPTOP-4) is the one natural cross-class replication available
+to test it. Both PASSed, route_active_frac 1.0 vs 0.0 in both, OFF arms
+bit-identical at exactly 0.0 -- the CONCLUSION replicated. But ARM_1
+route_range_mean was HIGHER ON THE MAC IN 3/3 SEEDS:
+    seed 42  cloud 0.486815 | mac 0.545524
+    seed 43  cloud 0.581449 | mac 0.726480
+    seed 44  cloud 0.267550 | mac 0.333261
+At n=3 a 3/3 direction is not distinguishable from chance (sign test p=0.125),
+so the MAGNITUDE could not be asserted common-mode-cancelling either way.
 
-DESIGN: 2-arm ablation, matched seeds. BOTH arms run the SHARED bias channels
-(lateral_pfc + mech295) ON, the modulatory selection authority ON (gain=0.5),
-candidate_summary_source=e2_world_forward, and SD-056 online contrastive (the e2
-world-forward divergence the world-summary channel range depends on; rollout-norm
-clamp ON per the 643a stability lesson). The ONLY swept axis is
-use_modulatory_channel_routing.
-  ARM_0_NO_ROUTE   use_modulatory_channel_routing=False  (current behaviour; 569f washout)
+TWO CONFOUNDS IN THAT 3-SEED PICTURE, both fixed here:
+ (1) PSEUDO-REPLICATION. The shared 662/663 driver read
+     agent.e3.last_score_diagnostics once per ENV STEP without clearing the
+     latch. E3 populates those diagnostics only inside select(), which runs on
+     ~1 tick in heartbeat.e3_steps_per_tick (default 10), so every held tick
+     re-recorded the PREVIOUS selection as a fresh independent observation.
+     route_range_mean was a mean over ~9x-latched repeats: the point estimate
+     survives (uniform repetition is ~weight-preserving; measured +0.01% on a
+     matched replay) but the effective n -- and therefore ANY variance or
+     significance statement -- was inflated ~9-fold. Fixed here and in the 663
+     driver via clear-before-select; n_fresh_select / n_latched_ticks make the
+     true denominator auditable.
+ (2) UNEVEN TRUNCATION. The 662/663 cells did not all reach the nominal 3600
+     window ticks (662 ARM_1 seed 44: 1771; 663 ARM_1 seed 44: 2922), so the
+     two classes averaged over different amounts of training. Per-cell
+     n_fresh_select is recorded here so the analysis can condition on it.
+
+DESIGN: identical to 663 (the 662 script was a byte-identical pre-rename
+duplicate -- verified against git 522662d -- so the 3-seed comparison is
+code-clean and only the class differed), with SEEDS widened 3 -> 10. The
+original seeds 42/43/44 are NESTED at the head of the seed list so the prior
+observation is directly recoverable as a subset. Same 2-arm ablation, same
+env, same pre-registered route thresholds.
+  ARM_0_NO_ROUTE   use_modulatory_channel_routing=False
   ARM_1_ROUTE_ON   use_modulatory_channel_routing=True, source="cand_world_summary"
 
-ACCEPTANCE (substrate-readiness, claim_ids=[] -- does NOT weight claim confidence):
-  READINESS (load-bearing non-vacuity, RANGE statistic): ARM_1
-    modulatory_channel_route_range mean > C0_ROUTE_FLOOR on >= MIN_SEEDS_FOR_PASS
-    seeds, finite + below the 643a explosion ceiling. This is the P0 gate the autopsy
-    demands -- the routed bias carries the channel's cross-candidate range. Below floor
-    (under-trained e2 / collapsed candidate pool / amend not wired) self-routes
-    substrate_not_ready_requeue, NEVER a substrate verdict.
-  C1 PRIMARY (load-bearing, SAME range statistic as readiness): ARM_1
-    modulatory_channel_route_active on >= MIN_SEEDS_FOR_PASS seeds AND ARM_0 route
-    range ~0 / inactive (the off-arm reproduces the no-routing state). The routed
-    range reaches the modulatory accumulator the authority rescales.
-  C2 SECONDARY (behavioural reach, NOT load-bearing): committed-action class
-    distribution differs ARM_1 vs ARM_0 per matched seed (TV > C2_TV_FLOOR) on
-    >= MIN_SEEDS_FOR_PASS seeds -- the routed range now moves the committed argmax,
-    breaking the 569f bit-identical-entropy washout. Behavioural movement is
-    env/seed/near-tie-dependent, so this corroborates rather than gates (the per-claim
-    behavioural EVIDENCE retests are separate follow-on sessions).
-  PASS = READINESS AND C1. (C2 reported + required for the strongest reading but does
-    not gate the substrate-readiness verdict.)
+WHY route_range IS THE RIGHT DV FOR A CROSS-CLASS TEST: it is SIGN-INVARIANT
+(a cross-candidate range), so the known torch.linalg.svd singular-vector sign
+flip across LAPACK backends cannot confound it. It is also read upstream of
+the discrete quantizer, per the standing rule never to assert exact committed
+ACTION streams across machine classes.
 
-PASS (label=route_range_substrate_ready) unblocks the per-claim behavioural retests of
-ARC-065 / MECH-294 / ARC-062 / MECH-309 / MECH-341 (each a SEPARATE /queue-experiment
-session). Those claims stay candidate / v3_pending / pending_retest_after_substrate;
-not weakened.
+ACCEPTANCE (per-run; the CROSS-CLASS comparison is a post-hoc analysis over
+the two manifests, NOT a criterion either run can evaluate alone):
+  READINESS (load-bearing, RANGE statistic): ARM_1 route_range_mean > floor on
+    >= MIN_SEEDS_FOR_PASS seeds, finite and below the 643a explosion ceiling.
+  SAMPLE ADEQUACY (load-bearing): every scored cell cleared FRESH_SELECT_FLOOR
+    genuine E3 selections -- the denominator confound (1) above, now gated
+    rather than assumed. Reported as the WORST cell, not a mean.
+  C1: ARM_1 route active on >= MIN_SEEDS_FOR_PASS seeds AND ARM_0 range ~0.
+  C2 (secondary, not load-bearing): committed-class TV ARM_1 vs ARM_0.
+  PASS = READINESS AND SAMPLE ADEQUACY AND C1.
 
-Interpretation grid:
-| outcome                              | label                        | next                                                  |
-|--------------------------------------|------------------------------|-------------------------------------------------------|
-| READINESS+C1 (+C2)                   | route_range_substrate_ready  | /queue-experiment per-claim behavioural retests       |
-| readiness leg below floor/non-finite | substrate_not_ready_requeue  | re-queue as 663a at higher P0 (or fix e2/SD-056); do NOT weaken |
-| readiness ok but C1 fails            | route_range_inert            | /failure-autopsy on the routing wiring                |
+WHAT THE CROSS-CLASS ANALYSIS DECIDES (both outcomes are informative):
+  Mac-higher survives at 10 paired seeds  -> a SYSTEMATIC machine-class effect
+    on effect SIZE. Must be recorded as a standing caveat on every cross-class
+    MAGNITUDE comparison; common-mode cancellation holds for the direction of
+    a within-machine contrast but NOT for its magnitude.
+  Direction does not survive               -> the common-mode-cancellation
+    assumption becomes empirically SUPPORTED rather than assumed, which is
+    what the blast-radius assessment currently rests on.
+  Either way this does NOT retroactively correct 662/663: a completed run's
+    reported measurements are not rewritten. The fix is prospective.
 
 SLEEP DRIVER: K=never (no sleep; waking action-selection diagnostic).
 
 Usage:
-  /opt/local/bin/python3 experiments/v3_exq_663_modulatory_channel_routing_substrate_readiness.py --dry-run
+  /opt/local/bin/python3 experiments/v3_exq_790_channel_routing_cross_class_magnitude_replication.py --dry-run
 """
 
 import argparse
+import os
 import json
 import math
 import random
@@ -96,12 +112,34 @@ from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E4
 from ree_core.utils.config import REEConfig  # noqa: E402
 from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
-EXPERIMENT_TYPE = "v3_exq_663_modulatory_channel_routing_substrate_readiness"
-QUEUE_ID = "V3-EXQ-663"
+EXPERIMENT_TYPE = "v3_exq_790_channel_routing_cross_class_magnitude_replication"
+# Two queue entries share this script (790 cloud / 791 Mac). The runner always
+# exports REE_QUEUE_ID, so each run self-labels with the entry that claimed it.
+QUEUE_ID = os.environ.get("REE_QUEUE_ID") or "V3-EXQ-790"
 CLAIM_IDS: List[str] = []  # substrate-readiness diagnostic (gates per-claim behavioural retests)
 EXPERIMENT_PURPOSE = "diagnostic"
 
-SEEDS = [42, 43, 44]
+# All three readiness anchors are reachable by construction, with the load-bearing
+# one proven reachable by COMPLETED runs rather than argued:
+#   arm1_routed_bias_range_supra_floor -- floor 0.01; V3-EXQ-662 (ree-cloud-3)
+#     recorded ARM_1 route_range_mean 0.486815 / 0.581449 / 0.267550 and V3-EXQ-663
+#     (DLAPTOP-4) 0.545524 / 0.726480 / 0.333261 on this identical design. Worst
+#     observed cell clears the floor by ~27x, on BOTH machine classes.
+#   adequate_fresh_selection_sample -- 200 against a nominal ~360 selections
+#     (3600 window ticks / heartbeat.e3_steps_per_tick=10); the predicate IS the
+#     starvation definition, and the arithmetic is the reachability proof.
+#   routed_range_bounded -- 1e6 explosion ceiling; the 643a stability guard.
+# None is a hand-written scoring predicate that could be narrower than the state
+# it anchors to, which is the failure mode the reachability check exists to catch.
+ANCHOR_REACHABILITY_EXEMPT = (
+    "All three anchors reachable by construction; the load-bearing route-range "
+    "floor (0.01) is proven reachable on BOTH machine classes by the completed "
+    "V3-EXQ-662/663 runs of this identical design (worst cell 0.267550, ~27x "
+    "headroom). No hand-written scoring predicate is involved."
+)
+
+# Originals 42/43/44 nested at the head so the 662/663 observation is a subset.
+SEEDS = [42, 43, 44, 45, 46, 47, 48, 49, 50, 51]
 P0_WARMUP_EPISODES = 60           # SD-056 contrastive warmup (V3-EXQ-649/648a proven budget)
 P1_MEASUREMENT_EPISODES = 20
 STEPS_PER_EPISODE = 200
@@ -118,7 +156,13 @@ C0_ROUTE_FLOOR = 0.01             # readiness: ARM_1 routed-bias cross-candidate
 C0_MAGNITUDE_CEIL = 1.0e6         # readiness: routed range bounded (643a explosion guard)
 C1_OFF_INACTIVE_CEIL = 1e-9       # C1: ARM_0 routed range ~0 (routing off -> diagnostic stays 0.0)
 C2_TV_FLOOR = 0.02               # C2 (secondary): committed-class distribution TV ARM_1 vs ARM_0
-MIN_SEEDS_FOR_PASS = 2            # of 3
+MIN_SEEDS_FOR_PASS = 7            # of 10
+# Sample-adequacy gate on the CORRECTED denominator. Nominal window is
+# P1*(steps-measure_after) = 3600 ticks -> ~360 genuine selections at the
+# default e3_steps_per_tick=10. 200 sits well below that and well above
+# trivial, so it catches a truncated or latch-starved cell without
+# failing a merely-short one.
+FRESH_SELECT_FLOOR = 200
 
 # SD-056 online contrastive training (mirror V3-EXQ-649 harness).
 SD056_WEIGHT = 0.05
@@ -585,11 +629,44 @@ def _evaluate(arm_results: List[Dict[str, Any]]) -> Dict[str, Any]:
         arm1, lambda r: float(r.get("route_range_mean", 0.0)) > C0_ROUTE_FLOOR
     )
     arm1_route_mean = _mean_key(arm1, "route_range_mean")
+    # Order statistic for the readiness precondition: `met` is a COUNT quantifier
+    # ("at least MIN_SEEDS_FOR_PASS seeds above floor"), so a mean is not
+    # recomputable against it -- the indexer recomputes met from
+    # (measured, threshold) and would disagree with our own flag. The
+    # MIN_SEEDS_FOR_PASS-th largest per-seed value clears the floor if and only
+    # if at least that many seeds do.
+    _arm1_sorted = sorted(
+        (float(r.get("route_range_mean", 0.0)) for r in arm1), reverse=True
+    )
+    arm1_kth_route = (
+        _arm1_sorted[MIN_SEEDS_FOR_PASS - 1]
+        if len(_arm1_sorted) >= MIN_SEEDS_FOR_PASS else 0.0
+    )
     max_route = max(
         [float(r.get("route_range_max", 0.0)) for r in arm_results] or [0.0]
     )
     magnitude_ok = bool(math.isfinite(max_route) and max_route < C0_MAGNITUDE_CEIL)
-    readiness_ok = bool(readiness_seeds_ok >= MIN_SEEDS_FOR_PASS and magnitude_ok)
+
+    # SAMPLE ADEQUACY (load-bearing): every scored cell must clear the fresh-selection
+    # floor on the CORRECTED denominator. `met` is an all(...) quantifier, so `measured`
+    # must be the WORST cell -- a mean would let one starved cell recompute as met and
+    # silently pass exactly the condition this gate exists to catch.
+    worst_fresh = min(
+        [int(r.get("n_fresh_select", 0)) for r in arm_results] or [0]
+    )
+    worst_fresh_cell = None
+    for r in arm_results:
+        if int(r.get("n_fresh_select", 0)) == worst_fresh:
+            worst_fresh_cell = f"{r.get('arm_id')}::seed{r.get('seed')}"
+            break
+    sample_ok = bool(
+        len(arm_results) > 0
+        and all(int(r.get("n_fresh_select", 0)) >= FRESH_SELECT_FLOOR for r in arm_results)
+    )
+
+    readiness_ok = bool(
+        readiness_seeds_ok >= MIN_SEEDS_FOR_PASS and magnitude_ok and sample_ok
+    )
 
     # C1 PRIMARY (load-bearing, SAME range statistic): ARM_1 routing active on >=N seeds
     # AND ARM_0 routed range ~0 (routing off). The routed range reaches the accumulator.
@@ -632,7 +709,12 @@ def _evaluate(arm_results: List[Dict[str, Any]]) -> Dict[str, Any]:
 
     criteria_pass = {"C1": c1_pass, "C2": c2_pass}
     # PASS gated on READINESS + C1 (the substrate's P0 range gate). C2 corroborates.
-    if not readiness_ok:
+    if not sample_ok:
+        # Denominator starvation is a SUBSTRATE-READINESS failure, never a verdict:
+        # too few genuine E3 selections to measure a route range at all.
+        label = "substrate_not_ready_requeue"
+        overall_pass = False
+    elif not readiness_ok:
         label = "substrate_not_ready_requeue"
         overall_pass = False
     elif c1_pass:
@@ -652,6 +734,10 @@ def _evaluate(arm_results: List[Dict[str, Any]]) -> Dict[str, Any]:
             "magnitude_ceil": C0_MAGNITUDE_CEIL,
             "magnitude_ok": magnitude_ok,
             "readiness_ok": readiness_ok,
+            "sample_ok": sample_ok,
+            "fresh_select_floor": FRESH_SELECT_FLOOR,
+            "worst_n_fresh_select": int(worst_fresh),
+            "worst_fresh_select_cell": worst_fresh_cell,
         },
         "criteria_pass": criteria_pass,
         "c1_arm1_seeds_route_active": int(c1_on_active_seeds),
@@ -675,6 +761,32 @@ def _evaluate(arm_results: List[Dict[str, Any]]) -> Dict[str, Any]:
         # Diagnostic adjudication structures (skill Step 3.5).
         "preconditions": [
             {
+                "name": "adequate_fresh_selection_sample",
+                "kind": "readiness",
+                "description": (
+                    "Every scored cell recorded at least FRESH_SELECT_FLOOR genuine "
+                    "E3 select() calls on the CORRECTED denominator (diagnostics "
+                    "cleared before every select_action, so a latched tick "
+                    "contributes no row). This is the gate on the ~9x "
+                    "pseudo-replication defect that the shared 662/663 driver "
+                    "carried: route_range_mean there was a mean over latched "
+                    "repeats, so its effective n -- and any variance or "
+                    "significance statement built on it -- was inflated ~9-fold. "
+                    "Reported as the WORST cell (met is an all(...) quantifier), "
+                    "never a mean. Below floor => truncated or latch-starved run "
+                    "=> substrate_not_ready_requeue, never a substrate verdict."
+                ),
+                "control": (
+                    "nominal window P1*(steps-measure_after)=3600 ticks yields ~360 "
+                    "selections at the default heartbeat.e3_steps_per_tick=10"
+                ),
+                "measured": int(worst_fresh),
+                "threshold": FRESH_SELECT_FLOOR,
+                "direction": "lower",
+                "offending_cell": worst_fresh_cell,
+                "met": bool(sample_ok),
+            },
+            {
                 "name": "arm1_routed_bias_range_supra_floor",
                 "kind": "readiness",
                 "description": (
@@ -687,8 +799,16 @@ def _evaluate(arm_results: List[Dict[str, Any]]) -> Dict[str, Any]:
                     "never a substrate verdict."
                 ),
                 "control": "ARM_1: SD-056 contrastive trained online; SP-CEM multi-class candidates; candidate_summary_source=e2_world_forward; routing ON",
-                "measured": round(arm1_route_mean, 6),
+                "measured": round(arm1_kth_route, 6),
                 "threshold": C0_ROUTE_FLOOR,
+                "direction": "lower",
+                "measured_note": (
+                    f"{MIN_SEEDS_FOR_PASS}th-largest per-seed route_range_mean of "
+                    f"{len(arm1)} ARM_1 seeds (order statistic, NOT a mean): clears "
+                    f"the floor iff >= {MIN_SEEDS_FOR_PASS} seeds do, which is exactly "
+                    f"what `met` asserts. Arm mean, for reference: "
+                    f"{round(arm1_route_mean, 6)}."
+                ),
                 "met": bool(readiness_seeds_ok >= MIN_SEEDS_FOR_PASS),
             },
             {
