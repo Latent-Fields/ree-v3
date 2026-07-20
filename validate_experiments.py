@@ -1632,7 +1632,9 @@ def e3_diagnostics_staleness_lint(path: Path) -> Optional[str]:
         return None
 
     # (a) clear-before-select, (b) cadence guard, (c) driver owns the select call,
-    # (d) identity-freshness guard.
+    # (d) identity-freshness guard, (e) the shared sentinel-key helper.
+    if _uses_shared_fresh_select_helper(tree):
+        return None
     if _clears_an_e3_latch(tree):
         return None
     if _guards_e3_latch_by_identity(tree):
@@ -1693,6 +1695,56 @@ def e3_diagnostics_staleness_lint(path: Path) -> Optional[str]:
 # form-1 corpus pin stays a measurement of form 1.
 _E3_SELECTION_LATCHED_ATTRS = ("_last_selected_trajectory",)
 _E3_HOLD_WEIGHTED_EXEMPT_MARKER = "E3_HOLD_WEIGHTED_READOUT_EXEMPT"
+
+# ---- discharge (e): the SHARED fresh-select helper ------------------------------------
+# `experiments/_lib/fresh_select.py` implements the sentinel-key freshness instrument:
+# it stamps a namespaced private key into agent.e3.last_score_diagnostics before every
+# select_action() and detects a genuine selection by that key's ABSENCE afterwards
+# (select() reassigns the dict wholesale, e3_selector.py:2452 -- pinned by
+# tests/contracts/test_fresh_select_wholesale_reassign.py).
+#
+# WHY THIS NEEDS ITS OWN DISCHARGE. Both lints pattern-match a LITERAL
+# `agent.e3.<attr> = None` clear, which the sentinel deliberately does NOT do: nulling
+# `_last_selected_trajectory` changes substrate behaviour via post_action_update (the
+# ARC-016 deadlock fallback, which runs on EVERY step through update_residue), so the
+# clear would make the run a different experiment rather than a repaired instrument.
+# Before this discharge existed, sentinel-key drivers had to declare
+# E3_DIAGNOSTICS_STALENESS_EXEMPT / E3_HOLD_WEIGHTED_READOUT_EXEMPT -- a blanket opt-out
+# that suppressed a GENUINE guard for the rest of the file. Recognising the shared helper
+# instead keeps the gate live on everything the helper does not cover.
+#
+# Deliberately NARROW: it requires an actual import of the shared module AND a
+# construction of its probe. A comment mentioning fresh_select, or a hand-rolled
+# re-implementation of the sentinel, does NOT discharge -- the whole point of the shared
+# helper is that the pattern stops being hand-copied.
+_FRESH_SELECT_MODULE = "fresh_select"
+_FRESH_SELECT_PROBE = "FreshSelectProbe"
+
+
+def _uses_shared_fresh_select_helper(tree: ast.AST) -> bool:
+    """True iff the script imports experiments/_lib/fresh_select and builds its probe."""
+    imported = False
+    for n in ast.walk(tree):
+        if isinstance(n, ast.ImportFrom):
+            mod = n.module or ""
+            if mod == _FRESH_SELECT_MODULE or mod.endswith("." + _FRESH_SELECT_MODULE):
+                if any(a.name == _FRESH_SELECT_PROBE for a in n.names):
+                    imported = True
+        elif isinstance(n, ast.Import):
+            for a in n.names:
+                if a.name.endswith("." + _FRESH_SELECT_MODULE) or a.name == _FRESH_SELECT_MODULE:
+                    imported = True
+    if not imported:
+        return False
+    # the probe must actually be constructed, not merely imported
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Call):
+            f = n.func
+            if isinstance(f, ast.Name) and f.id == _FRESH_SELECT_PROBE:
+                return True
+            if isinstance(f, ast.Attribute) and f.attr == _FRESH_SELECT_PROBE:
+                return True
+    return False
 
 # Calls that reduce a tensor/list to a scalar summary. Their presence is what separates
 # "this driver STEPPED the env with the action / stored the transition for training"
@@ -2028,8 +2080,11 @@ def e3_hold_weighted_readout_lint(path: Path) -> Optional[str]:
     if "select_action" not in src:
         return None  # not driving the agent
 
-    # Same four discharges as form 1. `_clears_an_e3_latch` covers the form-1 attributes;
-    # a clear of `_last_selected_trajectory` counts here too.
+    # Same discharges as form 1, including (e) the shared sentinel-key helper.
+    # `_clears_an_e3_latch` covers the form-1 attributes; a clear of
+    # `_last_selected_trajectory` counts here too.
+    if _uses_shared_fresh_select_helper(tree):
+        return None
     if _clears_an_e3_latch(tree):
         return None
     if _guards_e3_latch_by_identity(tree):
