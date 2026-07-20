@@ -176,9 +176,38 @@ NEW gates precede everything, so a broken instrument can never reach a verdict:
   C_READINESS           (unchanged) -> substrate_not_ready_requeue
   C_NOISE_LIFTS         (NEW gating; was informational) -> matched_noise_control_unmeetable
   C_RANK_PRESERVING     (unchanged) -> rank_alteration_not_prefix_diagnose
-  C_PRIMARY             (unchanged predicate, repaired DV) -> conversion_ceiling_persists_despite_demotion
+  C_PRIMARY             (unchanged predicate, repaired DV, Miller-Madow estimator) -> conversion_ceiling_persists_despite_demotion
   C_SAFETY              (unchanged) -> demotion_disinhibits_harmful_classes (the ONLY weakens)
   else -> demotion_converts_committed_diversity (supports)
+
+C_PRIMARY ESTIMATOR (residual correction, 2026-07-20). C_PRIMARY gates on
+`selected_action_class_entropy_mm` -- the MILLER-MADOW bias-corrected Shannon
+entropy, H_MM = H_plugin + (K_obs - 1)/(2N) -- NOT on the plug-in value. The
+uncorrected plug-in estimator is still emitted per cell as
+`selected_action_class_entropy`, with `miller_madow_correction_nats` beside it
+and a `summary.miller_madow_audit` block recording the per-cell corrections plus
+the counterfactual verdict under the uncorrected estimator
+(`estimator_changes_verdict`).
+
+This aligns 689i with its LANDED sibling V3-EXQ-699c, which independently adopted
+the same two fixes for the same DV class in the same 699/689 defect lineage.
+699c's split governs: the FIXED-N stopping rule is "the load-bearing fix" (the
+differential bias is zero BY CONSTRUCTION rather than by correction), and
+Miller-Madow is "belt and braces" for the residual. 689i ALREADY CARRIED the
+load-bearing half -- every cell banks exactly N_FRESH_SELECT_TARGET = 200 genuine
+selections and P1 stops at the target -- so this closes only the residual
+K_obs-driven term. It is a CONSISTENCY FIX, NOT a defect repair: at N=200 the
+correction is (K_obs-1)/400, i.e. 0.0025 nats at K_obs=2 up to 0.0100 at K_obs=5,
+so the worst plausible arm differential is ~0.0075 nats -- ~4% of the 689d
+deciding margin (0.187 nats) and 2.5% of C3_SELECTED_ENTROPY_FLOOR. Real, and
+pointing in the direction C_PRIMARY tests, but not decisive alone.
+C3_SELECTED_ENTROPY_FLOOR is DELIBERATELY NOT re-tuned to compensate, and the
+C_READINESS / C_RANK_PRESERVING / C_SAFETY predicates are untouched -- the
+autopsy adjudicated all three as surviving on threshold-invariance, and absorbing
+a <=0.01-nat correction into a threshold would quietly undo that adjudication.
+`occupancy_class_entropy` and `proposer_pool_class_entropy` stay PLUG-IN: the
+former must remain byte-comparable with 689d's recorded hold-weighted DV, which
+is the entire reason it is retained.
 
 claim_ids=[MECH-448] only; ARC-107/MECH-447/MECH-449/MECH-439/Q-078 untouched.
 MECH-448 stays candidate; this run PROMOTES NOTHING (governance applies). A PASS
@@ -477,6 +506,13 @@ def _first_actions_K(candidates) -> torch.Tensor:
 
 
 def _entropy_from_counts(counts: Dict[int, int]) -> float:
+    """Plug-in (maximum-likelihood) Shannon entropy in nats.
+
+    Retained UNCHANGED so `occupancy_class_entropy` stays byte-comparable with
+    689d's recorded DV (it is the named secondary that MEASURES the defect
+    magnitude -- changing its estimator would destroy that comparison).
+    Downward-biased by ~(K-1)/(2N); see `_entropy_miller_madow`.
+    """
     n = sum(counts.values())
     if n <= 0:
         return 0.0
@@ -487,6 +523,42 @@ def _entropy_from_counts(counts: Dict[int, int]) -> float:
         p = c / n
         h -= p * math.log(p)
     return float(h)
+
+
+def _entropy_miller_madow(counts: Dict[int, int]) -> float:
+    """Miller-Madow bias-corrected Shannon entropy in nats (C_PRIMARY DV).
+
+    H_MM = H_plugin + (K_obs - 1) / (2N), where K_obs is the number of classes
+    actually OBSERVED (non-zero count). This removes the leading term of the
+    plug-in estimator's downward bias.
+
+    Note K_obs, not the alphabet size: the support is unknown here (an arm may
+    genuinely never commit to a class), and K_obs is the standard conservative
+    stand-in. It UNDER-corrects when a class exists but was never sampled, which
+    is the safe direction -- it cannot manufacture entropy that was not observed.
+
+    PORTED VERBATIM from the LANDED sibling
+    `v3_exq_699c_pcomp_demotion_x_gonogo_fixed_n.py`, which adopted the same two
+    fixes for the same DV class in the same 699/689 defect lineage. 699c's split
+    is the governing one here: the FIXED-N stopping rule is "the load-bearing
+    fix" (it makes the differential bias zero BY CONSTRUCTION), and Miller-Madow
+    is "belt and braces" for the residual. 689i ALREADY HAS the load-bearing
+    half -- every cell banks exactly N_FRESH_SELECT_TARGET = 200 genuine
+    selections and P1 stops at the target -- so N is equal across cells by
+    construction and this correction removes only the remaining K_obs-driven
+    term. At N = 200 that residual is (K_obs - 1)/400: 0.0025 nats at K_obs=2
+    rising to 0.0100 at K_obs=5, so the worst plausible arm differential (a
+    K_obs=5 noise arm against a K_obs=2 ON arm, the occupancy split seen in the
+    689i dry-run smoke) is ~0.0075 nats -- about 4% of the 689d deciding margin
+    (0.187 nats) and 2.5% of C3_SELECTED_ENTROPY_FLOOR. Real, and pointing in
+    the direction C_PRIMARY tests, but NOT decisive on its own. The uncorrected
+    value is emitted alongside so the correction is auditable per cell.
+    """
+    n = sum(counts.values())
+    if n <= 0:
+        return 0.0
+    k_obs = sum(1 for c in counts.values() if c > 0)
+    return float(_entropy_from_counts(counts) + (k_obs - 1) / (2.0 * n))
 
 
 def _obs(d: Dict[str, Any], key: str) -> Optional[torch.Tensor]:
@@ -869,7 +941,13 @@ def _run_seed_arm(
     def _mean(xs: List[float], default: float = 0.0) -> float:
         return float(sum(xs) / len(xs)) if xs else default
 
+    # C_PRIMARY gates on the Miller-Madow value; the plug-in value is emitted
+    # beside it so the size of the correction is auditable per cell. The two
+    # SECONDARY readouts (occupancy, proposer pool) stay PLUG-IN deliberately:
+    # occupancy_class_entropy must remain byte-comparable with 689d's recorded
+    # hold-weighted DV, which is the whole point of retaining it.
     selected_action_entropy = _entropy_from_counts(dict(selected_class_counts))
+    selected_action_entropy_mm = _entropy_miller_madow(dict(selected_class_counts))
     occupancy_entropy = _entropy_from_counts(dict(occupancy_class_counts))
     proposer_pool_entropy = _entropy_from_counts(dict(pool_class_counts))
     demotion_active_frac = (
@@ -936,8 +1014,15 @@ def _run_seed_arm(
         "f_eligibility_winner_neq_f_argmin_ticks": int(winner_neq_f_argmin_ticks),
         # C_RANK_PRESERVING.
         "f_eligibility_rank_preserving_frac": round(rank_preserving_frac, 6),
-        # --- C_PRIMARY DV: per-COMMITMENT (REPAIRED) ---
+        # --- C_PRIMARY DV: per-COMMITMENT (REPAIRED), Miller-Madow corrected ---
+        # C_PRIMARY GATES ON `selected_action_class_entropy_mm`. The uncorrected
+        # plug-in value is retained under its original key so the correction is
+        # auditable and the pre-correction comparison remains recoverable.
+        "selected_action_class_entropy_mm": round(selected_action_entropy_mm, 6),
         "selected_action_class_entropy": round(selected_action_entropy, 6),
+        "miller_madow_correction_nats": round(
+            selected_action_entropy_mm - selected_action_entropy, 6
+        ),
         "selected_class_counts": dict(sorted(selected_class_counts.items())),
         "selected_classes_n_unique": int(len(selected_class_counts)),
         # --- 689d's hold-weighted DV, retained as a NAMED SECONDARY so the
@@ -1022,7 +1107,10 @@ def _evaluate(arm_results: List[Dict[str, Any]]) -> Dict[str, Any]:
 
     RDIST = "modulatory_channel_route_range_mean"
     PDIST = "cand_world_pairwise_dist_mean"
-    SENT = "selected_action_class_entropy"
+    # C_PRIMARY reads the Miller-Madow-corrected DV. SENT_PLUGIN is the
+    # uncorrected estimator, retained for the audit block only -- NOT gated on.
+    SENT = "selected_action_class_entropy_mm"
+    SENT_PLUGIN = "selected_action_class_entropy"
     HARM = "harm_per_p1_tick_mean"
 
     # === NEW GATE 1: C_SUBSTRATE_INVARIANT (defect-3 repair) ==================
@@ -1097,6 +1185,31 @@ def _evaluate(arm_results: List[Dict[str, Any]]) -> Dict[str, Any]:
     on_sel_mean = _mean_key(on, SENT)
     primary_floor_ok = bool(on_sel_mean > C3_SELECTED_ENTROPY_FLOOR)
     primary_pass = bool(primary_seeds_ok >= MIN_SEEDS_FOR_PASS and primary_floor_ok)
+
+    # Counterfactual: the SAME predicate evaluated on the UNCORRECTED plug-in
+    # estimator. Recorded so a reader can see directly whether the Miller-Madow
+    # correction changed the verdict on THIS run, rather than having to infer it
+    # from the per-cell correction sizes. Expected to be identical -- with N
+    # equalised at N_FRESH_SELECT_TARGET the residual is ~0.0025-0.0100 nats
+    # against a 0.187-nat deciding margin -- and a DIFFERENCE here is a finding
+    # worth flagging in review, not a silent improvement.
+    def _strict_above_pair_plugin(r1: Dict[str, Any], by_seed_a, by_seed_b) -> bool:
+        ra = by_seed_a.get(r1["seed"])
+        rb = by_seed_b.get(r1["seed"])
+        if ra is None or rb is None:
+            return False
+        e1 = float(r1.get(SENT_PLUGIN, 0.0))
+        return e1 > float(ra.get(SENT_PLUGIN, 0.0)) and e1 > float(rb.get(SENT_PLUGIN, 0.0))
+
+    primary_seeds_ok_plugin = _n_seeds(
+        on, lambda r: _strict_above_pair_plugin(r, proposer_by_seed, noise_by_seed)
+    )
+    on_sel_mean_plugin = _mean_key(on, SENT_PLUGIN)
+    primary_pass_plugin = bool(
+        primary_seeds_ok_plugin >= MIN_SEEDS_FOR_PASS
+        and on_sel_mean_plugin > C3_SELECTED_ENTROPY_FLOOR
+    )
+    estimator_changes_verdict = bool(primary_pass != primary_pass_plugin)
 
     # === C_SAFETY (predicate UNCHANGED from 689d) ============================
     def _safe_vs_off(r_on: Dict[str, Any]) -> bool:
@@ -1281,11 +1394,25 @@ def _evaluate(arm_results: List[Dict[str, Any]]) -> Dict[str, Any]:
             ),
         },
         "c_primary": {
+            "primary_dv_key": SENT,
+            "uncorrected_dv_key": SENT_PLUGIN,
+            "estimator": "miller_madow",
             "on_seeds_strict_above_both_collapsed_controls": int(primary_seeds_ok),
             "on_selected_entropy_mean": round(on_sel_mean, 6),
             "selected_entropy_floor": C3_SELECTED_ENTROPY_FLOOR,
             "primary_floor_ok": primary_floor_ok,
             "c_primary_pass": primary_pass,
+            "estimator_note": (
+                "C_PRIMARY GATES ON THE MILLER-MADOW-CORRECTED ESTIMATOR "
+                "(selected_action_class_entropy_mm). The uncorrected plug-in value "
+                "is emitted per cell as selected_action_class_entropy and the "
+                "counterfactual verdict under it is recorded in "
+                "summary.miller_madow_audit. C3_SELECTED_ENTROPY_FLOOR is "
+                "DELIBERATELY UNCHANGED at its 689d value -- the correction is "
+                "<=0.01 nats at N=200 and re-tuning the floor to absorb it would "
+                "silently re-tune a threshold the autopsy adjudicated as SURVIVING "
+                "on threshold-invariance."
+            ),
             "note": (
                 "THE REPAIRED CRITERION. Predicate UNCHANGED from 689d (ARM_ON "
                 "committed-class entropy STRICTLY ABOVE BOTH ARM_PROPOSER_CTRL and "
@@ -1295,6 +1422,53 @@ def _evaluate(arm_results: List[Dict[str, Any]]) -> Dict[str, Any]:
                 "reachable and its lift is GATING, and cell substrate invariance is "
                 "asserted. Fail = no lift -> conversion_ceiling_persists_despite_demotion "
                 "(MECH-449 / V4 off-ramp; NOT a falsification)."
+            ),
+        },
+        "miller_madow_audit": {
+            "primary_dv_key": SENT,
+            "uncorrected_dv_key": SENT_PLUGIN,
+            "correction_nats_by_cell": {
+                f"{r['arm_id']}|{r['seed']}": float(r.get("miller_madow_correction_nats", 0.0))
+                for r in all_rows
+            },
+            "max_correction_nats": float(
+                max([r.get("miller_madow_correction_nats", 0.0) for r in all_rows] or [0.0])
+            ),
+            "max_within_seed_correction_spread_nats": float(max([
+                max([r.get("miller_madow_correction_nats", 0.0)
+                     for r in all_rows if r["seed"] == sd])
+                - min([r.get("miller_madow_correction_nats", 0.0)
+                       for r in all_rows if r["seed"] == sd])
+                for sd in {r["seed"] for r in all_rows}
+            ] or [0.0])),
+            "fresh_select_target": int(N_FRESH_SELECT_TARGET),
+            "selected_entropy_floor": C3_SELECTED_ENTROPY_FLOOR,
+            # Counterfactual verdict under the uncorrected estimator.
+            "plugin_on_seeds_strict_above_both": int(primary_seeds_ok_plugin),
+            "plugin_on_selected_entropy_mean": round(on_sel_mean_plugin, 6),
+            "plugin_c_primary_pass": primary_pass_plugin,
+            "estimator_changes_verdict": estimator_changes_verdict,
+            "note": (
+                "max_within_seed_correction_spread_nats is the quantity that matters: "
+                "it is the residual arm-dependent bias the correction removes, and it "
+                "must be read against the deciding margin. This is the SECOND of the "
+                "two fixes the LANDED sibling V3-EXQ-699c adopted for this DV class in "
+                "the same 699/689 defect lineage. 699c's own docstring calls the "
+                "FIXED-N stopping rule 'the load-bearing fix' (it makes the differential "
+                "bias zero BY CONSTRUCTION) and Miller-Madow 'belt and braces' for the "
+                "residual. 689i ALREADY CARRIED the load-bearing half -- every cell "
+                "banks exactly N_FRESH_SELECT_TARGET genuine selections and P1 stops at "
+                "the target -- so N is equal across cells and only the K_obs-driven term "
+                "remained. At N=200 that residual is (K_obs-1)/400: 0.0025 nats at "
+                "K_obs=2 up to 0.0100 at K_obs=5, so the worst plausible arm "
+                "differential (K_obs=5 noise vs K_obs=2 ON, the occupancy split seen in "
+                "the 689i dry-run smoke) is ~0.0075 nats -- ~4% of the 689d deciding "
+                "margin (0.187 nats) and 2.5% of C3_SELECTED_ENTROPY_FLOOR. So this is "
+                "a RESIDUAL CORRECTION, not a defect repair: it is real and points in "
+                "the direction C_PRIMARY tests, but it is not close to decisive alone. "
+                "estimator_changes_verdict is the direct check -- if TRUE on a real run, "
+                "the verdict rests on a <=0.01-nat correction and MUST be flagged in "
+                "review rather than read as a clean PASS."
             ),
         },
         "c_safety": {
@@ -1696,6 +1870,27 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         "evidence_direction_per_claim": {"MECH-448": evidence_direction},
         "non_degenerate": summary.get("non_degenerate", True),
         "degeneracy_reason": summary.get("degeneracy_reason", ""),
+        "c_primary_estimator": {
+            "primary_dv_key": "selected_action_class_entropy_mm",
+            "uncorrected_dv_key": "selected_action_class_entropy",
+            "estimator": "miller_madow",
+            "formula": "H_MM = H_plugin + (K_obs - 1) / (2N)",
+            "note": (
+                "C_PRIMARY gates on the MILLER-MADOW-corrected estimator. Ported from "
+                "the landed sibling V3-EXQ-699c (same DV class, same 699/689 defect "
+                "lineage). RESIDUAL correction only: 689i already carries 699c's "
+                "load-bearing FIXED-N fix (every cell banks N_FRESH_SELECT_TARGET=200 "
+                "genuine selections), so N is equal across cells by construction and "
+                "only the K_obs-driven term remained -- (K_obs-1)/400, i.e. 0.0025 to "
+                "0.0100 nats, worst plausible arm differential ~0.0075 nats against a "
+                "0.187-nat deciding margin. C3_SELECTED_ENTROPY_FLOOR is NOT re-tuned "
+                "to compensate; C_READINESS / C_RANK_PRESERVING / C_SAFETY predicates "
+                "are untouched. occupancy_class_entropy stays PLUG-IN to remain "
+                "byte-comparable with 689d's recorded hold-weighted DV. See "
+                "summary.miller_madow_audit for per-cell corrections and the "
+                "counterfactual verdict under the uncorrected estimator."
+            ),
+        },
         "evidence_direction_note": (
             "MECH-448 (ARC-107) rank-preserving F->eligibility demotion falsifier -- "
             "INSTRUMENT REPAIR of V3-EXQ-689d, whose PASS was withdrawn 2026-07-20 by "
