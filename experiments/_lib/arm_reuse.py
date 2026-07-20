@@ -93,6 +93,7 @@ REFUSE_NEEDED_KEYS = "needed_keys_not_subset"
 REFUSE_SCHEMA = "schema_mismatch"
 REFUSE_MANIFEST_UNREADABLE = "manifest_unreadable"
 REFUSE_CELL_NOT_FOUND = "cell_not_found_in_manifest"
+REFUSE_SUBSTRATE_UNSTABLE = "source_run_substrate_unstable"
 
 
 class ReuseDecision:
@@ -151,6 +152,75 @@ def _resolve_manifest_path(
     return p if p.is_absolute() else (root / p)
 
 
+def _distinct_cell_substrate_hashes(manifest: Mapping[str, Any]) -> List[str]:
+    """Distinct arm_results[i].arm_fingerprint.substrate_hash, first-seen order.
+
+    Duplicated here rather than imported from manifest_core so this consumer keeps its
+    stdlib-only, single-dependency shape (it imports arm_fingerprint and nothing else).
+    """
+    out: List[str] = []
+    arm_results = manifest.get("arm_results")
+    if not isinstance(arm_results, list):
+        return out
+    for row in arm_results:
+        if not isinstance(row, dict):
+            continue
+        fp = row.get("arm_fingerprint")
+        if isinstance(fp, dict):
+            sh = fp.get("substrate_hash")
+            if isinstance(sh, str) and sh and sh not in out:
+                out.append(sh)
+    return out
+
+
+def source_run_substrate_unstable(manifest: Mapping[str, Any]) -> bool:
+    """True iff the source run provably did not hold one substrate for its whole life.
+
+    THE RETROACTIVE HALF OF THE 2026-07-20 EXECUTED-SUBSTRATE FIX.
+
+    The prospective fix (arm_fingerprint resolving substrate identity once per process)
+    protects runs executed from now on. It does nothing for the corpus already banked:
+    the 2026-07-20 sweep found 42 of 164 fingerprinted runs whose per-cell substrate hash
+    CHANGED mid-run, every one of them carrying `reuse_eligible: true` on cells whose
+    stamped hash is not necessarily what they executed. (That 42 is a count of hash-value
+    changes, not of runs that lost experimental control -- see the over-refusal note
+    below. For a REUSE gate the distinction does not change the decision: we cannot tell
+    from the recorded data which ones executed what, and that uncertainty alone is
+    disqualifying.) Those manifests are NOT edited -- completed runs are re-adjudicated by
+    autopsy, never rewritten -- so the handling lives here, in the one path that could
+    ever act on them.
+
+    Two tests, in order of authority:
+      1. an explicit `substrate_stable_across_run: false` stamped by manifest_core;
+      2. per-cell substrate_hash cardinality > 1, computable on ANY manifest including
+         every pre-fix one. This is what retroactively covers all 42.
+
+    DELIBERATELY OVER-REFUSING, and why that is right HERE specifically.
+    Cardinality > 1 over-reports genuine divergence, for two known reasons: the
+    `driver_script_in_substrate_hash` flag being toggled mid-run (one corpus run,
+    V3-EXQ-788), and -- the larger channel -- `_SUBSTRATE_GLOBS` being uniformly wider
+    than what any run imports, so an unrelated co-resident edit moves the hash without
+    touching the run. failure_autopsy_V3-EXQ-782 adjudicated exactly that as a FALSE
+    POSITIVE and warns against institutionalising a whole-glob divergence flag as a
+    standing WARNING, asking for a closure-restricted check instead.
+
+    That caution is about a signal that ADJUDICATES SCIENCE, where a false positive
+    wrongly impeaches a real result. This is the opposite gate: it decides whether to
+    SKIP RECOMPUTING an arm, where the governing asymmetry runs the other way -- a false
+    MISS costs compute, a false HIT corrupts a conclusion. So over-refusal is the correct
+    failure direction here even though it is the wrong one there, and the two must not be
+    collapsed. When the closure-restricted recomputation lands, this test should be
+    narrowed to it: that would recover the wrongly-refused runs at no cost to safety.
+
+    An ABSENT `substrate_stable_across_run` is NOT read as instability: the whole
+    pre-2026-07-20 corpus lacks the field, and treating absence as failure would refuse
+    every banked mint. Absence falls through to test 2.
+    """
+    if manifest.get("substrate_stable_across_run") is False:
+        return True
+    return len(_distinct_cell_substrate_hashes(manifest)) > 1
+
+
 def _find_cell_in_manifest(manifest: Mapping[str, Any], fingerprint: str) -> Optional[Dict[str, Any]]:
     """Locate the arm_results cell whose arm_fingerprint.arm_fingerprint == fingerprint."""
     arm_results = manifest.get("arm_results")
@@ -190,7 +260,10 @@ def evaluate_reuse(
       2. cite_run_id (if given) matches the entry's run_id;
       3. cached reuse_eligible AND parent outcome != ERROR AND not superseded;
       4. set(needed_keys) subset of set(cell_keys);
-      5. schema matches (arm_fp/v1).
+      5. schema matches (arm_fp/v1);
+      6. the source run held ONE substrate for its whole life (see
+         source_run_substrate_unstable -- the retroactive guard over the 42 known
+         intra-run-divergent runs, which are never rewritten, only refused here).
     """
     idx_path = Path(index_path) if index_path is not None else _DEFAULT_INDEX
 
@@ -262,6 +335,14 @@ def evaluate_reuse(
             manifest = json.load(fh)
     except (OSError, ValueError):
         return ReuseDecision(False, REFUSE_MANIFEST_UNREADABLE, fingerprint, source_run_id=entry_run_id)
+
+    # Rule 6 (executed-substrate integrity, 2026-07-20). A run whose cells disagree
+    # about their substrate cannot vouch for ANY of its cells -- the stamped hash of the
+    # cell we are about to serve may not be the code it ran. Checked here, after the
+    # manifest load, because it is a property of the source RUN that the index does not
+    # carry; that also means a stale index cannot bypass it.
+    if source_run_substrate_unstable(manifest):
+        return ReuseDecision(False, REFUSE_SUBSTRATE_UNSTABLE, fingerprint, source_run_id=entry_run_id)
 
     cell = _find_cell_in_manifest(manifest, fingerprint)
     if cell is None:
@@ -367,4 +448,6 @@ __all__ = [
     "REFUSE_SCHEMA",
     "REFUSE_MANIFEST_UNREADABLE",
     "REFUSE_CELL_NOT_FOUND",
+    "REFUSE_SUBSTRATE_UNSTABLE",
+    "source_run_substrate_unstable",
 ]

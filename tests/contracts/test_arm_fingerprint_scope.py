@@ -29,6 +29,7 @@ for _p in (str(REPO_ROOT), str(REPO_ROOT / "experiments")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+from _lib import arm_fingerprint as afp  # noqa: E402
 from _lib.arm_fingerprint import (  # noqa: E402
     _SUBSTRATE_GLOBS,
     arm_cell,
@@ -104,6 +105,20 @@ def test_two_different_scopes_key_differently():
 
 # ---- (3) the point of scoping: out-of-scope HIT, in-scope refuse -------------
 
+def _next_process():
+    """Cross the process boundary these two tests actually model.
+
+    A mint and a later consumer are two PROCESSES. Since 2026-07-20 the substrate
+    identity is resolved once per process and reused for every cell, so that a mid-run
+    checkout move can no longer split one run's cells across two recorded identities
+    (the executed-substrate fix -- failure_autopsy_V3-EXQ-778a). Editing a file inside a
+    single process therefore does NOT move the fingerprint, by design. To exercise
+    "consumer runs after the edit" we must start the consumer's snapshot fresh, which is
+    exactly what a real second process does.
+    """
+    afp._reset_substrate_snapshot()
+
+
 def test_out_of_scope_edit_hits():
     """An edit to a ree_core module NOT in the declared scope changes the DEFAULT
     fingerprint (old behaviour = bust) but leaves the SCOPED fingerprint unchanged (HIT)."""
@@ -113,10 +128,12 @@ def test_out_of_scope_edit_hits():
     scoped_before = _fp(substrate_scope=WORLD)["arm_fingerprint"]
     restore = _append(oof)
     try:
+        _next_process()
         assert _fp()["arm_fingerprint"] != default_before          # default busts
         assert _fp(substrate_scope=WORLD)["arm_fingerprint"] == scoped_before  # scoped HITs
     finally:
         restore()
+        _next_process()
     assert _fp(substrate_scope=WORLD)["arm_fingerprint"] == scoped_before
 
 
@@ -128,9 +145,11 @@ def test_in_scope_edit_refuses():
     scoped_before = _fp(substrate_scope=WORLD)["arm_fingerprint"]
     restore = _append(in_scope)
     try:
+        _next_process()
         assert _fp(substrate_scope=WORLD)["arm_fingerprint"] != scoped_before
     finally:
         restore()
+        _next_process()
     assert _fp(substrate_scope=WORLD)["arm_fingerprint"] == scoped_before
 
 

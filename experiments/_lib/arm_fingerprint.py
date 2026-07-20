@@ -22,7 +22,10 @@ What the fingerprint binds (Regime A, plan section 2.3 / 3.2)
                    (ree_core/**, the env module, _harness.py, _lib/**, and the
                    calling experiment script). Content hash, NOT git SHA --
                    this workflow runs dirty trees constantly, so a commit SHA
-                   would falsely match across uncommitted edits.
+                   would falsely match across uncommitted edits. Resolved ONCE per
+                   process (resolve_substrate_identity) so it is the EXECUTED
+                   substrate, not whatever happens to be on disk when a later cell
+                   is stamped -- see the executed-substrate block below.
   config_slice   : the resolved config the cell reads. WHOLE config by default
                    (decision 3, whole-config default); callers may pass a
                    narrowed dict, recorded via config_slice_declared.
@@ -236,6 +239,212 @@ def compute_substrate_hash(
     }
 
 
+# ---------------------------------------------------------------------------
+# Process-start substrate identity (executed-substrate fix, 2026-07-20)
+# ---------------------------------------------------------------------------
+#
+# THE DEFECT THIS FIXES (failure_autopsy_V3-EXQ-778a_2026-07-20.json targets[0]).
+#
+# SCOPE OF THE CLAIM, stated first because the corpus sweep's headline was corrected
+# hours after it was written. intra_run_substrate_divergence_sweep_2026-07-20.md reports
+# "42 of 164 fingerprinted runs (25.6%)". Per failure_autopsy_V3-EXQ-782 and the sweep
+# author's own 2026-07-20T07:30Z correction, that is a count of runs whose RECORDED HASH
+# VALUE changed -- NOT a count of runs that lost experimental control, and it must not be
+# cited as the latter. _SUBSTRATE_GLOBS is uniformly wider than what any run imports, so
+# an unrelated parallel edit moves the hash without touching the run; on 782 the
+# closure-restricted hash was byte-identical across all four bands. The true D3 base rate
+# awaits the closure-restricted recomputation that autopsy routed.
+#
+# 778a's own confound was likewise REFUTED: all 8 seeds provably executed one build. What
+# STANDS, and what this module fixes, is the INSTRUMENT defect the same autopsy routed
+# here -- the recorded identity was never guaranteed to be the executed identity.
+#
+# compute_substrate_hash reads source files FROM DISK. A cell, however, executes
+# in-memory bytecode frozen in sys.modules at first import. When the checkout moves
+# mid-run -- routine here, since the fleet pulls continuously and this workflow runs
+# dirty trees constantly -- those two diverge, and the cell is stamped with the DISK
+# state rather than the state it actually executed.
+#
+# Worked instance: run v3_exq_sd068_consolidation_staging_power_diagnostic_
+# 20260717T163507Z_v3 stamped 6 of 8 cells `c8d6d0e2` while all 8 provably executed
+# `e9a22a91` (commit da873a1 landed 85s into a 418s run, editing a _lib harness the
+# driver had already bound at module scope). All 8 carried reuse_eligible: true.
+# Note the direction of that instance: the DISK moved and the EXECUTION did not, so the
+# stamp was wrong while the science was fine. It is still a defect, because the stamp is
+# a reuse KEY -- the next consumer to match on c8d6d0e2 gets a cell that ran e9a22a91.
+#
+# That is a FALSE-HIT channel, i.e. exactly the failure mode the governing asymmetry
+# at the top of this module says must never occur: over-inclusion was designed to buy
+# false MISSES only. A later consumer matching on `c8d6d0e2` would have been served a
+# cell that actually ran `e9a22a91`.
+#
+# THE FIX, in two parts:
+#   1. Resolve substrate identity ONCE per process (below) and serve every cell from
+#      that snapshot. The first resolution happens at the first cell, which is always
+#      AFTER the driver's module-scope imports have frozen the executed bytecode and
+#      BEFORE any mid-run checkout move can be observed -- so the recorded identity is
+#      the executed identity by construction.
+#   2. Re-hash from disk at process exit (`substrate_stability_report`) and stamp
+#      `substrate_stable_across_run` onto the manifest (manifest_core). A checkout move
+#      is then recorded as the INSTRUMENT event it is, instead of masquerading as
+#      per-cell substrate identity.
+#
+# Residual, and why part 2 is not optional: a module imported LAZILY, after the first
+# cell, could still execute post-move code that the snapshot does not describe. That
+# window is precisely what the exit re-hash catches -- it is reported, never hidden.
+#
+# The hash VALUE is unchanged whenever the substrate is stable, which is the normal
+# case, so this is NOT a hard cut like the torch-in-machine_class change: every banked
+# fingerprint minted on a stable run still matches.
+
+# The snapshot state is anchored on the `sys` module, NOT on this module's globals, and
+# that is load-bearing rather than clever. This file is imported under at least two
+# distinct names in a normal experiment process -- `experiments._lib.arm_fingerprint`
+# (manifest_core's preferred import) and bare `arm_fingerprint` (arm_reuse and
+# maturation_curriculum, which put _lib on sys.path first). Python treats those as two
+# unrelated module objects with two sets of globals. A per-module dict would therefore
+# give each importer its OWN snapshot: the freeze would still hold within each, but the
+# two could disagree, and manifest_core's stability report would be blind to drift seen
+# only by the other instance -- reintroducing the very split this fix exists to remove.
+# Anchoring on `sys` (a true process singleton) makes all instances share one state.
+_STATE_ATTR = "_ree_arm_fingerprint_substrate_state"
+_STATE: Dict[str, Dict[Any, Any]] = getattr(sys, _STATE_ATTR, None) or {
+    "substrate": {}, "driver": {}
+}
+setattr(sys, _STATE_ATTR, _STATE)
+
+# Bound to the shared dict OBJECTS. Every mutation below is in-place (never rebinding),
+# so all module instances observe it.
+_SUBSTRATE_SNAPSHOT: Dict[Any, Dict[str, Any]] = _STATE["substrate"]
+_DRIVER_SCRIPT_SNAPSHOT: Dict[str, Optional[str]] = _STATE["driver"]
+
+SUBSTRATE_IDENTITY_SOURCE = "process_snapshot"
+
+
+def _snapshot_key(
+    extra_paths: Optional[Iterable[Path]],
+    repo_root: Optional[Path],
+    scope: Optional[Sequence[str]],
+) -> Any:
+    """Deterministic, hashable cache key for one substrate-hash call signature.
+
+    Two calls differing in repo_root, declared scope, or extra paths describe
+    DIFFERENT substrate questions and must not share a snapshot.
+    """
+    root = str((repo_root or _REPO_ROOT).resolve())
+    globs = None if scope is None else tuple(scope)
+    extras = tuple(sorted(str(Path(p).resolve()) for p in (extra_paths or ())))
+    return (root, globs, extras)
+
+
+def resolve_substrate_identity(
+    extra_paths: Optional[Iterable[Path]] = None,
+    repo_root: Optional[Path] = None,
+    scope: Optional[Sequence[str]] = None,
+    *,
+    refresh: bool = False,
+) -> Dict[str, Any]:
+    """compute_substrate_hash, memoised for the lifetime of the process.
+
+    This is what compute_arm_fingerprint calls. The FIRST cell of a run pays the
+    hashing cost and fixes the answer; every later cell is served the identical
+    dict, so no mid-run checkout move can split one run's cells across two
+    recorded identities.
+
+    `refresh=True` forces a fresh disk read and REPLACES the snapshot -- used only
+    by substrate_stability_report's comparison path and by tests. Callers stamping
+    a cell must never pass it.
+
+    The returned dict carries `resolved_at_utc` for triage and is a copy, so a
+    caller mutating its result cannot corrupt the snapshot.
+    """
+    key = _snapshot_key(extra_paths, repo_root, scope)
+    snap = None if refresh else _SUBSTRATE_SNAPSHOT.get(key)
+    if snap is None:
+        snap = compute_substrate_hash(
+            extra_paths=extra_paths, repo_root=repo_root, scope=scope
+        )
+        snap["resolved_at_utc"] = _utc_now()
+        _SUBSTRATE_SNAPSHOT[key] = snap
+    return dict(snap)
+
+
+def _utc_now() -> str:
+    # ASCII, UTC, second resolution -- matches the repo timestamp convention.
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def substrate_stability_report() -> Dict[str, Any]:
+    """Re-hash every snapshot taken this process and report whether the disk moved.
+
+    Call once at process exit / manifest-write time. manifest_core.stamp_recording_core
+    does this automatically, so an experiment using the standard stamping path gets
+    `substrate_stable_across_run` for free.
+
+    Returns
+    -------
+    {"substrate_stable_across_run": bool, "n_snapshots": int, "checked_utc": str,
+     "drift": [{"scope", "repo_root", "recorded", "on_disk_now", "resolved_at_utc"}]}
+
+    `substrate_stable_across_run` is True when nothing drifted -- INCLUDING the
+    vacuous case of a process that stamped no cells (n_snapshots == 0), which is
+    reported via n_snapshots rather than by a misleading False.
+
+    WHAT False DOES AND DOES NOT MEAN -- read this before acting on it.
+    False means: a file inside the (deliberately over-wide) _SUBSTRATE_GLOBS changed on
+    disk between the first cell and now. It does NOT mean the cells executed that change,
+    and it is NOT a verdict that the run lost experimental control. On this fleet a
+    co-resident unrelated edit produces False routinely, and on V3-EXQ-782 exactly that
+    pattern was adjudicated a FALSE POSITIVE (the closure-restricted hash was constant).
+
+    failure_autopsy_V3-EXQ-782 warns that emitting a whole-glob `substrate_divergent`
+    flag "would institutionalise this false positive as a standing warning", and asks for
+    a CLOSURE-RESTRICTED check instead. That warning is respected here in the only way
+    available without the closure machinery it presupposes: this field is scoped as an
+    INSTRUMENT event, never a scientific verdict, and nothing adjudicates a claim off it.
+    Its two consumers are (a) a human triaging provenance and (b) arm_reuse, where
+    over-refusal is the CORRECT direction because a false MISS costs only compute. Do not
+    promote it into a confound signal; when the closure-restricted recomputation lands,
+    this is the field that should be narrowed by it.
+
+    Never raises: an unreadable tree during the recheck is reported as drift rather
+    than being allowed to crash a completed experiment's manifest write.
+    """
+    drift: List[Dict[str, Any]] = []
+    for (root, globs, extras), snap in list(_SUBSTRATE_SNAPSHOT.items()):
+        try:
+            now = compute_substrate_hash(
+                extra_paths=[Path(e) for e in extras] or None,
+                repo_root=Path(root),
+                scope=list(globs) if globs is not None else None,
+            )
+            now_hash = now["substrate_hash"]
+        except Exception as exc:  # pragma: no cover - defensive
+            now_hash = "RECHECK_FAILED:%s" % type(exc).__name__
+        if now_hash != snap["substrate_hash"]:
+            drift.append({
+                "repo_root": root,
+                "scope": list(globs) if globs is not None else None,
+                "recorded": snap["substrate_hash"],
+                "on_disk_now": now_hash,
+                "resolved_at_utc": snap.get("resolved_at_utc"),
+            })
+    return {
+        "substrate_stable_across_run": not drift,
+        "n_snapshots": len(_SUBSTRATE_SNAPSHOT),
+        "checked_utc": _utc_now(),
+        "drift": drift,
+    }
+
+
+def _reset_substrate_snapshot() -> None:
+    """Clear the process snapshot. TEST-ONLY -- an experiment must never call this."""
+    _SUBSTRATE_SNAPSHOT.clear()
+    _DRIVER_SCRIPT_SNAPSHOT.clear()
+
+
 def reset_all_rng(seed: int) -> None:
     """Complete per-cell RNG reset (plan section 2.2 hardening fix).
 
@@ -371,26 +580,38 @@ def compute_arm_fingerprint(
     # the canonical baseline module that actually defines the OFF computation is
     # already captured by the experiments/_lib/** glob in compute_substrate_hash.
     fold_script = bool(script_path) and include_driver_script_in_hash
-    sub = compute_substrate_hash(
+    # resolve_substrate_identity, NOT compute_substrate_hash: the identity is frozen
+    # at the FIRST cell of the process so every cell of a run records the substrate it
+    # actually executed, even if the checkout moves mid-run. See the block above.
+    sub = resolve_substrate_identity(
         extra_paths=[script_path] if fold_script else None,
         repo_root=repo_root,
         scope=substrate_scope,
     )
     if extra_substrate_paths:
         # fold any additional declared deps into the hash deterministically
-        extra = compute_substrate_hash(extra_paths=extra_substrate_paths,
-                                       repo_root=repo_root,
-                                       scope=substrate_scope)
+        extra = resolve_substrate_identity(extra_paths=extra_substrate_paths,
+                                           repo_root=repo_root,
+                                           scope=substrate_scope)
         sub["substrate_hash"] = _sha256_hex(
             (sub["substrate_hash"] + ":" + extra["substrate_hash"]).encode("ascii")
         )
 
+    # Observability only -- but frozen at first read for the same reason as the
+    # substrate hash: a driver edited mid-run must not make one run's cells disagree
+    # about which driver they ran. (5 of the sweep's 42 divergent runs had the driver
+    # edited in flight too.)
     driver_script_hash: Optional[str] = None
     if script_path:
-        try:
-            driver_script_hash = _sha256_hex(Path(script_path).read_bytes())
-        except OSError:
-            driver_script_hash = None
+        dkey = str(Path(script_path).resolve())
+        if dkey in _DRIVER_SCRIPT_SNAPSHOT:
+            driver_script_hash = _DRIVER_SCRIPT_SNAPSHOT[dkey]
+        else:
+            try:
+                driver_script_hash = _sha256_hex(Path(script_path).read_bytes())
+            except OSError:
+                driver_script_hash = None
+            _DRIVER_SCRIPT_SNAPSHOT[dkey] = driver_script_hash
 
     mc = machine_class()
     fp_input = {
@@ -453,6 +674,14 @@ def compute_arm_fingerprint(
         # recorded alongside the authoritative content hash (plan section 3.2).
         "driver_script_in_substrate_hash": bool(include_driver_script_in_hash),
         "driver_script_hash": driver_script_hash,
+        # Executed-substrate provenance (2026-07-20 fix). Records HOW the identity was
+        # obtained and WHEN it was frozen, so a reviewer can tell a post-fix cell (whose
+        # identity is the executed one by construction) from a pre-fix cell (whose
+        # identity was a fresh per-cell disk read and may not be what ran). Observability
+        # only -- deliberately NOT in fp_input, so a stable run's fingerprint is
+        # byte-identical to before this change and every banked mint still matches.
+        "substrate_identity_source": SUBSTRATE_IDENTITY_SOURCE,
+        "substrate_identity_resolved_at": sub.get("resolved_at_utc"),
         # NOTE: Phase 0 is emit-only. No reuse is ever performed off this value.
     }
 
@@ -577,6 +806,9 @@ __all__ = [
     "REGIME",
     "machine_class",
     "compute_substrate_hash",
+    "resolve_substrate_identity",
+    "substrate_stability_report",
+    "SUBSTRATE_IDENTITY_SOURCE",
     "reset_all_rng",
     "compute_arm_fingerprint",
     "arm_cell",

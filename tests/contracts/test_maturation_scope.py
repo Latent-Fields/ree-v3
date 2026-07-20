@@ -21,7 +21,21 @@ for _p in (str(REPO_ROOT), str(REPO_ROOT / "experiments")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+from _lib import arm_fingerprint as afp  # noqa: E402
 from _lib.arm_fingerprint import compute_substrate_hash, _SUBSTRATE_GLOBS  # noqa: E402
+
+
+def _next_process():
+    """Cross the process boundary the prefix-cache tests actually model.
+
+    A prefix is MINTED by one process and CONSUMED by a later one. Since 2026-07-20
+    _prefix_key resolves its substrate identity once per process, so a mid-run checkout
+    move cannot key frozen tensors to a substrate they were not built with (the
+    executed-substrate fix -- failure_autopsy_V3-EXQ-778a). Editing a file inside one
+    process therefore does NOT move the key, by design; a real consumer is a new process,
+    which is what this restores.
+    """
+    afp._reset_substrate_snapshot()
 from _lib.baselines import maturation_curriculum as MC  # noqa: E402
 
 
@@ -66,11 +80,13 @@ def test_c3_out_of_closure_edit_hits():
     key_before = MC._prefix_key("world", {"seed": 1, "onset": 4})
     restore = _transient_append(oof)
     try:
+        _next_process()
         assert compute_substrate_hash()["substrate_hash"] != glob_before  # global bust
         assert compute_substrate_hash(scope=MC._WORLD_SUBSTRATE_SCOPE)["substrate_hash"] == scoped_before
         assert MC._prefix_key("world", {"seed": 1, "onset": 4}) == key_before  # HIT preserved
     finally:
         restore()
+        _next_process()
     assert compute_substrate_hash()["substrate_hash"] == glob_before  # restored
 
 
@@ -83,10 +99,12 @@ def test_c4_in_closure_edit_refuses():
 
     restore = _transient_append("ree_core/latent/stack.py")
     try:
+        _next_process()
         assert MC._prefix_key("world", {"seed": 1, "onset": 4}) != key_w
         assert MC._prefix_key("harm", {"seed": 1, "onset": 4}) != key_h
     finally:
         restore()
+        _next_process()
     # key restored
     assert MC._prefix_key("world", {"seed": 1, "onset": 4}) == key_w
 
@@ -95,9 +113,11 @@ def test_c4_in_closure_edit_refuses():
     assert leaf in set(MC._WORLD_SUBSTRATE_SCOPE)
     restore = _transient_append(leaf)
     try:
+        _next_process()
         assert MC._prefix_key("world", {"seed": 1, "onset": 4}) != key_w
     finally:
         restore()
+        _next_process()
 
 
 def test_c5_static_conservatism_guard():

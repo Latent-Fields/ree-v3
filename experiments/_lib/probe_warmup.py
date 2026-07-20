@@ -153,7 +153,7 @@ for _p in (str(_REPO_ROOT), str(_EXP_DIR), str(_LIB_DIR)):
         sys.path.insert(0, _p)
 
 from _harness import StepHarness  # noqa: E402
-from arm_fingerprint import compute_substrate_hash, machine_class  # noqa: E402
+from arm_fingerprint import compute_substrate_hash, machine_class, resolve_substrate_identity  # noqa: E402
 from sample_driven_rollout import (  # noqa: E402
     RolloutBudget,
     TickContext,
@@ -567,7 +567,12 @@ def _warmup_key(*, seed: int, recipe: WarmupRecipe, env_kwargs: Mapping[str, Any
     import hashlib
     import json
 
-    sub = compute_substrate_hash(scope=None)
+    # resolve_substrate_identity, NOT compute_substrate_hash: this key is written onto a
+    # CACHED artifact, so a mid-run checkout move would key the warmup to a substrate it
+    # was not built with -- the same false-HIT channel the 2026-07-20 executed-substrate
+    # fix closed in arm_fingerprint. Identical value on a stable run, so no cache is
+    # invalidated by this change.
+    sub = resolve_substrate_identity(scope=None)
     payload = {
         "schema": PROBE_WARMUP_SCHEMA,
         "substrate_hash": sub["substrate_hash"],

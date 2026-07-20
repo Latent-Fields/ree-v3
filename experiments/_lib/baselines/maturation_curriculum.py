@@ -129,6 +129,7 @@ from arm_fingerprint import (  # noqa: E402
     _sha256_hex,
     compute_substrate_hash,
     machine_class,
+    resolve_substrate_identity,
 )
 # Conservatism guards live in a shared, scope-generic module (plan sec 11) so any
 # experiment -- not just this prototype -- can prove a declared substrate scope is a
@@ -278,7 +279,12 @@ def _prefix_key(leg: str, upstream: Dict[str, Any]) -> str:
         # is no longer data-closed or a declared file is missing. The expensive call-trace
         # guard (guard 1) lives in the scope test.
         _verify_scope_static(leg)
-    sub = compute_substrate_hash(scope=scope)
+    # resolve_substrate_identity, NOT compute_substrate_hash: this key is written onto
+    # frozen prefix TENSORS on disk, so a mid-run checkout move would key them to a
+    # substrate they were not built with -- the same false-HIT channel the 2026-07-20
+    # executed-substrate fix closed in arm_fingerprint. Identical value on a stable run,
+    # so no banked prefix is invalidated.
+    sub = resolve_substrate_identity(scope=scope)
     payload = {
         "schema": PREFIX_CACHE_SCHEMA,
         "leg": leg,

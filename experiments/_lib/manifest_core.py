@@ -25,6 +25,11 @@ Always-core fields it stamps (standard 3b)
                      the arm-fingerprint machinery) so the top-level value matches the
                      per-cell fingerprints by construction; for a single-arm run it is
                      computed fresh via experiments/_lib/arm_fingerprint.py.
+  substrate_stable_across_run : bool -- False iff the substrate provably moved during
+                     the run (per-cell hashes disagree, or the process snapshot no
+                     longer matches disk at stamp time). Deliberately NOT in
+                     ALWAYS_CORE_KEYS: the pre-2026-07-20 corpus cannot carry it, and
+                     making it core would turn every legacy manifest into a WARN.
   machine          : socket.gethostname() (or a caller override -- the hub records
                      "ree-cloud-1" although its hostname is "ree-worker-1").
   machine_class    : arm_fingerprint.machine_class() -- fingerprint equality is
@@ -114,26 +119,48 @@ def _coerce_seed_list(seeds: Any) -> Optional[List[int]]:
     return None
 
 
-def _hoist_multi_arm_substrate_hash(manifest: Mapping[str, Any]) -> Optional[str]:
-    """Return arm_results[i].arm_fingerprint.substrate_hash for the first arm that
-    carries one, or None if this is not a multi-arm manifest / no arm carries a hash.
+def multi_arm_substrate_hashes(manifest: Mapping[str, Any]) -> List[str]:
+    """Distinct arm_results[i].arm_fingerprint.substrate_hash values, first-seen order.
 
-    All arms of one run execute against the same substrate, so the first present
-    hash is authoritative -- hoisting it keeps the top-level value byte-identical to
-    the per-cell fingerprints (standard 3b: "hoist one copy to the top level").
+    Cardinality > 1 means the run's cells do NOT agree on which substrate they ran --
+    the intra-run divergence defect (D3). Exposed publicly because arm_reuse needs
+    exactly this test to refuse serving a cell out of a divergent run.
     """
+    out: List[str] = []
     arm_results = manifest.get("arm_results")
     if not isinstance(arm_results, list):
-        return None
+        return out
     for cell in arm_results:
         if not isinstance(cell, dict):
             continue
         fp = cell.get("arm_fingerprint")
         if isinstance(fp, dict):
             sh = fp.get("substrate_hash")
-            if isinstance(sh, str) and sh:
-                return sh
-    return None
+            if isinstance(sh, str) and sh and sh not in out:
+                out.append(sh)
+    return out
+
+
+def _hoist_multi_arm_substrate_hash(manifest: Mapping[str, Any]) -> Optional[str]:
+    """Return the first arm's substrate_hash, or None if there is none to hoist.
+
+    HOISTING IS LOSSY AND WAS ONCE A TRAP. This function's original contract asserted
+    that "all arms of one run execute against the same substrate, so the first present
+    hash is authoritative". The 2026-07-20 corpus sweep falsified that outright: 42 of
+    164 fingerprinted runs (25.6%) changed substrate mid-run, and because this hoist
+    keeps only the FIRST hash, every one of them recorded a single clean-looking value
+    at the top level -- the per-run field actively HID the divergence it was meant to
+    summarise (intra_run_substrate_divergence_sweep_2026-07-20.md sec 1).
+
+    The hoist is kept as-is for backward compatibility (the top-level field still means
+    "a substrate hash from this run"), but it is no longer the whole story: callers get
+    `substrate_stable_across_run` beside it, and the authoritative per-cell set is
+    available via multi_arm_substrate_hashes(). Two mitigations now sit upstream --
+    arm_fingerprint resolves substrate identity once per process, so a stable run cannot
+    silently split; and stamp_recording_core records the stability verdict below.
+    """
+    hashes = multi_arm_substrate_hashes(manifest)
+    return hashes[0] if hashes else None
 
 
 def compute_single_arm_substrate_hash(
@@ -237,6 +264,41 @@ def stamp_recording_core(
                 # substrate_hash is a soft-validate WARN, not a run failure.
                 pass
 
+    # substrate_stable_across_run -- did the substrate hold still for the whole run?
+    # Two independent tests, either of which can only ever prove INSTABILITY:
+    #   (a) the run's own per-cell fingerprints disagree (cardinality > 1) -- this is
+    #       the D3 signature the 2026-07-20 sweep found on 42 of 164 runs, and it is
+    #       decisive on its own even for a manifest built in some other process;
+    #   (b) the substrate this process HASHED at its first cell no longer matches disk
+    #       (arm_fingerprint.substrate_stability_report) -- catches a mid-run checkout
+    #       move that (a) cannot see, precisely because the process-snapshot fix now
+    #       keeps all cells agreeing.
+    # False is the informative value: it records the checkout move as the instrument
+    # event it is, and arm_reuse refuses to serve a cell out of such a run. Stamped
+    # unconditionally (not only when empty) is WRONG -- an author who explicitly set it
+    # must win, so it goes through _fill like everything else.
+    if overwrite or _is_empty(manifest.get("substrate_stable_across_run")):
+        try:
+            cells_disagree = len(multi_arm_substrate_hashes(manifest)) > 1
+            report = _afp.substrate_stability_report()
+            stable = bool(report.get("substrate_stable_across_run", True)) and not cells_disagree
+            # _fill() skips a meaningful False? No -- _is_empty treats False as present,
+            # so assign directly rather than via _fill, which would refuse to write it.
+            manifest["substrate_stable_across_run"] = stable
+            if not stable:
+                manifest["substrate_stability_detail"] = {
+                    "per_cell_hashes_disagree": cells_disagree,
+                    "distinct_cell_substrate_hashes": multi_arm_substrate_hashes(manifest),
+                    "process_snapshot_drift": report.get("drift", []),
+                    "checked_utc": report.get("checked_utc"),
+                }
+        except Exception:
+            # Never let provenance stamping crash an experiment (same posture as the
+            # substrate_hash branch above). An absent field is a soft WARN, and the
+            # reuse path treats "absent" as unproven-but-not-disproven, falling back to
+            # the per-cell cardinality test it can compute for itself.
+            pass
+
     # machine / machine_class -- where it ran + the class the hash is valid within.
     _fill("machine", machine if machine else socket.gethostname())
     try:
@@ -276,6 +338,7 @@ __all__ = [
     "RECORDING_SCHEMA",
     "ALWAYS_CORE_KEYS",
     "compute_single_arm_substrate_hash",
+    "multi_arm_substrate_hashes",
     "stamp_recording_core",
     "missing_core_fields",
 ]
