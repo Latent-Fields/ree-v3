@@ -68,6 +68,32 @@ EVIDENCE-FOR / EVIDENCE-AGAINST (baseline-description requirement):
     the scale is degenerate and no normalized trained point is licensed.
   This run tags NO claim; the label is a hypothesis for adjudication, never a governance act.
 
+UNTRAINED-WORLD-ENCODER GUARD (wired 2026-07-19; DETECTION ONLY).
+  experiments/_lib/zworld_encoder_guard.py is wired into the `ree_trained_allon` arm only.
+  NONE of the optimizer groups inside _train_all_on_agent (e2, lateral-PFC bias head, OFC
+  devaluation head) covers ANY latent_stack parameter, so split_encoder.world_encoder
+  receives no gradient in P0 or P1 and z_world stays a FROZEN RANDOM PROJECTION at
+  initialisation (measured: 0/61 latent_stack tensors changed, 0/4 world_encoder tensors
+  changed, max|delta| = 0.000e+00).
+
+  POLICY = STRICT for this script, and the reason is specific to it: the script is NAMED
+  "trained_allon" and its P0 phase is documented as a "world-model (encoder/e2) warmup",
+  so the `ree_trained_allon` arm's premise REQUIRES a learned world representation. A
+  frozen random projection does not merely weaken that arm, it voids its premise, so the
+  arm is REFUSED rather than annotated.
+
+  ARM-SCOPED, NEVER RUN-SCOPED. The guard refuses the ARM, never the RUN. `random_walk`
+  and `greedy_oracle` run no P0 warmup at all and their premise does not involve z_world,
+  so the guard precondition is explicitly scoped OUT of them and their yardstick anchors
+  remain fully valid and scored. Per the multi-arm regime-conditioning rule
+  (.claude/skills/queue-experiment/SKILL.md, the V3-EXQ-785 defect), no arm's gate result
+  may vacate another arm's: `non_degenerate` is ANY-arm-green, not all-arms-green.
+
+  SCOPE: DETECTION ONLY. Nothing here attempts to make the encoder train; that fix is
+  downstream of the V3-EXQ-783 adjudication and belongs to governance.
+  Diagnosis: REE_assembly/evidence/planning/
+             zworld_bc_install_failure_V3-EXQ-780_2026-07-19.md
+
 SLEEP DRIVER: none (no sleep loop; use_sleep_loop / sws_enabled / rem_enabled all OFF).
 
 Sourced config (all-ON matched stack + training harness) from V3-EXQ-714 ARM_ON via
@@ -108,6 +134,14 @@ from experiments._lib.capability_eval import (
     evaluate_seed,
     summarize_arm,
 )
+from experiments._lib.zworld_encoder_guard import (
+    ZWORLD_PRECONDITION_NAME,
+    ZWorldEncoderUntrainedError,
+    assert_world_encoder_trained,
+    latent_stack_snapshot,
+    latent_stack_weight_delta,
+    zworld_precondition,
+)
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
@@ -123,7 +157,11 @@ EXPERIMENT_PURPOSE = "baseline"
 # Budget (mirrors V3-EXQ-724 A0: P0=200 warmup + P1=90 REINFORCE, frozen encoder in P1)
 # ---------------------------------------------------------------------------
 SEEDS = [42, 43, 44]
-P0_WARMUP_EPISODES = 200          # world-model (encoder/e2) warmup (mirrors 724 / 719a / 714 P0)
+P0_WARMUP_EPISODES = 200          # SD-056 e2 forward-model warmup (mirrors 724 / 719a / 714 P0).
+                                  # NOT a world-ENCODER warmup: no optimizer here covers a
+                                  # latent_stack parameter, so split_encoder.world_encoder is
+                                  # untouched and z_world stays a frozen random projection.
+                                  # Detected by zworld_encoder_guard -- see the docstring block.
 P1_REINFORCE_EPISODES = 90        # two-head REINFORCE (mirrors 724 A0 P1_SHORT)
 EVAL_EPISODES = 20                # capability-eval episodes per (arm, seed) cell
 STEPS_PER_EPISODE = 200
@@ -474,7 +512,10 @@ def _ofc_deval_reinforce_loss(
 
 
 # ---------------------------------------------------------------------------
-# Train the all-ON agent: P0 world-model warmup THEN P1 two-head REINFORCE.
+# Train the all-ON agent: P0 e2 forward-model warmup THEN P1 two-head REINFORCE.
+# NB: P0 trains e2 ONLY -- it does NOT train split_encoder.world_encoder (no optimizer
+# group here covers any latent_stack parameter), so z_world remains a frozen random
+# projection throughout. This is the V3-EXQ-780 defect; the guard detects it.
 # Mirrors the V3-EXQ-724 A0 recipe (e2 encoder FROZEN through P1). No P2 phase --
 # competence is measured downstream by the capability yardstick's REEForwardPolicy eval.
 # ---------------------------------------------------------------------------
@@ -682,6 +723,10 @@ def _train_all_on_agent(
 # ---------------------------------------------------------------------------
 ARMS = ("random_walk", "ree_trained_allon", "greedy_oracle")
 
+# The ONLY arm the z_world untrained-encoder guard applies to: the only arm that runs the
+# P0 warmup and the only arm whose premise requires a learned world representation.
+GUARDED_ARM = "ree_trained_allon"
+
 
 def _run_cell(
     arm_id: str,
@@ -693,6 +738,9 @@ def _run_cell(
 ) -> Dict[str, Any]:
     """One (arm, seed) capability-eval cell. Returns the seed-level metric row."""
     train_stats: Dict[str, int] = {}
+    guard_report: Optional[Dict[str, Any]] = None
+    guard_ok: Optional[bool] = None
+    guard_message: Optional[str] = None
     if arm_id == "random_walk":
         policy = RandomPolicy(seed)
     elif arm_id == "greedy_oracle":
@@ -700,9 +748,31 @@ def _run_cell(
     elif arm_id == "ree_trained_allon":
         train_env = _make_env(seed)
         agent = _make_all_on_agent(train_env)
+        # z_world untrained-encoder guard -- DETECTION ONLY, and scoped to THIS arm only.
+        # random_walk / greedy_oracle run no warmup, so they are never snapshotted.
+        before = latent_stack_snapshot(agent)
         train_stats = _train_all_on_agent(
             agent, seed, p0_episodes, p1_episodes, steps_per_episode
         )
+        guard_report = latent_stack_weight_delta(agent, before)
+        guard_report["p0_episodes"] = int(p0_episodes)
+        guard_report["guard_checked"] = bool(p0_episodes > 0 and before)
+        # Exercise the guard's real raising contract path, but catch it here: a bare raise
+        # would abort the process, produce a runner ERROR with NO manifest, and destroy the
+        # random_walk / greedy_oracle yardstick anchors, which are perfectly valid.
+        try:
+            assert_world_encoder_trained(
+                agent, before, p0=p0_episodes, strict=True,
+                context="V3-EXQ-728a ree_trained_allon",
+            )
+            guard_ok = True
+        except ZWorldEncoderUntrainedError as exc:
+            guard_ok = False
+            guard_message = str(exc)
+            print(f"[GUARD-REFUSAL] arm=ree_trained_allon seed={seed}: {guard_message}",
+                  file=sys.stderr, flush=True)
+            print(f"[GUARD-REFUSAL] arm=ree_trained_allon seed={seed}: {guard_message}",
+                  flush=True)
         policy = REEForwardPolicy(agent, name="ree_trained_allon")
     else:
         raise ValueError(f"unknown arm {arm_id!r}")
@@ -714,6 +784,11 @@ def _run_cell(
     row["n_p0_ticks"] = int(train_stats.get("n_p0_ticks", 0))
     row["n_p1_ticks"] = int(train_stats.get("n_p1_ticks", 0))
     row["n_e2_train_steps"] = int(train_stats.get("n_e2_train_steps", 0))
+    # None (not a fabricated report) for the arms that run no warmup.
+    row["zworld_guard"] = guard_report
+    row["zworld_guard_ok"] = guard_ok
+    if guard_message is not None:
+        row["zworld_guard_message"] = guard_message
     return row
 
 
@@ -778,7 +853,98 @@ def run_experiment(
     yardstick_discriminates = bool(readiness["yardstick_discriminates"])
     readiness_met = bool(oracle_clears_floor)
 
+    # ----- z_world untrained-encoder guard: ARM-SCOPED aggregation -----
+    # The guard precondition applies ONLY to ree_trained_allon. Scoping it out of the two
+    # anchor arms is explicit and reasoned, not an omission: no arm's gate result may
+    # vacate another arm's (queue-experiment multi-arm regime-conditioning rule).
+    guard_rows = [
+        c for c in cells
+        if c["arm_id"] == GUARDED_ARM and c.get("zworld_guard") is not None
+    ]
+    guard_reports = {
+        int(c["seed"]): c["zworld_guard"] for c in guard_rows
+    }
+    checked_rows = [c for c in guard_rows if c["zworld_guard"].get("guard_checked")]
+    n_guard_failed = sum(1 for c in checked_rows if c.get("zworld_guard_ok") is False)
+    guard_ok_arm = bool(checked_rows) and n_guard_failed == 0
+    # No seed was actually checked (p0 <= 0) => the guard cannot speak; do not refuse on it.
+    guard_applicable = bool(checked_rows)
+    guard_arm_green = (not guard_applicable) or guard_ok_arm
+    guard_messages = sorted({
+        str(c["zworld_guard_message"]) for c in guard_rows if c.get("zworld_guard_message")
+    })
+    # Representative report for the preconditions[] entry: the first FAILING seed when any
+    # seed failed (so the entry reports the refusing measurement), else the first checked.
+    if checked_rows:
+        failing = [c for c in checked_rows if c.get("zworld_guard_ok") is False]
+        rep_report = (failing or checked_rows)[0]["zworld_guard"]
+    else:
+        rep_report = guard_rows[0]["zworld_guard"] if guard_rows else {}
+
+    # Per-arm gate. Anchors carry ONLY their own (scale-readiness) precondition.
+    anchor_green = bool(readiness_met)
+    arm_green: Dict[str, bool] = {
+        "random_walk": anchor_green,
+        "greedy_oracle": anchor_green,
+        GUARDED_ARM: bool(readiness_met and guard_arm_green),
+    }
+    failed_preconditions_by_arm: Dict[str, List[str]] = {}
+    for a_id in ARMS:
+        failed: List[str] = []
+        if not readiness_met:
+            failed.append("oracle_clears_competence_floor")
+        if a_id == GUARDED_ARM and not guard_arm_green:
+            failed.append(ZWORLD_PRECONDITION_NAME)
+        failed_preconditions_by_arm[a_id] = failed
+    green_arms = [a for a in ARMS if arm_green.get(a)]
+    red_arms = [a for a in ARMS if not arm_green.get(a)]
+    per_arm_gate = {
+        "green_arms": green_arms,
+        "red_arms": red_arms,
+        "failed_preconditions_by_arm": failed_preconditions_by_arm,
+        "scoped_out": {
+            "random_walk": {
+                ZWORLD_PRECONDITION_NAME: (
+                    "arm runs no P0 warmup and its premise does not involve z_world"
+                ),
+            },
+            "greedy_oracle": {
+                ZWORLD_PRECONDITION_NAME: (
+                    "arm runs no P0 warmup and its premise does not involve z_world"
+                ),
+            },
+        },
+        "policy": (
+            "STRICT for ree_trained_allon: the script is named 'trained_allon' and its P0 "
+            "phase is documented as a world-model warmup, so a frozen random projection "
+            "voids that arm's premise and the ARM is refused. The RUN is never refused -- "
+            "the two anchor arms are scored independently."
+        ),
+    }
+    # ANY arm green, NOT all -- a refused ree arm must not vacate the valid anchors.
+    non_degenerate = bool(green_arms)
+    degeneracy_reason: Optional[str] = None
+    if not non_degenerate:
+        degeneracy_reason = (
+            "every arm is red: "
+            + ", ".join(
+                f"{a} ({'; '.join(failed_preconditions_by_arm[a]) or 'unspecified'})"
+                for a in red_arms
+            )
+            + " -- no arm remains scored."
+        )
+
+    trained_arm_green = bool(arm_green[GUARDED_ARM])
+
     if not readiness_met:
+        outcome = "FAIL"
+        label = "substrate_not_ready_requeue"
+    elif not trained_arm_green:
+        # The PASS label is carried entirely by the ree_trained_allon capability number, so
+        # a refused ree arm must never be reported as PASS. NEVER a substrate verdict label
+        # (substrate_ceiling / substrate_conditional / does_not_support / *_nondiscriminative
+        # / *_unmeetable): a below-floor guard reading means "no gradient reached the
+        # encoder", not "the criterion was falsified".
         outcome = "FAIL"
         label = "substrate_not_ready_requeue"
     elif yardstick_discriminates:
@@ -815,7 +981,28 @@ def run_experiment(
                 "measured": float(readiness["oracle_foraging_competence"]),
                 "threshold": float(COMPETENCE_RESOURCE_FLOOR),
                 "met": bool(oracle_clears_floor),
+                "applies_to_arms": list(ARMS),
             },
+            dict(
+                zworld_precondition(
+                    rep_report,
+                    arm=GUARDED_ARM,
+                    context="V3-EXQ-728a ree_trained_allon",
+                ),
+                applies_to_arms=[GUARDED_ARM],
+                scoped_out_arms={
+                    "random_walk": (
+                        "arm runs no P0 warmup and its premise does not involve z_world"
+                    ),
+                    "greedy_oracle": (
+                        "arm runs no P0 warmup and its premise does not involve z_world"
+                    ),
+                },
+                policy="strict",
+                n_seeds_checked=len(checked_rows),
+                n_seeds_failed=int(n_guard_failed),
+                guard_messages=guard_messages,
+            ),
         ],
         "criteria": [
             {
@@ -824,17 +1011,40 @@ def run_experiment(
                 "passed": bool(yardstick_discriminates),
             },
         ],
+        # Each criterion is keyed to its OWNING arm's gate. The two anchor criteria read only
+        # greedy_oracle / random_walk, so a refused ree arm leaves them True; the criteria
+        # that read the ree_trained_allon capability number go False when that arm is red.
         "criteria_non_degenerate": {
-            "oracle_clears_floor": bool(oracle_clears_floor),
-            "oracle_foraging_above_random": bool(yardstick_discriminates),
+            "oracle_clears_floor": bool(anchor_green),
+            "oracle_foraging_above_random": bool(anchor_green and yardstick_discriminates),
+            "trained_allon_capability_point_measurable": bool(trained_arm_green),
+            "trained_allon_normalized_position_interpretable": bool(trained_arm_green),
         },
+        "criteria_non_degenerate_owning_arm": {
+            "oracle_clears_floor": "greedy_oracle",
+            "oracle_foraging_above_random": "greedy_oracle+random_walk",
+            "trained_allon_capability_point_measurable": GUARDED_ARM,
+            "trained_allon_normalized_position_interpretable": GUARDED_ARM,
+        },
+        "per_arm_gate": per_arm_gate,
+        "non_degenerate": bool(non_degenerate),
+        "degeneracy_reason": degeneracy_reason,
         "reported_context_not_a_verdict": {
             "trained_allon_majority_supra_floor": trained_supra_floor,
             "trained_allon_normalized_position": trained_norm_positions,
+            "trained_allon_capability_valid": bool(trained_arm_green),
             "note": (
                 "trained-all-ON supra-floor status + normalized positions are REPORTED CONTEXT "
                 "on an excluded-from-scoring baseline; they are NOT a governance verdict on "
                 "all-ON competence."
+                + (
+                    ""
+                    if trained_arm_green else
+                    " REFUSED: the z_world untrained-encoder guard tripped on this arm, so "
+                    "these trained-all-ON numbers were produced on a FROZEN RANDOM "
+                    "PROJECTION and are NOT valid as a trained-all-ON capability point. The "
+                    "random_walk and greedy_oracle anchors are unaffected and remain scored."
+                )
             ),
         },
     }
@@ -854,6 +1064,20 @@ def run_experiment(
         "capability_report": report,
         "trained_allon_supra_floor": trained_supra_floor,
         "trained_allon_normalized_position": trained_norm_positions,
+        "trained_allon_capability_valid": bool(trained_arm_green),
+        "per_arm_gate": per_arm_gate,
+        "non_degenerate": bool(non_degenerate),
+        "degeneracy_reason": degeneracy_reason,
+        "zworld_encoder_guard": {
+            "policy": "strict",
+            "guarded_arm": GUARDED_ARM,
+            "applicable": bool(guard_applicable),
+            "arm_green": bool(guard_arm_green),
+            "n_seeds_checked": len(checked_rows),
+            "n_seeds_failed": int(n_guard_failed),
+            "messages": guard_messages,
+            "per_seed_reports": guard_reports,
+        },
         "per_arm": arm_summaries,
         "arm_results": cells,
         "readiness_gates": {
@@ -880,6 +1104,12 @@ def _build_manifest(result: Dict[str, Any], timestamp_utc: str, dry_run: bool) -
         "evidence_direction": result["overall_direction"],
         "interpretation_label": result["interpretation_label"],
         "interpretation": result["interpretation"],
+        "per_arm_gate": result["per_arm_gate"],
+        "non_degenerate": bool(result["non_degenerate"]),
+        "degeneracy_reason": result["degeneracy_reason"],
+        "diagnostics": {
+            "zworld_encoder_guard": result["zworld_encoder_guard"],
+        },
         "sleep_driver_pattern": "none",
         "evidence_direction_note": (
             f"V3-EXQ-728 TRAINED ALL-ON CAPABILITY POINT (experiment_purpose=baseline, "
@@ -903,7 +1133,17 @@ def _build_manifest(result: Dict[str, Any], timestamp_utc: str, dry_run: bool) -
             f"{result['trained_allon_normalized_position']}. Eval uses the reusable yardstick's "
             f"mechanism-agnostic REEForwardPolicy (no P2 OFC-viability injection), so the number "
             f"is comparable to 727's p0warmup point and is NOT required to reproduce 724's A0 P2 "
-            f"competence DV byte-for-byte."
+            f"competence DV byte-for-byte. "
+            f"Z_WORLD UNTRAINED-ENCODER GUARD (STRICT, arm-scoped to ree_trained_allon; "
+            f"DETECTION ONLY): arm_green={result['zworld_encoder_guard']['arm_green']}, "
+            f"seeds_checked={result['zworld_encoder_guard']['n_seeds_checked']}, "
+            f"seeds_failed={result['zworld_encoder_guard']['n_seeds_failed']}; "
+            f"per_arm_gate green={result['per_arm_gate']['green_arms']} "
+            f"red={result['per_arm_gate']['red_arms']}; non_degenerate="
+            f"{result['non_degenerate']} (ANY arm green -- a refused ree_trained_allon arm "
+            f"does NOT vacate the random_walk / greedy_oracle anchors, which run no P0 "
+            f"warmup and whose premise does not involve z_world). "
+            f"trained_allon_capability_valid={result['trained_allon_capability_valid']}."
         ),
         "dry_run": bool(dry_run),
         "env_kwargs": dict(ENV_KWARGS),
@@ -1000,11 +1240,37 @@ def main() -> Tuple[Optional[str], Optional[str], bool]:
             f"plan_depth={st['planning_depth_mean']}",
             flush=True,
         )
+    _g = result["zworld_encoder_guard"]
     print(
-        f"  trained-all-ON supra_floor={result['trained_allon_supra_floor']} "
-        f"normalized_position={result['trained_allon_normalized_position']}",
+        f"  zworld_encoder_guard: policy=strict arm={_g['guarded_arm']} "
+        f"arm_green={_g['arm_green']} seeds_checked={_g['n_seeds_checked']} "
+        f"seeds_failed={_g['n_seeds_failed']}",
         flush=True,
     )
+    print(
+        f"  per_arm_gate: green={result['per_arm_gate']['green_arms']} "
+        f"red={result['per_arm_gate']['red_arms']} "
+        f"non_degenerate={result['non_degenerate']}",
+        flush=True,
+    )
+    if result["trained_allon_capability_valid"]:
+        print(
+            f"  trained-all-ON supra_floor={result['trained_allon_supra_floor']} "
+            f"normalized_position={result['trained_allon_normalized_position']}",
+            flush=True,
+        )
+    else:
+        print(
+            "  trained-all-ON capability point REFUSED (zworld_encoder_guard): measured on a "
+            "FROZEN RANDOM PROJECTION, NOT a trained encoder -- do NOT read the numbers below "
+            "as a trained-all-ON capability point.",
+            flush=True,
+        )
+        print(
+            f"  [refused] trained-all-ON supra_floor={result['trained_allon_supra_floor']} "
+            f"normalized_position={result['trained_allon_normalized_position']}",
+            flush=True,
+        )
 
     if args.dry_run:
         try:

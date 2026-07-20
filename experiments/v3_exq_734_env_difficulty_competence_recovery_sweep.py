@@ -127,6 +127,38 @@ ethics_preflight:
   involves_human_data_or_clinical_context: false
   decision: allow
 
+UNTRAINED-WORLD-ENCODER GUARD (wired 2026-07-19; DETECTION ONLY).
+  experiments/_lib/zworld_encoder_guard.py is wired into the `ree_trained_allon` arm only.
+  NONE of the optimizer groups inside `_train_all_on_agent` (e2, lateral-PFC bias head, OFC
+  devaluation head) covers ANY of the 61 latent_stack parameters, so
+  split_encoder.world_encoder receives no gradient in P0 or P1 and z_world stays a FROZEN
+  RANDOM PROJECTION at initialisation (measured: 0/61 latent_stack tensors changed,
+  0/4 world_encoder tensors changed, max|delta| = 0.000e+00).
+
+  POLICY = STRICT for this script. Its P0 phase is documented as a world-model warmup
+  mirroring 728, and the `ree_trained_allon` arm is presented as a TRAINED REE agent compared
+  against PPO / oracle / random. That arm's premise REQUIRES a learned world representation,
+  so a frozen random projection VOIDS the premise rather than merely weakening it: the arm is
+  REFUSED, not annotated.
+
+  THE GUARD SITS AT THIS SCRIPT'S CALL SITE, NOT INSIDE `_train_all_on_agent`.
+  v3_exq_737 and v3_exq_742 import this module's `_train_all_on_agent`; putting the guard
+  inside that function would force one shared strictness on three drivers whose premises
+  differ. Each driver therefore gates at its own call site with its own policy.
+
+  ARM-SCOPED AND RUNG-SCOPED, NEVER RUN-SCOPED. The guard refuses the ARM on the RUNG where
+  it fired -- never the RUN. `vanilla_ppo`, `greedy_oracle` and `random_walk` run no all-ON
+  P0 warmup and their premise does not involve z_world, so the guard precondition is
+  explicitly scoped OUT of them and their yardstick anchors stay valid and scored. Per the
+  multi-arm regime-conditioning rule (.claude/skills/queue-experiment/SKILL.md, the
+  V3-EXQ-785 defect), no arm's gate result may vacate another arm's, and no rung's may vacate
+  another rung's: `non_degenerate` is ANY-(rung,arm)-green, not all-green.
+
+  SCOPE: DETECTION ONLY. Nothing here attempts to make the encoder train; that fix is
+  downstream of the V3-EXQ-783 adjudication and belongs to governance.
+  Diagnosis: REE_assembly/evidence/planning/
+             zworld_bc_install_failure_V3-EXQ-780_2026-07-19.md
+
 SLEEP DRIVER: none (no sleep loop; use_sleep_loop / sws_enabled / rem_enabled all OFF).
 
 Sourced config (all-ON matched stack + A0 training harness + oracle/random/forward yardstick +
@@ -175,6 +207,13 @@ from experiments._lib.capability_eval import (
     evaluate_seed,
     summarize_arm,
 )
+from experiments._lib.zworld_encoder_guard import (
+    ZWorldEncoderUntrainedError,
+    latent_stack_snapshot,
+    latent_stack_weight_delta,
+    assert_world_encoder_trained,
+    zworld_precondition,
+)
 import experiments.v3_exq_724_competence_localization_diagnostic as x724
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 
@@ -188,7 +227,11 @@ EXPERIMENT_PURPOSE = "diagnostic"
 # Budget
 # ---------------------------------------------------------------------------
 SEEDS = [42, 43, 44, 45]           # 42/43/44 base + 45 for power (potential-null fork)
-P0_WARMUP_EPISODES = 200           # all-ON world-model warmup (724 A0 recipe)
+P0_WARMUP_EPISODES = 200           # all-ON SD-056 e2 forward-model warmup (724 A0 recipe).
+                                   # NOT a world-ENCODER warmup: no optimizer here covers a
+                                   # latent_stack parameter, so split_encoder.world_encoder is
+                                   # untouched and z_world stays a frozen random projection.
+                                   # Detected by zworld_encoder_guard -- see docstring block.
 P1_REINFORCE_EPISODES = 90         # all-ON two-head REINFORCE (724 A0 recipe; e2 frozen in P1)
 E2_TRAIN_IN_P1 = False             # A0 recipe: SD-056 e2 encoder FROZEN through P1
 P1_PPO_EPISODES = 1000             # matched vanilla-PPO learner-adequacy budget per cell
@@ -277,7 +320,11 @@ def _make_all_on_agent(env: CausalGridWorldV2):
 
 # ---------------------------------------------------------------------------
 # Train the all-ON agent on a PROVIDED env with the 724-A0 recipe:
-# P0 world-model warmup THEN P1 two-head REINFORCE (lateral-PFC bias + OFC devaluation),
+# P0 e2 forward-model warmup THEN P1 two-head REINFORCE (lateral-PFC bias + OFC devaluation).
+# NB: P0 trains e2 ONLY -- it does NOT train split_encoder.world_encoder (no optimizer group
+# here covers any latent_stack parameter), so z_world remains a frozen random projection.
+# This is the V3-EXQ-780 defect. NOTE 737 and 742 import this function; the guard lives at
+# each driver's own call site, not here, so each can set its own strictness.
 # SD-056 e2 encoder FROZEN through P1. Mirrors V3-EXQ-728._train_all_on_agent, but the env is
 # passed in (difficulty-parameterised). No P2 phase -- competence is measured downstream by the
 # capability yardstick's REEForwardPolicy eval.
@@ -748,6 +795,9 @@ def _run_cell(
     device = torch.device("cpu")
     rung_id = rung["rung_id"]
     train_stats: Dict[str, int] = {}
+    guard_report: Optional[Dict[str, Any]] = None
+    guard_ok: Optional[bool] = None
+    guard_message: Optional[str] = None
 
     if arm_id == "random_walk":
         policy: Policy = RandomPolicy(seed)
@@ -756,10 +806,39 @@ def _run_cell(
     elif arm_id == "ree_trained_allon":
         train_env = _make_env(seed, env_kwargs)
         agent = _make_all_on_agent(train_env)
+        # z_world untrained-encoder guard -- DETECTION ONLY, scoped to THIS arm on THIS rung.
+        # The guard lives here rather than inside _train_all_on_agent because 737/742 import
+        # that function and carry different premises (see module docstring).
+        before = latent_stack_snapshot(agent)
         train_stats = _train_all_on_agent(
             agent, train_env, seed, p0_episodes, p1_episodes, steps_per_episode,
             rung_id, p0_episodes + p1_episodes,
         )
+        guard_report = latent_stack_weight_delta(agent, before)
+        guard_report["p0_episodes"] = int(p0_episodes)
+        guard_report["guard_checked"] = bool(p0_episodes > 0 and before)
+        # Exercise the guard's real raising path, but catch it here: a bare raise would abort
+        # the process, yielding a runner ERROR with NO manifest and destroying the valid
+        # vanilla_ppo / greedy_oracle / random_walk arms. Refuse the ARM, never the RUN.
+        try:
+            assert_world_encoder_trained(
+                agent, before, p0=p0_episodes, strict=True,
+                context=f"V3-EXQ-734a ree_trained_allon rung={rung_id}",
+            )
+            guard_ok = True
+        except ZWorldEncoderUntrainedError as exc:
+            guard_ok = False
+            guard_message = str(exc)
+            print(
+                f"[GUARD-REFUSAL] arm=ree_trained_allon rung={rung_id} seed={seed}: "
+                f"{guard_message}",
+                file=sys.stderr, flush=True,
+            )
+            print(
+                f"[GUARD-REFUSAL] arm=ree_trained_allon rung={rung_id} seed={seed}: "
+                f"{guard_message}",
+                flush=True,
+            )
         policy = REEForwardPolicy(agent, name="ree_trained_allon")
     elif arm_id == "vanilla_ppo":
         train_env = _make_env(seed, env_kwargs)
@@ -786,6 +865,11 @@ def _run_cell(
     row["arm_id"] = arm_id
     row["seed"] = int(seed)
     row["train_stats"] = train_stats
+    # Other arms run no all-ON warmup: record None rather than fabricating a report.
+    row["zworld_guard"] = guard_report
+    row["zworld_guard_ok"] = guard_ok
+    if guard_message is not None:
+        row["zworld_guard_message"] = guard_message
     return row
 
 
@@ -905,6 +989,106 @@ def run_experiment(
     )
     ppo_control_informative = bool(ppo_recovers or ppo_beats_random_at_d3)
 
+    # ----- z_world untrained-encoder gate: PER (rung, arm), never whole-run -----
+    # The guard applies ONLY to ree_trained_allon (the sole arm running an all-ON P0 warmup
+    # whose premise requires a learned world representation). Every other arm is scoped OUT
+    # with an explicit reason, and a red ree arm on one rung vacates neither the other arms
+    # on that rung nor the ree arm on any other rung.
+    GUARDED_ARM = "ree_trained_allon"
+    SCOPE_OUT_REASON = (
+        "arm runs no all-ON P0 warmup and its premise does not involve z_world"
+    )
+    per_arm_gate: Dict[str, Any] = {}
+    failed_preconditions_by_arm: Dict[str, List[str]] = {}
+    guard_diagnostics: Dict[str, Any] = {}
+    ree_guard_green_rungs: List[str] = []
+    ree_guard_red_rungs: List[str] = []
+    green_cell_keys: List[str] = []
+    red_cell_keys: List[str] = []
+    ree_guard_precondition_by_rung: Dict[str, Dict[str, Any]] = {}
+
+    for rung in DIFFICULTY_RUNGS:
+        rid = rung["rung_id"]
+        for arm_id in ARMS:
+            key = f"{rid}:{arm_id}"
+            rows = [c for c in all_cells
+                    if c.get("rung_id") == rid and c.get("arm_id") == arm_id]
+            if arm_id != GUARDED_ARM:
+                per_arm_gate[key] = {
+                    "rung_id": rid,
+                    "arm_id": arm_id,
+                    "green": True,
+                    "guard_applies": False,
+                    "scope_reason": SCOPE_OUT_REASON,
+                    "failed_preconditions": [],
+                }
+                green_cell_keys.append(key)
+                continue
+            reports = [c.get("zworld_guard") for c in rows if c.get("zworld_guard")]
+            oks = [c.get("zworld_guard_ok") for c in rows]
+            checked = [r for r in reports if r.get("guard_checked")]
+            refused = [c for c in rows if c.get("zworld_guard_ok") is False]
+            green = bool(oks) and all(o is not False for o in oks)
+            per_arm_gate[key] = {
+                "rung_id": rid,
+                "arm_id": arm_id,
+                "green": bool(green),
+                "guard_applies": True,
+                "n_cells": len(rows),
+                "n_guard_checked": len(checked),
+                "n_refused": len(refused),
+                "refused_seeds": sorted(int(c.get("seed", -1)) for c in refused),
+                "failed_preconditions": (
+                    [] if green else [f"{key}:zworld_world_encoder_trained"]
+                ),
+                "guard_message": (
+                    refused[0].get("zworld_guard_message") if refused else None
+                ),
+            }
+            if not green:
+                failed_preconditions_by_arm[key] = per_arm_gate[key]["failed_preconditions"]
+                ree_guard_red_rungs.append(rid)
+                red_cell_keys.append(key)
+            else:
+                ree_guard_green_rungs.append(rid)
+                green_cell_keys.append(key)
+            if reports:
+                # Represent the rung with a REFUSED cell's report when any seed was refused:
+                # a green seed's report would recompute `met` as true and false-clear the
+                # rung in the all-red flat-list case.
+                rep_for_precondition = (
+                    refused[0].get("zworld_guard") if refused else reports[0]
+                )
+                ree_guard_precondition_by_rung[rid] = zworld_precondition(
+                    rep_for_precondition,
+                    arm=GUARDED_ARM,
+                    context=(
+                        f"V3-EXQ-734a ree_trained_allon rung={rid} "
+                        f"(refused_seeds={sorted(int(c.get('seed', -1)) for c in refused)})"
+                        if refused else
+                        f"V3-EXQ-734a ree_trained_allon rung={rid}"
+                    ),
+                )
+            guard_diagnostics[rid] = {
+                str(int(c.get("seed", -1))): c.get("zworld_guard") for c in rows
+            }
+
+    any_ree_guard_red = bool(ree_guard_red_rungs)
+    non_degenerate = bool(green_cell_keys)
+    degeneracy_reason = None
+    if not non_degenerate:
+        degeneracy_reason = (
+            "every (rung, arm) cell is RED -- refused: "
+            + (", ".join(red_cell_keys) or "(none enumerated)")
+            + "; still scored: (none). No arm survives, so the whole-run verdict is "
+            "substrate_not_ready_requeue rather than any substrate finding."
+        )
+
+    # A refused ree arm cannot carry a recovery read on its rung.
+    ree_recovery_rungs = [r for r in ree_recovery_rungs if r not in ree_guard_red_rungs]
+    ree_recovers = bool(ree_recovery_rungs)
+    hardest_ree_recovery_rung = ree_recovery_rungs[0] if ree_recovery_rungs else None
+
     # ----- self-route (HYPOTHESIS, not a verdict) -----
     if not readiness_met:
         outcome = "FAIL"
@@ -923,9 +1107,46 @@ def run_experiment(
         # cannot license the deepest branch; treat as not-ready.
         outcome = "FAIL"
         label = "substrate_not_ready_requeue"
+    # The refused-arm override: the load-bearing DV belongs to ree_trained_allon, so a run in
+    # which ANY ree cell ran on a frozen random projection must NOT report a PASS carried by
+    # that arm, and must NEVER emit a substrate-verdict label.
+    if any_ree_guard_red:
+        outcome = "FAIL"
+        label = "substrate_not_ready_requeue"
     direction = "non_contributory"
 
-    load_bearing_passed = bool(ree_recovers)
+    load_bearing_passed = bool(ree_recovers and not any_ree_guard_red)
+
+    # Flat `interpretation.preconditions` is read ARM-BLIND and WHOLE-RUN by the REE_assembly
+    # indexer (first unmet entry => whole-run precondition_unmet). On a PARTIAL run only the
+    # GREEN arms' guard preconditions go in the flat list; the red ones are carried under
+    # per_arm_gate. If EVERY cell is red the whole-run verdict IS correct, so they all go in.
+    if non_degenerate:
+        flat_guard_preconditions = [
+            ree_guard_precondition_by_rung[r]
+            for r in [x["rung_id"] for x in DIFFICULTY_RUNGS]
+            if r in ree_guard_precondition_by_rung and r not in ree_guard_red_rungs
+        ]
+        excluded_rungs = [r for r in ree_guard_red_rungs
+                          if r in ree_guard_precondition_by_rung]
+    else:
+        flat_guard_preconditions = [
+            ree_guard_precondition_by_rung[r]
+            for r in [x["rung_id"] for x in DIFFICULTY_RUNGS]
+            if r in ree_guard_precondition_by_rung
+        ]
+        excluded_rungs = []
+
+    preconditions_scope_note = (
+        "The zworld_world_encoder_trained precondition applies ONLY to the "
+        "ree_trained_allon arm; vanilla_ppo / greedy_oracle / random_walk are scoped out "
+        f"({SCOPE_OUT_REASON}). Guard entries for rungs "
+        + (", ".join(excluded_rungs) if excluded_rungs else "(none)")
+        + " are EXCLUDED from this flat list because their ree_trained_allon arm is RED and "
+        "the indexer reads this list arm-blind and whole-run; those entries are carried "
+        "under interpretation.per_arm_gate.failed_preconditions_by_arm instead, so a refused "
+        "arm cannot vacate the arms and rungs that remain valid and scored."
+    )
 
     interpretation = {
         "label": label,
@@ -989,7 +1210,25 @@ def run_experiment(
                 "threshold": float(MIN_EVAL_EPISODES),
                 "met": bool(sufficient_eval),
             },
-        ],
+        ] + flat_guard_preconditions,
+        "preconditions_scope_note": preconditions_scope_note,
+        "per_arm_gate": {
+            "gate_by_rung_arm": per_arm_gate,
+            "failed_preconditions_by_arm": failed_preconditions_by_arm,
+            "guarded_arm": GUARDED_ARM,
+            "scope_out_reason": SCOPE_OUT_REASON,
+            "green_cells": green_cell_keys,
+            "red_cells": red_cell_keys,
+            # Attribution even on a PARTIAL run: which cells a refusal removed from scoring,
+            # and which cells remain fully valid and scored despite it.
+            "still_scored_cells": green_cell_keys,
+            "refused_cells": red_cell_keys,
+            "ree_guard_green_rungs": ree_guard_green_rungs,
+            "ree_guard_red_rungs": ree_guard_red_rungs,
+            "any_ree_guard_red": bool(any_ree_guard_red),
+        },
+        "non_degenerate": bool(non_degenerate),
+        "degeneracy_reason": degeneracy_reason,
         "criteria": [
             {
                 "name": "ree_allon_recovers_above_floor_at_some_difficulty",
@@ -1003,6 +1242,10 @@ def run_experiment(
             "hazard_free_rung_achievable": bool(d3_oracle_ok),
             "sufficient_eval_episodes": bool(sufficient_eval),
             "ppo_control_informative": bool(ppo_control_informative),
+            # Keyed to the OWNING arm's gate: this criterion belongs to ree_trained_allon and
+            # is scoped out of the other three arms, which remain non-degenerate regardless.
+            "zworld_world_encoder_trained_ree_trained_allon": bool(not any_ree_guard_red),
+            "any_arm_green": bool(non_degenerate),
         },
     }
 
@@ -1043,6 +1286,15 @@ def run_experiment(
             "hardest_ree_recovery_rung": hardest_ree_recovery_rung,
             "ppo_beats_random_at_d3": ppo_beats_random_at_d3,
         },
+        "zworld_guard_gates": {
+            "guarded_arm": GUARDED_ARM,
+            "any_ree_guard_red": bool(any_ree_guard_red),
+            "ree_guard_green_rungs": ree_guard_green_rungs,
+            "ree_guard_red_rungs": ree_guard_red_rungs,
+            "non_degenerate": bool(non_degenerate),
+            "degeneracy_reason": degeneracy_reason,
+        },
+        "zworld_guard_reports_by_rung_seed": guard_diagnostics,
         "per_rung_report": per_rung_report,
         "per_rung_arm_summaries": per_rung_arm_summ,
         "arm_results": all_cells,
@@ -1126,6 +1378,23 @@ def _build_manifest(result: Dict[str, Any], timestamp_utc: str, dry_run: bool) -
             f"before any governance action."
         ),
         "dry_run": bool(dry_run),
+        "diagnostics": {
+            "zworld_encoder_guard": {
+                "policy": "strict",
+                "scope": "detection_only",
+                "guarded_arm": "ree_trained_allon",
+                "guard_site": (
+                    "this script's _run_cell call site, NOT inside _train_all_on_agent "
+                    "(v3_exq_737 and v3_exq_742 import that function)"
+                ),
+                "diagnosis_doc": (
+                    "REE_assembly/evidence/planning/"
+                    "zworld_bc_install_failure_V3-EXQ-780_2026-07-19.md"
+                ),
+                "gates": result["zworld_guard_gates"],
+                "reports_by_rung_seed": result["zworld_guard_reports_by_rung_seed"],
+            },
+        },
         "env_kwargs": dict(x724.ENV_KWARGS),
         "config_summary": {
             "design": (
@@ -1243,6 +1512,15 @@ def main() -> Tuple[Optional[str], Optional[str], bool]:
         f"d0_reproduces={rg['d0_baseline_reproduces_incompetence']} "
         f"ree_recovers={rec['ree_recovers']} ppo_recovers={rec['ppo_recovers']} "
         f"hardest_ree_recovery={rec['hardest_ree_recovery_rung']}",
+        flush=True,
+    )
+    zg = result["zworld_guard_gates"]
+    print(
+        f"zworld_guard: policy=strict arm={zg['guarded_arm']} "
+        f"any_ree_guard_red={zg['any_ree_guard_red']} "
+        f"red_rungs={zg['ree_guard_red_rungs']} green_rungs={zg['ree_guard_green_rungs']} "
+        f"non_degenerate={zg['non_degenerate']} "
+        f"degeneracy_reason={zg['degeneracy_reason']}",
         flush=True,
     )
     for rung in DIFFICULTY_RUNGS:

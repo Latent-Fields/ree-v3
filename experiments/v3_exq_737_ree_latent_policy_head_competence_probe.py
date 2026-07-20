@@ -51,6 +51,35 @@ PRE-REGISTERED SELF-ROUTE (HYPOTHESIS, not a verdict -- adjudicate before any go
     representation cannot forage an oracle-achievable env -> PPO under-powered or a deeper
     obstruction (weigh against V3-EXQ-738's local_view_greedy, which cleared the same env).
 
+UNTRAINED-WORLD-ENCODER GUARD (wired 2026-07-19; DETECTION ONLY).
+`x734._train_all_on_agent` trains e2, the lPFC bias head and the OFC devaluation head; NONE of
+those optimizer groups covers ANY of the 61 `latent_stack` parameters, so
+`split_encoder.world_encoder` receives no gradient and z_world is a FROZEN RANDOM PROJECTION at
+initialisation (measured: 0/61 latent_stack changed, 0/4 world_encoder changed, max|delta| =
+0.000e+00). Diagnosis: REE_assembly/evidence/planning/
+zworld_bc_install_failure_V3-EXQ-780_2026-07-19.md. The guard is wired at THIS script's call
+site, NOT inside x734's shared function -- three drivers with different premises call it.
+
+POLICY FOR THIS SCRIPT: NON-STRICT (record loudly, do NOT refuse). Justification: this probe
+asks whether a policy HEAD trained on top of z_world can reach competence -- a question about
+the READOUT. Its arms are a latent PPO actor on z_world plus a raw-obs PPO control. A frozen
+random projection does not make the run uninterpretable; it RE-LABELS the question from "is the
+learned z_world sufficient" to "is a frozen random projection sufficient", which is still
+informative -- and the ppo_raw_obs control is entirely unaffected, so the discriminating
+comparison survives intact. Refusing the arm would destroy a usable result; scoring it silently
+as if z_world were learned would license a wrong claim. So: record, do not raise.
+
+WHERE THE GUARD ENTRY LIVES, AND WHY NOT IN `preconditions[]`. The REE_assembly indexer reads
+`interpretation.preconditions` FLAT and returns whole-run `precondition_unmet` on the first
+unmet entry. Since this run is deliberately NOT refused, putting an unmet guard entry in that
+adjudicating list would flag the entire run as precondition-unmet and bury it -- the opposite
+of the intent. The guard entry is therefore carried under the non-adjudicating
+`interpretation.recorded_preconditions` (plus `diagnostics.zworld_encoder_guard`), with
+`interpretation.preconditions_scope_note` stating that it is recorded rather than gating and
+why. It still carries honest `measured`/`threshold`/`met` so any recompute agrees with the
+guard's own verdict. `substrate_not_ready_requeue` is NOT set by the guard and
+`non_degenerate` is NOT falsified by it: the run is interpretable.
+
 This module is ASCII-only in all runtime strings.
 """
 
@@ -82,6 +111,12 @@ from experiments._lib.capability_eval import (  # noqa: E402
     RandomPolicy,
     REEForwardPolicy,
     evaluate_seed,
+)
+from experiments._lib.zworld_encoder_guard import (  # noqa: E402
+    assert_world_encoder_trained,
+    latent_stack_snapshot,
+    latent_stack_weight_delta,
+    zworld_precondition,
 )
 import experiments.v3_exq_724_competence_localization_diagnostic as x724  # noqa: E402
 import experiments.v3_exq_734_env_difficulty_competence_recovery_sweep as x734  # noqa: E402
@@ -280,8 +315,14 @@ def _run_cell(
     eval_eps: int,
     steps: int,
     rollout: int,
-) -> Dict[str, float]:
-    """One (rung, seed) cell: warm the all-ON REE stack, then eval/train the four arms."""
+) -> Tuple[Dict[str, float], Dict[str, Any]]:
+    """One (rung, seed) cell: warm the all-ON REE stack, then eval/train the four arms.
+
+    Returns (results, guard_report). `results` keeps its original meaning EXACTLY -- an
+    arm -> foraging_competence scalar map. `guard_report` is the untrained-world-encoder audit
+    record for this cell (see the module docstring); it is threaded out rather than folded into
+    `results` so nothing about `results[arm]` changes.
+    """
     env_kwargs = x734._env_kwargs_for_rung(rung)
     rid = rung["rung_id"]
     total_denom = p0 + p1
@@ -292,10 +333,27 @@ def _run_cell(
     warm_env = x734._make_env(seed, env_kwargs)
     agent = x734._make_all_on_agent(warm_env)
     print(f"Seed {seed} Condition {rid}:warmup_all_on", flush=True)
+    before = latent_stack_snapshot(agent)
     x734._train_all_on_agent(
         agent, warm_env, seed=seed, p0_episodes=p0, p1_episodes=p1,
         steps_per_episode=steps, rung_id=rid, total_denominator=total_denom,
     )
+    guard_report = latent_stack_weight_delta(agent, before)
+    guard_report["p0_episodes"] = int(p0)
+    guard_report["guard_checked"] = bool(p0 > 0 and before)
+    # NON-STRICT by design: prints the unmissable GUARD-WARNING and returns, never raises.
+    # See the module docstring for why a frozen projection still yields an interpretable
+    # readout-side result here.
+    assert_world_encoder_trained(
+        agent, before, p0=p0, strict=False,
+        context=f"V3-EXQ-737a rung={rid} seed={seed}",
+        escape_hint=(
+            "this arm is recorded, not refused: see the module docstring for why a frozen "
+            "projection still yields an interpretable readout-side result"
+        ),
+    )
+    guard_report["rung_id"] = str(rid)
+    guard_report["seed"] = int(seed)
 
     # z_world dim (probe) for the latent PPO actor.
     _, probe_obs = x734._make_env(seed, env_kwargs).reset()
@@ -362,7 +420,7 @@ def _run_cell(
     results["random_walk"] = float(row["foraging_competence"])
     print(f"verdict: {'PASS' if row['competence_supra_floor'] else 'FAIL'}", flush=True)
 
-    return results
+    return results, guard_report
 
 
 ARM_ORDER = ["ree_bias_head", "ppo_ree_latent", "ppo_raw_obs", "greedy_oracle", "random_walk"]
@@ -379,12 +437,39 @@ def run_experiment(
 ) -> Dict[str, Any]:
     # per_rung[rid][arm] = list of per-seed foraging values
     per_seed_forage: Dict[str, Dict[str, List[float]]] = {r["rung_id"]: {a: [] for a in ARM_ORDER} for r in RUNGS}
+    guard_reports: List[Dict[str, Any]] = []
     for rung in RUNGS:
         rid = rung["rung_id"]
         for seed in seeds:
-            cell = _run_cell(rung, seed, p0, p1, ppo_eps, eval_eps, steps, rollout)
+            cell, guard_report = _run_cell(rung, seed, p0, p1, ppo_eps, eval_eps, steps, rollout)
+            guard_reports.append(guard_report)
             for arm in ARM_ORDER:
                 per_seed_forage[rid][arm].append(cell[arm])
+
+    checked = [g for g in guard_reports if g.get("guard_checked")]
+    any_trained = bool(any(g.get("zworld_encoder_trained") for g in checked))
+    all_frozen = bool(checked) and not any(g.get("zworld_encoder_trained") for g in checked)
+    zworld_guard = {
+        "policy": "record_not_refuse",
+        "policy_reason": (
+            "This probe asks whether a policy HEAD on top of z_world can reach competence -- a "
+            "question about the readout. A frozen random projection re-labels the question from "
+            "'is the learned z_world sufficient' to 'is a frozen random projection sufficient', "
+            "which is still informative, and the ppo_raw_obs control is unaffected and remains "
+            "the discriminating comparison. Refusing would destroy a usable result; silently "
+            "scoring it as a learned representation would license a wrong claim."
+        ),
+        "detection_only": True,
+        "guard_site": (
+            "this driver's x734._train_all_on_agent call site in _run_cell, NOT inside x734's "
+            "shared function (three drivers with different premises call it)"
+        ),
+        "n_cells": len(guard_reports),
+        "n_cells_checked": len(checked),
+        "any_trained": any_trained,
+        "all_frozen": all_frozen,
+        "per_cell": guard_reports,
+    }
 
     per_rung: Dict[str, Dict[str, Any]] = {}
     for rid in per_seed_forage:
@@ -415,8 +500,53 @@ def run_experiment(
     else:
         outcome, label = "FAIL", "policy_learning_insufficient_or_deeper"
 
+    if all_frozen:
+        zworld_arm_reading = (
+            "READ THE ppo_ree_latent ARM AS 'PPO ON A FROZEN RANDOM PROJECTION', NOT AS 'PPO ON "
+            "A LEARNED REE REPRESENTATION'. The untrained-world-encoder guard measured 0 changed "
+            "split_encoder.world_encoder tensors in every checked cell, so z_world was never "
+            "prediction-trained: the P0/P1 warmup has no optimizer group covering latent_stack. "
+            "Any result on this arm speaks to what a frozen random projection of the observation "
+            "supports, not to what REE's learned world representation supports. The ppo_raw_obs "
+            "control is unaffected and remains the discriminating comparison."
+        )
+    elif any_trained:
+        zworld_arm_reading = (
+            "The untrained-world-encoder guard found at least one cell whose world encoder "
+            "moved; check diagnostics.zworld_encoder_guard.per_cell before reading the "
+            "ppo_ree_latent arm as a learned-representation result in any given cell."
+        )
+    else:
+        zworld_arm_reading = (
+            "The untrained-world-encoder guard did not run (no warmup episodes), so the "
+            "ppo_ree_latent arm carries no evidence that z_world was prediction-trained."
+        )
+
     interpretation = {
         "label": label,
+        "label_qualifier": (
+            "zworld_arm_ran_on_frozen_random_projection" if all_frozen else "zworld_encoder_state_see_guard"
+        ),
+        "zworld_arm_reading": zworld_arm_reading,
+        "preconditions_scope_note": (
+            "The zworld_world_encoder_trained guard entries are carried under "
+            "'recorded_preconditions' (and diagnostics.zworld_encoder_guard), NOT under the "
+            "adjudicating flat 'preconditions' list. For this probe the guard is RECORDED, not "
+            "GATING: the question is readout-side, a frozen random projection re-labels the "
+            "z_world arm rather than voiding the run, and the ppo_raw_obs control is unaffected. "
+            "The REE_assembly indexer returns whole-run precondition_unmet on the first unmet "
+            "flat entry, so an unmet guard entry there would bury an interpretable run -- the "
+            "opposite of the intent. The recorded entries still carry honest "
+            "measured/threshold/met so any recompute agrees with the guard's own verdict."
+        ),
+        "recorded_preconditions": [
+            zworld_precondition(
+                g,
+                arm="ppo_ree_latent",
+                context=f"V3-EXQ-737a rung={g.get('rung_id', '')} seed={g.get('seed', '')}",
+            )
+            for g in guard_reports
+        ],
         "preconditions": [
             {
                 "name": "d0_oracle_clears_floor",
@@ -465,6 +595,7 @@ def run_experiment(
     return {
         "outcome": outcome,
         "interpretation": interpretation,
+        "diagnostics": {"zworld_encoder_guard": zworld_guard},
         "per_rung": per_rung,
         "readiness": {
             "readiness_met": readiness_met,
@@ -500,6 +631,7 @@ def _build_manifest(result: Dict[str, Any], timestamp_utc: str, dry_run: bool) -
         "outcome": result["outcome"],
         "interpretation": result["interpretation"],
         "interpretation_label": result["interpretation"]["label"],
+        "diagnostics": result["diagnostics"],
         "readiness": result["readiness"],
         "headline": result["headline"],
         "per_rung": result["per_rung"],
@@ -526,7 +658,12 @@ def _build_manifest(result: Dict[str, Any], timestamp_utc: str, dry_run: bool) -
             "= H1 confirmed, build a policy-learning substrate on the existing representation. "
             "Brake-exempt; PROMOTES/DEMOTES NOTHING. Route result to /failure-autopsy before any "
             "governance use. Sibling of 738 (local-view anchor, already showed raw obs is "
-            "forageable) and 739 (encoder probe, reserve)."
+            "forageable) and 739 (encoder probe, reserve). "
+            "UNTRAINED-WORLD-ENCODER GUARD: wired at this driver's x734._train_all_on_agent call "
+            "site, DETECTION ONLY, policy RECORD-not-refuse. See "
+            "diagnostics.zworld_encoder_guard and interpretation.zworld_arm_reading before "
+            "reading the ppo_ree_latent arm -- if the encoder never moved, that arm is PPO on a "
+            "FROZEN RANDOM PROJECTION, not on a learned REE representation."
         ),
     }
 

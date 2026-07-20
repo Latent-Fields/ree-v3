@@ -201,6 +201,67 @@ def guarded_warmup(
     )
 
 
+ZWORLD_PRECONDITION_NAME = "zworld_world_encoder_trained"
+
+
+def zworld_precondition(report: Dict[str, Any], *, arm: str = "", context: str = "") -> Dict[str, Any]:
+    """Shape a guard audit record into a readiness-kind `preconditions[]` entry.
+
+    WHY A SHARED SHAPER RATHER THAN FOUR HAND-ROLLED DICTS. Every driver in the
+    777/779/785 family hand-rolled its own gate, its own record shape and its own
+    aggregation, and that drift is precisely why the regime-conditioning rule one of them
+    derived never propagated to its siblings. The four drivers this guard fans out into
+    (728/734/737/742) therefore share ONE shaper, so they adjudicate identically by
+    construction.
+
+    SAME-STATISTIC RULE (queue-experiment Step 3, the V3-EXQ-643 defect). The load-bearing
+    quantity the guard routes on is `zworld_encoder_trained`, i.e. "at least one
+    split_encoder.world_encoder tensor has max|delta| > 0". This entry reports
+    `world_encoder_max_abs_delta` against a floor of 0.0 with a STRICT comparator, which is
+    exactly equivalent (a max over per-tensor maxima exceeds 0 iff some tensor moved) --
+    not a magnitude proxy for it. So the REE_assembly indexer's recompute of `met` agrees
+    with the guard's own verdict rather than adjudicating a different quantity.
+
+    The comparator MUST be strict: the signature being detected is bit-identity, so
+    `measured == threshold == 0.0` is the FAILURE case. An inclusive floor would recompute
+    a frozen random projection as MET -- the exact false-clear this entry exists to catch.
+
+    POSITIVE CONTROL. The warmup itself is the control: it is the phase that is supposed to
+    train the encoder, run on the arm's own training env at the arm's own p0. A below-floor
+    reading therefore means "no gradient reached the encoder", never "the criterion was
+    falsified" -- which is why the only correct self-route is `substrate_not_ready_requeue`.
+    """
+    entry: Dict[str, Any] = {
+        "name": ZWORLD_PRECONDITION_NAME,
+        "kind": "readiness",
+        "description": (
+            "P0 warmup moved at least one split_encoder.world_encoder tensor, i.e. z_world "
+            "is a prediction-trained encoder rather than a frozen random projection"
+        ),
+        "control": (
+            "the P0 warmup itself, on the arm's own training env at the arm's own p0 "
+            "episode count -- the phase whose stated job is to train the world model"
+        ),
+        "measured": float(report.get("world_encoder_max_abs_delta", 0.0)),
+        "threshold": 0.0,
+        "direction": "lower",
+        "comparator": ">",
+        "met": bool(report.get("zworld_encoder_trained", False)),
+        "n_world_encoder_tensors": int(report.get("n_world_encoder_tensors", 0)),
+        "n_world_encoder_changed": int(report.get("n_world_encoder_changed", 0)),
+        "n_latent_stack_tensors": int(report.get("n_latent_stack_tensors", 0)),
+        "n_latent_stack_changed": int(report.get("n_latent_stack_changed", 0)),
+        "p0_episodes": int(report.get("p0_episodes", 0)),
+        "guard_checked": bool(report.get("guard_checked", False)),
+        "diagnosis_doc": DIAGNOSIS_DOC,
+    }
+    if arm:
+        entry["arm"] = arm
+    if context:
+        entry["context"] = context
+    return entry
+
+
 # Back-compat alias: the MECH-457 contracts (tests/contracts/test_mech457_bootstrap_explorer.py
 # C18d) call the private-named snapshot helper through mech457_fanout.
 _latent_stack_snapshot = latent_stack_snapshot
@@ -209,10 +270,12 @@ __all__ = [
     "DIAGNOSIS_DOC",
     "WORLD_ENCODER_PREFIX",
     "WORLD_PATH_PREFIXES",
+    "ZWORLD_PRECONDITION_NAME",
     "ZWorldEncoderUntrainedError",
     "assert_world_encoder_trained",
     "guarded_warmup",
     "latent_stack_snapshot",
     "latent_stack_weight_delta",
     "untrained_encoder_message",
+    "zworld_precondition",
 ]

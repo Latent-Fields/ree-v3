@@ -44,9 +44,11 @@ DV (load-bearing): capability_eval.evaluate_seed foraging_competence (mean resou
 absolute 1.0 competence floor, higher-is-better. Normalized against the LIVE local_view_greedy
 anchor measured in THIS run (the 738 denominator; 48.05 @D3 reference). SEEDS [42, 43, 44].
 
-TRAINING (phased, per (arm, seed) cell): P0 = 724-A0 all-ON world-model warmup (reuses
-x734._train_all_on_agent with p1_episodes=0 -- warms the SD-056 e2 forward model; latent_stack
-starts un-co-shaped, = the 737 frozen condition) -> P1 = actor-critic training driving actions
+TRAINING (phased, per (arm, seed) cell): P0 = 724-A0 all-ON e2-forward warmup (reuses
+x734._train_all_on_agent with p1_episodes=0 -- warms the SD-056 e2 forward model ONLY; it does
+NOT train split_encoder.world_encoder, so z_world leaves P0 as a frozen random projection --
+see the UNTRAINED-WORLD-ENCODER GUARD block below; latent_stack starts un-co-shaped, = the 737
+frozen condition) -> P1 = actor-critic training driving actions
 via agent.actor_critic_step, A2C single-backward-per-episode with GAE advantages (reuses
 x734._compute_gae / _RunningStd / _novelty_bonus). Cotrain arms (A1/A3) ADD
 agent.actor_critic_encoder_parameters() (= latent_stack) to the optimizer and read LIVE z_world;
@@ -116,6 +118,50 @@ Sourced APIs (verified 2026-07-12):
   experiments/v3_exq_734_env_difficulty_competence_recovery_sweep.py (x734) -- DIFFICULTY_RUNGS,
     _env_kwargs_for_rung, _make_env, _make_all_on_agent, _train_all_on_agent, _compute_gae,
     _RunningStd, _novelty_bonus, FORAGE_BONUS, REWARD_STD_EPS, PPO_* constants, _strict_majority.
+
+UNTRAINED-WORLD-ENCODER GUARD (wired 2026-07-19; DETECTION ONLY -- no attempt to make the
+encoder train).
+  WHAT IS DETECTED. The P0 warmup above (x734._train_all_on_agent, called with p1_episodes=0)
+  trains the SD-056 e2 forward model, the lateral-PFC bias head and the OFC devaluation head.
+  NONE of those optimizer groups covers ANY of the 61 latent_stack parameters, so
+  split_encoder.world_encoder receives no gradient and z_world remains a FROZEN RANDOM
+  PROJECTION out of P0. Measured: 0/61 latent_stack changed, 0/4 world_encoder changed,
+  max|delta| = 0.000e+00. p1_episodes=0 is irrelevant -- P1 only trains heads DOWNSTREAM of
+  the encoder. The exposure holds at cotrain=True AND cotrain=False.
+  Diagnosis: REE_assembly/evidence/planning/
+             zworld_bc_install_failure_V3-EXQ-780_2026-07-19.md
+
+  WHERE THE GUARD LIVES. At THIS script's call site, not inside x734._train_all_on_agent --
+  that function is shared by three drivers with different scientific premises, so a gate
+  inside it would impose this script's policy on theirs.
+
+  POLICY FOR THIS SCRIPT: NON-STRICT (record loudly, do NOT refuse). P0 here is a SHARED,
+  SYMMETRIC starting point for every actor-critic arm, and the manipulation under test is the
+  ACTOR-CRITIC phase (cotrain on/off, sf on/off), not the warmup. A dead P0 biases both arms
+  identically, so the cotrain-vs-not contrast -- the actual DV -- survives. Moreover the
+  cotrain=True arms may train representation during the AC phase via _train_actor_critic, so a
+  frozen P0 does not even imply a frozen encoder at eval time for those arms. Refusing would
+  destroy a valid contrast; silently ignoring would let a reader believe P0 delivered a trained
+  world model. So: record loudly, do not raise.
+
+  TWO-POINT RECORDING (P0 and AC), and why. Per (arm, rung, seed) the driver records the
+  latent_stack delta across P0 (zworld_guard_p0) AND separately across the actor-critic phase
+  (zworld_guard_ac). The AC-phase record is the one a reader will actually care about -- it is
+  the claim about whether the encoder was ever trained by eval time -- and it is expected to
+  DIFFER between cotrain and frozen arms. Only the P0 record is asserted (non-strict); the AC
+  record is recorded without assertion, because the AC phase is not claimed to train the
+  encoder for the non-cotrain arms and a warning there would be pure noise.
+
+  PRECONDITION PLACEMENT. The guard's readiness entries are appended to
+  interpretation.recorded_preconditions, NOT to the flat interpretation.preconditions[]. The
+  REE_assembly indexer reads interpretation.preconditions flat and arm-blind and returns a
+  whole-run precondition_unmet on the first unmet entry -- which would bury a run we are
+  deliberately NOT refusing. interpretation.preconditions_scope_note states this in the
+  manifest itself. Consequently this script sets neither substrate_not_ready_requeue nor
+  non_degenerate=false on account of the guard.
+
+  Note: this script uses arm_cell(..., include_driver_script_in_hash=False); the guard adds no
+  config-slice fields and therefore does not disturb the fingerprint/reuse path.
 This module is ASCII-only in all runtime strings.
 """
 
@@ -147,6 +193,12 @@ from experiments._lib.capability_eval import (  # noqa: E402
     evaluate_seed,
 )
 from experiments._metrics import check_degeneracy  # noqa: E402
+from experiments._lib.zworld_encoder_guard import (  # noqa: E402
+    latent_stack_snapshot,
+    latent_stack_weight_delta,
+    assert_world_encoder_trained,
+    zworld_precondition,
+)
 from experiments._lib.baselines import exq742_mech457_bias_head_baseline as ac_baseline  # noqa: E402
 import experiments.v3_exq_724_competence_localization_diagnostic as x724  # noqa: E402
 import experiments.v3_exq_734_env_difficulty_competence_recovery_sweep as x734  # noqa: E402
@@ -165,7 +217,10 @@ DEVICE = torch.device("cpu")
 # Budget (full). Reuses the 724-A0 warmup recipe + 737 comparison shape.
 # ---------------------------------------------------------------------------
 SEEDS: List[int] = [42, 43, 44]
-P0_WARMUP_EPISODES = x734.P0_WARMUP_EPISODES     # 200  -- all-ON world-model warmup (724 A0)
+P0_WARMUP_EPISODES = x734.P0_WARMUP_EPISODES     # 200 -- all-ON e2 forward-model warmup (724 A0).
+                                                 # NOT a world-ENCODER warmup: z_world stays a
+                                                 # frozen random projection through P0. Recorded
+                                                 # (not refused) here -- see docstring block.
 AC_TRAIN_EPISODES = x734.P1_PPO_EPISODES         # 1000 -- actor-critic P1 (matches 737 PPO budget)
 EVAL_EPISODES = x734.EVAL_EPISODES               # 20   -- unshaped foraging eval per cell
 STEPS_PER_EPISODE = x734.STEPS_PER_EPISODE       # 200
@@ -440,25 +495,46 @@ def _run_ac_cell(
     cotrain, sf = bool(cfg["cotrain"]), bool(cfg["sf"])
     rid = rung["rung_id"]
 
-    # P0: all-ON world-model warmup (724 A0 recipe; p1_episodes=0 -> pure encoder/forward warmup).
+    # P0: all-ON e2-forward warmup (724 A0 recipe; p1_episodes=0). NOTE: this does NOT train
+    # split_encoder.world_encoder -- the guard below records that rather than refusing (see the
+    # module docstring for the NON-STRICT policy and its justification).
     warm_env = x734._make_env(seed, env_kwargs)
     agent = _make_actor_critic_agent(warm_env, cotrain, sf)
+    before_p0 = latent_stack_snapshot(agent)
     x734._train_all_on_agent(
         agent, warm_env, seed=seed, p0_episodes=p0, p1_episodes=0,
         steps_per_episode=steps, rung_id=rid, total_denominator=p0,
     )
+    report_p0 = latent_stack_weight_delta(agent, before_p0)
+    report_p0["p0_episodes"] = int(p0)
+    report_p0["guard_checked"] = bool(p0 > 0 and before_p0)
+    assert_world_encoder_trained(
+        agent, before_p0, p0=p0, strict=False,
+        context=f"V3-EXQ-742a {arm_id} rung={rid} seed={seed} P0",
+        escape_hint=(
+            "this arm is recorded, not refused: P0 is a shared symmetric prior for all AC "
+            "arms -- see the module docstring"
+        ),
+    )
 
-    # P1: actor-critic training on THIS rung's env.
+    # P1: actor-critic training on THIS rung's env. Snapshot again so the manifest can say
+    # whether the ACTOR-CRITIC phase moved the encoder (expected to differ between the cotrain
+    # and frozen arms). Recorded only -- NOT asserted: the AC phase is not claimed to train the
+    # encoder for the non-cotrain arms.
     train_env = x734._make_env(seed, env_kwargs)
+    before_ac = latent_stack_snapshot(agent)
     guard = _train_actor_critic(
         agent, train_env, cotrain, sf, seed=seed, n_episodes=ac_eps,
         steps_per_episode=steps, arm_label=arm_id, rung_id=rid, total_denominator=ac_eps,
     )
+    report_ac = latent_stack_weight_delta(agent, before_ac)
 
     # P2: UNSHAPED foraging eval.
     eval_env = x734._make_env(seed, env_kwargs)
     row = evaluate_seed(ActorCriticEvalPolicy(agent, arm_id), eval_env, eval_eps, steps)
     row["mean_train_forage_recent"] = guard["mean_train_forage_recent"]
+    row["zworld_guard_p0"] = report_p0
+    row["zworld_guard_ac"] = report_ac
     return row
 
 
@@ -476,11 +552,16 @@ def _run_baseline_cell(
     Delegates to the canonical lineage baseline module so this OFF cell's computation AND
     its arm fingerprint match the separate V3-EXQ-742-m mint BY CONSTRUCTION (both call
     ac_baseline.run_off_cell + ac_baseline.off_path_config_slice)."""
-    return ac_baseline.run_off_cell(
+    row = ac_baseline.run_off_cell(
         env_kwargs, seed,
         p0_warmup_episodes=p0, p1_reinforce_episodes=p1,
         eval_episodes=eval_eps, steps_per_episode=steps, rung_id=rung["rung_id"],
     )
+    # This cell does not run THIS driver's P0/AC warmup, so there is nothing for the
+    # untrained-world-encoder guard to observe. Key present-but-None keeps downstream
+    # aggregation uniform across arms.
+    row["zworld_guard_p0"] = None
+    return row
 
 
 def _run_anchor_cell(
@@ -500,7 +581,10 @@ def _run_anchor_cell(
     else:
         raise ValueError(f"unknown anchor {arm_id!r}")
     eval_env = x734._make_env(seed, env_kwargs)
-    return evaluate_seed(policy, eval_env, eval_eps, steps)
+    row = evaluate_seed(policy, eval_env, eval_eps, steps)
+    # Anchors carry no REE agent, so the guard has nothing to observe; see _run_baseline_cell.
+    row["zworld_guard_p0"] = None
+    return row
 
 
 def _arm_config_slice(arm_id: str, rid: str, env_kwargs: Dict[str, Any],
@@ -574,6 +658,8 @@ def run_experiment(
         r["rung_id"]: {a: [] for a in AC_ARMS} for r in RUNGS
     }
     all_cells: List[Dict[str, Any]] = []
+    # Untrained-world-encoder guard: one entry per (arm, rung, seed) AC cell. DETECTION ONLY.
+    zworld_guard_cells: List[Dict[str, Any]] = []
 
     for rung in RUNGS:
         rid = rung["rung_id"]
@@ -609,6 +695,15 @@ def run_experiment(
                 per_rung_forage[rid][arm_id].append(forage)
                 if arm_id in AC_ARMS:
                     per_rung_trainforage[rid][arm_id].append(float(row.get("mean_train_forage_recent", 0.0)))
+                    zworld_guard_cells.append({
+                        "arm_id": arm_id,
+                        "rung_id": rid,
+                        "seed": int(seed),
+                        "cotrain_encoder": bool(AC_ARMS[arm_id]["cotrain"]),
+                        "use_sf_critic": bool(AC_ARMS[arm_id]["sf"]),
+                        "p0": row.get("zworld_guard_p0"),
+                        "actor_critic_phase": row.get("zworld_guard_ac"),
+                    })
                 all_cells.append(row)
                 print(
                     f"verdict: {'PASS' if row['competence_supra_floor'] else 'FAIL'} "
@@ -679,6 +774,65 @@ def run_experiment(
 
     local_view_d3 = _mean(D3_RUNG_ID, "local_view_greedy")
 
+    # ---- untrained-world-encoder guard (DETECTION ONLY; does NOT gate the outcome) ----------
+    # Per-arm split is the load-bearing diagnostic: P0 is expected dead for every arm, while
+    # the ACTOR-CRITIC phase may move the encoder for the cotrain arms and must not for the
+    # frozen ones. A reader cares about the AC column, not the P0 one.
+    zworld_per_arm: Dict[str, Any] = {}
+    for a in AC_ARMS:
+        cells = [c for c in zworld_guard_cells if c["arm_id"] == a]
+        p0_moved = [bool((c["p0"] or {}).get("zworld_encoder_trained", False)) for c in cells]
+        ac_moved = [
+            bool((c["actor_critic_phase"] or {}).get("zworld_encoder_trained", False))
+            for c in cells
+        ]
+        p0_deltas = [float((c["p0"] or {}).get("world_encoder_max_abs_delta", 0.0)) for c in cells]
+        ac_deltas = [
+            float((c["actor_critic_phase"] or {}).get("world_encoder_max_abs_delta", 0.0))
+            for c in cells
+        ]
+        zworld_per_arm[a] = {
+            "cotrain_encoder": bool(AC_ARMS[a]["cotrain"]),
+            "use_sf_critic": bool(AC_ARMS[a]["sf"]),
+            "n_cells": len(cells),
+            "encoder_moved_in_p0": bool(any(p0_moved)),
+            "encoder_moved_in_ac": bool(any(ac_moved)),
+            "n_cells_encoder_moved_in_p0": int(sum(1 for m in p0_moved if m)),
+            "n_cells_encoder_moved_in_ac": int(sum(1 for m in ac_moved if m)),
+            "max_world_encoder_abs_delta_p0": round(max(p0_deltas), 12) if p0_deltas else 0.0,
+            "max_world_encoder_abs_delta_ac": round(max(ac_deltas), 12) if ac_deltas else 0.0,
+        }
+    zworld_guard_block = {
+        "policy": "non_strict_record_only",
+        "detection_only": True,
+        "gates_outcome": False,
+        "diagnosis_doc": (
+            "REE_assembly/evidence/planning/"
+            "zworld_bc_install_failure_V3-EXQ-780_2026-07-19.md"
+        ),
+        "note": (
+            "P0 (x734._train_all_on_agent, p1_episodes=0) trains e2 + the lPFC bias head + the "
+            "OFC devaluation head; no optimizer group covers a latent_stack parameter, so "
+            "split_encoder.world_encoder gets no gradient and z_world leaves P0 as a frozen "
+            "random projection. Recorded, NOT refused: P0 is a shared symmetric prior across "
+            "every actor-critic arm and the manipulation under test is the actor-critic phase "
+            "(cotrain on/off, sf on/off), so a dead P0 biases the arms identically and the "
+            "cotrain-vs-not contrast -- the actual DV -- survives. The actor_critic_phase "
+            "record is the one to read: it says whether the encoder was ever trained by eval "
+            "time, and it is expected to differ between cotrain and frozen arms."
+        ),
+        "per_arm": zworld_per_arm,
+        "cells": zworld_guard_cells,
+    }
+    zworld_recorded_preconditions = [
+        zworld_precondition(
+            c["p0"] or {},
+            arm=c["arm_id"],
+            context=f"rung={c['rung_id']} seed={c['seed']} P0",
+        )
+        for c in zworld_guard_cells
+    ]
+
     interpretation = {
         "label": label,
         "preconditions": [
@@ -723,6 +877,23 @@ def run_experiment(
             "bias_head_subfloor_at_d3_contrast_holds": bool(bias_subfloor_d3),
             "cross_arm_foraging_spread_d3": bool(degeneracy["non_degenerate"]),
         },
+        # NON-ADJUDICATING by design. These are NOT in the flat preconditions[] above because
+        # the REE_assembly indexer reads that list flat and arm-blind and returns a whole-run
+        # precondition_unmet on the first unmet entry -- which would bury a run this script
+        # deliberately does NOT refuse.
+        "recorded_preconditions": zworld_recorded_preconditions,
+        "preconditions_scope_note": (
+            "interpretation.preconditions[] holds the ADJUDICATING readiness gates only (the "
+            "oracle / local-view / bias-head premises). The untrained-world-encoder guard's "
+            "entries are in recorded_preconditions[] instead: for THIS probe the guard is "
+            "RECORDED, not gating. P0 is a shared symmetric prior for every actor-critic arm "
+            "and the manipulation under test is the actor-critic phase, so a dead P0 biases "
+            "the arms identically and the cotrain-vs-not contrast survives; refusing the run "
+            "would destroy a valid contrast. They are kept out of the flat list because the "
+            "indexer adjudicates it arm-blind and would return whole-run precondition_unmet. "
+            "Read diagnostics.zworld_encoder_guard.per_arm -- in particular "
+            "encoder_moved_in_ac -- before treating any arm's z_world as a trained encoder."
+        ),
         "candB_sf_settlement": {
             "a1_cotrain_plain_maj_d3": bool(a1),
             "a3_cotrain_sf_maj_d3": bool(a3),
@@ -775,6 +946,7 @@ def run_experiment(
             "per_arm_d3": guard_block,
         },
         "per_rung": per_rung,
+        "diagnostics": {"zworld_encoder_guard": zworld_guard_block},
         "denominators": {
             "competence_resource_floor": float(COMPETENCE_RESOURCE_FLOOR),
             "local_view_greedy_d3_live": round(local_view_d3, 6),
@@ -808,6 +980,7 @@ def _build_manifest(result: Dict[str, Any], timestamp_utc: str, dry_run: bool) -
         "reward_hacking_guard": result["reward_hacking_guard"],
         "denominators": result["denominators"],
         "per_rung": result["per_rung"],
+        "diagnostics": result["diagnostics"],
         "non_degenerate": result["non_degenerate"],
         "degeneracy_reason": result["degeneracy_reason"],
         "degenerate_metrics": result["degenerate_metrics"],
@@ -837,7 +1010,12 @@ def _build_manifest(result: Dict[str, Any], timestamp_utc: str, dry_run: bool) -
             "to /failure-autopsy (accepts a PASS target) before any governance action / MECH-457 "
             "promotion. deeper_than_action_learning routes to RE-AUTOPSY, NOT a lettered floor "
             "re-test (the 734/737 RESOLVED_BY_FANOUT refusal stands). Foraging teacher (user-"
-            "confirmed); substrate benefit-harm teacher NOT used (would need ARC-030 grounding)."
+            "confirmed); substrate benefit-harm teacher NOT used (would need ARC-030 grounding). "
+            "UNTRAINED-WORLD-ENCODER GUARD is wired as DETECTION ONLY and does not gate this "
+            "outcome: P0 is an e2-forward warmup that does NOT train "
+            "split_encoder.world_encoder, so do NOT read P0 as a delivered world-model warmup. "
+            "See diagnostics.zworld_encoder_guard.per_arm (encoder_moved_in_p0 vs "
+            "encoder_moved_in_ac) and interpretation.preconditions_scope_note."
         ),
     }
     return manifest
