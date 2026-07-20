@@ -264,13 +264,22 @@ _EPHEMERAL_WORKER_PATH_PREFIXES = (
 )
 
 # Untracked paths safe to stash before REE_assembly pull (Phase 3 hub writer
-# is canonical once phase3: lands). Run-pack dirs under v3_exq_* are NOT
+# is canonical once phase3: lands). Run-pack dirs under v<N>_exq_* are NOT
 # matched -- only flat manifests and per-EXQ runner signals.
+#
+# The generation is matched as `v[0-9]+` / `V[0-9]+`, NOT a hardcoded `v3`.
+# Confirmed 2026-07-20: with `v3_` hardcoded, the three V4 flat manifests
+# (v4_exq_001/002/003_*_v4.json) never matched, were never stashed, and
+# permanently blocked the pull on the hub's runner checkout
+# (/home/ree/REE_Working_runner/REE_assembly) with "The following untracked
+# working tree files would be overwritten by merge / Aborting" -- it had
+# fallen 2581 commits behind origin/master. Keep this generation-agnostic so
+# V5 does not repeat it.
 _UNTRACKED_FLAT_MANIFEST_RE = re.compile(
-    r"^evidence/experiments/v3_[A-Za-z0-9_.-]+\.json$"
+    r"^evidence/experiments/v[0-9]+_[A-Za-z0-9_.-]+\.json$"
 )
 _UNTRACKED_RUNNER_SIGNAL_RE = re.compile(
-    r"^evidence/experiments/_runner_signals/V3-EXQ-[A-Za-z0-9_.-]+\.json$"
+    r"^evidence/experiments/_runner_signals/V[0-9]+-EXQ-[A-Za-z0-9_.-]+\.json$"
 )
 _PREPULL_STASH_MESSAGE = "runner-prepull-untracked"
 

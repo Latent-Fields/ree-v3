@@ -247,3 +247,53 @@ def test_c5_unverifiable_blocking_file_is_not_deleted(origin_and_clone,
     assert p.exists(), "unverifiable blocking file was DELETED"
     assert p.read_text() == local_text
     assert "LEFT IN PLACE" in capsys.readouterr().out
+
+
+# --- C6: prepull stash matching is GENERATION-AGNOSTIC ---------------------
+#
+# Regression for the 2026-07-20 hub wedge: `_UNTRACKED_FLAT_MANIFEST_RE`
+# hardcoded `v3_`, so the three V4 flat manifests never matched, were never
+# stashed, and permanently blocked the pull on the runner checkout at
+# /home/ree/REE_Working_runner/REE_assembly (2581 commits behind).
+
+@pytest.mark.parametrize("gen", ["v3", "v4", "v5", "v10"])
+def test_c6_flat_manifest_re_matches_every_generation(gen):
+    rel = f"evidence/experiments/{gen}_exq_001_probe_20260101T000000Z_{gen}.json"
+    assert experiment_runner._UNTRACKED_FLAT_MANIFEST_RE.match(rel), (
+        f"{gen} flat manifest not matched -- it will never be stashed and "
+        f"will block the pull permanently (the 2026-07-20 hub wedge)"
+    )
+
+
+@pytest.mark.parametrize("gen", ["V3", "V4", "V5", "V10"])
+def test_c6_runner_signal_re_matches_every_generation(gen):
+    rel = f"evidence/experiments/_runner_signals/{gen}-EXQ-001.json"
+    assert experiment_runner._UNTRACKED_RUNNER_SIGNAL_RE.match(rel), (
+        f"{gen} runner signal not matched -- same wedge class as C6 flat"
+    )
+
+
+@pytest.mark.parametrize("rel", [
+    # Run-pack dirs stay unmatched (nested path -- the NESTED-PATH carve-out).
+    "evidence/experiments/v4_exq_001_probe/manifest.json",
+    # Non-generation prefixes stay unmatched.
+    "evidence/experiments/INDEX.json",
+    "evidence/experiments/version_probe.json",
+    "evidence/experiments/runner_status/ree-cloud-3.json",
+])
+def test_c6_generalisation_does_not_over_match(rel):
+    assert not experiment_runner._UNTRACKED_FLAT_MANIFEST_RE.match(rel), (
+        f"{rel} newly matched by the generation-agnostic regex -- the "
+        f"widening swept a path it must not stash"
+    )
+
+
+def test_c6_v4_manifest_reaches_the_stash_list(origin_and_clone):
+    """End-to-end: a V4 flat manifest is selected for the prepull stash."""
+    _, clone = origin_and_clone
+    rel = "evidence/experiments/v4_exq_001_dr12_probe_20260617T105251Z_v4.json"
+    p = clone / rel
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps({"run_id": "v4_exq_001_dr12_probe"}) + "\n")
+
+    assert rel in experiment_runner._untracked_paths_for_prepull_stash(clone)
