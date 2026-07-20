@@ -120,6 +120,18 @@ needs a new EXQ letter, not an in-place edit):
     as the live regression specimen for the lint, so its warning is load-bearing;
     `validate_experiments._LINT_SPECIMEN_FILES` records that and warns anyone about to
     mark it.
+  * `v3_exq_sd068_consolidation_staged_damage_diagnostic.py` and
+    `..._consolidation_staging_power_diagnostic.py` -- `intact_readouts_nondegenerate`
+    (`INTACT_SIGNAL_FLOOR = 1e-9` against recorded readouts of 0.5 and ~5.4e3). A VACUOUS
+    anchor: the mirror failure documented at the top of this file, in its strongest rule-3
+    form. C1 routes on `H._normalise_degradation()`, a min-max rescale to [0,1] over each
+    phase's own sigma series, so C1 is SCALE-INVARIANT to the raw levels this anchor gates;
+    and the ratio denominators are separately guarded by inline `> 1e-12` tests at every
+    sigma. So NO floor value would make it a readiness precondition -- the repair is a
+    different anchor under a new EXQ letter, not a retune. Recorded 2026-07-19, not fixed
+    (both drivers already ran). The other four SD-068 anchors audited in the same pass are
+    legitimate denominator / existence gates whose wide margins are known and intended. See
+    `REE_assembly/evidence/planning/vacuous_readiness_anchors_SD-068_2026-07-19.md`.
 
 ASCII-only output (Windows runner terminals).
 """
