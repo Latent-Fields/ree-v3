@@ -28,25 +28,6 @@
       "seeds": 8
     },
     {
-      "queue_id": "V3-EXQ-795",
-      "title": "SD-024 benefit-terrain LIVE-PATH efficacy (producer ON vs OFF)",
-      "script": "experiments/v3_exq_795_sd024_benefit_terrain_live_path_efficacy.py",
-      "priority": 50,
-      "machine_affinity": "any",
-      "estimated_minutes": 25,
-      "claim_id": "SD-024",
-      "note": "Validation for the SD-024 live-path producer wired 2026-07-20 (ree-v3 8ac193d substrate + 7f16f25ceb contracts). DIAGNOSTIC. Between 2026-07-16 and 2026-07-20 ResidueField.accumulate_benefit had NO CALLER in ree_core/, so benefit_rbf_field stayed empty, compute_representational_density returned exactly 0.0, and the SD-025 curiosity bonus was 0.0 on all 14432 live calls -- the drive contributed exactly zero to CEM scoring in every live agent run. Arms are producer ON vs OFF at identical seeds/config; the script NEVER calls accumulate_benefit except in its P0 readiness positive control, so each arm's terrain can only be built by the agent's own reward contacts. Four legs: producer liveness (active centers), density liveness, DRIVE liveness (live curiosity bonus -- the decisive readout), and selection authority (CROSS-CANDIDATE range). GOV-REUSE-1: the decisive readout cannot exist in any recorded manifest because benefit_terrain_live_producer did not exist before 2026-07-20 -- no reanalysis possible, run required. Re-derive brake: 0 braking autopsies on SD-024/SD-025/MECH-232. NEW NUMBER not a letter: V3-EXQ-766/767/767a tested the drive IN VITRO (they populate the terrain themselves, 767a lines 236/238/305) and are NOT superseded or invalidated; live-path efficacy is a different question. V3-EXQ-643 correction applied: L4a routes on cross-candidate RANGE and its readiness precondition asserts RANGE on a positive control, not a magnitude. DV-symmetry declared per arm: _curiosity_bonus is called once per trajectory (module.py:1101, :1755) so the term is per-candidate, not a broadcast scalar, and does not cancel in an argmin (the V3-EXQ-604c failure mode does not apply). Smoke PASS on 1 seed x 2 arms: ARM_OFF 0 centers / density 0.0 / bonus 0.0 (reproduces the defect signature exactly), ARM_ON 1 center / density 0.997 / bonus 0.064 / range 0.0025; readiness range 13.86 vs 1e-6 floor.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-07-20T23:44:42Z"
-      },
-      "conditions": 2,
-      "episodes_per_run": 12,
-      "experiment_type": "v3_exq_795_sd024_benefit_terrain_live_path_efficacy",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-742m-b",
       "script": "experiments/v3_exq_742m_mech457_bias_head_baseline_mint.py",
       "priority": 46,
@@ -54,7 +35,11 @@
       "estimated_minutes": 240,
       "supersedes": "V3-EXQ-742-m",
       "note": "RE-MINT of the mech457_actor_critic_onoff_bias_head_baseline OFF arm at zworld_p0_episodes=60. REQUIRED BEFORE V3-EXQ-742b: off_path_config_slice now declares zworld_p0_episodes, so the 2026-07-15 mint (minted at the implicit 0) no longer matches the post-fix 742 consumer and will correctly cache-MISS. Without this re-mint 742b runs its OFF arm fresh (correct, just slower); WITH it the banked arm is reusable again. Bank-before-consumer per the CLAUDE.md 'known parallel reuse' exemption -- this is the sanctioned separate-mint case, not a redundant arm-minting job. Priority set ABOVE 742b so it lands first.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-07-20T23:50:10Z"
+      },
       "claim_ids": [],
       "experiment_purpose": "diagnostic"
     },
