@@ -132,6 +132,9 @@ ARM_FINGERPRINT_EXEMPT = "per-cell REE warmup + PPO training from scratch; no re
 
 SEEDS: List[int] = [42, 43, 44]
 # Reuse the exact 724-A0 recipe + PPO budget from 734 so arms are comparable across siblings.
+ZWORLD_P0_EPISODES = x734.ZWORLD_P0_EPISODES     # 60; SD-070 z_world encoder warmup (P0a).
+                                                 # Sourced from x734 so this driver cannot
+                                                 # drift from the function it imports.
 P0_WARMUP_EPISODES = x734.P0_WARMUP_EPISODES     # 200
 P1_REINFORCE_EPISODES = x734.P1_REINFORCE_EPISODES  # 90
 P1_PPO_EPISODES = x734.P1_PPO_EPISODES           # 1000
@@ -315,6 +318,8 @@ def _run_cell(
     eval_eps: int,
     steps: int,
     rollout: int,
+    zworld_p0: int = 0,
+    dry_run: bool = False,
 ) -> Tuple[Dict[str, float], Dict[str, Any]]:
     """One (rung, seed) cell: warm the all-ON REE stack, then eval/train the four arms.
 
@@ -334,9 +339,16 @@ def _run_cell(
     agent = x734._make_all_on_agent(warm_env)
     print(f"Seed {seed} Condition {rid}:warmup_all_on", flush=True)
     before = latent_stack_snapshot(agent)
+    # SD-070 P0a encoder warmup ON. Without it the guard below measures 0 of 4 world_encoder
+    # tensors changed and this probe's latent policy head reads a frozen random projection --
+    # the V3-EXQ-737a finding this driver produced. Dedicated env: the P0a rollout consumes
+    # env RNG, so reusing warm_env would shift the layout sequence P0b/P1 then see.
     x734._train_all_on_agent(
         agent, warm_env, seed=seed, p0_episodes=p0, p1_episodes=p1,
         steps_per_episode=steps, rung_id=rid, total_denominator=total_denom,
+        zworld_p0_episodes=zworld_p0,
+        zworld_p0_env=(x734._make_env(seed, env_kwargs) if zworld_p0 > 0 else None),
+        zworld_p0_dry_run=dry_run,
     )
     guard_report = latent_stack_weight_delta(agent, before)
     guard_report["p0_episodes"] = int(p0)
@@ -434,6 +446,8 @@ def run_experiment(
     eval_eps: int,
     steps: int,
     rollout: int,
+    zworld_p0: int = 0,
+    dry_run: bool = False,
 ) -> Dict[str, Any]:
     # per_rung[rid][arm] = list of per-seed foraging values
     per_seed_forage: Dict[str, Dict[str, List[float]]] = {r["rung_id"]: {a: [] for a in ARM_ORDER} for r in RUNGS}
@@ -441,7 +455,10 @@ def run_experiment(
     for rung in RUNGS:
         rid = rung["rung_id"]
         for seed in seeds:
-            cell, guard_report = _run_cell(rung, seed, p0, p1, ppo_eps, eval_eps, steps, rollout)
+            cell, guard_report = _run_cell(
+                rung, seed, p0, p1, ppo_eps, eval_eps, steps, rollout,
+                zworld_p0=zworld_p0, dry_run=dry_run,
+            )
             guard_reports.append(guard_report)
             for arm in ARM_ORDER:
                 per_seed_forage[rid][arm].append(cell[arm])
@@ -639,6 +656,9 @@ def _build_manifest(result: Dict[str, Any], timestamp_utc: str, dry_run: bool) -
             "seeds": SEEDS if not dry_run else DRY_RUN_SEEDS,
             "rungs": [r["rung_id"] for r in RUNGS],
             "arms": ARM_ORDER,
+            "zworld_p0_episodes": (
+                ZWORLD_P0_EPISODES if not dry_run else x734.DRY_RUN_ZWORLD_P0
+            ),
             "p0_warmup_episodes": P0_WARMUP_EPISODES if not dry_run else DRY_RUN_P0,
             "p1_reinforce_episodes": P1_REINFORCE_EPISODES if not dry_run else DRY_RUN_P1,
             "p1_ppo_episodes": P1_PPO_EPISODES if not dry_run else DRY_RUN_PPO,
@@ -684,12 +704,17 @@ def main() -> Tuple[Optional[str], Optional[str], bool]:
         seeds = list(DRY_RUN_SEEDS)
         p0, p1, ppo = DRY_RUN_P0, DRY_RUN_P1, DRY_RUN_PPO
         eval_eps, steps, rollout = DRY_RUN_EVAL, DRY_RUN_STEPS, DRY_RUN_ROLLOUT
+        zworld_p0 = x734.DRY_RUN_ZWORLD_P0
     else:
         seeds = list(SEEDS)
         p0, p1, ppo = P0_WARMUP_EPISODES, P1_REINFORCE_EPISODES, P1_PPO_EPISODES
         eval_eps, steps, rollout = EVAL_EPISODES, STEPS_PER_EPISODE, PPO_ROLLOUT_EPISODES
+        zworld_p0 = ZWORLD_P0_EPISODES
 
-    result = run_experiment(seeds=seeds, p0=p0, p1=p1, ppo_eps=ppo, eval_eps=eval_eps, steps=steps, rollout=rollout)
+    result = run_experiment(
+        seeds=seeds, p0=p0, p1=p1, ppo_eps=ppo, eval_eps=eval_eps, steps=steps,
+        rollout=rollout, zworld_p0=zworld_p0, dry_run=bool(args.dry_run),
+    )
 
     timestamp_utc = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     manifest = _build_manifest(result, timestamp_utc, dry_run=bool(args.dry_run))

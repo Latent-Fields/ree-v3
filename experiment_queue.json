@@ -183,6 +183,68 @@
       "episodes_per_run": 350,
       "experiment_type": "v3_exq_699b_pcomp_demotion_x_gonogo_fresh_select",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-742m-b",
+      "script": "experiments/v3_exq_742m_mech457_bias_head_baseline_mint.py",
+      "status": "pending",
+      "priority": 46,
+      "machine_affinity": "any",
+      "claim_ids": [],
+      "experiment_purpose": "diagnostic",
+      "supersedes": "V3-EXQ-742-m",
+      "note": "RE-MINT of the mech457_actor_critic_onoff_bias_head_baseline OFF arm at zworld_p0_episodes=60. REQUIRED BEFORE V3-EXQ-742b: off_path_config_slice now declares zworld_p0_episodes, so the 2026-07-15 mint (minted at the implicit 0) no longer matches the post-fix 742 consumer and will correctly cache-MISS. Without this re-mint 742b runs its OFF arm fresh (correct, just slower); WITH it the banked arm is reusable again. Bank-before-consumer per the CLAUDE.md 'known parallel reuse' exemption -- this is the sanctioned separate-mint case, not a redundant arm-minting job. Priority set ABOVE 742b so it lands first.",
+      "estimated_minutes": 240
+    },
+    {
+      "queue_id": "V3-EXQ-728a",
+      "script": "experiments/v3_exq_728_trained_allon_capability_point.py",
+      "status": "pending",
+      "priority": 45,
+      "machine_affinity": "any",
+      "claim_ids": [],
+      "experiment_purpose": "diagnostic",
+      "supersedes": "V3-EXQ-728",
+      "note": "SD-070 ADOPTION VALIDATION. Re-run of the pre-fix driver with the P0a SD-070 z_world encoder warmup ENABLED (zworld_p0_episodes=60). Supersedes the pre-fix run, whose z_world was a FROZEN RANDOM PROJECTION: no optimizer group in _train_all_on_agent covered any latent_stack parameter, measured 0 of 61 latent_stack / 0 of 4 world_encoder tensors changed at p0_episodes=200. ACCEPTANCE (from the failure record): zworld_encoder_guard green -- world_encoder tensors changed > 0 on every seed, guard_checked=true -- which is the metric the pre-fix runs failed. Verified pre-landing on both _train_all_on_agent definition sites: OFF 0/61 and 0/4 with the guard REFUSING, ON 4/4 world_encoder with the guard PASSING (z_self untouched, per SD-070 contract C5). PHASED TRAINING: P0a (SD-070 encoder) -> P0b (e2 warmup, now over a meaningful z_world) -> P1 -> P2; the ordering is load-bearing because e2 regresses on z_world. Arm fingerprints now carry zworld_p0_episodes, so no pre-fix banked arm can cache-HIT these cells. THIS DRIVER: the trained-all-ON capability point. The pre-fix V3-EXQ-728 run is the SECOND INDEPENDENT STRIKE in the substrate_queue failure record (3 of 3 seeds guard-red, on 728's OWN _train_all_on_agent copy) and is an un-adjudicated terminal FAIL with a live self-route -- it still needs /failure-autopsy independently of this re-run. Env readiness was otherwise clean there (greedy oracle 6.333 vs a 1.0 floor), so this re-run isolates the encoder fix rather than an env confound.",
+      "estimated_minutes": 220
+    },
+    {
+      "queue_id": "V3-EXQ-737b",
+      "script": "experiments/v3_exq_737_ree_latent_policy_head_competence_probe.py",
+      "status": "pending",
+      "priority": 44,
+      "machine_affinity": "any",
+      "claim_ids": [],
+      "experiment_purpose": "diagnostic",
+      "supersedes": "V3-EXQ-737a",
+      "note": "SD-070 ADOPTION VALIDATION. Re-run of the pre-fix driver with the P0a SD-070 z_world encoder warmup ENABLED (zworld_p0_episodes=60). Supersedes the pre-fix run, whose z_world was a FROZEN RANDOM PROJECTION: no optimizer group in _train_all_on_agent covered any latent_stack parameter, measured 0 of 61 latent_stack / 0 of 4 world_encoder tensors changed at p0_episodes=200. ACCEPTANCE (from the failure record): zworld_encoder_guard green -- world_encoder tensors changed > 0 on every seed, guard_checked=true -- which is the metric the pre-fix runs failed. Verified pre-landing on both _train_all_on_agent definition sites: OFF 0/61 and 0/4 with the guard REFUSING, ON 4/4 world_encoder with the guard PASSING (z_self untouched, per SD-070 contract C5). PHASED TRAINING: P0a (SD-070 encoder) -> P0b (e2 warmup, now over a meaningful z_world) -> P1 -> P2; the ordering is load-bearing because e2 regresses on z_world. Arm fingerprints now carry zworld_p0_episodes, so no pre-fix banked arm can cache-HIT these cells. THIS DRIVER: the ree-latent policy-head competence probe -- the run that FIRST measured the defect (0 of 61 tensors; ppo_ree_latent D3 foraging 0.217 on the resulting frozen random projection). Its readout is the one most directly invalidated by an untrained z_world, so it is the sharpest test of whether the fix changes the science and not just the guard bit. Dry-run post-fix already flips readiness_met False -> True.",
+      "estimated_minutes": 400
+    },
+    {
+      "queue_id": "V3-EXQ-734b",
+      "script": "experiments/v3_exq_734_env_difficulty_competence_recovery_sweep.py",
+      "status": "pending",
+      "priority": 30,
+      "machine_affinity": "any",
+      "claim_ids": [],
+      "experiment_purpose": "diagnostic",
+      "supersedes": "V3-EXQ-734a",
+      "note": "SD-070 ADOPTION VALIDATION. Re-run of the pre-fix driver with the P0a SD-070 z_world encoder warmup ENABLED (zworld_p0_episodes=60). Supersedes the pre-fix run, whose z_world was a FROZEN RANDOM PROJECTION: no optimizer group in _train_all_on_agent covered any latent_stack parameter, measured 0 of 61 latent_stack / 0 of 4 world_encoder tensors changed at p0_episodes=200. ACCEPTANCE (from the failure record): zworld_encoder_guard green -- world_encoder tensors changed > 0 on every seed, guard_checked=true -- which is the metric the pre-fix runs failed. Verified pre-landing on both _train_all_on_agent definition sites: OFF 0/61 and 0/4 with the guard REFUSING, ON 4/4 world_encoder with the guard PASSING (z_self untouched, per SD-070 contract C5). PHASED TRAINING: P0a (SD-070 encoder) -> P0b (e2 warmup, now over a meaningful z_world) -> P1 -> P2; the ordering is load-bearing because e2 regresses on z_world. Arm fingerprints now carry zworld_p0_episodes, so no pre-fix banked arm can cache-HIT these cells. THIS DRIVER: the env-difficulty competence-recovery sweep. NOTE V3-EXQ-734a was CLAIMED BY ree-cloud-4 AT 2026-07-20T15:54Z, i.e. BEFORE this fix landed, so it will complete on pre-fix code and its ree_trained_allon arm is guard-red by construction -- do not read 734a as a post-fix result. Post-fix dry-run: guard green on all 4 rungs (was red on all 4).",
+      "estimated_minutes": 700
+    },
+    {
+      "queue_id": "V3-EXQ-742b",
+      "script": "experiments/v3_exq_742_mech457_actor_critic_onoff.py",
+      "status": "pending",
+      "priority": 29,
+      "machine_affinity": "any",
+      "claim_ids": [
+        "MECH-457"
+      ],
+      "experiment_purpose": "evidence",
+      "supersedes": "V3-EXQ-742a",
+      "note": "SD-070 ADOPTION VALIDATION. Re-run of the pre-fix driver with the P0a SD-070 z_world encoder warmup ENABLED (zworld_p0_episodes=60). Supersedes the pre-fix run, whose z_world was a FROZEN RANDOM PROJECTION: no optimizer group in _train_all_on_agent covered any latent_stack parameter, measured 0 of 61 latent_stack / 0 of 4 world_encoder tensors changed at p0_episodes=200. ACCEPTANCE (from the failure record): zworld_encoder_guard green -- world_encoder tensors changed > 0 on every seed, guard_checked=true -- which is the metric the pre-fix runs failed. Verified pre-landing on both _train_all_on_agent definition sites: OFF 0/61 and 0/4 with the guard REFUSING, ON 4/4 world_encoder with the guard PASSING (z_self untouched, per SD-070 contract C5). PHASED TRAINING: P0a (SD-070 encoder) -> P0b (e2 warmup, now over a meaningful z_world) -> P1 -> P2; the ordering is load-bearing because e2 regresses on z_world. Arm fingerprints now carry zworld_p0_episodes, so no pre-fix banked arm can cache-HIT these cells. THIS DRIVER: the MECH-457 actor-critic ON/OFF validation. CRITICAL CONTROL SYMMETRY: the bias_head_baseline OFF arm carries the SAME zworld_p0_episodes as the AC treatment arms -- otherwise the ON/OFF contrast confounds the actor-critic treatment with 'the treatment had a trained encoder and the control did not'. Depends on V3-EXQ-742m-b for a reusable banked OFF arm (runs fresh if that has not landed; correct either way). NOTE V3-EXQ-742a was CLAIMED BY ree-cloud-1 AT 2026-07-20T05:35Z, before this fix, so it completes on pre-fix code and carries MECH-457 evidence measured on a frozen random projection -- flag at governance rather than scoring it. RE-DERIVE BRAKE -- ADDRESSED, NOT BYPASSED: the brake fires because MECH-457 has 8 counted substrate_ceiling autopsies with no upstream substrate named in the latest one. THIS IS THE POST-SUBSTRATE RE-TEST: the upstream substrate was BUILT FIRST via /implement-substrate (substrate_queue sd_zworld_warmup_optimizer_group -> ree-v3 experiments/_lib/zworld_p0_warmup.py, 2026-07-20), which is exactly what /queue-experiment Step 2.5b asks for. It is NOT a same-granularity lettered re-test of an unchanged substrate: every prior MECH-457 measurement on this driver read a frozen random projection, so the ceiling those autopsies recorded was never measured on the mechanism the claim is about.",
+      "estimated_minutes": 700
     }
   ]
 }

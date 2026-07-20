@@ -2582,6 +2582,86 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
   (shared lit basis, different consumer), SD-075 (baseline-continuity repair),
   ARC-005.
 
+- MECH-204 Phase 7 / Option B: sleep.accuracy_anchored_broadcast_recalibration --
+  IMPLEMENTED 2026-07-20. Ungated from V4 deferral by the confirmed
+  failure_autopsy_V3-EXQ-774_2026-07-17 (adjudicated substrate_ceiling,
+  "F1 alone insufficient": precision saturates during waking before the
+  per-cycle WRITEBACK lever gains headroom; effect on 1/3 seeds only).
+  Method: E3TrajectorySelector.broadcast_precision_pull(target_precision, gain)
+  in ree_core/predictors/e3_selector.py; called at the TOP of
+  REEAgent.select_action (ree_core/agent.py) so the anchored rv is what this
+  tick's commit gate and current_precision consumers see.
+  Config: REEConfig.use_rem_precision_broadcast (default False) +
+  REEConfig.rem_precision_broadcast_gain (default 0.0). Both also on the
+  from_dims factory path. Per-STEP gain -- keep well below
+  rem_precision_recalibration_step, which fires once per sleep CYCLE.
+  Data flow: serotonin._persistent_zero_point -> compute_recalibration_target()
+  -> select_action broadcast read -> broadcast_precision_pull ->
+  E3._running_variance. Reads the F1 cumulative reference per lit choice (a)
+  (targeted_review_rem_precision_recalibration_timing SYNTHESIS: Hobson-Hong-
+  Friston 2014 + Walker-Stickgold 2006). Runs ALONGSIDE F1, not replacing it
+  (Q-042 dual-arm pattern).
+  WRITE-SITE CORRECTION -- read this before "restoring" the spec: the
+  2026-05-09 spec said "additive bias on E3 score". That site is PROVABLY
+  SELECTION-INERT for a broadcast. A broadcast is ONE scalar for all K
+  candidates; e3_selector applies score_bias as `scores = scores + bias_tensor`
+  (a uniform shift, invariant under argmax AND softmax), and every downstream
+  consumer is relative (raw_scores.max() - raw_scores[i], raw_score_range,
+  topk, cutoff/envelope) with several reading raw_scores, which score_bias
+  never touches. It would register a nonzero modulatory channel while changing
+  no behaviour -- the exact shape the inert_arm_knob lint exists to catch. The
+  lit-pull adjudicated WHAT TO READ, never WHERE TO WRITE. Precision space is
+  non-inert: rv feeds the ABSOLUTE commit threshold and 1/(rv + 1e-6), and is
+  where V3-EXQ-774's own DV lives. Decision-log entry 2026-07-20 in
+  evidence/planning/sleep_substrate_plan.md.
+  Backward compatible: disabled by default; existing experiments unaffected.
+  Phased training required: no (no new head, no learned parameters).
+  MECH-094: not applicable (no simulation/replay content written to memory).
+  PAIRED WITH SD-076 -- the broadcast corrects drift, SD-076 creates it. Phase 7
+  alone cannot lift the 774 ceiling, because without a drift source the DV is a
+  tautology. Do not run the Phase-7 arm without considering SD-076.
+  Smoke: 6/6 PASS (UC1 bit-identical OFF by explicit float equality, UC4 pull
+  arithmetic, UC4b gain=0 no-op, UC5 no-REM sentinel no-op, UC6 defaults).
+  Validation experiment: see sleep_substrate_plan.md Phase 7 status row.
+  See MECH-204, MECH-173, Q-042, SD-076.
+
+- SD-076: precision.waking_confidence_inflation -- IMPLEMENTED 2026-07-20.
+  Design doc: REE_assembly/docs/architecture/sd_076_waking_confidence_inflation.md.
+  Modified: E3TrajectorySelector.update_running_variance in
+  ree_core/predictors/e3_selector.py (asymmetric EMA).
+  Config: E3Config.use_waking_confidence_inflation (default False),
+  E3Config.waking_confidence_inflation_asymmetry (default 0.0, range [0,1)),
+  E3Config.waking_confidence_rv_floor (default 0.01).
+  PROBLEM: the symmetric EMA makes _running_variance a faithful tracker of true
+  prediction error, so rv ~= true error BY CONSTRUCTION and the MECH-173
+  overconfidence_index is pinned near zero no matter what is ablated (V3-EXQ-774
+  measured -0.000148 / -0.000918 on the suppressed arms). MECH-204's corrective
+  function presupposes a daytime drift source V3 did not have, so a null on any
+  MECH-204 consumer was a TAUTOLOGY, not evidence.
+  MECHANISM: good news incorporated fast (alpha * (1 + asym) when error
+  improves), bad news slowly (alpha * (1 - asym) when it worsens), so rv settles
+  BELOW the true error mean = genuine, directional, correctable overconfidence.
+  BIT-IDENTICAL OFF BY CONSTRUCTION, NOT BY ARITHMETIC: the OFF branch evaluates
+  the original symmetric expression unchanged rather than re-deriving it at
+  asymmetry 0. Pinned by explicit float equality over an 80-step trace, not an
+  approximate comparison.
+  THE FLOOR IS LOAD-BEARING, NOT HYGIENE: rv feeds an ABSOLUTE commit threshold
+  (running_variance < commit_threshold, ARC-016) and current_precision =
+  1/(rv + 1e-6). Unbounded downward drift would pin the agent permanently
+  committed AND explode precision. Applied only on the inflation path.
+  Biological basis: optimism / positive-outcome bias in waking belief updating
+  -- the drift the sleep-recalibration literature behind MECH-204 presupposes.
+  Functional translation, not a neuromodulator-specific mechanism claim.
+  Backward compatible: disabled by default; existing experiments unaffected.
+  Phased training required: no. MECH-094: not applicable.
+  Smoke: 6/6 PASS. At asymmetry=0.6 on true error mean 0.05,
+  overconfidence_index moves -0.164 (OFF, UNDERconfident) -> +0.273 (ON). The
+  OFF value reproduces the sign and rough magnitude of 774's measured
+  ARM_FULL_SLEEP = -0.2097, which is direct evidence the autopsy diagnosis
+  was right.
+  SD-069 unaffected: last_instantaneous_pe is captured BEFORE this smoothing.
+  See MECH-173, MECH-204, ARC-016, Q-042, SD-069.
+
 - SD-075: phasic.ema_episode_continuity -- IMPLEMENTED 2026-07-19.
   Module: ree_core/regulators/phasic_surprise_burst.py (extends SD-069, same file).
   Config: `phasic_burst_baseline_continuity` ("reset" default | "carry") and
@@ -2714,6 +2794,63 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
   user-confirmed). The 779 lineage / sub-claim (ii) is EXEMPT and NOT blocked on this.
   See SD-074, MECH-063, MECH-320, MECH-313, ARC-066, and
   REE_assembly/docs/architecture/sd_074_probe_warmup_trained_enough_agent.md.
+
+- SD-070 ADOPTION in the _train_all_on_agent driver family -- IMPLEMENTED 2026-07-20.
+  Module: experiments/_lib/zworld_p0_warmup.py (run_zworld_p0 + resource_prox_target).
+  THE DEFECT THIS CLOSES. SD-070 shipped 2026-07-18 as a trainer, but NO DRIVER CALLED IT.
+  The P0 warmup shared by x728/x734/x737/x742 builds three optimizer groups -- e2, the
+  lateral-PFC bias head, the OFC devaluation head -- and NONE covers a single latent_stack
+  parameter, so split_encoder.world_encoder was never stepped and z_world stayed a FROZEN
+  RANDOM PROJECTION for entire campaigns, with no error and no warning. Measured on two
+  INDEPENDENT drivers: V3-EXQ-737a 0 of 61 latent_stack tensors changed (world_encoder 0 of
+  4) at p0_episodes=200; V3-EXQ-728 the same signature on its OWN _train_all_on_agent copy,
+  3 of 3 seeds -- so the defect was per-copy, not confined to the shared path.
+  THE FIX IS NOT "ENABLE PRESCRIBED P0" -- that is refuted in-corpus (SD-009 CE + SD-018 MSE
+  online at batch=1 COLLAPSES z_world to PR ~1.06). Per the V3-EXQ-783 adjudication the fix
+  needs (a) a gradient path reaching latent_stack and (b) a target the world channel
+  determines; SD-070 supplies both, and this landing wires it in.
+  Config: `_train_all_on_agent(..., zworld_p0_episodes=N, zworld_p0_env=..., 
+  zworld_p0_dry_run=...)`. Default 0 = EXACTLY the prior behaviour, bit-identical: no extra
+  tensor, no optimizer group, no env construction, no RNG draw. Drivers set
+  ZWORLD_P0_EPISODES=60 (SD-070's validated operating point,
+  exq783_zworld_granularity.OFF_P0_ENCODER_EPISODES).
+  Data flow: world_obs -> [P0a buffer] -> ZWorldP0Trainer -> world_encoder +
+  world_precision_logit -> P0b e2 warmup (now over a MEANINGFUL z_world) -> P1.
+  ORDERING IS LOAD-BEARING: e2 regresses on z_world, so the encoder trains BEFORE the e2
+  warmup -- training it after would leave e2 fitted to the random projection, i.e. the same
+  defect one phase later.
+  RNG NEUTRALITY IS LOAD-BEARING, NOT HYGIENE. ZWorldP0Trainer seeds its own Generator for
+  shuffling but builds its auxiliary heads with nn.Linear, which draws from the GLOBAL torch
+  RNG. Unguarded, merely turning P0a on would shift every subsequent draw, confounding "the
+  encoder is now trained" with "the RNG stream moved". run_zworld_p0 snapshots and restores
+  the global torch + numpy streams, and the rollout runs on a DEDICATED env instance so the
+  training env's layout sequence is untouched.
+  FINGERPRINTS UPDATED (reuse correctness): `zworld_p0_episodes` was added to x734's and
+  x728's config slices and to exq742_mech457_bias_head_baseline.off_path_config_slice. An
+  arm warmed with SD-070 is a DIFFERENT arm from a frozen-random-projection arm; without
+  this a pre-fix banked arm would falsely cache-HIT a post-fix consumer and silently compare
+  a trained-encoder treatment against an untrained control. CONSEQUENCE: the banked
+  V3-EXQ-742-m bias_head_baseline mint no longer matches the 742 consumer and must be
+  RE-MINTED at zworld_p0_episodes=60.
+  Scope: both _train_all_on_agent definition sites (x734:332 shared by 737/742/fanout/
+  baseline; x728:522 own copy), plus _lib/mech457_fanout.warmup_zworld(zworld_p0=...) and
+  _lib/baselines/exq742_mech457_bias_head_baseline.run_off_cell(zworld_p0_episodes=...).
+  In 742 the bias_head_baseline OFF control carries the SAME P0a setting as the AC arms --
+  otherwise the ON/OFF contrast confounds the actor-critic treatment with encoder training.
+  VERIFIED both definition sites, 3 P0a episodes: OFF reproduces the defect exactly
+  (latent_stack 0/61, world_encoder 0/4, max_delta 0.0, guard REFUSES); ON trains
+  world_encoder 4/4 (7/61 latent_stack = 4 encoder + world_precision_logit + 2 prox-head,
+  z_self UNTOUCHED per SD-070's C5 contract), max_delta 6.03e-03, guard PASSES. Driver
+  dry-runs: 734 guard green on all 4 rungs (was red); 737 readiness_met True (was False);
+  742 clean; 728 arm_green=True seeds_failed=0 (was 3 of 3 failed) and outcome PASS.
+  Phased training: P0a -> P0b -> P1 -> P2 unchanged and still mandatory. MECH-094 N/A
+  (trains on live observations, writes nothing to memory in any non-waking state).
+  Validation experiment: V3-EXQ-787a (see the queue entry).
+  Source: REE_assembly/evidence/planning/substrate_queue.json -> sd_zworld_warmup_optimizer_group,
+  failure_autopsy_V3-EXQ-737a_2026-07-20.json,
+  REE_assembly/evidence/planning/zworld_bc_install_failure_V3-EXQ-780_2026-07-19.md section 6c/6d.
+  See SD-070 (the recipe), _lib/zworld_encoder_guard.py (the detector this remedies),
+  MECH-457, INV-088, Q-002.
 
 - SD-070: latent.zworld_p0_anticollapse_recipe -- IMPLEMENTED 2026-07-18.
   Module: ree_core/latent/zworld_p0.py (ZWorldP0Config + ZWorldP0Trainer, plus the
@@ -6653,7 +6790,8 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
     sd049_per_axis_drive_enabled, sd049_per_axis_drive_max,
     sd049_per_axis_drive_mean, sd049_n_resource_contacts_total,
     sd049_n_active_resources_by_type, sd049_global_step,
-    sd049_resource_type_at_agent.
+    sd049_resource_type_at_agent, sd049_preserve_per_type_density,
+    sd049_density_budget_truncated.
   Backward compatible: master switch False by default; all per-type state
   initialized to empty/zero; world_obs_dim returns the legacy value;
   obs_dict surfaces no SD-049 keys; agent_energy follows legacy path.
@@ -7019,6 +7157,64 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
     (untouched), SD-057 IncentiveTokenBank (the wanting() host lever (a) scales), V3-EXQ-514s
     (the FAIL this amend addresses; lever b worked, kappa short), V3-EXQ-514t (validation/retest),
     MECH-094 (N/A).
+
+## SD-049-PHASE-2 density-preserving spawn: per-type resource density held constant across arms (V3-EXQ-693a) (2026-07-20)
+- SD-049-PHASE-2 density-preserving spawn -- IMPLEMENTED 2026-07-20 (substrate;
+  env-only, no encoder / consumer change).
+  Module: ree_core/environment/causal_grid_world.py (SD-049 spawn branch in reset()).
+  Config: CausalGridWorldV2.sd049_preserve_per_type_density (default False =
+    bit-identical to the pre-amend split budget; True to enable).
+  Problem it fixes: the default spawn path draws a FIXED budget of num_resources
+    cells and then SPLITS it across the active types
+    (`n_to_spawn = min(self.num_resources, len(forage_pool))`), so an n-type arm
+    has ~n-fold lower per-type density than a 1-type arm. Two consequences:
+    (1) CONFOUND -- the SD-049 4-arm substrate gradient (ARM_0..ARM_3) varies
+        per-type density as well as heterogeneity, so C_GR's ARM_2-ARM_0 lift is
+        not attributable to identity alone. (Consistent with the pre-registered
+        693a watch item: C_GR margin near-zero, NEGATIVE in ARM_3 -- the arm with
+        the most types, hence the sparsest per type.)
+    (2) CONTACT CEILING -- the mechanism behind V3-EXQ-693a's ARM_2
+        behav_contact_rate 0.0099-0.0188 against a CONSUMPTION_FLOOR of 0.02.
+        Measured on the default path at num_resources=5: 3 types -> by_type
+        [2, 1, 2]; 5 types -> [2, 0, 1, 0, 2] (two types spawn ZERO cells).
+  Data flow: reset() SD-049 spawn branch -> when the flag is on, num_resources is
+    read as a PER-ACTIVE-TYPE count (`desired = num_resources * len(active_types)`)
+    -> spawn budget scales with the types actually introduced by the curriculum,
+    so per-type density stays constant as types come online and the arms differ
+    only in heterogeneity -> obs_dict diagnostics.
+    Scaling is on len(active_types), NOT n_resource_types, so a type still behind
+    a resource_introduction_schedule gate does not inflate the budget.
+  Diagnostics (obs_dict, always present): sd049_preserve_per_type_density and
+    sd049_density_budget_truncated. The truncated flag is True when the forage
+    pool capped the scaled budget, i.e. per-type density was NOT actually held
+    constant -- any experiment relying on constant density MUST check it, because
+    a silent truncation reproduces exactly the confound the flag exists to remove.
+    Cleared per episode so the no-active-types edge case cannot leave a stale read.
+  Backward compatible: default False; the budget expression and RNG draw sequence
+    are unchanged on the default path, so existing experiments are bit-identical.
+  Phased training required: no (env-only; no encoder head added).
+  MECH-094: N/A (no simulation / replay / memory write introduced).
+  Activation smoke (2026-07-20, all PASS):
+    (a) default path holds the fixed total 5 at 1/2/3/5 types (split preserved);
+    (b) flag on -> totals 5/10/15/25 at 1/2/3/5 types, per-type mean exactly 5.00;
+    (c) truncation flag fires on a size-8 grid with desired=200 (total 32);
+    (d) both diagnostics present in obs_dict on ON and OFF paths.
+  Validation experiment: NOT YET QUEUED -- see the open item in the session report.
+    The natural owner is a V3-EXQ-693b re-issue of 693a with the flag ON.
+  Design doc: REE_assembly/docs/architecture/sd_049_multi_resource_heterogeneity.md
+    (density-preserving spawn section). Autopsy:
+    REE_assembly/evidence/planning/failure_autopsy_V3-EXQ-693a_2026-06-21.{md,json}.
+    Substrate_queue: REE_assembly/evidence/planning/substrate_queue.json (SD-049-PHASE-2).
+  Scope note: this lands the ENV half of the 693a autopsy's recommended amend. The
+    curriculum-calibration half (scaffolded_sd054_onboarding Stage-H / hazard-stage
+    survival, failing 2/3 seeds) lives in ree-v3/experiments/ and therefore belongs
+    to /queue-experiment, not /implement-substrate; it was chipped as a separate
+    session 2026-07-20. Keeping the two separable is deliberate -- it lets a retest
+    attribute hazard-survival failure to resource starvation or rule it out.
+  See SD-049 Phase 1 (the spawn path amended), SD-049 Phase 2 (the encoder this
+    unblocks), goal_pipeline:GAP-2 (cleared 2026-06-15 on the 514 harness; this is
+    the 4-arm-fork residual it did not cover), MECH-229 / MECH-230 / SD-015 /
+    MECH-436 (untouched), V3-EXQ-693a (the FAIL this amend addresses).
 
 ## SD-050: Suffering-Derivative Comparator (2026-05-04)
 - SD-050 / MECH-302: relief.suffering_derivative_comparator -- IMPLEMENTED 2026-05-04.

@@ -217,6 +217,9 @@ DEVICE = torch.device("cpu")
 # Budget (full). Reuses the 724-A0 warmup recipe + 737 comparison shape.
 # ---------------------------------------------------------------------------
 SEEDS: List[int] = [42, 43, 44]
+ZWORLD_P0_EPISODES = x734.ZWORLD_P0_EPISODES     # 60 -- SD-070 z_world encoder warmup (P0a).
+                                                 # Sourced from x734 so this driver cannot drift
+                                                 # from the function it imports.
 P0_WARMUP_EPISODES = x734.P0_WARMUP_EPISODES     # 200 -- all-ON e2 forward-model warmup (724 A0).
                                                  # NOT a world-ENCODER warmup: z_world stays a
                                                  # frozen random projection through P0. Recorded
@@ -490,20 +493,26 @@ def _run_ac_cell(
     ac_eps: int,
     eval_eps: int,
     steps: int,
+    zworld_p0: int = 0,
+    dry_run: bool = False,
 ) -> Dict[str, Any]:
     cfg = AC_ARMS[arm_id]
     cotrain, sf = bool(cfg["cotrain"]), bool(cfg["sf"])
     rid = rung["rung_id"]
 
-    # P0: all-ON e2-forward warmup (724 A0 recipe; p1_episodes=0). NOTE: this does NOT train
-    # split_encoder.world_encoder -- the guard below records that rather than refusing (see the
-    # module docstring for the NON-STRICT policy and its justification).
+    # P0a (SD-070 z_world encoder) THEN P0b (all-ON e2-forward warmup, 724 A0, p1_episodes=0).
+    # P0a is what makes the actor-critic read a TRAINED z_world rather than a frozen random
+    # projection; without it the guard below records the V3-EXQ-780 defect. Dedicated env: the
+    # P0a rollout consumes env RNG, so reusing warm_env would shift P0b's layout sequence.
     warm_env = x734._make_env(seed, env_kwargs)
     agent = _make_actor_critic_agent(warm_env, cotrain, sf)
     before_p0 = latent_stack_snapshot(agent)
     x734._train_all_on_agent(
         agent, warm_env, seed=seed, p0_episodes=p0, p1_episodes=0,
         steps_per_episode=steps, rung_id=rid, total_denominator=p0,
+        zworld_p0_episodes=zworld_p0,
+        zworld_p0_env=(x734._make_env(seed, env_kwargs) if zworld_p0 > 0 else None),
+        zworld_p0_dry_run=dry_run,
     )
     report_p0 = latent_stack_weight_delta(agent, before_p0)
     report_p0["p0_episodes"] = int(p0)
@@ -546,6 +555,8 @@ def _run_baseline_cell(
     p1: int,
     eval_eps: int,
     steps: int,
+    zworld_p0: int = 0,
+    dry_run: bool = False,
 ) -> Dict[str, Any]:
     """bias_head_baseline: the 724-A0 all-ON control (P0 warmup + P1 two-head REINFORCE).
 
@@ -556,6 +567,7 @@ def _run_baseline_cell(
         env_kwargs, seed,
         p0_warmup_episodes=p0, p1_reinforce_episodes=p1,
         eval_episodes=eval_eps, steps_per_episode=steps, rung_id=rung["rung_id"],
+        zworld_p0_episodes=zworld_p0, zworld_p0_dry_run=dry_run,
     )
     # This cell does not run THIS driver's P0/AC warmup, so there is nothing for the
     # untrained-world-encoder guard to observe. Key present-but-None keeps downstream
@@ -641,11 +653,13 @@ def run_experiment(
     ac_eps: int,
     eval_eps: int,
     steps: int,
+    zworld_p0: int = 0,
+    dry_run: bool = False,
 ) -> Dict[str, Any]:
     print(
         f"MECH-457 actor-critic ON/OFF validation ({len(ARM_ORDER)} arms x {len(RUNGS)} rungs x "
-        f"{len(seeds)} seeds; P0={p0}, P1_reinforce={p1}, AC={ac_eps}, eval={eval_eps}, "
-        f"steps={steps})",
+        f"{len(seeds)} seeds; P0a={zworld_p0}, P0={p0}, P1_reinforce={p1}, AC={ac_eps}, "
+        f"eval={eval_eps}, steps={steps})",
         flush=True,
     )
 
@@ -670,7 +684,10 @@ def run_experiment(
                 if arm_id == "bias_head_baseline":
                     # Same slice the V3-EXQ-742-m mint emits -> self-mint fingerprint aligns
                     # with the separate mint (both from ac_baseline.off_path_config_slice).
-                    slice_cfg = ac_baseline.off_path_config_slice(env_kwargs, p0, p1, eval_eps, steps)
+                    slice_cfg = ac_baseline.off_path_config_slice(
+                        env_kwargs, p0, p1, eval_eps, steps,
+                        zworld_p0_episodes=zworld_p0,
+                    )
                 else:
                     slice_cfg = _arm_config_slice(arm_id, rid, env_kwargs, p0, p1, ac_eps, eval_eps, steps)
                 with arm_cell(
@@ -681,9 +698,18 @@ def run_experiment(
                     include_driver_script_in_hash=False,
                 ) as cell:
                     if arm_id in AC_ARMS:
-                        row = _run_ac_cell(arm_id, rung, seed, env_kwargs, p0, ac_eps, eval_eps, steps)
+                        row = _run_ac_cell(
+                            arm_id, rung, seed, env_kwargs, p0, ac_eps, eval_eps, steps,
+                            zworld_p0=zworld_p0, dry_run=dry_run,
+                        )
                     elif arm_id == "bias_head_baseline":
-                        row = _run_baseline_cell(rung, seed, env_kwargs, p0, p1, eval_eps, steps)
+                        # The OFF control MUST carry the same P0a setting as the AC arms --
+                        # otherwise the ON/OFF contrast confounds the actor-critic treatment
+                        # with "the treatment arm had a trained encoder and the control did not".
+                        row = _run_baseline_cell(
+                            rung, seed, env_kwargs, p0, p1, eval_eps, steps,
+                            zworld_p0=zworld_p0, dry_run=dry_run,
+                        )
                     else:
                         row = _run_anchor_cell(arm_id, rung, seed, env_kwargs, eval_eps, steps)
                     row["rung_id"] = rid
@@ -989,6 +1015,9 @@ def _build_manifest(result: Dict[str, Any], timestamp_utc: str, dry_run: bool) -
             "seeds": SEEDS if not dry_run else DRY_RUN_SEEDS,
             "rungs": [r["rung_id"] for r in RUNGS],
             "arms": list(ARM_ORDER),
+            "zworld_p0_episodes": (
+                ZWORLD_P0_EPISODES if not dry_run else x734.DRY_RUN_ZWORLD_P0
+            ),
             "p0_warmup_episodes": P0_WARMUP_EPISODES if not dry_run else DRY_RUN_P0,
             "ac_train_episodes": AC_TRAIN_EPISODES if not dry_run else DRY_RUN_AC,
             "bias_head_p1_reinforce_episodes": x734.P1_REINFORCE_EPISODES if not dry_run else DRY_RUN_P0,
@@ -1034,12 +1063,17 @@ def main() -> Tuple[Optional[str], Optional[str], bool]:
         seeds = list(DRY_RUN_SEEDS)
         p0, p1, ac_eps = DRY_RUN_P0, DRY_RUN_P0, DRY_RUN_AC
         eval_eps, steps = DRY_RUN_EVAL, DRY_RUN_STEPS
+        zworld_p0 = x734.DRY_RUN_ZWORLD_P0
     else:
         seeds = list(SEEDS)
         p0, p1, ac_eps = P0_WARMUP_EPISODES, x734.P1_REINFORCE_EPISODES, AC_TRAIN_EPISODES
         eval_eps, steps = EVAL_EPISODES, STEPS_PER_EPISODE
+        zworld_p0 = ZWORLD_P0_EPISODES
 
-    result = run_experiment(seeds=seeds, p0=p0, p1=p1, ac_eps=ac_eps, eval_eps=eval_eps, steps=steps)
+    result = run_experiment(
+        seeds=seeds, p0=p0, p1=p1, ac_eps=ac_eps, eval_eps=eval_eps, steps=steps,
+        zworld_p0=zworld_p0, dry_run=bool(args.dry_run),
+    )
 
     timestamp_utc = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     manifest = _build_manifest(result, timestamp_utc, dry_run=bool(args.dry_run))

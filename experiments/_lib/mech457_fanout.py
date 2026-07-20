@@ -100,6 +100,10 @@ SEEDS: List[int] = [42, 43, 44]
 RUNG: Dict[str, Any] = x734.DIFFICULTY_RUNGS[-1]     # D3_hazard_free (the clean foraging rung)
 RUNG_ID: str = RUNG["rung_id"]
 
+ZWORLD_P0_EPISODES = x734.ZWORLD_P0_EPISODES         # 60   -- SD-070 z_world encoder warmup (P0a).
+                                                     # Pass to warmup_zworld(zworld_p0=...) to get
+                                                     # a PREDICTION-TRAINED encoder; at 0 the
+                                                     # encoder stays frozen at its random init.
 P0_WARMUP_EPISODES = x734.P0_WARMUP_EPISODES         # 200  -- z_world all-ON warmup (R0 only)
 RL_EPISODES = x734.P1_PPO_EPISODES                   # 1000 -- actor-critic RL budget (== 742)
 BC_EPISODES = 300                                    # supervised behavior-cloning rollouts
@@ -457,6 +461,7 @@ from experiments._lib.zworld_encoder_guard import (  # noqa: E402  (re-export pa
 
 def warmup_zworld(
     agent: Any, env: Any, seed: int, p0: int, steps: int, *, strict: bool = True,
+    zworld_p0: int = 0, zworld_p0_dry_run: bool = False,
 ) -> Dict[str, Any]:
     """P0 all-ON world-model warmup (724-A0 recipe; p1_episodes=0 -> pure encoder/forward
     warmup, latent_stack un-co-shaped at entry to the AC phase -- identical to 742).
@@ -475,6 +480,16 @@ def warmup_zworld(
     x734._train_all_on_agent(
         agent, env, seed=seed, p0_episodes=p0, p1_episodes=0,
         steps_per_episode=steps, rung_id=RUNG_ID, total_denominator=max(1, p0),
+        # `zworld_p0 > 0` is what turns this from a detector into a delivered warmup: it runs
+        # the SD-070 recipe (P0a) so the encoder is prediction-trained rather than frozen at
+        # its random initialisation, which is the state the docstring above describes. A
+        # dedicated env keeps the P0b/AC layout sequence unshifted.
+        zworld_p0_episodes=int(zworld_p0),
+        zworld_p0_env=(
+            x734._make_env(seed, x734._env_kwargs_for_rung(RUNG))
+            if int(zworld_p0) > 0 else None
+        ),
+        zworld_p0_dry_run=bool(zworld_p0_dry_run),
     )
     return assert_world_encoder_trained(
         agent, before, p0=p0, strict=strict,

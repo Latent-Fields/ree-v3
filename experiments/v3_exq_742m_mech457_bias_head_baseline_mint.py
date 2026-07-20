@@ -76,6 +76,9 @@ ARCHITECTURE_EPOCH = "ree_hybrid_guardrails_v1"
 
 # Match the V3-EXQ-742 consumer's budget for the OFF arm exactly (so the fingerprint matches).
 SEEDS: List[int] = [42, 43, 44]
+ZWORLD_P0_EPISODES = x734.ZWORLD_P0_EPISODES        # 60 -- SD-070 z_world encoder warmup (P0a).
+                                                    # MUST equal the 742 consumer's setting or
+                                                    # the minted arm cannot cache-HIT it.
 P0_WARMUP_EPISODES = x734.P0_WARMUP_EPISODES        # 200
 P1_REINFORCE_EPISODES = x734.P1_REINFORCE_EPISODES  # 90
 EVAL_EPISODES = x734.EVAL_EPISODES                  # 20
@@ -92,11 +95,12 @@ DRY_RUN_STEPS = 15
 
 
 def run_experiment(
-    seeds: List[int], p0: int, p1: int, eval_eps: int, steps: int
+    seeds: List[int], p0: int, p1: int, eval_eps: int, steps: int,
+    zworld_p0: int = 0, dry_run: bool = False,
 ) -> Dict[str, Any]:
     print(
         f"MECH-457 bias_head_baseline MINT ({len(RUNGS)} rungs x {len(seeds)} seeds; "
-        f"P0={p0}, P1_reinforce={p1}, eval={eval_eps}, steps={steps})",
+        f"P0a={zworld_p0}, P0={p0}, P1_reinforce={p1}, eval={eval_eps}, steps={steps})",
         flush=True,
     )
     cells: List[Dict[str, Any]] = []
@@ -106,7 +110,12 @@ def run_experiment(
         env_kwargs = x734._env_kwargs_for_rung(rung)
         for seed in seeds:
             print(f"Seed {seed} Condition {rid}:bias_head_baseline_mint", flush=True)
-            slice_cfg = ac_baseline.off_path_config_slice(env_kwargs, p0, p1, eval_eps, steps)
+            # MUST carry the same zworld_p0 as the 742 consumer, or the minted arm cannot
+            # cache-HIT it (and, worse, a pre-SD-070 mint would satisfy a post-SD-070 consumer
+            # if this key were absent -- see off_path_config_slice).
+            slice_cfg = ac_baseline.off_path_config_slice(
+                env_kwargs, p0, p1, eval_eps, steps, zworld_p0_episodes=zworld_p0,
+            )
             with arm_cell(
                 seed,
                 config_slice=slice_cfg,
@@ -118,6 +127,7 @@ def run_experiment(
                     env_kwargs, seed,
                     p0_warmup_episodes=p0, p1_reinforce_episodes=p1,
                     eval_episodes=eval_eps, steps_per_episode=steps, rung_id=rid,
+                    zworld_p0_episodes=zworld_p0, zworld_p0_dry_run=dry_run,
                 )
                 row["rung_id"] = rid
                 row["arm_id"] = ac_baseline.REUSABLE_ARM_ID
@@ -166,6 +176,9 @@ def _build_manifest(result: Dict[str, Any], timestamp_utc: str, dry_run: bool) -
         "config": {
             "seeds": SEEDS if not dry_run else DRY_RUN_SEEDS,
             "rungs": [r["rung_id"] for r in RUNGS],
+            "zworld_p0_episodes": (
+                ZWORLD_P0_EPISODES if not dry_run else x734.DRY_RUN_ZWORLD_P0
+            ),
             "p0_warmup_episodes": P0_WARMUP_EPISODES if not dry_run else DRY_RUN_P0,
             "p1_reinforce_episodes": P1_REINFORCE_EPISODES if not dry_run else DRY_RUN_P1,
             "eval_episodes": EVAL_EPISODES if not dry_run else DRY_RUN_EVAL,
@@ -195,11 +208,16 @@ def main() -> Tuple[Optional[str], Optional[str], bool]:
     if args.dry_run:
         seeds = list(DRY_RUN_SEEDS)
         p0, p1, eval_eps, steps = DRY_RUN_P0, DRY_RUN_P1, DRY_RUN_EVAL, DRY_RUN_STEPS
+        zworld_p0 = x734.DRY_RUN_ZWORLD_P0
     else:
         seeds = list(SEEDS)
         p0, p1, eval_eps, steps = P0_WARMUP_EPISODES, P1_REINFORCE_EPISODES, EVAL_EPISODES, STEPS_PER_EPISODE
+        zworld_p0 = ZWORLD_P0_EPISODES
 
-    result = run_experiment(seeds=seeds, p0=p0, p1=p1, eval_eps=eval_eps, steps=steps)
+    result = run_experiment(
+        seeds=seeds, p0=p0, p1=p1, eval_eps=eval_eps, steps=steps,
+        zworld_p0=zworld_p0, dry_run=bool(args.dry_run),
+    )
 
     timestamp_utc = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     manifest = _build_manifest(result, timestamp_utc, dry_run=bool(args.dry_run))

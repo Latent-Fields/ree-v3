@@ -207,6 +207,7 @@ from experiments._lib.capability_eval import (
     evaluate_seed,
     summarize_arm,
 )
+from experiments._lib.zworld_p0_warmup import run_zworld_p0
 from experiments._lib.zworld_encoder_guard import (
     ZWorldEncoderUntrainedError,
     latent_stack_snapshot,
@@ -227,11 +228,19 @@ EXPERIMENT_PURPOSE = "diagnostic"
 # Budget
 # ---------------------------------------------------------------------------
 SEEDS = [42, 43, 44, 45]           # 42/43/44 base + 45 for power (potential-null fork)
+ZWORLD_P0_EPISODES = 60            # P0a SD-070 z_world ENCODER warmup, run AHEAD of the e2
+                                   # warmup below. 60 is SD-070's validated operating point
+                                   # (exq783_zworld_granularity.OFF_P0_ENCODER_EPISODES); this
+                                   # script's 200 steps/ep buffers ~12k observations against
+                                   # the 9k that point was measured at, i.e. strictly more.
+                                   # Set 0 to restore the pre-fix (frozen-encoder) behaviour.
 P0_WARMUP_EPISODES = 200           # all-ON SD-056 e2 forward-model warmup (724 A0 recipe).
-                                   # NOT a world-ENCODER warmup: no optimizer here covers a
-                                   # latent_stack parameter, so split_encoder.world_encoder is
-                                   # untouched and z_world stays a frozen random projection.
-                                   # Detected by zworld_encoder_guard -- see docstring block.
+                                   # This warmup trains e2 ONLY -- no optimizer group here
+                                   # covers a latent_stack parameter. It is P0a above, NOT
+                                   # this stage, that trains split_encoder.world_encoder.
+                                   # With ZWORLD_P0_EPISODES=0 z_world stays a frozen random
+                                   # projection (the V3-EXQ-780 defect), which is what
+                                   # zworld_encoder_guard detects -- see docstring block.
 P1_REINFORCE_EPISODES = 90         # all-ON two-head REINFORCE (724 A0 recipe; e2 frozen in P1)
 E2_TRAIN_IN_P1 = False             # A0 recipe: SD-056 e2 encoder FROZEN through P1
 P1_PPO_EPISODES = 1000             # matched vanilla-PPO learner-adequacy budget per cell
@@ -265,6 +274,8 @@ REWARD_STD_EPS = 1e-6
 # Dry-run budget (tiny; exercises the full staircase + self-route code path fast)
 # ---------------------------------------------------------------------------
 DRY_RUN_SEEDS = [42]
+DRY_RUN_ZWORLD_P0 = 2               # P0a: enough to exercise the real SD-070 training code
+                                    # (the trainer's batch is scaled down for the smoke path)
 DRY_RUN_P0 = 2
 DRY_RUN_P1 = 2
 DRY_RUN_PPO = 6                     # >= 2 rollouts at DRY rollout size so PPO update path runs
@@ -320,11 +331,26 @@ def _make_all_on_agent(env: CausalGridWorldV2):
 
 # ---------------------------------------------------------------------------
 # Train the all-ON agent on a PROVIDED env with the 724-A0 recipe:
-# P0 e2 forward-model warmup THEN P1 two-head REINFORCE (lateral-PFC bias + OFC devaluation).
-# NB: P0 trains e2 ONLY -- it does NOT train split_encoder.world_encoder (no optimizer group
-# here covers any latent_stack parameter), so z_world remains a frozen random projection.
-# This is the V3-EXQ-780 defect. NOTE 737 and 742 import this function; the guard lives at
-# each driver's own call site, not here, so each can set its own strictness.
+# P0a SD-070 z_world encoder warmup (OPT-IN) THEN P0b e2 forward-model warmup THEN P1 two-head
+# REINFORCE (lateral-PFC bias + OFC devaluation).
+#
+# THE V3-EXQ-780 DEFECT AND ITS REMEDY. The three optimizer groups below (e2, lPFC bias, OFC
+# devaluation) cover NO latent_stack parameter, so on this path split_encoder.world_encoder is
+# never stepped and z_world stays a frozen random projection -- measured 0 of 61 latent_stack
+# tensors changed at p0_episodes=200 on two independent drivers (V3-EXQ-737a, V3-EXQ-728).
+# `zworld_p0_episodes > 0` adds the SD-070 recipe as a P0a stage AHEAD of the e2 warmup, which
+# is the remedy adjudicated by V3-EXQ-783. See experiments/_lib/zworld_p0_warmup.py.
+#
+# ORDERING IS NOT ARBITRARY: e2 regresses on z_world, so the encoder must be trained BEFORE the
+# e2 warmup. Training it afterwards would leave e2 fitted to the random projection -- the same
+# defect one phase later.
+#
+# DEFAULT zworld_p0_episodes=0 IS EXACTLY THE PRIOR BEHAVIOUR, bit-identical: no extra tensor,
+# no extra optimizer group, and no RNG draw (the warmup is RNG-neutral by construction and runs
+# on its own env instance). Every existing caller is unaffected until it opts in.
+#
+# NOTE 737 and 742 import this function; the guard lives at each driver's own call site, not
+# here, so each can set its own strictness.
 # SD-056 e2 encoder FROZEN through P1. Mirrors V3-EXQ-728._train_all_on_agent, but the env is
 # passed in (difficulty-parameterised). No P2 phase -- competence is measured downstream by the
 # capability yardstick's REEForwardPolicy eval.
@@ -338,8 +364,27 @@ def _train_all_on_agent(
     steps_per_episode: int,
     rung_id: str,
     total_denominator: int,
-) -> Dict[str, int]:
+    zworld_p0_episodes: int = 0,
+    zworld_p0_env: Optional[CausalGridWorldV2] = None,
+    zworld_p0_dry_run: bool = False,
+) -> Dict[str, Any]:
     env = train_env
+
+    # -- P0a: SD-070 z_world encoder warmup (opt-in; see the header note) -------------------
+    zworld_p0_stats: Dict[str, Any] = {"p0a_recipe": "sd070", "p0a_ran": False}
+    if zworld_p0_episodes > 0:
+        if zworld_p0_env is None:
+            raise ValueError(
+                "zworld_p0_episodes=%d requires zworld_p0_env: the warmup rollout consumes "
+                "env RNG, so reusing train_env would shift the layout sequence P0b/P1 then "
+                "see. Build a dedicated env with the same seed and kwargs."
+                % (zworld_p0_episodes,)
+            )
+        zworld_p0_stats = run_zworld_p0(
+            agent, zworld_p0_env, seed, zworld_p0_episodes, steps_per_episode,
+            policy=RandomPolicy(seed), label=f"ree_allon rung={rung_id}",
+            dry_run=zworld_p0_dry_run,
+        )
     has_ofc = getattr(agent, "ofc", None) is not None
     has_lpfc = getattr(agent, "lateral_pfc", None) is not None
 
@@ -526,6 +571,7 @@ def _train_all_on_agent(
         "n_p0_ticks": int(n_p0_ticks),
         "n_p1_ticks": int(n_p1_ticks),
         "n_e2_train_steps": int(n_e2_train_steps),
+        "zworld_p0": zworld_p0_stats,
     }
 
 
@@ -791,10 +837,12 @@ def _run_cell(
     eval_episodes: int,
     steps_per_episode: int,
     rollout_episodes: int,
+    zworld_p0_episodes: int = 0,
+    zworld_p0_dry_run: bool = False,
 ) -> Dict[str, Any]:
     device = torch.device("cpu")
     rung_id = rung["rung_id"]
-    train_stats: Dict[str, int] = {}
+    train_stats: Dict[str, Any] = {}
     guard_report: Optional[Dict[str, Any]] = None
     guard_ok: Optional[bool] = None
     guard_message: Optional[str] = None
@@ -813,6 +861,13 @@ def _run_cell(
         train_stats = _train_all_on_agent(
             agent, train_env, seed, p0_episodes, p1_episodes, steps_per_episode,
             rung_id, p0_episodes + p1_episodes,
+            zworld_p0_episodes=zworld_p0_episodes,
+            # A DEDICATED env instance, same seed and kwargs: the P0a rollout consumes env RNG,
+            # so running it on train_env would shift the layout sequence P0b/P1 then see.
+            zworld_p0_env=(
+                _make_env(seed, env_kwargs) if zworld_p0_episodes > 0 else None
+            ),
+            zworld_p0_dry_run=zworld_p0_dry_run,
         )
         guard_report = latent_stack_weight_delta(agent, before)
         guard_report["p0_episodes"] = int(p0_episodes)
@@ -882,10 +937,12 @@ def run_experiment(
     steps_per_episode: int,
     rollout_episodes: int,
     dry_run: bool,
+    zworld_p0_episodes: int = 0,
 ) -> Dict[str, Any]:
     print(
         f"Env-difficulty competence-recovery sweep ({len(DIFFICULTY_RUNGS)} rungs x "
-        f"{len(ARMS)} arms x {len(seeds)} seeds; P0={p0_episodes}, P1={p1_episodes}, "
+        f"{len(ARMS)} arms x {len(seeds)} seeds; P0a={zworld_p0_episodes}, "
+        f"P0={p0_episodes}, P1={p1_episodes}, "
         f"PPO={p1_ppo_episodes}, eval={eval_episodes}, steps={steps_per_episode}, "
         f"dry_run={dry_run})",
         flush=True,
@@ -909,6 +966,13 @@ def run_experiment(
                     "rung_id": rung_id,
                     "arm_id": arm_id,
                     "env_kwargs": dict(env_kwargs),
+                    # P0a MUST appear in the fingerprinted slice: an arm trained with the
+                    # SD-070 encoder warmup is a DIFFERENT arm from the frozen-random-
+                    # projection arm of every prior run. Omitting it would let a pre-fix
+                    # cached arm falsely satisfy a post-fix cell.
+                    "zworld_p0_episodes": (
+                        int(zworld_p0_episodes) if arm_id == "ree_trained_allon" else 0
+                    ),
                     "p0_episodes": int(p0_episodes) if arm_id == "ree_trained_allon" else 0,
                     "p1_episodes": int(p1_episodes) if arm_id == "ree_trained_allon" else 0,
                     "e2_train_in_p1": bool(E2_TRAIN_IN_P1) if arm_id == "ree_trained_allon" else False,
@@ -926,6 +990,8 @@ def run_experiment(
                         rung, arm_id, s, env_kwargs,
                         p0_episodes, p1_episodes, p1_ppo_episodes,
                         eval_episodes, steps_per_episode, rollout_episodes,
+                        zworld_p0_episodes=zworld_p0_episodes,
+                        zworld_p0_dry_run=dry_run,
                     )
                     cell.stamp(row)
                 rung_cells[arm_id].append(row)
@@ -1256,6 +1322,7 @@ def run_experiment(
         "interpretation": interpretation,
         "seeds": list(seeds),
         "strict_majority_seeds": int(maj),
+        "zworld_p0_episodes": int(zworld_p0_episodes),
         "p0_warmup_episodes": int(p0_episodes),
         "p1_reinforce_episodes": int(p1_episodes),
         "p1_ppo_episodes": int(p1_ppo_episodes),
@@ -1431,6 +1498,7 @@ def _build_manifest(result: Dict[str, Any], timestamp_utc: str, dry_run: bool) -
             "all_on_config_sourced_from": "V3-EXQ-714 ARM_ON via V3-EXQ-724",
             "training_recipe_sourced_from": "V3-EXQ-724 A0_baseline_allon_p1short_frozen",
             "ppo_learner_sourced_from": "V3-EXQ-732a (power-fixed matched PPO)",
+            "zworld_p0_episodes": int(result["zworld_p0_episodes"]),
             "p0_warmup_episodes": int(result["p0_warmup_episodes"]),
             "p1_reinforce_episodes": int(result["p1_reinforce_episodes"]),
             "p1_ppo_episodes": int(result["p1_ppo_episodes"]),
@@ -1457,6 +1525,7 @@ def main() -> Tuple[Optional[str], Optional[str], bool]:
 
     if args.dry_run:
         seeds = list(DRY_RUN_SEEDS)
+        zp0 = DRY_RUN_ZWORLD_P0
         p0 = DRY_RUN_P0
         p1 = DRY_RUN_P1
         ppo = DRY_RUN_PPO
@@ -1465,6 +1534,7 @@ def main() -> Tuple[Optional[str], Optional[str], bool]:
         rollout = DRY_RUN_ROLLOUT_EPISODES
     else:
         seeds = list(SEEDS)
+        zp0 = ZWORLD_P0_EPISODES
         p0 = P0_WARMUP_EPISODES
         p1 = P1_REINFORCE_EPISODES
         ppo = P1_PPO_EPISODES
@@ -1481,6 +1551,7 @@ def main() -> Tuple[Optional[str], Optional[str], bool]:
         steps_per_episode=steps,
         rollout_episodes=rollout,
         dry_run=bool(args.dry_run),
+        zworld_p0_episodes=zp0,
     )
 
     timestamp_utc = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")

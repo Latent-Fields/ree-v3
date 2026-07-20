@@ -63,6 +63,7 @@ def off_path_config_slice(
     p1_reinforce_episodes: int,
     eval_episodes: int,
     steps_per_episode: int,
+    zworld_p0_episodes: int = 0,
 ) -> Dict[str, Any]:
     """The declared fingerprint slice for the OFF (bias_head_baseline) arm.
 
@@ -80,6 +81,12 @@ def off_path_config_slice(
         "e2_train_in_p1": False,              # A0 recipe: SD-056 e2 frozen through P1
         "eval_policy": "REEForwardPolicy",
         "env_kwargs": dict(env_kwargs),
+        # SD-070 P0a. LOAD-BEARING for reuse correctness: an OFF arm warmed with the encoder
+        # recipe is a DIFFERENT arm from one whose z_world stayed a frozen random projection.
+        # Omitting it would let a pre-SD-070 banked arm falsely cache-HIT a post-SD-070
+        # consumer, silently comparing a trained-encoder treatment against an untrained
+        # control. 0 (the default) reproduces every arm banked before this landed.
+        "zworld_p0_episodes": int(zworld_p0_episodes),
         "p0_warmup_episodes": int(p0_warmup_episodes),
         "p1_reinforce_episodes": int(p1_reinforce_episodes),
         "eval_episodes": int(eval_episodes),
@@ -95,13 +102,22 @@ def run_off_cell(
     eval_episodes: int,
     steps_per_episode: int,
     rung_id: str = "cell",
+    zworld_p0_episodes: int = 0,
+    zworld_p0_dry_run: bool = False,
 ) -> Dict[str, Any]:
     """Train + evaluate ONE (rung, seed) OFF cell and return the capability_eval row.
 
-    Delegates to x734._make_all_on_agent / _train_all_on_agent (P0 warmup + P1 two-head
-    REINFORCE, e2 frozen in P1) and capability_eval.REEForwardPolicy eval -- byte-identical
-    to the V3-EXQ-742 bias_head_baseline arm because BOTH call this one function. The
-    caller is responsible for RNG reset (arm_cell / reset_all_rng) before calling.
+    Delegates to x734._make_all_on_agent / _train_all_on_agent (P0a SD-070 encoder warmup when
+    enabled, then P0b e2 warmup + P1 two-head REINFORCE, e2 frozen in P1) and
+    capability_eval.REEForwardPolicy eval -- byte-identical to the V3-EXQ-742
+    bias_head_baseline arm because BOTH call this one function. The caller is responsible for
+    RNG reset (arm_cell / reset_all_rng) before calling.
+
+    `zworld_p0_episodes` MUST MATCH THE CONSUMING DRIVER'S SETTING. It is a member of
+    `off_path_config_slice`, so a mismatch changes the fingerprint and correctly forces a
+    cache MISS rather than silently comparing a trained-encoder arm against a frozen-random-
+    projection baseline -- which would confound every ON/OFF contrast built on this baseline.
+    Default 0 preserves the pre-SD-070 baseline exactly.
     """
     # Lazy imports so `import off_path_config_slice` stays stdlib-only.
     import experiments.v3_exq_734_env_difficulty_competence_recovery_sweep as x734
@@ -114,6 +130,13 @@ def run_off_cell(
         p0_episodes=int(p0_warmup_episodes), p1_episodes=int(p1_reinforce_episodes),
         steps_per_episode=int(steps_per_episode), rung_id=rung_id,
         total_denominator=int(p0_warmup_episodes) + int(p1_reinforce_episodes),
+        zworld_p0_episodes=int(zworld_p0_episodes),
+        # Dedicated env instance: the P0a rollout consumes env RNG, so reusing train_env would
+        # shift the layout sequence P0b/P1 then see.
+        zworld_p0_env=(
+            x734._make_env(seed, env_kwargs) if int(zworld_p0_episodes) > 0 else None
+        ),
+        zworld_p0_dry_run=bool(zworld_p0_dry_run),
     )
     eval_env = x734._make_env(seed, env_kwargs)
     return evaluate_seed(
