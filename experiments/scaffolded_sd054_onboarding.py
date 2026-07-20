@@ -276,6 +276,18 @@ class ScaffoldedSD054OnboardingConfig:
     scaffold_cue_recall_bridge_enabled: bool = False
     # SD-049 resource-type count for the scaffold envs when the bridge is on.
     scaffold_cue_n_resource_types: int = 3
+    # SD-049-PHASE-2 density-preserving spawn (failure_autopsy_V3-EXQ-693a,
+    # 2026-06-21). causal_grid_world.py splits a FIXED total resource budget
+    # across n_resource_types, so the 3-type ARM_2 substrate has ~3x lower
+    # PER-TYPE density than the 1-type ARM_0 control by construction -- the
+    # leading candidate cause of ARM_2's sub-CONSUMPTION_FLOOR contact rate
+    # (0.0099-0.0188 vs 0.02). When True, forwards
+    # sd049_preserve_per_type_density=True to every scaffold env so the budget
+    # scales with the number of ACTIVE types and per-type density is held
+    # constant. Default False = bit-identical legacy envs, AND the kwarg is
+    # omitted from the env constructor entirely (see _sd049_kwargs), so this
+    # module still runs against a substrate that predates the env-side flag.
+    scaffold_sd049_preserve_per_type_density: bool = False
     # Minimum perceived-cue proximity for the auto cue-recall to fire each step.
     scaffold_cue_recall_min_proximity: float = 0.0
     # SD-057 cue-recall FORMATION fix (V3-EXQ-638 cue-silent autopsy, 2026-06-04).
@@ -831,11 +843,20 @@ def _sd049_kwargs(cfg: ScaffoldedSD054OnboardingConfig) -> Dict[str, Any]:
     """
     if not cfg.scaffold_cue_recall_bridge_enabled:
         return {}
-    return {
+    kwargs: Dict[str, Any] = {
         "multi_resource_heterogeneity_enabled": True,
         "n_resource_types": int(cfg.scaffold_cue_n_resource_types),
         "per_axis_drive_enabled": True,
     }
+    # SD-049-PHASE-2 density-preserving spawn (693a autopsy). The key is OMITTED
+    # when the flag is off -- NOT passed as False -- so this module stays
+    # constructible against a CausalGridWorldV2 that predates the env-side
+    # kwarg. Callers that set it True on such a substrate get a TypeError at env
+    # build, which is the correct loud failure (the V3-EXQ-793 probe converts it
+    # into a substrate_not_ready_requeue self-route rather than crashing).
+    if cfg.scaffold_sd049_preserve_per_type_density:
+        kwargs["sd049_preserve_per_type_density"] = True
+    return kwargs
 
 
 def _contacted_resource_type(obs_dict: Dict[str, Any]) -> Optional[int]:
