@@ -432,6 +432,14 @@ CANDIDATE_SCORE_RANGE_FLOOR = 1e-6
 # (spread 0.0040, an order of magnitude tighter than any alternative) -- both independent
 # of the contrast under test. Fixed before the run; never fitted to the outcome.
 FAMILIARITY_QUERY_BANDWIDTH = 0.20
+# The tracker's OWN bandwidth, which is ALSO update()'s association threshold
+# (thresh_sq = bw*bw, curiosity.py:115). PINNED to the value the CHANGE 3 calibration
+# actually ran at -- deliberately NOT read from config.familiarity_bandwidth, which was
+# lowered 1.0 -> 0.20 on 2026-07-20 AFTER this script was queued. See _run_seed for the
+# full reasoning; inheriting it would re-saturate the readout and invalidate the
+# calibration without changing a line of this file.
+FAMILIARITY_UPDATE_BANDWIDTH = 1.0
+FAMILIARITY_EMA_ALPHA = 0.01
 # Recorded every run as a NON-GATING diagnostic so a gate miss hands its successor the
 # calibration curve. For DIAGNOSIS (is the readout saturated?), not for selection.
 FAMILIARITY_BANDWIDTH_SWEEP = [0.05, 0.10, 0.15, 0.20, 0.30, 0.50, 1.0]
@@ -767,10 +775,22 @@ def _run_seed(seed: int, practice_episodes: int, probe_episodes: int,
 
     # Experiment-owned familiarity instrument (see _familiarity docstring for why this is
     # NOT agent.hippocampal.familiarity_tracker). Wired into nothing.
+    # BOTH bandwidths are PINNED BY THE EXPERIMENT, not inherited from config. The
+    # calibration in CHANGE 3 validated the pair (update=1.0, query=0.20); reading either
+    # from config would let a substrate default silently move the operating point out from
+    # under an already-calibrated run. That is not hypothetical: on 2026-07-20, hours after
+    # this script was queued, config.familiarity_bandwidth was lowered 1.0 -> 0.20
+    # (config.py:1701) by the SD-025 curiosity investigation this session spawned. Because
+    # the SAME constant is update()'s association threshold (thresh_sq = bw*bw,
+    # curiosity.py:115), inheriting it would drop the threshold 1.0 -> 0.04, allocate far
+    # more anchors (up to 128 vs the 3 measured), and push the clamped SUM back toward
+    # saturation -- re-creating the V3-EXQ-786 failure this iteration exists to fix, with a
+    # calibration that no longer described the run. An experiment-owned instrument wired
+    # into nothing must not track a substrate default other sessions are actively tuning.
     tracker = FamiliarityTracker(
         world_dim=int(cfg.hippocampal.world_dim),
-        ema_alpha=float(cfg.hippocampal.familiarity_ema_alpha),
-        bandwidth=float(cfg.hippocampal.familiarity_bandwidth),
+        ema_alpha=FAMILIARITY_EMA_ALPHA,
+        bandwidth=FAMILIARITY_UPDATE_BANDWIDTH,
     )
 
     total_eps = practice_episodes * len(FAMILIAR_ENV_SEEDS)
@@ -1038,7 +1058,18 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
             "familiarity_auc_chance_floor": FAMILIARITY_AUC_CHANCE_FLOOR,
             "auc_sem_k": AUC_SEM_K,
             "familiarity_query_bandwidth": FAMILIARITY_QUERY_BANDWIDTH,
-            "familiarity_bandwidth_sweep": FAMILIARITY_BANDWIDTH_SWEEP,
+            "familiarity_update_bandwidth": FAMILIARITY_UPDATE_BANDWIDTH,
+            "familiarity_ema_alpha": FAMILIARITY_EMA_ALPHA,
+            "familiarity_params_pinned_not_inherited": True,
+            "familiarity_pinning_note": (
+                "Both bandwidths and the EMA alpha are pinned by the experiment, NOT read "
+                "from config.hippocampal. The CHANGE 3 calibration validated the pair "
+                "(update=1.0, query=0.20); config.familiarity_bandwidth was lowered "
+                "1.0 -> 0.20 on 2026-07-20 after this script was queued, and since that "
+                "same constant is update()'s association threshold, inheriting it would "
+                "have allocated far more anchors and pushed the clamped sum back toward "
+                "saturation -- invalidating the calibration silently."
+            ),
             "candidate_score_range_floor": CANDIDATE_SCORE_RANGE_FLOOR,
             "familiar_env_seeds": FAMILIAR_ENV_SEEDS,
             "novel_env_seeds": NOVEL_ENV_SEEDS,
