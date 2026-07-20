@@ -115,9 +115,14 @@ RE_STATUS_LINE = re.compile(r'^Status:\s+(PASS|FAIL)')
 RE_EXQ_VERDICT = re.compile(r'\[EXQ-[\w-]+\]\s+(PASS|FAIL)')
 RE_DONE_OUTCOME = re.compile(r'Done\.\s+Outcome:\s+(PASS|FAIL)')
 RE_BARE_OUTCOME = re.compile(r'(?im)^outcome:\s+(PASS|FAIL)\b')
-RE_EXQ_BANNER = re.compile(r'===\s+(?:V3-)?EXQ-[\w-]+\s+(PASS|FAIL)\s*===')
+# The generation prefix is `V[0-9]+-`, not a hardcoded `V3-`. RE_EXQ_BANNER is
+# the one that actually needed it: its literal `===\s+` anchor means the
+# optional prefix group cannot be skipped over, so `=== V4-EXQ-001 PASS ===`
+# failed to match entirely. RE_EXQ_DASHED_OUTCOME already tolerated V4 (it is
+# unanchored, so .search simply starts at `EXQ-`); widened for consistency.
+RE_EXQ_BANNER = re.compile(r'===\s+(?:V[0-9]+-)?EXQ-[\w-]+\s+(PASS|FAIL)\s*===')
 RE_EXQ_DASHED_OUTCOME = re.compile(
-    r'(?:V3-)?EXQ-[\w-]+\s+\([^)]+\)\s+--\s+(PASS|FAIL)\s+in'
+    r'(?:V[0-9]+-)?EXQ-[\w-]+\s+\([^)]+\)\s+--\s+(PASS|FAIL)\s+in'
 )
 RE_SAVED_TO = re.compile(r'Result (?:pack )?written to:?\s+(.+)')
 
@@ -1175,13 +1180,22 @@ def _write_synthetic_error_manifest(
     evidence_dir = ree_assembly_path / "evidence" / "experiments"
     if not evidence_dir.is_dir():
         return None, None
-    # run_id must end _v3 and start v3_ so it matches the flat-manifest
-    # conventions (_UNTRACKED_FLAT_MANIFEST_RE, the indexer, the spool
-    # _RUN_ID_RE) and the spool writer materialises it at the flat path
-    # evidence/experiments/<run_id>.json that pending_review scans.
+    # run_id must start v<N>_ and end _v<N> so it matches the flat-manifest
+    # convention (_UNTRACKED_FLAT_MANIFEST_RE) and the spool writer
+    # materialises it at the flat path evidence/experiments/<run_id>.json that
+    # pending_review scans. The generation is derived from the queue_id rather
+    # than hardcoded, so a V4 crash is not recorded under a V3 run_id; an
+    # unparseable queue_id falls back to v3 (previous behaviour).
+    #
+    # Verified 2026-07-20 that the other two consumers this comment used to
+    # name impose NO prefix constraint: the spool's _RUN_ID_RE is
+    # ^[A-Za-z0-9_.-]{1,256}$ and build_experiment_indexes.py does not gate on
+    # a run_id prefix at all.
     qid_slug = re.sub(r"[^a-z0-9]+", "_", queue_id.lower()).strip("_") or "unknown"
     ts_compact = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    run_id = f"v3_{qid_slug}_runner_error_{ts_compact}_v3"
+    gen_m = re.match(r"^V([0-9]+)-EXQ-", queue_id.upper())
+    gen = f"v{gen_m.group(1)}" if gen_m else "v3"
+    run_id = f"{gen}_{qid_slug}_runner_error_{ts_compact}_{gen}"
     script = item.get("script", "") or ""
     experiment_type = Path(script).stem if script else "runner_crash_error"
     manifest = {

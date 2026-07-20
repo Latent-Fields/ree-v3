@@ -297,3 +297,28 @@ def test_c6_v4_manifest_reaches_the_stash_list(origin_and_clone):
     p.write_text(json.dumps({"run_id": "v4_exq_001_dr12_probe"}) + "\n")
 
     assert rel in experiment_runner._untracked_paths_for_prepull_stash(clone)
+
+
+# --- C7: stdout verdict matching is GENERATION-AGNOSTIC --------------------
+#
+# RE_EXQ_BANNER is anchored by a literal `===\s+`, so its optional generation
+# prefix could not be skipped over and `=== V4-EXQ-001 PASS ===` matched
+# nothing -- a V4 run emitting the banner form showed no verdict progress.
+# (RE_RUN_DONE_PATTERNS and RE_EXQ_DASHED_OUTCOME were already generation-
+# agnostic: the former's first pattern is a bare `verdict:` and the latter is
+# unanchored, so .search skips the `V4-`. Asserted here to keep it that way.)
+
+@pytest.mark.parametrize("gen", ["V3", "V4", "V5", "V10"])
+def test_c7_banner_verdict_matches_every_generation(gen):
+    line = f"=== {gen}-EXQ-001 PASS ==="
+    assert experiment_runner.RE_EXQ_BANNER.search(line), (
+        f"{gen} banner verdict unmatched -- run shows no PASS/FAIL progress"
+    )
+
+
+@pytest.mark.parametrize("gen", ["V3", "V4", "V5", "V10"])
+def test_c7_bare_and_dashed_verdicts_match_every_generation(gen):
+    assert any(p.search(f"{gen}-EXQ-001 verdict: PASS")
+               for p in experiment_runner.RE_RUN_DONE_PATTERNS)
+    assert experiment_runner.RE_EXQ_DASHED_OUTCOME.search(
+        f"{gen}-EXQ-001 (probe) -- PASS in 3m")

@@ -41,6 +41,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -122,12 +124,21 @@ def test_c3_stdout_verdict_not_trusted(tmp_path):
     assert "PASS" not in (doc["result"], doc["outcome"])
 
 
-def test_c4_run_id_matches_flat_manifest_conventions(tmp_path):
+@pytest.mark.parametrize("queue_id,gen", [
+    ("V3-EXQ-654e", "v3"),
+    ("V4-EXQ-001", "v4"),
+    ("V5-EXQ-001", "v5"),
+    # Unparseable queue_id falls back to v3 (previous behaviour).
+    ("EXQ-999", "v3"),
+])
+def test_c4_run_id_matches_flat_manifest_conventions(tmp_path, queue_id, gen):
     asm = _make_evidence_dir(tmp_path)
     run_id, manifest_path = experiment_runner._write_synthetic_error_manifest(
-        asm, "V3-EXQ-654e", _item(), _crash_result(), "ree-cloud-1")
-    assert run_id.startswith("v3_")
-    assert run_id.endswith("_v3")
+        asm, queue_id, _item(), _crash_result(), "ree-cloud-1")
+    # Generation follows the queue_id: a V4 crash must NOT be recorded under a
+    # V3 run_id (it would mislabel the evidence).
+    assert run_id.startswith(f"{gen}_")
+    assert run_id.endswith(f"_{gen}")
     rel = "evidence/experiments/" + Path(manifest_path).name
     assert experiment_runner._UNTRACKED_FLAT_MANIFEST_RE.match(rel), rel
     # generate_pending_review.py surfaces ERROR-class manifests by reading the
