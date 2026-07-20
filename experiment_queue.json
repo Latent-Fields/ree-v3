@@ -141,6 +141,21 @@
       "seeds": 10
     },
     {
+      "queue_id": "V3-EXQ-793",
+      "title": "SD-049 ARM_2 foraging-competence 2x2 calibration (curriculum x density)",
+      "script": "experiments/v3_exq_793_sd049_arm2_competence_calibration.py",
+      "priority": 45,
+      "machine_affinity": "any",
+      "estimated_minutes": 480,
+      "claim_id": "SD-049",
+      "note": "Diagnostic 2x2 discriminating WHY the V3-EXQ-693a PRIMARY arm (ARM_2, 3type+novelty) produced 0 contributing runs (behav_contact_rate 0.0099-0.0188 < CONSUMPTION_FLOOR 0.02; hazard_stage_survival_pass false 2/3 seeds). Arms {693a curriculum, amended} x {density OFF, ON}, 3 seeds. H_DENSITY (fixed spawn budget split across n types -> ~3x lower per-type density by construction) vs H_CURRICULUM (training-budget ceiling independent of density); the interaction cell answers whether hazard-survival failure is downstream of starvation. Axes kept orthogonal for attribution. Curriculum levers are budget/composition ONLY (P0 100->150, Stage-H 40->80, Stage-H resources 2->3); CONSUMPTION_FLOOR/HAZARD_STAGE_SURVIVAL_GATE_STEPS/P2_ZGOAL_GATE deliberately UNMOVED. GOV-REUSE-1: decisive readouts are behav_contact_rate + hazard_stage_survival_pass under a density-ON config that has never been run (env flag landed 2026-07-20 in 2819cfa5a1), so not recoverable from recorded manifests -> run. Re-derive brake: literal count 4 on SD-049 (514l/538a/693/693a), RELEASED on two grounds -- the skill exempts a diagnostic discriminating why a ceiling holds, and the named upstream substrate scaffolded_sd054_onboarding is built (28ebd3d). DV-symmetry: D1 is a set-aggregate (permutation group) and D2 a median threshold (monotone-rescaling group); neither lever is invariant under its DV group -- both change the generating process, not a relabeling. Preconditions self-route substrate_not_ready_requeue, never a false weakens: P_DENSITY_FLAG (env kwarg present), P_BASE_REPRO (A00 must reproduce the ceiling), P_DENSITY_EFFECTIVE (worst-cell sd049_density_budget_truncated == 0, so a silently-unfired density arm cannot read as a null). NOTE episodes_per_run 340 is the AMENDED-arm length; base arms run 250 because the curriculum budget IS the manipulation, so runner ETA overestimates the base arms. Deps landed: env 2819cfa5a1, script+plumb 1041478527/418c518740. Queue entry ingressed via coordinator POST, not a git edit, because experiment_queue.json carried 5 uncommitted foreign MECH-457 entries.",
+      "status": "pending",
+      "conditions": 4,
+      "episodes_per_run": 340,
+      "experiment_type": "v3_exq_793_sd049_arm2_competence_calibration",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-737b",
       "script": "experiments/v3_exq_737_ree_latent_policy_head_competence_probe.py",
       "priority": 44,
