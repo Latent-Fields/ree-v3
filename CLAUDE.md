@@ -2654,7 +2654,12 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
   commit `8ac193d` by a concurrent MECH-204 session's whole-file write; the
   contract test landed separately in `7f16f25ceb`. Content is complete and
   verbatim -- see CLAUDE.md "Read-modify-write contamination" remedy (a)/(a2).
-  Validation experiment: PENDING (see substrate_queue.json).
+  Validation experiment: V3-EXQ-795 queued 2026-07-20 (diagnostic; producer ON vs
+  OFF at identical seeds, four legs: producer / density / DRIVE / selection
+  authority). It never calls accumulate_benefit except in its P0 readiness
+  control, so each arm's terrain can only come from the agent's own reward
+  contacts. Smoke: ARM_OFF reproduces the defect signature exactly (0 centers,
+  density 0.0, bonus 0.0); ARM_ON 1 center / density 0.997 / bonus 0.064.
   See SD-024, SD-025, MECH-232, ARC-030, ARC-057, MECH-117.
 
 - MECH-204 Phase 7 / Option B: sleep.accuracy_anchored_broadcast_recalibration --
