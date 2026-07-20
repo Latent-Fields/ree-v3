@@ -322,6 +322,7 @@ import torch.nn.functional as F
 
 from experiment_protocol import emit_outcome
 from experiments._lib.arm_fingerprint import compute_arm_fingerprint, reset_all_rng
+from experiments._lib.readiness_anchor import assert_anchor_reachable
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
@@ -454,6 +455,408 @@ EXCLUDED_COUNT_FLOOR = 0.0
 # Go/No-Go-ARMED arms (active + actually suppresses). An inert No-Go is vacuous.
 NOGO_ACTIVE_FRAC_FLOOR = 0.8
 NOGO_SUPPRESSED_FLOOR = 0.0
+
+
+# =============================================================================
+# THE SHIPPED C1 PREDICATES (single definition, used live AND by the guards)
+# =============================================================================
+# Hoisted to module level for ONE reason: `assert_anchor_reachable` requires
+# `score_fn` to be THE SHIPPED PREDICATE, not a re-implementation -- the defect
+# the guard exists to catch IS a mis-specified predicate, so a guard scoring a
+# copy proves nothing (experiments/_lib/readiness_anchor.py rule 1).
+#
+# NOTHING about C1 changes here. Each function is the verbatim boolean that was
+# previously written inline in `_run_seed_arm`, and every threshold is the same
+# module constant. The autopsy requires 699's C1 battery be reproduced EXACTLY
+# (it is the one part of 699 judged sound and threshold-invariant to the 699
+# defect), so this is a pure code move.
+#
+# They take a MAPPING keyed by the manifest row's own field names, which is what
+# makes the frozen 699 cells below usable as reference input without translation.
+# `_run_seed_arm` calls them with the UNROUNDED locals (the row itself stores
+# round(...,6) values); passing raw preserves the shipped comparison bit-for-bit.
+
+def _pred_class_axis_exercisable(c: Dict[str, Any]) -> bool:
+    """C1(a): committed-class axis exercisable on this cell."""
+    return bool(c["frac_pre_ge2"] > FRAC_PRE_GE2_FLOOR)
+
+
+def _pred_gapa_divergence(c: Dict[str, Any]) -> bool:
+    """C1(b): GAP-A consumed-summary spread non-degenerate AND numerically bounded."""
+    return bool(
+        c["consumed_summary_pairwise_dist_mean"] > CONSUMED_SPREAD_FLOOR
+        and c["consumed_summary_pairwise_dist_max"] < CONSUMED_MAGNITUDE_CEIL
+    )
+
+
+def _pred_gapa_bounded(c: Dict[str, Any]) -> bool:
+    """`gapa_consumed_summary_bounded`, per cell.
+
+    The shipped anchor is `max(dist_max over all cells) < CEIL`, which is
+    identically `all(cells under CEIL)` -- so scoring per cell at threshold 1.0
+    reproduces it exactly rather than approximating it.
+    """
+    return bool(c["consumed_summary_pairwise_dist_max"] < CONSUMED_MAGNITUDE_CEIL)
+
+
+def _pred_crf_differentiated(c: Dict[str, Any]) -> bool:
+    """C1(c): rule field minted distinct rules AND fired on enough matured P2 ticks."""
+    return bool(
+        c["crf_n_minted_total"] >= CRF_MIN_MINTED
+        and c["crf_frac_active_ge_floor"] >= CRF_FRAC_ACTIVE_FLOOR
+    )
+
+
+def _pred_prop_non_vacuous(c: Dict[str, Any]) -> bool:
+    """C1(d): the per-candidate bias reaches committed action."""
+    return bool(c["mean_lateral_pfc_bias_abs"] > PROP_NONVAC_FLOOR)
+
+
+def _pred_demotion_non_vacuous(c: Dict[str, Any]) -> bool:
+    """C1(e): MECH-448 demotion envelope is active AND actually excludes."""
+    return bool(
+        c["f_eligibility_demotion_active_frac"] >= DEMOTION_ACTIVE_FRAC_FLOOR
+        and c["f_eligibility_excluded_count_mean"] > EXCLUDED_COUNT_FLOOR
+    )
+
+
+def _pred_nogo_non_vacuous(c: Dict[str, Any]) -> bool:
+    """C1(f): MECH-449 Go/No-Go constitution is active AND actually suppresses."""
+    return bool(
+        c["go_nogo_active_frac"] >= NOGO_ACTIVE_FRAC_FLOOR
+        and c["go_nogo_suppressed_per_tick_mean"] > NOGO_SUPPRESSED_FLOOR
+    )
+
+
+def _pred_fresh_select_sufficient(c: Dict[str, Any]) -> bool:
+    """C1(g), NEW IN 699b: enough genuine E3 selections to support a per-commitment DV."""
+    return bool(c["n_fresh_select"] >= MIN_FRESH_SELECT_PER_CELL)
+
+
+# =============================================================================
+# ANCHOR-REACHABILITY GUARDS (discharging the warning INHERITED from 699)
+# =============================================================================
+# `validate_experiments.py --strict` warned that this driver declares anchor-kind
+# readiness preconditions and self-routes on them to `substrate_not_ready_requeue`
+# -- a consequential label -- without ever asserting those gates are REACHABLE by
+# the control they claim to score. That warning came across from the 699 driver
+# unchanged; it is NOT introduced by this repair, and the queueing session
+# deliberately left it un-exempted because it had not been discharged. It is
+# discharged HERE, with a replay rather than a marker.
+#
+# WHY NEITHER MARKER WAS THE RIGHT ANSWER (readiness_anchor.py, "ALREADY-RAN
+# DEFECTS"): ANCHOR_REACHABILITY_EXEMPT is only for a predicate that IS the
+# degeneracy definition, which none of these are -- they are hand-written floors
+# over continuous statistics, exactly the class 778d belongs to.
+# ANCHOR_REACHABILITY_SUPERSEDED is only for an ALREADY-RAN script whose repair
+# must live in a successor letter; 699b has not run, so an in-place guard alters
+# no recorded evidence.
+#
+# THE REFERENCE. V3-EXQ-699 ran these same seven anchors at full scale and MET
+# all seven -- so they are demonstrably reachable rather than unmeetable by
+# construction, and this block turns that empirical fact into a setup-time
+# assertion instead of a note in a queue entry. Frozen verbatim from
+# REE_assembly/evidence/experiments/
+#   v3_exq_699_pcomp_demotion_x_gonogo_composition_20260623T053755Z_v3.json
+# (12 arm-seed cells, 4 arms x seeds 42/43/44), so the guard needs no compute and
+# cannot drift with the substrate.
+#
+# TWO RECORDED-VALUE CAVEATS, both in the SAFE direction:
+#   * `f_eligibility_demotion_active_frac` / `go_nogo_active_frac` were computed
+#     in 699 against an n_p2_ticks (env-step) denominator; 699b divides by
+#     n_fresh_select, which is strictly smaller, so the same run yields a LARGER
+#     frac. The recorded values are already 1.0 (the ceiling), so the replay is
+#     conservative and the change cannot flip these anchors.
+#   * The manifest stores round(...,6) values while `_run_seed_arm` scores the
+#     unrounded locals. Every recorded margin here is orders of magnitude wider
+#     than 1e-6, so rounding is immaterial to the replay.
+#
+# ENCODING. Each anchor's shipped `met` is a per-arm-majority rule -- min over
+# arms of the count of satisfying seeds >= MIN_SEEDS_FOR_PASS -- so the reference
+# cells are the ARMS, scored by `_arm_majority(<shipped leaf predicate>)`, at
+# threshold 1.0 (every arm must hold). That reproduces the shipped rule EXACTLY
+# rather than approximating it with a pooled per-seed fraction, which would be
+# strictly weaker and could certify reachable a gate the real rule cannot meet.
+# `margin_cells` is therefore 0 throughout and that zero is intended, not
+# overlooked (readiness_anchor.py rule 4): at threshold 1.0 any positive margin is
+# arithmetically unsatisfiable, so headroom has to be read at the SEED level. It
+# is reported per anchor below.
+#
+# NOT GUARDED, DELIBERATELY: `fresh_e3_selection_sufficiency_all_arms` (C1(g)).
+# It is NEW in 699b and 699 recorded NO fresh-selection count, so no frozen
+# reference for it exists. The only quantity derivable from the 699 record is
+# n_p2_ticks / e3_steps_per_tick, which is a strict UPPER bound on n_fresh_select
+# -- a guard built on it could certify reachable a gate the true value misses, the
+# precise failure `assert_anchor_reachable` exists to prevent. See the
+# C1(g) headroom note below, which is reported to the operator rather than
+# asserted.
+
+_REFERENCE_699_C1_CELLS: Dict[str, Tuple[Dict[str, Any], ...]] = {
+    "ARM_OFF": (
+        {
+            "seed": 42,
+            "frac_pre_ge2": 1.0,
+            "consumed_summary_pairwise_dist_mean": 0.086386,
+            "consumed_summary_pairwise_dist_max": 0.129977,
+            "crf_n_minted_total": 13,
+            "crf_frac_active_ge_floor": 0.844635,
+            "mean_lateral_pfc_bias_abs": 0.05777158,
+            "f_eligibility_demotion_active_frac": 0.0,
+            "f_eligibility_excluded_count_mean": 0.0,
+            "go_nogo_active_frac": 0.0,
+            "go_nogo_suppressed_per_tick_mean": 0.0,
+            "n_p2_ticks": 1165,
+        },
+        {
+            "seed": 43,
+            "frac_pre_ge2": 1.0,
+            "consumed_summary_pairwise_dist_mean": 0.074105,
+            "consumed_summary_pairwise_dist_max": 0.141069,
+            "crf_n_minted_total": 16,
+            "crf_frac_active_ge_floor": 0.969228,
+            "mean_lateral_pfc_bias_abs": 0.08846155,
+            "f_eligibility_demotion_active_frac": 0.0,
+            "f_eligibility_excluded_count_mean": 0.0,
+            "go_nogo_active_frac": 0.0,
+            "go_nogo_suppressed_per_tick_mean": 0.0,
+            "n_p2_ticks": 10139,
+        },
+        {
+            "seed": 44,
+            "frac_pre_ge2": 1.0,
+            "consumed_summary_pairwise_dist_mean": 0.080774,
+            "consumed_summary_pairwise_dist_max": 0.122618,
+            "crf_n_minted_total": 8,
+            "crf_frac_active_ge_floor": 0.817143,
+            "mean_lateral_pfc_bias_abs": 0.04061345,
+            "f_eligibility_demotion_active_frac": 0.0,
+            "f_eligibility_excluded_count_mean": 0.0,
+            "go_nogo_active_frac": 0.0,
+            "go_nogo_suppressed_per_tick_mean": 0.0,
+            "n_p2_ticks": 525,
+        },
+    ),
+    "ARM_DEM": (
+        {
+            "seed": 42,
+            "frac_pre_ge2": 1.0,
+            "consumed_summary_pairwise_dist_mean": 0.052343,
+            "consumed_summary_pairwise_dist_max": 0.077569,
+            "crf_n_minted_total": 16,
+            "crf_frac_active_ge_floor": 0.87429,
+            "mean_lateral_pfc_bias_abs": 0.10000001,
+            "f_eligibility_demotion_active_frac": 1.0,
+            "f_eligibility_excluded_count_mean": 16.68608,
+            "go_nogo_active_frac": 0.0,
+            "go_nogo_suppressed_per_tick_mean": 0.0,
+            "n_p2_ticks": 1408,
+        },
+        {
+            "seed": 43,
+            "frac_pre_ge2": 1.0,
+            "consumed_summary_pairwise_dist_mean": 0.004852,
+            "consumed_summary_pairwise_dist_max": 0.007972,
+            "crf_n_minted_total": 14,
+            "crf_frac_active_ge_floor": 0.949167,
+            "mean_lateral_pfc_bias_abs": 0.04298512,
+            "f_eligibility_demotion_active_frac": 1.0,
+            "f_eligibility_excluded_count_mean": 16.170917,
+            "go_nogo_active_frac": 0.0,
+            "go_nogo_suppressed_per_tick_mean": 0.0,
+            "n_p2_ticks": 12000,
+        },
+        {
+            "seed": 44,
+            "frac_pre_ge2": 1.0,
+            "consumed_summary_pairwise_dist_mean": 0.15336,
+            "consumed_summary_pairwise_dist_max": 0.256346,
+            "crf_n_minted_total": 15,
+            "crf_frac_active_ge_floor": 0.879678,
+            "mean_lateral_pfc_bias_abs": 0.09172368,
+            "f_eligibility_demotion_active_frac": 1.0,
+            "f_eligibility_excluded_count_mean": 14.814623,
+            "go_nogo_active_frac": 0.0,
+            "go_nogo_suppressed_per_tick_mean": 0.0,
+            "n_p2_ticks": 1737,
+        },
+    ),
+    "ARM_GNG": (
+        {
+            "seed": 42,
+            "frac_pre_ge2": 1.0,
+            "consumed_summary_pairwise_dist_mean": 0.102041,
+            "consumed_summary_pairwise_dist_max": 0.150264,
+            "crf_n_minted_total": 16,
+            "crf_frac_active_ge_floor": 0.896194,
+            "mean_lateral_pfc_bias_abs": 0.0501911,
+            "f_eligibility_demotion_active_frac": 0.0,
+            "f_eligibility_excluded_count_mean": 0.0,
+            "go_nogo_active_frac": 1.0,
+            "go_nogo_suppressed_per_tick_mean": 0.694637,
+            "n_p2_ticks": 1156,
+        },
+        {
+            "seed": 43,
+            "frac_pre_ge2": 1.0,
+            "consumed_summary_pairwise_dist_mean": 0.156846,
+            "consumed_summary_pairwise_dist_max": 0.228805,
+            "crf_n_minted_total": 8,
+            "crf_frac_active_ge_floor": 0.986083,
+            "mean_lateral_pfc_bias_abs": 0.09990293,
+            "f_eligibility_demotion_active_frac": 0.0,
+            "f_eligibility_excluded_count_mean": 0.0,
+            "go_nogo_active_frac": 1.0,
+            "go_nogo_suppressed_per_tick_mean": 1.9795,
+            "n_p2_ticks": 12000,
+        },
+        {
+            "seed": 44,
+            "frac_pre_ge2": 1.0,
+            "consumed_summary_pairwise_dist_mean": 0.246777,
+            "consumed_summary_pairwise_dist_max": 0.371948,
+            "crf_n_minted_total": 10,
+            "crf_frac_active_ge_floor": 0.828633,
+            "mean_lateral_pfc_bias_abs": 0.08216546,
+            "f_eligibility_demotion_active_frac": 0.0,
+            "f_eligibility_excluded_count_mean": 0.0,
+            "go_nogo_active_frac": 1.0,
+            "go_nogo_suppressed_per_tick_mean": 1.587852,
+            "n_p2_ticks": 461,
+        },
+    ),
+    "ARM_BOTH": (
+        {
+            "seed": 42,
+            "frac_pre_ge2": 1.0,
+            "consumed_summary_pairwise_dist_mean": 0.054398,
+            "consumed_summary_pairwise_dist_max": 0.081006,
+            "crf_n_minted_total": 16,
+            "crf_frac_active_ge_floor": 0.804196,
+            "mean_lateral_pfc_bias_abs": 0.09988336,
+            "f_eligibility_demotion_active_frac": 1.0,
+            "f_eligibility_excluded_count_mean": 18.615385,
+            "go_nogo_active_frac": 1.0,
+            "go_nogo_suppressed_per_tick_mean": 2.191808,
+            "n_p2_ticks": 1001,
+        },
+        {
+            "seed": 43,
+            "frac_pre_ge2": 1.0,
+            "consumed_summary_pairwise_dist_mean": 0.008482,
+            "consumed_summary_pairwise_dist_max": 0.01315,
+            "crf_n_minted_total": 10,
+            "crf_frac_active_ge_floor": 0.928508,
+            "mean_lateral_pfc_bias_abs": 0.10000001,
+            "f_eligibility_demotion_active_frac": 1.0,
+            "f_eligibility_excluded_count_mean": 28.446828,
+            "go_nogo_active_frac": 1.0,
+            "go_nogo_suppressed_per_tick_mean": 12.40563,
+            "n_p2_ticks": 11190,
+        },
+        {
+            "seed": 44,
+            "frac_pre_ge2": 1.0,
+            "consumed_summary_pairwise_dist_mean": 0.112685,
+            "consumed_summary_pairwise_dist_max": 0.164194,
+            "crf_n_minted_total": 13,
+            "crf_frac_active_ge_floor": 0.824611,
+            "mean_lateral_pfc_bias_abs": 0.05125697,
+            "f_eligibility_demotion_active_frac": 1.0,
+            "f_eligibility_excluded_count_mean": 20.652051,
+            "go_nogo_active_frac": 1.0,
+            "go_nogo_suppressed_per_tick_mean": 5.123055,
+            "n_p2_ticks": 707,
+        },
+    ),
+}
+
+_REFERENCE_699_SOURCE = (
+    "V3-EXQ-699 (v3_exq_699_pcomp_demotion_x_gonogo_composition_20260623T053755Z_v3), "
+    "full-scale run that MET all seven of these anchors"
+)
+
+# Arm groupings, matching each anchor's shipped scope. C1(e)/C1(f) are declared
+# over the ARMED arms only -- demotion is OFF by design on ARM_OFF/ARM_GNG and
+# Go/No-Go on ARM_OFF/ARM_DEM, so inactivity there is correct, not vacuous.
+_REF_ALL_ARMS = tuple(_REFERENCE_699_C1_CELLS[a]
+                      for a in ("ARM_OFF", "ARM_DEM", "ARM_GNG", "ARM_BOTH"))
+_REF_DEMOTION_ARMED = tuple(_REFERENCE_699_C1_CELLS[a] for a in ("ARM_DEM", "ARM_BOTH"))
+_REF_GNG_ARMED = tuple(_REFERENCE_699_C1_CELLS[a] for a in ("ARM_GNG", "ARM_BOTH"))
+_REF_ALL_CELLS = tuple(c for arm in _REF_ALL_ARMS for c in arm)
+
+
+def _arm_majority(pred):
+    """Lift a shipped per-seed predicate to the shipped per-arm-majority rule.
+
+    A thin composition, NOT a re-implementation: the leaf is the same callable
+    `_run_seed_arm` scores live cells with, and the count/threshold form is the
+    one `_min_arm_count` applies in the analysis.
+    """
+    def _score(arm_cells) -> bool:
+        return sum(1 for c in arm_cells if pred(c)) >= MIN_SEEDS_FOR_PASS
+    return _score
+
+
+def assert_c1_anchors_reachable() -> List[Dict[str, Any]]:
+    """Replay the frozen 699 cells through the SHIPPED C1 predicates at setup.
+
+    Raises AnchorUnreachable (from readiness_anchor) before any compute is spent
+    if any gate is unmeetable by the control that already met it.
+    """
+    payloads: List[Dict[str, Any]] = []
+    for anchor_name, reference_cells, score_fn in (
+        ("committed_class_axis_exercisable_all_arms",
+         _REF_ALL_ARMS, _arm_majority(_pred_class_axis_exercisable)),
+        ("gapa_consumed_summary_divergence_all_arms",
+         _REF_ALL_ARMS, _arm_majority(_pred_gapa_divergence)),
+        ("gapa_consumed_summary_bounded",
+         _REF_ALL_CELLS, _pred_gapa_bounded),
+        ("rule_field_differentiated_and_matured_all_arms",
+         _REF_ALL_ARMS, _arm_majority(_pred_crf_differentiated)),
+        ("propagation_non_vacuity_bias_reaches_committed_action_all_arms",
+         _REF_ALL_ARMS, _arm_majority(_pred_prop_non_vacuous)),
+        ("mech448_demotion_lever_live_and_excluding_demotion_armed_arms",
+         _REF_DEMOTION_ARMED, _arm_majority(_pred_demotion_non_vacuous)),
+        ("mech449_active_nogo_live_and_suppressing_gng_armed_arms",
+         _REF_GNG_ARMED, _arm_majority(_pred_nogo_non_vacuous)),
+    ):
+        payloads.append(assert_anchor_reachable(
+            anchor_name=anchor_name,
+            reference_cells=reference_cells,
+            score_fn=score_fn,
+            # 1.0 = EVERY arm must clear its own majority, which is exactly the
+            # shipped `min(per-arm satisfying-seed counts) >= MIN_SEEDS_FOR_PASS`.
+            # For `gapa_consumed_summary_bounded` the cells are seeds, not arms,
+            # and 1.0 is exactly `max(dist_max) < CEIL`.
+            threshold=1.0,
+            reference_source=_REFERENCE_699_SOURCE,
+            # See the encoding note above: at threshold 1.0 a positive
+            # margin_cells is unsatisfiable by arithmetic, so seed-level headroom
+            # is reported instead of asserted.
+            margin_cells=0,
+        ))
+
+    # Seed-level headroom, printed because the arm-level guard cannot express it.
+    # Two anchors clear by the BARE minimum and are the ones to watch if 699b ever
+    # self-routes substrate_not_ready_requeue:
+    #   * gapa_divergence: ARM_DEM and ARM_BOTH each had 2 of 3 seeds divergent on
+    #     699 (seed 43 fell below CONSUMED_SPREAD_FLOOR in both), i.e. exactly
+    #     MIN_SEEDS_FOR_PASS with zero spare seeds.
+    #   * gapa_consumed_summary_bounded is the opposite shape -- a VACUOUS anchor
+    #     in the readiness_anchor.py "mirror failure" sense: the recorded maximum
+    #     is 0.371948 against a 1.0e6 ceiling. It is a numerical-explosion
+    #     denominator guard (643a), so a wide margin is intended; recorded here so
+    #     it is not mistaken for a readiness gate. NOT retuned: the autopsy
+    #     requires 699's C1 battery be reproduced exactly.
+    for p in payloads:
+        print(
+            f"anchor_reachable: {p['anchor_name']} "
+            f"{p['n_reference_scored_true']}/{p['n_reference_cells']} "
+            f"(gate {p['required_score']:.4f})",
+            flush=True,
+        )
+    return payloads
+
 
 SEEDS = [42, 43, 44]
 P0_WARMUP_EPISODES = 200
@@ -1403,10 +1806,11 @@ def _run_seed_arm(
         max_crf_n_matched = 0
 
     # use_candidate_rule_field is a matched constant (True) on all arms.
-    crf_differentiated = bool(
-        crf_n_minted_total_last >= CRF_MIN_MINTED
-        and frac_crf_active_ge_floor >= CRF_FRAC_ACTIVE_FLOOR
-    )
+    # Shipped predicate, called on the UNROUNDED locals (see the hoisted block).
+    crf_differentiated = _pred_crf_differentiated({
+        "crf_n_minted_total": crf_n_minted_total_last,
+        "crf_frac_active_ge_floor": frac_crf_active_ge_floor,
+    })
 
     mean_lateral_pfc_bias_abs = (
         float(sum(lateral_pfc_bias_abs_vals) / len(lateral_pfc_bias_abs_vals))
@@ -1437,10 +1841,10 @@ def _run_seed_arm(
         float(demotion_rank_preserving_active_ticks) / float(demotion_active_ticks)
         if demotion_active_ticks > 0 else 0.0
     )
-    seed_demotion_non_vacuous = bool(
-        demotion_active_frac >= DEMOTION_ACTIVE_FRAC_FLOOR
-        and demotion_excluded_count_mean > EXCLUDED_COUNT_FLOOR
-    )
+    seed_demotion_non_vacuous = _pred_demotion_non_vacuous({
+        "f_eligibility_demotion_active_frac": demotion_active_frac,
+        "f_eligibility_excluded_count_mean": demotion_excluded_count_mean,
+    })
 
     # MECH-449 Go/No-Go-constitution aggregates (C1f; armed only when gng_on).
     # Per-SELECTION denominator, as for demotion above. Predicate/threshold unchanged.
@@ -1456,17 +1860,19 @@ def _run_seed_arm(
         float(sum(nogo_envelope_sizes) / len(nogo_envelope_sizes))
         if nogo_envelope_sizes else 0.0
     )
-    seed_nogo_non_vacuous = bool(
-        nogo_active_frac >= NOGO_ACTIVE_FRAC_FLOOR
-        and nogo_suppressed_mean > NOGO_SUPPRESSED_FLOOR
-    )
+    seed_nogo_non_vacuous = _pred_nogo_non_vacuous({
+        "go_nogo_active_frac": nogo_active_frac,
+        "go_nogo_suppressed_per_tick_mean": nogo_suppressed_mean,
+    })
 
-    seed_class_axis_exercisable = bool(frac_pre_ge2 > FRAC_PRE_GE2_FLOOR)
-    seed_gapa_divergence = bool(
-        consumed_spread_mean > CONSUMED_SPREAD_FLOOR
-        and consumed_dist_max < CONSUMED_MAGNITUDE_CEIL
-    )
-    seed_prop_non_vacuous = bool(mean_lateral_pfc_bias_abs > PROP_NONVAC_FLOOR)
+    seed_class_axis_exercisable = _pred_class_axis_exercisable(
+        {"frac_pre_ge2": frac_pre_ge2})
+    seed_gapa_divergence = _pred_gapa_divergence({
+        "consumed_summary_pairwise_dist_mean": consumed_spread_mean,
+        "consumed_summary_pairwise_dist_max": consumed_dist_max,
+    })
+    seed_prop_non_vacuous = _pred_prop_non_vacuous(
+        {"mean_lateral_pfc_bias_abs": mean_lateral_pfc_bias_abs})
 
     return {
         "arm_id": arm["arm_id"],
@@ -1489,7 +1895,8 @@ def _run_seed_arm(
         "n_latched": int(n_latched),
         "fresh_select_yield": round(fresh_select_yield, 6),
         "replication_factor": round(replication_factor, 6),
-        "fresh_select_sufficient": bool(n_fresh_select >= MIN_FRESH_SELECT_PER_CELL),
+        "fresh_select_sufficient": _pred_fresh_select_sufficient(
+            {"n_fresh_select": n_fresh_select}),
         # ----- PRIMARY DV: PER-COMMITMENT class entropy (699b) -----
         "committed_class_entropy_nats": round(committed_class_entropy, 6),
         "n_unique_committed_classes": int(len(committed_class_counts_fresh)),
@@ -2471,6 +2878,29 @@ def main() -> Tuple[Optional[str], Optional[str], bool]:
         p1 = P1_BIAS_TRAIN_EPISODES
         p2 = P2_MEASUREMENT_EPISODES
         steps = STEPS_PER_EPISODE
+
+    # SETUP-TIME anchor-reachability replay: raises AnchorUnreachable before any
+    # compute is spent if a C1 gate is unmeetable by the 699 control that already
+    # met it. Runs in dry-run too -- the frozen reference is scale-independent, so
+    # a --dry-run smoke exercises the guard exactly as a full run does.
+    assert_c1_anchors_reachable()
+
+    # C1(g) has no frozen reference (see the guard block). Report its headroom
+    # from the shipped run shape instead, so an operator sees the risk BEFORE the
+    # run rather than in a substrate_not_ready_requeue manifest.
+    print(
+        "anchor_note: fresh_e3_selection_sufficiency_all_arms is UNGUARDED -- "
+        f"floor={MIN_FRESH_SELECT_PER_CELL} genuine E3 selections per cell, "
+        f"P2={p2} ep x {steps} steps at heartbeat.e3_steps_per_tick=10 "
+        f"=> at most {(p2 * steps) // 10} per cell IF episodes run to full length. "
+        "699's recorded P2 env-step counts ranged 461..12000 (episodes terminate "
+        "early), so the per-cell upper bound on that run would have been ~46..1200 "
+        "and three of four arms would have cleared the floor by exactly "
+        f"MIN_SEEDS_FOR_PASS={MIN_SEEDS_FOR_PASS} seeds. Treat a C1(g) "
+        "substrate_not_ready_requeue as an instrument-scale finding, not a "
+        "substrate verdict.",
+        flush=True,
+    )
 
     result = run_experiment(
         seeds=seeds,
