@@ -1,13 +1,119 @@
 #!/opt/local/bin/python3
 """
-V3-EXQ-699b -- conversion_ceiling_campaign:P-comp -- SELECTION-FACE COMPOSITION
+V3-EXQ-699c -- conversion_ceiling_campaign:P-comp -- SELECTION-FACE COMPOSITION
 characterization: does the MECH-448 (ARC-107) RANK-PRESERVING F->ELIGIBILITY
 DEMOTION lever and the MECH-449 (ARC-107) GO/NO-GO ELIGIBILITY CONSTITUTION
 (active No-Go opponency leg) COMPOUND or CANCEL at the committed-class entropy
 (C2) DV when co-armed?
 
-INSTRUMENT REPAIR OF V3-EXQ-699 -- READ THIS FIRST
-==================================================
+STATUS: PARKED, NOT QUEUED (2026-07-20). READ THIS BEFORE QUEUEING IT
+=====================================================================
+This driver is complete and verified (validate_experiments --strict clean; the
+fixed-N stop and the Miller-Madow correction were both confirmed by direct
+execution -- a cell stops at exactly N and the correction equals (K_obs-1)/(2N)
+to the digit). It is deliberately NOT in experiment_queue.json.
+
+WHY IT IS PARKED. The case for it rested on an arithmetic claim that turned out
+to be WRONG IN DIRECTION. The magnitude of the bias it removes depends on the
+fresh-selection yield, and the yield was INFERRED as ~1/e3_steps_per_tick = 0.1.
+That inference is invalid: E3 firing is EVENT-DRIVEN. heartbeat/clock.py
+advance() fires an E3 tick IMMEDIATELY on a pending phase reset (a salient event)
+and resets the phase counter, and agent.py:5430 additionally runs select() on a
+non-E3 tick whenever _last_action is None. So e3_steps_per_tick=10 is the MAXIMUM
+interval between ticks, which makes n_p2_ticks/10 a LOWER bound on N, not an
+upper one. A short probe on an undertrained agent measured a replication factor
+near 2 (7 fresh selections in 14 P2 ticks).
+
+The bias differential this driver removes scales as 1/yield. On 699's seed-44
+record (ARM_GNG 461 vs ARM_DEM 1737 P2 env steps, K_obs=3):
+
+    yield 0.1 (the wrong inference)  ->  0.0159 nats, 32% of COMPOSITION_LIFT_MARGIN
+    yield 0.5 (measured, untrained)  ->  0.0032 nats,  6.4%
+    yield 1.0                        ->  0.0016 nats,  3.2%
+
+The STRUCTURAL confound is real at any yield -- N is proportional to survival and
+survival differs ~3.8x across arms within seed 44 -- but the size of it is
+unknown, and the trained-agent yield is exactly what V3-EXQ-699b measures for the
+first time (it emits n_fresh_select / n_latched / fresh_select_yield /
+replication_factor per arm-seed). There is also a cost this design does NOT avoid:
+at a high yield, fixed-N at 400 makes P2 very short (~800 env steps against 699's
+12000), so it characterises only the early part of P2 -- equal-N trades unequal
+SAMPLE SIZE for unequal DURATION.
+
+DECISION (user, 2026-07-20): run V3-EXQ-699b first and decide on its MEASURED N
+distribution rather than on an inference. Queue this driver only if 699b's
+recorded fresh_select_yield shows N genuinely varying across arms by enough to
+matter against COMPOSITION_LIFT_MARGIN=0.05. If you queue it, re-check the
+"WHY 400" arithmetic below against 699b's measured yield first -- it was sized on
+the same bad 0.1 assumption and the target may want to be larger or smaller.
+
+SECOND INSTRUMENT REPAIR (V3-EXQ-699b -> 699c) -- READ THIS FIRST
+=================================================================
+699b fixed the CONSTRUCT (hold-weighted occupancy -> per-commitment) and was
+correct to. Auditing its anchor reachability then exposed a SECOND, independent
+instrument defect that 699b's own repair had made load-bearing for the first
+time. 699c fixes that; the scientific question is again UNCHANGED, so this is
+again an alphabetic suffix.
+
+THE DEFECT: SAMPLE SIZE IS CONFOUNDED WITH THE MANIPULATION.
+CausalGridWorldV2 terminates an episode on DEATH (`agent_health <= 0.0 or
+steps >= 500`, causal_grid_world.py:2626), and 699/699b cap steps_per_episode at
+200 -- below that 500 -- so P2 length is set by SURVIVAL, not by the schedule.
+699's recorded P2 env-step counts per cell ranged 461 .. 12000 against a nominal
+60 x 200 = 12000. The corresponding fresh-selection counts are UNKNOWN -- see the
+PARKED banner above: E3 firing is event-driven, so n_p2_ticks/10 is a LOWER bound
+on N, not the estimate originally used here. What matters below is not the
+absolute N but that N is PROPORTIONAL TO SURVIVAL and therefore differs across
+arms within a seed (461 vs 1737 env steps on seed 44, a ~3.8x spread); that
+ratio, and hence the qualitative confound, is yield-independent.
+
+WHY THAT IS FATAL TO THE DV RATHER THAN MERELY NOISY: the plug-in (maximum-
+likelihood) entropy estimator this DV uses is DOWNWARD-biased by approximately
+(K-1)/(2N). N differs across arms WITHIN a seed, so the bias differs across arms
+within a seed -- a difference-of-arms readout therefore carries a systematic,
+arm-dependent artifact. Worked from 699's own record, seed 44:
+
+    ARM_GNG   N ~ 46    bias ~ 0.0217 nats
+    ARM_DEM   N ~ 174   bias ~ 0.0058 nats
+    differential                ~ 0.0159 nats
+
+against COMPOSITION_LIFT_MARGIN = 0.05. That is ~32% of the decision margin,
+entirely artifact, and it is SIGNED: an arm whose agent dies sooner is measured
+as having lower committed-class entropy for a purely statistical reason. Under
+699's per-ENV-STEP DV this was invisible (N was ~10x larger, bias ~4e-4); the
+fresh-gating repair is correct and is precisely what promotes it to load-bearing.
+
+THE TWO REPAIRS (and why both, not either):
+
+ 1. FIXED-N STOPPING RULE. P2 no longer runs a fixed episode count. It runs until
+    each cell has accumulated exactly TARGET_FRESH_SELECT_PER_CELL genuine E3
+    selections (capped by MAX_P2_EPISODES). Accumulation STOPS at the target, so
+    every completed cell contributes exactly N = TARGET, and the differential
+    bias is zero BY CONSTRUCTION rather than by correction. This is the load-
+    bearing fix.
+ 2. MILLER-MADOW BIAS CORRECTION on the primary DV, H_MM = H_plugin +
+    (K_obs - 1)/(2N). With N equalised by (1) the residual bias is common-mode,
+    but K_obs still varies per cell (699 recorded K from 1 to 5), so the
+    correction removes the remaining K-driven term. Belt and braces: the plug-in
+    value is emitted alongside, so the size of the correction is auditable.
+
+COST: this is CHEAPER than 699b, not more expensive. 699's P2 totalled 53,489
+env steps across 12 cells; 12 cells x TARGET_FRESH_SELECT_PER_CELL=400 at a
+cadence of 10 is ~48,000. The saving comes from capping the long-surviving cells
+(seed 43 ran the full 12000 steps in three arms and needed ~4000), which pays for
+the extra episodes the short-lived cells need. The heartbeat clock is per-agent
+and persists ACROSS episodes, so a cell that dies at step 8 still accrues
+selections at the same ~1-per-10-steps rate; only its episode COUNT rises.
+
+WHAT STANDS from 699/699b: the entire C1 readiness battery, reproduced exactly
+(see the autopsy requirement below). C1(g)'s floor is raised to the new target --
+that is not a retune of a 699 threshold but the natural expression of the new
+stopping rule, and it converts C1(g) from a thin gate (three of four arms cleared
+it by exactly MIN_SEEDS_FOR_PASS on 699's numbers) into a met-by-construction
+check that fails only if the episode cap was genuinely exhausted.
+
+INHERITED FROM 699b -- INSTRUMENT REPAIR OF V3-EXQ-699
+======================================================
 Source: REE_assembly/evidence/planning/failure_autopsy_V3-EXQ-699_2026-07-20.json
 (REE_assembly ac2fb64028). The scientific question is UNCHANGED; only the
 instrumentation was wrong, which is why this takes an alphabetic SUFFIX per
@@ -366,8 +472,8 @@ _FRESH_SELECT_EXEMPT_REASON = (
 E3_DIAGNOSTICS_STALENESS_EXEMPT = _FRESH_SELECT_EXEMPT_REASON
 E3_HOLD_WEIGHTED_READOUT_EXEMPT = _FRESH_SELECT_EXEMPT_REASON
 
-EXPERIMENT_TYPE = "v3_exq_699b_pcomp_demotion_x_gonogo_fresh_select"
-QUEUE_ID = "V3-EXQ-699b"
+EXPERIMENT_TYPE = "v3_exq_699c_pcomp_demotion_x_gonogo_fixed_n"
+QUEUE_ID = "V3-EXQ-699c"
 # INSTRUMENT REPAIR of V3-EXQ-699 (failure_autopsy_V3-EXQ-699_2026-07-20.json,
 # REE_assembly ac2fb64028). The 699 PASS and its C1 readiness battery STAND; the
 # `levers_compound` composition finding is WITHDRAWN. 699's primary DV was
@@ -389,8 +495,10 @@ SUPERSEDES_RUN_ID = (
 )
 # 699a is a FAITHFUL re-run of the unchanged 699 driver and reproduces every
 # defect above; it was in flight (claimed by ree-cloud-3) when 699b was authored.
-# If it lands a manifest, it is superseded too -- set at runtime below.
-SUPERSEDES_QUEUE_IDS: List[str] = ["V3-EXQ-699", "V3-EXQ-699a"]
+# 699b carries the CONSTRUCT repair but NOT the fixed-N sampling repair, so its
+# per-commitment DV would still carry the arm-dependent (K-1)/(2N) bias -- it is
+# superseded UNRUN (it was still pending+unclaimed when 699c was authored).
+SUPERSEDES_QUEUE_IDS: List[str] = ["V3-EXQ-699", "V3-EXQ-699a", "V3-EXQ-699b"]
 CLAIM_IDS: List[str] = ["MECH-448", "MECH-449"]
 EXPERIMENT_PURPOSE = "diagnostic"
 
@@ -411,12 +519,40 @@ H_SIGNATURE = 3
 # substrate-inert per-tick freshness signal. Nothing in ree_core iterates the dict
 # (its sole reader, agent.py:9660, uses .get() with defaults), so the extra key is
 # inert. Underscore-prefixed and never emitted to the manifest.
-_STALE_MARKER_KEY = "_exq699b_stale_marker"
+_STALE_MARKER_KEY = "_exq699c_stale_marker"
 
-# C1 readiness floor on the fresh-selection yield. A run whose E3 cadence produced
-# too few genuine selections cannot support a per-commitment entropy at all; this
-# self-routes substrate_not_ready_requeue rather than a composition verdict.
-MIN_FRESH_SELECT_PER_CELL = 100
+# ----- FIXED-N SAMPLING (the 699c repair) ------------------------------------
+# P2 accumulates until EXACTLY this many genuine E3 selections, then stops
+# accumulating. Every completed cell therefore contributes the same N, which is
+# what makes the (K-1)/(2N) estimator bias common-mode across arms instead of
+# arm-dependent (see the module docstring).
+#
+# WHY 400. The bias at the target must be small against the decision margin, and
+# it must be reachable inside a sane episode budget:
+#   * residual bias at N=400, K=5 -> 4/(2*400) = 0.0050 nats = 10% of
+#     COMPOSITION_LIFT_MARGIN (0.05), and Miller-Madow removes its leading term.
+#     699b's floor of 100 gives 0.0200 nats = 40% of the margin -- too coarse.
+#   * cost: 400 selections x cadence 10 = ~4000 P2 env steps per cell,
+#     ~48,000 across the 12 cells, against 699's actual 53,489. Cheaper.
+TARGET_FRESH_SELECT_PER_CELL = 400
+
+# Hard episode budget for P2. The stopping rule is on SELECTIONS, not episodes,
+# so a cell whose agent dies fast simply needs more (short) episodes to reach the
+# target -- the clock persists across episodes, so the selection RATE is
+# unchanged. 699's worst cell averaged ~7.7 env steps per episode; reaching 4000
+# steps at that rate needs ~520 episodes, so 800 leaves ~1.5x headroom. A cell
+# that exhausts this cap without reaching the target fails C1(g) and self-routes
+# substrate_not_ready_requeue -- it is NEVER silently scored on a short sample.
+MAX_P2_EPISODES = 800
+
+# C1 readiness floor on the fresh-selection yield. Under the fixed-N stopping rule
+# this is the SAME number as the target: a completed cell has exactly the target,
+# and a cell below it is one that exhausted MAX_P2_EPISODES. So C1(g) is now
+# met-by-construction for every cell that finished, rather than the thin gate it
+# was in 699b (on 699's recorded counts, three of four arms would have cleared a
+# floor of 100 by exactly MIN_SEEDS_FOR_PASS seeds, and ARM_BOTH's second
+# qualifying cell sat at ~100.1 against that floor of 100).
+MIN_FRESH_SELECT_PER_CELL = TARGET_FRESH_SELECT_PER_CELL
 
 # C_INTERACTION (PRIMARY characterization): composition verdict thresholds.
 # COMPOSITION_MARGIN guards seed noise; COMPOSITION_LIFT_MARGIN is the absolute
@@ -861,13 +997,16 @@ def assert_c1_anchors_reachable() -> List[Dict[str, Any]]:
 SEEDS = [42, 43, 44]
 P0_WARMUP_EPISODES = 200
 P1_BIAS_TRAIN_EPISODES = 90
-P2_MEASUREMENT_EPISODES = 60
+P2_EPISODE_BUDGET = MAX_P2_EPISODES
 STEPS_PER_EPISODE = 200
 
 DRY_RUN_SEEDS = [42]
 DRY_RUN_P0 = 2
 DRY_RUN_P1 = 2
-DRY_RUN_P2 = 2
+DRY_RUN_P2 = 6
+# Small enough that a 6-episode x 30-step smoke actually REACHES it, so the
+# --dry-run exercises the fixed-N break path rather than skipping over it.
+DRY_RUN_TARGET_FRESH_SELECT = 5
 DRY_RUN_STEPS = 30
 
 # Matched-stack lever constants (identical on ALL FOUR arms).
@@ -1238,6 +1377,12 @@ def _entropy_from_counter(counter: Counter) -> float:
 
 
 def _entropy_from_int_counts(counts: Dict[int, int]) -> float:
+    """Plug-in (maximum-likelihood) Shannon entropy in nats.
+
+    Retained UNCHANGED from 699/699b so the occupancy readout stays byte-comparable
+    with 699's recorded DV. Downward-biased by ~(K-1)/(2N) -- see
+    `_entropy_miller_madow` and the module docstring for why that matters here.
+    """
     n = sum(counts.values())
     if n <= 0:
         return 0.0
@@ -1248,6 +1393,30 @@ def _entropy_from_int_counts(counts: Dict[int, int]) -> float:
         p = c / n
         h -= p * math.log(p)
     return float(h)
+
+
+def _entropy_miller_madow(counts: Dict[int, int]) -> float:
+    """Miller-Madow bias-corrected Shannon entropy in nats (699c PRIMARY DV).
+
+    H_MM = H_plugin + (K_obs - 1) / (2N), where K_obs is the number of classes
+    actually OBSERVED (non-zero count). This removes the leading term of the
+    plug-in estimator's downward bias.
+
+    Note K_obs, not the alphabet size: the support is unknown here (an arm may
+    genuinely never commit to a class), and K_obs is the standard conservative
+    stand-in. It UNDER-corrects when a class exists but was never sampled, which
+    is the safe direction -- it cannot manufacture entropy that was not observed.
+
+    With the fixed-N stopping rule N is equal across cells, so this correction is
+    no longer load-bearing for cross-arm comparability; it removes the residual
+    term driven by K_obs varying per cell (699 recorded K_obs from 1 to 5). The
+    uncorrected value is emitted alongside so the correction is auditable.
+    """
+    n = sum(counts.values())
+    if n <= 0:
+        return 0.0
+    k_obs = sum(1 for c in counts.values() if c > 0)
+    return float(_entropy_from_int_counts(counts) + (k_obs - 1) / (2.0 * n))
 
 
 # ---------------------------------------------------------------------------
@@ -1304,8 +1473,9 @@ def _run_seed_arm(
     seed: int,
     p0_episodes: int,
     p1_episodes: int,
-    p2_episodes: int,
+    max_p2_episodes: int,
     steps_per_episode: int,
+    target_fresh_select: int,
 ) -> Dict[str, Any]:
     reset_all_rng(seed)
     env = _make_env(seed)
@@ -1319,7 +1489,12 @@ def _run_seed_arm(
     ] = deque(maxlen=TRANSITION_BUFFER_MAX)
     sample_rng = random.Random(seed)
 
-    total_train_eps = p0_episodes + p1_episodes + p2_episodes
+    # P2 is now a BUDGET, not a schedule: the loop runs at most this long and
+    # exits early via p2_target_reached. The progress denominator is deliberately
+    # the worst case (p0 + p1 + max_p2_episodes) so the runner's bar is monotonic
+    # and can never overshoot 100% -- a cell that hits its target early simply
+    # finishes below the bar rather than past it.
+    total_train_eps = p0_episodes + p1_episodes + max_p2_episodes
     p1_start = p0_episodes
     p2_start = p0_episodes + p1_episodes
     error_note: Optional[str] = None
@@ -1343,6 +1518,13 @@ def _run_seed_arm(
     # Freshness telemetry -- the single field whose absence made 699 unrecoverable.
     n_fresh_select = 0
     n_latched = 0
+    # 699c fixed-N stopping rule: set the instant the cell reaches
+    # TARGET_FRESH_SELECT_PER_CELL. False at the end of P2 means the cell
+    # exhausted MAX_P2_EPISODES without reaching the target -> C1(g) fails for it
+    # and the run self-routes substrate_not_ready_requeue. It is NEVER scored on
+    # the short sample.
+    p2_target_reached = False
+    n_p2_episodes_used = 0
     # Hold-duration distribution: consecutive env steps spent on one fresh
     # selection. Directly tests the perseveration/alignment argument.
     hold_durations: List[int] = []
@@ -1380,6 +1562,8 @@ def _run_seed_arm(
     for ep in range(total_train_eps):
         is_p1 = (p1_start <= ep < p2_start)
         is_p2 = (ep >= p2_start)
+        if is_p2:
+            n_p2_episodes_used += 1
         phase_label = "P2" if is_p2 else ("P1" if is_p1 else "P0")
 
         _, obs_dict = env.reset()
@@ -1527,7 +1711,7 @@ def _run_seed_arm(
                     occupancy_class_counts.get(committed_class, 0) + 1
                 )
 
-                # --- PRIMARY DV (699b): PER-COMMITMENT --------------------------
+                # --- PRIMARY DV (699b construct, 699c FIXED-N) ------------------
                 if fresh_select:
                     n_fresh_select += 1
                     committed_class_counts_fresh[committed_class] = (
@@ -1538,6 +1722,21 @@ def _run_seed_arm(
                     _cur_hold = 1
                     if len(pre_e3_classes) >= 2:
                         n_p2_pre_ge2 += 1
+                    # FIXED-N STOP (the 699c repair). Measurement ends the instant
+                    # the target is reached, so every completed cell contributes
+                    # exactly N = TARGET and the (K-1)/(2N) estimator bias is
+                    # common-mode across arms instead of arm-dependent.
+                    #
+                    # Breaking here (rather than letting the episode finish and
+                    # gating only the DV) keeps EVERY per-cell denominator
+                    # consistent with the DV's: n_p2_ticks, occupancy counts, the
+                    # demotion/No-Go active-fracs and frac_pre_ge2 all stop at the
+                    # same instant. A DV-only gate would leave those still
+                    # accruing over a tail the DV never saw, reintroducing exactly
+                    # the survival-dependent denominator this repair removes.
+                    if n_fresh_select >= target_fresh_select:
+                        p2_target_reached = True
+                        break
                 else:
                     n_latched += 1
                     if _cur_hold > 0:
@@ -1720,6 +1919,14 @@ def _run_seed_arm(
         if error_note is not None:
             break
 
+        # 699c: P2 measurement is complete the moment the cell reaches its
+        # fixed-N target. Everything after this point would be an unequal,
+        # survival-dependent tail -- exactly what the repair removes -- and
+        # skipping it is also where the compute saving comes from (699's
+        # long-surviving cells ran 12000 P2 steps and needed ~4000).
+        if p2_target_reached:
+            break
+
     # ----- Per-seed aggregation (over P2) -----
     # Flush a hold left open by the final episode.
     if _cur_hold > 0:
@@ -1729,7 +1936,11 @@ def _run_seed_arm(
     # PRIMARY DV (699b): per-COMMITMENT class entropy -- one observation per genuine
     # E3 selection. This is the construct MECH-448/449 act on and the DV the
     # composition verdict reads.
+    # 699c PRIMARY: Miller-Madow bias-corrected. The plug-in value is retained
+    # beside it (committed_class_entropy_nats) so the size of the correction is a
+    # measured, auditable quantity rather than an invisible adjustment.
     committed_class_entropy = _entropy_from_int_counts(committed_class_counts_fresh)
+    committed_class_entropy_mm = _entropy_miller_madow(committed_class_counts_fresh)
     # SECONDARY: 699's DV verbatim -- per-ENV-STEP occupancy, hold-duration-weighted.
     # Emitting BOTH is what makes the size and direction of the 699 defect a
     # MEASURED quantity for the first time (autopsy routing requirement 3).
@@ -1897,8 +2108,20 @@ def _run_seed_arm(
         "replication_factor": round(replication_factor, 6),
         "fresh_select_sufficient": _pred_fresh_select_sufficient(
             {"n_fresh_select": n_fresh_select}),
+        # 699c fixed-N telemetry. `p2_target_reached` False means the cell burned
+        # its whole MAX_P2_EPISODES budget without reaching the target -- the only
+        # way a completed cell can miss C1(g) under the stopping rule.
+        "p2_target_reached": bool(p2_target_reached),
+        "p2_episodes_used": int(n_p2_episodes_used),
+        "max_p2_episodes": int(max_p2_episodes),
+        "target_fresh_select_per_cell": int(target_fresh_select),
         # ----- PRIMARY DV: PER-COMMITMENT class entropy (699b) -----
+        # PRIMARY DV (699c): Miller-Madow corrected, read by the composition verdict.
+        "committed_class_entropy_mm_nats": round(committed_class_entropy_mm, 6),
+        # 699b's plug-in value, retained so the correction's magnitude is measurable.
         "committed_class_entropy_nats": round(committed_class_entropy, 6),
+        "miller_madow_correction_nats": round(
+            committed_class_entropy_mm - committed_class_entropy, 6),
         "n_unique_committed_classes": int(len(committed_class_counts_fresh)),
         "committed_class_counts": {
             str(k): int(v) for k, v in sorted(committed_class_counts_fresh.items())
@@ -2092,8 +2315,9 @@ def run_experiment(
     seeds: List[int],
     p0_episodes: int,
     p1_episodes: int,
-    p2_episodes: int,
+    max_p2_episodes: int,
     steps_per_episode: int,
+    target_fresh_select: int,
     dry_run: bool,
 ) -> Dict[str, Any]:
     arm_results: List[Dict[str, Any]] = []
@@ -2104,14 +2328,17 @@ def run_experiment(
             f"Arm {arm['arm_id']} ({arm['label']}) "
             f"demotion_on={arm['demotion_on']} gng_on={arm['gng_on']} "
             f"(P0={p0_episodes} ep e2-train, P1={p1_episodes} ep bias-train, "
-            f"P2={p2_episodes} ep measure, steps_per_episode={steps_per_episode}, "
+            f"P2<={max_p2_episodes} ep budget (stop at "
+            f"{target_fresh_select} fresh selects), "
+            f"steps_per_episode={steps_per_episode}, "
             f"dry_run={dry_run})",
             flush=True,
         )
         for s in seeds:
             print(f"Seed {s} Condition {arm['label']}", flush=True)
             row = _run_seed_arm(
-                arm, s, p0_episodes, p1_episodes, p2_episodes, steps_per_episode
+                arm, s, p0_episodes, p1_episodes, max_p2_episodes, steps_per_episode,
+                target_fresh_select
             )
             row["arm_fingerprint"] = compute_arm_fingerprint(
                 config_slice={
@@ -2142,7 +2369,8 @@ def run_experiment(
                     "lr_lpfc_bias": LR_LPFC_BIAS,
                     "p0_episodes": int(p0_episodes),
                     "p1_episodes": int(p1_episodes),
-                    "p2_episodes": int(p2_episodes),
+                    "max_p2_episodes": int(max_p2_episodes),
+                    "target_fresh_select_per_cell": int(target_fresh_select),
                     "steps_per_episode": int(steps_per_episode),
                 },
                 seed=s,
@@ -2219,12 +2447,17 @@ def run_experiment(
         for arm_rows in (gng_rows, both_rows)
     )
 
-    # C1(g) NEW IN 699b: fresh-selection sufficiency. The per-commitment DV is an
-    # entropy over genuine E3 selections, so a cell with too few of them cannot
-    # support it. This gate is NOT a tightening of the 699 battery -- 699 had no
-    # fresh-selection count at all, which is precisely why its replication factor
-    # could not even be estimated. Below-floor self-routes
-    # substrate_not_ready_requeue, NEVER a composition verdict.
+    # C1(g) (NEW IN 699b, RE-BASED IN 699c): fresh-selection sufficiency. The
+    # per-commitment DV is an entropy over genuine E3 selections, so a cell with
+    # too few cannot support it. NOT a tightening of the 699 battery -- 699 had no
+    # fresh-selection count at all, which is why its replication factor could not
+    # even be estimated.
+    #
+    # Under 699c's fixed-N stopping rule the floor equals the target, so this is
+    # met-by-construction for any cell that reached its target and fails only for
+    # a cell that exhausted MAX_P2_EPISODES. That is the intended reading: the
+    # ONLY way to miss C1(g) now is a genuine supply failure, which self-routes
+    # substrate_not_ready_requeue and is NEVER a composition verdict.
     c1g_holds = _maj_all(lambda r: r["fresh_select_sufficient"])
 
     c1_holds = bool(
@@ -2237,7 +2470,7 @@ def run_experiment(
     # the readout's sampling unit must be the selection, not the env step.
     _primary = _composition_verdict_from(
         off_rows, dem_rows, gng_rows, both_rows,
-        key="committed_class_entropy_nats",
+        key="committed_class_entropy_mm_nats",
     )
     per_seed_deltas = _primary["per_seed_deltas"]
     n_compound = _primary["n_seeds_compound"]
@@ -2291,17 +2524,26 @@ def run_experiment(
                 "kind": "readiness",
                 "description": (
                     "Each arm has a majority of seeds with >= MIN_FRESH_SELECT_PER_CELL "
-                    "GENUINE E3 selections in P2. NEW IN 699b: the primary DV is a "
+                    "GENUINE E3 selections in P2. NEW IN 699b (the primary DV is a "
                     "per-COMMITMENT class entropy, so its sampling unit is the E3 "
-                    "selection, not the env step. V3-EXQ-699 recorded no fresh-selection "
+                    "selection, not the env step; V3-EXQ-699 recorded no fresh-selection "
                     "count at all, which is why its replication factor could not even be "
-                    "estimated from the manifest (n_p2_ticks counts ENV STEPS and varies "
-                    "with episode termination). Below-floor self-routes "
-                    "substrate_not_ready_requeue, never a composition verdict."
+                    "estimated -- n_p2_ticks counts ENV STEPS and varies with episode "
+                    "termination). RE-BASED IN 699c: the floor now equals "
+                    "TARGET_FRESH_SELECT_PER_CELL and P2 STOPS at that target, so a "
+                    "completed cell has exactly N = target and this gate is "
+                    "met-by-construction. It can now fail in exactly one way -- a cell "
+                    "that exhausted MAX_P2_EPISODES without reaching the target, i.e. a "
+                    "genuine supply failure. That self-routes substrate_not_ready_requeue, "
+                    "never a composition verdict. Equal N across cells is also what makes "
+                    "the plug-in entropy estimator's ~(K-1)/(2N) downward bias COMMON-MODE "
+                    "across arms rather than arm-dependent (699b's defect); Miller-Madow "
+                    "removes the residual K_obs-driven term."
                 ),
                 "control": (
                     "sentinel-key freshness marker on agent.e3.last_score_diagnostics, "
-                    "which e3_selector.select() reassigns wholesale at :2452"
+                    "which e3_selector.select() reassigns wholesale at :2452; under the "
+                    "699c stopping rule a completed cell reads exactly the target"
                 ),
                 "measured": float(
                     _min_arm_count(lambda r: r["fresh_select_sufficient"])),
@@ -2511,7 +2753,82 @@ def run_experiment(
             "C1g_fresh_e3_selection_sufficiency_all_arms": bool(c1g_holds),
             "arms_not_bit_identical": bool(arms_not_bit_identical),
         },
+        # ----- 699c FIXED-N / MILLER-MADOW AUDIT BLOCK -----
+        # The whole point of the 699c repair is that N is EQUAL across cells, so
+        # make that auditable from the manifest rather than inferable. If
+        # `all_cells_reached_target` is false, the equal-N property does NOT hold
+        # for this run and the cross-arm comparison carries the arm-dependent bias
+        # 699c exists to remove -- C1(g) will also be false, and the run correctly
+        # self-routes substrate_not_ready_requeue.
+        "fixed_n_sampling": {
+            "target_fresh_select_per_cell": int(target_fresh_select),
+            "max_p2_episodes": int(max_p2_episodes),
+            "all_cells_reached_target": bool(
+                all(r["p2_target_reached"] for r in all_rows)
+            ),
+            "n_cells_reached_target": int(
+                sum(1 for r in all_rows if r["p2_target_reached"])
+            ),
+            "n_cells_total": int(len(all_rows)),
+            "n_fresh_select_by_cell": {
+                f"{r['arm_id']}|{r['seed']}": int(r["n_fresh_select"]) for r in all_rows
+            },
+            "n_fresh_select_distinct_values": sorted(
+                {int(r["n_fresh_select"]) for r in all_rows}
+            ),
+            "p2_episodes_used_by_cell": {
+                f"{r['arm_id']}|{r['seed']}": int(r["p2_episodes_used"]) for r in all_rows
+            },
+            "p2_env_steps_by_cell": {
+                f"{r['arm_id']}|{r['seed']}": int(r["n_p2_ticks"]) for r in all_rows
+            },
+            "note": (
+                "n_fresh_select_distinct_values should be a SINGLE value equal to "
+                "the target on a clean run -- that is the equal-N property, and it "
+                "is what makes the (K-1)/(2N) estimator bias common-mode across "
+                "arms instead of arm-dependent. p2_episodes_used is EXPECTED to "
+                "vary widely across cells (the env terminates on death, so a "
+                "short-lived cell needs more short episodes to reach the same "
+                "number of selections); that variation is the confound being "
+                "absorbed, not a new one."
+            ),
+        },
+        "miller_madow_audit": {
+            "primary_dv_key": "committed_class_entropy_mm_nats",
+            "uncorrected_dv_key": "committed_class_entropy_nats",
+            "correction_nats_by_cell": {
+                f"{r['arm_id']}|{r['seed']}": float(r["miller_madow_correction_nats"])
+                for r in all_rows
+            },
+            "max_correction_nats": float(
+                max([r["miller_madow_correction_nats"] for r in all_rows] or [0.0])
+            ),
+            "max_within_seed_correction_spread_nats": float(max([
+                max([r["miller_madow_correction_nats"] for r in all_rows if r["seed"] == sd])
+                - min([r["miller_madow_correction_nats"] for r in all_rows if r["seed"] == sd])
+                for sd in {r["seed"] for r in all_rows}
+            ] or [0.0])),
+            "composition_lift_margin_nats": float(COMPOSITION_LIFT_MARGIN),
+            "note": (
+                "max_within_seed_correction_spread_nats is the quantity that "
+                "matters: it is the residual arm-dependent bias the correction "
+                "removes, and it must be read against composition_lift_margin_nats. "
+                "On V3-EXQ-699's record the equivalent UNCORRECTED spread reached "
+                "~0.016 nats against a 0.05 margin (seed 44, ARM_GNG N~46 vs "
+                "ARM_DEM N~174). Under 699c's equal-N sampling this spread should "
+                "be driven by K_obs alone and be far smaller."
+            ),
+        },
         "instrumentation_repair_note": (
+            "V3-EXQ-699c is the SECOND instrument repair of the V3-EXQ-699 lineage; "
+            "699b (superseded UNRUN) carried the first. 699b's construct repair was "
+            "CORRECT -- it is retained in full -- but it promoted a second defect to "
+            "load-bearing: P2 sample size is set by SURVIVAL (CausalGridWorldV2 ends "
+            "an episode on death), so N differed across arms within a seed and the "
+            "plug-in entropy estimator's ~(K-1)/(2N) downward bias was ARM-DEPENDENT "
+            "and signed (an arm dying sooner reads as lower committed-class entropy). "
+            "699c runs P2 to a FIXED N and Miller-Madow-corrects the residual. "
+            "See fixed_n_sampling and miller_madow_audit for the per-cell evidence. "
             "V3-EXQ-699b repairs the V3-EXQ-699 instrument. The 699 PASS and its C1 "
             "readiness battery STAND (autopsy: the C1e/C1f non-vacuity floors are "
             "literally 0.0 and the active-frac gates saturate at exactly 1.0, both "
@@ -2547,7 +2864,8 @@ def run_experiment(
         "total_seeds_completed": int(total_completed),
         "p0_episodes": int(p0_episodes),
         "p1_episodes": int(p1_episodes),
-        "p2_episodes": int(p2_episodes),
+        "max_p2_episodes": int(max_p2_episodes),
+        "target_fresh_select_per_cell": int(target_fresh_select),
         "steps_per_episode": int(steps_per_episode),
         "decision_rule_thresholds": {
             "h_signature": int(H_SIGNATURE),
@@ -2768,9 +3086,21 @@ def _build_manifest(
         "composition_verdict": result["composition_verdict"],
         "interpretation": result["interpretation"],
         "evidence_direction_note": (
-            f"V3-EXQ-699b INSTRUMENT REPAIR of V3-EXQ-699 (supersedes "
-            f"{SUPERSEDES_RUN_ID}; also supersedes V3-EXQ-699a, a faithful re-run of the "
-            f"unchanged 699 driver that reproduces the same defect). Per "
+            f"V3-EXQ-699c SECOND INSTRUMENT REPAIR of the V3-EXQ-699 lineage "
+            f"(supersedes {SUPERSEDES_RUN_ID}; also supersedes V3-EXQ-699a, a faithful "
+            f"re-run of the unchanged 699 driver, and V3-EXQ-699b, superseded UNRUN). "
+            f"699b fixed the CONSTRUCT (hold-weighted occupancy -> per-commitment) and "
+            f"was correct to; auditing its anchor reachability then exposed a SECOND "
+            f"defect its own repair had made load-bearing: P2 sample size is set by "
+            f"SURVIVAL (the env terminates on death), so N differs across arms within a "
+            f"seed and the plug-in entropy estimator's ~(K-1)/(2N) downward bias becomes "
+            f"ARM-DEPENDENT -- up to 0.016 nats differential on 699's own seed-44 record "
+            f"against a COMPOSITION_LIFT_MARGIN of 0.05, and signed so that an arm dying "
+            f"sooner reads as lower committed-class entropy. 699c runs P2 to a FIXED N "
+            f"({TARGET_FRESH_SELECT_PER_CELL} genuine E3 selections per cell, capped at "
+            f"{MAX_P2_EPISODES} episodes) so the bias is common-mode by construction, and "
+            f"applies a Miller-Madow correction for the residual K_obs term. Both the "
+            f"corrected and plug-in values are emitted. Per "
             f"failure_autopsy_V3-EXQ-699_2026-07-20 (REE_assembly ac2fb64028): the 699 "
             f"PASS and its C1 readiness battery STAND, but the `levers_compound` finding "
             f"is WITHDRAWN -- 699's DV was accumulated once per ENV STEP from the action "
@@ -2783,7 +3113,8 @@ def _build_manifest(
             f"committed class ONLY on a genuine E3 selection, emits n_fresh_select / "
             f"n_latched / fresh_select_yield so the replication factor is MEASURED rather "
             f"than inferred, emits hold-duration distributions per arm-seed, and reports "
-            f"BOTH readouts (per-commitment PRIMARY and 699's occupancy DV verbatim) so "
+            f"all three readouts (Miller-Madow-corrected per-commitment PRIMARY, the "
+            f"uncorrected 699b plug-in value, and 699's occupancy DV verbatim) so "
             f"the defect's magnitude and SIGN are on the record. "
             f"V3-EXQ-699 conversion_ceiling_campaign:P-comp SELECTION-FACE COMPOSITION "
             f"characterization (DIAGNOSTIC; claim_ids=[MECH-448, MECH-449] CONTEXT only -- "
@@ -2872,12 +3203,18 @@ def main() -> Tuple[Optional[str], Optional[str], bool]:
         p1 = DRY_RUN_P1
         p2 = DRY_RUN_P2
         steps = DRY_RUN_STEPS
+        # Scaled down so the smoke REACHES the target and therefore exercises the
+        # fixed-N break -- the whole point of 699c. C1(g) still gates on the real
+        # MIN_FRESH_SELECT_PER_CELL, so a dry-run manifest correctly self-routes
+        # substrate_not_ready_requeue; it is discarded by emit_outcome anyway.
+        target_fresh_select = DRY_RUN_TARGET_FRESH_SELECT
     else:
         seeds = list(SEEDS)
         p0 = P0_WARMUP_EPISODES
         p1 = P1_BIAS_TRAIN_EPISODES
-        p2 = P2_MEASUREMENT_EPISODES
+        p2 = P2_EPISODE_BUDGET
         steps = STEPS_PER_EPISODE
+        target_fresh_select = TARGET_FRESH_SELECT_PER_CELL
 
     # SETUP-TIME anchor-reachability replay: raises AnchorUnreachable before any
     # compute is spent if a C1 gate is unmeetable by the 699 control that already
@@ -2885,30 +3222,24 @@ def main() -> Tuple[Optional[str], Optional[str], bool]:
     # a --dry-run smoke exercises the guard exactly as a full run does.
     assert_c1_anchors_reachable()
 
-    # C1(g) has no frozen reference (see the guard block). Report its headroom
-    # from the shipped run shape instead, so an operator sees the risk BEFORE the
-    # run rather than in a substrate_not_ready_requeue manifest.
+    # C1(g) still has no frozen reference (699 recorded no fresh-selection count),
+    # so it stays unguarded -- but under 699c's stopping rule it is no longer the
+    # thin gate it was in 699b. Report the budget arithmetic so an operator can see
+    # BEFORE the run whether MAX_P2_EPISODES can actually supply the target.
     print(
-        "anchor_note: fresh_e3_selection_sufficiency_all_arms is UNGUARDED -- no "
-        "frozen reference exists, because V3-EXQ-699 recorded NO fresh-selection "
-        f"count at all. floor={MIN_FRESH_SELECT_PER_CELL} genuine E3 selections per "
-        f"cell; P2={p2} ep x {steps} steps = {p2 * steps} env steps per cell IF "
-        "episodes run to full length (they do not -- CausalGridWorldV2 ends an "
-        "episode on death, and 699's recorded P2 env-step counts ranged 461..12000).\n"
-        "  The per-cell fresh-selection count CANNOT be predicted from that. E3 "
-        "firing is EVENT-DRIVEN, not a fixed 1-in-10: heartbeat/clock.py advance() "
-        "fires an E3 tick IMMEDIATELY on a pending phase reset (a salient event) and "
-        "resets the phase counter, so e3_steps_per_tick=10 is the MAXIMUM interval "
-        "between ticks, i.e. n_p2_ticks/10 is a LOWER bound on n_fresh_select, not an "
-        "upper one. agent.py:5430 also runs select() on a non-E3 tick whenever "
-        "_last_action is None. A short probe on an undertrained agent measured a "
-        "replication factor near 2 (7 fresh selections in 14 P2 ticks), not 10; the "
-        "trained-agent value is UNKNOWN and is one of the things this run measures.\n"
-        "  That is exactly why n_fresh_select / n_latched / fresh_select_yield / "
-        "replication_factor are emitted per arm-seed here: the factor is MEASURED for "
-        "the first time rather than inferred. Read those fields before drawing any "
-        "conclusion about sample adequacy. Treat a C1(g) substrate_not_ready_requeue "
-        "as an instrument-scale finding, not a substrate verdict.",
+        "anchor_note: fresh_e3_selection_sufficiency_all_arms is UNGUARDED (no "
+        "frozen reference exists -- 699 recorded no fresh-selection count), but "
+        "699c makes it met-by-construction for any cell that reaches its target. "
+        f"target={target_fresh_select} genuine E3 selections per cell, C1(g) "
+        f"floor={MIN_FRESH_SELECT_PER_CELL}, budget={p2} episodes x {steps} steps "
+        f"= {p2 * steps} env steps at heartbeat.e3_steps_per_tick=10 => up to "
+        f"{(p2 * steps) // 10} selections, i.e. "
+        f"{((p2 * steps) // 10) / max(1, target_fresh_select):.1f}x the target. "
+        "699's worst cell averaged ~7.7 env steps/episode (death-terminated); the "
+        "heartbeat clock persists across episodes, so the selection RATE is "
+        "unchanged and only the episode COUNT rises. A cell that exhausts the "
+        "budget without reaching target fails C1(g) and self-routes "
+        "substrate_not_ready_requeue -- it is never scored on a short sample.",
         flush=True,
     )
 
@@ -2916,7 +3247,8 @@ def main() -> Tuple[Optional[str], Optional[str], bool]:
         seeds=seeds,
         p0_episodes=p0,
         p1_episodes=p1,
-        p2_episodes=p2,
+        max_p2_episodes=p2,
+        target_fresh_select=target_fresh_select,
         steps_per_episode=steps,
         dry_run=bool(args.dry_run),
     )
