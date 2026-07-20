@@ -442,6 +442,12 @@ def _run_contact_eval(agent, scaffold_cfg, device: torch.device, n_eps: int) -> 
     total_steps = 0
     consumption_events = 0
     episode_lengths: List[int] = []
+    # SD-049-PHASE-2 density-preserving spawn emits sd049_density_budget_truncated when the
+    # forage pool was too small to honour the scaled budget -- i.e. per-type density was NOT
+    # actually held constant and the density-ON arms are re-confounded by the very effect the
+    # flag exists to remove. A truncated density arm is a manipulation that did not fire, so
+    # this is counted and gated, not merely reported.
+    density_truncated_steps = 0
 
     steps_per_ep = scaffold_cfg.scaffold_steps_per_episode
     for _ep in range(n_eps):
@@ -472,6 +478,15 @@ def _run_contact_eval(agent, scaffold_cfg, device: torch.device, n_eps: int) -> 
             benefit, drive = _ben_drive(obs_dict["body_state"].to(device))
             consumed_tag = _consumed_type_tag_from_info(info)
 
+            # Read the truncation diagnostic from whichever of info / obs_dict carries it
+            # (env.step populates the SD-049 block; both dicts are checked so this does not
+            # depend on which one the substrate happens to surface it through).
+            for _src in (info, obs_dict):
+                if isinstance(_src, dict) and "sd049_density_budget_truncated" in _src:
+                    if bool(_src["sd049_density_budget_truncated"]):
+                        density_truncated_steps += 1
+                    break
+
             # D1 contact counter -- 693a's rule verbatim.
             if benefit > SEED_BENEFIT_THRESHOLD or consumed_tag is not None:
                 contact_steps += 1
@@ -500,6 +515,9 @@ def _run_contact_eval(agent, scaffold_cfg, device: torch.device, n_eps: int) -> 
         "behav_consumption_events": int(consumption_events),
         "behav_mean_episode_length": float(np.mean(episode_lengths)) if episode_lengths else 0.0,
         "behav_episode_lengths": [int(x) for x in episode_lengths],
+        "density_budget_truncated_frac": (
+            float(density_truncated_steps) / float(total_steps) if total_steps > 0 else 0.0
+        ),
     }
 
 
@@ -515,7 +533,7 @@ def _aborted_record(seed: int, arm_id: str, label: str, curriculum_amended: bool
         "p2_num_contact_events": 0,
         "behav_contact_rate": 0.0, "behav_contact_steps": 0, "behav_total_steps": 0,
         "behav_consumption_events": 0, "behav_mean_episode_length": 0.0,
-        "behav_episode_lengths": [],
+        "behav_episode_lengths": [], "density_budget_truncated_frac": 0.0,
         "d1_contact_pass": False, "d2_survival_pass": False, "d3_clears": False,
     }
 
@@ -716,6 +734,11 @@ def _arm_summary(per_run: List[Dict[str, Any]], arm_id: str, label: str) -> Dict
         "per_seed_behav_contact_rate": contact_vals,
         "per_seed_survival_pass": [bool(r.get("d2_survival_pass")) for r in rows],
         "per_seed_guard_pass": [bool(r.get("guard_pass")) for r in rows],
+        # Worst (not mean) truncated fraction: a single truncated cell means this arm's
+        # density manipulation did not fully fire, and a mean would hide it.
+        "max_density_budget_truncated_frac": max(
+            [float(r.get("density_budget_truncated_frac", 0.0)) for r in rows] or [0.0]
+        ),
         "n_aborted": sum(1 for r in rows if r.get("aborted_at")),
     }
 
@@ -807,6 +830,22 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
     base_mean_contact = float(by_arm[BASELINE_ARM]["mean_behav_contact_rate"])
     base_reproduced = bool(not by_arm[BASELINE_ARM]["d3_clears"])
 
+    # --- P_DENSITY_EFFECTIVE: did the density manipulation actually FIRE on the ON arms? ---
+    # The env sets sd049_density_budget_truncated when the forage pool could not honour the
+    # scaled budget. A truncated density arm has NOT had per-type density restored -- it is
+    # re-confounded by exactly the effect under test -- so A01/A11 would be measuring the same
+    # starved substrate as A00/A10 while presenting as the treatment. That is a manipulation
+    # that did not fire, which is a readiness failure, NOT a finding about the ceiling.
+    density_on_rows = [r for r in per_run if r.get("density_on")]
+    density_trunc_frac = max(
+        [float(r.get("density_budget_truncated_frac", 0.0)) for r in density_on_rows] or [0.0]
+    )
+    worst_trunc_cell = ""
+    for r in density_on_rows:
+        if float(r.get("density_budget_truncated_frac", 0.0)) == density_trunc_frac:
+            worst_trunc_cell = f"{r.get('arm')}/seed{r.get('seed')}"
+            break
+
     # --- pre-registered criteria ---
     c_base_fails = base_reproduced
     c_curr = bool(by_arm["A10"]["d3_clears"])
@@ -866,6 +905,24 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
                         " contact rate was 0.0099-0.0188 across 3 seeds"),
             "met": bool(base_reproduced),
         },
+        {
+            "name": "density_manipulation_effective_on_on_arms",
+            "description": ("the SD-049 density-preserving spawn must not have been truncated"
+                            " by the forage pool on the density-ON arms, else per-type density"
+                            " was never restored and A01/A11 are re-confounded by the very"
+                            " effect under test. measured = WORST (max) per-cell truncated-step"
+                            " fraction across all density-ON cells, so a single truncated cell"
+                            " cannot be averaged away."),
+            "measured": density_trunc_frac,
+            "threshold": 0.0,
+            "direction": "upper",
+            "comparator": "<=",
+            "control": ("density-ON cells on a forage pool large enough for"
+                        " num_resources x n_active_types; env emits"
+                        " sd049_density_budget_truncated when it is not"),
+            "offending_cell": worst_trunc_cell,
+            "met": bool(density_trunc_frac <= 0.0),
+        },
     ]
 
     all_preconditions_met = all(bool(p["met"]) for p in preconditions)
@@ -883,14 +940,29 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         outcome = "FAIL"
         label = "substrate_not_ready_requeue"
         non_degenerate = False
-        degeneracy_reason = (
-            "P_BASE_REPRO unmet: the A00 baseline arm CLEARED the D3 gate"
-            f" (mean behav_contact_rate {base_mean_contact:.4f} > CONSUMPTION_FLOOR"
-            f" {CONSUMPTION_FLOOR}), so the V3-EXQ-693a ARM_2 ceiling did not reproduce and the"
-            " curriculum/density contrasts are deltas against a baseline that is not the"
-            " failure under investigation. Re-queue after establishing why the baseline"
-            " drifted; this is NOT evidence that either lever works."
-        )
+        unmet = [p["name"] for p in preconditions if not p["met"]]
+        reasons = []
+        if "baseline_arm_reproduces_693a_ceiling" in unmet:
+            reasons.append(
+                "P_BASE_REPRO unmet: the A00 baseline arm CLEARED the D3 gate"
+                f" (mean behav_contact_rate {base_mean_contact:.4f} > CONSUMPTION_FLOOR"
+                f" {CONSUMPTION_FLOOR}), so the V3-EXQ-693a ARM_2 ceiling did not reproduce"
+                " and the curriculum/density contrasts are deltas against a baseline that is"
+                " not the failure under investigation. Re-queue after establishing why the"
+                " baseline drifted; this is NOT evidence that either lever works."
+            )
+        if "density_manipulation_effective_on_on_arms" in unmet:
+            reasons.append(
+                "P_DENSITY_EFFECTIVE unmet: the density-preserving spawn was TRUNCATED by the"
+                f" forage pool on {density_trunc_frac:.3f} of steps at worst"
+                f" ({worst_trunc_cell}), so per-type density was never actually restored on the"
+                " density-ON arms and A01/A11 measured the same starved substrate as A00/A10"
+                " while presenting as the treatment. The density axis did not fire; any"
+                " apparent null on it is an artifact, NOT evidence against H_DENSITY. Re-queue"
+                " with a larger forage pool (bigger env or fewer hazards) so"
+                " num_resources x n_active_types fits."
+            )
+        degeneracy_reason = " | ".join(reasons)
     else:
         outcome = "PASS" if c_joint else "FAIL"
         non_degenerate = bool(d1_non_degenerate or d2_non_degenerate)
