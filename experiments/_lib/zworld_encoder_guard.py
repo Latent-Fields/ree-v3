@@ -226,6 +226,37 @@ def zworld_precondition(report: Dict[str, Any], *, arm: str = "", context: str =
     `measured == threshold == 0.0` is the FAILURE case. An inclusive floor would recompute
     a frozen random projection as MET -- the exact false-clear this entry exists to catch.
 
+    WHICH MANIFEST KEY TO PUT THE RETURNED ENTRY IN -- read this before choosing.
+    The shaper produces the entry; the POLICY decision is which list you append it to,
+    and the two lists are adjudicated very differently by the REE_assembly indexer
+    (evidence/experiments/scripts/build_experiment_indexes.py):
+
+      interpretation.preconditions[]           STRICT / GATING policy.
+        `_compute_adjudication` reads this list FLAT and ARM-BLIND and returns a
+        WHOLE-RUN `precondition_unmet` on the FIRST unmet entry, which blocks the
+        self-routed label from driving any governance action. Use this when a frozen
+        world encoder genuinely invalidates the run's premise -- i.e. the question
+        being asked is ABOUT a learned z_world. Drivers on this policy: 728, 734.
+        Pair it with `substrate_not_ready_requeue` (see POSITIVE CONTROL below).
+
+      interpretation.recorded_preconditions[]  RECORD / NON-GATING policy.
+        Same entry shape, surfaced but never adjudicating: the indexer carries unmet
+        entries into the derived artifacts as `recorded_preconditions_unmet` and
+        generate_pending_review.py renders them under "Recorded (non-gating)
+        preconditions", explicitly separate from the action-required adjudication
+        section. Use this when the finding is REAL but the premise SURVIVES it --
+        canonically a P0 that is a symmetric prior across every arm while the
+        manipulation under test is a later phase (742), or a readout-side question
+        carrying a control that is unaffected by the frozen encoder (737).
+        ALSO SET `interpretation.preconditions_scope_note` saying which entries are
+        gating and why these ones are not; the indexer surfaces it beside the finding.
+
+    Do NOT put a non-gating entry in the flat preconditions[] list "to be safe": it
+    vacates an otherwise valid run and buries the result (the V3-EXQ-785 vacating
+    defect). Do NOT put a genuinely premise-breaking entry in recorded_preconditions[]
+    either -- nothing downstream will stop the label. If unsure which applies, ask
+    whether the run's conclusion would change were the encoder trained: yes -> gating.
+
     POSITIVE CONTROL. The warmup itself is the control: it is the phase that is supposed to
     train the encoder, run on the arm's own training env at the arm's own p0. A below-floor
     reading therefore means "no gradient reached the encoder", never "the criterion was
