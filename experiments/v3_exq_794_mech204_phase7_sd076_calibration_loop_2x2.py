@@ -28,17 +28,30 @@ refutation when in fact nothing was measured. Both factors must be ablated toget
   A: MECH-204 Phase 7 / Option B  -- REEConfig.use_rem_precision_broadcast (the CORRECTION)
   B: SD-076 waking confidence inflation -- E3Config.use_waking_confidence_inflation (the SOURCE)
 
-ARMS (2x2; all arms run FULL sleep with F1 recalibration ON, because Phase 7 runs
-ALONGSIDE F1 and its read is a no-op until a REM entry has populated
-serotonin._persistent_zero_point):
+ARMS (2x3 factorial: broadcast {OFF,ON} x asymmetry {OFF, LO=0.6, HI=0.8}; all arms run
+FULL sleep with F1 recalibration ON, because Phase 7 runs ALONGSIDE F1 and its read is a
+no-op until a REM entry has populated serotonin._persistent_zero_point):
 
-  ARM_OFF_OFF        bcast=F infl=F  -- reproduces 774's ARM_FULL_SLEEP condition.
-                                        Replication anchor + the tautology control.
-  ARM_BCAST_ONLY     bcast=T infl=F  -- correction with nothing to correct.
-  ARM_INFL_ONLY      bcast=F infl=T  -- drift with no correction. This is the arm that
-                                        must show ABSOLUTE overconfidence for the DV to
-                                        be measurable at all (C1).
-  ARM_BOTH           bcast=T infl=T  -- drift plus correction (C2 + the interaction).
+  ARM_OFF_OFF     bcast=F asym=OFF -- reproduces 774's ARM_FULL_SLEEP condition.
+                                      Replication anchor + the tautology control.
+  ARM_BCAST_ONLY  bcast=T asym=OFF -- correction with nothing to correct.
+  ARM_INFL_LO     bcast=F asym=0.6 -- drift, no correction.
+  ARM_BOTH_LO     bcast=T asym=0.6 -- drift plus correction.
+  ARM_INFL_HI     bcast=F asym=0.8 -- stronger drift, no correction.
+  ARM_BOTH_HI     bcast=T asym=0.8 -- stronger drift plus correction.
+
+WHY THREE ASYMMETRY LEVELS AND NOT TWO. C1 is the load-bearing capability question
+("can the substrate express absolute overconfidence at all?"), and clearing its +0.10
+margin from 774's -0.2097 baseline needs a swing > 0.31 log units. A single
+pre-registered asymmetry of 0.6 delivered ~0.34-0.44 in smoke -- too close to call, so a
+C1 failure would have been uninterpretable (weak lever setting, or wrong mechanism?).
+The HI level makes that distinguishable. C1's OPERATIVE LEVEL is the LOWEST asymmetry
+that clears, so a result holding at LO is never attributed to HI; C2 is then evaluated
+at that operative level, because a C2 measured where C1 never cleared is meaningless.
+HI=0.8 is a 9:1 good-vs-bad-news update ratio -- at the EDGE of the defensible
+optimism-bias band and a capability probe, NOT a proposed default. Consequently, if C1
+fails at BOTH levels the route is NOT "sweep higher": it is that the asymmetric-EMA form
+is the wrong drift source and a different SD-076 mechanism is owed.
 
 DV-SYMMETRY INVARIANCE DECLARATION (mandatory per-arm; /queue-experiment Step 3)
 -------------------------------------------------------------------------------
@@ -47,11 +60,13 @@ DV = overconfidence_score = log(true_error_ref / mean_rv), a scalar function of
 group: it is invariant under PERMUTATION of the eval ticks (both terms are means over
 ticks). It is NOT invariant under any change to rv's LEVEL.
 
-  ARM_BCAST_ONLY / ARM_BOTH (factor A): broadcast_precision_pull writes rv directly
-      (interpolates it toward the F1 cumulative zero-point). A level change, not a
+  ARM_BCAST_ONLY / ARM_BOTH_LO / ARM_BOTH_HI (factor A): broadcast_precision_pull writes
+      rv directly (interpolates it toward the F1 cumulative zero-point). A level change,
+      not a permutation. NOT invariant. OK
+  ARM_INFL_LO / ARM_INFL_HI / ARM_BOTH_LO / ARM_BOTH_HI (factor B): the asymmetric EMA
+      changes rv's update rule and hence its settling level. A level change, not a
       permutation. NOT invariant. OK
-  ARM_INFL_ONLY / ARM_BOTH (factor B): the asymmetric EMA changes rv's update rule and
-      hence its settling level. A level change, not a permutation. NOT invariant. OK
+  ARM_OFF_OFF: no manipulation; it is the control the other five are read against.
 
 Both manipulations write the SAME scalar the DV reads, which is exactly why the Phase 7
 write-site was corrected from E3 score to precision space before this run was designed.
@@ -137,8 +152,16 @@ ALPHA_SELF = 0.3
 # ---- The two factors under test ----
 # Phase 7 gain is PER WAKING STEP, so it must be far below the per-CYCLE F1 step (0.25).
 BROADCAST_GAIN = 0.01
-# SD-076 asymmetry: the smoke value that moved the index -0.164 -> +0.273.
-INFLATION_ASYMMETRY = 0.6
+# SD-076 asymmetry levels. LO=0.6 is the substrate unit-smoke value (index -0.164 ->
+# +0.273); HI=0.8 is the DE-RISKING level added because clearing C1's +0.10 margin from
+# 774's -0.2097 baseline needs a swing > 0.31 log units and LO delivered only ~0.34-0.44
+# in smoke -- too close to call. Ratio of good-news to bad-news update weight is
+# (1+a)/(1-a): LO = 4:1, HI = 9:1. HI is at the EDGE of the defensible optimism-bias
+# band and is included as a capability probe, not as a proposed default. A C1 that
+# clears ONLY at HI is a materially WEAKER result than one clearing at LO, and the
+# manifest records `operative_asymmetry` so that distinction cannot be lost by a reader.
+INFLATION_ASYMMETRY_LO = 0.6
+INFLATION_ASYMMETRY_HI = 0.8
 INFLATION_RV_FLOOR = 0.01
 
 # ---- Pre-registered thresholds (NOT derived from this run's own statistics) ----
@@ -157,17 +180,42 @@ K_SD = 1.0                       # delta must exceed K_SD * sd(paired delta)
 NONDEGEN_FLOOR = 0.05            # arm-pair separation below this = degenerate criterion
 MIN_SEEDS_OVERCONF = 2           # C1 needs >= 2/3 seeds absolutely overconfident
 
-# (arm_id, use_rem_precision_broadcast, use_waking_confidence_inflation)
-ARMS: Tuple[Tuple[str, bool, bool], ...] = (
-    ("ARM_OFF_OFF", False, False),
-    ("ARM_BCAST_ONLY", True, False),
-    ("ARM_INFL_ONLY", False, True),
-    ("ARM_BOTH", True, True),
+# (arm_id, use_rem_precision_broadcast, inflation_asymmetry_or_None)
+# 2x3 factorial: broadcast {OFF, ON} x asymmetry {OFF, LO, HI}.
+# asymmetry None means use_waking_confidence_inflation=False -- the flag-OFF path, which
+# is BIT-IDENTICAL by construction. It is deliberately NOT expressed as asymmetry 0.0:
+# the ON path additionally applies waking_confidence_rv_floor, so ON-at-0.0 is NOT the
+# same computation as OFF and would be a subtly different control.
+ARMS: Tuple[Tuple[str, bool, Optional[float]], ...] = (
+    ("ARM_OFF_OFF", False, None),
+    ("ARM_BCAST_ONLY", True, None),
+    ("ARM_INFL_LO", False, INFLATION_ASYMMETRY_LO),
+    ("ARM_BOTH_LO", True, INFLATION_ASYMMETRY_LO),
+    ("ARM_INFL_HI", False, INFLATION_ASYMMETRY_HI),
+    ("ARM_BOTH_HI", True, INFLATION_ASYMMETRY_HI),
 )
 
-# Matched-pair map for the cross-arm same-statistic readiness preconditions.
-BCAST_OFF_PARTNER = {"ARM_BCAST_ONLY": "ARM_OFF_OFF", "ARM_BOTH": "ARM_INFL_ONLY"}
-INFL_OFF_PARTNER = {"ARM_INFL_ONLY": "ARM_OFF_OFF", "ARM_BOTH": "ARM_BCAST_ONLY"}
+# Inflation levels in ASCENDING order. C1's operative level is the LOWEST that clears,
+# so a result that holds at LO is never attributed to HI.
+INFLATION_LEVELS = (
+    ("LO", INFLATION_ASYMMETRY_LO, "ARM_INFL_LO", "ARM_BOTH_LO"),
+    ("HI", INFLATION_ASYMMETRY_HI, "ARM_INFL_HI", "ARM_BOTH_HI"),
+)
+
+# Matched-pair maps for the cross-arm same-statistic readiness preconditions.
+# Each broadcast-ON arm pairs with the broadcast-OFF arm at the SAME asymmetry;
+# each inflation-ON arm pairs with the inflation-OFF arm at the SAME broadcast level.
+BCAST_OFF_PARTNER = {
+    "ARM_BCAST_ONLY": "ARM_OFF_OFF",
+    "ARM_BOTH_LO": "ARM_INFL_LO",
+    "ARM_BOTH_HI": "ARM_INFL_HI",
+}
+INFL_OFF_PARTNER = {
+    "ARM_INFL_LO": "ARM_OFF_OFF",
+    "ARM_BOTH_LO": "ARM_BCAST_ONLY",
+    "ARM_INFL_HI": "ARM_OFF_OFF",
+    "ARM_BOTH_HI": "ARM_BCAST_ONLY",
+}
 
 
 # ---------------------------------------------------------------- preconditions --
@@ -233,11 +281,12 @@ PRECONDITION_SPECS: Tuple[PreconditionSpec, ...] = (
 )
 
 
-def _arm_ctx(arm_id: str, bcast: bool, infl: bool) -> Dict[str, object]:
-    return {"arm_id": arm_id, "broadcast": bcast, "inflation": infl}
+def _arm_ctx(arm_id: str, bcast: bool, asym: Optional[float]) -> Dict[str, object]:
+    return {"arm_id": arm_id, "broadcast": bcast,
+            "inflation": asym is not None, "asymmetry": asym}
 
 
-ARM_CONTEXTS = [_arm_ctx(a, b, i) for (a, b, i) in ARMS]
+ARM_CONTEXTS = [_arm_ctx(a, b, x) for (a, b, x) in ARMS]
 
 
 # ------------------------------------------------------------------ build helpers --
@@ -255,7 +304,7 @@ def _make_env(seed: int, dry_run: bool = False) -> CausalGridWorldV2:
     )
 
 
-def _make_agent(env: CausalGridWorldV2, bcast: bool, infl: bool) -> REEAgent:
+def _make_agent(env: CausalGridWorldV2, bcast: bool, asym: Optional[float]) -> REEAgent:
     cfg = REEConfig.from_dims(
         body_obs_dim=env.body_obs_dim,
         world_obs_dim=env.world_obs_dim,
@@ -277,9 +326,10 @@ def _make_agent(env: CausalGridWorldV2, bcast: bool, infl: bool) -> REEAgent:
         use_rem_precision_broadcast=bcast,
         rem_precision_broadcast_gain=(BROADCAST_GAIN if bcast else 0.0),
     )
-    # Factor B: SD-076 waking confidence inflation lives on E3Config.
-    cfg.e3.use_waking_confidence_inflation = infl
-    cfg.e3.waking_confidence_inflation_asymmetry = (INFLATION_ASYMMETRY if infl else 0.0)
+    # Factor B: SD-076 waking confidence inflation lives on E3Config. asym is None for
+    # the OFF level, which leaves the flag False -> the bit-identical symmetric path.
+    cfg.e3.use_waking_confidence_inflation = asym is not None
+    cfg.e3.waking_confidence_inflation_asymmetry = (float(asym) if asym is not None else 0.0)
     cfg.e3.waking_confidence_rv_floor = INFLATION_RV_FLOOR
     # Tonic 5-HT must be on for compute_recalibration_target() to be meaningful (both the
     # F1 WRITEBACK and the Phase 7 broadcast read it).
@@ -287,7 +337,7 @@ def _make_agent(env: CausalGridWorldV2, bcast: bool, infl: bool) -> REEAgent:
     return REEAgent(cfg)
 
 
-def _arm_config_slice(bcast: bool, infl: bool) -> Dict:
+def _arm_config_slice(bcast: bool, asym: Optional[float]) -> Dict:
     """The config the cell's build+collect path actually reads."""
     return {
         "grid_size": GRID_SIZE,
@@ -308,8 +358,8 @@ def _arm_config_slice(bcast: bool, infl: bool) -> Dict:
         "tonic_5ht_enabled": True,
         "use_rem_precision_broadcast": bcast,
         "rem_precision_broadcast_gain": (BROADCAST_GAIN if bcast else 0.0),
-        "use_waking_confidence_inflation": infl,
-        "waking_confidence_inflation_asymmetry": (INFLATION_ASYMMETRY if infl else 0.0),
+        "use_waking_confidence_inflation": asym is not None,
+        "waking_confidence_inflation_asymmetry": (float(asym) if asym is not None else 0.0),
         "waking_confidence_rv_floor": INFLATION_RV_FLOOR,
     }
 
@@ -337,16 +387,16 @@ def _mean(vals: List[float]) -> float:
 
 # ---------------------------------------------------------------------- one cell --
 def _run_arm_seed(arm, seed, n_train, n_eval, steps, dry_run=False) -> Dict:
-    arm_label, bcast, infl = arm
+    arm_label, bcast, asym = arm
 
     with arm_cell(
         seed,
-        config_slice=_arm_config_slice(bcast, infl),
+        config_slice=_arm_config_slice(bcast, asym),
         script_path=Path(__file__),
         include_driver_script_in_hash=False,  # mint-as-you-go: cross-driver reusable
     ) as cell:
         env = _make_env(seed, dry_run=dry_run)
-        agent = _make_agent(env, bcast, infl)
+        agent = _make_agent(env, bcast, asym)
         optimizer = optim.Adam(agent.parameters(), lr=LR)
 
         print(f"Seed {seed} Condition {arm_label}", flush=True)
@@ -432,7 +482,8 @@ def _run_arm_seed(arm, seed, n_train, n_eval, steps, dry_run=False) -> Dict:
             "arm_id": arm_label,
             "seed": seed,
             "use_rem_precision_broadcast": bcast,
-            "use_waking_confidence_inflation": infl,
+            "use_waking_confidence_inflation": asym is not None,
+            "inflation_asymmetry": (float(asym) if asym is not None else 0.0),
             "overconfidence_score": overconfidence_score,
             "calibration_ratio": calibration_ratio,
             "true_error_ref": true_error_ref,
@@ -484,8 +535,9 @@ def _analyse(cells: List[Dict], seeds: List[int]) -> Dict:
 
     # ---- per-arm regime-conditioned readiness gates ----
     arm_gates = []
-    for (arm_id, bcast, infl) in ARMS:
-        ctx = _arm_ctx(arm_id, bcast, infl)
+    for (arm_id, bcast, asym) in ARMS:
+        infl = asym is not None
+        ctx = _arm_ctx(arm_id, bcast, asym)
         measured: Dict[str, float] = {
             # worst cell, not the mean -- `met` is a per-seed claim
             "rv_live": min(by_arm[arm_id][s]["rv_delta_from_precision_init"] for s in seeds),
@@ -510,58 +562,124 @@ def _analyse(cells: List[Dict], seeds: List[int]) -> Dict:
 
     gate = aggregate_arm_gates(arm_gates)
 
-    # ---- pre-registered criteria ----
-    n_overconf_infl = sum(
-        1 for s in seeds if by_arm["ARM_INFL_ONLY"][s]["absolutely_overconfident"])
-    n_overconf_both = sum(
-        1 for s in seeds if by_arm["ARM_BOTH"][s]["absolutely_overconfident"])
+    # ---- per-level readouts + the OPERATIVE-LEVEL rule ----
+    # C1's operative level is the LOWEST asymmetry that clears the margin, so a result
+    # that holds at LO is never attributed to HI, and a C1 that clears ONLY at HI is
+    # visibly the weaker finding it is.
+    per_level: Dict[str, Dict] = {}
+    for (lvl, asym, infl_arm, both_arm) in INFLATION_LEVELS:
+        n_over = sum(1 for s in seeds if by_arm[infl_arm][s]["absolutely_overconfident"])
+        per_level[lvl] = {
+            "asymmetry": asym,
+            "infl_arm": infl_arm,
+            "both_arm": both_arm,
+            "n_seeds_overconfident": n_over,
+            "clears_c1": bool(n_over >= MIN_SEEDS_OVERCONF),
+            "infl_score": arm_score[infl_arm],
+            "both_score": arm_score[both_arm],
+            "d_inflation": _paired_delta(by_arm, seeds, infl_arm, "ARM_OFF_OFF"),
+            "d_broadcast_under_drift": _paired_delta(by_arm, seeds, both_arm, infl_arm),
+        }
 
-    d_drift = _paired_delta(by_arm, seeds, "ARM_BOTH", "ARM_INFL_ONLY")
+    operative = next((lvl for (lvl, _a, _i, _b) in INFLATION_LEVELS
+                      if per_level[lvl]["clears_c1"]), None)
+
+    # The broadcast's effect with NO drift to correct (the interaction's other cell).
     d_nodrift = _paired_delta(by_arm, seeds, "ARM_BCAST_ONLY", "ARM_OFF_OFF")
-    d_inflation = _paired_delta(by_arm, seeds, "ARM_INFL_ONLY", "ARM_OFF_OFF")
 
-    # C1 (load-bearing): SD-076 makes ABSOLUTE overconfidence expressible at all.
-    c1 = bool(n_overconf_infl >= MIN_SEEDS_OVERCONF)
-    # C2 (load-bearing): the broadcast anchor REDUCES overconfidence where drift exists.
-    c2 = bool(d_drift["mean"] < 0.0 and d_drift["significant"])
-    # C3: the 2x2 interaction -- the correction does more work when there IS drift.
-    c3 = bool(abs(d_drift["mean"]) > abs(d_nodrift["mean"]))
+    # C1 (load-bearing): SD-076 makes ABSOLUTE overconfidence expressible at SOME
+    # defensible asymmetry. This is a CAPABILITY question -- can the substrate express
+    # it at all -- so clearing at either level answers it, with `operative_asymmetry`
+    # recording the strength of the answer.
+    c1 = operative is not None
+    if c1:
+        d_drift = per_level[operative]["d_broadcast_under_drift"]
+        n_overconf_operative = per_level[operative]["n_seeds_overconfident"]
+    else:
+        d_drift = {"per_seed": [], "mean": 0.0, "sd": 0.0, "significant": False}
+        n_overconf_operative = max(per_level[l]["n_seeds_overconfident"] for l in per_level)
+
+    # C2 (load-bearing): at the operative level, the broadcast REDUCES overconfidence.
+    c2 = bool(c1 and d_drift["mean"] < 0.0 and d_drift["significant"])
+    # C3: the interaction -- the correction does more work when there IS drift.
+    c3 = bool(c1 and abs(d_drift["mean"]) > abs(d_nodrift["mean"]))
     # C4: the OFF_OFF arm reproduces 774's ceiling (NOT absolutely overconfident).
     c4 = bool(arm_score["ARM_OFF_OFF"] <= ABS_OVERCONF_MARGIN)
+    # C5 (dose-response, diagnostic): more asymmetry -> more overconfidence. A
+    # non-monotone reading means the lever is not behaving as a graded drift source and
+    # a PASS at HI should be read with suspicion even if C1 clears.
+    c5 = bool(per_level["HI"]["infl_score"] > per_level["LO"]["infl_score"])
 
     criteria = [
         {"name": "C1_inflation_creates_absolute_overconfidence", "load_bearing": True,
-         "passed": c1, "n_seeds_overconfident": n_overconf_infl,
-         "min_required": MIN_SEEDS_OVERCONF},
+         "passed": c1, "operative_asymmetry": (per_level[operative]["asymmetry"]
+                                               if operative else None),
+         "operative_level": operative,
+         "n_seeds_overconfident": n_overconf_operative,
+         "min_required": MIN_SEEDS_OVERCONF,
+         "per_level_n_seeds": {l: per_level[l]["n_seeds_overconfident"] for l in per_level}},
         {"name": "C2_broadcast_corrects_under_drift", "load_bearing": True,
-         "passed": c2, "mean_delta": d_drift["mean"], "sd": d_drift["sd"]},
+         "passed": c2, "mean_delta": d_drift["mean"], "sd": d_drift["sd"],
+         "evaluated_at_level": operative},
         {"name": "C3_interaction_correction_larger_under_drift", "load_bearing": False,
          "passed": c3, "delta_drift": d_drift["mean"], "delta_nodrift": d_nodrift["mean"]},
         {"name": "C4_off_off_reproduces_774_ceiling", "load_bearing": False,
          "passed": c4, "off_off_score": arm_score["ARM_OFF_OFF"]},
+        {"name": "C5_asymmetry_dose_response_monotone", "load_bearing": False,
+         "passed": c5, "lo_score": per_level["LO"]["infl_score"],
+         "hi_score": per_level["HI"]["infl_score"]},
     ]
 
     # ---- non-degeneracy, keyed to the owning arms' gates ----
-    sep_infl = abs(arm_score["ARM_INFL_ONLY"] - arm_score["ARM_OFF_OFF"])
-    sep_bcast = abs(arm_score["ARM_BOTH"] - arm_score["ARM_INFL_ONLY"])
+    # Separation is evaluated at the OPERATIVE level when there is one; with no operative
+    # level C1 is non-degenerate iff SOME level separated from OFF_OFF (i.e. the lever
+    # moved the DV but not far enough -- a real negative), and degenerate iff no level
+    # moved it at all (the lever did nothing -- uninformative).
+    sep_by_level = {l: abs(per_level[l]["infl_score"] - arm_score["ARM_OFF_OFF"])
+                    for l in per_level}
+    if operative:
+        sep_infl = sep_by_level[operative]
+        sep_bcast = abs(per_level[operative]["both_score"] - per_level[operative]["infl_score"])
+        c1_owner = per_level[operative]["infl_arm"]
+        c2_owner = per_level[operative]["both_arm"]
+    else:
+        sep_infl = max(sep_by_level.values())
+        sep_bcast = 0.0
+        c1_owner = "ARM_INFL_HI"   # the strongest lever setting we tried
+        c2_owner = "ARM_BOTH_HI"
+
     raw_non_degen = {
         "C1_inflation_creates_absolute_overconfidence": bool(sep_infl > NONDEGEN_FLOOR),
-        "C2_broadcast_corrects_under_drift": bool(sep_bcast > NONDEGEN_FLOOR),
+        # With no operative level C2 was never evaluated; mark it degenerate rather than
+        # letting an unevaluated criterion read as a substantive negative.
+        "C2_broadcast_corrects_under_drift": bool(
+            operative is not None and sep_bcast > NONDEGEN_FLOOR),
         "C3_interaction_correction_larger_under_drift": bool(
-            sep_infl > NONDEGEN_FLOOR and sep_bcast > NONDEGEN_FLOOR),
+            operative is not None and sep_infl > NONDEGEN_FLOOR
+            and sep_bcast > NONDEGEN_FLOOR),
         "C4_off_off_reproduces_774_ceiling": bool(
             min(by_arm["ARM_OFF_OFF"][s]["rv_delta_from_precision_init"]
                 for s in seeds) > RV_LIVE_FLOOR),
+        "C5_asymmetry_dose_response_monotone": bool(
+            abs(per_level["HI"]["infl_score"] - per_level["LO"]["infl_score"])
+            > NONDEGEN_FLOOR),
     }
     # arm_id -> the criteria that arm OWNS (the arm whose gate most determines it).
     # A criterion owned by a RED arm is non_degenerate=False; `raw_non_degen` can
     # additionally fail a criterion whose green arm still lacks separation.
     criteria_by_arm = {
-        "ARM_INFL_ONLY": ["C1_inflation_creates_absolute_overconfidence"],
-        "ARM_BOTH": ["C2_broadcast_corrects_under_drift",
-                     "C3_interaction_correction_larger_under_drift"],
+        c1_owner: ["C1_inflation_creates_absolute_overconfidence"],
+        c2_owner: ["C2_broadcast_corrects_under_drift",
+                   "C3_interaction_correction_larger_under_drift"],
         "ARM_OFF_OFF": ["C4_off_off_reproduces_774_ceiling"],
+        "ARM_INFL_HI": ["C5_asymmetry_dose_response_monotone"],
     }
+    # c1_owner can collide with ARM_INFL_HI when HI is operative; merge rather than clobber.
+    if c1_owner == "ARM_INFL_HI":
+        criteria_by_arm["ARM_INFL_HI"] = [
+            "C1_inflation_creates_absolute_overconfidence",
+            "C5_asymmetry_dose_response_monotone",
+        ]
     criteria_non_degenerate = arm_criteria_non_degenerate(
         criteria_by_arm, gate, raw_non_degen)
 
@@ -582,8 +700,11 @@ def _analyse(cells: List[Dict], seeds: List[int]) -> Dict:
         outcome = "FAIL"
         direction = "does_not_support"
     else:
-        # C1 failed: SD-076 did not create expressible drift, so C2 is untestable and
-        # the DV is still tautological. NOT a Phase-7 verdict.
+        # C1 failed at BOTH defensible asymmetries, so C2 is untestable and the DV is
+        # still tautological. NOT a Phase-7 verdict. Because HI (9:1) is already at the
+        # edge of the defensible optimism-bias band, the route here is NOT "sweep
+        # higher" -- it is that the asymmetric-EMA form is the wrong drift source and a
+        # different SD-076 mechanism is owed.
         label = "drift_source_insufficient_dv_still_tautological"
         outcome = "FAIL"
         direction = "inconclusive"
@@ -608,12 +729,15 @@ def _analyse(cells: List[Dict], seeds: List[int]) -> Dict:
         "arm_true_error_ref": arm_true_err,
         "arm_rv_final": arm_rv,
         "deltas": {
-            "d_broadcast_under_drift": d_drift,
+            "d_broadcast_under_drift_at_operative": d_drift,
             "d_broadcast_no_drift": d_nodrift,
-            "d_inflation": d_inflation,
         },
-        "n_seeds_overconfident": {"ARM_INFL_ONLY": n_overconf_infl,
-                                  "ARM_BOTH": n_overconf_both},
+        "per_level": per_level,
+        "operative_level": operative,
+        "operative_asymmetry": (per_level[operative]["asymmetry"] if operative else None),
+        "n_seeds_overconfident": {
+            arm_id: sum(1 for s in seeds if by_arm[arm_id][s]["absolutely_overconfident"])
+            for arm_id in by_arm},
         "readiness_ok": readiness_ok,
         "thresholds": {
             "ABS_OVERCONF_MARGIN": ABS_OVERCONF_MARGIN,
@@ -665,8 +789,9 @@ def main(dry_run: bool = False) -> Dict:
     outcome = adj["outcome"]
 
     print("", flush=True)
-    print(f"label={adj['label']} outcome={outcome} readiness_ok={adj['readiness_ok']}",
-          flush=True)
+    print(f"label={adj['label']} outcome={outcome} readiness_ok={adj['readiness_ok']} "
+          f"operative_level={adj['operative_level']} "
+          f"operative_asymmetry={adj['operative_asymmetry']}", flush=True)
     for arm_id in (a[0] for a in ARMS):
         print(f"  {arm_id:<16} score={adj['arm_overconfidence_score'][arm_id]:+.4f} "
               f"calib={adj['arm_calibration_ratio'][arm_id]:.3f} "
@@ -693,12 +818,15 @@ def main(dry_run: bool = False) -> Dict:
         "precision_zero_point_ema_alpha": PRECISION_ZERO_POINT_EMA_ALPHA,
         "rem_precision_recalibration_step": REM_PRECISION_RECALIBRATION_STEP,
         "broadcast_gain": BROADCAST_GAIN,
-        "inflation_asymmetry": INFLATION_ASYMMETRY,
+        "inflation_asymmetry_lo": INFLATION_ASYMMETRY_LO,
+        "inflation_asymmetry_hi": INFLATION_ASYMMETRY_HI,
         "inflation_rv_floor": INFLATION_RV_FLOOR,
         "sleep_loop_episodes_K": 1,
         "tonic_5ht_enabled": True,
         "arms": [{"arm_id": a[0], "use_rem_precision_broadcast": a[1],
-                  "use_waking_confidence_inflation": a[2]} for a in ARMS],
+                  "use_waking_confidence_inflation": a[2] is not None,
+                  "waking_confidence_inflation_asymmetry": (
+                      float(a[2]) if a[2] is not None else 0.0)} for a in ARMS],
         "env": {"num_hazards": 3, "num_resources": 3, "hazard_harm": 0.04,
                 "proximity_harm_scale": 0.12, "proximity_benefit_scale": 0.10,
                 "use_proxy_fields": True, "resource_respawn_on_consume": True},
@@ -734,6 +862,9 @@ def main(dry_run: bool = False) -> Dict:
             "arm_true_error_ref": adj["arm_true_error_ref"],
             "arm_rv_final": adj["arm_rv_final"],
             "deltas": adj["deltas"],
+            "per_level": adj["per_level"],
+            "operative_level": adj["operative_level"],
+            "operative_asymmetry": adj["operative_asymmetry"],
             "n_seeds_overconfident": adj["n_seeds_overconfident"],
             "readiness_ok": adj["readiness_ok"],
         },
