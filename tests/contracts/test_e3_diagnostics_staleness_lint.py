@@ -403,7 +403,19 @@ def test_e3s_is_warn_only_under_strict_and_paths():
 #   WIDENED, +0: `last_raw_scores` added to _E3_LATCHED_ATTRS -- a coverage hole, since
 #     V3-EXQ-722's SECOND latched read was exactly that attribute. Measured net effect on
 #     the corpus: ZERO. Future coverage at no backlog cost.
-_PINNED_CORPUS_FIRE_COUNT = 64
+# ---- What actually changed at the 64 -> 63 re-pin -------------------------------------
+# NARROWED, -1: v3_exq_663_modulatory_channel_routing_substrate_readiness.py no longer
+#   fires. It was FIXED, not exempted -- V3-EXQ-790/791 (commit 5433e3a) installed the
+#   clear-before-select idiom in the channel-routing driver. That is exactly the response
+#   the assertion message below prescribes ("fix the script ... rather than re-pinning"),
+#   so the corpus count legitimately drops by one and the pin follows it down.
+#   Verified by differential measurement: 663 fires against its HEAD blob and does not
+#   fire against the fixed worktree blob; no other corpus file changed fire status, and
+#   the drop is NOT a rule change (the lint itself is untouched here).
+#   Re-pinned in a separate commit from the fix because 790/791 landed the script fix
+#   without updating this pin, which left the contract red on trunk and -- via the
+#   ree-v3 pre-commit contract gate -- blocked every subsequent commit in the repo.
+_PINNED_CORPUS_FIRE_COUNT = 63
 
 
 def test_e3s_corpus_fire_rate_is_pinned():
