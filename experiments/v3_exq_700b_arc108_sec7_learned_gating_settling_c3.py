@@ -1559,8 +1559,30 @@ def run_experiment(
                     "non-vacuity). This is the per-seed divergence the gating reads."
                 ),
                 "control": "SD-056 e2 trained online in P0; candidate_summary_source=e2_world_forward",
-                "measured": float(min([r["consumed_summary_pairwise_dist_mean"] for r in all_rows] or [0.0])),
-                "threshold": float(CONSUMED_SPREAD_FLOOR),
+                # COUNT-shaped, like `enough_divergent_seeds` above -- `met` here is the
+                # SAME boolean (`enough_divergent`), so the declared bound must be that
+                # boolean's own bound, not the spread statistic the description narrates.
+                # The previous (measured, threshold) pair -- min(consumed spread) vs
+                # CONSUMED_SPREAD_FLOOR -- could not reproduce `met` for THREE independent
+                # reasons: (i) a min over rows is strictly HARSHER than "a majority of
+                # seeds" (the FALSE_UNMET direction); (ii) per-seed divergence
+                # (`seed_gapa_divergence`) is a CONJUNCTION of a spread FLOOR and a
+                # magnitude CEILING (`consumed_dist_max < CONSUMED_MAGNITUDE_CEIL`), and
+                # the ceiling leg was absent from the reported bound entirely, so a count
+                # over the conjunction does not distribute into the floor leg; and
+                # (iii) `primary_div` is an INTERSECTION over the three focus arms
+                # (A0 + A2 + ARM_NOISE), not a statistic over `all_rows`, which also
+                # includes A3 and C3U. The displaced continuous statistic is preserved
+                # below as a non-bound `observed_*` key (inert to the recompute).
+                "measured": float(n_primary_div),
+                "threshold": float(MIN_DIVERGENT_SEEDS),
+                "comparator": ">=",
+                "direction": "lower",
+                "observed_min_consumed_spread_mean": float(min(
+                    [r["consumed_summary_pairwise_dist_mean"] for r in all_rows] or [0.0]
+                )),
+                "observed_consumed_spread_floor": float(CONSUMED_SPREAD_FLOOR),
+                "observed_consumed_magnitude_ceil": float(CONSUMED_MAGNITUDE_CEIL),
                 "met": bool(enough_divergent),
             },
         ],
