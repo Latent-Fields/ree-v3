@@ -1,3 +1,34 @@
 numpy
-# torch is installed separately with the CUDA index -- see setup_windows.bat
-# pip install torch --index-url https://download.pytorch.org/whl/cu126
+
+# ---------------------------------------------------------------------------
+# torch is installed separately (it needs an index URL), but it MUST be PINNED.
+#
+# WHY PINNED. `machine_class()` in experiments/_lib/arm_fingerprint.py is
+# "{sys}-{arch}-py{maj}.{minr}-torch{torch}", and arm-reuse (Regime A) only ever
+# matches WITHIN one class. So two cloud workers on different torch builds are
+# two different classes and cannot share a banked baseline arm. That failure is
+# safe (a false MISS wastes compute; it never corrupts a conclusion) but it is
+# also SILENT -- reuse just quietly stops hitting.
+#
+# This already happened. On 2026-07-19 the four workers were measured at THREE
+# different builds: hub 2.5.1+cu121, worker-2 2.11.0+cpu, workers 3/4 2.12.0+cpu
+# -- i.e. three separate machine classes across one fleet. The cause was this
+# file's own instruction: the previous unpinned form (kept below) installs
+# whatever is latest on the day a worker happens to be provisioned or repaired,
+# so workers built weeks apart silently diverge.
+#
+# It also pointed at the CUDA index (cu126) while NO machine in the fleet has a
+# GPU (heartbeats report gpu.available=false), which is how the hub ended up on
+# a +cu121 build it could not use.
+#
+# CANONICAL FLEET BUILD (all four workers aligned 2026-07-20):
+#   pip install "torch==2.12.0" --index-url https://download.pytorch.org/whl/cpu
+#
+# Changing this pin re-keys machine_class and invalidates every arm fingerprint
+# minted under the old one. That is the correct, visible failure direction --
+# but do it deliberately, fleet-wide and all at once, never one worker at a time.
+#
+# Previous (DO NOT USE -- unpinned, and CUDA on GPU-less hosts):
+#   pip install torch --index-url https://download.pytorch.org/whl/cu126
+# ---------------------------------------------------------------------------
+# torch==2.12.0   (install with the cpu index URL above, not from this file)

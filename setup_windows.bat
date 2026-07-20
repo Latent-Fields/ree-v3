@@ -24,8 +24,14 @@ echo [setup] Upgrading pip...
 echo [setup] Installing numpy...
 .venv\Scripts\pip install numpy --quiet
 
-echo [setup] Installing PyTorch with CUDA 12.6 support (RTX 5070)...
-.venv\Scripts\pip install torch --index-url https://download.pytorch.org/whl/cu126 --quiet
+REM torch is PINNED on purpose. machine_class() (experiments/_lib/arm_fingerprint.py)
+REM includes the torch version, and arm-reuse only matches within one class -- so an
+REM unpinned install silently splits a machine into its own class whenever it is
+REM rebuilt on a different day. That is exactly how the cloud fleet ended up on three
+REM different builds on 2026-07-19. See ree-v3/requirements.txt for the full note.
+REM This box keeps the CUDA build (it has a GPU); the cloud fleet uses +cpu.
+echo [setup] Installing PyTorch 2.12.0 with CUDA 12.6 support (RTX 5070)...
+.venv\Scripts\pip install "torch==2.12.0" --index-url https://download.pytorch.org/whl/cu126 --quiet
 
 echo [setup] Verifying install...
 .venv\Scripts\python -c "import torch, numpy; print('[setup] torch', torch.__version__, '/ CUDA available:', torch.cuda.is_available(), '/', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'no GPU'); print('[setup] numpy', numpy.__version__)"
