@@ -2527,8 +2527,69 @@ def run_experiment(
             "be read as confirming or refuting `levers_compound` in advance; whatever "
             "it returns is the FIRST valid measurement of this composition. "
             "See defect_measurement_699_hold_weighting for the matched-instrumentation "
-            "comparison, which is diagnostic context and not a finding."
+            "comparison, which is diagnostic context and not a finding. "
+            "BEFORE ACTING ON THIS RUN, read `parked_successor` below: a further "
+            "instrument repair (V3-EXQ-699c) is already written and committed but "
+            "deliberately UNQUEUED, pending exactly the numbers this run measures."
         ),
+        # ---------------------------------------------------------------------
+        # PARKED SUCCESSOR -- read this before drawing conclusions from this run.
+        # ---------------------------------------------------------------------
+        # This pointer lives in the MANIFEST rather than only in the successor's
+        # docstring because it must reach whoever reviews THIS run's result. The
+        # successor is not in experiment_queue.json, so nothing else would surface
+        # it: a reviewer has no reason to open a driver they do not know exists.
+        "parked_successor": {
+            "queue_id": "V3-EXQ-699c",
+            "script": "experiments/v3_exq_699c_pcomp_demotion_x_gonogo_fixed_n.py",
+            "status": "written, committed (ree-v3 cb35a38211), validated, NOT queued",
+            "fixes": (
+                "P2 sample size N is set by SURVIVAL -- CausalGridWorldV2 ends an "
+                "episode on death (causal_grid_world.py:2626) and steps_per_episode "
+                "caps below its 500-step limit -- so N differs across arms WITHIN a "
+                "seed and the plug-in entropy estimator's ~(K-1)/(2N) downward bias "
+                "becomes ARM-DEPENDENT and signed: an arm dying sooner reads as lower "
+                "committed-class entropy for a purely statistical reason. 699c runs P2 "
+                "to a FIXED N (400 genuine E3 selections per cell, capped at 800 "
+                "episodes) so the bias is common-mode by construction, and applies a "
+                "Miller-Madow correction for the residual K_obs term."
+            ),
+            "why_not_queued": (
+                "The MAGNITUDE is unknown and THIS RUN measures it. E3 firing is "
+                "event-driven (clock.advance() fires on a pending phase reset; "
+                "agent.py:5430 runs select() whenever _last_action is None), so an "
+                "episode RESET buys a free selection -- which means a death-prone cell "
+                "running many short episodes earns a HIGHER yield and PARTIALLY "
+                "COMPENSATES the very spread 699c removes. Estimated at ~0.0136 nats "
+                "(27% of COMPOSITION_LIFT_MARGIN=0.05) without that compensation and "
+                "~0.005 (~10%) with it. Not derivable from any recorded manifest: "
+                "V3-EXQ-699 recorded no fresh-selection counts at all."
+            ),
+            "decision_rule": (
+                "From this run's arm_results, compute the within-seed spread in "
+                "n_fresh_select across the four arms, then the implied bias "
+                "differential (K_obs-1)/2 * (1/N_min_arm - 1/N_max_arm) using each "
+                "cell's own n_unique_committed_classes for K_obs. Queue 699c only if "
+                "that differential is a material fraction of "
+                "COMPOSITION_LIFT_MARGIN=0.05 nats. If it is small, leave it parked "
+                "and record that it was considered."
+            ),
+            "fields_to_read": [
+                "n_fresh_select", "n_latched", "fresh_select_yield",
+                "replication_factor", "n_p2_ticks", "n_unique_committed_classes",
+            ],
+            "caveat_if_queued": (
+                "Re-check 699c's TARGET_FRESH_SELECT_PER_CELL=400 against this run's "
+                "measured yield before queueing -- 400 was sized assuming ~4000 P2 env "
+                "steps per cell at yield ~0.1 (supported by V3-EXQ-785a's measured "
+                "0.111/0.143/0.111, but not yet confirmed for THIS config). Note the "
+                "tradeoff: equal-N trades unequal SAMPLE SIZE for unequal DURATION."
+            ),
+            "full_rationale": (
+                "the STATUS: PARKED banner at the top of the 699c driver's module "
+                "docstring"
+            ),
+        },
     }
 
     total_seeds = len(ARMS) * len(seeds)
