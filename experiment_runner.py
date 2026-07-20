@@ -499,30 +499,188 @@ def _prepull_stash_blocking_untracked(repo_path: Path, label: str) -> bool:
     return False
 
 
+def _find_prepull_stash_ref(repo_path: Path) -> str | None:
+    """Return the stash ref (e.g. "stash@{2}") holding the prepull stash.
+
+    Searched BY MESSAGE, never by position. The previous implementation
+    inspected only `git stash list -1` and returned early unless the prepull
+    stash happened to be on top -- so any entry pushed in between (most
+    commonly the runner-heartbeat's own `git pull --rebase --autostash`)
+    stranded it indefinitely. Confirmed on ree-cloud-3 2026-07-20, which was
+    still carrying `stash@{1}: On master: runner-prepull-untracked` from
+    ~2026-06-12 containing a V3-EXQ-673 manifest present at NO path on
+    origin/master -- i.e. the only surviving copy of a completed run.
+    """
+    r = subprocess.run(
+        ["git", "stash", "list", "--format=%gd %gs"],
+        cwd=str(repo_path), capture_output=True, text=True, timeout=10,
+    )
+    if r.returncode != 0:
+        return None
+    for line in (r.stdout or "").splitlines():
+        line = line.strip()
+        if not line or _PREPULL_STASH_MESSAGE not in line:
+            continue
+        return line.split(None, 1)[0]
+    return None
+
+
+def _parse_blocking_untracked_paths(stderr: str) -> list[str]:
+    """Extract the paths git names in an untracked-would-be-overwritten abort.
+
+    git prints:
+        error: The following untracked working tree files would be
+        overwritten by merge:
+        \tevidence/experiments/<dir>/<file>.json
+        Please move or remove them before you merge.
+    """
+    out: list[str] = []
+    collecting = False
+    for line in (stderr or "").splitlines():
+        low = line.strip().lower()
+        if "untracked working tree files would be overwritten" in low:
+            collecting = True
+            continue
+        if not collecting:
+            continue
+        if low.startswith(("please ", "aborting", "error:", "hint:", "fatal:")):
+            break
+        rel = line.strip().strip('"')
+        if rel:
+            out.append(rel)
+    return out
+
+
+def _upstream_ref(repo_path: Path) -> str:
+    """Tracking ref for the current branch, falling back to origin/master."""
+    r = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+        cwd=str(repo_path), capture_output=True, text=True, timeout=10,
+    )
+    ref = (r.stdout or "").strip()
+    return ref if r.returncode == 0 and ref else "origin/master"
+
+
+def _untracked_path_is_redundant(
+    repo_path: Path, rel: str, upstream: str,
+) -> bool:
+    """True only when `upstream` PROVABLY already carries this file's content.
+
+    Two ways to prove it, in order of strength:
+      1. Byte-identical to the upstream blob.
+      2. Both sides parse as JSON objects and upstream is a SUPERSET -- every
+         key present locally is present upstream with an equal value. This is
+         the normal shape for a run manifest that the hub writer has already
+         committed: origin's copy adds `machine`, `evidence_direction*`,
+         `queue_id` etc. on top of what the worker wrote.
+
+    Anything else -- path absent upstream, unreadable, non-JSON and not
+    byte-identical, or any key whose value differs -- is NOT redundant. The
+    caller must leave those in place, even though that means the pull stays
+    wedged: a wedge is visible and repairable, silent evidence loss is not.
+    """
+    show = subprocess.run(
+        ["git", "show", f"{upstream}:{rel}"],
+        cwd=str(repo_path), capture_output=True, timeout=15,
+    )
+    if show.returncode != 0:
+        return False
+    try:
+        local_bytes = (repo_path / rel).read_bytes()
+    except Exception:
+        return False
+    if local_bytes == show.stdout:
+        return True
+    try:
+        local_obj = json.loads(local_bytes.decode("utf-8"))
+        origin_obj = json.loads(show.stdout.decode("utf-8"))
+    except Exception:
+        return False
+    if not isinstance(local_obj, dict) or not isinstance(origin_obj, dict):
+        return False
+    for k, v in local_obj.items():
+        if k not in origin_obj or origin_obj[k] != v:
+            return False
+    return True
+
+
+def _clear_redundant_blocking_untracked(
+    repo_path: Path, label: str, stderr: str,
+) -> bool:
+    """Remove untracked files that block the pull AND are provably on origin.
+
+    The 2026-07-20 ree-cloud-3 wedge: REE_assembly's pull aborted every ~60s
+    for an extended period on an untracked file NESTED one level inside a run
+    pack (`evidence/experiments/<run_dir>/..._episode_log.json`). The prepull
+    stash only ever matched FLAT manifests, so a nested file could block the
+    pull forever with no self-heal path.
+
+    Widening the stash regex to cover run packs was the obvious fix and is the
+    wrong one: it would sweep undelivered run-pack evidence into a stash, i.e.
+    onto exactly the path this same commit had to make non-destructive. Instead
+    we clear only what we can PROVE is already on origin, and leave anything
+    unproven in place with a loud log line.
+    """
+    if label != "REE_assembly":
+        return False
+    paths = _parse_blocking_untracked_paths(stderr)
+    if not paths:
+        return False
+    upstream = _upstream_ref(repo_path)
+    removed: list[str] = []
+    kept: list[str] = []
+    for rel in paths:
+        if _untracked_path_is_redundant(repo_path, rel, upstream):
+            try:
+                (repo_path / rel).unlink()
+                removed.append(rel)
+            except Exception:
+                kept.append(rel)
+        else:
+            kept.append(rel)
+    if removed:
+        print(f"[runner] git pull {label}: removed {len(removed)} untracked "
+              f"path(s) blocking the pull, each verified already present in "
+              f"{upstream}: {', '.join(removed[:5])}"
+              f"{' ...' if len(removed) > 5 else ''}", flush=True)
+    if kept:
+        print(f"[runner] git pull {label}: WARN {len(kept)} untracked path(s) "
+              f"block the pull and are NOT verifiable against {upstream} -- "
+              f"LEFT IN PLACE, pull stays blocked until an operator resolves "
+              f"them: {', '.join(kept[:5])}"
+              f"{' ...' if len(kept) > 5 else ''}", flush=True)
+    return bool(removed)
+
+
 def _postpull_restore_prepull_stash(repo_path: Path, label: str) -> None:
-    """Pop or drop the prepull stash if the hub writer now owns those paths."""
+    """Pop the prepull stash back into the tree. NEVER drops it on failure.
+
+    A pop failure used to be treated as "the paths are on origin now" and the
+    stash was dropped. That inference is unsound -- see _find_prepull_stash_ref
+    for a stash whose manifest existed at no path on origin -- and the drop
+    would have destroyed the only copy of a run's evidence. A stranded stash
+    costs disk; a dropped one costs an experiment. So on failure we keep the
+    stash and log loudly enough that an operator can recover it by hand.
+    """
     if label != "REE_assembly":
         return
     try:
-        top = subprocess.run(
-            ["git", "stash", "list", "-1", "--format=%s"],
-            cwd=str(repo_path), capture_output=True, text=True, timeout=10,
-        )
-        if top.returncode != 0 or _PREPULL_STASH_MESSAGE not in (top.stdout or ""):
+        ref = _find_prepull_stash_ref(repo_path)
+        if ref is None:
             return
         pop = subprocess.run(
-            ["git", "stash", "pop"],
+            ["git", "stash", "pop", ref],
             cwd=str(repo_path), capture_output=True, text=True, timeout=30,
         )
         if pop.returncode != 0:
-            subprocess.run(
-                ["git", "stash", "drop"],
-                cwd=str(repo_path), capture_output=True, timeout=10,
-            )
-            print(f"[runner] git pull {label}: dropped prepull stash "
-                  f"(paths likely on origin now)", flush=True)
-    except Exception:
-        pass
+            print(f"[runner] git pull {label}: WARN prepull stash {ref} "
+                  f"({_PREPULL_STASH_MESSAGE}) could NOT be restored and was "
+                  f"KEPT (not dropped) -- it may hold the only copy of a run "
+                  f"manifest. Recover with: git stash show -p {ref}. "
+                  f"git said: {pop.stderr.strip()}", flush=True)
+    except Exception as exc:
+        print(f"[runner] git pull {label}: prepull stash restore error "
+              f"(stash kept): {exc}", flush=True)
 
 
 # --- Runner code version (readable, refreshes between passes) --------------
@@ -720,6 +878,27 @@ def git_pull(repo_path: Path, label: str) -> None:
                             capture_output=True, timeout=10)
             subprocess.run(["git", "rebase", "--quit"], cwd=str(repo_path),
                             capture_output=True, timeout=10)
+            # If the pull aborted because untracked files would be
+            # overwritten (the 2026-07-20 cloud-3 wedge), clear the ones
+            # provably already on origin and retry once. Unverifiable paths
+            # are left alone, so this cannot silently destroy evidence.
+            if _clear_redundant_blocking_untracked(repo_path, label, stderr):
+                r3 = subprocess.run(
+                    ["git", "pull", "--rebase", "--autostash"],
+                    cwd=str(repo_path), capture_output=True, text=True,
+                    timeout=30,
+                )
+                if r3.returncode == 0:
+                    msg = (r3.stdout.strip().splitlines()[-1]
+                           if r3.stdout.strip() else "ok")
+                    print(f"[runner] git pull {label}: {msg} "
+                          f"(post-untracked-clear)", flush=True)
+                else:
+                    print(f"[runner] git pull {label} post-untracked-clear "
+                          f"warn: {r3.stderr.strip()}", flush=True)
+                _postpull_restore_prepull_stash(repo_path, label)
+                _warn_on_stash_bloat(repo_path, label)
+                return
             # If the failure left UU markers on ephemeral worker-owned
             # paths (the 2026-05-31 cloud-3 wedge), auto-resolve by taking
             # origin's version and retry the pull once.
