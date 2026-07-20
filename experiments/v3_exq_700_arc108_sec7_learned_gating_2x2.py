@@ -1136,6 +1136,19 @@ def run_experiment(
         _maj(rows, lambda r: r["crf_differentiated"]) for rows in
         (a0_rows, a1_rows, a2_rows, a3_rows, noise_rows)
     )
+    # The per-arm COUNTS behind the _maj calls above, reported by the crf_matured
+    # precondition entry so the indexer's authoritative recompute can reproduce `met`.
+    # `crf_matured` is an all()/AND over per-arm k-of-n seed counts and _maj is
+    # `count >= MIN_SEEDS_FOR_PASS`, so min(per-arm count) >= MIN_SEEDS_FOR_PASS is
+    # EXACT: min(counts) >= k iff every count >= k. NOT split into one entry per arm --
+    # a k-of-n COUNT does not distribute over the conjunction the way all() does (two
+    # arms each cleared by k DIFFERENT seeds is not the conjunction), so a per-leg split
+    # would be strictly LOOSER than the shipped gate.
+    n_crf_differentiated_per_arm = [
+        sum(1 for r in rows if r["crf_differentiated"])
+        for rows in (a0_rows, a1_rows, a2_rows, a3_rows, noise_rows)
+    ]
+    n_crf_differentiated_min = int(min(n_crf_differentiated_per_arm))
     # (b) delta_t carries variance on the LCG / settling armed arms.
     lcg_delta_nonflat_ok = all(_maj(rows, lambda r: r["lcg_delta_nonflat"]) for rows in (a1_rows, a3_rows))
     wlat_delta_nonflat_ok = all(_maj(rows, lambda r: r["wlat_delta_nonflat"]) for rows in (a2_rows, a3_rows))
@@ -1299,6 +1312,29 @@ def run_experiment(
     interpretation = {
         "label": label,
         "preconditions": [
+            {
+                "name": "crf_matured",
+                "kind": "readiness",
+                "description": (
+                    "CRF maturity: the consumed matched constant must be DIFFERENTIATED "
+                    "(per-seed crf_differentiated) on at least MIN_SEEDS_FOR_PASS seeds within "
+                    "EVERY arm -- an undifferentiated constant makes the manipulation vacuous "
+                    "=> substrate_not_ready_requeue. measured = the SMALLEST per-arm count of "
+                    "seeds carrying crf_differentiated, over arms (a0_rows, a1_rows, a2_rows, a3_rows, noise_rows)."
+                ),
+                "control": "per-seed crf_differentiated, counted within each arm",
+                # COUNT-shaped, INCLUSIVE floor, and EXACT for the shipped predicate:
+                # `met` is all(_maj(rows, crf_differentiated) for rows in arms) with _maj ==
+                # `count >= MIN_SEEDS_FOR_PASS`, and min(counts) >= k iff every count >= k.
+                "measured": float(n_crf_differentiated_min),
+                "threshold": float(MIN_SEEDS_FOR_PASS),
+                "comparator": ">=",
+                "direction": "lower",
+                # Non-bound observable (inert to the recompute): the full per-arm counts,
+                # so a reader can see WHICH arm failed, not merely that one did.
+                "observed_crf_differentiated_counts_per_arm": [int(c) for c in n_crf_differentiated_per_arm],
+                "met": bool(crf_matured),
+            },
             {
                 "name": "candidate_pool_divergent_all_arms",
                 "kind": "readiness",
