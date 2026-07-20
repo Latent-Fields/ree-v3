@@ -26,7 +26,7 @@ import ast
 import re
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parent
 EXPERIMENTS_DIR = REPO_ROOT / "experiments"
@@ -40,7 +40,7 @@ PROTOCOL_MODULE = "experiment_protocol"
 # arm-fingerprint contracts onto the broader (non-v3_exq_) script set the gate scopes.
 CHECK_NAMES = ("conformance", "readiness", "arm_fingerprint", "degeneracy", "manifest_writer",
                "anchor_reachability", "precondition_recomputability",
-               "e3_diagnostics_staleness")
+               "e3_diagnostics_staleness", "e3_hold_weighted_readout")
 
 # Readiness-gate static lint (proposal_trivial_prediction_readiness_gate_2026-06-06).
 # A diagnostic/baseline script whose interpretation grid self-routes to one of
@@ -1677,6 +1677,428 @@ def e3_diagnostics_staleness_lint(path: Path) -> Optional[str]:
             "Exempt with E3_DIAGNOSTICS_STALENESS_EXEMPT = \"<reason>\".")
 
 
+# ---- form 2: hold-weighted readout (V3-EXQ-699) --------------------------------------
+# The SECOND form of the pseudo-replication defect, established by the V3-EXQ-699
+# re-adjudication (REE_assembly `ac2fb64028`). Form 1 (above) keys on a diagnostics
+# LATCH. Form 2 touches no latch at all, so form 1 is structurally blind to it, and on
+# 699 the unflagged exposure was the run's PRIMARY DV while the flagged one was
+# incidental. These are INDEPENDENT defects and are deliberately kept as separate gates
+# with separate pins: 699's `active_frac == 1.0` is INFORMATIVE precisely because its
+# diagnostics are fresh, where 708's identical 1.0 was vacuous. Conflating freshness
+# with replication mis-adjudicates in both directions (autopsy 699 sec 11.2).
+#
+# `_last_selected_trajectory` latches exactly like the six form-1 attributes -- assigned
+# only in `E3Selector.select()` (`e3_selector.py:3108`; `:3224` is a read in
+# `post_action_update`). It is kept HERE rather than appended to _E3_LATCHED_ATTRS so the
+# form-1 corpus pin stays a measurement of form 1.
+_E3_SELECTION_LATCHED_ATTRS = ("_last_selected_trajectory",)
+_E3_HOLD_WEIGHTED_EXEMPT_MARKER = "E3_HOLD_WEIGHTED_READOUT_EXEMPT"
+
+# Calls that reduce a tensor/list to a scalar summary. Their presence is what separates
+# "this driver STEPPED the env with the action / stored the transition for training"
+# (legitimate at every env step -- the held action IS the action taken) from "this driver
+# turned the action into a per-step STATISTIC" (the defect). Without this requirement the
+# rule fires on every replay buffer in the corpus and is unusable.
+_SCALAR_REDUCTIONS = ("argmax", "argmin", "item", "max", "min", "sum", "mean", "len",
+                      "int", "float", "bool", "round", "index", "count", "tolist",
+                      "nonzero", "sorted", "set", "std", "var")
+
+
+def _e3_root_source(node: ast.AST) -> Optional[str]:
+    """The cadence-gated ROOT this expression is, if any. Two roots, both verified:
+
+      "select_action" -- `agent.py:5430` returns the HELD action on
+                         `not ticks["e3_tick"]`, BEFORE `e3.select()` is reached.
+      "candidates"    -- `agent.generate_trajectories` (`agent.py:4812`) returns CACHED
+                         candidates on a non-E3 tick (MECH-057a gate).
+
+    (`_last_selected_trajectory`, root three, is handled directly as a latch read -- see
+    `_e3_selection_latch_reads` -- because like the form-1 attributes the READ alone is
+    the defect, with no accumulation shape required.)
+    """
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+        if node.func.attr == "select_action":
+            return "select_action"
+        if node.func.attr == "generate_trajectories":
+            return "candidates"
+    return None
+
+
+def _derived_taint(node: ast.AST, tainted: Dict[str, str]) -> Optional[str]:
+    """Does this expression DERIVE from a cadence-gated value -- by base chain, not mention?
+
+    The distinction is the whole precision of this lint, and getting it wrong makes the
+    rule useless in a way that is not obvious from a spot check. A first cut propagated
+    taint through any *mention*, which meant `obs, r, done, info = env.step(action)`
+    tainted the entire driver (measured: `agent`, `cfg`, `done`, `info`, `latent` all
+    marked, and the rule fired on unrelated helper lines in v3_exq_785). Two rules fix it:
+
+      1. NO propagation through tuple unpacking. `env.step(action)` returns a genuinely
+         fresh observation -- the held action really is the action taken, so the env's
+         response to it is a real per-step measurement, not a replicated one.
+      2. The tainted name must be the BASE of the expression (`action[0].argmax().item()`),
+         or an argument to a PURE wrapper (`int(...)`, `len(...)`), or the ITERABLE of a
+         comprehension (`{f(t) for t in candidates}` -- 699's `pre_e3_classes`). Passing
+         it to an arbitrary function produces a new value and breaks the chain.
+
+    Rule 2 is deliberately conservative: a chain routed through a user-defined helper
+    (`_traj_first_action_class(sel_traj)`) is NOT followed, so this under-fires rather
+    than over-fires. That is the same static-AST limitation class the form-1 lint
+    documents, and the safe direction for a WARN that drives manual triage.
+    """
+    if isinstance(node, ast.Name):
+        return tainted.get(node.id)
+    if isinstance(node, (ast.Attribute, ast.Subscript)):
+        return _derived_taint(node.value, tainted)
+    if isinstance(node, ast.Starred):
+        return _derived_taint(node.value, tainted)
+    if isinstance(node, (ast.BinOp,)):
+        return (_derived_taint(node.left, tainted)
+                or _derived_taint(node.right, tainted))
+    if isinstance(node, ast.UnaryOp):
+        return _derived_taint(node.operand, tainted)
+    if isinstance(node, ast.BoolOp):
+        for v in node.values:
+            t = _derived_taint(v, tainted)
+            if t:
+                return t
+        return None
+    if isinstance(node, ast.IfExp):
+        return (_derived_taint(node.body, tainted)
+                or _derived_taint(node.orelse, tainted))
+    if isinstance(node, ast.Compare):
+        for side in [node.left] + list(node.comparators):
+            t = _derived_taint(side, tainted)
+            if t:
+                return t
+        return None
+    if isinstance(node, (ast.ListComp, ast.SetComp, ast.GeneratorExp, ast.DictComp)):
+        for gen in node.generators:
+            t = _derived_taint(gen.iter, tainted)
+            if t:
+                return t
+        return None
+    if isinstance(node, ast.Call):
+        root = _e3_root_source(node)
+        if root:
+            return root
+        if (isinstance(node.func, ast.Name) and node.func.id == "getattr"
+                and len(node.args) >= 2 and isinstance(node.args[1], ast.Constant)
+                and node.args[1].value in _E3_SELECTION_LATCHED_ATTRS):
+            return "selected_traj"
+        if isinstance(node.func, ast.Attribute):
+            # method call on a tainted base: `action[0].argmax()`, `probs.item()`
+            base = _derived_taint(node.func.value, tainted)
+            if base:
+                return base
+        name = (node.func.id if isinstance(node.func, ast.Name)
+                else node.func.attr if isinstance(node.func, ast.Attribute) else None)
+        if name in _SCALAR_REDUCTIONS:  # pure wrapper: `int(x)`, `len(x)`, `sorted(x)`
+            for a in node.args:
+                t = _derived_taint(a, tainted)
+                if t:
+                    return t
+        return None
+    return None
+
+
+def _contains_reduction(node: ast.AST, tainted: Dict[str, str]) -> bool:
+    """Does this expression reduce a cadence-gated value to a scalar summary?"""
+    for n in ast.walk(node):
+        if isinstance(n, ast.Call):
+            name = (n.func.attr if isinstance(n.func, ast.Attribute)
+                    else n.func.id if isinstance(n.func, ast.Name) else None)
+            if name in _SCALAR_REDUCTIONS and _derived_taint(n, tainted):
+                return True
+    return False
+
+
+def _e3_cadence_gated_sources(tree: ast.Module) -> Tuple[Dict[str, str], Set[str]]:
+    """Variables that only refresh on an E3 tick -> (name -> root, names holding a SCALAR).
+
+    Fixed point over SINGLE-Name assignments only (see `_derived_taint` rule 1 for why
+    tuple targets are excluded), so `action = agent.select_action(...)` then
+    `cls = int(action[0].argmax().item())` marks both `action` and `cls`.
+
+    The second return value is what makes the accumulation test work. Scalar-ness is a
+    property of the VARIABLE, established where it is derived, not of the site where it is
+    accumulated -- 699 reduces at `:882` and accumulates at `:899`, seventeen lines apart,
+    and a rule that demanded a reduction at the accumulation site missed the run's primary
+    DV entirely. `action` itself is not scalar (it is a tensor, and storing it in a replay
+    buffer is correct); `committed_class` is.
+    """
+    tainted: Dict[str, str] = {}
+    scalars: Set[str] = set()
+    for _ in range(6):  # fixed point; 6 is far beyond any real chain depth
+        grew = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                if len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name):
+                    continue  # rule 1: no tuple unpacking
+                target, value = node.targets[0], node.value
+            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                target, value = node.target, node.value
+            else:
+                continue
+            if value is None or target.id in tainted:
+                continue
+            src = _derived_taint(value, tainted)
+            if src:
+                tainted[target.id] = src
+                if (_contains_reduction(value, tainted)
+                        or any(isinstance(n, ast.Name) and n.id in scalars
+                               for n in ast.walk(value))):
+                    scalars.add(target.id)
+                grew = True
+        if not grew:
+            break
+    return tainted, scalars
+
+
+def _e3_selection_latch_reads(tree: ast.Module) -> List[ast.expr]:
+    """Reads of `agent.e3._last_selected_trajectory` -- the per-selection latch, form (b).
+
+    Assigned only inside `E3Selector.select()` (`e3_selector.py:3108`), so it latches
+    exactly like the six form-1 attributes and the READ alone is the defect. 699 proved
+    (a) and (b) are one defect empirically: its `selected_class_entropy_nats` equalled
+    `committed_class_entropy_nats` to 6dp on all 12 arm-seeds.
+    """
+    reads: List[ast.expr] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr in _E3_SELECTION_LATCHED_ATTRS:
+            reads.append(node)
+        elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                and node.func.id == "getattr" and len(node.args) >= 2
+                and isinstance(node.args[1], ast.Constant)
+                and node.args[1].value in _E3_SELECTION_LATCHED_ATTRS):
+            reads.append(node)
+    return reads
+
+
+def _is_scalar_use(node: ast.AST, tainted: Dict[str, str], scalars: Set[str]) -> bool:
+    """Is this expression a SCALAR SUMMARY of a cadence-gated value (vs. passing it on)?
+
+    True when it mentions a scalar-derived variable (`committed_class`), reduces one in
+    place (`int(action[0].argmax().item())`), compares one (`len(pre_e3_classes) >= 2`,
+    which then gates a counter), or uses one as a dict subscript KEY (the histogram shape
+    699 used -- and a dict key is necessarily scalar, so no further reduction is required).
+
+    False for `buf.append((z, action, z1))`, which stores the action tensor itself. That
+    distinction is load-bearing: a replay buffer is CORRECT at every env step -- the held
+    action really is the action taken -- and a rule that fired on it would flag most of
+    the corpus for a non-defect.
+    """
+    if any(isinstance(n, ast.Name) and n.id in scalars for n in ast.walk(node)):
+        return True
+    for n in ast.walk(node):
+        if isinstance(n, ast.Call):
+            name = (n.func.attr if isinstance(n.func, ast.Attribute)
+                    else n.func.id if isinstance(n.func, ast.Name) else None)
+            if name in _SCALAR_REDUCTIONS and _derived_taint(n, tainted):
+                return True
+        if isinstance(n, ast.Compare) and _derived_taint(n, tainted):
+            return True
+    return False
+
+
+def _hold_weighted_accumulations(tree: ast.Module, tainted: Dict[str, str],
+                                 scalars: Set[str]) -> List[Tuple[int, str]]:
+    """(lineno, source) for every per-step accumulation of a cadence-gated scalar.
+
+    Recognised shapes, all drawn from the confirmed 699 sites:
+      `counts[cls] = counts.get(cls, 0) + 1`   subscript-key histogram      (:899)
+      `counts[cls] += 1` / `sigs[cls][s] += 1`  augmented counter           (:920)
+      `vals.append(<reduction>)` / .add / .extend / .update / .setdefault
+      `total += <reduction>`                    running sum
+      `if <tainted compare>: n += 1`            condition-gated counter     (:902)
+    """
+    hits: List[Tuple[int, str]] = []
+
+    def _add(node: ast.AST, probe: ast.AST, key: bool = False) -> None:
+        src = _derived_taint(probe, tainted)
+        # A dict/Counter KEY is necessarily a scalar, so the key shape needs no further
+        # reduction evidence -- this is the exact shape of 699's primary DV at :899.
+        if src and (key or _is_scalar_use(probe, tainted, scalars)):
+            hits.append((getattr(node, "lineno", 0), src))
+
+    for node in ast.walk(tree):
+        # append/add/extend/update/setdefault of a reduced value
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr in ("append", "add", "extend", "update", "setdefault")):
+            for a in node.args:
+                _add(node, a)
+        # subscript-key histogram, either plain or augmented
+        if isinstance(node, (ast.Assign, ast.AugAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for t in targets:
+                if isinstance(t, ast.Subscript):
+                    _add(node, t.slice, key=True)
+        # running sum: `total += <reduction of tainted>`
+        if isinstance(node, ast.AugAssign) and node.value is not None:
+            _add(node, node.value)
+        # condition-gated counter: `if len(pre_e3_classes) >= 2: n_pre_ge2 += 1`
+        if isinstance(node, ast.If):
+            src = _derived_taint(node.test, tainted)
+            if src and _is_scalar_use(node.test, tainted, scalars):
+                for stmt in node.body:
+                    for n in ast.walk(stmt):
+                        if isinstance(n, ast.AugAssign):
+                            hits.append((getattr(n, "lineno", 0), src))
+    return hits
+
+
+def e3_hold_weighted_readout_lint(path: Path) -> Optional[str]:
+    """Hold-weighted-readout check (defect form 2). Return an issue string, or None.
+
+    THE DEFECT. `ree_core/agent.py:5430` returns the HELD action on
+    `if not ticks["e3_tick"] and self._last_action is not None:` -- BEFORE `e3.select()`
+    is reached. So the value handed back by `agent.select_action(...)` is UNCHANGED across
+    a whole hold. A driver that accumulates a per-step STATISTIC from that return value
+    therefore weights each commitment by its HOLD DURATION. Cadence defaults to 10 steps
+    (`utils/config.py:2017`) and varies 5-20 under MECH-093 arousal modulation
+    (`heartbeat/clock.py:52-70`), so the weighting is neither constant nor known.
+
+    WHY THIS IS A SEPARATE GATE FROM `e3_diagnostics_staleness_lint`. That lint keys on a
+    diagnostics LATCH being re-read. This form touches NO latch, so form 1 is structurally
+    blind to it. On V3-EXQ-699 form 1 fired on `:929` (`last_score_diagnostics`,
+    incidental) and was silent on `:882` -- the run's PRIMARY DV, and the site that forced
+    the withdrawal of the `levers_compound` finding. Keeping the gates separate also keeps
+    the adjudication honest in the other direction: 699's `active_frac == 1.0` is
+    INFORMATIVE because its diagnostics are genuinely fresh, where 708's identical 1.0 was
+    vacuous. Freshness and replication are independent defects.
+
+    THREE COVERED EXPOSURES, all confirmed on
+    `experiments/v3_exq_699_pcomp_demotion_x_gonogo_composition.py`:
+      (a) `:882`/`:899` -- `committed_class = int(action[0].argmax().item())` accumulated
+          into a class histogram on every P2 env step. THE PRIMARY DV.
+      (b) `:913` -- `agent.e3._last_selected_trajectory`, a per-selection latch (assigned
+          only in `select()`, `e3_selector.py:3108`) read once per env step. Empirical
+          confirmation that (a) and (b) are the same defect: 699's
+          `selected_class_entropy_nats == committed_class_entropy_nats` to 6dp on ALL 12
+          arm-seeds -- two nominally independent readouts are one number.
+      (c) `:856` -- `pre_e3_classes` from `agent.generate_trajectories(...)`, which returns
+          CACHED candidates on a non-E3 tick (`agent.py:4812`, MECH-057a gate).
+
+    CONSTRUCT MISMATCH IS THE GENERAL HAZARD, not staleness. The readout's sampling unit
+    (env step) must match what the mechanism acts on (selection). 699's occupancy entropy
+    is a genuine measurement of one thing and an invalid measurement of the thing its
+    claims are about.
+
+    SCOPE -- fires only on an ACCUMULATION (histogram / counter / running sum / gated
+    increment) of a SCALAR REDUCTION of the gated value, inside a loop. Stepping the env
+    with the action, and storing the action in a replay buffer, are CORRECT at every step
+    (the held action really is the action taken) and must not fire; that is what the
+    `_SCALAR_REDUCTIONS` requirement buys. Discharged by the same exemptions as form 1:
+    clear-before-select, a `ticks["e3_tick"]` guard, a direct `e3.select(...)` call site,
+    or identity-freshness dedup.
+
+    NOT EVERY FIRE IS CONTAMINATION -- this is the triage test the 699 and 708 autopsies
+    established, and it is why this gate reports rather than blocks. An inflated n is NOT
+    sufficient. A gate is SAFE when THRESHOLD-INVARIANT: a floor of literally 0.0 (">0"
+    cannot be manufactured from an all-zero record, nor collapsed from a genuine
+    positive), an exact-zero reading, or a fraction saturated at exactly 1.0. A gate is AT
+    RISK when it is a continuous margin against a non-trivial floor. It is DISQUALIFYING
+    when the statistic is a DISTRIBUTION-SHAPE measure -- entropy, variance, any
+    histogram-derived quantity -- because replication reweights the distribution itself,
+    which is exactly the operation such statistics are sensitive to.
+
+    CALIBRATION, and the limit of it. A matched replay on the
+    `v3_exq_663_modulatory_channel_routing` driver measured this defect's cost at
+    +0.01% / +0.64% / -0.87% -- sub-1% and sign-varying (REE_assembly WORKSPACE_STATE
+    2026-07-20T06:25Z, ree-v3 `5433e3ab1c`), so 662/663's estimates stand. That bounds the
+    defect WHERE ARM SYMMETRY MAKES IT CANCEL and where the DV is a continuous magnitude.
+    It does NOT bound it for entropy DVs, nor where arms differ in hold duration -- the
+    very quantity doing the weighting. See autopsy sec 4d.
+
+    Same static-AST limitation class as form 1: exemptions are detected file-wide rather
+    than per-read-site. WARN-ONLY IN BOTH MODES -- it never hardens under `--paths`. It
+    flags a SUSPECTED hold-weighted readout, never a proven one, and completed runs are
+    re-adjudicated via `/failure-autopsy`, never rewritten.
+
+    Opt-out: E3_HOLD_WEIGHTED_READOUT_EXEMPT = "<reason>".
+    """
+    try:
+        src = path.read_text(encoding="utf-8")
+        tree = ast.parse(src, filename=str(path))
+    except (OSError, UnicodeDecodeError, SyntaxError):
+        return None  # check_script already reports unreadable / syntax errors
+
+    if _E3_HOLD_WEIGHTED_EXEMPT_MARKER in src:
+        return None
+    if "select_action" not in src:
+        return None  # not driving the agent
+
+    # Same four discharges as form 1. `_clears_an_e3_latch` covers the form-1 attributes;
+    # a clear of `_last_selected_trajectory` counts here too.
+    if _clears_an_e3_latch(tree):
+        return None
+    if _guards_e3_latch_by_identity(tree):
+        return None
+    if any(isinstance(n, ast.Assign) and isinstance(n.value, ast.Constant)
+           and n.value.value is None
+           and any(isinstance(t, ast.Attribute)
+                   and t.attr in _E3_SELECTION_LATCHED_ATTRS for t in n.targets)
+           for n in ast.walk(tree)):
+        return None
+    if any(isinstance(n, ast.Constant) and n.value == "e3_tick" for n in ast.walk(tree)):
+        return None
+    if any(isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+           and n.func.attr == "select" and isinstance(n.func.value, ast.Attribute)
+           and n.func.value.attr == "e3" for n in ast.walk(tree)):
+        return None
+
+    loop_spans = []
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.For, ast.While)):
+            last = max((getattr(x, "lineno", node.lineno) for x in ast.walk(node)),
+                       default=node.lineno)
+            loop_spans.append((node.lineno, last))
+    if not loop_spans:
+        return None
+
+    def _in_loop(ln: int) -> bool:
+        return any(lo <= ln <= hi for lo, hi in loop_spans)
+
+    tainted, scalars = _e3_cadence_gated_sources(tree)
+    hits = [(ln, s) for ln, s in _hold_weighted_accumulations(tree, tainted, scalars)
+            if _in_loop(ln)]
+    # Form (b) needs no accumulation shape: the latch READ inside the loop is the defect,
+    # exactly as in form 1.
+    hits += [(r.lineno, "selected_traj") for r in _e3_selection_latch_reads(tree)
+             if _in_loop(r.lineno)]
+    if not hits:
+        return None
+
+    lines = sorted({ln for ln, _ in hits})
+    sources = sorted({s for _, s in hits})
+    _LABEL = {"select_action": "the select_action() return value",
+              "selected_traj": "agent.e3._last_selected_trajectory",
+              "candidates": "the e3_tick-gated candidate list"}
+    what = ", ".join(_LABEL[s] for s in sources)
+    return (f"HOLD-WEIGHTED E3 READOUT: accumulates a per-step statistic from {what} "
+            f"inside a driver loop (line(s) {', '.join(str(n) for n in lines[:6])}). "
+            "agent.py:5430 returns the HELD action on `not ticks[\"e3_tick\"]` BEFORE "
+            "e3.select() is reached, and generate_trajectories (agent.py:4812) returns "
+            "CACHED candidates on the same condition -- so each commitment is weighted by "
+            "its HOLD DURATION (cadence default 10, varying 5-20 under MECH-093 arousal). "
+            "This touches NO diagnostics latch, so the e3_diagnostics_staleness gate is "
+            "blind to it: on V3-EXQ-699 that gate fired only on an incidental read while "
+            "THIS site carried the primary DV, and the `levers_compound` finding was "
+            "withdrawn. TRIAGE, do not assume contamination -- an inflated n is not "
+            "sufficient. SAFE if threshold-invariant (a 0.0 floor, an exact zero, a "
+            "fraction saturated at 1.0); AT RISK for a continuous margin against a "
+            "non-trivial floor; DISQUALIFYING for a distribution-shape statistic "
+            "(entropy/variance/histogram), which replication reweights directly. The "
+            "663 replay bounding this at <1% and sign-varying applies only where arm "
+            "symmetry cancels it and the DV is a magnitude -- not to entropy DVs, nor "
+            "where arms differ in hold duration. FIX: gate the accumulation on a fresh "
+            "selection (clear-before-select, or `ticks[\"e3_tick\"]`), emit "
+            "`n_fresh_select` / `n_latched` / `fresh_select_yield`, and if the "
+            "hold-weighted quantity is wanted too, emit BOTH kept distinct. Reference: "
+            "experiments/v3_exq_785a_mech463_arousal_exogenous_urgency_decomp.py. "
+            "Exempt with E3_HOLD_WEIGHTED_READOUT_EXEMPT = \"<reason>\".")
+
+
 def _candidate_paths(paths: Sequence[str]) -> List[Path]:
     if paths:
         return [Path(p).resolve() for p in paths]
@@ -1736,6 +2158,7 @@ def main() -> int:
     n_anchor_superseded = 0
     recomput_warnings: List[Tuple[Path, str]] = []
     e3_stale_warnings: List[Tuple[Path, str]] = []
+    e3_hold_warnings: List[Tuple[Path, str]] = []
     for p in paths:
         rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
         if "conformance" in selected:
@@ -1810,6 +2233,12 @@ def main() -> int:
                 # WARN-only in BOTH modes -- see e3_diagnostics_staleness_lint() for why
                 # this one never hardens under --paths.
                 e3_stale_warnings.append((p, e3s))
+        if "e3_hold_weighted_readout" in selected:
+            e3h = e3_hold_weighted_readout_lint(p)
+            if e3h:
+                # WARN-only in BOTH modes -- see e3_hold_weighted_readout_lint() for why
+                # this one never hardens under --paths.
+                e3_hold_warnings.append((p, e3h))
 
     print("", flush=True)
     print(f"[validate_experiments] checked {len(paths)} scripts: "
@@ -1821,7 +2250,19 @@ def main() -> int:
           f"{len(anchor_warnings)} anchor-reachability-warning(s)"
           + (f" ({n_anchor_superseded} superseded)" if n_anchor_superseded else "") + ", "
           f"{len(recomput_warnings)} precondition-recomputability-warning(s), "
-          f"{len(e3_stale_warnings)} stale-e3-diagnostics-warning(s)", flush=True)
+          f"{len(e3_stale_warnings)} stale-e3-diagnostics-warning(s), "
+          f"{len(e3_hold_warnings)} hold-weighted-readout-warning(s)", flush=True)
+    if e3_hold_warnings:
+        # Advisory in BOTH modes (never hardens). Defect FORM 2 -- the diagnostics-latch
+        # gate below is structurally blind to it, so this is a separate section rather
+        # than more entries in that one. Pre-2026-07-20 backlog: drivers authored before
+        # the V3-EXQ-699 re-adjudication. Fires here are a TRIAGE LIST, not a verdict --
+        # threshold-invariant gates are safe, distribution-shape statistics are not.
+        print("", flush=True)
+        print("[validate_experiments] HOLD-WEIGHTED-E3-READOUT WARNINGS (advisory, non-blocking):", flush=True)
+        for p, warn in e3_hold_warnings:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
+            print(f"  - {rel}: {warn}", flush=True)
     if e3_stale_warnings:
         # Advisory in BOTH modes (never hardens -- the clear/guard/select exemptions are
         # detected file-wide, so this flags a SUSPECTED inflated denominator, never a
