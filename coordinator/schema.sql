@@ -22,7 +22,17 @@ CREATE TABLE IF NOT EXISTS experiments (
     claimed_by_machine  TEXT,
     claimed_at          TEXT,                              -- ISO-8601 UTC
     item_json           TEXT NOT NULL,                     -- full original item, lossless
-    updated_at          TEXT NOT NULL
+    updated_at          TEXT NOT NULL,
+    -- Why the row went terminal. status='completed' is overloaded: it means
+    -- "no longer claimable", NOT "ran to a scientific outcome". An operator
+    -- cancellation (POST /queue/remove), a runner ERROR and a scientific FAIL
+    -- all land here identically, so a `status='completed' LEFT JOIN results ->
+    -- no row` query cannot tell a crash from a deliberate cancellation. These
+    -- two columns preserve the `reason` that mark_queue_removed() previously
+    -- accepted and discarded. NULL on rows written before this migration and
+    -- on rows that never went through mark_queue_removed.
+    removal_reason      TEXT,                              -- PASS|FAIL|ERROR|operator string
+    removed_at          TEXT                               -- ISO-8601 UTC
 );
 
 -- One row per completed run. PK = run_id => result delivery is idempotent.

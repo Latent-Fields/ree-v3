@@ -25,7 +25,36 @@ def connect(db_path):
     conn.execute("PRAGMA busy_timeout=30000")
     _migrate_heartbeats(conn)
     _migrate_commands(conn)
+    _migrate_experiments(conn)
     return conn
+
+
+def _migrate_experiments(conn):
+    """Additive columns recording WHY a queue row went terminal.
+
+    status='completed' is overloaded: it means "no longer claimable", not
+    "ran to a scientific outcome". mark_queue_removed() already took a
+    `reason` argument and threw it away, so an operator cancellation
+    (POST /queue/remove), a runner ERROR and a scientific FAIL all produced
+    a byte-identical row. That is what made "phantom completions"
+    (status='completed' LEFT JOIN results -> no row) unclassifiable:
+    the query cannot separate a crash from a deliberate cancellation.
+    Confirmed on V3-EXQ-699a (2026-07-20), which was a /failure-autopsy
+    session cancelling an in-flight run to queue its repaired successor
+    699b -- correct behaviour recorded as if it were a completion.
+
+    Mirrors _migrate_heartbeats. Purely additive: existing rows keep NULL,
+    and no reader is required to consume these columns.
+    """
+    if not conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='experiments'"
+    ).fetchone():
+        return
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(experiments)")}
+    if "removal_reason" not in cols:
+        conn.execute("ALTER TABLE experiments ADD COLUMN removal_reason TEXT")
+    if "removed_at" not in cols:
+        conn.execute("ALTER TABLE experiments ADD COLUMN removed_at TEXT")
 
 
 def _migrate_heartbeats(conn):
@@ -84,6 +113,7 @@ def init_db(db_path):
         conn.executescript(fh.read())
     _migrate_heartbeats(conn)
     _migrate_commands(conn)
+    _migrate_experiments(conn)
     conn.close()
 
 
@@ -333,12 +363,23 @@ def mark_queue_removed(conn, queue_id, reason):
     DB row completed immediately prevents another coordinator-mode worker
     from reclaiming the item if the git queue push lags or fails. The shadow
     sync daemon will delete the row once the item disappears from git.
+
+    `reason` is PERSISTED (removal_reason/removed_at). It used to be accepted
+    and silently discarded, which is what made status='completed' ambiguous:
+    a runner ERROR, a scientific FAIL and an operator cancellation all wrote
+    the same row, so `status='completed' LEFT JOIN results -> no row` counted
+    deliberate cancellations as suspected crashes. Callers: the runner sends
+    "PASS"/"FAIL"/"ERROR" (coordinator_client.report_queue_remove); an
+    operator POSTing /queue/remove may send a free-text reason or none at all
+    (NULL is recorded, and is itself informative -- it marks the hand path).
+    Storing it does NOT change any status transition or claim behaviour.
     """
     now = utcnow()
     cur = conn.execute(
         "UPDATE experiments SET status='completed', claimed_by_machine=NULL, "
-        "claimed_at=NULL, updated_at=? WHERE queue_id=?",
-        (now, queue_id),
+        "claimed_at=NULL, updated_at=?, removal_reason=?, removed_at=? "
+        "WHERE queue_id=?",
+        (now, reason, now, queue_id),
     )
     return cur.rowcount > 0
 
