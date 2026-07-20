@@ -170,6 +170,24 @@ class BootstrapExplorerConfig:
     # / H-retention-consolidation). OFF: False -> the scalar-MSE critic, byte-identical.
     use_distributional_critic: bool = False
 
+    # POLICY KL ANCHOR (GOV-FANOUT-1 H-retention-consolidation, 2026-07-19; routed by
+    # failure_autopsy_MECH-457-gov-fanout-1-cluster-780-781-782). Adds a trust-region penalty
+    # kl_anchor_coef * KL(pi || pi_ref) to every policy update, where pi_ref is a FROZEN
+    # SNAPSHOT of the policy taken at the start of RL refinement -- i.e. at the post-BC-install
+    # checkpoint. Motivated by the measured V3-EXQ-780 raw_view reading: post-BC competence
+    # 20.933 eroded to 11.667 under unconstrained RL refinement, 3/3 seeds having taken the
+    # install. Applied inside train_bootstrap_explorer (an UPDATE-rule knob), NOT at rep
+    # construction like the critic swap.
+    # ANTI-ALIAS, both load-bearing: (1) anchors to the INSTALLED POLICY SNAPSHOT, never to the
+    # demonstrator -- anchoring via bc_aux_coef would alias with mech457_bc_aux_schedule /
+    # H-retention-auxiliary-decay; (2) leaves the VALUE ESTIMATOR untouched -- the KL term is a
+    # function of logits alone and puts zero gradient on value_head, that locus being
+    # mech457_distributional_critic / H-retention-critic. OFF: False/0.0 -> no snapshot, no
+    # term, byte-identical. The two fields must agree (train_a2c raises otherwise): a switch
+    # without a weight, or a weight without a switch, is the control wearing the treatment label.
+    use_policy_kl_anchor: bool = False
+    kl_anchor_coef: float = 0.0
+
     # RETENTION TRAJECTORY PROBE (mech457_retention_trajectory_probe, 2026-07-19). Episode
     # cadence for the non-perturbing mid-training competence probe. The competence_floor
     # retention legs must read a post-installation competence TRAJECTORY rather than terminal
@@ -208,6 +226,8 @@ class BootstrapExplorerConfig:
             "use_approach_primitive": bool(self.use_approach_primitive),
             "approach_coef": float(self.approach_coef),
             "use_distributional_critic": bool(self.use_distributional_critic),
+            "use_policy_kl_anchor": bool(self.use_policy_kl_anchor),
+            "kl_anchor_coef": float(self.kl_anchor_coef),
             "retention_probe_every": (
                 None if self.retention_probe_every is None else int(self.retention_probe_every)
             ),
@@ -295,7 +315,15 @@ def train_bootstrap_explorer(
     to each episode loss (the BC warm-start is a separate, prior driver-side step via
     mech.warmstart_bc_rep). cfg.use_approach_primitive/cfg.approach_coef (H-approach-primitive,
     V3-EXQ-781): OPTIONAL non-extinguishing appetitive resource-proximity intrinsic drive. Both
-    default OFF -> byte-identical to the pre-existing 765/769/770/771/772 callers."""
+    default OFF -> byte-identical to the pre-existing 765/769/770/771/772 callers.
+
+    cfg.use_policy_kl_anchor / cfg.kl_anchor_coef (mech457_policy_kl_anchor,
+    H-retention-consolidation): OPTIONAL trust-region penalty toward a FROZEN SNAPSHOT of the
+    policy as it enters this call. Because callers install the BC prior BEFORE calling here (see
+    baselines/mech457_retention.install_bc_prior -> train_off_arm), "as it enters this call" IS
+    the post-install checkpoint -- which is why the snapshot lives in train_a2c rather than
+    needing an explicit checkpoint argument. Unlike the critic swap this is an UPDATE-rule knob,
+    so it is applied here, not at rep construction. Default OFF -> byte-identical."""
     n_episodes = int(cfg.n_episodes)
     denom = int(denom) if denom is not None else n_episodes
     # Config preconditions FIRST, before any module is constructed -- a misconfigured arm should
@@ -363,6 +391,8 @@ def train_bootstrap_explorer(
         approach_coef=float(cfg.approach_coef),
         probe_every=cfg.retention_probe_every,
         probe_fn=probe_fn,
+        use_policy_kl_anchor=bool(cfg.use_policy_kl_anchor),
+        kl_anchor_coef=float(cfg.kl_anchor_coef),
     )
 
 

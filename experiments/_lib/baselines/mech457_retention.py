@@ -5,6 +5,12 @@ Shared by the GOV-FANOUT-1 retention legs queued as a pair on 2026-07-19:
   * V3-EXQ-788  H-retention-critic          (value estimator: scalar vs distributional)
   * V3-EXQ-789  H-retention-auxiliary-decay (auxiliary persistence: constant vs annealed vs off)
 
+A THIRD leg, H-retention-consolidation (update constraint: unconstrained vs KL-anchored to the
+installed policy), became buildable 2026-07-19 when mech457_policy_kl_anchor landed, and its
+knobs are threaded through reference_config() below (use_policy_kl_anchor / kl_anchor_coef). It
+is NOT YET QUEUED -- queueing is governed by GOV-FANOUT-1 and routed through /queue-experiment.
+Its OFF cell is this same shared control, so it reuses the banked baseline rather than minting.
+
 Both legs share ONE control: BC-install the raw_view policy to the ~20.9 competence point, then
 run the REFERENCE (non-regressed) RL refinement with no manipulation -- scalar critic, constant
 bc_aux_coef. That shared control is what this module builds, so the two legs' OFF cells agree by
@@ -77,14 +83,17 @@ def reference_config(
     bc_aux_coef_end: Optional[float] = None,
     bc_aux_anneal_fraction: float = 0.0,
     use_distributional_critic: bool = False,
+    use_policy_kl_anchor: bool = False,
+    kl_anchor_coef: float = 0.0,
     retention_probe_every: Optional[int] = None,
 ) -> boot.BootstrapExplorerConfig:
     """The shared reference RL-refinement config.
 
     Every keyword is a leg's declared manipulation; the defaults are the OFF/baseline arm. The
-    two legs vary DISJOINT knobs -- 788 varies use_distributional_critic (the value estimator),
-    789 varies the bc_aux_* triple (auxiliary persistence) -- which is the anti-alias the
-    portfolio depends on: a leg that moved both would read as neither.
+    three legs vary DISJOINT knobs -- 788 varies use_distributional_critic (the value
+    estimator), 789 varies the bc_aux_* triple (auxiliary persistence), and the third retention
+    leg varies use_policy_kl_anchor/kl_anchor_coef (the update constraint) -- which is the
+    anti-alias the portfolio depends on: a leg that moved two of them would read as neither.
     """
     budget = int(on_budget) if on_budget is not None else int(fan.RL_EPISODES * REF_BUDGET_MULTIPLIER)
     return boot.BootstrapExplorerConfig(
@@ -105,6 +114,8 @@ def reference_config(
         bc_aux_coef_end=bc_aux_coef_end,
         bc_aux_anneal_fraction=float(bc_aux_anneal_fraction),
         use_distributional_critic=bool(use_distributional_critic),
+        use_policy_kl_anchor=bool(use_policy_kl_anchor),
+        kl_anchor_coef=float(kl_anchor_coef),
         retention_probe_every=retention_probe_every,
     )
 
@@ -160,6 +171,12 @@ def build_off_arm(seed: int, env_kwargs: Dict[str, Any], *, steps: int,
     invisible in the manifest (both arms look well-formed), which is exactly the class of
     degenerate-arm-read-as-a-verdict failure the substrate's raise-on-scalar-path guard exists
     to make loud. Caught in review of V3-EXQ-788, 2026-07-19.
+
+    The KL-anchor knobs are deliberately ABSENT here, and that is not the same oversight: the
+    anchor is an UPDATE-rule knob applied inside train_bootstrap_explorer, not a rep-construction
+    one. Adding use_policy_kl_anchor to this call would be a no-op at best (make_rep does not
+    accept it) -- the constraint must reach train_off_arm via cfg, which it does. Do not
+    "symmetrise" this function with the critic swap.
     """
     cfg = cfg if cfg is not None else reference_config()
     warm_env = x734._make_env(seed, env_kwargs)

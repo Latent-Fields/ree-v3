@@ -89,6 +89,7 @@ SLEEP DRIVER: none (no sleep loop; use_sleep_loop / sws_enabled / rem_enabled al
 from __future__ import annotations
 
 from collections import deque
+import copy
 import random
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -561,6 +562,96 @@ class GoExploreArchive:
 
 
 # ===========================================================================
+# POLICY KL ANCHOR (mech457_policy_kl_anchor, H-retention-consolidation, 2026-07-19).
+# ===========================================================================
+class PolicyKLAnchor:
+    """Trust-region / KL anchor to a FROZEN SNAPSHOT of the INSTALLED policy.
+
+    The UPDATE-CONSTRAINT locus of the competence_floor retention triple. Adds
+    coef * KL(pi || pi_ref) to every policy update, where pi_ref is a deep copy of the
+    actor taken at construction time -- i.e. at the post-BC-install checkpoint, because
+    train_a2c is entered only after mech457_retention.install_bc_prior has run.
+
+    TWO ANTI-ALIAS PROPERTIES, both structural rather than conventional:
+
+    (1) ANCHORS TO THE INSTALLED POLICY, NOT THE DEMONSTRATOR. pi_ref is a copy of the
+        LEARNER'S OWN weights. This class never sees bc_demo and works identically with
+        bc_demo=None, so there is no path by which it could anchor to the demonstrator.
+        Anchoring via bc_aux_coef would anchor to the demonstrator and alias with
+        mech457_bc_aux_schedule / H-retention-auxiliary-decay (V3-EXQ-789).
+
+    (2) LEAVES THE VALUE ESTIMATOR UNTOUCHED. The KL term is a function of `logits`
+        alone, so it contributes EXACTLY ZERO gradient to value_head / value_bins, and
+        fan.critic_value_loss is byte-identical on both branches. That locus belongs to
+        mech457_distributional_critic / H-retention-critic (V3-EXQ-788). The honest limit
+        of this claim: the trunk is shared, so the critic's INPUT FEATURES do move. That
+        is the exact mirror image of the distributional critic's own situation (its CE
+        loss moves the trunk too), and its contract C2 asserted only that the CE loss puts
+        no gradient on the policy HEAD. Contract K3 here asserts the symmetric statement,
+        which is what keeps the two legs separately readable.
+
+    DIRECTION: KL(pi || pi_ref), i.e. the mode-seeking / reverse direction with respect to
+    the reference, per the substrate_queue implementation_hint. The live policy carries the
+    gradient; pi_ref is forwarded under no_grad on the SAME tensor the live actor consumed
+    (rep.z_detached(state) is, on BOTH reps, precisely the input ActorCriticPolicy.select()
+    receives), so the two distributions are compared on identical states.
+
+    Z_WORLD COTRAIN CAVEAT (documented, not defended against): under cotrain_encoder=True
+    the encoder moves during refinement, so pi_ref is evaluated on a drifting input and the
+    anchor is only approximate. The retention reference build runs cotrain_encoder=False
+    (z_world detached) and raw_view, on both of which the encoder is fixed and the anchor
+    is exact. A future cotrain consumer must either snapshot the encoder too or declare the
+    approximation.
+
+    NOT BUILT, deliberately: adaptive coefficient control / a target_kl trust-region radius.
+    A second moving part would confound the leg's single declared intervention; the fixed-
+    coefficient penalty is the sufficient instantiation.
+    """
+
+    def __init__(self, policy: Optional[ActorCriticPolicy], coef: float) -> None:
+        # Mis-wired anchor fails LOUDLY rather than producing an OFF arm labelled ON -- the
+        # degenerate-arm-read-as-a-verdict failure this family guards against everywhere.
+        if policy is None:
+            raise ValueError(
+                "PolicyKLAnchor: rep.policy() returned None -- the KL anchor needs an "
+                "ActorCriticPolicy to snapshot. A silently un-anchored ON arm is identical "
+                "to the control and would be read as a retention null it never tested."
+            )
+        if float(coef) <= 0.0:
+            raise ValueError(
+                "PolicyKLAnchor: kl_anchor_coef must be > 0 (got %r); a zero-weight anchor "
+                "is the OFF arm wearing the ON label." % (coef,)
+            )
+        self.coef = float(coef)
+        self.ref = copy.deepcopy(policy)
+        for p in self.ref.parameters():
+            p.requires_grad_(False)
+        self.ref.eval()
+        self.kl_recent: deque = deque(maxlen=TRAIN_FORAGE_WINDOW)
+
+    def ref_logits(self, rep: "RepAgent", state: Any) -> torch.Tensor:
+        """Frozen-snapshot logits for the state the live actor just acted on."""
+        with torch.no_grad():
+            logits, _value, _phi, _psi = self.ref(rep.z_detached(state))
+        return logits.reshape(-1).detach()
+
+    def kl(self, live_logits_t: torch.Tensor, ref_logits_t: torch.Tensor) -> torch.Tensor:
+        """Mean KL(pi || pi_ref) over the batch. Graph-connected through live_logits_t only."""
+        logp = torch.nn.functional.log_softmax(live_logits_t, dim=-1)
+        logq = torch.nn.functional.log_softmax(ref_logits_t.detach(), dim=-1)
+        return (logp.exp() * (logp - logq)).sum(dim=-1).mean()
+
+    def penalty(self, live_logits_t: torch.Tensor, ref_logits_t: torch.Tensor) -> torch.Tensor:
+        """coef * KL, recording the REALISED KL so a manifest can verify the anchor bound."""
+        kl_t = self.kl(live_logits_t, ref_logits_t)
+        self.kl_recent.append(float(kl_t.item()))
+        return self.coef * kl_t
+
+    def mean_kl_recent(self) -> float:
+        return float(sum(self.kl_recent) / len(self.kl_recent)) if self.kl_recent else 0.0
+
+
+# ===========================================================================
 # Generic A2C trainer with mechanism hooks (sparse / RND / H-credit / H-return / H-mode /
 # the H-credit x H-return PAIR). Single-backward-per-episode, GAE advantages -- byte-comparable
 # to fan.train_zworld_ac_shaped. Hooks:
@@ -591,6 +682,8 @@ def train_a2c(
     approach_coef: float = 0.0,
     probe_every: Optional[int] = None,
     probe_fn: Optional[Callable[[int], Dict[str, Any]]] = None,
+    use_policy_kl_anchor: bool = False,
+    kl_anchor_coef: float = 0.0,
 ) -> Dict[str, Any]:
     # coef_schedule / entropy_schedule (MECH-457 bootstrap-explorer, 2026-07-16): OPTIONAL
     # training-progress schedules for the intrinsic coefficient and rollout entropy, computed
@@ -634,6 +727,29 @@ def train_a2c(
         raise ValueError(
             "train_a2c: probe_every must be a positive episode cadence (got %r)." % (probe_every,)
         )
+    # use_policy_kl_anchor / kl_anchor_coef (mech457_policy_kl_anchor,
+    # H-retention-consolidation, 2026-07-19): OPTIONAL trust-region penalty pinning the policy
+    # to a FROZEN SNAPSHOT of itself taken at entry -- which is the post-BC-install checkpoint,
+    # since train_a2c is entered only after the install step. This is the UPDATE CONSTRAINT
+    # locus of the retention triple: it changes neither the value estimator
+    # (mech457_distributional_critic) nor the auxiliary's persistence (mech457_bc_aux_schedule),
+    # and it never references bc_demo. Both default OFF -> no snapshot is taken, no logits are
+    # collected and no term is added, byte-identical to every pre-change caller.
+    # The switch and the weight must AGREE. A half-declared anchor is the same class of defect
+    # as a half-wired probe: an ON arm carrying a zero weight, or a nonzero weight silently
+    # discarded, both yield an arm that IS the control while being labelled the treatment.
+    if bool(use_policy_kl_anchor) != (float(kl_anchor_coef) > 0.0):
+        raise ValueError(
+            "train_a2c: use_policy_kl_anchor and a positive kl_anchor_coef must be supplied "
+            "together (got use_policy_kl_anchor=%r, kl_anchor_coef=%r); either spelling alone "
+            "produces an arm identical to the unconstrained control while labelled as anchored."
+            % (use_policy_kl_anchor, kl_anchor_coef)
+        )
+    # Snapshot BEFORE the first update. rep.policy() is the live actor-critic; PolicyKLAnchor
+    # raises if it is None (z_world reps built without an action_critic).
+    kl_anchor = (
+        PolicyKLAnchor(rep.policy(), float(kl_anchor_coef)) if use_policy_kl_anchor else None
+    )
     competence_trajectory: List[Dict[str, Any]] = []
     # bc_demo / bc_aux_coef (H-bc-prior, V3-EXQ-780): OPTIONAL persistent imitation AUXILIARY.
     # When bc_demo is set and bc_aux_coef>0, at each rollout step the demonstrator's action for
@@ -695,6 +811,13 @@ def train_a2c(
         # For H-bc-prior persistent auxiliary: on-policy (logits, demo-action) pairs per step.
         bc_logits: List[torch.Tensor] = []
         bc_targets: List[int] = []
+        # For the KL anchor: live (grad-carrying) and frozen-snapshot logits per step. Kept
+        # SEPARATE from bc_logits above -- they happen to hold the same live tensors, but the
+        # two are collected under independent conditions and sharing one buffer would silently
+        # couple the update constraint to the demonstrator auxiliary, which is precisely the
+        # alias this substrate exists to avoid.
+        kl_live_logits: List[torch.Tensor] = []
+        kl_ref_logits: List[torch.Tensor] = []
         terminal = False
         bootstrap_value = 0.0
         ep_resources = 0
@@ -734,6 +857,11 @@ def train_a2c(
             if credit_replay:
                 replay_obs.append(obs_dict)
                 replay_actions.append(a_idx)
+            if kl_anchor is not None:
+                # `state` is still the PRE-step state `step` was produced from, so the frozen
+                # snapshot is forwarded on exactly the input the live actor consumed.
+                kl_live_logits.append(step.logits.reshape(-1))
+                kl_ref_logits.append(kl_anchor.ref_logits(rep, state))
             if bc_demo is not None:
                 # obs_dict / env are still at the PRE-step state matching `step` -> the demo's
                 # action for the state the actor just acted on (on-policy DAgger-lite label).
@@ -814,6 +942,12 @@ def train_a2c(
                 bc_target_t = torch.tensor(bc_targets, dtype=torch.long, device=DEVICE)
                 bc_loss = torch.nn.functional.cross_entropy(bc_logit_t, bc_target_t)
                 loss = loss + bc_coef_eff * bc_loss
+            if kl_anchor is not None and kl_live_logits:
+                # Trust-region penalty toward the installed snapshot. Added AFTER the BC term
+                # and computed from its own buffers, so the two are separable by construction.
+                loss = loss + kl_anchor.penalty(
+                    torch.stack(kl_live_logits), torch.stack(kl_ref_logits)
+                )
             if torch.isfinite(loss):
                 optimiser.zero_grad(set_to_none=True)
                 loss.backward()
@@ -825,6 +959,7 @@ def train_a2c(
             n_credit_passes += _prioritized_credit_replay(
                 rep, optimiser, params, replay_obs, replay_actions, rets, ep_value_f,
                 passes=int(credit_replay_passes), topk=int(credit_topk),
+                kl_anchor=kl_anchor,
             )
 
         if intrinsic is not None:
@@ -891,6 +1026,16 @@ def train_a2c(
         # Emitted unconditionally (empty when unprobed), matching the bc_aux_coef_first/_last
         # precedent: a consumer can then read one stable key rather than branching on presence.
         "competence_trajectory": list(competence_trajectory),
+        # Declared weight + REALISED KL. The measured value is what lets a manifest verify the
+        # anchor actually BOUND rather than assuming it did -- same reasoning as
+        # bc_aux_coef_first/_last. A ~0 mean KL on an arm labelled anchored means the policy
+        # never tried to leave the snapshot, which is a different reading from a null.
+        # Emitted unconditionally (0.0 / False when OFF) so consumers read one stable key.
+        "policy_kl_anchor_installed": bool(kl_anchor is not None),
+        "policy_kl_anchor_coef": round(float(kl_anchor_coef), 6),
+        "mean_policy_kl_to_anchor_recent": round(
+            kl_anchor.mean_kl_recent() if kl_anchor is not None else 0.0, 6
+        ),
         "n_return_episodes": int(n_returns),
         "n_credit_replay_passes": int(n_credit_passes),
     }
@@ -900,6 +1045,7 @@ def _prioritized_credit_replay(
     rep: RepAgent, optimiser: torch.optim.Optimizer, params: List[torch.nn.Parameter],
     replay_obs: List[Dict[str, Any]], replay_actions: List[int], rets: List[float],
     values_f: List[float], passes: int = CREDIT_REPLAY_PASSES, topk: int = CREDIT_TOPK,
+    kl_anchor: Optional["PolicyKLAnchor"] = None,
 ) -> int:
     """Mattar & Daw prioritized sweeping + Foster & Wilson reverse replay, RL-native.
 
@@ -910,7 +1056,15 @@ def _prioritized_credit_replay(
     cotrain, the encoder). Changes ONLY the credit assigned to already-collected reward; the
     rollout/exploration is untouched. `passes`/`topk` default to CREDIT_REPLAY_PASSES/CREDIT_TOPK
     (the 752-756 values); the MECH-457 capacity-amend build raises them for credit reliability.
-    Returns the number of replay passes applied."""
+    Returns the number of replay passes applied.
+
+    kl_anchor (mech457_policy_kl_anchor, 2026-07-19): the replay update is a SECOND policy-
+    gradient step per episode, so the trust-region penalty is applied here TOO. Anchoring only
+    the main loss would leave the constraint leaky, and a null from H-retention-consolidation
+    would then be unreadable -- "anchoring does not preserve competence" and "the unanchored
+    replay update drifted the policy anyway" would be indistinguishable. The reference retention
+    build runs credit_replay=True, so this path is live, not hypothetical. Default None -> no
+    term, byte-identical."""
     T = min(len(replay_obs), len(rets), len(values_f))
     if T == 0:
         return 0
@@ -923,6 +1077,8 @@ def _prioritized_credit_replay(
         logps: List[torch.Tensor] = []
         values: List[torch.Tensor] = []
         value_logits: List[torch.Tensor] = []   # distributional critic only (else empty)
+        kl_live: List[torch.Tensor] = []        # KL anchor only (else empty)
+        kl_ref: List[torch.Tensor] = []
         credits: List[float] = []
         ret_targets: List[float] = []
         for rank, t in enumerate(order):
@@ -930,6 +1086,9 @@ def _prioritized_credit_replay(
             step = rep.step(state, deterministic=False)
             logp = _action_logprob(step, int(replay_actions[t]))
             logps.append(logp)
+            if kl_anchor is not None:
+                kl_live.append(step.logits.reshape(-1))
+                kl_ref.append(kl_anchor.ref_logits(rep, state))
             values.append(step.value.reshape(-1)[0])
             if step.value_logits is not None:
                 value_logits.append(step.value_logits.reshape(-1))
@@ -946,7 +1105,14 @@ def _prioritized_credit_replay(
         policy_loss = -(logp_t * credit_t.detach()).mean()
         vlogits_t = torch.stack(value_logits) if value_logits else None
         value_loss = fan.critic_value_loss(rep.policy(), vlogits_t, value_t, ret_t)
-        loss = CREDIT_LR_SCALE * (policy_loss + value_loss)
+        # Inside the CREDIT_LR_SCALE parenthesis on purpose: the constraint is scaled by the
+        # same factor as the update it constrains, so the trust region stays proportional
+        # rather than dominating (or vanishing against) a rescaled replay step.
+        kl_pen = (
+            kl_anchor.penalty(torch.stack(kl_live), torch.stack(kl_ref))
+            if (kl_anchor is not None and kl_live) else 0.0
+        )
+        loss = CREDIT_LR_SCALE * (policy_loss + value_loss + kl_pen)
         if torch.isfinite(loss):
             optimiser.zero_grad(set_to_none=True)
             loss.backward()
