@@ -13,39 +13,56 @@ fixed-N stop and the Miller-Madow correction were both confirmed by direct
 execution -- a cell stops at exactly N and the correction equals (K_obs-1)/(2N)
 to the digit). It is deliberately NOT in experiment_queue.json.
 
-WHY IT IS PARKED. The case for it rested on an arithmetic claim that turned out
-to be WRONG IN DIRECTION. The magnitude of the bias it removes depends on the
-fresh-selection yield, and the yield was INFERRED as ~1/e3_steps_per_tick = 0.1.
-That inference is invalid: E3 firing is EVENT-DRIVEN. heartbeat/clock.py
-advance() fires an E3 tick IMMEDIATELY on a pending phase reset (a salient event)
-and resets the phase counter, and agent.py:5430 additionally runs select() on a
-non-E3 tick whenever _last_action is None. So e3_steps_per_tick=10 is the MAXIMUM
-interval between ticks, which makes n_p2_ticks/10 a LOWER bound on N, not an
-upper one. A short probe on an undertrained agent measured a replication factor
-near 2 (7 fresh selections in 14 P2 ticks).
+WHY IT IS PARKED. Not because the defect is unreal -- it is real -- but because
+its MAGNITUDE turns on a quantity nobody has measured for THIS config, and
+V3-EXQ-699b measures it directly.
 
-The bias differential this driver removes scales as 1/yield. On 699's seed-44
-record (ARM_GNG 461 vs ARM_DEM 1737 P2 env steps, K_obs=3):
+The bias this driver removes scales as 1/yield, where yield =
+n_fresh_select / n_p2_ticks. The relevant evidence, in order of quality:
 
-    yield 0.1 (the wrong inference)  ->  0.0159 nats, 32% of COMPOSITION_LIFT_MARGIN
-    yield 0.5 (measured, untrained)  ->  0.0032 nats,  6.4%
-    yield 1.0                        ->  0.0016 nats,  3.2%
+  * V3-EXQ-785a, a REAL full-scale run, recorded fresh_select_yield 0.111 / 0.143
+    / 0.111 across its arms -- i.e. ~0.12, just above 1/e3_steps_per_tick = 0.1.
+    This is the best available anchor and it VALIDATES the original ~0.1 scale.
+  * A --dry-run probe of this driver measured ~0.5. DISREGARD IT. Short
+    DRY_RUN_STEPS episodes end in ~10-17 ticks and E3 fires near episode start,
+    so toy yields overstate the real value 4-8x (the V3-EXQ-707c smoke saw
+    0.67-1.00 for the same reason). An earlier revision of this banner treated
+    that 0.5 as representative and understated the defect ~5x; it was wrong.
 
-The STRUCTURAL confound is real at any yield -- N is proportional to survival and
-survival differs ~3.8x across arms within seed 44 -- but the size of it is
-unknown, and the trained-agent yield is exactly what V3-EXQ-699b measures for the
-first time (it emits n_fresh_select / n_latched / fresh_select_yield /
-replication_factor per arm-seed). There is also a cost this design does NOT avoid:
-at a high yield, fixed-N at 400 makes P2 very short (~800 env steps against 699's
-12000), so it characterises only the early part of P2 -- equal-N trades unequal
-SAMPLE SIZE for unequal DURATION.
+At the 785a-anchored yield, on 699's seed-44 record (ARM_GNG 461 vs ARM_DEM 1737
+P2 env steps, K_obs = 3), the arm-dependent bias differential is:
+
+    yield 0.117  ->  N 54 vs 203  ->  0.0136 nats, 27% of COMPOSITION_LIFT_MARGIN
+
+which is the order the repair was designed against.
+
+THE ONE THING THAT COULD STILL SHRINK IT, and the actual reason to wait. E3 firing
+is EVENT-DRIVEN, not a fixed 1-in-10: clock.advance() fires immediately on a
+pending phase reset, and agent.py:5430 runs select() whenever _last_action is None
+-- so an episode RESET buys a free selection. A DEATH-PRONE cell running many
+SHORT episodes therefore earns a HIGHER yield than a long-surviving one, which
+partially COMPENSATES the very survival-driven spread this driver exists to
+remove. If each of 699's 60 P2 episodes contributes one free selection, seed 44's
+N ratio falls from ~3.8x to ~2.2x and the differential to ~0.005 nats (~10% of the
+margin). That compensation is REAL but UNQUANTIFIED, and it is not derivable from
+any recorded manifest -- 699 recorded no fresh-selection counts at all.
+
+So the honest range is roughly 10-30% of the decision margin, and 699b resolves it
+by emitting n_fresh_select / n_latched / fresh_select_yield / replication_factor
+per arm-seed.
+
+There is also a cost this design does NOT avoid: at yield ~0.12, fixed-N at 400
+means ~3400 P2 env steps against 699's 12000 on the long-surviving cells, so it
+characterises a shorter slice of P2 -- equal-N trades unequal SAMPLE SIZE for
+unequal DURATION.
 
 DECISION (user, 2026-07-20): run V3-EXQ-699b first and decide on its MEASURED N
-distribution rather than on an inference. Queue this driver only if 699b's
-recorded fresh_select_yield shows N genuinely varying across arms by enough to
-matter against COMPOSITION_LIFT_MARGIN=0.05. If you queue it, re-check the
-"WHY 400" arithmetic below against 699b's measured yield first -- it was sized on
-the same bad 0.1 assumption and the target may want to be larger or smaller.
+distribution rather than on an estimate. Queue this driver if 699b's recorded
+per-cell N still varies across arms within a seed by enough to matter against
+COMPOSITION_LIFT_MARGIN=0.05. If you queue it, re-check the "WHY 400" arithmetic
+below against 699b's measured yield -- 400 was sized assuming ~4000 P2 env steps
+per cell at yield 0.1, which the 785a anchor supports, but 699b will give the
+exact number for this config.
 
 SECOND INSTRUMENT REPAIR (V3-EXQ-699b -> 699c) -- READ THIS FIRST
 =================================================================
@@ -60,12 +77,13 @@ CausalGridWorldV2 terminates an episode on DEATH (`agent_health <= 0.0 or
 steps >= 500`, causal_grid_world.py:2626), and 699/699b cap steps_per_episode at
 200 -- below that 500 -- so P2 length is set by SURVIVAL, not by the schedule.
 699's recorded P2 env-step counts per cell ranged 461 .. 12000 against a nominal
-60 x 200 = 12000. The corresponding fresh-selection counts are UNKNOWN -- see the
-PARKED banner above: E3 firing is event-driven, so n_p2_ticks/10 is a LOWER bound
-on N, not the estimate originally used here. What matters below is not the
-absolute N but that N is PROPORTIONAL TO SURVIVAL and therefore differs across
-arms within a seed (461 vs 1737 env steps on seed 44, a ~3.8x spread); that
-ratio, and hence the qualitative confound, is yield-independent.
+60 x 200 = 12000. At the yield V3-EXQ-785a measured on a real run (~0.117) those
+correspond to roughly 54 .. 1400 genuine E3 selections. Treat that as a SCALE, not
+a fact: 699 recorded no fresh-selection counts, E3 firing is event-driven (so
+n_p2_ticks/10 slightly UNDER-estimates N), and the episode-reset effect described
+in the PARKED banner compresses the spread by an unquantified amount. What is
+yield-INDEPENDENT, and what actually drives the argument below, is that N is
+PROPORTIONAL TO SURVIVAL and therefore differs across arms within a seed.
 
 WHY THAT IS FATAL TO THE DV RATHER THAN MERELY NOISY: the plug-in (maximum-
 likelihood) entropy estimator this DV uses is DOWNWARD-biased by approximately
