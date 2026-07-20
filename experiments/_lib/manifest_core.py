@@ -30,6 +30,12 @@ Always-core fields it stamps (standard 3b)
                      longer matches disk at stamp time). Deliberately NOT in
                      ALWAYS_CORE_KEYS: the pre-2026-07-20 corpus cannot carry it, and
                      making it core would turn every legacy manifest into a WARN.
+  arm_knobs_effective : bool -- False iff some pair of arms DECLARED distinct ran
+                     bit-identically on every recorded per-cell field at matched seed,
+                     i.e. the knob naming their difference was inert (the V3-EXQ-689d D2
+                     defect, which silently degrades conjunctive acceptance criteria).
+                     See experiments/_lib/inert_arm_knob.py. Deliberately NOT in
+                     ALWAYS_CORE_KEYS, for the same legacy-corpus reason as above.
   machine          : socket.gethostname() (or a caller override -- the hub records
                      "ree-cloud-1" although its hostname is "ree-worker-1").
   machine_class    : arm_fingerprint.machine_class() -- fingerprint equality is
@@ -67,6 +73,16 @@ except Exception:  # pragma: no cover - path-dependent fallbacks
         from . import arm_fingerprint as _afp  # type: ignore
     except Exception:
         import arm_fingerprint as _afp  # type: ignore
+
+# Same triple-fallback import shape as arm_fingerprint above -- inert_arm_knob is a
+# sibling module in this package and stdlib-only.
+try:  # normal package import
+    from experiments._lib import inert_arm_knob as _inert_arm_knob  # type: ignore
+except Exception:  # pragma: no cover - path-dependent fallbacks
+    try:
+        from . import inert_arm_knob as _inert_arm_knob  # type: ignore
+    except Exception:
+        import inert_arm_knob as _inert_arm_knob  # type: ignore
 
 RECORDING_SCHEMA = "rec/v1"
 
@@ -298,6 +314,19 @@ def stamp_recording_core(
             # reuse path treats "absent" as unproven-but-not-disproven, falling back to
             # the per-cell cardinality test it can compute for itself.
             pass
+
+    # arm_knobs_effective -- did every declared-distinct arm pair actually run differently?
+    # Purely manifest-local (no substrate dependency): it compares recorded per-cell fields
+    # at matched seed. Catches the V3-EXQ-689d D2 defect, where ARM_PROPOSER_CTRL and
+    # ARM_MATCHED_NOISE were bit-identical on 26 of 27 fields at all three seeds and
+    # differed only in the `temperature` field naming their intended difference -- so the
+    # conjunctive C_PRIMARY silently degraded to one of its conjuncts and the run PASSED.
+    # RECORD-AND-WARN, never a hard failure: by manifest-write time the compute is spent.
+    # The helper is internally exception-safe; the guard here covers the import itself.
+    try:
+        _inert_arm_knob.stamp_inert_arm_knob(manifest)
+    except Exception:
+        pass
 
     # machine / machine_class -- where it ran + the class the hash is valid within.
     _fill("machine", machine if machine else socket.gethostname())
