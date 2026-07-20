@@ -367,6 +367,17 @@ class CausalGridWorld:
         # paired with a divergent per_axis_drive_decay tuple, produces a persistent
         # argmax-relevant per-axis drive spread instead of the equalised ~0.006.
         per_axis_restoration_fraction: float = 1.0,
+        # SD-049-PHASE-2 density-preserving spawn (failure_autopsy_V3-EXQ-693a):
+        # the default spawn path draws a FIXED budget of num_resources cells and
+        # then SPLITS it across the active types, so an n-type arm has ~n-fold
+        # lower per-type density than a 1-type arm. That is a confound in the
+        # 4-arm substrate gradient (ARM_0..ARM_3 vary per-type density as well as
+        # heterogeneity) and the mechanism behind the ARM_2 contact-rate ceiling
+        # (behav_contact_rate 0.0099-0.0188 against a 0.02 floor).
+        # True -> num_resources is read as a PER-ACTIVE-TYPE count, so per-type
+        # density is held constant as types come online and the arms differ only
+        # in heterogeneity. Default False is bit-identical to the split budget.
+        sd049_preserve_per_type_density: bool = False,
         novelty_familiarity_increment: float = 0.2,
         novelty_familiarity_recovery: float = 0.0,
         resource_introduction_schedule: Optional[Dict[str, int]] = None,
@@ -810,6 +821,14 @@ class CausalGridWorld:
         self.per_axis_restoration_fraction = float(
             np.clip(per_axis_restoration_fraction, 0.0, 1.0)
         )
+        # SD-049-PHASE-2 density-preserving spawn: read num_resources as a
+        # per-active-type count rather than a total split across types.
+        self.sd049_preserve_per_type_density = bool(sd049_preserve_per_type_density)
+        # Diagnostic: True when the forage pool was too small to honour the
+        # density-preserving budget, so per-type density was NOT actually held
+        # constant. Surfaced in the env state dict -- a silent truncation would
+        # reproduce exactly the density confound this flag exists to remove.
+        self._sd049_density_budget_truncated = False
         # Novelty per-cell familiarity dynamics (used only when
         # any benefit curve is "novelty_decay"; harmless arithmetic otherwise).
         self.novelty_familiarity_increment = float(novelty_familiarity_increment)
@@ -1311,6 +1330,9 @@ class CausalGridWorld:
         # identity-classifier supervision target after the cell tag has been
         # cleared in the resource-consumption branch.
         self._consumed_type_tag_this_tick = 0
+        # Cleared per episode so the no-active-types edge case (which skips the
+        # spawn branch below) cannot leave a stale truncation reading.
+        self._sd049_density_budget_truncated = False
         if self.multi_resource_heterogeneity_enabled:
             # Determine which types are currently introduced via the curriculum.
             active_types = [
@@ -1326,7 +1348,18 @@ class CausalGridWorld:
             if active_types and sum(active_weights) > 0.0:
                 weights = np.array(active_weights, dtype=np.float64)
                 weights = weights / weights.sum()
-                n_to_spawn = min(self.num_resources, len(forage_pool))
+                # SD-049-PHASE-2 density-preserving spawn: scale the budget by the
+                # number of ACTIVE types (not n_resource_types) so per-type density
+                # is held constant as the curriculum introduces types. Default path
+                # keeps the fixed split budget and is bit-identical.
+                if self.sd049_preserve_per_type_density:
+                    desired = self.num_resources * len(active_types)
+                else:
+                    desired = self.num_resources
+                n_to_spawn = min(desired, len(forage_pool))
+                self._sd049_density_budget_truncated = bool(
+                    self.sd049_preserve_per_type_density and n_to_spawn < desired
+                )
                 for _ in range(n_to_spawn):
                     if self.microhabitat_enabled:
                         rx, ry = self._pop_zone_weighted(forage_pool, "resource")
@@ -2741,6 +2774,12 @@ class CausalGridWorld:
                 else [0] * self.n_resource_types
             ),
             "sd049_global_step": int(self._global_step),
+            # SD-049-PHASE-2 density-preserving spawn diagnostics. The truncated
+            # flag must be checked by any experiment relying on constant per-type
+            # density: when True the forage pool capped the budget and the arms
+            # are once again confounded by density.
+            "sd049_preserve_per_type_density": bool(self.sd049_preserve_per_type_density),
+            "sd049_density_budget_truncated": bool(self._sd049_density_budget_truncated),
             "sd049_resource_type_at_agent": (
                 int(self._resource_type_grid[self.agent_x, self.agent_y])
                 if self.multi_resource_heterogeneity_enabled
