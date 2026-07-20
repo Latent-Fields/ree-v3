@@ -302,6 +302,74 @@ def test_counter_derived_quantities():
     assert d["hold_duration_max"] == 10
 
 
+def test_counter_is_bit_identical_to_the_hand_rolled_original():
+    """Differential test against the EXACT inline algorithm the helper replaced.
+
+    Reproduced verbatim from v3_exq_699b / 689i / 699c before migration. The
+    counting and hold bookkeeping are the only numerics the migration touched,
+    so this is what "preserves behaviour exactly" has to mean. Randomised over
+    many fresh/latched sequences WITH episode boundaries, since the boundary
+    flush is where an off-by-one would hide.
+    """
+    import random
+
+    rng = random.Random(20260720)
+    for trial in range(400):
+        seq = [
+            [rng.random() < 0.12 for _ in range(rng.randint(0, 40))]
+            for _ in range(rng.randint(1, 6))
+        ]
+
+        # --- original, inline ------------------------------------------------
+        o_fresh = 0
+        o_latched = 0
+        o_holds: list = []
+        o_cur = 0
+        for episode in seq:
+            if o_cur > 0:            # episode-boundary flush
+                o_holds.append(o_cur)
+                o_cur = 0
+            for fresh in episode:
+                if fresh:
+                    o_fresh += 1
+                    if o_cur > 0:
+                        o_holds.append(o_cur)
+                    o_cur = 1
+                else:
+                    o_latched += 1
+                    if o_cur > 0:
+                        o_cur += 1
+        if o_cur > 0:                # final flush
+            o_holds.append(o_cur)
+            o_cur = 0
+
+        # --- helper ----------------------------------------------------------
+        c = FreshSelectCounter()
+        for episode in seq:
+            c.flush()
+            for fresh in episode:
+                c.record(fresh)
+        c.flush()
+
+        assert c.n_fresh_select == o_fresh, f"trial {trial}: fresh count diverged"
+        assert c.n_latched == o_latched, f"trial {trial}: latched count diverged"
+        assert c.hold_durations == o_holds, (
+            f"trial {trial}: hold durations diverged\n"
+            f"  helper:   {c.hold_durations}\n"
+            f"  original: {o_holds}"
+        )
+
+        n_ticks = sum(len(e) for e in seq)
+        if n_ticks:
+            assert c.fresh_select_yield(n_ticks) == pytest.approx(
+                float(o_fresh) / float(n_ticks)
+            )
+        if o_fresh:
+            assert c.replication_factor(n_ticks) == pytest.approx(
+                float(n_ticks) / float(o_fresh)
+            )
+
+
 def test_counter_derived_quantities_are_zero_safe():
     c = FreshSelectCounter()
     d = c.as_dict(n_ticks=0)
