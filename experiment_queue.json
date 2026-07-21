@@ -44,6 +44,23 @@
       "experiment_purpose": "diagnostic"
     },
     {
+      "queue_id": "V3-EXQ-728b",
+      "title": "Trained all-ON capability point re-run with the SD-070 z_world P0a encoder warmup (supersedes V3-EXQ-728; 728a burned)",
+      "script": "experiments/v3_exq_728b_trained_allon_capability_point.py",
+      "priority": 45,
+      "machine_affinity": "any",
+      "estimated_minutes": 220,
+      "supersedes": "V3-EXQ-728",
+      "note": "SD-070 ADOPTION VALIDATION (re-land of the WS-3 trained-all-ON capability point). Supersedes V3-EXQ-728, whose 2026-07-20 run FAILed with z_world a FROZEN RANDOM PROJECTION: no optimizer group in this driver's OWN _train_all_on_agent copy covered any latent_stack parameter, measured 0 of 61 latent_stack / 0 of 4 world_encoder tensors changed at p0_episodes=200, guard-red 3 of 3 seeds (adjudicated by the CONFIRMED autopsy failure_autopsy_V3-EXQ-728_2026-07-20.json; self-route substrate_not_ready_requeue UPHELD, category competence_implementation_gap, routed implement-substrate then a gated re-run). THE BUILD HAS LANDED: ree-v3 b523b9c wires the SD-070 z_world encoder warmup into the _train_all_on_agent family and this driver's own copy opts in at ZWORLD_P0_EPISODES=60 (P0a runs AHEAD of the e2 warmup -- ordering is load-bearing because e2 regresses on z_world). WHY 728b AND NOT 728a: V3-EXQ-728a is BURNED -- the coordinator DB holds it status=completed with removal_reason=FAIL and removed_at=2026-07-20T15:54:17Z, which is V3-EXQ-728's pre-fix FAIL event (received_at 15:54:15Z), NOT a 728a run. It has NO result row and NO manifest, was never claimed (claimed_by_machine null), and the b523b9c note was written into that already-terminal row at updated_at 19:01:58Z; the next phase3-queue snapshot therefore dropped it from the git queue. So the 728-driver SD-070 validation has never actually run, and the 728a id cannot be re-served. GOV-REUSE-1: decisive readout is the zworld_encoder_guard tensor-change count under the POST-fix substrate -- no recorded manifest carries it (the only 728 manifests are the pre-fix 20260720T155414Z FAIL and a 20260709 run, both on the pre-SD-070 substrate, and arm fingerprints now declare zworld_p0_episodes so no pre-fix banked arm can cache-HIT), so it is not recoverable by reanalysis -> run. ACCEPTANCE: zworld_encoder_guard green (world_encoder tensors changed > 0 on every seed). SMOKE PASS 2026-07-21 on this exact fork: arm_green=True, seeds_checked=2, seeds_failed=0, per_arm_gate green=[random_walk, ree_trained_allon, greedy_oracle] red=[] non_degenerate=True, outcome PASS readiness_met=True (pre-fix was 3 of 3 seeds FAILED). Baseline, claim_ids=[] -- EXCLUDED from governance scoring, promotes/demotes nothing. On PASS this lifts substrate_queue sd_zworld_warmup_optimizer_group from implemented_pending_validation (unblocks_claims MECH-457, INV-088, Q-002) and re-lands ree_ai_design_critique_plan.md WS-3, currently stale.",
+      "status": "pending",
+      "claim_ids": [],
+      "conditions": 3,
+      "episodes_per_run": 290,
+      "experiment_purpose": "baseline",
+      "experiment_type": "v3_exq_728b_trained_allon_capability_point",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-742a",
       "title": "MECH-457 actor-critic ON/OFF re-run under the zworld encoder guard (RECORD policy; adds per-arm encoder_moved_in_p0/_in_ac)",
       "script": "experiments/v3_exq_742_mech457_actor_critic_onoff.py",
@@ -232,23 +249,6 @@
       "episodes_per_run": 350,
       "experiment_type": "v3_exq_699b_pcomp_demotion_x_gonogo_fresh_select",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-728b",
-      "title": "Trained all-ON capability point re-run with the SD-070 z_world P0a encoder warmup (supersedes V3-EXQ-728; 728a burned)",
-      "experiment_type": "v3_exq_728b_trained_allon_capability_point",
-      "script": "experiments/v3_exq_728b_trained_allon_capability_point.py",
-      "status": "pending",
-      "priority": 45,
-      "machine_affinity": "any",
-      "claim_ids": [],
-      "experiment_purpose": "baseline",
-      "supersedes": "V3-EXQ-728",
-      "estimated_minutes": 220,
-      "episodes_per_run": 290,
-      "seeds": 3,
-      "conditions": 3,
-      "note": "SD-070 ADOPTION VALIDATION (re-land of the WS-3 trained-all-ON capability point). Supersedes V3-EXQ-728, whose 2026-07-20 run FAILed with z_world a FROZEN RANDOM PROJECTION: no optimizer group in this driver's OWN _train_all_on_agent copy covered any latent_stack parameter, measured 0 of 61 latent_stack / 0 of 4 world_encoder tensors changed at p0_episodes=200, guard-red 3 of 3 seeds (adjudicated by the CONFIRMED autopsy failure_autopsy_V3-EXQ-728_2026-07-20.json; self-route substrate_not_ready_requeue UPHELD, category competence_implementation_gap, routed implement-substrate then a gated re-run). THE BUILD HAS LANDED: ree-v3 b523b9c wires the SD-070 z_world encoder warmup into the _train_all_on_agent family and this driver's own copy opts in at ZWORLD_P0_EPISODES=60 (P0a runs AHEAD of the e2 warmup -- ordering is load-bearing because e2 regresses on z_world). WHY 728b AND NOT 728a: V3-EXQ-728a is BURNED -- the coordinator DB holds it status=completed with removal_reason=FAIL and removed_at=2026-07-20T15:54:17Z, which is V3-EXQ-728's pre-fix FAIL event (received_at 15:54:15Z), NOT a 728a run. It has NO result row and NO manifest, was never claimed (claimed_by_machine null), and the b523b9c note was written into that already-terminal row at updated_at 19:01:58Z; the next phase3-queue snapshot therefore dropped it from the git queue. So the 728-driver SD-070 validation has never actually run, and the 728a id cannot be re-served. GOV-REUSE-1: decisive readout is the zworld_encoder_guard tensor-change count under the POST-fix substrate -- no recorded manifest carries it (the only 728 manifests are the pre-fix 20260720T155414Z FAIL and a 20260709 run, both on the pre-SD-070 substrate, and arm fingerprints now declare zworld_p0_episodes so no pre-fix banked arm can cache-HIT), so it is not recoverable by reanalysis -> run. ACCEPTANCE: zworld_encoder_guard green (world_encoder tensors changed > 0 on every seed). SMOKE PASS 2026-07-21 on this exact fork: arm_green=True, seeds_checked=2, seeds_failed=0, per_arm_gate green=[random_walk, ree_trained_allon, greedy_oracle] red=[] non_degenerate=True, outcome PASS readiness_met=True (pre-fix was 3 of 3 seeds FAILED). Baseline, claim_ids=[] -- EXCLUDED from governance scoring, promotes/demotes nothing. On PASS this lifts substrate_queue sd_zworld_warmup_optimizer_group from implemented_pending_validation (unblocks_claims MECH-457, INV-088, Q-002) and re-lands ree_ai_design_critique_plan.md WS-3, currently stale."
     }
   ]
 }
