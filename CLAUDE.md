@@ -3282,8 +3282,8 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
   length per arm so the confound stays visible.
   Unblocks: MECH-180 link (i), INV-050 ecological end-to-end demonstration (which is a
   SEPARATE, still-gated run -- this test-bed must validate first).
-  Validation experiment: V3-EXQ-796 queued 2026-07-21
-  (v3_exq_796_sdmelproducer_graded_nonconverging_world; diagnostic; claim_ids=[];
+  Validation experiment: V3-EXQ-798 queued 2026-07-21
+  (v3_exq_798_sdmelproducer_graded_nonconverging_world; diagnostic; claim_ids=[];
   recon-only converged base + graded rule-shift arms + matched-PE noise negative
   control; DV = mean per-step e3 prediction_error (MEL) and its decay by
   steps_since_world_rule_shift; PROMOTES NOTHING until it scores).

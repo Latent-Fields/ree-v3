@@ -573,6 +573,38 @@ class CausalGridWorld:
         # value-subtraction term SHOULD prefer high-effort -- proves the
         # machinery is non-vacuous).
         effort_benefit_asymmetry: float = 0.0,
+        # SD-MEL-PRODUCER (2026-07-21): non-converging-world knob for the graded-MEL
+        # environment test-bed (MECH-180 link (i) novelty -> waking MEL).
+        #
+        # WHY THIS EXISTS. env_drift_interval moves hazards. The optimal prediction
+        # of a random walk is its mean, so the world-forward model learns that fast
+        # and PE floors at the irreducible noise level -- which is why V3-EXQ-677's
+        # env_drift_interval 999 -> 3 manipulation produced a high-vs-low mean-PE
+        # difference of 8.8e-07 against a 0.01 threshold, and why V3-EXQ-718a
+        # measured conv_rel_drop ~0.98 with residual ecological MEL ~1e-5.
+        #
+        # To sustain a GRADED, ABOVE-REFERENCE prediction-error load the world must
+        # invalidate LEARNED STRUCTURE, not add noise. This knob periodically
+        # re-permutes the action -> displacement map, so E2.world_forward(z_world, a)
+        # -- which takes the action as an input -- becomes systematically wrong and
+        # stays wrong until re-learned. Learnable between shifts, invalidated at each
+        # shift = genuine re-learning load, graded by shift RATE.
+        #
+        # The distinction matters and is not cosmetic: grading OBSERVATION NOISE
+        # would also produce a monotone MEL gradient, but by construction on any
+        # substrate, which is a DV-symmetry artifact rather than a novelty producer.
+        # Elevated PE only counts as learning load if it DECAYS within a stationary
+        # window; steps_since_world_rule_shift (emitted in info) is what lets a
+        # consumer measure that.
+        #
+        # world_rule_shift_interval: steps between rule re-draws (0 = never).
+        # world_rule_shift_depth: action-pair transpositions applied per shift.
+        # world_rule_shift_scope: reserved so a structural-statistics variant can be
+        #   added later without a second master switch.
+        world_rule_shift_enabled: bool = False,
+        world_rule_shift_interval: int = 0,
+        world_rule_shift_depth: int = 0,
+        world_rule_shift_scope: str = "action_map",
     ):
         self.size = size
         self.num_hazards = num_hazards
@@ -581,6 +613,35 @@ class CausalGridWorld:
         self.contamination_threshold = contamination_threshold
         self.env_drift_interval = env_drift_interval
         self.env_drift_prob = env_drift_prob
+
+        # SD-MEL-PRODUCER: non-converging-world action-map re-permutation.
+        # See the kwargs block for the mechanism and why noise is not a substitute.
+        if world_rule_shift_scope not in ("action_map",):
+            raise ValueError(
+                f"world_rule_shift_scope must be 'action_map', "
+                f"got {world_rule_shift_scope!r}"
+            )
+        self.world_rule_shift_enabled = bool(world_rule_shift_enabled)
+        self.world_rule_shift_interval = int(max(0, world_rule_shift_interval))
+        self.world_rule_shift_depth = int(max(0, world_rule_shift_depth))
+        self.world_rule_shift_scope = world_rule_shift_scope
+        # EFFECTIVE action map. The class-level ACTIONS dict is never mutated -- it
+        # stays the canonical identity map, and mutating it would leak the
+        # permutation into every other env instance in the process.
+        self._action_map: Dict[int, Tuple[int, int]] = dict(self.ACTIONS)
+        self._world_rule_shift_count: int = 0
+        self._steps_since_world_rule_shift: int = 0
+        # Cumulative step counter that does NOT reset on reset(). The shift
+        # schedule keys off THIS, not self.steps, because self.steps is
+        # episode-local: with episode-relative scheduling a shift interval longer
+        # than the episode fires zero shifts in most episodes, and -- since
+        # episode length itself collapses as the world gets less predictable --
+        # the nominal interval stops controlling the actual shift RATE at all.
+        # (Measured on the first probe: intervals 60/30/15/8/5 produced 2/2/3/20/21
+        # shifts, non-monotone.) World causal structure evolves in world time, the
+        # same reason _action_map is not reset per episode.
+        self._world_steps_total: int = 0
+
         self.hazard_harm = hazard_harm
         self.contaminated_harm = contaminated_harm
         self.resource_benefit = resource_benefit
@@ -1398,6 +1459,13 @@ class CausalGridWorld:
                 self.grid[wx, wy] = self.ENTITY_TYPES["waypoint"]
                 self.waypoints.append([wx, wy])
 
+        # SD-MEL-PRODUCER: _action_map, _world_rule_shift_count and
+        # _steps_since_world_rule_shift are DELIBERATELY NOT reset here (nor in
+        # reset_to). The action -> displacement map is the world's causal
+        # structure, not episode state; resetting it to identity each episode
+        # would hand the forward model a fixed anchor to re-converge on and
+        # defeat the point of a non-converging world. Permutations accumulate
+        # across episodes.
         self.steps = 0
         self.total_harm = 0.0
         self.total_benefit = 0.0
@@ -1619,6 +1687,41 @@ class CausalGridWorld:
         yi = int(y) % self.size
         return float(self.effort_base_cost * self._effort_cost_grid[xi, yi])
 
+    def _maybe_shift_world_rule(self) -> bool:
+        """SD-MEL-PRODUCER: re-permute the action -> displacement map on schedule.
+
+        Returns True if a shift fired this step.
+
+        Applies world_rule_shift_depth random transpositions to the effective
+        action map. Depth 0 is a no-op shift (the schedule fires but the rule is
+        unchanged) -- kept legal so a schedule-only control arm can isolate the
+        act of shifting from the content of the shift.
+
+        CRITICAL: every RNG draw is inside the enabled guard, so a disabled env
+        consumes no randomness and stays bit-identical to a pre-SD-MEL-PRODUCER
+        env at the same seed. Existing experiments depend on this.
+        """
+        if not self.world_rule_shift_enabled or self.world_rule_shift_interval <= 0:
+            return False
+        self._world_steps_total += 1
+        if (self._world_steps_total % self.world_rule_shift_interval) != 0:
+            self._steps_since_world_rule_shift += 1
+            return False
+
+        keys = sorted(self._action_map.keys())
+        for _ in range(self.world_rule_shift_depth):
+            if len(keys) < 2:
+                break
+            i, j = self._rng.choice(len(keys), size=2, replace=False)
+            ki, kj = keys[int(i)], keys[int(j)]
+            self._action_map[ki], self._action_map[kj] = (
+                self._action_map[kj],
+                self._action_map[ki],
+            )
+        self._world_rule_shift_count += 1
+        self._steps_since_world_rule_shift = 0
+        return True
+
     def _effort_cost_by_action(self) -> np.ndarray:
         """[5] per-candidate-action effort cost from the current agent cell.
 
@@ -1631,7 +1734,9 @@ class CausalGridWorld:
         if not self.effort_dissociation_enabled:
             return costs
         cx, cy = int(self.agent_x), int(self.agent_y)
-        for a, (dx, dy) in self.ACTIONS.items():
+        # Effective map, not the class ACTIONS: this helper computes the REAL
+        # destination cell, which a SD-MEL-PRODUCER rule shift changes.
+        for a, (dx, dy) in self._action_map.items():
             if self.toroidal:
                 nx, ny = (cx + dx) % self.size, (cy + dy) % self.size
             else:
@@ -1830,7 +1935,12 @@ class CausalGridWorld:
             self._action_block_blocked_this_step = True
             self._action_block_event_count += 1
 
-        dx, dy = self.ACTIONS[action]
+        # SD-MEL-PRODUCER: fire the scheduled rule shift BEFORE the move is
+        # resolved, so the first mispredicted step is the one immediately after
+        # the shift (the agent's forward model has had no chance to see it).
+        world_rule_shift_occurred = self._maybe_shift_world_rule()
+
+        dx, dy = self._action_map[action]
         if self.toroidal:
             new_x = (self.agent_x + dx) % self.size
             new_y = (self.agent_y + dy) % self.size
@@ -2703,6 +2813,13 @@ class CausalGridWorld:
             "transition_type": transition_type,
             "contamination_delta": contamination_delta,
             "env_drift_occurred": env_drift_occurred,
+            # SD-MEL-PRODUCER instrument. steps_since_world_rule_shift is the
+            # load-bearing one: binning per-step prediction error by it is what
+            # distinguishes genuine re-learning load (PE decays within a
+            # stationary window) from graded noise (PE does not decay).
+            "world_rule_shift_occurred": world_rule_shift_occurred,
+            "world_rule_shift_count": int(self._world_rule_shift_count),
+            "steps_since_world_rule_shift": int(self._steps_since_world_rule_shift),
             "footprint_at_cell": int(self.footprint_grid[self.agent_x, self.agent_y]),
             "health": self.agent_health,
             "energy": self.agent_energy,
