@@ -236,6 +236,51 @@ class GoalConfig:
     # super-ordinal anchor per seeding tick (GoalState.cue_pull fraction).
     super_ordinal_seed_strength: float = 0.1
 
+    # SD-077: common-mode-invariant (centered) super-ordinal cue key.
+    # Master switch -- default False, bit-identical OFF (raw-z_world cosine, the
+    # pre-SD-077 behaviour: no baseline is allocated and no baseline arithmetic
+    # runs).
+    #
+    # Problem this solves (measured 2026-07-21 on the V3-EXQ-669b Stage-0
+    # forced-feed nursery, 155 contexts): under SD-008 z_world
+    # under-differentiation the untrained encoder maps every context into a
+    # narrow common-mode cone -- pairwise cosine min 0.9641 / mean 0.9898, with
+    # ||mean(z_world)|| / mean||z_world|| = 0.9949, i.e. essentially one shared
+    # direction. The SAME contexts are richly separated in the raw world
+    # observation (pairwise cosine min 0.216 / mean 0.608; 90.7% of pairs below
+    # 0.8), so the diversity exists and the encoder buries it.
+    #
+    # Consequence on the raw-cosine store: every context lands within
+    # merge_similarity of anchor 0, so all 155 contacts REINFORCE one slot and
+    # anchor_count saturates at 1 -- the V3-EXQ-669b R3 readiness-gate failure
+    # that self-routed substrate_not_ready_requeue and left MECH-329 / MECH-189
+    # unmeasurable.
+    #
+    # Threshold tuning CANNOT fix this, and that is provable rather than merely
+    # observed: contextual_complexity = 1 - best_cosine, and best_cosine >= 0.9641
+    # everywhere in the nursery, so complexity <= 0.036 for EVERY context under
+    # ANY threshold setting -- strictly below 669b's pre-registered
+    # COMPLEXITY_MARGIN of 0.05. The C3 criterion is unsatisfiable by
+    # construction on a raw-z_world key. Only changing the KEY SPACE helps.
+    # (Note also that the failed run's docstring suggested a LOWER
+    # merge_similarity; that is the wrong sign -- it moves more contexts into the
+    # REINFORCE branch and makes saturation strictly worse.)
+    #
+    # Fix (the SD-066 pattern, which solved the identical common-mode signature
+    # for the SD-051 ConditionedSafetyStore readout): maintain a slow EMA
+    # baseline of presented z_world contexts and do all cue arithmetic on the
+    # centered residual z_world - baseline. Measured on the same nursery, this
+    # restores the full range: residual pairwise cosine spans -0.760 to 1.000
+    # (97.7% of pairs below 0.8), yielding 18-66 distinct anchors instead of 1,
+    # and complexity recovers the full [0, 1] interval.
+    super_ordinal_cue_centering: bool = False
+
+    # SD-077: EMA rate for the common-mode baseline, matching SD-066's validated
+    # default. The baseline is lazily seeded from the first observed context (so
+    # there is no zero-init cold-start transient) and is advanced only on waking
+    # contexts -- simulation_mode ticks do not move it (MECH-094).
+    super_ordinal_cue_baseline_alpha: float = 0.02
+
 
 class SuperOrdinalGoalMemory:
     """MECH-189: cross-episode-persistent, cue-indexed super-ordinal goal-anchor
@@ -284,6 +329,14 @@ class SuperOrdinalGoalMemory:
         # Child-phase write window. The curriculum freezes writes for adult
         # measurement via REEAgent.set_super_ordinal_write_enabled(False).
         self.write_enabled: bool = True
+        # SD-077: common-mode baseline for the centered cue key. None until the
+        # first waking context is observed (lazy seed -> no zero-init transient).
+        # Stays None forever when centering is disabled, so the OFF path
+        # allocates nothing and executes no baseline arithmetic.
+        self.centering: bool = bool(
+            getattr(config, "super_ordinal_cue_centering", False)
+        )
+        self._baseline: Optional[torch.Tensor] = None
         # Diagnostics (per-agent-lifetime; reset only on reset_anchors()).
         self._n_writes = 0
         self._n_reinforce = 0
@@ -307,14 +360,46 @@ class SuperOrdinalGoalMemory:
     def _occupied_idx(self) -> torch.Tensor:
         return torch.nonzero(self._occupied, as_tuple=False).reshape(-1)
 
+    def observe(self, z_world_context: torch.Tensor,
+                simulation_mode: bool = False) -> None:
+        """SD-077: advance the common-mode baseline with a presented context.
+
+        No-op when centering is disabled (the OFF path must be bit-identical) or
+        under simulation_mode (MECH-094: replay/DMN contexts must not shape the
+        waking cue geometry). Lazily seeds the baseline from the first waking
+        context, so there is no zero-init cold-start transient.
+        """
+        if not self.centering or simulation_mode:
+            return
+        key = self._row(z_world_context)
+        if self._baseline is None:
+            self._baseline = key.clone()
+            return
+        a = float(self.config.super_ordinal_cue_baseline_alpha)
+        self._baseline = (1.0 - a) * self._baseline + a * key
+
+    def _centered(self, t: torch.Tensor) -> torch.Tensor:
+        """SD-077: subtract the common-mode baseline. Identity when centering is
+        disabled or the baseline has not been seeded yet."""
+        if not self.centering or self._baseline is None:
+            return t
+        return t - self._baseline
+
     def _best_match(self, query_key: torch.Tensor):
         """Return (best_slot_idx, best_cosine) over occupied slots, or
-        (None, -1.0) when the store is empty."""
+        (None, -1.0) when the store is empty.
+
+        SD-077: when centering is enabled the cosine is taken on the centered
+        residual of BOTH sides (query and stored keys). Keys are stored RAW and
+        centered at comparison time -- deliberately, so that a drifting baseline
+        moves query and stored keys together and never leaves the store
+        internally inconsistent (which storing pre-centered keys would).
+        """
         occ = self._occupied_idx()
         if occ.numel() == 0:
             return None, -1.0
-        q = F.normalize(query_key.unsqueeze(0), dim=-1)
-        k = F.normalize(self._keys[occ], dim=-1)
+        q = F.normalize(self._centered(query_key).unsqueeze(0), dim=-1)
+        k = F.normalize(self._centered(self._keys[occ]), dim=-1)
         sims = (k @ q.t()).reshape(-1)
         j = int(torch.argmax(sims).item())
         return int(occ[j].item()), float(sims[j].item())
@@ -351,6 +436,12 @@ class SuperOrdinalGoalMemory:
         super_ordinal_merge_similarity of it (EMA blend, raise strength); else
         allocates a fresh slot (an empty one, else the weakest by strength).
         """
+        # SD-077: advance the common-mode baseline on every waking context,
+        # BEFORE the write_enabled gate -- the baseline is cue geometry, not
+        # anchor content, so it must keep tracking the context distribution
+        # through the adult (write-frozen) phase that reads from the store.
+        # No-op when centering is disabled.
+        self.observe(z_world_context, simulation_mode=simulation_mode)
         if simulation_mode or not self.write_enabled:
             return False
         key = self._row(z_world_context)
@@ -404,10 +495,17 @@ class SuperOrdinalGoalMemory:
         self._n_writes += 1
         return True
 
-    def retrieve(self, z_world_query: torch.Tensor):
+    def retrieve(self, z_world_query: torch.Tensor,
+                 simulation_mode: bool = False):
         """MECH-189 READ. Return (z_goal_anchor [1, goal_dim], match_cosine,
         slot_idx) for the best-matching anchor, or None when the store is empty.
-        Does not mutate the store."""
+        Does not mutate the anchor bank.
+
+        SD-077: the query advances the common-mode baseline (adult retrieval
+        contexts are often the ONLY contexts presented once writes are frozen,
+        so excluding them would freeze the baseline at its child-phase value).
+        No-op when centering is disabled."""
+        self.observe(z_world_query, simulation_mode=simulation_mode)
         occ = self._occupied_idx()
         if occ.numel() == 0:
             return None
@@ -432,6 +530,9 @@ class SuperOrdinalGoalMemory:
         self._values.zero_()
         self._strength.zero_()
         self._occupied.zero_()
+        # SD-077: the baseline is part of the store's cue geometry, so a full
+        # clear drops it back to unseeded (the next waking context re-seeds it).
+        self._baseline = None
         self._n_writes = 0
         self._n_reinforce = 0
         self._n_allocate = 0
@@ -452,6 +553,13 @@ class SuperOrdinalGoalMemory:
             "super_ordinal_last_salience": self._last_salience,
             "super_ordinal_last_seed_match": self._last_seed_match,
             "super_ordinal_write_enabled": bool(self.write_enabled),
+            # SD-077 diagnostics: whether the centered cue key is active, and
+            # whether/how far its baseline has been seeded.
+            "super_ordinal_cue_centering": bool(self.centering),
+            "super_ordinal_baseline_norm": (
+                float(self._baseline.norm().item())
+                if self._baseline is not None else -1.0
+            ),
         }
 
     def state_dict(self) -> dict:
@@ -461,6 +569,10 @@ class SuperOrdinalGoalMemory:
             "strength": self._strength.cpu(),
             "occupied": self._occupied.cpu(),
             "write_enabled": self.write_enabled,
+            # SD-077: None when unseeded / centering off.
+            "baseline": (
+                self._baseline.cpu() if self._baseline is not None else None
+            ),
         }
 
     def load_state_dict(self, d: dict) -> None:
@@ -468,6 +580,9 @@ class SuperOrdinalGoalMemory:
         self._values = d["values"].to(self.device)
         self._strength = d["strength"].to(self.device)
         self._occupied = d["occupied"].to(self.device)
+        # SD-077: absent from pre-SD-077 checkpoints -> stays unseeded.
+        b = d.get("baseline")
+        self._baseline = b.to(self.device) if b is not None else None
         self.write_enabled = bool(d.get("write_enabled", True))
 
 
