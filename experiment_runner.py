@@ -34,6 +34,19 @@ import signal
 import socket
 import subprocess
 import sys
+
+import graceful_timeout
+
+# Module-local rebinding: every `subprocess.run(..., timeout=N)` below now
+# SIGTERMs the child before SIGKILLing it. Without this, a timed-out git
+# (this module runs `git status` / `pull --rebase --autostash` /
+# `rebase --abort` on BOTH ree-v3 and REE_assembly every loop tick) is
+# SIGKILLed and leaves an orphan `.git/index.lock`, which blocks
+# scripts/ree_commit.py's shared-index refresh and arms a staged revert of
+# whatever another session just committed. See graceful_timeout.__doc__ for
+# the measurement and the 274-timeouts-vs-270-restarts evidence.
+# The stdlib module is not mutated; this binding is local to this file.
+subprocess = graceful_timeout.wrap(subprocess)
 import threading
 import time
 from datetime import datetime, timezone

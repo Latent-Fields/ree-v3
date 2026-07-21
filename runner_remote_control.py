@@ -47,6 +47,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import graceful_timeout
+
+# See the identical note in experiment_runner.py: SIGTERM-before-SIGKILL on
+# timeout, so a timed-out git unlinks its own .git/index.lock instead of
+# orphaning it. Every _git() call below carries a timeout, and most of them
+# (`status`, `checkout -f -B`, `add`, `diff --cached`, `commit`) hold the
+# index lock for their whole run. Module-local rebinding; stdlib untouched.
+subprocess = graceful_timeout.wrap(subprocess)
+
 # Coordinator shadow shim. Env-gated no-op unless COORDINATION_MODE=shadow;
 # guarded import so it can never break heartbeat writing.
 try:
