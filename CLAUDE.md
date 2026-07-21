@@ -1152,6 +1152,33 @@ Run packs go to REE_assembly/evidence/experiments/.
 run_id must end _v3. architecture_epoch must be "ree_hybrid_guardrails_v1".
 After experiments complete: run sync_v3_results.py then build_experiment_indexes.py.
 
+### Burned queue entries (silently-dropped experiments)
+
+**Before re-queuing an id that "vanished", run the auditor** -- it is the only
+thing that can tell a burn apart from a normal post-completion removal:
+
+```
+/opt/local/bin/python3 /Users/dgolden/REE_Working/ree-v3/scripts/audit_burned_queue_entries.py
+```
+
+A pre-fix coordinator defect (ree-v3 `d09127bb70`) let `reconcile_once(
+upsert_only=True)` upsert a NEW git-queue item onto an already-TERMINAL DB
+row; `phase3_queue_writer` materialises only non-terminal rows, so the next
+snapshot DELETED the freshly-committed entry. The experiment never ran and
+nothing errored. The ingress guard now refuses that upsert, so no NEW burns
+occur -- but at the git layer a burned entry's deletion is indistinguishable
+from a normal one, which is why sessions re-queued V3-EXQ-683 and V3-EXQ-686
+three times each without ever learning they had been dropped.
+
+The auditor walks the full `experiment_queue.json` history (~2 s) and reports
+an operator-added entry that the next `phase3-queue: snapshot` deleted with
+no manifest for its declared script while it was live. It is deliberately NOT
+folded into `validate_queue.py` (the PreToolUse commit hook): a full-history
+walk is far too slow to pay per commit, and it answers a question about
+history rather than about the queue being committed. `--require-lost` narrows
+to burns whose science was never recovered. Contract:
+`tests/contracts/test_burned_queue_entry_detector.py`.
+
 ## Regression Suite
 
 Three-layer test suite in `tests/`:
