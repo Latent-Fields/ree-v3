@@ -126,22 +126,6 @@
       "seeds": 5
     },
     {
-      "queue_id": "V3-EXQ-737b",
-      "script": "experiments/v3_exq_737_ree_latent_policy_head_competence_probe.py",
-      "priority": 44,
-      "machine_affinity": "any",
-      "estimated_minutes": 400,
-      "supersedes": "V3-EXQ-737a",
-      "note": "SD-070 ADOPTION VALIDATION. Re-run of the pre-fix driver with the P0a SD-070 z_world encoder warmup ENABLED (zworld_p0_episodes=60). Supersedes the pre-fix run, whose z_world was a FROZEN RANDOM PROJECTION: no optimizer group in _train_all_on_agent covered any latent_stack parameter, measured 0 of 61 latent_stack / 0 of 4 world_encoder tensors changed at p0_episodes=200. ACCEPTANCE (from the failure record): zworld_encoder_guard green -- world_encoder tensors changed > 0 on every seed, guard_checked=true -- which is the metric the pre-fix runs failed. Verified pre-landing on both _train_all_on_agent definition sites: OFF 0/61 and 0/4 with the guard REFUSING, ON 4/4 world_encoder with the guard PASSING (z_self untouched, per SD-070 contract C5). PHASED TRAINING: P0a (SD-070 encoder) -> P0b (e2 warmup, now over a meaningful z_world) -> P1 -> P2; the ordering is load-bearing because e2 regresses on z_world. Arm fingerprints now carry zworld_p0_episodes, so no pre-fix banked arm can cache-HIT these cells. THIS DRIVER: the ree-latent policy-head competence probe -- the run that FIRST measured the defect (0 of 61 tensors; ppo_ree_latent D3 foraging 0.217 on the resulting frozen random projection). Its readout is the one most directly invalidated by an untrained z_world, so it is the sharpest test of whether the fix changes the science and not just the guard bit. Dry-run post-fix already flips readiness_met False -> True.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-4",
-        "claimed_at": "2026-07-21T13:23:12Z"
-      },
-      "claim_ids": [],
-      "experiment_purpose": "diagnostic"
-    },
-    {
       "queue_id": "V3-EXQ-629c",
       "title": "MECH-342 ecological maintenance-release retest (629b precondition fix: clean curriculum build, overlay at clone time)",
       "script": "experiments/v3_exq_629c_mech342_ecological_maintenance_release_evidence.py",
@@ -204,7 +188,11 @@
       "estimated_minutes": 700,
       "supersedes": "V3-EXQ-742a",
       "note": "SD-070 ADOPTION VALIDATION. Re-run of the pre-fix driver with the P0a SD-070 z_world encoder warmup ENABLED (zworld_p0_episodes=60). Supersedes the pre-fix run, whose z_world was a FROZEN RANDOM PROJECTION: no optimizer group in _train_all_on_agent covered any latent_stack parameter, measured 0 of 61 latent_stack / 0 of 4 world_encoder tensors changed at p0_episodes=200. ACCEPTANCE (from the failure record): zworld_encoder_guard green -- world_encoder tensors changed > 0 on every seed, guard_checked=true -- which is the metric the pre-fix runs failed. Verified pre-landing on both _train_all_on_agent definition sites: OFF 0/61 and 0/4 with the guard REFUSING, ON 4/4 world_encoder with the guard PASSING (z_self untouched, per SD-070 contract C5). PHASED TRAINING: P0a (SD-070 encoder) -> P0b (e2 warmup, now over a meaningful z_world) -> P1 -> P2; the ordering is load-bearing because e2 regresses on z_world. Arm fingerprints now carry zworld_p0_episodes, so no pre-fix banked arm can cache-HIT these cells. THIS DRIVER: the MECH-457 actor-critic ON/OFF validation. CRITICAL CONTROL SYMMETRY: the bias_head_baseline OFF arm carries the SAME zworld_p0_episodes as the AC treatment arms -- otherwise the ON/OFF contrast confounds the actor-critic treatment with 'the treatment had a trained encoder and the control did not'. Depends on V3-EXQ-742m-b for a reusable banked OFF arm (runs fresh if that has not landed; correct either way). NOTE V3-EXQ-742a was CLAIMED BY ree-cloud-1 AT 2026-07-20T05:35Z, before this fix, so it completes on pre-fix code and carries MECH-457 evidence measured on a frozen random projection -- flag at governance rather than scoring it. RE-DERIVE BRAKE -- ADDRESSED, NOT BYPASSED: the brake fires because MECH-457 has 8 counted substrate_ceiling autopsies with no upstream substrate named in the latest one. THIS IS THE POST-SUBSTRATE RE-TEST: the upstream substrate was BUILT FIRST via /implement-substrate (substrate_queue sd_zworld_warmup_optimizer_group -> ree-v3 experiments/_lib/zworld_p0_warmup.py, 2026-07-20), which is exactly what /queue-experiment Step 2.5b asks for. It is NOT a same-granularity lettered re-test of an unchanged substrate: every prior MECH-457 measurement on this driver read a frozen random projection, so the ceiling those autopsies recorded was never measured on the mechanism the claim is about.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-4",
+        "claimed_at": "2026-07-21T19:38:29Z"
+      },
       "claim_ids": [
         "MECH-457"
       ],
