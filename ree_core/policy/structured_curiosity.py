@@ -162,10 +162,16 @@ class StructuredCuriosityConfig:
             0.05.
         curiosity_learning_progress_weight : MECH-314c magnitude.
             Default 0.05.
-        curiosity_bias_scale : hard clamp on the absolute value of the
-            output bias [K]. Default 0.1, mirrors lateral_pfc_bias_scale
-            so Phase 1 magnitudes are comparable to existing PFC-side
-            score_bias contributions.
+        curiosity_bias_scale : hard clamp on the output bias [K].
+            Default 0.1, mirrors lateral_pfc_bias_scale so Phase 1
+            magnitudes are comparable to existing PFC-side score_bias
+            contributions. Applied SEPARATELY to the argmin-relevant
+            per-candidate deviation and to the argmin-inert uniform
+            offset (see compute_score_bias) -- so it bounds curiosity's
+            selection-relevant influence at bias_scale, and its total
+            magnitude at 2 * bias_scale. Clamping the SUM instead would
+            let the uniform 314b/314c broadcasts consume the whole
+            budget and annihilate the per-candidate 314a ranking.
         curiosity_lp_ema_alpha : EMA smoothing for the 314c learning-
             progress signal. Default 0.1, matches the existing
             pe_ema_alpha pattern (~10-tick window).
@@ -228,6 +234,12 @@ class StructuredCuriosity:
         _last_n_active_residue_centers     : int
         _last_n_subflavours_fired          : int (in [0, 3])
         _last_bias_max_abs                 : float
+        _last_clamp_saturated_frac         : float (fraction of candidates
+            whose argmin-relevant deviation is pinned at the clamp rail;
+            1.0 == the ranking was flattened == curiosity is
+            behaviourally vacuous this tick)
+        _last_bias_range                   : float (surviving
+            argmin-relevant span of the returned bias)
     """
 
     def __init__(
@@ -309,6 +321,12 @@ class StructuredCuriosity:
         self._last_n_active_residue_centers: int = 0
         self._last_n_subflavours_fired: int = 0
         self._last_bias_max_abs: float = 0.0
+        # Clamp-saturation diagnostics (see compute_score_bias). A
+        # saturated_frac of 1.0 with any pre-clamp per-candidate spread
+        # means the ranking was flattened and curiosity is behaviourally
+        # vacuous; _last_bias_range is the surviving argmin-relevant span.
+        self._last_clamp_saturated_frac: float = 0.0
+        self._last_bias_range: float = 0.0
         # MECH-314a Phase 2 diagnostics.
         self._last_novelty_source_used: str = "none"
         self._last_candidate_spread: float = 0.0
@@ -443,12 +461,82 @@ class StructuredCuriosity:
         else:
             self._last_learning_progress_signal = 0.0
 
-        # Clamp to bias_scale so curiosity cannot dominate the existing
-        # dACC / lateral_pfc / ofc / mech295 score-bias chain even at
-        # extreme sub-signal magnitudes.
-        total = torch.clamp(
-            total, min=-cfg.curiosity_bias_scale, max=cfg.curiosity_bias_scale,
-        )
+        # --------------------------------------------------------------
+        # Clamp so curiosity cannot dominate the existing dACC /
+        # lateral_pfc / ofc / mech295 score-bias chain even at extreme
+        # sub-signal magnitudes.
+        #
+        # CLAMP ORDERING IS LOAD-BEARING (fixed 2026-07-21). The original
+        # implementation clamped the SUM, AFTER the two UNIFORM
+        # sub-flavours had been added. That let 314b (uncertainty) and
+        # 314c (learning progress) consume the whole +/-bias_scale
+        # budget: once w_unc*unc + w_lp*lp >= curiosity_bias_scale, every
+        # element pinned to the -bias_scale rail, `total` became exactly
+        # uniform, and the per-candidate 314a novelty component -- the
+        # ONLY part of curiosity that can change a selection -- was
+        # ANNIHILATED. A uniform vector is argmin-invariant at the E3
+        # commit point (e3_selector.py:3113, and :3022 under
+        # use_f_eligibility_demotion), so the channel went behaviourally
+        # silent with no diagnostic saying so, and curiosity authority
+        # was NON-MONOTONE in the configured weights: raising them drove
+        # the system INTO saturation rather than out of it.
+        #
+        # The fix decomposes the accumulated bias into the two parts that
+        # play different roles at selection and bounds each on its own:
+        #
+        #   offset    = total.mean()   -- argmin-INERT. A uniform shift
+        #                                changes no ranking, and adds zero
+        #                                RANGE to the modulatory-authority
+        #                                rescale. Carries 314b/314c.
+        #   deviation = total - offset -- argmin-RELEVANT. This is what
+        #                                actually competes with the rest
+        #                                of the score-bias chain, and what
+        #                                the clamp is meant to bound.
+        #
+        # Clamping them separately keeps the ORIGINAL INTENT exactly --
+        # curiosity's selection-relevant influence is still bounded by
+        # curiosity_bias_scale -- while making that influence MONOTONE in
+        # curiosity_novelty_weight, because a large uniform sub-signal can
+        # no longer flatten the ranking. The offset is clamped too so the
+        # total magnitude stays bounded (|total| <= 2 * bias_scale) rather
+        # than growing without limit with the broadcast weights.
+        # --------------------------------------------------------------
+        if K > 0:
+            raw_offset = total.mean()
+            raw_deviation = total - raw_offset
+            deviation = torch.clamp(
+                raw_deviation,
+                min=-cfg.curiosity_bias_scale,
+                max=cfg.curiosity_bias_scale,
+            )
+            offset = torch.clamp(
+                raw_offset,
+                min=-cfg.curiosity_bias_scale,
+                max=cfg.curiosity_bias_scale,
+            )
+            # Saturation diagnostic: the fraction of candidates whose
+            # ARGMIN-RELEVANT deviation is pinned at the rail. Non-zero
+            # means the clamp is COMPRESSING the per-candidate ranking
+            # (railed candidates become mutually indistinguishable);
+            # rising toward its ceiling means curiosity is approaching
+            # behavioural vacuity. Surfaced so an experiment can assert
+            # curiosity non-vacuity AT READINESS rather than discovering
+            # a silent channel in a null result (the 604a / 624a / 614d /
+            # 640a failure class).
+            #
+            # NOTE the ceiling is (K-1)/K, not 1.0: the deviation is
+            # zero-mean by construction, so at least one candidate always
+            # sits inside the rail. That is exactly WHY the fix works --
+            # the clamp can no longer flatten the vector completely, as
+            # it could when applied to the offset-carrying sum.
+            rail = cfg.curiosity_bias_scale
+            n_at_rail = int((raw_deviation.abs() >= rail - 1e-12).sum().item())
+            self._last_clamp_saturated_frac = float(n_at_rail) / float(K)
+            total = deviation + offset
+            self._last_bias_range = float((deviation.max() - deviation.min()).item())
+        else:
+            self._last_clamp_saturated_frac = 0.0
+            self._last_bias_range = 0.0
 
         self._last_n_subflavours_fired = n_fired
         self._last_bias_max_abs = float(total.abs().max().item()) if K > 0 else 0.0
@@ -786,6 +874,8 @@ class StructuredCuriosity:
         self._last_n_active_residue_centers = 0
         self._last_n_subflavours_fired = 0
         self._last_bias_max_abs = 0.0
+        self._last_clamp_saturated_frac = 0.0
+        self._last_bias_range = 0.0
         # MECH-314a Phase 2 auto-augmentation state + diagnostics (per-episode).
         self._below_threshold_streak = 0
         self._augmentation_engaged = False
@@ -806,6 +896,12 @@ class StructuredCuriosity:
             "last_n_active_residue_centers": self._last_n_active_residue_centers,
             "last_n_subflavours_fired": self._last_n_subflavours_fired,
             "last_bias_max_abs": self._last_bias_max_abs,
+            # Clamp-saturation readiness signals. Assert
+            # last_clamp_saturated_frac < 1.0 (and last_bias_range > 0)
+            # before scoring any curiosity-dependent DV -- a fully
+            # saturated tick makes the channel argmin-invariant.
+            "last_clamp_saturated_frac": self._last_clamp_saturated_frac,
+            "last_bias_range": self._last_bias_range,
             "lp_seeded": self._lp_seeded,
             "lp_ring_size": len(self._pe_ring),
             # MECH-314a Phase 2 diagnostics.
