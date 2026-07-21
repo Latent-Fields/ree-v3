@@ -553,6 +553,19 @@ class REEAgent(nn.Module):
                 softmax_temperature=config.salience_softmax_temperature,
                 switch_threshold=config.salience_switch_threshold,
                 stability_scaling=config.salience_stability_scaling,
+                # MECH-048 mu/kappa overlays on the mode prior (default off).
+                use_stability_temperature=getattr(
+                    config, "salience_use_stability_temperature", False
+                ),
+                temperature_mu_alpha=getattr(
+                    config, "salience_temperature_mu_alpha", 1.0
+                ),
+                temperature_kappa_alpha=getattr(
+                    config, "salience_temperature_kappa_alpha", 0.0
+                ),
+                temperature_exponent_clip=getattr(
+                    config, "salience_temperature_exponent_clip", 4.0
+                ),
             )
             sal_cfg.salience_weights = {
                 "dacc_pe": config.salience_dacc_pe_weight,

@@ -27,6 +27,9 @@ Architectural scope (SD-032a v3 minimum-viable):
   Inputs (registered slots, default no-op until SD-032c/d/e land):
     - aic_salience    (SD-032c)  : scalar urgency salience
     - pcc_stability   (SD-032d)  : scalar in [0, 1]; high resists transitions
+      (threshold multiplier, always) AND -- under
+      use_stability_temperature (MECH-048, default off) --
+      sharpens the mode prior via softmax temperature.
     - pacc_autonomic  (SD-032e)  : scalar autonomic write-back
   Inputs (registered externally by REEAgent under flags; arbitrary named signals):
     - cea_mode_prior / cea_fast_prime (SD-035), override_signal (SD-037),
@@ -58,7 +61,7 @@ REE_assembly/docs/architecture/sd_032_cingulate_integration_substrate.md
 """
 
 from dataclasses import dataclass, field
-from math import exp
+from math import exp, log
 from typing import Dict, List, Optional, Sequence, Union
 
 import numpy as np
@@ -166,7 +169,11 @@ class SalienceCoordinatorConfig:
         "is_offline":       {"offline_consolidation": 5.0},
         # Stubs for future signals:
         "aic_salience":     {"internal_planning": 1.0},
-        "pcc_stability":    {},   # only modulates threshold, not affinity
+        # Intentionally empty: mu is not a mode PREFERENCE. It reaches the
+        # mode prior through softmax temperature (MECH-048, see
+        # use_stability_temperature below) and the switch threshold
+        # (stability_scaling), never through a per-mode logit bias.
+        "pcc_stability":    {},
         "pacc_autonomic":   {"external_task": 0.3},
     })
 
@@ -186,6 +193,53 @@ class SalienceCoordinatorConfig:
     # (1.0 + stability_scaling * pcc_stability). Higher stability -> higher
     # threshold -> harder to flip mode.
     stability_scaling: float = 1.0
+
+    # MECH-048 mu/kappa stability overlays on the mode PRIOR (SD-032d
+    # extension, landed 2026-07-21).
+    #
+    # Before this, pcc_stability (the mu-analogue) reached ONLY the threshold
+    # multiplier above, and affinity_weights["pcc_stability"] was empty -- so
+    # H(operating_mode) was EXACTLY invariant under mu (measured identical to
+    # 6 dp at pcc_stability 0.0 / 1.0 / 3.0). MECH-048 asserts the overlays
+    # shape BOTH switching inertia AND mode-prior sharpness; only the former
+    # was built, which made the entropy half untestable by construction.
+    #
+    # The spec form is literal, from
+    # docs/thoughts/2026-02-11_some_control_plane_maths_hypotheses.md:63:
+    #
+    #     tau_t = tau_0 * exp(alpha_kappa * kappa_t - alpha_mu * mu_t)
+    #
+    # with mu = pcc_stability (SD-032d) and kappa = aic_salience (SD-032c).
+    # Higher mu -> lower temperature -> SHARPER mode prior -> lower entropy
+    # ("stabilise once the regime is safe and coherent"). Higher kappa ->
+    # higher temperature -> flatter prior ("re-evaluation pressure").
+    #
+    # Deliberately NOT implemented as an affinity_weights["pcc_stability"]
+    # entry: that would make mu a per-mode logit bias, i.e. a mode PREFERENCE,
+    # and control_plane.md#mech-048 states the overlays "are not scalar reward
+    # signals; they act as stability and entropy modulators".
+    #
+    # The threshold half (theta = theta_0 + rho_mu*mu - rho_kappa*kappa,
+    # ibid.:104) is the stability_scaling multiplier above and is unchanged.
+    #
+    # Off by default -- when False, effective_temperature is
+    # softmax_temperature exactly (no exp() evaluated) and every tick is
+    # bit-identical to the pre-2026-07-21 substrate.
+    use_stability_temperature: bool = False
+    # alpha_mu: sharpening gain on the mu-analogue (pcc_stability, in [0, 1]).
+    temperature_mu_alpha: float = 1.0
+    # alpha_kappa: flattening gain on the kappa-analogue (aic_salience).
+    # Defaults to 0.0 so that flipping use_stability_temperature isolates the
+    # mu leg -- a single-lever ablation. The kappa leg is opt-in: kappa
+    # already reaches the mode logits via affinity_weights["aic_salience"],
+    # so enabling both at once confounds two paths.
+    temperature_kappa_alpha: float = 0.0
+    # Symmetric clip on the exponent before exp(). aic_salience is unbounded
+    # above (urgency_scaled + extra_sum), so an unclipped exponent can
+    # overflow or drive the temperature to a degenerate value. +/-4.0 keeps
+    # the temperature factor in [0.018, 54.6], which spans the useful range
+    # without reaching either numerical rail.
+    temperature_exponent_clip: float = 4.0
 
     # MECH-266 asymmetric per-mode hysteresis. Two optional overrides on the
     # symmetric switch_threshold path:
@@ -387,8 +441,27 @@ class SalienceCoordinator:
                 if mode in logits:
                     logits[mode] += value * weight
 
+        # MECH-048: mu/kappa stability overlays on the mode prior.
+        # effective_temperature = softmax_temperature
+        #                         * exp(alpha_kappa * kappa - alpha_mu * mu)
+        # Bit-identical passthrough when the switch is off.
+        effective_temperature = float(self.config.softmax_temperature)
+        if self.config.use_stability_temperature:
+            mu = self._input_signals.get("pcc_stability", 0.0)
+            kappa = self._input_signals.get("aic_salience", 0.0)
+            exponent = (
+                self.config.temperature_kappa_alpha * kappa
+                - self.config.temperature_mu_alpha * mu
+            )
+            clip = abs(float(self.config.temperature_exponent_clip))
+            if exponent > clip:
+                exponent = clip
+            elif exponent < -clip:
+                exponent = -clip
+            effective_temperature *= exp(exponent)
+
         # Softmax over logits with configurable temperature.
-        operating_mode = self._softmax(logits, self.config.softmax_temperature)
+        operating_mode = self._softmax(logits, effective_temperature)
         self._operating_mode = operating_mode
 
         # MECH-259 salience aggregate: weighted sum of urgency-relevant signals.
@@ -435,6 +508,13 @@ class SalienceCoordinator:
             # entry). New consumers should prefer enter_threshold /
             # exit_threshold / current_mode_prob.
             "effective_threshold": float(enter_threshold),
+            # MECH-048 readouts. effective_temperature is softmax_temperature
+            # exactly when use_stability_temperature is False. mode_entropy is
+            # the natural-log Shannon entropy of operating_mode -- the DV
+            # MECH-048's mode-prior-sharpness half is stated in, exported here
+            # so consumers read it rather than recomputing it inconsistently.
+            "effective_temperature": float(effective_temperature),
+            "mode_entropy": self._entropy(operating_mode),
             "enter_threshold": float(enter_threshold),
             "exit_threshold": float(exit_threshold),
             "current_mode_prob": float(current_mode_prob),
@@ -488,6 +568,15 @@ class SalienceCoordinator:
         return {"n_ticks": self._n_ticks, "n_switches": self._n_switches}
 
     # -- Internal helpers --
+
+    @staticmethod
+    def _entropy(distribution: Dict[str, float]) -> float:
+        """Shannon entropy (nats) of a mode probability vector."""
+        h = 0.0
+        for p in distribution.values():
+            if p > 0.0:
+                h -= p * log(p)
+        return float(h)
 
     @staticmethod
     def _softmax(logits: Dict[str, float], temperature: float) -> Dict[str, float]:
