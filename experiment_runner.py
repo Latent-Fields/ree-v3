@@ -37,7 +37,8 @@ import sys
 
 import graceful_timeout
 
-# Module-local rebinding: every `subprocess.run(..., timeout=N)` below now
+# Module-local rebinding: every timed subprocess below (all of them go
+# through `_git_run`, defined further down) now
 # SIGTERMs the child before SIGKILLing it. Without this, a timed-out git
 # (this module runs `git status` / `pull --rebase --autostash` /
 # `rebase --abort` on BOTH ree-v3 and REE_assembly every loop tick) is
@@ -302,6 +303,48 @@ _UNTRACKED_RUNNER_SIGNAL_RE = re.compile(
 _PREPULL_STASH_MESSAGE = "runner-prepull-untracked"
 
 
+# --- Git subprocess entry point -------------------------------------------
+# EVERY git call in this module goes through _git_run, never subprocess.run
+# directly. It is subprocess.run with one behavioural change: a TIMEOUT comes
+# back as a failed CompletedProcess (returncode 124) instead of raising, so it
+# lands on the same branch each call site already has for "git said no".
+#
+# Without it a 10s stall on a contended laptop KILLED THE RUNNER. The git
+# helpers here are written to degrade -- _list_unmerged_paths documents
+# "Returns None if `git status --porcelain` failed" and its callers handle
+# None -- but a timeout RAISED, so those paths never ran and the exception
+# propagated through git_pull out of main(). The pre-loop calls in git_pull
+# are outside its `except Exception`, and the calls inside that handler
+# (`git rebase --abort/--quit`) could time out on the way out of it too.
+# runner.log: 274 TimeoutExpired tracebacks vs 270 startup lines -- nearly
+# every restart was this, respawned by launchd (com.ree.runner, KeepAlive).
+#
+# Widening the timeouts is NOT the fix (a stalled git stays stalled; a longer
+# timeout just blocks the tick for longer). Nor is swallowing: every timeout
+# prints, with a running count, so the rate stays visible in runner.log.
+_GIT_TIMEOUT_COUNT = 0
+
+
+def _on_git_timeout(exc: subprocess.TimeoutExpired) -> None:
+    global _GIT_TIMEOUT_COUNT
+    _GIT_TIMEOUT_COUNT += 1
+    cmd = exc.cmd
+    if isinstance(cmd, (list, tuple)):
+        cmd = " ".join(str(c) for c in cmd)
+    print(
+        f"[runner] git TIMEOUT #{_GIT_TIMEOUT_COUNT}: {cmd} exceeded "
+        f"{exc.timeout}s -- treating as failure, retrying next tick",
+        flush=True,
+    )
+
+
+def _git_run(*popenargs, **kwargs):
+    """subprocess.run for git, with a timeout returned as failure not raised."""
+    return graceful_timeout.run_soft_timeout(
+        *popenargs, on_timeout=_on_git_timeout, **kwargs
+    )
+
+
 def _path_is_ephemeral_worker_owned(rel_path: str) -> bool:
     rel_path = rel_path.strip().strip('"')
     if not rel_path:
@@ -317,7 +360,7 @@ def _list_unmerged_paths(repo_path: Path) -> tuple[list[str], list[str]] | None:
 
     Returns None if `git status --porcelain` failed.
     """
-    st = subprocess.run(
+    st = _git_run(
         ["git", "status", "--porcelain"],
         cwd=str(repo_path), capture_output=True, text=True, timeout=10,
     )
@@ -378,7 +421,7 @@ def _recover_ephemeral_pull_conflict(repo_path: Path, label: str) -> bool:
     # the opposite of what we want here). `@{u}` resolves to whichever
     # origin/<branch> this clone tracks and gives us the canonical bytes
     # regardless of in-progress operation state.
-    ub = subprocess.run(
+    ub = _git_run(
         ["git", "rev-parse", "--abbrev-ref",
          "--symbolic-full-name", "@{u}"],
         cwd=str(repo_path), capture_output=True, text=True, timeout=10,
@@ -391,7 +434,7 @@ def _recover_ephemeral_pull_conflict(repo_path: Path, label: str) -> bool:
             flush=True,
         )
         return False
-    co = subprocess.run(
+    co = _git_run(
         ["git", "checkout", upstream, "--"] + ephemeral,
         cwd=str(repo_path), capture_output=True, text=True, timeout=10,
     )
@@ -401,7 +444,7 @@ def _recover_ephemeral_pull_conflict(repo_path: Path, label: str) -> bool:
             f"{co.stderr.strip()}", flush=True,
         )
         return False
-    subprocess.run(
+    _git_run(
         ["git", "add", "--"] + ephemeral,
         cwd=str(repo_path), capture_output=True, timeout=10,
     )
@@ -410,20 +453,20 @@ def _recover_ephemeral_pull_conflict(repo_path: Path, label: str) -> bool:
     # message editor on the auto-continue.
     if (repo_path / ".git" / "rebase-merge").exists() or \
        (repo_path / ".git" / "rebase-apply").exists():
-        cont = subprocess.run(
+        cont = _git_run(
             ["git", "rebase", "--continue"],
             cwd=str(repo_path), capture_output=True, text=True,
             env={**os.environ, "GIT_EDITOR": "true"}, timeout=15,
         )
         if cont.returncode != 0:
-            subprocess.run(
+            _git_run(
                 ["git", "rebase", "--abort"], cwd=str(repo_path),
                 capture_output=True, timeout=10,
             )
     # Drop the autostash entry that pull --rebase --autostash created and
     # left behind because its pop conflicted. Matching on "autostash"
     # avoids touching unrelated stashes the operator may have left.
-    sl = subprocess.run(
+    sl = _git_run(
         ["git", "stash", "list"], cwd=str(repo_path),
         capture_output=True, text=True, timeout=10,
     )
@@ -432,7 +475,7 @@ def _recover_ephemeral_pull_conflict(repo_path: Path, label: str) -> bool:
             if "autostash" not in line:
                 continue
             ref = line.split(":", 1)[0]
-            drop = subprocess.run(
+            drop = _git_run(
                 ["git", "stash", "drop", ref], cwd=str(repo_path),
                 capture_output=True, text=True, timeout=10,
             )
@@ -464,7 +507,7 @@ def _warn_on_stash_bloat(
     Best-effort, never raises.
     """
     try:
-        r = subprocess.run(
+        r = _git_run(
             ["git", "stash", "list"], cwd=str(repo_path),
             capture_output=True, text=True, timeout=10,
         )
@@ -484,7 +527,7 @@ def _warn_on_stash_bloat(
 def _untracked_paths_for_prepull_stash(repo_path: Path) -> list[str]:
     """Return repo-relative untracked paths safe to stash before REE_assembly pull."""
     try:
-        st = subprocess.run(
+        st = _git_run(
             ["git", "status", "--porcelain", "-u", "--ignored=no"],
             cwd=str(repo_path), capture_output=True, text=True, timeout=15,
         )
@@ -510,7 +553,7 @@ def _prepull_stash_blocking_untracked(repo_path: Path, label: str) -> bool:
     if not paths:
         return False
     try:
-        r = subprocess.run(
+        r = _git_run(
             ["git", "stash", "push", "--include-untracked", "-m", _PREPULL_STASH_MESSAGE,
              "--", *paths],
             cwd=str(repo_path), capture_output=True, text=True, timeout=30,
@@ -538,7 +581,7 @@ def _find_prepull_stash_ref(repo_path: Path) -> str | None:
     ~2026-06-12 containing a V3-EXQ-673 manifest present at NO path on
     origin/master -- i.e. the only surviving copy of a completed run.
     """
-    r = subprocess.run(
+    r = _git_run(
         ["git", "stash", "list", "--format=%gd %gs"],
         cwd=str(repo_path), capture_output=True, text=True, timeout=10,
     )
@@ -580,7 +623,7 @@ def _parse_blocking_untracked_paths(stderr: str) -> list[str]:
 
 def _upstream_ref(repo_path: Path) -> str:
     """Tracking ref for the current branch, falling back to origin/master."""
-    r = subprocess.run(
+    r = _git_run(
         ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
         cwd=str(repo_path), capture_output=True, text=True, timeout=10,
     )
@@ -606,7 +649,7 @@ def _untracked_path_is_redundant(
     caller must leave those in place, even though that means the pull stays
     wedged: a wedge is visible and repairable, silent evidence loss is not.
     """
-    show = subprocess.run(
+    show = _git_run(
         ["git", "show", f"{upstream}:{rel}"],
         cwd=str(repo_path), capture_output=True, timeout=15,
     )
@@ -695,7 +738,7 @@ def _postpull_restore_prepull_stash(repo_path: Path, label: str) -> None:
         ref = _find_prepull_stash_ref(repo_path)
         if ref is None:
             return
-        pop = subprocess.run(
+        pop = _git_run(
             ["git", "stash", "pop", ref],
             cwd=str(repo_path), capture_output=True, text=True, timeout=30,
         )
@@ -734,7 +777,7 @@ def _git_code_version(ref: str = "HEAD") -> str | None:
     Returns None when git is unavailable (caller keeps the last good value)."""
     def _git(cmd: list[str]) -> str | None:
         try:
-            r = subprocess.run(
+            r = _git_run(
                 ["git", "-C", str(REPO_ROOT), *cmd],
                 capture_output=True, text=True, timeout=5,
             )
@@ -864,7 +907,7 @@ def git_pull(repo_path: Path, label: str) -> None:
     _prepull_stash_blocking_untracked(repo_path, label)
     for attempt in range(3):
         try:
-            r = subprocess.run(
+            r = _git_run(
                 ["git", "pull", "--rebase", "--autostash"],
                 cwd=str(repo_path), capture_output=True, text=True, timeout=30,
             )
@@ -901,16 +944,16 @@ def git_pull(repo_path: Path, label: str) -> None:
             # a manual / launchd repair. Abort it so the next tick starts
             # clean. Lost work is impossible here: autostash is restored by
             # the abort, and a failed pull changed nothing to begin with.
-            subprocess.run(["git", "rebase", "--abort"], cwd=str(repo_path),
+            _git_run(["git", "rebase", "--abort"], cwd=str(repo_path),
                             capture_output=True, timeout=10)
-            subprocess.run(["git", "rebase", "--quit"], cwd=str(repo_path),
+            _git_run(["git", "rebase", "--quit"], cwd=str(repo_path),
                             capture_output=True, timeout=10)
             # If the pull aborted because untracked files would be
             # overwritten (the 2026-07-20 cloud-3 wedge), clear the ones
             # provably already on origin and retry once. Unverifiable paths
             # are left alone, so this cannot silently destroy evidence.
             if _clear_redundant_blocking_untracked(repo_path, label, stderr):
-                r3 = subprocess.run(
+                r3 = _git_run(
                     ["git", "pull", "--rebase", "--autostash"],
                     cwd=str(repo_path), capture_output=True, text=True,
                     timeout=30,
@@ -930,7 +973,7 @@ def git_pull(repo_path: Path, label: str) -> None:
             # paths (the 2026-05-31 cloud-3 wedge), auto-resolve by taking
             # origin's version and retry the pull once.
             if _recover_ephemeral_pull_conflict(repo_path, label):
-                r2 = subprocess.run(
+                r2 = _git_run(
                     ["git", "pull", "--rebase", "--autostash"],
                     cwd=str(repo_path), capture_output=True, text=True,
                     timeout=30,
@@ -950,9 +993,9 @@ def git_pull(repo_path: Path, label: str) -> None:
             _warn_on_stash_bloat(repo_path, label)
             return
         except Exception as e:
-            subprocess.run(["git", "rebase", "--abort"], cwd=str(repo_path),
+            _git_run(["git", "rebase", "--abort"], cwd=str(repo_path),
                             capture_output=True, timeout=10)
-            subprocess.run(["git", "rebase", "--quit"], cwd=str(repo_path),
+            _git_run(["git", "rebase", "--quit"], cwd=str(repo_path),
                             capture_output=True, timeout=10)
             print(f"[runner] git pull {label} error: {e}", flush=True)
             return
@@ -1340,7 +1383,7 @@ def _git_push_with_retry(cwd: str, branch: str, label: str,
     lost uncommitted edits are not.
     """
     for attempt in range(max_retries):
-        r = subprocess.run(
+        r = _git_run(
             ["git", "push", "origin", f"HEAD:{branch}"],
             cwd=cwd, capture_output=True, text=True, timeout=30,
         )
@@ -1353,7 +1396,7 @@ def _git_push_with_retry(cwd: str, branch: str, label: str,
             return False
 
         # Remote has new commits -- pull rebase and retry
-        pull = subprocess.run(
+        pull = _git_run(
             ["git", "pull", "--rebase", "origin", branch],
             cwd=cwd, capture_output=True, text=True, timeout=30,
         )
@@ -1363,7 +1406,7 @@ def _git_push_with_retry(cwd: str, branch: str, label: str,
 
         # Rebase failed (conflict) -- abort rebase, then use stash-based recovery
         print(f"[runner] auto-sync: rebase conflict ({label}), resolving safely...", flush=True)
-        subprocess.run(["git", "rebase", "--abort"], cwd=cwd, capture_output=True, timeout=10)
+        _git_run(["git", "rebase", "--abort"], cwd=cwd, capture_output=True, timeout=10)
 
         # Check for active claims on REE_assembly files before any destructive action
         if _check_active_claim_on_file("evidence/experiments/"):
@@ -1378,22 +1421,22 @@ def _git_push_with_retry(cwd: str, branch: str, label: str,
         # working tree, and would otherwise be lost.  See the V3-EXQ-541
         # leak incident (2026-05-08) and the fix prompt at
         # /tmp/cloud_manifest_leak_diagnosis_prompt.md.
-        pre_reset_sha_r = subprocess.run(
+        pre_reset_sha_r = _git_run(
             ["git", "rev-parse", "HEAD"], cwd=cwd, capture_output=True,
             text=True, timeout=5,
         )
         pre_reset_sha = pre_reset_sha_r.stdout.strip() if pre_reset_sha_r.returncode == 0 else ""
 
         # Stash uncommitted work (preserves concurrent Claude session edits)
-        stash_result = subprocess.run(
+        stash_result = _git_run(
             ["git", "stash", "--include-untracked", "-m", f"runner-auto-sync-{now_utc()[:10]}"],
             cwd=cwd, capture_output=True, text=True, timeout=10,
         )
         stashed = "No local changes" not in stash_result.stdout
 
         # Fetch + reset to remote
-        subprocess.run(["git", "fetch", "origin"], cwd=cwd, capture_output=True, timeout=30)
-        subprocess.run(["git", "reset", "--hard", f"origin/{branch}"],
+        _git_run(["git", "fetch", "origin"], cwd=cwd, capture_output=True, timeout=30)
+        _git_run(["git", "reset", "--hard", f"origin/{branch}"],
                        cwd=cwd, capture_output=True, timeout=10)
 
         # Restore committed result files from the destroyed pre-reset commit
@@ -1413,7 +1456,7 @@ def _git_push_with_retry(cwd: str, branch: str, label: str,
                 except ValueError:
                     paths_to_restore.append(f)
         elif pre_reset_sha:
-            diff_r = subprocess.run(
+            diff_r = _git_run(
                 ["git", "diff", "--name-only", f"origin/{branch}", pre_reset_sha],
                 cwd=cwd, capture_output=True, text=True, timeout=10,
             )
@@ -1425,7 +1468,7 @@ def _git_push_with_retry(cwd: str, branch: str, label: str,
         restored_paths: list[str] = []
         if pre_reset_sha and paths_to_restore:
             for rel in paths_to_restore:
-                co = subprocess.run(
+                co = _git_run(
                     ["git", "checkout", pre_reset_sha, "--", rel],
                     cwd=cwd, capture_output=True, text=True, timeout=10,
                 )
@@ -1439,7 +1482,7 @@ def _git_push_with_retry(cwd: str, branch: str, label: str,
         # Pop stash to restore uncommitted work
         pop_succeeded = True
         if stashed:
-            pop = subprocess.run(
+            pop = _git_run(
                 ["git", "stash", "pop"],
                 cwd=cwd, capture_output=True, text=True, timeout=10,
             )
@@ -1456,7 +1499,7 @@ def _git_push_with_retry(cwd: str, branch: str, label: str,
                       f"Stash preserved for manual recovery; continuing "
                       f"with manifest-only commit.", flush=True)
                 pop_succeeded = False
-                unmerged_r = subprocess.run(
+                unmerged_r = _git_run(
                     ["git", "diff", "--name-only", "--diff-filter=U"],
                     cwd=cwd, capture_output=True, text=True, timeout=5,
                 )
@@ -1465,11 +1508,11 @@ def _git_push_with_retry(cwd: str, branch: str, label: str,
                     if unmerged_r.returncode == 0 else []
                 )
                 for path in unmerged:
-                    subprocess.run(
+                    _git_run(
                         ["git", "checkout", "--ours", "--", path],
                         cwd=cwd, capture_output=True, timeout=10,
                     )
-                    subprocess.run(["git", "reset", "HEAD", "--", path],
+                    _git_run(["git", "reset", "HEAD", "--", path],
                                    cwd=cwd, capture_output=True, timeout=10)
 
         # Re-stage only the specific result files the runner wrote (selective)
@@ -1479,12 +1522,12 @@ def _git_push_with_retry(cwd: str, branch: str, label: str,
                     rel = str(Path(f).relative_to(Path(cwd)))
                 except ValueError:
                     rel = f
-                subprocess.run(["git", "add", rel], cwd=cwd, capture_output=True, timeout=10)
+                _git_run(["git", "add", rel], cwd=cwd, capture_output=True, timeout=10)
             # Diagnostic: warn if the selective add staged none of the
             # expected files.  The historical silent-no-op (file removed
             # by reset --hard, `git add` matches nothing, stderr swallowed)
             # is what masked this bug for weeks.
-            staged_r = subprocess.run(
+            staged_r = _git_run(
                 ["git", "diff", "--cached", "--name-only"],
                 cwd=cwd, capture_output=True, text=True, timeout=5,
             )
@@ -1504,18 +1547,18 @@ def _git_push_with_retry(cwd: str, branch: str, label: str,
                       flush=True)
         else:
             # Fallback: broad staging (only if no specific files known)
-            subprocess.run(["git", "add", "evidence/experiments/"],
+            _git_run(["git", "add", "evidence/experiments/"],
                            cwd=cwd, capture_output=True, timeout=10)
 
         # Re-stage queue if present
         queue_path = Path(cwd) / "experiment_queue.json"
         if queue_path.exists():
-            subprocess.run(["git", "add", "experiment_queue.json"],
+            _git_run(["git", "add", "experiment_queue.json"],
                            cwd=cwd, capture_output=True, timeout=10)
 
-        diff = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=cwd, timeout=5)
+        diff = _git_run(["git", "diff", "--cached", "--quiet"], cwd=cwd, timeout=5)
         if diff.returncode != 0:
-            subprocess.run(
+            _git_run(
                 ["git", "commit", "-m", f"auto-sync: re-apply results after conflict {now_utc()[:10]}"],
                 cwd=cwd, capture_output=True, text=True, timeout=15,
             )
@@ -1632,17 +1675,17 @@ def git_push_queue() -> None:
               "(sync_daemon owns queue snapshot writeback)", flush=True)
         return
     try:
-        subprocess.run(
+        _git_run(
             ["git", "add", "experiment_queue.json"],
             cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=10,
         )
-        diff = subprocess.run(
+        diff = _git_run(
             ["git", "diff", "--cached", "--quiet"],
             cwd=str(REPO_ROOT), timeout=5,
         )
         if diff.returncode == 0:
             return  # nothing changed
-        subprocess.run(
+        _git_run(
             ["git", "commit", "-m", f"queue: remove completed/failed items {now_utc()[:10]}"],
             cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=15,
         )
@@ -1681,18 +1724,18 @@ def git_push_results(ree_assembly_path: Path, result_files: list[str] | None = N
                     rel = str(Path(f).relative_to(ree_assembly_path))
                 except ValueError:
                     rel = f  # already relative or external -- stage as-is
-                subprocess.run(
+                _git_run(
                     ["git", "add", rel],
                     cwd=str(ree_assembly_path), capture_output=True, text=True, timeout=10,
                 )
         else:
             # Fallback: broad staging (legacy behaviour)
-            subprocess.run(
+            _git_run(
                 ["git", "add", "evidence/experiments/"],
                 cwd=str(ree_assembly_path), capture_output=True, text=True, timeout=10,
             )
         # Nothing staged -> skip
-        diff = subprocess.run(
+        diff = _git_run(
             ["git", "diff", "--cached", "--quiet"],
             cwd=str(ree_assembly_path), timeout=5,
         )
@@ -1700,7 +1743,7 @@ def git_push_results(ree_assembly_path: Path, result_files: list[str] | None = N
             print("[runner] auto-sync: nothing new to push", flush=True)
             return
         msg = f"auto-sync: v3 results {now_utc()[:10]}"
-        subprocess.run(
+        _git_run(
             ["git", "commit", "-m", msg],
             cwd=str(ree_assembly_path), capture_output=True, text=True, timeout=15,
         )
@@ -1732,17 +1775,17 @@ def git_push_status(ree_assembly_path: Path, status_path: Path, queue_id: str) -
         return
     try:
         rel = str(status_path.relative_to(ree_assembly_path))
-        subprocess.run(
+        _git_run(
             ["git", "add", rel],
             cwd=str(ree_assembly_path), capture_output=True, text=True, timeout=10,
         )
-        diff = subprocess.run(
+        diff = _git_run(
             ["git", "diff", "--cached", "--quiet"],
             cwd=str(ree_assembly_path), timeout=5,
         )
         if diff.returncode == 0:
             return  # nothing to push
-        subprocess.run(
+        _git_run(
             ["git", "commit", "-m", f"runner_status: {queue_id} -> {status_path.stem}"],
             cwd=str(ree_assembly_path), capture_output=True, text=True, timeout=15,
         )
@@ -1961,11 +2004,11 @@ def _is_stale_claim(
 
 def _git_undo_last_commit(repo: Path) -> None:
     """Undo the most recent local commit (pre-push rollback)."""
-    subprocess.run(["git", "reset", "--soft", "HEAD~1"],
+    _git_run(["git", "reset", "--soft", "HEAD~1"],
                    cwd=str(repo), capture_output=True)
-    subprocess.run(["git", "reset", "HEAD", "experiment_queue.json"],
+    _git_run(["git", "reset", "HEAD", "experiment_queue.json"],
                    cwd=str(repo), capture_output=True)
-    subprocess.run(["git", "checkout", "--", "experiment_queue.json"],
+    _git_run(["git", "checkout", "--", "experiment_queue.json"],
                    cwd=str(repo), capture_output=True)
 
 
@@ -2015,7 +2058,7 @@ def attempt_claim(queue_file: Path, queue_id: str, machine: str
     try:
         # 1. Pull latest (skipped under Phase 3 -- sync_daemon owns refresh)
         if not phase3_gated:
-            r = subprocess.run(["git", "pull", "--ff-only"],
+            r = _git_run(["git", "pull", "--ff-only"],
                                cwd=str(repo), capture_output=True, text=True, timeout=30)
             if r.returncode != 0:
                 print(f"[runner] claim pull warn ({queue_id}): {r.stderr.strip()}", flush=True)
@@ -2046,12 +2089,12 @@ def attempt_claim(queue_file: Path, queue_id: str, machine: str
             return "ok"
 
         # 4. Commit + push (legacy git-as-mutex path)
-        subprocess.run(["git", "add", queue_file.name],
+        _git_run(["git", "add", queue_file.name],
                        cwd=str(repo), capture_output=True, check=True)
-        subprocess.run(["git", "commit", "-m", f"claim: {queue_id} -> {machine}"],
+        _git_run(["git", "commit", "-m", f"claim: {queue_id} -> {machine}"],
                        cwd=str(repo), capture_output=True, check=True)
 
-        push = subprocess.run(["git", "push", "origin", "HEAD:main"],
+        push = _git_run(["git", "push", "origin", "HEAD:main"],
                                cwd=str(repo), capture_output=True, text=True, timeout=30)
 
         if push.returncode == 0:
@@ -2091,7 +2134,7 @@ def release_claim(queue_file: Path, queue_id: str, machine: str) -> None:
     phase3_gated = _claim_push_gated()
     try:
         if not phase3_gated:
-            subprocess.run(["git", "pull", "--ff-only"],
+            _git_run(["git", "pull", "--ff-only"],
                            cwd=str(repo), capture_output=True, timeout=30)
         data = json.loads(queue_file.read_text())
         changed = False
@@ -2110,12 +2153,12 @@ def release_claim(queue_file: Path, queue_id: str, machine: str) -> None:
             print(f"[runner] Released local claim on {queue_id} "
                   f"(phase3: no commit/push)", flush=True)
             return
-        subprocess.run(["git", "add", queue_file.name],
+        _git_run(["git", "add", queue_file.name],
                        cwd=str(repo), capture_output=True)
-        subprocess.run(["git", "commit", "-m",
+        _git_run(["git", "commit", "-m",
                         f"release claim: {queue_id} <- {machine} (shutdown)"],
                        cwd=str(repo), capture_output=True)
-        subprocess.run(["git", "push", "origin", "HEAD:main"],
+        _git_run(["git", "push", "origin", "HEAD:main"],
                        cwd=str(repo), capture_output=True, timeout=30)
         print(f"[runner] Released claim on {queue_id}", flush=True)
     except Exception as e:

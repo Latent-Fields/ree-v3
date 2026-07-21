@@ -56,12 +56,25 @@ so no other importer is affected.
 Behaviour is otherwise identical to `subprocess.run`, including still
 raising `TimeoutExpired` -- callers that already handle a timeout keep
 handling it. The only change is that the child is asked to exit first.
+
+`run_soft_timeout()` (below) is the opt-in variant for callers that want a
+timeout to be a FAILED RESULT rather than an exception. See its docstring.
 """
 
 import subprocess as _subprocess
 import types
 
-__all__ = ["run", "wrap", "DEFAULT_GRACE_SECONDS"]
+__all__ = [
+    "run", "run_soft_timeout", "wrap", "DEFAULT_GRACE_SECONDS",
+    "TIMEOUT_RETURNCODE",
+]
+
+# Return code carried by the synthetic CompletedProcess `run_soft_timeout`
+# hands back on a timeout. 124 is what `timeout(1)` exits with, and it is
+# outside git's own exit-code range, so a caller that wants to distinguish
+# "git said no" from "git never answered" can, while every caller that only
+# checks `returncode != 0` needs no change at all.
+TIMEOUT_RETURNCODE = 124
 
 # How long to let the child clean up after SIGTERM before escalating to
 # SIGKILL. Unlinking a lockfile is microseconds; this only has to cover a
@@ -126,6 +139,83 @@ def run(*popenargs, input=None, capture_output=False, timeout=None, check=False,
             raise _subprocess.CalledProcessError(
                 retcode, process.args, output=stdout, stderr=stderr)
     return _subprocess.CompletedProcess(process.args, retcode, stdout, stderr)
+
+
+def _text_mode(kwargs) -> bool:
+    """True iff these run() kwargs put the child's streams in text mode."""
+    return bool(
+        kwargs.get("text")
+        or kwargs.get("universal_newlines")
+        or kwargs.get("encoding")
+        or kwargs.get("errors")
+    )
+
+
+def _coerce(value, text: bool):
+    """Normalise a TimeoutExpired's partial output to the caller's stream mode.
+
+    `TimeoutExpired.output` / `.stderr` are None when nothing was captured,
+    and are bytes even in text mode on some paths -- so a caller doing
+    `r.stdout.splitlines()` would hit AttributeError or a bytes/str mismatch
+    on the very path that is supposed to be the SAFE one.
+    """
+    if value is None:
+        return "" if text else b""
+    if text and isinstance(value, bytes):
+        return value.decode("utf-8", "replace")
+    if not text and isinstance(value, str):
+        return value.encode("utf-8", "replace")
+    return value
+
+
+def run_soft_timeout(*popenargs, on_timeout=None, **kwargs):
+    """`run()`, but a TIMEOUT is returned as a failed result, not raised.
+
+    Returns a synthetic `CompletedProcess` with `returncode ==
+    TIMEOUT_RETURNCODE` carrying whatever partial output was captured, plus
+    a `timed out after Ns` marker appended to stderr.
+
+    WHY. The runner's git call sites all branch on `returncode != 0` and
+    already have a correct degrade-and-retry-next-tick path for a git that
+    says no -- `_list_unmerged_paths` even documents "Returns None if `git
+    status --porcelain` failed". But a TIMEOUT raises instead of returning,
+    so those paths never ran: the exception propagated out of `git_pull`
+    and out of `main()`, killing the process. `REE_assembly/runner.log`
+    carries 274 `TimeoutExpired` tracebacks against 270 `[runner] Runner
+    version` startup lines -- i.e. essentially every runner restart was a
+    git-timeout crash, respawned by launchd (`com.ree.runner`, KeepAlive).
+    A transient 10s git stall on a contended laptop should be a skipped
+    tick, not a process death.
+
+    `on_timeout(exc)` is invoked (best-effort, exceptions ignored) before
+    the synthetic result is returned, so the caller can LOG every timeout.
+    Nothing here swallows a timeout silently -- the whole point is that the
+    rate stays visible while the process survives.
+
+    `check=True` still RAISES the `TimeoutExpired`: a caller that asked for
+    failures-as-exceptions gets one. `on_timeout` fires first either way.
+    """
+    try:
+        return run(*popenargs, **kwargs)
+    except _subprocess.TimeoutExpired as exc:
+        if on_timeout is not None:
+            try:
+                on_timeout(exc)
+            except Exception:
+                pass
+        if kwargs.get("check"):
+            raise
+        text = _text_mode(kwargs)
+        stderr = _coerce(exc.stderr, text)
+        marker = "timed out after %ss" % exc.timeout
+        if text:
+            stderr = (stderr + "\n" + marker) if stderr else marker
+        else:
+            sep = b"\n" if stderr else b""
+            stderr = stderr + sep + marker.encode("ascii")
+        return _subprocess.CompletedProcess(
+            exc.cmd, TIMEOUT_RETURNCODE, _coerce(exc.output, text), stderr,
+        )
 
 
 def wrap(module=_subprocess):

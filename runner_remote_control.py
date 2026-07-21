@@ -320,10 +320,37 @@ _PUSH_BRANCH = "master"
 _MAX_PUSH_ATTEMPTS = 3
 
 
+_GIT_TIMEOUT_COUNT = 0
+
+
+def _on_git_timeout(exc: subprocess.TimeoutExpired) -> None:
+    """Log every git timeout. Called by _git before it degrades to failure."""
+    global _GIT_TIMEOUT_COUNT
+    _GIT_TIMEOUT_COUNT += 1
+    cmd = exc.cmd
+    if isinstance(cmd, (list, tuple)):
+        cmd = " ".join(str(c) for c in cmd)
+    print(
+        f"[remote-control] git TIMEOUT #{_GIT_TIMEOUT_COUNT}: {cmd} exceeded "
+        f"{exc.timeout}s -- treating as failure, retrying next tick",
+        flush=True,
+    )
+
+
 def _git(repo: str, *args: str, timeout: int) -> subprocess.CompletedProcess:
-    return subprocess.run(
+    """Run a git command, returning a TIMEOUT as a failed result (rc 124).
+
+    Both callers already treat a non-zero returncode as "skip this tick"
+    (`_hard_sync_is_safe` -> False, `_push_telemetry_file` -> return), and
+    both sit inside a broad `except Exception`, so a timeout was never fatal
+    HERE -- but it was INVISIBLE, absorbed silently with no log line. Routing
+    it through the same soft-timeout path as experiment_runner._git_run makes
+    every timeout print, so the rate stays visible in the logs.
+    """
+    return graceful_timeout.run_soft_timeout(
         ["git", *args], cwd=repo,
         capture_output=True, text=True, timeout=timeout,
+        on_timeout=_on_git_timeout,
     )
 
 
