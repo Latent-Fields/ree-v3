@@ -178,6 +178,38 @@
       "episodes_per_run": 350,
       "experiment_type": "v3_exq_699b_pcomp_demotion_x_gonogo_fresh_select",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-669c",
+      "title": "MECH-329 wanting-before-liking goal seeding, re-issued on the SD-077 centered super-ordinal cue key",
+      "experiment_type": "v3_exq_669c_mech329_wanting_first_goal_seeding",
+      "script": "experiments/v3_exq_669c_mech329_wanting_first_goal_seeding.py",
+      "priority": 46,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 45,
+      "episodes_per_run": 14,
+      "seeds": 3,
+      "conditions": 3,
+      "claim_id": "MECH-329",
+      "supersedes": "V3-EXQ-669b",
+      "note": "RE-DERIVE BRAKE RELEASED by substrate SD-077. The brake trips at count 2 for MECH-189 (failure_autopsy_V3-EXQ-588_2026-05-19, failure_autopsy_V3-EXQ-669a_2026-06-13); per Step 2.5b.1 it is released because the named upstream substrate is now built: SD-077 (goal.common_mode_invariant_super_ordinal_cue_key) is IMPLEMENTED 2026-07-21 in ree-v3/CLAUDE.md. WHY 669b was not a falsification: it self-routed on its own pre-registered R3 gate (max anchor_count >= 2) with anchor_count = 1 everywhere. Measured 2026-07-21 on that exact nursery: raw world_obs pairwise cosine mean 0.608 (90.7 pct of pairs < 0.8) but z_world pairwise cosine min 0.9641 / mean 0.9898 (0 pct of pairs < 0.8), ||mean(z_world)||/mean||z_world|| = 0.9949 -- the nursery IS diverse and the untrained encoder buries it under a common-mode offset (SD-008). Threshold tuning could not fix it: complexity = 1 - best_cosine <= 0.036 everywhere, strictly below the pre-registered COMPLEXITY_MARGIN of 0.05, so C3 was unsatisfiable by construction. 669b's own docstring advised a LOWER merge_similarity, which is the WRONG SIGN. SD-077 centers the cue key on the residual instead. CHANGES vs 669b: exactly two config values (super_ordinal_cue_centering=True, super_ordinal_n_slots=64 -- 16 would cap the bank at ~26 needed anchors and re-flatten C1), plus two code-review defect fixes carried over (dry_run now threaded to write_flat_manifest and emit_outcome, so a smoke no longer leaves a scored manifest under evidence/ per the V3-EXQ-696 class; explicit direction:lower on all three preconditions). Science otherwise byte-identical. GOV-REUSE-1: decisive readouts are anchor_count and p01_mean_complexity UNDER A CENTERED CUE KEY; the only prior runs are 669a/669b, both on the pre-SD-077 goal.py, so their substrate_hash differs by construction and the readout is not recoverable -> run. SMOKE PASS 2026-07-21 (1 seed, toy budget): R3 clears with max_anchor=14 (was 1), both_delayed min_anchor=7, R1/R2/R3 all met. NEVER reuse the id V3-EXQ-669b: terminal coordinator DB row, POST /queue/add returns HTTP 409."
+    },
+    {
+      "queue_id": "V3-EXQ-797",
+      "title": "MECH-266/SD-032a DIAGNOSTIC: instrument the external_task engagement injection path",
+      "experiment_type": "v3_exq_797_mech266_external_task_engagement_instrumentation",
+      "script": "experiments/v3_exq_797_mech266_external_task_engagement_instrumentation.py",
+      "priority": 48,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 150,
+      "episodes_per_run": 247,
+      "seeds": 3,
+      "conditions": 1,
+      "claim_id": "MECH-266",
+      "predecessor": "V3-EXQ-467d (diagnostic successor, NOT a supersede)",
+      "note": "DIAGNOSTIC spike (experiment_purpose=diagnostic; excluded from governance confidence/conflict scoring -- yields ROUTING, not verdicts). Resolves why fraction_in_external_task == 0.0 across FOUR runs (464b, 464c, 467d, 464d), the last two WITH use_external_task_drive=True. RE-DERIVE BRAKE: trips at count 2 for BOTH MECH-266 and SD-032a (failure_autopsy_V3-EXQ-460b-461b-464b-466b_2026-06-04, failure_autopsy_SD-034-closure-cluster-ext_2026-06-12) and the named upstream substrate is NOT built -- but this is the explicit Step 2.5b exemption: a diagnostic whose purpose is to discriminate WHY the ceiling holds. It does not re-test MECH-266's hysteresis dose-response at all; it measures the injection path. No lettered re-run of 467d is being queued. SCOPING DONE BEFORE QUEUING -- both standing hypotheses were falsified without spending a run: H1 (nav-competence/Stage-H ceiling) by 467d's OWN manifest (contact_non_vacuity_met=true, guard_fraction=1.0, 3/3 seeds, z_goal_norm_at_contact_peak 0.505/0.438 vs a 0.4 gate -- the agent WAS foraging); H2 (coordinator argmax frozen) by direct execution of SalienceCoordinator under 467d's exact registration -- external_task WINS the argmax and fires the MECH-266 trigger once external_task_drive >= ~0.567, so the coordinator is fine. What remains is the injection path (agent.py:5744-5771), where engagement = clip(commit_w*[beta] + prox_w*goal_proximity, 0, 1) and goal_proximity = 1/(1+MSE_SUM(.)) tops out ~0.71, making engagement effectively binary on the beta latch -- i.e. on the BG/commitment layer still under construction. GOV-REUSE-1: the decisive readouts (injection-time commit term, engagement, goal_proximity, dacc_pe per coordinator tick) appear in NO manifest -- checked 467d/464d, which record only aggregate occupancy/dwell -- so not recoverable -> run. MEASUREMENT NOTE (load-bearing): rows are E3-tick-gated. select_action returns at agent.py:5458 before the salience block at :5744, so coordinator inputs latch ~9 env steps in 10 (e3_steps_per_tick=10); an ungated per-env-step read would pseudo-replicate ~10x. n_latched_ticks is emitted so the true denominator is auditable. This also means 467d's mean_dwell was counted in env steps while the mode can only change on an E3 tick -- recorded as a secondary observation. SMOKE: authoring smoke caught a real defect in the probe itself -- a post-hoc beta_gate.is_elevated read reported True on 3/3 seeds while engagement tracked goal_proximity exactly (commit term contributing 0), because the engagement block runs BEFORE this same call's elevate() sites (:7273, :7467). D1 now routes on the commit term RECONSTRUCTED from engagement, with both pre- and post-call latch reads kept as corroboration. NOTE ON ID: V3-EXQ-796 was taken by a concurrent session (v3_exq_796_sdmelproducer_graded_nonconverging_world.py, untracked at scan time), hence 797."
     }
   ]
 }
