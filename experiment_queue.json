@@ -28,28 +28,6 @@
       "seeds": 8
     },
     {
-      "queue_id": "V3-EXQ-742a",
-      "title": "MECH-457 actor-critic ON/OFF re-run under the zworld encoder guard (RECORD policy; adds per-arm encoder_moved_in_p0/_in_ac)",
-      "script": "experiments/v3_exq_742_mech457_actor_critic_onoff.py",
-      "priority": 45,
-      "machine_affinity": "any",
-      "estimated_minutes": 600,
-      "supersedes": "V3-EXQ-742",
-      "claim_id": "MECH-457",
-      "note": "ZWORLD-GUARD RE-RUN. Re-runs the driver with the untrained-world-encoder guard (experiments/_lib/zworld_encoder_guard.py) wired into its warmup call site. DETECTION ONLY -- no attempt is made to make the encoder train; that fix has a second part (the SD-018 head supervises max(resource_field_view), which decodes the demonstrator's action at chance, 0.2552 vs a 0.2534 floor) and the naive 'enable prescribed P0' is REFUTED in-corpus by SD-070 (prescribed P0 at dim=128 collapses z_world, participation ratio 9.21 -> 1.06). The fix is downstream of the V3-EXQ-783 adjudication and belongs to governance. Root cause (pinned structurally by tests/contracts/test_zworld_encoder_guard.py C3/C4): NO optimizer inside _train_all_on_agent covers ANY latent_stack parameter -- e2.parameters() (18), lateral_pfc.bias_head_parameters() (4), ofc.devaluation_bias_head_parameters() (4) all have ZERO overlap with the 61 latent_stack tensors, so p1_episodes>0 does not rescue it (P1 trains heads DOWNSTREAM of the encoder). Measured exposure, all four drivers bit-identical: 0/61 latent_stack, 0/4 world_encoder, max|delta| = 0.000e+00 (D3_hazard_free rung, seed 42, p0=p1=3, steps=20). Guard sits at each driver's OWN call site, never inside x734._train_all_on_agent, because 737 and 742 import that function and need different strictness. Shared shaper zworld_precondition() gives all four drivers one record shape (strict '>' comparator against a 0.0 floor: bit-identity is the signature, so an inclusive floor would recompute a frozen projection as MET). Diagnosis: REE_assembly/evidence/planning/zworld_bc_install_failure_V3-EXQ-780_2026-07-19.md. STRICT CHOICE = NON-STRICT (RECORD, do not refuse). JUSTIFICATION: P0 here is a SHARED, SYMMETRIC starting point for every actor-critic arm, and the manipulation under test is the ACTOR-CRITIC phase (cotrain on/off x sf on/off), not the warmup. A dead P0 biases all arms identically, so the cotrain-vs-not contrast -- the actual DV -- survives. Further, cotrain=True arms may train representation during P1 via _train_actor_critic, so a frozen P0 does not even imply a frozen encoder at eval. Refusing would destroy a valid contrast. The guard records TWO points per cell (P0 delta and AC-phase delta) and emits a per-arm encoder_moved_in_p0 / encoder_moved_in_ac summary -- that per-arm split is the load-bearing new diagnostic and answers whether AC rescues the cotrain arms. Guard entries go to interpretation.recorded_preconditions, NOT the flat interpretation.preconditions[], because the REE_assembly indexer adjudicates that list arm-blind and would return whole-run precondition_unmet on a run we deliberately do not refuse. Dry-run smoke PASS (exit 0, 16/16 cells; guard fired on all 8 AC cells, identically on cotrain and frozen arms, confirming the exposure is not gated on cotrain). validate_experiments --strict exit 0.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-07-20T05:35:41Z"
-      },
-      "brake_exempt": true,
-      "brake_exempt_reason": "RE-DERIVE BRAKE ACKNOWLEDGED AND EXEMPT (validate_queue WARN: MECH-457 carries 8 substrate_ceiling/non_contributory autopsies). Exempt under the third /queue-experiment Step 2.5b category -- 'a diagnostic whose purpose is to discriminate WHY the ceiling holds'. NOT a same-granularity re-test and NOT a power-bump: budget, arms, rungs, seeds and thresholds are byte-unchanged from V3-EXQ-742; the ONLY change is instrumentation. Its new per-arm encoder_moved_in_p0 / encoder_moved_in_ac diagnostic asks whether the prior MECH-457 null was CONFOUNDED by a world encoder that never trained (V3-EXQ-780 defect: 0/61 latent_stack, 0/4 world_encoder, max|delta| = 0.000e+00) -- it discriminates a CAUSE of the recorded ceiling rather than re-deriving it. PROMOTES/DEMOTES NOTHING: route to /failure-autopsy before any governance action or MECH-457 promotion, exactly as V3-EXQ-742 stipulated. If the encoder is frozen in BOTH cotrain arms this run REMOVES a confound from the existing null; it cannot by itself clear the ceiling.",
-      "conditions": 16,
-      "episodes_per_run": 1000,
-      "experiment_type": "v3_exq_742_mech457_actor_critic_onoff",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-790",
       "title": "Channel-routing route_range cross-class magnitude replication (linux-x86_64)",
       "script": "experiments/v3_exq_790_channel_routing_cross_class_magnitude_replication.py",
@@ -144,7 +122,11 @@
       "estimated_minutes": 700,
       "supersedes": "V3-EXQ-734a",
       "note": "SD-070 ADOPTION VALIDATION. Re-run of the pre-fix driver with the P0a SD-070 z_world encoder warmup ENABLED (zworld_p0_episodes=60). Supersedes the pre-fix run, whose z_world was a FROZEN RANDOM PROJECTION: no optimizer group in _train_all_on_agent covered any latent_stack parameter, measured 0 of 61 latent_stack / 0 of 4 world_encoder tensors changed at p0_episodes=200. ACCEPTANCE (from the failure record): zworld_encoder_guard green -- world_encoder tensors changed > 0 on every seed, guard_checked=true -- which is the metric the pre-fix runs failed. Verified pre-landing on both _train_all_on_agent definition sites: OFF 0/61 and 0/4 with the guard REFUSING, ON 4/4 world_encoder with the guard PASSING (z_self untouched, per SD-070 contract C5). PHASED TRAINING: P0a (SD-070 encoder) -> P0b (e2 warmup, now over a meaningful z_world) -> P1 -> P2; the ordering is load-bearing because e2 regresses on z_world. Arm fingerprints now carry zworld_p0_episodes, so no pre-fix banked arm can cache-HIT these cells. THIS DRIVER: the env-difficulty competence-recovery sweep. NOTE V3-EXQ-734a was CLAIMED BY ree-cloud-4 AT 2026-07-20T15:54Z, i.e. BEFORE this fix landed, so it will complete on pre-fix code and its ree_trained_allon arm is guard-red by construction -- do not read 734a as a post-fix result. Post-fix dry-run: guard green on all 4 rungs (was red on all 4).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-07-21T16:16:28Z"
+      },
       "claim_ids": [],
       "experiment_purpose": "diagnostic"
     },
