@@ -75,6 +75,11 @@ def _load_queue_json(queue_path):
             return json.load(fh)
 
 
+# Canonical terminal-status set (defined in db.py -- see the note there on
+# why the three readers must not drift).
+_TERMINAL_STATUSES = db.TERMINAL_STATUSES
+
+
 def reconcile_once(conn, queue_path, *, claim_authority="git",
                    upsert_only=False):
     """Make the mirror match the AUTHORITATIVE git queue (not this box's
@@ -97,6 +102,30 @@ def reconcile_once(conn, queue_path, *, claim_authority="git",
     coordinator); items missing from the file are NOT deleted from the
     DB, because the DB row's status='completed' is the authoritative
     "this was done" record and must survive the writeback round-trip.
+
+    TERMINAL-ROW GUARD (upsert_only only; V3-EXQ-728a, 2026-07-20). A git
+    item whose queue_id already has a TERMINAL DB row used to be upserted
+    like any other: `preserve_claim=True` kept status='completed', while
+    note / item_json / priority / script were overwritten with the NEW
+    experiment's content. The result was a row that is simultaneously
+    note-updated and UNSERVABLE -- the coordinator never hands out a
+    terminal row, and `_materialise_queue_from_db` filters terminal rows
+    out, so the next phase3_queue_writer tick DELETED the freshly
+    committed entry from experiment_queue.json. The id was burned and the
+    experiment never ran, with no error anywhere: the operator's git
+    commit succeeded, reconcile succeeded, the writer succeeded. Confirmed
+    live on V3-EXQ-728a (a real ZWORLD-GUARD entry removed FAIL at
+    2026-07-20T15:54:17Z, whose id was then reused at 19:01:58Z by ree-v3
+    b523b9c for unrelated SD-070 content; the entry vanished from the next
+    snapshot and had to be re-queued as 728b in 0e7d33497f).
+
+    POST /queue/add already 409s on exactly this case -- it did not fire
+    because the ingress was a git commit reconciled in, not the HTTP
+    endpoint. This guard is the same refusal on the git ingress: a
+    terminal row is NOT mutated, and every refused id is named on stderr
+    and counted as a divergence. `force_rerun: true` on the item is the
+    deliberate opt-in that resurrects the row (mirrors /queue/add and
+    validate_queue's "never silently re-run a completed id" rule).
     """
     qdata = _load_queue_json(queue_path)
     if qdata is None:
@@ -111,7 +140,29 @@ def reconcile_once(conn, queue_path, *, claim_authority="git",
             "SELECT queue_id, status, claimed_by_machine FROM experiments"
         ).fetchall()}
 
+        burned = []
+        resurrected = []
         for qid, item in items.items():
+            existing = mirror.get(qid)
+            if (upsert_only and existing is not None
+                    and existing["status"] in _TERMINAL_STATUSES):
+                # See TERMINAL-ROW GUARD in the docstring.
+                if not item.get("force_rerun"):
+                    burned.append(qid)
+                    continue
+                # Deliberate force_rerun: resurrect the row properly rather
+                # than leaving a note-updated terminal husk. preserve_claim
+                # is False so status/claim come from the item (forced to a
+                # clean pending below); removal_reason/removed_at are left
+                # in place on purpose -- they are the audit trail of the
+                # earlier terminal event (test_queue_removal_reason_recorded
+                # C4 pins that).
+                rerun = dict(item)
+                rerun["status"] = "pending"
+                rerun.pop("claimed_by", None)
+                db.upsert_experiment(conn, rerun, preserve_claim=False)
+                resurrected.append(qid)
+                continue
             # Phase 1 (git authority): upsert mirror from authoritative git
             # queue each tick. Pre-upsert state-reconcile logged false
             # divergences when the mirror was briefly ahead of origin/main
@@ -119,6 +170,21 @@ def reconcile_once(conn, queue_path, *, claim_authority="git",
             # compares git_verdict vs evaluate_claim instead.
             db.upsert_experiment(
                 conn, item, preserve_claim=(claim_authority == "coordinator"))
+
+        if burned:
+            divergences += len(burned)
+            sys.stderr.write(
+                "[sync] REFUSED %d queue item(s): the queue_id already has a "
+                "TERMINAL DB row, so the DB row was NOT updated and the "
+                "committed queue entry WILL BE DELETED from "
+                "experiment_queue.json by the next phase3-queue snapshot. "
+                "The experiment will NOT run. Use a fresh id (e.g. "
+                "V3-EXQ-728b) or set 'force_rerun': true. ids: %s\n"
+                % (len(burned), sorted(burned)))
+        if resurrected:
+            sys.stderr.write(
+                "[sync] force_rerun: reset %d terminal row(s) to pending: "
+                "%s\n" % (len(resurrected), sorted(resurrected)))
 
         stale = set(mirror) - set(items)
         if not upsert_only:
@@ -139,7 +205,7 @@ def reconcile_once(conn, queue_path, *, claim_authority="git",
             # an unintended revert in the log.
             non_terminal = [
                 qid for qid in stale
-                if mirror[qid]["status"] not in ("completed", "failed")
+                if mirror[qid]["status"] not in _TERMINAL_STATUSES
             ]
             if non_terminal:
                 sys.stderr.write(
@@ -2072,8 +2138,10 @@ def _materialise_queue_from_db(conn, current_calibration):
     rows = conn.execute(
         "SELECT queue_id, status, claimed_by_machine, claimed_at, "
         "item_json, priority FROM experiments "
-        "WHERE status NOT IN ('completed', 'failed') "
+        "WHERE status NOT IN (%s) "
         "ORDER BY priority DESC, queue_id"
+        % ", ".join("?" * len(_TERMINAL_STATUSES)),
+        _TERMINAL_STATUSES,
     ).fetchall()
     items = []
     for r in rows:
@@ -2108,6 +2176,73 @@ def _materialise_queue_from_db(conn, current_calibration):
         "calibration": current_calibration or {},
         "items": items,
     }
+
+
+def _warn_on_terminal_drops_without_results(conn, dropped_ids):
+    """WARN for each id the snapshot is about to delete from the queue file
+    whose DB row is terminal but has NO results row.
+
+    A queue entry disappearing from experiment_queue.json is the normal,
+    every-run signature of a completed experiment, so the delete itself
+    carries no information. That makes it the perfect hiding place for two
+    genuinely bad states, which look byte-identical to a clean sweep:
+
+      - phantom completion -- the runner crashed before POSTing its
+        manifest, so the row went terminal with nothing to show for it
+        (see reference_phantom_completion_crash_before_manifest);
+      - a BURNED queue_id -- a new experiment was committed under an id
+        whose row was already terminal, so the entry is deleted and the
+        experiment never runs (V3-EXQ-728a; reconcile_once's terminal-row
+        guard now refuses this at ingress, but rows already in that state
+        and any future mutation path still surface here).
+
+    `status='completed' LEFT JOIN results -> no row` is the detector, and
+    removal_reason narrows it: a NULL/free-text reason is the operator
+    `POST /queue/remove` path (explained, benign); PASS/FAIL/ERROR came
+    from a runner that should also have delivered a manifest. An
+    `updated_at` LATER than `removed_at` means the row's CONTENT was
+    rewritten after it went terminal -- that is the burned-id signature
+    specifically, not a crash.
+
+    Best-effort and never raises: this runs inside the writer's hot path
+    and must not be able to block a snapshot.
+    """
+    if not dropped_ids:
+        return []
+    flagged = []
+    try:
+        for qid in sorted(dropped_ids):
+            row = conn.execute(
+                "SELECT status, removal_reason, removed_at, updated_at "
+                "FROM experiments WHERE queue_id=?", (qid,)).fetchone()
+            if row is None or row["status"] not in _TERMINAL_STATUSES:
+                continue
+            has_result = conn.execute(
+                "SELECT 1 FROM results WHERE queue_id=? LIMIT 1",
+                (qid,)).fetchone() is not None
+            if has_result:
+                continue  # ordinary completion sweep
+            removed_at = row["removed_at"]
+            updated_at = row["updated_at"]
+            content_rewritten = bool(
+                removed_at and updated_at and updated_at > removed_at)
+            flagged.append(qid)
+            sys.stderr.write(
+                "[phase3-queue] WARN dropping %s from the queue file: DB row "
+                "is %s with NO results row (removal_reason=%r removed_at=%r "
+                "updated_at=%r)%s. This is NOT a normal completion sweep -- "
+                "it is either a phantom completion (crash before manifest) "
+                "or a burned queue_id. Check the coordinator DB before "
+                "assuming the experiment ran.\n"
+                % (qid, row["status"], row["removal_reason"], removed_at,
+                   updated_at,
+                   "; CONTENT REWRITTEN AFTER the row went terminal "
+                   "(burned-id signature)" if content_rewritten else ""))
+    except Exception as exc:  # noqa: BLE001 -- diagnostic must never block
+        sys.stderr.write(
+            "[phase3-queue] WARN terminal-drop check failed (non-fatal): "
+            "%r\n" % exc)
+    return flagged
 
 
 def phase3_queue_writer(
@@ -2194,6 +2329,7 @@ def phase3_queue_writer(
     # compare for idempotent no-op when DB-materialised view matches.
     current_text = None
     current_calibration = {}
+    current_ids = set()
     if os.path.exists(target):
         try:
             with open(target, "r", encoding="utf-8") as fh:
@@ -2203,6 +2339,10 @@ def phase3_queue_writer(
                 if isinstance(current_doc, dict):
                     current_calibration = current_doc.get(
                         "calibration") or {}
+                    current_ids = {
+                        it.get("queue_id")
+                        for it in (current_doc.get("items") or [])
+                        if isinstance(it, dict) and it.get("queue_id")}
             except ValueError:
                 # Existing file is unparseable -- the writer should still
                 # overwrite it with a fresh DB-materialised view, but we
@@ -2225,6 +2365,13 @@ def phase3_queue_writer(
         return False
 
     new_text = json.dumps(new_doc, indent=2, sort_keys=False) + "\n"
+
+    # Every id this snapshot removes from the file is, on the face of it, a
+    # completed experiment. Flag the ones that have no results row to back
+    # that up -- see _warn_on_terminal_drops_without_results.
+    _warn_on_terminal_drops_without_results(
+        conn,
+        current_ids - {it.get("queue_id") for it in new_doc.get("items", [])})
 
     # Idempotent no-op when content matches.
     if current_text is not None and current_text == new_text:

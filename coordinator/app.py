@@ -699,7 +699,7 @@ class Handler(BaseHTTPRequestHandler):
             conn = db.connect(DB_PATH)
             try:
                 existing = db.get_queue_status(conn, qid)
-                if existing in ("completed", "failed") and not force_rerun:
+                if existing in db.TERMINAL_STATUSES and not force_rerun:
                     # Re-adding a terminal id silently re-runs a done
                     # experiment. Refuse (mirrors validate_queue + the runner
                     # skip-completed guard). Caller should use a new

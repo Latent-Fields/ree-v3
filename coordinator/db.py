@@ -117,6 +117,14 @@ def init_db(db_path):
     conn.close()
 
 
+# Statuses from which a row never becomes claimable again. Single source of
+# truth because three readers must agree on it: sync_daemon.reconcile_once's
+# terminal-row guard, sync_daemon._materialise_queue_from_db's worklist
+# filter, and POST /queue/add's 409. A disagreement between them is exactly
+# how a queue_id gets silently burned (V3-EXQ-728a, 2026-07-20).
+TERMINAL_STATUSES = ("completed", "failed")
+
+
 def _affinity_ok(affinity, machine):
     return affinity in (None, "", "any") or affinity == machine
 
