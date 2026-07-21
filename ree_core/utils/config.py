@@ -2426,6 +2426,29 @@ class REEConfig:
     salience_stability_scaling: float = 1.0
     # Softmax temperature for the operating_mode vector. Higher -> more uniform.
     salience_softmax_temperature: float = 1.0
+
+    # MECH-048 mu/kappa stability overlays on the mode PRIOR (SD-032d
+    # extension, landed 2026-07-21). Before this, pcc_stability (mu) reached
+    # only salience_stability_scaling (the switch threshold), so
+    # H(operating_mode) was EXACTLY invariant under mu -- MECH-048's
+    # mode-prior-sharpness half was untestable by construction. Spec form
+    # (docs/thoughts/2026-02-11_some_control_plane_maths_hypotheses.md:63):
+    #     tau = salience_softmax_temperature
+    #           * exp(alpha_kappa * aic_salience - alpha_mu * pcc_stability)
+    # High mu -> lower temperature -> sharper prior -> lower mode entropy.
+    # False (default) = bit-identical to the pre-2026-07-21 substrate.
+    salience_use_stability_temperature: bool = False
+    # Sharpening gain on the mu-analogue (pcc_stability, in [0, 1]).
+    salience_temperature_mu_alpha: float = 1.0
+    # Flattening gain on the kappa-analogue (aic_salience). Default 0.0 so
+    # that flipping salience_use_stability_temperature isolates the mu leg;
+    # kappa already reaches the mode logits via its affinity weight, so
+    # enabling both at once confounds two paths.
+    salience_temperature_kappa_alpha: float = 0.0
+    # Symmetric clip on the exponent before exp(). aic_salience is unbounded
+    # above, so an unclipped exponent can overflow or drive the temperature to
+    # a degenerate value.
+    salience_temperature_exponent_clip: float = 4.0
     # Bias added to external_task logit before softmax. Ensures default mode is
     # external_task when all inputs are zero (waking baseline).
     salience_external_task_bias: float = 1.0
@@ -4843,6 +4866,8 @@ class REEConfig:
         super_ordinal_seed_below_norm: float = 0.4,  # MECH-189 READ: only seed when z_goal norm below this
         super_ordinal_seed_match_threshold: float = 0.3,  # MECH-189 READ: min retrieval cosine match to seed
         super_ordinal_seed_strength: float = 0.1,  # MECH-189 READ: cue-pull strength toward retrieved anchor
+        super_ordinal_cue_centering: bool = False,  # SD-077: common-mode-invariant (centered) cue key; False = bit-identical
+        super_ordinal_cue_baseline_alpha: float = 0.02,  # SD-077: EMA rate for the common-mode baseline
         use_mech_consume: bool = False,  # SD-057 phase-2 L7 (MECH-348): dACC object-discriminative goal readout
         dacc_goal_readout_weight: float = 0.0,  # SD-057 L7: dACC goal-readout bias weight
         # MECH-203/204: serotonergic neuromodulation
@@ -4936,6 +4961,11 @@ class REEConfig:
         salience_switch_threshold: float = 1.0,
         salience_stability_scaling: float = 1.0,
         salience_softmax_temperature: float = 1.0,
+        # MECH-048 mu/kappa stability overlays on the mode prior (default off).
+        salience_use_stability_temperature: bool = False,
+        salience_temperature_mu_alpha: float = 1.0,
+        salience_temperature_kappa_alpha: float = 0.0,
+        salience_temperature_exponent_clip: float = 4.0,
         salience_external_task_bias: float = 1.0,
         salience_dacc_pe_weight: float = 1.0,
         salience_dacc_foraging_weight: float = 0.5,
@@ -5862,6 +5892,8 @@ class REEConfig:
             "super_ordinal_seed_below_norm",  # MECH-189
             "super_ordinal_seed_match_threshold",  # MECH-189
             "super_ordinal_seed_strength",  # MECH-189
+            "super_ordinal_cue_centering",  # SD-077
+            "super_ordinal_cue_baseline_alpha",  # SD-077
         }
         local_goal_vals = {
             "z_goal_enabled": z_goal_enabled,
@@ -5895,6 +5927,8 @@ class REEConfig:
             "super_ordinal_seed_below_norm": super_ordinal_seed_below_norm,  # MECH-189
             "super_ordinal_seed_match_threshold": super_ordinal_seed_match_threshold,  # MECH-189
             "super_ordinal_seed_strength": super_ordinal_seed_strength,  # MECH-189
+            "super_ordinal_cue_centering": super_ordinal_cue_centering,  # SD-077
+            "super_ordinal_cue_baseline_alpha": super_ordinal_cue_baseline_alpha,  # SD-077
         }
         for _key in goal_fields:
             if _key in local_goal_vals:
@@ -6028,6 +6062,11 @@ class REEConfig:
         config.salience_switch_threshold = salience_switch_threshold
         config.salience_stability_scaling = salience_stability_scaling
         config.salience_softmax_temperature = salience_softmax_temperature
+        # MECH-048 mu/kappa stability overlays on the mode prior.
+        config.salience_use_stability_temperature = salience_use_stability_temperature
+        config.salience_temperature_mu_alpha = salience_temperature_mu_alpha
+        config.salience_temperature_kappa_alpha = salience_temperature_kappa_alpha
+        config.salience_temperature_exponent_clip = salience_temperature_exponent_clip
         config.salience_external_task_bias = salience_external_task_bias
         config.salience_dacc_pe_weight = salience_dacc_pe_weight
         config.salience_dacc_foraging_weight = salience_dacc_foraging_weight

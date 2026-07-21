@@ -3221,6 +3221,79 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
   See REE_assembly/docs/architecture/sd_mel_consumer.md; SD-017; INV-050; MECH-180;
   plan-of-record REE_assembly/evidence/planning/sleep_substrate_plan.md (GAP-5b).
 
+- SD-MEL-PRODUCER: environment.non_converging_world_rule_shift -- IMPLEMENTED 2026-07-21.
+  The PRODUCER half of the MECH-180 pair -- link (i) novelty -> graded above-reference
+  waking MEL. SD-MEL-CONSUMER (above) owns link (ii) and is already PROVEN; link (i) had
+  never been demonstrated because the environment could not produce a novelty gradient
+  at all: V3-EXQ-677's C1 manipulation check measured a high- vs low-novelty mean E1
+  prediction-error difference of 8.8e-07 against a 0.01 threshold, and V3-EXQ-718a
+  measured ecological MEL ~1e-5 (noise-level, scrambled vs novelty level) with
+  conv_rel_drop ~0.98. Both autopsies classify this measurement_gap (environment /
+  test-bed producer gap), NOT a substrate ceiling and NOT a falsification.
+  ROOT CAUSE: env_drift_interval fires _drift_hazards(), which only MOVES hazards. The
+  optimal prediction of a random walk is its mean, so the world-forward model learns
+  that fast and PE floors at the irreducible noise level -- drift adds sampling NOISE,
+  not learning LOAD.
+  Module: ree_core/environment/causal_grid_world.py (CausalGridWorld._maybe_shift_world_rule;
+  inherited by CausalGridWorldV2). No new file, no new module.
+  Config (env kwargs, NOT REEConfig -- experiment scripts construct envs directly):
+  world_rule_shift_enabled (bool, default False; set True to enable),
+  world_rule_shift_interval (int, default 0 = never; WORLD-steps between rule re-draws),
+  world_rule_shift_depth (int, default 0; action-pair transpositions per shift),
+  world_rule_shift_scope (str, default "action_map"; reserved for a later
+  structural-statistics variant, ValueError on anything else).
+  Data flow: world_rule_shift_interval -> _maybe_shift_world_rule() re-permutes
+  self._action_map from self._rng -> dx,dy at step() -> the actual transition changes
+  -> z_world(t+1) diverges from E2.world_forward(z_world(t), a), which takes the action
+  as an INPUT -> e3 prediction_error rises -> info["world_rule_shift_occurred" /
+  "world_rule_shift_count" / "steps_since_world_rule_shift"].
+  WHY NOISE IS NOT A SUBSTITUTE (the central design constraint): grading OBSERVATION
+  NOISE would also yield a monotone MEL gradient -- but by construction, on any
+  substrate, whether or not MECH-180 is true. That is the DV-symmetry artifact class
+  (failure_autopsy_V3-EXQ-604c; the defect that held V3-EXQ-683 on 2026-07-21). Elevated
+  PE is only learning LOAD if it is reducible, so the operational discriminator is that
+  genuine load DECAYS within a stationary window while noise does not.
+  steps_since_world_rule_shift exists to let a consumer bin per-step PE by
+  time-since-shift and measure exactly that; the validation carries a matched-PE noise
+  arm as the negative control.
+  FOUR LOAD-BEARING DECISIONS, all contract-pinned in
+  tests/contracts/test_world_rule_shift_producer.py (12 tests) -- do not "simplify":
+  (1) the CLASS-level ACTIONS dict is never mutated (it is a class attribute, so an
+  in-place permutation would leak into every other env instance in the process); the
+  effective map is a per-instance self._action_map.
+  (2) the schedule keys off a cumulative self._world_steps_total, NOT episode-local
+  self.steps. This was a LIVE DEFECT caught by the implementation probe: episode length
+  itself collapses as the world gets less predictable (measured 69.0 -> 13.5 steps), so
+  an episode-relative schedule makes the nominal interval stop controlling the actual
+  shift RATE -- intervals 60/30/15/8/5 produced 2/2/3/20/21 shifts, non-monotone, taking
+  the MEL ladder with it.
+  (3) _action_map, the shift counters and _world_steps_total are NOT reset by reset() /
+  reset_to() -- the action map is the world's causal structure, not episode state.
+  (4) every RNG draw sits inside the enabled guard, so a disabled env consumes NO
+  randomness and is bit-identical at the same seed (verified on seeds 42/123/456).
+  Backward compatible: disabled by default; existing experiments unaffected, including
+  seeded-rollout bit-exactness.
+  No trainable parameters / no new encoder head / no new latent field -> NO phased
+  training needed (validation still needs a converged recon-only base so PE sits at
+  converged scale, per 701c; SD-056 contrastive is a confirmed P0 destabiliser).
+  MECH-094: does not apply -- nothing is written to memory during non-waking states.
+  MEASUREMENT NOTE for any consumer of this knob: shift rate SHORTENS episodes, so
+  measure over a fixed STEP budget, not a fixed episode count, and report mean episode
+  length per arm so the confound stays visible.
+  Unblocks: MECH-180 link (i), INV-050 ecological end-to-end demonstration (which is a
+  SEPARATE, still-gated run -- this test-bed must validate first).
+  Validation experiment: V3-EXQ-796 queued 2026-07-21
+  (v3_exq_796_sdmelproducer_graded_nonconverging_world; diagnostic; claim_ids=[];
+  recon-only converged base + graded rule-shift arms + matched-PE noise negative
+  control; DV = mean per-step e3 prediction_error (MEL) and its decay by
+  steps_since_world_rule_shift; PROMOTES NOTHING until it scores).
+  The consumer is DELIBERATELY ABSENT from that validation: V3-EXQ-718a's
+  learning_extracted[1] records that the consumer's DV is a deterministic function of
+  MEL, so DV-monotone-in-measured-MEL is near-tautological and cannot validate a producer.
+  See REE_assembly/docs/architecture/sd_mel_producer.md; SD-MEL-CONSUMER; SD-017;
+  INV-050; MECH-180; plan-of-record
+  REE_assembly/evidence/planning/sleep_substrate_plan.md (GAP-5b).
+
 ## SD-032b / MECH-258 / MECH-260 / ARC-058: dACC-analog Adaptive Control (2026-04-19)
 - SD-032b: cingulate.dacc_analog_adaptive_control -- IMPLEMENTED 2026-04-19.
   Module: ree_core/cingulate/dacc.py (DACCAdaptiveControl, DACCConfig,
@@ -3629,6 +3702,81 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
     salience injection, mode-switch trigger rate is monotone in
     drive_level and time-since-offline; PCC-OFF rate is invariant).
   See SD-032d, SD-032a, MECH-259, MECH-261, INV-049, MECH-092, SD-032 parent.
+
+- SD-032d AMENDMENT: cingulate.mu_kappa_mode_prior_overlays (MECH-048) --
+  IMPLEMENTED 2026-07-21.
+  Module: ree_core/cingulate/salience_coordinator.py (SalienceCoordinatorConfig,
+    SalienceCoordinator.tick).
+  Config: REEConfig.salience_use_stability_temperature (default False; set True
+    to enable). Sub-knobs salience_temperature_mu_alpha (1.0),
+    salience_temperature_kappa_alpha (0.0),
+    salience_temperature_exponent_clip (4.0).
+  Data flow: pcc.tick() -> pcc_stability [0,1] ->
+    salience.update_signal("pcc_stability") -> coordinator.tick() ->
+    effective_temperature = softmax_temperature *
+      exp(alpha_kappa*aic_salience - alpha_mu*pcc_stability)
+    -> _softmax(logits, effective_temperature) -> operating_mode
+    -> mode entropy + mode_switch_trigger + write_gates.
+  Backward compatible: disabled by default; when off, effective_temperature is
+    softmax_temperature exactly and exp() is never evaluated, so every tick is
+    bit-identical. Existing experiments unaffected. Full contract suite green
+    (2019 passed) with the change in place.
+  WHY. The 2026-04-19 SD-032d landing gave pcc_stability (the mu-analogue)
+    authority over the switch THRESHOLD only; affinity_weights["pcc_stability"]
+    was left empty. So H(operating_mode) was EXACTLY invariant under mu --
+    0.167605 at pcc_stability 0.0, 1.0 AND 3.0, identical to 6 dp, measured by
+    live execution on a constructed agent, while kappa (aic_salience) moved it
+    freely via its own affinity weight. MECH-048 asserts the overlays shape
+    BOTH mode-prior sharpness (entropy) AND switching inertia, so its entropy
+    half was untestable BY CONSTRUCTION on every substrate and every seed: any
+    experiment measuring mode entropy against mu would have reported an
+    arithmetic zero rather than a measurement. That is the DV-symmetry vacuity
+    class (failure_autopsy_V3-EXQ-604c_2026-07-20 section 3) and is why the
+    2026-07-21T13:39Z audit HELD V3-EXQ-683 rather than repairing it.
+  Form is the claim's own source, not an invention:
+    docs/thoughts/2026-02-11_some_control_plane_maths_hypotheses.md:63 gives
+    tau = tau_0 * exp(alpha_kappa*kappa - alpha_mu*mu) literally, and :104
+    gives the threshold half theta = theta_0 + rho_mu*mu - rho_kappa*kappa,
+    which is the pre-existing stability_scaling multiplier (unchanged). So mu
+    now reaches both legs, as the claim asserts.
+  WHY NOT an affinity_weights["pcc_stability"] entry (the rival mechanism):
+    a per-mode logit bias makes mu a mode PREFERENCE, and
+    control_plane.md#mech-048 states the overlays "are not scalar reward
+    signals; they act as stability and entropy modulators". Ruled out by claim
+    text, not preference. The empty dict is now commented as intentional.
+  alpha_kappa defaults to 0.0 so that flipping the master switch isolates the
+    mu leg (single-lever ablation) -- kappa already reaches the mode logits via
+    its affinity weight, so enabling both at once confounds two paths.
+  Exponent clipped at +/-4.0 because aic_salience is unbounded above
+    (urgency_scaled + extra_sum); keeps the temperature factor in [0.018, 54.6].
+    The multiplicative-exponential form also guarantees tau > 0, so the
+    coordinator's temperature <= 0 guard is unreachable.
+  tick() additionally returns effective_temperature and mode_entropy (nat
+    Shannon entropy of operating_mode) so consumers read the MECH-048 DV
+    rather than recomputing it inconsistently.
+  MECH-094: not applicable (no memory content authored).
+  Phased training: not applicable (non-trainable arithmetic, no gradient flow).
+  Contracts: tests/contracts/test_mech048_stability_temperature.py (7
+    contracts). All assertions are on continuous readouts -- entropy,
+    temperature, threshold -- and none on a sampled discrete mode, which is not
+    reproducible across machine classes.
+  EXPERIMENT-DESIGN CAUTION, read before queuing anything against MECH-048:
+    with mu injected DIRECTLY, "entropy falls as mu rises" is an arithmetic
+    identity of the coupling. The contracts assert it as substrate wiring; it is
+    NOT evidence for MECH-048. A real experiment must drive mu from upstream
+    environmental state (safety / coherence / task success, via PCCAnalog) and
+    read a downstream behavioural DV, or it reproduces the exact vacuity this
+    build exists to remove.
+  Validation experiment: NOT yet queued -- chipped as separate
+    /queue-experiment work (see WORKSPACE_STATE 2026-07-21).
+  STILL OPEN (separate build, deliberately not bundled): MECH-048's
+    switching-pressure half stays empirically unmeasurable because the
+    contested modes are never occupied -- V3-EXQ-464b/464c/467d/464d ALL FAIL
+    with fraction_in_external_task = 0.0 at every seed with
+    use_external_task_drive=True across a 20x hysteresis sweep; mean_dwell is
+    an episode-length artefact and n_switches == n_episodes. 467d self-routed
+    substrate_not_ready_requeue / external_task_mode_not_occupied.
+  See MECH-048, SD-032d, SD-032a, SD-032c, MECH-259.
 
 - SD-032e: cingulate.pacc_autonomic_coupling -- IMPLEMENTED 2026-04-19.
   Module: ree_core/cingulate/pacc_analog.py (PACCAnalog, PACCConfig).
@@ -14470,3 +14618,56 @@ claim says arousal amplifies rather than breaks), MECH-359, MECH-390, SD-011.
   Source: REE_assembly/evidence/planning/failure_autopsy_V3-EXQ-778a_2026-07-20.json
   targets[0].recommended_substrate_queue_entry, and
   REE_assembly/evidence/planning/intra_run_substrate_divergence_sweep_2026-07-20.md.
+
+- SD-077: goal.common_mode_invariant_super_ordinal_cue_key — IMPLEMENTED 2026-07-21.
+  SuperOrdinalGoalMemory (ree_core/goal.py) — the MECH-189 super-ordinal goal-anchor store.
+  Config: GoalConfig.super_ordinal_cue_centering (default False = bit-identical OFF; set
+  True to enable) and GoalConfig.super_ordinal_cue_baseline_alpha (default 0.02, matching
+  SD-066). Both plumbed through REEConfig.from_dims.
+  Data flow: z_world -> observe() slow-EMA common-mode baseline -> centered residual
+  (z_world - baseline) -> _best_match cosine -> contextual_complexity / retrieve.
+  Backward compatible: disabled by default; observe() returns immediately, _centered() is
+  the identity, and no baseline tensor is allocated, so existing experiments are unaffected.
+  WHY. The store keyed anchors on RAW z_world cosine. Under SD-008 z_world
+  under-differentiation the untrained encoder maps every context into a common-mode cone,
+  so that cosine measures the shared offset rather than the context. Measured 2026-07-21
+  on the actual V3-EXQ-669b Stage-0 forced-feed nursery (155 contexts, seed 101): raw
+  world_obs pairwise cosine min 0.216 / mean 0.608 (90.7% of pairs below 0.8), but z_world
+  pairwise cosine min 0.9641 / mean 0.9898 (ZERO pairs below 0.8), with
+  ||mean(z_world)|| / mean||z_world|| = 0.9949. The nursery IS context-diverse; the encoder
+  buries it. Result: 1 allocation + 159 reinforcements into slot 0, anchor_count == 1, and
+  669b self-routed on its own R3 readiness gate with C1/C3 unmeasurable.
+  THRESHOLD TUNING CANNOT SUBSTITUTE, and this is provable rather than observed:
+  contextual_complexity = 1 - best_cosine and best_cosine >= 0.9641 everywhere, so
+  complexity <= 0.036 under ANY (merge_similarity, complexity_threshold) pair -- strictly
+  below 669b's pre-registered COMPLEXITY_MARGIN of 0.05 (measured mean over 160 fired
+  writes: 0.0077). Contract C3 pins this across a 4x3 threshold grid. NOTE the 669b
+  docstring proposes a LOWER merge_similarity: that is the WRONG SIGN (it moves more
+  contexts into the REINFORCE branch and worsens saturation). Do not follow it.
+  Measured with centering ON, same nursery, 160 writes: n_slots=64 / merge 0.8 / cthr 0.2
+  -> 26 anchors, mean complexity 0.076. R3 clears and C3's margin becomes reachable.
+  FOR THE V3-EXQ-669c RE-ISSUE: 669b's super_ordinal_n_slots=16 CAPS the bank (28
+  allocations into 16 slots) and would re-flatten C1 by saturating every arm at the same
+  ceiling. Set super_ordinal_n_slots=64 with super_ordinal_cue_centering=True and leave
+  669b's other thresholds alone.
+  Biological basis / architecture: this is the SD-066 fix (common-mode-invariant centered
+  readout, validated on the SD-051 ConditionedSafetyStore) applied to a SECOND consumer of
+  the same broken z_world geometry. Any future consumer taking an ABSOLUTE cosine on
+  z_world should be assumed to need centering until SD-008 is resolved; SD-070 records that
+  the prescribed P0 training recipe collapses z_world rather than repairing it.
+  Design detail: keys are stored RAW and centered at comparison time, NOT stored
+  pre-centered — so a drifting baseline moves query and stored keys together and can never
+  leave the store internally inconsistent. The baseline advances BEFORE the write_enabled
+  gate (it is cue geometry, not anchor content, so it must keep tracking the context
+  distribution through the adult write-frozen phase) and also on retrieve().
+  Phased training: NOT required — pure stateful tensor store, no nn.Module, no trainable
+  parameters, no gradient flow. MECH-094: simulation_mode contexts never advance the
+  baseline (replay/DMN must not shape waking cue geometry).
+  Contracts: tests/contracts/test_sd_077_centered_super_ordinal_cue_key.py (C1 default-off
+  bit-identity + reproduced 669b signature, C2 centering separates, C3 no threshold setting
+  substitutes, C4 lazy seed + MECH-094, C5 raw-key self-match under baseline drift,
+  C6 persistence incl. pre-SD-077 checkpoint load).
+  Validation experiment: V3-EXQ-669c (queued 2026-07-21) — the 669b ordering test re-issued
+  on the centered cue key. Never reuse the id V3-EXQ-669b: its coordinator DB row is
+  terminal and POST /queue/add refuses it with HTTP 409.
+  See SD-066, SD-008, SD-070, MECH-189, MECH-329, DEV-NEED-006, DEV-NEED-024.
