@@ -765,6 +765,30 @@ ARMS = ("random_walk", "ree_trained_allon", "greedy_oracle")
 GUARDED_ARM = "ree_trained_allon"
 
 
+def _unevaluated_row(policy_name: str) -> Dict[str, Any]:
+    """An evaluate_seed-shaped row for a cell that was deliberately NOT evaluated.
+
+    Every key evaluate_seed emits is present so downstream printing cannot KeyError, but
+    each metric is None rather than 0.0: a refused cell has NO measurement, and a zero
+    would be indistinguishable from a real floor-level result once it reached
+    summarize_arm. Refused rows are filtered out of aggregation at the call site.
+    """
+    return {
+        "policy": policy_name,
+        "n_episodes": 0,
+        "foraging_competence": None,
+        "survival_horizon": None,
+        "death_rate": None,
+        "goal_reach_rate": None,
+        "planning_depth": None,
+        "mean_hazard_hits": None,
+        "mean_contaminations": None,
+        "mean_episode_reward": None,
+        "competence_supra_floor": None,
+        "per_episode_resources": [],
+    }
+
+
 def _run_cell(
     arm_id: str,
     seed: int,
@@ -774,12 +798,44 @@ def _run_cell(
     steps_per_episode: int,
     zworld_p0_episodes: int = 0,
     zworld_p0_dry_run: bool = False,
+    guard_state: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """One (arm, seed) capability-eval cell. Returns the seed-level metric row."""
     train_stats: Dict[str, Any] = {}
     guard_report: Optional[Dict[str, Any]] = None
     guard_ok: Optional[bool] = None
     guard_message: Optional[str] = None
+    guard_skipped: bool = False
+
+    # FAIL-FAST ACROSS SEEDS. A frozen world encoder is a property of the CODE PATH, not of
+    # a seed: once the warmup has failed to move the encoder, every remaining seed of this
+    # arm reproduces it. Skipping here happens BEFORE the agent is built, so it elides the
+    # P0a/P0/P1 warmup -- the bulk of the cost. See the V3-EXQ-734 2026-07-21 incident,
+    # where 16 cells were trained and evaluated after the guard had already refused all 16.
+    if (
+        arm_id == GUARDED_ARM
+        and guard_state is not None
+        and guard_state.get("tripped")
+    ):
+        guard_message = (
+            "SKIPPED after an earlier zworld_encoder_guard refusal in this run (first "
+            "refusal: seed=%s). The frozen-encoder condition is code-level, so this cell "
+            "would reproduce it; it was not trained or evaluated."
+            % guard_state.get("first_seed")
+        )
+        print(f"[GUARD-SKIP] arm={arm_id} seed={seed}: {guard_message}", flush=True)
+        row = _unevaluated_row(GUARDED_ARM)
+        row["arm_id"] = arm_id
+        row["seed"] = int(seed)
+        row["n_p0_ticks"] = 0
+        row["n_p1_ticks"] = 0
+        row["n_e2_train_steps"] = 0
+        row["zworld_guard"] = None
+        row["zworld_guard_ok"] = False
+        row["zworld_guard_message"] = guard_message
+        row["zworld_guard_refused"] = True
+        row["zworld_guard_skipped"] = True
+        return row
     if arm_id == "random_walk":
         policy = RandomPolicy(seed)
     elif arm_id == "greedy_oracle":
@@ -814,12 +870,23 @@ def _run_cell(
                   file=sys.stderr, flush=True)
             print(f"[GUARD-REFUSAL] arm=ree_trained_allon seed={seed}: {guard_message}",
                   flush=True)
+            # Arm the cross-seed fail-fast. Only the FIRST refusal records its context.
+            if guard_state is not None and not guard_state.get("tripped"):
+                guard_state["tripped"] = True
+                guard_state["first_seed"] = int(seed)
         policy = REEForwardPolicy(agent, name="ree_trained_allon")
     else:
         raise ValueError(f"unknown arm {arm_id!r}")
 
-    eval_env = _make_env(seed)
-    row = evaluate_seed(policy, eval_env, eval_episodes, steps_per_episode)
+    # DO NOT EVALUATE A REFUSED ARM. The guard has already established that this cell's
+    # z_world is a frozen random projection, so evaluating would spend the full eval budget
+    # producing a number that is uninterpretable as evidence about z_world -- and that looks
+    # like an ordinary competence reading to anything not also reading zworld_guard_ok.
+    if guard_ok is False:
+        row = _unevaluated_row(GUARDED_ARM)
+    else:
+        eval_env = _make_env(seed)
+        row = evaluate_seed(policy, eval_env, eval_episodes, steps_per_episode)
     row["arm_id"] = arm_id
     row["seed"] = int(seed)
     row["n_p0_ticks"] = int(train_stats.get("n_p0_ticks", 0))
@@ -830,6 +897,9 @@ def _run_cell(
     row["zworld_guard_ok"] = guard_ok
     if guard_message is not None:
         row["zworld_guard_message"] = guard_message
+    if guard_ok is False:
+        row["zworld_guard_refused"] = True
+        row["zworld_guard_skipped"] = guard_skipped
     return row
 
 
@@ -851,6 +921,9 @@ def run_experiment(
     )
 
     cells: List[Dict[str, Any]] = []
+    # Cross-seed fail-fast latch for the untrained-world-encoder guard. Run-scoped (not
+    # module-scoped) so a caller importing this module twice starts each run clean.
+    zworld_guard_state: Dict[str, Any] = {"tripped": False, "first_seed": None}
     for arm_id in ARMS:
         for s in seeds:
             print(f"Seed {s} Condition {arm_id}", flush=True)
@@ -878,22 +951,34 @@ def run_experiment(
                     arm_id, s, p0_episodes, p1_episodes, eval_episodes, steps_per_episode,
                     zworld_p0_episodes=zworld_p0_episodes,
                     zworld_p0_dry_run=dry_run,
+                    guard_state=zworld_guard_state,
                 )
                 cell.stamp(row)
             cells.append(row)
-            print(
-                f"verdict: PASS (arm={arm_id} seed={s} "
-                f"forage/ep={row['foraging_competence']} "
-                f"survival={row['survival_horizon']} "
-                f"goal_reach={row['goal_reach_rate']} "
-                f"plan_depth={row['planning_depth']})",
-                flush=True,
-            )
+            if row.get("zworld_guard_refused"):
+                print(
+                    f"verdict: REFUSED (arm={arm_id} seed={s} zworld_guard_ok=False "
+                    f"skipped={bool(row.get('zworld_guard_skipped'))})",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"verdict: PASS (arm={arm_id} seed={s} "
+                    f"forage/ep={row['foraging_competence']} "
+                    f"survival={row['survival_horizon']} "
+                    f"goal_reach={row['goal_reach_rate']} "
+                    f"plan_depth={row['planning_depth']})",
+                    flush=True,
+                )
 
     # ----- Per-arm aggregation -----
+    # Refused cells carry None metrics by construction and must never enter a mean.
     arm_summaries: Dict[str, Dict[str, Any]] = {}
     for arm_id in ARMS:
-        rows = [c for c in cells if c["arm_id"] == arm_id]
+        rows = [
+            c for c in cells
+            if c["arm_id"] == arm_id and not c.get("zworld_guard_refused")
+        ]
         arm_summaries[arm_id] = summarize_arm(rows)
 
     report = build_report(arm_summaries, floor="random_walk", ceiling="greedy_oracle")
