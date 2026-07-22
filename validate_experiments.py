@@ -2186,9 +2186,13 @@ def action_object_selection_lint(path: Path) -> Optional[str]:
     plausible-looking numbers. Confirmed 2026-07-22, independently reproduced:
     action-class-scaffold candidates constructed with 5 distinct one-hot first
     actions all re-decode to the SAME class, on an untrained module and after 40
-    warmup episodes alike. The decoder is not the degenerate component (it spans
-    all classes on N(0,1) inputs); its input, E2's step-0 action-object
-    embedding, is near action-invariant.
+    warmup episodes alike. NEITHER component is individually degenerate -- the
+    COMPOSITION is: both are untrained, and the action-object distribution is a
+    small ball far from the decoder's decision boundaries, so the argmax pins to
+    the decoder's own bias-argmax class. (The embedding is NOT action-invariant:
+    a linear probe recovers the action class from it at 100%. What it lacks is
+    STATE dependence.) See `HippocampalModule.candidate_first_action_class` for
+    the measurements.
 
     It is NOT repaired by `use_support_preserving_cem` or
     `use_action_class_scaffold_candidates` -- both act on `Trajectory.actions`

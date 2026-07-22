@@ -12,12 +12,40 @@ is not invertible, so it is not an action source.**
 CONSTANT. A driver selecting that way has an action stream INVARIANT under every
 manipulation of the candidate set or its scores -- an arithmetically forced no-op.
 
-The decoder is NOT the degenerate component: fed N(0,1) inputs it spans all
-classes. The degeneracy is in its INPUT. E2's step-0 action-object embedding is
-near action-invariant -- `ao_0` per-dim std across candidates ~0.012, giving
-per-class logit std <= 0.0063 against a 0.128 gap between the two largest
-per-class logit means, so argmax pins to the bias-argmax class. **Training does
-not repair it** (identical at 0 and 40 warmup episodes).
+**NEITHER component is individually degenerate -- the COMPOSITION is.** Both are
+untrained, and the action-object distribution is a small ball sitting far from the
+decoder's decision boundaries, so the decoder's own bias-argmax class wins for every
+input it is actually given.
+
+Do not read the earlier shorthand ("the decoder spans all classes on N(0,1), the
+degeneracy is in its INPUT, the embedding is near action-invariant") as literal --
+measured 2026-07-22 (session `epic-burnell-995d28`; seed 42, `world_dim=32`,
+`action_dim=5`, `action_object_dim=16`, `hidden_dim=64`), each half of it is wrong in
+a way that misdirects a fix:
+
+- **The decoder does not meaningfully "span all classes".** On N(0,1) inputs it puts
+  1362/2000 = **68%** on class 3. Every class gets a nonzero count; that is the whole
+  of the claim.
+- **That health check is run 28x OUT OF DOMAIN.** Real action-object inputs have
+  per-dim std **0.036** against the probe's 1.0, so N(0,1) behaviour says nothing
+  about behaviour on the inputs the decoder actually sees.
+- **The embedding is NOT "near action-invariant".** On the 5 one-hot actions the
+  action-object norms are 0.328-0.421 -- genuinely different per action -- and a
+  linear probe recovers the action class from state-centred action-objects at
+  **100%** (chance 20%), with action variance at 99.6% of total. The action is fully
+  present.
+- **What it actually lacks is STATE dependence:** 99.5% of its variance is explained
+  by the action label alone, so it is a frozen re-encoding of the action rather than
+  the state-conditioned consequence O is supposed to hold.
+- **The composition still collapses** because those genuine per-action differences
+  move the decoder's logits by std 0.007-0.017 against per-class-mean gaps up to
+  0.33. Argmax pins to class 3.
+
+**Training does not repair it** (identical at 0 and 40 warmup episodes), and
+**training the decoder alone is still the wrong fix** -- a decoder cannot recover
+consequences from an embedding that never encoded them. Full measurements:
+`REE_assembly/evidence/planning/action_object_invariance_spike_2026-07-22.md` (Sec.
+3.5).
 
 Measured (untrained module, action_dim=5, 32 candidates, seed 42):
 

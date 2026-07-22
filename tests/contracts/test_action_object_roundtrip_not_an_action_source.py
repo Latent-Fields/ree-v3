@@ -9,11 +9,24 @@ not invertible, so `argmax(action_object_decoder(traj.get_action_object_sequence
 which makes any driver selecting through it inert under every manipulation of the
 candidate set or its scores.
 
-The decoder is NOT the degenerate part -- fed N(0,1) inputs it spans all classes.
-The degeneracy is in its INPUT: E2's step-0 action-object embedding is very nearly
-action-invariant, so the round trip discards the action. Pinning both halves
-separately is the point of these tests: a future session that "fixes" this by
-training the decoder would be treating the wrong component.
+NEITHER component is individually degenerate -- the COMPOSITION is. Both halves are
+untrained, and the action-object distribution is a small ball far from the decoder's
+decision boundaries, so the decoder's own bias-argmax class wins on every input it is
+actually given. Pinning both halves separately is the point of these tests: a future
+session that "fixes" this by training the decoder would be treating the wrong
+component -- a decoder cannot recover consequences from an embedding that never
+encoded them.
+
+Refined 2026-07-22 (session epic-burnell-995d28), and read the localisation test
+below with this in mind: the decoder "spans all classes" on N(0,1) only weakly (68%
+of 2000 probe inputs land on class 3), and N(0,1) is ~28x OUT OF DOMAIN for real
+action-object inputs (per-dim std 0.036). The embedding is NOT action-invariant
+either -- a linear probe recovers the action class from state-centred action-objects
+at 100% (chance 20%); what it lacks is STATE dependence (99.5% of its variance is
+explained by the action label alone). The composition collapses because those genuine
+per-action differences move the decoder logits by std 0.007-0.017 against
+per-class-mean gaps up to 0.33. Full report:
+REE_assembly/evidence/planning/action_object_invariance_spike_2026-07-22.md Sec. 3.5.
 
 MEASURED (untrained module, action_dim=5, 32 candidates, seed 42):
 
@@ -88,7 +101,13 @@ def _roundtrip_classes(module, candidates):
 # --------------------------------------------------------------------------
 
 def test_decoder_itself_has_full_output_support():
-    """The DECODER is not the degenerate component -- localises the defect.
+    """The decoder has full output SUPPORT on N(0,1) -- localises the defect.
+
+    Read this as the weak claim it is: support, not balance, and measured out of
+    domain. 68% of the probe inputs land on one class, and N(0,1) is ~28x wider
+    than the real action-object distribution (per-dim std 0.036). It rules out a
+    decoder that is structurally incapable of emitting some class; it does NOT
+    show the decoder is well-behaved on the inputs it actually receives.
 
     If this ever fails, the diagnosis in this module is wrong and the round-trip
     tests below need re-deriving before anything is built on them.
@@ -100,8 +119,9 @@ def test_decoder_itself_has_full_output_support():
         classes = set(module.action_object_decoder(probe).argmax(dim=-1).tolist())
     assert len(classes) == module.config.action_dim, (
         f"decoder spans {len(classes)} of {module.config.action_dim} classes on "
-        f"N(0,1) inputs; the round-trip collapse was attributed to its INPUT "
-        f"(a near action-invariant action-object embedding), not to the decoder"
+        f"N(0,1) inputs; the round-trip collapse was attributed to the "
+        f"COMPOSITION (a small-ball action-object distribution far from this "
+        f"decoder's decision boundaries), not to the decoder alone"
     )
 
 

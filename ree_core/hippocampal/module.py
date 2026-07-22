@@ -408,9 +408,13 @@ class HippocampalModule(nn.Module):
         directly) to `Trajectory.get_action_object_sequence()` to recover "the
         action this candidate takes", and do not argmax it for selection. That
         round trip -- a -> E2.action_object(a) -> decoder -> a_hat -- is not
-        invertible on this substrate. See `candidate_first_action_class()` for
-        the correct accessor and `action_object_roundtrip_recovery` in the
-        propose diagnostics for the live measurement.
+        invertible on this substrate. The non-invertibility is a property of the
+        COMPOSITION, not of this decoder: both halves are untrained and the
+        action-object distribution is a small ball far from the decoder's
+        decision boundaries, so the argmax pins to one constant class. See
+        `candidate_first_action_class()` for the correct accessor and the
+        measurements, and `action_object_roundtrip_recovery` in the propose
+        diagnostics for the live measurement.
 
         Args:
             action_objects: [batch, horizon, action_object_dim]
@@ -454,9 +458,9 @@ class HippocampalModule(nn.Module):
         WHY THIS EXISTS, i.e. why NOT
         `argmax(action_object_decoder(traj.get_action_object_sequence()[:, 0, :]))`.
         That expression re-decodes E2's INTERNAL action-object embedding of the
-        rollout rather than reading the action, and on this substrate the
-        embedding is very nearly action-invariant, so the round trip discards the
-        action entirely and the argmax collapses to a single constant class.
+        rollout rather than reading the action, and on this substrate the round
+        trip is not invertible: the argmax collapses to a single constant class
+        whatever the candidate actually does.
 
         MEASURED (untrained module, action_dim=5, 32 candidates, seed 42):
 
@@ -468,12 +472,38 @@ class HippocampalModule(nn.Module):
 
         The scaffold row is decisive: those candidates were CONSTRUCTED with one
         distinct one-hot first action per class, and the round trip still maps
-        all five to class 3. The decoder itself is not the degenerate part -- fed
-        N(0,1) inputs it spans all 5 classes. The degeneracy is upstream, in the
-        input: `ao_0` across candidates has per-dim std ~0.012, and the resulting
-        per-class logit std (<=0.0063) is ~20x smaller than the gap between the
-        two largest per-class logit means (0.230 vs 0.102), so argmax is pinned
-        to the bias-argmax class regardless of the action.
+        all five to class 3.
+
+        WHERE THE DEGENERACY LIVES. Neither component is individually degenerate;
+        the COMPOSITION is. Both are untrained, and the action-object
+        distribution is a small ball far from the decoder's decision boundaries,
+        so the decoder's own bias-argmax class wins on every input it is actually
+        given. Measured 2026-07-22 (seed 42, world_dim=32, action_dim=5,
+        action_object_dim=16, hidden_dim=64):
+
+          - The decoder does not meaningfully "span all classes": on N(0,1)
+            inputs it puts 1362/2000 = 68% on class 3. Each class merely gets a
+            nonzero count.
+          - That N(0,1) check is run 28x OUT OF DOMAIN -- real action-object
+            inputs have per-dim std 0.036 against the probe's 1.0.
+          - The embedding is NOT action-invariant. Action-object norms on the 5
+            one-hot actions are 0.328-0.421 (genuinely different per action), and
+            a linear probe recovers the action class from state-centred
+            action-objects at 100% (chance 20%); action variance is 99.6% of
+            total. What it lacks is STATE dependence -- 99.5% of its variance is
+            explained by the action label alone, so it is a frozen re-encoding of
+            the action rather than the state-conditioned consequence O should
+            hold.
+          - The composition still collapses: those per-action differences move
+            the decoder logits by std 0.007-0.017 against per-class-mean gaps up
+            to 0.33, so argmax pins to class 3.
+
+        This sharpens the mechanism; it does not change the rule. The round trip
+        is still not an action source, and training the decoder alone is still
+        the wrong fix -- a decoder cannot recover consequences from an embedding
+        that never encoded them. Full report:
+        REE_assembly/evidence/planning/action_object_invariance_spike_2026-07-22.md
+        (Sec. 3.5).
 
         CONSEQUENCE. A driver that selects an action this way has an action
         stream INVARIANT under every manipulation of the candidate set or its
