@@ -197,6 +197,21 @@
       "seeds": 5
     },
     {
+      "queue_id": "V3-EXQ-810",
+      "title": "ARC-071/MECH-323 substrate-readiness diagnostic: does the policy-chunking accumulator fire at all (OFF vs formation-only vs formation+maintenance, proposal injection OFF)",
+      "script": "experiments/v3_exq_810_arc071_chunk_accumulator_readiness.py",
+      "priority": 45,
+      "machine_affinity": "any",
+      "estimated_minutes": 90,
+      "claim_id": "ARC-071",
+      "note": "DIAGNOSTIC spike (experiment_purpose=diagnostic; excluded from governance confidence/conflict scoring -- yields ROUTING, not verdicts). FIRST experiment against the ARC-071 substrate built 2026-07-22 (ree-v3 ree_core/policy/policy_chunking.py: MECH-323 ChunkAccumulator + MECH-324 ChunkLibrary + the MECH-322 sleep-replay carve-out). Answers ONLY the smallest question in the registered validation order -- does the accumulator fire at all -- per MECH-323's own registered first-validation design. Behavioural-latency and rollout-cost are NOT measured here; they need use_chunk_proposal_injection plus the MECH-324 ARM_1-vs-ARM_2 contrast, and are a later EXQ. GOV-REUSE-1 (Step 2.4): decisive readout is chunk_acc_n_formed / chunk_lib_n_crystallised under use_policy_chunking=True; those knobs and readouts did not exist before 2026-07-22 and no ARC-071/MECH-323/MECH-324 run exists in evidence/experiments/ on any substrate_hash -- not recoverable, so it runs. RE-DERIVE BRAKE: count 0 for all three claims (no prior autopsy; no prior experiment). SAFETY: use_chunk_replay_origin_path=False in every arm, so the MECH-322 carve-out is closed and C4 pins chunk_acc_n_replay_formed == 0 through the live agent -- a hallucinated chunk would be catastrophic, and the strict MECH-094 gate is itself under test here. PARAMETERS are scaled down from the registered defaults (R_min 20->5, W 100->60, C_min 5->2) to fit a 120-episode probe; ratios and every structural property (hysteresis gap, evaluative gate, depth cap, size budget) are preserved. This is readiness, NOT parameter calibration. PRE-QUEUE BENCH: one ARM_FULL cell at the real 120 episodes formed 7 chunks, crystallised 6, 0 replay-origin, outcome spread 0.33 -- so the probe is not structurally destined to be silent. Smoke PASS (--dry-run). Substrate-readiness precondition asserts the SAME statistic the evaluative gate routes on (outcome spread), self-routing below-floor to substrate_not_ready_requeue, never a substrate-verdict label.",
+      "status": "pending",
+      "conditions": 3,
+      "episodes_per_run": 120,
+      "experiment_type": "v3_exq_810_arc071_chunk_accumulator_readiness",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-804",
       "title": "ARC-003 LEG A: does E3 SELECT? commitment-free score-level lesion contrast (KL of selected-candidate distribution vs the proposer's generation prior)",
       "script": "experiments/v3_exq_804_arc003_e3_selection_authority.py",
@@ -377,21 +392,6 @@
       "episodes_per_run": 1000,
       "experiment_type": "v3_exq_808_return_decomposition_objective_misspecification",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-810",
-      "title": "ARC-071/MECH-323 substrate-readiness diagnostic: does the policy-chunking accumulator fire at all (OFF vs formation-only vs formation+maintenance, proposal injection OFF)",
-      "experiment_type": "v3_exq_810_arc071_chunk_accumulator_readiness",
-      "script": "experiments/v3_exq_810_arc071_chunk_accumulator_readiness.py",
-      "priority": 45,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 90,
-      "episodes_per_run": 120,
-      "seeds": 3,
-      "conditions": 3,
-      "claim_id": "ARC-071",
-      "note": "DIAGNOSTIC spike (experiment_purpose=diagnostic; excluded from governance confidence/conflict scoring -- yields ROUTING, not verdicts). FIRST experiment against the ARC-071 substrate built 2026-07-22 (ree-v3 ree_core/policy/policy_chunking.py: MECH-323 ChunkAccumulator + MECH-324 ChunkLibrary + the MECH-322 sleep-replay carve-out). Answers ONLY the smallest question in the registered validation order -- does the accumulator fire at all -- per MECH-323's own registered first-validation design. Behavioural-latency and rollout-cost are NOT measured here; they need use_chunk_proposal_injection plus the MECH-324 ARM_1-vs-ARM_2 contrast, and are a later EXQ. GOV-REUSE-1 (Step 2.4): decisive readout is chunk_acc_n_formed / chunk_lib_n_crystallised under use_policy_chunking=True; those knobs and readouts did not exist before 2026-07-22 and no ARC-071/MECH-323/MECH-324 run exists in evidence/experiments/ on any substrate_hash -- not recoverable, so it runs. RE-DERIVE BRAKE: count 0 for all three claims (no prior autopsy; no prior experiment). SAFETY: use_chunk_replay_origin_path=False in every arm, so the MECH-322 carve-out is closed and C4 pins chunk_acc_n_replay_formed == 0 through the live agent -- a hallucinated chunk would be catastrophic, and the strict MECH-094 gate is itself under test here. PARAMETERS are scaled down from the registered defaults (R_min 20->5, W 100->60, C_min 5->2) to fit a 120-episode probe; ratios and every structural property (hysteresis gap, evaluative gate, depth cap, size budget) are preserved. This is readiness, NOT parameter calibration. PRE-QUEUE BENCH: one ARM_FULL cell at the real 120 episodes formed 7 chunks, crystallised 6, 0 replay-origin, outcome spread 0.33 -- so the probe is not structurally destined to be silent. Smoke PASS (--dry-run). Substrate-readiness precondition asserts the SAME statistic the evaluative gate routes on (outcome spread), self-routing below-floor to substrate_not_ready_requeue, never a substrate-verdict label."
     }
   ]
 }
