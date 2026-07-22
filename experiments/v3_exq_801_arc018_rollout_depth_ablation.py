@@ -157,6 +157,33 @@ CLAIM_IDS = ["ARC-018"]
 EXPERIMENT_PURPOSE = "evidence"
 BACKLOG_ID = "EXP-0396"
 
+# Action-object-selection gate (`validate_experiments.action_object_selection_lint`).
+# FALSE POSITIVE, and the reason is structural rather than a judgement call.
+#
+# The gate fires on the single `torch.argmax(logits, dim=-1)` inside `_first_action_of`,
+# which decodes a candidate's first action via `hippocampal.action_object_decoder`. That
+# round trip IS non-invertible on this substrate -- the gate's premise is correct, and this
+# experiment is the run the gate CITES for it: under the round-trip rule A2_FULL and
+# A3_NOISE came out bit-identical, and they separated only once selection moved to the E3
+# path (see the P4 `executed_action_diversity` precondition above).
+#
+# What makes it harmless here is that `_first_action_of` has NO CALLERS. It is retained
+# beside `_select_action` as the provenance of that finding -- the exact expression whose
+# degeneracy P4 documents -- and is never reached on any code path. Every action this
+# experiment executes comes from `agent.select_action(candidates, ticks)` in
+# `_select_action`, i.e. E3's J(zeta), which is the gate's own prescribed FIX. So the
+# executed action stream is not selected through the round trip in any arm, at any tick;
+# the depth manipulation reaches behaviour through E3 alone.
+#
+# Scope caution: the marker is file-wide. A future edit that CALLS `_first_action_of`, or
+# adds any other decoder argmax whose result reaches action selection, would be silently
+# unguarded. Any such edit must re-derive this exemption or drop it.
+ACTION_OBJECT_SELECTION_EXEMPT = (
+    "diagnostic-only: the sole action_object_decoder argmax lives in the uncalled helper "
+    "_first_action_of, retained as provenance for the measured round-trip collapse that P4 "
+    "documents. All selection routes through agent.select_action (E3 J(zeta))."
+)
+
 ARM_DEPTH0 = "A0_DEPTH0"
 ARM_SHALLOW = "A1_SHALLOW"
 ARM_FULL = "A2_FULL"
