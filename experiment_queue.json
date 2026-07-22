@@ -213,6 +213,22 @@
       "episodes_per_run": 350,
       "experiment_type": "v3_exq_699b_pcomp_demotion_x_gonogo_fresh_select",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-802",
+      "title": "ARC-005 control-plane routing: channel-vs-content double dissociation over precision and mode occupancy",
+      "experiment_type": "v3_exq_802_arc005_control_plane_routing_double_dissociation",
+      "script": "experiments/v3_exq_802_arc005_control_plane_routing_double_dissociation.py",
+      "priority": 47,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 360,
+      "episodes_per_run": 2000,
+      "seeds": 5,
+      "conditions": 6,
+      "backlog_id": "EXP-0392",
+      "claim_id": "ARC-005",
+      "note": "EXP-0392. ARC-005 carries 88 reverse dependencies -- the highest fan-in in the registry -- on exp_conf 0.0 with ZERO experimental entries, held up entirely by lit_conf 0.783. Tests the falsifiable half: not that a control plane EXISTS (a design fact) but that it ROUTES -- causal authority over precision and mode DISSOCIABLE FROM CONTENT. 3-level channel ladder x 2 content sets on a fixed arena (6 arms x 5 seeds); the proposal's 2x2 is the {L0,L2}x{A,B} sub-grid and L1 exists because the acceptance check requires monotonicity, which two levels cannot show. DVs: E3 precision readout + mode-occupancy distribution. GOV-REUSE-1: readout 'mode_occupancy' absent from every recorded manifest (reanalysis_query 0 matches) and ARC-005 has no experimental manifests -> not recoverable, run. Re-derive brake: 0 counted autopsies on ARC-005. SUBSTRATE READINESS (Step 2.5) took three measured fixes, all now in the lineage baseline module: (a) use_dacc + use_aic_analog must be ON or the coordinator's salience_aggregate is identically 0 and the discrete mode can NEVER switch -- occupancy would be single-mode by configuration, not substrate; (b) phasic_burst_signal_source='instantaneous_pe' or channel 2 fires zero events and is inert; (c) 5-HT rigidity is set at the channel's OUTPUT (gain_min==gain_max) because harm suppression crushes any tonic baseline to ~0 within tens of steps. All three are identical in every arm. P1 RESCOPED, not relaxed: the proposal's literal per-arm 'baseline occupies >=2 modes' gate was measured (600-tick probe, seed 0) to vacate the STRONGEST instance of the effect under test -- every corner arm single-mode while the channel manipulation moved the mode end-to-end (TV 1.0) and content moved it not at all (TV 0.0). Gated statistic changed to the design-level '>=2 distinct argmax modes across the design', which is what the gate's own stated rationale is about; within-arm multi-modality kept as a NON-GATING diagnostic. No threshold lowered. SCOPE: a PASS establishes THE PLANE is causal, not that each of the four channels independently routes modes -- channels 3/4 carry occupancy authority directly, 1/2 act mainly on precision. Per-channel dissociation UNTESTED. MINT: first of lineage exq802_arc005_control_plane; every cell emitted with include_driver_script_in_hash=False, so this run IS the cross-driver-reusable mint and no separate baseline-only job is queued. Smoke PASS (12 cells, validate_experiments --strict OK, validate_recording OK)."
     }
   ]
 }
