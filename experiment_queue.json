@@ -341,6 +341,21 @@
       "episodes_per_run": 1000,
       "experiment_type": "v3_exq_808_return_decomposition_objective_misspecification",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-809",
+      "title": "SD-080 prior probe: is action-object CONTENT load-bearing for EXQ-003's PASS?",
+      "experiment_type": "v3_exq_809_sd080_action_object_init_invariance",
+      "script": "experiments/v3_exq_809_sd080_action_object_init_invariance.py",
+      "claim_id": "SD-004",
+      "priority": 46,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 260,
+      "episodes_per_run": 40,
+      "seeds": 3,
+      "conditions": 4,
+      "note": "PRIOR PROBE for the SD-080 falsifier (spike Sec 4.2 final paragraph): REE_assembly/evidence/planning/action_object_invariance_spike_2026-07-22.md. Re-runs EXQ-003's TERRAIN-vs-RANDOM contrast across 4 independent re-draws of E2.action_object_head x 3 seeds (12 cells). The head receives zero gradient (spike M0, replicated per-cell as ao_head_param_delta_after_warmup), so a re-draw is a pure content intervention; it is not a no-op on the planner because num_cem_iterations=3 and the legacy elite refit (module.py:1400-1409) reads back E2-computed action objects to refit ao_mean/ao_std. Every init including 0 is re-drawn inside a saved/restored global RNG state so the downstream stream is bit-identical across inits and the init effect is not confounded with stream drift. Keeps EXQ-003's config verbatim (alpha_world NOT raised to 0.9) because the question is what produced EXQ-003's PASS. READOUTS: D1 matched-state mean pairwise TV distance between inits' proposed first-action distributions (ceil 0.05); D2 across-init spread of survival_ratio = terrain/random mean survival, relative to its across-seed spread (ceil 0.50, load-bearing C2). BOTH DIRECTIONS DECLARED (carried from spike Sec 4.2): (i) invariant -> O's semantic grounding is NOT what produced EXQ-003's 6x survival; SD-004's efficiency rationale gets reframed and the 3-arm falsifier is re-priced downward to a correctness-not-capability run; (ii) varies -> O's content IS load-bearing and the 3-arm is worth its cost with a real prior of a behavioural effect. A NULL ON D2 IS A REAL RESULT, NOT A FAILURE. DV-SYMMETRY (per arm): D1's DV is a set-aggregate of argmax labels, invariant under uniform additive shifts and monotone rescalings of the decoder outputs -- a weight re-draw is neither (it moves ao_mean/ao_std per-coordinate and non-monotonically at the refit, so the argmax can change). D2's DVs are symmetric under permutation of episodes and seeds, and the manipulation is applied WITHIN a seed with the downstream RNG held identical, so it is orthogonal to that symmetry. Neither delta is an arithmetic identity fixed before the run. GOV-REUSE-1: decisive readout is the spread of EXQ-003's terrain-advantage DVs across ao-head re-initialisations; checked EXQ-003's manifests, the SD-004 evidence surface and the spike's raw arrays -- no recorded run varies the head's init, so it is neither recorded nor derivable post-hoc. Not recoverable -> run. claim_ids is SD-004 only: SD-080 is not yet registered in claims.yaml, and this probe exercises SD-004's rationale rather than SD-080's factual content (which the spike measured directly). SD-080 carried in custom_information.related_claims. GATES the 3-arm falsifier, which additionally needs an /implement-substrate build (a default-off consequence-grounding auxiliary loss on action_object_head; SD-056's contrastive objective is NOT directly reusable -- it pushes ACTIONS apart, whereas this head's deficiency is that STATES are unrepresented). Smoke PASS."
     }
   ]
 }
