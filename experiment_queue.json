@@ -259,6 +259,38 @@
       "episodes_per_run": 350,
       "experiment_type": "v3_exq_699b_pcomp_demotion_x_gonogo_fresh_select",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-800",
+      "title": "ARC-007 leg 2: residue-scramble dissociation (hippocampal machinery INTACT)",
+      "experiment_type": "v3_exq_800_arc007_residue_scramble_dissociation",
+      "script": "experiments/v3_exq_800_arc007_residue_scramble_dissociation.py",
+      "priority": 36,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 480,
+      "episodes_per_run": 300,
+      "seeds": 3,
+      "conditions": 4,
+      "backlog_id": "EXP-0393",
+      "claim_id": "ARC-007",
+      "note": "Tests the UNTESTED leg of conjunctive ARC-007. Leg 1 (paths stored/replayed) is carried by EXQ-114; leg 2 (THROUGH RESIDUE-FIELD TERRAIN) is the entire REE-specific content and has never been tested. Arms A0 intact / A1 hippo-ablated (EXQ-114 reference) / A2 residue PERMUTED across active RBF centers at eval entry (preserves marginal weight distribution and center locations exactly; destroys only the residue<->location correspondence) / A3 residue frozen at init. A0 and A2 share an IDENTICAL training history, so a difference cannot be attributed to A2 having learned less. PRIMARY DV BEHAVIOURAL (harm_rate, path efficiency); hippo_quality_gap is DELIBERATELY NOT COMPUTED (sign-inverted, EXQ-397/397c non_contributory 2026-04-22). GOV-REUSE-1: decisive readout is harm_rate under residue permutation with hippocampus intact; no recorded manifest has ever permuted the residue field (397/397c/397d are hippocampal ablations, not residue scrambles) -> not recoverable, run. Re-derive brake: 0 autopsy targets tag ARC-007. TWO SUBSTRATE FINDINGS FROM SMOKE, both encoded as design-time guards: (1) num_candidates must keep num_elite>=2 or the CEM refit's std() over a single elite is NaN and NaNs every candidate rollout (measured at num_candidates=8: 1 of 8 candidates finite at 10/40/120 warmup alike); (2) selection MUST route through E3 (agent.select_action) -- every candidate decodes to the SAME first-action class via action_object_decoder at every tick under default config and under both use_support_preserving_cem and use_action_class_scaffold_candidates, which would make the manipulation invariant under the DV. On the E3 path, permuting residue moves 63/150 executed ticks. Preconditions P1 field structure / P2 base effect / P3 permutation effective / P4 candidate score RANGE / P5 executed-action diversity, per-arm gated so a red arm never vacates a green one. A0_INTACT minted reuse-eligible with include_driver_script_in_hash=False."
+    },
+    {
+      "queue_id": "V3-EXQ-801",
+      "title": "ARC-018 leg B: rollout-depth ablation at VERIFIED E2 fidelity",
+      "experiment_type": "v3_exq_801_arc018_rollout_depth_ablation",
+      "script": "experiments/v3_exq_801_arc018_rollout_depth_ablation.py",
+      "priority": 35,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 540,
+      "episodes_per_run": 300,
+      "seeds": 3,
+      "conditions": 4,
+      "backlog_id": "EXP-0396",
+      "claim_id": "ARC-018",
+      "note": "Tests the OPEN leg of conjunctive ARC-018 with both prior confounds explicitly trapped. Every PASS (EXQ-042/053/120) tested the MAPPING leg; every FAIL (172/196) tested the ROLLOUT leg, and both FAILs are confounded differently: 172 ran at e2_world_r2=0.203 (indicts E2, not the architecture), 196 returned harm_advantage_mean EXACTLY 0.0 on all 3 seeds at good fidelity (unwired-DV signature). Arms A0 horizon 1 / A1 horizon 3 / A2 horizon 10 / A3 matched-depth RANDOM-PROPOSER control. P1 e2_world_r2 >= 0.6 measured IN-RUN self-routes substrate_not_ready below floor. P3 traps the 196 signature on the COUNT of seeds with a bit-nonzero advantage, NEVER on magnitude, so a genuine small-effect null still scores as a FAIL instead of being mislabelled substrate_not_ready. GOV-REUSE-1: decisive readout is harm_advantage as a function of rollout depth; EXQ-236 (closest design) has a script but NEVER produced a manifest, EXQ-105 is a horizon sweep tagging MECH-135 with a different DV and no depth-0 or noise arm, EXQ-570 answers diversity-preservation for ARC-065 -> not recoverable, run. Re-derive brake: 0 autopsy targets tag ARC-018. Selection routes through E3 (agent.select_action): on the action_object_decoder path A2_FULL and A3_NOISE came out BIT-IDENTICAL because all candidates decode to one action class -- the most plausible reading of the EXQ-196 exact-zero signature, and why P4 gates executed-action diversity. A3's first implementation (random CEM elite scoring) measured INERT (A2 vs A3 equal to 4 sig figs) and was replaced with a random PROPOSER at matched depth. Hold-weighted-readout WARN triaged SAFE: verdict quantities are harm_rate (a behavioural rate over every executed step) and a set cardinality, neither reweighted by the E3 cadence; n_fresh_select/n_latched_ticks emitted for audit. A0_DEPTH0 minted reuse-eligible with include_driver_script_in_hash=False."
     }
   ]
 }
