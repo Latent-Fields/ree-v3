@@ -85,6 +85,7 @@ def reference_config(
     use_distributional_critic: bool = False,
     use_policy_kl_anchor: bool = False,
     kl_anchor_coef: float = 0.0,
+    measure_policy_drift: bool = False,
     retention_probe_every: Optional[int] = None,
 ) -> boot.BootstrapExplorerConfig:
     """The shared reference RL-refinement config.
@@ -94,6 +95,12 @@ def reference_config(
     estimator), 789 varies the bc_aux_* triple (auxiliary persistence), and the third retention
     leg varies use_policy_kl_anchor/kl_anchor_coef (the update constraint) -- which is the
     anti-alias the portfolio depends on: a leg that moved two of them would read as neither.
+
+    measure_policy_drift is NOT a fourth manipulation -- it is an INSTRUMENT (V3-EXQ-792a): it
+    records an unconstrained arm's realised KL to its own post-install snapshot without adding
+    anything to the loss, so a control reports a MEASURED drift rather than a 0.0 sentinel. It
+    is mutually exclusive with use_policy_kl_anchor (train_a2c raises on both) because an
+    anchored arm already measures that quantity.
     """
     budget = int(on_budget) if on_budget is not None else int(fan.RL_EPISODES * REF_BUDGET_MULTIPLIER)
     return boot.BootstrapExplorerConfig(
@@ -116,6 +123,7 @@ def reference_config(
         use_distributional_critic=bool(use_distributional_critic),
         use_policy_kl_anchor=bool(use_policy_kl_anchor),
         kl_anchor_coef=float(kl_anchor_coef),
+        measure_policy_drift=bool(measure_policy_drift),
         retention_probe_every=retention_probe_every,
     )
 
@@ -127,6 +135,7 @@ def off_path_config_slice(
     steps: int,
     on_budget: Optional[int] = None,
     retention_probe_every: Optional[int] = None,
+    measure_policy_drift: bool = False,
 ) -> Dict[str, Any]:
     """The declared config_slice for the shared OFF cell.
 
@@ -136,10 +145,14 @@ def off_path_config_slice(
     fingerprint), and an over-declared one yields a needless MISS. retention_probe_every IS
     declared: a probed and an unprobed cell are bit-identical as COMPUTATIONS but are not
     interchangeable ARTIFACTS, since only one carries the trajectory a consumer reads.
+    measure_policy_drift IS declared for the identical reason (V3-EXQ-792a): a monitored and an
+    unmonitored control compute the same trajectory but only one carries the measured drift
+    comparator, so they must not share a fingerprint.
 
     Emit with include_driver_script_in_hash=False so the two legs' distinct drivers can match.
     """
-    cfg = reference_config(on_budget, retention_probe_every=retention_probe_every)
+    cfg = reference_config(on_budget, retention_probe_every=retention_probe_every,
+                           measure_policy_drift=bool(measure_policy_drift))
     base: Dict[str, Any] = {
         "arm_id": "retention_off",
         "rung_id": fan.RUNG_ID,

@@ -651,6 +651,52 @@ class PolicyKLAnchor:
         return float(sum(self.kl_recent) / len(self.kl_recent)) if self.kl_recent else 0.0
 
 
+class PolicyDriftMonitor(PolicyKLAnchor):
+    """MEASUREMENT-ONLY twin of PolicyKLAnchor: records the drift, constrains nothing.
+
+    WHY THIS EXISTS (V3-EXQ-792 autopsy, 2026-07-22). train_a2c emits
+    mean_policy_kl_to_anchor_recent unconditionally, but on an UNCONSTRAINED arm it was a
+    HARD-CODED 0.0 SENTINEL -- no PolicyKLAnchor was constructed there, so no KL was ever
+    recorded. That left the cross-coefficient DOSE-RESPONSE as the only available proof that
+    an anchor had BOUND, because the intuitive per-arm check ("the anchored arm drifted less
+    than the control") compared a measurement against a sentinel and read BACKWARDS. In
+    V3-EXQ-792 one anomalous coefficient cell therefore vacated a load-bearing criterion that
+    had PASSED. This class removes that structural weakness: the control measures the SAME
+    statistic, on the SAME frozen post-install snapshot, at the SAME call sites, so every
+    anchored arm is provable against a real comparator and monotonicity becomes a SECONDARY
+    check rather than the only proof.
+
+    WHY A SUBCLASS AND NOT `PolicyKLAnchor(policy, 0.0)`. That constructor deliberately RAISES
+    on a non-positive coefficient, and that guard is correct and must stay: a zero-weight
+    ANCHOR is the OFF arm wearing the ON label, which is the degenerate-arm-read-as-a-verdict
+    failure this family guards against everywhere. The distinction preserved here is between a
+    mis-declared MANIPULATION (still an error) and a declared INSTRUMENT (this class). The two
+    are kept separable downstream by DISTINCT guard keys -- policy_kl_anchor_installed stays
+    False for a monitor, and policy_drift_monitor_installed reports it instead -- so a
+    manipulation-active precondition can never be satisfied by an instrument.
+
+    ZERO INFLUENCE ON THE ARM, BY CONSTRUCTION AND BY ARITHMETIC. penalty() records the
+    realised KL and returns the PYTHON float 0.0, so `loss + kl_pen` is a graph no-op rather
+    than a zero-valued tensor spliced into the backward pass: no gradient reaches any
+    parameter through this object. The reference forward runs under no_grad on a frozen deep
+    copy, and ActorCriticPolicy is Linear/Tanh throughout with no dropout and no sampling, so
+    it consumes NO RNG -- the monitored control is bit-identical to an unmonitored one and
+    remains the same unconstrained control the anchored arms are read against.
+    """
+
+    def __init__(self, policy: Optional[ActorCriticPolicy]) -> None:
+        # Borrow the snapshot machinery at a nominal weight, then zero it. The parent's
+        # policy-is-None guard still applies: a monitor that silently measured nothing would
+        # reinstate the sentinel this class exists to remove.
+        super().__init__(policy, 1.0)
+        self.coef = 0.0
+
+    def penalty(self, live_logits_t: torch.Tensor, ref_logits_t: torch.Tensor) -> float:
+        """Record the REALISED KL and contribute exactly nothing to the loss."""
+        self.kl_recent.append(float(self.kl(live_logits_t, ref_logits_t).item()))
+        return 0.0
+
+
 # ===========================================================================
 # Generic A2C trainer with mechanism hooks (sparse / RND / H-credit / H-return / H-mode /
 # the H-credit x H-return PAIR). Single-backward-per-episode, GAE advantages -- byte-comparable
@@ -684,6 +730,7 @@ def train_a2c(
     probe_fn: Optional[Callable[[int], Dict[str, Any]]] = None,
     use_policy_kl_anchor: bool = False,
     kl_anchor_coef: float = 0.0,
+    measure_policy_drift: bool = False,
 ) -> Dict[str, Any]:
     # coef_schedule / entropy_schedule (MECH-457 bootstrap-explorer, 2026-07-16): OPTIONAL
     # training-progress schedules for the intrinsic coefficient and rollout entropy, computed
@@ -745,11 +792,31 @@ def train_a2c(
             "produces an arm identical to the unconstrained control while labelled as anchored."
             % (use_policy_kl_anchor, kl_anchor_coef)
         )
+    # measure_policy_drift (V3-EXQ-792a, 2026-07-22): OPTIONAL MEASUREMENT-ONLY drift
+    # instrument for an UNCONSTRAINED arm -- snapshots the same post-install policy and records
+    # the same realised KL, but adds nothing to the loss. It exists so a control arm reports a
+    # MEASURED drift rather than the 0.0 sentinel that forced V3-EXQ-792's dose-response to
+    # carry the entire burden of proving the anchor bound. Default OFF -> no snapshot, no
+    # logits collected, byte-identical to every pre-change caller.
+    # MUTUALLY EXCLUSIVE with the anchor: an anchored arm already measures this quantity, and
+    # accepting both would let a caller believe it had installed a constraint when it had
+    # installed an instrument (or vice versa) -- the same half-declared-manipulation defect the
+    # switch/weight agreement check above exists to make loud.
+    if measure_policy_drift and use_policy_kl_anchor:
+        raise ValueError(
+            "train_a2c: measure_policy_drift and use_policy_kl_anchor are mutually exclusive "
+            "(got both True); an anchored arm already records mean_policy_kl_to_anchor_recent "
+            "through its PolicyKLAnchor, and the monitor is for the UNCONSTRAINED control."
+        )
     # Snapshot BEFORE the first update. rep.policy() is the live actor-critic; PolicyKLAnchor
     # raises if it is None (z_world reps built without an action_critic).
     kl_anchor = (
-        PolicyKLAnchor(rep.policy(), float(kl_anchor_coef)) if use_policy_kl_anchor else None
+        PolicyKLAnchor(rep.policy(), float(kl_anchor_coef)) if use_policy_kl_anchor
+        else (PolicyDriftMonitor(rep.policy()) if measure_policy_drift else None)
     )
+    # An INSTRUMENT is not a MANIPULATION. Kept distinct so a manipulation-active precondition
+    # (policy_kl_anchor_installed) can never be satisfied by the monitor.
+    drift_monitor_only = isinstance(kl_anchor, PolicyDriftMonitor)
     competence_trajectory: List[Dict[str, Any]] = []
     # bc_demo / bc_aux_coef (H-bc-prior, V3-EXQ-780): OPTIONAL persistent imitation AUXILIARY.
     # When bc_demo is set and bc_aux_coef>0, at each rollout step the demonstrator's action for
@@ -1031,11 +1098,16 @@ def train_a2c(
         # bc_aux_coef_first/_last. A ~0 mean KL on an arm labelled anchored means the policy
         # never tried to leave the snapshot, which is a different reading from a null.
         # Emitted unconditionally (0.0 / False when OFF) so consumers read one stable key.
-        "policy_kl_anchor_installed": bool(kl_anchor is not None),
+        "policy_kl_anchor_installed": bool(kl_anchor is not None and not drift_monitor_only),
         "policy_kl_anchor_coef": round(float(kl_anchor_coef), 6),
         "mean_policy_kl_to_anchor_recent": round(
             kl_anchor.mean_kl_recent() if kl_anchor is not None else 0.0, 6
         ),
+        # V3-EXQ-792a: True means the value above is a MEASURED drift on an unconstrained arm
+        # rather than a constrained one. False with an absent anchor still means the 0.0
+        # SENTINEL -- a consumer must branch on this key before reading the KL of a control.
+        "policy_drift_monitor_installed": bool(drift_monitor_only),
+        "mean_policy_kl_is_measured": bool(kl_anchor is not None),
         "n_return_episodes": int(n_returns),
         "n_credit_replay_passes": int(n_credit_passes),
     }

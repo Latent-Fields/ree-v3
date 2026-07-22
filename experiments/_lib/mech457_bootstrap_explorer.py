@@ -188,6 +188,17 @@ class BootstrapExplorerConfig:
     use_policy_kl_anchor: bool = False
     kl_anchor_coef: float = 0.0
 
+    # POLICY-DRIFT MONITOR (V3-EXQ-792a, 2026-07-22). MEASUREMENT-ONLY: snapshots the same
+    # post-install policy as the anchor and records the same realised KL, but adds nothing to
+    # the loss, so an UNCONSTRAINED arm reports a MEASURED drift instead of the 0.0 sentinel
+    # that forced V3-EXQ-792's cross-coefficient dose-response to carry the entire burden of
+    # proving the anchor bound. INSTRUMENTATION ONLY, and mutually exclusive with the anchor
+    # (train_a2c raises on both) -- an anchored arm already measures this quantity.
+    # Declared in as_slice() for the retention_probe_every reason: a monitored and an
+    # unmonitored control are bit-identical COMPUTATIONS but are not interchangeable
+    # ARTIFACTS, since only one carries the comparator a consumer reads.
+    measure_policy_drift: bool = False
+
     # RETENTION TRAJECTORY PROBE (mech457_retention_trajectory_probe, 2026-07-19). Episode
     # cadence for the non-perturbing mid-training competence probe. The competence_floor
     # retention legs must read a post-installation competence TRAJECTORY rather than terminal
@@ -228,6 +239,7 @@ class BootstrapExplorerConfig:
             "use_distributional_critic": bool(self.use_distributional_critic),
             "use_policy_kl_anchor": bool(self.use_policy_kl_anchor),
             "kl_anchor_coef": float(self.kl_anchor_coef),
+            "measure_policy_drift": bool(self.measure_policy_drift),
             "retention_probe_every": (
                 None if self.retention_probe_every is None else int(self.retention_probe_every)
             ),
@@ -393,6 +405,7 @@ def train_bootstrap_explorer(
         probe_fn=probe_fn,
         use_policy_kl_anchor=bool(cfg.use_policy_kl_anchor),
         kl_anchor_coef=float(cfg.kl_anchor_coef),
+        measure_policy_drift=bool(cfg.measure_policy_drift),
     )
 
 
