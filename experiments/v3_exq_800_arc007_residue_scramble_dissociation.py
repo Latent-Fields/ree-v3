@@ -169,6 +169,41 @@ CLAIM_IDS = ["ARC-007"]
 EXPERIMENT_PURPOSE = "evidence"
 BACKLOG_ID = "EXP-0393"
 
+# Hold-weighted-E3-readout gate (`validate_experiments.e3_hold_weighted_readout_lint`,
+# pseudo-replication defect FORM 2). TRIAGED SAFE, not repaired-and-hidden -- this is a
+# genuine false positive on the only two sites that fire, and the reason is exact rather
+# than a bound.
+#
+# The gate fires on `executed.append(argmax(action))` in `_probe_candidate_score_range`
+# and `eval_executed.append(argmax(action))` in P2 eval. `ree_core/agent.py:5430` does
+# return the HELD action on a non-E3 tick, so both lists ARE hold-duration-weighted --
+# the gate's structural finding is correct. What makes it harmless here is what the lists
+# are consumed by: their ONLY readers are `float(len(set(executed)))` and
+# `float(len(set(eval_executed)))` (the `probe_executed_action_classes` /
+# `eval_executed_action_classes` emissions, and P5 `executed_action_diversity`). Set
+# CARDINALITY is EXACTLY invariant under duplication -- replicating a held class can
+# neither add a class nor remove one -- so hold weighting cannot move the statistic in
+# either direction, at any cadence. That is stronger than the gate's "threshold-invariant
+# => SAFE" triage rule, and it is the opposite of the DISQUALIFYING case: no
+# distribution-shape quantity (entropy, variance, histogram mass) is derived from either
+# list. Neither list feeds `harm_rate_eval`, `path_efficiency`, or any C1-C4 criterion.
+#
+# Construct check, separately: P5 asks whether the residue manipulation can reach
+# BEHAVIOUR, and behaviour is the executed action stream, so the per-ENV-STEP sampling
+# unit is the correct one here -- gating it to fresh selections would measure a different
+# (and for this DV, wrong) construct. The two sets coincide anyway: every executed class
+# is a selected class held forward.
+#
+# Scope caution: the marker is file-wide, so a future edit adding a magnitude or
+# distribution-shape statistic accumulated from `select_action(...)` would be silently
+# unguarded. Any such edit must re-derive this exemption or drop it.
+E3_HOLD_WEIGHTED_READOUT_EXEMPT = (
+    "executed-action lists are consumed ONLY by len(set(...)) (probe/eval "
+    "executed_action_classes, P5 executed_action_diversity); set cardinality is exactly "
+    "invariant under hold-duration replication, and no magnitude or distribution-shape "
+    "statistic is derived from them"
+)
+
 ARM_INTACT = "A0_INTACT"
 ARM_HIPPO_ABLATED = "A1_HIPPO_ABLATED"
 ARM_RESIDUE_PERMUTED = "A2_RESIDUE_PERMUTED"
