@@ -58,6 +58,12 @@ from ree_core.hippocampal.ghost_goal_bank import (
 from ree_core.hippocampal.staleness_accumulator import StalenessAccumulator
 
 
+# Minimum CEM elite-pool size. torch's default std() is UNBIASED, so std over a
+# single sample is NaN; a one-member elite pool therefore poisons ao_std and
+# every downstream candidate. See propose_trajectories() for the measurement.
+_MIN_CEM_ELITES = 2
+
+
 class HippocampalModule(nn.Module):
     """
     HippocampalModule — action-object space trajectory proposal.
@@ -389,7 +395,22 @@ class HippocampalModule(nn.Module):
         action_objects: torch.Tensor,
     ) -> torch.Tensor:
         """
-        Decode action-object sequence to action sequence.
+        Decode a SAMPLED action-object sequence to a continuous action sequence.
+
+        SOLE SANCTIONED USE: the CEM proposal path, where `action_objects` are
+        SAMPLES drawn from the terrain-prior distribution (ao_mean + noise) and
+        the continuous output is fed straight into `E2.rollout_with_world`. Here
+        the decoder is a proposal map, not a classifier: the rollout consumes the
+        full real-valued vector, so candidates differ continuously even when
+        their argmaxes coincide.
+
+        NOT AN ACTION SOURCE. Do NOT apply this (or `action_object_decoder`
+        directly) to `Trajectory.get_action_object_sequence()` to recover "the
+        action this candidate takes", and do not argmax it for selection. That
+        round trip -- a -> E2.action_object(a) -> decoder -> a_hat -- is not
+        invertible on this substrate. See `candidate_first_action_class()` for
+        the correct accessor and `action_object_roundtrip_recovery` in the
+        propose diagnostics for the live measurement.
 
         Args:
             action_objects: [batch, horizon, action_object_dim]
@@ -401,6 +422,159 @@ class HippocampalModule(nn.Module):
         flat = action_objects.reshape(batch * horizon, ao_dim)
         actions_flat = self.action_object_decoder(flat)
         return actions_flat.reshape(batch, horizon, self.config.action_dim)
+
+    @staticmethod
+    def _stack_std(stacked: torch.Tensor) -> torch.Tensor:
+        """std over dim 0, NaN-safe when the stack holds a single sample.
+
+        torch's default std() is UNBIASED (correction=1), so std over one sample
+        is NaN, not 0. That NaN propagates through `+ 1e-6` and through
+        `torch.clamp` (the SP-CEM ao_std floor), so neither existing guard stops
+        it -- it reaches E3 and crashes `torch.multinomial`. A single sample
+        carries no spread information, so 0 is the right answer.
+
+        `num_elite` is floored at `_MIN_CEM_ELITES` so the legacy refit should
+        not hit this; it remains as a backstop for the differentiable-CEM path,
+        where the stack size is set by how many candidates carried an
+        action-object sequence rather than by `num_elite`.
+        """
+        if stacked.shape[0] < 2:
+            return torch.zeros_like(stacked[0])
+        return stacked.std(dim=0)
+
+    @staticmethod
+    def candidate_first_action_class(trajectory) -> Optional[int]:
+        """The action class a candidate trajectory ACTUALLY takes at step 0.
+
+        This is the canonical accessor for experiment drivers that need to know
+        what a proposed candidate does. It reads `trajectory.actions`, which is
+        the tensor that was fed into the E2 rollout -- the ground truth of what
+        the candidate IS.
+
+        WHY THIS EXISTS, i.e. why NOT
+        `argmax(action_object_decoder(traj.get_action_object_sequence()[:, 0, :]))`.
+        That expression re-decodes E2's INTERNAL action-object embedding of the
+        rollout rather than reading the action, and on this substrate the
+        embedding is very nearly action-invariant, so the round trip discards the
+        action entirely and the argmax collapses to a single constant class.
+
+        MEASURED (untrained module, action_dim=5, 32 candidates, seed 42):
+
+          arm                     traj.actions[:,0]     re-decoded ao_0
+          ---------------------   -------------------   ----------------
+          default (SP-CEM on)     2 classes {0,3}       1 class {3}
+          SP-CEM off              1 class  {3}          1 class {3}
+          action-class scaffold   5 classes {0..4}      1 class {3}
+
+        The scaffold row is decisive: those candidates were CONSTRUCTED with one
+        distinct one-hot first action per class, and the round trip still maps
+        all five to class 3. The decoder itself is not the degenerate part -- fed
+        N(0,1) inputs it spans all 5 classes. The degeneracy is upstream, in the
+        input: `ao_0` across candidates has per-dim std ~0.012, and the resulting
+        per-class logit std (<=0.0063) is ~20x smaller than the gap between the
+        two largest per-class logit means (0.230 vs 0.102), so argmax is pinned
+        to the bias-argmax class regardless of the action.
+
+        CONSEQUENCE. A driver that selects an action this way has an action
+        stream INVARIANT under every manipulation of the candidate set or its
+        scores, so the experiment is an arithmetically forced no-op. Confirmed
+        directly while authoring V3-EXQ-801: its A2_FULL and A3_NOISE arms came
+        out bit-identical on every recorded field under the re-decode rule, and
+        differed once selection was routed through `agent.select_action`. This is
+        also the most plausible mechanism for EXQ-196's
+        harm_advantage_mean = EXACTLY 0.0 on all three seeds at e2_world_r2 0.766
+        (ARC-018), which governance classified non_contributory and deferred.
+
+        Note this is NOT fixed by `use_support_preserving_cem` or
+        `use_action_class_scaffold_candidates`: both operate on `trajectory
+        .actions` (where they work as designed -- 2 and 5 classes above) and
+        neither touches the round trip.
+
+        For SELECTION, prefer `REEAgent.select_action(candidates, ticks)`, which
+        routes through E3's J(zeta) and returns the action directly without
+        consulting the decoder at all.
+
+        Args:
+            trajectory: a Trajectory returned by `propose_trajectories`.
+
+        Returns:
+            int action class, or None when the trajectory carries no actions.
+        """
+        actions = getattr(trajectory, "actions", None)
+        if actions is None:
+            return None
+        if actions.ndim != 3 or actions.shape[1] == 0:
+            return None
+        return int(actions[:, 0, :].detach().argmax(dim=-1).flatten()[0].item())
+
+    def action_object_roundtrip_recovery(
+        self,
+        trajectories: List[Trajectory],
+    ) -> Dict[str, Any]:
+        """Measure how much of the action survives a -> action_object -> decoder.
+
+        Diagnostic for the defect documented on `candidate_first_action_class`.
+        Emitted into the propose diagnostics so any run can be checked after the
+        fact rather than needing a bespoke probe.
+
+        Returns a dict with:
+          recovery_rate            fraction of candidates whose re-decoded first
+                                   action class equals their true first action
+                                   class (1.0 = fully invertible).
+                                   READ IT ONLY ALONGSIDE THE TWO CLASS COUNTS.
+                                   On its own it is a trap: most CEM candidates
+                                   were PRODUCED by this decoder, so they agree
+                                   with it trivially and inflate the rate
+                                   (measured 0.875 on a fully collapsed round
+                                   trip). When roundtrip_unique_classes == 1 the
+                                   rate degenerates to the share of candidates
+                                   whose true class happens to be that one
+                                   class, and carries no invertibility
+                                   information at all.
+          true_unique_classes      distinct TRUE first-action classes (what the
+                                   candidate set actually spans).
+          roundtrip_unique_classes distinct RE-DECODED first-action classes. When
+                                   this is 1 while true_unique_classes > 1, the
+                                   round trip is a constant function and ANY
+                                   driver selecting through it is inert.
+          n_scored                 candidates that carried both tensors.
+        """
+        empty = {
+            "recovery_rate": None,
+            "true_unique_classes": 0,
+            "roundtrip_unique_classes": 0,
+            "n_scored": 0,
+        }
+        if not trajectories:
+            return empty
+
+        true_classes: List[int] = []
+        ao_first: List[torch.Tensor] = []
+        for traj in trajectories:
+            cls = self.candidate_first_action_class(traj)
+            if cls is None:
+                continue
+            ao_seq = traj.get_action_object_sequence()
+            if ao_seq is None or ao_seq.shape[1] == 0:
+                continue
+            true_classes.append(cls)
+            ao_first.append(ao_seq[:, 0, :].detach())
+
+        if not true_classes:
+            return empty
+
+        with torch.no_grad():
+            logits = self.action_object_decoder(torch.cat(ao_first, dim=0))
+            round_classes = [int(c) for c in logits.argmax(dim=-1).flatten().tolist()]
+
+        n = min(len(true_classes), len(round_classes))
+        matches = sum(1 for i in range(n) if true_classes[i] == round_classes[i])
+        return {
+            "recovery_rate": float(matches) / float(n) if n else None,
+            "true_unique_classes": len(set(true_classes[:n])),
+            "roundtrip_unique_classes": len(set(round_classes[:n])),
+            "n_scored": int(n),
+        }
 
     @staticmethod
     def _entropy_from_counts(counts: Dict[int, int]) -> float:
@@ -994,7 +1168,22 @@ class HippocampalModule(nn.Module):
         # only when the ghost branch actually fires.
         self._last_propose_diagnostics = {}
         n = num_candidates or self.config.num_candidates
+        # num_elite MUST be >= 2 (when n allows). The elite refit below takes
+        # elite_ao_tensor.std(dim=0), and torch's default UNBIASED std over a
+        # single sample is NaN -- so a one-member elite pool silently poisons
+        # ao_std, then every subsequent candidate sample, then the rollouts, and
+        # finally E3: measured, `torch.multinomial` raises "probability tensor
+        # contains inf, nan" out of e3_selector.select. The `+ 1e-6` does not
+        # help (NaN + eps = NaN) and neither does the SP-CEM ao_std floor
+        # (torch.clamp propagates NaN).
+        #
+        # Reached silently at ordinary settings: num_candidates=8 with the
+        # DEFAULT elite_fraction=0.2 gives int(1.6) = 1. Measured at 10 / 40 /
+        # 120 warmup episodes alike, only 1 of 8 candidates scored finite.
+        # Raising the floor cannot regress a working configuration, because
+        # every configuration it touches was already NaN-poisoned.
         num_elite = max(1, int(n * self.config.elite_fraction))
+        num_elite = min(int(n), max(_MIN_CEM_ELITES, num_elite))
         batch_size = z_world.shape[0]
         device = z_world.device
 
@@ -1171,7 +1360,7 @@ class HippocampalModule(nn.Module):
                     # softmax(-score/T): lower score -> higher weight (better)
                     _w = torch.softmax(-_sc_t / _T, dim=0)  # [n]
                     ao_mean = (_w.view(-1, 1, 1, 1) * _all_ao).sum(dim=0)
-                    ao_std  = _all_ao.std(dim=0) + 1e-6
+                    ao_std  = self._stack_std(_all_ao) + 1e-6
                     if (
                         getattr(self.config, "use_support_preserving_cem", False)
                         and _std_floor > 0.0
@@ -1189,7 +1378,7 @@ class HippocampalModule(nn.Module):
                 if elite_ao:
                     elite_ao_tensor = torch.stack(elite_ao)  # [elite, batch, H, ao_dim]
                     ao_mean = elite_ao_tensor.mean(dim=0)
-                    ao_std  = elite_ao_tensor.std(dim=0) + 1e-6
+                    ao_std  = self._stack_std(elite_ao_tensor) + 1e-6
                     # V3-EXQ-563c: ao_std floor prevents collapse when all
                     # elites share one action class.
                     if (
@@ -1278,6 +1467,15 @@ class HippocampalModule(nn.Module):
             "action_object_decoder_raw_output_stats": final_summary[
                 "raw_output_stats"
             ],
+            # How much of the action survives a -> E2.action_object -> decoder.
+            # roundtrip_unique_classes == 1 while true_unique_classes > 1 means
+            # any driver selecting via the decoder round trip is inert. See
+            # candidate_first_action_class() for the mechanism and the correct
+            # accessor.
+            "action_object_roundtrip_recovery": self.action_object_roundtrip_recovery(
+                all_trajectories
+            ),
+            "cem_num_elite": int(num_elite),
             "cem_iteration_diagnostics": cem_iteration_diagnostics,
             **ortho_diag,
             **support_preserving_diag,

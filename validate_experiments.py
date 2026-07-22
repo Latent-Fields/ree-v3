@@ -40,7 +40,8 @@ PROTOCOL_MODULE = "experiment_protocol"
 # arm-fingerprint contracts onto the broader (non-v3_exq_) script set the gate scopes.
 CHECK_NAMES = ("conformance", "readiness", "arm_fingerprint", "degeneracy", "manifest_writer",
                "anchor_reachability", "precondition_recomputability",
-               "e3_diagnostics_staleness", "e3_hold_weighted_readout")
+               "e3_diagnostics_staleness", "e3_hold_weighted_readout",
+               "action_object_selection")
 
 # Readiness-gate static lint (proposal_trivial_prediction_readiness_gate_2026-06-06).
 # A diagnostic/baseline script whose interpretation grid self-routes to one of
@@ -2154,6 +2155,141 @@ def e3_hold_weighted_readout_lint(path: Path) -> Optional[str]:
             "Exempt with E3_HOLD_WEIGHTED_READOUT_EXEMPT = \"<reason>\".")
 
 
+_AO_SELECTION_EXEMPT_MARKER = "ACTION_OBJECT_SELECTION_EXEMPT"
+
+
+def _ao_decoder_call(node: ast.AST) -> bool:
+    """True for a call whose callee is `<...>.action_object_decoder` or the
+    module's `_decode_action_objects` helper."""
+    if not isinstance(node, ast.Call):
+        return False
+    fn = node.func
+    if isinstance(fn, ast.Attribute):
+        return fn.attr in ("action_object_decoder", "_decode_action_objects")
+    if isinstance(fn, ast.Name):
+        return fn.id in ("action_object_decoder", "_decode_action_objects")
+    return False
+
+
+def action_object_selection_lint(path: Path) -> Optional[str]:
+    """Action-object round-trip-as-action-source check. Issue string, or None.
+
+    Fires when a driver takes an ARGMAX over the action-object decoder -- i.e.
+    recovers "the action this candidate takes" via
+    `argmax(action_object_decoder(traj.get_action_object_sequence()[:, 0, :]))`.
+
+    WHY THIS IS A DEFECT AND NOT A STYLE PREFERENCE. That round trip
+    (a -> E2.action_object(a) -> decoder -> a_hat) is not invertible on this
+    substrate, so the argmax is a CONSTANT: an action stream selected this way is
+    invariant under every manipulation of the candidate set or its scores, and
+    the experiment is an arithmetically forced no-op that still produces
+    plausible-looking numbers. Confirmed 2026-07-22, independently reproduced:
+    action-class-scaffold candidates constructed with 5 distinct one-hot first
+    actions all re-decode to the SAME class, on an untrained module and after 40
+    warmup episodes alike. The decoder is not the degenerate component (it spans
+    all classes on N(0,1) inputs); its input, E2's step-0 action-object
+    embedding, is near action-invariant.
+
+    It is NOT repaired by `use_support_preserving_cem` or
+    `use_action_class_scaffold_candidates` -- both act on `Trajectory.actions`
+    and neither touches the round trip.
+
+    FIX: select with `agent.select_action(candidates, ticks)` (E3's J(zeta),
+    returns the action directly), or read the candidate's real action with
+    `HippocampalModule.candidate_first_action_class(traj)`.
+
+    Directly observed consequence: V3-EXQ-801's A2_FULL and A3_NOISE arms came
+    out BIT-IDENTICAL on every recorded field under the round-trip rule, and
+    separated once selection moved to the E3 path. Most plausible mechanism for
+    EXQ-196's harm_advantage_mean = EXACTLY 0.0 on all three seeds at
+    e2_world_r2 0.766 (ARC-018), deferred by governance as non_contributory.
+
+    NOT flagged: passing the decoder's CONTINUOUS output into an E2 rollout (the
+    sanctioned CEM proposal use -- the rollout consumes the real-valued vector,
+    so candidates differ even when their argmaxes coincide), or collecting
+    decoder outputs for DIAGNOSTICS. Only the argmax-for-action pattern fires.
+
+    Static AST scan with the same limitation class as the other lints here: it
+    follows one level of local aliasing (`logits = ...decoder(x)` then
+    `argmax(logits)`) and will miss an argmax assembled at runtime or routed
+    through a helper in another module. WARN-only in BOTH modes -- it never
+    hardens under `--paths`, because a driver may legitimately argmax the
+    decoder to REPORT the collapse (that is what a diagnostic probe of this very
+    defect looks like), and the scan cannot tell reporting from selecting.
+
+    Opt-out: ACTION_OBJECT_SELECTION_EXEMPT = "<reason>".
+    """
+    try:
+        src = path.read_text(encoding="utf-8")
+        tree = ast.parse(src, filename=str(path))
+    except (OSError, UnicodeDecodeError, SyntaxError):
+        return None  # check_script already reports unreadable / syntax errors
+
+    if _AO_SELECTION_EXEMPT_MARKER in src:
+        return None
+
+    # One level of local aliasing: names bound directly to a decoder call.
+    aliases: set = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and _ao_decoder_call(node.value):
+            for tgt in node.targets:
+                if isinstance(tgt, ast.Name):
+                    aliases.add(tgt.id)
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            if _ao_decoder_call(node.value) and isinstance(node.target, ast.Name):
+                aliases.add(node.target.id)
+
+    def _is_decoder_derived(node: ast.AST) -> bool:
+        for sub in ast.walk(node):
+            if _ao_decoder_call(sub):
+                return True
+            if isinstance(sub, ast.Name) and sub.id in aliases:
+                return True
+        return False
+
+    hits: List[int] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        fn = node.func
+        is_argmax = (
+            (isinstance(fn, ast.Attribute) and fn.attr == "argmax")
+            or (isinstance(fn, ast.Name) and fn.id == "argmax")
+        )
+        if not is_argmax:
+            continue
+        # torch.argmax(x) -> arg; x.argmax() -> the attribute value.
+        targets: List[ast.AST] = list(node.args)
+        if isinstance(fn, ast.Attribute):
+            targets.append(fn.value)
+        if any(_is_decoder_derived(t) for t in targets):
+            hits.append(getattr(node, "lineno", 0))
+
+    if not hits:
+        return None
+
+    where = ", ".join(f"line {ln}" for ln in sorted(set(hits))[:5])
+    return (
+        f"takes an ARGMAX over the action-object decoder ({where}). The round "
+        "trip a -> E2.action_object(a) -> action_object_decoder is NOT "
+        "invertible on this substrate: the argmax collapses to a single "
+        "constant class, so an action stream selected this way is INVARIANT "
+        "under every manipulation of the candidate set or its scores and the "
+        "experiment is an arithmetically forced no-op (measured: 5 distinct "
+        "constructed first actions all re-decode to 1 class, untrained and "
+        "after 40 warmup episodes; V3-EXQ-801 arms came out bit-identical). "
+        "Not repaired by use_support_preserving_cem or "
+        "use_action_class_scaffold_candidates -- both act on Trajectory.actions. "
+        "FIX: select via agent.select_action(candidates, ticks), or read the "
+        "candidate's real action via "
+        "HippocampalModule.candidate_first_action_class(traj). If this argmax "
+        "only REPORTS the collapse (a diagnostic probe), exempt with "
+        "ACTION_OBJECT_SELECTION_EXEMPT = \"<reason>\". See "
+        "HippocampalModule.candidate_first_action_class and "
+        "tests/contracts/test_action_object_roundtrip_not_an_action_source.py."
+    )
+
+
 def _candidate_paths(paths: Sequence[str]) -> List[Path]:
     if paths:
         return [Path(p).resolve() for p in paths]
@@ -2214,6 +2350,7 @@ def main() -> int:
     recomput_warnings: List[Tuple[Path, str]] = []
     e3_stale_warnings: List[Tuple[Path, str]] = []
     e3_hold_warnings: List[Tuple[Path, str]] = []
+    ao_selection_warnings: List[Tuple[Path, str]] = []
     for p in paths:
         rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
         if "conformance" in selected:
@@ -2294,6 +2431,13 @@ def main() -> int:
                 # WARN-only in BOTH modes -- see e3_hold_weighted_readout_lint() for why
                 # this one never hardens under --paths.
                 e3_hold_warnings.append((p, e3h))
+        if "action_object_selection" in selected:
+            aos = action_object_selection_lint(p)
+            if aos:
+                # WARN-only in BOTH modes -- see action_object_selection_lint()
+                # for why this one never hardens under --paths (it cannot
+                # distinguish selecting-on from reporting-on the collapse).
+                ao_selection_warnings.append((p, aos))
 
     print("", flush=True)
     print(f"[validate_experiments] checked {len(paths)} scripts: "
@@ -2306,7 +2450,18 @@ def main() -> int:
           + (f" ({n_anchor_superseded} superseded)" if n_anchor_superseded else "") + ", "
           f"{len(recomput_warnings)} precondition-recomputability-warning(s), "
           f"{len(e3_stale_warnings)} stale-e3-diagnostics-warning(s), "
-          f"{len(e3_hold_warnings)} hold-weighted-readout-warning(s)", flush=True)
+          f"{len(e3_hold_warnings)} hold-weighted-readout-warning(s), "
+          f"{len(ao_selection_warnings)} action-object-selection-warning(s)", flush=True)
+    if ao_selection_warnings:
+        # Advisory in BOTH modes (never hardens). A fire here means the driver's
+        # action stream may be INVARIANT under its own manipulation -- i.e. the
+        # arms can come out bit-identical. Triage each: selecting through the
+        # round trip is a defect, merely reporting on it is not.
+        print("", flush=True)
+        print("[validate_experiments] ACTION-OBJECT-SELECTION WARNINGS (advisory, non-blocking):", flush=True)
+        for p, warn in ao_selection_warnings:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
+            print(f"  - {rel}: {warn}", flush=True)
     if e3_hold_warnings:
         # Advisory in BOTH modes (never hardens). Defect FORM 2 -- the diagnostics-latch
         # gate below is structurally blind to it, so this is a separate section rather

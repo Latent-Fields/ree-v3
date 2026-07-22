@@ -1,5 +1,90 @@
 # ree-v3
 
+## Action-object round trip is NOT an action source + CEM elite floor (2026-07-22)
+
+Two independent substrate defects found while authoring V3-EXQ-800/801, each
+independently reproduced. Both make an experiment produce plausible numbers from
+an action stream that cannot respond to its own manipulation.
+
+**DEFECT 1 -- the a -> `E2.action_object(a)` -> `action_object_decoder` round trip
+is not invertible, so it is not an action source.**
+`argmax(action_object_decoder(traj.get_action_object_sequence()[:, 0, :]))` is a
+CONSTANT. A driver selecting that way has an action stream INVARIANT under every
+manipulation of the candidate set or its scores -- an arithmetically forced no-op.
+
+The decoder is NOT the degenerate component: fed N(0,1) inputs it spans all
+classes. The degeneracy is in its INPUT. E2's step-0 action-object embedding is
+near action-invariant -- `ao_0` per-dim std across candidates ~0.012, giving
+per-class logit std <= 0.0063 against a 0.128 gap between the two largest
+per-class logit means, so argmax pins to the bias-argmax class. **Training does
+not repair it** (identical at 0 and 40 warmup episodes).
+
+Measured (untrained module, action_dim=5, 32 candidates, seed 42):
+
+| arm | `traj.actions[:,0]` | re-decoded `ao_0` |
+|---|---|---|
+| default (SP-CEM on) | 2 classes {0,3} | **1 class {3}** |
+| SP-CEM off | 1 class {3} | **1 class {3}** |
+| action-class scaffold | 5 classes {0..4} | **1 class {3}** |
+
+The scaffold row is decisive -- those candidates are CONSTRUCTED with one distinct
+one-hot first action per class and still all re-decode to class 3. Note this is
+NOT repaired by `use_support_preserving_cem` or
+`use_action_class_scaffold_candidates`: both act on `Trajectory.actions`, where
+they work as designed, and neither touches the round trip.
+
+- **Correct accessor:** `HippocampalModule.candidate_first_action_class(traj)`
+  (reads `trajectory.actions`, the ground truth of what the candidate is).
+- **Correct selection:** `agent.select_action(candidates, ticks)` -- E3's J(zeta),
+  returns the action directly, never consults the decoder.
+- **Sanctioned decoder use, unchanged:** the CEM proposal path, where the
+  CONTINUOUS output feeds `E2.rollout_with_world`. The rollout consumes the
+  real-valued vector, so candidates differ even when their argmaxes coincide.
+- **Live diagnostic:** `action_object_roundtrip_recovery` in the propose
+  diagnostics. `roundtrip_unique_classes == 1` while `true_unique_classes > 1` is
+  the inert-selection signature. Read `recovery_rate` ONLY alongside those two
+  counts -- most CEM candidates were produced BY the decoder, so they agree with
+  it trivially and inflate it (0.875 on a fully collapsed round trip).
+- **Lint:** `validate_experiments.py --checks action_object_selection` WARNs on
+  the argmax-for-action pattern (advisory in both modes; it cannot tell selecting
+  from reporting). 6 fires / 1113 scripts at landing: EXQ-114, 120, 266, 266a,
+  800, 801. Exempt with `ACTION_OBJECT_SELECTION_EXEMPT = "<reason>"`.
+
+**DEFECT 2 -- `num_elite` must be >= 2; below that the CEM is NaN-poisoned.**
+torch's default `std()` is UNBIASED, so std over a single elite is NaN. It
+propagates through `+ 1e-6` and through the SP-CEM `torch.clamp` ao_std floor
+(clamp propagates NaN), poisoning ao_std, every later candidate, and the rollouts.
+Measured end state: `RuntimeError: probability tensor contains either inf, nan or
+element < 0` from `torch.multinomial` inside `e3_selector.select`.
+
+Reachable from the SUBSTRATE DEFAULT, silently: `num_candidates=8` x the default
+`elite_fraction=0.2` gives `int(1.6) == 1`. Measured at 10 / 40 / 120 warmup
+episodes alike, 1 of 8 candidates scored finite.
+
+Fix: `num_elite = min(n, max(2, int(n * elite_fraction)))`, plus
+`HippocampalModule._stack_std()` as a NaN-safe backstop at both ao_std sites
+(the differentiable-CEM path sizes its stack by candidates-with-ao-sequences, not
+by `num_elite`). `cem_num_elite` is emitted in the propose diagnostics.
+**Cannot regress a working configuration** -- every configuration it touches was
+already NaN-poisoned.
+
+Contract: `tests/contracts/test_action_object_roundtrip_not_an_action_source.py`
+(9 tests). Both defects pin the DECODER's health separately from the ROUND TRIP's,
+so a future session cannot "fix" this by training the wrong component.
+
+**EXQ-196 / ARC-018 consequence.** EXQ-196 does NOT use the round trip -- it uses
+`argmax(e3.select(...).selected_action)`. But `selected_action` is the selected
+candidate's `actions[:, 0, :]`, i.e. decoder output, so the same upstream fact
+reaches its DV by a different route. EXQ-196 ran 2026-04-04, six weeks BEFORE
+SP-CEM became the default (cb1c6da, 2026-05-17). Measured in that regime on a
+trained agent: **68/68 ticks (100%) the whole 32-candidate set offered exactly ONE
+first-action class**, so E3's choice could not reach the executed action and both
+arms executed identical streams. Under the current default: mean 2.29 classes,
+min 2, 0% single-class ticks. That is a complete mechanical account of
+harm_advantage_mean = EXACTLY 0.0 on all 3 seeds at e2_world_r2 0.766, and it
+means ARC-018 Leg B was UNTESTABLE in April and is testable now. See
+`REE_assembly/docs/claims/claims.yaml` ARC-018 `evidence_quality_note`.
+
 ## Effort-dissociating environment (Q-080) (2026-07-09)
 - `CausalGridWorld` env extension (`ree_core/environment/causal_grid_world.py`) -- IMPLEMENTED 2026-07-09.
   Dissociates EFFORT from BENEFIT for open_question Q-080 (`ethics_engine_3.effort_as_harm_energy_conservation`); serves the two load-bearing sub-questions Q-080.a (harm-coupling) + Q-080.b (least-effort prior). NOT a mechanism/SD claim -- mints nothing; the factorial ablations answer Q-080.
@@ -14671,3 +14756,64 @@ claim says arousal amplifies rather than breaks), MECH-359, MECH-390, SD-011.
   on the centered cue key. Never reuse the id V3-EXQ-669b: its coordinator DB row is
   terminal and POST /queue/add refuses it with HTTP 409.
   See SD-066, SD-008, SD-070, MECH-189, MECH-329, DEV-NEED-006, DEV-NEED-024.
+
+- SD-078: policy.common_mode_invariant_candidate_rule_field_context_key — IMPLEMENTED 2026-07-22.
+  ARC-063 CandidateRuleField, ree_core/policy/candidate_rule_field.py.
+  Config: CandidateRuleFieldConfig.cue_centering (default False; set True to enable) +
+  cue_baseline_alpha (default 0.02). REEConfig knobs crf_cue_centering /
+  crf_cue_baseline_alpha, plumbed through all three from_dims sites and read in
+  agent.py's CRF config build.
+  Data flow: z_world context -> slow-EMA common-mode baseline (advanced in step(),
+  waking only) -> centered residual -> mint-block cosine + _context_bucket sign
+  pattern + gate_and_select cosine. context_tags stored RAW, centered at comparison
+  time; baseline PERSISTS across reset() (cue geometry, not rule content).
+  Backward compatible: disabled by default; OFF allocates no baseline and _centered()
+  is the identity.
+  Why: under SD-008 the raw context key sits in a ~0.98-cosine cone, so the mint-block
+  fires against the first rule for every later context at ANY expressible threshold —
+  the pool is structurally capped at ONE rule and crf_max_pairwise_rule_dist == 0.0 is
+  a tautology, not a churn symptom. Measured on the V3-EXQ-669b nursery: 1 rule /
+  dist 0.0000 raw vs 9 rules / dist 1.7011 centered.
+  The two 654b-amend mitigations are measured INEFFECTIVE and deliberately left in
+  place unchanged: mature_mint_block_threshold=0.8 cannot clear a 0.9426 floor, and
+  crf_context_from_e2_world_forward routes to a context carrying the same offset
+  (still 1 rule, dist 0.0000). Do not re-tune either as the fix — contract C3 pins it.
+  Phased training required: no (pure stateful tensor store, no nn.Module).
+  Contracts: tests/contracts/test_sd_078_centered_candidate_rule_field_context_key.py
+  (C0 fixture geometry guard, C1 default-off bit-identity + reproduced 654b signature,
+  C2 centering separates, C3 no mint-block threshold in [0.5, 0.94] substitutes,
+  C4 lazy seed + MECH-094, C5 raw-tag self-match under baseline drift, C6 bucket
+  is centered too).
+  See SD-066, SD-077, SD-079, SD-008, SD-070, ARC-063, SD-033a, MECH-262.
+
+- SD-079: hippocampal.common_mode_invariant_goal_anchor_match — IMPLEMENTED 2026-07-22.
+  SD-039 Anchor.goal_match + AnchorSet + MECH-292 GhostGoalBank,
+  ree_core/hippocampal/anchor_set.py + ree_core/hippocampal/ghost_goal_bank.py.
+  Config: AnchorSetConfig.goal_cue_centering (default False; set True to enable) +
+  goal_cue_baseline_alpha (default 0.05). REEConfig.from_dims(goal_cue_centering=,
+  goal_cue_baseline_alpha=) plumbed to the nested AnchorSetConfig.
+  Data flow: z_goal cue -> AnchorSet slow-EMA baseline (advanced on BOTH the write
+  path, write_anchor with a goal_payload, and the read paths query_by_goal_match /
+  GhostGoalBank.rank) -> Anchor.goal_match(z_goal, baseline=) on centered residuals.
+  Snapshots stored RAW, centered at comparison time. baseline=None is the identity,
+  so the pre-SD-079 call form is bit-identical.
+  Backward compatible: disabled by default; OFF allocates no baseline.
+  Why: z_goal is an EMA attractor pulled toward z_world and carries the SD-008 offset
+  MORE strongly than its source (pairwise cosine min 0.9878 vs 0.9767). Measured over
+  a 24-anchor pool: goal_match spread 0.0111 raw vs 0.9709 centered; MECH-292's
+  goal_match_floor excluded 0/24; MECH-339's outshining gate sat at EXACTLY 0.0 for
+  every anchor, i.e. its context channel was unconditionally dead whenever enabled.
+  ALPHA IS 0.05, NOT SD-066/077/078's 0.02 — do not harmonise it. z_goal is an
+  integrator so its common mode DRIFTS and 0.02 lags it (measured spread 0.0942 /
+  0.1508 / 0.3319 at 0.02 vs 0.9995+ at 0.05 over seeds 101/202/303); 0.2+ over-tracks
+  (14-18 of 20 anchors driven below the floor).
+  The WRITE-path advance is load-bearing: advancing on reads alone seeds the baseline
+  FROM THE QUERY, zeroing every residual (measured — the first ON arm scored 0.0000
+  across all 20 anchors). Contract C6 pins it.
+  Phased training required: no.
+  Contracts: tests/contracts/test_sd_079_centered_goal_anchor_match.py (C0 fixture
+  geometry, C1 default-off bit-identity, C2 centering widens the match range, C3 both
+  downstream ABSOLUTE gates unpin, C4 lazy seed + MECH-094, C5 raw-snapshot self-match,
+  C6 write path advances the baseline, C7 alpha not in the over-tracking regime — only
+  that bound is fixture-assertable, see the test's scope note).
+  See SD-066, SD-077, SD-078, SD-008, SD-070, SD-039, MECH-292, MECH-339, MECH-293, MECH-340.
