@@ -77,7 +77,11 @@
       "claim_id": "ARC-005",
       "backlog_id": "EXP-0392",
       "note": "EXP-0392. ARC-005 carries 88 reverse dependencies -- the highest fan-in in the registry -- on exp_conf 0.0 with ZERO experimental entries, held up entirely by lit_conf 0.783. Tests the falsifiable half: not that a control plane EXISTS (a design fact) but that it ROUTES -- causal authority over precision and mode DISSOCIABLE FROM CONTENT. 3-level channel ladder x 2 content sets on a fixed arena (6 arms x 5 seeds); the proposal's 2x2 is the {L0,L2}x{A,B} sub-grid and L1 exists because the acceptance check requires monotonicity, which two levels cannot show. DVs: E3 precision readout + mode-occupancy distribution. GOV-REUSE-1: readout 'mode_occupancy' absent from every recorded manifest (reanalysis_query 0 matches) and ARC-005 has no experimental manifests -> not recoverable, run. Re-derive brake: 0 counted autopsies on ARC-005. SUBSTRATE READINESS (Step 2.5) took three measured fixes, all now in the lineage baseline module: (a) use_dacc + use_aic_analog must be ON or the coordinator's salience_aggregate is identically 0 and the discrete mode can NEVER switch -- occupancy would be single-mode by configuration, not substrate; (b) phasic_burst_signal_source='instantaneous_pe' or channel 2 fires zero events and is inert; (c) 5-HT rigidity is set at the channel's OUTPUT (gain_min==gain_max) because harm suppression crushes any tonic baseline to ~0 within tens of steps. All three are identical in every arm. P1 RESCOPED, not relaxed: the proposal's literal per-arm 'baseline occupies >=2 modes' gate was measured (600-tick probe, seed 0) to vacate the STRONGEST instance of the effect under test -- every corner arm single-mode while the channel manipulation moved the mode end-to-end (TV 1.0) and content moved it not at all (TV 0.0). Gated statistic changed to the design-level '>=2 distinct argmax modes across the design', which is what the gate's own stated rationale is about; within-arm multi-modality kept as a NON-GATING diagnostic. No threshold lowered. SCOPE: a PASS establishes THE PLANE is causal, not that each of the four channels independently routes modes -- channels 3/4 carry occupancy authority directly, 1/2 act mainly on precision. Per-channel dissociation UNTESTED. MINT: first of lineage exq802_arc005_control_plane; every cell emitted with include_driver_script_in_hash=False, so this run IS the cross-driver-reusable mint and no separate baseline-only job is queued. Smoke PASS (12 cells, validate_experiments --strict OK, validate_recording OK).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-07-22T20:28:53Z"
+      },
       "conditions": 6,
       "episodes_per_run": 2000,
       "experiment_type": "v3_exq_802_arc005_control_plane_routing_double_dissociation",
@@ -356,22 +360,6 @@
       "episodes_per_run": 235,
       "experiment_type": "v3_exq_629c_mech342_ecological_maintenance_release_evidence",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-734b",
-      "script": "experiments/v3_exq_734_env_difficulty_competence_recovery_sweep.py",
-      "priority": 30,
-      "machine_affinity": "any",
-      "estimated_minutes": 700,
-      "supersedes": "V3-EXQ-734a",
-      "note": "SD-070 ADOPTION VALIDATION. Re-run of the pre-fix driver with the P0a SD-070 z_world encoder warmup ENABLED (zworld_p0_episodes=60). Supersedes the pre-fix run, whose z_world was a FROZEN RANDOM PROJECTION: no optimizer group in _train_all_on_agent covered any latent_stack parameter, measured 0 of 61 latent_stack / 0 of 4 world_encoder tensors changed at p0_episodes=200. ACCEPTANCE (from the failure record): zworld_encoder_guard green -- world_encoder tensors changed > 0 on every seed, guard_checked=true -- which is the metric the pre-fix runs failed. Verified pre-landing on both _train_all_on_agent definition sites: OFF 0/61 and 0/4 with the guard REFUSING, ON 4/4 world_encoder with the guard PASSING (z_self untouched, per SD-070 contract C5). PHASED TRAINING: P0a (SD-070 encoder) -> P0b (e2 warmup, now over a meaningful z_world) -> P1 -> P2; the ordering is load-bearing because e2 regresses on z_world. Arm fingerprints now carry zworld_p0_episodes, so no pre-fix banked arm can cache-HIT these cells. THIS DRIVER: the env-difficulty competence-recovery sweep. NOTE V3-EXQ-734a was CLAIMED BY ree-cloud-4 AT 2026-07-20T15:54Z, i.e. BEFORE this fix landed, so it will complete on pre-fix code and its ree_trained_allon arm is guard-red by construction -- do not read 734a as a post-fix result. Post-fix dry-run: guard green on all 4 rungs (was red on all 4).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-07-21T16:16:28Z"
-      },
-      "claim_ids": [],
-      "experiment_purpose": "diagnostic"
     },
     {
       "queue_id": "V3-EXQ-699b",
