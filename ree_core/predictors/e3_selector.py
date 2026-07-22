@@ -290,6 +290,17 @@ class E3TrajectorySelector(nn.Module):
         # Maintained as EMA of prediction error MSE across committed trajectories.
         self._running_variance: float = self.config.precision_init
         self._ema_alpha: float = self.config.precision_ema_alpha
+        # SD-076 headroom repair (2026-07-22): the COUNTERFACTUAL un-inflated rv
+        # -- a symmetric EMA of the same error_var at the same _ema_alpha, i.e.
+        # exactly what _running_variance would be if the inflation path were
+        # never taken. Advanced ONLY on the inflation path (bit-identical OFF)
+        # and read only as the reference for a scale-RELATIVE floor. Tracking it
+        # is what lets the floor sit below the substrate's own error scale
+        # whatever that scale turns out to be, instead of at an absolute
+        # constant that silently became a clamp (V3-EXQ-794: floor 0.01 vs an
+        # operating point of 0.005420). Also emitted for diagnostics: the gap
+        # between it and _running_variance IS the inflation the lever produced.
+        self._wci_symmetric_rv_ref: float = self.config.precision_init
         # SD-069 sharp-surprise source (2026-07-17): the RAW per-tick PE-MSE
         # (error_var) from the most recent update_running_variance call, stored
         # BEFORE the running-variance EMA smoothing folds it in. This preserves
@@ -585,10 +596,18 @@ class E3TrajectorySelector(nn.Module):
             else:
                 alpha = max(0.0, self._ema_alpha * (1.0 - asym))
             rv_new = (1 - alpha) * self._running_variance + alpha * error_var
-            # rv feeds an ABSOLUTE commit threshold and 1/(rv + 1e-6); floor it
+            # Advance the counterfactual un-inflated reference in lockstep: the
+            # ORIGINAL symmetric expression, on the same error_var, at the same
+            # alpha. This is the scale the floor is allowed to be relative to.
+            self._wci_symmetric_rv_ref = (
+                (1 - self._ema_alpha) * self._wci_symmetric_rv_ref
+                + self._ema_alpha * error_var
+            )
+            # rv feeds an ABSOLUTE commit threshold and 1/(rv + 1e-6); bound it
             # so inflation cannot pin the agent committed or explode precision.
-            floor = float(getattr(self.config, "waking_confidence_rv_floor", 0.01))
-            self._running_variance = max(floor, rv_new)
+            # SD-076 headroom repair -- see E3Config.waking_confidence_rv_floor
+            # and the three *_floor_* knobs below it for the full rationale.
+            self._running_variance = self._apply_wci_rv_floor(rv_new)
         else:
             self._running_variance = (
                 (1 - self._ema_alpha) * self._running_variance
@@ -602,6 +621,65 @@ class E3TrajectorySelector(nn.Module):
             self._volatility_estimate = sum((v - mean) ** 2 for v in vals) / len(vals)
         else:
             self._volatility_estimate = 0.0
+
+    @property
+    def wci_symmetric_rv_ref(self) -> float:
+        """SD-076 diagnostic: the counterfactual un-inflated running variance.
+
+        Symmetric EMA of the same squared prediction error at the same alpha,
+        advanced only while the inflation path is active. ``self -
+        _running_variance`` is therefore the inflation the lever actually
+        produced, and ``_running_variance / ref`` is the dose expressed in a
+        scale-free form. Reported by the SD-076 / MECH-204 experiments so a
+        clamped lever is visible in the manifest without an autopsy.
+        """
+        return float(self._wci_symmetric_rv_ref)
+
+    def _apply_wci_rv_floor(self, rv_new: float) -> float:
+        """SD-076 lower bound on the inflated running variance.
+
+        Two independent knobs, both no-op at their defaults so the pre-2026-07-22
+        arithmetic is reproduced exactly:
+
+        * ``waking_confidence_rv_floor_relative_frac > 0`` makes the bound a
+          fraction of ``_wci_symmetric_rv_ref`` (the un-inflated counterfactual)
+          instead of the absolute ``waking_confidence_rv_floor``. An absolute
+          constant is only a floor at the error scale it was chosen for; V3-EXQ-794
+          clamped because 0.01 sat 1.8x ABOVE an operating point of 0.005420.
+        * ``waking_confidence_rv_floor_mode == "soft"`` approaches the bound
+          through a softplus instead of clipping at it. Strictly monotonic in
+          ``rv_new`` everywhere, so two distinct doses can never map to one value.
+
+        Returns the bounded running variance. Never raises: an unusable
+        configuration falls back to the original hard clip.
+        """
+        floor = float(getattr(self.config, "waking_confidence_rv_floor", 0.01))
+        frac = float(
+            getattr(self.config, "waking_confidence_rv_floor_relative_frac", 0.0)
+        )
+        if frac > 0.0:
+            floor = frac * float(self._wci_symmetric_rv_ref)
+        if floor <= 0.0:
+            # No usable bound. rv_new is a convex combination of non-negative
+            # quantities, so it is already >= 0; nothing further to enforce.
+            return float(rv_new)
+
+        mode = str(getattr(self.config, "waking_confidence_rv_floor_mode", "hard"))
+        if mode != "soft":
+            return max(floor, float(rv_new))
+
+        softness = float(
+            getattr(self.config, "waking_confidence_rv_floor_softness", 0.25)
+        )
+        knee = softness * floor
+        if knee <= 0.0:
+            # Zero knee width IS the hard clip (softplus -> max as s -> 0).
+            return max(floor, float(rv_new))
+        # Numerically stable softplus: log1p(exp(z)) overflows for large z, so
+        # evaluate as max(z, 0) + log1p(exp(-|z|)), which is exact in both tails.
+        z = (float(rv_new) - floor) / knee
+        softplus = max(z, 0.0) + math.log1p(math.exp(-abs(z)))
+        return floor + knee * softplus
 
     def recalibrate_precision_to(self, target_precision: float, step: float = 0.1) -> Tuple[float, float]:
         """

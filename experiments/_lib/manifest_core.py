@@ -36,6 +36,13 @@ Always-core fields it stamps (standard 3b)
                      defect, which silently degrades conjunctive acceptance criteria).
                      See experiments/_lib/inert_arm_knob.py. Deliberately NOT in
                      ALWAYS_CORE_KEYS, for the same legacy-corpus reason as above.
+  dose_levels_separable : bool -- False iff two DECLARED DOSE LEVELS produced values
+                     identical beyond float noise, i.e. the measured quantity saturated
+                     before the dose could express itself (the V3-EXQ-794 defect, where
+                     overconfidence_score was bit-identical at asymmetry 0.6 and 0.8).
+                     Complementary to arm_knobs_effective: there the knob never reached a
+                     live path, here it did and a bound erased its effect. See
+                     experiments/_lib/dose_saturation.py. Also NOT in ALWAYS_CORE_KEYS.
   machine          : socket.gethostname() (or a caller override -- the hub records
                      "ree-cloud-1" although its hostname is "ree-worker-1").
   machine_class    : arm_fingerprint.machine_class() -- fingerprint equality is
@@ -83,6 +90,16 @@ except Exception:  # pragma: no cover - path-dependent fallbacks
         from . import inert_arm_knob as _inert_arm_knob  # type: ignore
     except Exception:
         import inert_arm_knob as _inert_arm_knob  # type: ignore
+
+# Same triple-fallback import shape -- dose_saturation is a sibling module in this
+# package and stdlib-only.
+try:  # normal package import
+    from experiments._lib import dose_saturation as _dose_saturation  # type: ignore
+except Exception:  # pragma: no cover - path-dependent fallbacks
+    try:
+        from . import dose_saturation as _dose_saturation  # type: ignore
+    except Exception:
+        import dose_saturation as _dose_saturation  # type: ignore
 
 RECORDING_SCHEMA = "rec/v1"
 
@@ -325,6 +342,18 @@ def stamp_recording_core(
     # The helper is internally exception-safe; the guard here covers the import itself.
     try:
         _inert_arm_knob.stamp_inert_arm_knob(manifest)
+    except Exception:
+        pass
+
+    # dose_levels_separable -- did two DECLARED DOSE LEVELS produce different values?
+    # Sibling of the check above, catching the complementary defect: there the knob
+    # never reached a live path (arms ran identically); here the knob DID move the
+    # dynamics and a bound downstream erased the difference, so the arms differ while
+    # the readouts are bit-identical. The V3-EXQ-794 defect: overconfidence_score was
+    # -1.004111904519277 at BOTH asymmetry 0.6 and 0.8 because rv was clamped at an
+    # absolute floor sitting above the operating point. Same RECORD-AND-WARN posture.
+    try:
+        _dose_saturation.stamp_dose_saturation(manifest)
     except Exception:
         pass
 

@@ -511,6 +511,57 @@ class E3Config:
     # so unbounded downward drift would both pin the agent permanently
     # "committed" and explode precision. Applied ONLY on the inflation path.
     waking_confidence_rv_floor: float = 0.01
+    # SD-076 HEADROOM REPAIR (2026-07-22, routed by the confirmed
+    # failure_autopsy_V3-EXQ-794_2026-07-22). THE ABSOLUTE FLOOR ABOVE IS THE
+    # WRONG KIND OF QUANTITY and 0.01 is the wrong value for this substrate.
+    # V3-EXQ-794 measured the un-inflated operating point at rv = 0.005420
+    # (ARM_OFF_OFF) and arm_true_error_ref at ~0.0037, so the 0.01 floor sits
+    # 1.8x ABOVE the operating point and 2.7x above true error: max(0.01, rv)
+    # clamps on the first tick inflation bites and never releases. rv_final was
+    # EXACTLY 0.010000 on all four inflation arms and overconfidence_score was
+    # bit-identical to 15 significant figures (-1.004111904519277) at the LO and
+    # HI asymmetry levels. Two doses giving the same value beyond float noise is
+    # a SATURATION signature, not a null -- the lever was clamped before the dose
+    # could express itself, so SD-076 and MECH-204 both went untested.
+    # WHY THE 2026-07-20 SMOKE PASSED 6/6 ANYWAY: it used a synthetic error
+    # sequence with true mean 0.05, ~13x the substrate's real error scale, where
+    # 0.01 IS a floor with headroom. An absolute constant validated at one scale
+    # silently became a clamp at another. That is the defect being repaired --
+    # so the repair is a RELATIVE bound, not a smaller absolute one.
+    # NOTE the sign is NOT the bug (the autopsy's candidate cause (b) is ruled
+    # out): inflation drove rv DOWN correctly, into a floor that happens to sit
+    # ABOVE the OFF arm, so the inflation_lowers_rv gate saw rv rise.
+    #
+    #   waking_confidence_rv_floor_relative_frac -- 0.0 (default) keeps the
+    #     absolute floor above, bit-identical. When > 0 the effective floor is
+    #     this FRACTION of _wci_symmetric_rv_ref, a symmetric EMA at the same
+    #     _ema_alpha maintained only on the inflation path -- i.e. the
+    #     COUNTERFACTUAL un-inflated rv, "what rv would have been without
+    #     inflation". The bound then reads: inflation may not push rv below
+    #     frac x the un-inflated counterfactual. This guarantees headroom at ANY
+    #     substrate error scale (the property the absolute floor lacked) and
+    #     caps overconfidence_score at 1 - frac, a bound relative to reality,
+    #     which is also the biologically correct shape -- confidence inflation is
+    #     bounded by the organism's own error experience, not by a constant.
+    #     0.2 leaves room for overconfidence up to 0.8 while keeping rv strictly
+    #     positive for the ARC-016 absolute commit gate and 1/(rv + 1e-6).
+    #   waking_confidence_rv_floor_mode -- "hard" (default) is the original
+    #     max(floor, rv) clip. "soft" approaches the effective floor through a
+    #     softplus: rv = f + s * log1p(exp((rv_new - f) / s)), the identity well
+    #     above f and asymptotic to f below it. THE POINT IS STRICT MONOTONICITY
+    #     (d/d rv_new = sigmoid(.) > 0 everywhere): a residual saturation can
+    #     then only SHRINK a dose separation, never collapse it to an exact tie,
+    #     so a mis-set floor degrades to a small LO/HI gap the dose_saturation
+    #     lint can see, instead of the bit-identical arms that made 794
+    #     unadjudicable without an autopsy. Biologically this is also the right
+    #     form: waking confidence drift is softly bounded, and a hard clip at the
+    #     operating point destroys the dose-response a 2x2 design depends on.
+    #   waking_confidence_rv_floor_softness -- softplus knee width as a fraction
+    #     of the effective floor (beta^-1 = softness * effective_floor). Inert
+    #     while mode == "hard". Larger = gentler, earlier-acting compression.
+    waking_confidence_rv_floor_relative_frac: float = 0.0
+    waking_confidence_rv_floor_mode: str = "hard"
+    waking_confidence_rv_floor_softness: float = 0.25
 
     # SD-063: conditional predictive-precision commit gate. When True AND a
     # conditional_predictive_variance is passed to select(), the ARC-016 commit
