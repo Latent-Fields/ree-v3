@@ -45,6 +45,17 @@ from ree_core.policy.noisy_selection_head import (
 # this composition site "score_bias" is already the composed dACC+lPFC+OFC+MECH-295+
 # MECH-314+MECH-320 chain (summed UPSTREAM in agent.py before reaching select()); a
 # finer per-head channel split is a documented follow-on, out of step-1 scope.
+# SD-081 (MECH-477) dual-system arbitration numerics.
+# _ARB_STD_FLOOR: a score vector flatter than this carries no ranking to blend,
+# and z-scoring it would emit NaN into the argmin. Deliberately a spread floor
+# rather than a magnitude floor -- the V3-EXQ-643 lesson, also encoded in
+# V3-EXQ-786a's own readiness check: a uniform per-tick offset has large
+# magnitude and ~0 range, so a magnitude gate passes while the ranking is noise.
+_ARB_STD_FLOOR: float = 1e-8
+# Guards the u / (u + ema) normalisation when both terms are 0.0 (a pathway that
+# has never been uncertain), which would otherwise be 0/0.
+_ARB_EPS: float = 1e-8
+
 _LCG_CHANNEL_NAMES: Tuple[str, ...] = ("score_bias", "mech341", "route")
 _LCG_CHANNEL_INDEX: Dict[str, int] = {n: i for i, n in enumerate(_LCG_CHANNEL_NAMES)}
 # w_chan init value x s.t. softplus(x) == 1.0 exactly -> bit-identical unweighted
@@ -365,6 +376,22 @@ class E3TrajectorySelector(nn.Module):
         # ControlVector logging (rec-B): pre-bias per-candidate scores (value
         # axis / V_outcome), written each select() call. None until first call.
         self.last_raw_scores: Optional[torch.Tensor] = None
+        # SD-081 (MECH-477): dual-system uncertainty arbitration state.
+        # _score_depth_limit truncates the z_world sequence every compute_*
+        # method reads, so the HABIT pathway is the SAME machinery evaluated
+        # myopically rather than a second scorer that could drift from the
+        # planned one. None -> full horizon (the only value on the default path).
+        self._score_depth_limit: Optional[int] = None
+        # Per-pathway uncertainty baselines. The normalisation u / (u + ema) is
+        # what makes the arbitration weight scale-free -- see the config docstring.
+        # None until the first arbitrated tick seeds them.
+        self._arb_ema_habit: Optional[float] = None
+        self._arb_ema_planned: Optional[float] = None
+        # Paired (uncertainty, weight) read for the MANDATORY manipulation check
+        # MECH-477 requires: the falsifier must show the arbitration weight varies
+        # with measured uncertainty, else a null is a readiness failure scoring
+        # nothing. Stays None when the arbitrator is off.
+        self.last_arbitration: Optional[dict] = None
         # V3-EXQ-563c: score / bias scale diagnostics written each select() call.
         self.last_score_diagnostics: dict = {}
         # V3-EXQ-571: per-component score decomposition (default OFF, bit-identical)
@@ -855,13 +882,24 @@ class E3TrajectorySelector(nn.Module):
     # ------------------------------------------------------------------ #
 
     def _get_world_states(self, trajectory: Trajectory) -> torch.Tensor:
-        """Extract z_world trajectory. Falls back to z_self if no world_states."""
+        """Extract z_world trajectory. Falls back to z_self if no world_states.
+
+        SD-081: when self._score_depth_limit is set, the returned sequence is
+        truncated to that many leading steps. Every compute_* cost component
+        reads its states through here, so a single truncation makes ALL of
+        F / M / Phi_R / B / goal myopic together -- the HABIT pathway is then a
+        depth-limited read of the same machinery, not a second scorer. That is
+        exactly V3-EXQ-786a's construction (which truncated the residue scorer
+        to world_seq[:, :1, :]), lifted from the residue term to the full J.
+        None on the default path -> unchanged full-horizon sequence.
+        """
         if trajectory.world_states is not None:
             ws = trajectory.get_world_state_sequence()
             if ws is not None:
-                return ws
+                return ws if self._score_depth_limit is None else ws[:, : self._score_depth_limit, :]
         # Fallback: use z_self states (for V3-EXQ-001 before full SD-005 wiring)
-        return trajectory.get_state_sequence()
+        ss = trajectory.get_state_sequence()
+        return ss if self._score_depth_limit is None else ss[:, : self._score_depth_limit, :]
 
     def compute_reality_cost(self, trajectory: Trajectory) -> torch.Tensor:
         """Reality constraint F(ζ) — proxy: smoothness + viability of z_world final state."""
@@ -1195,6 +1233,188 @@ class E3TrajectorySelector(nn.Module):
                 "lambda_eff": float(lambda_eff),
             }
         return score
+
+    # ------------------------------------------------------------------ #
+    # SD-081 / MECH-477: dual-system uncertainty arbitration                #
+    # ------------------------------------------------------------------ #
+
+    def _arbitrate_dual_system(
+        self,
+        candidates: List[Trajectory],
+        planned_scores: torch.Tensor,
+        habit_uncertainty: Optional[float],
+        habit_uncertainty_source: Optional[str],
+        **score_kwargs: Any,
+    ) -> torch.Tensor:
+        """Blend the HABIT (myopic) and PLANNED (full-horizon) score vectors.
+
+        MECH-477: differential recruitment between the two goal-directed pathways
+        is produced by an explicit arbitration element reading their RELATIVE
+        uncertainty, not by the mere presence of two pathways. Daw, Niv & Dayan
+        2005 (Nature Neuroscience 8(12):1704-1711, conf 0.79): control is
+        allocated to whichever controller is less uncertain at that moment.
+
+        The HABIT read is depth-limited to dualsystem_habit_depth (default 2 =
+        current state + immediate consequence). Depth 1 is NOT usable: index 0 of
+        the z_world sequence is the current state, shared by every candidate, so a
+        depth-1 score vector has measured range exactly 0.0 and no ranking to
+        contribute -- the max(2, ...) floor makes that unreachable by config.
+
+        u_habit   -- unreliability of the cached/myopic read. HIGH in novel
+                     contexts, where the habit pathway has nothing practised to
+                     cache. Resolved by the CALLER (REEAgent.select_action), which
+                     is where familiarity and E1 novelty both live.
+        u_planned -- unreliability of the multi-step rollout, i.e. how badly the
+                     forward model is currently predicting. Read from
+                     _running_variance, this selector's own PE-MSE accumulator.
+
+        Both are normalised against their OWN EMA baseline as u / (u + ema), which
+        sits at 0.5 at baseline and is invariant to the raw units of each signal.
+        That normalisation is load-bearing, not tidiness: familiarity is a clamped
+        proximity-weighted kernel density whose scale is set by
+        familiarity_bandwidth, while _running_variance is an unbounded PE-MSE, so
+        a ratio taken over the raw values would be an artifact of the instrument
+        rather than a reading of the two pathways. Same discipline that made
+        V3-EXQ-786a's manipulation check an AUC rather than a raw difference.
+
+            w = sigmoid(gain * (u_habit_n - u_planned_n) + bias)     weight on PLANNED
+
+        Novel context -> u_habit up -> w up -> deep rollout dominates selection.
+        Practised context -> the reverse. That is the predicted novel-minus-familiar
+        recruitment delta, and it is precisely what the pre-SD-081 substrate could
+        not express.
+
+        The two score vectors are standardised before blending and the result is
+        rescaled to the planned vector's own mean/std. Three reasons, all real:
+          (1) J_habit sums over 1 step and J_planned over horizon+1, so blending
+              the raw costs would make w a GAIN on the planned pathway rather than
+              an ALLOCATION between two;
+          (2) standardisation is rank-preserving, so neither pathway's own
+              candidate ordering is distorted by the rescale;
+          (3) at w = 1 the blend returns the planned vector exactly, so the ON arm
+              is a readable departure from the OFF arm (= V3-EXQ-786a) rather than
+              a different experiment.
+
+        Returns the planned scores unchanged, with last_arbitration flagged
+        degenerate, whenever the arbitration cannot be computed honestly.
+        """
+        cfg = self.config
+
+        def _degenerate(reason: str) -> torch.Tensor:
+            self.last_arbitration = {
+                "w_planned": None,
+                "u_habit_raw": habit_uncertainty,
+                "u_planned_raw": float(self._running_variance),
+                "u_habit_norm": None,
+                "u_planned_norm": None,
+                "habit_uncertainty_source": habit_uncertainty_source,
+                "degenerate": True,
+                "degeneracy_reason": reason,
+            }
+            return planned_scores
+
+        # The caller owns the u_habit fallback chain (familiarity -> E1 novelty).
+        # If it could resolve neither, arbitrating would mean inventing an
+        # uncertainty reading, so decline and say so -- a run whose arbitrator
+        # silently fell back to a constant is a readiness failure that must be
+        # visible as one, not a null.
+        if habit_uncertainty is None or not math.isfinite(float(habit_uncertainty)):
+            return _degenerate("no_habit_uncertainty")
+        if len(candidates) < 2:
+            return _degenerate("insufficient_candidates")
+
+        # HABIT pathway: the SAME scorer, depth-limited to the first step. The
+        # try/finally is not decorative -- leaving _score_depth_limit set would
+        # silently make every subsequent full-horizon score myopic.
+        prev_depth = self._score_depth_limit
+        self._score_depth_limit = max(2, int(getattr(cfg, "dualsystem_habit_depth", 2)))
+        try:
+            _habit_list = []
+            for _i, _cand_t in enumerate(candidates):
+                _pe_i = (
+                    score_kwargs["e2_forward_pe_per_candidate"][_i]
+                    if score_kwargs.get("e2_forward_pe_per_candidate") is not None
+                    else None
+                )
+                _sv_i = (
+                    score_kwargs["self_viability_per_candidate"][_i]
+                    if score_kwargs.get("self_viability_per_candidate") is not None
+                    else None
+                )
+                _habit_list.append(
+                    self.score_trajectory(
+                        _cand_t,
+                        goal_state=score_kwargs.get("goal_state"),
+                        harm_bridge=score_kwargs.get("harm_bridge"),
+                        terrain_weight=score_kwargs.get("terrain_weight"),
+                        harm_forward_model=score_kwargs.get("harm_forward_model"),
+                        z_harm_s_current=score_kwargs.get("z_harm_s_current"),
+                        z_harm_a=score_kwargs.get("z_harm_a"),
+                        e2_forward_pe=_pe_i,
+                        self_viability=_sv_i,
+                    )
+                )
+        finally:
+            self._score_depth_limit = prev_depth
+
+        habit_scores = torch.stack(_habit_list).mean(dim=-1)
+        if habit_scores.shape != planned_scores.shape:
+            return _degenerate("habit_shape_mismatch")
+
+        # Standardise both vectors. A zero-SD vector has no ranking to contribute,
+        # and z-scoring it would emit NaN into the argmin.
+        h_det = habit_scores.detach()
+        p_det = planned_scores.detach()
+        h_std = float(h_det.std().item())
+        p_std = float(p_det.std().item())
+        if not math.isfinite(h_std) or not math.isfinite(p_std):
+            return _degenerate("non_finite_scores")
+        if h_std < _ARB_STD_FLOOR or p_std < _ARB_STD_FLOOR:
+            return _degenerate("degenerate_score_spread")
+
+        # Relative uncertainty, each normalised against its own EMA baseline.
+        u_h = max(0.0, float(habit_uncertainty))
+        u_p = max(0.0, float(self._running_variance))
+        alpha = float(getattr(cfg, "dualsystem_uncertainty_ema_alpha", 0.05))
+        if self._arb_ema_habit is None:
+            self._arb_ema_habit = u_h
+        else:
+            self._arb_ema_habit = (1.0 - alpha) * self._arb_ema_habit + alpha * u_h
+        if self._arb_ema_planned is None:
+            self._arb_ema_planned = u_p
+        else:
+            self._arb_ema_planned = (1.0 - alpha) * self._arb_ema_planned + alpha * u_p
+
+        u_h_n = u_h / (u_h + self._arb_ema_habit + _ARB_EPS)
+        u_p_n = u_p / (u_p + self._arb_ema_planned + _ARB_EPS)
+
+        gain = float(getattr(cfg, "dualsystem_arbitration_gain", 4.0))
+        bias = float(getattr(cfg, "dualsystem_arbitration_bias", 0.0))
+        w = 1.0 / (1.0 + math.exp(-(gain * (u_h_n - u_p_n) + bias)))
+
+        z_h = (habit_scores - h_det.mean()) / h_std
+        z_p = (planned_scores - p_det.mean()) / p_std
+        blended = (1.0 - w) * z_h + w * z_p
+        arbitrated = p_det.mean() + p_std * blended
+
+        # The paired series MECH-477's mandatory manipulation check consumes: the
+        # falsifier must show w VARIES WITH measured uncertainty, otherwise a null
+        # is a readiness failure that scores nothing rather than a refutation.
+        self.last_arbitration = {
+            "w_planned": float(w),
+            "u_habit_raw": u_h,
+            "u_planned_raw": u_p,
+            "u_habit_norm": float(u_h_n),
+            "u_planned_norm": float(u_p_n),
+            "u_habit_ema": float(self._arb_ema_habit),
+            "u_planned_ema": float(self._arb_ema_planned),
+            "habit_uncertainty_source": habit_uncertainty_source,
+            "habit_score_range": float((h_det.max() - h_det.min()).item()),
+            "planned_score_range": float((p_det.max() - p_det.min()).item()),
+            "degenerate": False,
+            "degeneracy_reason": "",
+        }
+        return arbitrated
 
     # ------------------------------------------------------------------ #
     # Selection                                                            #
@@ -2129,6 +2349,8 @@ class E3TrajectorySelector(nn.Module):
         go_nogo_signals: Optional[Dict[str, Any]] = None,
         conditional_predictive_variance: Optional[float] = None,
         simulation_mode: bool = False,
+        habit_uncertainty: Optional[float] = None,
+        habit_uncertainty_source: Optional[str] = None,
     ) -> SelectionResult:
         """
         Select the best trajectory from candidates.
@@ -2229,6 +2451,39 @@ class E3TrajectorySelector(nn.Module):
                 _cand_components.append(dict(self._last_traj_components))
         scores = torch.stack(_score_list)
         scores = scores.mean(dim=-1)
+
+        # SD-081 (MECH-477): dual-system uncertainty arbitration.
+        #
+        # WHY HERE. Everything below -- raw_score_range, the score_bias channels,
+        # the commit gate, the argmin and the softmax -- reads `scores`. Blending
+        # at this point therefore makes the arbitration a genuine reallocation of
+        # CONTROL between the two pathways, which is what MECH-477 asserts, rather
+        # than a diagnostic hung off the side of an unchanged selection. Blending
+        # after the bias channels would instead arbitrate a score those channels
+        # had already shaped, which muddies what the weight means.
+        #
+        # WHY THE SUBSTRATE WAS FLAT BEFORE. `scores` is unconditionally the
+        # full-horizon J(zeta); no weight existed anywhere between the myopic and
+        # the deep read. V3-EXQ-786a's recruitment DV therefore measured a passive
+        # property of the world with nothing that COULD respond to novelty --
+        # delta mean 0.00435, d 0.047, 7 of 8 seeds within +/-0.15. That flat
+        # response is this block's motivation, not evidence for it.
+        self.last_arbitration = None
+        if getattr(self.config, "use_dualsystem_arbitration", False):
+            scores = self._arbitrate_dual_system(
+                candidates=candidates,
+                planned_scores=scores,
+                habit_uncertainty=habit_uncertainty,
+                habit_uncertainty_source=habit_uncertainty_source,
+                goal_state=goal_state,
+                harm_bridge=harm_bridge,
+                terrain_weight=terrain_weight,
+                harm_forward_model=harm_forward_model,
+                z_harm_s_current=z_harm_s_current,
+                z_harm_a=z_harm_a,
+                e2_forward_pe_per_candidate=e2_forward_pe_per_candidate,
+                self_viability_per_candidate=self_viability_per_candidate,
+            )
 
         # V3-EXQ-563c: capture raw score range for diagnostics + normalisation.
         raw_scores = scores.detach()

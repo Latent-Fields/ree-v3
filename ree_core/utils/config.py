@@ -1347,6 +1347,51 @@ class E3Config:
     model_disagreement_scale: float = 1.0
 
 
+    # SD-081 (MECH-477): dual-system uncertainty arbitration. An explicit
+    # arbitration weight over the HABIT pathway (myopic, depth-1 read of the
+    # scorer) and the PLANNED pathway (full-horizon read of the same scorer),
+    # driven by the two pathways' relative uncertainty. Daw, Niv & Dayan 2005:
+    # control goes to whichever controller is less uncertain, and differential
+    # recruitment is the OUTPUT of that arbitrator rather than a property of
+    # having two pathways. V3-EXQ-786a measured a FLAT recruitment response
+    # (delta mean 0.00435, d 0.047, n=8) on a substrate whose selection score is
+    # unconditionally full-horizon -- the no-arbitrator signature.
+    # False -> the arbitration block is skipped entirely and E3 selection is
+    # byte-identical to pre-SD-081. See
+    # REE_assembly/docs/architecture/sd_081_dualsystem_uncertainty_arbitration.md.
+    use_dualsystem_arbitration: bool = False
+    # Sigmoid slope on the normalised relative uncertainty (u_habit_n -
+    # u_planned_n). Both terms live in (0, 1) and sit at 0.5 at their own
+    # baseline, so the difference lives in (-1, 1); a gain of 4.0 maps that to
+    # roughly (0.02, 0.98) of the weight range -- wide enough for the weight to
+    # actually reallocate control, bounded enough that it never saturates hard.
+    dualsystem_arbitration_gain: float = 4.0
+    # Additive shift on the sigmoid argument. 0.0 -> w = 0.5 when the two
+    # pathways are equally uncertain relative to their own baselines. Positive
+    # biases toward the planned pathway, negative toward the habit pathway.
+    dualsystem_arbitration_bias: float = 0.0
+    # EMA alpha for each pathway's own uncertainty baseline. The normalisation
+    # u / (u + ema) is what makes the arbitration weight scale-free: familiarity
+    # kernel density and E3 PE-MSE are incommensurable in raw units, so a ratio
+    # taken over them directly would be an artifact of familiarity_bandwidth.
+    # Small alpha -> slow baseline, so w responds to departure from baseline
+    # rather than to the absolute level.
+    dualsystem_uncertainty_ema_alpha: float = 0.05
+    # Depth of the HABIT pathway's read, in z_world sequence entries.
+    #
+    # 2, NOT 1, and this is a measured constraint rather than a preference.
+    # get_world_state_sequence() returns [batch, horizon+1, world_dim] whose
+    # index 0 is the CURRENT z_world -- identical across every candidate, since
+    # they all start from where the agent actually is. Measured on a 32-candidate
+    # set: cross-candidate std at index 0 is EXACTLY 0, and a depth-1 score vector
+    # therefore has range 0.0 and carries no ranking whatsoever. Index 1 is the
+    # first PREDICTED state, where the candidates first diverge (std 1.6e-3,
+    # range 6.6e-3). So depth 2 = current + immediate consequence, which is also
+    # what a cached S-R read IS biologically: the evaluated outcome of taking the
+    # action, not a re-read of the state you are already in.
+    dualsystem_habit_depth: int = 2
+
+
 @dataclass
 class EventSegmenterScaleConfig:
     """Per-scale configuration for MECH-288 EventSegmenter.
@@ -5704,6 +5749,15 @@ class REEConfig:
         # SD-055: differentiable CEM selection approximation
         use_differentiable_cem: bool = False,
         differentiable_cem_temperature: float = 1.0,
+        # SD-081 (MECH-477): dual-system uncertainty arbitration. Default off ->
+        # byte-identical E3 selection. from_dims silently swallows unknown
+        # kwargs, so this signature entry is load-bearing: without it the flag
+        # is unreachable through the canonical constructor with no error.
+        use_dualsystem_arbitration: bool = False,
+        dualsystem_arbitration_gain: float = 4.0,
+        dualsystem_arbitration_bias: float = 0.0,
+        dualsystem_uncertainty_ema_alpha: float = 0.05,
+        dualsystem_habit_depth: int = 2,
         # MECH-290: backward trajectory credit sweep
         use_backward_credit_sweep: bool = False,
         backward_sweep_gamma: float = 0.9,
@@ -6871,6 +6925,17 @@ class REEConfig:
         config.latent.disagreement_bootstrap_mask_prob = disagreement_bootstrap_mask_prob
         config.latent.disagreement_learning_rate = disagreement_learning_rate
         config.use_control_vector_logging = use_control_vector_logging
+
+        # SD-081 (MECH-477): dual-system uncertainty arbitration. Lives on
+        # E3Config because E3Selector.config IS the E3Config -- a REEConfig-level
+        # field would be read as a missing attribute by the selector and default
+        # to False, i.e. exactly the silently-unreachable-flag failure the
+        # from_dims signature entry above guards against, one level down.
+        config.e3.use_dualsystem_arbitration = use_dualsystem_arbitration
+        config.e3.dualsystem_arbitration_gain = dualsystem_arbitration_gain
+        config.e3.dualsystem_arbitration_bias = dualsystem_arbitration_bias
+        config.e3.dualsystem_uncertainty_ema_alpha = dualsystem_uncertainty_ema_alpha
+        config.e3.dualsystem_habit_depth = dualsystem_habit_depth
 
         # MECH-290: backward trajectory credit sweep
         config.hippocampal.use_backward_credit_sweep = use_backward_credit_sweep

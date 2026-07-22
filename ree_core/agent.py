@@ -7036,6 +7036,43 @@ class REEAgent(nn.Module):
                 _e3_select_kwargs["model_disagreement_per_candidate"] = _md_vec
             except Exception:
                 pass
+        # SD-081 (MECH-477): resolve the HABIT pathway's uncertainty for the
+        # dual-system arbitrator. Resolved HERE rather than inside E3 because
+        # both candidate signals live on the agent, and because the arbitrator
+        # must record WHICH one it used -- an ON arm that silently fell back is a
+        # readiness failure and has to be visible as one.
+        #
+        # PREFERRED: 1 - familiarity(z_world). This is the same reading whose
+        # between-condition separation V3-EXQ-786a certified as its manipulation
+        # check (AUC 0.848 vs a 0.7 bar), so the arbitrator is driven by the very
+        # signal the novel-vs-familiar contrast is defined on.
+        # FALLBACK: the E1 prediction-error EMA, when curiosity is disabled and
+        # hippocampal.familiarity_tracker is therefore None. A less direct read of
+        # "this context is not one I have practised", but it keeps the ON arm
+        # runnable without forcing every arbitration experiment to also enable
+        # curiosity, which would put a second live lever in the arm.
+        # Version-layering guard: the kwargs are passed ONLY when the flag is on,
+        # so the default V3 path never sends them and an older e3.select cannot
+        # raise -- same doctrine as the DR-12 / MECH-449 guards above.
+        if getattr(self.config.e3, "use_dualsystem_arbitration", False):
+            _arb_u_habit: Optional[float] = None
+            _arb_src: Optional[str] = None
+            try:
+                _fam_tracker = getattr(self.hippocampal, "familiarity_tracker", None)
+                if _fam_tracker is not None and self._current_latent is not None:
+                    with torch.no_grad():
+                        _fam = _fam_tracker.query(self._current_latent.z_world.detach())
+                    _arb_u_habit = 1.0 - float(_fam.mean().item())
+                    _arb_src = "familiarity"
+                else:
+                    _arb_u_habit = float(getattr(self.e3, "_novelty_ema", 0.0))
+                    _arb_src = "e1_novelty_ema"
+            except Exception:
+                _arb_u_habit = None
+                _arb_src = None
+            _e3_select_kwargs["habit_uncertainty"] = _arb_u_habit
+            _e3_select_kwargs["habit_uncertainty_source"] = _arb_src
+
         result = self.e3.select(
             candidates, effective_temperature,
             **_e3_select_kwargs,
