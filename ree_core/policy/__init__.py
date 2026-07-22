@@ -38,6 +38,14 @@ from ree_core.policy.noise_floor import (
     NoiseFloor,
     NoiseFloorConfig,
 )
+from ree_core.policy.policy_chunking import (
+    ChunkAccumulator,
+    ChunkedPrimitive,
+    ChunkLibrary,
+    ChunkState,
+    PolicyChunking,
+    PolicyChunkingConfig,
+)
 from ree_core.policy.rho_maintenance_ramp import (
     RhoMaintenanceRamp,
     RhoMaintenanceRampConfig,
@@ -54,6 +62,12 @@ from ree_core.policy.tonic_vigor import (
 
 __all__ = [
     "CandidateRule",
+    "ChunkAccumulator",
+    "ChunkedPrimitive",
+    "ChunkLibrary",
+    "ChunkState",
+    "PolicyChunking",
+    "PolicyChunkingConfig",
     "CandidateRuleField",
     "CandidateRuleFieldConfig",
     "CommitMaintenanceRelease",

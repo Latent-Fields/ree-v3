@@ -124,6 +124,8 @@ from ree_core.policy import (
     CommitReadinessConfig,
     NaturalCommitUrgencyRelease,
     NaturalCommitUrgencyReleaseConfig,
+    PolicyChunking,
+    PolicyChunkingConfig,
     RhoMaintenanceRamp,
     RhoMaintenanceRampConfig,
     DifficultyGatedProposalEntropy,
@@ -1227,6 +1229,56 @@ class REEAgent(nn.Module):
                     onset_grace_ticks=getattr(config, "rho_onset_grace_ticks", 3),
                 )
             )
+
+        # ARC-071 policy_composition_via_repeated_grounding: the TRANSITION
+        # mechanism (planned -> habitual chunking) that MECH-163 dual systems
+        # presupposes but never specifies. MECH-323 formation operator (DLS-
+        # analog) + MECH-324 maintenance operator (IL/vmPFC-analog) + the
+        # MECH-322 sleep-replay carve-out. Slow, repetition-and-outcome-
+        # consistency driven, execution-side -- NOT MECH-477, which is the fast
+        # uncertainty-driven ALLOCATION mechanism. Default False -> the
+        # operators are never instantiated (bit-identical). See
+        # ree_core/policy/policy_chunking.py.
+        self.policy_chunking: Optional[PolicyChunking] = None
+        if getattr(config, "use_policy_chunking", False):
+            self.policy_chunking = PolicyChunking(
+                config=PolicyChunkingConfig(
+                    use_policy_chunking=True,
+                    min_repetitions=getattr(config, "chunk_min_repetitions", 20),
+                    window_trials=getattr(config, "chunk_window_trials", 100),
+                    variance_low=getattr(config, "chunk_variance_low", 0.15),
+                    variance_high=getattr(config, "chunk_variance_high", 0.45),
+                    evaluative_margin=getattr(config, "chunk_evaluative_margin", 0.05),
+                    min_chunk_size=getattr(config, "chunk_min_size", 2),
+                    max_chunk_size=getattr(config, "chunk_max_size", 5),
+                    max_depth=getattr(config, "chunk_max_depth", 3),
+                    max_library_size=getattr(config, "chunk_max_library_size", 64),
+                    max_tracked_sequences=getattr(
+                        config, "chunk_max_tracked_sequences", 512
+                    ),
+                    use_chunk_maintenance=getattr(config, "use_chunk_maintenance", False),
+                    crystallisation_min=getattr(config, "chunk_crystallisation_min", 5),
+                    dissolve_trials=getattr(config, "chunk_dissolve_trials", 50),
+                    use_chunk_replay_origin_path=getattr(
+                        config, "use_chunk_replay_origin_path", False
+                    ),
+                    replay_value_quantile=getattr(
+                        config, "chunk_replay_value_quantile", 0.75
+                    ),
+                    replay_corroboration_episodes=getattr(
+                        config, "chunk_replay_corroboration_episodes", 75
+                    ),
+                )
+            )
+
+        # ARC-071 proposal-pool injection: hand the chunk library to the
+        # proposer so crystallised chunks become atomic candidates. Requires
+        # BOTH switches -- the readiness diagnostic runs with injection off, so
+        # the accumulator can be validated before any chunk reaches E3.
+        if self.policy_chunking is not None and getattr(
+            config, "use_chunk_proposal_injection", False
+        ):
+            self.hippocampal.set_chunk_source(self.policy_chunking)
 
         # SD-061: difficulty-gated proposal-entropy regulator (MECH-343 blocker
         # part 2). A stuck-state detector integrates goal-progress stall + dACC
@@ -2776,6 +2828,14 @@ class REEAgent(nn.Module):
         # ARC-108 JOB-2: per-episode reset of the rho_t maintenance ramp.
         if self.rho_maintenance_ramp is not None:
             self.rho_maintenance_ramp.reset()
+        # ARC-071: per-episode boundary for the chunk operators. end_episode(),
+        # NOT reset() -- chunk formation is a SLOW cross-episode process
+        # (R_min = 20 repetitions over a 100-trial window), so an accumulator
+        # cleared every episode could never form anything. This clears only the
+        # within-episode action buffer and advances the MECH-322 corroboration
+        # deadlines by one waking episode.
+        if self.policy_chunking is not None:
+            self.policy_chunking.end_episode()
         # Natural-commit latch-hold: per-episode reset of the hold state +
         # diagnostics (a fresh trial starts with no carried-over hold).
         self._ncl_hold_active = False
@@ -7674,6 +7734,26 @@ class REEAgent(nn.Module):
                 pred = self.e2_harm_a(z_in, a_in)
                 self._harm_a_pred_prev = pred.squeeze(0).detach().clone()
 
+        # ARC-071 / MECH-323: record the committed action class into the chunk
+        # accumulator. This is the WAKING path, so hypothesis_tag is False by
+        # construction (select_action is only ever reached on real execution) --
+        # it is passed explicitly rather than defaulted so the MECH-094
+        # provenance is legible at the call site. A replayed or imagined
+        # sequence never reaches here; the only path that accepts internally
+        # generated content is the separately-flagged MECH-322 carve-out.
+        if self.policy_chunking is not None and action is not None:
+            try:
+                _pc_row = action[0] if action.dim() > 1 else action
+                self.policy_chunking.record_step(
+                    int(_pc_row.argmax().item()), hypothesis_tag=False
+                )
+            except Exception:
+                # Non-one-hot action: skip this step rather than mint a chunk
+                # from a mis-decoded class. Silent to preserve backward-
+                # compatible select_action control flow (matches the dACC
+                # fallback immediately below).
+                pass
+
         # MECH-260: record chosen action class in dACC recency history.
         if self.dacc is not None and action is not None:
             try:
@@ -7906,6 +7986,70 @@ class REEAgent(nn.Module):
         these to the optimizer (and reads live z_world); the frozen arm omits them.
         This is the substrate seam for the mandatory frozen-vs-co-trained ablation."""
         return self.latent_stack.parameters()
+
+    # ------------------------------------------------------------------
+    # ARC-071 policy composition via repeated grounding
+    # ------------------------------------------------------------------
+    def note_chunk_outcome(self, outcome_signal: float) -> list:
+        """Report a trial outcome to the ARC-071 chunk accumulator (MECH-323).
+
+        Credits the recently executed sub-sequences with this outcome, runs the
+        formation pass (repetition count AND outcome variance AND evaluative
+        gate), registers any newly formed chunks, and advances the MECH-324
+        maintenance lifecycle. Called by the experiment harness at a trial or
+        segment boundary, alongside update_residue.
+
+        No-op returning [] when the substrate is off.
+
+        Args:
+            outcome_signal : scalar outcome quality for the trial. Higher is
+                better; the evaluative gate compares its running mean against
+                the running baseline over all outcomes.
+
+        Returns:
+            The chunks minted by this pass (empty in the normal case).
+        """
+        if self.policy_chunking is None:
+            return []
+        return self.policy_chunking.note_outcome(float(outcome_signal))
+
+    def note_chunk_replay_sequence(
+        self, sequence, value_tag: float, in_sleep_phase: Optional[bool] = None
+    ):
+        """MECH-322 sleep-replay carve-out: attempt a chunk from REPLAYED content.
+
+        SAFETY-CRITICAL and off by default even when chunking is on
+        (use_chunk_replay_origin_path). This is the single sanctioned exception
+        to MECH-094 strict gating; every condition is ANDed and fails closed.
+        Returns None unless all of them hold.
+
+        Args:
+            sequence : the replayed action-class sequence.
+            value_tag : value carried from PRIOR REAL executions of the
+                sequence -- never a value computed from the replay itself.
+            in_sleep_phase : override for the SD-017 sleep-phase condition. When
+                None it is READ from the substrate (the serotonin phase is the
+                authority: "sws" or "rem"), so waking DMN -- where the MECH-292
+                / MECH-293 ghost-goal probes operate -- reads False and is
+                refused, as MECH-322 requires.
+
+        Returns:
+            The minted replay_origin=True chunk, or None if refused.
+        """
+        if self.policy_chunking is None:
+            return None
+        if in_sleep_phase is None:
+            phase = getattr(getattr(self, "serotonin", None), "phase", "wake")
+            in_sleep_phase = str(phase) in ("sws", "rem")
+        return self.policy_chunking.note_replay_sequence(
+            sequence, value_tag=float(value_tag), in_sleep_phase=bool(in_sleep_phase)
+        )
+
+    def get_chunking_state(self) -> dict:
+        """ARC-071 diagnostic snapshot for experiment manifests ({} when off)."""
+        if self.policy_chunking is None:
+            return {}
+        return self.policy_chunking.get_state()
 
     def act(
         self,

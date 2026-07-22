@@ -515,6 +515,13 @@ PROBED = {
     "use_phasic_burst",  # SD-069 fires-and-propagates probe (instantaneous_pe)
     "sws_enabled",  # SD-017 schema pass: writes -> E1 ContextMemory
     "rem_enabled",  # SD-017 attribution pass: rollouts -> HippocampalModule.replay
+    # ARC-071 chunking. Probed by tests/contracts/test_arc071_policy_chunking.py
+    # (C1 OFF-is-inert / C6 accumulator fires / C7 formation-only dissociation /
+    # C9 proposer injection), not by a probe in this file.
+    "use_policy_chunking",
+    "use_chunk_maintenance",
+    "use_chunk_replay_origin_path",
+    "use_chunk_proposal_injection",
 } | set(FLAGS_WITH_DEFAULT_BEHAVIOURAL_DELTA) | set(FLAGS_WITH_LOUD_PRECONDITION)
 
 # Audit-confirmed inert / mis-wired flags (finding id -> reason). Documented here

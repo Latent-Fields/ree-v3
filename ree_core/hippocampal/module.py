@@ -682,6 +682,82 @@ class HippocampalModule(nn.Module):
         actions = torch.stack([t.actions.detach() for t in trajectories], dim=0)
         return self._summarize_action_tensor(actions)
 
+    def set_chunk_source(self, chunk_source) -> None:
+        """Register the ARC-071 chunk library that supplies chunk candidates.
+
+        The agent calls this when both use_policy_chunking and
+        use_chunk_proposal_injection are on. Left None otherwise, so the
+        proposer is bit-identical.
+        """
+        self._chunk_source = chunk_source
+
+    def _build_chunk_candidates(
+        self,
+        z_self: torch.Tensor,
+        z_world: torch.Tensor,
+        action_bias: Optional[torch.Tensor] = None,
+    ) -> List[Trajectory]:
+        """ARC-071: crystallised chunks as single atomically-selectable candidates.
+
+        This is where the chunking payoff is realised: a chunk enters the pool
+        as ONE candidate whose whole action sequence is laid out along the
+        horizon, so E3 selects the entire sub-sequence as a single move and the
+        MECH-090 commit latch executes it without re-deliberating each step.
+        That is the rollout-cost and behavioural-latency drop ARC-071 predicts.
+
+        Chunks are ADDITIVE -- the ordinary CEM candidates are untouched, so
+        every sub-element remains independently selectable and ARC-070 can
+        still decompose the chunk under prediction failure.
+
+        The candidate is value-flat (ARC-007 strict): value_tag rides in
+        metadata as provenance only, and E3 supplies value at selection time
+        exactly as for any other proposal.
+        """
+        source = getattr(self, "_chunk_source", None)
+        if source is None:
+            return []
+        try:
+            chunks = source.selectable_chunks()
+        except Exception:
+            return []
+        if not chunks:
+            return []
+
+        batch_size = z_world.shape[0]
+        device = z_world.device
+        dtype = z_world.dtype
+        horizon = int(self.config.horizon)
+        action_dim = int(self.config.action_dim)
+        out: List[Trajectory] = []
+
+        for chunk in chunks:
+            seq = [int(a) for a in chunk.sequence if 0 <= int(a) < action_dim]
+            if not seq:
+                continue
+            actions = torch.zeros(
+                batch_size, horizon, action_dim, device=device, dtype=dtype
+            )
+            for step_idx, cls in enumerate(seq[:horizon]):
+                actions[:, step_idx, cls] = 1.0
+            traj = self.e2.rollout_with_world(
+                z_self,
+                z_world,
+                actions,
+                compute_action_objects=True,
+                action_bias=action_bias,
+            )
+            traj.metadata = {
+                "source": "arc071_chunk",
+                "chunk_sequence": list(chunk.sequence),
+                "chunk_depth": int(chunk.depth),
+                "chunk_state": chunk.state.value,
+                "chunk_selection_weight": float(chunk.selection_weight),
+                # MECH-322 audit flag travels with the candidate.
+                "replay_origin": bool(chunk.replay_origin),
+            }
+            out.append(traj)
+        return out
+
     def _build_action_class_scaffold_candidates(
         self,
         z_self: torch.Tensor,
@@ -1481,6 +1557,25 @@ class HippocampalModule(nn.Module):
                 scaffold_diag.update({
                     "action_class_scaffold_candidates_added": int(len(scaffold)),
                     "action_class_scaffold_classes": scaffold_classes,
+                })
+
+        # ARC-071: splice crystallised chunks in as atomic candidates. Same
+        # replace-lowest discipline as the scaffold above, so total K is
+        # preserved. Default OFF -> no call, bit-identical.
+        if getattr(self.config, "use_chunk_proposal_injection", False):
+            chunk_cands = self._build_chunk_candidates(
+                z_self=z_self,
+                z_world=z_world,
+                action_bias=action_bias,
+            )
+            if chunk_cands:
+                keep_n = max(0, n - len(chunk_cands))
+                all_trajectories = list(chunk_cands) + list(all_trajectories[:keep_n])
+                self._last_propose_diagnostics.update({
+                    "arc071_chunk_candidates_added": int(len(chunk_cands)),
+                    "arc071_chunk_sequences": [
+                        list(t.metadata.get("chunk_sequence", [])) for t in chunk_cands
+                    ],
                 })
 
         final_summary = self._summarize_trajectories(all_trajectories)

@@ -1763,6 +1763,12 @@ class HippocampalConfig:
     # number of normal CEM candidates to preserve total K where possible.
     # Default False is bit-identical to the normal CEM proposer.
     use_action_class_scaffold_candidates: bool = False
+    # ARC-071: splice crystallised chunks into the candidate pool as single
+    # selectable Trajectories, so E3 can commit to a chunk as ONE move (this is
+    # where the rollout-cost / behavioural-latency drop comes from). Mirrored
+    # from the top-level REEConfig knob of the same name by from_dims.
+    # Default False is bit-identical to the normal CEM proposer.
+    use_chunk_proposal_injection: bool = False
     # Support-preserving CEM repair (ARC-065 hippocampal-trajectory-sampling
     # child). When enabled, CEM elite refit preserves a first-action class
     # floor when that support is present, and final candidate generation
@@ -3533,6 +3539,45 @@ class REEConfig:
     # Default False -> bit-identical (no arm, no re-assert). See
     # REE_assembly/docs/architecture/natural_commit_occupancy_release.md.
     use_natural_commit_latch_hold: bool = False
+    # ------------------------------------------------------------------
+    # ARC-071 policy_composition_via_repeated_grounding (MECH-323 formation +
+    # MECH-324 maintenance + MECH-322 sleep-replay carve-out).
+    # The TRANSITION mechanism (planned -> habitual chunking) that MECH-163
+    # dual_goal_directed_systems presupposes but never specifies. NOT MECH-477,
+    # which is the ALLOCATION mechanism (which pathway holds control now).
+    # Defaults are the registered MECH-323 / MECH-324 suggested defaults.
+    # Master switch default False -> bit-identical (agent leaves the operators
+    # uninstantiated). See ree_core/policy/policy_chunking.py and
+    # REE_assembly/docs/architecture/policy_primitive_granularity.md.
+    # ------------------------------------------------------------------
+    use_policy_chunking: bool = False
+    chunk_min_repetitions: int = 20
+    chunk_window_trials: int = 100
+    # R5 hysteresis: formation threshold BELOW dissolution threshold.
+    chunk_variance_low: float = 0.15
+    chunk_variance_high: float = 0.45
+    chunk_evaluative_margin: float = 0.05
+    # Sakai 2003 chunk-size budget, 2-5 elements per level.
+    chunk_min_size: int = 2
+    chunk_max_size: int = 5
+    # R4 chunks-of-chunks recursion cap (2-3 levels).
+    chunk_max_depth: int = 3
+    chunk_max_library_size: int = 64
+    chunk_max_tracked_sequences: int = 512
+    # MECH-324 maintenance sub-switch. False -> chunks form but never
+    # crystallise (the registered ARM_1 dissociation arm).
+    use_chunk_maintenance: bool = False
+    chunk_crystallisation_min: int = 5
+    chunk_dissolve_trials: int = 50
+    # MECH-322 sleep-replay carve-out. SAFETY-CRITICAL: False by default EVEN
+    # WHEN chunking is on, so the shipped default is MECH-094-strict and no
+    # chunk can originate from replayed or imagined content.
+    use_chunk_replay_origin_path: bool = False
+    chunk_replay_value_quantile: float = 0.75
+    chunk_replay_corroboration_episodes: int = 75
+    # Splice crystallised chunks into the hippocampal candidate pool as single
+    # selectable Trajectories. Mirrored onto config.hippocampal.
+    use_chunk_proposal_injection: bool = False
     # Safety cap on how many ticks the hold re-asserts a single natural-commit run
     # before disarming (guards a degenerate config from latching forever).
     # 0 -> unbounded (the hold persists until a principled release / the committed
@@ -5294,6 +5339,25 @@ class REEConfig:
         trainable_escape_action_embedding_dim: int = 8,
         trainable_escape_optimizer_lr: float = 0.03,
         trainable_escape_prediction_floor: float = 0.02,
+        # ARC-071 policy composition via repeated grounding (MECH-323/324/322).
+        use_policy_chunking: bool = False,
+        chunk_min_repetitions: int = 20,
+        chunk_window_trials: int = 100,
+        chunk_variance_low: float = 0.15,
+        chunk_variance_high: float = 0.45,
+        chunk_evaluative_margin: float = 0.05,
+        chunk_min_size: int = 2,
+        chunk_max_size: int = 5,
+        chunk_max_depth: int = 3,
+        chunk_max_library_size: int = 64,
+        chunk_max_tracked_sequences: int = 512,
+        use_chunk_maintenance: bool = False,
+        chunk_crystallisation_min: int = 5,
+        chunk_dissolve_trials: int = 50,
+        use_chunk_replay_origin_path: bool = False,
+        chunk_replay_value_quantile: float = 0.75,
+        chunk_replay_corroboration_episodes: int = 75,
+        use_chunk_proposal_injection: bool = False,
         # Post-603i E2 escape-affordance linker (readout over detached E2
         # action-consequence features; reuse, not a duplicate predictor).
         use_e2_escape_affordance_linker: bool = False,
@@ -6445,6 +6509,29 @@ class REEConfig:
         config.escape_linker_harm_delta_scale = escape_linker_harm_delta_scale
         config.escape_linker_prediction_floor = escape_linker_prediction_floor
         config.escape_linker_block_hypothesis_learning = escape_linker_block_hypothesis_learning
+
+        # ARC-071 policy composition via repeated grounding (MECH-323/324/322).
+        config.use_policy_chunking = use_policy_chunking
+        config.chunk_min_repetitions = chunk_min_repetitions
+        config.chunk_window_trials = chunk_window_trials
+        config.chunk_variance_low = chunk_variance_low
+        config.chunk_variance_high = chunk_variance_high
+        config.chunk_evaluative_margin = chunk_evaluative_margin
+        config.chunk_min_size = chunk_min_size
+        config.chunk_max_size = chunk_max_size
+        config.chunk_max_depth = chunk_max_depth
+        config.chunk_max_library_size = chunk_max_library_size
+        config.chunk_max_tracked_sequences = chunk_max_tracked_sequences
+        config.use_chunk_maintenance = use_chunk_maintenance
+        config.chunk_crystallisation_min = chunk_crystallisation_min
+        config.chunk_dissolve_trials = chunk_dissolve_trials
+        config.use_chunk_replay_origin_path = use_chunk_replay_origin_path
+        config.chunk_replay_value_quantile = chunk_replay_value_quantile
+        config.chunk_replay_corroboration_episodes = chunk_replay_corroboration_episodes
+        config.use_chunk_proposal_injection = use_chunk_proposal_injection
+        # Mirror onto the hippocampal sub-config: HippocampalModule reads its
+        # own config object when assembling the candidate pool.
+        config.hippocampal.use_chunk_proposal_injection = use_chunk_proposal_injection
 
         # MECH-341 (ARC-065 Layer-B child): e3_scoring_preserves_trajectory_
         # class_diversity
