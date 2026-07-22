@@ -247,6 +247,22 @@
       "seeds": 3
     },
     {
+      "queue_id": "V3-EXQ-266b",
+      "title": "Q-020 valence geometry pair -- E3 selection, static control, per-episode DV (supersedes 266/266a)",
+      "script": "experiments/v3_exq_266b_q020_valence_geometry_pair.py",
+      "priority": 36,
+      "machine_affinity": "any",
+      "estimated_minutes": 240,
+      "supersedes": "V3-EXQ-266a",
+      "claim_id": "Q-020",
+      "note": "Replaces V3-EXQ-266 and V3-EXQ-266a, both CONFIRMED invalidated by the action-object round-trip selection defect (ree-v3/CLAUDE.md 2026-07-22): each fed argmax(action_object_decoder(get_action_object_sequence()[:,0,:])) straight to env.step (266:269, 266a:281), a CONSTANT function on this substrate, so BOTH arms executed one identical action stream. All three published runs report harm_rate SHAPED == FLAT == 0.0060999999999999995 and harm_reduction_frac exactly 0.0. 266a is decisive: it repaired 266's ablation bug and its terrain_harm_corr DID move (-0.4384 vs +0.8415), so the manipulation reached the terrain while the behaviour stayed bit-identical -- an arithmetically forced no-op, not a null. Signature differs from EXQ-114: both arms ran the same constant policy, so denominators were EQUAL and the artifact hid as a perfect null rather than a 14x denominator inflation. FOUR FIXES (per the V3-EXQ-114a reference): (1) selection via agent.select_action(candidates, ticks) = E3's J(zeta), never the decoder; (2) candidate first actions read via HippocampalModule.candidate_first_action_class; (3) A2_STATIC no-op control arm so an immobility artifact cannot produce a PASS -- a locomotion gate was deliberately NOT used because action 4 is (0,0) STAY and 'stand still' is a legitimate low-harm policy; (4) primary DV is harm per EPISODE at a matched episode budget, with harm-per-step barred from every criterion. DV-SYMMETRY: DV = harm events per eval episode, a function of the executed action sequence produced by E3's ranking of J(zeta); symmetry group = candidate permutation, uniform additive constant across candidate scores, monotone rescaling of all scores. A0_TERRAIN_SHAPED -- residue enters BOTH the proposer's terrain prior (module.py:377) and E3's compute_residue_cost (e3_selector.py:1020,1046) as a PER-TRAJECTORY state-dependent cost: not invariant. A1_TERRAIN_FLAT -- withholds that write, removing a per-candidate term: not invariant. A2_STATIC -- fixed no-op, produces the maximal-denominator zero-locomotion trajectory: not invariant. GOV-REUSE-1: decisive readout = harm per episode under shaped-vs-flat residue with E3 selection; checked the three recorded 266/266a manifests -- all carry the defective action stream and none records substrate_hash (pre-2026-07-12), so not recoverable -> run. Re-derive brake: 0 counted autopsies on Q-020. Carries an explicit arms_bit_identical detector plus a residue_total ablation audit, either of which forces non_degenerate=false -> substrate_not_ready_requeue, so if the terrain still cannot reach behaviour at full scale the run says so instead of reporting a second false null.",
+      "status": "pending",
+      "conditions": 3,
+      "episodes_per_run": 150,
+      "experiment_type": "v3_exq_266b_q020_valence_geometry_pair",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-800",
       "title": "ARC-007 leg 2: residue-scramble dissociation (hippocampal machinery INTACT)",
       "script": "experiments/v3_exq_800_arc007_residue_scramble_dissociation.py",
