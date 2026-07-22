@@ -13,6 +13,24 @@ The negative control matters as much as the positive one: it pins that the
 hazard is real on this platform's git, so a future git that cleaned up after
 SIGKILL would make the control fail loudly rather than let the positive test
 pass vacuously.
+
+The second contract here is that `timeout=` is a WALL-CLOCK ceiling. A killed
+child does not close the pipes its own children inherited, so a surviving
+GRANDCHILD keeps the read blocked long after the child is dead: git's clean
+filter holds git's stderr (verified with `lsof` -- the filter's fd 2 is the
+same pipe as git's fd 2). Measured 2026-07-21: a `run(..., timeout=30)`
+against a `git add` whose clean filter was `sleep 120` returned after ~120s.
+Same reproducer below, with the elapsed time asserted.
+
+The negative control for THAT one is not `subprocess.run`: on POSIX the stdlib
+does `process.wait()` after the kill rather than re-draining, so it is already
+bounded (measured 3.0s for `timeout=3` against the same repo). The unbounded
+drain was a deviation `graceful_timeout` introduced when it grew the SIGTERM
+escalation, so the control re-enacts THAT body verbatim.
+
+None of this ever touches a shared checkout: every repo is built fresh under
+`tmp_path`. An orphan `.git/index.lock` in a live checkout would block every
+other session in this workspace.
 """
 
 import os
@@ -26,12 +44,23 @@ import graceful_timeout
 SLOW_FILTER_SECONDS = 20
 KILL_AFTER_SECONDS = 3
 
+# Sleeps for the wall-clock tests. Distinct, and distinctive enough that the
+# best-effort `pkill -f` cleanup below cannot plausibly match anything else on
+# the machine -- the filter process by construction OUTLIVES the git it was
+# spawned from, so nothing else will reap it.
+STALL_SLEEP_SECONDS = 137      # >> any bound the test asserts
+CONTROL_SLEEP_SECONDS = 23     # short enough to pay for as a negative control
 
-def _repo_with_slow_add(tmp_path):
+
+def _repo_with_slow_add(tmp_path, filter_seconds=SLOW_FILTER_SECONDS):
     """A git repo where `git add slow.dat` blocks in a clean filter.
 
     The filter holds the process inside `git add`, which holds `.git/index.lock`
-    for its whole run -- the window the runner's timeouts fire in.
+    for its whole run -- the window the runner's timeouts fire in. It is also a
+    GRANDCHILD of the caller holding git's inherited stdout/stderr, which is the
+    unbounded-drain reproducer.
+
+    `tmp_path` only -- never point this at a live checkout (see module docstring).
     """
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -43,13 +72,26 @@ def _repo_with_slow_add(tmp_path):
     git("init", "-q", ".")
     git("config", "user.email", "t@example.invalid")
     git("config", "user.name", "t")
-    git("config", "filter.slow.clean", "sleep %d; cat" % SLOW_FILTER_SECONDS)
+    git("config", "filter.slow.clean", "sleep %d; cat" % filter_seconds)
     (repo / ".gitattributes").write_text("*.dat filter=slow\n")
     (repo / "seed.txt").write_text("seed\n")
     git("add", "seed.txt", ".gitattributes")
     git("commit", "-qm", "init")
     (repo / "slow.dat").write_text("payload\n")
     return repo
+
+
+def _reap_orphan_filter(seconds):
+    """Best-effort kill of the filter the test deliberately orphaned.
+
+    Matches both the `sh -c` wrapper and the `sleep` under it. Left
+    unanchored because macOS `pgrep -f` does not honour `^...$` against the
+    full command line; the durations above are distinctive enough that this
+    cannot plausibly match anything else the user owns. Failure is harmless --
+    the filter exits on its own -- so the return code is ignored.
+    """
+    stdlib_subprocess.run(["pkill", "-f", "sleep %d" % seconds],
+                          capture_output=True)
 
 
 def _add_with_timeout(runner, repo):
@@ -81,6 +123,91 @@ def test_negative_control_stdlib_run_does_orphan_the_index_lock(tmp_path):
         "stdlib subprocess.run no longer orphans the lock on this platform -- "
         "re-derive whether graceful_timeout is still load-bearing before "
         "relaxing anything that depends on it")
+
+
+# `timeout + DEFAULT_GRACE_SECONDS + DEFAULT_REAP_SECONDS` is ~10s here. The
+# assertion is deliberately loose: it is discriminating against the ~137s the
+# unbounded drain takes, not measuring scheduler jitter on a loaded worker.
+WALL_CLOCK_CEILING_SECONDS = 40
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX signal semantics")
+def test_timeout_is_a_wall_clock_ceiling_when_a_grandchild_holds_the_pipes(tmp_path):
+    """The child dies on time; a process IT spawned keeps the pipes open.
+
+    git's clean filter inherits git's stdout/stderr, so killing git does not
+    bring the read side to EOF -- the stdlib's unbounded post-kill
+    `communicate()` then waits out the FILTER, and the caller's `timeout=`
+    silently stops being a ceiling.
+    """
+    repo = _repo_with_slow_add(tmp_path, filter_seconds=STALL_SLEEP_SECONDS)
+    try:
+        started = time.monotonic()
+        with pytest.raises(stdlib_subprocess.TimeoutExpired) as excinfo:
+            graceful_timeout.run(["git", "add", "slow.dat"], cwd=repo,
+                                 capture_output=True, timeout=KILL_AFTER_SECONDS)
+        elapsed = time.monotonic() - started
+    finally:
+        _reap_orphan_filter(STALL_SLEEP_SECONDS)
+
+    assert elapsed < WALL_CLOCK_CEILING_SECONDS, (
+        "run() took %.1fs for a timeout=%ss -- the post-kill drain is unbounded "
+        "again, so an unattended caller (serve.py's _auto_pull thread, the "
+        "hourly igw tick) can stall for as long as a grandchild lives"
+        % (elapsed, KILL_AFTER_SECONDS))
+    # Still the stdlib's exception, still carrying whatever was captured:
+    # giving up on the STREAMS must not change what the caller catches.
+    assert excinfo.value.timeout == KILL_AFTER_SECONDS
+    assert excinfo.value.output in (b"", None) or isinstance(
+        excinfo.value.output, bytes)
+
+
+def _prefix_drain(argv, cwd, timeout, grace):
+    """The pre-fix timeout path, verbatim, as the negative control.
+
+    Identical to `graceful_timeout.run`'s except-branch as it stood before the
+    drain was bounded: SIGTERM, bounded grace wait, SIGKILL, then an UNBOUNDED
+    `communicate()`. Re-enacted here rather than referenced so the control
+    cannot silently start testing the fixed code.
+    """
+    with stdlib_subprocess.Popen(argv, cwd=cwd, stdout=stdlib_subprocess.PIPE,
+                                 stderr=stdlib_subprocess.PIPE) as process:
+        try:
+            process.communicate(timeout=timeout)
+        except stdlib_subprocess.TimeoutExpired:
+            process.terminate()
+            try:
+                process.communicate(timeout=grace)
+            except stdlib_subprocess.TimeoutExpired:
+                process.kill()
+                process.communicate()          # <-- the defect under test
+            raise
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX signal semantics")
+def test_negative_control_the_unbounded_drain_overruns_its_own_timeout(tmp_path):
+    """Pins that the grandchild really does hold the pipes on this platform.
+
+    Without this, the test above would pass vacuously on any machine where the
+    filter did not inherit one of git's captured streams -- there would be
+    nothing to bound, and the bound would be untested rather than satisfied.
+    """
+    repo = _repo_with_slow_add(tmp_path, filter_seconds=CONTROL_SLEEP_SECONDS)
+    try:
+        started = time.monotonic()
+        with pytest.raises(stdlib_subprocess.TimeoutExpired):
+            _prefix_drain(["git", "add", "slow.dat"], repo,
+                          KILL_AFTER_SECONDS, grace=1)
+        elapsed = time.monotonic() - started
+    finally:
+        _reap_orphan_filter(CONTROL_SLEEP_SECONDS)
+
+    assert elapsed > CONTROL_SLEEP_SECONDS * 0.6, (
+        "the pre-fix drain returned in %.1fs for a timeout=%ss against a %ss "
+        "filter -- the grandchild is no longer holding the pipes on this "
+        "platform, so re-derive whether the bounded drain in "
+        "graceful_timeout.run is still load-bearing"
+        % (elapsed, KILL_AFTER_SECONDS, CONTROL_SLEEP_SECONDS))
 
 
 def test_wrap_preserves_module_identity_and_leaves_stdlib_unmutated():
