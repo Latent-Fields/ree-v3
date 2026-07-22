@@ -77,6 +77,29 @@ they work as designed, and neither touches the round trip.
   the argmax-for-action pattern (advisory in both modes; it cannot tell selecting
   from reporting). 6 fires / 1113 scripts at landing: EXQ-114, 120, 266, 266a,
   800, 801. Exempt with `ACTION_OBJECT_SELECTION_EXEMPT = "<reason>"`.
+  **All six now dispositioned:**
+  - **EXQ-800 / 801 -- FALSE POSITIVES, exempted.** The argmax lives in an uncalled
+    helper; selection routes through `agent.select_action`. Landed `7f10f441a6`.
+  - **EXQ-114 / 120 -- CONFIRMED invalidated.** Replaced 2026-07-22 by
+    `V3-EXQ-114a` / `V3-EXQ-120a` (scripts on origin/main `f2527c7`; queue entries
+    in the coordinator DB).
+  - **EXQ-266 / 266a -- CONFIRMED invalidated 2026-07-22** (session
+    `hopeful-panini-cf272d`). Both feed
+    `argmax(action_object_decoder(get_action_object_sequence()[:,0,:]))` straight to
+    `env.step` (`v3_exq_266_q020_valence_geometry_pair.py:269`,
+    `v3_exq_266a_q020_valence_geometry_pair_fixed.py:281`) -- a SELECTION source.
+    Empirical proof: all three published runs report
+    `harm_rate_TERRAIN_SHAPED == harm_rate_TERRAIN_FLAT == 0.0060999999999999995`,
+    `harm_reduction_frac` exactly 0.0. **EXQ-266a is decisive** -- it repaired
+    EXQ-266's ablation bug and its `terrain_harm_corr` DID move (-0.4384 SHAPED vs
+    +0.8415 FLAT), so the manipulation reached the terrain while the behaviour
+    stayed bit-identical. Replaced by `V3-EXQ-266b` (`5247cfd413`; queue entry in
+    the coordinator DB).
+  - **The EXQ-266 signature is NOT the EXQ-114 denominator inflation.** Both 266
+    arms ran the same constant policy, so their step denominators were EQUAL and the
+    artifact presented as a perfect null rather than a ~14x inflation -- the EXQ-114
+    diagnostic would not have caught it. `V3-EXQ-266b` carries an explicit
+    `arms_bit_identical` detector for that shape.
 
 **DEFECT 2 -- `num_elite` must be >= 2; below that the CEM is NaN-poisoned.**
 torch's default `std()` is UNBIASED, so std over a single elite is NaN. It
