@@ -150,24 +150,6 @@
       "seeds": 6
     },
     {
-      "queue_id": "V3-EXQ-790",
-      "title": "Channel-routing route_range cross-class magnitude replication (linux-x86_64)",
-      "script": "experiments/v3_exq_790_channel_routing_cross_class_magnitude_replication.py",
-      "priority": 45,
-      "machine_affinity": "ree-cloud-3",
-      "estimated_minutes": 753,
-      "note": "Cross-machine-class MAGNITUDE replication of the channel-routing route_range contrast. Tests whether the Mac-higher route_range_mean direction seen in V3-EXQ-662 (ree-cloud-3, linux-x86_64) vs V3-EXQ-663 (DLAPTOP-4, darwin-arm64) -- 3/3 seeds, sign test p=0.125, not distinguishable from chance at n=3 -- survives at 10 paired seeds on the CORRECTED denominator. PRECONDITION FIXED FIRST (ree-v3 5433e3ab1c): the shared 662/663 driver read e3.last_score_diagnostics per env step without clearing the latch, so every held tick re-recorded the previous selection; measured 974 window ticks behind 110 genuine selections (8.85x). Point estimates were NOT materially affected (matched replay: +0.01% / +0.64% / -0.87%, sign-varying) -- what the defect invalidated was the effective n and any variance/significance claim built on it. 662/663 manifests deliberately NOT rewritten; the fix is prospective. DV route_range is sign-invariant, so the torch.linalg.svd singular-vector sign flip across LAPACK backends cannot confound it, and it is read upstream of the discrete quantizer per the rule never to assert exact committed ACTION streams across machine classes. GOV-REUSE-1: decisive readout is per-seed ARM_1 route_range_mean on a corrected fresh-selection denominator; checked the only two recorded runs carrying it (662/663) -- both predate the recording standard (no substrate_hash), carry only 3 seeds, and their denominator is the defect under repair, so not recoverable -> run. The cross-class comparison is a POST-HOC analysis over the two manifests; neither run can evaluate it alone. Queued via coordinator /queue/add rather than a git append: experiment_queue.json held 4 uncommitted entries from a concurrent session at queue time. THIS LEG: linux-x86_64, pinned ree-cloud-3. Paired leg: V3-EXQ-791 (darwin-arm64, DLAPTOP-4.local). RUNTIME: estimated_minutes=753 is MEASURED, not extrapolated -- 28.23 s/episode on a contended Mac (load ~9.8) -> 37.6 min/cell x 20 cells = 12.55h/leg. Measured under contention, so this is an UPPER bound; an idle machine will be faster.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-07-22T04:12:39Z"
-      },
-      "conditions": 2,
-      "episodes_per_run": 80,
-      "experiment_type": "v3_exq_790_channel_routing_cross_class_magnitude_replication",
-      "seeds": 10
-    },
-    {
       "queue_id": "V3-EXQ-799",
       "title": "MECH-048 DIAGNOSTIC: does environmentally-driven mu change BEHAVIOUR via the mode-prior temperature, or only the entropy arithmetic?",
       "script": "experiments/v3_exq_799_mech048_stability_temperature_behavioural_did.py",
