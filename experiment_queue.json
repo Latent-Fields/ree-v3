@@ -357,6 +357,26 @@
       "episodes_per_run": 1000,
       "experiment_type": "v3_exq_808_return_decomposition_objective_misspecification",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-794a",
+      "title": "MECH-204 Phase 7 x SD-076 calibration-loop 2x2 RE-RUN: repaired rv floor (scale-relative + softplus) gives the inflation lever usable dynamic range",
+      "script": "experiments/v3_exq_794a_mech204_phase7_sd076_calibration_loop_2x2.py",
+      "experiment_type": "v3_exq_794a_mech204_phase7_sd076_calibration_loop_2x2",
+      "priority": 46,
+      "machine_affinity": "ree-cloud-4",
+      "status": "pending",
+      "estimated_minutes": 130,
+      "episodes_per_run": 30,
+      "seeds": 3,
+      "conditions": 6,
+      "supersedes": "V3-EXQ-794",
+      "claim_ids": [
+        "MECH-204",
+        "SD-076"
+      ],
+      "claim_id": "SD-076",
+      "note": "SAME-QUESTION RE-RUN of V3-EXQ-794 (alphabetic suffix: the scientific question, the 2x3 factorial, the arms, the asymmetry levels, the DV and every pre-registered threshold are UNCHANGED). Supersedes run_id v3_exq_794_mech204_phase7_sd076_calibration_loop_2x2_20260721T113848Z_v3. Authorised by REE_assembly/evidence/planning/failure_autopsy_V3-EXQ-794_2026-07-22.md (confirmed, user-adjudicated 2026-07-22), which routed to /implement-substrate (sd_waking_confidence_inflation_headroom) and then a same-question re-run -- explicitly NOT a redesign. WHY 794 TESTED NOTHING: E3Config.waking_confidence_rv_floor defaults to 0.01 while the un-inflated operating point is rv = 0.005420 (ARM_OFF_OFF) and true error is ~0.0037, so the absolute floor sat 1.8x ABOVE the operating point; max(0.01, rv) clamped on the first tick inflation bit and rv_final finished at EXACTLY 0.010000 on all four inflation arms with overconfidence_score bit-identical to 15 significant figures (-1.004111904519277) at asymmetry 0.6 AND 0.8. That is saturation, not a null: SD-076's does_not_support was WITHDRAWN to non_contributory and MECH-204 stayed unknown (C2's per_seed was empty because C1 never established an operative drift level). The sign was NOT the bug -- inflation drove rv DOWN correctly, into a floor above the OFF arm, so the inflation_lowers_rv gate saw rv rise. SUBSTRATE REPAIR CONSUMED: ree-v3 452f99e367 adds waking_confidence_rv_floor_relative_frac (set 0.2 here: the bound is now a FRACTION of the counterfactual un-inflated rv, so it scales with the substrate's own error scale and caps overconfidence at 0.8) and waking_confidence_rv_floor_mode='soft'/softness 0.25 (a strictly-monotonic softplus, so two doses can never map to one value). A smaller ABSOLUTE floor would not have sufficed: C1 needs rv < true error ~0.0037, unreachable under any bound anchored at 0.01. NEW PRE-SCORING GATE (the autopsy's acceptance target): the regime-conditioned precondition dose_levels_separated asserts on every inflation arm that its rv_final differs from its sibling at the other dose by > DOSE_SEPARATION_FLOOR (1e-4), so a still-clamped lever gates those arms RED and self-routes substrate_not_ready_requeue instead of recording a refutation. Verified by replaying 794's exact clamped values through the analysis: all four inflation arms trip the gate and the standing dose_saturation lint reports not-separable, while the repaired values are all-green. n_seeds_overconfident >= 2 remains C1's existing MIN_SEEDS_OVERCONF gate. GOV-REUSE-1: the decisive readouts ARE recorded in 794 but as the clamped 0.010000/0 -- and both 794 and 774 carry a different substrate_hash from this run by construction (the repair edits ree_core/predictors/e3_selector.py and ree_core/utils/config.py, both inside the substrate glob), so neither can answer it. Not recoverable -> run. Re-derive brake: 0 counted substrate_ceiling autopsies for BOTH MECH-204 and SD-076, so it does not fire (matching the autopsy's own section 7). Run shape unchanged from 794: 6 arms x 3 seeds, 30 train + 20 eval episodes, 200 steps, grid 12; 794 measured 104 min on ree-cloud-4. Smoke: --dry-run PASS, and the repair is visible in it -- rv_final is dose-ordered and separated (OFF_OFF 0.2990 / INFL_LO 0.2118 / INFL_HI 0.1899), readiness_ok=True where 794 had all four inflation arms RED, and C5_asymmetry_dose_response_monotone PASSES where 794 failed."
     }
   ]
 }
