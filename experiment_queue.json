@@ -104,27 +104,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-120a",
-      "title": "ARC-018 viability map re-run superseding EXQ-120 (E3 selection + static control + harm-per-episode DV)",
-      "script": "experiments/v3_exq_120a_arc018_viability_map_pair.py",
-      "priority": 37,
-      "machine_affinity": "any",
-      "estimated_minutes": 240,
-      "supersedes": "V3-EXQ-120",
-      "claim_id": "ARC-018",
-      "backlog_id": "EVB-0014",
-      "note": "Replaces V3-EXQ-120, INVALIDATED by the same action-object round-trip defect (ree-v3 6064f9075f) at lines 260/363. Its VIABILITY_MAP_ON arm executed one constant action class, never terminated, and inflated the per-step denominator ~14x (20000 steps vs 1412 ablated); the published 0.0058 vs 0.7471 (99.2% reduction) reproduces with a ZERO AGENT. ARC-018 leg A is NOT retired by this: EXQ-042 and EXQ-053 both select via agent.select_action and are unaffected -- only the EXQ-120 leg falls, and this run replaces it. Same four fixes as V3-EXQ-114a: E3 selection via agent.select_action; candidate first actions read via candidate_first_action_class; a THIRD ARM A2_STATIC (constant no-op) so C1 requires MAP_ON to beat the BETTER of random and static; harm-per-episode primary DV with harm_per_step recorded but barred from every criterion. The ablation is unchanged from EXQ-120 -- A1 disables BOTH residue accumulation (map never forms) and dynamic precision (E3.post_action_update never called) -- and nav_bias 0.40 is retained in A0/A1 training so both accumulate comparable harm exposure. C2 (map populated, >=20 residue events) and C5 (>=5 active RBF centers) are kept as PASS CRITERIA rather than preconditions: an unpopulated map is a substantive negative about the mechanism, not an instrument failure, and routing it to substrate_not_ready would hide it. Only P1 candidate_action_diversity gates. GOV-REUSE-1: same scan as 114a -- no ARC-018 manifest records harm_per_episode or carries a static arm, all pre-standard with substrate_hash null -> not recoverable, run. Re-derive brake NOT fired (ARC-018 count 0). Smoke PASS (dry-run, 3 seeds x 3 arms, non_degenerate True, P1 green, residue_events_min_on 23 / active_centers_min_on 27); validate_experiments --strict OK.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-07-23T09:59:31Z"
-      },
-      "conditions": 3,
-      "episodes_per_run": 150,
-      "experiment_type": "v3_exq_120a_arc018_viability_map_pair",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-266b",
       "title": "Q-020 valence geometry pair -- E3 selection, static control, per-episode DV (supersedes 266/266a)",
       "script": "experiments/v3_exq_266b_q020_valence_geometry_pair.py",
@@ -134,7 +113,11 @@
       "supersedes": "V3-EXQ-266a",
       "claim_id": "Q-020",
       "note": "Replaces V3-EXQ-266 and V3-EXQ-266a, both CONFIRMED invalidated by the action-object round-trip selection defect (ree-v3/CLAUDE.md 2026-07-22): each fed argmax(action_object_decoder(get_action_object_sequence()[:,0,:])) straight to env.step (266:269, 266a:281), a CONSTANT function on this substrate, so BOTH arms executed one identical action stream. All three published runs report harm_rate SHAPED == FLAT == 0.0060999999999999995 and harm_reduction_frac exactly 0.0. 266a is decisive: it repaired 266's ablation bug and its terrain_harm_corr DID move (-0.4384 vs +0.8415), so the manipulation reached the terrain while the behaviour stayed bit-identical -- an arithmetically forced no-op, not a null. Signature differs from EXQ-114: both arms ran the same constant policy, so denominators were EQUAL and the artifact hid as a perfect null rather than a 14x denominator inflation. FOUR FIXES (per the V3-EXQ-114a reference): (1) selection via agent.select_action(candidates, ticks) = E3's J(zeta), never the decoder; (2) candidate first actions read via HippocampalModule.candidate_first_action_class; (3) A2_STATIC no-op control arm so an immobility artifact cannot produce a PASS -- a locomotion gate was deliberately NOT used because action 4 is (0,0) STAY and 'stand still' is a legitimate low-harm policy; (4) primary DV is harm per EPISODE at a matched episode budget, with harm-per-step barred from every criterion. DV-SYMMETRY: DV = harm events per eval episode, a function of the executed action sequence produced by E3's ranking of J(zeta); symmetry group = candidate permutation, uniform additive constant across candidate scores, monotone rescaling of all scores. A0_TERRAIN_SHAPED -- residue enters BOTH the proposer's terrain prior (module.py:377) and E3's compute_residue_cost (e3_selector.py:1020,1046) as a PER-TRAJECTORY state-dependent cost: not invariant. A1_TERRAIN_FLAT -- withholds that write, removing a per-candidate term: not invariant. A2_STATIC -- fixed no-op, produces the maximal-denominator zero-locomotion trajectory: not invariant. GOV-REUSE-1: decisive readout = harm per episode under shaped-vs-flat residue with E3 selection; checked the three recorded 266/266a manifests -- all carry the defective action stream and none records substrate_hash (pre-2026-07-12), so not recoverable -> run. Re-derive brake: 0 counted autopsies on Q-020. Carries an explicit arms_bit_identical detector plus a residue_total ablation audit, either of which forces non_degenerate=false -> substrate_not_ready_requeue, so if the terrain still cannot reach behaviour at full scale the run says so instead of reporting a second false null.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-07-23T12:03:41Z"
+      },
       "conditions": 3,
       "episodes_per_run": 150,
       "experiment_type": "v3_exq_266b_q020_valence_geometry_pair",
