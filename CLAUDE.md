@@ -14986,9 +14986,17 @@ claim says arousal amplifies rather than breaks), MECH-359, MECH-390, SD-011.
   ON changes the action stream with a live paired series, weight monotone in relative
   uncertainty = MECH-477's mandatory manipulation check, depth floor blocks the 786a
   degeneracy, depth limit never leaks out of the habit pass).
-  Validation experiment: NOT YET QUEUED -- the MECH-477 two-arm OFF-vs-ON falsifier goes
-  through /queue-experiment. NOTE the OFF arm cannot be 786a as-run (degenerate DV, see
-  above); both arms need a fresh run with the depth-2 habit read.
+  Validation experiment: V3-EXQ-811 (script
+  experiments/v3_exq_811_mech477_dualsystem_arbitration_falsifier.py, lineage module
+  experiments/_lib/baselines/mech477_dualsystem_arbitration.py) ran 2026-07-23 (run_id
+  v3_exq_811_mech477_dualsystem_arbitration_falsifier_20260723T054309Z_v3),
+  evidence_direction=non_contributory, interpretation=substrate_not_ready_requeue -- both
+  arms measured an exact-zero score range against the readiness gate
+  (full_score_range_non_degenerate and habit_score_range_non_degenerate both failed on
+  arm_off and arm_on). A /failure-autopsy has been separately spawned to root-cause the
+  discrepancy against the smoke test's non-zero ranges; this citation should be revisited
+  once that lands. NOTE the OFF arm cannot be 786a as-run (degenerate DV, see above); both
+  arms needed a fresh run with the depth-2 habit read.
   See MECH-477, MECH-163, ARC-071 (transfer -- DISTINCT from this allocation mechanism;
   BUILT 2026-07-22, see the entry below), ARC-007, ARC-016, MECH-112,
   REE_assembly/docs/architecture/sd_081_dualsystem_uncertainty_arbitration.md.
