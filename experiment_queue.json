@@ -48,29 +48,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-629c",
-      "title": "MECH-342 ecological maintenance-release retest (629b precondition fix: clean curriculum build, overlay at clone time)",
-      "script": "experiments/v3_exq_629c_mech342_ecological_maintenance_release_evidence.py",
-      "priority": 32,
-      "machine_affinity": "any",
-      "estimated_minutes": 360,
-      "supersedes": "V3-EXQ-629b",
-      "claim_id": "MECH-342",
-      "note": "Retest of the 629b ecological run, gated on the resume condition in governance_note_2026_06_13: 'retest after the scaffolded_sd054_onboarding nav-competence leg clears on >= 2/3 seeds'. GATE CHECKED 2026-07-21 AND CLEARED: the contact guard clears 3/3 seeds on the identical curriculum/budgets/seeds across ~30 runs from 2026-06-12T21:33 (461c) to 2026-07-09 (721, 6/6) -- 461c, 468d, 460d, 467d, 464d, 460e, 460h-460p, 466e, 715, 715a, 717 (12/12). CAUSE OF 629b's MISS IDENTIFIED: 629b was the ONLY run in the family to build its curriculum agent under the ecological measurement overlay (use_mech090_readiness_conjunction + heartbeat.use_commit_readiness_gate + e3.urgency_interrupt_threshold=1e6); no passing sibling carries any of those flags during the build. 629c builds under the clean 603n config and applies the overlay at CLONE time -- sound because MECH-090's CommitReadiness and MECH-342's release regulator are both parameter-free (no nn.Module), so the state_dict loads strict=True (verified in smoke; strict failure is now fatal rather than a silent non-strict fallback). NON-VACUITY: a repeat of the same upstream failure self-routes substrate_not_ready_requeue / non_contributory AND sets non_degenerate=false, so it is excluded from MECH-342 confidence/conflict scoring instead of counting as evidence in either direction. RE-DERIVE BRAKE: count=2 (failure_autopsy_SD-034-closure-cluster-ext_2026-06-12, failure_autopsy_V3-EXQ-460l_2026-06-23). Judged RELEASED for this lineage: the autopsy that actually braked the 629 family names upstream substrate 'scaffolded_sd054_onboarding', which now demonstrably delivers (3/3 above); and 460l's refusal is explicitly scoped to 'a V3-EXQ-460m same-claim re-queue' on the MECH-445/446 commitment-maintenance ceiling, a different lineage and mechanism. 629b was never a MECH-342 substrate ceiling -- the mechanism fired correctly on its one competent seed (decommit_transitions=34, fires=1, occupancy 1.0->0.217 vs 1.0 OFF). GOV-REUSE-1: decisive readout is per-arm degraded-window mech342_fires + decommit_transitions + beta occupancy under a >=2/3-competent harness; no recorded run carries it (629/629b are the only ecological attempts and both failed upstream), so reanalysis cannot answer it -> run. Queued via coordinator POST /queue/add rather than a git-file append: four concurrent sessions held uncommitted edits to experiment_queue.json, so a read-modify-write would have swept their work.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-07-23T18:50:15Z"
-      },
-      "claim_ids": [
-        "MECH-342"
-      ],
-      "conditions": 1,
-      "episodes_per_run": 235,
-      "experiment_type": "v3_exq_629c_mech342_ecological_maintenance_release_evidence",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-699b",
       "title": "P-comp: MECH-448 demotion x MECH-449 Go/No-Go composition at PER-COMMITMENT committed-class entropy (2x2 diagnostic; 699 instrument repair -- fresh-select DV, levers_compound withdrawn)",
       "script": "experiments/v3_exq_699b_pcomp_demotion_x_gonogo_fresh_select.py",
