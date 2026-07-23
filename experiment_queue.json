@@ -63,26 +63,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-266b",
-      "title": "Q-020 valence geometry pair -- E3 selection, static control, per-episode DV (supersedes 266/266a)",
-      "script": "experiments/v3_exq_266b_q020_valence_geometry_pair.py",
-      "priority": 36,
-      "machine_affinity": "any",
-      "estimated_minutes": 240,
-      "supersedes": "V3-EXQ-266a",
-      "claim_id": "Q-020",
-      "note": "Replaces V3-EXQ-266 and V3-EXQ-266a, both CONFIRMED invalidated by the action-object round-trip selection defect (ree-v3/CLAUDE.md 2026-07-22): each fed argmax(action_object_decoder(get_action_object_sequence()[:,0,:])) straight to env.step (266:269, 266a:281), a CONSTANT function on this substrate, so BOTH arms executed one identical action stream. All three published runs report harm_rate SHAPED == FLAT == 0.0060999999999999995 and harm_reduction_frac exactly 0.0. 266a is decisive: it repaired 266's ablation bug and its terrain_harm_corr DID move (-0.4384 vs +0.8415), so the manipulation reached the terrain while the behaviour stayed bit-identical -- an arithmetically forced no-op, not a null. Signature differs from EXQ-114: both arms ran the same constant policy, so denominators were EQUAL and the artifact hid as a perfect null rather than a 14x denominator inflation. FOUR FIXES (per the V3-EXQ-114a reference): (1) selection via agent.select_action(candidates, ticks) = E3's J(zeta), never the decoder; (2) candidate first actions read via HippocampalModule.candidate_first_action_class; (3) A2_STATIC no-op control arm so an immobility artifact cannot produce a PASS -- a locomotion gate was deliberately NOT used because action 4 is (0,0) STAY and 'stand still' is a legitimate low-harm policy; (4) primary DV is harm per EPISODE at a matched episode budget, with harm-per-step barred from every criterion. DV-SYMMETRY: DV = harm events per eval episode, a function of the executed action sequence produced by E3's ranking of J(zeta); symmetry group = candidate permutation, uniform additive constant across candidate scores, monotone rescaling of all scores. A0_TERRAIN_SHAPED -- residue enters BOTH the proposer's terrain prior (module.py:377) and E3's compute_residue_cost (e3_selector.py:1020,1046) as a PER-TRAJECTORY state-dependent cost: not invariant. A1_TERRAIN_FLAT -- withholds that write, removing a per-candidate term: not invariant. A2_STATIC -- fixed no-op, produces the maximal-denominator zero-locomotion trajectory: not invariant. GOV-REUSE-1: decisive readout = harm per episode under shaped-vs-flat residue with E3 selection; checked the three recorded 266/266a manifests -- all carry the defective action stream and none records substrate_hash (pre-2026-07-12), so not recoverable -> run. Re-derive brake: 0 counted autopsies on Q-020. Carries an explicit arms_bit_identical detector plus a residue_total ablation audit, either of which forces non_degenerate=false -> substrate_not_ready_requeue, so if the terrain still cannot reach behaviour at full scale the run says so instead of reporting a second false null.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-07-23T12:03:41Z"
-      },
-      "conditions": 3,
-      "episodes_per_run": 150,
-      "experiment_type": "v3_exq_266b_q020_valence_geometry_pair",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-800",
       "title": "ARC-007 leg 2: residue-scramble dissociation (hippocampal machinery INTACT)",
       "script": "experiments/v3_exq_800_arc007_residue_scramble_dissociation.py",
@@ -132,7 +112,11 @@
       "supersedes": "V3-EXQ-629b",
       "claim_id": "MECH-342",
       "note": "Retest of the 629b ecological run, gated on the resume condition in governance_note_2026_06_13: 'retest after the scaffolded_sd054_onboarding nav-competence leg clears on >= 2/3 seeds'. GATE CHECKED 2026-07-21 AND CLEARED: the contact guard clears 3/3 seeds on the identical curriculum/budgets/seeds across ~30 runs from 2026-06-12T21:33 (461c) to 2026-07-09 (721, 6/6) -- 461c, 468d, 460d, 467d, 464d, 460e, 460h-460p, 466e, 715, 715a, 717 (12/12). CAUSE OF 629b's MISS IDENTIFIED: 629b was the ONLY run in the family to build its curriculum agent under the ecological measurement overlay (use_mech090_readiness_conjunction + heartbeat.use_commit_readiness_gate + e3.urgency_interrupt_threshold=1e6); no passing sibling carries any of those flags during the build. 629c builds under the clean 603n config and applies the overlay at CLONE time -- sound because MECH-090's CommitReadiness and MECH-342's release regulator are both parameter-free (no nn.Module), so the state_dict loads strict=True (verified in smoke; strict failure is now fatal rather than a silent non-strict fallback). NON-VACUITY: a repeat of the same upstream failure self-routes substrate_not_ready_requeue / non_contributory AND sets non_degenerate=false, so it is excluded from MECH-342 confidence/conflict scoring instead of counting as evidence in either direction. RE-DERIVE BRAKE: count=2 (failure_autopsy_SD-034-closure-cluster-ext_2026-06-12, failure_autopsy_V3-EXQ-460l_2026-06-23). Judged RELEASED for this lineage: the autopsy that actually braked the 629 family names upstream substrate 'scaffolded_sd054_onboarding', which now demonstrably delivers (3/3 above); and 460l's refusal is explicitly scoped to 'a V3-EXQ-460m same-claim re-queue' on the MECH-445/446 commitment-maintenance ceiling, a different lineage and mechanism. 629b was never a MECH-342 substrate ceiling -- the mechanism fired correctly on its one competent seed (decommit_transitions=34, fires=1, occupancy 1.0->0.217 vs 1.0 OFF). GOV-REUSE-1: decisive readout is per-arm degraded-window mech342_fires + decommit_transitions + beta occupancy under a >=2/3-competent harness; no recorded run carries it (629/629b are the only ecological attempts and both failed upstream), so reanalysis cannot answer it -> run. Queued via coordinator POST /queue/add rather than a git-file append: four concurrent sessions held uncommitted edits to experiment_queue.json, so a read-modify-write would have swept their work.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-07-23T18:50:15Z"
+      },
       "claim_ids": [
         "MECH-342"
       ],
