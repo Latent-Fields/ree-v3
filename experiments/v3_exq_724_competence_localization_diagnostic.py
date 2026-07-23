@@ -131,6 +131,37 @@ import torch
 
 from experiment_protocol import emit_outcome
 from experiments._lib.arm_fingerprint import arm_cell
+# SD-056 e2 online-training helpers, obs helpers, _consumed_summaries and the P1 two-head
+# REINFORCE losses (+ the constants they read) moved to experiments/_lib/allon_training.py
+# on 2026-07-23 to close a substrate-hash under-inclusion (see that module's docstring):
+# they are the shared 724-A0 recipe x734/x737/x742 also use, and a driver file is invisible
+# to arm_fingerprint's _SUBSTRATE_GLOBS. `_build_viability_nogo` stays here -- it is unique
+# to this driver's P2 phase, not part of the shared recipe.
+from experiments._lib.allon_training import (
+    _sample_class_diverse_batch,
+    _e2_contrastive_step,
+    _obs_harm,
+    _obs_harm_a,
+    _obs_harm_history,
+    _consumed_summaries,
+    _lpfc_reinforce_loss,
+    _ofc_deval_reinforce_loss,
+    LR_OFC_DEVAL,
+    SD056_WEIGHT,
+    E2_CONTRASTIVE_LR,
+    E2_TRAIN_EVERY_K_TICKS,
+    CONTRASTIVE_BATCH_K,
+    TRANSITION_BUFFER_MAX,
+    MIN_BUFFER_BEFORE_TRAIN,
+    MIN_CLASSES_FOR_TRAIN,
+    MAX_GRAD_NORM,
+    LR_LPFC_BIAS,
+    REINFORCE_BATCH_SIZE,
+    OUTCOME_BUF_MAX,
+    POLICY_TEMPERATURE,
+    ADV_MIN_THRESHOLD,
+    EMA_DECAY,
+)
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
@@ -230,30 +261,25 @@ OFC_STATE_DIM = 16
 OFC_HARM_DIM = 32
 OFC_BIAS_SCALE = 0.5
 OFC_DEVAL_BIAS_SCALE = 2.0
-LR_OFC_DEVAL = 2e-3
+# LR_OFC_DEVAL moved to experiments/_lib/allon_training.py (2026-07-23, imported above) --
+# it is read by the shared _ofc_deval_reinforce_loss / optimiser construction, not locally.
 GNG_VIABILITY_FLOOR = 0.1
 
-# SD-056 online e2 training (714 harness).
-SD056_WEIGHT = 0.05
-E2_CONTRASTIVE_LR = 1e-3
-E2_TRAIN_EVERY_K_TICKS = 1
-CONTRASTIVE_BATCH_K = 8
-TRANSITION_BUFFER_MAX = 256
-MIN_BUFFER_BEFORE_TRAIN = 16
-MIN_CLASSES_FOR_TRAIN = 2
-MAX_GRAD_NORM = 1.0
+# SD-056 online e2 training (714 harness). SD056_WEIGHT / E2_CONTRASTIVE_LR /
+# E2_TRAIN_EVERY_K_TICKS / CONTRASTIVE_BATCH_K / TRANSITION_BUFFER_MAX /
+# MIN_BUFFER_BEFORE_TRAIN / MIN_CLASSES_FOR_TRAIN / MAX_GRAD_NORM moved to
+# experiments/_lib/allon_training.py (2026-07-23, imported above) -- they belong to the
+# shared _e2_contrastive_step / _sample_class_diverse_batch, not this driver alone. The
+# four below stay: they feed only this driver's own config builder, not the shared recipe.
 SD056_MULTISTEP_CONTRASTIVE = True
 SD056_CONTRASTIVE_HORIZON = 5
 SD056_OUTPUT_NORM_CLAMP = True
 SD056_OUTPUT_NORM_CLAMP_RATIO = 2.0
 
-# P1 bias-head REINFORCE training (714).
-LR_LPFC_BIAS = 5e-4
-REINFORCE_BATCH_SIZE = 32
-OUTCOME_BUF_MAX = 512
-POLICY_TEMPERATURE = 1.0
-ADV_MIN_THRESHOLD = 0.005
-EMA_DECAY = 0.9
+# P1 bias-head REINFORCE training (714). LR_LPFC_BIAS / REINFORCE_BATCH_SIZE /
+# OUTCOME_BUF_MAX / POLICY_TEMPERATURE / ADV_MIN_THRESHOLD / EMA_DECAY moved to
+# experiments/_lib/allon_training.py (2026-07-23, imported above) -- read by the shared
+# _lpfc_reinforce_loss / _ofc_deval_reinforce_loss.
 
 
 # Identical env to V3-EXQ-714 / 719a (SD-054 reef + hazard_food_attraction + bipartite).
@@ -398,102 +424,10 @@ def _make_agent(env: CausalGridWorldV2, kind: str) -> REEAgent:
 
 
 # ---------------------------------------------------------------------------
-# SD-056 online e2 training (mirror V3-EXQ-719a)
+# SD-056 online e2 training + obs helpers + _consumed_summaries moved to
+# experiments/_lib/allon_training.py (2026-07-23, imported above) -- the shared
+# 724-A0 recipe. _build_viability_nogo stays: it is unique to this driver's P2 phase.
 # ---------------------------------------------------------------------------
-def _sample_class_diverse_batch(
-    buffer: Deque[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]],
-    k: int,
-    rng: random.Random,
-) -> Optional[List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]]:
-    if len(buffer) < MIN_BUFFER_BEFORE_TRAIN:
-        return None
-    pool = list(buffer)
-    rng.shuffle(pool)
-    seen_classes: Dict[int, Tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = {}
-    for tup in pool:
-        cls = int(tup[1].argmax().item())
-        if cls not in seen_classes:
-            seen_classes[cls] = tup
-        if len(seen_classes) >= k:
-            break
-    if len(seen_classes) < MIN_CLASSES_FOR_TRAIN:
-        return None
-    samples = list(seen_classes.values())
-    picked_ids = {id(s) for s in samples}
-    for tup in pool:
-        if len(samples) >= k:
-            break
-        if id(tup) in picked_ids:
-            continue
-        samples.append(tup)
-        picked_ids.add(id(tup))
-    return samples
-
-
-def _e2_contrastive_step(
-    agent: REEAgent,
-    buffer: Deque[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]],
-    optimiser: torch.optim.Optimizer,
-    rng: random.Random,
-) -> Optional[float]:
-    batch = _sample_class_diverse_batch(buffer, CONTRASTIVE_BATCH_K, rng)
-    if batch is None:
-        return None
-    z0_K = torch.stack([t[0] for t in batch]).to(agent.device)
-    actions_K = torch.stack([t[1] for t in batch]).to(agent.device)
-    z1_K = torch.stack([t[2] for t in batch]).to(agent.device)
-    optimiser.zero_grad(set_to_none=True)
-    loss = agent.e2.world_forward_contrastive_loss(
-        z_world_0=z0_K,
-        actions=actions_K,
-        z_world_1_targets=z1_K,
-        simulation_mode=False,
-    )
-    if not torch.is_tensor(loss):
-        return None
-    loss_val = float(loss.detach().item())
-    if not math.isfinite(loss_val):
-        return loss_val
-    if not loss.requires_grad or loss_val == 0.0:
-        return loss_val
-    weighted = SD056_WEIGHT * loss
-    weighted.backward()
-    torch.nn.utils.clip_grad_norm_(agent.e2.parameters(), max_norm=MAX_GRAD_NORM)
-    optimiser.step()
-    return loss_val
-
-
-# ---------------------------------------------------------------------------
-# obs helpers (mirror V3-EXQ-719a)
-# ---------------------------------------------------------------------------
-def _obs_harm(obs_dict):
-    h = obs_dict.get("harm_obs")
-    return h.float().unsqueeze(0) if h is not None else None
-
-
-def _obs_harm_a(obs_dict):
-    h = obs_dict.get("harm_obs_a")
-    return h.float().unsqueeze(0) if h is not None else None
-
-
-def _obs_harm_history(obs_dict):
-    h = obs_dict.get("harm_history")
-    return h.float().unsqueeze(0) if h is not None else None
-
-
-def _consumed_summaries(agent: REEAgent, candidates) -> Optional[torch.Tensor]:
-    summ = agent._candidate_world_summaries(candidates)
-    if summ is not None:
-        return summ.detach()
-    rows: List[torch.Tensor] = []
-    for c in candidates:
-        if c.world_states is not None:
-            rows.append(c.get_world_state_sequence()[0, 0, :].detach())
-        elif agent._current_latent is not None:
-            rows.append(agent._current_latent.z_world[0].detach())
-        else:
-            return None
-    return torch.stack(rows, dim=0) if rows else None
 
 
 def _build_viability_nogo(bias_low: torch.Tensor) -> Optional[torch.Tensor]:
@@ -509,57 +443,9 @@ def _build_viability_nogo(bias_low: torch.Tensor) -> Optional[torch.Tensor]:
 
 
 # ---------------------------------------------------------------------------
-# P1 two-head REINFORCE (mirror V3-EXQ-719a; no-ops for minimal, heads absent)
+# P1 two-head REINFORCE (_lpfc_reinforce_loss / _ofc_deval_reinforce_loss) moved to
+# experiments/_lib/allon_training.py (2026-07-23, imported above).
 # ---------------------------------------------------------------------------
-def _lpfc_reinforce_loss(
-    agent: REEAgent,
-    outcome_buf: List[Tuple[torch.Tensor, int, float]],
-    baseline: float,
-    device,
-) -> torch.Tensor:
-    if getattr(agent, "lateral_pfc", None) is None or len(outcome_buf) < 2:
-        return torch.zeros(1, device=device)
-    n = len(outcome_buf)
-    idxs = np.random.choice(n, size=min(REINFORCE_BATCH_SIZE, n), replace=False)
-    terms: List[torch.Tensor] = []
-    for i in idxs:
-        cand_features, sel_idx, ep_return = outcome_buf[int(i)]
-        adv = ep_return - baseline
-        if abs(adv) < ADV_MIN_THRESHOLD:
-            continue
-        bias = agent.lateral_pfc.compute_bias(cand_features.to(device))
-        log_p = torch.log_softmax(-bias / POLICY_TEMPERATURE, dim=0)
-        terms.append(-adv * log_p[min(sel_idx, bias.shape[0] - 1)])
-    if not terms:
-        return torch.zeros(1, device=device)
-    return torch.stack(terms).mean()
-
-
-def _ofc_deval_reinforce_loss(
-    agent: REEAgent,
-    outcome_buf: List[Tuple[torch.Tensor, int, float]],
-    baseline: float,
-    device,
-) -> torch.Tensor:
-    ofc = getattr(agent, "ofc", None)
-    if ofc is None or len(outcome_buf) < 2:
-        return torch.zeros(1, device=device)
-    n = len(outcome_buf)
-    idxs = np.random.choice(n, size=min(REINFORCE_BATCH_SIZE, n), replace=False)
-    terms: List[torch.Tensor] = []
-    for i in idxs:
-        cand_features, sel_idx, ep_return = outcome_buf[int(i)]
-        adv = ep_return - baseline
-        if abs(adv) < ADV_MIN_THRESHOLD:
-            continue
-        bias = ofc.compute_devaluation_bias(cand_features.to(device))
-        if not bias.requires_grad or bias.shape[0] < 2:
-            continue
-        log_p = torch.log_softmax(-bias / POLICY_TEMPERATURE, dim=0)
-        terms.append(-adv * log_p[min(sel_idx, bias.shape[0] - 1)])
-    if not terms:
-        return torch.zeros(1, device=device)
-    return torch.stack(terms).mean()
 
 
 # ---------------------------------------------------------------------------

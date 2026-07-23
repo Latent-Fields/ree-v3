@@ -25,6 +25,7 @@ evaluated every one of them regardless.
 ASCII-only (repo rule).
 """
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -44,21 +45,42 @@ DEFINITION_SITES = [
 ]
 
 
+def _train_all_on_agent_source_module(mod):
+    """The module `_train_all_on_agent` is actually DEFINED in for this driver.
+
+    As of 2026-07-23, x734 no longer defines its own copy -- it re-exports the shared
+    `experiments._lib.allon_training._train_all_on_agent` (the substrate-hash
+    under-inclusion fix; see that module's docstring). x728b still defines its own in-file
+    (deliberate baseline insulation, re-decided DO-NOT-COLLAPSE 2026-07-22). Resolving via
+    `__module__` rather than reading `mod`'s own file is what keeps C1 correct for BOTH
+    shapes, and still catches a regression if either site grows its own copy again: the
+    grown copy's `__module__` reverts to the driver itself, and this then reads that
+    driver's source exactly as before.
+    """
+    fn_module_name = mod._train_all_on_agent.__module__
+    return sys.modules[fn_module_name]
+
+
 # --------------------------------------------------------------------------- C1
 @pytest.mark.parametrize("name,mod", DEFINITION_SITES, ids=[n for n, _ in DEFINITION_SITES])
 def test_c1_every_definition_site_routes_through_the_shared_warmup(name, mod):
-    """Each `_train_all_on_agent` definition site must call the SHARED `run_zworld_p0`.
+    """Wherever `_train_all_on_agent` is actually DEFINED must call the SHARED `run_zworld_p0`.
 
     This is the anti-fork contract. If a site grows its own inlined copy of the recipe, this
     fails -- which is the whole point, because a per-copy recipe is exactly how the original
     defect reached some drivers and not others.
     """
-    src = Path(mod.__file__).read_text(encoding="utf-8")
+    src_mod = _train_all_on_agent_source_module(mod)
+    src = Path(src_mod.__file__).read_text(encoding="utf-8")
     assert "from experiments._lib.zworld_p0_warmup import run_zworld_p0" in src, (
-        f"{name} does not import the shared run_zworld_p0; a local re-implementation of the "
-        "SD-070 recipe would drift from the other definition site silently"
+        f"{name}'s _train_all_on_agent (defined in {src_mod.__name__}) does not import the "
+        "shared run_zworld_p0; a local re-implementation of the SD-070 recipe would drift "
+        "from the other definition site silently"
     )
-    assert "run_zworld_p0(" in src, f"{name} imports run_zworld_p0 but never calls it"
+    assert "run_zworld_p0(" in src, (
+        f"{name}'s _train_all_on_agent (defined in {src_mod.__name__}) imports run_zworld_p0 "
+        "but never calls it"
+    )
 
 
 # --------------------------------------------------------------------------- C2

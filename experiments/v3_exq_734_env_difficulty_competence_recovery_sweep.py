@@ -207,7 +207,6 @@ from experiments._lib.capability_eval import (
     evaluate_seed,
     summarize_arm,
 )
-from experiments._lib.zworld_p0_warmup import run_zworld_p0
 from experiments._lib.zworld_encoder_guard import (
     ZWorldEncoderUntrainedError,
     latent_stack_snapshot,
@@ -215,6 +214,14 @@ from experiments._lib.zworld_encoder_guard import (
     assert_world_encoder_trained,
     zworld_precondition,
 )
+# _train_all_on_agent + E2_TRAIN_IN_P1 moved to experiments/_lib/allon_training.py on
+# 2026-07-23 to close a substrate-hash under-inclusion (see that module's docstring): a
+# driver file is invisible to arm_fingerprint's _SUBSTRATE_GLOBS, so a training-recipe edit
+# here would not have invalidated banked arms built with include_driver_script_in_hash=False
+# (v3_exq_742 / v3_exq_742m). This import is what keeps x734._train_all_on_agent resolving
+# for the 5 existing importers (737, 742, 808, _lib/mech457_fanout, exq742 bias-head
+# baseline); run_zworld_p0 itself is now called only inside the shared function.
+from experiments._lib.allon_training import _train_all_on_agent, E2_TRAIN_IN_P1
 import experiments.v3_exq_724_competence_localization_diagnostic as x724
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 
@@ -242,7 +249,12 @@ P0_WARMUP_EPISODES = 200           # all-ON SD-056 e2 forward-model warmup (724 
                                    # projection (the V3-EXQ-780 defect), which is what
                                    # zworld_encoder_guard detects -- see docstring block.
 P1_REINFORCE_EPISODES = 90         # all-ON two-head REINFORCE (724 A0 recipe; e2 frozen in P1)
-E2_TRAIN_IN_P1 = False             # A0 recipe: SD-056 e2 encoder FROZEN through P1
+                                   # E2_TRAIN_IN_P1 (A0: frozen) now lives in
+                                   # experiments/_lib/allon_training.py -- imported above --
+                                   # since it is read by the shared _train_all_on_agent, not
+                                   # locally; kept as one name so the manifest fields below
+                                   # (e2_train_in_p1) report the SAME value the training
+                                   # function actually used, not a decoupled local copy.
 P1_PPO_EPISODES = 1000             # matched vanilla-PPO learner-adequacy budget per cell
 EVAL_EPISODES = 20                 # capability-eval episodes per (rung, arm, seed) cell
 STEPS_PER_EPISODE = 200
@@ -330,249 +342,13 @@ def _make_all_on_agent(env: CausalGridWorldV2):
 
 
 # ---------------------------------------------------------------------------
-# Train the all-ON agent on a PROVIDED env with the 724-A0 recipe:
-# P0a SD-070 z_world encoder warmup (OPT-IN) THEN P0b e2 forward-model warmup THEN P1 two-head
-# REINFORCE (lateral-PFC bias + OFC devaluation).
-#
-# THE V3-EXQ-780 DEFECT AND ITS REMEDY. The three optimizer groups below (e2, lPFC bias, OFC
-# devaluation) cover NO latent_stack parameter, so on this path split_encoder.world_encoder is
-# never stepped and z_world stays a frozen random projection -- measured 0 of 61 latent_stack
-# tensors changed at p0_episodes=200 on two independent drivers (V3-EXQ-737a, V3-EXQ-728).
-# `zworld_p0_episodes > 0` adds the SD-070 recipe as a P0a stage AHEAD of the e2 warmup, which
-# is the remedy adjudicated by V3-EXQ-783. See experiments/_lib/zworld_p0_warmup.py.
-#
-# ORDERING IS NOT ARBITRARY: e2 regresses on z_world, so the encoder must be trained BEFORE the
-# e2 warmup. Training it afterwards would leave e2 fitted to the random projection -- the same
-# defect one phase later.
-#
-# DEFAULT zworld_p0_episodes=0 IS EXACTLY THE PRIOR BEHAVIOUR, bit-identical: no extra tensor,
-# no extra optimizer group, and no RNG draw (the warmup is RNG-neutral by construction and runs
-# on its own env instance). Every existing caller is unaffected until it opts in.
-#
-# NOTE 737 and 742 import this function; the guard lives at each driver's own call site, not
-# here, so each can set its own strictness.
-# SD-056 e2 encoder FROZEN through P1. Mirrors V3-EXQ-728._train_all_on_agent, but the env is
-# passed in (difficulty-parameterised). No P2 phase -- competence is measured downstream by the
-# capability yardstick's REEForwardPolicy eval.
+# _train_all_on_agent moved to experiments/_lib/allon_training.py (2026-07-23) -- it now
+# lives inside arm_fingerprint's experiments/_lib/** substrate glob, closing the
+# substrate-hash under-inclusion where an edit to this recipe was invisible to cells built
+# with include_driver_script_in_hash=False (v3_exq_742 / v3_exq_742m). Imported above as
+# `_train_all_on_agent`; every existing `x734._train_all_on_agent` call site (737, 742,
+# 808, _lib/mech457_fanout, exq742 bias-head baseline) keeps resolving unchanged.
 # ---------------------------------------------------------------------------
-def _train_all_on_agent(
-    agent,
-    train_env: CausalGridWorldV2,
-    seed: int,
-    p0_episodes: int,
-    p1_episodes: int,
-    steps_per_episode: int,
-    rung_id: str,
-    total_denominator: int,
-    zworld_p0_episodes: int = 0,
-    zworld_p0_env: Optional[CausalGridWorldV2] = None,
-    zworld_p0_dry_run: bool = False,
-) -> Dict[str, Any]:
-    env = train_env
-
-    # -- P0a: SD-070 z_world encoder warmup (opt-in; see the header note) -------------------
-    zworld_p0_stats: Dict[str, Any] = {"p0a_recipe": "sd070", "p0a_ran": False}
-    if zworld_p0_episodes > 0:
-        if zworld_p0_env is None:
-            raise ValueError(
-                "zworld_p0_episodes=%d requires zworld_p0_env: the warmup rollout consumes "
-                "env RNG, so reusing train_env would shift the layout sequence P0b/P1 then "
-                "see. Build a dedicated env with the same seed and kwargs."
-                % (zworld_p0_episodes,)
-            )
-        zworld_p0_stats = run_zworld_p0(
-            agent, zworld_p0_env, seed, zworld_p0_episodes, steps_per_episode,
-            policy=RandomPolicy(seed), label=f"ree_allon rung={rung_id}",
-            dry_run=zworld_p0_dry_run,
-        )
-    has_ofc = getattr(agent, "ofc", None) is not None
-    has_lpfc = getattr(agent, "lateral_pfc", None) is not None
-
-    e2_opt = torch.optim.Adam(agent.e2.parameters(), lr=x724.E2_CONTRASTIVE_LR)
-    bias_opt = (
-        torch.optim.Adam(list(agent.lateral_pfc.bias_head_parameters()), lr=x724.LR_LPFC_BIAS)
-        if has_lpfc else None
-    )
-    ofc_deval_opt = (
-        torch.optim.Adam(list(agent.ofc.devaluation_bias_head_parameters()), lr=x724.LR_OFC_DEVAL)
-        if has_ofc else None
-    )
-    transition_buffer: Deque[
-        Tuple[torch.Tensor, torch.Tensor, torch.Tensor]
-    ] = deque(maxlen=x724.TRANSITION_BUFFER_MAX)
-    sample_rng = random.Random(seed)
-
-    total_train_eps = p0_episodes + p1_episodes
-    p1_start = p0_episodes
-    n_p0_ticks = 0
-    n_p1_ticks = 0
-    n_e2_train_steps = 0
-
-    reinforce_baseline = 0.0
-    outcome_buf: List[Tuple[torch.Tensor, int, float]] = []
-
-    for ep in range(total_train_eps):
-        is_p1 = (ep >= p1_start)
-        is_p0 = not is_p1
-        phase_label = "P1" if is_p1 else "P0"
-
-        _flat, obs_dict = env.reset()
-        agent.reset()
-
-        z_self_prev: Optional[torch.Tensor] = None
-        action_prev: Optional[torch.Tensor] = None
-        pending_capture: Optional[Tuple[torch.Tensor, torch.Tensor]] = None
-        tick_in_ep = 0
-
-        ep_reward = 0.0
-        ep_buf: List[Tuple[torch.Tensor, int]] = []
-
-        for _step in range(steps_per_episode):
-            body = obs_dict["body_state"].float()
-            world = obs_dict["world_state"].float()
-            if body.dim() == 1:
-                body = body.unsqueeze(0)
-            if world.dim() == 1:
-                world = world.unsqueeze(0)
-
-            latent = agent.sense(
-                obs_body=body, obs_world=world,
-                obs_harm=x724._obs_harm(obs_dict),
-                obs_harm_a=x724._obs_harm_a(obs_dict),
-                obs_harm_history=x724._obs_harm_history(obs_dict),
-            )
-
-            if pending_capture is not None:
-                z0_prev, a_prev = pending_capture
-                z1_obs = latent.z_world.detach().reshape(-1).clone()
-                if (
-                    torch.isfinite(z0_prev).all()
-                    and torch.isfinite(a_prev).all()
-                    and torch.isfinite(z1_obs).all()
-                ):
-                    transition_buffer.append((z0_prev, a_prev, z1_obs))
-                pending_capture = None
-
-            if z_self_prev is not None and action_prev is not None:
-                agent.record_transition(z_self_prev, action_prev, latent.z_self.detach())
-
-            ticks = agent.clock.advance()
-            wdim = latent.z_world.shape[-1]
-            e1_prior = (
-                agent._e1_tick(latent) if ticks.get("e1_tick", False)
-                else torch.zeros(1, wdim, device=agent.device)
-            )
-            candidates = agent.generate_trajectories(latent, e1_prior, ticks)
-
-            p1_snap_summaries: Optional[torch.Tensor] = None
-            if is_p1 and has_lpfc and candidates and len(candidates) >= 2:
-                cs = x724._consumed_summaries(agent, candidates)
-                if cs is not None and torch.isfinite(cs).all():
-                    p1_snap_summaries = cs.clone()
-
-            action = agent.select_action(candidates, ticks)
-            if action is None:
-                idx = int(np.random.randint(0, env.action_dim))
-                action = torch.zeros(1, env.action_dim, device=agent.device)
-                action[0, idx] = 1.0
-                agent._last_action = action
-            if not torch.isfinite(action).all():
-                break
-
-            committed_class = int(action[0].argmax().item())
-
-            if is_p1 and p1_snap_summaries is not None:
-                sel = 0
-                for ci, c in enumerate(candidates):
-                    if (
-                        getattr(c, "actions", None) is not None
-                        and c.actions.shape[1] >= 1
-                        and int(c.actions[:, 0, :].argmax(-1).reshape(-1)[0].item())
-                        == committed_class
-                    ):
-                        sel = min(ci, p1_snap_summaries.shape[0] - 1)
-                        break
-                ep_buf.append((p1_snap_summaries, sel))
-
-            if is_p1:
-                n_p1_ticks += 1
-            else:
-                n_p0_ticks += 1
-
-            if torch.isfinite(latent.z_world).all() and torch.isfinite(action).all():
-                pending_capture = (
-                    latent.z_world.detach().reshape(-1).clone(),
-                    action.detach().reshape(-1).clone(),
-                )
-
-            # SD-056 e2 training -- P0 always; P1 only if the recipe unfreezes (A0: frozen).
-            train_e2_now = is_p0 or (is_p1 and E2_TRAIN_IN_P1)
-            if train_e2_now and (tick_in_ep % x724.E2_TRAIN_EVERY_K_TICKS == 0):
-                if x724._e2_contrastive_step(agent, transition_buffer, e2_opt, sample_rng) is not None:
-                    n_e2_train_steps += 1
-
-            _flat, _harm_signal, done, info, obs_dict = env.step(action)
-            harm_signal = float(_harm_signal)
-            if is_p1:
-                ep_reward += harm_signal
-
-            with torch.no_grad():
-                agent.update_residue(
-                    harm_signal=harm_signal, world_delta=None,
-                    hypothesis_tag=False, owned=True,
-                )
-            if agent.goal_state is not None:
-                benefit_exposure = float(info.get("benefit_exposure", 0.0))
-                energy = float(body[0, 3].item())
-                agent.update_z_goal(
-                    benefit_exposure=benefit_exposure,
-                    drive_level=max(0.0, 1.0 - energy),
-                )
-
-            z_self_prev = latent.z_self.detach()
-            action_prev = action.detach()
-            tick_in_ep += 1
-            if done:
-                break
-
-        # P1 end-of-episode: TWO-head REINFORCE (lateral-PFC bias + OFC devaluation).
-        if is_p1 and (has_lpfc or has_ofc):
-            reinforce_baseline = (
-                x724.EMA_DECAY * reinforce_baseline + (1.0 - x724.EMA_DECAY) * ep_reward
-            )
-            for cand_features, sel in ep_buf:
-                outcome_buf.append((cand_features, sel, ep_reward))
-            if len(outcome_buf) > x724.OUTCOME_BUF_MAX:
-                outcome_buf = outcome_buf[-x724.OUTCOME_BUF_MAX:]
-            if has_lpfc and bias_opt is not None:
-                l_loss = x724._lpfc_reinforce_loss(agent, outcome_buf, reinforce_baseline, agent.device)
-                if l_loss.requires_grad:
-                    bias_opt.zero_grad()
-                    l_loss.backward()
-                    torch.nn.utils.clip_grad_norm_(agent.lateral_pfc.bias_head_parameters(), 1.0)
-                    bias_opt.step()
-            if has_ofc and ofc_deval_opt is not None:
-                ofc_loss = x724._ofc_deval_reinforce_loss(agent, outcome_buf, reinforce_baseline, agent.device)
-                if ofc_loss.requires_grad:
-                    ofc_deval_opt.zero_grad()
-                    ofc_loss.backward()
-                    torch.nn.utils.clip_grad_norm_(agent.ofc.devaluation_bias_head_parameters(), 1.0)
-                    ofc_deval_opt.step()
-
-        cur = ep + 1
-        if cur % 50 == 0 or cur == total_train_eps or phase_label == "P1":
-            print(
-                f"  [train] ree_allon rung={rung_id} seed={seed} phase={phase_label} "
-                f"ep {cur}/{total_denominator}",
-                flush=True,
-            )
-
-    return {
-        "n_p0_ticks": int(n_p0_ticks),
-        "n_p1_ticks": int(n_p1_ticks),
-        "n_e2_train_steps": int(n_e2_train_steps),
-        "zworld_p0": zworld_p0_stats,
-    }
 
 
 # ---------------------------------------------------------------------------
