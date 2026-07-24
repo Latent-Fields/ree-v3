@@ -82,6 +82,21 @@
       "episodes_per_run": 1000,
       "experiment_type": "v3_exq_813_survival_zeroed_ppo_latent_policy_probe",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-793a",
+      "title": "SD-049 ARM_2 curriculum/density repower (guard_pass load-bearing on joint arm)",
+      "script": "experiments/v3_exq_793a_sd049_arm2_competence_repower.py",
+      "priority": 15,
+      "machine_affinity": "any",
+      "estimated_minutes": 960,
+      "claim_id": "SD-049",
+      "note": "Repowers V3-EXQ-793 (same 2x2 curriculum x density design, same ARM_2 substrate) per the confirmed autopsy failure_autopsy_V3-EXQ-793_2026-07-24.{md,json}: 793 arm-level d3_clears (mean contact_rate) passed clean on A10/A01/A11 at n=3, but per-seed guard_pass showed real fragility not surfaced by the load-bearing criteria -- A11 (joint) failed guard_pass on 2/3 seeds, A01/A10 each on 1/3 -- thin, not decisive. This run: (1) repowers all four arms uniformly from n=3 to n=6 seeds (42-47; 45-47 new, added to rather than replacing 793's 42/43/44) so seeds x conditions matches the actual verdict count and the runner ETA denominator is exact; (2) adds a NEW load-bearing criterion C_JOINT_ROBUST = A11 d3_clears AND guard_pass_frac(A11) >= MIN_FRACTION (2/3, reused not invented), replacing plain C_JOINT (retained as informational) as the outcome gate, per the autopsy repair-pathway recommendation to make guard_pass load-bearing for the joint arm specifically. guard_pass_frac is now reported per arm (informational for A00/A10/A01) so the 1/3 A01/A10 signature stays visible without gating on it (out of this repowering's scope per the task). A new self-route label joint_arm_clears_but_fragile_guard_pass_below_floor distinguishes 'A11 clears on contact_rate but guard_pass stays below floor at n=6' (itself a decisive finding) from a full unrescued/ceiling reading. GOV-REUSE-1: the repowered guard_pass-fraction readout does not exist in any recorded manifest (793 is the only prior run, at n=3) -- not recoverable, run. Arm-fingerprint reuse of 793's own cells was considered and explicitly NOT wired up: 793 ran on ree-cloud-2 (torch2.12.0+cpu) and several substrate-touching changes have landed on main since its 2026-07-21 run (SD-081, ARC-071, MECH-048, SD-076) that near-certainly bust that fingerprint -- the expected near-zero reuse hit rate did not justify the added complexity on a lower-priority follow-up. Re-derive brake: blanket SD-049 count is 4 (514l/538a/693/693a), but ALL FOUR test the DIFFERENT, still-unaddressed foraging-competence/WL-dissociation Phase-2 prerequisite (V3-EXQ-514 full validation), not the D3-gate curriculum/density lever-sufficiency question 793/793a test -- exempted per the skill's own carve-out for a diagnostic discriminating why a ceiling holds; 793's own re_derive_brake block independently reached the same release and named this exact repowering as the legitimate follow-up. SCOPE: this does NOT touch or lift SD-049's actual park (substrate_ceiling, gated on the foraging-competent-policy prerequisite for V3-EXQ-514, which this diagnostic neither tests nor addresses) -- informative curriculum/environment-design context only. Lower priority / optional per user instruction. episodes_per_run 340 is the AMENDED-arm length (793 convention); base arms (A00/A01) run 250, so runner ETA overestimates the base cells. Smoke PASS (dry-run, 4 cells, all progress instrumentation and the new C_JOINT_ROBUST/guard_pass_frac logic paths exercised without error).",
+      "status": "pending",
+      "conditions": 4,
+      "episodes_per_run": 340,
+      "experiment_type": "v3_exq_793a_sd049_arm2_competence_repower",
+      "seeds": 6
     }
   ]
 }
