@@ -289,6 +289,24 @@ def spearman(a: List[float], b: List[float]) -> Optional[float]:
     return float(np.corrcoef(ra, rb)[0, 1])
 
 
+def _worst_or_none(vals: Any) -> Optional[float]:
+    """Minimum across non-None values, or None if none were measurable.
+
+    Matches recruitment_rate's None-for-unmeasured convention (below) so a
+    zero-tick cell's absence of data cannot masquerade as a measured zero --
+    the V3-EXQ-811 aggregation defect this helper replaces (empty-cell range/
+    distinctness fields previously defaulted to 0.0, indistinguishable from a
+    genuine degenerate reading of exactly zero).
+    """
+    xs = [float(v) for v in vals if v is not None]
+    return min(xs) if xs else None
+
+
+def _mean_or_none(vals: Any) -> Optional[float]:
+    xs = [float(v) for v in vals if v is not None]
+    return float(np.mean(xs)) if xs else None
+
+
 def auc_greater(pos: List[float], neg: List[float]) -> Optional[float]:
     """P(a random `pos` exceeds a random `neg`), ties 0.5. None if either empty.
 
@@ -536,16 +554,17 @@ def probe_layout(
         "n_latched_ticks": n_latched,
         "recruitment_rate": float(np.mean(recruitments)) if recruitments else None,
         "recruitment_sd": float(np.std(recruitments)) if recruitments else None,
-        "mean_full_score_range": float(np.mean(full_ranges)) if full_ranges else 0.0,
+        "mean_full_score_range": _mean_or_none(full_ranges),
         # WORST tick, never a mean: the degeneracy this exists to catch is a
         # single pinned tick, which a mean hides (and the indexer recomputes
         # `met` from the reported number, so it must be the quantified one).
-        "min_full_score_range": float(min(full_ranges)) if full_ranges else 0.0,
-        "min_habit_score_range": float(min(habit_ranges)) if habit_ranges else 0.0,
-        "mean_habit_score_range": float(np.mean(habit_ranges)) if habit_ranges else 0.0,
-        "min_habit_distinct_frac": (
-            float(min(habit_distinct_fracs)) if habit_distinct_fracs else 0.0
-        ),
+        # None (not 0.0) for a zero-tick cell -- matching recruitment_rate's
+        # convention just below -- so "nothing was measured here" cannot read
+        # as "measured exactly zero" (the V3-EXQ-811 aggregation defect).
+        "min_full_score_range": _worst_or_none(full_ranges),
+        "min_habit_score_range": _worst_or_none(habit_ranges),
+        "mean_habit_score_range": _mean_or_none(habit_ranges),
+        "min_habit_distinct_frac": _worst_or_none(habit_distinct_fracs),
         "mean_familiarity": float(np.mean(familiarities)) if familiarities else None,
         "familiarity_pinned_high_frac": pinned_hi,
         "familiarity_pinned_low_frac": pinned_lo,
@@ -619,9 +638,9 @@ def run_cell(
             "mean_familiarity": float(np.mean(fams)) if fams else None,
             "ticks_scored": int(sum(r["ticks_scored"] for r in rows)),
             "n_latched_ticks": int(sum(r["n_latched_ticks"] for r in rows)),
-            "min_full_score_range": float(min(r["min_full_score_range"] for r in rows)),
-            "min_habit_score_range": float(min(r["min_habit_score_range"] for r in rows)),
-            "min_habit_distinct_frac": float(min(r["min_habit_distinct_frac"] for r in rows)),
+            "min_full_score_range": _worst_or_none(r["min_full_score_range"] for r in rows),
+            "min_habit_score_range": _worst_or_none(r["min_habit_score_range"] for r in rows),
+            "min_habit_distinct_frac": _worst_or_none(r["min_habit_distinct_frac"] for r in rows),
             "curiosity_bonus_range_max": float(
                 max(r["curiosity_bonus_range_max"] for r in rows)
             ),
@@ -665,18 +684,18 @@ def run_cell(
         "familiarity_separation_raw": (
             (fam_f - nov_f) if (fam_f is not None and nov_f is not None) else None
         ),
-        "min_full_score_range": float(min(
+        "min_full_score_range": _worst_or_none([
             per_condition["familiar"]["min_full_score_range"],
             per_condition["novel"]["min_full_score_range"],
-        )),
-        "min_habit_score_range": float(min(
+        ]),
+        "min_habit_score_range": _worst_or_none([
             per_condition["familiar"]["min_habit_score_range"],
             per_condition["novel"]["min_habit_score_range"],
-        )),
-        "min_habit_distinct_frac": float(min(
+        ]),
+        "min_habit_distinct_frac": _worst_or_none([
             per_condition["familiar"]["min_habit_distinct_frac"],
             per_condition["novel"]["min_habit_distinct_frac"],
-        )),
+        ]),
         "curiosity_bonus_range_max": float(max(
             per_condition["familiar"]["curiosity_bonus_range_max"],
             per_condition["novel"]["curiosity_bonus_range_max"],
