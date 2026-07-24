@@ -8,6 +8,25 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-811a",
+      "title": "MECH-477 dual-system arbitration falsifier, repaired aggregation (empty-cell 0.0 -> None fix; supersedes 811)",
+      "script": "experiments/v3_exq_811a_mech477_dualsystem_arbitration_falsifier.py",
+      "priority": 47,
+      "machine_affinity": "any",
+      "estimated_minutes": 560,
+      "supersedes": "V3-EXQ-811",
+      "note": "BUG-FIX RE-RUN of V3-EXQ-811 (repaired instrument, same question), routed by failure_autopsy_V3-EXQ-811_2026-07-24.{md,json} (confirmed, user-cleared 2026-07-24) Section 9/10. 811's own manifest self-routed FAIL/substrate_not_ready_requeue on all three non-vacuity readiness gates (full_score_range_non_degenerate, habit_score_range_non_degenerate, habit_score_distinct_fraction) even though its load-bearing C1 criterion (C1_recruitment_delta_greater_with_arbitrator) passed cleanly (Cohen's d 0.999 ON vs -0.158 OFF, 6/7 divergent seeds ON-greater) and every arbitration-liveness/coupling check read at or near 100%. ROOT CAUSE: 20/128 cells (15.6%, skewed toward novel/arb_on) scored zero E3 ticks, and the empty-cell default for the three range/distinctness fields in experiments/_lib/baselines/mech477_dualsystem_arbitration.py was 0.0 -- indistinguishable from a genuine degenerate reading of exactly zero -- instead of None, which the adjacent recruitment_rate field already correctly defaults to (and which downstream filters out). The worst-case-across-cells aggregation (_worst(), a deliberate true min so no cell hides inside an in-band mean) then propagated the spurious 0.0 through every aggregation level, zeroing the whole run's readiness verdict for BOTH arms regardless of how the other 84% of cells read. The autopsy manually re-derived a clean PASS from 811's own manifest (excluding zero-tick cells): full range 0.0022, habit range 9.34e-6, habit distinct fraction 0.875, all three clearing their floors -- no new run was needed for 811's OWN verdict. THE FIX (lineage module only, driver unchanged): the three empty-cell defaults now propagate None through all three aggregation levels (per-probe, per-condition, per-arm-per-seed) via two new helpers (_worst_or_none / _mean_or_none) mirroring recruitment_rate's existing convention; the driver's own _worst() already filtered None correctly and needed no change. recommended_substrate_queue_entry.action = \"none\" per the autopsy -- SD-081 works as designed, this was a script-level aggregation bug, not a substrate gap. Verified: unit-tested both helpers directly (mixed None/float lists, all-None, empty) and probe_layout() with n_episodes=0 (forces a genuine zero-tick cell) -- confirms None now propagates where 0.0 used to. Full driver otherwise byte-identical to 811 (same pre-registered thresholds, schedule, arms, claim tags); manifest carries supersedes=\"v3_exq_811_mech477_dualsystem_arbitration_falsifier\". GOV-REUSE-1 (Step 2.4): not applicable in the reanalysis-skips-a-run sense -- the autopsy's own manual re-derivation already answers 811's verdict without a new run; this run exists per the autopsy's explicit repair routing so a clean manifest self-routes correctly going forward without hand re-derivation, not to recover data already recoverable. Re-derive brake (Step 2.5b): does not fire -- neither 786, 786a, nor 811's corrected reading carries recommended_epistemic_category=substrate_ceiling for MECH-477 or MECH-163. Readiness (Step 2.5): SD-081 (e3.dualsystem_uncertainty_arbitration) IMPLEMENTED in ree-v3/CLAUDE.md, unchanged since 811. VALIDATION: py_compile OK; ASCII-clean; validate_experiments.py --strict --paths OK (1 OK, 0 warnings of any kind); dry-run smoke PASS end-to-end (2 seeds x 2 arms, all 4 cells fingerprinted reuse-eligible, verdict lines printed correctly, [train] ep N/M progress instrumentation confirmed against the shared warmup_train helper); validate_recording.py --strict OK on the dry-run manifest (recording_schema rec/v1, substrate_hash, machine_class darwin-arm64-py3.13-torch2.12.0, elapsed_seconds, config, seeds all present). Toy-scale dry run reads FAIL/non_contributory/substrate_not_ready_requeue as expected (SEM_MIN_N=3 > 2 dry-run seeds, so the AUC/SEM-gated preconditions cannot pass at smoke scale regardless of the fix) -- this is the same non-gating smoke behaviour 811's own queue note documented. Queued from a throwaway detached worktree off origin/main (shared ree-v3 checkout was not touched; other sessions' in-flight edits to v3_exq_724/734 and untracked _lib files left undisturbed).",
+      "status": "pending",
+      "claim_ids": [
+        "MECH-477",
+        "MECH-163"
+      ],
+      "conditions": 2,
+      "episodes_per_run": 120,
+      "experiment_type": "v3_exq_811a_mech477_dualsystem_arbitration_falsifier",
+      "seeds": 8
+    },
+    {
       "queue_id": "V3-EXQ-786b",
       "title": "MECH-163 dual-system recruitment (leg 1) -- DV-degeneracy repair: HABIT_DEPTH=2 read + habit-vector readiness gates (V3-EXQ-811 precedent)",
       "script": "experiments/v3_exq_786b_mech163_dual_system_recruitment.py",
@@ -102,25 +121,6 @@
       "episodes_per_run": 1000,
       "experiment_type": "v3_exq_813_survival_zeroed_ppo_latent_policy_probe",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-811a",
-      "title": "MECH-477 dual-system arbitration falsifier, repaired aggregation (empty-cell 0.0 -> None fix; supersedes 811)",
-      "script": "experiments/v3_exq_811a_mech477_dualsystem_arbitration_falsifier.py",
-      "priority": 47,
-      "machine_affinity": "any",
-      "estimated_minutes": 560,
-      "supersedes": "V3-EXQ-811",
-      "claim_ids": [
-        "MECH-477",
-        "MECH-163"
-      ],
-      "note": "BUG-FIX RE-RUN of V3-EXQ-811 (repaired instrument, same question), routed by failure_autopsy_V3-EXQ-811_2026-07-24.{md,json} (confirmed, user-cleared 2026-07-24) Section 9/10. 811's own manifest self-routed FAIL/substrate_not_ready_requeue on all three non-vacuity readiness gates (full_score_range_non_degenerate, habit_score_range_non_degenerate, habit_score_distinct_fraction) even though its load-bearing C1 criterion (C1_recruitment_delta_greater_with_arbitrator) passed cleanly (Cohen's d 0.999 ON vs -0.158 OFF, 6/7 divergent seeds ON-greater) and every arbitration-liveness/coupling check read at or near 100%. ROOT CAUSE: 20/128 cells (15.6%, skewed toward novel/arb_on) scored zero E3 ticks, and the empty-cell default for the three range/distinctness fields in experiments/_lib/baselines/mech477_dualsystem_arbitration.py was 0.0 -- indistinguishable from a genuine degenerate reading of exactly zero -- instead of None, which the adjacent recruitment_rate field already correctly defaults to (and which downstream filters out). The worst-case-across-cells aggregation (_worst(), a deliberate true min so no cell hides inside an in-band mean) then propagated the spurious 0.0 through every aggregation level, zeroing the whole run's readiness verdict for BOTH arms regardless of how the other 84% of cells read. The autopsy manually re-derived a clean PASS from 811's own manifest (excluding zero-tick cells): full range 0.0022, habit range 9.34e-6, habit distinct fraction 0.875, all three clearing their floors -- no new run was needed for 811's OWN verdict. THE FIX (lineage module only, driver unchanged): the three empty-cell defaults now propagate None through all three aggregation levels (per-probe, per-condition, per-arm-per-seed) via two new helpers (_worst_or_none / _mean_or_none) mirroring recruitment_rate's existing convention; the driver's own _worst() already filtered None correctly and needed no change. recommended_substrate_queue_entry.action = \"none\" per the autopsy -- SD-081 works as designed, this was a script-level aggregation bug, not a substrate gap. Verified: unit-tested both helpers directly (mixed None/float lists, all-None, empty) and probe_layout() with n_episodes=0 (forces a genuine zero-tick cell) -- confirms None now propagates where 0.0 used to. Full driver otherwise byte-identical to 811 (same pre-registered thresholds, schedule, arms, claim tags); manifest carries supersedes=\"v3_exq_811_mech477_dualsystem_arbitration_falsifier\". GOV-REUSE-1 (Step 2.4): not applicable in the reanalysis-skips-a-run sense -- the autopsy's own manual re-derivation already answers 811's verdict without a new run; this run exists per the autopsy's explicit repair routing so a clean manifest self-routes correctly going forward without hand re-derivation, not to recover data already recoverable. Re-derive brake (Step 2.5b): does not fire -- neither 786, 786a, nor 811's corrected reading carries recommended_epistemic_category=substrate_ceiling for MECH-477 or MECH-163. Readiness (Step 2.5): SD-081 (e3.dualsystem_uncertainty_arbitration) IMPLEMENTED in ree-v3/CLAUDE.md, unchanged since 811. VALIDATION: py_compile OK; ASCII-clean; validate_experiments.py --strict --paths OK (1 OK, 0 warnings of any kind); dry-run smoke PASS end-to-end (2 seeds x 2 arms, all 4 cells fingerprinted reuse-eligible, verdict lines printed correctly, [train] ep N/M progress instrumentation confirmed against the shared warmup_train helper); validate_recording.py --strict OK on the dry-run manifest (recording_schema rec/v1, substrate_hash, machine_class darwin-arm64-py3.13-torch2.12.0, elapsed_seconds, config, seeds all present). Toy-scale dry run reads FAIL/non_contributory/substrate_not_ready_requeue as expected (SEM_MIN_N=3 > 2 dry-run seeds, so the AUC/SEM-gated preconditions cannot pass at smoke scale regardless of the fix) -- this is the same non-gating smoke behaviour 811's own queue note documented. Queued from a throwaway detached worktree off origin/main (shared ree-v3 checkout was not touched; other sessions' in-flight edits to v3_exq_724/734 and untracked _lib files left undisturbed).",
-      "status": "pending",
-      "conditions": 2,
-      "episodes_per_run": 120,
-      "experiment_type": "v3_exq_811a_mech477_dualsystem_arbitration_falsifier",
-      "seeds": 8
     }
   ]
 }
