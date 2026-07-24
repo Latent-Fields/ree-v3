@@ -121,6 +121,21 @@
       "episodes_per_run": 1000,
       "experiment_type": "v3_exq_813_survival_zeroed_ppo_latent_policy_probe",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-814",
+      "title": "MECH-288 input_stream extension isolation diagnostic (substrate readiness for ARC-070/MECH-321)",
+      "script": "experiments/v3_exq_814_mech288_input_stream_isolation_diagnostic.py",
+      "priority": 5,
+      "machine_affinity": "any",
+      "estimated_minutes": 2,
+      "status": "pending",
+      "claim_ids": [],
+      "conditions": 1,
+      "episodes_per_run": 3,
+      "experiment_type": "v3_exq_814_mech288_input_stream_isolation_diagnostic",
+      "seeds": 1,
+      "note": "Step 8 of /implement-substrate for the MECH-288 input_stream extension (ree-v3 dea87fc, REE_assembly 53f15f9386) -- the substrate prerequisite ARC-070/MECH-321 needs per the 2026-05-10 ARC-070 lit-pull R2 verdict. GOV-REUSE-1 (Step 2.4): decisive readout is observation-stream segment_id isolation under interleaved rollout-stream queries -- brand new, never measured before this extension landed today; not recoverable from any existing manifest. Readiness (Step 2.5): the extension is IMPLEMENTED (ree-v3/CLAUDE.md MECH-288 entry). Re-derive brake (2.5b): N/A, no prior autopsy on this mechanism. claim_ids intentionally empty -- this validates the substrate mechanism's isolation property, not the MECH-288 or MECH-321 claims themselves (MECH-288's own promote-to-active gate and MECH-321's unbuilt ARC-070/live-usage dependencies are both untouched by this run). DESIGN: drives EventSegmenter directly with a deterministic seeded structured synthetic latent trajectory (contract-test style) rather than a full REEAgent+env harness -- the property under test is intrinsic to EventSegmenter, and agent-level integration of the (unchanged) observation path is already covered by 61/61 passing downstream-consumer contracts run on the cloud fleet before this landed. 3 seeds x 2 internal conditions (A: observation-only, B: observation + interleaved rollout boundary_on() queries from an independently-seeded noised copy of the same latents), all internal to one script invocation -- hence seeds=1/conditions=1/episodes_per_run=3 in this entry (matches the single verdict: line and the 3-seed [progress] ep N/M denominator the script actually prints). C1 (load-bearing): observation-stream segment_id trajectory + BoundaryEvents bit-identical between A and B in every seed. C2 (load-bearing): rollout boundary_on() fires >=1 time with non-constant posteriors (proves the path is real, not dead code that would pass C1 vacuously). C3: reset() returns both streams to '0.0'. Smoke: dry-run PASS (C1/C2/C3 all True, rollout fired 3/20 ticks); a full non-dry-run execution also verified end-to-end (PASS, 10/10/11 rollout fires across 3 seeds x 80 ticks) then its manifest+sentinel were deleted -- that was a verification-only run, not the queued execution. validate_experiments.py --strict and validate_recording.py --strict both OK. Queued from a throwaway detached worktree off origin/main -- the shared ree-v3 checkout was dirty with other sessions' in-flight edits (untouched)."
     }
   ]
 }
