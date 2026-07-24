@@ -31,28 +31,6 @@
       "seeds": 8
     },
     {
-      "queue_id": "V3-EXQ-689j",
-      "title": "MECH-448 Factor B (MECH-439 gap-scaled stochastic commit) noise-control instrument repower: 2-arm, 12-seed C_NOISE_LIFTS follow-up to V3-EXQ-689i (diagnostic, does not re-test C_PRIMARY)",
-      "script": "experiments/v3_exq_689j_mech448_factor_b_noise_control_repower.py",
-      "priority": 42,
-      "machine_affinity": "ree-cloud-2",
-      "estimated_minutes": 420,
-      "claim_id": "MECH-448",
-      "note": "TARGETED instrument follow-up to V3-EXQ-689i's ONE blocked gate (C_NOISE_LIFTS), per failure_autopsy_V3-EXQ-689i_2026-07-24.{md,json} (confirmed, user-adjudicated 'gate defect, science upheld' 2026-07-24) sec 5 recommendation. Repowers run_id v3_exq_689i_mech448_f_eligibility_demotion_falsifier_repair_20260722T162850Z_v3 -- does NOT supersede it and does NOT re-test C_PRIMARY (6/8 load-bearing criteria passed cleanly in 689i including C_PRIMARY, the mechanism's own discrimination test; that finding stands unmodified). ARM_OFF and ARM_ON (PRIMARY_ARM) are DROPPED entirely -- only ARM_PROPOSER_CTRL vs ARM_MATCHED_NOISE remain, byte-identical per-arm config to 689i. 689i's Factor B (MECH-439 gap-scaled stochastic commit) noise control -- its FIRST exercise in this exact form -- only verifiably lifted committed-class entropy (selected_action_class_entropy_mm, Miller-Madow corrected) over the collapsed proposer baseline on 1 of 4 seeds against a >=3/4 bar. Read of 689i's own per-seed deltas (-0.038, -0.032, -0.035, +0.089) shows a CONSISTENT SMALL-NEGATIVE cluster on 3/4 seeds (not scatter around a positive mean), so this run (a) repowers to 12 seeds (689i's own 4, seeds 42-45, retained for direct comparability, plus 8 new) with MIN_SEEDS_FOR_PASS scaled proportionally to 9-of-12 (same 75% bar), and (b) adds mechanistic diagnostics 689i never recorded -- gap_scaled_commit_gap_norm / gap_scaled_commit_temperature_eff per-cell mean/std/min/max (already computed by e3_selector.py's _gap_scaled_commit_pick and stamped into last_score_diagnostics; a pure additional fresh-gated READ, no ree_core changes) plus pool_dominant_class_share (an explicitly-labelled UPPER-BOUND PROXY for the top-3 shortlist's own class diversity, which is not observable without a ree_core change and is out of scope for an experiment script) -- so a persistent null at n=12 explains itself instead of being another opaque under-powered read. EXPERIMENT_PURPOSE=diagnostic, claim_ids=[MECH-448] retained for audit traceability only -- with no ARM_ON present this run cannot itself move MECH-448's evidence (evidence_direction=non_contributory on both branches); it exists solely to resolve or further characterize 689i's one blocked gate. GOV-REUSE-1 (Step 2.4): reanalysis_query.py --readout selected_action_class_entropy_mm --claim MECH-448 found only 689i itself (substrate_hash 3c7dfea1b222ecdf...) carrying this readout at n=4 -- the decisive readout (a reliable n=12 read plus the gap_norm/T_eff/pool-homogeneity diagnostics) is not recoverable from any recorded manifest -> run. Re-derive brake: MECH-448 carries 0 substrate_ceiling-counting autopsies (689d and 699 are both measurement_test_design_defect, action:none -- confirmed via the Step 2.5b counting script) -- brake does NOT fire. Machine_affinity pinned to a single cloud worker (not 'any') because C_SUBSTRATE_INVARIANT requires all 24 cells share one substrate_hash across the run's ~7h wall-clock, matching 689i's own single-worker pin. Added a setup-time assert_anchor_reachable guard (experiments/_lib/readiness_anchor.py) for all four readiness-kind preconditions -- 3 scored against 689i's own frozen recorded reference cells (all reachable, as 689i's real run already cleared them), the 4th (noise-lift fraction) against a synthetic 9-of-12 boundary fixture proving the counting logic itself is not narrower than the gate it must clear (689i predates this lint and carries no such guard). VALIDATION: py_compile OK; ASCII-clean (0 non-ASCII bytes); validate_experiments --strict OK (0 non-conforming, 0 anchor-reachability / precondition-recomputability / stale-e3-diagnostics / hold-weighted-readout warnings); dry-run smoke PASS end-to-end (2 verdict lines at 1 seed x 2 arms, matching 24 at full scale; readiness-anchor guards: 4 checked, all reachable; toy scale correctly self-routes substrate_not_ready_requeue, as designed -- MIN_FRESH_SELECT_PER_CELL=200 is far above the dry-run's fresh_target=5). Queued from a throwaway detached worktree off origin/main (shared ree-v3 checkout carries other sessions' uncommitted edits to v3_exq_724/734 + test_zworld_p0 and several untracked new files -- never touched).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-07-24T09:00:42Z"
-      },
-      "claim_ids": [
-        "MECH-448"
-      ],
-      "conditions": 2,
-      "episodes_per_run": 160,
-      "experiment_type": "v3_exq_689j_mech448_factor_b_noise_control_repower",
-      "seeds": 12
-    },
-    {
       "queue_id": "V3-EXQ-793a",
       "title": "SD-049 ARM_2 curriculum/density repower (guard_pass load-bearing on joint arm)",
       "script": "experiments/v3_exq_793a_sd049_arm2_competence_repower.py",
