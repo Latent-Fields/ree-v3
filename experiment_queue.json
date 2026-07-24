@@ -70,43 +70,6 @@
       "episodes_per_run": 340,
       "experiment_type": "v3_exq_793a_sd049_arm2_competence_repower",
       "seeds": 6
-    },
-    {
-      "queue_id": "V3-EXQ-815",
-      "title": "MECH-321 policy decomposition readiness (ARC-070 substrate-readiness diagnostic)",
-      "script": "experiments/v3_exq_815_mech321_policy_decomposition_readiness.py",
-      "priority": 6,
-      "machine_affinity": "any",
-      "estimated_minutes": 8,
-      "note": "Substrate-readiness diagnostic for ARC-070/MECH-321 (policy_decomposition_via_event_segmenter), landed ree-v3 today alongside its MECH-288 input_stream prerequisite (V3-EXQ-814, ree-v3 dea87fc). Mirrors how ARC-071's own first validation experiment (V3-EXQ-810) was scoped: readiness only, not the full ARM_0/ARM_1/ARM_2 discriminative-pair design from MECH-321's functional_restatement (deferred to a later EXQ once readiness is confirmed). GOV-REUSE-1 (Step 2.4): decisive readouts (decomp_n_evaluated_precommit, decomp_n_decomposed_precommit/marked_unreliable, mech321_leaf_tiles_added) and the use_policy_decomposition knob did not exist before 2026-07-24 -- no recorded manifest can carry them; not recoverable. Readiness (Step 2.5): MECH-321 is IMPLEMENTED (ree-v3/CLAUDE.md ARC-070/MECH-321 entry, 15 interface contracts in tests/contracts/test_arc070_policy_decomposition.py, all passing). Re-derive brake (2.5b): N/A, no prior autopsy on this claim. 2 arms (ARM_OFF/ARM_ON on use_policy_decomposition; both arms run use_event_segmenter/use_policy_chunking/use_chunk_proposal_injection/use_per_stream_vs=True as the constant baseline, since MECH-321 has nothing to evaluate without an ARC-071 chunk candidate in the CEM pool) x 3 seeds. A crystallised depth-1 chunk is seeded directly into the library at cell setup (ANCHOR_REACHABILITY_EXEMPT: isolates MECH-321's own wiring from ARC-071 formation readiness, which V3-EXQ-810 already answers separately) -- readiness precondition measures arc071_chunk_candidates_added >= 1 rather than assuming chunk injection works. C1 (load-bearing): evaluate() is called. C2 (load-bearing): the R1 trigger (V_s drop OR MECH-288 rollout boundary) fires at least occasionally. C3: a firing decomposition actually mutates the candidate pool (leaf tiles added, not just decided-and-discarded). C4: ARM_OFF is bit-identical-when-off. C5: the ARC-071 MECH-094 no-replay-formation guarantee is untouched (chunking stays active in both arms). Smoke: dry-run PASS (C1-C5 all True, label=policy_decomposition_fires, evaluated=51/decomposed=9/leaf_tiles=3 on the single dry-run seed). validate_experiments.py --strict OK, 0 warnings. Queued from a throwaway detached worktree off origin/main -- the shared ree-v3 checkout was dirty with other sessions' in-flight edits (untouched).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-07-24T14:35:39Z"
-      },
-      "claim_ids": [
-        "ARC-070",
-        "MECH-321"
-      ],
-      "conditions": 2,
-      "episodes_per_run": 20,
-      "experiment_type": "v3_exq_815_mech321_policy_decomposition_readiness",
-      "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-814",
-      "title": "MECH-288 input_stream extension isolation diagnostic (substrate readiness for ARC-070/MECH-321)",
-      "script": "experiments/v3_exq_814_mech288_input_stream_isolation_diagnostic.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "estimated_minutes": 2,
-      "note": "Step 8 of /implement-substrate for the MECH-288 input_stream extension (ree-v3 dea87fc, REE_assembly 53f15f9386) -- the substrate prerequisite ARC-070/MECH-321 needs per the 2026-05-10 ARC-070 lit-pull R2 verdict. GOV-REUSE-1 (Step 2.4): decisive readout is observation-stream segment_id isolation under interleaved rollout-stream queries -- brand new, never measured before this extension landed today; not recoverable from any existing manifest. Readiness (Step 2.5): the extension is IMPLEMENTED (ree-v3/CLAUDE.md MECH-288 entry). Re-derive brake (2.5b): N/A, no prior autopsy on this mechanism. claim_ids intentionally empty -- this validates the substrate mechanism's isolation property, not the MECH-288 or MECH-321 claims themselves (MECH-288's own promote-to-active gate and MECH-321's unbuilt ARC-070/live-usage dependencies are both untouched by this run). DESIGN: drives EventSegmenter directly with a deterministic seeded structured synthetic latent trajectory (contract-test style) rather than a full REEAgent+env harness -- the property under test is intrinsic to EventSegmenter, and agent-level integration of the (unchanged) observation path is already covered by 61/61 passing downstream-consumer contracts run on the cloud fleet before this landed. 3 seeds x 2 internal conditions (A: observation-only, B: observation + interleaved rollout boundary_on() queries from an independently-seeded noised copy of the same latents), all internal to one script invocation -- hence seeds=1/conditions=1/episodes_per_run=3 in this entry (matches the single verdict: line and the 3-seed [progress] ep N/M denominator the script actually prints). C1 (load-bearing): observation-stream segment_id trajectory + BoundaryEvents bit-identical between A and B in every seed. C2 (load-bearing): rollout boundary_on() fires >=1 time with non-constant posteriors (proves the path is real, not dead code that would pass C1 vacuously). C3: reset() returns both streams to '0.0'. Smoke: dry-run PASS (C1/C2/C3 all True, rollout fired 3/20 ticks); a full non-dry-run execution also verified end-to-end (PASS, 10/10/11 rollout fires across 3 seeds x 80 ticks) then its manifest+sentinel were deleted -- that was a verification-only run, not the queued execution. validate_experiments.py --strict and validate_recording.py --strict both OK. Queued from a throwaway detached worktree off origin/main -- the shared ree-v3 checkout was dirty with other sessions' in-flight edits (untouched).",
-      "status": "pending",
-      "claim_ids": [],
-      "conditions": 1,
-      "episodes_per_run": 3,
-      "experiment_type": "v3_exq_814_mech288_input_stream_isolation_diagnostic",
-      "seeds": 1
     }
   ]
 }
