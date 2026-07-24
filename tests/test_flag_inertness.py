@@ -522,6 +522,11 @@ PROBED = {
     "use_chunk_maintenance",
     "use_chunk_replay_origin_path",
     "use_chunk_proposal_injection",
+    # ARC-070 decomposition (MECH-321). Probed by
+    # tests/contracts/test_arc070_policy_decomposition.py (C1 OFF-is-inert /
+    # C2 loud precondition / C6 R1 OR-trigger / C7 depth-cap / C8 pre-commit
+    # withhold-and-replace / C9 mid-execution latch release).
+    "use_policy_decomposition",
 } | set(FLAGS_WITH_DEFAULT_BEHAVIOURAL_DELTA) | set(FLAGS_WITH_LOUD_PRECONDITION)
 
 # Audit-confirmed inert / mis-wired flags (finding id -> reason). Documented here

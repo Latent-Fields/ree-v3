@@ -126,6 +126,8 @@ from ree_core.policy import (
     NaturalCommitUrgencyReleaseConfig,
     PolicyChunking,
     PolicyChunkingConfig,
+    PolicyDecomposition,
+    PolicyDecompositionConfig,
     RhoMaintenanceRamp,
     RhoMaintenanceRampConfig,
     DifficultyGatedProposalEntropy,
@@ -1279,6 +1281,39 @@ class REEAgent(nn.Module):
             config, "use_chunk_proposal_injection", False
         ):
             self.hippocampal.set_chunk_source(self.policy_chunking)
+
+        # ARC-070 policy_decomposition_via_event_segmenter (MECH-321): the
+        # DECOMPOSITION inverse of ARC-071 above (zoom in vs zoom out).
+        # Withholds or re-segments an ARC-071 chunk candidate under
+        # prediction failure -- V_s drop on its own predicted region OR a
+        # MECH-288 rollout-stream boundary firing on it (R2 LOAD-BEARING:
+        # bidirectional consumer of MECH-288 event_segmenter substrate, not
+        # a parallel detector). Default False -> the operator is never
+        # instantiated and HippocampalModule never registers a decomposition
+        # source (bit-identical). See ree_core/policy/policy_decomposition.py.
+        self.policy_decomposition: Optional[PolicyDecomposition] = None
+        if getattr(config, "use_policy_decomposition", False):
+            # Loud precondition, same pattern as use_vs_rollout_gating /
+            # MECH-269b: MECH-321 depends_on MECH-288 (claims.yaml); a
+            # decomposition operator with no event segmenter to query would
+            # be wired-but-inert (the EXQ-483 failure mode this codebase's
+            # other loud preconditions exist to avoid).
+            if not getattr(self.hippocampal.config, "use_event_segmenter", False):
+                raise ValueError(
+                    "use_policy_decomposition=True requires "
+                    "hippocampal.use_event_segmenter=True (MECH-321 queries "
+                    "MECH-288's boundary_on(stream=rollout, ...))."
+                )
+            self.policy_decomposition = PolicyDecomposition(
+                config=PolicyDecompositionConfig(
+                    use_policy_decomposition=True,
+                    vs_decompose_threshold=getattr(
+                        config, "decomposition_vs_threshold", 0.4
+                    ),
+                    depth_cap=getattr(config, "decomposition_depth_cap", 3),
+                )
+            )
+            self.hippocampal.set_decomposition_source(self.policy_decomposition)
 
         # SD-061: difficulty-gated proposal-entropy regulator (MECH-343 blocker
         # part 2). A stuck-state detector integrates goal-progress stall + dACC
@@ -5239,6 +5274,70 @@ class REEAgent(nn.Module):
                 # whole point); the hold disarms so the occupancy stays shortened.
                 self._ncl_lever_fired = True
 
+        # ARC-070/MECH-321 mid-execution decomposition (R4 second phase): the
+        # REMAINING (unexecuted) content of an already-committed ARC-071
+        # chunk trajectory is re-evaluated on the SAME V_s / MECH-288
+        # rollout-boundary trigger as the pre-commit phase (R1). This is a
+        # FOURTH principled release, alongside MECH-091 (safety, never
+        # overridden), the rung-6 duration release above, and SD-034 closure
+        # de-commit: prediction failure on the remaining macro. hypothesis_
+        # tag=False here is purely a diagnostics label passed to evaluate()
+        # -- see policy_decomposition.py's "asymmetry with ARC-071" module
+        # docstring for why nothing is refused or written differently by
+        # phase; MECH-321 has no residue-write side effect of its own to
+        # gate. Still queries input_stream="rollout" because the REMAINING
+        # chunk content, by definition, has not been observed yet (per
+        # claims.yaml MECH-321 functional_restatement R4). No-op when
+        # use_policy_decomposition is off, nothing is committed, or the
+        # committed trajectory did not originate from chunk injection /
+        # MECH-321 decomposition.
+        if (
+            self.policy_decomposition is not None
+            and self.beta_gate.is_elevated
+            and self.hippocampal is not None
+            and self.hippocampal.event_segmenter is not None
+        ):
+            _mid_traj = self.e3._committed_trajectory
+            _mid_meta = _mid_traj.metadata if _mid_traj is not None else None
+            if _mid_meta and _mid_meta.get("source") in (
+                "arc071_chunk",
+                "mech321_decomposed",
+            ):
+                _mid_seq = tuple(int(a) for a in _mid_meta.get("chunk_sequence", ()))
+                _mid_remaining = _mid_seq[self._committed_step_idx :]
+                if len(_mid_remaining) > 1 and self._current_latent is not None:
+                    _mid_region_vs = self.hippocampal._region_vs()
+                    _mid_latent_signature = {
+                        "z_world": self._current_latent.z_world,
+                        "z_self": self._current_latent.z_self,
+                    }
+                    _mid_decision = self.policy_decomposition.evaluate(
+                        region_vs=_mid_region_vs,
+                        latent_signature=_mid_latent_signature,
+                        event_segmenter=self.hippocampal.event_segmenter,
+                        depth=int(_mid_meta.get("chunk_depth", 1)),
+                        hypothesis_tag=False,
+                        sequence=_mid_remaining,
+                        library=getattr(
+                            getattr(self, "policy_chunking", None), "library", None
+                        ),
+                    )
+                    if _mid_decision.should_decompose:
+                        # Abort the remaining macro: release the commit latch
+                        # so the NEXT tick's _e3_tick replans at finer grain
+                        # (either a MECH-321-decomposed candidate or the
+                        # ordinary flat-grain CEM pool -- chunk injection is
+                        # additive, so flat-grain candidates are always
+                        # available) rather than blindly finishing the
+                        # remainder. Same clearing idiom as the rung-6
+                        # release above.
+                        self.beta_gate.release()
+                        self._committed_step_idx = 0
+                        self._committed_anchor_keys = None
+                        self.e3._committed_trajectory = None
+                        self.e3._closure_committed_active = False
+                        self.e3._closure_committed_trajectory = None
+
         # SD-061: update the stuck-state detector every tick (not gated on beta
         # elevation -- impasse can build before commitment). Feeds the next
         # tick's _e3_tick proposal-gain via self._last_stuck_score (one-tick
@@ -8050,6 +8149,13 @@ class REEAgent(nn.Module):
         if self.policy_chunking is None:
             return {}
         return self.policy_chunking.get_state()
+
+    def get_policy_decomposition_state(self) -> dict:
+        """ARC-070/MECH-321 diagnostic snapshot for experiment manifests
+        ({} when off)."""
+        if self.policy_decomposition is None:
+            return {}
+        return self.policy_decomposition.get_state()
 
     def act(
         self,

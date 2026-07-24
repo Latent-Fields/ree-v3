@@ -29,7 +29,7 @@ MECH-092 (replay):
   hypothesis_tag=True — replay cannot produce residue (MECH-094).
 """
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 import math
 import random
 
@@ -690,6 +690,237 @@ class HippocampalModule(nn.Module):
         proposer is bit-identical.
         """
         self._chunk_source = chunk_source
+
+    def set_decomposition_source(self, decomposition_source) -> None:
+        """Register the ARC-070 PolicyDecomposition operator (MECH-321).
+
+        The agent calls this when use_policy_decomposition is on. Left None
+        otherwise, so _apply_policy_decomposition's early-return makes the
+        chunk-candidate splice bit-identical to pre-MECH-321 behaviour.
+        """
+        self._decomposition_source = decomposition_source
+
+    def _region_vs(self) -> float:
+        """Region-level V_s scalar for MECH-321's R1 trigger: mean of
+        per_stream_vs, the same aggregate HippocampalModule already computes
+        elsewhere (anchor-write last_vs). 1.0 (never triggers the V_s half of
+        the OR) when V_s tracking is unavailable, so the trigger degrades to
+        boundary.fired alone rather than spuriously mass-decomposing."""
+        if not self.per_stream_vs:
+            return 1.0
+        vals = list(self.per_stream_vs.values())
+        return float(sum(vals) / len(vals))
+
+    def _evaluate_decomposition_ticks(
+        self,
+        source,
+        traj: Trajectory,
+        depth: int,
+        seq: Tuple[int, ...],
+        hypothesis_tag: bool,
+        library: Optional[Any],
+    ):
+        """Sweep up to 8 ticks of `traj`'s own rolled-out states, calling
+        source.evaluate() at each until one fires an R1 trigger (or the
+        sweep is exhausted). This is what makes the trigger a genuine
+        within-candidate PE/boundary read rather than a single tail-state
+        snapshot -- Zacks 2007's PE-driven segmentation applied to the
+        candidate's own imagined continuation (R2's constructive-episodic-
+        simulation framing). Bounded at 8: the ARC-071 chunk-size budget is
+        2-5 elements per level (Sakai 2003) so this has headroom without
+        being unbounded compute per candidate per tick.
+        """
+        region_vs = self._region_vs()
+        n_ticks = min(len(traj.states), 8) if traj.states else 1
+        decision = None
+        for tick in range(max(n_ticks, 1)):
+            latent_signature = {
+                "z_world": (
+                    traj.world_states[tick]
+                    if traj.world_states and tick < len(traj.world_states)
+                    else None
+                ),
+                "z_self": (
+                    traj.states[tick]
+                    if traj.states and tick < len(traj.states)
+                    else None
+                ),
+            }
+            decision = source.evaluate(
+                region_vs=region_vs,
+                latent_signature=latent_signature,
+                event_segmenter=self.event_segmenter,
+                depth=int(depth),
+                hypothesis_tag=hypothesis_tag,
+                sequence=seq,
+                library=library,
+            )
+            if decision.should_decompose:
+                break
+        return decision
+
+    def _recursive_leaf_tiles(
+        self,
+        source,
+        sub_elements: Tuple[Tuple[Tuple[int, ...], int], ...],
+        library: Optional[Any],
+    ) -> List[Tuple[Tuple[int, ...], int]]:
+        """Bounded recursive descent (R3 depth cap) over `sub_elements`.
+
+        Re-tiles each still-composed (depth >= 1) element via
+        PolicyDecomposition.decompose_sequence() -- a single structural
+        re-check against the library, NOT a fresh per-tick E2 rollout+
+        boundary sweep (that full-fidelity check is reserved for the
+        top-level candidate in _evaluate_decomposition_ticks; repeating it
+        at every recursion level would be unbounded rollout compute for a
+        chunk_max_depth=3 recursion that is already tractability-capped by
+        depth_cap). depth == 0 tiles (raw actions) are already leaves.
+        """
+        frontier = list(sub_elements)
+        leaves: List[Tuple[Tuple[int, ...], int]] = []
+        depth_cap = int(source.config.depth_cap)
+        iterations = 0
+        while frontier and iterations < depth_cap:
+            iterations += 1
+            next_frontier: List[Tuple[Tuple[int, ...], int]] = []
+            for sub_seq, sub_depth in frontier:
+                if sub_depth <= 0 or len(sub_seq) <= 1:
+                    leaves.append((sub_seq, sub_depth))
+                    continue
+                tiled = source.decompose_sequence(sub_seq, sub_depth, library)
+                if tiled:
+                    next_frontier.extend(tiled)
+                else:
+                    leaves.append((sub_seq, sub_depth))
+            frontier = next_frontier
+        # depth_cap reached mid-descent: offer the best-effort tiles reached
+        # so far rather than dropping them (R3 tractability floor, not a
+        # correctness requirement to fully bottom out).
+        leaves.extend(frontier)
+        return leaves
+
+    def _rollout_tile(
+        self,
+        sequence: Sequence[int],
+        depth: int,
+        z_self: torch.Tensor,
+        z_world: torch.Tensor,
+        action_bias: Optional[torch.Tensor],
+        parent_sequence: Tuple[int, ...],
+    ) -> Optional[Trajectory]:
+        """Roll one decomposed sub-element out via E2 as a standalone
+        candidate Trajectory (same construction as _build_chunk_candidates'
+        per-chunk rollout), tagged for diagnostics and downstream selection.
+        """
+        action_dim = int(self.config.action_dim)
+        horizon = int(self.config.horizon)
+        seq = [int(a) for a in sequence if 0 <= int(a) < action_dim]
+        if not seq:
+            return None
+        batch_size = z_world.shape[0]
+        device = z_world.device
+        dtype = z_world.dtype
+        actions = torch.zeros(
+            batch_size, horizon, action_dim, device=device, dtype=dtype
+        )
+        for step_idx, cls in enumerate(seq[:horizon]):
+            actions[:, step_idx, cls] = 1.0
+        traj = self.e2.rollout_with_world(
+            z_self,
+            z_world,
+            actions,
+            compute_action_objects=True,
+            action_bias=action_bias,
+        )
+        traj.metadata = {
+            "source": "mech321_decomposed",
+            "chunk_sequence": list(seq),
+            "chunk_depth": int(depth),
+            "parent_chunk_sequence": list(parent_sequence),
+        }
+        return traj
+
+    def _apply_policy_decomposition(
+        self,
+        chunk_cands: List[Trajectory],
+        z_self: torch.Tensor,
+        z_world: torch.Tensor,
+        action_bias: Optional[torch.Tensor] = None,
+    ) -> List[Trajectory]:
+        """ARC-070/MECH-321: withhold or re-segment ARC-071 chunk candidates
+        under prediction failure (R1: V_s-drop on the candidate's own
+        predicted region OR a MECH-288 rollout-stream boundary firing on it).
+        A withheld chunk whose sub-elements can be materialised is REPLACED
+        by those finer-grain candidates (R3, recursive up to depth_cap); one
+        that is already at/above depth_cap, or has no sub-elements to fall
+        back on, is simply excluded from the pool this tick -- the agent
+        does not commit to executing it blind (the ordinary flat-grain CEM
+        candidates already in `all_trajectories` remain available either way,
+        since chunk injection is additive, not a replacement of them).
+
+        No-op (returns `chunk_cands` unchanged) when no decomposition_source
+        is registered or the event segmenter is unavailable -- bit-identical
+        to pre-MECH-321 ARC-071-only behaviour. Pre-commitment only (R4 first
+        phase, hypothesis_tag=True): this runs during candidate GENERATION,
+        before any candidate is selected or committed to. MECH-321's
+        mid-execution phase (R4 second phase) is a separate, execution-side
+        hook in ree_core/agent.py's beta-gate release handling.
+        """
+        source = getattr(self, "_decomposition_source", None)
+        if source is None or self.event_segmenter is None or not chunk_cands:
+            return chunk_cands
+
+        library = getattr(getattr(self, "_chunk_source", None), "library", None)
+        kept: List[Trajectory] = []
+        decomposed_out: List[Trajectory] = []
+        n_withheld = 0
+        n_decomposed = 0
+        n_marked_unreliable = 0
+
+        for traj in chunk_cands:
+            meta = traj.metadata or {}
+            seq = tuple(int(a) for a in meta.get("chunk_sequence", ()))
+            depth = int(meta.get("chunk_depth", 1))
+            if not seq:
+                kept.append(traj)
+                continue
+
+            decision = self._evaluate_decomposition_ticks(
+                source, traj, depth, seq, hypothesis_tag=True, library=library
+            )
+            if decision is None or not decision.should_decompose:
+                kept.append(traj)
+                continue
+
+            n_withheld += 1
+            if decision.marked_unreliable or not decision.sub_elements:
+                n_marked_unreliable += 1
+                continue  # excluded: do not offer this candidate blind
+
+            n_decomposed += 1
+            leaves = self._recursive_leaf_tiles(
+                source, decision.sub_elements, library=library
+            )
+            for leaf_seq, leaf_depth in leaves:
+                leaf_traj = self._rollout_tile(
+                    leaf_seq,
+                    leaf_depth,
+                    z_self,
+                    z_world,
+                    action_bias,
+                    parent_sequence=seq,
+                )
+                if leaf_traj is not None:
+                    decomposed_out.append(leaf_traj)
+
+        if n_withheld:
+            self._last_propose_diagnostics.update({
+                "mech321_chunks_withheld": int(n_withheld),
+                "mech321_chunks_decomposed": int(n_decomposed),
+                "mech321_chunks_marked_unreliable": int(n_marked_unreliable),
+                "mech321_leaf_tiles_added": int(len(decomposed_out)),
+            })
+        return kept + decomposed_out
 
     def _build_chunk_candidates(
         self,
@@ -1564,6 +1795,16 @@ class HippocampalModule(nn.Module):
         # preserved. Default OFF -> no call, bit-identical.
         if getattr(self.config, "use_chunk_proposal_injection", False):
             chunk_cands = self._build_chunk_candidates(
+                z_self=z_self,
+                z_world=z_world,
+                action_bias=action_bias,
+            )
+            # ARC-070/MECH-321: withhold-or-decompose a chunk candidate under
+            # prediction failure before it ever reaches the pool. No-op
+            # (chunk_cands returned unchanged) when use_policy_decomposition
+            # is off -- bit-identical to pre-MECH-321 behaviour.
+            chunk_cands = self._apply_policy_decomposition(
+                chunk_cands,
                 z_self=z_self,
                 z_world=z_world,
                 action_bias=action_bias,

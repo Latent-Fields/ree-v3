@@ -3578,6 +3578,38 @@ class REEConfig:
     # Splice crystallised chunks into the hippocampal candidate pool as single
     # selectable Trajectories. Mirrored onto config.hippocampal.
     use_chunk_proposal_injection: bool = False
+    # ------------------------------------------------------------------
+    # ARC-070 policy_decomposition_via_event_segmenter (MECH-321): the
+    # DECOMPOSITION inverse of ARC-071 above (zoom in vs zoom out; both are
+    # ARC-069 dynamic-regranularisation children). Withholds or re-segments
+    # an ARC-071 chunk candidate under prediction failure -- R1 trigger is
+    # V_s drop on the candidate's own predicted region OR a MECH-288
+    # rollout-stream boundary firing on it (R2 LOAD-BEARING: bidirectional
+    # consumer of the MECH-288 event_segmenter substrate, not a parallel
+    # detector). Asymmetric with ARC-071: FAST, V_s-driven, SIMULATION-side
+    # (vs ARC-071's SLOW, repetition-driven, EXECUTION-side) -- and it
+    # legitimately fires under hypothesis_tag=True during rollout
+    # deliberation (that is its primary phase), unlike ARC-071's strict
+    # MECH-094 write-refusal. No sub-config mirror needed: unlike
+    # use_chunk_proposal_injection above, HippocampalModule never reads
+    # use_policy_decomposition from its own config -- it acts purely on
+    # whether set_decomposition_source() was called (same pattern as
+    # use_policy_chunking / _chunk_source), so REEAgent's construction-time
+    # getattr is the only read site. Master switch default False ->
+    # bit-identical (HippocampalModule never registers a decomposition
+    # source, never calls boundary_on(stream="rollout", ...)). See
+    # ree_core/policy/policy_decomposition.py and
+    # REE_assembly/docs/architecture/policy_primitive_granularity.md.
+    # ------------------------------------------------------------------
+    use_policy_decomposition: bool = False
+    # R1: V_s below this on a chunk candidate's own predicted region
+    # triggers decomposition. Matches this codebase's existing
+    # V_s-unreliability convention (vs_gate_e1_threshold /
+    # vs_gate_e2_threshold both default 0.4).
+    decomposition_vs_threshold: float = 0.4
+    # R3: depth cap (3-4 suggested); mirrors ARC-071's chunk_max_depth
+    # default of 3 so the inverse operations stay symmetric.
+    decomposition_depth_cap: int = 3
     # Safety cap on how many ticks the hold re-asserts a single natural-commit run
     # before disarming (guards a degenerate config from latching forever).
     # 0 -> unbounded (the hold persists until a principled release / the committed
@@ -5358,6 +5390,10 @@ class REEConfig:
         chunk_replay_value_quantile: float = 0.75,
         chunk_replay_corroboration_episodes: int = 75,
         use_chunk_proposal_injection: bool = False,
+        # ARC-070 policy decomposition via event segmenter (MECH-321).
+        use_policy_decomposition: bool = False,
+        decomposition_vs_threshold: float = 0.4,
+        decomposition_depth_cap: int = 3,
         # Post-603i E2 escape-affordance linker (readout over detached E2
         # action-consequence features; reuse, not a duplicate predictor).
         use_e2_escape_affordance_linker: bool = False,
@@ -6532,6 +6568,15 @@ class REEConfig:
         # Mirror onto the hippocampal sub-config: HippocampalModule reads its
         # own config object when assembling the candidate pool.
         config.hippocampal.use_chunk_proposal_injection = use_chunk_proposal_injection
+
+        # ARC-070 policy decomposition via event segmenter (MECH-321). No
+        # hippocampal sub-config mirror: HippocampalModule never reads
+        # use_policy_decomposition itself, only whether
+        # set_decomposition_source() was called (see config field docstring
+        # above and ree_core/agent.py).
+        config.use_policy_decomposition = use_policy_decomposition
+        config.decomposition_vs_threshold = decomposition_vs_threshold
+        config.decomposition_depth_cap = decomposition_depth_cap
 
         # MECH-341 (ARC-065 Layer-B child): e3_scoring_preserves_trajectory_
         # class_diversity

@@ -46,6 +46,11 @@ from ree_core.policy.policy_chunking import (
     PolicyChunking,
     PolicyChunkingConfig,
 )
+from ree_core.policy.policy_decomposition import (
+    DecompositionDecision,
+    PolicyDecomposition,
+    PolicyDecompositionConfig,
+)
 from ree_core.policy.rho_maintenance_ramp import (
     RhoMaintenanceRamp,
     RhoMaintenanceRampConfig,
@@ -68,6 +73,9 @@ __all__ = [
     "ChunkState",
     "PolicyChunking",
     "PolicyChunkingConfig",
+    "DecompositionDecision",
+    "PolicyDecomposition",
+    "PolicyDecompositionConfig",
     "CandidateRuleField",
     "CandidateRuleFieldConfig",
     "CommitMaintenanceRelease",
