@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -26,7 +28,48 @@ from experiments._lib.arm_fingerprint import compute_arm_fingerprint, FINGERPRIN
 from experiments._lib import arm_reuse as ar
 
 _REE_V3_ROOT = Path(__file__).resolve().parents[2]
-_REE_WORKING = _REE_V3_ROOT.parent
+
+# Git repo-location env vars a parent `git` process (e.g. the pre-commit
+# contract hook) may export; must be stripped from the subprocess call below,
+# not just relied on via conftest's session fixture, since this module-level
+# resolution runs at COLLECTION time, before any fixture executes.
+_GIT_LOCATION_ENV_VARS = (
+    "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX",
+    "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_INDEX_VERSION",
+    "GIT_CEILING_DIRECTORIES", "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+)
+
+
+def _resolve_ree_working_root(ree_v3_root: Path) -> Path:
+    """Locate REE_Working (parent of the REE_assembly sibling repo), worktree-aware.
+
+    `ree_v3_root.parent` only holds REE_assembly when THIS ree-v3 checkout sits
+    directly under REE_Working -- false from inside a `git worktree add`
+    checkout of ree-v3, which can be nested arbitrarily deep (e.g. under
+    ree-v3/.claude/worktrees/<slug>/ or REE_Working/.claude/worktrees/<slug>/).
+    `git rev-parse --git-common-dir` always resolves to the MAIN checkout's
+    .git directory regardless of worktree depth, so its grandparent is
+    REE_Working. Falls back to the naive sibling guess if git resolution fails
+    or the result doesn't actually contain REE_assembly.
+    """
+    env = {k: v for k, v in os.environ.items() if k not in _GIT_LOCATION_ENV_VARS}
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-common-dir"],
+            cwd=ree_v3_root, capture_output=True, text=True,
+            check=True, timeout=10, env=env,
+        )
+        main_git_dir = (ree_v3_root / result.stdout.strip()).resolve()
+        candidate = main_git_dir.parent.parent
+        if (candidate / "REE_assembly").is_dir():
+            return candidate
+    except Exception:
+        pass
+    return ree_v3_root.parent
+
+
+_REE_WORKING = _resolve_ree_working_root(_REE_V3_ROOT)
 _INDEXER_PATH = (
     _REE_WORKING / "REE_assembly" / "evidence" / "experiments" / "scripts"
     / "build_experiment_indexes.py"
