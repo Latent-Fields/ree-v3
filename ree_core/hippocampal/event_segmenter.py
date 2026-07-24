@@ -17,12 +17,23 @@ Two-level hierarchy (default):
 Cross-scale rule: when slow fires, inner resets to 0 (slow forces a
 fast reset). Fast fires increment inner only.
 
-MECH-094: simulation / replay content must not advance segment IDs.
-The segmenter does NOT enforce this itself -- the caller (agent.sense)
-invokes step() only on the waking observation stream. Replay paths
-that need segment IDs can pass through force_boundary() with an
-explicit reason, which is a logged API hook rather than a latent-driven
-fire.
+MECH-094: this is enforced STRUCTURALLY, not by call-site convention.
+step() / force_boundary() / boundary_on() all take an input_stream label
+("observation" | "rollout", default "observation"). Each stream has its
+own fully isolated detector instances and its own outer/inner/last-fire
+counters -- a rollout-stream tick can never advance the observation
+stream's segment_id or perturb its detector calibration (sliding-window
+mean/variance, BOCPD run-length posterior), because it touches different
+dict entries entirely. This is what makes MECH-288 usable as a
+bidirectional substrate (2026-05-10 ARC-070 lit-pull R2, LOAD-BEARING,
+conf 0.74): the rollout / imagination-side consumer (ARC-070/MECH-321,
+policy-side decomposition on prediction failure) queries the SAME
+detector class on a second, independent input channel rather than
+forking a parallel module. The caller (agent.sense) still only ever
+invokes the observation-stream path today; nothing yet calls with
+input_stream="rollout" until ARC-070/MECH-321 lands. boundary_on() is
+the ergonomic query entrypoint for that future rollout-side caller (see
+its docstring); the caller need not track a rollout tick counter itself.
 """
 
 from __future__ import annotations
@@ -52,6 +63,24 @@ class BoundaryEvent:
     posterior: float      # graded boundary strength in [0, 1]
     sources: List[str]    # contributing streams or "force"/"force:<reason>"
     t: int                # tick at which the boundary fired
+    input_stream: str = "observation"   # "observation" | "rollout"; see MECH-094 note above
+
+
+@dataclass
+class BoundaryQueryResult:
+    """Return value of boundary_on() -- a single-tick fired/posterior summary.
+
+    step() returns a List[BoundaryEvent] because a tick can (in principle)
+    fire more than one non-slow scale; boundary_on() is a query-style
+    convenience for a caller (ARC-070/MECH-321) that just wants "did a
+    boundary fire on my region this tick, and how strong". fired is True
+    iff step() returned at least one event; posterior is the max posterior
+    among the scales that fired (0.0 if none fired). events carries the
+    raw BoundaryEvent list for callers that need scale/sources detail.
+    """
+    fired: bool
+    posterior: float
+    events: List[BoundaryEvent] = field(default_factory=list)
 
 
 @dataclass
@@ -354,7 +383,18 @@ class EventSegmenter:
     segment_id_format "{outer}.{inner}" is the default. Consumers may
     pass a different format string, but the current implementation
     always produces two numeric fields separated by ".".
+
+    Bidirectional substrate (input_stream): every piece of per-tick state
+    -- detector instances, last-fire ticks, outer/inner counters -- is
+    keyed by input_stream ("observation" | "rollout"), built once at
+    construction time for BOTH streams regardless of which one the caller
+    ever actually uses. This is the MECH-094 enforcement mechanism: the
+    two streams cannot share so much as a sliding-window mean, so a
+    rollout-stream tick cannot perturb the observation stream's state by
+    construction, not by caller discipline. See module docstring.
     """
+
+    _STREAMS: Tuple[str, ...] = ("observation", "rollout")
 
     def __init__(
         self,
@@ -369,16 +409,21 @@ class EventSegmenter:
         self.emit_to: List[str] = list(emit_to or [])
         self.scale_id_format: str = scale_id_format
         self.slow_scale_name: str = slow_scale_name
-        # Build per-scale detector instances.
-        self._detectors: Dict[str, Any] = {}
-        for sc in self.scales:
-            self._detectors[sc.name] = self._build_detector(sc)
-        # Track last-fire tick per scale for min_segment_length guard.
-        self._last_fire_t: Dict[str, int] = {sc.name: -10**9 for sc in self.scales}
-        # Hierarchical segment counters.
-        self._outer: int = 0
-        self._inner: int = 0
-        self._t_last_seen: int = -1
+        # Per-stream detector instances -- fully independent per (stream, scale)
+        # so a rollout tick can never share window/posterior state with the
+        # observation stream's calibration.
+        self._detectors: Dict[str, Dict[str, Any]] = {
+            stream: {sc.name: self._build_detector(sc) for sc in self.scales}
+            for stream in self._STREAMS
+        }
+        # Track last-fire tick per (stream, scale) for min_segment_length guard.
+        self._last_fire_t: Dict[str, Dict[str, int]] = {
+            stream: {sc.name: -10**9 for sc in self.scales} for stream in self._STREAMS
+        }
+        # Per-stream hierarchical segment counters.
+        self._outer: Dict[str, int] = {stream: 0 for stream in self._STREAMS}
+        self._inner: Dict[str, int] = {stream: 0 for stream in self._STREAMS}
+        self._t_last_seen: Dict[str, int] = {stream: -1 for stream in self._STREAMS}
 
     # ------------------------------------------------------------------ #
     # Construction                                                       #
@@ -415,47 +460,73 @@ class EventSegmenter:
     # Public API                                                         #
     # ------------------------------------------------------------------ #
 
-    def current_segment_id(self) -> str:
-        return self.scale_id_format.format(outer=self._outer, inner=self._inner)
+    def _check_stream(self, input_stream: str) -> None:
+        if input_stream not in self._STREAMS:
+            raise ValueError(
+                f"Unknown input_stream: {input_stream!r} (expected one of "
+                f"{self._STREAMS})"
+            )
+
+    def current_segment_id(self, input_stream: str = "observation") -> str:
+        self._check_stream(input_stream)
+        return self.scale_id_format.format(
+            outer=self._outer[input_stream], inner=self._inner[input_stream]
+        )
 
     def reset(self) -> None:
-        for det in self._detectors.values():
-            det.reset()
-        self._last_fire_t = {sc.name: -10**9 for sc in self.scales}
-        self._outer = 0
-        self._inner = 0
-        self._t_last_seen = -1
+        """Reset ALL streams' state (observation and rollout alike).
+
+        Existing callers only ever exercised the observation stream, so
+        resetting both is bit-identical to the pre-extension single-stream
+        reset() for every current caller; it also means a future rollout
+        caller never inherits stale state across an episode boundary.
+        """
+        for stream in self._STREAMS:
+            for det in self._detectors[stream].values():
+                det.reset()
+            self._last_fire_t[stream] = {sc.name: -10**9 for sc in self.scales}
+            self._outer[stream] = 0
+            self._inner[stream] = 0
+            self._t_last_seen[stream] = -1
 
     def step(
         self,
         latent_dict: Dict[str, Optional[torch.Tensor]],
         pe_dict: Optional[Dict[str, float]],
         t: int,
+        input_stream: str = "observation",
     ) -> List[BoundaryEvent]:
-        """Tick the segmenter once. Returns the list of BoundaryEvents fired.
+        """Tick the segmenter once on `input_stream`. Returns the fired BoundaryEvents.
 
-        Evaluation order: slow first, then fast. Slow-fire resets inner
-        and suppresses a fast event on the same tick (slow forces the
-        inner reset; emitting both would double-count the boundary
-        signal and mislead downstream consumers).
+        input_stream defaults to "observation" -- every existing call site
+        (agent.sense) is unaffected. Evaluation order: slow first, then
+        fast. Slow-fire resets inner and suppresses a fast event on the
+        same tick (slow forces the inner reset; emitting both would
+        double-count the boundary signal and mislead downstream
+        consumers). All state touched below is looked up by input_stream
+        first, so an "rollout" tick never reads or writes the
+        "observation" stream's detectors or counters (MECH-094).
         """
+        self._check_stream(input_stream)
         pe_dict = pe_dict or {}
         events: List[BoundaryEvent] = []
+        detectors = self._detectors[input_stream]
+        last_fire_t = self._last_fire_t[input_stream]
         # Slow scales first.
         slow_fired = False
         for sc in self.scales:
             if sc.name != self.slow_scale_name:
                 continue
-            det = self._detectors[sc.name]
+            det = detectors[sc.name]
             fired, posterior, sources = det.step(
                 tuple(sc.streams), latent_dict, pe_dict
             )
-            if fired and (t - self._last_fire_t[sc.name]) >= sc.min_segment_length:
-                old_id = self.current_segment_id()
-                self._outer += 1
-                self._inner = 0
-                new_id = self.current_segment_id()
-                self._last_fire_t[sc.name] = t
+            if fired and (t - last_fire_t[sc.name]) >= sc.min_segment_length:
+                old_id = self.current_segment_id(input_stream)
+                self._outer[input_stream] += 1
+                self._inner[input_stream] = 0
+                new_id = self.current_segment_id(input_stream)
+                last_fire_t[sc.name] = t
                 events.append(BoundaryEvent(
                     segment_id_old=old_id,
                     segment_id_new=new_id,
@@ -463,6 +534,7 @@ class EventSegmenter:
                     posterior=float(posterior),
                     sources=list(sources),
                     t=int(t),
+                    input_stream=input_stream,
                 ))
                 slow_fired = True
 
@@ -470,7 +542,7 @@ class EventSegmenter:
         for sc in self.scales:
             if sc.name == self.slow_scale_name:
                 continue
-            det = self._detectors[sc.name]
+            det = detectors[sc.name]
             fired, posterior, sources = det.step(
                 tuple(sc.streams), latent_dict, pe_dict
             )
@@ -480,13 +552,13 @@ class EventSegmenter:
                 # detector's min_segment_length suppression remains
                 # correctly anchored.
                 if fired:
-                    self._last_fire_t[sc.name] = t
+                    last_fire_t[sc.name] = t
                 continue
-            if fired and (t - self._last_fire_t[sc.name]) >= sc.min_segment_length:
-                old_id = self.current_segment_id()
-                self._inner += 1
-                new_id = self.current_segment_id()
-                self._last_fire_t[sc.name] = t
+            if fired and (t - last_fire_t[sc.name]) >= sc.min_segment_length:
+                old_id = self.current_segment_id(input_stream)
+                self._inner[input_stream] += 1
+                new_id = self.current_segment_id(input_stream)
+                last_fire_t[sc.name] = t
                 events.append(BoundaryEvent(
                     segment_id_old=old_id,
                     segment_id_new=new_id,
@@ -494,13 +566,20 @@ class EventSegmenter:
                     posterior=float(posterior),
                     sources=list(sources),
                     t=int(t),
+                    input_stream=input_stream,
                 ))
 
-        self._t_last_seen = t
+        self._t_last_seen[input_stream] = t
         return events
 
-    def force_boundary(self, scale: str, reason: str, t: Optional[int] = None) -> BoundaryEvent:
-        """Emit an explicit boundary event (supervised / scripted path).
+    def force_boundary(
+        self,
+        scale: str,
+        reason: str,
+        t: Optional[int] = None,
+        input_stream: str = "observation",
+    ) -> BoundaryEvent:
+        """Emit an explicit boundary event on `input_stream` (supervised / scripted path).
 
         Bypasses the detector's latent-driven fire logic AND the
         min_segment_length suppression (callers use this as an API hook
@@ -508,20 +587,23 @@ class EventSegmenter:
         what they are doing).
 
         Increments counters per the scale-name rule: slow forces outer+1
-        / inner=0; any other scale increments inner only.
+        / inner=0; any other scale increments inner only. input_stream
+        defaults to "observation" so every existing caller is unaffected.
         """
-        if scale not in self._detectors:
+        self._check_stream(input_stream)
+        if scale not in self._detectors[input_stream]:
             raise ValueError(f"Unknown scale: {scale}")
+        t_last_seen = self._t_last_seen[input_stream]
         if t is None:
-            t = self._t_last_seen + 1 if self._t_last_seen >= 0 else 0
-        old_id = self.current_segment_id()
+            t = t_last_seen + 1 if t_last_seen >= 0 else 0
+        old_id = self.current_segment_id(input_stream)
         if scale == self.slow_scale_name:
-            self._outer += 1
-            self._inner = 0
+            self._outer[input_stream] += 1
+            self._inner[input_stream] = 0
         else:
-            self._inner += 1
-        self._last_fire_t[scale] = int(t)
-        new_id = self.current_segment_id()
+            self._inner[input_stream] += 1
+        self._last_fire_t[input_stream][scale] = int(t)
+        new_id = self.current_segment_id(input_stream)
         return BoundaryEvent(
             segment_id_old=old_id,
             segment_id_new=new_id,
@@ -529,4 +611,49 @@ class EventSegmenter:
             posterior=1.0,
             sources=[f"force:{reason}"],
             t=int(t),
+            input_stream=input_stream,
+        )
+
+    def boundary_on(
+        self,
+        stream: str,
+        latent: Dict[str, Optional[torch.Tensor]],
+        pe: Optional[Dict[str, float]] = None,
+        t: Optional[int] = None,
+    ) -> BoundaryQueryResult:
+        """Query-style entrypoint for the rollout/imagination consumer (ARC-070/MECH-321).
+
+        Wraps step() with two ergonomics MECH-321's spec calls for
+        (claims.yaml MECH-321 functional_restatement: `MECH-288.boundary_on
+        (stream=rollout, latent=p.latent_signature, pe=p.pe_signature)`,
+        used as `if ... or boundary.fired`):
+
+          1. Auto-increments a per-stream tick counter when `t` is omitted,
+             so a rollout-side caller iterating chunked primitives in a
+             rollout trajectory does not need to track its own tick index
+             -- it has no natural relationship to the observation stream's
+             `t` (agent._step_count) anyway, since a rollout evaluates a
+             hypothetical trajectory, not the lived one.
+          2. Collapses step()'s List[BoundaryEvent] (0, 1, or -- in
+             principle -- more events per tick) into a single fired/
+             posterior summary: fired = True iff any scale fired this
+             tick; posterior = the max posterior among scales that fired
+             (0.0 if none fired). Callers needing per-scale detail can
+             still read `.events`.
+
+        Never called with input_stream="observation" implicitly or
+        otherwise routed to the observation-only consumers (MECH-269
+        anchor sets, MECH-287 broadcast) -- this method never touches the
+        _boundary_event_queue those subscribe to; that wiring belongs to
+        whatever HippocampalModule-side code ARC-070/MECH-321 adds, not to
+        this substrate method.
+        """
+        self._check_stream(stream)
+        if t is None:
+            t_last_seen = self._t_last_seen[stream]
+            t = t_last_seen + 1 if t_last_seen >= 0 else 0
+        events = self.step(latent_dict=latent, pe_dict=pe, t=t, input_stream=stream)
+        posterior = max((e.posterior for e in events), default=0.0)
+        return BoundaryQueryResult(
+            fired=bool(events), posterior=float(posterior), events=events
         )

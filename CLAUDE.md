@@ -5535,6 +5535,58 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
   event_segmenter is None; drain_boundary_events() returns []; all
   existing experiments unaffected. 65/65 contracts + 7/7 preflight
   PASS with flag OFF (bit-identical to legacy).
+
+  **input_stream extension -- IMPLEMENTED 2026-07-24.** Substrate
+  prerequisite for ARC-070/MECH-321 (policy_decomposition_on_prediction_failure),
+  per the 2026-05-10 ARC-070 lit-pull R2 bidirectional-consumer commitment
+  (claims.yaml MECH-288 notes). step(), force_boundary(), and a new
+  boundary_on() query entrypoint all take input_stream: str = "observation"
+  ("observation" | "rollout"). Detector instances (_PEThresholdDetector /
+  _BOCPDGaussianDetector) and the outer/inner/last-fire-tick counters are
+  now keyed per-stream, built for both streams at construction time -- a
+  rollout-stream tick cannot share so much as a sliding-window mean or
+  BOCPD run-length posterior with the observation stream, and cannot
+  advance observation's segment_id, by construction (different dict keys),
+  not by caller convention. This is the MECH-094 enforcement mechanism.
+  Data flow: (agent.py sense() OR a future ARC-070/MECH-321 rollout-side
+  caller) -> EventSegmenter.step(..., input_stream=...) -> per-stream
+  detectors/counters -> BoundaryEvent(input_stream=...) -> observation-
+  stream events still queue to hippocampal._boundary_event_queue for
+  MECH-287/MECH-269 exactly as before; rollout-stream events do NOT --
+  boundary_on()'s BoundaryQueryResult (fired: bool, posterior: float,
+  events: List[BoundaryEvent]) is returned directly to the caller, and
+  routing it anywhere is ARC-070/MECH-321's own future wiring, not this
+  substrate's.
+  boundary_on(stream, latent, pe=None, t=None) matches the call shape
+  MECH-321's spec names verbatim (claims.yaml MECH-321
+  functional_restatement: `MECH-288.boundary_on(stream=rollout,
+  latent=p.latent_signature, pe=p.pe_signature)`); it auto-increments a
+  per-stream tick counter when t is omitted (a rollout evaluates a
+  hypothetical trajectory with no natural relationship to agent._step_count)
+  and collapses step()'s List[BoundaryEvent] into a single fired/posterior
+  summary.
+  Config: none added. input_stream is a per-call parameter, not a
+  persistent switch -- activation is still gated by the pre-existing
+  HippocampalConfig.use_event_segmenter.
+  Backward compatible: default input_stream="observation" is bit-identical
+  to the pre-extension single-stream call shape for every existing caller;
+  the one live call site (agent.py sense()) is unchanged and untouched.
+  reset() now resets BOTH streams (was a no-op behavioural change for
+  every current caller, since rollout state was previously nonexistent).
+  MECH-094: applies, and is this extension's whole purpose -- see above.
+  Phased training: N/A, no encoder or trainable head.
+  61/61 downstream-consumer contracts PASS (test_mech_288_event_segmenter,
+  test_mech_269_anchor_set, test_mech_269_per_region_vs,
+  test_mech_287_invalidation_trigger, test_q081_landmark_removal) plus an
+  inline smoke test (stream isolation under hammering, boundary_on firing
+  with posterior on an injected PE spike, force_boundary isolation, dual
+  reset, unknown-stream ValueError).
+  Does not itself change MECH-288's promote-to-active status or clear
+  MECH-321's v3_pending (ARC-070 itself and live MECH-094-gated usage
+  remain unbuilt). Validation experiment: queued via /queue-experiment
+  (diagnostic purpose -- see queue entry for the EXQ id).
+  See MECH-288, MECH-321, ARC-070 in claims.yaml;
+  REE_assembly/docs/architecture/event_segmenter.md.
   Activation smoke (2026-04-22): default agent constructed with
   use_event_segmenter=True instantiates both scales; fresh
   current_segment_id() == "0.0"; boundary queue drains to [] on
