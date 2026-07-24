@@ -25,15 +25,34 @@
 # block plain-CLI commits -- exactly the committers most likely to be a few commits
 # behind -- on transient state unrelated to what they are committing.
 #
+# WORKTREE-AWARE: REPO is resolved via `git rev-parse --show-toplevel`, called before
+# anything else touches cwd, NOT a hardcoded path. Git invokes hooks with cwd (and
+# GIT_DIR/GIT_INDEX_FILE) already correct for the working tree the commit is happening
+# in -- including a `git worktree add` checkout of ree-v3 other than the primary shared
+# one (confirmed empirically 2026-07-24) -- so a worktree's commit validates its OWN
+# tree with no REE_WORKING_ROOT override needed. Fixes the dazzling-taussig-f58f4c
+# worktree-blindness bug: before this, REPO was always $REE_WORKING_ROOT/ree-v3
+# regardless of which tree was actually being committed, so a worktree commit's Block 1
+# read staged files off the wrong disk path (FileNotFoundError for anything new only in
+# the worktree) and Block 2 ran contracts against the wrong -- possibly
+# multi-session-dirty -- tree. Falls back to the historical hardcoded path only if git
+# rev-parse fails (e.g. a manual, non-hook invocation with no git context).
+#
 # Mac / developer machines only. Do NOT install on cloud workers / the hub -- they run
 # 24/7 phase3 writers and never author experiment scripts.
-ROOT="${REE_WORKING_ROOT:-/Users/dgolden/REE_Working}"
-REPO="$ROOT/ree-v3"
+REPO="$(git rev-parse --show-toplevel 2>/dev/null)"
+if [ -z "$REPO" ]; then
+    ROOT="${REE_WORKING_ROOT:-/Users/dgolden/REE_Working}"
+    REPO="$ROOT/ree-v3"
+fi
 
 # Contract + manifest-writer chokepoint gate. Propagate the exit code so a blocked
-# commit (precommit_contracts.sh exit 2) aborts the commit.
+# commit (precommit_contracts.sh exit 2) aborts the commit. precommit_contracts.sh
+# resolves its OWN repo root the same worktree-aware way (see its header comment), so no
+# CLAUDE_PROJECT_DIR override is needed here -- that was only ever a hack to reuse its
+# old (non-worktree-aware) resolution logic.
 if [ -x "$REPO/scripts/precommit_contracts.sh" ]; then
-    CLAUDE_PROJECT_DIR="$ROOT" bash "$REPO/scripts/precommit_contracts.sh"
+    bash "$REPO/scripts/precommit_contracts.sh"
     rc=$?
     [ "$rc" -eq 0 ] || exit "$rc"
 fi

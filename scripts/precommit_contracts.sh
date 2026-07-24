@@ -26,17 +26,53 @@ if [ "${1:-}" = "--no-block" ]; then
     NO_BLOCK=1
 fi
 
-# Resolve ree-v3 repo root. Prefer CLAUDE_PROJECT_DIR (set by the harness
-# when the hook runs) but fall back to this script's own location for
-# manual invocation.
-if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ -d "$CLAUDE_PROJECT_DIR/ree-v3" ]; then
-    REPO="$CLAUDE_PROJECT_DIR/ree-v3"
-else
+# Resolve ree-v3 repo root, worktree-aware. Priority order, each tier
+# accepted only if it actually looks like a ree-v3 checkout (has ree_core/
+# and tests/contracts/) -- see is_ree_v3_repo below:
+#
+#  1. `git rev-parse --show-toplevel`, called BEFORE anything else touches
+#     cwd. Git invokes hooks with the working tree already correct for the
+#     commit in question -- including a `git worktree add` checkout of
+#     ree-v3 other than the primary shared one (confirmed empirically: cwd
+#     is the worktree root, and GIT_DIR/GIT_INDEX_FILE are set to that
+#     worktree's own gitdir/index, both inherited by this script when
+#     invoked via pre-commit.local). This is what makes a worktree's commit
+#     validate ITS OWN staged tree by default -- the fix for the
+#     dazzling-taussig-f58f4c worktree-blindness bug (2026-07-24): before
+#     this, a script that existed only in the worktree made Block 1 read it
+#     off the wrong (shared-checkout) disk path and fail with
+#     FileNotFoundError, and Block 2 ran contracts against the shared
+#     checkout's unrelated -- possibly multi-session-dirty -- tree instead
+#     of what was actually staged.
+#  2. CLAUDE_PROJECT_DIR/ree-v3 -- set by the Claude Code harness. Correct
+#     when cwd is NOT inside any ree-v3 tree at all, e.g. a Claude Code
+#     umbrella-repo worktree session (`.claude/worktrees/<slug>`, which has
+#     no ree-v3 of its own) invoking this via the settings.json PreToolUse
+#     hook rather than the git-level one.
+#  3. this script's own on-disk location -- last resort for manual
+#     invocation with neither of the above.
+#
+# A resolved candidate that ISN'T a real ree-v3 checkout is rejected and the
+# next tier tried, rather than exiting 0 outright -- so an umbrella-worktree
+# session (tier 1 resolves to the umbrella repo, not ree-v3) still falls
+# through to tier 2/3 instead of silently skipping the gate.
+is_ree_v3_repo() {
+    [ -n "$1" ] && [ -d "$1/ree_core" ] && [ -d "$1/tests/contracts" ]
+}
+
+REPO="$(git rev-parse --show-toplevel 2>/dev/null)"
+if ! is_ree_v3_repo "$REPO"; then
+    REPO=""
+    if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && is_ree_v3_repo "$CLAUDE_PROJECT_DIR/ree-v3"; then
+        REPO="$CLAUDE_PROJECT_DIR/ree-v3"
+    fi
+fi
+if ! is_ree_v3_repo "$REPO"; then
     SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
     REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
 fi
 
-if [ ! -d "$REPO/ree_core" ] || [ ! -d "$REPO/tests/contracts" ]; then
+if ! is_ree_v3_repo "$REPO"; then
     # Defensive: if the ree-v3 layout isn't what we expect, don't block
     # arbitrary commits.
     exit 0
