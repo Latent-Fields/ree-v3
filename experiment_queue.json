@@ -35,7 +35,11 @@
       "machine_affinity": "any",
       "estimated_minutes": 210,
       "note": "Redesign of the stale 2026-06-03 V3-EXQ-631 proposal (gap4 regime, never queued -- phantom duplicate id, see WORKSPACE_STATE.md 2026-07-21T17:34Z) onto the scaffolded_sd054_onboarding substrate per the 2026-06-09 GAP-4-closure governance gating note in claims.yaml MECH-295. GOV-REUSE-1 checked: no run since 2026-06-09 has re-exercised the MECH-295 bridge or measured selected-candidate-vs-pool-mean proximity (last bridge-signal read was 490k, pre-603n substrate) -- not recoverable, run queued. Re-derive brake checked: only 1 prior substrate_ceiling autopsy tags MECH-295 (490k), below the 2-count threshold -- not braked. Substrate readiness confirmed (scaffolded_sd054_onboarding ready=true since 2026-06-11, 603n; reaffirmed 2026-07-10). experiment_purpose=diagnostic, claim_ids=[] (isolates cue authority; does not adjudicate MECH-295, matching the 490k/631-proposal precedent). 2 arms (ARM_CUE_ON natural gain vs ARM_CUE_OFF severed at P2 eval-time only) on the SAME per-seed trained agent -- dropped the original proposal's third forced-z_goal arm since this substrate now forms z_goal reliably (603n G3 gate).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-07-24T05:10:48Z"
+      },
       "claim_ids": [],
       "conditions": 1,
       "episodes_per_run": 250,
