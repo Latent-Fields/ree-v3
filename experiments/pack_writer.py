@@ -151,6 +151,76 @@ def _git_value(args: list, cwd: Path) -> Optional[str]:
         return None
 
 
+REE_ASSEMBLY_EVIDENCE_SUBPATH = ("evidence", "experiments")
+
+# Git repo-location env vars a parent `git` process (e.g. a pre-commit hook
+# shelling out to a python script) may export into our environment; must be
+# stripped before the subprocess call below, or `git rev-parse` resolves
+# against whatever repo the PARENT process was pointed at instead of the
+# script's own checkout. Same list as tests/contracts/test_arm_reuse.py's
+# _resolve_ree_working_root (the sibling fix for this exact bug class).
+_GIT_LOCATION_ENV_VARS = (
+    "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX",
+    "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_INDEX_VERSION",
+    "GIT_CEILING_DIRECTORIES", "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+)
+
+
+def _looks_like_ree_assembly(candidate: Path) -> bool:
+    return candidate.is_dir() and candidate.joinpath(*REE_ASSEMBLY_EVIDENCE_SUBPATH).is_dir()
+
+
+def resolve_evidence_experiments_dir(script_path: Union[str, Path]) -> Path:
+    """Locate REE_assembly/evidence/experiments/, worktree-aware.
+
+    Historically every experiment script's __main__ computed this path inline as
+    ``Path(__file__).resolve().parents[2] / "REE_assembly" / "evidence" / "experiments"``,
+    which silently assumes the script's ree-v3 checkout sits directly under
+    REE_Working/ with REE_assembly as a sibling. That assumption breaks for a
+    script run from inside a `git worktree add` checkout nested under the repo's
+    own tree -- confirmed real shape: ree-v3/.claude/worktrees/<slug>/experiments/
+    <script>.py, where parents[2] lands on ree-v3/.claude/worktrees/ instead of
+    REE_Working/. ``mkdir -p`` then happily creates a wrong tree there and the
+    manifest is silently dropped where the indexer never scans it (confirmed
+    2026-07-24 during a --dry-run smoke test for V3-EXQ-815, session
+    gracious-villani-1d1ac4 -- caught only because the printed ``wrote:`` path
+    looked wrong; same bug class independently hit and fixed the same day in
+    scripts/git-hooks/pre-commit.local, scripts/remote_pytest.sh, and
+    tests/contracts/test_arm_reuse.py's _resolve_ree_working_root).
+
+    Resolution mirrors that last fix exactly: `git rev-parse --git-common-dir`
+    from the script's own directory always resolves to the MAIN (non-worktree)
+    checkout's .git directory, regardless of how deeply nested the actual
+    worktree checkout is -- a worktree's private gitdir is a pointer file, but
+    the *common* dir is shared and lives inside the primary checkout. Its
+    grandparent is therefore REE_Working, whatever tree the script is running
+    from. Falls back to the historical hardcoded parents[2] arithmetic if git
+    resolution fails (not a git repo, git unavailable) or the candidate doesn't
+    actually look like a real REE_assembly checkout.
+    """
+    script_path = Path(script_path).resolve()
+    start = script_path.parent
+
+    env = {k: v for k, v in os.environ.items() if k not in _GIT_LOCATION_ENV_VARS}
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-common-dir"],
+            cwd=str(start), capture_output=True, text=True,
+            check=True, timeout=10, env=env,
+        )
+        main_git_dir = (start / result.stdout.strip()).resolve()
+        candidate = main_git_dir.parent.parent / "REE_assembly"
+        if _looks_like_ree_assembly(candidate):
+            return candidate.joinpath(*REE_ASSEMBLY_EVIDENCE_SUBPATH)
+    except Exception:
+        pass
+
+    # Historical fallback: only reached when git resolution fails or doesn't
+    # land on a real REE_assembly checkout.
+    return script_path.parents[2] / "REE_assembly" / "evidence" / "experiments"
+
+
 class ExperimentPackWriter:
     """Reusable writer for Experiment Pack v1 artifacts (V3)."""
 
@@ -282,7 +352,7 @@ def _resolve_flat_status(manifest: Mapping[str, Any]) -> Optional[str]:
 
 def write_flat_manifest(
     manifest: dict,
-    out_dir: Union[str, Path],
+    out_dir: Optional[Union[str, Path]] = None,
     *,
     dry_run: bool = False,
     config: Optional[Mapping[str, Any]] = None,
@@ -304,6 +374,14 @@ def write_flat_manifest(
     gets (a) the always-record core stamped via
     ``experiments/_lib/manifest_core.stamp_recording_core`` and (b) the identity
     invariants the whole downstream chain depends on, enforced at emission.
+
+    ``out_dir`` may be omitted (``None``): it is then auto-resolved via
+    ``resolve_evidence_experiments_dir(script_path)``, which is worktree-aware --
+    prefer this over the historical inline
+    ``Path(__file__).resolve().parents[2] / "REE_assembly" / "evidence" / "experiments"``
+    (silently wrong when the script runs from a nested `git worktree add`
+    checkout; see that function's docstring). Omitting ``out_dir`` requires
+    ``script_path``.
 
     It writes the flat manifest to ``<out_dir>/<run_id>.json`` (or
     ``_dry_<run_id>.json`` when ``dry_run``), which is the exact path/keying the
@@ -381,6 +459,15 @@ def write_flat_manifest(
                 )
             except Exception:
                 pass
+
+    if out_dir is None:
+        if not script_path:
+            raise ValueError(
+                "write_flat_manifest requires out_dir or script_path (to "
+                "auto-resolve REE_assembly/evidence/experiments via "
+                "resolve_evidence_experiments_dir) -- pass one explicitly"
+            )
+        out_dir = resolve_evidence_experiments_dir(script_path)
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
