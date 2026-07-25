@@ -81,25 +81,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-806",
-      "title": "SD-078 validation: centered CandidateRuleField context key (ARC-063 GAP-B)",
-      "script": "experiments/v3_exq_806_sd078_centered_rule_field_context_key.py",
-      "priority": 44,
-      "machine_affinity": "any",
-      "estimated_minutes": 25,
-      "claim_id": "SD-078",
-      "note": "SD-SD-078 validation, re-landed after 2026-07-25 crash + phase3-queue race dropped the git append; POSTed to coordinator DB for durable ingress. Code+scripts+contracts on origin/main 0ec3ef61f1.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-07-25T19:05:41Z"
-      },
-      "conditions": 2,
-      "episodes_per_run": 12,
-      "experiment_type": "v3_exq_806_sd078_centered_rule_field_context_key",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-807",
       "title": "SD-079 validation: centered z_goal goal-anchor match (MECH-292 floor + MECH-339 outshining)",
       "script": "experiments/v3_exq_807_sd079_centered_goal_anchor_match.py",
@@ -108,7 +89,11 @@
       "estimated_minutes": 20,
       "claim_id": "SD-079",
       "note": "SD-SD-079 validation, re-landed after 2026-07-25 crash + phase3-queue race dropped the git append; POSTed to coordinator DB for durable ingress. Code+scripts+contracts on origin/main 0ec3ef61f1.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-3",
+        "claimed_at": "2026-07-25T19:10:44Z"
+      },
       "conditions": 2,
       "episodes_per_run": 8,
       "experiment_type": "v3_exq_807_sd079_centered_goal_anchor_match",
