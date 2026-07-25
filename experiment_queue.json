@@ -46,23 +46,49 @@
       "seeds": 5
     },
     {
-      "queue_id": "V3-EXQ-818",
-      "title": "ARC-016 residual validation: eval-derived commit threshold + graded-noise E3 precision sweep (monotonic tracking; structural, no harm DV; smoke PASS)",
-      "script": "experiments/v3_exq_818_arc016_eval_derived_noise_precision_sweep.py",
-      "priority": 50,
+      "queue_id": "V3-EXQ-819",
+      "title": "competence_floor R4: prediction-trained z_world vs frozen random-projection (MECH-457/INV-088 instrument-validity)",
+      "script": "experiments/v3_exq_819_mech457_inv088_zworld_trained_vs_random.py",
+      "priority": 48,
       "machine_affinity": "any",
-      "estimated_minutes": 45,
-      "claim_id": "ARC-016",
-      "note": "Residual gate between ARC-016 provisional and shown (what_would_answer + 2026-07-25 /claim-synthesis rescore, claim_synthesis_arc-016_2026-07-25.md). Re-runs the EXQ-396 design with an EVAL-DERIVED, held-fixed commit threshold, but replaces the fragile env-difficulty precision lever (which moved eval rv only 5.6% in V3-EXQ-805 -> substrate_not_ready) with graded Gaussian noise injected into the E3 world_forward prediction-error path, swept across 5 levels whose sigma is calibrated per-seed from the measured eval baseline so the running-variance brackets the threshold BY CONSTRUCTION. Tests MONOTONIC tracking (Spearman rho[rv,commit_rate]) with the non-degeneracy precondition (commit_rate range >= 0.30 + manipulation-took) as a self-route, never a verdict. STRUCTURAL circuit only (ARC-016); NO behavioural harm DV (that is ARC-029; would re-import the V_s monostrategy-lock confound). PASS=eval-time threshold engages and commit_rate tracks precision monotonically (calibration artefact confirmed, validation stands, promotes nothing); FAIL with gate GREEN=first genuine evidence against the circuit. Re-derive brake count for ARC-016 = 0 (prior autopsies are instrument/measurement defects, not substrate_ceiling). GOV-REUSE-1: decisive readout carried by no manifest (805 records no per-level noise sweep; 018b/396 derive threshold from training variance) -> must run. Smoke PASS: rho -0.95, commit_rate [1,1,0.86,0,0], manip_took 19x. NOTE: this session (failure-autopsy-707c-809-6bce04) committed 818 from HEAD's clean queue to avoid sweeping in unclaimed abandoned staged entries V3-EXQ-806/807 (SD-078/079) present in the shared working tree; those were restored to the working tree post-commit, not committed here.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-07-25T18:45:45Z"
-      },
-      "conditions": 1,
-      "episodes_per_run": 480,
-      "experiment_type": "v3_exq_818_arc016_eval_derived_noise_precision_sweep",
-      "seeds": 4
+      "estimated_minutes": 720,
+      "claim_id": "MECH-457",
+      "note": "competence_floor R4 INSTRUMENT-VALIDITY leg (D12), routed in competence_floor_reposing_2026-07-20.md sec 4 R4, re-confirmed unblocked 2026-07-25. DIAGNOSTIC (claim_ids MECH-457+INV-088; excluded from scoring); PROMOTES/DEMOTES NOTHING; route to /failure-autopsy. Q: does a prediction-trained z_world confer any competence advantage over a frozen random-projection z_world of the same dimensionality? 2 arms (zworld_random_proj zworld_p0=0 vs zworld_trained zworld_p0=60), both cotrain=False (z_world DETACHED per the user-specified reference build) so only the encoder's initial content differs; +3 anchors. Paired-per-seed competence-TRAJECTORY-AUC advantage; the 5 measurement_requirements honoured (trajectory DV; explicit succeeded-then-decayed branch; routing on declared covariates install_took+post_bc; substrate_not_ready_requeue when neither installs / treatment not applied; GATING zworld_encoder_guard scoped to the trained arm). RE-DERIVE BRAKE RELEASED: MECH-457 count 8 / INV-088 count 2 both >=2, but the upstream substrate the 780/781/782 cluster autopsy owed -- sd_zworld_warmup_optimizer_group -- is now BUILT (ree-v3 b523b9c70a) + VALIDATED (REE_assembly 25a69fcd4c 2026-07-22), and this is a new-number never-tested question, not a lettered same-mechanism iteration. GOV-REUSE-1: decisive readout = trained-z_world competence trajectory; absent from every manifest by construction (the trained encoder was unconstructible before 2026-07-20; all 16 prior z_world arms ran frozen random projections per V3-EXQ-780) -> must run. Reference build 128/3x/detached (NOT 769-falsified 256/5x); the historical 32.72 z_world+BC band (748) ran cotrain=True so absolute install may differ, the within-run RANDOM-vs-TRAINED contrast is decisive. REGISTRY: R4 not yet registered as a hypothesis under question competence_floor (D12); registry is derive-only (single producer /failure-autopsy Step 9b) -- register D12 there before/when adjudicating. Smoke PASS (dry-run full pipeline; encoder trains on trained arm, guard fires non-gating on control); validate_experiments/validate_recording --strict OK.",
+      "status": "pending",
+      "conditions": 5,
+      "episodes_per_run": 3000,
+      "experiment_type": "v3_exq_819_mech457_inv088_zworld_trained_vs_random",
+      "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-806",
+      "title": "SD-078 validation: centered CandidateRuleField context key (ARC-063 GAP-B)",
+      "script": "experiments/v3_exq_806_sd078_centered_rule_field_context_key.py",
+      "priority": 44,
+      "machine_affinity": "any",
+      "estimated_minutes": 25,
+      "claim_id": "SD-078",
+      "note": "SD-SD-078 validation, re-landed after 2026-07-25 crash + phase3-queue race dropped the git append; POSTed to coordinator DB for durable ingress. Code+scripts+contracts on origin/main 0ec3ef61f1.",
+      "status": "pending",
+      "conditions": 2,
+      "episodes_per_run": 12,
+      "experiment_type": "v3_exq_806_sd078_centered_rule_field_context_key",
+      "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-807",
+      "title": "SD-079 validation: centered z_goal goal-anchor match (MECH-292 floor + MECH-339 outshining)",
+      "script": "experiments/v3_exq_807_sd079_centered_goal_anchor_match.py",
+      "priority": 44,
+      "machine_affinity": "any",
+      "estimated_minutes": 20,
+      "claim_id": "SD-079",
+      "note": "SD-SD-079 validation, re-landed after 2026-07-25 crash + phase3-queue race dropped the git append; POSTed to coordinator DB for durable ingress. Code+scripts+contracts on origin/main 0ec3ef61f1.",
+      "status": "pending",
+      "conditions": 2,
+      "episodes_per_run": 8,
+      "experiment_type": "v3_exq_807_sd079_centered_goal_anchor_match",
+      "seeds": 3
     },
     {
       "queue_id": "V3-EXQ-793a",
@@ -82,21 +108,6 @@
       "episodes_per_run": 340,
       "experiment_type": "v3_exq_793a_sd049_arm2_competence_repower",
       "seeds": 6
-    },
-    {
-      "queue_id": "V3-EXQ-819",
-      "title": "competence_floor R4: prediction-trained z_world vs frozen random-projection (MECH-457/INV-088 instrument-validity)",
-      "experiment_type": "v3_exq_819_mech457_inv088_zworld_trained_vs_random",
-      "script": "experiments/v3_exq_819_mech457_inv088_zworld_trained_vs_random.py",
-      "priority": 48,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 720,
-      "episodes_per_run": 3000,
-      "seeds": 3,
-      "conditions": 5,
-      "claim_id": "MECH-457",
-      "note": "competence_floor R4 INSTRUMENT-VALIDITY leg (D12), routed in competence_floor_reposing_2026-07-20.md sec 4 R4, re-confirmed unblocked 2026-07-25. DIAGNOSTIC (claim_ids MECH-457+INV-088; excluded from scoring); PROMOTES/DEMOTES NOTHING; route to /failure-autopsy. Q: does a prediction-trained z_world confer any competence advantage over a frozen random-projection z_world of the same dimensionality? 2 arms (zworld_random_proj zworld_p0=0 vs zworld_trained zworld_p0=60), both cotrain=False (z_world DETACHED per the user-specified reference build) so only the encoder's initial content differs; +3 anchors. Paired-per-seed competence-TRAJECTORY-AUC advantage; the 5 measurement_requirements honoured (trajectory DV; explicit succeeded-then-decayed branch; routing on declared covariates install_took+post_bc; substrate_not_ready_requeue when neither installs / treatment not applied; GATING zworld_encoder_guard scoped to the trained arm). RE-DERIVE BRAKE RELEASED: MECH-457 count 8 / INV-088 count 2 both >=2, but the upstream substrate the 780/781/782 cluster autopsy owed -- sd_zworld_warmup_optimizer_group -- is now BUILT (ree-v3 b523b9c70a) + VALIDATED (REE_assembly 25a69fcd4c 2026-07-22), and this is a new-number never-tested question, not a lettered same-mechanism iteration. GOV-REUSE-1: decisive readout = trained-z_world competence trajectory; absent from every manifest by construction (the trained encoder was unconstructible before 2026-07-20; all 16 prior z_world arms ran frozen random projections per V3-EXQ-780) -> must run. Reference build 128/3x/detached (NOT 769-falsified 256/5x); the historical 32.72 z_world+BC band (748) ran cotrain=True so absolute install may differ, the within-run RANDOM-vs-TRAINED contrast is decisive. REGISTRY: R4 not yet registered as a hypothesis under question competence_floor (D12); registry is derive-only (single producer /failure-autopsy Step 9b) -- register D12 there before/when adjudicating. Smoke PASS (dry-run full pipeline; encoder trains on trained arm, guard fires non-gating on control); validate_experiments/validate_recording --strict OK."
     }
   ]
 }
