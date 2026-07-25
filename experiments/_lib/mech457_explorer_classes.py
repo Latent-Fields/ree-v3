@@ -297,12 +297,13 @@ class RawViewRep(RepAgent):
         self, env: Any, actor_critic_hidden: int = fan.ACTOR_CRITIC_HIDDEN,
         use_distributional_critic: bool = False,
     ) -> None:
+        self.action_dim = int(env.action_dim)
         self.ac = fan.make_rawview_ac(
             hidden_dim=int(actor_critic_hidden),
             use_distributional_critic=bool(use_distributional_critic),
+            action_dim=self.action_dim,
         )
         self.feature_dim = RAW_VIEW_DIM
-        self.action_dim = int(env.action_dim)
 
     def encode(self, obs_dict: Dict[str, Any]) -> Any:
         return fan._rawview_tensor(obs_dict)

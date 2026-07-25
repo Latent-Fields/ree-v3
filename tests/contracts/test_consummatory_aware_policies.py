@@ -106,3 +106,28 @@ def test_cg4_module_ascii_only():
     bad = [(i + 1, ln) for i, ln in enumerate(src.splitlines())
            if any(ord(c) > 127 for c in ln)]
     assert not bad, f"{cap.__file__} has non-ASCII lines: {bad[:3]}"
+
+
+# --------------------------------------------------------------------------- CG5
+def test_cg5_rawview_actor_sizes_to_env_action_dim():
+    """The raw-view actor head must match the env action space: 5 in the base env (byte-identical
+    to before), 6 in the consummatory env so the CONSUME logit exists. Without this a BC clone of a
+    consummatory demonstrator (which emits action 5) raises 'Target 5 is out of bounds'."""
+    import experiments._lib.mech457_explorer_classes as mech
+
+    base = mech.make_rep("raw_view", _env(0, False), seed=0, p0=0, steps=STEPS,
+                         actor_critic_hidden=32, cotrain_encoder=False)
+    consum = mech.make_rep("raw_view", _env(0, True), seed=0, p0=0, steps=STEPS,
+                           actor_critic_hidden=32, cotrain_encoder=False)
+    assert base.action_dim == 5
+    assert consum.action_dim == 6
+    # The actual policy-head output width, not just the advertised attribute (the bug was the two
+    # disagreeing): a CONSUME (index 5) logit must exist in the consummatory actor.
+    import torch
+    obs = _env(0, True).reset() if False else None  # reset shape not needed; probe via a forward
+    state = consum.encode(_env(0, True)._get_observation_dict())
+    logits = consum.step(state).logits.reshape(-1)
+    assert int(logits.shape[0]) == 6, f"consummatory raw-view actor emits {logits.shape[0]} logits, need 6"
+    state5 = base.encode(_env(0, False)._get_observation_dict())
+    logits5 = base.step(state5).logits.reshape(-1)
+    assert int(logits5.shape[0]) == 5, f"base raw-view actor emits {logits5.shape[0]} logits, need 5"

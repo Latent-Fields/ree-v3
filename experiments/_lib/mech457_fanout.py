@@ -184,12 +184,16 @@ def make_rawview_ac(
     n_value_bins: int = DIST_CRITIC_N_BINS,
     value_bin_limit: float = DIST_CRITIC_LIMIT,
     value_bin_sigma: float = DIST_CRITIC_SIGMA,
+    action_dim: int = 5,
 ) -> ActorCriticPolicy:
     """Standalone raw-view actor-critic. `hidden_dim` defaults to the 742/734 trunk width
     (128, byte-identical for the fanout legs); the MECH-457 capacity-amend build passes a
-    larger width to raise policy capacity on the raw 5x5 path."""
+    larger width to raise policy capacity on the raw 5x5 path. `action_dim` defaults to 5 (the
+    base grid action space, byte-identical for every pre-consummatory caller); the consummatory
+    env (mech457_consummatory_act) grows it to 6 so the raw-view actor head can represent the
+    distinct CONSUME action -- RawViewRep passes env.action_dim here."""
     return ActorCriticPolicy(
-        world_dim=RAW_VIEW_DIM, action_dim=5,
+        world_dim=RAW_VIEW_DIM, action_dim=int(action_dim),
         hidden_dim=int(hidden_dim), use_sf_critic=False,
         use_distributional_critic=bool(use_distributional_critic),
         n_value_bins=int(n_value_bins),
