@@ -25,6 +25,25 @@ C9  live agent (mid-execution, R4 second phase): a triggering remainder
     releases the beta-gate commit latch
 C10 chunk injection stays additive: an untriggered chunk candidate passes
     through the pool unchanged
+
+R5 bottleneck trigger mode (trigger_mode="bottleneck"; ARM_2 of the MECH-321
+discriminative validation -- added 2026-07-25):
+C11 config: trigger_mode defaults "vs_boundary"; validate() rejects an
+    unknown mode and non-positive bottleneck gates; from_dims forwards the
+    bottleneck params (three-site wiring pin)
+C12 bottleneck mode IGNORES V_s: a region V_s far below threshold (which
+    WOULD fire the R1 OR trigger) does NOT trigger in bottleneck mode absent
+    bottleneck support -- and the V_s audit counter still increments, proving
+    V_s was low yet not decision-driving (the ARM_2 discriminative evidence)
+C13 bottleneck one-shot-rare vs repeated-fires: a once-seen region never
+    triggers; a region revisited past bottleneck_min_visits with >=
+    bottleneck_min_distinct_neighbors distinct neighbours DOES
+C14 bottleneck diagnostics surfaced in get_state (trigger_mode, fires,
+    regions_tracked)
+C15 "vs_boundary" mode is bit-identical: the bottleneck accumulator is never
+    touched (regions_tracked == 0) even over many low-V_s evaluate() calls
+C16 bottleneck mode still respects R3 depth_cap: a bottleneck-triggering
+    primitive at depth_cap is marked_unreliable, not decomposed
 """
 
 import torch
@@ -412,3 +431,160 @@ def test_c10_no_decomposition_source_is_bit_identical():
     surviving = diag.get("arc071_chunk_sequences", [])
     assert list(seq) in surviving
     assert "mech321_chunks_withheld" not in diag
+
+
+# ----------------------------------------------------------------------
+# R5 bottleneck trigger mode (ARM_2) -- C11..C16
+# ----------------------------------------------------------------------
+def _region(*vals):
+    """A latent_signature carrying a z_world tensor for the region key."""
+    return {"z_world": torch.tensor([list(vals)], dtype=torch.float32)}
+
+
+# Three well-separated regions (bins are 1.0 wide over the leading dims).
+_A = _region(0.0, 0.0, 0.0, 0.0)
+_B = _region(5.0, 5.0, 5.0, 5.0)
+_C = _region(9.0, 9.0, 9.0, 9.0)
+
+
+def _bottleneck_pd(**overrides):
+    kw = dict(
+        trigger_mode="bottleneck",
+        vs_decompose_threshold=0.9,  # would fire the R1 OR trigger on any low V_s
+        bottleneck_min_visits=3,
+        bottleneck_min_distinct_neighbors=2,
+        bottleneck_region_quant=1.0,
+        bottleneck_region_dims=4,
+    )
+    kw.update(overrides)
+    return PolicyDecomposition(PolicyDecompositionConfig(**kw))
+
+
+def test_c11_trigger_mode_default_and_validation():
+    assert PolicyDecompositionConfig().trigger_mode == "vs_boundary"
+    # unknown mode rejected
+    for bad in [
+        dict(trigger_mode="nonsense"),
+        dict(bottleneck_min_visits=0),
+        dict(bottleneck_min_distinct_neighbors=0),
+        dict(bottleneck_region_quant=0.0),
+        dict(bottleneck_region_dims=0),
+    ]:
+        try:
+            PolicyDecompositionConfig(**bad).validate()
+            assert False, f"expected ValueError for {bad}"
+        except ValueError:
+            pass
+    # from_dims forwards the bottleneck params (three-site wiring pin)
+    cfg = REEConfig.from_dims(
+        body_obs_dim=8,
+        world_obs_dim=16,
+        action_dim=4,
+        use_event_segmenter=True,
+        use_policy_decomposition=True,
+        decomposition_trigger_mode="bottleneck",
+        decomposition_bottleneck_min_visits=2,
+        decomposition_bottleneck_min_distinct_neighbors=1,
+        decomposition_bottleneck_region_quant=0.5,
+        decomposition_bottleneck_region_dims=6,
+    )
+    agent = REEAgent(cfg)
+    pdc = agent.policy_decomposition.config
+    assert pdc.trigger_mode == "bottleneck"
+    assert pdc.bottleneck_min_visits == 2
+    assert pdc.bottleneck_min_distinct_neighbors == 1
+    assert pdc.bottleneck_region_quant == 0.5
+    assert pdc.bottleneck_region_dims == 6
+
+
+def test_c12_bottleneck_mode_ignores_vs():
+    """A V_s far below threshold does NOT trigger in bottleneck mode (no
+    bottleneck support yet), and the V_s audit counter still increments --
+    the discriminative evidence that V_s was low yet not decision-driving."""
+    pd = _bottleneck_pd()
+    seg = _FakeSegmenter(fired=False)
+    d = pd.evaluate(
+        region_vs=0.0,  # would trip R1 OR trigger outright
+        latent_signature=_A,
+        event_segmenter=seg,
+        depth=1,
+        sequence=(0, 1, 2),
+    )
+    assert d.trigger_mode == "bottleneck"
+    assert d.should_decompose is False  # first visit -> not a bottleneck
+    assert d.bottleneck_fired is False
+    st = pd.get_state()
+    assert st["decomp_n_vs_trigger"] == 1  # V_s WAS low (audited)
+    assert st["decomp_n_bottleneck_fires"] == 0  # but did not drive the decision
+
+
+def test_c13_bottleneck_one_shot_rare_vs_repeated_fires():
+    pd = _bottleneck_pd()
+    seg = _FakeSegmenter(fired=False)
+    seq = (0, 1, 2)
+
+    def ev(lat):
+        return pd.evaluate(
+            region_vs=0.0, latent_signature=lat, event_segmenter=seg,
+            depth=1, sequence=seq,
+        )
+
+    # Walk B -> A -> C -> A -> B -> A: region A reaches visits=3 with two
+    # distinct neighbours {B, C}. Nothing fires until that last A.
+    outcomes = [ev(lat).should_decompose for lat in (_B, _A, _C, _A, _B, _A)]
+    assert outcomes[-1] is True, outcomes
+    assert not any(outcomes[:-1]), outcomes  # one-shot / under-gated visits stay quiet
+
+    # A region seen exactly once never fires despite low V_s.
+    pd2 = _bottleneck_pd()
+    d_once = pd2.evaluate(
+        region_vs=0.0, latent_signature=_A, event_segmenter=seg, depth=1, sequence=seq
+    )
+    assert d_once.should_decompose is False
+
+
+def test_c14_bottleneck_diagnostics_surfaced():
+    pd = _bottleneck_pd()
+    seg = _FakeSegmenter(fired=False)
+    for lat in (_B, _A, _C, _A, _B, _A):
+        pd.evaluate(region_vs=0.0, latent_signature=lat, event_segmenter=seg,
+                    depth=1, sequence=(0, 1, 2))
+    st = pd.get_state()
+    assert st["decomp_trigger_mode"] == "bottleneck"
+    assert st["decomp_n_bottleneck_fires"] >= 1
+    assert st["decomp_n_bottleneck_regions_tracked"] == 3  # A, B, C
+
+
+def test_c15_vs_boundary_mode_never_touches_accumulator():
+    """Bit-identity guard: in the default mode the bottleneck accumulator is
+    never populated, even over many low-V_s evaluate() calls."""
+    pd = PolicyDecomposition(PolicyDecompositionConfig(vs_decompose_threshold=0.9))
+    seg = _FakeSegmenter(fired=False)
+    for lat in (_A, _B, _C, _A, _B, _A):
+        pd.evaluate(region_vs=0.0, latent_signature=lat, event_segmenter=seg,
+                    depth=1, sequence=(0, 1, 2))
+    st = pd.get_state()
+    assert st["decomp_trigger_mode"] == "vs_boundary"
+    assert st["decomp_n_bottleneck_fires"] == 0
+    assert st["decomp_n_bottleneck_regions_tracked"] == 0
+
+
+def test_c16_bottleneck_at_depth_cap_marks_unreliable():
+    """The mode changes only the TRIGGER; the R3 depth_cap path downstream is
+    unchanged -- a bottleneck-triggering primitive at depth_cap is marked
+    unreliable, not decomposed."""
+    pd = _bottleneck_pd(depth_cap=2)
+    seg = _FakeSegmenter(fired=False)
+    seq = (0, 1, 2)
+    # Prime A into a bottleneck at depth 1 (below cap) so those calls tile...
+    for lat in (_B, _A, _C, _A, _B):
+        pd.evaluate(region_vs=0.0, latent_signature=lat, event_segmenter=seg,
+                    depth=1, sequence=seq)
+    # ...then the triggering A visit at depth == cap must mark unreliable.
+    d = pd.evaluate(region_vs=0.0, latent_signature=_A, event_segmenter=seg,
+                    depth=2, sequence=seq)
+    assert d.should_decompose is True
+    assert d.bottleneck_fired is True
+    assert d.marked_unreliable is True
+    assert d.decomposed is False
+    assert d.sub_elements == ()

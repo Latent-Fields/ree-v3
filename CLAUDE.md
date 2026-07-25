@@ -14649,6 +14649,49 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
   use_distributional_critic False on all arms, 788 does not touch the bc_aux schedule.
   See REE_assembly/docs/architecture/sd_mech457_retention_trajectory_probe.md and
   REE_assembly/evidence/planning/mech457_retention_portfolio_2026-07-18.md.
+- mech457_consummatory_act: environment.consummatory_act -- IMPLEMENTED 2026-07-25.
+  ree_core/environment/causal_grid_world.py. Adds a distinct no-move CONSUME action (index 5,
+  class attr CONSUME_ACTION) so that entering a resource cell AFFORDS rather than EFFECTS
+  consumption: an approach drive can extinguish on contact and hand off to a separate
+  consummatory act, the dissociation V3-EXQ-781's non-extinguishing terminal drive could not
+  express (leg 4 of the MECH-457 retention portfolio).
+  Config: CausalGridWorldV2(consummatory_act_enabled=False) -- a direct env constructor kwarg
+  (NOT a REEConfig field; the env is built by the experiment driver). Set True to enable.
+  Data flow: consummatory_act_enabled -> action_dim returns len(ACTIONS)+1 (== 6) so every actor
+  head sizing from env.action_dim grows 5 -> 6 with no further wiring -> step() dispatches the
+  CONSUME action explicitly (NOT via _action_map, so the world-rule-shift permutation can never
+  turn it into a movement) -> on move-onto-resource the resource branch sets
+  transition_type="resource_contact", zero benefit reward, no drive restore, resource RETAINED
+  (on_consumable_resource info flag set) -> the CONSUME action while standing on a resource cell
+  effects consumption via the shared helper _consume_resource_at(cx, cy).
+  Shared code path: the 118-line benefit/removal/per-axis-drive-restore/respawn/field-recompute
+  block was factored out of the legacy inline resource branch into _consume_resource_at, called
+  by BOTH the legacy auto-consume-on-entry path (OFF) and the CONSUME action (ON) -- consumption
+  is the SAME operation whichever way it is reached; only the TIMING differs. Reward binds to the
+  ACT: contact yields 0 reward, CONSUME delivers it.
+  Backward compatible: consummatory_act_enabled defaults False -> action_dim == 5,
+  auto-consume-on-entry, observation_dim unchanged; byte-identical to the pre-change env. No
+  running experiment is affected.
+  BLAST RADIUS: enabling the flag grows action_dim 5 -> 6, re-keying every actor head and
+  BUSTING all cached arm fingerprints for consummatory-ON lineages (reuse correctly refuses
+  across the change). Pre-change lineages keep the 5-action space and valid fingerprints because
+  the flag defaults OFF.
+  Minor limitation: the body_state last-action one-hot (body[5..8]) already aliases stay(4)->slot0;
+  CONSUME(5) aliases the same way. A dedicated slot would change body_obs_dim and break every
+  existing observation_dim, so it is left aliased -- the agent selects CONSUME via a distinct
+  policy-head logit (action_dim grew), which is what the leg needs.
+  Phased training required: no (no head trained). MECH-094: not applicable (no simulation/replay).
+  7 new contracts C1-C7: tests/contracts/test_mech457_consummatory_act.py (action_dim 5/6; OFF
+  auto-consume; ON contact-affords; ON CONSUME effects; CONSUME-off-resource == stay; un-consumed
+  departure restores the grid marker; consumption path-independent OFF-entry vs ON-CONSUME).
+  Consumption refactor regression-covered by the SD-049/MECH-307/SD-057/SD-037 consumption
+  contracts (70 pass on the hub, ree-v3 base 120efac).
+  Unblocks H-consummation-binding (the LAST open competence_floor retention leg) as a
+  /queue-experiment target; the behavioural experiment is NOT queued in this build pass.
+  MECH-457 stays candidate/v3_pending; INV-088 unchanged; this build promotes and demotes nothing.
+  See REE_assembly/docs/architecture/sd_mech457_consummatory_act.md and
+  REE_assembly/evidence/planning/mech457_retention_portfolio_2026-07-18.md +
+  REE_assembly/evidence/planning/competence_floor_reposing_2026-07-25.md.
 
 ## MECH-463: E3 commit-gate + per-candidate channel-term diagnostics (arousal-conditioned variance decomposition instrumentation) (2026-07-18)
 
@@ -15210,14 +15253,48 @@ claim says arousal amplifies rather than breaks), MECH-359, MECH-390, SD-011.
   marked_unreliable/dropped instead of genuinely re-segmented. Fixed to skip only the
   library-lookup phase at depth<=1 while still falling through to the raw-action tiling
   loop (contract C3 pins this as a regression guard).
-  Contracts: tests/contracts/test_arc070_policy_decomposition.py (15 tests: C1 defaults +
+  Contracts: tests/contracts/test_arc070_policy_decomposition.py (21 tests: C1 defaults +
   from_dims forwarding + OFF inertness (no sub-config mirror needed), C2 loud precondition
   on use_event_segmenter, C3 depth-1 regression pin, C4 library-aware tiling incl.
   DISSOLVED chunks excluded, C5 atomic sequence has no tiles, C6 R1 OR-trigger (V_s alone
   / boundary alone / neither), C7 depth_cap marks unreliable instead of decomposing, C8
   live pre-commit withhold-and-replace, C9 live mid-execution latch release, C10 additive
-  passthrough when nothing triggers incl. the no-decomposition-source bit-identical path).
+  passthrough when nothing triggers incl. the no-decomposition-source bit-identical path;
+  C11-C16 = the R5 bottleneck trigger mode below).
   Registered in tests/test_flag_inertness.py PROBED.
+  R5 BOTTLENECK TRIGGER MODE -- ADDED 2026-07-25 (unblocks ARM_2 of the discriminative
+  validation). The R1 trigger above is now selectable against an R5 alternative via
+  REEConfig.decomposition_trigger_mode: "vs_boundary" (DEFAULT = the R1 OR trigger, unchanged
+  and bit-identical) | "bottleneck" (R5: decompose ONLY at bottleneck states, REGARDLESS OF
+  V_s). ARM_1 uses "vs_boundary"; ARM_2 uses "bottleneck". Bottleneck detection is an ONLINE
+  INCREMENTAL diverse-density accumulator (PolicyDecomposition._update_and_test_bottleneck):
+  a region is a bottleneck once it has BOTH recurred >= decomposition_bottleneck_min_visits
+  times (default 3 -- the "repeated traversals" gate, McGovern & Barto 2001, and the source
+  of ARM_2's predicted one-shot-rare signature) AND been entered-from/exited-to >=
+  decomposition_bottleneck_min_distinct_neighbors distinct regions (default 2 -- funnel
+  topology). Region key = a coarse FIXED quantisation of z_world content (round(z_world[:dims]
+  / quant); decomposition_bottleneck_region_quant default 1.0, decomposition_bottleneck_region_dims
+  default 8) -- NOT MECH-288's segment_id, which is monotonic and never recurs so could never
+  register a bottleneck (documented in the module docstring "REGION KEY"). boundary_on(stream=
+  "rollout", ...) is still called every evaluate() (R2 shared-substrate consumer + advances the
+  rollout stream) but in bottleneck mode feeds only the audit fields, not the decision; V_s /
+  boundary counters keep incrementing for audit (so a manifest can show "V_s WAS low yet the
+  bottleneck trigger did not fire on it" -- the ARM_2 discriminative evidence).
+  FAITHFULNESS CHOICE (documented deliberately): MECH-321's functional_restatement frames R5
+  as a candidate OFFLINE/CONSOLIDATION-PHASE mechanism (batch analysis of the ARC-071
+  ChunkLibrary for bottleneck topology). This landing operationalises the SAME statistical
+  signal ONLINE/incrementally for the ARM_2 primary-trigger requirement; it does NOT claim to
+  be the offline consolidation mechanism, which stays DEFERRED per R5 (see
+  policy_primitive_granularity.md and the module docstring "R5 BOTTLENECK TRIGGER MODE").
+  Default OFF / bit-identical: the accumulator is never allocated in "vs_boundary" mode (C15
+  pins regions_tracked==0). New diagnostics in get_policy_decomposition_state():
+  decomp_trigger_mode, decomp_n_bottleneck_fires, decomp_n_bottleneck_regions_tracked. Three-
+  site REEConfig.from_dims wiring for all five new params (dataclass field, from_dims signature,
+  from_dims body) + the agent.py PolicyDecompositionConfig construction site.
+  Contracts for the mode: C11 default+validate (rejects unknown mode / non-positive gates) +
+  from_dims forwarding; C12 bottleneck mode ignores V_s (low V_s alone does not fire, audit
+  counter still increments); C13 one-shot-rare vs repeated-fires; C14 diagnostics surfaced;
+  C15 vs_boundary leaves the accumulator untouched (bit-identity); C16 depth_cap still respected.
   Validation experiment: V3-EXQ-TBD queued via /queue-experiment (substrate-readiness
   diagnostic -- does decomposition fire and correctly withhold/replace a chunk candidate
   under an artificially induced low-V_s / boundary-firing rollout region). The full

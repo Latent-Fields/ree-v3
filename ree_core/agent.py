@@ -816,6 +816,11 @@ class REEAgent(nn.Module):
                 maintenance_couple_to_theta=getattr(
                     config, "crf_maintenance_couple_to_theta", False
                 ),
+                # SD-078: centered context key (no-op default).
+                cue_centering=getattr(config, "crf_cue_centering", False),
+                cue_baseline_alpha=getattr(
+                    config, "crf_cue_baseline_alpha", 0.02
+                ),
             )
             self.candidate_rule_field = CandidateRuleField(
                 context_dim=config.latent.world_dim,
@@ -1311,6 +1316,22 @@ class REEAgent(nn.Module):
                         config, "decomposition_vs_threshold", 0.4
                     ),
                     depth_cap=getattr(config, "decomposition_depth_cap", 3),
+                    # R5 bottleneck trigger mode (ARM_2); defaults keep R1.
+                    trigger_mode=getattr(
+                        config, "decomposition_trigger_mode", "vs_boundary"
+                    ),
+                    bottleneck_min_visits=getattr(
+                        config, "decomposition_bottleneck_min_visits", 3
+                    ),
+                    bottleneck_min_distinct_neighbors=getattr(
+                        config, "decomposition_bottleneck_min_distinct_neighbors", 2
+                    ),
+                    bottleneck_region_quant=getattr(
+                        config, "decomposition_bottleneck_region_quant", 1.0
+                    ),
+                    bottleneck_region_dims=getattr(
+                        config, "decomposition_bottleneck_region_dims", 8
+                    ),
                 )
             )
             self.hippocampal.set_decomposition_source(self.policy_decomposition)

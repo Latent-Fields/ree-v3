@@ -1552,6 +1552,37 @@ class AnchorSetConfig:
     # because the substrate-side dataclass + query helper live on
     # AnchorSet; module-level write-site wiring is a follow-on session.
     use_sd039_anchor_payload: bool = False
+    # SD-079: common-mode-invariant (centered) z_goal cue for Anchor.goal_match.
+    # z_goal is pulled toward z_world and inherits the SD-008 common-mode offset
+    # more strongly than z_world does (measured 2026-07-22 on the V3-EXQ-669b
+    # Stage-0 nursery: z_goal pairwise cosine min 0.9878 / mean 0.9969,
+    # ||mean(z_goal)|| / mean||z_goal|| = 0.9987), so a raw goal_match spans just
+    # 0.0111 across a 24-anchor pool and reports the shared offset instead of
+    # motivational relevance. Both ABSOLUTE gates downstream are pinned by it:
+    # MECH-292's goal_match_floor (0.05) excluded 0/24 anchors, and MECH-339's
+    # outshining gate sat at exactly 0.0 for every anchor. Centered: 9/24 and
+    # 9/24 respectively, goal_match spread 0.9709.
+    # Prior instances of the identical failure mode: SD-066 (SD-051 conditioned
+    # safety release gate), SD-077 (MECH-189 super-ordinal cue key), SD-078
+    # (ARC-063 CandidateRuleField context key).
+    #   goal_cue_centering: master switch. False -> no baseline is allocated and
+    #     Anchor.goal_match is called with baseline=None (the identity).
+    #   goal_cue_baseline_alpha: slow-EMA rate. DELIBERATELY 0.05, NOT the 0.02
+    #     that SD-066 / SD-077 / SD-078 use -- do not "harmonise" it back.
+    #     z_world is a per-tick encoding; z_goal is an INTEGRATOR (an EMA
+    #     attractor pulled toward z_world), so its common mode DRIFTS, and a
+    #     baseline slow enough for a stationary cue lags a drifting one. The lag
+    #     direction then becomes a new shared component and re-pins the readout.
+    #     Measured over seeds 101/202/303 (goal_match spread across a 20-anchor
+    #     pool; raw spread 0.0051-0.0144):
+    #       alpha=0.02 -> 0.0942 / 0.1508 / 0.3319   (still lagging)
+    #       alpha=0.05 -> 0.9995 / 0.9999 / 0.9999   (full range, 2/20 below floor)
+    #       alpha=0.10 -> 0.9975 / 0.9992 / 0.9995   (4/20 below floor)
+    #       alpha=0.20 -> 14/20 below floor, alpha=0.50 -> 18/20  (over-tracking:
+    #         the baseline chases the cue and erases genuine matches)
+    #     0.05 is the measured plateau; 0.2+ is actively harmful.
+    goal_cue_centering: bool = False
+    goal_cue_baseline_alpha: float = 0.05
 
 
 @dataclass
@@ -2873,6 +2904,15 @@ class REEConfig:
     crf_mature_context_match_threshold: float = -1.0
     crf_tolerance_conflict_cap: int = -1
     crf_maintenance_couple_to_theta: bool = False
+    # SD-078: common-mode-invariant (centered) CandidateRuleField context key.
+    # Under SD-008 z_world under-differentiation the raw context key sits in one
+    # narrow cone (pairwise cosine min 0.9767), so the mint-block blocks every
+    # second rule at ANY threshold <= 0.94 and the pool is structurally capped at
+    # ONE rule (measured n_minted=1, max_pairwise_rule_dist=0.0000 -- the exact
+    # V3-EXQ-654b/654d signature, previously read as retire-churn). Centered:
+    # 9 rules, dist 1.7011. See CandidateRuleFieldConfig.cue_centering.
+    crf_cue_centering: bool = False
+    crf_cue_baseline_alpha: float = 0.02
 
     # SD-033b: OFC-analog (specific-outcome / task-structure substrate,
     # MECH-261 second consumer; MECH-263 falsification target). When True,
@@ -3610,6 +3650,26 @@ class REEConfig:
     # R3: depth cap (3-4 suggested); mirrors ARC-071's chunk_max_depth
     # default of 3 so the inverse operations stay symmetric.
     decomposition_depth_cap: int = 3
+    # R5 bottleneck trigger mode (added 2026-07-25 for ARM_2 of the MECH-321
+    # discriminative validation). "vs_boundary" (DEFAULT) = the original R1
+    # OR trigger (V_s drop OR MECH-288 rollout boundary). "bottleneck" = the
+    # R5 alternative: decompose ONLY at bottleneck states, REGARDLESS OF V_s
+    # -- an online incremental diverse-density accumulator (McGovern & Barto
+    # 2001) over a coarse z_world region key. Default keeps the R1 path
+    # byte-for-byte; the bottleneck accumulator is never allocated unless
+    # "bottleneck" is selected. bottleneck_* params apply only in that mode.
+    # See ree_core/policy/policy_decomposition.py "R5 BOTTLENECK TRIGGER MODE"
+    # for the online-operationalisation faithfulness argument.
+    decomposition_trigger_mode: str = "vs_boundary"
+    # "repeated traversals" gate: a region must recur this many times before
+    # it can be a bottleneck (source of ARM_2's one-shot-rare signature).
+    decomposition_bottleneck_min_visits: int = 3
+    # funnel gate: a bottleneck must be entered-from / exited-to this many
+    # DISTINCT other regions (McGovern-Barto diverse-density topology).
+    decomposition_bottleneck_min_distinct_neighbors: int = 2
+    # bin width + leading-dim count for the coarse fixed z_world region key.
+    decomposition_bottleneck_region_quant: float = 1.0
+    decomposition_bottleneck_region_dims: int = 8
     # Safety cap on how many ticks the hold re-asserts a single natural-commit run
     # before disarming (guards a degenerate config from latching forever).
     # 0 -> unbounded (the hold persists until a principled release / the committed
@@ -5230,6 +5290,9 @@ class REEConfig:
         crf_mature_context_match_threshold: float = -1.0,
         crf_tolerance_conflict_cap: int = -1,
         crf_maintenance_couple_to_theta: bool = False,
+        # SD-078: centered CRF context key (no-op default)
+        crf_cue_centering: bool = False,
+        crf_cue_baseline_alpha: float = 0.02,
         # SD-033b: OFC-analog (specific-outcome / task-structure substrate)
         use_ofc_analog: bool = False,
         ofc_state_dim: int = 16,
@@ -5394,6 +5457,12 @@ class REEConfig:
         use_policy_decomposition: bool = False,
         decomposition_vs_threshold: float = 0.4,
         decomposition_depth_cap: int = 3,
+        # R5 bottleneck trigger mode (ARM_2). Defaults keep the R1 path.
+        decomposition_trigger_mode: str = "vs_boundary",
+        decomposition_bottleneck_min_visits: int = 3,
+        decomposition_bottleneck_min_distinct_neighbors: int = 2,
+        decomposition_bottleneck_region_quant: float = 1.0,
+        decomposition_bottleneck_region_dims: int = 8,
         # Post-603i E2 escape-affordance linker (readout over detached E2
         # action-consequence features; reuse, not a duplicate predictor).
         use_e2_escape_affordance_linker: bool = False,
@@ -5669,6 +5738,9 @@ class REEConfig:
         # pre-SD-039; ON enables module-level write-site population in
         # REEAgent.sense() / HippocampalModule.build_goal_payload.
         use_sd039_anchor_payload: bool = False,
+        # SD-079: centered z_goal cue for Anchor.goal_match (no-op default)
+        goal_cue_centering: bool = False,
+        goal_cue_baseline_alpha: float = 0.05,
         # MECH-269b: V_s rollout gating on E1/E2 forward predictions
         use_vs_rollout_gating: bool = False,
         vs_gate_snapshot_refresh_threshold: float = 0.5,
@@ -6379,6 +6451,8 @@ class REEConfig:
         )
         config.crf_tolerance_conflict_cap = crf_tolerance_conflict_cap
         config.crf_maintenance_couple_to_theta = crf_maintenance_couple_to_theta
+        config.crf_cue_centering = crf_cue_centering              # SD-078
+        config.crf_cue_baseline_alpha = crf_cue_baseline_alpha    # SD-078
         config.crf_maintained_reactivation_threshold = (
             crf_maintained_reactivation_threshold
         )
@@ -6577,6 +6651,13 @@ class REEConfig:
         config.use_policy_decomposition = use_policy_decomposition
         config.decomposition_vs_threshold = decomposition_vs_threshold
         config.decomposition_depth_cap = decomposition_depth_cap
+        config.decomposition_trigger_mode = decomposition_trigger_mode
+        config.decomposition_bottleneck_min_visits = decomposition_bottleneck_min_visits
+        config.decomposition_bottleneck_min_distinct_neighbors = (
+            decomposition_bottleneck_min_distinct_neighbors
+        )
+        config.decomposition_bottleneck_region_quant = decomposition_bottleneck_region_quant
+        config.decomposition_bottleneck_region_dims = decomposition_bottleneck_region_dims
 
         # MECH-341 (ARC-065 Layer-B child): e3_scoring_preserves_trajectory_
         # class_diversity
@@ -6870,6 +6951,10 @@ class REEConfig:
         # docstring). Propagate the from_dims kwarg to the nested config so
         # the anchor set's payload semantics fire when the substrate is on.
         config.hippocampal.anchor_set.use_sd039_anchor_payload = use_sd039_anchor_payload
+        # SD-079: centered z_goal cue lives on the AnchorSet (the pool owner);
+        # GhostGoalBank reads the baseline through its anchor_set reference.
+        config.hippocampal.anchor_set.goal_cue_centering = goal_cue_centering
+        config.hippocampal.anchor_set.goal_cue_baseline_alpha = goal_cue_baseline_alpha
 
         # MECH-269b: V_s rollout gating on E1/E2 forward predictions
         config.hippocampal.use_vs_rollout_gating = use_vs_rollout_gating

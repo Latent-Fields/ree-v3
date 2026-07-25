@@ -71,6 +71,54 @@ DEPTH CAP (R3, conf 0.78; multi-level, Badre & D'Esposito 2009 rostro-caudal
     does not own (see "MECH-321 itself reads only the boundary signal" in the
     claims.yaml functional_restatement).
 
+R5 BOTTLENECK TRIGGER MODE (trigger_mode="bottleneck"; added 2026-07-25)
+    The R1 trigger above (V_s drop OR boundary) is the DEFAULT and is what
+    ARM_1 of the MECH-321 discriminative validation uses. ARM_2 needs a
+    DISTINCT, config-selectable trigger: "MECH-321 ON with bottleneck-state
+    primary trigger (R5 alternative) -- chunks decompose only at bottleneck
+    states regardless of V_s" (claims.yaml MECH-321 functional_restatement,
+    ARM_2). trigger_mode selects which: "vs_boundary" (R1, default) or
+    "bottleneck" (R5).
+
+    FAITHFULNESS -- an ONLINE operationalisation of an OFFLINE mechanism.
+    R5's verdict (conf 0.74) frames bottleneck detection (McGovern & Barto
+    2001 subgoal discovery) as a candidate OFFLINE / CONSOLIDATION-PHASE
+    mechanism: examine the ARC-071 ChunkLibrary offline for bottleneck-state
+    topology and pre-decompose at bottleneck boundaries. ARM_2 instead needs
+    an ONLINE, per-rollout-step primary trigger. This module operationalises
+    the R5 signal as an online INCREMENTAL diverse-density accumulator -- the
+    SAME statistic McGovern-Barto compute (a region's visitation frequency +
+    funnel topology across paths), accumulated incrementally over the live
+    rollout stream rather than in a batch offline pass. This is faithful for
+    the discriminative-validation purpose because (a) it triggers on the
+    frequency/funnel signal, NOT on V_s (R5's "distinct mechanism"); (b) it
+    preserves the DEFINING "requires repeated traversals" property via the
+    bottleneck_min_visits gate -- which is exactly what generates ARM_2's
+    predicted signature (decomposition rare on one-shot tasks, appearing only
+    on repeated structures; behaviour closer to ARM_0 than ARM_1 on one-shot
+    environments). A trigger that fired instantly would collapse ARM_2 into
+    ARM_1. It does NOT claim to be the full offline consolidation mechanism
+    (ChunkLibrary topology analysis), which stays DEFERRED per R5.
+
+    REGION KEY -- why NOT segment_id. A bottleneck must be a state that
+    RECURS. MECH-288's segment_id (outer.inner) is MONOTONIC -- it only ever
+    increments and is never revisited within a stream -- so a frequency
+    accumulator keyed on segment_id would see every region exactly once and
+    could never register a bottleneck. The key is instead a coarse, fixed
+    (no learned projection) quantisation of z_world CONTENT -- the continuous-
+    latent analog of McGovern-Barto's recurring tabular states -- which
+    recurs when the agent re-visits the same region. boundary_on(stream=
+    "rollout", ...) is still called every evaluate() (R2 shared-substrate
+    consumer, and it advances the rollout stream), but its result feeds
+    only the audit fields in bottleneck mode, not the decision.
+
+    DEFAULT OFF / BIT-IDENTICAL. trigger_mode defaults to "vs_boundary"; the
+    bottleneck accumulator is only allocated/updated when trigger_mode ==
+    "bottleneck", so the default path is byte-for-byte the pre-2026-07-25
+    evaluate(). Both call sites (HippocampalModule pre-commit sweep and the
+    agent.py mid-execution beta-gate hook) flow through the same evaluate(),
+    so the mode applies uniformly with no call-site change.
+
 WHAT THIS MODULE DOES NOT DEPEND ON
     MECH-321's claims.yaml depends_on is [ARC-070, MECH-288, MECH-269,
     MECH-094] -- it does NOT list MECH-323/MECH-324 (ARC-071's formation /
@@ -124,11 +172,50 @@ class PolicyDecompositionConfig:
             ARC-071's chunk_max_depth default (R3 suggests 3-4; matching
             the composition side's default keeps the inverse operations
             symmetric).
+        trigger_mode : which R-verdict drives should_decompose (R1 vs R5).
+            "vs_boundary" (DEFAULT) = the R1 OR trigger
+            (v_s < threshold OR boundary.fired) -- the original, and the
+            only mode that existed before 2026-07-25. "bottleneck" = the
+            R5 alternative used by ARM_2 of the MECH-321 discriminative
+            validation: decompose ONLY at bottleneck states, REGARDLESS OF
+            V_s. See the "R5 bottleneck trigger mode" note in the class
+            docstring for the online-operationalisation faithfulness
+            argument. bottleneck_* params below apply only in this mode;
+            in "vs_boundary" mode the bottleneck accumulator is never
+            allocated or touched, so that mode is byte-for-byte the
+            pre-2026-07-25 evaluate() path.
+        bottleneck_min_visits : R5. A region must recur at least this many
+            times across the run before it is eligible to be a bottleneck.
+            This gate IS the "requires repeated traversals" property of
+            McGovern & Barto 2001 diverse-density, and is what produces
+            ARM_2's predicted signature (decomposition rare on one-shot
+            tasks, appearing only on repeated structures). Default 3.
+        bottleneck_min_distinct_neighbors : R5. A bottleneck must be a
+            FUNNEL -- entered-from / exited-to at least this many DISTINCT
+            other regions (the topological signature that distinguishes a
+            genuine subgoal bottleneck from a region the agent merely
+            loiters in via self-loops). Default 2.
+        bottleneck_region_quant : R5. Bin width for the coarse, fixed
+            (no learned projection) quantisation of z_world into a region
+            key. z_world content -- NOT the monotonic MECH-288 segment_id,
+            which never recurs and so could never register a bottleneck --
+            is what recurs when the agent re-visits a region. Default 1.0.
+        bottleneck_region_dims : R5. How many leading z_world dims enter
+            the region key. Default 8 (coarse locality bucket; keeps the
+            key low-dimensional so distinct regions still collide into the
+            same bucket when they are genuinely nearby). Default 8.
     """
 
     use_policy_decomposition: bool = False
     vs_decompose_threshold: float = 0.4
     depth_cap: int = 3
+    trigger_mode: str = "vs_boundary"
+    bottleneck_min_visits: int = 3
+    bottleneck_min_distinct_neighbors: int = 2
+    bottleneck_region_quant: float = 1.0
+    bottleneck_region_dims: int = 8
+
+    _VALID_TRIGGER_MODES = ("vs_boundary", "bottleneck")
 
     def validate(self) -> None:
         """Raise ValueError on a configuration that cannot behave as specified."""
@@ -136,6 +223,19 @@ class PolicyDecompositionConfig:
             raise ValueError("vs_decompose_threshold must be in [0, 1]")
         if self.depth_cap < 1:
             raise ValueError("depth_cap must be >= 1")
+        if self.trigger_mode not in self._VALID_TRIGGER_MODES:
+            raise ValueError(
+                "trigger_mode must be one of %r (got %r)"
+                % (list(self._VALID_TRIGGER_MODES), self.trigger_mode)
+            )
+        if self.bottleneck_min_visits < 1:
+            raise ValueError("bottleneck_min_visits must be >= 1")
+        if self.bottleneck_min_distinct_neighbors < 1:
+            raise ValueError("bottleneck_min_distinct_neighbors must be >= 1")
+        if self.bottleneck_region_quant <= 0.0:
+            raise ValueError("bottleneck_region_quant must be > 0")
+        if self.bottleneck_region_dims < 1:
+            raise ValueError("bottleneck_region_dims must be >= 1")
 
 
 @dataclass
@@ -158,6 +258,14 @@ class DecompositionDecision:
     depth: int
     hypothesis_tag: bool
     sub_elements: Tuple[Tuple[Tuple[int, ...], int], ...] = ()
+    # R5 (trigger_mode="bottleneck") audit fields. In "vs_boundary" mode
+    # bottleneck_fired is always False and trigger_mode is "vs_boundary".
+    # In "bottleneck" mode, should_decompose == bottleneck_fired (V_s /
+    # boundary are still COMPUTED and reported in v_s / boundary_fired for
+    # audit -- e.g. "V_s was low yet we did not trigger" -- but they do not
+    # drive the decision).
+    bottleneck_fired: bool = False
+    trigger_mode: str = "vs_boundary"
 
 
 class PolicyDecomposition:
@@ -195,6 +303,15 @@ class PolicyDecomposition:
         self._n_vs_trigger: int = 0
         self._n_boundary_fires: int = 0
         self._last_decomposed_sequence: Tuple[int, ...] = ()
+
+        # R5 bottleneck-mode accumulator (allocated/updated only when
+        # trigger_mode == "bottleneck"; empty and untouched otherwise, which
+        # is what makes "vs_boundary" mode bit-identical). Keyed on the coarse
+        # quantised z_world region code (see the class docstring "REGION KEY").
+        self._bottleneck_visits: Dict[Tuple[int, ...], int] = {}
+        self._bottleneck_neighbors: Dict[Tuple[int, ...], set] = {}
+        self._bottleneck_prev_key: Optional[Tuple[int, ...]] = None
+        self._n_bottleneck_fires: int = 0
 
     # ------------------------------------------------------------------
     def evaluate(
@@ -265,6 +382,10 @@ class PolicyDecomposition:
         boundary = event_segmenter.boundary_on(
             stream="rollout", latent=latent_signature, pe=pe_signature, t=t
         )
+        # V_s / boundary are ALWAYS computed and counted (audit), in both
+        # modes -- so the manifest can show "V_s was low yet, in bottleneck
+        # mode, we did not trigger on it", the discriminative evidence ARM_2
+        # is built on.
         vs_trigger = float(region_vs) < self.config.vs_decompose_threshold
         boundary_fired = bool(boundary.fired)
         if vs_trigger:
@@ -272,7 +393,18 @@ class PolicyDecomposition:
         if boundary_fired:
             self._n_boundary_fires += 1
 
-        should_decompose = bool(vs_trigger or boundary_fired)
+        bottleneck_mode = self.config.trigger_mode == "bottleneck"
+        bottleneck_fired = False
+        if bottleneck_mode:
+            # R5: decompose ONLY at bottleneck states, REGARDLESS OF V_s.
+            bottleneck_fired = self._update_and_test_bottleneck(latent_signature)
+            if bottleneck_fired:
+                self._n_bottleneck_fires += 1
+            should_decompose = bool(bottleneck_fired)
+        else:
+            # R1 (default): the original OR trigger, byte-for-byte.
+            should_decompose = bool(vs_trigger or boundary_fired)
+
         if not should_decompose:
             return DecompositionDecision(
                 should_decompose=False,
@@ -283,6 +415,8 @@ class PolicyDecomposition:
                 boundary_posterior=float(boundary.posterior),
                 depth=int(depth),
                 hypothesis_tag=bool(hypothesis_tag),
+                bottleneck_fired=bottleneck_fired,
+                trigger_mode=self.config.trigger_mode,
             )
 
         seq = tuple(int(a) for a in sequence)
@@ -301,6 +435,8 @@ class PolicyDecomposition:
                 boundary_posterior=float(boundary.posterior),
                 depth=int(depth),
                 hypothesis_tag=bool(hypothesis_tag),
+                bottleneck_fired=bottleneck_fired,
+                trigger_mode=self.config.trigger_mode,
             )
 
         if hypothesis_tag:
@@ -318,6 +454,66 @@ class PolicyDecomposition:
             depth=int(depth),
             hypothesis_tag=bool(hypothesis_tag),
             sub_elements=sub_elements,
+            bottleneck_fired=bottleneck_fired,
+            trigger_mode=self.config.trigger_mode,
+        )
+
+    # ------------------------------------------------------------------
+    def _bottleneck_region_key(
+        self, latent_signature: Dict[str, Optional[torch.Tensor]]
+    ) -> Optional[Tuple[int, ...]]:
+        """Coarse, fixed (no learned projection) quantisation of z_world
+        content into a region bucket -- the recurring-region key the R5
+        bottleneck accumulator is keyed on (see class docstring "REGION
+        KEY" for why NOT segment_id). Returns None when z_world is absent
+        (no key => this tick cannot contribute to or fire a bottleneck).
+        """
+        z = latent_signature.get("z_world") if latent_signature else None
+        if z is None:
+            return None
+        try:
+            flat = z.detach().reshape(-1)
+            k = min(int(self.config.bottleneck_region_dims), int(flat.numel()))
+            if k <= 0:
+                return None
+            q = float(self.config.bottleneck_region_quant)
+            # round(x / q) -> integer bucket per dim; deterministic and
+            # dependency-free. torch.round ties-to-even, matched across runs.
+            bucket = torch.round(flat[:k] / q).to(torch.int64).tolist()
+            return tuple(int(b) for b in bucket)
+        except Exception:
+            return None
+
+    def _update_and_test_bottleneck(
+        self, latent_signature: Dict[str, Optional[torch.Tensor]]
+    ) -> bool:
+        """Incrementally update the diverse-density accumulator for the
+        current region and return whether that region now qualifies as a
+        bottleneck. A region is a bottleneck once it has BOTH been visited
+        >= bottleneck_min_visits times (the 'repeated traversals' gate --
+        McGovern & Barto 2001, and the source of ARM_2's one-shot-rare
+        signature) AND been entered-from / exited-to >= bottleneck_min_
+        distinct_neighbors distinct other regions (the funnel topology that
+        distinguishes a subgoal bottleneck from a loitered-in region).
+
+        V_s is NOT consulted here -- that is the whole point of the R5 mode.
+        """
+        key = self._bottleneck_region_key(latent_signature)
+        if key is None:
+            return False
+        self._bottleneck_visits[key] = self._bottleneck_visits.get(key, 0) + 1
+        neighbors = self._bottleneck_neighbors.setdefault(key, set())
+        prev = self._bottleneck_prev_key
+        if prev is not None and prev != key:
+            neighbors.add(prev)
+            # Bidirectional: the transition also makes `key` a neighbour of
+            # `prev`, so a funnel is detected symmetrically regardless of
+            # traversal direction.
+            self._bottleneck_neighbors.setdefault(prev, set()).add(key)
+        self._bottleneck_prev_key = key
+        return (
+            self._bottleneck_visits[key] >= int(self.config.bottleneck_min_visits)
+            and len(neighbors) >= int(self.config.bottleneck_min_distinct_neighbors)
         )
 
     # ------------------------------------------------------------------
@@ -407,6 +603,10 @@ class PolicyDecomposition:
         self._n_vs_trigger = 0
         self._n_boundary_fires = 0
         self._last_decomposed_sequence = ()
+        self._bottleneck_visits = {}
+        self._bottleneck_neighbors = {}
+        self._bottleneck_prev_key = None
+        self._n_bottleneck_fires = 0
 
     def get_state(self) -> dict:
         """Diagnostic snapshot for experiment manifests."""
@@ -418,8 +618,18 @@ class PolicyDecomposition:
             "decomp_n_decomposed_precommit": self._n_decomposed_precommit,
             "decomp_n_decomposed_midexec": self._n_decomposed_midexec,
             "decomp_n_marked_unreliable": self._n_marked_unreliable,
-            # R1 trigger-source audit (either may co-fire).
+            # R1 trigger-source audit (either may co-fire). In "bottleneck"
+            # mode these still count V_s / boundary crossings for audit, but
+            # they do NOT drive should_decompose -- decomp_n_bottleneck_fires
+            # does (see decomp_trigger_mode).
             "decomp_n_vs_trigger": self._n_vs_trigger,
             "decomp_n_boundary_fires": self._n_boundary_fires,
             "decomp_last_decomposed_sequence": list(self._last_decomposed_sequence),
+            # R5 bottleneck-mode audit. decomp_trigger_mode names which
+            # verdict drove the decisions in this run; the *_bottleneck_*
+            # fields are 0 / empty in "vs_boundary" mode (accumulator never
+            # touched -- the bit-identity guarantee).
+            "decomp_trigger_mode": self.config.trigger_mode,
+            "decomp_n_bottleneck_fires": self._n_bottleneck_fires,
+            "decomp_n_bottleneck_regions_tracked": len(self._bottleneck_visits),
         }
