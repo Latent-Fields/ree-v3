@@ -38,12 +38,27 @@
       "status": "claimed",
       "claimed_by": {
         "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-07-25T18:28:31Z"
+        "claimed_at": "2026-07-25T18:41:05Z"
       },
       "conditions": 3,
       "episodes_per_run": 40,
       "experiment_type": "v3_exq_817_sd080_consequence_grounding_falsifier",
       "seeds": 5
+    },
+    {
+      "queue_id": "V3-EXQ-818",
+      "title": "ARC-016 residual validation: eval-derived commit threshold + graded-noise E3 precision sweep (monotonic tracking; structural, no harm DV; smoke PASS)",
+      "script": "experiments/v3_exq_818_arc016_eval_derived_noise_precision_sweep.py",
+      "priority": 50,
+      "machine_affinity": "any",
+      "estimated_minutes": 45,
+      "claim_id": "ARC-016",
+      "note": "Residual gate between ARC-016 provisional and shown (what_would_answer + 2026-07-25 /claim-synthesis rescore, claim_synthesis_arc-016_2026-07-25.md). Re-runs the EXQ-396 design with an EVAL-DERIVED, held-fixed commit threshold, but replaces the fragile env-difficulty precision lever (which moved eval rv only 5.6% in V3-EXQ-805 -> substrate_not_ready) with graded Gaussian noise injected into the E3 world_forward prediction-error path, swept across 5 levels whose sigma is calibrated per-seed from the measured eval baseline so the running-variance brackets the threshold BY CONSTRUCTION. Tests MONOTONIC tracking (Spearman rho[rv,commit_rate]) with the non-degeneracy precondition (commit_rate range >= 0.30 + manipulation-took) as a self-route, never a verdict. STRUCTURAL circuit only (ARC-016); NO behavioural harm DV (that is ARC-029; would re-import the V_s monostrategy-lock confound). PASS=eval-time threshold engages and commit_rate tracks precision monotonically (calibration artefact confirmed, validation stands, promotes nothing); FAIL with gate GREEN=first genuine evidence against the circuit. Re-derive brake count for ARC-016 = 0 (prior autopsies are instrument/measurement defects, not substrate_ceiling). GOV-REUSE-1: decisive readout carried by no manifest (805 records no per-level noise sweep; 018b/396 derive threshold from training variance) -> must run. Smoke PASS: rho -0.95, commit_rate [1,1,0.86,0,0], manip_took 19x. NOTE: this session (failure-autopsy-707c-809-6bce04) committed 818 from HEAD's clean queue to avoid sweeping in unclaimed abandoned staged entries V3-EXQ-806/807 (SD-078/079) present in the shared working tree; those were restored to the working tree post-commit, not committed here.",
+      "status": "pending",
+      "conditions": 1,
+      "episodes_per_run": 480,
+      "experiment_type": "v3_exq_818_arc016_eval_derived_noise_precision_sweep",
+      "seeds": 4
     },
     {
       "queue_id": "V3-EXQ-793a",
@@ -63,21 +78,6 @@
       "episodes_per_run": 340,
       "experiment_type": "v3_exq_793a_sd049_arm2_competence_repower",
       "seeds": 6
-    },
-    {
-      "queue_id": "V3-EXQ-818",
-      "title": "ARC-016 residual validation: eval-derived commit threshold + graded-noise E3 precision sweep (monotonic tracking; structural, no harm DV; smoke PASS)",
-      "script": "experiments/v3_exq_818_arc016_eval_derived_noise_precision_sweep.py",
-      "priority": 50,
-      "machine_affinity": "any",
-      "estimated_minutes": 45,
-      "claim_id": "ARC-016",
-      "note": "Residual gate between ARC-016 provisional and shown (what_would_answer + 2026-07-25 /claim-synthesis rescore, claim_synthesis_arc-016_2026-07-25.md). Re-runs the EXQ-396 design with an EVAL-DERIVED, held-fixed commit threshold, but replaces the fragile env-difficulty precision lever (which moved eval rv only 5.6% in V3-EXQ-805 -> substrate_not_ready) with graded Gaussian noise injected into the E3 world_forward prediction-error path, swept across 5 levels whose sigma is calibrated per-seed from the measured eval baseline so the running-variance brackets the threshold BY CONSTRUCTION. Tests MONOTONIC tracking (Spearman rho[rv,commit_rate]) with the non-degeneracy precondition (commit_rate range >= 0.30 + manipulation-took) as a self-route, never a verdict. STRUCTURAL circuit only (ARC-016); NO behavioural harm DV (that is ARC-029; would re-import the V_s monostrategy-lock confound). PASS=eval-time threshold engages and commit_rate tracks precision monotonically (calibration artefact confirmed, validation stands, promotes nothing); FAIL with gate GREEN=first genuine evidence against the circuit. Re-derive brake count for ARC-016 = 0 (prior autopsies are instrument/measurement defects, not substrate_ceiling). GOV-REUSE-1: decisive readout carried by no manifest (805 records no per-level noise sweep; 018b/396 derive threshold from training variance) -> must run. Smoke PASS: rho -0.95, commit_rate [1,1,0.86,0,0], manip_took 19x. NOTE: this session (failure-autopsy-707c-809-6bce04) committed 818 from HEAD's clean queue to avoid sweeping in unclaimed abandoned staged entries V3-EXQ-806/807 (SD-078/079) present in the shared working tree; those were restored to the working tree post-commit, not committed here.",
-      "status": "pending",
-      "conditions": 1,
-      "episodes_per_run": 480,
-      "experiment_type": "v3_exq_818_arc016_eval_derived_noise_precision_sweep",
-      "seeds": 4
     }
   ]
 }
