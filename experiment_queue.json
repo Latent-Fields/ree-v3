@@ -46,6 +46,22 @@
       "seeds": 5
     },
     {
+      "queue_id": "V3-EXQ-820",
+      "title": "ARC-070/MECH-321 R1-vs-R5-vs-OFF three-arm dissociation: adds ARM_2 (R5 bottleneck-state trigger) on V3-EXQ-816's ARM_0/ARM_1 design",
+      "script": "experiments/v3_exq_820_mech321_policy_decomposition_bottleneck_arm2.py",
+      "priority": 50,
+      "machine_affinity": "any",
+      "estimated_minutes": 450,
+      "claim_id": "MECH-321",
+      "note": "SUCCESSOR to V3-EXQ-816 completing the ARC-070/MECH-321 discriminative validation: adds ARM_2 (R5 bottleneck-state PRIMARY trigger) on top of 816's ARM_0(OFF)/ARM_1(V_s-drop) design, so the full R1-vs-R5-vs-OFF dissociation from MECH-321's functional_restatement is measured. Buildable now because the R5 bottleneck trigger mode landed 2026-07-25 (ree-v3 2422632: REEConfig.decomposition_trigger_mode='vs_boundary'|'bottleneck', via /implement-substrate). ARM_0 reuses 816's canonical baseline module experiments/_lib/baselines/mech321_policy_decomposition.py (off_path_config_slice, driver excluded): reuse HITs once 816's cloud ARM_0 mint is banked, else runs fresh + self-mints (reuse_baseline_from=null reuses any compatible banked mint). ARM_1 vs_boundary (R1); ARM_2 bottleneck (R5: decompose only at bottleneck states REGARDLESS OF V_s, via an online incremental McGovern-Barto diverse-density accumulator over a quantised z_world region key). LOAD-BEARING DV = frac_decomp_at_high_vs (fraction of an arm's pre-commit decomposition EVENTS at region V_s >= threshold): R5 supported iff ARM_2 decomposes at high-V_s states (>=0.20) AND exceeds ARM_1's high-V_s fraction by >=0.10 -- the direct V_s-independence signature ARM_1's V_s trigger cannot produce. Corroboration (non-load-bearing): both ARM_1 and ARM_2 reduce low-V_s forward PE (R5 'overlapping outputs on repeated structure'). DV-SYMMETRY: frac_decomp_at_high_vs is a count-ratio over decomposition events (symmetry group = permutation of contributing events/seeds + action-class relabelling); trigger_mode is NOT invariant under it (it changes WHICH steps decompose, so region-V_s at the events differs in content/cardinality) -- not an arithmetic identity (nothing forces bottleneck states to any particular V_s). Events count only on FRESH proposes (held ticks return cached candidates -> no decompose), so the DV is not hold-weighted. READINESS (P0) self-routes substrate_not_ready_requeue (non_degenerate=false, scoring-excluded), NEVER a falsification, if V_s heterogeneity is absent (P1), ARM_1 never decomposes (P2a), ARM_2's bottleneck trigger never fires+decomposes (P2b: env lacks recurring funnel structure at these params), or too few events to estimate the frac (P3). GOV-REUSE-1: trigger_mode='bottleneck' did not exist before 2026-07-25; no manifest on any substrate_hash carries an ARM_2 bottleneck readout and 816 (only sibling) has no ARM_2 -- not recoverable, run. Re-derive brake: 0 braking autopsies for both ARC-070 and MECH-321 (new claims). MACHINE any/cloud so it reuses 816's cloud-class (linux-x86_64) ARM_0 mint. Both claims stay v3_pending. Smoke PASS (dry-run: 6 cells end-to-end exit 0, ARM_2 bottleneck FIRES (P2b true), reuse-refuse->fresh path exercised, recording-core + arm-fingerprint hoist OK; dry FAIL is structural -- 4 measure-episodes give no V_s heterogeneity so P1 self-routes as designed). Renumbered from V3-EXQ-819 (concurrently taken by a mech457/inv088 session).",
+      "status": "pending",
+      "conditions": 3,
+      "episodes_per_run": 60,
+      "experiment_type": "v3_exq_820_mech321_policy_decomposition_bottleneck_arm2",
+      "reuse_baseline_from": null,
+      "seeds": 5
+    },
+    {
       "queue_id": "V3-EXQ-819",
       "title": "competence_floor R4: prediction-trained z_world vs frozen random-projection (MECH-457/INV-088 instrument-validity)",
       "script": "experiments/v3_exq_819_mech457_inv088_zworld_trained_vs_random.py",
@@ -54,7 +70,11 @@
       "estimated_minutes": 720,
       "claim_id": "MECH-457",
       "note": "competence_floor R4 INSTRUMENT-VALIDITY leg (D12), routed in competence_floor_reposing_2026-07-20.md sec 4 R4, re-confirmed unblocked 2026-07-25. DIAGNOSTIC (claim_ids MECH-457+INV-088; excluded from scoring); PROMOTES/DEMOTES NOTHING; route to /failure-autopsy. Q: does a prediction-trained z_world confer any competence advantage over a frozen random-projection z_world of the same dimensionality? 2 arms (zworld_random_proj zworld_p0=0 vs zworld_trained zworld_p0=60), both cotrain=False (z_world DETACHED per the user-specified reference build) so only the encoder's initial content differs; +3 anchors. Paired-per-seed competence-TRAJECTORY-AUC advantage; the 5 measurement_requirements honoured (trajectory DV; explicit succeeded-then-decayed branch; routing on declared covariates install_took+post_bc; substrate_not_ready_requeue when neither installs / treatment not applied; GATING zworld_encoder_guard scoped to the trained arm). RE-DERIVE BRAKE RELEASED: MECH-457 count 8 / INV-088 count 2 both >=2, but the upstream substrate the 780/781/782 cluster autopsy owed -- sd_zworld_warmup_optimizer_group -- is now BUILT (ree-v3 b523b9c70a) + VALIDATED (REE_assembly 25a69fcd4c 2026-07-22), and this is a new-number never-tested question, not a lettered same-mechanism iteration. GOV-REUSE-1: decisive readout = trained-z_world competence trajectory; absent from every manifest by construction (the trained encoder was unconstructible before 2026-07-20; all 16 prior z_world arms ran frozen random projections per V3-EXQ-780) -> must run. Reference build 128/3x/detached (NOT 769-falsified 256/5x); the historical 32.72 z_world+BC band (748) ran cotrain=True so absolute install may differ, the within-run RANDOM-vs-TRAINED contrast is decisive. REGISTRY: R4 not yet registered as a hypothesis under question competence_floor (D12); registry is derive-only (single producer /failure-autopsy Step 9b) -- register D12 there before/when adjudicating. Smoke PASS (dry-run full pipeline; encoder trains on trained arm, guard fires non-gating on control); validate_experiments/validate_recording --strict OK.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-07-25T19:04:45Z"
+      },
       "conditions": 5,
       "episodes_per_run": 3000,
       "experiment_type": "v3_exq_819_mech457_inv088_zworld_trained_vs_random",
@@ -69,7 +89,11 @@
       "estimated_minutes": 25,
       "claim_id": "SD-078",
       "note": "SD-SD-078 validation, re-landed after 2026-07-25 crash + phase3-queue race dropped the git append; POSTed to coordinator DB for durable ingress. Code+scripts+contracts on origin/main 0ec3ef61f1.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-3",
+        "claimed_at": "2026-07-25T19:05:41Z"
+      },
       "conditions": 2,
       "episodes_per_run": 12,
       "experiment_type": "v3_exq_806_sd078_centered_rule_field_context_key",
@@ -108,22 +132,6 @@
       "episodes_per_run": 340,
       "experiment_type": "v3_exq_793a_sd049_arm2_competence_repower",
       "seeds": 6
-    },
-    {
-      "queue_id": "V3-EXQ-820",
-      "title": "ARC-070/MECH-321 R1-vs-R5-vs-OFF three-arm dissociation: adds ARM_2 (R5 bottleneck-state trigger) on V3-EXQ-816's ARM_0/ARM_1 design",
-      "script": "experiments/v3_exq_820_mech321_policy_decomposition_bottleneck_arm2.py",
-      "experiment_type": "v3_exq_820_mech321_policy_decomposition_bottleneck_arm2",
-      "priority": 50,
-      "machine_affinity": "any",
-      "estimated_minutes": 450,
-      "status": "pending",
-      "episodes_per_run": 60,
-      "seeds": 5,
-      "conditions": 3,
-      "claim_id": "MECH-321",
-      "reuse_baseline_from": null,
-      "note": "SUCCESSOR to V3-EXQ-816 completing the ARC-070/MECH-321 discriminative validation: adds ARM_2 (R5 bottleneck-state PRIMARY trigger) on top of 816's ARM_0(OFF)/ARM_1(V_s-drop) design, so the full R1-vs-R5-vs-OFF dissociation from MECH-321's functional_restatement is measured. Buildable now because the R5 bottleneck trigger mode landed 2026-07-25 (ree-v3 2422632: REEConfig.decomposition_trigger_mode='vs_boundary'|'bottleneck', via /implement-substrate). ARM_0 reuses 816's canonical baseline module experiments/_lib/baselines/mech321_policy_decomposition.py (off_path_config_slice, driver excluded): reuse HITs once 816's cloud ARM_0 mint is banked, else runs fresh + self-mints (reuse_baseline_from=null reuses any compatible banked mint). ARM_1 vs_boundary (R1); ARM_2 bottleneck (R5: decompose only at bottleneck states REGARDLESS OF V_s, via an online incremental McGovern-Barto diverse-density accumulator over a quantised z_world region key). LOAD-BEARING DV = frac_decomp_at_high_vs (fraction of an arm's pre-commit decomposition EVENTS at region V_s >= threshold): R5 supported iff ARM_2 decomposes at high-V_s states (>=0.20) AND exceeds ARM_1's high-V_s fraction by >=0.10 -- the direct V_s-independence signature ARM_1's V_s trigger cannot produce. Corroboration (non-load-bearing): both ARM_1 and ARM_2 reduce low-V_s forward PE (R5 'overlapping outputs on repeated structure'). DV-SYMMETRY: frac_decomp_at_high_vs is a count-ratio over decomposition events (symmetry group = permutation of contributing events/seeds + action-class relabelling); trigger_mode is NOT invariant under it (it changes WHICH steps decompose, so region-V_s at the events differs in content/cardinality) -- not an arithmetic identity (nothing forces bottleneck states to any particular V_s). Events count only on FRESH proposes (held ticks return cached candidates -> no decompose), so the DV is not hold-weighted. READINESS (P0) self-routes substrate_not_ready_requeue (non_degenerate=false, scoring-excluded), NEVER a falsification, if V_s heterogeneity is absent (P1), ARM_1 never decomposes (P2a), ARM_2's bottleneck trigger never fires+decomposes (P2b: env lacks recurring funnel structure at these params), or too few events to estimate the frac (P3). GOV-REUSE-1: trigger_mode='bottleneck' did not exist before 2026-07-25; no manifest on any substrate_hash carries an ARM_2 bottleneck readout and 816 (only sibling) has no ARM_2 -- not recoverable, run. Re-derive brake: 0 braking autopsies for both ARC-070 and MECH-321 (new claims). MACHINE any/cloud so it reuses 816's cloud-class (linux-x86_64) ARM_0 mint. Both claims stay v3_pending. Smoke PASS (dry-run: 6 cells end-to-end exit 0, ARM_2 bottleneck FIRES (P2b true), reuse-refuse->fresh path exercised, recording-core + arm-fingerprint hoist OK; dry FAIL is structural -- 4 measure-episodes give no V_s heterogeneity so P1 self-routes as designed). Renumbered from V3-EXQ-819 (concurrently taken by a mech457/inv088 session)."
     }
   ]
 }
