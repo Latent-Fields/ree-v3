@@ -8,25 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-821",
-      "title": "MECH-457 H-consummation-binding (leg 4): does an approach drive that EXTINGUISHES on contact + hands off to CONSUME retain installed competence vs 781's non-extinguishing terminal drive (consummatory env, retention trajectory DV)",
-      "script": "experiments/v3_exq_821_mech457_consummation_binding.py",
-      "priority": 55,
-      "machine_affinity": "any",
-      "estimated_minutes": 360,
-      "claim_id": "MECH-457",
-      "note": "GOV-FANOUT-1 MECH-457 competence_floor RETENTION leg 4 (last open retention leg), pre-registered H-consummation-binding. DIAGNOSTIC (excluded from scoring); PROMOTES/DEMOTES NOTHING; route to /failure-autopsy. Consumes substrate landed 2026-07-25: mech457_consummatory_act (env, ree-v3 b2e9068) + mech457_approach_extinction (c36b0ca) + consummatory_aware_reference_policies (cc15399) + rawview action_dim (08a8a1d). RETENTION (BC-install) framing, architect decision 2026-07-25. Single manipulation = approach_extinguishes_on_contact (extinct_off control vs extinct_on treatment); both arms consummatory + approach drive + BC-installed; use_distributional_critic / bc_aux schedule / KL-anchor HELD AT DEFAULTS (anti-alias with the 3 sibling manipulation nodes). DV = post-installation competence TRAJECTORY via mech457_retention_trajectory_probe (unshaped foraging_competence, evaluate_seed). Consummatory install band ~13 (live anchors), NOT the non-consummatory 20.933. Predictions BOTH declared: extinguishing arm retains + beats control => 781 null was a consummatory-act artefact (PASS); both erode identically => extinction NOT the retention mechanism, H eliminated (declared null). BLAST RADIUS: consummatory_act_enabled=True grows action_dim 5->6, busting cached arm fingerprints for consummatory-ON lineages (reuse correctly refuses; expected). GOV-REUSE-1: decisive readout recorded in no existing manifest (consummatory action space new 2026-07-25) -> must run. Smoke: dry-run PASS end-to-end (anchors forage, install takes, both arms + probe run; nondiscriminative at dry budget is the expected boundary artifact).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-07-25T20:50:23Z"
-      },
-      "conditions": 5,
-      "episodes_per_run": 3000,
-      "experiment_type": "v3_exq_821_mech457_consummation_binding",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-819",
       "title": "competence_floor R4: prediction-trained z_world vs frozen random-projection (MECH-457/INV-088 instrument-validity)",
       "script": "experiments/v3_exq_819_mech457_inv088_zworld_trained_vs_random.py",
