@@ -136,7 +136,11 @@ class Anchor:
     below_threshold_streak: int = 0
     goal_payload: Optional[AnchorGoalPayload] = None
 
-    def goal_match(self, current_z_goal: Optional[torch.Tensor]) -> float:
+    def goal_match(
+        self,
+        current_z_goal: Optional[torch.Tensor],
+        baseline: Optional[torch.Tensor] = None,
+    ) -> float:
         """SD-039: cosine similarity between stored z_goal_snapshot and
         the supplied current z_goal latent. Returns 0.0 when this anchor
         has no payload, no z_goal_snapshot, or current_z_goal is None.
@@ -146,6 +150,22 @@ class Anchor:
         dims. Negative cosines are clamped to 0.0 -- goal_match is a
         non-negative motivational-relevance signal, not a signed
         correlation.
+
+        SD-079: when `baseline` is supplied (the AnchorSet's slow-EMA
+        common-mode baseline over presented z_goal), the cosine is taken
+        between the CENTERED residuals `z_goal_snapshot - baseline` and
+        `current_z_goal - baseline`. z_goal is pulled toward z_world, so it
+        inherits -- and amplifies -- the SD-008 common-mode offset: measured
+        2026-07-22 on the V3-EXQ-669b Stage-0 nursery, z_goal pairwise cosine
+        min 0.9878 with ||mean(z_goal)|| / mean||z_goal|| = 0.9987, so
+        goal_match spans 0.0111 across a 24-anchor pool and the raw cosine
+        reports the shared offset rather than motivational relevance.
+        `baseline=None` (the default) is the identity -- bit-identical to the
+        pre-SD-079 raw form.
+
+        Snapshots are stored RAW and centered HERE, at comparison time, so a
+        drifting baseline moves query and every stored snapshot together
+        (the SD-077 trade).
         """
         if self.goal_payload is None:
             return 0.0
@@ -158,6 +178,11 @@ class Anchor:
             return 0.0
         if a.numel() != b.numel():
             return 0.0
+        if baseline is not None:
+            base = baseline.detach().reshape(-1).float()
+            if base.numel() == a.numel():
+                a = a - base
+                b = b - base
         if a.norm().item() < 1e-9 or b.norm().item() < 1e-9:
             return 0.0
         sim = F.cosine_similarity(a.unsqueeze(0), b.unsqueeze(0), dim=-1)
@@ -181,6 +206,47 @@ class AnchorSet:
         self._active_per_scale: Dict[str, int] = {}
         # Monotonic local tick counter; incremented by tick_hysteresis.
         self._tick: int = 0
+        # SD-079: slow-EMA common-mode baseline over PRESENTED z_goal cues.
+        # None until lazily seeded by the first waking observe_goal_cue(); stays
+        # None forever when goal_cue_centering is False (no allocation OFF).
+        self._goal_baseline: Optional[torch.Tensor] = None
+
+    # ------------------------------------------------------------------ #
+    # SD-079: common-mode baseline over the z_goal cue                    #
+    # ------------------------------------------------------------------ #
+    def observe_goal_cue(
+        self,
+        current_z_goal: Optional[torch.Tensor],
+        simulation_mode: bool = False,
+    ) -> None:
+        """Advance the slow-EMA common-mode baseline on a WAKING z_goal cue.
+
+        Lazily seeded from the first waking cue (no zero-init transient).
+        MECH-094: simulation_mode cues never advance the baseline -- replay /
+        DMN must not shape the waking cue geometry.
+
+        No-op (and no tensor allocated) when goal_cue_centering is False.
+        """
+        if not getattr(self.config, "goal_cue_centering", False):
+            return
+        if simulation_mode or current_z_goal is None:
+            return
+        v = current_z_goal.detach().reshape(-1).float()
+        if v.numel() == 0:
+            return
+        if self._goal_baseline is None or self._goal_baseline.numel() != v.numel():
+            self._goal_baseline = v.clone()
+            return
+        a = float(getattr(self.config, "goal_cue_baseline_alpha", 0.02))
+        self._goal_baseline = (1.0 - a) * self._goal_baseline + a * v
+
+    @property
+    def goal_cue_baseline(self) -> Optional[torch.Tensor]:
+        """The SD-079 baseline to pass to Anchor.goal_match, or None when
+        centering is off / the baseline is unseeded (identity)."""
+        if not getattr(self.config, "goal_cue_centering", False):
+            return None
+        return self._goal_baseline
 
     # ------------------------------------------------------------------ #
     # Public API                                                         #
@@ -216,6 +282,19 @@ class AnchorSet:
             if goal_payload is not None:
                 existing.goal_payload = goal_payload
             return existing
+
+        # SD-079: the WRITE path advances the common-mode baseline too, not only
+        # the read path. Advancing on reads alone is not enough: the bank is
+        # ranked far less often than anchors are written, so a read-only baseline
+        # is lazily seeded FROM THE QUERY ITSELF and the first rank then centers
+        # every snapshot against the query, driving every residual to ~0 and every
+        # goal_match to 0.0 (measured -- the ON arm scored 0.0000 across 20 anchors
+        # before this was added). MECH-094 is satisfied by construction here: a
+        # goal_payload is only attached when the SD-039 master flag is on AND the
+        # write is not simulation/replay, so a payload's presence certifies a
+        # waking cue.
+        if goal_payload is not None and goal_payload.z_goal_snapshot is not None:
+            self.observe_goal_cue(goal_payload.z_goal_snapshot, simulation_mode=False)
 
         family = (scale, tuple(stream_mixture))
         prior_active = self._active.get(family)
@@ -453,6 +532,7 @@ class AnchorSet:
         threshold: float = 0.0,
         scale: Optional[str] = None,
         active_only: bool = False,
+        simulation_mode: bool = False,
     ) -> List[Tuple[Anchor, float]]:
         """SD-039: motivational-relevance query over the dual-trace anchor pool.
 
@@ -491,10 +571,14 @@ class AnchorSet:
         """
         if current_z_goal is None:
             return []
+        # SD-079: advance the common-mode baseline on this waking cue, then take
+        # every match on the centered residual. Identity when centering is off.
+        self.observe_goal_cue(current_z_goal, simulation_mode=simulation_mode)
+        baseline = self.goal_cue_baseline
         pool = self.active_anchors(scale=scale) if active_only else self.all_anchors(scale=scale)
         scored: List[Tuple[Anchor, float]] = []
         for anchor in pool:
-            score = anchor.goal_match(current_z_goal)
+            score = anchor.goal_match(current_z_goal, baseline=baseline)
             # Default threshold=0.0 excludes payload-less / norm-zero traces.
             # threshold=-1.0 (or any negative) is the explicit "include
             # everything" path for diagnostic queries.

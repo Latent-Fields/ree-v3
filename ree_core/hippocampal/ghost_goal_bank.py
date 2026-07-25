@@ -185,6 +185,7 @@ class GhostGoalBank:
         self,
         current_z_goal: Optional[torch.Tensor],
         persistence_appraisal: Optional[PersistenceAppraisal] = None,
+        simulation_mode: bool = False,
     ) -> List[GhostGoalBankEntry]:
         """Return the ranked ghost-goal bank for the supplied current z_goal.
 
@@ -201,6 +202,21 @@ class GhostGoalBank:
         if current_z_goal is None:
             self._last_diagnostics = self._empty_diagnostics(reason="no_z_goal")
             return []
+
+        # SD-079: advance the AnchorSet's common-mode baseline on this waking cue
+        # and score every anchor on the centered residual. None -> identity, so
+        # the OFF path is bit-identical. z_goal carries the SD-008 offset even
+        # harder than z_world (measured pairwise cosine min 0.9878), which pins
+        # BOTH absolute gates downstream of goal_match: the goal_match_floor
+        # rumination guard excluded 0/24 anchors, and the MECH-339 outshining gate
+        # `clip((outshine_pivot - goal_match) / outshine_pivot)` sat at exactly
+        # 0.0000 for every anchor -- i.e. the composite cue's context channel was
+        # unconditionally dead whenever it was enabled. Centered: 9/24 excluded by
+        # the floor, gate nonzero on 9/24.
+        self.anchor_set.observe_goal_cue(
+            current_z_goal, simulation_mode=simulation_mode
+        )
+        goal_baseline = self.anchor_set.goal_cue_baseline
 
         pool = self._pool_for_config()
         n_scanned = len(pool)
@@ -232,7 +248,7 @@ class GhostGoalBank:
                 n_no_payload += 1
                 continue
 
-            goal_match = anchor.goal_match(current_z_goal)
+            goal_match = anchor.goal_match(current_z_goal, baseline=goal_baseline)
             if goal_match < cfg.goal_match_floor:
                 n_below_floor += 1
                 continue

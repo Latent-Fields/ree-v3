@@ -248,6 +248,36 @@ class CandidateRuleFieldConfig:
     mature_context_match_threshold: float = -1.0
     tolerance_conflict_cap: int = -1
     maintenance_couple_to_theta: bool = False
+    # --- SD-078: common-mode-invariant (centered) context key. -------------
+    # The field's context key is z_world (or, under crf_context_from_e2_world_forward,
+    # e2.world_forward(z_world, a) -- measured to carry the SAME offset). Under the
+    # SD-008 z_world under-differentiation, every context sits inside one narrow
+    # common-mode cone, so an ABSOLUTE cosine on the raw key measures the shared
+    # offset rather than the context. Measured 2026-07-22 on the V3-EXQ-669b Stage-0
+    # nursery (155-160 contexts, seed 101, alpha_world=0.9):
+    #   raw world_obs  pairwise cosine min 0.3000 (60.2% of pairs < 0.8)  [control]
+    #   z_world        pairwise cosine min 0.9767 (0.0% of pairs < 0.8)
+    #   e2 ctx         pairwise cosine min 0.9426 (0.0% of pairs < 0.8)
+    # Consequence, measured by driving THIS module over that context stream: the
+    # mint-block (`_cosine(context, rule.context_tag) >= mint_block_thresh`) fires
+    # against every existing rule at ANY threshold <= 0.94 -- including the mature
+    # 0.8 and the legacy 0.5 -- so the pool can never hold a SECOND rule, and
+    # _context_bucket (sign pattern of the leading 8 dims, also common-mode
+    # dominated) collapses to 1 bucket. Observed n_minted=1, max_live_rules=1,
+    # max_pairwise_rule_dist=0.0000, n_context_buckets=1 -- the exact signature the
+    # V3-EXQ-654b/654d autopsies read as retire-churn. It is structural, not churn.
+    # With centering: 8 rules, dist 1.2581, 20 buckets.
+    # NOTE the two 654b-amend mitigations aimed at this symptom are measured
+    # INEFFECTIVE and are deliberately left in place (see sd_078 doc): raising
+    # mature_mint_block_threshold to 0.8 does not clear a 0.94 floor, and
+    # crf_context_from_e2_world_forward routes to a context carrying the same
+    # offset (still 1 rule, dist 0.0000). Do not re-tune either as the fix.
+    #   cue_centering: master switch. False -> _centered() is the identity, no
+    #     baseline tensor is allocated, and the path is bit-identical to raw.
+    #   cue_baseline_alpha: slow-EMA rate of the common-mode baseline (SD-066's
+    #     validated default, shared with SD-077).
+    cue_centering: bool = False
+    cue_baseline_alpha: float = 0.02
 
 
 @dataclass
@@ -312,6 +342,11 @@ class CandidateRuleField:
         self._recurrence: Dict[Tuple, int] = {}
         self._step: int = 0
 
+        # SD-078: slow-EMA common-mode baseline over waking contexts. None until
+        # lazily seeded by the first waking observe(); stays None forever when
+        # cue_centering is False (no allocation on the OFF path).
+        self._baseline: Optional[torch.Tensor] = None
+
         # Per-tick / cumulative diagnostics.
         self._n_minted: int = 0
         self._n_retired: int = 0
@@ -331,6 +366,41 @@ class CandidateRuleField:
             self._retire_floor: float = float(self.config.mature_retire_floor)
         else:
             self._retire_floor = 0.5 * float(self.config.tolerance_floor)
+
+    # ------------------------------------------------------------------
+    # SD-078: common-mode baseline
+    # ------------------------------------------------------------------
+    def observe(self, context: torch.Tensor, simulation_mode: bool = False) -> None:
+        """Advance the slow-EMA common-mode baseline on a WAKING context.
+
+        Lazily seeded from the first waking context, so there is no zero-init
+        cold-start transient. MECH-094: simulation_mode contexts never advance
+        the baseline -- replay / DMN must not shape the waking cue geometry
+        (step() already returns before this on the simulation path; the guard is
+        kept so the method is safe to call directly).
+
+        No-op (and no tensor allocated) when cue_centering is False.
+        """
+        if not self.config.cue_centering or simulation_mode:
+            return
+        v = context.detach().reshape(-1)
+        if self._baseline is None:
+            self._baseline = v.clone()
+            return
+        a = float(self.config.cue_baseline_alpha)
+        self._baseline = (1.0 - a) * self._baseline + a * v
+
+    def _centered(self, v: torch.Tensor) -> torch.Tensor:
+        """The centered residual `v - baseline`, or `v` unchanged when centering
+        is off / the baseline is unseeded.
+
+        Context tags are stored RAW and centered HERE, at comparison time --
+        deliberately, rather than storing pre-centered tags. A drifting baseline
+        then moves the query and every stored tag together and can never leave
+        the pool internally inconsistent (SD-077's rationale, same trade)."""
+        if not self.config.cue_centering or self._baseline is None:
+            return v
+        return v.reshape(-1) - self._baseline.to(dtype=v.dtype, device=v.device)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -372,7 +442,13 @@ class CandidateRuleField:
         (b) no existing rule already covers this context (context_tag cosine
         >= context_match_threshold) AND (c) a free slot exists.
         """
-        bucket = self._context_bucket(context)
+        # SD-078: the recurrence key is bucketed on the CENTERED residual. The
+        # bucket is a sign pattern, i.e. an absolute threshold at zero, so it is
+        # common-mode dominated in exactly the way the cosine sites are (measured
+        # 1 bucket raw vs 20 centered) -- centering only the cosines would fix the
+        # mint-block while leaving the recurrence counter unable to tell regimes
+        # apart. Identity when cue_centering is False.
+        bucket = self._context_bucket(self._centered(context))
         key = (bucket, int(action_object_idx))
         self._recurrence[key] = self._recurrence.get(key, 0) + 1
         if self._recurrence[key] < self.config.mint_recurrence_threshold:
@@ -387,8 +463,11 @@ class CandidateRuleField:
             if self.config.mature_pool_dynamics
             else self.config.context_match_threshold
         )
+        # SD-078: both operands centered. Tags are stored RAW (below) so query and
+        # tag always move together under a drifting baseline.
+        ctx_c = self._centered(context)
         for rule in self._rules.values():
-            if self._cosine(context, rule.context_tag) >= mint_block_thresh:
+            if self._cosine(ctx_c, self._centered(rule.context_tag)) >= mint_block_thresh:
                 return 0
         slot = self._free_slot_index()
         if slot is None:
@@ -481,10 +560,12 @@ class CandidateRuleField:
         if step is None:
             step = self._step
         match_thresh = self._gate_match_threshold()
+        # SD-078: both operands centered (identity when cue_centering is False).
+        ctx_c = self._centered(context)
         matched: List[CandidateRule] = [
             r
             for r in self._rules.values()
-            if self._cosine(context, r.context_tag) >= match_thresh
+            if self._cosine(ctx_c, self._centered(r.context_tag)) >= match_thresh
         ]
         n_matched = len(matched)
         theta = self._theta_for(n_matched)
@@ -639,6 +720,10 @@ class CandidateRuleField:
             self._n_simulation_skipped += 1
             return torch.zeros(1, self.rule_dim, dtype=ctx.dtype, device=ctx.device)
         self._step += 1
+        # SD-078: advance the common-mode baseline on this waking context BEFORE
+        # any cue arithmetic, so mint-block, bucket and gate all read the same
+        # residual this tick. No-op when cue_centering is False.
+        self.observe(ctx, simulation_mode=False)
         # Credit the rules that were active on the PREVIOUS tick, using the
         # outcome that has now arrived.
         self.credit(outcome_signal, step=self._step)
@@ -663,6 +748,11 @@ class CandidateRuleField:
         matures a differentiated pool at behavioural-runtime episode lengths
         (failure_autopsy_V3-EXQ-654_2026-06-09). Default False reproduces the
         legacy per-episode wipe bit-identically.
+
+        SD-078: the common-mode baseline PERSISTS across the wipe. It is cue
+        GEOMETRY, not rule content -- the encoder's offset does not reset when the
+        episode does, and re-seeding it per episode would reintroduce a cold-start
+        transient on every reset.
         """
         if self.config.persist_rules_across_episode_reset:
             return

@@ -82,6 +82,21 @@
       "episodes_per_run": 340,
       "experiment_type": "v3_exq_793a_sd049_arm2_competence_repower",
       "seeds": 6
+    },
+    {
+      "queue_id": "V3-EXQ-819",
+      "title": "competence_floor R4: prediction-trained z_world vs frozen random-projection (MECH-457/INV-088 instrument-validity)",
+      "experiment_type": "v3_exq_819_mech457_inv088_zworld_trained_vs_random",
+      "script": "experiments/v3_exq_819_mech457_inv088_zworld_trained_vs_random.py",
+      "priority": 48,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 720,
+      "episodes_per_run": 3000,
+      "seeds": 3,
+      "conditions": 5,
+      "claim_id": "MECH-457",
+      "note": "competence_floor R4 INSTRUMENT-VALIDITY leg (D12), routed in competence_floor_reposing_2026-07-20.md sec 4 R4, re-confirmed unblocked 2026-07-25. DIAGNOSTIC (claim_ids MECH-457+INV-088; excluded from scoring); PROMOTES/DEMOTES NOTHING; route to /failure-autopsy. Q: does a prediction-trained z_world confer any competence advantage over a frozen random-projection z_world of the same dimensionality? 2 arms (zworld_random_proj zworld_p0=0 vs zworld_trained zworld_p0=60), both cotrain=False (z_world DETACHED per the user-specified reference build) so only the encoder's initial content differs; +3 anchors. Paired-per-seed competence-TRAJECTORY-AUC advantage; the 5 measurement_requirements honoured (trajectory DV; explicit succeeded-then-decayed branch; routing on declared covariates install_took+post_bc; substrate_not_ready_requeue when neither installs / treatment not applied; GATING zworld_encoder_guard scoped to the trained arm). RE-DERIVE BRAKE RELEASED: MECH-457 count 8 / INV-088 count 2 both >=2, but the upstream substrate the 780/781/782 cluster autopsy owed -- sd_zworld_warmup_optimizer_group -- is now BUILT (ree-v3 b523b9c70a) + VALIDATED (REE_assembly 25a69fcd4c 2026-07-22), and this is a new-number never-tested question, not a lettered same-mechanism iteration. GOV-REUSE-1: decisive readout = trained-z_world competence trajectory; absent from every manifest by construction (the trained encoder was unconstructible before 2026-07-20; all 16 prior z_world arms ran frozen random projections per V3-EXQ-780) -> must run. Reference build 128/3x/detached (NOT 769-falsified 256/5x); the historical 32.72 z_world+BC band (748) ran cotrain=True so absolute install may differ, the within-run RANDOM-vs-TRAINED contrast is decisive. REGISTRY: R4 not yet registered as a hypothesis under question competence_floor (D12); registry is derive-only (single producer /failure-autopsy Step 9b) -- register D12 there before/when adjudicating. Smoke PASS (dry-run full pipeline; encoder trains on trained arm, guard fires non-gating on control); validate_experiments/validate_recording --strict OK."
     }
   ]
 }
