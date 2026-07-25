@@ -80,6 +80,13 @@ class CausalGridWorld:
         0: (-1, 0), 1: (1, 0), 2: (0, -1), 3: (0, 1), 4: (0, 0),
     }
 
+    # mech457_consummatory_act: index of the distinct no-move CONSUME action,
+    # appended to the action space ONLY when consummatory_act_enabled is True.
+    # It is NOT a member of ACTIONS / _action_map (which stay the canonical
+    # 5-move map, immune to the world-rule-shift permutation); step() dispatches
+    # it explicitly so it can never be shuffled into a movement.
+    CONSUME_ACTION: int = 5
+
     ENTITY_TYPES: Dict[str, int] = {
         "empty": 0, "wall": 1, "resource": 2, "hazard": 3,
         "contaminated": 4, "agent": 5, "waypoint": 6,
@@ -378,6 +385,21 @@ class CausalGridWorld:
         # density is held constant as types come online and the arms differ only
         # in heterogeneity. Default False is bit-identical to the split budget.
         sd049_preserve_per_type_density: bool = False,
+        # mech457_consummatory_act (H-consummation-binding leg of competence_floor
+        # / MECH-457). When True, entering a resource cell no longer AUTOMATICALLY
+        # consumes it: contact merely AFFORDS consumption (transition_type
+        # "resource_contact", zero benefit reward, resource retained, homeostatic
+        # drives untouched). A distinct no-move CONSUME action (index 5) EFFECTS
+        # consumption while standing on a resource cell -- running the full
+        # benefit / removal / per-axis-drive-restore / respawn block. This lets an
+        # approach drive extinguish on contact and hand off to a separate
+        # consummatory act, the dissociation V3-EXQ-781's non-extinguishing
+        # terminal drive could not express. INVASIVE: enabling this grows
+        # action_dim 5 -> 6, re-keys every actor head, and busts all cached arm
+        # fingerprints for consummatory-ON lineages (reuse correctly refuses across
+        # the change). Default False is byte-identical to the pre-change
+        # auto-consume-on-entry behaviour (5-action space, valid fingerprints).
+        consummatory_act_enabled: bool = False,
         novelty_familiarity_increment: float = 0.2,
         novelty_familiarity_recovery: float = 0.0,
         resource_introduction_schedule: Optional[Dict[str, int]] = None,
@@ -885,6 +907,16 @@ class CausalGridWorld:
         # SD-049-PHASE-2 density-preserving spawn: read num_resources as a
         # per-active-type count rather than a total split across types.
         self.sd049_preserve_per_type_density = bool(sd049_preserve_per_type_density)
+        # mech457_consummatory_act: consumption becomes a distinct action rather
+        # than an automatic effect of entering a resource cell. See the kwarg doc
+        # above. Default False -> 5-action space, auto-consume-on-entry (bit-identical).
+        self.consummatory_act_enabled = bool(consummatory_act_enabled)
+        # Per-tick affordance flag: True after the agent has ENTERED (or is
+        # standing on) a resource cell in consummatory mode without yet consuming
+        # it. Reset at the top of step(); surfaced in the info dict as
+        # on_consumable_resource so the approach-drive machinery can extinguish on
+        # contact. Zero effect when consummatory_act_enabled is False.
+        self._on_consumable_resource = False
         # Diagnostic: True when the forage pool was too small to honour the
         # density-preserving budget, so per-type density was NOT actually held
         # constant. Surfaced in the env state dict -- a silent truncation would
@@ -1262,7 +1294,11 @@ class CausalGridWorld:
 
     @property
     def action_dim(self) -> int:
-        return len(self.ACTIONS)
+        # mech457_consummatory_act: +1 for the distinct CONSUME action when
+        # enabled. Bit-identical (len(ACTIONS) == 5) when disabled. Actor heads
+        # size themselves from this property, so enabling the flag grows action_dim
+        # 5 -> 6 everywhere with no further wiring.
+        return len(self.ACTIONS) + (1 if self.consummatory_act_enabled else 0)
 
     # ------------------------------------------------------------------ #
     # Reset                                                                #
@@ -1894,6 +1930,155 @@ class CausalGridWorld:
         return flat_obs, obs_dict
 
     # ------------------------------------------------------------------ #
+    # mech457_consummatory_act helpers                                     #
+    # ------------------------------------------------------------------ #
+
+    def _agent_on_resource_cell(self) -> bool:
+        """True iff the agent currently stands on an un-consumed resource cell.
+
+        Membership is tested against self.resources (the authoritative resource
+        list), NOT the grid entity marker: in consummatory mode a resource cell
+        the agent stands on is rendered as "agent", so a grid check would miss
+        it. Used to gate the CONSUME action.
+        """
+        ax, ay = self.agent_x, self.agent_y
+        return any(int(r[0]) == ax and int(r[1]) == ay for r in self.resources)
+
+    def _consume_resource_at(self, cx: int, cy: int) -> float:
+        """Effect consumption of the resource at cell (cx, cy) and return the
+        benefit reward (harm_signal contribution).
+
+        This is the exact benefit / removal / per-axis-drive-restore / respawn /
+        proximity-recompute block that legacy step() ran inline inside the
+        move-onto-resource branch, factored out verbatim (new_x,new_y -> cx,cy) so
+        that BOTH the legacy auto-consume-on-entry path and the consummatory
+        CONSUME action share one code path -- keeping the default (OFF) behaviour
+        byte-identical. The caller sets transition_type; this method does not.
+        """
+        cx = int(cx)
+        cy = int(cy)
+        # SD-049: identify resource type at the consumed cell. type_tag
+        # is 0 (no SD-049) or type_idx+1 (per the spawn convention).
+        type_tag = (
+            int(self._resource_type_grid[cx, cy])
+            if self.multi_resource_heterogeneity_enabled
+            else 0
+        )
+        contact_type_idx = type_tag - 1 if type_tag > 0 else -1
+        # SD-049 Phase 2: cache the consumed-this-tick type so the
+        # info dict can report it after the cell tag is cleared.
+        # This is the identity-classifier supervision target for
+        # V3-EXQ-514 (z_resource -> identity_logits cross-entropy).
+        # Reset to 0 at the top of every step() (see _consumed_type_tag_this_tick init).
+        self._consumed_type_tag_this_tick = type_tag
+        # Per-type benefit amplitude scales the contact restoration. Default
+        # 1.0 recovers legacy contact_benefit semantics.
+        amp = 1.0
+        if contact_type_idx >= 0:
+            amp = float(self.resource_type_benefit_amplitudes[contact_type_idx])
+        contact_benefit = self.resource_benefit * amp
+        # infant_substrate:GAP-3 -- transient benefit patch contact.
+        # A transient patch is a high-salience benefit: its contact
+        # reward is resource_benefit * transient_benefit_multiplier
+        # (overrides the SD-049 per-type amplitude; transient
+        # patches are intentionally NOT SD-049 typed -- their
+        # _resource_type_grid tag is 0). The patch is consumed here
+        # (dropped from transient tracking); the normal
+        # self.resources / grid removal below handles the rest.
+        if (cx, cy) in self._transient_benefit_cells:
+            contact_benefit = (
+                self.resource_benefit * self.transient_benefit_multiplier
+            )
+            self._transient_benefit_cells.discard((cx, cy))
+            self._transient_benefits = [
+                tb for tb in self._transient_benefits
+                if not (tb[0] == cx and tb[1] == cy)
+            ]
+            self._transient_benefit_n_contacted += 1
+            self._transient_benefit_contact_this_tick = float(
+                contact_benefit
+            )
+        # SD-049 novelty curve: scale benefit by (1 - cell_familiarity).
+        # First-visit cells give full benefit; re-visits give attenuated
+        # benefit reflecting non-homeostatic familiarity decay.
+        if (
+            contact_type_idx >= 0
+            and self.resource_type_benefit_curves[contact_type_idx]
+            == "novelty_decay"
+        ):
+            cell_fam = float(
+                np.clip(self._novelty_familiarity[cx, cy], 0.0, 1.0)
+            )
+            contact_benefit = contact_benefit * (1.0 - cell_fam)
+        if self.use_proxy_fields:
+            proximity_benefit = self.proximity_benefit_scale * float(
+                self.resource_field[cx, cy]
+            )
+            harm_signal = contact_benefit + proximity_benefit
+        else:
+            harm_signal = contact_benefit
+        self.agent_health = min(1.0, self.agent_health + contact_benefit * 0.5)
+        self.agent_energy = min(1.0, self.agent_energy + contact_benefit * 0.5)
+        self.total_benefit += harm_signal
+        self.resources = [
+            r for r in self.resources if not (r[0] == cx and r[1] == cy)
+        ]
+        # SD-049: also remove from per-type list and clear cell tag.
+        if self.multi_resource_heterogeneity_enabled and contact_type_idx >= 0:
+            self._resources_by_type[contact_type_idx] = [
+                r for r in self._resources_by_type[contact_type_idx]
+                if not (r[0] == cx and r[1] == cy)
+            ]
+            self._resource_type_grid[cx, cy] = 0
+            self._sd049_n_resource_contacts_by_type[contact_type_idx] += 1
+            # Restoration on the matching drive axis. Curve choice maps
+            # to magnitude / saturation profile; all curves saturate at
+            # full restoration (drive=0). novelty_decay treats axis as
+            # exploratory tone -- contact returns full restoration
+            # gated by per-cell familiarity above.
+            curve = self.resource_type_benefit_curves[contact_type_idx]
+            cur_drive = float(self._per_axis_drive[contact_type_idx])
+            if curve == "sigmoidal_saturating":
+                # Restoration proportional to how depleted the axis was.
+                # Full deficit -> full restoration; near-sated -> small.
+                restore = cur_drive * 1.0
+            elif curve == "sharp_saturation":
+                # Sharper: any contact restores most of the deficit.
+                restore = cur_drive * 0.8
+            elif curve == "novelty_decay":
+                # Familiarity-gated; cell_fam already applied to
+                # contact_benefit above. Axis restoration mirrors the
+                # sigmoidal shape but on the curiosity axis.
+                restore = cur_drive * 1.0
+            else:
+                restore = cur_drive * 1.0
+            # SD-049-PHASE-2 drive-coupling amend: partial restoration leaves
+            # standing drive on restored axes. fraction=1.0 -> bit-identical.
+            restore = restore * self.per_axis_restoration_fraction
+            self._per_axis_drive[contact_type_idx] = float(
+                np.clip(cur_drive - restore, 0.0, 1.0)
+            )
+            # Per-cell novelty familiarity increment (whether or not the
+            # contact was on a novelty-curve resource: every visit teaches
+            # the agent something about that cell -- the per-type curve
+            # determines whether that familiarity is used in scoring).
+            self._novelty_familiarity[cx, cy] = float(
+                np.clip(
+                    self._novelty_familiarity[cx, cy]
+                    + self.novelty_familiarity_increment,
+                    0.0,
+                    1.0,
+                )
+            )
+        # SD-012: optional resource respawn for repeated drive-reduction cycles
+        if self.resource_respawn_on_consume:
+            self._respawn_resource()
+        # Resource consumed (or respawned) -- recompute resource field
+        if self.use_proxy_fields:
+            self._compute_proximity_fields()
+        return float(harm_signal)
+
+    # ------------------------------------------------------------------ #
     # Step                                                                 #
     # ------------------------------------------------------------------ #
 
@@ -1913,13 +2098,19 @@ class CausalGridWorld:
         """
         if isinstance(action, torch.Tensor):
             action = action.argmax().item() if action.dim() > 0 else action.item()
-        action = int(action) % len(self.ACTIONS)
+        # mech457_consummatory_act: modulo by action_dim (not len(ACTIONS)) so the
+        # CONSUME action (index 5) survives when the flag is on; action_dim == 5
+        # when off, so this is bit-identical to the legacy modulo.
+        action = int(action) % self.action_dim
         self._last_action = action
 
         # SD-049 Phase 2: reset per-tick consumed-type cache before any
         # consumption logic runs. The flag is set inside the resource branch
         # below and read by the info dict surfacing at the bottom of step().
         self._consumed_type_tag_this_tick = 0
+        # mech457_consummatory_act: reset the per-tick affordance flag; recomputed
+        # from the agent's standing position after movement resolves.
+        self._on_consumable_resource = False
 
         # MECH-353 external action-block decision. Gated by the master switch
         # (zero RNG, zero state change when disabled). When it fires this tick
@@ -1940,7 +2131,17 @@ class CausalGridWorld:
         # the shift (the agent's forward model has had no chance to see it).
         world_rule_shift_occurred = self._maybe_shift_world_rule()
 
-        dx, dy = self._action_map[action]
+        # mech457_consummatory_act: the CONSUME action is a distinct no-move
+        # action that is NOT a member of _action_map (so it can never be permuted
+        # into a movement by the world-rule shift). Dispatch it as a stay (dx=dy=0)
+        # here and effect consumption explicitly below.
+        is_consume_action = (
+            self.consummatory_act_enabled and action == self.CONSUME_ACTION
+        )
+        if is_consume_action:
+            dx, dy = 0, 0
+        else:
+            dx, dy = self._action_map[action]
         if self.toroidal:
             new_x = (self.agent_x + dx) % self.size
             new_y = (self.agent_y + dy) % self.size
@@ -1979,6 +2180,16 @@ class CausalGridWorld:
 
             if self.contamination_grid[old_x, old_y] >= self.contamination_threshold:
                 self.grid[old_x, old_y] = self.ENTITY_TYPES["contaminated"]
+            elif self.consummatory_act_enabled and any(
+                int(r[0]) == old_x and int(r[1]) == old_y for r in self.resources
+            ):
+                # mech457_consummatory_act: the agent is leaving a resource cell it
+                # contacted but did not consume (contact affords, does not effect).
+                # Restore the resource marker so the grid stays consistent with
+                # self.resources -- otherwise the cell would render empty while the
+                # resource is still live, and a return visit would miss the
+                # resource_contact branch. Zero effect when the flag is off.
+                self.grid[old_x, old_y] = self.ENTITY_TYPES["resource"]
             else:
                 self.grid[old_x, old_y] = self.ENTITY_TYPES["empty"]
 
@@ -2010,126 +2221,24 @@ class CausalGridWorld:
                 self.total_harm += self.contaminated_harm
 
             elif target_type == self.ENTITY_TYPES["resource"]:
-                # SD-049: identify resource type at the consumed cell. type_tag
-                # is 0 (no SD-049) or type_idx+1 (per the spawn convention).
-                type_tag = (
-                    int(self._resource_type_grid[new_x, new_y])
-                    if self.multi_resource_heterogeneity_enabled
-                    else 0
-                )
-                contact_type_idx = type_tag - 1 if type_tag > 0 else -1
-                # SD-049 Phase 2: cache the consumed-this-tick type so the
-                # info dict can report it after the cell tag is cleared.
-                # This is the identity-classifier supervision target for
-                # V3-EXQ-514 (z_resource -> identity_logits cross-entropy).
-                # Reset to 0 at the top of every step() (see _consumed_type_tag_this_tick init).
-                self._consumed_type_tag_this_tick = type_tag
-                # Per-type benefit amplitude scales the contact restoration. Default
-                # 1.0 recovers legacy contact_benefit semantics.
-                amp = 1.0
-                if contact_type_idx >= 0:
-                    amp = float(self.resource_type_benefit_amplitudes[contact_type_idx])
-                contact_benefit = self.resource_benefit * amp
-                # infant_substrate:GAP-3 -- transient benefit patch contact.
-                # A transient patch is a high-salience benefit: its contact
-                # reward is resource_benefit * transient_benefit_multiplier
-                # (overrides the SD-049 per-type amplitude; transient
-                # patches are intentionally NOT SD-049 typed -- their
-                # _resource_type_grid tag is 0). The patch is consumed here
-                # (dropped from transient tracking); the normal
-                # self.resources / grid removal below handles the rest.
-                if (new_x, new_y) in self._transient_benefit_cells:
-                    contact_benefit = (
-                        self.resource_benefit * self.transient_benefit_multiplier
-                    )
-                    self._transient_benefit_cells.discard((new_x, new_y))
-                    self._transient_benefits = [
-                        tb for tb in self._transient_benefits
-                        if not (tb[0] == new_x and tb[1] == new_y)
-                    ]
-                    self._transient_benefit_n_contacted += 1
-                    self._transient_benefit_contact_this_tick = float(
-                        contact_benefit
-                    )
-                # SD-049 novelty curve: scale benefit by (1 - cell_familiarity).
-                # First-visit cells give full benefit; re-visits give attenuated
-                # benefit reflecting non-homeostatic familiarity decay.
-                if (
-                    contact_type_idx >= 0
-                    and self.resource_type_benefit_curves[contact_type_idx]
-                    == "novelty_decay"
-                ):
-                    cell_fam = float(
-                        np.clip(self._novelty_familiarity[new_x, new_y], 0.0, 1.0)
-                    )
-                    contact_benefit = contact_benefit * (1.0 - cell_fam)
-                if self.use_proxy_fields:
-                    proximity_benefit = self.proximity_benefit_scale * float(
-                        self.resource_field[new_x, new_y]
-                    )
-                    harm_signal = contact_benefit + proximity_benefit
+                if self.consummatory_act_enabled:
+                    # mech457_consummatory_act: contact AFFORDS but does not
+                    # EFFECT consumption. The agent lands on the resource cell;
+                    # the resource is retained (self.resources / _resources_by_type
+                    # / _resource_type_grid untouched), no benefit reward is
+                    # delivered (harm_signal stays 0), and no homeostatic drive is
+                    # restored. A distinct no-move CONSUME action, dispatched below
+                    # while the agent stands here, effects consumption. The
+                    # "resource_contact" transition_type + on_consumable_resource
+                    # info flag are the affordance signal on which an approach
+                    # drive can extinguish. The un-consumed marker is restored when
+                    # the agent leaves (see the old-cell clearing above), so the
+                    # grid stays consistent with self.resources across departures.
+                    transition_type = "resource_contact"
                 else:
-                    harm_signal = contact_benefit
-                self.agent_health = min(1.0, self.agent_health + contact_benefit * 0.5)
-                self.agent_energy = min(1.0, self.agent_energy + contact_benefit * 0.5)
-                transition_type = "resource"
-                self.total_benefit += harm_signal
-                self.resources = [
-                    r for r in self.resources if not (r[0] == new_x and r[1] == new_y)
-                ]
-                # SD-049: also remove from per-type list and clear cell tag.
-                if self.multi_resource_heterogeneity_enabled and contact_type_idx >= 0:
-                    self._resources_by_type[contact_type_idx] = [
-                        r for r in self._resources_by_type[contact_type_idx]
-                        if not (r[0] == new_x and r[1] == new_y)
-                    ]
-                    self._resource_type_grid[new_x, new_y] = 0
-                    self._sd049_n_resource_contacts_by_type[contact_type_idx] += 1
-                    # Restoration on the matching drive axis. Curve choice maps
-                    # to magnitude / saturation profile; all curves saturate at
-                    # full restoration (drive=0). novelty_decay treats axis as
-                    # exploratory tone -- contact returns full restoration
-                    # gated by per-cell familiarity above.
-                    curve = self.resource_type_benefit_curves[contact_type_idx]
-                    cur_drive = float(self._per_axis_drive[contact_type_idx])
-                    if curve == "sigmoidal_saturating":
-                        # Restoration proportional to how depleted the axis was.
-                        # Full deficit -> full restoration; near-sated -> small.
-                        restore = cur_drive * 1.0
-                    elif curve == "sharp_saturation":
-                        # Sharper: any contact restores most of the deficit.
-                        restore = cur_drive * 0.8
-                    elif curve == "novelty_decay":
-                        # Familiarity-gated; cell_fam already applied to
-                        # contact_benefit above. Axis restoration mirrors the
-                        # sigmoidal shape but on the curiosity axis.
-                        restore = cur_drive * 1.0
-                    else:
-                        restore = cur_drive * 1.0
-                    # SD-049-PHASE-2 drive-coupling amend: partial restoration leaves
-                    # standing drive on restored axes. fraction=1.0 -> bit-identical.
-                    restore = restore * self.per_axis_restoration_fraction
-                    self._per_axis_drive[contact_type_idx] = float(
-                        np.clip(cur_drive - restore, 0.0, 1.0)
-                    )
-                    # Per-cell novelty familiarity increment (whether or not the
-                    # contact was on a novelty-curve resource: every visit teaches
-                    # the agent something about that cell -- the per-type curve
-                    # determines whether that familiarity is used in scoring).
-                    self._novelty_familiarity[new_x, new_y] = float(
-                        np.clip(
-                            self._novelty_familiarity[new_x, new_y]
-                            + self.novelty_familiarity_increment,
-                            0.0,
-                            1.0,
-                        )
-                    )
-                # SD-012: optional resource respawn for repeated drive-reduction cycles
-                if self.resource_respawn_on_consume:
-                    self._respawn_resource()
-                # Resource consumed (or respawned) — recompute resource field
-                if self.use_proxy_fields:
-                    self._compute_proximity_fields()
+                    # Legacy: entering a resource cell automatically consumes it.
+                    harm_signal = self._consume_resource_at(new_x, new_y)
+                    transition_type = "resource"
 
             elif target_type == self.ENTITY_TYPES["waypoint"] and self.subgoal_mode:
                 wp_idx = next(
@@ -2271,6 +2380,20 @@ class CausalGridWorld:
                         harm_signal += _twr
                         self.total_benefit += _twr
                         transition_type = "waypoint"
+
+            # mech457_consummatory_act: the distinct CONSUME action EFFECTS
+            # consumption of the resource the agent is STANDING ON (an earlier
+            # move only afforded it). The agent entered this move block as a
+            # no-move stay (dx=dy=0), so target_type was "agent" and none of the
+            # hazard/resource/waypoint branches fired; transition_type is still
+            # "none". Consuming here sets it to "resource", which suppresses the
+            # harm_gradient / zone_c ambient signals below exactly as a legacy
+            # move-onto-resource contact would. A CONSUME off a resource cell is a
+            # clean no-op (no reward, no state change, transition_type stays
+            # "none"). Guarded by the flag, so it is dead code when disabled.
+            if is_consume_action and self._agent_on_resource_cell():
+                harm_signal = self._consume_resource_at(self.agent_x, self.agent_y)
+                transition_type = "resource"
 
             # infant_substrate:GAP-1 -- harm gradient env feature.
             # Graduated approach signal based on Euclidean distance to nearest
@@ -2809,10 +2932,24 @@ class CausalGridWorld:
         obs_dict = self._get_observation_dict()
         flat_obs = self._dict_to_flat(obs_dict)
 
+        # mech457_consummatory_act: recompute the affordance flag from the agent's
+        # FINAL standing position this tick. True whenever the agent stands on an
+        # un-consumed resource cell in consummatory mode -- set on the contact tick
+        # and while it lingers, cleared once a CONSUME removes the resource. It is
+        # the signal on which an approach drive extinguishes on contact. Always
+        # False when the flag is off (byte-identical info shape otherwise).
+        self._on_consumable_resource = bool(
+            self.consummatory_act_enabled and self._agent_on_resource_cell()
+        )
+
         info = {
             "transition_type": transition_type,
             "contamination_delta": contamination_delta,
             "env_drift_occurred": env_drift_occurred,
+            # mech457_consummatory_act tags (always present; False/OFF when the
+            # flag is disabled, so consumers can read them unconditionally).
+            "consummatory_act_enabled": bool(self.consummatory_act_enabled),
+            "on_consumable_resource": bool(self._on_consumable_resource),
             # SD-MEL-PRODUCER instrument. steps_since_world_rule_shift is the
             # load-bearing one: binning per-step prediction error by it is what
             # distinguishes genuine re-learning load (PE decays within a
