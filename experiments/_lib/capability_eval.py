@@ -128,6 +128,39 @@ def _obs_harm_history(obs_dict: Dict[str, Any]) -> Optional[torch.Tensor]:
     return h.float().unsqueeze(0) if h is not None else None
 
 
+def _consummatory_consume_action(env: Any) -> Optional[int]:
+    """CONSUME action index when a competent forager must consume NOW, else None.
+
+    mech457_consummatory_act (2026-07-25): when the env is in consummatory mode
+    (`consummatory_act_enabled`), reaching a resource cell only AFFORDS consumption -- the
+    benefit is delivered by a distinct CONSUME action, not by arrival. So the hand-coded greedy
+    reference/demonstrator policies (OraclePolicy, LocalViewGreedyPolicy), which otherwise return
+    "stay" once standing on the target resource, must instead select CONSUME there -- otherwise
+    they never forage in the consummatory env (foraging_competence == 0), the readiness anchors
+    read the env as unsolvable, and a BC install cloned from the demonstrator never takes. This
+    is the consumer that lets those policies forage AND lets an approach drive extinguish-and-
+    hand-off be tested against a competent installed baseline (MECH-457 H-consummation-binding,
+    leg 4).
+
+    Returns the CONSUME index only when (a) the env is in consummatory mode and (b) the agent is
+    standing on an un-consumed resource cell. `_on_consumable_resource` is the env's canonical
+    "should consume now" flag (recomputed from the agent's final position every step); it falls
+    back to the on-demand `_agent_on_resource_cell()` so the very first post-reset tick (before
+    any step has recomputed the flag) is still handled. Byte-identical no-op (returns None) when
+    consummatory_act_enabled is False -- the pre-change auto-consume-on-entry env, where CONSUME
+    is not even in the action space.
+    """
+    if not bool(getattr(env, "consummatory_act_enabled", False)):
+        return None
+    on_resource = getattr(env, "_on_consumable_resource", None)
+    if on_resource is None:
+        checker = getattr(env, "_agent_on_resource_cell", None)
+        on_resource = bool(checker()) if callable(checker) else False
+    if bool(on_resource):
+        return int(getattr(env, "CONSUME_ACTION", 5))
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Policy interface. act(env, obs_dict) -> int action index; reset/post_step optional.
 # ---------------------------------------------------------------------------
@@ -168,6 +201,9 @@ class OraclePolicy(Policy):
     name = "greedy_oracle"
 
     def act(self, env: Any, obs_dict: Dict[str, Any]) -> int:
+        consume = _consummatory_consume_action(env)
+        if consume is not None:
+            return consume
         resources = getattr(env, "resources", None)
         if not resources:
             return 4
@@ -221,6 +257,9 @@ class LocalViewGreedyPolicy(Policy):
         self._flat_eps = float(flat_eps)
 
     def act(self, env: Any, obs_dict: Dict[str, Any]) -> int:
+        consume = _consummatory_consume_action(env)
+        if consume is not None:
+            return consume
         rfv = obs_dict.get("resource_field_view")
         action_dim = int(env.action_dim)
         if rfv is None:
