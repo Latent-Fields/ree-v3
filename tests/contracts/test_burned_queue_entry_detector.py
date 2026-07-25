@@ -313,6 +313,15 @@ class BurnDetectorKnownTruthTest(unittest.TestCase):
         was about HARM (the science was recovered under 592d / 610b), not
         about mechanism. Reporting-but-demoting keeps both readings on the
         record. `--require-lost` drops them.
+
+        PIN UPDATE 2026-07-25: V3-EXQ-669b left the LOST set (demoted to
+        RECOVERED). Its MECH-329 science was pursued under the successor
+        V3-EXQ-669c, which ran and filed a manifest on 2026-07-22
+        (v3_exq_669c_mech329_wanting_first_goal_seeding_20260722T214724Z_v3).
+        This is the legitimate drift this pin exists to surface, not
+        silence: a burned id becomes recovered once a successor runs. The
+        stint is still FOUND (669b stays in self.ids as RECOVERED); only its
+        disposition changed.
         """
         self.assertLessEqual(len(self.ids), 20,
                              "detector has started producing noise")
@@ -321,7 +330,6 @@ class BurnDetectorKnownTruthTest(unittest.TestCase):
                        if not f["evidence_recovered"]})
         self.assertEqual(lost, [
             "V3-EXQ-569a",
-            "V3-EXQ-669b",
             "V3-EXQ-673",
             "V3-EXQ-683",
             "V3-EXQ-686",
