@@ -159,6 +159,25 @@ class BootstrapExplorerConfig:
     use_approach_primitive: bool = False
     approach_coef: float = 0.0
 
+    # APPROACH-DRIVE EXTINCTION-ON-CONTACT (mech457_approach_extinction, MECH-457
+    # H-consummation-binding leg 4, 2026-07-25). Completes the DRIVE half of leg 4: the
+    # mech457_consummatory_act env node (2026-07-25) made contact AFFORD rather than EFFECT
+    # consumption and emits info["on_consumable_resource"], but NOTHING consumed that signal --
+    # 781's appetitive approach primitive (resource_proximity) reads obs_dict, which does not
+    # carry the flag, so the drive could not extinguish on contact. With this knob True, the
+    # approach reward is zeroed on any tick where info["on_consumable_resource"] is True: the
+    # appetitive approach drive TERMINATES on arrival and hands off to the distinct CONSUME act
+    # rather than rewarding camping on the retained resource cell. That extinguish-and-hand-off
+    # is the treatment arm; 781's non-extinguishing terminal drive is the control.
+    # REQUIRES (train_a2c raises otherwise -- half-wired is an error): (1) an approach_drive
+    # (use_approach_primitive=True) -- extinction with no drive is the control wearing the
+    # treatment label; (2) the env built with consummatory_act_enabled=True -- otherwise
+    # on_consumable_resource is always False and extinction silently never fires. The env flag
+    # itself is a DIRECT ENV CONSTRUCTOR kwarg set by the driver in env_kwargs, NOT a config
+    # field here (this config does not build the env). OFF: False -> no extinction, byte-
+    # identical to the pre-change non-extinguishing drive.
+    approach_extinguishes_on_contact: bool = False
+
     # DISTRIBUTIONAL CRITIC (GOV-FANOUT-1 H-retention-critic, 2026-07-18; routed by
     # failure_autopsy_MECH-457-gov-fanout-1-cluster-780-781-782). Swaps the VALUE ESTIMATOR
     # only -- the scalar value head becomes a categorical head over a symlog bin support,
@@ -236,6 +255,7 @@ class BootstrapExplorerConfig:
             "bc_aux_anneal_fraction": float(self.bc_aux_anneal_fraction),
             "use_approach_primitive": bool(self.use_approach_primitive),
             "approach_coef": float(self.approach_coef),
+            "approach_extinguishes_on_contact": bool(self.approach_extinguishes_on_contact),
             "use_distributional_critic": bool(self.use_distributional_critic),
             "use_policy_kl_anchor": bool(self.use_policy_kl_anchor),
             "kl_anchor_coef": float(self.kl_anchor_coef),
@@ -401,6 +421,7 @@ def train_bootstrap_explorer(
         bc_aux_schedule=bc_aux_schedule,
         approach_drive=approach_drive,
         approach_coef=float(cfg.approach_coef),
+        approach_extinguishes_on_contact=bool(cfg.approach_extinguishes_on_contact),
         probe_every=cfg.retention_probe_every,
         probe_fn=probe_fn,
         use_policy_kl_anchor=bool(cfg.use_policy_kl_anchor),

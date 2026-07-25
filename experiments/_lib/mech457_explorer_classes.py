@@ -726,6 +726,7 @@ def train_a2c(
     bc_aux_schedule: Optional[Callable[[int, int], float]] = None,
     approach_drive: Optional[Callable[[Dict[str, Any]], float]] = None,
     approach_coef: float = 0.0,
+    approach_extinguishes_on_contact: bool = False,
     probe_every: Optional[int] = None,
     probe_fn: Optional[Callable[[int], Dict[str, Any]]] = None,
     use_policy_kl_anchor: bool = False,
@@ -747,6 +748,24 @@ def train_a2c(
             "train_a2c: coef_schedule/entropy_schedule are mutually exclusive with mode_gate "
             "(schedule anneal vs utility-gate anneal); pass at most one."
         )
+    # approach_extinguishes_on_contact (mech457_approach_extinction, MECH-457 leg 4, 2026-07-25):
+    # HALF-WIRED IS AN ERROR (same philosophy as the probe / kl-anchor). Extinction is only
+    # meaningful when there is an approach drive to extinguish AND the env actually emits the
+    # on_consumable_resource signal. Refuse a mislabeled config before spending compute rather
+    # than silently no-op'ing it into the non-extinguishing control.
+    if approach_extinguishes_on_contact:
+        if approach_drive is None:
+            raise ValueError(
+                "train_a2c: approach_extinguishes_on_contact=True requires an approach_drive "
+                "(use_approach_primitive=True) -- extinction with no drive is the control "
+                "wearing the treatment label."
+            )
+        if not bool(getattr(env, "consummatory_act_enabled", False)):
+            raise ValueError(
+                "train_a2c: approach_extinguishes_on_contact=True requires the env built with "
+                "consummatory_act_enabled=True -- otherwise info['on_consumable_resource'] is "
+                "always False and extinction silently never fires."
+            )
     # probe_every / probe_fn (mech457_retention_trajectory_probe, 2026-07-19): OPTIONAL
     # non-perturbing mid-training COMPETENCE PROBE. Every probe_every episodes, probe_fn(ep) is
     # called at the episode boundary and its reading appended to the returned
@@ -958,6 +977,16 @@ def train_a2c(
                 # Non-extinguishing appetitive-approach drive: CONSTANT coefficient every step
                 # (no anneal, no familiarity decay); reads the NEXT obs's resource proximity.
                 appr = float(approach_coef) * float(approach_drive(obs_dict))
+                if approach_extinguishes_on_contact and bool(
+                    info.get("on_consumable_resource", False)
+                ):
+                    # mech457_approach_extinction (MECH-457 leg 4): the drive EXTINGUISHES on
+                    # contact. Standing on an un-consumed (retained) resource cell in
+                    # consummatory mode, the appetitive approach reward terminates so the value
+                    # landscape stops rewarding camping on the cell and the agent hands off to
+                    # the distinct CONSUME act. `info` is the post-step info from env.step()
+                    # above, so on_consumable_resource reflects the agent's FINAL standing cell.
+                    appr = 0.0
                 shaped += appr
                 ep_approach += appr
             reward_std.update(shaped)
