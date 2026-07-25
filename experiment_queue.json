@@ -27,25 +27,6 @@
       "seeds": 5
     },
     {
-      "queue_id": "V3-EXQ-817",
-      "title": "SD-080 consequence-grounding CAPABILITY falsifier (3-arm: ARM_0 frozen / ARM_1 grounded / ARM_2 shuffled-target control)",
-      "script": "experiments/v3_exq_817_sd080_consequence_grounding_falsifier.py",
-      "priority": 55,
-      "machine_affinity": "any",
-      "estimated_minutes": 150,
-      "claim_id": "SD-080",
-      "note": "Falsifier from action_object_invariance_spike_2026-07-22.md Sec 4.2. Tests the CAPABILITY question orthogonal to V3-EXQ-809's CORRECTNESS finding: 809 showed E2.action_object_head content reaches the hippocampal CEM but washes out behaviourally (O's frozen-random content is NOT behaviourally load-bearing), confirming SD-080. This asks the untested question -- would GROUNDING O in world-effects improve planning? 3 arms x 5 matched seeds, CausalGridWorldV2 size=6, alpha_world=0.9, world/self_dim=32, EXQ-003-comparable behavioural DVs. All arms share ONE P0 substrate per seed (trained once, deepcopied) so the ONLY difference is the P1 head treatment. ARM_0 baseline: P0 only, action_object_head frozen. ARM_1: P0 + P1 trains action_object_head (+ a linear readout) so o_t predicts the realised world-effect (z_world_{t+1}-z_world_t) from (z_world_t,a_t), encoder FROZEN, on .detach()ed latents (phased P1). ARM_2 parameter control: identical P1 but the world-effect target is SHUFFLED across the batch -- same added params + gradient traffic, no consequence structure (without it an ARM_1 win confounds with 'more trained parameters'). PRIMARY GATE (substrate-side, must fire first), ARM_1 ONLY: r2_explained_by_action_alone (M5,ao) falls to <=0.95 (baseline ~0.994) AND mean_within_pair_spearman (M6,ao) rises to >=0.15 (baseline ~0). M5/M6 are the SPIKE PROBE's own measures, vendored verbatim, so the gate needs no new instrument. If ARM_1 does not move both, the grounding objective failed -> self-routes substrate_not_ready_requeue with non_degenerate=false (scoring-excluded), NOT a falsification. LOAD-BEARING behavioural verdict (only interpreted if the gate fires): harm_rate + survival under TERRAIN planning (hippocampal.propose_trajectories CEM in O -- the DVs SD-004's EXQ-003/EXQ-114 PASS rests on). Both directions pre-declared: (a) DEFECT LOAD-BEARING -> PASS: ARM_1 beats ARM_0 AND ARM_2 by a 15% relative harm-rate margin with survival not worse and consistent across >=80% of seeds (SD-080 promotes, SD-004 mechanism repaired; SD-080 supports / SD-004 mixed); (b) REAL BUT NOT LOAD-BEARING -> FAIL (informative, not a null): ARM_1 moves the substrate DVs but not behaviour (SD-004's semantic-grounding efficiency rationale demoted -- EXQ-003's 6x survival was terrain/residue navigation, not O's content; SD-080 mixed / SD-004 weakens). DV-SYMMETRY (per arm): DV=harm_rate/survival under the TERRAIN CEM; manipulation = action_object_head content, which enters o_t NON-uniformly across (state,action) -- not a broadcast constant (invisible to argmax/softmax), not a monotone rescaling (rank-preserving), not a permutation; so the DV is NOT invariant under the manipulation for any arm, and a null ARM_1-vs-ARM_0 is a MEASURED null (reading b), not an identity. GOV-REUSE-1: decisive readouts are M5/M6 on a GROUNDED head + harm/survival across frozen/grounded/shuffled arms; SD-080 established the head is NEVER trained in ANY recorded run, so a grounded-head readout exists in no manifest and requires this new manipulation -- not recoverable, run. Re-derive brake: SD-080 is a new claim (registered 2026-07-22), 0 braking autopsies; new EXQ number testing a different (capability) question than 809's correctness read -- not braked. MACHINE any/cloud (linux-x86_64): M5/M6 are RNG-free forward-pass linear algebra and behavioural DVs are aggregates, so cross-machine-class multinomial divergence does not bear on the verdict. Behaviour is computed + recorded for ALL cells even under a gate-fail (generous recording). Coordinated with session dazzling-taussig-f58f4c (registered SD-080 + SD-004 cross-ref). Smoke PASS (dry-run: 3 cells end-to-end -- P0 warmup + CEM, P1 head training head_delta~1.0 loss 0.026->0.009, substrate + behavioural DVs, arm-fingerprint hoist + recording-core; dry outcome substrate_not_ready_requeue is structural: 20 grounding steps do not converge the head).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-07-25T18:41:05Z"
-      },
-      "conditions": 3,
-      "episodes_per_run": 40,
-      "experiment_type": "v3_exq_817_sd080_consequence_grounding_falsifier",
-      "seeds": 5
-    },
-    {
       "queue_id": "V3-EXQ-821",
       "title": "MECH-457 H-consummation-binding (leg 4): does an approach drive that EXTINGUISHES on contact + hands off to CONSUME retain installed competence vs 781's non-extinguishing terminal drive (consummatory env, retention trajectory DV)",
       "script": "experiments/v3_exq_821_mech457_consummation_binding.py",
@@ -54,7 +35,11 @@
       "estimated_minutes": 360,
       "claim_id": "MECH-457",
       "note": "GOV-FANOUT-1 MECH-457 competence_floor RETENTION leg 4 (last open retention leg), pre-registered H-consummation-binding. DIAGNOSTIC (excluded from scoring); PROMOTES/DEMOTES NOTHING; route to /failure-autopsy. Consumes substrate landed 2026-07-25: mech457_consummatory_act (env, ree-v3 b2e9068) + mech457_approach_extinction (c36b0ca) + consummatory_aware_reference_policies (cc15399) + rawview action_dim (08a8a1d). RETENTION (BC-install) framing, architect decision 2026-07-25. Single manipulation = approach_extinguishes_on_contact (extinct_off control vs extinct_on treatment); both arms consummatory + approach drive + BC-installed; use_distributional_critic / bc_aux schedule / KL-anchor HELD AT DEFAULTS (anti-alias with the 3 sibling manipulation nodes). DV = post-installation competence TRAJECTORY via mech457_retention_trajectory_probe (unshaped foraging_competence, evaluate_seed). Consummatory install band ~13 (live anchors), NOT the non-consummatory 20.933. Predictions BOTH declared: extinguishing arm retains + beats control => 781 null was a consummatory-act artefact (PASS); both erode identically => extinction NOT the retention mechanism, H eliminated (declared null). BLAST RADIUS: consummatory_act_enabled=True grows action_dim 5->6, busting cached arm fingerprints for consummatory-ON lineages (reuse correctly refuses; expected). GOV-REUSE-1: decisive readout recorded in no existing manifest (consummatory action space new 2026-07-25) -> must run. Smoke: dry-run PASS end-to-end (anchors forage, install takes, both arms + probe run; nondiscriminative at dry budget is the expected boundary artifact).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-07-25T20:50:23Z"
+      },
       "conditions": 5,
       "episodes_per_run": 3000,
       "experiment_type": "v3_exq_821_mech457_consummation_binding",
