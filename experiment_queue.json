@@ -8,25 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-816",
-      "title": "ARC-070/MECH-321 policy_decomposition discriminative (ARM_0 OFF vs ARM_1 V_s-drop ON): execution-time forward-PE + deliberation cost",
-      "script": "experiments/v3_exq_816_mech321_policy_decomposition_discriminative.py",
-      "priority": 55,
-      "machine_affinity": "any",
-      "estimated_minutes": 300,
-      "claim_id": "MECH-321",
-      "note": "FIRST behavioural (evidence) experiment of the ARC-070/MECH-321 policy_decomposition lineage: the ARM_0(OFF) vs ARM_1(V_s-drop ON) discriminative pair from MECH-321's functional_restatement, succeeding V3-EXQ-815's readiness diagnostic. ARM_1 uses the R1 trigger (region V_s < threshold OR MECH-288 boundary fires) -- the ONLY trigger the substrate implements. Load-bearing DV: per-seed PAIRED (same env) delta in mean EXECUTION-TIME forward-prediction error (e3_prediction_error, from agent.update_residue -- the committed trajectory's E2 first-step z_world prediction vs observed) over LOW-V_s measurement steps; supports the claim iff ARM_1 reduces it by >=5% relative AND clears a 2-sigma effect-size gate on the SD of the paired delta. Secondary (non-load-bearing) corroborator: rollout deliberation cost (candidate_samples_collected per e3-tick), predicted higher locally in ARM_1. Full waking loop WITH update_residue so world_forward trains (815 omitted it); 40 warmup + 20 measure episodes x 5 seeds x 2 arms. ARM_2 DEFERRED -- NOT BUILDABLE: the substrate (policy_decomposition.py evaluate()) has ONLY the R1 trigger; ARM_2's bottleneck-state PRIMARY trigger (R5) is unimplemented and flagged OPTIONAL/deferred in the functional_restatement itself. /implement-substrate chip spawned 2026-07-25 to build it; a successor experiment adds ARM_2 once it lands and REUSES this run's ARM_0 (minted reuse-eligible via experiments/_lib/baselines/mech321_policy_decomposition.py, include_driver_script_in_hash=False; cite this run_id as reuse_baseline_from). READINESS (P0) self-routes substrate_not_ready_requeue (non_degenerate=false, scoring-excluded) rather than a falsification if V_s never drops below threshold, decomposition never fires, or OFF-arm forward PE is constant/unbounded (untrained world_forward). NON-DEGENERACY guards the DV-symmetry trap: requires ARM_0 and ARM_1 executed action sequences to actually DIFFER on >=1 seed (decomposing a chunk into its own raw actions is an identity unless the committed trajectory changes); if inert, manipulation_inert + scoring-excluded, not scored as weakens. ARM_1==ARM_0 with readiness met = weakens (falsifies the primary V_s-drop trigger, per functional_restatement). GOV-REUSE-1: use_policy_decomposition + the cross-arm learning-loop forward-PE contrast did not exist before 2026-07-24; 815 (only prior run) recorded firing counts on a non-learning loop -- not recoverable, run. Re-derive brake: 0 braking autopsies for both ARC-070 and MECH-321 (new claims). MACHINE any/cloud so the ARM_0 mint is cloud-class-reusable (linux-x86_64). Both claims stay v3_pending until this run's evidence is reviewed. Smoke PASS (dry-run: 4 cells end-to-end, P0 gate + arm-fingerprint hoist + recording-core all exercised; dry FAIL is structural -- 2 measure-episodes give <MIN_LOW_VS_STEPS).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-07-25T18:23:39Z"
-      },
-      "conditions": 2,
-      "episodes_per_run": 60,
-      "experiment_type": "v3_exq_816_mech321_policy_decomposition_discriminative",
-      "seeds": 5
-    },
-    {
       "queue_id": "V3-EXQ-821",
       "title": "MECH-457 H-consummation-binding (leg 4): does an approach drive that EXTINGUISHES on contact + hands off to CONSUME retain installed competence vs 781's non-extinguishing terminal drive (consummatory env, retention trajectory DV)",
       "script": "experiments/v3_exq_821_mech457_consummation_binding.py",
