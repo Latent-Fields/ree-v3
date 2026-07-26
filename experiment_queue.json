@@ -26,6 +26,22 @@
       "experiment_purpose": "diagnostic",
       "experiment_type": "v3_exq_816b_mech321_policy_decomposition_harshened_env",
       "seeds": 5
+    },
+    {
+      "queue_id": "V3-EXQ-819a",
+      "title": "competence_floor R4 819a: reconcile worst-seed non-vacuity gate with strict-majority router + recalibrate 1.0 floor/margin (MECH-457/INV-088 z_world instrument-validity)",
+      "script": "experiments/v3_exq_819a_mech457_inv088_zworld_trained_vs_random_gatefix.py",
+      "experiment_type": "v3_exq_819a_mech457_inv088_zworld_trained_vs_random_gatefix",
+      "priority": 48,
+      "machine_affinity": "any",
+      "estimated_minutes": 720,
+      "claim_id": "MECH-457",
+      "supersedes": "V3-EXQ-819",
+      "conditions": 5,
+      "episodes_per_run": 3000,
+      "seeds": 6,
+      "status": "pending",
+      "note": "SUPERSEDES V3-EXQ-819. TEST-DESIGN FIX (measurement_test_design_defect adjudicated in failure_autopsy_batch-793a-817-819_2026-07-26.md target 3, user-confirmed 2026-07-26). The 819 run's non-vacuity GATE and routing PREDICATE disagreed on the same data: post_bc_install_took scored install on the WORST seed (trained 0.9 vs 1.0 on seed 43, a 0.1 near-miss; random 0.4) so BOTH arms went red and the run was vacated zworld_advantage_grid_nondiscriminative, while the router's strict-majority install_took (trained 2/3, random 0/3) read an asymmetric-install advantage (headline.advantage_confirmed=true). The z_world encoder DID train (819 world_encoder_max_abs_delta 0.277-0.333, 3/3 seeds; V3-EXQ-780 frozen-random-projection fault stays fixed). THREE FIXES, all measurement (substrate + science unchanged): (1) post_bc_install_took now scored on the STRICT-MAJORITY install FRACTION (>0.5), the IDENTICAL predicate the router uses, so gate==router by construction and a non-installing control (0.0) never vacates the trained arm (0.667 green) -- realising the precondition's own 'NON-vacating per-arm' docstring; per-seed install stays at the 1.0 substrate floor (the defect was worst-seed aggregation, not the floor value). (2) ADVANTAGE_ABS_FLOOR 1.0->0.3, rescaled to the 0.35-2.4 res/ep near-floor band (~2% of the 48.05 local_view / 57.2 oracle ceiling; 819's 1.0 margin demanded a near-doubling and dominated the 0.15 relative bar). (3) seeds 3->6 (42..47), matching the 793a repower, for a firmer 4/6 strict-majority (with fix 1 a single seed no longer vacates under any rule). RE-DERIVE BRAKE DOES NOT FIRE: under R3 only genuine substrate_ceiling autopsies count and MECH-457/INV-088 have ZERO (whole campaign is competence_implementation_gap/measurement_test_design_defect); a test-design fix of an already-run leg is not a same-question ceiling re-pose. GOV-REUSE-1: decisive readout = reconciled trained-vs-random z_world competence at strict-majority over 6 seeds; 819 vacated the run and recorded no such scored readout -> must run. DIAGNOSTIC (claim_ids MECH-457+INV-088 excluded from scoring; PROMOTES/DEMOTES NOTHING; route to /failure-autopsy). Resolves the pre-registered competence_floor R4 frozen-ledger leg H-zworld-trained-instrument (alive, awaiting a scored run). Reference build 128/3x/detached (NOT 769-falsified 256/5x). CONTROL arm (zworld_random_proj) mints reuse-eligible (include_driver_script_in_hash=False, shared lineage slice). Smoke PASS (dry-run full pipeline: encoder trains on trained arm, guard fires non-gating on control, eff_margin=0.3 live); validate_experiments/validate_recording --strict OK."
     }
   ]
 }
