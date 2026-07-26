@@ -28,6 +28,27 @@
       "seeds": 5
     },
     {
+      "queue_id": "V3-EXQ-032d",
+      "title": "MECH-102 energy escalation ladder, CORRECTED: add missing agent._e1_tick()/record_transition() calls (032b's E1/E2 losses were permanently zero-gradient stubs)",
+      "script": "experiments/v3_exq_032d_mech102_ttype_escalation_fixed.py",
+      "priority": 55,
+      "machine_affinity": "any",
+      "estimated_minutes": 90,
+      "supersedes": "V3-EXQ-032b",
+      "note": "Corrected re-run of V3-EXQ-032b per confirmed autopsy failure_autopsy_V3-EXQ-032-family_2026-07-26.md (REE_assembly). 032b's live PASS/supports result for MECH-102 is invalid: its training loop called agent.sense()+random-action every step and then compute_prediction_loss()/compute_e2_loss(), but never called agent._e1_tick() or agent.record_transition() -- the ONLY appenders to _world_experience_buffer / _e2_transition_buffer (ree_core/agent.py ~4675 / ~8505), which both losses require len>=2 to return anything but a zero-gradient stub. So the standard_params optimizer never moved E1/E2.predict_next_self off random init for the whole run; only agent.e2.world_forward and agent.e3.harm_eval_head trained via separate script-local replay buffers. Same defect diagnosed for precedent V3-EXQ-826 (failure_autopsy_batch-822a-826-817a-827_2026-07-26.md section 1). THE FIX (only change vs 032b): capture ticks=agent.clock.advance() and call agent._e1_tick(latent) on e1_tick cadence (act()/act_with_split_obs() pattern), and call agent.record_transition(z_self_prev, action_prev, latent.z_self.detach()) one-step-lagged per the canonical harness pattern (experiments/_harness.py:193-200), reset per episode. Random-action-selection design intent, ttype split (none/hazard_approach/contact), and all 5 PASS criteria (C1-C5) are byte-identical to 032b -- no policy confound introduced. Smoke PASS (--dry-run, 3 eps: e1_ticks=30, record_transitions=27, confirming the buffers now populate vs 0 before the fix); validate_experiments.py --strict OK (added a check_degeneracy self-report over per-ttype causal_sig spread to clear the degeneracy-self-report gate). Re-derive brake (Step 2.5b): checked -- MECH-102 (3 autopsy targets), ARC-024 (1), SD-003 (2, only 1 substrate_ceiling) all below the >=2 substrate_ceiling threshold, and all current hits are competence_implementation_gap (instrument defect, exactly what this run repairs), not substrate_ceiling -- brake does not fire. GOV-REUSE-1: decisive readout (causal_sig by ttype against a genuinely-trained E1/E2/encoder stack) is not recoverable from any existing manifest -- 032b's own run never trained standard_params (the defect this fixes) so no manifest anywhere carries it -- not recoverable, run. Does NOT edit 032b's evidence_direction/supersession status in claims.yaml or its own manifest -- that reclassification (already recommended non_contributory/superseded in the autopsy, user-confirmed) is a governance-pipeline action, out of scope for this queuing task.",
+      "status": "pending",
+      "claim_ids": [
+        "MECH-102",
+        "ARC-024",
+        "SD-003"
+      ],
+      "conditions": 1,
+      "episodes_per_run": 500,
+      "experiment_purpose": "evidence",
+      "experiment_type": "v3_exq_032d_mech102_ttype_escalation_fixed",
+      "seeds": 1
+    },
+    {
       "queue_id": "V3-EXQ-819a",
       "title": "competence_floor R4 819a: reconcile worst-seed non-vacuity gate with strict-majority router + recalibrate 1.0 floor/margin (MECH-457/INV-088 z_world instrument-validity)",
       "script": "experiments/v3_exq_819a_mech457_inv088_zworld_trained_vs_random_gatefix.py",
@@ -46,23 +67,6 @@
       "episodes_per_run": 3000,
       "experiment_type": "v3_exq_819a_mech457_inv088_zworld_trained_vs_random_gatefix",
       "seeds": 6
-    },
-    {
-      "queue_id": "V3-EXQ-032d",
-      "title": "MECH-102 energy escalation ladder, CORRECTED: add missing agent._e1_tick()/record_transition() calls (032b's E1/E2 losses were permanently zero-gradient stubs)",
-      "script": "experiments/v3_exq_032d_mech102_ttype_escalation_fixed.py",
-      "priority": 55,
-      "machine_affinity": "any",
-      "estimated_minutes": 90,
-      "supersedes": "V3-EXQ-032b",
-      "claim_ids": ["MECH-102", "ARC-024", "SD-003"],
-      "note": "Corrected re-run of V3-EXQ-032b per confirmed autopsy failure_autopsy_V3-EXQ-032-family_2026-07-26.md (REE_assembly). 032b's live PASS/supports result for MECH-102 is invalid: its training loop called agent.sense()+random-action every step and then compute_prediction_loss()/compute_e2_loss(), but never called agent._e1_tick() or agent.record_transition() -- the ONLY appenders to _world_experience_buffer / _e2_transition_buffer (ree_core/agent.py ~4675 / ~8505), which both losses require len>=2 to return anything but a zero-gradient stub. So the standard_params optimizer never moved E1/E2.predict_next_self off random init for the whole run; only agent.e2.world_forward and agent.e3.harm_eval_head trained via separate script-local replay buffers. Same defect diagnosed for precedent V3-EXQ-826 (failure_autopsy_batch-822a-826-817a-827_2026-07-26.md section 1). THE FIX (only change vs 032b): capture ticks=agent.clock.advance() and call agent._e1_tick(latent) on e1_tick cadence (act()/act_with_split_obs() pattern), and call agent.record_transition(z_self_prev, action_prev, latent.z_self.detach()) one-step-lagged per the canonical harness pattern (experiments/_harness.py:193-200), reset per episode. Random-action-selection design intent, ttype split (none/hazard_approach/contact), and all 5 PASS criteria (C1-C5) are byte-identical to 032b -- no policy confound introduced. Smoke PASS (--dry-run, 3 eps: e1_ticks=30, record_transitions=27, confirming the buffers now populate vs 0 before the fix); validate_experiments.py --strict OK (added a check_degeneracy self-report over per-ttype causal_sig spread to clear the degeneracy-self-report gate). Re-derive brake (Step 2.5b): checked -- MECH-102 (3 autopsy targets), ARC-024 (1), SD-003 (2, only 1 substrate_ceiling) all below the >=2 substrate_ceiling threshold, and all current hits are competence_implementation_gap (instrument defect, exactly what this run repairs), not substrate_ceiling -- brake does not fire. GOV-REUSE-1: decisive readout (causal_sig by ttype against a genuinely-trained E1/E2/encoder stack) is not recoverable from any existing manifest -- 032b's own run never trained standard_params (the defect this fixes) so no manifest anywhere carries it -- not recoverable, run. Does NOT edit 032b's evidence_direction/supersession status in claims.yaml or its own manifest -- that reclassification (already recommended non_contributory/superseded in the autopsy, user-confirmed) is a governance-pipeline action, out of scope for this queuing task.",
-      "status": "pending",
-      "episodes_per_run": 500,
-      "seeds": 1,
-      "conditions": 1,
-      "experiment_purpose": "evidence",
-      "experiment_type": "v3_exq_032d_mech102_ttype_escalation_fixed"
     }
   ]
 }
