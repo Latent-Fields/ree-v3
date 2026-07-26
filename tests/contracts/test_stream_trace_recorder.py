@@ -42,6 +42,7 @@ from ree_core.agent import REEAgent
 from ree_core.utils.config import REEConfig
 
 from experiments._lib import q081_profile as prof
+from experiments._lib import q081_surrogate as surro
 from experiments._lib import trace_store as ts
 from experiments._lib.stream_recorder import (
     FRESH_IDENTITY,
@@ -162,19 +163,31 @@ def test_c2_e3_streams_are_fresh_on_the_tick_and_held_between(tmp_path):
     # The clock block itself must show the multi-rate schedule, not every-step E3.
     assert 0 < e3_tick.sum() < n, "E3 must tick sometimes and not every step"
 
-    # E3 commitment state is clock-derived: fresh exactly on the tick.
-    assert np.array_equal(arrays["e3_commitment__fresh"], e3_tick)
-
     # z_world is re-encoded every step (E1 rate) -- the contrast that makes the flag
     # informative rather than a constant.
     assert arrays["z_world__fresh"].all()
-    assert arrays["z_world__fresh"].sum() > arrays["e3_commitment__fresh"].sum()
+    # operating_mode is genuinely E3-rate (the salience coordinator only recomputes on
+    # the tick): a still-valid instance of the pattern e3_commitment was wrongly assumed
+    # to follow (see the 2026-07-26 fix note on e3_commitment, and the dedicated
+    # HOLD_CARRY test below).
+    assert arrays["z_world__fresh"].sum() > arrays["operating_mode__fresh"].sum()
 
-    # No E3-derived quantity may be carried by an every-step-fresh stream: that would
-    # hand an analyst a stream that LOOKS E1-rate while its content only moves at the E3
-    # rate -- the artefact the flags exist to prevent, smuggled in via bundling.
+    # e3_commitment is recorded with VALUE-derived freshness, not clock-derived (2026-07-26
+    # fix, Q-081/V3-EXQ-824): precision/running_variance update on every env tick
+    # (e3.post_action_update), not just the E3 tick, so a clock-derived flag mislabelled
+    # most steps "held" when the recorded value had actually moved.
+    assert meta["streams"]["e3_commitment"]["freshness_source"] == "value"
+
+    # No E3-derived quantity may be carried by an every-step-fresh stream OTHER than
+    # e3_commitment itself: that would hand an analyst a stream that LOOKS E1-rate while
+    # its content only moves at the E3 rate -- the artefact the flags exist to prevent,
+    # smuggled in via bundling. e3_commitment is exempted: it is the canonical home for
+    # these fields, and (per the fix above) two of them genuinely do update every step,
+    # so it reading fresh every step is correct now, not a leak.
     e3_derived = ("precision", "running_variance", "is_committed")
     for name, desc in meta["streams"].items():
+        if name == "e3_commitment":
+            continue
         if arrays[f"{name}__fresh"].all():
             note = desc["note"].lower()
             for term in e3_derived:
@@ -186,6 +199,76 @@ def test_c2_e3_streams_are_fresh_on_the_tick_and_held_between(tmp_path):
     # Every stream declares how its flag was derived.
     for name, desc in meta["streams"].items():
         assert desc["freshness_source"] in meta["freshness_semantics"], name
+
+
+def test_c2_e3_commitment_hold_mode_is_carry_not_unstructured(tmp_path):
+    """Q-081/V3-EXQ-824 (2026-07-26): a clock-derived e3_commitment freshness flag read
+    HOLD_UNSTRUCTURED under q081_surrogate.classify_hold_mode on a real rollout --
+    precision and running_variance are updated by e3.post_action_update on EVERY env
+    tick (agent.update_residue -> post_action_update -> update_running_variance), not
+    just the E3 tick, so the rows a clock-derived flag calls "held" do not actually
+    repeat the previous row. block_permute_stream REFUSES (raises SurrogateDesignError)
+    to build a constrained-realisation surrogate for any stream whose hold pattern
+    classifies as UNSTRUCTURED, walling e3_commitment out of Q-081-style cross-stream
+    analysis entirely.
+
+    This test drives the agent through the SAME per-tick sequence real experiment
+    scripts use (_harness.StepHarness, whose on_post_step hook is where
+    e3.post_action_update actually runs) -- the simpler `_run` helper used by the rest
+    of this file never calls agent.update_residue() and so never exercises the bug: a
+    stream that never gets its value-driving update called trivially looks "held"
+    under any freshness scheme.
+
+    Pins the fix: value-derived freshness (a row is "held" iff it is byte-identical to
+    the previous one) makes HOLD_UNSTRUCTURED structurally unreachable for this stream --
+    "held" and "repeats the previous row" become the same condition by construction, so
+    classify_hold_mode can only read HOLD_CARRY (there IS a held run: the closure/E3
+    latch fields sit still sometimes) or HOLD_NONE (fresh every single step).
+    """
+    from experiments._harness import StepHarness, StepHooks
+
+    env, agent, _ = _build(seed=13)
+    rec = StreamTraceRecorder(agent, run_id="c2e", store=ts.TraceStore(root=tmp_path))
+    harness = StepHarness(
+        agent, env, train_mode=False,
+        hooks=StepHooks(on_post_step=lambda **_kw: rec.on_step()),
+    )
+
+    n = 80
+    _flat, obs_dict = env.reset()
+    agent.reset()
+    harness.reset()
+    for _ in range(n):
+        result = harness.step(obs_dict)
+        obs_dict = result.next_obs_dict
+        if result.done:
+            _flat, obs_dict = env.reset()
+
+    loaded = ts.TraceStore(root=tmp_path).get(rec.finalize())
+    arrays, meta = loaded["arrays"], loaded["meta"]
+
+    values = arrays["e3_commitment"]
+    fresh = arrays["e3_commitment__fresh"]
+    assert np.isfinite(values).any(), "e3_commitment is all-NaN -- e3 was never constructed?"
+
+    hold_mode = surro.classify_hold_mode(values, fresh)
+    assert hold_mode in (surro.HOLD_CARRY, surro.HOLD_NONE), (
+        f"e3_commitment hold pattern is '{hold_mode}': expected carry-forward (or "
+        f"fresh-every-step). UNSTRUCTURED means block_permute_stream would refuse to "
+        f"build a surrogate for this stream (SurrogateDesignError) -- the exact wall "
+        f"this test exists to keep closed."
+    )
+
+    # The fix should actually recover signal a clock-derived flag would have discarded:
+    # at least one value-change on a step that is NOT an E3 clock tick.
+    e3_tick = arrays["clock"][:, meta["clock_columns"].index("e3_tick")].astype(bool)
+    off_tick_fresh = fresh & ~e3_tick
+    assert off_tick_fresh.any(), (
+        "e3_commitment never went fresh on a non-E3-tick step -- if running_variance "
+        "has stopped updating every env tick, the clock-derived assumption this test "
+        "guards against may be worth reinstating, but re-verify empirically rather than "
+        "reverting this test"
+    )
 
 
 def test_c2_identity_freshness_survives_an_equal_valued_recompute():

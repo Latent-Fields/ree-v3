@@ -20,11 +20,15 @@ The three properties that make it usable for Q-081 (each from a specific audit f
 2. PER-SIGNAL FRESHNESS FLAGS (audit section 3) -- the load-bearing one. REE's clock
    defaults to E1 every step, E2 every 3, E3 every 10 (config.py:2122-2124), and
    select_action short-circuits between E3 ticks (agent.py:5463), so E3 candidate
-   scores, operating_mode, hippocampal proposals and commitment state are HELD STALE on
-   9 of every 10 steps. A recorder without freshness flags writes 9 duplicates + 1 fresh
-   value per E3 stream, and cross-stream analysis over that finds strong regular shared
-   structure that is a SAMPLER ARTEFACT -- Outcome B of the Q-081 taxonomy, the exact
-   null the experiment exists to exclude. Every stream therefore carries a per-step
+   scores, operating_mode and hippocampal proposals are HELD STALE on 9 of every 10
+   steps. (Commitment state is the one exception among the E3-derived signals: its
+   precision / running_variance fields are updated by post_action_update on EVERY env
+   tick, not just the E3 tick -- confirmed 2026-07-26, see the e3_commitment comment
+   below -- so it is recorded with value-derived, not clock-derived, freshness.) A
+   recorder without freshness flags writes 9 duplicates + 1 fresh value per E3 stream,
+   and cross-stream analysis over that finds strong regular shared structure that is a
+   SAMPLER ARTEFACT -- Outcome B of the Q-081 taxonomy, the exact null the experiment
+   exists to exclude. Every stream therefore carries a per-step
    `<name>__fresh` flag, and each stream declares HOW its flag was derived:
 
      identity -- the source cache object was REASSIGNED this step. Exact: the recorder
@@ -365,19 +369,47 @@ class StreamTraceRecorder:
                   scores_fresh and scores is not None,
                   note="candidate count for the ragged e3_scores block")
 
-        # --- E3 commitment state (signal 4): clock-derived freshness ---
+        # --- E3 commitment state (signal 4): value-derived freshness ---
+        # NOT clock-derived. Confirmed 2026-07-26 (Q-081/V3-EXQ-824): e3.post_action_update
+        # runs on EVERY env tick (agent.update_residue -> e3.post_action_update, called from
+        # _harness's on_post_step hook every step, not just on the E3 tick) and unconditionally
+        # calls update_running_variance, which mutates _running_variance every tick. precision
+        # (= 1/(running_variance+eps), e3_selector.py current_precision) and committed_now
+        # (= running_variance < commit_threshold) are both properties recomputed LIVE from that
+        # same continuously-moving value, so they also change between E3 ticks. A clock-derived
+        # freshness flag therefore reported 9-of-10 steps as "held" whose recorded value had
+        # actually moved -- confirmed empirically via q081_surrogate.classify_hold_mode reading
+        # HOLD_UNSTRUCTURED (neither carry-forward nor constant-filler) on a real rollout,
+        # instead of the assumed HOLD_CARRY. Only commit_threshold (pure function of static
+        # config) and is_committed (gated on the E3-tick-set _committed_trajectory /
+        # closure latch) are genuinely E3-cadence; bundling them with the two per-tick
+        # fields into one clock-edge flag was the bug.
+        #
+        # Fix: freshness is a row-level VALUE-CHANGE proxy over the whole 5-field vector,
+        # like z_goal/offline_mode/sleep_phase below. This is self-correcting rather than a
+        # renewed assumption about substrate internals: "held" is defined as "this row is
+        # byte-identical to the previous one", which is definitionally what HOLD_CARRY checks,
+        # so classify_hold_mode can only read HOLD_CARRY (or HOLD_NONE if the vector never
+        # repeats) for this stream -- never HOLD_UNSTRUCTURED, regardless of which internal
+        # field is driving the change on a given tick. The E3 tick edge itself stays available
+        # separately in the clock block's e3_tick column.
         if e3 is not None and hasattr(e3, "get_commitment_state"):
             cs = e3.get_commitment_state()
-            self._put("e3_commitment", FRESH_CLOCK, np.asarray([
+            cv = np.asarray([
                 float(cs.get("precision", float("nan"))),
                 float(cs.get("running_variance", float("nan"))),
                 float(cs.get("commit_threshold", float("nan"))),
                 float(bool(cs.get("committed_now", False))),
                 float(bool(cs.get("is_committed", False))),
-            ], dtype=np.float32), e3_tick,
+            ], dtype=np.float32)
+            self._put("e3_commitment", FRESH_VALUE, cv,
+                      self._fresh_by_value("e3_commitment", cv),
                 note="get_commitment_state() builds a NEW dict per call, so identity "
-                     "cannot detect recompute; freshness is the E3 clock edge. "
-                     "precision, running_variance, commit_threshold, committed_now, is_committed")
+                     "cannot detect recompute. Freshness is a row-level value-change proxy "
+                     "(see 2026-07-26 comment above): precision and running_variance update "
+                     "every env tick, not just the E3 tick, so a clock-derived flag would "
+                     "mislabel most steps as held. Fields: precision, running_variance, "
+                     "commit_threshold, committed_now, is_committed")
 
         # --- hippocampal proposals (signal 13): E3-rate ---
         cands = getattr(agent, "_committed_candidates", None)
