@@ -2840,6 +2840,24 @@ class REEConfig:
     # init (keeps random init so gradient training works from tick 1).
     # Default False = last Linear zeroed (bit-identical landing behaviour).
     lateral_pfc_train_rule_bias_head: bool = False
+    # SD-082: rule_state -> action-bias read-out CONSUMER. When True the SD-033a
+    # bias head (i) centers its per-candidate z_world summary input across the
+    # candidate set (subtracts the common mode) so the SD-008 ~0.98-cosine cone
+    # no longer saturates every candidate to the same rail, and (ii) bounds the
+    # per-candidate output with a smooth scaled-tanh instead of a hard clamp so
+    # the read-out stays gradient-trainable (the hard clamp's flat region zeros
+    # the REINFORCE gradient). Together these un-zero the propagation of a
+    # differentiated rule_state to the action bias (V3-EXQ-822 measured exactly
+    # 0.0). Default False = hard clamp + raw summary input (bit-identical OFF).
+    # Requires use_lateral_pfc_analog=True; typically paired with
+    # lateral_pfc_train_rule_bias_head=True. Design doc:
+    # REE_assembly/docs/architecture/sd_082_rule_selection_action_consumer.md.
+    lateral_pfc_rule_readout_consumer: bool = False
+    # SD-082: multiplier applied to the bias head's LAST Linear weight+bias at
+    # init when rule_readout_consumer AND train_rule_bias_head are both True, so
+    # the initial raw output sits in the responsive band of the tanh bound
+    # (|raw| < bias_scale) rather than deep in saturation. 1.0 = no rescale.
+    lateral_pfc_readout_init_scale: float = 0.25
 
     # ARC-063 v1: distributed CandidateRule field (the non-Bayesian rule-creator
     # resolving arc_062_rule_apprehension:GAP-B). Mints distinct subspace-
@@ -5246,6 +5264,9 @@ class REEConfig:
         lateral_pfc_use_discriminator_source: bool = False,
         lateral_pfc_discriminator_pool_weight: float = 0.3,
         lateral_pfc_train_rule_bias_head: bool = False,
+        # SD-082: rule_state -> action-bias read-out consumer (no-op default).
+        lateral_pfc_rule_readout_consumer: bool = False,
+        lateral_pfc_readout_init_scale: float = 0.25,
         # MECH-457 actor-critic action-learning substrate (all no-op default).
         use_actor_critic: bool = False,
         actor_critic_cotrain_encoder: bool = False,
@@ -6396,6 +6417,8 @@ class REEConfig:
         config.lateral_pfc_use_discriminator_source = lateral_pfc_use_discriminator_source
         config.lateral_pfc_discriminator_pool_weight = lateral_pfc_discriminator_pool_weight
         config.lateral_pfc_train_rule_bias_head = lateral_pfc_train_rule_bias_head
+        config.lateral_pfc_rule_readout_consumer = lateral_pfc_rule_readout_consumer
+        config.lateral_pfc_readout_init_scale = lateral_pfc_readout_init_scale
         # MECH-457 actor-critic action-learning substrate.
         config.use_actor_critic = use_actor_critic
         config.actor_critic_cotrain_encoder = actor_critic_cotrain_encoder

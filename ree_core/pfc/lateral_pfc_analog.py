@@ -168,6 +168,22 @@ class LateralPFCConfig:
     # crf_source kwarg is ignored, legacy source path runs), bit-identical
     # backward compat.
     use_candidate_rule_source: bool = False
+    # SD-082: rule_state -> action-bias read-out CONSUMER. When True, compute_bias
+    # (i) centers its per-candidate world-summary input across the candidate set
+    # (subtracts the common mode) so the SD-008 ~0.98-cosine z_world cone no longer
+    # saturates every candidate to the same clamp rail -- which is what erases the
+    # rule_state contribution (V3-EXQ-822 measured prop_delta exactly 0.0), and
+    # (ii) bounds the output with a smooth scaled-tanh (bias_scale * tanh(raw /
+    # bias_scale)) instead of a hard clamp, so the read-out stays gradient-trainable
+    # (a saturated hard clamp has zero gradient, so REINFORCE cannot move the head).
+    # Same magnitude bound as the clamp (|bias| < bias_scale). Default False =
+    # hard clamp on the raw summary input (bit-identical to the SD-033a landing).
+    rule_readout_consumer: bool = False
+    # SD-082: multiplier on the LAST Linear weight+bias at init when
+    # rule_readout_consumer AND train_rule_bias_head are both True, so the initial
+    # raw output sits in the responsive band of the tanh bound rather than deep in
+    # saturation. 1.0 = no rescale.
+    readout_init_scale: float = 0.25
 
 
 class LateralPFCAnalog(nn.Module):
@@ -218,6 +234,14 @@ class LateralPFCAnalog(nn.Module):
                 last_linear = self.rule_bias_head[-1]
                 last_linear.weight.zero_()
                 last_linear.bias.zero_()
+        elif self.config.rule_readout_consumer and self.config.readout_init_scale != 1.0:
+            # SD-082: shrink the trainable head's initial output into the tanh
+            # bound's responsive band so the first-tick propagation is non-vacuous
+            # and the REINFORCE gradient is large. No-op when init_scale == 1.0.
+            with torch.no_grad():
+                last_linear = self.rule_bias_head[-1]
+                last_linear.weight.mul_(self.config.readout_init_scale)
+                last_linear.bias.mul_(self.config.readout_init_scale)
 
         # rule_state buffer: persistent across ticks within episode,
         # reset on episode boundary.
@@ -359,14 +383,32 @@ class LateralPFCAnalog(nn.Module):
             )
 
         k = candidate_world_summaries.shape[0]
+        # SD-082 (i): center the per-candidate summary across the candidate set
+        # (subtract the common mode) so the SD-008 z_world cone does not saturate
+        # every candidate to the same rail. Mirrors SD-078's upstream centering of
+        # the CandidateRuleField context key. Only when the consumer is enabled and
+        # there are >= 2 candidates to define a mean; otherwise pass through raw
+        # (bit-identical to the landing).
+        summaries = candidate_world_summaries
+        if self.config.rule_readout_consumer and k >= 2:
+            summaries = summaries - summaries.mean(dim=0, keepdim=True)
         # Broadcast rule_state across K candidates
         rule_repeated = self.rule_state.expand(k, -1)  # [K, rule_dim]
-        joined = torch.cat([rule_repeated, candidate_world_summaries], dim=-1)
+        joined = torch.cat([rule_repeated, summaries], dim=-1)
         bias_raw = self.rule_bias_head(joined).squeeze(-1)  # [K]
-        bias = bias_raw.clamp(
-            min=-self.config.bias_scale,
-            max=self.config.bias_scale,
-        )
+        if self.config.rule_readout_consumer:
+            # SD-082 (ii): smooth scaled-tanh bound. Same magnitude bound as the
+            # hard clamp (|bias| < bias_scale) but gradient-preserving everywhere,
+            # so the read-out stays trainable under REINFORCE and the rule_state's
+            # marginal contribution is never erased by a flat clamp region.
+            bias = self.config.bias_scale * torch.tanh(
+                bias_raw / self.config.bias_scale
+            )
+        else:
+            bias = bias_raw.clamp(
+                min=-self.config.bias_scale,
+                max=self.config.bias_scale,
+            )
 
         with torch.no_grad():
             self._last_bias_abs_mean = float(bias.abs().mean().item())

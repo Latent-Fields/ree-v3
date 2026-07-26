@@ -710,6 +710,13 @@ class REEAgent(nn.Module):
                 train_rule_bias_head=getattr(
                     config, "lateral_pfc_train_rule_bias_head", False
                 ),
+                # SD-082: rule_state -> action-bias read-out consumer.
+                rule_readout_consumer=getattr(
+                    config, "lateral_pfc_rule_readout_consumer", False
+                ),
+                readout_init_scale=getattr(
+                    config, "lateral_pfc_readout_init_scale", 0.25
+                ),
             )
             self.lateral_pfc = LateralPFCAnalog(
                 delta_dim=config.latent.delta_dim,
