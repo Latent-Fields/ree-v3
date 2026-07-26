@@ -46,26 +46,6 @@
       "episodes_per_run": 40,
       "experiment_type": "v3_exq_817a_sd080_worldeffect_grounding_falsifier",
       "seeds": 5
-    },
-    {
-      "queue_id": "V3-EXQ-822a",
-      "title": "SD-078 rule-selection consumer, re-run on the SD-082 propagation read-out (822 was a structural-zero substrate_not_ready)",
-      "script": "experiments/v3_exq_822a_sd078_rule_selection_consumer.py",
-      "priority": 45,
-      "machine_affinity": "any",
-      "estimated_minutes": 95,
-      "supersedes": "V3-EXQ-822",
-      "claim_id": "SD-078",
-      "note": "Re-run of V3-EXQ-822 (same question, alphabetic suffix) with the SD-082 read-out consumer ON on BOTH arms (lateral_pfc_rule_readout_consumer=True); crf_cue_centering stays the single swept variable. 822 self-routed substrate_not_ready_requeue because propagation to the action bias was a structural zero on both arms (on/off_prop_delta_mean 0.0) -- the SD-033a hard clamp saturated on the SD-008 common-mode cone and killed the REINFORCE gradient (autopsy failure_autopsy_816c-822_2026-07-26). SD-082 (ree-v3 d4f758082d) centers the head's candidate-summary input + scaled-tanh soft bound; verified on the real agent head prop 0.0->~0.019 (100% clear the 1e-3 floor). Readiness gate (d) propagation_non_vacuity passing here IS the SD-082 consumer validation; the scored claim is SD-078. GOV-REUSE-1: decisive readout (non-vacuous rule_state->action-bias propagation) exists in NO prior manifest (SD-082 read-out landed 2026-07-26; substrate_hash changed) -> run. No re-derive brake (SD-078 has 0 substrate_ceiling autopsies; 822 was precondition_unmet). smoke PASS.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-07-26T13:42:27Z"
-      },
-      "conditions": 2,
-      "episodes_per_run": 170,
-      "experiment_type": "v3_exq_822a_sd078_rule_selection_consumer",
-      "seeds": 3
     }
   ]
 }
