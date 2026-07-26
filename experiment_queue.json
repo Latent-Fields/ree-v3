@@ -28,26 +28,6 @@
       "seeds": 6
     },
     {
-      "queue_id": "V3-EXQ-817a",
-      "title": "SD-080 world-effect grounding CAPABILITY falsifier (817 successor: learnable next-state grounding + robust M5/fit gate)",
-      "script": "experiments/v3_exq_817a_sd080_worldeffect_grounding_falsifier.py",
-      "priority": 46,
-      "machine_affinity": "any",
-      "estimated_minutes": 90,
-      "supersedes": "V3-EXQ-817",
-      "claim_id": "SD-080",
-      "note": "Successor to V3-EXQ-817 (SD-080 world-effect-grounding CAPABILITY falsifier). Per failure_autopsy_batch-793a-817-819_2026-07-26 target 2: 817's self-route 'substrate_not_ready' was a MISNOMER -- the ao head trained (delta_l2 ~1.3-1.47) but the delta-prediction objective did not induce the geometry (M5 0.994->0.982, M6 0.085). TWO FIXES, both calibration-driven (this script, seeds 0/1, 2026-07-26): (1) STRONGER OBJECTIVE -- regress o_t (no trainable readout) onto a fixed near-isometric projection of the REALISED next world-state z_world_{t+1} (the learnable latent world-effect world_forward itself predicts). Calibration: ARM_1 M5 0.99->0.70 with real fit (MSE 0.64-0.77), SHUFFLED control stays ~0.99. Two rejected objectives recorded in docstring (relational/contrastive = scale-invariant, cannot move M5; dense-consequence regression = only ~20pct predictable from z_world). (2) RECALIBRATED GATE -- calibration showed the M6 floor is NOT mis-set but NOISE-DOMINATED (frozen ao M6 -0.18..+0.13 by seed; world_forward M6 0.07-0.22; shuffled hit 0.21). Gate moved OFF absolute M6 to robust low-noise signals: world-effect FIT + ARM_1 state-dependence (M5 drop, paired) + ARM_2-vs-ARM_1 content discrimination. M6 recorded, not gated. Poor fit self-routes to a distinct SUBSTRATE label (worldeffect_ungroundable_from_zworld), separable from objective failure. GOV-REUSE-1: decisive readout = behavioural harm_rate/survival under a GROUNDED O; 817 never produced it (gate never fired), and the world-effect-grounded manipulation exists in no recorded manifest -> not recoverable, run. Re-derive brake: SD-080=1 / SD-004=1 (< threshold 2; the single hit is this routing autopsy, category competence_implementation_gap, not a ceiling) -> not braked. SD-080 frozen-projection defect stays CONFIRMED via 809; 817a adds the orthogonal CAPABILITY read. Substrate fully built (817 ran). Smoke PASS; validate_experiments/recording --strict clean. supersedes V3-EXQ-817.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-07-26T12:47:30Z"
-      },
-      "conditions": 3,
-      "episodes_per_run": 40,
-      "experiment_type": "v3_exq_817a_sd080_worldeffect_grounding_falsifier",
-      "seeds": 5
-    },
-    {
       "queue_id": "V3-EXQ-827",
       "title": "INV-091: cross-stream similarity BAND falsifier (landmark-removal + forced-lockstep ablations on a shared trained substrate)",
       "script": "experiments/v3_exq_827_inv091_cross_stream_similarity_band.py",
@@ -57,7 +37,11 @@
       "claim_id": "INV-091",
       "backlog_id": "EVB-0459",
       "note": "First experimental test of INV-091 (cross-stream similarity BAND; prior evidence lit-only, exp_conf=0.0, evidence_quadrant=plausible_unproven). Targeted probe: 2 of the claim's 7 named ablations (remove commitment landmarks / force lockstep), chosen to move cross-stream similarity in OPPOSITE directions from a shared intact baseline. All 3 arms (intact/decouple/lockstep) share ONE warmed-up agent per seed (E1/E2 world-forward + E3 harm-eval head via _lib.goal_pipeline_tier1.warmup_train); manipulations apply only at eval/recording time -- decouple via the already-built q081_landmark_removal yoked-permutation scrambler (mode=iei_permute, donor trains banked from the intact arm's own eval episodes), lockstep by mutating agent.clock rates between eval passes. Reuses the Q-081 infra landed 2026-07-22..2026-07-25 (stream_recorder, trace_store, q081_surrogate, q081_landmark_removal, q081_profile, dose_saturation) rather than rebuilding it. DV: cross_stream_similarity (mean |xcorr| over 4 cross-subsystem/cross-rate pairs: z_world-z_self, z_world-operating_mode, e1_hidden-e3_commitment, z_world-z_goal) vs a composite = min(z_task_reward, z_anti_collapse) [z_anti_collapse = 1-mean|cos(z_self, z_world)|], z-scored pooled across all 9 (arm x seed) cells -- a CONJUNCTIVE composite per the claim's own 'not merely satisfy each on a separate axis' wording. C1 (non-degeneracy, INV-091's own guard): similarity moves decouple<intact<lockstep by >= 0.02 each gap. C2 (falsifier): intact's composite exceeds BOTH extremes by >= 0.15 pooled-SD units (the non-monotonic band shape); a monotonic composite trend instead records which direction under interpretation.monotonic_direction. Q-081's own 'validate the null before using it' requirement is run once per manifest (screen_statistic confirms the real statistic is admissible while artefactual_rate_statistic is ruled_out) plus a per-cell evaluate_against_null surrogate p-value (constrained-realisation block-permutation null, 199 surrogates). GOV-REUSE-1: reanalysis_query.py --claim INV-091 and --claim Q-081 both scanned 0 manifests after the claim filter -- not recoverable, first run. Re-derive brake: 0 prior autopsies tag INV-091. Partial falsifier coverage only (2/7 named ablations); event broadcasts / mode conditioning / residue feedback / randomised rates / harm-stream collapse remain untested by this run -- noted in the manifest's interpretation.note so a PASS is not over-read as exhausting the claim. Smoke PASS (--dry-run, 2 seeds-equiv/2 eval eps/20 steps): correctly self-routes substrate_not_ready_requeue via C1 + independently via dose_saturation (toy-scale anti_collapse/composite/task_reward tied across arms, exactly the saturation guard working). validate_experiments.py --strict: OK, 0 warnings. validate_recording.py --strict on the dry-run manifest: OK (always-core complete). Queue ID note: originally drafted as V3-EXQ-824 but that number was claimed concurrently by another session's Q-081-direct experiment (v3_exq_824_q081_shared_organisation_landmark_removal.py) before either was committed; renumbered to 827 (next free after 825/826) before commit, all internal script references updated.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-3",
+        "claimed_at": "2026-07-26T15:29:14Z"
+      },
       "conditions": 1,
       "episodes_per_run": 40,
       "experiment_type": "v3_exq_827_inv091_cross_stream_similarity_band",
