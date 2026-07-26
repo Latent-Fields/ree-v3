@@ -263,15 +263,6 @@ def run_p0(agent: REEAgent, env: CausalGridWorldV2, seed: int) -> Dict[str, Any]
         harness.reset()
         for _ in range(STEPS_PER_EPISODE):
             result = harness.step(obs_dict)
-            # StepHarness drives sense()/select_action() directly and never
-            # calls agent.act()/act_with_split_obs() -- the only methods that
-            # increment agent._step_count. Left unadvanced, _step_count stays
-            # 0 for the whole episode, and event_segmenter.step(t=_step_count)
-            # (agent.py ~4365) then sees a CONSTANT t=0 on every tick, which is
-            # load-bearing for the landmark-removal arm's schedule lookup (see
-            # module docstring). agent.clock (the SD-006 E1/E2/E3 cadence) is
-            # unaffected -- StepHarness advances that separately and correctly.
-            agent._step_count += 1
             obs_dict = result.next_obs_dict
             if result.harm_signal < 0:
                 harm_events += 1
@@ -332,12 +323,6 @@ def run_p1_recording(
         ep_len = 0
         for _ in range(STEPS_PER_EPISODE):
             result = harness.step(obs_dict)
-            # See run_p0's identical comment: StepHarness never advances
-            # agent._step_count, which event_segmenter.step() reads as its
-            # tick index -- must be advanced manually or the landmark stream
-            # (and rec's own agent_scalars.step field) is recorded at a
-            # constant t=0.
-            agent._step_count += 1
             rec.on_step(extras={"reward": result.harm_signal})
 
             sx = int(round(float(getattr(env, "agent_x", 0.0))))

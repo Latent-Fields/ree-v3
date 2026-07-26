@@ -27,6 +27,18 @@ Guarantees enforced here:
       MECH-216 switch is off.
   H7. ``StepHarness.step()`` calls ``agent.update_schema_wanting`` exactly
       once before action selection when MECH-216 is enabled.
+  H8. ``StepHarness.step()`` advances ``agent._step_count`` by exactly 1 per
+      call. The harness drives ``sense()``/``select_action()`` directly and
+      never calls ``agent.act()``/``act_with_split_obs()``/
+      ``act_with_log_prob()`` -- the only methods that otherwise bump this
+      counter. Left unadvanced, it stays frozen at 0 for the whole episode,
+      which silently breaks anything keyed on it: the hippocampal event
+      segmenter's tick index (``agent.py`` ``event_segmenter.step(t=...)``),
+      ``get_state()``'s "step" field, and the ``offline_integration_frequency``
+      check. Confirmed concretely in
+      ``v3_exq_824_q081_shared_organisation_landmark_removal.py``'s
+      landmark-removal arm, where a scrambler schedule keyed at tick 0
+      matched every env step until fixed.
 """
 
 from __future__ import annotations
@@ -299,3 +311,34 @@ def test_step_harness_schema_wanting_runs_before_select_action_when_enabled():
     assert order[1][0] == "select"
     assert order[0][1] == ()
     assert set(order[0][2].keys()) == {"drive_level"}
+
+
+# -- H8: agent._step_count advances once per StepHarness.step() -------------
+
+def test_step_harness_advances_agent_step_count_once_per_step():
+    """H8: without this, agent._step_count stays frozen at 0 all episode
+    (act()/act_with_split_obs()/act_with_log_prob() are the only other
+    incrementers, and the harness bypasses all three), silently breaking
+    anything keyed on it -- notably event_segmenter.step()'s tick index."""
+    set_all_seeds(0)
+    env = make_tiny_env(seed=0)
+    cfg = make_tiny_config(env)
+    agent = REEAgent(cfg)
+
+    harness = StepHarness(agent, env, train_mode=False, seed=0)
+    flat_obs, obs_dict = env.reset()
+    agent.reset()
+    harness.reset()
+
+    assert agent._step_count == 0
+    for expected in range(1, 6):
+        result = harness.step(obs_dict)
+        obs_dict = result.next_obs_dict
+        assert agent._step_count == expected, (
+            f"agent._step_count={agent._step_count} after {expected} "
+            f"harness.step() call(s); expected {expected}. StepHarness must "
+            f"advance agent._step_count exactly once per call, mirroring "
+            f"act()/act_with_split_obs()/act_with_log_prob()."
+        )
+        if result.done:
+            break

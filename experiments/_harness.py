@@ -329,6 +329,10 @@ class StepHarness:
         self._z_self_prev = latent.z_self.detach()
         self._action_prev = action.detach()
         self._step_count += 1
+        # act()/act_with_split_obs()/act_with_log_prob() all bump this once per
+        # tick; the harness calls sense() directly instead of act(), so without
+        # this it stays frozen at 0 all episode (breaks event_segmenter's t=).
+        agent._step_count += 1
 
         return StepResult(
             latent=latent,
