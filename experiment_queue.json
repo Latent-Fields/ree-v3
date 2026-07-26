@@ -62,6 +62,22 @@
       "episodes_per_run": 150,
       "experiment_type": "v3_exq_825_mech245_generative_dominance_deafferentation",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-826",
+      "title": "MECH-244: precision-weighted PE suppression -> self-sealing world model (pe_precision sweep across a hazard-relocation regime change)",
+      "script": "experiments/v3_exq_826_mech244_precision_weighting_self_sealing.py",
+      "experiment_type": "v3_exq_826_mech244_precision_weighting_self_sealing",
+      "priority": 40,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 60,
+      "episodes_per_run": 400,
+      "seeds": 5,
+      "conditions": 3,
+      "backlog_id": "EVB-0121",
+      "claim_id": "MECH-244",
+      "note": "First experimental test of MECH-244 (psychosis precision-weighting failure; prior evidence lit-only, exp_conf=0.0). IV: pe_precision scalar multiplying agent.compute_prediction_loss() before backward, dedicated optimizer scoped to agent.e1.parameters() only -- no ree_core changes (confirmed no existing precision/gain knob on the E1/E2 belief-update path; ARC-016 precision is a distinct E3-commitment pathway). Arms ARM_CONTROL(1.0)/ARM_LOW(0.15)/ARM_VERYLOW(0.03) x 5 seeds. Random-action rollout (no policy confound, matches V3-EXQ-818 convention). DV: E1 prediction-loss adaptation_ratio across a reset_to()-driven hazard-relocation regime change (phase A 250 ep fixed layout, phase B 150 ep relocated layout) -- does lower pe_precision produce a self-sealing world model that fails to correct on disconfirming evidence? Preconditions gate on phase-A convergence + genuine phase-B disconfirmation + manipulation-took (E1 param drift ratio); load-bearing C1 = per-seed adaptation_ratio(CONTROL)-adaptation_ratio(VERYLOW) delta, mean>=0.15 AND >=4/5 seeds positive. Distinct from MECH-246 (no input noise added) and MECH-247 (no prior-content bias). GOV-REUSE-1: checked claim_evidence.v1.json (0 experimental entries) and grepped for existing precision/gain knobs on the E1/E2 loss path -- none found, readout not recoverable -> run. Smoke PASS (--dry-run, 2 seeds x 3 arms, correctly self-routes substrate_not_ready_requeue on toy episode counts). validate_experiments.py --strict clean, 0 warnings. Queue ID note: originally drafted as V3-EXQ-825 but that number was claimed concurrently by session mech-245-experiment-e3ea79 (MECH-245); renumbered to 826 before commit, all internal script references updated."
     }
   ]
 }
