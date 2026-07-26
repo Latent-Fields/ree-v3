@@ -43,27 +43,6 @@
       "episodes_per_run": 20,
       "experiment_type": "v3_exq_824a_q081_shared_organisation_landmark_removal",
       "seeds": 5
-    },
-    {
-      "queue_id": "V3-EXQ-827a",
-      "title": "INV-091: cross-stream similarity BAND falsifier, phase-sync redesign of the lockstep arm (supersedes V3-EXQ-827)",
-      "script": "experiments/v3_exq_827a_inv091_cross_stream_similarity_band_phase_sync.py",
-      "priority": 40,
-      "machine_affinity": "any",
-      "estimated_minutes": 90,
-      "supersedes": "V3-EXQ-827",
-      "claim_id": "INV-091",
-      "backlog_id": "EVB-0459",
-      "note": "REDESIGN of V3-EXQ-827 (SUPERSEDES V3-EXQ-827; failure_autopsy_batch-822a-826-817a-827_2026-07-26.md section 4, user-confirmed 2026-07-26). 827 measured decouple=0.2262 < intact=0.2715, but the second pre-registered inequality REVERSED: lockstep=0.1679 was the LOWEST-similarity arm, not the highest, so C1 (non-degeneracy) failed and self-routed substrate_not_ready_requeue. Traced to `_force_lockstep()` collapsing e1/e2/e3 steps_per_tick to 1 (the fastest native rate), which conflates the intended manipulation (phase synchrony) with an unintended tick-density change: E3's own deliberation/commit machinery, whose native cadence is 1 tick per 10 env-steps, was forced to run 10x more often than by design. `q081_surrogate.cross_stream_xcorr`'s lag sweep is expressed in ticks of each pair's own coarser stream, so `max_lag_ticks=8` spans ~80 real env-steps for an E1-vs-E3 pair under intact (coarse period ~10) but only ~8 real env-steps under the old lockstep (coarse period collapsed to 1) -- a scale mismatch that could pull the max-|correlation| statistic in either direction. TWO FIXES, both scoped to the lockstep arm's construction/readout ONLY (decouple and intact are byte-identical in mechanism to V3-EXQ-827 -- same clock rates, same scrambler, same fixed max_lag_ticks=8 call): (1) `_force_lockstep()` now collapses e1/e2/e3 to E3's OWN native base rate (`agent.clock._e3_base_steps`, read dynamically, never hardcoded) instead of to 1 -- still literal tick-time coincidence across all three streams (genuine lockstep), but GUARANTEES no stream is EVER sampled more densely than under intact; E3's own cadence and computation are completely unchanged, only E1/E2 slow down to meet it. (2) For lockstep ONLY, a post-hoc recomputation over the already-recorded trace picks per-pair max_lag_ticks so the real-step span probed matches what intact used for that SAME pair (periods measured from data via q081_surrogate.estimate_tick_period, never assumed from config, per that module's own MECH-091/MECH-093-robustness rule) -- closing the residual scale mismatch on the two pairs (z_world-z_self, z_world-z_goal) whose coarse period changes under fix (1) but was previously left at the old confounded reading in V3-EXQ-827 for ALL four pairs. The raw ticks=8 lockstep reading is retained as a manifest diagnostic (`cross_stream_similarity_raw_ticks8`); the matched reading is primary. Neither the shared library `experiments/_lib/q081_surrogate.py` nor any other consumer (V3-EXQ-824, tests/contracts/test_q081_surrogate_null.py) is touched -- the matching is computed locally in this script and applied only to lockstep's own readout. THRESHOLDS UNCHANGED (SIMILARITY_MOVE_FLOOR=0.02, COMPOSITE_MARGIN=0.15, identical to 827): the redesign targets the validity/direction of the lockstep reading, not the predicted effect size, so recalibrating the floor would be tuning to the answer rather than to the design change; if C1 still fails under the corrected design that is itself the informative reading. RE-DERIVE BRAKE: INV-091 has exactly 1 prior autopsy (the one above) -- below the >=2 threshold, brake does not fire; this IS the routed redesign. GOV-REUSE-1: reanalysis_query.py --claim INV-091 re-checked 2026-07-26 after V3-EXQ-827 landed -- its own manifest is the only hit and its lockstep arm is exactly the confounded reading this redesign replaces; not recoverable, first run under the corrected design. Smoke PASS (--dry-run, 2 eps/2 eval eps/20 steps): runs end-to-end, self-routes substrate_not_ready_requeue at toy scale (expected, matches 827's own dry-run precedent), and the matched-lag-ticks logic visibly engages (one pair computed max_lag_ticks=1 instead of the default 8 at toy-scale measured periods, confirming the real-time-matching branch is live, not a no-op). validate_experiments.py --strict: OK, 0 warnings. validate_recording.py --strict on the dry-run manifest: OK, always-core complete.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-07-26T18:35:38Z"
-      },
-      "conditions": 1,
-      "episodes_per_run": 40,
-      "experiment_type": "v3_exq_827a_inv091_cross_stream_similarity_band_phase_sync",
-      "seeds": 3
     }
   ]
 }
