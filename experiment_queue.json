@@ -38,7 +38,11 @@
       "claim_id": "Q-081",
       "backlog_id": "EVB-0458",
       "note": "Same-question redesign of V3-EXQ-824 (alphabetic suffix -- Outcome A vs B unchanged; only the implementation was wrong). Per failure_autopsy_V3-EXQ-824_2026-07-26: 824's config relied on q081_profile_kwargs() alone (use_invalidation_trigger=True), which gives the landmark scrambler NO reach to z_world/operating_mode -- confirmed by source trace, ree_core/agent.py:4479-4514: the MECH-287 broadcast queue it feeds is drained solely by a discarding bounding flush. Produced bit-identical rv_primary between ON/REMOVED at all 5 seeds (non_contributory, not a real Outcome B). Two fixes land together: (1) library precondition experiments/_lib/q081_landmark_removal.py assert_behavioural_reach() now requires use_anchor_sets and/or use_per_region_vs specifically (REACH_CONSUMERS), not use_invalidation_trigger alone -- 4 new/extended contracts, 39/39 passing on cloud; (2) this script's make_agent() sets cfg.hippocampal.use_anchor_sets=True, mirroring the already-proven fix in v3_exq_827_inv091_cross_stream_similarity_band.py:230. Added a runtime sanity precondition (arm_statistics_not_degenerately_bit_identical) that fails loudly if ON/REMOVED rv_primary are bit-identical at every valid seed, so a recurrence of the 824 defect self-routes to substrate_not_ready_requeue instead of a false Outcome B. GOV-REUSE-1: not reanalyzable -- 824's own trace is the defective run this corrects, no compatible substrate_hash exists with real behavioural reach. Smoke-tested (--dry-run): reach precondition (strict=True) passes without raising, confirming use_anchor_sets=True gives real reach; full 39-contract suite green on cloud fleet.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-07-26T19:36:24Z"
+      },
       "conditions": 2,
       "episodes_per_run": 20,
       "experiment_type": "v3_exq_824a_q081_shared_organisation_landmark_removal",
