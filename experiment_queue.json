@@ -54,7 +54,11 @@
       "machine_affinity": "any",
       "estimated_minutes": 120,
       "note": "GOV-FANOUT-1 leg P-B (MEASUREMENT axis) for frozen-ledger question policy_decomposition_discrimination / hypothesis H-vs-proxy-saturation; adjudicating run. Diagnostic (bears_on ARC-070/MECH-321, no weight). Single obs arm on the SAME harshened env as 816b; records aligned per-step (region_vs, forward_pe) -> Spearman + per-signal heterogeneity + V_s-trigger-vs-PE-trigger firing loci. NULL: forward-PE heterogeneous while V_s flat -> region-V_s DECOUPLED -> H-vs-proxy-saturation CONFIRMED -> reframe MECH-321 R1 trigger toward forward-model-disagreement (candidate /claim-synthesis). CONVERSE: V_s drops -> not saturated -> H-vs-proxy refuted (816b governs). Forward-PE positive control breaks the 'V_s flat' aliasing. Reuses 816b harshened ARM_0 mint by construction if banked, else self-mints. Autopsy: failure_autopsy_816-820-policy-decomposition-cluster_2026-07-26. Smoke PASS; validate_experiments --strict OK; contract suite 2289 passed on cloud.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-07-26T10:35:35Z"
+      },
       "claim_ids": [],
       "conditions": 1,
       "episodes_per_run": 60,
