@@ -48,36 +48,24 @@
       "seeds": 5
     },
     {
-      "queue_id": "V3-EXQ-825",
-      "title": "MECH-245 generative-model-dominance-under-deafferentation discriminative pair (E3 bottom-up-mismatch-check bypass)",
-      "script": "experiments/v3_exq_825_mech245_generative_dominance_deafferentation.py",
-      "priority": 25,
-      "machine_affinity": "any",
-      "estimated_minutes": 5,
-      "claim_id": "MECH-245",
-      "backlog_id": "EVB-0122",
-      "note": "IGW-20260726-222. GOV-REUSE-1: decisive readout = confidence-collapse asymmetry (final_running_variance / grounded_operating_variance) between genuine-deprivation vs generative-substitution feeds into E3TrajectorySelector.update_running_variance under deafferentation. Searched evidence/experiments/ for MECH-245 / hallucination / generative_dominance readouts: 0 experimental entries exist (claim_evidence.v1.json: exp_conf=0.0, 2 lit-only entries) -- not recoverable, run. Substrate-level discriminative pair (633 MECH-094 precedent pattern): drives the REAL E3TrajectorySelector.update_running_variance/current_precision/commit_threshold directly with a controlled PE stream, no env/agent dependency. A GRU forward model (E1/E2 top-down stand-in) is trained on synthetic momentum z_world dynamics; PRIMARY feeds E3 the last genuinely grounded observation (frozen, deafferentation-honest) during a deprivation window, ABLATION feeds E3 the model own rolled-forward prediction (top-down content propagated forward as if received sensory signal -- the claim own language). DV-symmetry declaration: ABLATION per-tick prediction_error=0 is a definitional self-comparison identity, NOT a measured discovery; the falsifiable content is PRIMARY real deprivation-driven PE magnitude and whether it clears the pre-registered confidence-collapse margin, both from a genuinely trained model free-rollout drift. Distinct from MECH-094 (write-gate on hypothesis_tag provenance, different substrate module) and MECH-244 (belief-updating dominance with evidence PRESENT, not total absence). Calibration run (full params, outside the queue) confirmed large-margin separation: grounded_var ~0.053, PRIMARY final var 5.9-7.5 (~110-140x), ABLATION final var ~0.011 (~0.2x); all three pre-registered criteria clear by wide margins, not knife-edge-tuned. validate_experiments.py --strict OK. --dry-run smoke PASS (crash-free, writes manifest+sentinel; FAIL outcome expected under truncated smoke windows).",
-      "status": "pending",
-      "conditions": 2,
-      "episodes_per_run": 150,
-      "experiment_type": "v3_exq_825_mech245_generative_dominance_deafferentation",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-826",
       "title": "MECH-244: precision-weighted PE suppression -> self-sealing world model (pe_precision sweep across a hazard-relocation regime change)",
       "script": "experiments/v3_exq_826_mech244_precision_weighting_self_sealing.py",
-      "experiment_type": "v3_exq_826_mech244_precision_weighting_self_sealing",
       "priority": 40,
       "machine_affinity": "any",
-      "status": "pending",
       "estimated_minutes": 60,
-      "episodes_per_run": 400,
-      "seeds": 5,
-      "conditions": 3,
-      "backlog_id": "EVB-0121",
       "claim_id": "MECH-244",
-      "note": "First experimental test of MECH-244 (psychosis precision-weighting failure; prior evidence lit-only, exp_conf=0.0). IV: pe_precision scalar multiplying agent.compute_prediction_loss() before backward, dedicated optimizer scoped to agent.e1.parameters() only -- no ree_core changes (confirmed no existing precision/gain knob on the E1/E2 belief-update path; ARC-016 precision is a distinct E3-commitment pathway). Arms ARM_CONTROL(1.0)/ARM_LOW(0.15)/ARM_VERYLOW(0.03) x 5 seeds. Random-action rollout (no policy confound, matches V3-EXQ-818 convention). DV: E1 prediction-loss adaptation_ratio across a reset_to()-driven hazard-relocation regime change (phase A 250 ep fixed layout, phase B 150 ep relocated layout) -- does lower pe_precision produce a self-sealing world model that fails to correct on disconfirming evidence? Preconditions gate on phase-A convergence + genuine phase-B disconfirmation + manipulation-took (E1 param drift ratio); load-bearing C1 = per-seed adaptation_ratio(CONTROL)-adaptation_ratio(VERYLOW) delta, mean>=0.15 AND >=4/5 seeds positive. Distinct from MECH-246 (no input noise added) and MECH-247 (no prior-content bias). GOV-REUSE-1: checked claim_evidence.v1.json (0 experimental entries) and grepped for existing precision/gain knobs on the E1/E2 loss path -- none found, readout not recoverable -> run. Smoke PASS (--dry-run, 2 seeds x 3 arms, correctly self-routes substrate_not_ready_requeue on toy episode counts). validate_experiments.py --strict clean, 0 warnings. Queue ID note: originally drafted as V3-EXQ-825 but that number was claimed concurrently by session mech-245-experiment-e3ea79 (MECH-245); renumbered to 826 before commit, all internal script references updated."
+      "backlog_id": "EVB-0121",
+      "note": "First experimental test of MECH-244 (psychosis precision-weighting failure; prior evidence lit-only, exp_conf=0.0). IV: pe_precision scalar multiplying agent.compute_prediction_loss() before backward, dedicated optimizer scoped to agent.e1.parameters() only -- no ree_core changes (confirmed no existing precision/gain knob on the E1/E2 belief-update path; ARC-016 precision is a distinct E3-commitment pathway). Arms ARM_CONTROL(1.0)/ARM_LOW(0.15)/ARM_VERYLOW(0.03) x 5 seeds. Random-action rollout (no policy confound, matches V3-EXQ-818 convention). DV: E1 prediction-loss adaptation_ratio across a reset_to()-driven hazard-relocation regime change (phase A 250 ep fixed layout, phase B 150 ep relocated layout) -- does lower pe_precision produce a self-sealing world model that fails to correct on disconfirming evidence? Preconditions gate on phase-A convergence + genuine phase-B disconfirmation + manipulation-took (E1 param drift ratio); load-bearing C1 = per-seed adaptation_ratio(CONTROL)-adaptation_ratio(VERYLOW) delta, mean>=0.15 AND >=4/5 seeds positive. Distinct from MECH-246 (no input noise added) and MECH-247 (no prior-content bias). GOV-REUSE-1: checked claim_evidence.v1.json (0 experimental entries) and grepped for existing precision/gain knobs on the E1/E2 loss path -- none found, readout not recoverable -> run. Smoke PASS (--dry-run, 2 seeds x 3 arms, correctly self-routes substrate_not_ready_requeue on toy episode counts). validate_experiments.py --strict clean, 0 warnings. Queue ID note: originally drafted as V3-EXQ-825 but that number was claimed concurrently by session mech-245-experiment-e3ea79 (MECH-245); renumbered to 826 before commit, all internal script references updated.",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-07-26T15:20:48Z"
+      },
+      "conditions": 3,
+      "episodes_per_run": 400,
+      "experiment_type": "v3_exq_826_mech244_precision_weighting_self_sealing",
+      "seeds": 5
     }
   ]
 }
