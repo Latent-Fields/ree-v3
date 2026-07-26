@@ -46,26 +46,6 @@
       "episodes_per_run": 3000,
       "experiment_type": "v3_exq_819a_mech457_inv088_zworld_trained_vs_random_gatefix",
       "seeds": 6
-    },
-    {
-      "queue_id": "V3-EXQ-824",
-      "title": "Q-081 cross-stream shared organisation: ON vs landmark-removal (RV(z_world, operating_mode))",
-      "script": "experiments/v3_exq_824_q081_shared_organisation_landmark_removal.py",
-      "priority": 45,
-      "machine_affinity": "any",
-      "estimated_minutes": 60,
-      "claim_id": "Q-081",
-      "backlog_id": "EVB-0458",
-      "note": "First real Q-081 experiment. Uses the three landed preconditions (stream_recorder, q081_landmark_removal, q081_surrogate). GOV-REUSE-1: no existing manifest carries a per-step multi-stream trace (confirmed by the 2026-07-22 telemetry audit), so nothing was reanalyzable; this is a fresh run. Primary DV is the RV coefficient (Robert & Escoufier 1976) between the full z_world and operating_mode vectors (NOT the 1-D-reduced cross_stream_xcorr, per that function's own docstring caveat), on ON vs landmark-removed (iei_permute, the pre-registered PRIMARY mode) arms. Substrate finding surfaced during authoring, not routed around: e3_commitment is declared FRESH_CLOCK in stream_recorder.py but at least one field (running_variance) is actually updated every env tick via update_residue -> e3.post_action_update, so classify_hold_mode reports it HOLD_UNSTRUCTURED on a real rollout and block_permute_stream correctly refuses to build a surrogate for it -- operating_mode (identity-freshness, measured HOLD_CARRY, period 10.0) was substituted instead. Smoke-tested at full episode length (200 steps/ep) with a scaled-down episode/seed count; validate_experiments.py --strict clean.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-07-26T16:15:36Z"
-      },
-      "conditions": 2,
-      "episodes_per_run": 20,
-      "experiment_type": "v3_exq_824_q081_shared_organisation_landmark_removal",
-      "seeds": 5
     }
   ]
 }
