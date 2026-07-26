@@ -26,6 +26,22 @@
       "episodes_per_run": 3000,
       "experiment_type": "v3_exq_819a_mech457_inv088_zworld_trained_vs_random_gatefix",
       "seeds": 6
+    },
+    {
+      "queue_id": "V3-EXQ-817a",
+      "title": "SD-080 world-effect grounding CAPABILITY falsifier (817 successor: learnable next-state grounding + robust M5/fit gate)",
+      "experiment_type": "v3_exq_817a_sd080_worldeffect_grounding_falsifier",
+      "script": "experiments/v3_exq_817a_sd080_worldeffect_grounding_falsifier.py",
+      "priority": 46,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 90,
+      "episodes_per_run": 40,
+      "seeds": 5,
+      "conditions": 3,
+      "claim_id": "SD-080",
+      "supersedes": "V3-EXQ-817",
+      "note": "Successor to V3-EXQ-817 (SD-080 world-effect-grounding CAPABILITY falsifier). Per failure_autopsy_batch-793a-817-819_2026-07-26 target 2: 817's self-route 'substrate_not_ready' was a MISNOMER -- the ao head trained (delta_l2 ~1.3-1.47) but the delta-prediction objective did not induce the geometry (M5 0.994->0.982, M6 0.085). TWO FIXES, both calibration-driven (this script, seeds 0/1, 2026-07-26): (1) STRONGER OBJECTIVE -- regress o_t (no trainable readout) onto a fixed near-isometric projection of the REALISED next world-state z_world_{t+1} (the learnable latent world-effect world_forward itself predicts). Calibration: ARM_1 M5 0.99->0.70 with real fit (MSE 0.64-0.77), SHUFFLED control stays ~0.99. Two rejected objectives recorded in docstring (relational/contrastive = scale-invariant, cannot move M5; dense-consequence regression = only ~20pct predictable from z_world). (2) RECALIBRATED GATE -- calibration showed the M6 floor is NOT mis-set but NOISE-DOMINATED (frozen ao M6 -0.18..+0.13 by seed; world_forward M6 0.07-0.22; shuffled hit 0.21). Gate moved OFF absolute M6 to robust low-noise signals: world-effect FIT + ARM_1 state-dependence (M5 drop, paired) + ARM_2-vs-ARM_1 content discrimination. M6 recorded, not gated. Poor fit self-routes to a distinct SUBSTRATE label (worldeffect_ungroundable_from_zworld), separable from objective failure. GOV-REUSE-1: decisive readout = behavioural harm_rate/survival under a GROUNDED O; 817 never produced it (gate never fired), and the world-effect-grounded manipulation exists in no recorded manifest -> not recoverable, run. Re-derive brake: SD-080=1 / SD-004=1 (< threshold 2; the single hit is this routing autopsy, category competence_implementation_gap, not a ceiling) -> not braked. SD-080 frozen-projection defect stays CONFIRMED via 809; 817a adds the orthogonal CAPABILITY read. Substrate fully built (817 ran). Smoke PASS; validate_experiments/recording --strict clean. supersedes V3-EXQ-817."
     }
   ]
 }
