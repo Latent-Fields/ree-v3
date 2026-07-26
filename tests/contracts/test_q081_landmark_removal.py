@@ -31,6 +31,7 @@ import pytest
 from experiments._lib.q081_landmark_removal import (
     MODES,
     PRIMARY_MODE,
+    REACH_CONSUMERS,
     BoundaryTrain,
     LandmarkRemovalConfig,
     LandmarkScrambler,
@@ -425,6 +426,58 @@ def test_behavioural_reach_requires_the_segmenter_itself():
     agent = _FakeAgent(_FakeSegmenter(FIRE_AT), use_event_segmenter=False)
     with pytest.raises(RuntimeError, match="NO behavioural reach"):
         assert_behavioural_reach(agent)
+
+
+def test_invalidation_trigger_alone_is_not_behavioural_reach():
+    # V3-EXQ-824 failure autopsy (2026-07-26): use_invalidation_trigger alone only
+    # feeds the MECH-287 broadcast queue, which is discarded by a tick-boundary
+    # bounding flush and never read by anything that touches (z_world,
+    # operating_mode). A config with only this flag set must NOT pass as having
+    # reach -- it produced a bit-identical ON/REMOVED rv_primary at all 5 seeds.
+    agent = _FakeAgent(
+        _FakeSegmenter(FIRE_AT),
+        use_invalidation_trigger=True,
+        use_anchor_sets=False,
+        use_per_region_vs=False,
+        use_staleness_accumulator=False,
+    )
+    with pytest.raises(RuntimeError, match="NO behavioural reach"):
+        assert_behavioural_reach(agent)
+    rep = assert_behavioural_reach(agent, strict=False)
+    assert rep["has_behavioural_reach"] is False
+    assert rep["live_consumers"] == ["use_invalidation_trigger"]
+    assert rep["reach_consumers"] == []
+
+
+def test_staleness_accumulator_alone_is_not_behavioural_reach():
+    # ree_core/agent.py:2184-2200: use_staleness_accumulator's one real consumer
+    # (use_vs_gate_staleness_lookup) additionally requires use_anchor_sets, so it
+    # is never independently sufficient either.
+    agent = _FakeAgent(
+        _FakeSegmenter(FIRE_AT),
+        use_invalidation_trigger=False,
+        use_anchor_sets=False,
+        use_per_region_vs=False,
+        use_staleness_accumulator=True,
+    )
+    rep = assert_behavioural_reach(agent, strict=False)
+    assert rep["has_behavioural_reach"] is False
+    assert rep["reach_consumers"] == []
+
+
+@pytest.mark.parametrize("reach_flag", sorted(REACH_CONSUMERS))
+def test_each_reach_consumer_alone_is_sufficient(reach_flag):
+    flags = {
+        "use_invalidation_trigger": False,
+        "use_anchor_sets": False,
+        "use_per_region_vs": False,
+        "use_staleness_accumulator": False,
+    }
+    flags[reach_flag] = True
+    agent = _FakeAgent(_FakeSegmenter(FIRE_AT), **flags)
+    rep = assert_behavioural_reach(agent)
+    assert rep["has_behavioural_reach"] is True
+    assert rep["reach_consumers"] == [reach_flag]
 
 
 # --------------------------------------------------------------------------- #

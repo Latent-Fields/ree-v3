@@ -191,6 +191,7 @@ __all__ = [
     "BoundaryTrain",
     "LandmarkScrambler",
     "assert_behavioural_reach",
+    "REACH_CONSUMERS",
     "input_statistics_divergence",
     "MODES",
     "PRIMARY_MODE",
@@ -854,16 +855,36 @@ class LandmarkScrambler:
 # --------------------------------------------------------------------------- #
 
 
+# Consumers that actually touch (z_world, operating_mode) -- confirmed by source
+# trace of every reader of the MECH-287 broadcast queue (ree_core/agent.py:4478-4514):
+# tick_anchor_set() [MECH-269, write_anchor -> z_world] is gated on use_anchor_sets;
+# apply_invalidation_broadcasts_to_regions() [-> operating_mode via vs_rollout_gate]
+# is gated on use_per_region_vs. use_staleness_accumulator is not independently
+# sufficient either -- ree_core/agent.py:2184-2200 shows its one consumer
+# (use_vs_gate_staleness_lookup) additionally requires use_anchor_sets to walk
+# active anchors, so it never provides reach on its own.
+REACH_CONSUMERS = frozenset({"use_anchor_sets", "use_per_region_vs"})
+
+
 def assert_behavioural_reach(agent: Any, strict: bool = True) -> Dict[str, Any]:
-    """Verify the boundary stream actually reaches behaviour in this config.
+    """Verify the boundary stream actually reaches (z_world, operating_mode) in this config.
 
-    Without at least one live consumer the arm is INERT -- it trivially preserves
-    input statistics because it cannot change anything, and it then tests only
-    statistics computed on the boundary stream itself. That is not what Q-081
-    asks, and an inert control arm is the same class of defect as an inert arm
-    knob (see `inert_arm_knob.py`): a conjunctive claim quietly loses a conjunct.
+    Without at least one REACH_CONSUMERS flag the arm is INERT for the primary Q-081
+    pair -- it trivially preserves input statistics because it cannot change anything,
+    and it then tests only statistics computed on the boundary stream itself. That is
+    not what Q-081 asks, and an inert control arm is the same class of defect as an
+    inert arm knob (see `inert_arm_knob.py`): a conjunctive claim quietly loses a
+    conjunct.
 
-    Returns the reach report. Raises when strict and no consumer is live.
+    `use_invalidation_trigger` alone does NOT count: it only feeds the MECH-287
+    broadcast queue, which (confirmed by source trace, V3-EXQ-824 failure autopsy
+    2026-07-26) is drained solely by a tick-boundary bounding flush
+    (ree_core/agent.py:4323-4338) that discards it -- no path from that queue alone
+    reaches agent state. Enabling only that flag lets a landmark-removal arm pass
+    this check while being causally inert, which is exactly the defect that produced
+    bit-identical ON/REMOVED `rv_primary` at all 5 seeds in V3-EXQ-824.
+
+    Returns the reach report. Raises when strict and no REACH_CONSUMERS flag is live.
     """
     hippo = getattr(agent, "hippocampal", None)
     cfg = getattr(hippo, "config", None) if hippo is not None else None
@@ -879,20 +900,25 @@ def assert_behavioural_reach(agent: Any, strict: bool = True) -> Dict[str, Any]:
         "use_staleness_accumulator": _f("use_staleness_accumulator"),
     }
     live = [k for k, v in consumers.items() if v]
+    reach_live = [k for k in live if k in REACH_CONSUMERS]
     report = {
         "use_event_segmenter": bool(segmenter_on),
         "consumers": consumers,
         "live_consumers": live,
-        "has_behavioural_reach": bool(segmenter_on and live),
+        "reach_consumers": reach_live,
+        "has_behavioural_reach": bool(segmenter_on and reach_live),
     }
     if strict and not report["has_behavioural_reach"]:
         raise RuntimeError(
-            "Q-081 landmark-removal arm has NO behavioural reach: "
-            "use_event_segmenter=" + str(segmenter_on)
+            "Q-081 landmark-removal arm has NO behavioural reach to "
+            "(z_world, operating_mode): use_event_segmenter=" + str(segmenter_on)
             + ", live consumers=" + repr(live)
-            + ". The arm would be inert and the result vacuous. Enable the "
-            "MECH-287 / MECH-269 consumer path, or self-route "
-            "substrate_not_ready."
+            + ", reach consumers=" + repr(reach_live)
+            + ". use_invalidation_trigger alone is NOT reach (its broadcast queue "
+            "is discarded by a bounding flush, never read -- see V3-EXQ-824 failure "
+            "autopsy). The arm would be inert and the result vacuous. Enable "
+            "use_anchor_sets and/or use_per_region_vs (the MECH-269 / MECH-284 "
+            "consumer paths), or self-route substrate_not_ready."
         )
     return report
 
