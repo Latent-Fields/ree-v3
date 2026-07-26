@@ -62,6 +62,22 @@
       "backlog_id": "EVB-0458",
       "claim_id": "Q-081",
       "note": "First real Q-081 experiment. Uses the three landed preconditions (stream_recorder, q081_landmark_removal, q081_surrogate). GOV-REUSE-1: no existing manifest carries a per-step multi-stream trace (confirmed by the 2026-07-22 telemetry audit), so nothing was reanalyzable; this is a fresh run. Primary DV is the RV coefficient (Robert & Escoufier 1976) between the full z_world and operating_mode vectors (NOT the 1-D-reduced cross_stream_xcorr, per that function's own docstring caveat), on ON vs landmark-removed (iei_permute, the pre-registered PRIMARY mode) arms. Substrate finding surfaced during authoring, not routed around: e3_commitment is declared FRESH_CLOCK in stream_recorder.py but at least one field (running_variance) is actually updated every env tick via update_residue -> e3.post_action_update, so classify_hold_mode reports it HOLD_UNSTRUCTURED on a real rollout and block_permute_stream correctly refuses to build a surrogate for it -- operating_mode (identity-freshness, measured HOLD_CARRY, period 10.0) was substituted instead. Smoke-tested at full episode length (200 steps/ep) with a scaled-down episode/seed count; validate_experiments.py --strict clean."
+    },
+    {
+      "queue_id": "V3-EXQ-816d",
+      "title": "MECH-321 policy_decomposition P-A (env axis), dose escalation: harshened env v2 -> low-V_s production + region-V_s distribution recording",
+      "experiment_type": "v3_exq_816d_mech321_policy_decomposition_harshened_env_v2",
+      "script": "experiments/v3_exq_816d_mech321_policy_decomposition_harshened_env_v2.py",
+      "experiment_purpose": "diagnostic",
+      "claim_ids": [],
+      "priority": 58,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 240,
+      "episodes_per_run": 60,
+      "seeds": 5,
+      "conditions": 2,
+      "note": "GOV-FANOUT-1 leg P-A (ENVIRONMENT axis), DOSE ESCALATION, for frozen-ledger question policy_decomposition_discrimination / hypothesis H-env-underdrives-uncertainty; adjudicating run. Diagnostic (bears_on ARC-070/MECH-321, no weight/ceiling). Continues V3-EXQ-816b (harshened env: env_drift_interval=3, world_rule_shift interval=24/depth=1), which moved off_pe_mean_worst from the 816/820 baseline (~0.005) to 0.0086 -- 86% of the PE_ELEVATED_FLOOR=0.01 discrimination floor but still short of it (0 low-V_s steps; informative-but-non-eliminating; failure_autopsy_V3-EXQ-816b_2026-07-26). User-confirmed routing (2026-07-26 governance cycle): one more dose step on the SAME hypothesis before pivoting to the already-run P-B comparator (816c), which presupposes PE is actually elevated. This run escalates all three autopsy-named levers together: env_drift_interval 3->1, world_rule_shift_interval 24->12, world_rule_shift_depth 1->2 (see experiments/_lib/baselines/mech321_policy_decomposition_harshened_v2.py dose table). Pre-registered thresholds (MIN_LOW_VS_STEPS=5, PE_ELEVATED_FLOOR=0.01) UNCHANGED from 816/816b so the dose-response is directly comparable. NULL: worst ARM_1 low-V_s steps still <5 -> disambiguated by forward-PE: elevated-but-flat favours H-vs-proxy-saturation (816c already run); still-not-elevated signals diminishing returns on the env axis after two dose steps. GOV-REUSE-1: this escalated-dose env config (env_drift_interval=1, world_rule_shift 12/2) is a NEW substrate_hash, not recorded in any prior manifest -> not recoverable -> run. Autopsy: failure_autopsy_V3-EXQ-816b_2026-07-26. New baseline module mints ARM_0 reuse-eligible for this dose sub-lineage. Smoke PASS (--dry-run); validate_experiments --strict OK; validate_recording --strict OK."
     }
   ]
 }
