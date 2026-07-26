@@ -8,26 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-816b",
-      "title": "MECH-321 policy_decomposition P-A (env axis): harshened env -> low-V_s production + region-V_s distribution recording",
-      "script": "experiments/v3_exq_816b_mech321_policy_decomposition_harshened_env.py",
-      "priority": 58,
-      "machine_affinity": "any",
-      "estimated_minutes": 240,
-      "note": "GOV-FANOUT-1 leg P-A (ENVIRONMENT axis) for frozen-ledger question policy_decomposition_discrimination / hypothesis H-env-underdrives-uncertainty; adjudicating run. Diagnostic (bears_on ARC-070/MECH-321, no weight/ceiling). Re-runs 816 ARM_0/ARM_1 on a HARSHENED env (env_drift_interval=3 AND world_rule_shift interval=24 depth=1 -- purpose-built structure-invalidating lever; env_drift_interval alone documented-weak, V3-EXQ-677 8.8e-7), recording region-V_s distribution + per-cell forward-PE (closes 816 recording gap). NULL: worst ARM_1 low-V_s steps still <5 -> H-env refuted; disambiguated by forward-PE (elevated-but-flat favours H-vs-proxy/816c). GOV-REUSE-1: region_vs distribution in 0 manifests; harshened env is a NEW substrate_hash -> not recoverable -> run. Autopsy: failure_autopsy_816-820-policy-decomposition-cluster_2026-07-26. Smoke PASS; validate_experiments --strict OK; contract suite 2289 passed on cloud.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-07-26T10:31:25Z"
-      },
-      "claim_ids": [],
-      "conditions": 2,
-      "episodes_per_run": 60,
-      "experiment_purpose": "diagnostic",
-      "experiment_type": "v3_exq_816b_mech321_policy_decomposition_harshened_env",
-      "seeds": 5
-    },
-    {
       "queue_id": "V3-EXQ-819a",
       "title": "competence_floor R4 819a: reconcile worst-seed non-vacuity gate with strict-majority router + recalibrate 1.0 floor/margin (MECH-457/INV-088 z_world instrument-validity)",
       "script": "experiments/v3_exq_819a_mech457_inv088_zworld_trained_vs_random_gatefix.py",
