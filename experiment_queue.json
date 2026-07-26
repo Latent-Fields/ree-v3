@@ -6,5 +6,36 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-822",
+      "title": "SD-078 consumer: centered rule-field context key -> context-conditioned executive rule-selection reaching action-bias",
+      "script": "experiments/v3_exq_822_sd078_rule_selection_consumer.py",
+      "priority": 70,
+      "machine_affinity": "any",
+      "estimated_minutes": 150,
+      "claim_id": "SD-078",
+      "note": "SD-078 promotion gate (candidate_substrate_landed -> provisional). DOWNSTREAM CONSUMER of the centered CandidateRuleField context key: both arms build+mature the field, sweep crf_cue_centering; short P1 REINFORCE un-zeros the SD-033a lateral-PFC bias head; P2 measures cross-context rule_state differentiation (primary), the rule-attributable action-bias it induces (prop_delta non-vacuity), and argmax flips. GOV-REUSE-1: readouts are NEW (806 recorded only internal pool geometry; crf_cue_centering did not exist pre-2026-07-22) -> not recoverable. Re-derive brake count=0. Both evidence directions declared; readiness-unmet self-routes substrate_not_ready_requeue. smoke PASS. Entry via coordinator POST (not a git queue commit) to avoid sweeping a parallel session's uncommitted 816b/816c edits.",
+      "status": "pending",
+      "conditions": 2,
+      "episodes_per_run": 170,
+      "experiment_type": "v3_exq_822_sd078_rule_selection_consumer",
+      "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-823",
+      "title": "SD-079 consumer: centered z_goal cue -> reliable ghost-goal retrieval decision + MECH-340 rumination-guard efficacy",
+      "script": "experiments/v3_exq_823_sd079_ghost_goal_retrieval_consumer.py",
+      "priority": 70,
+      "machine_affinity": "any",
+      "estimated_minutes": 30,
+      "claim_id": "SD-079",
+      "note": "SD-079 promotion gate (candidate_substrate_landed -> provisional). DOWNSTREAM CONSUMER of the centered z_goal goal-anchor cue: sweep goal_cue_centering; enroll goal-anchors from the agent z_goal stream, freeze the enrollment common-mode baseline, score each query through Anchor.goal_match (the GhostGoalBank/MECH-340 scoring primitive). DVs: retrieval discrimination_frac (primary, paired ON-OFF lift) + MECH-340 rumination-guard disengagement efficacy. GOV-REUSE-1: decision readouts are NEW (807 recorded only spread/n_below_floor; goal_cue_centering did not exist pre-2026-07-22) -> not recoverable. Re-derive brake count=0. Both evidence directions declared; readiness-unmet self-routes substrate_not_ready_requeue. smoke PASS (ON discr 0.40 vs OFF 0.00). Entry via coordinator POST to avoid sweeping a parallel session's uncommitted 816b/816c edits.",
+      "status": "pending",
+      "conditions": 2,
+      "episodes_per_run": 8,
+      "experiment_type": "v3_exq_823_sd079_ghost_goal_retrieval_consumer",
+      "seeds": 3
+    }
+  ]
 }
