@@ -46,6 +46,22 @@
       "episodes_per_run": 40,
       "experiment_type": "v3_exq_817a_sd080_worldeffect_grounding_falsifier",
       "seeds": 5
+    },
+    {
+      "queue_id": "V3-EXQ-825",
+      "title": "MECH-245 generative-model-dominance-under-deafferentation discriminative pair (E3 bottom-up-mismatch-check bypass)",
+      "script": "experiments/v3_exq_825_mech245_generative_dominance_deafferentation.py",
+      "priority": 25,
+      "machine_affinity": "any",
+      "estimated_minutes": 5,
+      "claim_id": "MECH-245",
+      "backlog_id": "EVB-0122",
+      "note": "IGW-20260726-222. GOV-REUSE-1: decisive readout = confidence-collapse asymmetry (final_running_variance / grounded_operating_variance) between genuine-deprivation vs generative-substitution feeds into E3TrajectorySelector.update_running_variance under deafferentation. Searched evidence/experiments/ for MECH-245 / hallucination / generative_dominance readouts: 0 experimental entries exist (claim_evidence.v1.json: exp_conf=0.0, 2 lit-only entries) -- not recoverable, run. Substrate-level discriminative pair (633 MECH-094 precedent pattern): drives the REAL E3TrajectorySelector.update_running_variance/current_precision/commit_threshold directly with a controlled PE stream, no env/agent dependency. A GRU forward model (E1/E2 top-down stand-in) is trained on synthetic momentum z_world dynamics; PRIMARY feeds E3 the last genuinely grounded observation (frozen, deafferentation-honest) during a deprivation window, ABLATION feeds E3 the model own rolled-forward prediction (top-down content propagated forward as if received sensory signal -- the claim own language). DV-symmetry declaration: ABLATION per-tick prediction_error=0 is a definitional self-comparison identity, NOT a measured discovery; the falsifiable content is PRIMARY real deprivation-driven PE magnitude and whether it clears the pre-registered confidence-collapse margin, both from a genuinely trained model free-rollout drift. Distinct from MECH-094 (write-gate on hypothesis_tag provenance, different substrate module) and MECH-244 (belief-updating dominance with evidence PRESENT, not total absence). Calibration run (full params, outside the queue) confirmed large-margin separation: grounded_var ~0.053, PRIMARY final var 5.9-7.5 (~110-140x), ABLATION final var ~0.011 (~0.2x); all three pre-registered criteria clear by wide margins, not knife-edge-tuned. validate_experiments.py --strict OK. --dry-run smoke PASS (crash-free, writes manifest+sentinel; FAIL outcome expected under truncated smoke windows).",
+      "status": "pending",
+      "conditions": 2,
+      "episodes_per_run": 150,
+      "experiment_type": "v3_exq_825_mech245_generative_dominance_deafferentation",
+      "seeds": 3
     }
   ]
 }
