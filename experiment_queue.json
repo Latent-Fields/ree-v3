@@ -66,6 +66,22 @@
       "episodes_per_run": 400,
       "experiment_type": "v3_exq_826_mech244_precision_weighting_self_sealing",
       "seeds": 5
+    },
+    {
+      "queue_id": "V3-EXQ-827",
+      "title": "INV-091: cross-stream similarity BAND falsifier (landmark-removal + forced-lockstep ablations on a shared trained substrate)",
+      "script": "experiments/v3_exq_827_inv091_cross_stream_similarity_band.py",
+      "experiment_type": "v3_exq_827_inv091_cross_stream_similarity_band",
+      "priority": 40,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 90,
+      "episodes_per_run": 40,
+      "seeds": 3,
+      "conditions": 1,
+      "backlog_id": "EVB-0459",
+      "claim_id": "INV-091",
+      "note": "First experimental test of INV-091 (cross-stream similarity BAND; prior evidence lit-only, exp_conf=0.0, evidence_quadrant=plausible_unproven). Targeted probe: 2 of the claim's 7 named ablations (remove commitment landmarks / force lockstep), chosen to move cross-stream similarity in OPPOSITE directions from a shared intact baseline. All 3 arms (intact/decouple/lockstep) share ONE warmed-up agent per seed (E1/E2 world-forward + E3 harm-eval head via _lib.goal_pipeline_tier1.warmup_train); manipulations apply only at eval/recording time -- decouple via the already-built q081_landmark_removal yoked-permutation scrambler (mode=iei_permute, donor trains banked from the intact arm's own eval episodes), lockstep by mutating agent.clock rates between eval passes. Reuses the Q-081 infra landed 2026-07-22..2026-07-25 (stream_recorder, trace_store, q081_surrogate, q081_landmark_removal, q081_profile, dose_saturation) rather than rebuilding it. DV: cross_stream_similarity (mean |xcorr| over 4 cross-subsystem/cross-rate pairs: z_world-z_self, z_world-operating_mode, e1_hidden-e3_commitment, z_world-z_goal) vs a composite = min(z_task_reward, z_anti_collapse) [z_anti_collapse = 1-mean|cos(z_self, z_world)|], z-scored pooled across all 9 (arm x seed) cells -- a CONJUNCTIVE composite per the claim's own 'not merely satisfy each on a separate axis' wording. C1 (non-degeneracy, INV-091's own guard): similarity moves decouple<intact<lockstep by >= 0.02 each gap. C2 (falsifier): intact's composite exceeds BOTH extremes by >= 0.15 pooled-SD units (the non-monotonic band shape); a monotonic composite trend instead records which direction under interpretation.monotonic_direction. Q-081's own 'validate the null before using it' requirement is run once per manifest (screen_statistic confirms the real statistic is admissible while artefactual_rate_statistic is ruled_out) plus a per-cell evaluate_against_null surrogate p-value (constrained-realisation block-permutation null, 199 surrogates). GOV-REUSE-1: reanalysis_query.py --claim INV-091 and --claim Q-081 both scanned 0 manifests after the claim filter -- not recoverable, first run. Re-derive brake: 0 prior autopsies tag INV-091. Partial falsifier coverage only (2/7 named ablations); event broadcasts / mode conditioning / residue feedback / randomised rates / harm-stream collapse remain untested by this run -- noted in the manifest's interpretation.note so a PASS is not over-read as exhausting the claim. Smoke PASS (--dry-run, 2 seeds-equiv/2 eval eps/20 steps): correctly self-routes substrate_not_ready_requeue via C1 + independently via dose_saturation (toy-scale anti_collapse/composite/task_reward tied across arms, exactly the saturation guard working). validate_experiments.py --strict: OK, 0 warnings. validate_recording.py --strict on the dry-run manifest: OK (always-core complete). Queue ID note: originally drafted as V3-EXQ-824 but that number was claimed concurrently by another session's Q-081-direct experiment (v3_exq_824_q081_shared_organisation_landmark_removal.py) before either was committed; renumbered to 827 (next free after 825/826) before commit, all internal script references updated."
     }
   ]
 }
