@@ -184,6 +184,18 @@ class LateralPFCConfig:
     # raw output sits in the responsive band of the tanh bound rather than deep in
     # saturation. 1.0 = no rescale.
     readout_init_scale: float = 0.25
+    # SD-082 AMEND (failure_autopsy_batch-822a-826-817a-827_2026-07-26): V3-EXQ-822a
+    # showed rule_state->action-bias propagation still measured exactly 0.0 with the
+    # centering+tanh fix engaged. The leading hypothesis is a dead-ReLU/insensitivity
+    # point in rule_bias_head's UNTOUCHED first Linear+ReLU layer, but the manifest
+    # carried no head-internals diagnostics to confirm it -- a recording gap, not a
+    # measurement gap. When True, compute_bias() also records the hidden-layer dead
+    # (non-positive) ReLU unit fraction and the rule_state-vs-world-summary input
+    # magnitude ratio (both read via get_state()). Default False = no extra compute
+    # in the hot path; ON reuses the identical layer-by-layer forward nn.Sequential
+    # already performs internally, so the returned bias is bit-identical to OFF at
+    # every tick (diagnostic-only, does not change any computed bias value).
+    capture_head_diagnostics: bool = False
 
 
 class LateralPFCAnalog(nn.Module):
@@ -255,6 +267,10 @@ class LateralPFCAnalog(nn.Module):
         self._last_gate: float = 0.0
         self._last_effective_eta: float = 0.0
         self._last_bias_abs_mean: float = 0.0
+        # SD-082 AMEND: head-internals diagnostics. Only populated when
+        # config.capture_head_diagnostics is True; stay at these defaults otherwise.
+        self._last_hidden_dead_relu_frac: float = 0.0
+        self._last_rule_summary_magnitude_ratio: float = 0.0
 
     # ------------------------------------------------------------------
     # Update path
@@ -395,7 +411,26 @@ class LateralPFCAnalog(nn.Module):
         # Broadcast rule_state across K candidates
         rule_repeated = self.rule_state.expand(k, -1)  # [K, rule_dim]
         joined = torch.cat([rule_repeated, summaries], dim=-1)
-        bias_raw = self.rule_bias_head(joined).squeeze(-1)  # [K]
+        if self.config.capture_head_diagnostics:
+            # SD-082 AMEND: unroll rule_bias_head's Sequential layer-by-layer to
+            # capture the hidden activation for diagnostics. This is the SAME
+            # sequence of ops nn.Sequential.__call__ performs internally (Linear ->
+            # ReLU -> Linear), so bias_raw is bit-identical to the single-call form
+            # below -- diagnostic-only, no computation change.
+            hidden_pre = self.rule_bias_head[0](joined)
+            hidden_post = self.rule_bias_head[1](hidden_pre)
+            bias_raw = self.rule_bias_head[2](hidden_post).squeeze(-1)  # [K]
+            with torch.no_grad():
+                self._last_hidden_dead_relu_frac = float(
+                    (hidden_post <= 0).float().mean().item()
+                )
+                rule_norm = float(rule_repeated.norm(dim=-1).mean().item())
+                summary_norm = float(summaries.norm(dim=-1).mean().item())
+                self._last_rule_summary_magnitude_ratio = (
+                    rule_norm / summary_norm if summary_norm > 0.0 else float("inf")
+                )
+        else:
+            bias_raw = self.rule_bias_head(joined).squeeze(-1)  # [K]
         if self.config.rule_readout_consumer:
             # SD-082 (ii): smooth scaled-tanh bound. Same magnitude bound as the
             # hard clamp (|bias| < bias_scale) but gradient-preserving everywhere,
@@ -438,15 +473,43 @@ class LateralPFCAnalog(nn.Module):
         self._last_gate = 0.0
         self._last_effective_eta = 0.0
         self._last_bias_abs_mean = 0.0
+        self._last_hidden_dead_relu_frac = 0.0
+        self._last_rule_summary_magnitude_ratio = 0.0
 
     def get_state(self) -> dict:
         """Diagnostic snapshot for experiment manifests."""
-        return {
-            "rule_state_norm": float(self.rule_state.norm().item()),
-            "last_gate": self._last_gate,
-            "last_effective_eta": self._last_effective_eta,
-            "last_bias_abs_mean": self._last_bias_abs_mean,
-            "use_discriminator_source": self.config.use_discriminator_source,
-            "train_rule_bias_head": self.config.train_rule_bias_head,
-            "use_candidate_rule_source": self.config.use_candidate_rule_source,
-        }
+        with torch.no_grad():
+            first_linear = self.rule_bias_head[0]
+            last_linear = self.rule_bias_head[2]
+            state = {
+                "rule_state_norm": float(self.rule_state.norm().item()),
+                "last_gate": self._last_gate,
+                "last_effective_eta": self._last_effective_eta,
+                "last_bias_abs_mean": self._last_bias_abs_mean,
+                "use_discriminator_source": self.config.use_discriminator_source,
+                "train_rule_bias_head": self.config.train_rule_bias_head,
+                "use_candidate_rule_source": self.config.use_candidate_rule_source,
+                # SD-082 AMEND: head-internals instrumentation
+                # (failure_autopsy_batch-822a-826-817a-827_2026-07-26). Weight norms
+                # are always-cheap parameter reads (not per-tick activations), so
+                # they are reported unconditionally -- call get_state() at each
+                # phase boundary (P0/P1/P2) to get per-phase weight-norm tracking.
+                "capture_head_diagnostics": self.config.capture_head_diagnostics,
+                "rule_bias_head_first_linear_weight_norm": float(
+                    first_linear.weight.norm().item()
+                ),
+                "rule_bias_head_first_linear_bias_norm": float(
+                    first_linear.bias.norm().item()
+                ),
+                "rule_bias_head_last_linear_weight_norm": float(
+                    last_linear.weight.norm().item()
+                ),
+                "rule_bias_head_last_linear_bias_norm": float(
+                    last_linear.bias.norm().item()
+                ),
+                # Only populated (non-default) when capture_head_diagnostics=True;
+                # stay at 0.0 otherwise.
+                "hidden_dead_relu_frac": self._last_hidden_dead_relu_frac,
+                "rule_summary_magnitude_ratio": self._last_rule_summary_magnitude_ratio,
+            }
+        return state

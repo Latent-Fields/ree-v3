@@ -2867,6 +2867,14 @@ class REEConfig:
     # the initial raw output sits in the responsive band of the tanh bound
     # (|raw| < bias_scale) rather than deep in saturation. 1.0 = no rescale.
     lateral_pfc_readout_init_scale: float = 0.25
+    # SD-082 AMEND (failure_autopsy_batch-822a-826-817a-827_2026-07-26): head-
+    # internals instrumentation. When True, LateralPFCAnalog.compute_bias() also
+    # records the hidden-layer dead-ReLU fraction and the rule_state-vs-world-
+    # summary input magnitude ratio (read via lateral_pfc.get_state()), to
+    # root-cause why V3-EXQ-822a's propagation stayed exactly 0.0 even with
+    # rule_readout_consumer engaged. Default False = no extra compute in the hot
+    # path; ON does not change any computed bias value (diagnostic-only).
+    lateral_pfc_capture_head_diagnostics: bool = False
 
     # ARC-063 v1: distributed CandidateRule field (the non-Bayesian rule-creator
     # resolving arc_062_rule_apprehension:GAP-B). Mints distinct subspace-
@@ -5356,6 +5364,8 @@ class REEConfig:
         # SD-082: rule_state -> action-bias read-out consumer (no-op default).
         lateral_pfc_rule_readout_consumer: bool = False,
         lateral_pfc_readout_init_scale: float = 0.25,
+        # SD-082 AMEND: head-internals diagnostics (no-op default).
+        lateral_pfc_capture_head_diagnostics: bool = False,
         # MECH-457 actor-critic action-learning substrate (all no-op default).
         use_actor_critic: bool = False,
         actor_critic_cotrain_encoder: bool = False,
@@ -6516,6 +6526,7 @@ class REEConfig:
         config.lateral_pfc_train_rule_bias_head = lateral_pfc_train_rule_bias_head
         config.lateral_pfc_rule_readout_consumer = lateral_pfc_rule_readout_consumer
         config.lateral_pfc_readout_init_scale = lateral_pfc_readout_init_scale
+        config.lateral_pfc_capture_head_diagnostics = lateral_pfc_capture_head_diagnostics
         # MECH-457 actor-critic action-learning substrate.
         config.use_actor_critic = use_actor_critic
         config.actor_critic_cotrain_encoder = actor_critic_cotrain_encoder

@@ -747,6 +747,10 @@ class REEAgent(nn.Module):
                 readout_init_scale=getattr(
                     config, "lateral_pfc_readout_init_scale", 0.25
                 ),
+                # SD-082 AMEND: head-internals diagnostics.
+                capture_head_diagnostics=getattr(
+                    config, "lateral_pfc_capture_head_diagnostics", False
+                ),
             )
             self.lateral_pfc = LateralPFCAnalog(
                 delta_dim=config.latent.delta_dim,

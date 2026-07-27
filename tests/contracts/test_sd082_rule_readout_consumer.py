@@ -38,7 +38,7 @@ def _common_mode_summaries(seed: int = 1) -> torch.Tensor:
     return summ
 
 
-def _make_head(consumer: bool) -> LateralPFCAnalog:
+def _make_head(consumer: bool, capture_diagnostics: bool = False) -> LateralPFCAnalog:
     torch.manual_seed(7)
     cfg = LateralPFCConfig(
         use_lateral_pfc_analog=True,
@@ -49,6 +49,7 @@ def _make_head(consumer: bool) -> LateralPFCAnalog:
         use_candidate_rule_source=True,
         rule_readout_consumer=consumer,
         readout_init_scale=0.25,
+        capture_head_diagnostics=capture_diagnostics,
     )
     return LateralPFCAnalog(delta_dim=8, world_dim=WORLD_DIM, config=cfg)
 
@@ -93,6 +94,157 @@ def test_flag_reachable_through_from_dims():
         body_obs_dim=env.body_obs_dim, world_obs_dim=env.world_obs_dim,
         action_dim=4, use_lateral_pfc_analog=True)
     assert default.lateral_pfc_rule_readout_consumer is False
+
+
+def test_head_diagnostics_flag_reachable_through_from_dims():
+    """SD-082 AMEND: lateral_pfc_capture_head_diagnostics must reach LateralPFCConfig.
+
+    Same silently-unreachable-flag hazard as the parent reachability test above --
+    a new REEConfig knob needs all three from_dims sites (dataclass field, signature,
+    assignment) plus the agent.py getattr-fallback build, or it is silently inert.
+    """
+    from ree_core.agent import REEAgent
+    from ree_core.environment.causal_grid_world import CausalGridWorldV2
+
+    env = CausalGridWorldV2(seed=101, size=8, num_hazards=2, num_resources=6,
+                            use_proxy_fields=True)
+
+    def build(flag: bool) -> REEAgent:
+        return REEAgent(REEConfig.from_dims(
+            body_obs_dim=env.body_obs_dim, world_obs_dim=env.world_obs_dim,
+            action_dim=4, use_lateral_pfc_analog=True,
+            lateral_pfc_rule_readout_consumer=True,
+            lateral_pfc_capture_head_diagnostics=flag,
+        ))
+
+    assert build(True).lateral_pfc.config.capture_head_diagnostics is True
+    assert build(False).lateral_pfc.config.capture_head_diagnostics is False
+    # Absent -> default False (no-op backward compat).
+    default = REEConfig.from_dims(
+        body_obs_dim=env.body_obs_dim, world_obs_dim=env.world_obs_dim,
+        action_dim=4, use_lateral_pfc_analog=True)
+    assert default.lateral_pfc_capture_head_diagnostics is False
+
+
+def test_head_diagnostics_off_does_not_populate_state():
+    """Default OFF: diagnostic fields stay at their 0.0 defaults in get_state()."""
+    lp = _make_head(consumer=True, capture_diagnostics=False)
+    lp.rule_state.copy_(torch.randn(1, RULE_DIM) * 1.0)
+    with torch.no_grad():
+        lp.compute_bias(_common_mode_summaries())
+    state = lp.get_state()
+    assert state["capture_head_diagnostics"] is False
+    assert state["hidden_dead_relu_frac"] == 0.0
+    assert state["rule_summary_magnitude_ratio"] == 0.0
+
+
+def test_head_diagnostics_on_does_not_change_bias():
+    """Diagnostic capture must not alter the computed bias (diagnostic-only)."""
+    summ = _common_mode_summaries()
+    rule_state = torch.randn(1, RULE_DIM) * 1.0
+
+    lp_off = _make_head(consumer=True, capture_diagnostics=False)
+    lp_off.rule_state.copy_(rule_state)
+    with torch.no_grad():
+        bias_off = lp_off.compute_bias(summ)
+
+    lp_on = _make_head(consumer=True, capture_diagnostics=True)
+    lp_on.rule_state.copy_(rule_state)
+    with torch.no_grad():
+        bias_on = lp_on.compute_bias(summ)
+
+    assert torch.allclose(bias_off, bias_on)
+
+
+def test_head_diagnostics_on_does_not_change_gradient():
+    """Diagnostic capture must not alter the head gradient (training-path parity)."""
+    summ = _common_mode_summaries()
+    rule_state = torch.randn(1, RULE_DIM) * 1.0
+
+    loss_weights = torch.randn(K)
+
+    def grad_norm(capture: bool) -> float:
+        lp = _make_head(consumer=True, capture_diagnostics=capture)
+        lp.rule_state.copy_(rule_state)
+        bias = lp.compute_bias(summ)
+        loss = (bias * loss_weights).sum()
+        loss.backward()
+        return sum(float(p.grad.norm()) for p in lp.rule_bias_head.parameters()
+                   if p.grad is not None)
+
+    # _make_head reseeds to a fixed value internally, so construction (and thus
+    # every parameter) is identical regardless of the capture flag -- the only
+    # difference under test is whether compute_bias takes the unrolled or the
+    # single-call forward path.
+    assert grad_norm(False) == grad_norm(True)
+
+
+def test_head_diagnostics_dead_relu_frac_in_unit_interval():
+    """Dead-ReLU fraction is a well-formed fraction and matches a manual recompute."""
+    lp = _make_head(consumer=True, capture_diagnostics=True)
+    lp.rule_state.copy_(torch.randn(1, RULE_DIM) * 1.0)
+    summ = _common_mode_summaries()
+    with torch.no_grad():
+        lp.compute_bias(summ)
+        rule_repeated = lp.rule_state.expand(K, -1)
+        centered = summ - summ.mean(dim=0, keepdim=True)
+        joined = torch.cat([rule_repeated, centered], dim=-1)
+        hidden = lp.rule_bias_head[1](lp.rule_bias_head[0](joined))
+        expected = float((hidden <= 0).float().mean().item())
+    frac = lp.get_state()["hidden_dead_relu_frac"]
+    assert 0.0 <= frac <= 1.0
+    assert frac == expected
+
+
+def test_head_diagnostics_magnitude_ratio_matches_manual():
+    """rule_state-vs-world-summary magnitude ratio matches a manual recompute."""
+    lp = _make_head(consumer=True, capture_diagnostics=True)
+    rule_state = torch.randn(1, RULE_DIM) * 2.0
+    lp.rule_state.copy_(rule_state)
+    summ = _common_mode_summaries()
+    with torch.no_grad():
+        lp.compute_bias(summ)
+        rule_repeated = lp.rule_state.expand(K, -1)
+        centered = summ - summ.mean(dim=0, keepdim=True)
+        expected = float(rule_repeated.norm(dim=-1).mean()) / float(
+            centered.norm(dim=-1).mean()
+        )
+    ratio = lp.get_state()["rule_summary_magnitude_ratio"]
+    assert ratio == expected
+
+
+def test_weight_norms_always_present_regardless_of_capture_flag():
+    """Weight-norm tracking is unconditional (cheap parameter reads, not gated)."""
+    for capture in (False, True):
+        lp = _make_head(consumer=True, capture_diagnostics=capture)
+        state = lp.get_state()
+        first_linear = lp.rule_bias_head[0]
+        last_linear = lp.rule_bias_head[2]
+        assert state["rule_bias_head_first_linear_weight_norm"] == float(
+            first_linear.weight.norm().item()
+        )
+        assert state["rule_bias_head_first_linear_bias_norm"] == float(
+            first_linear.bias.norm().item()
+        )
+        assert state["rule_bias_head_last_linear_weight_norm"] == float(
+            last_linear.weight.norm().item()
+        )
+        assert state["rule_bias_head_last_linear_bias_norm"] == float(
+            last_linear.bias.norm().item()
+        )
+
+
+def test_reset_clears_head_diagnostics():
+    """reset() (episode boundary) clears the head-internals diagnostics too."""
+    lp = _make_head(consumer=True, capture_diagnostics=True)
+    lp.rule_state.copy_(torch.randn(1, RULE_DIM) * 1.0)
+    with torch.no_grad():
+        lp.compute_bias(_common_mode_summaries())
+    assert lp.get_state()["rule_summary_magnitude_ratio"] != 0.0
+    lp.reset()
+    state = lp.get_state()
+    assert state["hidden_dead_relu_frac"] == 0.0
+    assert state["rule_summary_magnitude_ratio"] == 0.0
 
 
 def test_off_is_bit_identical_hard_clamp():
