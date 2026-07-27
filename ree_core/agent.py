@@ -1273,6 +1273,12 @@ class REEAgent(nn.Module):
                     use_chunk_maintenance=getattr(config, "use_chunk_maintenance", False),
                     crystallisation_min=getattr(config, "chunk_crystallisation_min", 5),
                     dissolve_trials=getattr(config, "chunk_dissolve_trials", 50),
+                    use_chunk_dissolution_retention=getattr(
+                        config, "use_chunk_dissolution_retention", False
+                    ),
+                    reacquisition_repetition_factor=getattr(
+                        config, "chunk_reacquisition_repetition_factor", 0.25
+                    ),
                     use_chunk_replay_origin_path=getattr(
                         config, "use_chunk_replay_origin_path", False
                     ),

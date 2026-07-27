@@ -82,6 +82,78 @@ HYSTERESIS (lit-pull R5, conf 0.71)
     before, which is what lets ARC-070 decompose a chunk back under prediction
     failure.
 
+DISSOLUTION IS SUPPRESSION-WITH-RETENTION, NOT ERASURE (lit-pull 2026-07-27)
+    Two independent entries in targeted_review_connectome_mech_323 converge on a
+    structural correction to the DISSOLVED terminal state:
+
+      Barnes, Kubota, Hu, Jin & Graybiel 2005 (Nature, 10.1038/nature04053) --
+        sensorimotor striatum across acquisition / extinction / reacquisition.
+        Task-related ensemble patterns were "successively formed, reversed and
+        then re-emerged". Habits take extensive repetition to form, but
+        "regaining a habit can occur quickly, with even one or a few exposures".
+      Bouton, Winterbauer & Todd 2012 (Behav Processes, 10.1016/j.beproc.2012.03.004)
+        -- INSTRUMENTAL extinction, i.e. at the action level ARC-071 operates on.
+        Extinction "weakens behavior without erasing the original learning": it
+        installs new, context-dependent learning ALONGSIDE the old. Three relapse
+        effects follow -- renewal, resurgence, rapid reacquisition.
+
+    As first built (2026-07-22), DISSOLVED was worse than erasure. The chunk was
+    retained in the library dict for the audit trail, but nothing could ever
+    revive it: PolicyChunking.note_outcome() skips any sequence already present
+    in the library, and note_real_execution() has no DISSOLVED branch. So
+    DISSOLVED was an ABSORBING TOMBSTONE that also permanently BLOCKED the
+    sequence from re-forming. Measured on the contract fixture: after forcing a
+    crystallised chunk to DISSOLVED, 200 further trials of the same perfectly
+    consistent, above-baseline regime left it DISSOLVED with zero re-formations.
+    Erasure would at least have permitted re-formation at R_min.
+
+    use_chunk_dissolution_retention (default OFF) implements the cheapest and
+    sharpest of the three relapse effects, RAPID REACQUISITION: a DISSOLVED
+    chunk is DORMANT rather than dead, and re-forming it needs materially fewer
+    than R_min repetitions --
+
+        reacquisition_min_repetitions = ceil(R_min * reacquisition_repetition_factor)
+
+    The other two gates of the MECH-323 joint formation condition (variance <
+    F_low, mean > baseline + margin) are applied UNCHANGED, so only the
+    repetition requirement is relaxed. That is the single-parameter form the
+    Bouton entry asks for and it is directly falsifiable: dissolve a crystallised
+    chunk, re-present its conditions, count repetitions-to-re-formation against
+    R_min.
+
+    Repetitions are counted SINCE DISSOLUTION (ChunkedPrimitive.
+    reacquisition_repetitions), not as the raw tally-bucket length. This is not
+    incidental. The accumulator's per-sequence tally is a sliding window capped
+    at window_trials, and a long-lived chunk's bucket sits saturated at that cap,
+    so a naive "compare the bucket length against a lowered R_min" would clear
+    the reduced bar on the very first post-dissolution trial and measure nothing.
+
+    A revived chunk returns to FORMING, not to CRYSTALLISED: rapid reacquisition
+    is a claim about the FORMATION threshold, while the crystallisation counter
+    (C_min) is the separate Smith & Graybiel 2013 IL sub-mechanism and is made to
+    run again from zero.
+
+    REPLAY-ORIGIN CHUNKS ARE NEVER REVIVED (fails closed). A MECH-322
+    replay-origin chunk retired on its corroboration deadline died precisely
+    because real waking execution never corroborated it; letting it return by a
+    REDUCED threshold would be a shortcut around the MECH-094 posture the
+    carve-out was built to preserve. Reacquisition would in fact be
+    real-execution-driven here, but the conservative reading is the one that
+    matches a SAFETY-CRITICAL flag, and the cost of refusing is nil.
+
+    NOT IMPLEMENTED -- the other two relapse effects are design questions, not
+    builds, and are recorded here so the gap stays visible:
+      renewal    : requires dissolution to be gated against the chunk's existing
+                   initiation_set. Formation is context-conditioned (chunks carry
+                   an initiation set) while dissolution is context-BLIND, so a
+                   chunk dissolved in one context is dissolved everywhere and REE
+                   cannot exhibit renewal at all. Closing this needs a per-context
+                   dissolution state, not a parameter.
+      resurgence : requires a chunk to return because a COMPETITOR was
+                   extinguished, not because its own evidence improved. That needs
+                   dissolution state shared across competing library candidates;
+                   registration is per-sequence and produces no such coupling.
+
 MECH-094 -- SAFETY-CRITICAL (lit-pull R6, conf 0.74)
     A hallucinated chunk would be catastrophic: it would install a macro the
     agent never actually executed into the pool of things it can commit to
@@ -131,6 +203,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from math import ceil as _ceil
 from typing import Dict, List, Optional, Sequence, Tuple
 
 
@@ -147,9 +220,15 @@ class ChunkState(str, Enum):
                    over T_dissolve trials. RECOVERABLE -- if variance drops back
                    below F_high the chunk returns to CRYSTALLISED.
     DISSOLVED    : removed from the proposal pool, retained in the audit trail.
+                   TERMINAL by default. Under use_chunk_dissolution_retention it
+                   is DORMANT instead: still unselectable, but re-formable at the
+                   reduced reacquisition_min_repetitions bar (DISSOLVED ->
+                   FORMING). See the module docstring's dissolution-is-suppression
+                   section (Barnes 2005 / Bouton 2012).
 
     MECH-322 replay-origin chunks that miss their corroboration deadline go
-    CRYSTALLISED -> DISSOLVED directly, bypassing the slower DISSOLVING window.
+    CRYSTALLISED -> DISSOLVED directly, bypassing the slower DISSOLVING window,
+    and are never revivable even with retention on.
     """
 
     FORMING = "forming"
@@ -189,6 +268,15 @@ class ChunkedPrimitive:
         episodes_since_corroboration : MECH-322 deadline counter; reset to 0 on
             each corroborating real execution.
         dissolving_trials : trials spent in DISSOLVING (drives the linear decay).
+        n_dissolutions : how many times this chunk has reached DISSOLVED. The
+            dormancy trace that survives dissolution (Barnes 2005 re-emergence).
+        n_reacquisitions : how many times it has been revived out of DISSOLVED
+            by the reduced-threshold path. Rapid reacquisition's readout.
+        reacquisition_repetitions : executions observed SINCE the most recent
+            dissolution, counted against reacquisition_min_repetitions rather
+            than R_min. Zeroed on each dissolution and on each revival. Not the
+            accumulator's tally length -- see the module docstring on why the
+            saturated sliding window cannot serve here.
     """
 
     sequence: Tuple[int, ...]
@@ -203,6 +291,9 @@ class ChunkedPrimitive:
     crystallisation_counter: int = 0
     episodes_since_corroboration: int = 0
     dissolving_trials: int = 0
+    n_dissolutions: int = 0
+    n_reacquisitions: int = 0
+    reacquisition_repetitions: int = 0
 
     @property
     def key(self) -> Tuple[int, ...]:
@@ -211,11 +302,26 @@ class ChunkedPrimitive:
 
     @property
     def is_selectable(self) -> bool:
-        """True iff this chunk may be spliced into the proposal pool."""
+        """True iff this chunk may be spliced into the proposal pool.
+
+        Unchanged by retention: a DORMANT chunk is SUPPRESSED, so it stays out
+        of the pool until it actually re-forms and re-crystallises. Retention
+        buys a cheaper route back, not a free pass back in.
+        """
         return (
             self.state is ChunkState.CRYSTALLISED
             or (self.state is ChunkState.DISSOLVING and self.selection_weight > 0.0)
         )
+
+    @property
+    def is_dormant(self) -> bool:
+        """True iff DISSOLVED and eligible for reduced-threshold re-formation.
+
+        State-only, so it reads True regardless of the retention flag; the flag
+        is what decides whether anything ACTS on it. Replay-origin chunks are
+        excluded: they fail closed and can never be revived.
+        """
+        return self.state is ChunkState.DISSOLVED and not self.replay_origin
 
     def as_dict(self) -> dict:
         """Audit-trail snapshot (ASCII-safe, JSON-serialisable)."""
@@ -231,6 +337,8 @@ class ChunkedPrimitive:
             "selection_weight": float(self.selection_weight),
             "crystallisation_counter": int(self.crystallisation_counter),
             "episodes_since_corroboration": int(self.episodes_since_corroboration),
+            "n_dissolutions": int(self.n_dissolutions),
+            "n_reacquisitions": int(self.n_reacquisitions),
         }
 
 
@@ -265,6 +373,24 @@ class PolicyChunkingConfig:
             never crystallise (the registered ARM_1 dissociation arm).
         crystallisation_min : C_min corroborating real executions to crystallise.
         dissolve_trials : T_dissolve. Linear selection_weight decay window.
+        use_chunk_dissolution_retention : MECH-324 sub-switch under
+            use_chunk_maintenance. False (default) = DISSOLVED is terminal and
+            also permanently blocks the sequence from re-forming, which is the
+            as-first-built behaviour. True = DISSOLVED is DORMANT: the chunk is
+            retained unselectable but can re-form at the reduced
+            reacquisition_min_repetitions bar (Barnes 2005 / Bouton 2012 --
+            dissolution is suppression with retention, not erasure). Bit-identical
+            to False-behaviour when False. Requires use_chunk_maintenance: with
+            maintenance off nothing ever dissolves, so retention would be a
+            silently inert flag rather than an arm -- config validation REFUSES
+            that pairing rather than tolerating it.
+        reacquisition_repetition_factor : the rapid-reacquisition parameter.
+            Multiplies R_min to give the repetition bar a DORMANT chunk must
+            clear to re-form. Must be in (0, 1] -- at 1.0 reacquisition is no
+            faster than acquisition, which is the null this flag exists to test
+            against. The 0.25 default is an ENGINEERING DEFAULT: both source
+            entries establish that reacquisition is much faster, and neither
+            quantifies how much faster, exactly as neither quantifies F_high.
         use_chunk_replay_origin_path : MECH-322 carve-out switch.
             SAFETY-CRITICAL -- False by default EVEN WHEN chunking is on. While
             False, record_replay_sequence() is inert and no chunk can originate
@@ -289,6 +415,8 @@ class PolicyChunkingConfig:
     use_chunk_maintenance: bool = False
     crystallisation_min: int = 5
     dissolve_trials: int = 50
+    use_chunk_dissolution_retention: bool = False
+    reacquisition_repetition_factor: float = 0.25
     use_chunk_replay_origin_path: bool = False
     replay_value_quantile: float = 0.75
     replay_corroboration_episodes: int = 75
@@ -317,10 +445,39 @@ class PolicyChunkingConfig:
             raise ValueError("crystallisation_min must be >= 1")
         if self.dissolve_trials < 1:
             raise ValueError("dissolve_trials must be >= 1")
+        if not (0.0 < self.reacquisition_repetition_factor <= 1.0):
+            raise ValueError(
+                "reacquisition_repetition_factor must be in (0, 1] "
+                "(it SCALES DOWN min_repetitions for a dormant chunk; > 1 would "
+                "make reacquisition slower than acquisition, inverting the "
+                "Barnes 2005 / Bouton 2012 asymmetry this implements)"
+            )
+        if self.use_chunk_dissolution_retention and not self.use_chunk_maintenance:
+            # Loud precondition, not silent tolerance: with maintenance off no
+            # chunk ever reaches DISSOLVED, so retention would read as enabled
+            # in a manifest while never running -- a false null.
+            raise ValueError(
+                "use_chunk_dissolution_retention requires use_chunk_maintenance "
+                "(with maintenance off no chunk ever dissolves, so the retention "
+                "path could never fire and the flag would be silently inert)"
+            )
         if not (0.0 < self.replay_value_quantile < 1.0):
             raise ValueError("replay_value_quantile must be in (0, 1)")
         if self.replay_corroboration_episodes < 1:
             raise ValueError("replay_corroboration_episodes must be >= 1")
+
+    @property
+    def reacquisition_min_repetitions(self) -> int:
+        """Repetition bar for re-forming a DORMANT chunk. Floored at 1.
+
+        ceil() rather than int(): with R_min = 20 and factor = 0.25 both give 5,
+        but int() would silently collapse a small R_min to the floor (R_min = 3,
+        factor = 0.25 -> int 0 -> floored to 1 = no bar at all, vs ceil 1 which
+        is the same value arrived at honestly). ceil keeps the bar a genuine
+        fraction of R_min at every setting.
+        """
+        raw = float(self.min_repetitions) * float(self.reacquisition_repetition_factor)
+        return max(1, int(_ceil(raw)))
 
 
 def _mean(values: Sequence[float]) -> float:
@@ -641,6 +798,9 @@ class ChunkLibrary:
     Diagnostics tracked:
         _n_registered / _n_crystallised / _n_dissolved
         _n_replay_deadline_dissolutions : MECH-322 accelerated retirements
+        _n_reacquisitions : dormant chunks revived at the reduced bar
+        _n_reacquisition_refusals : revive() calls refused (flag off, not
+            dormant, or replay-origin) -- refusals are counted, not dropped
     """
 
     def __init__(self, config: Optional[PolicyChunkingConfig] = None) -> None:
@@ -651,6 +811,8 @@ class ChunkLibrary:
         self._n_crystallised: int = 0
         self._n_dissolved: int = 0
         self._n_replay_deadline_dissolutions: int = 0
+        self._n_reacquisitions: int = 0
+        self._n_reacquisition_refusals: int = 0
 
     # ------------------------------------------------------------------
     def register(self, chunk: ChunkedPrimitive) -> bool:
@@ -670,6 +832,16 @@ class ChunkLibrary:
         Only DISSOLVED chunks are evictable -- a live chunk is never silently
         dropped to make room, because that would look identical to dissolution
         in the diagnostics while having none of its meaning.
+
+        KNOWN LIMITATION under use_chunk_dissolution_retention: DISSOLVED is
+        also exactly the dormant pool, so max_library_size eviction is the one
+        remaining path by which a dormant trace is genuinely ERASED and its
+        sequence loses reduced-threshold re-formation. Left deliberately
+        unchanged -- the memory bound is not negotiable and a dormancy-aware
+        eviction order is an unmeasured refinement, not a correctness fix. It
+        does mean a reacquisition experiment must size max_library_size above
+        the number of chunks it expects to dissolve, or it will measure the
+        eviction policy instead of the mechanism.
         """
         dissolved = [k for k, c in self._chunks.items() if c.state is ChunkState.DISSOLVED]
         if not dissolved:
@@ -744,7 +916,95 @@ class ChunkLibrary:
                 chunk.state = ChunkState.CRYSTALLISED
                 chunk.selection_weight = 1.0
                 chunk.dissolving_trials = 0
+        elif chunk.state is ChunkState.DISSOLVED:
+            # Dissolution is SUPPRESSION, not erasure (Barnes 2005 / Bouton
+            # 2012): a real execution of a DORMANT chunk accrues toward the
+            # reduced re-formation bar. This does not itself revive anything --
+            # PolicyChunking._attempt_reacquisition applies the two unchanged
+            # MECH-323 gates before that. With retention off, DISSOLVED is
+            # terminal and nothing is counted at all.
+            if c.use_chunk_dissolution_retention and chunk.is_dormant:
+                chunk.reacquisition_repetitions += 1
         return chunk.state
+
+    def _mark_dissolved(self, chunk: ChunkedPrimitive) -> None:
+        """Enter DISSOLVED and lay down the dormancy trace.
+
+        One helper for BOTH dissolution sites -- the slow T_dissolve decay and
+        the MECH-322 corroboration deadline -- so the trace cannot be recorded
+        at one and silently forgotten at the other. Inert when retention is off:
+        the two new fields are written but nothing reads them.
+        """
+        chunk.state = ChunkState.DISSOLVED
+        chunk.selection_weight = 0.0
+        chunk.n_dissolutions += 1
+        chunk.reacquisition_repetitions = 0
+        self._n_dissolved += 1
+
+    def dormant_chunks(self) -> List[ChunkedPrimitive]:
+        """DISSOLVED chunks eligible for reduced-threshold re-formation.
+
+        Empty unless retention is on -- with the flag off DISSOLVED is terminal
+        and calling these chunks "dormant" would misdescribe the substrate.
+        """
+        if not (
+            self.config.use_chunk_maintenance
+            and self.config.use_chunk_dissolution_retention
+        ):
+            return []
+        return [c for c in self._chunks.values() if c.is_dormant]
+
+    def revive(
+        self, sequence: Sequence[int], value_tag: Optional[float] = None
+    ) -> bool:
+        """Return a DORMANT chunk to FORMING. Rapid reacquisition's write.
+
+        FORMING, not CRYSTALLISED: rapid reacquisition is a claim about the
+        FORMATION threshold. The crystallisation counter is the separate Smith &
+        Graybiel 2013 IL sub-mechanism and is made to run again from zero, so a
+        revived chunk still has to earn C_min real executions before it becomes
+        selectable. What retention buys is a cheaper route back, not a free one.
+
+        Every refusal path is counted rather than silently dropped, and each
+        fails CLOSED:
+            - retention (or maintenance) off        -> no revival at any setting
+            - not DISSOLVED                         -> nothing to revive
+            - replay_origin                         -> MECH-322 chunks retired
+              for want of real corroboration must not return by a REDUCED bar
+
+        Args:
+            sequence : the dormant chunk's action sequence.
+            value_tag : refreshed provenance value from the executions that
+                earned the revival. None leaves the pre-dissolution value_tag.
+
+        Returns:
+            True iff the chunk was revived.
+        """
+        if not (
+            self.config.use_chunk_maintenance
+            and self.config.use_chunk_dissolution_retention
+        ):
+            self._n_reacquisition_refusals += 1
+            return False
+        chunk = self.get(sequence)
+        if chunk is None:
+            self._n_reacquisition_refusals += 1
+            return False
+        if not chunk.is_dormant:
+            # Covers both "not DISSOLVED" and the replay-origin refusal.
+            self._n_reacquisition_refusals += 1
+            return False
+        chunk.state = ChunkState.FORMING
+        chunk.selection_weight = 0.0
+        chunk.crystallisation_counter = 0
+        chunk.dissolving_trials = 0
+        chunk.episodes_since_corroboration = 0
+        chunk.reacquisition_repetitions = 0
+        chunk.n_reacquisitions += 1
+        if value_tag is not None:
+            chunk.value_tag = float(value_tag)
+        self._n_reacquisitions += 1
+        return True
 
     def tick_maintenance(self, variances: Optional[Dict[Tuple[int, ...], float]] = None) -> None:
         """Advance dissolution timers one trial for every chunk.
@@ -773,9 +1033,7 @@ class ChunkLibrary:
                 frac = 1.0 - (float(chunk.dissolving_trials) / float(c.dissolve_trials))
                 chunk.selection_weight = max(0.0, min(1.0, frac))
                 if chunk.dissolving_trials >= c.dissolve_trials:
-                    chunk.state = ChunkState.DISSOLVED
-                    chunk.selection_weight = 0.0
-                    self._n_dissolved += 1
+                    self._mark_dissolved(chunk)
 
     def note_episode_end(self) -> int:
         """Advance the MECH-322 corroboration deadline; retire the expired.
@@ -800,9 +1058,7 @@ class ChunkLibrary:
                 continue
             chunk.episodes_since_corroboration += 1
             if chunk.episodes_since_corroboration >= c.replay_corroboration_episodes:
-                chunk.state = ChunkState.DISSOLVED
-                chunk.selection_weight = 0.0
-                self._n_dissolved += 1
+                self._mark_dissolved(chunk)
                 self._n_replay_deadline_dissolutions += 1
                 retired += 1
         return retired
@@ -815,6 +1071,8 @@ class ChunkLibrary:
         self._n_crystallised = 0
         self._n_dissolved = 0
         self._n_replay_deadline_dissolutions = 0
+        self._n_reacquisitions = 0
+        self._n_reacquisition_refusals = 0
 
     def get_state(self) -> dict:
         """Diagnostic snapshot for experiment manifests."""
@@ -830,6 +1088,11 @@ class ChunkLibrary:
             "chunk_lib_n_replay_deadline_dissolutions": (
                 self._n_replay_deadline_dissolutions
             ),
+            # Rapid-reacquisition readout (Barnes 2005 / Bouton 2012). Stays 0
+            # unless use_chunk_dissolution_retention is deliberately on.
+            "chunk_lib_n_reacquisitions": self._n_reacquisitions,
+            "chunk_lib_n_reacquisition_refusals": self._n_reacquisition_refusals,
+            "chunk_lib_n_dormant": len(self.dormant_chunks()),
             "chunk_lib_n_selectable": len(self.selectable_chunks()),
             "chunk_lib_by_state": by_state,
             "chunk_lib_n_replay_origin": sum(
@@ -861,7 +1124,13 @@ class PolicyChunking:
     def note_outcome(self, outcome_signal: float) -> List[ChunkedPrimitive]:
         """Report an outcome, run the formation pass, register new chunks.
 
-        Returns the chunks minted by this pass (empty list is the normal case).
+        Returns the chunks NEWLY AVAILABLE from this pass -- freshly minted
+        ones, plus (only under use_chunk_dissolution_retention) any dormant
+        chunk revived by the reduced-threshold reacquisition path. Both are
+        "this sequence just became a live chunk again" from a consumer's point
+        of view, which is what the caller acts on; they are told apart by
+        n_reacquisitions > 0 on the returned object. Empty list is the normal
+        case, and is exactly what is returned when retention is off.
         """
         self.accumulator.note_outcome(outcome_signal)
         self._n_formation_passes += 1
@@ -886,8 +1155,56 @@ class PolicyChunking:
             var = variances.get(chunk.key)
             if var is not None and self._was_executed(chunk):
                 self.library.note_real_execution(chunk.key, var)
+        # Rapid reacquisition runs BEFORE tick_maintenance and AFTER the
+        # note_real_execution pass that feeds its counter. Ordering matters:
+        # tick_maintenance only acts on CRYSTALLISED / DISSOLVING, so a chunk
+        # revived to FORMING here is correctly left alone for the rest of this
+        # trial rather than being re-evaluated against F_high on the strength of
+        # the variance that dissolved it.
+        formed.extend(self._attempt_reacquisition(variances))
         self.library.tick_maintenance(variances)
         return formed
+
+    def _attempt_reacquisition(
+        self, variances: Dict[Tuple[int, ...], float]
+    ) -> List[ChunkedPrimitive]:
+        """MECH-324 rapid reacquisition -- re-form dormant chunks at the low bar.
+
+        The MECH-323 joint formation condition with ONE substitution: the
+        repetition requirement is reacquisition_min_repetitions instead of
+        R_min. The variance gate (< F_low) and the relative evaluative gate
+        (mean > running baseline + margin) are applied UNCHANGED, so a dormant
+        chunk still has to be genuinely consistent and genuinely above baseline
+        again -- retention lowers the price of coming back, it does not waive
+        the evidence.
+
+        Repetitions come from ChunkedPrimitive.reacquisition_repetitions, which
+        counts real executions SINCE the last dissolution. Using the
+        accumulator's tally-bucket length instead would be a silent no-op: that
+        bucket is a sliding window capped at window_trials and a long-lived
+        chunk's is saturated, so it clears any reduced bar on the first
+        post-dissolution trial.
+
+        Inert (returns []) unless BOTH maintenance and retention are on.
+        """
+        c = self.config
+        if not (c.use_chunk_maintenance and c.use_chunk_dissolution_retention):
+            return []
+        bar = c.reacquisition_min_repetitions
+        baseline = _mean(self.accumulator._outcome_history)
+        revived: List[ChunkedPrimitive] = []
+        for chunk in self.library.dormant_chunks():
+            if chunk.reacquisition_repetitions < bar:
+                continue
+            var = variances.get(chunk.key)
+            if var is None or var >= c.variance_low:
+                continue
+            mu = _mean(self.accumulator._tally.get(chunk.key, ()))
+            if mu <= baseline + c.evaluative_margin:
+                continue
+            if self.library.revive(chunk.key, value_tag=mu):
+                revived.append(chunk)
+        return revived
 
     def _was_executed(self, chunk: ChunkedPrimitive) -> bool:
         """True iff the chunk's sequence ends the current episode action buffer."""

@@ -13,6 +13,7 @@ C6  MECH-323 formation requires repetition AND low variance AND the evaluative g
 C7  MECH-324 hysteresis: F_low < F_high, and formation-only leaves chunks uncrystallised
 C8  R4 options structure + chunks-of-chunks depth cap
 C9  proposal injection is off by default and additive when on
+C10 MECH-324 dissolution is suppression-with-retention (Barnes 2005 / Bouton 2012)
 """
 
 import pytest
@@ -329,3 +330,230 @@ def test_c9_no_selectable_chunks_yields_no_candidates():
     assert agent.hippocampal._build_chunk_candidates(
         z_self=torch.zeros(1, cfg.e1.self_dim), z_world=torch.zeros(1, cfg.e1.world_dim)
     ) == []
+
+
+# ----------------------------------------------------------------------
+# C10 -- MECH-324 dissolution is SUPPRESSION WITH RETENTION, not erasure.
+#
+# Barnes et al. 2005 (Nature 10.1038/nature04053): striatal ensemble patterns
+# are "successively formed, reversed and then re-emerged", and "regaining a
+# habit can occur quickly, with even one or a few exposures".
+# Bouton, Winterbauer & Todd 2012 (10.1016/j.beproc.2012.03.004), INSTRUMENTAL
+# extinction: it "weakens behavior without erasing the original learning".
+#
+# Rapid reacquisition is the one of the three relapse effects the substrate
+# implements; renewal (context-gated dissolution) and resurgence (dissolution
+# state shared across competitors) are unbuilt by design -- see the module
+# docstring. These contracts pin the interface, not the magnitude.
+# ----------------------------------------------------------------------
+def _dissolve(pc, chunk):
+    """Drive a chunk all the way to DISSOLVED through the real decay path."""
+    chunk.state = ChunkState.DISSOLVING
+    chunk.dissolving_trials = 0
+    for _ in range(pc.config.dissolve_trials):
+        pc.library.tick_maintenance({chunk.key: 0.99})
+    assert chunk.state is ChunkState.DISSOLVED
+    return chunk
+
+
+def _cfg_retention(**kw):
+    base = dict(
+        min_repetitions=20,
+        window_trials=60,
+        crystallisation_min=2,
+        dissolve_trials=3,
+        use_chunk_dissolution_retention=True,
+    )
+    base.update(kw)
+    return _cfg(**base)
+
+
+def test_c10_retention_is_off_by_default_and_requires_maintenance():
+    """Default OFF, and the dependency is LOUD rather than silently inert."""
+    assert PolicyChunkingConfig().use_chunk_dissolution_retention is False
+    assert PolicyChunkingConfig().reacquisition_repetition_factor == pytest.approx(0.25)
+    cfg = REEConfig.from_dims(body_obs_dim=8, world_obs_dim=16, action_dim=4)
+    assert cfg.use_chunk_dissolution_retention is False
+    assert cfg.chunk_reacquisition_repetition_factor == pytest.approx(0.25)
+
+    # With maintenance off nothing ever dissolves, so retention could never
+    # fire. That must RAISE, not run as a flag that reads enabled in a manifest
+    # while its consumer never runs.
+    with pytest.raises(ValueError) as excinfo:
+        PolicyChunkingConfig(
+            use_chunk_maintenance=False, use_chunk_dissolution_retention=True
+        ).validate()
+    assert "use_chunk_maintenance" in str(excinfo.value)
+
+
+def test_c10_from_dims_forwards_retention_to_the_operator():
+    """The REEConfig three-site hazard: field + signature + assignment + agent."""
+    cfg = REEConfig.from_dims(
+        body_obs_dim=8,
+        world_obs_dim=16,
+        action_dim=4,
+        use_policy_chunking=True,
+        use_chunk_maintenance=True,
+        use_chunk_dissolution_retention=True,
+        chunk_reacquisition_repetition_factor=0.5,
+    )
+    agent = REEAgent(cfg)
+    assert agent.policy_chunking.config.use_chunk_dissolution_retention is True
+    assert agent.policy_chunking.config.reacquisition_repetition_factor == pytest.approx(0.5)
+
+
+def test_c10_reacquisition_factor_must_scale_down():
+    """A factor above 1 would invert the acquisition/reacquisition asymmetry."""
+    with pytest.raises(ValueError):
+        PolicyChunkingConfig(reacquisition_repetition_factor=1.5).validate()
+    with pytest.raises(ValueError):
+        PolicyChunkingConfig(reacquisition_repetition_factor=0.0).validate()
+
+
+@pytest.mark.parametrize(
+    "r_min,factor,expected",
+    [(20, 0.25, 5), (20, 1.0, 20), (10, 0.3, 3), (3, 0.25, 1), (1, 0.25, 1)],
+)
+def test_c10_reacquisition_bar_is_a_fraction_of_r_min(r_min, factor, expected):
+    cfg = PolicyChunkingConfig(
+        min_repetitions=r_min, window_trials=100, reacquisition_repetition_factor=factor
+    )
+    assert cfg.reacquisition_min_repetitions == expected
+    assert cfg.reacquisition_min_repetitions <= cfg.min_repetitions
+
+
+def test_c10_off_dissolved_is_an_absorbing_tombstone():
+    """The uncorrected behaviour, pinned so the OFF arm stays the honest null.
+
+    Worth stating plainly because it is worse than erasure, not better: the
+    chunk is retained in the library dict, which BLOCKS the formation pass from
+    ever re-minting the sequence, and nothing else can revive it. So an
+    arbitrarily long stretch of the same perfectly consistent, above-baseline
+    regime leaves it DISSOLVED.
+    """
+    pc = PolicyChunking(_cfg(min_repetitions=5, window_trials=60, crystallisation_min=2,
+                             dissolve_trials=3))
+    _run(pc, trials=60)
+    chunk = _dissolve(pc, pc.library.all_chunks()[0])
+    assert chunk.n_dissolutions == 1
+
+    _run(pc, trials=200)
+    assert pc.library.get(chunk.key) is chunk, "retained in the audit trail"
+    assert chunk.state is ChunkState.DISSOLVED, "and never comes back"
+    assert chunk.n_reacquisitions == 0
+    assert pc.library.dormant_chunks() == [], "nothing is dormant with the flag off"
+    assert pc.get_state()["chunk_lib_n_reacquisitions"] == 0
+
+
+def test_c10_on_a_dissolved_chunk_reforms_below_r_min():
+    """Rapid reacquisition: the reduced bar is what brings the chunk back.
+
+    R_min is 20 and the reduced bar is 5. The chunk re-forms, and it does so on
+    materially fewer post-dissolution repetitions than R_min -- which is the
+    whole claim, and the measurement a validation experiment would make.
+    """
+    pc = PolicyChunking(_cfg_retention())
+    _run(pc, trials=60)
+    chunk = _dissolve(pc, pc.library.get((0, 1, 2, 3)) or pc.library.all_chunks()[0])
+    assert pc.library.dormant_chunks(), "DISSOLVED must be DORMANT when retention is on"
+
+    bar = pc.config.reacquisition_min_repetitions
+    assert bar < pc.config.min_repetitions
+
+    # Execute the chunk on every trial and count trials-to-re-formation. One
+    # execution per trial, so the trial index IS the repetition count: the bar
+    # is cleared at 5, where original acquisition would have needed R_min = 20.
+    reformed_after = None
+    for t in range(60):
+        for a in (0, 1, 2, 3):
+            pc.record_step(a)
+        pc.note_outcome(1.0 if t % 2 == 0 else 0.0)
+        pc.end_episode()
+        if chunk.state is not ChunkState.DISSOLVED:
+            reformed_after = t + 1
+            break
+
+    assert reformed_after is not None, "a dormant chunk must be able to re-form"
+    assert reformed_after == bar, (
+        f"re-formation took {reformed_after} repetitions, expected the reduced "
+        f"bar {bar}"
+    )
+    assert reformed_after < pc.config.min_repetitions, (
+        "rapid reacquisition: re-forming a dormant chunk must need MATERIALLY "
+        f"fewer than R_min={pc.config.min_repetitions} repetitions"
+    )
+    assert chunk.state is ChunkState.FORMING, (
+        "revival returns a chunk to FORMING -- the C_min crystallisation counter "
+        "is a separate sub-mechanism and must run again from zero"
+    )
+    assert chunk.crystallisation_counter == 0
+    assert chunk.n_reacquisitions == 1
+    assert chunk.n_dissolutions == 1
+    assert pc.get_state()["chunk_lib_n_reacquisitions"] == 1
+
+
+def test_c10_reacquisition_still_requires_consistency_and_contrast():
+    """Retention lowers the price of coming back; it does not waive the evidence.
+
+    The other two MECH-323 gates are applied unchanged, so a dormant chunk
+    re-executed into an INCONSISTENT regime accrues repetitions past the bar and
+    still does not re-form.
+    """
+    pc = PolicyChunking(_cfg_retention(variance_low=0.01))
+    _run(pc, trials=60)
+    chunk = _dissolve(pc, pc.library.all_chunks()[0])
+
+    for t in range(60):
+        for a in (0, 1, 2, 3):
+            pc.record_step(a)
+        pc.note_outcome(10.0 if t % 2 == 0 else -10.0)  # high variance
+        pc.end_episode()
+
+    assert chunk.reacquisition_repetitions > pc.config.reacquisition_min_repetitions, (
+        "the repetition bar must have been cleared, so the refusal is the "
+        "variance gate and not simply too few repetitions"
+    )
+    assert chunk.state is ChunkState.DISSOLVED
+    assert chunk.n_reacquisitions == 0
+
+
+def test_c10_replay_origin_chunks_are_never_revived():
+    """MECH-322 fails closed: a chunk retired for want of real corroboration
+    must not return by a REDUCED threshold."""
+    lib = ChunkLibrary(_cfg_retention())
+    chunk = ChunkedPrimitive(
+        sequence=(0, 1), replay_origin=True, state=ChunkState.DISSOLVED
+    )
+    lib.register(chunk)
+    assert chunk.is_dormant is False
+    assert lib.dormant_chunks() == []
+    assert lib.revive((0, 1)) is False
+    assert chunk.state is ChunkState.DISSOLVED
+    assert lib.get_state()["chunk_lib_n_reacquisition_refusals"] == 1
+
+
+def test_c10_revive_fails_closed_on_every_refusal_path():
+    lib_off = ChunkLibrary(_cfg(dissolve_trials=3))
+    live = ChunkedPrimitive(sequence=(0, 1), state=ChunkState.DISSOLVED)
+    lib_off.register(live)
+    assert lib_off.revive((0, 1)) is False, "retention off -> no revival at any setting"
+
+    lib_on = ChunkLibrary(_cfg_retention())
+    crystallised = ChunkedPrimitive(sequence=(2, 3), state=ChunkState.CRYSTALLISED)
+    lib_on.register(crystallised)
+    assert lib_on.revive((2, 3)) is False, "not DISSOLVED -> nothing to revive"
+    assert lib_on.revive((9, 9)) is False, "absent sequence -> refused"
+    assert crystallised.state is ChunkState.CRYSTALLISED
+    # Refusals are counted, never silently dropped.
+    assert lib_on.get_state()["chunk_lib_n_reacquisition_refusals"] == 2
+
+
+def test_c10_dormant_chunks_are_still_suppressed():
+    """A dormant chunk is SUPPRESSED: retained, but out of the proposal pool."""
+    pc = PolicyChunking(_cfg_retention())
+    _run(pc, trials=60)
+    chunk = _dissolve(pc, pc.library.all_chunks()[0])
+    assert chunk in pc.library.dormant_chunks()
+    assert chunk.is_selectable is False
+    assert chunk not in pc.selectable_chunks()
+    assert chunk.selection_weight == 0.0

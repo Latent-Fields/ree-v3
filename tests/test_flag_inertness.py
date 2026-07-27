@@ -520,6 +520,15 @@ PROBED = {
     # C9 proposer injection), not by a probe in this file.
     "use_policy_chunking",
     "use_chunk_maintenance",
+    # MECH-324 dissolution-with-retention (Barnes 2005 / Bouton 2012). Probed by
+    # the same file's C10 block: OFF pins DISSOLVED as an absorbing tombstone,
+    # ON pins re-formation below R_min. Its precondition on
+    # use_chunk_maintenance is enforced in PolicyChunkingConfig.validate() and
+    # asserted there rather than in FLAGS_WITH_LOUD_PRECONDITION below, because
+    # that harness routes through the tiny-fixture REEAgent build, which never
+    # constructs the chunking operator unless use_policy_chunking is also on --
+    # so this flag alone would not reach the raise.
+    "use_chunk_dissolution_retention",
     "use_chunk_replay_origin_path",
     "use_chunk_proposal_injection",
     # ARC-070 decomposition (MECH-321). Probed by

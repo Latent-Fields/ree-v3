@@ -3627,6 +3627,18 @@ class REEConfig:
     use_chunk_maintenance: bool = False
     chunk_crystallisation_min: int = 5
     chunk_dissolve_trials: int = 50
+    # MECH-324 dissolution-is-suppression-with-retention (lit-pull 2026-07-27:
+    # Barnes 2005 striatal re-emergence + Bouton 2012 instrumental relapse).
+    # False -> DISSOLVED is terminal AND permanently blocks the sequence from
+    # re-forming (the as-first-built behaviour). True -> DISSOLVED is DORMANT:
+    # still unselectable, but re-formable at
+    # ceil(R_min * chunk_reacquisition_repetition_factor) repetitions, which is
+    # the rapid-reacquisition falsifier. Requires use_chunk_maintenance -- the
+    # pairing is REFUSED loudly by PolicyChunkingConfig.validate(), since with
+    # maintenance off nothing dissolves and the flag would read enabled while
+    # never running.
+    use_chunk_dissolution_retention: bool = False
+    chunk_reacquisition_repetition_factor: float = 0.25
     # MECH-322 sleep-replay carve-out. SAFETY-CRITICAL: False by default EVEN
     # WHEN chunking is on, so the shipped default is MECH-094-strict and no
     # chunk can originate from replayed or imagined content.
@@ -5470,6 +5482,8 @@ class REEConfig:
         use_chunk_maintenance: bool = False,
         chunk_crystallisation_min: int = 5,
         chunk_dissolve_trials: int = 50,
+        use_chunk_dissolution_retention: bool = False,
+        chunk_reacquisition_repetition_factor: float = 0.25,
         use_chunk_replay_origin_path: bool = False,
         chunk_replay_value_quantile: float = 0.75,
         chunk_replay_corroboration_episodes: int = 75,
@@ -6658,6 +6672,10 @@ class REEConfig:
         config.use_chunk_maintenance = use_chunk_maintenance
         config.chunk_crystallisation_min = chunk_crystallisation_min
         config.chunk_dissolve_trials = chunk_dissolve_trials
+        config.use_chunk_dissolution_retention = use_chunk_dissolution_retention
+        config.chunk_reacquisition_repetition_factor = (
+            chunk_reacquisition_repetition_factor
+        )
         config.use_chunk_replay_origin_path = use_chunk_replay_origin_path
         config.chunk_replay_value_quantile = chunk_replay_value_quantile
         config.chunk_replay_corroboration_episodes = chunk_replay_corroboration_episodes
