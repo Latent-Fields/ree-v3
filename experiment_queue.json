@@ -64,18 +64,18 @@
     {
       "queue_id": "V3-EXQ-831",
       "title": "MECH-466: event-relative vs clock-relative cross-stream alignment (Q-081 Outcome E)",
-      "experiment_type": "v3_exq_831_mech466_event_relative_alignment",
       "script": "experiments/v3_exq_831_mech466_event_relative_alignment.py",
       "priority": 40,
       "machine_affinity": "any",
-      "status": "pending",
       "estimated_minutes": 35,
-      "episodes_per_run": 20,
-      "seeds": 5,
-      "conditions": 1,
-      "backlog_id": "EVB-0462",
       "claim_id": "MECH-466",
-      "note": "FIRST MECH-466 run; direct sibling of V3-EXQ-824 (Q-081 Outcome A/B), which EXPLICITLY DEFERRED this Outcome E ('event-relative beats clock-relative'). MEASUREMENT-ONLY diagnostic, single substrate per seed, no manipulation arm -- the falsifier's two 'arms' are two INDEXINGS of one recorded trace. Computes the SAME multivariate RV(z_world, operating_mode) used by 824, TWICE: RV_event (coarse-grid samples pooled in +/-3-tick windows around waking landmark onsets = union of MECH-288 boundary pulses + beta commitment-gate rising edges + salience mode_switch_trigger) vs RV_clock (matched-count windows around clock-arbitrary coarse-grid ticks disjoint from events). PASS if mean(RV_event-RV_clock) clears the effect-size floor (K=1.5*SD(delta) or abs 0.03). SECONDARY circular-shift surrogate (199) tests event-locking specifically. SUBSTRATE READINESS (my call, headless): READY. q081_profile enables use_event_segmenter+use_salience_coordinator (already exercised by 824/824a/827). 824's landed manifest at THIS config recorded 1799 steps/seed, admissible RV, and boundary pulses firing non-degenerately (per-seed 4..200 boundaries, rate ~0.002..0.11, mean ~0.039 -- inside the claim-mandated non-degeneracy band). Union event set (adds beta + mode switches) is never starved. So this yields a real PASS/FAIL, not a vacuous ceiling re-derivation. NON-DEGENERACY GUARD (claim-mandated): boundary rate band [0.001,0.60]; a pinned segmenter self-routes substrate_not_ready_requeue. WAKING scope only (use_sleep_loop=False); offline/sleep-phase transitions (5th landmark class) deferred to a lettered follow-up, mirroring 824. GOV-REUSE-1: decisive readout = event-minus-clock RV delta; absent from the corpus (824 deferred Outcome E, records only the landmark-ablation delta) -> not recoverable, must run. RE-DERIVE BRAKE: MECH-466 has 0 prior autopsies -> not braked. Single claim -> no per-claim direction. Smoke: --dry-run PASS (structural: progress patterns ep N/M + verdict + Seed/Condition present, sentinel written, no manifest at dry-run; toy scale self-routes substrate_not_ready as expected). validate_experiments --strict: OK, 0 warnings."
+      "backlog_id": "EVB-0462",
+      "note": "FIRST MECH-466 run; direct sibling of V3-EXQ-824 (Q-081 Outcome A/B), which EXPLICITLY DEFERRED this Outcome E ('event-relative beats clock-relative'). MEASUREMENT-ONLY diagnostic, single substrate per seed, no manipulation arm -- the falsifier's two 'arms' are two INDEXINGS of one recorded trace. Computes the SAME multivariate RV(z_world, operating_mode) used by 824, TWICE: RV_event (coarse-grid samples pooled in +/-3-tick windows around waking landmark onsets = union of MECH-288 boundary pulses + beta commitment-gate rising edges + salience mode_switch_trigger) vs RV_clock (matched-count windows around clock-arbitrary coarse-grid ticks disjoint from events). PASS if mean(RV_event-RV_clock) clears the effect-size floor (K=1.5*SD(delta) or abs 0.03). SECONDARY circular-shift surrogate (199) tests event-locking specifically. SUBSTRATE READINESS (my call, headless): READY. q081_profile enables use_event_segmenter+use_salience_coordinator (already exercised by 824/824a/827). 824's landed manifest at THIS config recorded 1799 steps/seed, admissible RV, and boundary pulses firing non-degenerately (per-seed 4..200 boundaries, rate ~0.002..0.11, mean ~0.039 -- inside the claim-mandated non-degeneracy band). Union event set (adds beta + mode switches) is never starved. So this yields a real PASS/FAIL, not a vacuous ceiling re-derivation. NON-DEGENERACY GUARD (claim-mandated): boundary rate band [0.001,0.60]; a pinned segmenter self-routes substrate_not_ready_requeue. WAKING scope only (use_sleep_loop=False); offline/sleep-phase transitions (5th landmark class) deferred to a lettered follow-up, mirroring 824. GOV-REUSE-1: decisive readout = event-minus-clock RV delta; absent from the corpus (824 deferred Outcome E, records only the landmark-ablation delta) -> not recoverable, must run. RE-DERIVE BRAKE: MECH-466 has 0 prior autopsies -> not braked. Single claim -> no per-claim direction. Smoke: --dry-run PASS (structural: progress patterns ep N/M + verdict + Seed/Condition present, sentinel written, no manifest at dry-run; toy scale self-routes substrate_not_ready as expected). validate_experiments --strict: OK, 0 warnings.",
+      "status": "pending",
+      "conditions": 1,
+      "episodes_per_run": 20,
+      "experiment_type": "v3_exq_831_mech466_event_relative_alignment",
+      "seeds": 5
     }
   ]
 }
