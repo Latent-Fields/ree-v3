@@ -57,6 +57,11 @@ C17 depth_cap is a DERIVED MIRROR of ARC-071's chunk_max_depth, not a free
     [2, chunk_max_depth] must stay SILENT and BEHAVIOURALLY UNCHANGED: this
     is a warning, never a raise, because shipped MECH-321 experiments already
     run the inert value 4.
+C17b the mirrored ceiling MOVES: under ARC-071's use_growable_chunk_depth
+    (Solway 2014) chunk_max_depth is only the STARTING value of a ceiling
+    derived from the deliberation budget, so the INERT test follows
+    derived_chunk_max_depth instead. Omitted / not-higher leaves the guard
+    byte-identical, which is the do-no-harm pin for every shipped run.
 """
 
 import warnings
@@ -743,3 +748,73 @@ def test_c17_warning_category_is_userwarning():
     )
     with pytest.warns(UserWarning, match=_DEGENERATE):
         REEAgent(cfg)
+
+
+# ----------------------------------------------------------------------
+# C17b -- the mirrored ceiling MOVES under ARC-071's growable depth
+#
+# chunk_max_depth stopped being a constant (ree-v3, ARC-071 growable depth,
+# Solway 2014): under use_growable_chunk_depth it is only the STARTING value of
+# a ceiling derived from the deliberation budget. The INERT test must follow it,
+# or the guard would warn about a depth_cap the growing ceiling does reach.
+# The mirror RELATION is unchanged -- what the cap mirrors is still ARC-071's
+# depth budget; that budget simply stopped being fixed.
+# ----------------------------------------------------------------------
+def test_c17b_predicate_ignores_a_derived_bound_that_does_not_raise_the_ceiling():
+    """None, or any value at/below chunk_max_depth, must leave the guard EXACTLY
+    as it was. This is the do-no-harm pin for every shipped MECH-321 run."""
+    for derived in (None, 2, 3):
+        assert depth_cap_config_issues(3, 3, derived) == ()
+        inert = depth_cap_config_issues(4, 3, derived)
+        assert len(inert) == 1 and _INERT in inert[0]
+        assert "chunk_max_depth=3" in inert[0]
+
+
+def test_c17b_predicate_uses_the_derived_bound_when_it_is_higher():
+    """A cap the growing ceiling will reach is NOT inert and must not warn."""
+    assert depth_cap_config_issues(4, 3, 6) == ()
+    assert depth_cap_config_issues(6, 3, 6) == ()
+    # ...but above the derived bound it is inert again, and the message names
+    # the bound that actually binds rather than blaming chunk_max_depth.
+    beyond = depth_cap_config_issues(7, 3, 6)
+    assert len(beyond) == 1 and _INERT in beyond[0]
+    assert "derived_chunk_max_depth=6" in beyond[0]
+    assert "chunk_max_depth=3" not in beyond[0]
+    for msg in beyond:
+        assert msg.isascii()
+
+
+def test_c17b_degenerate_still_wins_and_names_the_moved_bound():
+    """depth_cap == 1 is degenerate whatever the ceiling, and the remedy range
+    it prints must be the one now in force."""
+    only = depth_cap_config_issues(1, 3, 6)
+    assert len(only) == 1 and _DEGENERATE in only[0]
+    assert "derived_chunk_max_depth=6" in only[0]
+
+
+def test_c17b_agent_passes_the_derived_bound_only_when_depth_grows():
+    """Wiring pin. The guard sees the growable bound only when ARC-071 is on
+    AND growing; otherwise it must behave as before.
+
+    depth_cap=4 against chunk_max_depth=3 is the discriminating case: inert
+    without growth, reachable with it (horizon 60 derives 6).
+    """
+    def warns(**kw):
+        cfg = REEConfig.from_dims(
+            body_obs_dim=8, world_obs_dim=16, action_dim=4,
+            use_event_segmenter=True, use_policy_decomposition=True,
+            decomposition_depth_cap=4, chunk_max_depth=3, **kw)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            REEAgent(cfg)
+        return [str(w.message) for w in caught if _INERT in str(w.message)]
+
+    # No chunking at all -> unchanged (still inert).
+    assert len(warns()) == 1
+    # Chunking on but depth NOT growable -> unchanged (still inert).
+    assert len(warns(use_policy_chunking=True)) == 1
+    # Depth growable at a budget that derives 6 -> 4 is reachable, so silent.
+    assert warns(use_policy_chunking=True, use_growable_chunk_depth=True,
+                 chunk_deliberation_horizon=60) == []
+    # Growable but at REE's real budget the derivation is still 3 -> inert.
+    assert len(warns(use_policy_chunking=True, use_growable_chunk_depth=True)) == 1

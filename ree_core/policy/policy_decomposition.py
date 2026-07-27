@@ -80,6 +80,16 @@ DEPTH CAP (R3, conf 0.78; multi-level, Badre & D'Esposito 2009 rostro-caudal
     site via depth_cap_config_issues() below. See the MECH-321 scoping spike
     2026-07-27 section 5a.
 
+    The UPPER end of that range MOVES under ARC-071's use_growable_chunk_depth
+    (Solway 2014). chunk_max_depth is then only the STARTING value of a ceiling
+    that grows with the agent's deliberation budget, so the deepest mintable
+    chunk is PolicyChunkingConfig.derived_chunk_max_depth and the useful range
+    is [2, that]. depth_cap_config_issues() takes it as an optional third
+    argument for exactly this reason; omitted (the default, and every shipped
+    MECH-321 run) the guard is unchanged. The mirror relation itself is
+    untouched -- what the cap mirrors is still ARC-071's depth budget; that
+    budget simply stopped being a constant.
+
 R5 BOTTLENECK TRIGGER MODE (trigger_mode="bottleneck"; added 2026-07-25)
     The R1 trigger above (V_s drop OR boundary) is the DEFAULT and is what
     ARM_1 of the MECH-321 discriminative validation uses. ARM_2 needs a
@@ -273,19 +283,47 @@ class PolicyDecompositionConfig:
 # reads both knobs (ree_core/agent.py). This function is the pure predicate so
 # the condition can be contract-pinned without constructing an agent.
 #
+# Under ARC-071's use_growable_chunk_depth the ceiling in that range is no
+# longer chunk_max_depth but derived_chunk_max_depth (the deliberation-budget
+# derivation), passed in as derived_max_depth. Without it the guard would warn
+# INERT about a depth_cap that the growing ceiling will in fact reach.
+#
 # WARN, do not raise: >= 3 shipped MECH-321 experiments and an existing
 # contract already run depth_cap=4, which is inert-but-harmless. Failing them
 # would change the behaviour of currently-valid configurations.
 # ----------------------------------------------------------------------
-def depth_cap_config_issues(depth_cap: int, chunk_max_depth: int) -> Tuple[str, ...]:
+def depth_cap_config_issues(
+    depth_cap: int,
+    chunk_max_depth: int,
+    derived_max_depth: Optional[int] = None,
+) -> Tuple[str, ...]:
     """Return ASCII warning messages for an inert or degenerate depth_cap.
 
     Empty tuple means the pairing is in the useful range. Pure and
     side-effect-free -- REEAgent turns each message into a warnings.warn().
+
+    Args:
+        depth_cap : MECH-321's decomposition_depth_cap.
+        chunk_max_depth : ARC-071's INITIAL depth budget.
+        derived_max_depth : the deepest chunk ARC-071 could ever mint, when
+            use_growable_chunk_depth is on -- chunk_max_depth is then only the
+            STARTING value of a growable ceiling, so a cap above it is not
+            inert, merely not yet reachable. None (the default) means the depth
+            ceiling does not grow and chunk_max_depth is the real bound; the
+            guard then behaves exactly as it did before growth existed, which
+            is what keeps every shipped MECH-321 configuration unchanged. A
+            value at or below chunk_max_depth is ignored for the same reason.
     """
     issues: List[str] = []
     cap = int(depth_cap)
     ceiling = int(chunk_max_depth)
+    label = "chunk_max_depth"
+    if derived_max_depth is not None and int(derived_max_depth) > ceiling:
+        ceiling = int(derived_max_depth)
+        # Name the bound that actually binds, or the message would blame a knob
+        # (chunk_max_depth) that is no longer the ceiling and send the reader to
+        # raise something that is already growable.
+        label = "derived_chunk_max_depth"
 
     if cap == 1:
         issues.append(
@@ -293,20 +331,19 @@ def depth_cap_config_issues(depth_cap: int, chunk_max_depth: int) -> Tuple[str, 
             "depth >= 1, so every triggering chunk is marked unreliable rather "
             "than re-tiled and MECH-321 degenerates into a pure withholding "
             "mechanism (decomposition never fires). Use a value in "
-            "[2, chunk_max_depth] (chunk_max_depth=%d) to get decomposition."
-            % ceiling
+            "[2, %s] (%s=%d) to get decomposition." % (label, label, ceiling)
         )
     elif cap > ceiling:
         issues.append(
             "decomposition_depth_cap=%d is INERT: it exceeds ARC-071's "
-            "chunk_max_depth=%d, and MECH-321's depth is that hierarchy's "
+            "%s=%d, and MECH-321's depth is that hierarchy's "
             "depth, so no chunk can ever reach the cap. The "
             "mark-unreliable-by-cap branch is unreachable and the recursive "
             "leaf-tiling bound stops binding -- %d behaves identically to %d. "
-            "depth_cap mirrors chunk_max_depth; its useful range is "
-            "[2, chunk_max_depth]. Raise chunk_max_depth if deeper "
+            "depth_cap mirrors that bound; its useful range is "
+            "[2, %s]. Raise it if deeper "
             "decomposition is what you want."
-            % (cap, ceiling, cap, ceiling)
+            % (cap, label, ceiling, cap, ceiling, label)
         )
 
     return tuple(issues)

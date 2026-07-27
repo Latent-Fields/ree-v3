@@ -66,9 +66,10 @@ OPTIONS STRUCTURE (lit-pull R4, conf 0.72)
     E3 evaluation supplies value at selection time, as for any other proposal.
 
     Recursion (chunks-of-chunks) is permitted to depth 2-3; `depth` is a field
-    on the chunk and `max_depth` caps it. Chunk size STARTS budgeted at 2-5
-    elements per level (Sakai 2003) -- see the growable-ceiling section below
-    for why that is an initial budget and not a lifetime cap.
+    on the chunk and `max_depth` caps it -- also an INITIAL budget rather than a
+    lifetime cap, see the growable-depth section below. Chunk size STARTS
+    budgeted at 2-5 elements per level (Sakai 2003) -- see the growable-ceiling
+    section below for why that is an initial budget and not a lifetime cap.
 
 CHUNK SIZE IS A GROWABLE CEILING, NOT A CONSTANT (lit-pull 2026-07-27)
     Ramkumar, Acuna, Berniker, Grafton, Turner & Kording 2016 (Nat Commun,
@@ -144,6 +145,91 @@ CHUNK SIZE IS A GROWABLE CEILING, NOT A CONSTANT (lit-pull 2026-07-27)
     all-sub-sequences-at-all-positions one, which this module never performed.
     The hard memory bound remains max_tracked_sequences (FIFO-capped), which is
     unchanged, and chunk_ceiling_hard_max is a further absolute backstop.
+
+CHUNK DEPTH IS ALSO BUDGET-DERIVED (lit-pull 2026-07-27, Solway 2014)
+    The R4/R3 recursion cap of 3 was the OTHER fiat constant on this trade-off,
+    and Solway, Diuk, Cordova, Yee, Barto, Niv & Botvinick 2014 (PLoS Comput
+    Biol, 10.1371/journal.pcbi.1003779) is the reason it could not stay one.
+    That entry is filed in the corpus as a deliberate NULL: the normative
+    account of what makes one action hierarchy better than another is the paper
+    that WOULD carry a principled depth limit at policy grain, and it declines
+    to give one. Its own analysis "assumes that hierarchies are one level deep",
+    a restriction "adopted to assure computational tractability in the present
+    application", with the framework generalising "without any alteration to
+    deeper hierarchies".
+
+    That is the same move ARC-071 makes and for the same stated reason, and it
+    has the consequence the corpus entry draws out: a COST-DERIVED cap should
+    MOVE AS COMPUTE ALLOWS rather than sitting at a fixed constant defended by
+    citation. The R3 sources that supply the number 3-4 (Badre & D'Esposito
+    2009's rostro-caudal hierarchy, Koechlin & Summerfield 2007's cascade) are
+    anatomical grain, not policy grain, so they describe how deep a brain's
+    control hierarchy runs -- not how deep THIS agent can afford to search.
+
+    use_growable_chunk_depth (default OFF) implements this as:
+
+      the depth ceiling starts at max_depth (3), grows one LEVEL at a time
+      toward derived_chunk_max_depth = floor(chunk_deliberation_horizon *
+      chunk_depth_budget_fraction), each step licensed by a realised marginal
+      return, and never past what the size ceiling makes structurally
+      reachable.
+
+    THE NUMBER 3 IS NOT REPLACED, on exactly the argument used for the size
+    ceiling. Solway 2014 licenses no replacement depth, so the fraction is
+    ANCHORED (0.1 = 3/30) to return exactly 3 at REE's actual rollout horizon of
+    30. An agent at today's deliberation budget is left precisely where it was;
+    only a LARGER budget derives a deeper hierarchy. What changed is the
+    parameter's shape, from constant to function.
+
+    WHY LINEAR IN THE BUDGET AND NOT LOGARITHMIC. The intuition that depth
+    should be logarithmic comes from hierarchies whose span MULTIPLIES per
+    level (D levels of branching factor b span b**D primitives, so an affordable
+    depth goes as log of the budget). REE's descent is not that. Each further
+    level is one more sequential re-tiling pass -- HippocampalModule's
+    _recursive_leaf_tiles is bounded by `iterations < depth_cap`, an ITERATION
+    count -- so the cost of depth D is linear in D and the affordable depth is
+    linear in the budget. The fraction absorbs the unknown per-level cost
+    constant, exactly as chunk_ceiling_budget_fraction absorbs the unknown
+    how-much-of-the-horizon-may-one-chunk-span constant. What the derivation
+    asserts is the SHAPE; the scale is anchored, not claimed.
+
+    THE STRUCTURAL COUPLING TO CHUNK SIZE, which is the sharp part. Depth here
+    is not free of the size ceiling -- it is BOUNDED by it. _depth_for computes
+    a candidate's depth as 1 + the depth of the deepest registered chunk it
+    contains, and a containing sequence must be strictly LONGER than what it
+    contains, so a depth-D chain needs D distinct sequence lengths drawn from
+    [min_chunk_size, effective ceiling]. The deepest hierarchy this substrate
+    can physically mint is therefore
+
+        structural_max_depth = effective_max_chunk_size - min_chunk_size + 1
+
+    which at the default 2-5 budget is 4. Verified by construction: with
+    max_depth raised to 4 a four-level chain forms, and at 5 nothing further
+    appears -- 5 and 4 are the same run. So a depth ceiling raised above the
+    structural bound is INERT, which is precisely the defect the MECH-321
+    scoping spike found in decomposition_depth_cap and which this work exists to
+    avoid repeating. consider_depth_growth() therefore refuses to grow past the
+    structural bound, and because that bound reads the LIVE (possibly grown)
+    size ceiling, the two parameters move together mechanically and not merely
+    by analogy. Note also that max_depth=3 is genuinely BINDING today: at the
+    2-5 budget the substrate would mint a depth-4 chunk and the cap refuses it.
+
+    THE BRAKE IS AGAIN THE GROWTH RULE. Growth needs a realised marginal outcome
+    gain from composing AT the current depth ceiling over the best chunk one
+    level shallower that it contains -- did the last NESTING actually buy
+    anything. Same reasoning as for size: a depth that grew monotonically with
+    practice would keep deepening until it hit whatever number it stopped at,
+    which is the fixed-constant failure in a slower disguise.
+
+    DECOUPLED FROM R_min ON THE SAME GROUNDS (Bo 2009). min_repetitions enters
+    the depth returns test only as a judge-ability filter -- is this chunk's
+    outcome bucket attested enough to be measured -- never as the thing being
+    measured.
+
+    NOT IMPLEMENTED -- SHRINKAGE, identically to the size ceiling. Nothing
+    lowers a depth ceiling once raised; the cross-agent half is covered by the
+    derivation, the within-lifetime half needs a declining-capacity signal REE
+    does not have. Recorded as a gap rather than guessed at.
 
 HYSTERESIS (lit-pull R5, conf 0.71)
     Formation and dissolution use DIFFERENT thresholds, with the formation
@@ -472,7 +558,39 @@ class PolicyChunkingConfig:
             is not.
         chunk_ceiling_hard_max : absolute backstop on the grown ceiling.
             A TRACTABILITY bound, not a claim about chunk size.
-        max_depth : chunks-of-chunks recursion cap (R4: 2-3 levels).
+        max_depth : chunks-of-chunks recursion cap (R4: 2-3 levels). Under
+            use_growable_chunk_depth this is the STARTING value of a growable
+            depth ceiling rather than a lifetime cap -- see the module
+            docstring's growable-depth section.
+        use_growable_chunk_depth : ARC-071 sub-switch, the DEPTH counterpart of
+            use_growable_chunk_ceiling. False (default) = max_depth is a hard
+            lifetime cap, the as-first-built behaviour, bit-identical. True =
+            the ceiling starts at max_depth and may grow one LEVEL at a time
+            toward derived_chunk_max_depth, each step licensed by a realised
+            marginal return AND by the depth being structurally reachable at
+            the current size ceiling (Solway 2014).
+        chunk_depth_budget_fraction : the fraction of the deliberation horizon
+            a full hierarchy descent may consume. Default 0.1 = 3/30 is
+            ANCHORED so that at REE's actual rollout horizon (30) the
+            derivation returns exactly 3 -- it recovers the inherited R3 cap
+            rather than replacing it with a new number. Shares
+            chunk_deliberation_horizon with the size ceiling deliberately:
+            both parameters are settings on ONE compute-versus-efficiency
+            trade-off, so they must read the same budget. See
+            derived_chunk_max_depth.
+        chunk_depth_returns_threshold : the diminishing-returns BRAKE on depth.
+            Minimum marginal outcome gain a chunk at the current depth ceiling
+            must deliver over the best chunk one level shallower that it
+            contains, before the ceiling may grow again. DELIBERATELY A
+            SEPARATE KNOB from chunk_ceiling_returns_threshold: sharing one
+            would couple depth and size through the brake, and the coupled-
+            parameter experiment this substrate exists to enable could then not
+            tell a shared-budget effect from a shared-threshold artefact.
+            UNCALIBRATED ENGINEERING DEFAULT, same status as F_low / F_high.
+        chunk_depth_hard_max : absolute backstop on the grown depth ceiling.
+            A TRACTABILITY bound, not a claim about hierarchy depth -- it sits
+            above the 3-4 levels the R3 anatomical sources report so that it
+            never binds before the derivation or the structural bound does.
         max_library_size : hard cap on retained chunks. Bounds memory; the
             lowest-value DISSOLVED chunks are evicted first.
         max_tracked_sequences : hard cap on the candidate tally table. Bounds
@@ -523,6 +641,10 @@ class PolicyChunkingConfig:
     chunk_ceiling_returns_threshold: float = 0.10
     chunk_ceiling_hard_max: int = 12
     max_depth: int = 3
+    use_growable_chunk_depth: bool = False
+    chunk_depth_budget_fraction: float = 0.1
+    chunk_depth_returns_threshold: float = 0.10
+    chunk_depth_hard_max: int = 6
     max_library_size: int = 64
     max_tracked_sequences: int = 512
     use_chunk_maintenance: bool = False
@@ -573,6 +695,25 @@ class PolicyChunkingConfig:
             )
         if self.max_depth < 1:
             raise ValueError("max_depth must be >= 1")
+        if not (0.0 < self.chunk_depth_budget_fraction <= 1.0):
+            raise ValueError(
+                "chunk_depth_budget_fraction must be in (0, 1] (a hierarchy "
+                "cannot usefully be deeper than the horizon it is evaluated "
+                "over is long)"
+            )
+        if self.chunk_depth_returns_threshold < 0.0:
+            raise ValueError(
+                "chunk_depth_returns_threshold must be >= 0 (it is the "
+                "diminishing-returns BRAKE on depth; a negative bar would "
+                "license a further nesting level on a merge that made outcomes "
+                "WORSE, the monotonic-growth failure mode Solway 2014's "
+                "cost-derived framing rules out)"
+            )
+        if self.chunk_depth_hard_max < self.max_depth:
+            raise ValueError(
+                "chunk_depth_hard_max must be >= max_depth (the depth ceiling "
+                "starts at max_depth and only ever grows)"
+            )
         if self.crystallisation_min < 1:
             raise ValueError("crystallisation_min must be >= 1")
         if self.dissolve_trials < 1:
@@ -654,6 +795,63 @@ class PolicyChunkingConfig:
         return max(
             self.max_chunk_size, min(self.chunk_ceiling_hard_max, int(raw + 1e-9))
         )
+
+    @property
+    def derived_chunk_max_depth(self) -> int:
+        """Deepest hierarchy the deliberation budget licenses. DERIVED, not set.
+
+            floor(chunk_deliberation_horizon * chunk_depth_budget_fraction)
+
+        clamped below by max_depth (the ceiling only ever grows from its initial
+        value) and above by chunk_depth_hard_max (tractability).
+
+        AT REE'S ACTUAL DELIBERATION BUDGET THIS RETURNS 3. The real horizon is
+        30 (HippocampalConfig.horizon as set by REEConfig.from_dims -- NOT the
+        HippocampalConfig dataclass default of 10, which no built agent uses),
+        and 30 x 0.1 = 3 = the inherited R3 cap.
+
+        Solway et al. 2014 caps its own hierarchies at one level for stated
+        tractability reasons and says the framework generalises to deeper ones
+        unaltered, so it establishes that REE's cap is a COST bound that should
+        move with compute -- and licenses no particular replacement depth. The
+        scale is therefore anchored to the one number that has warrant (the R3
+        cap, at the budget the agent actually has) rather than invented here.
+        Reading it any other way makes this a disguised raise of the constant.
+
+        NOT the whole story at growth time. This is the BUDGET bound only. The
+        substrate also has a STRUCTURAL bound -- a depth-D chain needs D
+        distinct sequence lengths, so it cannot exceed
+        effective_max_chunk_size - min_chunk_size + 1 -- and a ceiling above
+        that is inert. The structural bound is applied by
+        PolicyChunking.consider_depth_growth(), not here, because only the
+        facade can see the accumulator's LIVE (possibly grown) size ceiling;
+        keeping this property a pure function of config is what lets the
+        derivation be contract-pinned without building an agent.
+
+        The 1e-9 is the same floor guard as derived_chunk_ceiling: the anchor
+        case is exactly integral and silently flooring 3.0 to 2 would move the
+        inherited cap while claiming to preserve it.
+        """
+        raw = float(self.chunk_deliberation_horizon) * float(
+            self.chunk_depth_budget_fraction
+        )
+        return max(self.max_depth, min(self.chunk_depth_hard_max, int(raw + 1e-9)))
+
+
+def _contains_subsequence(
+    haystack: Tuple[int, ...], needle: Tuple[int, ...]
+) -> bool:
+    """True iff `needle` appears as a CONTIGUOUS run inside `haystack`.
+
+    The containment relation the chunk hierarchy is built on: a chunk composes
+    another chunk exactly when it contains it contiguously. Shared by
+    _depth_for (which assigns depth) and marginal_return_at_depth_ceiling
+    (which asks whether that nesting paid), so the two can never drift.
+    """
+    n = len(needle)
+    if n == 0 or n > len(haystack):
+        return False
+    return any(haystack[i : i + n] == needle for i in range(len(haystack) - n + 1))
 
 
 def _mean(values: Sequence[float]) -> float:
@@ -1422,6 +1620,145 @@ class PolicyChunking:
         self.library = ChunkLibrary(self.config)
         self._n_formation_passes: int = 0
 
+        # Growable DEPTH ceiling (Solway 2014). Lives on the facade rather than
+        # on either operator because the growth rule needs both: the library
+        # supplies the chunk hierarchy and its depths, the accumulator supplies
+        # the realised outcome tally and the live size ceiling the structural
+        # bound is read off. Read through effective_max_depth, never directly --
+        # that property is what makes the flag-off path bit-identical.
+        self._depth_ceiling: int = int(self.config.max_depth)
+        self._n_depth_growths: int = 0
+        self._last_depth_gain: float = 0.0
+
+    @property
+    def effective_max_depth(self) -> int:
+        """The chunks-of-chunks depth cap actually in force this trial.
+
+        With use_growable_chunk_depth off this is exactly config.max_depth and
+        the grown value is never consulted, so the formation gate below is
+        bit-identical to the as-first-built behaviour.
+        """
+        if not self.config.use_growable_chunk_depth:
+            return int(self.config.max_depth)
+        return int(self._depth_ceiling)
+
+    @property
+    def structural_max_depth(self) -> int:
+        """Deepest hierarchy this substrate can physically mint right now.
+
+        A chunk composes another only by CONTAINING it contiguously, so each
+        further level needs a strictly longer sequence, drawn from the lengths
+        [min_chunk_size, effective_max_chunk_size]. The number of available
+        lengths is therefore the number of available levels.
+
+        Reads the accumulator's LIVE size ceiling, so under
+        use_growable_chunk_ceiling this bound RISES as the size ceiling grows.
+        That is the mechanical coupling between the two parameters: depth cannot
+        outrun the size budget that has to carry it.
+        """
+        return max(
+            1,
+            int(self.accumulator.effective_max_chunk_size)
+            - int(self.config.min_chunk_size)
+            + 1,
+        )
+
+    def marginal_return_at_depth_ceiling(self) -> Optional[float]:
+        """Best realised outcome gain from nesting AT the current depth ceiling.
+
+        For each registered, non-DISSOLVED chunk sitting exactly at the depth
+        ceiling and repeated enough to be judged, compare its realised outcome
+        mean against the best mean among the chunks ONE LEVEL SHALLOWER that it
+        contains. That difference is the marginal return of the last NESTING --
+        did going from depth d-1 to depth d actually buy anything.
+
+        Means come from the accumulator's live tally rather than from
+        ChunkedPrimitive.value_tag: value_tag is frozen at formation, so a chunk
+        whose returns have since collapsed would keep licensing growth on a
+        number that stopped being true. min_repetitions is a judge-ability
+        filter here and nothing more (Bo 2009 -- do not turn this into a
+        practice counter).
+
+        Returns:
+            The best marginal gain found, or None if nothing at the ceiling is
+            yet judgeable -- which is NOT a gain of zero and must not be treated
+            as one. None means "no evidence either way".
+        """
+        c = self.config
+        ceiling = self.effective_max_depth
+        if ceiling < 2:
+            # Depth 1 composes raw actions, so there is no shallower chunk to
+            # have gained anything over.
+            return None
+        live = [
+            chunk
+            for chunk in self.library.all_chunks()
+            if chunk.state is not ChunkState.DISSOLVED
+        ]
+        shallower = [chunk for chunk in live if chunk.depth == ceiling - 1]
+        if not shallower:
+            return None
+        tally = self.accumulator._tally
+        best: Optional[float] = None
+        for chunk in live:
+            if chunk.depth != ceiling:
+                continue
+            outcomes = tally.get(chunk.key)
+            if not outcomes or len(outcomes) < c.min_repetitions:
+                continue
+            sub_means = [
+                _mean(tally[sub.key])
+                for sub in shallower
+                if _contains_subsequence(chunk.key, sub.key)
+                and len(tally.get(sub.key, ())) >= c.min_repetitions
+            ]
+            if not sub_means:
+                continue
+            gain = _mean(outcomes) - max(sub_means)
+            if best is None or gain > best:
+                best = gain
+        return best
+
+    def consider_depth_growth(self) -> bool:
+        """Grow the depth ceiling by one level iff the last nesting paid off.
+
+        The depth counterpart of ChunkAccumulator.consider_ceiling_growth, and
+        the same argument applies: making the growth rule itself the brake is
+        what stops a cost-derived cap from becoming a slower fixed constant.
+
+        Growth is refused, and each refusal is diagnosable via chunk_depth_* in
+        get_state(), when:
+            - the flag is off                    -> never grows at any setting
+            - the ceiling is already at the derived deliberation-budget bound
+            - the ceiling is already at the STRUCTURAL bound -- growing further
+              could not mint a deeper chunk at the current size ceiling, so the
+              raise would be INERT. This is the refusal that keeps depth and
+              size moving together, and it is the specific defect
+              (a depth knob with no degree of freedom) that the MECH-321
+              scoping spike found in decomposition_depth_cap.
+            - no chunk at the ceiling is judgeable yet (gain is None)
+            - the best marginal gain is below chunk_depth_returns_threshold
+
+        Returns:
+            True iff the depth ceiling grew this call.
+        """
+        c = self.config
+        if not c.use_growable_chunk_depth:
+            return False
+        if self._depth_ceiling >= c.derived_chunk_max_depth:
+            return False
+        if self._depth_ceiling >= self.structural_max_depth:
+            return False
+        gain = self.marginal_return_at_depth_ceiling()
+        if gain is None:
+            return False
+        self._last_depth_gain = float(gain)
+        if gain < c.chunk_depth_returns_threshold:
+            return False
+        self._depth_ceiling += 1
+        self._n_depth_growths += 1
+        return True
+
     def record_step(self, action_class: int, hypothesis_tag: bool = False) -> bool:
         """Record one executed action class (MECH-094-strict). See ChunkAccumulator."""
         return self.accumulator.record_step(action_class, hypothesis_tag=hypothesis_tag)
@@ -1445,7 +1782,7 @@ class PolicyChunking:
             if self.library.get(seq) is not None:
                 continue
             depth = self._depth_for(seq)
-            if depth > self.config.max_depth:
+            if depth > self.effective_max_depth:
                 continue
             chunk = self.accumulator.mint(seq, value_tag=mu, depth=depth)
             if self.library.register(chunk):
@@ -1475,6 +1812,12 @@ class PolicyChunking:
         # new size would credit the same outcome to a sequence that was not
         # tracked when the outcome was earned.
         self.accumulator.consider_ceiling_growth()
+        # Depth ceiling after the size ceiling, on the same fully-updated state,
+        # and in that order deliberately: the structural bound reads the size
+        # ceiling, so evaluating depth first would judge it against a stale
+        # size budget and refuse a growth the very same trial had just licensed.
+        # A depth raised here likewise takes effect from the NEXT note_outcome.
+        self.consider_depth_growth()
         return formed
 
     def _attempt_reacquisition(
@@ -1531,14 +1874,11 @@ class PolicyChunking:
         contains a registered chunk composes at one level above it.
         """
         deepest = 0
+        seq = tuple(int(a) for a in sequence)
         for chunk in self.library.all_chunks():
             if chunk.state is ChunkState.DISSOLVED:
                 continue
-            seq = tuple(int(a) for a in sequence)
-            n = len(chunk.sequence)
-            if n <= len(seq) and any(
-                seq[i : i + n] == chunk.key for i in range(len(seq) - n + 1)
-            ):
+            if _contains_subsequence(seq, chunk.key):
                 deepest = max(deepest, chunk.depth)
         return deepest + 1
 
@@ -1567,6 +1907,9 @@ class PolicyChunking:
         self.accumulator.reset()
         self.library.reset()
         self._n_formation_passes = 0
+        self._depth_ceiling = int(self.config.max_depth)
+        self._n_depth_growths = 0
+        self._last_depth_gain = 0.0
 
     def get_state(self) -> dict:
         """Combined diagnostic snapshot for experiment manifests."""
@@ -1574,4 +1917,15 @@ class PolicyChunking:
         state.update(self.accumulator.get_state())
         state.update(self.library.get_state())
         state["chunk_n_formation_passes"] = self._n_formation_passes
+        # Growable-depth readout (Solway 2014). With the flag off the effective
+        # depth stays pinned at max_depth and growths stay 0, which is what
+        # makes the OFF arm identifiable in a manifest. The two bounds are
+        # reported separately because WHICH ONE binds is the substantive
+        # observation: structural < derived means the size ceiling, not the
+        # deliberation budget, is what is holding depth back.
+        state["chunk_effective_max_depth"] = self.effective_max_depth
+        state["chunk_depth_derived_max"] = self.config.derived_chunk_max_depth
+        state["chunk_depth_structural_max"] = self.structural_max_depth
+        state["chunk_n_depth_growths"] = self._n_depth_growths
+        state["chunk_last_depth_gain"] = float(self._last_depth_gain)
         return state

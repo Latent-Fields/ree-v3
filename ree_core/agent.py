@@ -1315,6 +1315,18 @@ class REEAgent(nn.Module):
                         config, "chunk_ceiling_hard_max", 12
                     ),
                     max_depth=getattr(config, "chunk_max_depth", 3),
+                    use_growable_chunk_depth=getattr(
+                        config, "use_growable_chunk_depth", False
+                    ),
+                    chunk_depth_budget_fraction=getattr(
+                        config, "chunk_depth_budget_fraction", 0.1
+                    ),
+                    chunk_depth_returns_threshold=getattr(
+                        config, "chunk_depth_returns_threshold", 0.10
+                    ),
+                    chunk_depth_hard_max=getattr(
+                        config, "chunk_depth_hard_max", 6
+                    ),
                     max_library_size=getattr(config, "chunk_max_library_size", 64),
                     max_tracked_sequences=getattr(
                         config, "chunk_max_tracked_sequences", 512
@@ -1379,9 +1391,27 @@ class REEAgent(nn.Module):
             # see chunk_max_depth, so this is the only site with both knobs.
             # WARN not raise: shipped MECH-321 experiments already run the
             # inert value 4, and this must not change their behaviour.
+            #
+            # Under use_growable_chunk_depth the ceiling is no longer
+            # chunk_max_depth -- ARC-071 may mint up to derived_chunk_max_depth
+            # -- so the INERT test must use the higher bound or it would warn
+            # about a depth_cap that is genuinely reachable once the ceiling
+            # grows. None (the default and every shipped run) leaves the guard
+            # exactly as it was.
+            _pcfg = (
+                self.policy_chunking.config
+                if self.policy_chunking is not None
+                else None
+            )
+            _derived_depth = (
+                _pcfg.derived_chunk_max_depth
+                if _pcfg is not None and _pcfg.use_growable_chunk_depth
+                else None
+            )
             for _issue in depth_cap_config_issues(
                 getattr(config, "decomposition_depth_cap", 3),
                 getattr(config, "chunk_max_depth", 3),
+                derived_max_depth=_derived_depth,
             ):
                 warnings.warn(_issue, UserWarning, stacklevel=2)
             self.policy_decomposition = PolicyDecomposition(

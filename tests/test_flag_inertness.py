@@ -537,6 +537,12 @@ PROBED = {
     # both one-element-shorter contexts are aliased -- a regime the tiny
     # fixture in this file cannot produce.
     "use_growable_chunk_ceiling",
+    # ARC-071 growable chunk-DEPTH ceiling (Solway 2014). Probed by the same
+    # file's C12 block: OFF pins the effective depth at max_depth with zero
+    # growths, ON grows it end-to-end and mints a depth-4 chunk the OFF arm
+    # refuses. Not probed here for the same reason as the size ceiling -- the
+    # driver needs a nested suffix chain in which each further level pays.
+    "use_growable_chunk_depth",
     "use_chunk_replay_origin_path",
     "use_chunk_proposal_injection",
     # ARC-070 decomposition (MECH-321). Probed by

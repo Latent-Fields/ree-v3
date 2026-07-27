@@ -3661,8 +3661,30 @@ class REEConfig:
     chunk_ceiling_budget_fraction: float = 0.1667
     chunk_ceiling_returns_threshold: float = 0.10
     chunk_ceiling_hard_max: int = 12
-    # R4 chunks-of-chunks recursion cap (2-3 levels).
+    # R4 chunks-of-chunks recursion cap (2-3 levels). Like chunk_max_size above
+    # this is an INITIAL budget, not a lifetime cap -- see
+    # use_growable_chunk_depth below.
     chunk_max_depth: int = 3
+    # ARC-071 growable DEPTH ceiling (Solway 2014), the depth counterpart of
+    # use_growable_chunk_ceiling. Default False -> chunk_max_depth is a hard
+    # lifetime cap (as-first-built, bit-identical). True -> the ceiling starts
+    # at chunk_max_depth and grows one LEVEL at a time toward
+    # floor(chunk_deliberation_horizon * chunk_depth_budget_fraction), each step
+    # licensed by a realised marginal outcome gain >= the returns threshold AND
+    # by the depth being structurally reachable at the current size ceiling.
+    # NOTE the derivation REPRODUCES 3 at REE's ACTUAL horizon (30 x 0.1), so no
+    # replacement constant is asserted; what changes is the parameter's SHAPE.
+    # Solway 2014 is the warrant: it caps its own hierarchies at one level for
+    # stated tractability reasons, so REE's cap is a COST bound that should move
+    # with compute -- and it licenses no particular replacement depth.
+    # Shares chunk_deliberation_horizon with the size ceiling ON PURPOSE: both
+    # are settings on ONE compute-versus-efficiency trade-off and must read the
+    # same budget. The returns THRESHOLD is a separate knob, so that a coupled-
+    # parameter experiment cannot mistake a shared brake for a shared budget.
+    use_growable_chunk_depth: bool = False
+    chunk_depth_budget_fraction: float = 0.1
+    chunk_depth_returns_threshold: float = 0.10
+    chunk_depth_hard_max: int = 6
     chunk_max_library_size: int = 64
     chunk_max_tracked_sequences: int = 512
     # MECH-324 maintenance sub-switch. False -> chunks form but never
@@ -5569,6 +5591,10 @@ class REEConfig:
         chunk_ceiling_returns_threshold: float = 0.10,
         chunk_ceiling_hard_max: int = 12,
         chunk_max_depth: int = 3,
+        use_growable_chunk_depth: bool = False,
+        chunk_depth_budget_fraction: float = 0.1,
+        chunk_depth_returns_threshold: float = 0.10,
+        chunk_depth_hard_max: int = 6,
         chunk_max_library_size: int = 64,
         chunk_max_tracked_sequences: int = 512,
         use_chunk_maintenance: bool = False,
@@ -6766,6 +6792,10 @@ class REEConfig:
         config.chunk_ceiling_returns_threshold = chunk_ceiling_returns_threshold
         config.chunk_ceiling_hard_max = chunk_ceiling_hard_max
         config.chunk_max_depth = chunk_max_depth
+        config.use_growable_chunk_depth = use_growable_chunk_depth
+        config.chunk_depth_budget_fraction = chunk_depth_budget_fraction
+        config.chunk_depth_returns_threshold = chunk_depth_returns_threshold
+        config.chunk_depth_hard_max = chunk_depth_hard_max
         config.chunk_max_library_size = chunk_max_library_size
         config.chunk_max_tracked_sequences = chunk_max_tracked_sequences
         config.use_chunk_maintenance = use_chunk_maintenance

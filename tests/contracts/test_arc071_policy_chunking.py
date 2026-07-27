@@ -14,6 +14,8 @@ C7  MECH-324 hysteresis: F_low < F_high, and formation-only leaves chunks uncrys
 C8  R4 options structure + chunks-of-chunks depth cap
 C9  proposal injection is off by default and additive when on
 C10 MECH-324 dissolution is suppression-with-retention (Barnes 2005 / Bouton 2012)
+C11 MECH-323 chunk SIZE is a growable ceiling derived from the deliberation budget
+C12 ARC-071 chunk DEPTH is likewise derived, and bounded by the size ceiling
 """
 
 import pytest
@@ -756,3 +758,298 @@ def test_c11_sentinel_horizon_mirrors_the_hippocampal_budget():
                               use_policy_chunking=True, use_growable_chunk_ceiling=True)
     assert cfg.chunk_deliberation_horizon == 0
     assert REEAgent(cfg).policy_chunking.config.chunk_deliberation_horizon == 30
+
+
+# ----------------------------------------------------------------------
+# C12 -- ARC-071 growable chunk-DEPTH ceiling (Solway 2014)
+#
+# The R4/R3 cap of 3 was the other fiat constant on the compute/efficiency
+# trade-off. These contracts pin the same four things C11 pins for size --
+# the derivation reproduces the inherited constant at today's budget, growth is
+# licensed by realised marginal return, the brake brakes, OFF is bit-identical
+# -- plus the one that is specific to depth: growth stops at what the SIZE
+# ceiling makes structurally reachable, so the ceiling can never be raised into
+# inertness (the defect the MECH-321 scoping spike found in its mirror).
+# ----------------------------------------------------------------------
+def _cfg_depth(**kw):
+    base = dict(use_growable_chunk_depth=True, chunk_deliberation_horizon=60,
+                min_repetitions=3)
+    base.update(kw)
+    return _cfg(**base)
+
+
+def _seed_depth_hierarchy(pc, whole_outcomes, sub_outcomes):
+    """Register a nesting chain up to the depth ceiling and seed its tally.
+
+    Chain is a suffix chain -- (3,4) < (2,3,4) < (1,2,3,4) ... -- because that
+    is the only shape note_outcome can actually produce (it credits suffixes).
+    """
+    ceiling = pc.effective_max_depth
+    keys = [tuple(range(k, 5)) for k in range(4 - ceiling, 4)][::-1]
+    keys = sorted(keys, key=len)
+    for depth, key in enumerate(keys, start=1):
+        chunk = pc.accumulator.mint(key, value_tag=1.0, depth=depth)
+        pc.library.register(chunk)
+        pc.accumulator._tally[key] = list(
+            whole_outcomes if depth == ceiling else sub_outcomes
+        )
+    return keys
+
+
+def test_c12_depth_is_off_by_default_and_pinned_when_off():
+    pc = PolicyChunking(_cfg())
+    assert pc.config.use_growable_chunk_depth is False
+    assert pc.effective_max_depth == pc.config.max_depth == 3
+    _seed_depth_hierarchy(pc, [1.0] * 8, [0.0] * 8)
+    assert pc.consider_depth_growth() is False
+    assert pc.effective_max_depth == 3
+
+
+def test_c12_derivation_reproduces_the_inherited_cap_at_reeds_real_horizon():
+    """THE ANCHOR. A built agent must still derive exactly 3.
+
+    Regression guard against silently raising the constant. Solway 2014 caps
+    its own hierarchies at one level for stated tractability reasons and
+    licenses no replacement depth, so an agent at today's deliberation budget
+    must be left exactly where it was. Reads the real from_dims horizon (30),
+    NOT the HippocampalConfig dataclass default (10) no built agent uses.
+    """
+    cfg = REEConfig.from_dims(body_obs_dim=8, world_obs_dim=16, action_dim=4,
+                              use_policy_chunking=True, use_growable_chunk_depth=True)
+    agent = REEAgent(cfg)
+    pcfg = agent.policy_chunking.config
+    assert pcfg.chunk_deliberation_horizon == cfg.hippocampal.horizon == 30
+    assert pcfg.derived_chunk_max_depth == 3
+    assert agent.policy_chunking.effective_max_depth == 3
+
+
+def test_c12_depth_and_size_read_the_same_deliberation_budget():
+    """Both parameters are settings on ONE trade-off, so one budget moves both.
+
+    This is the property the coupled-parameter experiment depends on: raising
+    the deliberation horizon must be a single independent variable, not two.
+    """
+    cfg = PolicyChunkingConfig(chunk_deliberation_horizon=30)
+    assert (cfg.derived_chunk_ceiling, cfg.derived_chunk_max_depth) == (5, 3)
+    bigger = PolicyChunkingConfig(chunk_deliberation_horizon=90)
+    assert bigger.derived_chunk_ceiling > 5 and bigger.derived_chunk_max_depth > 3
+
+
+@pytest.mark.parametrize("horizon,expected", [(10, 3), (29, 3), (30, 3), (40, 4),
+                                              (60, 6), (300, 6)])
+def test_c12_depth_scales_with_the_deliberation_budget(horizon, expected):
+    """Below the anchor the inherited cap holds; above it, and only above it,
+    a deeper hierarchy is derived. Saturates at chunk_depth_hard_max."""
+    assert PolicyChunkingConfig(
+        chunk_deliberation_horizon=horizon).derived_chunk_max_depth == expected
+
+
+def test_c12_the_inherited_cap_is_actually_binding_today():
+    """max_depth=3 has a real degree of freedom -- it refuses a depth-4 chunk.
+
+    Not a formality. The MECH-321 scoping spike found its own depth_cap had
+    NEVER exhibited a degree of freedom, so the literature argument about it was
+    conducted over a parameter with no observed variation. This pins that
+    ARC-071's cap is not in that position: at the default 2-5 size budget the
+    substrate would mint depth 4, and only the cap stops it.
+    """
+    def formed_depths(max_depth):
+        pc = PolicyChunking(_cfg(min_repetitions=5, max_depth=max_depth))
+        for ep in range(300):
+            seq, out = ([6, 7, 8, 1, 2], 1.0) if ep % 2 == 0 else ([3, 3, 3, 3, 3], 0.0)
+            for a in seq:
+                pc.record_step(a)
+            pc.note_outcome(out)
+            pc.end_episode()
+        return sorted(c.depth for c in pc.library.all_chunks())
+
+    assert formed_depths(3) == [1, 2, 3]
+    assert formed_depths(4) == [1, 2, 3, 4]
+    # ...and 5 is INERT, which is exactly the structural bound at a 2-5 budget.
+    assert formed_depths(5) == [1, 2, 3, 4]
+
+
+def test_c12_structural_bound_is_set_by_the_size_ceiling():
+    """A depth-D chain needs D distinct sequence lengths, so depth cannot
+    outrun the size budget that has to carry it."""
+    pc = PolicyChunking(_cfg())
+    assert pc.structural_max_depth == 4  # 5 - 2 + 1
+    assert PolicyChunking(_cfg(max_chunk_size=3)).structural_max_depth == 2
+    assert PolicyChunking(_cfg(min_chunk_size=3, max_chunk_size=7)).structural_max_depth == 5
+
+
+def test_c12_structural_bound_rises_with_a_grown_size_ceiling():
+    """THE COUPLING, mechanical rather than by analogy.
+
+    The bound reads the accumulator's LIVE ceiling, so a size ceiling that has
+    grown licenses a deeper hierarchy in the same run.
+    """
+    pc = PolicyChunking(_cfg(use_growable_chunk_ceiling=True,
+                             chunk_deliberation_horizon=60))
+    assert pc.structural_max_depth == 4
+    pc.accumulator._ceiling = 8
+    assert pc.structural_max_depth == 7
+
+
+def test_c12_growth_requires_a_realised_marginal_return():
+    pc = PolicyChunking(_cfg_depth())
+    _seed_depth_hierarchy(pc, [1.0] * 8, [0.5] * 8)
+    assert pc.marginal_return_at_depth_ceiling() == pytest.approx(0.5)
+    assert pc.consider_depth_growth() is True
+    assert pc.effective_max_depth == 4
+
+
+def test_c12_no_growth_when_the_shallower_chunk_already_predicts():
+    pc = PolicyChunking(_cfg_depth())
+    _seed_depth_hierarchy(pc, [1.0] * 8, [1.0] * 8)
+    assert pc.marginal_return_at_depth_ceiling() == pytest.approx(0.0)
+    assert pc.consider_depth_growth() is False
+    assert pc.effective_max_depth == 3
+
+
+def test_c12_no_evidence_is_not_a_gain_of_zero():
+    """gain=None must refuse even at a zero threshold -- an unattested ceiling
+    would otherwise clear a >= 0.0 bar and deepen on no evidence at all."""
+    pc = PolicyChunking(_cfg_depth(chunk_depth_returns_threshold=0.0))
+    assert pc.marginal_return_at_depth_ceiling() is None
+    assert pc.consider_depth_growth() is False
+
+
+def test_c12_growth_never_exceeds_the_structural_bound():
+    """The refusal that stops the ceiling being raised into inertness.
+
+    Budget headroom to 6 is available and unused: with the size ceiling at 5
+    nothing deeper than 4 could ever be minted, so growth stops at 4.
+    """
+    pc = PolicyChunking(_cfg_depth(chunk_depth_returns_threshold=0.0))
+    assert pc.config.derived_chunk_max_depth == 6
+    for _ in range(20):
+        _seed_depth_hierarchy(pc, [1.0] * 8, [0.0] * 8)
+        pc.consider_depth_growth()
+    assert pc.effective_max_depth == pc.structural_max_depth == 4
+
+
+def test_c12_growth_never_exceeds_the_derived_budget_bound():
+    pc = PolicyChunking(_cfg_depth(chunk_depth_returns_threshold=0.0,
+                                   max_chunk_size=12, chunk_depth_hard_max=6))
+    assert pc.structural_max_depth == 11 and pc.config.derived_chunk_max_depth == 6
+    for _ in range(20):
+        _seed_depth_hierarchy(pc, [1.0] * 8, [0.0] * 8)
+        pc.consider_depth_growth()
+    assert pc.effective_max_depth == 6
+
+
+def test_c12_brake_plateaus_below_both_bounds():
+    """Guardrail. Growth must stop when returns flatten, NOT at a cap."""
+    pc = PolicyChunking(_cfg_depth(max_chunk_size=12))
+    assert pc.config.derived_chunk_max_depth == 6 and pc.structural_max_depth == 11
+    for _ in range(20):
+        _seed_depth_hierarchy(pc, [1.0] * 8, [1.0] * 8)
+        if not pc.consider_depth_growth():
+            break
+    assert pc.effective_max_depth == 3
+    assert pc._n_depth_growths == 0
+
+
+def test_c12_growth_is_decoupled_from_the_repetition_tally():
+    """Bo 2009: depth budget must not become a practice counter either.
+
+    Unbounded repetition with zero marginal return must not deepen the ceiling.
+    """
+    pc = PolicyChunking(_cfg_depth())
+    _seed_depth_hierarchy(pc, [1.0] * 500, [1.0] * 500)
+    assert pc.consider_depth_growth() is False
+    assert pc.effective_max_depth == 3
+
+
+def test_c12_returns_read_the_live_tally_not_the_frozen_value_tag():
+    """value_tag is frozen at formation, so a chunk whose returns have since
+    collapsed would keep licensing growth on a number that stopped being true.
+    """
+    pc = PolicyChunking(_cfg_depth())
+    keys = _seed_depth_hierarchy(pc, [1.0] * 8, [0.0] * 8)
+    assert pc.marginal_return_at_depth_ceiling() == pytest.approx(1.0)
+    # value_tags are all 1.0; collapse the realised outcomes at the ceiling only.
+    pc.accumulator._tally[keys[-1]] = [0.0] * 8
+    assert all(c.value_tag == 1.0 for c in pc.library.all_chunks())
+    assert pc.marginal_return_at_depth_ceiling() == pytest.approx(0.0)
+
+
+def test_c12_depth_grows_end_to_end_so_the_flag_is_not_inert():
+    """Nested suffix chain where each further level genuinely pays."""
+    branches = [([0, 1, 2, 3, 4], 1.0), ([9, 1, 2, 3, 4], 0.75),
+                ([9, 9, 2, 3, 4], 0.5), ([9, 9, 9, 3, 4], 0.25),
+                ([9, 9, 9, 9, 4], 0.0)]
+
+    def drive(on):
+        pc = PolicyChunking(_cfg(min_repetitions=5, use_growable_chunk_depth=on,
+                                 chunk_deliberation_horizon=60))
+        for ep in range(400):
+            seq, out = branches[ep % 5]
+            for a in seq:
+                pc.record_step(a)
+            pc.note_outcome(out)
+            pc.end_episode()
+        return pc
+
+    off, on = drive(False), drive(True)
+    assert off.effective_max_depth == 3 and off._n_depth_growths == 0
+    assert max(c.depth for c in off.library.all_chunks()) == 3
+    assert on.effective_max_depth == 4 and on._n_depth_growths >= 1
+    assert max(c.depth for c in on.library.all_chunks()) == 4
+    # ...and stops at the structural bound with budget headroom to 6 unused.
+    assert on.config.derived_chunk_max_depth == 6
+    assert on.effective_max_depth == on.structural_max_depth
+
+
+def test_c12_reset_returns_the_depth_ceiling_to_the_initial_budget():
+    pc = PolicyChunking(_cfg_depth())
+    _seed_depth_hierarchy(pc, [1.0] * 8, [0.0] * 8)
+    assert pc.consider_depth_growth() is True
+    pc.reset()
+    assert pc.effective_max_depth == pc.config.max_depth
+    assert pc._n_depth_growths == 0
+
+
+def test_c12_get_state_reports_both_bounds_separately():
+    """WHICH bound binds is the substantive observation, so both are emitted."""
+    state = PolicyChunking(_cfg_depth()).get_state()
+    assert state["chunk_effective_max_depth"] == 3
+    assert state["chunk_depth_derived_max"] == 6
+    assert state["chunk_depth_structural_max"] == 4
+    assert state["chunk_n_depth_growths"] == 0
+
+
+@pytest.mark.parametrize("kw", [
+    dict(chunk_depth_budget_fraction=0.0),
+    dict(chunk_depth_budget_fraction=1.5),
+    dict(chunk_depth_returns_threshold=-0.1),
+    dict(chunk_depth_hard_max=2),
+])
+def test_c12_incoherent_depth_config_is_refused(kw):
+    with pytest.raises(ValueError):
+        PolicyChunkingConfig(**kw).validate()
+
+
+def test_c12_from_dims_forwards_every_depth_knob():
+    """All FOUR wiring sites (dataclass, signature, body, agent mapping).
+
+    from_dims silently swallows unknown kwargs, so a knob wired at only three
+    sites is unreachable with NO error -- this asserts the round-trip rather
+    than the signature.
+    """
+    cfg = REEConfig.from_dims(
+        body_obs_dim=8, world_obs_dim=16, action_dim=4,
+        use_policy_chunking=True, use_growable_chunk_depth=True,
+        chunk_deliberation_horizon=40, chunk_depth_budget_fraction=0.25,
+        chunk_depth_returns_threshold=0.2, chunk_depth_hard_max=9)
+    assert cfg.use_growable_chunk_depth is True
+    assert cfg.chunk_depth_budget_fraction == 0.25
+    assert cfg.chunk_depth_returns_threshold == 0.2
+    assert cfg.chunk_depth_hard_max == 9
+    pcfg = REEAgent(cfg).policy_chunking.config
+    assert pcfg.use_growable_chunk_depth is True
+    assert pcfg.chunk_depth_budget_fraction == 0.25
+    assert pcfg.chunk_depth_returns_threshold == 0.2
+    assert pcfg.chunk_depth_hard_max == 9
+    assert pcfg.derived_chunk_max_depth == 9  # floor(40 * 0.25), under hard_max
