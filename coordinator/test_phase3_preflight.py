@@ -26,7 +26,7 @@ def test_mock_json_all_pass_structure():
     assert "checks" in data
     assert data.get("ok") is True
     ids = {c["id"] for c in data["checks"]}
-    assert "phase3_writer_stub" in ids
+    assert "phase3_writer_ready" in ids
     assert "db_schema_present" in ids
 
 
@@ -37,9 +37,12 @@ def test_dry_run_local_checks():
     # May FAIL without coordinator.env URL; must emit valid JSON.
     data = json.loads(proc.stdout)
     assert "checks" in data
-    stub = next(c for c in data["checks"]
-                if c["id"] == "phase3_writer_stub")
-    assert stub["status"] == "PASS"
+    writer = next(c for c in data["checks"]
+                  if c["id"] == "phase3_writer_ready")
+    # Post-cutover polarity: sync_daemon IS the git writer, so the flag must
+    # be True. This asserted the pre-cutover "still a stub" invariant until
+    # 2026-07-27; see phase3_preflight._import_sync_daemon_ready.
+    assert writer["status"] == "PASS", writer
 
 
 def test_cutover_window_flag_accepted():

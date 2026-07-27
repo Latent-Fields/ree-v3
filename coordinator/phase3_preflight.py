@@ -163,12 +163,31 @@ def _local_schema_ok() -> tuple[bool, str]:
 
 
 def _import_sync_daemon_ready() -> tuple[bool, str]:
+    """The writer-ready flag must match the deployment phase.
+
+    POLARITY CHANGED AT CUTOVER, and this check did not follow for ~2 months.
+    Before cutover the invariant was "the writer must NOT be half-enabled",
+    so `PHASE3_GIT_WRITER_READY is False` was the PASS. `d98f9a5` (2026-05-28,
+    "phase3: flip all three writer-ready flags True") turned the writer on,
+    and Phase 3 went live 2026-05-29 -- from which point this check could
+    only ever FAIL. Because a single FAIL sets exit 1, the whole preflight
+    has returned non-zero unconditionally ever since, which silently voided
+    the "run phase3_preflight.py before merging coordinator changes" gate in
+    CLAUDE.md and reddened three tests on trunk.
+
+    Post-cutover the invariant is the opposite one, and matches
+    `phase3_verify.py:_writer_ready`: sync_daemon IS the sole git writer for
+    coordination data, so the flag must be True. A False here would mean the
+    writers are stubbed while the runner-side pushes are gated off -- results,
+    queue snapshot and telemetry would reach nothing at all.
+    """
     try:
         import sync_daemon  # noqa: WPS433 -- intentional local import
         ready = bool(getattr(sync_daemon, "PHASE3_GIT_WRITER_READY", False))
         if ready:
-            return False, "PHASE3_GIT_WRITER_READY is True (unsafe)"
-        return True, "PHASE3_GIT_WRITER_READY is False (stub safe)"
+            return True, "PHASE3_GIT_WRITER_READY is True (writer live)"
+        return False, ("PHASE3_GIT_WRITER_READY is False -- writer still "
+                       "stubbed, but Phase 3 cut over 2026-05-29")
     except Exception as exc:  # noqa: BLE001
         return False, "sync_daemon import failed: %r" % exc
 
@@ -307,7 +326,10 @@ def run_preflight(
 
     # --- implementation gate ---
     ok, note = _import_sync_daemon_ready()
-    add("phase3_writer_stub", "implementation",
+    # Renamed from `phase3_writer_stub` when the polarity flipped at cutover
+    # -- the old id asserted the writer was still a stub. See
+    # _import_sync_daemon_ready.
+    add("phase3_writer_ready", "implementation",
         "PASS" if ok else "FAIL", note)
 
     ok, note = _local_schema_ok()

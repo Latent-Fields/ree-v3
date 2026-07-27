@@ -26,9 +26,16 @@ Four env flags gate them:
                                             (coordinator /claim is the
                                             authoritative arbiter under Phase 3)
 
-Each test verifies the gate is a true no-op: the underlying `subprocess.run`
-is never invoked. We assert by intercepting subprocess.run at the module
-level. ASCII-only output.
+Each test verifies the gate is a true no-op: no git subprocess is invoked at
+all. We assert by counting invocations through `phase3_git_probe`, which
+patches BOTH the module's soft-timeout git helper (`_git_run` / `_git`) and
+its `subprocess.run`.
+
+Do NOT go back to a bare `patch.object(<mod>.subprocess, "run")`: since
+`b0a6dd8` every git call site routes through the helper into
+`graceful_timeout`, which reaches the stdlib directly, so that patch
+intercepts NOTHING and every `call_count == 0` assertion below passes
+vacuously. See `phase3_git_probe.__doc__`. ASCII-only output.
 """
 
 import importlib
@@ -42,6 +49,9 @@ from unittest.mock import patch
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(HERE))
+
+from phase3_git_probe import patch_git_calls  # noqa: E402
 
 
 def _reimport(name):
@@ -89,7 +99,7 @@ class ResultPushGate(unittest.TestCase):
     def test_gate_off_invokes_subprocess(self):
         os.environ.pop("PHASE3_DISABLE_RUNNER_RESULT_PUSH", None)
         er = _reimport("experiment_runner")
-        with patch.object(er.subprocess, "run") as mock_run:
+        with patch_git_calls(er) as mock_run:
             # Need a CompletedProcess shape for the diff check; default
             # MagicMock has .returncode = MagicMock(), so set it explicit.
             mock_run.return_value.returncode = 0  # "no diff" branch -> return
@@ -102,7 +112,7 @@ class ResultPushGate(unittest.TestCase):
         os.environ["PHASE3_DISABLE_RUNNER_RESULT_PUSH"] = "1"
         try:
             er = _reimport("experiment_runner")
-            with patch.object(er.subprocess, "run") as mock_run:
+            with patch_git_calls(er) as mock_run:
                 er.git_push_results(Path("/tmp/fake"), ["fake.json"])
             self.assertEqual(
                 mock_run.call_count, 0,
@@ -116,7 +126,7 @@ class QueuePushGate(unittest.TestCase):
         os.environ["PHASE3_DISABLE_RUNNER_QUEUE_PUSH"] = "1"
         try:
             er = _reimport("experiment_runner")
-            with patch.object(er.subprocess, "run") as mock_run:
+            with patch_git_calls(er) as mock_run:
                 er.git_push_queue()
             self.assertEqual(mock_run.call_count, 0)
         finally:
@@ -142,7 +152,7 @@ class StatusPushGate(unittest.TestCase):
         os.environ["PHASE3_DISABLE_RUNNER_HEARTBEAT_PUSH"] = "1"
         try:
             er = _reimport("experiment_runner")
-            with patch.object(er.subprocess, "run") as mock_run:
+            with patch_git_calls(er) as mock_run:
                 er.git_push_status(self._asm, self._status, "V3-EXQ-TEST")
             self.assertEqual(mock_run.call_count, 0)
         finally:
@@ -169,7 +179,7 @@ class HeartbeatAndCommandsGate(unittest.TestCase):
     def test_heartbeat_gate_on_skips_all_subprocess(self):
         os.environ["PHASE3_DISABLE_RUNNER_HEARTBEAT_PUSH"] = "1"
         rrc = _reimport("runner_remote_control")
-        with patch.object(rrc.subprocess, "run") as mock_run:
+        with patch_git_calls(rrc) as mock_run:
             rrc.push_heartbeat(self._asm, self._hb)
         self.assertEqual(mock_run.call_count, 0)
 
@@ -180,7 +190,7 @@ class HeartbeatAndCommandsGate(unittest.TestCase):
             "runner_commands" / "test.json"
         cmds.parent.mkdir(parents=True, exist_ok=True)
         cmds.write_text("{}")
-        with patch.object(rrc.subprocess, "run") as mock_run:
+        with patch_git_calls(rrc) as mock_run:
             rrc.push_commands(self._asm, cmds)
         self.assertEqual(mock_run.call_count, 0)
 
@@ -230,7 +240,7 @@ class ClaimPushGate(unittest.TestCase):
     def test_attempt_claim_gate_on_skips_all_subprocess(self):
         os.environ["PHASE3_DISABLE_RUNNER_CLAIM_PUSH"] = "1"
         er = _reimport("experiment_runner")
-        with patch.object(er.subprocess, "run") as mock_run:
+        with patch_git_calls(er) as mock_run:
             result = er.attempt_claim(self._qf, "V3-EXQ-TEST", "ree-cloud-2")
         self.assertEqual(
             mock_run.call_count, 0,
@@ -246,7 +256,7 @@ class ClaimPushGate(unittest.TestCase):
     def test_attempt_claim_legacy_queue_flag_also_gates(self):
         os.environ["PHASE3_DISABLE_RUNNER_QUEUE_PUSH"] = "1"
         er = _reimport("experiment_runner")
-        with patch.object(er.subprocess, "run") as mock_run:
+        with patch_git_calls(er) as mock_run:
             result = er.attempt_claim(self._qf, "V3-EXQ-TEST", "ree-cloud-2")
         self.assertEqual(mock_run.call_count, 0)
         self.assertEqual(result, "ok")
@@ -254,7 +264,7 @@ class ClaimPushGate(unittest.TestCase):
     def test_attempt_claim_gate_off_invokes_subprocess(self):
         # Default OFF (no gate env) -> legacy git mutex runs (pull/commit/push).
         er = _reimport("experiment_runner")
-        with patch.object(er.subprocess, "run") as mock_run:
+        with patch_git_calls(er) as mock_run:
             mock_run.return_value.returncode = 0  # pull ok, push ok -> "ok"
             er.attempt_claim(self._qf, "V3-EXQ-TEST", "ree-cloud-2")
         self.assertGreater(
@@ -270,7 +280,7 @@ class ClaimPushGate(unittest.TestCase):
             '"claimed_at": "2026-06-03T00:00:00Z"}}]}')
         os.environ["PHASE3_DISABLE_RUNNER_CLAIM_PUSH"] = "1"
         er = _reimport("experiment_runner")
-        with patch.object(er.subprocess, "run") as mock_run:
+        with patch_git_calls(er) as mock_run:
             er.release_claim(self._qf, "V3-EXQ-TEST", "ree-cloud-2")
         self.assertEqual(mock_run.call_count, 0)
         import json as _json

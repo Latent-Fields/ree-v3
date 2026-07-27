@@ -36,6 +36,9 @@ from unittest.mock import patch
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(HERE))
+
+from phase3_git_probe import patch_git_calls  # noqa: E402
 
 
 def _reimport(name):
@@ -79,7 +82,7 @@ class Phase3GateClaimPush(unittest.TestCase):
     def test_gate_on_attempt_claim_no_subprocess_but_writes_local(self):
         os.environ["PHASE3_DISABLE_RUNNER_QUEUE_PUSH"] = "1"
         er = _reimport("experiment_runner")
-        with patch.object(er.subprocess, "run") as mock_run:
+        with patch_git_calls(er) as mock_run:
             result = er.attempt_claim(self._qf, "V3-EXQ-TEST", "host-A")
         self.assertEqual(result, "ok")
         self.assertEqual(
@@ -97,7 +100,7 @@ class Phase3GateClaimPush(unittest.TestCase):
         # Sanity: outside Phase 3 the legacy git-as-mutex path still fires.
         os.environ.pop("PHASE3_DISABLE_RUNNER_QUEUE_PUSH", None)
         er = _reimport("experiment_runner")
-        with patch.object(er.subprocess, "run") as mock_run:
+        with patch_git_calls(er) as mock_run:
             # Mock returncode=0 so the function thinks pulls/commits succeeded.
             mock_run.return_value.returncode = 0
             mock_run.return_value.stderr = ""
@@ -115,7 +118,7 @@ class Phase3GateClaimPush(unittest.TestCase):
                                    "claimed_at": "2026-05-28T00:00:00Z"})
         os.environ["PHASE3_DISABLE_RUNNER_QUEUE_PUSH"] = "1"
         er = _reimport("experiment_runner")
-        with patch.object(er.subprocess, "run") as mock_run:
+        with patch_git_calls(er) as mock_run:
             er.release_claim(self._qf, "V3-EXQ-TEST", "host-A")
         self.assertEqual(
             mock_run.call_count, 0,

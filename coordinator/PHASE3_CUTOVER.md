@@ -118,7 +118,7 @@ Run before any maintenance window:
 | **hub** | `hub_sync_mode_safe` | Hub `/etc/ree-coordinator.env` has `SYNC_MODE=coordinator` (not `authoritative`) |
 | **hub** | `sync_daemon_active` | `ree-sync-daemon` active on ree-cloud-1 |
 | **hub** | `hub_git_clean` | `REE_assembly` checkout on hub: no precious dirty files |
-| **implementation** | `phase3_writer_stub` | `PHASE3_GIT_WRITER_READY` is false (writer not half-enabled) |
+| **implementation** | `phase3_writer_ready` | `PHASE3_GIT_WRITER_READY` is true (writer live). Was `phase3_writer_stub`, asserting *false* -- the pre-cutover "writer not half-enabled" invariant. `d98f9a5` flipped the flag on 2026-05-28 and cutover completed 2026-05-29, so the old polarity made this check, and hence the whole preflight exit code, fail unconditionally. Renamed and inverted 2026-07-27. |
 | **soak** | `phase2_shadow_metrics` | `check_shadow.py` exit 0 (HEALTHY, blocking div 0) when hub reachable |
 | **fleet** | `coordination_mode_uniform` | Every experiment host: `COORDINATION_MODE=coordinator` (no `git`/`shadow` mix) |
 | **fleet** | `no_mixed_result_writers` | No host still configured to git-push results while hub is authoritative (pre-check: all still on Phase 2 git path is OK) |
