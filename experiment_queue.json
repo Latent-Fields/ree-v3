@@ -11,18 +11,22 @@
       "queue_id": "V3-EXQ-826a",
       "title": "MECH-244: precision-weighted PE suppression -> self-sealing world model (CORRECTED -- E1 now ticked)",
       "script": "experiments/v3_exq_826a_mech244_precision_weighting_self_sealing.py",
-      "experiment_type": "v3_exq_826a_mech244_precision_weighting_self_sealing",
       "priority": 40,
       "machine_affinity": "any",
-      "status": "pending",
       "estimated_minutes": 60,
-      "episodes_per_run": 400,
-      "seeds": 5,
-      "conditions": 3,
-      "backlog_id": "EVB-0121",
-      "claim_id": "MECH-244",
       "supersedes": "v3_exq_826_mech244_precision_weighting_self_sealing_20260726T152827Z_v3",
-      "note": "Corrected re-run of V3-EXQ-826 per confirmed failure_autopsy_batch-822a-826-817a-827_2026-07-26.md section 1: 826's _run_phase() called agent.sense()+agent.clock.advance() every step but never agent._e1_tick(latent) (the only populator of _world_experience_buffer, per ree_core/agent.py:4678-4679, re-verified this session), so agent.compute_prediction_loss() (agent.py:8553-8567) hard-returned its zero-gradient stub the whole run and E1 never trained under any arm -- MECH-244 was never actually tested. THE FIX (only change vs 826): capture the latent and the ticks dict, call agent._e1_tick(latent) when ticks.get('e1_tick', False), mirroring the act()/act_with_split_obs() gate (agent.py:8208/8238) and the reference fix already landed for the analogous V3-EXQ-032-family defect (V3-EXQ-032d, ree-v3 bf4fbaaa00). No record_transition() lag-pairing needed here (826 never trains E2/E3; pe_precision scopes to agent.e1.parameters() only). Verified _e1_tick() introduces no action-selection/policy confound (forward pass + buffer/cache writes only) -- random-action design intent preserved exactly. Design (arms, seeds, DV, preconditions P1-P3, load-bearing C1, thresholds, DV-symmetry, ethics preflight) is otherwise byte-identical to 826, re-verified still correct. GOV-REUSE-1: not recoverable (826 is the only prior run and its E1 never trained) -> run. Re-derive brake (2.5b): 1 prior MECH-244 autopsy target (826 itself, competence_implementation_gap/instrument-defect, not substrate_ceiling), below the >=2 threshold -- does not fire. Smoke PASS (--dry-run, 2 seeds x 3 arms): e1_ticks fired (300 total across the dry-run, vs 0 in 826's defect), correctly self-routes substrate_not_ready_requeue on toy episode counts, dry-run manifest correctly relocated out of evidence/. validate_experiments.py --strict clean, 0 warnings."
+      "claim_id": "MECH-244",
+      "backlog_id": "EVB-0121",
+      "note": "Corrected re-run of V3-EXQ-826 per confirmed failure_autopsy_batch-822a-826-817a-827_2026-07-26.md section 1: 826's _run_phase() called agent.sense()+agent.clock.advance() every step but never agent._e1_tick(latent) (the only populator of _world_experience_buffer, per ree_core/agent.py:4678-4679, re-verified this session), so agent.compute_prediction_loss() (agent.py:8553-8567) hard-returned its zero-gradient stub the whole run and E1 never trained under any arm -- MECH-244 was never actually tested. THE FIX (only change vs 826): capture the latent and the ticks dict, call agent._e1_tick(latent) when ticks.get('e1_tick', False), mirroring the act()/act_with_split_obs() gate (agent.py:8208/8238) and the reference fix already landed for the analogous V3-EXQ-032-family defect (V3-EXQ-032d, ree-v3 bf4fbaaa00). No record_transition() lag-pairing needed here (826 never trains E2/E3; pe_precision scopes to agent.e1.parameters() only). Verified _e1_tick() introduces no action-selection/policy confound (forward pass + buffer/cache writes only) -- random-action design intent preserved exactly. Design (arms, seeds, DV, preconditions P1-P3, load-bearing C1, thresholds, DV-symmetry, ethics preflight) is otherwise byte-identical to 826, re-verified still correct. GOV-REUSE-1: not recoverable (826 is the only prior run and its E1 never trained) -> run. Re-derive brake (2.5b): 1 prior MECH-244 autopsy target (826 itself, competence_implementation_gap/instrument-defect, not substrate_ceiling), below the >=2 threshold -- does not fire. Smoke PASS (--dry-run, 2 seeds x 3 arms): e1_ticks fired (300 total across the dry-run, vs 0 in 826's defect), correctly self-routes substrate_not_ready_requeue on toy episode counts, dry-run manifest correctly relocated out of evidence/. validate_experiments.py --strict clean, 0 warnings.",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-07-27T06:00:20Z"
+      },
+      "conditions": 3,
+      "episodes_per_run": 400,
+      "experiment_type": "v3_exq_826a_mech244_precision_weighting_self_sealing",
+      "seeds": 5
     }
   ]
 }
