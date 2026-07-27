@@ -44,8 +44,24 @@ C15 "vs_boundary" mode is bit-identical: the bottleneck accumulator is never
     touched (regions_tracked == 0) even over many low-V_s evaluate() calls
 C16 bottleneck mode still respects R3 depth_cap: a bottleneck-triggering
     primitive at depth_cap is marked_unreliable, not decomposed
+
+R3 depth_cap / chunk_max_depth coupling guard (MECH-321 scoping spike
+2026-07-27 section 5a -- added 2026-07-27):
+C17 depth_cap is a DERIVED MIRROR of ARC-071's chunk_max_depth, not a free
+    parameter. depth_cap_config_issues() flags exactly two silent
+    mis-configurations -- INERT (> chunk_max_depth: the mark-unreliable-by-cap
+    branch is unreachable, so 4 and 100 are the same run) and DEGENERATE
+    (== 1: every chunk has depth >= 1, so MECH-321 collapses to pure
+    withholding) -- and REEAgent emits them as UserWarnings at the wiring
+    site, which is the only place both knobs are visible. The useful range
+    [2, chunk_max_depth] must stay SILENT and BEHAVIOURALLY UNCHANGED: this
+    is a warning, never a raise, because shipped MECH-321 experiments already
+    run the inert value 4.
 """
 
+import warnings
+
+import pytest
 import torch
 
 from ree_core.agent import REEAgent
@@ -58,6 +74,7 @@ from ree_core.policy import (
     PolicyChunking,
     PolicyDecomposition,
     PolicyDecompositionConfig,
+    depth_cap_config_issues,
 )
 from ree_core.utils.config import REEConfig
 
@@ -136,6 +153,10 @@ def test_c1_defaults_are_off_and_from_dims_forwards():
 
 
 def test_c1_from_dims_forwards_non_default_values():
+    # NB depth_cap=4 exceeds the default chunk_max_depth=3, so this config
+    # also trips the C17 inert-cap UserWarning. That is deliberate and
+    # harmless: the guard warns, never raises, and the value still wires
+    # through unchanged (asserted below). See C17 for the warning contract.
     cfg = REEConfig.from_dims(
         body_obs_dim=8,
         world_obs_dim=16,
@@ -588,3 +609,137 @@ def test_c16_bottleneck_at_depth_cap_marks_unreliable():
     assert d.marked_unreliable is True
     assert d.decomposed is False
     assert d.sub_elements == ()
+
+
+# ----------------------------------------------------------------------
+# C17 -- R3 depth_cap / ARC-071 chunk_max_depth coupling guard
+#
+# MECH-321 scoping spike 2026-07-27 section 5a
+# (REE_assembly/evidence/planning/mech321_decomposition_scale_scoping_spike_2026-07-27.md):
+# decomposition_depth_cap is NOT independent. The depth it tests is read off
+# traj.metadata["chunk_depth"], and ARC-071 cannot mint a chunk above
+# ChunkLibrary.max_depth -- so above chunk_max_depth the cap is unreachable
+# (INERT) and at 1 it drops every triggering chunk instead of re-tiling it
+# (DEGENERATE). Both were silent before this guard.
+# ----------------------------------------------------------------------
+_INERT = "is INERT"
+_DEGENERATE = "is DEGENERATE"
+
+
+def _guard_warnings(**cfg_kwargs):
+    """Build an agent and return only the guard's own warning messages."""
+    cfg = REEConfig.from_dims(
+        body_obs_dim=8,
+        world_obs_dim=16,
+        action_dim=4,
+        use_event_segmenter=True,
+        use_policy_decomposition=True,
+        **cfg_kwargs,
+    )
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        agent = REEAgent(cfg)
+    msgs = [
+        str(w.message)
+        for w in caught
+        if _INERT in str(w.message) or _DEGENERATE in str(w.message)
+    ]
+    return agent, msgs
+
+
+def test_c17_useful_range_is_silent_and_unchanged():
+    """[2, chunk_max_depth] is the useful range and must stay silent. This is
+    the do-no-harm pin: the guard must not fire on any currently-valid
+    configuration, including the shipped default of 3 against chunk_max_depth
+    3, and must not disturb what gets wired."""
+    for cap in (2, 3):
+        agent, msgs = _guard_warnings(
+            decomposition_depth_cap=cap, chunk_max_depth=3
+        )
+        assert msgs == [], "depth_cap=%d/chunk_max_depth=3 must be silent" % cap
+        assert agent.policy_decomposition is not None
+        assert agent.policy_decomposition.config.depth_cap == cap
+
+
+def test_c17_inert_above_chunk_max_depth_warns():
+    """> chunk_max_depth is unreachable: no chunk can be minted that deep, so
+    the mark-unreliable-by-cap branch never runs and 4 behaves exactly like
+    3. Warned, not raised -- shipped MECH-321 experiments run 4."""
+    agent, msgs = _guard_warnings(decomposition_depth_cap=4, chunk_max_depth=3)
+    assert len(msgs) == 1
+    assert _INERT in msgs[0]
+    assert "chunk_max_depth=3" in msgs[0]
+    # Behaviour is unchanged by the warning -- the value still wires through.
+    assert agent.policy_decomposition.config.depth_cap == 4
+
+
+def test_c17_degenerate_cap_of_one_warns():
+    """depth_cap == 1 disables decomposition entirely (every chunk has
+    depth >= 1 -> every triggering chunk is marked unreliable rather than
+    re-tiled), degenerating MECH-321 into a pure withholding mechanism.
+    validate() permits it (>= 1), so only this guard surfaces it."""
+    agent, msgs = _guard_warnings(decomposition_depth_cap=1, chunk_max_depth=3)
+    assert len(msgs) == 1
+    assert _DEGENERATE in msgs[0]
+    assert agent.policy_decomposition.config.depth_cap == 1
+
+
+def test_c17_guard_tracks_chunk_max_depth_not_a_hardcoded_3():
+    """The ceiling is ARC-071's knob, not a constant: raising chunk_max_depth
+    makes a previously-inert cap valid, and lowering it makes a previously-
+    valid cap inert. This is what 'derived mirror' means operationally."""
+    _, msgs_ok = _guard_warnings(decomposition_depth_cap=4, chunk_max_depth=5)
+    assert msgs_ok == []
+    _, msgs_inert = _guard_warnings(decomposition_depth_cap=3, chunk_max_depth=2)
+    assert len(msgs_inert) == 1
+    assert _INERT in msgs_inert[0]
+
+
+def test_c17_predicate_is_pure_and_ascii():
+    """depth_cap_config_issues() is the contract-pinnable predicate: pure,
+    no agent needed, and ASCII-clean because it reaches stderr (repo rule)."""
+    assert depth_cap_config_issues(3, 3) == ()
+    assert depth_cap_config_issues(2, 3) == ()
+    assert depth_cap_config_issues(2, 2) == ()
+    assert len(depth_cap_config_issues(100, 3)) == 1
+    assert len(depth_cap_config_issues(1, 3)) == 1
+    # depth_cap=1 is degenerate whatever the ceiling -- reported once, and as
+    # DEGENERATE (the more actionable diagnosis) rather than as INERT.
+    only = depth_cap_config_issues(1, 1)
+    assert len(only) == 1 and _DEGENERATE in only[0]
+    for cap, ceiling in ((100, 3), (1, 3), (4, 3), (3, 2)):
+        for msg in depth_cap_config_issues(cap, ceiling):
+            assert msg.isascii(), "guard message must be ASCII-only: %r" % msg
+
+
+def test_c17_guard_never_raises_and_is_off_when_decomposition_is_off():
+    """No warning when MECH-321 itself is off: an inert cap on a config that
+    never instantiates the operator is not a mis-configuration to shout
+    about, and the master-OFF path must stay bit-identical (C1)."""
+    cfg = REEConfig.from_dims(
+        body_obs_dim=8,
+        world_obs_dim=16,
+        action_dim=4,
+        decomposition_depth_cap=100,
+        chunk_max_depth=3,
+    )
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        agent = REEAgent(cfg)
+    assert agent.policy_decomposition is None
+    assert [w for w in caught if _INERT in str(w.message)] == []
+
+
+def test_c17_warning_category_is_userwarning():
+    """Pinned category, so a caller can filter or escalate the guard
+    specifically (e.g. -W error::UserWarning in an experiment harness)."""
+    cfg = REEConfig.from_dims(
+        body_obs_dim=8,
+        world_obs_dim=16,
+        action_dim=4,
+        use_event_segmenter=True,
+        use_policy_decomposition=True,
+        decomposition_depth_cap=1,
+    )
+    with pytest.warns(UserWarning, match=_DEGENERATE):
+        REEAgent(cfg)

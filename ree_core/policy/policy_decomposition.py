@@ -71,6 +71,15 @@ DEPTH CAP (R3, conf 0.78; multi-level, Badre & D'Esposito 2009 rostro-caudal
     does not own (see "MECH-321 itself reads only the boundary signal" in the
     claims.yaml functional_restatement).
 
+    depth_cap IS NOT A FREE PARAMETER -- it is a DERIVED MIRROR of ARC-071's
+    chunk_max_depth, because the depth it tests is that hierarchy's depth (read
+    off traj.metadata["chunk_depth"], which ARC-071 cannot mint above
+    ChunkLibrary.max_depth). Its useful range is [2, chunk_max_depth]: above
+    chunk_max_depth it is INERT, and at 1 it is DEGENERATE (MECH-321 becomes a
+    pure withholding mechanism). Both are warned about at the REEAgent wiring
+    site via depth_cap_config_issues() below. See the MECH-321 scoping spike
+    2026-07-27 section 5a.
+
 R5 BOTTLENECK TRIGGER MODE (trigger_mode="bottleneck"; added 2026-07-25)
     The R1 trigger above (V_s drop OR boundary) is the DEFAULT and is what
     ARM_1 of the MECH-321 discriminative validation uses. ARM_2 needs a
@@ -236,6 +245,71 @@ class PolicyDecompositionConfig:
             raise ValueError("bottleneck_region_quant must be > 0")
         if self.bottleneck_region_dims < 1:
             raise ValueError("bottleneck_region_dims must be >= 1")
+
+
+# ----------------------------------------------------------------------
+# R3 depth_cap / ARC-071 chunk_max_depth coupling guard
+# (MECH-321 scoping spike 2026-07-27 section 5a,
+#  REE_assembly/evidence/planning/mech321_decomposition_scale_scoping_spike_2026-07-27.md)
+#
+# depth_cap is NOT a free scalar. The `depth` it tests is read straight off
+# traj.metadata["chunk_depth"] in HippocampalModule._apply_policy_decomposition,
+# and ARC-071 cannot mint a chunk above ChunkLibrary.max_depth. So depth_cap is
+# a DERIVED MIRROR of chunk_max_depth, and its useful range is
+# [2, chunk_max_depth]:
+#
+#   depth_cap >  chunk_max_depth  -> INERT. No chunk can reach the cap, so the
+#       mark-unreliable-by-cap branch in evaluate() is unreachable and
+#       _recursive_leaf_tiles' `iterations < depth_cap` bound stops binding.
+#       4 and 100 are the same run.
+#   depth_cap == 1               -> DEGENERATE. Every chunk has depth >= 1, so
+#       every triggering chunk is marked unreliable rather than re-tiled and
+#       MECH-321 collapses into a pure WITHHOLDING mechanism (no decomposition
+#       ever happens).
+#
+# Both are silent today: PolicyDecompositionConfig.validate() only checks
+# depth_cap >= 1, and it cannot check the coupling because it never sees
+# chunk_max_depth. The emit site is therefore REEAgent's wiring block, which
+# reads both knobs (ree_core/agent.py). This function is the pure predicate so
+# the condition can be contract-pinned without constructing an agent.
+#
+# WARN, do not raise: >= 3 shipped MECH-321 experiments and an existing
+# contract already run depth_cap=4, which is inert-but-harmless. Failing them
+# would change the behaviour of currently-valid configurations.
+# ----------------------------------------------------------------------
+def depth_cap_config_issues(depth_cap: int, chunk_max_depth: int) -> Tuple[str, ...]:
+    """Return ASCII warning messages for an inert or degenerate depth_cap.
+
+    Empty tuple means the pairing is in the useful range. Pure and
+    side-effect-free -- REEAgent turns each message into a warnings.warn().
+    """
+    issues: List[str] = []
+    cap = int(depth_cap)
+    ceiling = int(chunk_max_depth)
+
+    if cap == 1:
+        issues.append(
+            "decomposition_depth_cap=1 is DEGENERATE: every ARC-071 chunk has "
+            "depth >= 1, so every triggering chunk is marked unreliable rather "
+            "than re-tiled and MECH-321 degenerates into a pure withholding "
+            "mechanism (decomposition never fires). Use a value in "
+            "[2, chunk_max_depth] (chunk_max_depth=%d) to get decomposition."
+            % ceiling
+        )
+    elif cap > ceiling:
+        issues.append(
+            "decomposition_depth_cap=%d is INERT: it exceeds ARC-071's "
+            "chunk_max_depth=%d, and MECH-321's depth is that hierarchy's "
+            "depth, so no chunk can ever reach the cap. The "
+            "mark-unreliable-by-cap branch is unreachable and the recursive "
+            "leaf-tiling bound stops binding -- %d behaves identically to %d. "
+            "depth_cap mirrors chunk_max_depth; its useful range is "
+            "[2, chunk_max_depth]. Raise chunk_max_depth if deeper "
+            "decomposition is what you want."
+            % (cap, ceiling, cap, ceiling)
+        )
+
+    return tuple(issues)
 
 
 @dataclass

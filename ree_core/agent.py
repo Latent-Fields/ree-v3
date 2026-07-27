@@ -34,6 +34,7 @@ from typing import Optional, Dict, List, Any, Tuple
 from dataclasses import dataclass
 from collections import Counter, deque
 import math
+import warnings
 
 import torch
 import torch.nn as nn
@@ -128,6 +129,7 @@ from ree_core.policy import (
     PolicyChunkingConfig,
     PolicyDecomposition,
     PolicyDecompositionConfig,
+    depth_cap_config_issues,
     RhoMaintenanceRamp,
     RhoMaintenanceRampConfig,
     DifficultyGatedProposalEntropy,
@@ -1322,6 +1324,19 @@ class REEAgent(nn.Module):
                     "hippocampal.use_event_segmenter=True (MECH-321 queries "
                     "MECH-288's boundary_on(stream=rollout, ...))."
                 )
+            # R3 depth_cap coupling guard (MECH-321 scoping spike 2026-07-27
+            # section 5a). decomposition_depth_cap is a DERIVED MIRROR of
+            # ARC-071's chunk_max_depth -- above it the cap is INERT (no chunk
+            # can reach it), and at 1 it is DEGENERATE (MECH-321 collapses to
+            # pure withholding). PolicyDecompositionConfig.validate() cannot
+            # see chunk_max_depth, so this is the only site with both knobs.
+            # WARN not raise: shipped MECH-321 experiments already run the
+            # inert value 4, and this must not change their behaviour.
+            for _issue in depth_cap_config_issues(
+                getattr(config, "decomposition_depth_cap", 3),
+                getattr(config, "chunk_max_depth", 3),
+            ):
+                warnings.warn(_issue, UserWarning, stacklevel=2)
             self.policy_decomposition = PolicyDecomposition(
                 config=PolicyDecompositionConfig(
                     use_policy_decomposition=True,

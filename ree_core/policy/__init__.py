@@ -50,6 +50,7 @@ from ree_core.policy.policy_decomposition import (
     DecompositionDecision,
     PolicyDecomposition,
     PolicyDecompositionConfig,
+    depth_cap_config_issues,
 )
 from ree_core.policy.rho_maintenance_ramp import (
     RhoMaintenanceRamp,
@@ -76,6 +77,7 @@ __all__ = [
     "DecompositionDecision",
     "PolicyDecomposition",
     "PolicyDecompositionConfig",
+    "depth_cap_config_issues",
     "CandidateRuleField",
     "CandidateRuleFieldConfig",
     "CommitMaintenanceRelease",
