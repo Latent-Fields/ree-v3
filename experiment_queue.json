@@ -6,40 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-830",
-      "title": "MECH-321 scale-resolved rollout boundary diagnostic (spike 5b) on the 816 harness",
-      "script": "experiments/v3_exq_830_mech321_scale_resolved_rollout_boundary.py",
-      "priority": 45,
-      "machine_affinity": "any",
-      "estimated_minutes": 330,
-      "note": "DIAGNOSTIC, claim_ids=[] (bears on MECH-321 / MECH-288 / ARC-070; weights nothing). Executes section 5b of mech321_decomposition_scale_scoping_spike_2026-07-27 on the EXISTING 816 harness (816d's dose-escalated harshened env, verbatim) -- no new env work. QUESTION: do MECH-288's fast (PE/z-score over z_world+z_self) and slow (BOCPD over z_goal) scales fire at DISSOCIABLE rollout positions once the slow scale is given its stream? This is a THIRD campaign axis -- trigger COMPOSITION -- attacking the ALWAYS-FIRES end (816d decomp_fired_frac_arm1=1.0) that neither open axis (816's trigger sensitivity, 816c's trigger validity) addresses; MECH-321's declared PRIMARY V_s trigger has never fired campaign-wide (816c vs_trigger_fires_total=0). SUBSTRATE ALREADY LANDED, not rebuilt: ree-v3 9a6e7f3976 (use_decomposition_scale_resolved_probe, default OFF; per-scale get_state counters). ARMS: both run MECH-321; manipulation is the probe flag alone. ARM_PROBE_OFF is the attribution control and is NOT optional -- the flag is not a pure diagnostic (with z_goal present the slow scale can newly reach boundary.fired and change decisions). PASS/FAIL: the load-bearing criterion is C_DECIDABLE (did the instrument return a reading), NOT 'did slow fire' -- so all THREE pre-registered spike readings (dissociable / slow-never-fires / slow-only-with-fast) score as informative results and only a not-ready instrument FAILs. POSITION READOUT is driver-side (wraps _evaluate_decomposition_ticks and reads per-scale counter deltas per tick); no substrate increment, and instrumentation coverage is a gated precondition. AUTHORING FOUND 3 LAYERS OF SILENT INERTNESS the readiness gate refused twice before queuing: (a) from_dims z_goal_enabled defaults False -> goal_state None; (b) from_dims benefit_threshold=0.1 is unreachable on this env dose (measured 2941 random-policy steps: max benefit_exposure 0.1018, >0.1 on 0.03% of steps) -> now 0.05, the substrate's own enable_goal_stream default (config.py:5095), seeding on 8.1% of steps; (c) ROOT CAUSE -- the 816 harness never calls agent.update_z_goal(), the sole z_goal write hook, so z_goal was the zero vector at ANY threshold. Now called once per step in BOTH arms, kwargs-only per _harness.py StepHarness invariant 2 (the EXQ-471/475/483 cohort bug). Declared side effect: update_z_goal is also the SD-024 benefit-attractor producer, so it un-zeroes the SD-025 curiosity bonus -- identical in both arms (not a confound) but ARM_PROBE_OFF is therefore NOT bit-identical to 816d ARM_1 and must not be cited as a reproduction of it. KNOWN ASYMMETRY BOUNDED NOT ASSUMED AWAY: the flag covers the pre-commitment sweep only; agent.py's mid-execution hook keeps its own {z_world,z_self} signature, so midexec ticks advance fast but never slow. Manifest records naive AND precommit-corrected slow fractions plus midexec_dilution_frac. Extending the midexec hook is a separate /implement-substrate increment, named not done. GOV-REUSE-1: decisive readout decomp_n_boundary_fires_slow / per-scale rollout position is absent from the entire corpus (reanalysis_query over 726 manifests: 0 carry it; the counters landed 2026-07-27) -> not recoverable, must run. Re-derive brake N/A (claim_ids empty; new axis, not a lettered re-pose). Smoke PASS (gate green, decidable=True, zgoal present_frac 0.33 norm_std 0.0097, coverage 1.0, control arm slow-silent).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "DLAPTOP-4.local",
-        "claimed_at": "2026-07-27T18:27:03Z"
-      },
-      "bears_on": [
-        "MECH-321",
-        "MECH-288",
-        "ARC-070"
-      ],
-      "cites": {
-        "harness_predecessors": [
-          "V3-EXQ-816",
-          "V3-EXQ-816b",
-          "V3-EXQ-816c",
-          "V3-EXQ-816d"
-        ],
-        "scoping_spike": "mech321_decomposition_scale_scoping_spike_2026-07-27 (section 5b)",
-        "substrate_commit": "ree-v3 9a6e7f3976"
-      },
-      "claim_ids": [],
-      "conditions": 2,
-      "episodes_per_run": 60,
-      "experiment_type": "v3_exq_830_mech321_scale_resolved_rollout_boundary",
-      "seeds": 5
-    }
-  ]
+  "items": []
 }
