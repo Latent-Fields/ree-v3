@@ -1736,6 +1736,35 @@ def _set_goal_pipeline_frozen(agent, frozen: bool) -> None:
     otherwise admit a write. Implemented by mutating the runtime flags
     on agent.config so the existing per-tick guards take the short-circuit
     branch. No ree_core changes required.
+
+    SCOPE -- read this before calling it "isolation" (2026-07-27 triage,
+    REE_assembly/evidence/planning/scaffold_goal_freeze_e3_read_path_triage_2026-07-27.md).
+    This helper silences the MECH-295/307 pathways and NOTHING ELSE. It
+    deliberately does NOT touch the two goal READ paths, which are gated
+    independently:
+
+      * E3: `e3_selector.score_trajectory` subtracts
+        `goal_weight * goal_proximity` under `E3Config.goal_weight > 0.0`
+        AND `goal_state.is_active()`. `REEConfig.from_dims` defaults
+        goal_weight to 1.0 (NOT the E3Config dataclass default of 0.0),
+        so it is live for essentially every scaffold-built agent.
+      * E1: `GoalConfig.e1_goal_conditioned` (default True).
+
+    By the time run_stage0b/run_p0/run_hazard_avoidance call this with
+    frozen=True, Stage-0 has already seeded z_goal, so `is_active()` is
+    True and the E3 goal term fires on EVERY tick of those stages.
+    Measured on the 460c dry-run config, 3 seeds: goal_active_frac 1.000
+    in all three stages, and removing the goal term counterfactually moves
+    the cost-argmin candidate on 38% of Stage-H ticks and 19% of P0 ticks.
+    So a frozen stage is "the goal cannot be REWRITTEN and cannot drive
+    MECH-295/307", not "the goal has no influence".
+
+    Left as-is on purpose: widening this to zero e3.goal_weight would
+    change behaviour for all 78 scaffold importers and break comparability
+    with every landed scaffold run, and no landed manifest's conclusion
+    rests on strict isolation. A future experiment that genuinely needs
+    the strict form should add an opt-in, default-off knob rather than
+    change this call.
     """
     if frozen:
         agent.config.use_mech295_liking_bridge = False
@@ -2146,6 +2175,14 @@ class ScaffoldedSD054OnboardingScheduler:
         Phase 0: train E1+E2 on the scaffolded SD-054 env with goal
         pipeline frozen. Encoder + E2 + E3 warm up on the reef refuge
         substrate while the agent spawns inside the reef band.
+
+        "Frozen" is scoped -- see `_set_goal_pipeline_frozen`. z_goal is not
+        rewritten and MECH-295/307 are silenced, but when P0 follows Stage-0
+        the E3 goal term still fires on every tick (measured: goal_active_frac
+        1.000, cost-argmin moves on 19% of P0 ticks if the term is removed).
+        The five scaffold importers that leave `scaffold_stage0_enabled` False
+        and never call `update_z_goal` before P0 are the exception -- z_goal is
+        zero-init there, `is_active()` is False, and the term is genuinely inert.
         """
         if not self.enabled:
             self._p0_result = P0OnboardingResult(
@@ -2210,9 +2247,26 @@ class ScaffoldedSD054OnboardingScheduler:
         hazards are present at the target density / proximity_harm, foraging
         pressure is minimal, and hazard_food_attraction=0 so foraging does not
         raise hazard exposure -- the policy learns avoidance on its own. E1+E2
-        (+E3 running-variance) train exactly as in run_p0; the agent's E3 harm
-        evaluation drives survival without the goal pipeline. P1 is then entered
+        (+E3 running-variance) train exactly as in run_p0. P1 is then entered
         by an already-survival-competent policy.
+
+        WHAT "FROZEN" DOES AND DOES NOT MEAN HERE (corrected 2026-07-27; the
+        previous wording, "the agent's E3 harm evaluation drives survival
+        WITHOUT the goal pipeline", overclaimed and is retracted). Frozen ==
+        z_goal is not rewritten (seed_goal=False) and MECH-295/307 are
+        short-circuited. It does NOT silence the E3 goal term: Stage-0 has
+        already seeded z_goal, `is_active()` is True, and `E3Config.goal_weight`
+        resolves to 1.0 via `REEConfig.from_dims`, so `score_trajectory`
+        subtracts `goal_weight * goal_proximity` on every tick of this stage.
+        Measured (460c dry-run config, 3 seeds, 586 Stage-H E3 ticks):
+        goal_active_frac 1.000; the goal term's within-tick candidate spread is
+        0.65x the harm term's and ~17% of the summed component spread; removing
+        it counterfactually moves the cost-argmin candidate on 38% of ticks --
+        a Stage-H profile close to P1's (46%), where the goal is deliberately
+        live. So avoidance here is learned WITH a constant goal bias present,
+        not in goal-free isolation. The isolation this stage does deliver is
+        against a *changing* goal and against MECH-295/307 drive. Full triage:
+        REE_assembly/evidence/planning/scaffold_goal_freeze_e3_read_path_triage_2026-07-27.md
 
         Survival readout: median episode length over the last
         scaffold_hazard_stage_stability_window episodes vs
@@ -2242,8 +2296,9 @@ class ScaffoldedSD054OnboardingScheduler:
             )
             return self._hazard_result
 
-        # Goal pipeline FROZEN (isolation): mech295/mech307 short-circuit + no
-        # update_z_goal call (seed_goal=False) -> z_goal is untouched here.
+        # Goal pipeline FROZEN: mech295/mech307 short-circuit + no update_z_goal
+        # call (seed_goal=False) -> z_goal is untouched here. NOT goal-free --
+        # the E3 goal term still fires on every tick (see the docstring above).
         _set_goal_pipeline_frozen(agent, frozen=True)
         env = _build_env(self.cfg, phase="hazard")
         agent.train()

@@ -22,7 +22,15 @@ WHY THE FREEZE IS NOT THE SCAFFOLD'S OWN "FROZEN GOAL PIPELINE". The scheduler h
 purpose-built primitive for holding the goal still, `_set_goal_pipeline_frozen(agent,
 frozen)`, used by Stage-0b consolidation, P0 and Stage-H. It is a PAIR: skip
 `update_z_goal` AND short-circuit the MECH-295 liking bridge + MECH-307 conjunction, so
-the held goal cannot drive behaviour. `run_p1` sets `frozen=False` and nothing sets it
+the held goal cannot drive MECH-295/307. (CORRECTION, 2026-07-27 follow-on triage: this
+file originally said the pair means "the held goal cannot drive behaviour". It does not.
+The pair silences the goal WRITE paths only; the two goal READ paths -- the E3
+`goal_weight * goal_proximity` term and E1 goal-conditioning -- are gated independently
+and stay LIVE inside every frozen stage. Measured on the 460c dry-run config over 3
+seeds: goal_active_frac 1.000 in Stage-0b / P0 / Stage-H, and removing the E3 goal term
+counterfactually moves the cost-argmin candidate on 39% / 19% / 38% of those stages'
+ticks. See `scaffold_goal_freeze_e3_read_path_triage_2026-07-27.md` and the
+`..._does_not_touch_the_read_paths` pin below.) `run_p1` sets `frozen=False` and nothing sets it
 back, so the agent reaches the measurement phase with the goal held still but the
 consumers LIVE -- a combination the scaffold itself never constructs. The measurement
 phase inherits exactly half of the primitive, silently: no script in the family
@@ -154,10 +162,11 @@ def _scaffold_tree():
 def test_goal_pipeline_freeze_helper_silences_the_consumers():
     """`_set_goal_pipeline_frozen(frozen=True)` must also short-circuit MECH-295/307.
 
-    This pairing is what makes the scaffold's in-curriculum freeze windows a genuine
-    isolation rather than "act on a stale goal". If a future edit drops the consumer
-    half, the scaffold's own frozen stages silently acquire the same defect the
-    measurement phase has.
+    This pairing is what stops a held goal from driving the MECH-295 liking bridge and
+    the MECH-307 conjunction during the scaffold's own freeze windows. If a future edit
+    drops this half, those stages lose even that much. It is NOT full goal isolation --
+    see `test_goal_pipeline_freeze_does_not_touch_the_read_paths` immediately below,
+    which pins the deliberate scope limit.
     """
     tree = _scaffold_tree()
     fn = next(
@@ -173,6 +182,47 @@ def test_goal_pipeline_freeze_helper_silences_the_consumers():
     }
     assert "use_mech295_liking_bridge" in written
     assert "use_mech307_conjunction" in written
+
+
+def test_goal_pipeline_freeze_does_not_touch_the_read_paths():
+    """The freeze's scope limit, pinned as a DELIBERATE decision (2026-07-27 triage).
+
+    `_set_goal_pipeline_frozen` writes exactly two flags. It does NOT zero
+    `E3Config.goal_weight` and does NOT clear `GoalConfig.e1_goal_conditioned`, so the
+    E3 `goal_weight * goal_proximity` term and E1 goal-conditioning stay live inside
+    every "frozen" stage once Stage-0 has seeded z_goal. That is why
+    `run_hazard_avoidance`'s docstring no longer claims survival is learned "without the
+    goal pipeline".
+
+    This asserts the CURRENT, INTENTIONAL scope. Widening the helper is a real option
+    (it would make Stage-H genuinely goal-free) but it changes behaviour for all 78
+    scaffold importers and breaks comparability with every landed scaffold run, and no
+    landed manifest's recorded conclusion rests on strict isolation. If a future change
+    wants the strict form, add an opt-in default-off knob and update this test
+    deliberately -- do not let the widening arrive as an unremarked "fix".
+    """
+    tree = _scaffold_tree()
+    fn = next(
+        (n for n in ast.walk(tree)
+         if isinstance(n, ast.FunctionDef) and n.name == "_set_goal_pipeline_frozen"),
+        None)
+    assert fn is not None
+
+    written = {
+        t.attr
+        for n in ast.walk(fn) if isinstance(n, ast.Assign)
+        for t in n.targets if isinstance(t, ast.Attribute)
+    }
+    assert written == {"use_mech295_liking_bridge", "use_mech307_conjunction"}, (
+        f"_set_goal_pipeline_frozen's write set changed to {sorted(written)}. If a "
+        "goal READ path (goal_weight / e1_goal_conditioned) was added, this is a "
+        "behaviour change for all 78 scaffold importers -- see the docstring."
+    )
+    # And the read paths must still be live for a family-shaped agent, so the scope
+    # limit above actually bites (this is the fact the corrected docstrings assert).
+    agent = _make_agent()
+    assert agent.e3.config.goal_weight > 0.0
+    assert agent.config.goal.e1_goal_conditioned is True
 
 
 def test_scaffold_hands_off_with_the_goal_consumers_unfrozen():
