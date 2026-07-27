@@ -464,6 +464,38 @@ def test_dzg_is_warn_only_under_strict_and_paths():
 #   - 701/a/b/c, 718/718a, 798  FAIL / non_contributory -- all seven set
 #                `z_goal_enabled=True, goal_weight=0.5` and then read nothing goal-related;
 #                the knobs were inert, identically in every arm.
+#                798 RE-VERIFIED against the driver 2026-07-28 (not just against the
+#                docstring), after its dead stream was confirmed by dry-run smoke
+#                (`active_frac=0.000, writer_calls=0`). Three inertness facts, each read
+#                at the call site rather than inferred: (i) the E3 goal term is gated on
+#                `goal_state.is_active()` (e3_selector.py:1180-1188), so `goal_weight=0.5`
+#                is never applied; (ii) 798 ALSO sets `e1_goal_conditioned=True` -- not
+#                named in the original note -- and that path is gated on `is_active()` too
+#                (agent.py:4844-4859), so E1 receives `z_goal=None`, i.e. the flag-ON and
+#                flag-OFF runs are IDENTICAL rather than E1 being fed a constant zero;
+#                (iii) the DV itself, `metrics["e3_prediction_error"]` out of
+#                `update_residue`, contains no goal reference at all. Arm-symmetry is
+#                structural, not coincidental: `_make_agent(env)` takes only env dims, so
+#                the config is bit-identical across all five arms and only
+#                `world_rule_shift_{interval,depth}` and `obs_noise_sigma` vary. Residual
+#                caveat, external not internal: a LIVE z_goal would have changed action
+#                selection and hence the trajectories the PE is computed over, so 798
+#                measures its producer under a goal-BLIND policy. That is a
+#                generalisability bound on the ladder's magnitude, not on its direction --
+#                shift rate is the only arm-varying quantity, and more shifts invalidate
+#                more learned structure under any fixed policy.
+#                SEPARATE DEFECT, found during that re-verification and NOT caused by the
+#                dead stream: 798's C4 (the anti-artifact learnability criterion, and the
+#                sole reason ARM_4_NOISE exists) was UNREADABLE BY CONSTRUCTION.
+#                `_decay_frac` needs >=5 samples in bin[13+], `SSL_BIN_EDGES=(2,5,12)`
+#                puts bin 3 at `steps_since_world_rule_shift > 12`, and both arms C4 reads
+#                (ARM_3_HIGH, ARM_4_NOISE) run at `interval=10`, so that counter never
+#                exceeds 9. Landed bin counts are `{0:270, 1:270, 2:360, 3:0}` on all three
+#                seeds of both arms -- deterministic, not sparse sampling. `evaluate()`
+#                routes on `not c4_pass` without consulting `c4_readable`, so the manifest
+#                carries an "ARTIFACT WARNING ... does NOT decay under training" note for a
+#                quantity that was never measured. Do NOT read that note as evidence.
+#                This is what a 798a should fix; it needs no z_goal wiring.
 #   - 615        PASS / supports / ARC-065 -- the ONLY landed `supports` carrier. Its
 #                C1/C2/C3 are `selected_action_entropy` and `n_unique_classes` contrasts
 #                between arms; none reads z_goal, and `goal_weight=0.5` was set
@@ -474,9 +506,10 @@ def test_dzg_is_warn_only_under_strict_and_paths():
 _PINNED_CORPUS_FIRE_COUNT = 12
 
 
-def test_dzg_corpus_fire_rate_is_pinned():
-    fired = [p for p in sorted(EXPERIMENTS_DIR.glob("v3_exq_*.py"))
-             if V.dead_z_goal_stream_lint(p) is not None]
+def test_dzg_corpus_fire_rate_is_pinned(corpus_scan):
+    # Shared corpus walk -- same file set, lint and order as the old inline
+    # comprehension; see tests/contracts/conftest.py.
+    fired = corpus_scan["dead_z_goal_stream_lint"]
     assert len(fired) == _PINNED_CORPUS_FIRE_COUNT, (
         f"dead-z_goal-stream fire count moved: {len(fired)} vs pinned "
         f"{_PINNED_CORPUS_FIRE_COUNT}. If a NEW script is in this list, fix the script "
