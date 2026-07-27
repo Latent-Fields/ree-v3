@@ -28,7 +28,22 @@ def test_queue_schema_valid():
 
 
 def test_supersedes_targets_well_formed():
-    """Any `supersedes` field should be a queue_id-shaped string."""
+    """Any `supersedes` field should be a queue_id-shaped string.
+
+    A QUEUE entry supersedes a QUEUE_ID ("V3-EXQ-826"); a run MANIFEST
+    supersedes a RUN_ID ("v3_exq_826_..._v3"). Same field name, two
+    artifacts -- see CLAUDE.md "Supersession and evidence validity". Writing
+    the run_id here is the recurring slip.
+
+    This asserts over the LIVE queue, which is DB-authoritative and mutates
+    continuously, so a failure is transient data, not a code regression: it
+    clears by itself once the offending item leaves the queue, which makes it
+    easy to mistake for flake. Confirmed 2026-07-27: V3-EXQ-826a (611e8a9)
+    carried a run_id and reddened trunk until the item completed out.
+    `validate_queue.py` now WARNs on the same shape at commit time, which is
+    where it can actually be fixed -- if this test fires, that warning was
+    ignored or bypassed.
+    """
     queue_path = REPO_ROOT / "experiment_queue.json"
     data = json.loads(queue_path.read_text())
     bad = []
@@ -37,5 +52,13 @@ def test_supersedes_targets_well_formed():
         if sup is None:
             continue
         if not RE_QUEUE_ID.match(sup):
-            bad.append(f"{item.get('queue_id')}: supersedes='{sup}'")
-    assert not bad, "malformed supersedes targets:\n  " + "\n  ".join(bad)
+            hint = ""
+            m = re.match(r"^v(\d+)_exq_(\d+[a-z]?)_", sup)
+            if m:
+                hint = (f"  -> looks like a run_id; use "
+                        f"'V{m.group(1)}-EXQ-{m.group(2).upper()}' here and "
+                        f"put the run_id in the manifest instead")
+            bad.append(f"{item.get('queue_id')}: supersedes='{sup}'{hint}")
+    assert not bad, (
+        "malformed supersedes targets (queue entries take a queue_id; the "
+        "run_id form belongs in the manifest):\n  " + "\n  ".join(bad))

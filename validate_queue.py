@@ -804,6 +804,39 @@ def validate(queue_path: Path = QUEUE_FILE) -> list[str]:
                 f"{prefix}: estimated_minutes must be > 0, got {est}"
             )
 
+        # supersedes shape (WARN, non-blocking). CLAUDE.md "Supersession and
+        # evidence validity" splits the field by artifact: the QUEUE entry
+        # carries the superseded QUEUE_ID ("V3-EXQ-826"), while the run
+        # MANIFEST carries the superseded RUN_ID ("v3_exq_826_..._v3"). Putting
+        # a run_id here is the easy slip, because the two fields share a name
+        # and an author writes both in the same sitting.
+        #
+        # Why WARN and not an error: this validator gates the PreToolUse commit
+        # hook AND the runner's startup AND CI on main, and the queue file is
+        # DB-authoritative -- materialised by the hub's phase3_queue_writer from
+        # the coordinator DB. An ERROR on a cosmetic field could therefore
+        # refuse a fleet-wide runner start over data no session can hand-edit.
+        # A WARN reaches the one place it can be acted on: the author's commit.
+        #
+        # Confirmed 2026-07-27: V3-EXQ-826a landed in 611e8a9 with
+        # supersedes="v3_exq_826_mech244_precision_weighting_self_sealing_
+        # 20260726T152827Z_v3", which reddened
+        # tests/preflight/test_queue_integrity.py::
+        # test_supersedes_targets_well_formed on trunk until the item left the
+        # queue. Nothing warned the author at write time.
+        _sup = item.get("supersedes")
+        if isinstance(_sup, str) and _sup and not RE_QUEUE_ID.match(_sup):
+            _hint = ""
+            _m = re.match(r"^v(\d+)_exq_(\d+[a-z]?)_", _sup)
+            if _m:
+                _hint = (f" That looks like a run_id; the queue_id form is "
+                         f"'V{_m.group(1)}-EXQ-{_m.group(2).upper()}'.")
+            _LAST_WARNINGS.append(
+                f"{prefix}: supersedes='{_sup}' is not queue_id-shaped.{_hint}"
+                f" Queue entries take the superseded QUEUE_ID; the run_id form "
+                f"belongs in the manifest's supersedes field."
+            )
+
         # claim-tag presence (WARN, non-blocking). Every queue item should declare
         # either claim_id / a non-empty claim_ids (the claim(s) it tests) OR an
         # explicit claim_ids: [] marking an intentional claimless diagnostic.
