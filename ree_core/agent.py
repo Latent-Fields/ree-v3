@@ -5440,6 +5440,60 @@ class REEAgent(nn.Module):
                         "z_world": self._current_latent.z_world,
                         "z_self": self._current_latent.z_self,
                     }
+                    # MECH-321 SCALE-RESOLVED MID-EXECUTION PROBE (spike
+                    # 2026-07-27 section 5b follow-on;
+                    # use_decomposition_scale_resolved_probe_midexec, default
+                    # OFF). The signature above carries z_world + z_self only,
+                    # which are exactly the FAST scale's streams. MECH-288's
+                    # slow scale reads z_goal, and its BOCPD detector returns
+                    # (False, 0.0, []) when NONE of its streams is present
+                    # (event_segmenter.py `if not sources`) -- so on the
+                    # default path the slow scale is STRUCTURALLY DEAD here,
+                    # exactly as it was on the pre-commitment sweep before
+                    # 9a6e7f3976.
+                    #
+                    # This is a MEASUREMENT bug and not only a missing
+                    # feature: PolicyDecomposition accumulates its per-scale
+                    # counters inside evaluate(), which is phase-blind, so
+                    # every mid-execution tick adds to fires_fast and to the
+                    # denominator while being structurally incapable of adding
+                    # to fires_slow. The observed slow fraction is therefore
+                    # diluted by exactly the mid-execution share of
+                    # evaluations -- measurable via decomp_n_evaluated_
+                    # {precommit,midexec}, but not removable, until this flag.
+                    #
+                    # SEPARATE FLAG from the pre-commitment one, deliberately:
+                    # V3-EXQ-830 defines its arms as the pre-commitment knob
+                    # alone and was mid-flight when this landed, so widening
+                    # that knob would have redefined a running experiment's
+                    # manipulation. See the config.py field docstring.
+                    #
+                    # NOT A PURE DIAGNOSTIC, which is why it is flagged: with
+                    # z_goal present the slow scale can newly reach
+                    # boundary.fired, which feeds the R1 OR trigger, and a
+                    # mid-execution fire RELEASES THE COMMIT LATCH below --
+                    # aborting the remaining macro. OFF is bit-identical (the
+                    # key is not added, so the dict handed to evaluate() is
+                    # byte-for-byte the old one).
+                    #
+                    # z_goal is the agent's CURRENT goal latent -- the same
+                    # source and the same None-when-inactive semantics as the
+                    # pre-commitment sweep (_e3_tick's _current_z_goal). It is
+                    # recomputed rather than threaded because that local
+                    # belongs to a different method.
+                    if getattr(
+                        self.config,
+                        "use_decomposition_scale_resolved_probe_midexec",
+                        False,
+                    ):
+                        _mid_latent_signature["z_goal"] = (
+                            self.goal_state.z_goal
+                            if (
+                                self.goal_state is not None
+                                and self.goal_state.is_active()
+                            )
+                            else None
+                        )
                     _mid_decision = self.policy_decomposition.evaluate(
                         region_vs=_mid_region_vs,
                         latent_signature=_mid_latent_signature,

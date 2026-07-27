@@ -3810,8 +3810,49 @@ class REEConfig:
     # mid-execution ticks advance the fast rollout detector but can never
     # advance the slow one. get_state() reports decomp_n_evaluated_precommit
     # and _midexec separately, so the analysis can bound the resulting dilution
-    # of the slow fraction rather than having to assume it away.
+    # of the slow fraction rather than having to assume it away. The asymmetry
+    # is CLOSED by use_decomposition_scale_resolved_probe_midexec below -- a
+    # SEPARATE knob, not a widening of this one; see that field for why.
     use_decomposition_scale_resolved_probe: bool = False
+    # MECH-321 SCALE-RESOLVED MID-EXECUTION BOUNDARY PROBE. The other half of
+    # the knob above: it extends the same z_goal-into-the-rollout-signature
+    # change to MECH-321's R4 SECOND phase, the mid-execution hook in
+    # ree_core/agent.py:select_action() that re-evaluates the REMAINING
+    # (unexecuted) content of an already-committed chunk trajectory. That hook
+    # builds its OWN {z_world, z_self} signature and is untouched by the
+    # pre-commitment flag, so as shipped mid-execution ticks advance the fast
+    # rollout detector but can NEVER advance the slow one.
+    #
+    # WHY IT MATTERS (this is a measurement bug, not merely a missing feature):
+    # the per-scale counters in PolicyDecomposition.get_state() are accumulated
+    # in evaluate(), which is phase-blind -- both phases feed the same
+    # decomp_n_boundary_fires_{fast,slow,cofire}. So every mid-execution tick
+    # adds to the fast counter and to the denominator while being structurally
+    # incapable of adding to the slow one, and the observed slow fraction is
+    # DILUTED by exactly the mid-execution share of evaluations. With this flag
+    # on, both phases can reach both scales and the naive slow fraction is
+    # honest; with it off, only the precommit-corrected fraction is.
+    #
+    # THREE wiring sites, NOT the four the pre-commitment flag needed: the
+    # REEConfig field, the from_dims signature, and the from_dims assignment.
+    # No hippocampal sub-config mirror, because the consumer is REEAgent, which
+    # reads the top-level REEConfig off self.config (agent.py __init__) rather
+    # than a sub-config. Do not add a mirror by analogy with the flag above --
+    # nothing would read it.
+    #
+    # SEPARATE FLAG, DELIBERATELY -- do not merge these two into one knob.
+    # V3-EXQ-830 defines its ARM_PROBE_OFF / ARM_PROBE_ON manipulation as
+    # use_decomposition_scale_resolved_probe alone, and was claimed and running
+    # when this landed (2026-07-27T18:27:03Z, ~330 min). Widening that flag to
+    # cover mid-execution would have silently redefined the arms of an
+    # in-flight experiment. Independence in both directions is pinned by C18k.
+    #
+    # NOT A PURE DIAGNOSTIC, for the same reason as the pre-commitment flag:
+    # with z_goal present the slow scale can newly reach boundary.fired, which
+    # feeds MECH-321's R1 OR trigger, and a mid-execution fire RELEASES THE
+    # COMMIT LATCH -- aborting the remaining macro. Default False is
+    # bit-identical (the key is simply not added to the dict).
+    use_decomposition_scale_resolved_probe_midexec: bool = False
     # Safety cap on how many ticks the hold re-asserts a single natural-commit run
     # before disarming (guards a degenerate config from latching forever).
     # 0 -> unbounded (the hold persists until a principled release / the committed
@@ -5623,6 +5664,7 @@ class REEConfig:
         decomposition_bottleneck_region_quant: float = 1.0,
         decomposition_bottleneck_region_dims: int = 8,
         use_decomposition_scale_resolved_probe: bool = False,
+        use_decomposition_scale_resolved_probe_midexec: bool = False,
         # Post-603i E2 escape-affordance linker (readout over detached E2
         # action-consequence features; reuse, not a duplicate predictor).
         use_e2_escape_affordance_linker: bool = False,
@@ -6846,6 +6888,16 @@ class REEConfig:
         # on. Caught by C18b, not by inspection.
         config.hippocampal.use_decomposition_scale_resolved_probe = (
             use_decomposition_scale_resolved_probe
+        )
+        # Mid-execution half. NO hippocampal mirror here, deliberately: the
+        # consumer is REEAgent.select_action(), which reads the top-level
+        # REEConfig off self.config, not a sub-config. Adding a mirror by
+        # analogy with the two lines above would create a field nothing reads.
+        # Pinned by C18j (top-level set) + C18i (the wired path actually
+        # honours it), which together are the silent-unreachability guard the
+        # mirror provides on the pre-commitment side.
+        config.use_decomposition_scale_resolved_probe_midexec = (
+            use_decomposition_scale_resolved_probe_midexec
         )
 
         # MECH-341 (ARC-065 Layer-B child): e3_scoring_preserves_trajectory_

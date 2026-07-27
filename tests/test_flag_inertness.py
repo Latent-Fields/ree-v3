@@ -566,6 +566,15 @@ PROBED = {
     # the slow scale can contribute to boundary.fired and so change decisions,
     # which is the whole reason it is flagged rather than always-on.
     "use_decomposition_scale_resolved_probe",
+    # The MID-EXECUTION half of the same probe (R4 second phase, the hook in
+    # agent.py:select_action rather than hippocampal/module.py). Probed by
+    # test_mech321_scale_resolved_boundary.py C18h-k: OFF pins the
+    # mid-execution signature to exactly {z_world, z_self}, ON pins z_goal
+    # present, and C18k pins that the two probe flags are INDEPENDENT in both
+    # directions. Same not-a-pure-diagnostic caveat as its pre-commitment
+    # sibling, one step sharper: a mid-execution fire releases the commit
+    # latch, aborting the remaining macro.
+    "use_decomposition_scale_resolved_probe_midexec",
 } | set(FLAGS_WITH_DEFAULT_BEHAVIOURAL_DELTA) | set(FLAGS_WITH_LOUD_PRECONDITION)
 
 # Audit-confirmed inert / mis-wired flags (finding id -> reason). Documented here
