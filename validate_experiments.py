@@ -41,7 +41,8 @@ PROTOCOL_MODULE = "experiment_protocol"
 CHECK_NAMES = ("conformance", "readiness", "arm_fingerprint", "degeneracy", "manifest_writer",
                "anchor_reachability", "precondition_recomputability",
                "e3_diagnostics_staleness", "e3_hold_weighted_readout",
-               "action_object_selection", "spearman_guard_shape")
+               "action_object_selection", "spearman_guard_shape",
+               "dead_z_goal_stream")
 
 # Readiness-gate static lint (proposal_trivial_prediction_readiness_gate_2026-06-06).
 # A diagnostic/baseline script whose interpretation grid self-routes to one of
@@ -1680,6 +1681,311 @@ def e3_diagnostics_staleness_lint(path: Path) -> Optional[str]:
             "Exempt with E3_DIAGNOSTICS_STALENESS_EXEMPT = \"<reason>\".")
 
 
+# ---- dead z_goal stream (V3-EXQ-830, confirmed 2026-07-27) ---------------------------
+# `z_goal` has exactly ONE writer in the whole substrate: the explicit
+# `REEAgent.update_z_goal(...)` (ree_core/agent.py). Nothing in sense() /
+# generate_trajectories() / select_action() / update_residue() touches it -- the two
+# GoalState mutators, `goal_state.update(...)` and `goal_state.cue_pull(...)`, are BOTH
+# called only from inside update_z_goal (verified: agent.py:9268 and agent.py:9195 are
+# the sole call sites). So a driver that hand-rolls its inner loop and omits the call
+# runs with z_goal pinned at its zero-init for the entire run. `GoalState.is_active()`
+# (goal.py) then returns False, agent.py passes `current_z_goal=None` to every
+# downstream consumer, and every goal-gated branch silently no-ops: the E3 goal term
+# (e3_selector.py, gated on `goal_state.is_active() and goal_weight > 0`), the MECH-293
+# ghost probes, MECH-288's slow BOCPD scale (z_goal joins the rollout latent_signature),
+# MECH-189 super-ordinal anchors, the SD-057 incentive bank, the MECH-295 liking ->
+# approach bridge, and the frontopolar counterfactual read. There is no error, no
+# warning, and no manifest field that makes any of it visible.
+_DEAD_ZGOAL_EXEMPT_MARKER = "DEAD_Z_GOAL_STREAM_EXEMPT"
+
+# Config knobs whose behaviour is UNREACHABLE without the call. Deliberately just two:
+# `z_goal_enabled` is the master gate (REEAgent constructs `goal_state` only when it is
+# set, so every other goal knob is inert anyway without it), and
+# `benefit_terrain_live_producer` is the SD-024 benefit-attractor producer, which lives
+# INSIDE update_z_goal but ahead of the goal_state guard -- so it dies with the call even
+# in a config that never enables z_goal. Downstream knobs (goal_weight, z_goal_inject,
+# use_mech293_ghost_probes, use_incentive_token_bank, use_super_ordinal_goal_anchors)
+# are NOT triggers on their own: setting one without z_goal_enabled is plain config
+# inertness, which is the inert-arm-knob gate's job, not this one.
+_DEAD_ZGOAL_TRIGGER_KNOBS = ("z_goal_enabled", "benefit_terrain_live_producer")
+
+
+def _sets_knob_truthy(tree: ast.Module, knobs: Sequence[str]) -> List[str]:
+    """Knobs the script sets to something other than a literal False/None/0.
+
+    AST-based on purpose: a name-scan would fire on the many scripts that only DISCUSS
+    `z_goal_enabled=True` in a docstring while configuring it False (V3-EXQ-551 does
+    exactly that). Only two forms count as "setting" it -- a keyword argument
+    (`REEConfig(..., z_goal_enabled=True)`) and an attribute assignment
+    (`config.goal.z_goal_enabled = True`). A dict-literal `"z_goal_enabled": ...` is
+    NOT counted: in this corpus that shape is overwhelmingly a manifest echo of the
+    config, not the config itself.
+    """
+    def _is_false_literal(node: ast.expr) -> bool:
+        return isinstance(node, ast.Constant) and node.value in (False, None, 0)
+
+    found: Set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.keyword) and node.arg in knobs:
+            if not _is_false_literal(node.value):
+                found.add(node.arg)
+        elif isinstance(node, ast.Assign):
+            for tgt in node.targets:
+                if isinstance(tgt, ast.Attribute) and tgt.attr in knobs:
+                    if not _is_false_literal(node.value):
+                        found.add(tgt.attr)
+    return sorted(found)
+
+
+def _writes_z_goal_directly(tree: ast.Module) -> bool:
+    """True if THIS module writes z_goal by any route (see `_writes_z_goal` for scope).
+
+    Four discharges, all seen in the landed corpus:
+      (a) `<agent>.update_z_goal(...)`         -- the canonical call.
+      (b) `<...goal...>.update(...)`           -- a script that constructs its own
+          GoalState and drives it directly. Matched on the RECEIVER NAME containing
+          "goal" so it catches the real spellings (`goal_state.update(...)`, and the
+          V3-EXQ-085h family's `goal_state_world` / `goal_state_resource`) without
+          exempting every unrelated `.update()` in the file.
+      (c) `<...>.cue_pull(...)`                -- the SD-057 L6 directional nudge.
+      (d) assignment to a `_z_goal` attribute  -- the V3-EXQ-104/105/108/642 idiom of
+          poking the attractor directly to stage a fixed goal.
+    """
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+            if isinstance(node, ast.Assign):
+                for tgt in node.targets:
+                    if isinstance(tgt, ast.Attribute) and tgt.attr == "_z_goal":
+                        return True
+            continue
+        fn = node.func
+        if fn.attr in ("update_z_goal", "cue_pull"):
+            return True
+        if fn.attr == "update":
+            recv = fn.value
+            name = (recv.id if isinstance(recv, ast.Name)
+                    else recv.attr if isinstance(recv, ast.Attribute) else "")
+            if "goal" in name.lower():
+                return True
+    return False
+
+
+_LOCAL_MODULE_CACHE: Dict[str, Optional[ast.Module]] = {}
+
+
+def _resolve_local_experiment_module(raw: str) -> Optional[str]:
+    """Map a dotted import to a file under `experiments/`, or None.
+
+    Scripts run with `experiments/` on `sys.path`, so both `from
+    scaffolded_sd054_onboarding import ...` and `from experiments._lib.foo import ...`
+    resolve there. Longest-prefix match, so `experiments._lib.stats` finds
+    `_lib/stats.py`.
+    """
+    cand = raw[len("experiments."):] if raw.startswith("experiments.") else raw
+    while cand:
+        rel = cand.replace(".", "/") + ".py"
+        if (EXPERIMENTS_DIR / rel).is_file():
+            return rel
+        if "." not in cand:
+            return None
+        cand = cand.rsplit(".", 1)[0]
+    return None
+
+
+def _parse_local_experiment_module(rel: str) -> Optional[ast.Module]:
+    if rel not in _LOCAL_MODULE_CACHE:
+        try:
+            _LOCAL_MODULE_CACHE[rel] = ast.parse(
+                (EXPERIMENTS_DIR / rel).read_text(encoding="utf-8"), filename=rel)
+        except (OSError, UnicodeDecodeError, SyntaxError, ValueError):
+            _LOCAL_MODULE_CACHE[rel] = None
+    return _LOCAL_MODULE_CACHE[rel]
+
+
+def _called_names(tree: ast.Module) -> Set[str]:
+    """Every name that appears in call position: `foo(...)` and `mod.foo(...)`."""
+    out: Set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name):
+                out.add(node.func.id)
+            elif isinstance(node.func, ast.Attribute):
+                out.add(node.func.attr)
+                if isinstance(node.func.value, ast.Name):
+                    out.add(node.func.value.id)
+    return out
+
+
+def _uses_a_z_goal_driving_helper(tree: ast.Module) -> bool:
+    """True if the script CALLS a helper it imported from a z_goal-writing local module.
+
+    This discharge exists for one real family and is deliberately narrow. The ~27 scripts
+    of the V3-EXQ-460/466/467/468/629/797/799 group drive their warmup through
+    `experiments/scaffolded_sd054_onboarding.py`'s ScaffoldedSD054OnboardingScheduler,
+    which calls `update_z_goal` every Stage-0/P1/P2 step. Those scripts DO seed z_goal.
+    Their measurement loop then stops calling it -- and because neither `REEAgent.reset()`
+    (verified: it resets ~20 subsystems and the MECH-292 ghost bank, but never
+    `goal_state`) nor GoalState's decay runs without the call (decay lives INSIDE
+    `GoalState.update`), z_goal FREEZES at its post-warmup value rather than returning to
+    zero. `is_active()` stays True and every consumer fires, just against a stale goal.
+
+    That frozen-goal condition is a DIFFERENT defect from the dead-zero stream this lint
+    names, and folding them together would make the warning text simply false for the
+    larger group ("pinned at zero-init for the whole run" is not what happens to them).
+    So they are discharged here and left to be triaged on their own terms.
+
+    TWO deliberate narrowings, both load-bearing:
+      - The source module must write z_goal ITSELF (`_writes_z_goal_directly`); its own
+        imports are NOT followed. Following them makes the discharge useless: `_lib/
+        arm_fingerprint.py` -- imported by nearly every modern script, since the
+        fingerprint is mandatory -- imports `_harness`, so a transitive walk exempts most
+        of the corpus including the V3-EXQ-830 case this lint exists for. Measured: 5
+        fires with this narrowing, 0 without it.
+      - The imported name must be CALLED, not merely imported. An unused import is not a
+        z_goal write.
+    """
+    imported: Dict[str, str] = {}          # local alias -> source module rel path
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+            rel = _resolve_local_experiment_module(node.module)
+            if rel:
+                for a in node.names:
+                    imported[a.asname or a.name] = rel
+        elif isinstance(node, ast.Import):
+            for a in node.names:
+                rel = _resolve_local_experiment_module(a.name)
+                if rel:
+                    imported[a.asname or a.name.split(".")[-1]] = rel
+    if not imported:
+        return False
+    called = _called_names(tree)
+    for alias, rel in imported.items():
+        if alias not in called:
+            continue
+        sub = _parse_local_experiment_module(rel)
+        if sub is not None and _writes_z_goal_directly(sub):
+            return True
+    return False
+
+
+def _writes_z_goal(tree: ast.Module) -> bool:
+    """True if the script writes z_goal directly, or drives a helper that does."""
+    return _writes_z_goal_directly(tree) or _uses_a_z_goal_driving_helper(tree)
+
+
+def dead_z_goal_stream_lint(path: Path) -> Optional[str]:
+    """Silently-dead z_goal stream check. Return an issue string, or None.
+
+    Fires when a script does BOTH of:
+      (1) enables a knob that is unreachable without `agent.update_z_goal(...)`
+          (see `_DEAD_ZGOAL_TRIGGER_KNOBS`), and
+      (2) drives a per-step loop without ever writing z_goal by any route
+          (see `_writes_z_goal` for the four accepted discharges).
+
+    Either half alone is fine. A script that never enables z_goal loses NOTHING by
+    omitting the call -- `goal_state` is None, `update_z_goal` early-returns, and the
+    omission is a true no-op. That asymmetry is why the trigger is knob-gated rather
+    than "any hand-rolled loop": ~500 of the corpus's scripts hand-roll a loop without
+    the call and are all correct.
+
+    HOW THIS WAS FOUND. V3-EXQ-830 reused the V3-EXQ-816 policy-decomposition harness --
+    which hand-rolls its loop and omits `update_z_goal`, harmless for 816 itself, which
+    never reads z_goal -- to measure MECH-288's slow BOCPD scale, which DOES read it.
+    830's readiness gate refused the dry-run smoke twice on `zgoal_present_frac = 0.0`
+    before the cause was traced to the missing call. Without that gate the run would have
+    spent ~5 hours of cloud time and reported a wiring artefact as a finding that CLOSED
+    a design question. The same defect had already been confirmed once, in the opposite
+    order: V3-EXQ-626's bespoke episode loop never called it, so z_goal sat at zero-init
+    across every arm of a diagnostic whose C1-C5 criteria were ALL keyed on z_goal norm.
+    626 was superseded by 626a (wired the call) and 626b (forced-seed positive control),
+    and its manifest is correctly `superseded` / `non_contributory`.
+
+    PREVENTION, not just detection: `experiments/_harness.py` StepHarness makes the call
+    structurally unskippable (invariant 2 -- kwargs-only, because a POSITIONAL call
+    collides with `latent` and raises TypeError every tick, which is how the
+    EXQ-471/475/483/483a/483b/490/490b/490c/490e/490f/524 cohort failed). A script using
+    StepHarness therefore cannot carry this defect, and `_writes_z_goal` sees the
+    harness's own call through the import only when the harness module is the one being
+    linted -- so StepHarness users are exempted explicitly below.
+
+    RETROFIT IS NOT FREE -- say so before recommending one. `update_z_goal` is ALSO the
+    SD-024 benefit-attractor producer: it calls `ResidueField.accumulate_benefit`, ahead
+    of the `goal_state` guard, whenever `residue.benefit_terrain_live_producer` is set
+    and the benefit pulse clears `benefit_live_producer_threshold`. Adding the call to an
+    existing script therefore populates `benefit_rbf_field`, which un-zeroes the SD-025
+    curiosity bonus in `HippocampalModule._curiosity_bonus` (previously exactly 0.0 on
+    every call, because `RBFLayer.compute_local_density` early-returns on an empty active
+    mask). That is a BEHAVIOUR CHANGE, not a wiring fix, and it means a "just add the
+    call" patch to a landed harness is not comparable to the runs that came before it.
+
+    Static AST scan, so it shares the limitation class of the other name-scan lints: a
+    config assembled inside a helper this scan cannot follow (a `_lib` builder, a
+    `**kwargs` splat, a preset factory) is invisible to the trigger half, so this
+    UNDER-fires rather than over-fires. That is the safe direction for a WARN.
+
+    WARN-ONLY IN BOTH MODES -- it never hardens under `--paths`. The landed corpus's
+    carriers have all run, and a completed run's pre-registered emission is not
+    rewritten; nine of the ten landed carriers are already `non_contributory` and the
+    tenth (V3-EXQ-615) is arm-symmetric. This gates NEW scripts.
+
+    Opt-out: DEAD_Z_GOAL_STREAM_EXEMPT = "<reason>" -- appropriate for a script that
+    deliberately measures the zero-goal condition (a goal-OFF parity arm, or a negative
+    control like V3-EXQ-626b's ARM_NO_BENEFIT).
+    """
+    try:
+        src = path.read_text(encoding="utf-8")
+        tree = ast.parse(src, filename=str(path))
+    except (OSError, UnicodeDecodeError, SyntaxError):
+        return None  # check_script already reports unreadable / syntax errors
+
+    if _DEAD_ZGOAL_EXEMPT_MARKER in src:
+        return None
+
+    knobs = _sets_knob_truthy(tree, _DEAD_ZGOAL_TRIGGER_KNOBS)
+    if not knobs:
+        return None
+
+    # StepHarness pins the call as invariant 2 -- a user of it cannot carry the defect.
+    if any(isinstance(n, ast.Name) and n.id == "StepHarness" for n in ast.walk(tree)) \
+            or any(isinstance(n, ast.alias) and n.name == "StepHarness"
+                   for n in ast.walk(tree)):
+        return None
+
+    if _writes_z_goal(tree):
+        return None
+
+    # Scope to a driver: an agent stepped in a loop. A pure unit probe that builds a
+    # config and asserts on it has no stream to kill.
+    if not any(isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+               and n.func.attr in ("sense", "select_action")
+               for n in ast.walk(tree)):
+        return None
+    if not any(isinstance(n, (ast.For, ast.While)) for n in ast.walk(tree)):
+        return None
+
+    return (f"DEAD Z_GOAL STREAM: sets {', '.join(knobs)} but never writes z_goal -- no "
+            "agent.update_z_goal(...), no goal_state.update(...)/cue_pull(...), no "
+            "_z_goal assignment, and no StepHarness. update_z_goal is the SOLE writer in "
+            "the substrate (sense/generate_trajectories/select_action/update_residue all "
+            "leave z_goal untouched), so it stays pinned at zero-init for the whole run, "
+            "GoalState.is_active() returns False, and agent.py passes current_z_goal=None "
+            "to every consumer: the E3 goal term, MECH-293 ghost probes, MECH-288's slow "
+            "BOCPD scale, MECH-189 super-ordinal anchors, the SD-057 incentive bank, the "
+            "MECH-295 liking->approach bridge and the frontopolar counterfactual read all "
+            "silently no-op. Nothing raises and no manifest field shows it (V3-EXQ-830: "
+            "zgoal_present_frac 0.0, caught only by a readiness gate; V3-EXQ-626: all five "
+            "criteria keyed on a z_goal that never left zero). FIX: drive the loop through "
+            "experiments/_harness.py StepHarness, which pins the call (kwargs-only -- a "
+            "POSITIONAL call collides with `latent` and raises TypeError every tick). "
+            "CAUTION on retrofitting an EXISTING script: update_z_goal is also the SD-024 "
+            "benefit-attractor producer (it calls ResidueField.accumulate_benefit), so "
+            "adding it populates benefit_rbf_field and un-zeroes the SD-025 curiosity "
+            "bonus -- a behaviour change, not a free wiring fix, and the run is then not "
+            "comparable to its predecessors. Exempt with DEAD_Z_GOAL_STREAM_EXEMPT = "
+            "\"<reason>\" when the zero-goal condition is the point (a goal-OFF parity "
+            "arm, or a negative control like V3-EXQ-626b's ARM_NO_BENEFIT).")
+
+
 # ---- form 2: hold-weighted readout (V3-EXQ-699) --------------------------------------
 # The SECOND form of the pseudo-replication defect, established by the V3-EXQ-699
 # re-adjudication (REE_assembly `ac2fb64028`). Form 1 (above) keys on a diagnostics
@@ -2622,6 +2928,7 @@ def main() -> int:
     e3_hold_warnings: List[Tuple[Path, str]] = []
     ao_selection_warnings: List[Tuple[Path, str]] = []
     spearman_warnings: List[Tuple[Path, str]] = []
+    dead_zgoal_warnings: List[Tuple[Path, str]] = []
     for p in paths:
         rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
         if "conformance" in selected:
@@ -2709,6 +3016,14 @@ def main() -> int:
                 # for why this one never hardens under --paths (it cannot
                 # distinguish selecting-on from reporting-on the collapse).
                 ao_selection_warnings.append((p, aos))
+        if "dead_z_goal_stream" in selected:
+            dzg = dead_z_goal_stream_lint(p)
+            if dzg:
+                # WARN-only in BOTH modes -- see dead_z_goal_stream_lint() for why this
+                # one never hardens under --paths (a config assembled in a helper the
+                # AST scan cannot follow makes it under-fire, and the landed carriers'
+                # runs are complete).
+                dead_zgoal_warnings.append((p, dzg))
         if "spearman_guard_shape" in selected:
             sps = spearman_guard_shape_lint(p)
             if sps:
@@ -2730,7 +3045,21 @@ def main() -> int:
           f"{len(e3_stale_warnings)} stale-e3-diagnostics-warning(s), "
           f"{len(e3_hold_warnings)} hold-weighted-readout-warning(s), "
           f"{len(ao_selection_warnings)} action-object-selection-warning(s), "
-          f"{len(spearman_warnings)} spearman-guard-shape-warning(s)", flush=True)
+          f"{len(spearman_warnings)} spearman-guard-shape-warning(s), "
+          f"{len(dead_zgoal_warnings)} dead-z_goal-stream-warning(s)", flush=True)
+    if dead_zgoal_warnings:
+        # Advisory in BOTH modes (never hardens). A fire here means the script declares a
+        # z_goal-dependent config but nothing ever writes z_goal, so every goal-gated
+        # branch silently no-ops for the whole run. Triage each: a deliberate zero-goal
+        # condition (goal-OFF parity arm, negative control) is correct and should carry
+        # DEAD_Z_GOAL_STREAM_EXEMPT; anything else is a wiring defect. Do NOT reflexively
+        # bolt update_z_goal onto a LANDED script -- it is also the SD-024 benefit-terrain
+        # producer, so the retrofit changes behaviour (see the lint docstring).
+        print("", flush=True)
+        print("[validate_experiments] DEAD-Z_GOAL-STREAM WARNINGS (advisory, non-blocking):", flush=True)
+        for p, warn in dead_zgoal_warnings:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
+            print(f"  - {rel}: {warn}", flush=True)
     if spearman_warnings:
         # Advisory in BOTH modes (never hardens). A fire here means a hand-rolled rank
         # correlation may emit a phantom |rho| on a constant input (the SD-081 defect):
