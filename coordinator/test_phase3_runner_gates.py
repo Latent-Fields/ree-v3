@@ -44,7 +44,6 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -100,8 +99,6 @@ class ResultPushGate(unittest.TestCase):
         os.environ.pop("PHASE3_DISABLE_RUNNER_RESULT_PUSH", None)
         er = _reimport("experiment_runner")
         with patch_git_calls(er) as mock_run:
-            # Need a CompletedProcess shape for the diff check; default
-            # MagicMock has .returncode = MagicMock(), so set it explicit.
             mock_run.return_value.returncode = 0  # "no diff" branch -> return
             er.git_push_results(Path("/tmp/fake"), ["fake.json"])
         # At least the git add + diff calls happened.
