@@ -369,7 +369,7 @@ if __name__ == "__main__":
     out_path = write_flat_manifest(
         manifest,
         out_dir,
-        dry_run=False,
+        dry_run=dry_run,
         config=manifest.get("config"),
         seeds=SEEDS,
         script_path=Path(__file__),

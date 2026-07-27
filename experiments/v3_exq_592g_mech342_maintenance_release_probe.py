@@ -777,7 +777,7 @@ def run_experiment(dry_run: bool = False) -> Tuple[Dict, Path]:
     out_path = write_flat_manifest(
         manifest,
         out_dir,
-        dry_run=False,
+        dry_run=dry_run,
         config=manifest.get("config"),
         seeds=None,
         script_path=Path(__file__),

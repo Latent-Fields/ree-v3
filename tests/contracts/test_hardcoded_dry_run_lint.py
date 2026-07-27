@@ -399,8 +399,10 @@ def test_hdr_is_selectable_and_does_not_drag_in_other_checks():
 # of the drawdown: 100 of the 141 firing drivers sit in an EXQ family that has already
 # spawned lettered iterations, and 19 of the 23 drivers repaired above were themselves
 # lettered clones (701/a/b/c, 733/a/a/b/c, ...) -- i.e. the observed repairs are mostly the
-# defect having already propagated. Batch 1 = 34 drivers, EXQ 598..697.
-_PINNED_CORPUS_FIRE_COUNT = 107
+# defect having already propagated.
+#   batch 1 = 34 drivers, EXQ 598..697
+#   batch 2 = 34 drivers, EXQ 517..597
+_PINNED_CORPUS_FIRE_COUNT = 73
 
 
 def test_hdr_corpus_fire_rate_is_pinned():
