@@ -727,7 +727,7 @@ ABLATED: random-init forward model never trained -- produces noise predictions.
     out_path = write_flat_manifest(
         pack,
         exp_dir,
-        dry_run=False,
+        dry_run=dry_run,
         config=pack.get("config"),
         seeds=None,
         script_path=Path(__file__),

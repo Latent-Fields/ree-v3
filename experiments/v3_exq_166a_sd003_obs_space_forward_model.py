@@ -714,7 +714,7 @@ def main(dry_run: bool = False):
     out_path = write_flat_manifest(
         flat,
         out_dir,
-        dry_run=False,
+        dry_run=dry_run,
         config=flat.get("config"),
         seeds=None,
         script_path=Path(__file__),
