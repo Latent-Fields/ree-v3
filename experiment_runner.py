@@ -2203,9 +2203,7 @@ def release_claim(queue_file: Path, queue_id: str, machine: str) -> None:
             return
         _git_run(["git", "add", queue_file.name],
                        cwd=str(repo), capture_output=True)
-        _git_run(["git", "commit", "-m",
-                        f"release claim: {queue_id} <- {machine} (shutdown)"],
-                       cwd=str(repo), capture_output=True)
+        _git_commit(str(repo), f"release claim: {queue_id} <- {machine} (shutdown)")
         _git_run(["git", "push", "origin", "HEAD:main"],
                        cwd=str(repo), capture_output=True, timeout=30)
         print(f"[runner] Released claim on {queue_id}", flush=True)
