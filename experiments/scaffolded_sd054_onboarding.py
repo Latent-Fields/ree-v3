@@ -431,6 +431,38 @@ class ScaffoldedSD054OnboardingConfig:
     # the agent has a threat signal to learn avoidance from.
     scaffold_feed_harm_stream: bool = False
 
+    # -------- STRICT goal isolation (opt-in; 2026-07-27 read-path triage) --------
+    # `_set_goal_pipeline_frozen(agent, frozen=True)` silences the goal WRITE
+    # paths only (MECH-295 liking bridge + MECH-307 conjunction). The two goal
+    # READ paths are gated independently and stay LIVE inside every "frozen"
+    # stage: the E3 `goal_weight * goal_proximity` term in
+    # `e3_selector.score_trajectory` (gated on E3Config.goal_weight > 0.0 AND
+    # goal_state.is_active(); REEConfig.from_dims defaults goal_weight to 1.0,
+    # NOT the E3Config dataclass default of 0.0) and E1 goal-conditioning
+    # (GoalConfig.e1_goal_conditioned, default True). Measured on the 460c
+    # dry-run config over 3 seeds: goal_active_frac 1.000 in Stage-0b / P0 /
+    # Stage-H, and removing the E3 goal term counterfactually moves the
+    # cost-argmin candidate on 39% / 19% / 38% of those stages' ticks. So the
+    # legacy freeze is "the goal cannot be REWRITTEN and cannot drive
+    # MECH-295/307", not "the goal has no influence".
+    #
+    # Set True and the frozen stages (Stage-0b, P0, Stage-H) additionally zero
+    # `agent.e3.config.goal_weight` and clear
+    # `agent.config.goal.e1_goal_conditioned`, restoring the SAVED prior values
+    # on unfreeze (run_p1) -- so an experiment that set a non-default
+    # goal_weight gets that value back, not a hardcoded 1.0.
+    #
+    # Default False -> BIT-IDENTICAL to every landed scaffold run. Do NOT flip
+    # this default: widening the freeze unconditionally would change E3
+    # selection in three stages for all 78 scaffold importers and break
+    # comparability with every landed scaffold run. That option was considered
+    # and deliberately declined in the triage
+    # (REE_assembly/evidence/planning/scaffold_goal_freeze_e3_read_path_triage_2026-07-27.md
+    # section 4). A run with this True is NOT comparable to one with it False;
+    # the whole point of the knob is that the comparison must be made
+    # deliberately, within one experiment, as an ON-vs-OFF arm pair.
+    scaffold_strict_goal_isolation: bool = False
+
     # -------- Stage-H harm-pathway training (603i nav/survival-competence ceiling, 2026-06-09) --
     # Root cause (V3-EXQ-603i ARM_NAV_CONTROL + code/probe diagnosis 2026-06-09):
     # the scaffold curriculum trains ONLY E1 + E2.world_forward across EVERY stage;
@@ -1727,7 +1759,10 @@ def _sense_with_optional_harm(agent, obs_body, obs_world, obs_dict, device, feed
     )
 
 
-def _set_goal_pipeline_frozen(agent, frozen: bool) -> None:
+_STRICT_GOAL_ISOLATION_SAVED_ATTR = "_scaffold_strict_goal_isolation_saved"
+
+
+def _set_goal_pipeline_frozen(agent, frozen: bool, strict: bool = False) -> None:
     """
     Freeze or unfreeze the goal-pipeline write paths on an agent.
 
@@ -1739,9 +1774,10 @@ def _set_goal_pipeline_frozen(agent, frozen: bool) -> None:
 
     SCOPE -- read this before calling it "isolation" (2026-07-27 triage,
     REE_assembly/evidence/planning/scaffold_goal_freeze_e3_read_path_triage_2026-07-27.md).
-    This helper silences the MECH-295/307 pathways and NOTHING ELSE. It
-    deliberately does NOT touch the two goal READ paths, which are gated
-    independently:
+    BY DEFAULT (`strict=False`) this helper silences the MECH-295/307
+    pathways and NOTHING ELSE. It deliberately does NOT touch the two goal
+    READ paths, which are gated independently (pass `strict=True` -- see
+    STRICT MODE below -- to silence them too):
 
       * E3: `e3_selector.score_trajectory` subtracts
         `goal_weight * goal_proximity` under `E3Config.goal_weight > 0.0`
@@ -1759,19 +1795,92 @@ def _set_goal_pipeline_frozen(agent, frozen: bool) -> None:
     So a frozen stage is "the goal cannot be REWRITTEN and cannot drive
     MECH-295/307", not "the goal has no influence".
 
-    Left as-is on purpose: widening this to zero e3.goal_weight would
-    change behaviour for all 78 scaffold importers and break comparability
-    with every landed scaffold run, and no landed manifest's conclusion
-    rests on strict isolation. A future experiment that genuinely needs
-    the strict form should add an opt-in, default-off knob rather than
-    change this call.
+    The DEFAULT path is left as-is on purpose: widening this
+    unconditionally to zero e3.goal_weight would change behaviour for all 78
+    scaffold importers and break comparability with every landed scaffold
+    run, and no landed manifest's conclusion rests on strict isolation.
+
+    STRICT MODE (`strict=True`, opt-in via
+    ScaffoldedSD054OnboardingConfig.scaffold_strict_goal_isolation, default
+    False) is the lever for an experiment that genuinely needs a goal-free
+    frozen stage. On freeze it additionally:
+
+      * zeroes `agent.e3.config.goal_weight` -> the E3 goal term's own gate
+        (`goal_weight > 0.0`) fails, so `score_trajectory` skips the
+        subtraction entirely rather than scaling it to zero;
+      * clears `agent.config.goal.e1_goal_conditioned` -> sense() passes
+        `z_goal=None` into E1, which is the same code path E1 already takes
+        whenever the goal is inactive, so nothing is reshaped.
+
+    Neither write touches z_goal, GoalState, or any weight; both are per-tick
+    config reads, so the mutation takes effect immediately and is fully
+    reversible. On unfreeze the SAVED prior values are restored -- an
+    experiment may have set a non-default goal_weight, so unfreeze must not
+    hardcode 1.0. The saved state lives on the agent under
+    `_scaffold_strict_goal_isolation_saved` and is deleted on restore, so a
+    double-freeze cannot save the already-zeroed value over the real one and
+    an unfreeze with no saved state is a no-op.
+
+    Bit-identical when `strict=False`: the two MECH assignments below are the
+    only writes on that path. Pinned by
+    tests/contracts/test_frozen_z_goal_scaffold_family.py
+    (`test_goal_pipeline_freeze_does_not_touch_the_read_paths` for the default
+    path; the `..._strict_goal_isolation_...` tests for this one).
     """
     if frozen:
         agent.config.use_mech295_liking_bridge = False
         agent.config.use_mech307_conjunction = False
+        if strict:
+            _enter_strict_goal_isolation(agent)
     else:
         agent.config.use_mech295_liking_bridge = True
         agent.config.use_mech307_conjunction = True
+        # Restore on the SAVED STATE rather than on `strict`: an unfreeze that
+        # forgets to pass strict=True must not leave the read paths silenced
+        # for the rest of the curriculum. The default path never creates saved
+        # state, so this is a no-op there.
+        _exit_strict_goal_isolation(agent)
+
+
+def _enter_strict_goal_isolation(agent) -> None:
+    """Silence the two goal READ paths, saving their prior values on the agent.
+
+    Idempotent: a second call while already isolated returns without
+    overwriting the saved originals with the silenced values.
+    """
+    if getattr(agent, _STRICT_GOAL_ISOLATION_SAVED_ATTR, None) is not None:
+        return
+    saved: Dict[str, Any] = {}
+    e3 = getattr(agent, "e3", None)
+    e3_cfg = getattr(e3, "config", None) if e3 is not None else None
+    if e3_cfg is not None and hasattr(e3_cfg, "goal_weight"):
+        saved["e3_goal_weight"] = float(e3_cfg.goal_weight)
+        e3_cfg.goal_weight = 0.0
+    goal_cfg = getattr(agent.config, "goal", None)
+    if goal_cfg is not None and hasattr(goal_cfg, "e1_goal_conditioned"):
+        saved["e1_goal_conditioned"] = bool(goal_cfg.e1_goal_conditioned)
+        goal_cfg.e1_goal_conditioned = False
+    setattr(agent, _STRICT_GOAL_ISOLATION_SAVED_ATTR, saved)
+
+
+def _exit_strict_goal_isolation(agent) -> None:
+    """Restore the goal READ paths from the values saved on entry.
+
+    No-op when strict isolation was never entered (the default path).
+    """
+    saved = getattr(agent, _STRICT_GOAL_ISOLATION_SAVED_ATTR, None)
+    if saved is None:
+        return
+    if "e3_goal_weight" in saved:
+        e3 = getattr(agent, "e3", None)
+        e3_cfg = getattr(e3, "config", None) if e3 is not None else None
+        if e3_cfg is not None:
+            e3_cfg.goal_weight = saved["e3_goal_weight"]
+    if "e1_goal_conditioned" in saved:
+        goal_cfg = getattr(agent.config, "goal", None)
+        if goal_cfg is not None:
+            goal_cfg.e1_goal_conditioned = saved["e1_goal_conditioned"]
+    delattr(agent, _STRICT_GOAL_ISOLATION_SAVED_ATTR)
 
 
 def _set_p1_anneal_state(agent, cfg: ScaffoldedSD054OnboardingConfig, anneal_t: float) -> None:
@@ -1985,7 +2094,9 @@ class ScaffoldedSD054OnboardingScheduler:
             return self._stage0_result
 
         self._apply_goal_seeding_calibration(agent)
-        _set_goal_pipeline_frozen(agent, frozen=False)
+        _set_goal_pipeline_frozen(
+            agent, frozen=False,
+            strict=self.cfg.scaffold_strict_goal_isolation)
         env = _build_env(self.cfg, phase="stage0")
         agent.train()
 
@@ -2089,7 +2200,9 @@ class ScaffoldedSD054OnboardingScheduler:
         # Protected window: goal pipeline bridge frozen + update_z_goal NOT
         # called (seed_goal=False) -> no decay-only washout. Encoder/E2 keep
         # training on the safe nursery so consolidation is not idle.
-        _set_goal_pipeline_frozen(agent, frozen=True)
+        _set_goal_pipeline_frozen(
+            agent, frozen=True,
+            strict=self.cfg.scaffold_strict_goal_isolation)
         env = _build_env(self.cfg, phase="stage0")
         agent.train()
         world_dim = agent.config.latent.world_dim
@@ -2183,6 +2296,8 @@ class ScaffoldedSD054OnboardingScheduler:
         The five scaffold importers that leave `scaffold_stage0_enabled` False
         and never call `update_z_goal` before P0 are the exception -- z_goal is
         zero-init there, `is_active()` is False, and the term is genuinely inert.
+        Set `scaffold_strict_goal_isolation=True` (default False -> this stage
+        stays bit-identical) to make the freeze cover the read paths too.
         """
         if not self.enabled:
             self._p0_result = P0OnboardingResult(
@@ -2194,7 +2309,9 @@ class ScaffoldedSD054OnboardingScheduler:
             )
             return self._p0_result
 
-        _set_goal_pipeline_frozen(agent, frozen=True)
+        _set_goal_pipeline_frozen(
+            agent, frozen=True,
+            strict=self.cfg.scaffold_strict_goal_isolation)
         env = _build_env(self.cfg, phase="p0")
         agent.train()
 
@@ -2265,7 +2382,13 @@ class ScaffoldedSD054OnboardingScheduler:
         a Stage-H profile close to P1's (46%), where the goal is deliberately
         live. So avoidance here is learned WITH a constant goal bias present,
         not in goal-free isolation. The isolation this stage does deliver is
-        against a *changing* goal and against MECH-295/307 drive. Full triage:
+        against a *changing* goal and against MECH-295/307 drive. An experiment
+        that needs the strict form sets
+        `scaffold_strict_goal_isolation=True` (default False -> this stage stays
+        bit-identical to every landed run); see `_set_goal_pipeline_frozen`
+        STRICT MODE. Whether silencing the term actually changes learned
+        avoidance is UNMEASURED -- the 38% argmin-flip figure is a selection
+        counterfactual, not a DV. Full triage:
         REE_assembly/evidence/planning/scaffold_goal_freeze_e3_read_path_triage_2026-07-27.md
 
         Survival readout: median episode length over the last
@@ -2297,9 +2420,12 @@ class ScaffoldedSD054OnboardingScheduler:
             return self._hazard_result
 
         # Goal pipeline FROZEN: mech295/mech307 short-circuit + no update_z_goal
-        # call (seed_goal=False) -> z_goal is untouched here. NOT goal-free --
-        # the E3 goal term still fires on every tick (see the docstring above).
-        _set_goal_pipeline_frozen(agent, frozen=True)
+        # call (seed_goal=False) -> z_goal is untouched here. NOT goal-free by
+        # default -- the E3 goal term still fires on every tick (see the
+        # docstring above) unless scaffold_strict_goal_isolation is set.
+        _set_goal_pipeline_frozen(
+            agent, frozen=True,
+            strict=self.cfg.scaffold_strict_goal_isolation)
         env = _build_env(self.cfg, phase="hazard")
         agent.train()
 
@@ -2417,7 +2543,9 @@ class ScaffoldedSD054OnboardingScheduler:
             return self._p1_result
 
         self._apply_goal_seeding_calibration(agent)
-        _set_goal_pipeline_frozen(agent, frozen=False)
+        _set_goal_pipeline_frozen(
+            agent, frozen=False,
+            strict=self.cfg.scaffold_strict_goal_isolation)
         agent.train()
 
         world_dim = agent.config.latent.world_dim

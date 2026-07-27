@@ -30,7 +30,13 @@ and stay LIVE inside every frozen stage. Measured on the 460c dry-run config ove
 seeds: goal_active_frac 1.000 in Stage-0b / P0 / Stage-H, and removing the E3 goal term
 counterfactually moves the cost-argmin candidate on 39% / 19% / 38% of those stages'
 ticks. See `scaffold_goal_freeze_e3_read_path_triage_2026-07-27.md` and the
-`..._does_not_touch_the_read_paths` pin below.) `run_p1` sets `frozen=False` and nothing sets it
+`..._does_not_touch_the_read_paths` pin below. FOLLOW-ON, same day: the strict form the
+triage chipped is now BUILT as an opt-in, default-OFF knob --
+`ScaffoldedSD054OnboardingConfig.scaffold_strict_goal_isolation`, which makes the frozen
+stages additionally zero `e3.goal_weight` and clear `e1_goal_conditioned`, restoring the
+saved priors on unfreeze. Default False keeps every landed run bit-identical; the
+`..._strict_goal_isolation_...` tests below pin both halves.) `run_p1` sets `frozen=False`
+and nothing sets it
 back, so the agent reaches the measurement phase with the goal held still but the
 consumers LIVE -- a combination the scaffold itself never constructs. The measurement
 phase inherits exactly half of the primitive, silently: no script in the family
@@ -184,45 +190,254 @@ def test_goal_pipeline_freeze_helper_silences_the_consumers():
     assert "use_mech307_conjunction" in written
 
 
-def test_goal_pipeline_freeze_does_not_touch_the_read_paths():
-    """The freeze's scope limit, pinned as a DELIBERATE decision (2026-07-27 triage).
+def _scaffold_module():
+    """Import the scaffold module (not just its AST) for behavioural assertions."""
+    import scaffolded_sd054_onboarding as S  # noqa: E402  (sys.path set above)
+    return S
 
-    `_set_goal_pipeline_frozen` writes exactly two flags. It does NOT zero
-    `E3Config.goal_weight` and does NOT clear `GoalConfig.e1_goal_conditioned`, so the
-    E3 `goal_weight * goal_proximity` term and E1 goal-conditioning stay live inside
-    every "frozen" stage once Stage-0 has seeded z_goal. That is why
+
+def test_goal_pipeline_freeze_does_not_touch_the_read_paths():
+    """The freeze's DEFAULT scope limit, pinned as a deliberate decision.
+
+    (2026-07-27 triage; AMENDED 2026-07-27 when the opt-in strict knob landed. The
+    assertion used to be an AST equality on the helper's write set -- writes are
+    EXACTLY the two MECH flags. That equality is now wrong by design: strict mode adds
+    gated writes to the two read paths. What must still hold, and is what the triage
+    actually cared about, is that the DEFAULT path -- `strict` unset, i.e. every one of
+    the 78 landed scaffold importers -- leaves both read paths untouched. That is now
+    asserted BEHAVIOURALLY, which is strictly stronger than the old source-shape check:
+    an AST equality could be satisfied by a helper that reached the same flags through
+    a helper call, whereas this fails unless the values are genuinely unchanged.)
+
+    So: `_set_goal_pipeline_frozen(agent, frozen=True)` with no `strict=` argument does
+    NOT zero `E3Config.goal_weight` and does NOT clear `GoalConfig.e1_goal_conditioned`.
+    The E3 `goal_weight * goal_proximity` term and E1 goal-conditioning stay live inside
+    every "frozen" stage once Stage-0 has seeded z_goal -- which is why
     `run_hazard_avoidance`'s docstring no longer claims survival is learned "without the
     goal pipeline".
 
-    This asserts the CURRENT, INTENTIONAL scope. Widening the helper is a real option
-    (it would make Stage-H genuinely goal-free) but it changes behaviour for all 78
-    scaffold importers and breaks comparability with every landed scaffold run, and no
-    landed manifest's recorded conclusion rests on strict isolation. If a future change
-    wants the strict form, add an opt-in default-off knob and update this test
-    deliberately -- do not let the widening arrive as an unremarked "fix".
+    Widening the DEFAULT remains rejected: it changes E3 selection in three stages for
+    all 78 scaffold importers and breaks comparability with every landed scaffold run,
+    and no landed manifest's recorded conclusion rests on strict isolation. The strict
+    form is opt-in per experiment (`scaffold_strict_goal_isolation`), never a default.
     """
+    S = _scaffold_module()
+    agent = _make_agent()
+
+    # Premise: both read paths live before the freeze (the family-config fact).
+    assert agent.e3.config.goal_weight > 0.0
+    assert agent.config.goal.e1_goal_conditioned is True
+    goal_weight_before = float(agent.e3.config.goal_weight)
+
+    # The DEFAULT call -- exactly what every landed scaffold run executes.
+    S._set_goal_pipeline_frozen(agent, frozen=True)
+
+    assert agent.config.use_mech295_liking_bridge is False
+    assert agent.config.use_mech307_conjunction is False
+    assert agent.e3.config.goal_weight == goal_weight_before, (
+        "the DEFAULT freeze path now zeroes e3.goal_weight. That is a behaviour change "
+        "for all 78 scaffold importers and breaks comparability with every landed "
+        "scaffold run -- the strict form must stay opt-in via "
+        "scaffold_strict_goal_isolation. See this file's docstring.")
+    assert agent.config.goal.e1_goal_conditioned is True, (
+        "the DEFAULT freeze path now clears e1_goal_conditioned -- same objection as "
+        "for goal_weight above.")
+    assert not hasattr(agent, "_scaffold_strict_goal_isolation_saved"), (
+        "the DEFAULT freeze path created strict-isolation save state; it must not "
+        "enter strict mode at all.")
+
+    # The write set is still confined to a known allowlist, so an unrelated new
+    # mutation cannot ride in unremarked. (Subset, not equality: the strict-only
+    # writes are legitimate members.)
     tree = _scaffold_tree()
     fn = next(
         (n for n in ast.walk(tree)
          if isinstance(n, ast.FunctionDef) and n.name == "_set_goal_pipeline_frozen"),
         None)
     assert fn is not None
-
     written = {
         t.attr
         for n in ast.walk(fn) if isinstance(n, ast.Assign)
         for t in n.targets if isinstance(t, ast.Attribute)
     }
     assert written == {"use_mech295_liking_bridge", "use_mech307_conjunction"}, (
-        f"_set_goal_pipeline_frozen's write set changed to {sorted(written)}. If a "
-        "goal READ path (goal_weight / e1_goal_conditioned) was added, this is a "
-        "behaviour change for all 78 scaffold importers -- see the docstring."
-    )
-    # And the read paths must still be live for a family-shaped agent, so the scope
-    # limit above actually bites (this is the fact the corrected docstrings assert).
+        f"_set_goal_pipeline_frozen's own write set changed to {sorted(written)}. The "
+        "strict-mode read-path writes live in _enter_strict_goal_isolation / "
+        "_exit_strict_goal_isolation, NOT inline here -- keeping them out of this "
+        "function is what makes the default path auditable at a glance.")
+
+
+def test_default_freeze_path_is_equivalent_to_the_pre_knob_helper():
+    """Bit-identity of the DEFAULT path, proven by equivalence rather than argued.
+
+    The pre-knob helper body was exactly two assignments (below, verbatim). This runs
+    the new helper on one agent and that replica on a seed-identical twin, then compares
+    everything a curriculum could possibly read downstream: every goal-relevant config
+    field, the full parameter state_dict bitwise, and the torch / numpy / stdlib-random
+    RNG states. If the added code consumed a single RNG draw or touched one byte of
+    state, the streams would diverge from the next tick onward and this fails.
+
+    (Why not an end-to-end curriculum A/B instead: the 460c dry-run curriculum is NOT
+    reproducible across processes -- two byte-identical checkouts diverge at Stage-0 even
+    with torch, numpy AND stdlib random seeded -- so a run-vs-run diff cannot resolve a
+    no-op change. Measured on ree-cloud-2, 2026-07-27.)
+    """
+    import random as _random
+
+    import numpy as _np
+
+    S = _scaffold_module()
+
+    def _pre_knob_replica(agent, frozen):
+        if frozen:
+            agent.config.use_mech295_liking_bridge = False
+            agent.config.use_mech307_conjunction = False
+        else:
+            agent.config.use_mech295_liking_bridge = True
+            agent.config.use_mech307_conjunction = True
+
+    def _fingerprint(agent):
+        return {
+            "goal_weight": float(agent.e3.config.goal_weight),
+            "e1_goal_conditioned": bool(agent.config.goal.e1_goal_conditioned),
+            "mech295": bool(agent.config.use_mech295_liking_bridge),
+            "mech307": bool(agent.config.use_mech307_conjunction),
+            "params": {
+                k: v.detach().cpu().numpy().tobytes()
+                for k, v in sorted(agent.state_dict().items())
+                if hasattr(v, "detach")
+            },
+            "torch_rng": torch.get_rng_state().numpy().tobytes(),
+            "np_rng": repr(_np.random.get_state()),
+            "py_rng": repr(_random.getstate()),
+        }
+
+    prints = []
+    for apply_freeze in (S._set_goal_pipeline_frozen, _pre_knob_replica):
+        torch.manual_seed(1234)
+        _np.random.seed(1234)
+        _random.seed(1234)
+        agent = _make_agent()
+        # Both freeze and unfreeze, in the order a curriculum uses them.
+        apply_freeze(agent, frozen=True)
+        apply_freeze(agent, frozen=False)
+        apply_freeze(agent, frozen=True)
+        prints.append(_fingerprint(agent))
+
+    new_fp, old_fp = prints
+    assert new_fp["params"] == old_fp["params"], "a parameter tensor changed"
+    for key in ("goal_weight", "e1_goal_conditioned", "mech295", "mech307",
+                "torch_rng", "np_rng", "py_rng"):
+        assert new_fp[key] == old_fp[key], (
+            f"the DEFAULT freeze path diverged from the pre-knob helper on {key!r}: "
+            f"{new_fp[key]!r} vs {old_fp[key]!r}. The knob must be bit-identical when "
+            "scaffold_strict_goal_isolation is unset.")
+
+
+# ---- (3b) the OPT-IN strict form (2026-07-27) ---------------------------------------
+# The knob the triage chipped: a future experiment that genuinely needs a goal-free
+# Stage-H can now get one, without moving the default for anybody else.
+
+def test_strict_goal_isolation_defaults_off():
+    S = _scaffold_module()
+    cfg = S.ScaffoldedSD054OnboardingConfig()
+    assert cfg.scaffold_strict_goal_isolation is False, (
+        "scaffold_strict_goal_isolation must default False. Flipping this default "
+        "silently changes E3 selection in three stages for all 78 scaffold importers.")
+
+
+def test_strict_goal_isolation_silences_both_read_paths():
+    """strict=True must silence BOTH read paths, not just the E3 one."""
+    S = _scaffold_module()
     agent = _make_agent()
     assert agent.e3.config.goal_weight > 0.0
     assert agent.config.goal.e1_goal_conditioned is True
+
+    S._set_goal_pipeline_frozen(agent, frozen=True, strict=True)
+
+    # E3: the gate is `goal_weight > 0.0`, so zero SKIPS the term rather than
+    # scaling it -- compute_goal_score is not called at all.
+    assert agent.e3.config.goal_weight == 0.0
+    # E1: sense() then passes z_goal=None, the same path E1 takes when the goal
+    # is inactive.
+    assert agent.config.goal.e1_goal_conditioned is False
+    # The write paths are still frozen -- strict is additive, not a replacement.
+    assert agent.config.use_mech295_liking_bridge is False
+    assert agent.config.use_mech307_conjunction is False
+
+
+def test_strict_goal_isolation_restores_the_saved_prior_values():
+    """Unfreeze restores what was there, NOT a hardcoded 1.0/True.
+
+    An experiment may set a non-default goal_weight; restoring 1.0 would silently
+    rewrite its config mid-curriculum.
+    """
+    S = _scaffold_module()
+    agent = _make_agent()
+    agent.e3.config.goal_weight = 0.37  # deliberately non-default
+    agent.config.goal.e1_goal_conditioned = True
+
+    S._set_goal_pipeline_frozen(agent, frozen=True, strict=True)
+    assert agent.e3.config.goal_weight == 0.0
+
+    S._set_goal_pipeline_frozen(agent, frozen=False, strict=True)
+    assert agent.e3.config.goal_weight == 0.37, (
+        "unfreeze did not restore the SAVED goal_weight -- a non-default value set by "
+        "the experiment was overwritten.")
+    assert agent.config.goal.e1_goal_conditioned is True
+    assert not hasattr(agent, "_scaffold_strict_goal_isolation_saved")
+
+
+def test_strict_goal_isolation_is_idempotent_and_unfreeze_needs_no_strict_flag():
+    """Double-freeze must not save the zeroed value over the real one, and an
+    unfreeze that forgets strict=True must still restore (the saved state, not the
+    caller's flag, drives the restore)."""
+    S = _scaffold_module()
+    agent = _make_agent()
+    original = float(agent.e3.config.goal_weight)
+
+    S._set_goal_pipeline_frozen(agent, frozen=True, strict=True)
+    S._set_goal_pipeline_frozen(agent, frozen=True, strict=True)  # second freeze
+    assert agent.e3.config.goal_weight == 0.0
+
+    S._set_goal_pipeline_frozen(agent, frozen=False)  # note: no strict=
+    assert agent.e3.config.goal_weight == original
+    assert agent.config.goal.e1_goal_conditioned is True
+
+    # And an unfreeze with no prior strict freeze is a no-op, not an exception.
+    S._set_goal_pipeline_frozen(agent, frozen=False)
+    assert agent.e3.config.goal_weight == original
+
+
+def test_every_freeze_call_site_threads_the_strict_knob():
+    """The knob is useless if a stage forgets to pass it -- pin all call sites.
+
+    Stage-0b / P0 / Stage-H are the frozen stages that must silence the read paths;
+    run_stage0_nursery / run_p1 unfreeze and must restore them. All five read the
+    same cfg field, so no stage can end up half-isolated.
+    """
+    tree = _scaffold_tree()
+    seen = {}
+    for n in ast.walk(tree):
+        if not isinstance(n, ast.FunctionDef):
+            continue
+        for c in ast.walk(n):
+            if (isinstance(c, ast.Call) and isinstance(c.func, ast.Name)
+                    and c.func.id == "_set_goal_pipeline_frozen"):
+                kws = {kw.arg: kw.value for kw in c.keywords}
+                strict = kws.get("strict")
+                seen[n.name] = (
+                    ast.unparse(strict) if strict is not None else None)
+
+    assert set(seen) == {
+        "run_stage0_nursery", "run_stage0b_consolidation", "run_p0",
+        "run_hazard_avoidance", "run_p1",
+    }, f"freeze call sites moved: {sorted(seen)}"
+    for name, expr in seen.items():
+        assert expr == "self.cfg.scaffold_strict_goal_isolation", (
+            f"{name} passes strict={expr!r}; every call site must thread the config "
+            "knob, or a stage silently keeps the goal read paths live while its "
+            "siblings silence them.")
 
 
 def test_scaffold_hands_off_with_the_goal_consumers_unfrozen():
