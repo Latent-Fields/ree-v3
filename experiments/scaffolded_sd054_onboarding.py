@@ -463,6 +463,43 @@ class ScaffoldedSD054OnboardingConfig:
     # deliberately, within one experiment, as an ON-vs-OFF arm pair.
     scaffold_strict_goal_isolation: bool = False
 
+    # -------- Env-layout reproducibility (cross-process determinism, 2026-07-28) --------
+    # THE DEFECT this closes. Every `_build_env(...)` call site in this scheduler
+    # builds a CausalGridWorldV2 WITHOUT passing `seed`, and CausalGridWorldV2 is a
+    # factory that forwards to CausalGridWorld.__init__, whose only RNG is
+    # `self._rng = np.random.default_rng(seed)` (ree_core/environment/causal_grid_world.py).
+    # `np.random.default_rng(None)` seeds from OS entropy AT CONSTRUCTION -- it does
+    # NOT consume the numpy global RNG -- so `np.random.seed(seed)` / `torch.manual_seed(seed)`
+    # in an experiment driver's `_run_seed` have NO effect on the env layout.
+    #
+    # The consequence, measured 2026-07-27/28 on the hub against the 460c dry-run
+    # curriculum: the grid layout, resource placement and agent spawn differ on EVERY
+    # construction -- not merely per process. Two byte-identical checkouts diverge at
+    # the FIRST select_action of the FIRST episode, with agent parameters and the
+    # torch / numpy / stdlib-random states all bit-identical at that point (the inputs
+    # differ, not the draws). Pinning this seed alone makes the whole dry-run curriculum
+    # byte-identical across processes; leaving it None reproduces the divergence.
+    # Full triage:
+    # REE_assembly/evidence/planning/scaffold_goal_freeze_e3_read_path_triage_2026-07-27.md
+    # ("Follow-on: the residual per-process entropy source").
+    #
+    # Set to an int and every env this scheduler builds gets a deterministic,
+    # construction-ordered seed (see `_next_env_seed`), so a whole-curriculum re-run
+    # reproduces bitwise -- which is what makes a no-op / bit-identical-by-design change
+    # to scaffold-driving code verifiable by re-running and diffing.
+    #
+    # Default None -> BIT-IDENTICAL to every landed scaffold run: `seed=None` is passed
+    # through exactly as before and the build counter never advances. Do NOT flip this
+    # default. Pinning it unconditionally would change the env layout -- and therefore
+    # the results -- for all 78 scaffold importers, and break comparability with every
+    # landed scaffold run. A run with this set is NOT comparable to a landed one; the
+    # comparison must be made deliberately, within one experiment, as a seeded pair.
+    #
+    # SCOPE: this covers the envs THIS SCHEDULER builds. A driver that builds its own
+    # eval env separately must seed that itself -- e.g. 460c's `_build_closure_env`,
+    # which is still unseeded.
+    scaffold_env_seed: Optional[int] = None
+
     # -------- Stage-H harm-pathway training (603i nav/survival-competence ceiling, 2026-06-09) --
     # Root cause (V3-EXQ-603i ARM_NAV_CONTROL + code/probe diagnosis 2026-06-09):
     # the scaffold curriculum trains ONLY E1 + E2.world_forward across EVERY stage;
@@ -1399,7 +1436,11 @@ def _measure_harm_discriminativeness(
     measured a FLAT head (range ~0.002, corr ~0); a successful amend lifts the range
     and makes the correlation meaningfully positive (the head now predicts danger).
     Read-only: no optimizer steps."""
-    env = _build_env(cfg, phase="hazard")
+    # Stream 1 so this read-only probe's env can never collide with the
+    # curriculum's own construction sequence (stream 0). None when the knob is
+    # unset -> legacy OS-entropy default, bit-identical.
+    env = _build_env(cfg, phase="hazard",
+                     seed=_derive_env_seed(cfg.scaffold_env_seed, stream=1, idx=0))
     was_training = agent.training
     agent.eval()
     world_dim = agent.config.latent.world_dim
@@ -1604,6 +1645,23 @@ def _rule_bias_episode_update(
     if rule_bias_diag is not None:
         rule_bias_diag["last_baseline"] = float(baseline)
         rule_bias_diag["outcome_buf_size"] = len(buf)
+
+
+def _derive_env_seed(base: Optional[int], stream: int, idx: int) -> Optional[int]:
+    """Derive a distinct, reproducible env seed from a base seed + stream + index.
+
+    Returns None when `base` is None, so callers can pass the result straight to
+    `_build_env(..., seed=...)` and keep the legacy OS-entropy default.
+
+    Streams namespace the callers so a read-only probe can never collide with the
+    curriculum's own construction sequence: 0 = scheduler curriculum builds,
+    1 = post-training harm-discriminativeness probe. `idx` is the construction
+    order within a stream and is bounded well below the 100000 stride in practice
+    (P1 builds one env per episode; budgets are in the hundreds).
+    """
+    if base is None:
+        return None
+    return int(base) * 1000000 + int(stream) * 100000 + int(idx)
 
 
 def _build_env(cfg: ScaffoldedSD054OnboardingConfig, phase: str, anneal_t: float = 0.0,
@@ -1944,10 +2002,35 @@ class ScaffoldedSD054OnboardingScheduler:
         self._hazard_result: Optional[HazardAvoidanceResult] = None
         self._p1_result: Optional[P1OnboardingResult] = None
         self._p2_metrics: Optional[P2OnboardingMetrics] = None
+        # Construction counter for scaffold_env_seed. Only ever advanced when the
+        # knob is set, so the default path is bit-identical (see _next_env_seed).
+        self._env_build_count: int = 0
 
     @property
     def enabled(self) -> bool:
         return bool(self.cfg.use_scaffolded_sd054_onboarding_scheduler)
+
+    def _next_env_seed(self) -> Optional[int]:
+        """Deterministic per-construction env seed, or None (legacy OS entropy).
+
+        Returns None -- and does NOT advance the counter -- whenever
+        `scaffold_env_seed` is unset, so the default path passes `seed=None`
+        through to CausalGridWorldV2 exactly as it did before this knob existed
+        and is bit-identical to every landed scaffold run.
+
+        When the knob IS set, each construction gets a distinct seed derived from
+        the base and the construction ORDER, so every stage still sees its own
+        layout (as it does today) rather than all stages collapsing onto one
+        shared grid -- while the whole sequence reproduces across processes.
+        Stream 0 is reserved for this scheduler's curriculum builds; see
+        `_env_probe_seed` for the read-only probe stream.
+        """
+        base = self.cfg.scaffold_env_seed
+        if base is None:
+            return None
+        seed = _derive_env_seed(base, stream=0, idx=self._env_build_count)
+        self._env_build_count += 1
+        return seed
 
     def _gating_threshold(self) -> float:
         """Benefit threshold for the contact-GATING (skip/update) decision.
@@ -2097,7 +2180,7 @@ class ScaffoldedSD054OnboardingScheduler:
         _set_goal_pipeline_frozen(
             agent, frozen=False,
             strict=self.cfg.scaffold_strict_goal_isolation)
-        env = _build_env(self.cfg, phase="stage0")
+        env = _build_env(self.cfg, phase="stage0", seed=self._next_env_seed())
         agent.train()
 
         world_dim = agent.config.latent.world_dim
@@ -2203,7 +2286,7 @@ class ScaffoldedSD054OnboardingScheduler:
         _set_goal_pipeline_frozen(
             agent, frozen=True,
             strict=self.cfg.scaffold_strict_goal_isolation)
-        env = _build_env(self.cfg, phase="stage0")
+        env = _build_env(self.cfg, phase="stage0", seed=self._next_env_seed())
         agent.train()
         world_dim = agent.config.latent.world_dim
         e1_opt = optim.Adam(list(agent.e1.parameters()), lr=self.cfg.scaffold_lr_e1)
@@ -2312,7 +2395,7 @@ class ScaffoldedSD054OnboardingScheduler:
         _set_goal_pipeline_frozen(
             agent, frozen=True,
             strict=self.cfg.scaffold_strict_goal_isolation)
-        env = _build_env(self.cfg, phase="p0")
+        env = _build_env(self.cfg, phase="p0", seed=self._next_env_seed())
         agent.train()
 
         world_dim = agent.config.latent.world_dim
@@ -2426,7 +2509,7 @@ class ScaffoldedSD054OnboardingScheduler:
         _set_goal_pipeline_frozen(
             agent, frozen=True,
             strict=self.cfg.scaffold_strict_goal_isolation)
-        env = _build_env(self.cfg, phase="hazard")
+        env = _build_env(self.cfg, phase="hazard", seed=self._next_env_seed())
         agent.train()
 
         world_dim = agent.config.latent.world_dim
@@ -2603,7 +2686,8 @@ class ScaffoldedSD054OnboardingScheduler:
             if spawn_in_reef:
                 n_reef_spawn += 1
             env = _build_env(self.cfg, phase="p1", anneal_t=anneal_t,
-                             p1_spawn_in_reef_half=spawn_in_reef)
+                             p1_spawn_in_reef_half=spawn_in_reef,
+                             seed=self._next_env_seed())
             ep_len = self._train_episode(
                 agent, env, device, e1_opt, wf_opt, wf_buf, world_dim,
                 seed_goal=True,
@@ -2700,7 +2784,7 @@ class ScaffoldedSD054OnboardingScheduler:
             if self.cfg.scaffold_p2_hazard_food_attraction_guard >= 0.0
             else self.cfg.scaffold_p2_hazard_food_attraction
         )
-        env = _build_env(self.cfg, phase="p2")
+        env = _build_env(self.cfg, phase="p2", seed=self._next_env_seed())
         agent.eval()
 
         # Developmental-window contact-gating for the measurement window: active
