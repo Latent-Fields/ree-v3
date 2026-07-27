@@ -537,20 +537,15 @@ def _auc_greater(pos: List[float], neg: List[float]) -> Optional[float]:
     return wins / float(len(pos) * len(neg))
 
 
-def _spearman(a: List[float], b: List[float]) -> Optional[float]:
-    """Spearman rank correlation, computed as Pearson over ranks (no scipy dep).
-
-    Returns None when either vector is constant (rank variance 0), which is the
-    degenerate case the readiness range-floor is there to exclude.
-    """
-    n = len(a)
-    if n < 2 or len(b) != n:
-        return None
-    ra = np.argsort(np.argsort(np.asarray(a, dtype=float))).astype(float)
-    rb = np.argsort(np.argsort(np.asarray(b, dtype=float))).astype(float)
-    if float(np.std(ra)) == 0.0 or float(np.std(rb)) == 0.0:
-        return None
-    return float(np.corrcoef(ra, rb)[0, 1])
+# SD-081: canonical guarded Spearman. The former local copy guarded on the
+# variance of the RANK vector after a double argsort, which can never fire on a
+# constant input (a constant vector's double-argsort ranks are a permutation of
+# 0..K-1, std ~9.23 at K=32) -- so a degenerate `first` (index-0 z_world is the
+# shared current state) produced a phantom rho ~0 and recruitment ~1.0. The
+# canonical helper guards on the INPUT vector and returns None there, so the
+# degenerate tick is excluded (the caller already does `if rho is not None`).
+# Contract unchanged: Optional[float], None on degenerate.
+from experiments._lib.stats import spearman as _spearman  # noqa: E402
 
 
 def _cohen_d(vals: List[float]) -> Optional[float]:

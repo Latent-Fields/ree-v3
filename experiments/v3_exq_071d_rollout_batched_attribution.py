@@ -63,6 +63,9 @@ from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
 from experiment_protocol import emit_outcome
+# SD-081: canonical input-vector-guarded Spearman (replaces the guard-less inline
+# d^2 formula below).
+from experiments._lib.stats import spearman as _spearman_canonical  # noqa: E402
 MANIFEST_WRITER_EXEMPT = "archival early-era manifest (pre-canonical {TYPE}_{ts} path/naming; not re-run)"
 
 
@@ -312,16 +315,18 @@ def _eval_paired(
         all_batch.extend(batch_sigs[t])
 
     if len(all_seq) > 10:
+        # SD-081: the former inline d^2 formula had NO degeneracy guard, so
+        # both-constant inputs drove d2=0 -> rank_corr=1.0, a spurious PASS of
+        # C2 (> 0.90). The landed runs had genuinely distinct signals (their
+        # rank_corr=1.0 was REAL, e.g. seq -0.00012594317 vs batch -0.00012594280),
+        # and on distinct input the canonical average-rank helper reproduces the
+        # d^2 formula exactly -- so the past DV is unchanged. A future run whose
+        # inputs go truly constant now returns None -> 0.0 -> correctly FAILS C2.
         try:
-            x = np.array(all_seq,   dtype=float)
-            y = np.array(all_batch, dtype=float)
-            rx = np.argsort(np.argsort(x)).astype(float)
-            ry = np.argsort(np.argsort(y)).astype(float)
-            n  = float(len(x))
-            d2 = float(((rx - ry) ** 2).sum())
-            rank_corr = float(1.0 - 6.0 * d2 / (n * (n * n - 1.0)))
+            rc = _spearman_canonical(all_seq, all_batch)
         except Exception:
-            rank_corr = 0.0
+            rc = None
+        rank_corr = 0.0 if rc is None else rc
     else:
         rank_corr = 0.0
 

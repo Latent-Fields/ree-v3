@@ -214,15 +214,23 @@ def _obs_resource_prox(obs_dict) -> float:
     return float(rv.max().item()) if isinstance(rv, torch.Tensor) else float(np.max(rv))
 
 
+# SD-081: canonical guarded Spearman. The former local copy guarded on the
+# variance of the RANK vector after a double argsort, which never fires on a
+# constant input, so a zero-reef arm (all-zero occupancy indicator) emitted a
+# spurious |rho| up to 0.74. rho_drive_vs_reef is a NON-GATE diagnostic (ARC-062
+# verdicts read mean_reef_fraction / d4_delta, not the rho -- failure autopsy
+# sd081), so no verdict changes; a degenerate arm now reports 0.0 (no measurable
+# coupling) instead of a tie-break artifact.
+from experiments._lib.stats import spearman as _spearman_canonical  # noqa: E402
+
+
 def _spearman_rho(x: List[float], y: List[float]) -> float:
-    """Spearman rank correlation. Returns 0.0 on degenerate (constant) input."""
+    # Preserve the original float/0.0 contract; len<4 short-circuit kept for
+    # exact behaviour parity on short inputs.
     if len(x) < 4 or len(y) < 4:
         return 0.0
-    rx = np.argsort(np.argsort(np.asarray(x, dtype=np.float64)))
-    ry = np.argsort(np.argsort(np.asarray(y, dtype=np.float64)))
-    if rx.std() < 1e-9 or ry.std() < 1e-9:
-        return 0.0
-    return float(np.corrcoef(rx, ry)[0, 1])
+    rho = _spearman_canonical(x, y)
+    return 0.0 if rho is None else rho
 
 
 def _make_agent_and_env(

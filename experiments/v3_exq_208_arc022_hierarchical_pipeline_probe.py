@@ -166,28 +166,20 @@ def _upper_triangle(mat: List[List[float]]) -> List[float]:
     return result
 
 
+# SD-081: canonical guarded Spearman. The former local copy ordinal-ranked and
+# guarded on the RANK vector's spread (den_a < 1e-12), which never fires on a
+# constant input -- the same degeneracy defect as the corpus. RSA over
+# upper-triangle similarity vectors did not go constant in the landed runs, so
+# values were genuine and no verdict changes; this de-risks future re-runs.
+# Float/0.0 contract preserved.
+from experiments._lib.stats import spearman as _spearman_canonical  # noqa: E402
+
+
 def _spearman_r(a: List[float], b: List[float]) -> float:
-    n = len(a)
-    if n < 3:
+    if len(a) < 3:
         return 0.0
-
-    def _rank(lst: List[float]) -> List[float]:
-        sorted_idx = sorted(range(n), key=lambda i: lst[i])
-        ranks = [0.0] * n
-        for rank_val, idx in enumerate(sorted_idx):
-            ranks[idx] = float(rank_val + 1)
-        return ranks
-
-    ra = _rank(a)
-    rb = _rank(b)
-    mean_ra = sum(ra) / n
-    mean_rb = sum(rb) / n
-    num = sum((ra[i] - mean_ra) * (rb[i] - mean_rb) for i in range(n))
-    den_a = math.sqrt(sum((ra[i] - mean_ra) ** 2 for i in range(n)))
-    den_b = math.sqrt(sum((rb[i] - mean_rb) ** 2 for i in range(n)))
-    if den_a < 1e-12 or den_b < 1e-12:
-        return 0.0
-    return num / (den_a * den_b)
+    rho = _spearman_canonical(a, b)
+    return 0.0 if rho is None else rho
 
 
 def _pearson_r2(xs: List[float], ys: List[float]) -> float:

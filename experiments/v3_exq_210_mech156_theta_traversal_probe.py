@@ -161,28 +161,20 @@ def _cosine_sim(a: torch.Tensor, b: torch.Tensor) -> float:
     return dot / (na * nb)
 
 
+# SD-081: canonical guarded Spearman. The former local copy ordinal-ranked and
+# guarded on the RANK vector's spread (da < 1e-12), which never fires on a
+# constant input -- the same degeneracy defect as the corpus. The drift-vs-step
+# order correlation did not go constant in the landed runs, so values were
+# genuine and no verdict changes; this de-risks future re-runs. Float/0.0
+# contract preserved.
+from experiments._lib.stats import spearman as _spearman_canonical  # noqa: E402
+
+
 def _spearman_r(a: List[float], b: List[float]) -> float:
-    n = len(a)
-    if n < 3:
+    if len(a) < 3:
         return 0.0
-
-    def _rank(lst: List[float]) -> List[float]:
-        sorted_idx = sorted(range(n), key=lambda i: lst[i])
-        ranks = [0.0] * n
-        for rank_val, idx in enumerate(sorted_idx):
-            ranks[idx] = float(rank_val + 1)
-        return ranks
-
-    ra = _rank(a)
-    rb = _rank(b)
-    ma = sum(ra) / n
-    mb = sum(rb) / n
-    num = sum((ra[i] - ma) * (rb[i] - mb) for i in range(n))
-    da  = math.sqrt(sum((ra[i] - ma) ** 2 for i in range(n)))
-    db  = math.sqrt(sum((rb[i] - mb) ** 2 for i in range(n)))
-    if da < 1e-12 or db < 1e-12:
-        return 0.0
-    return num / (da * db)
+    rho = _spearman_canonical(a, b)
+    return 0.0 if rho is None else rho
 
 
 def _autocorr_at_lag(hs: List[torch.Tensor], lag: int) -> float:

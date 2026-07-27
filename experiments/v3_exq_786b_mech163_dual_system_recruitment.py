@@ -662,20 +662,13 @@ def _auc_greater(pos: List[float], neg: List[float]) -> Optional[float]:
     return wins / float(len(pos) * len(neg))
 
 
-def _spearman(a: List[float], b: List[float]) -> Optional[float]:
-    """Spearman rank correlation, computed as Pearson over ranks (no scipy dep).
-
-    Returns None when either vector is constant (rank variance 0), which is the
-    degenerate case the readiness range-floor is there to exclude.
-    """
-    n = len(a)
-    if n < 2 or len(b) != n:
-        return None
-    ra = np.argsort(np.argsort(np.asarray(a, dtype=float))).astype(float)
-    rb = np.argsort(np.argsort(np.asarray(b, dtype=float))).astype(float)
-    if float(np.std(ra)) == 0.0 or float(np.std(rb)) == 0.0:
-        return None
-    return float(np.corrcoef(ra, rb)[0, 1])
+# SD-081: canonical guarded Spearman. 786b's inputs are already gated
+# non-constant (HABIT_DEPTH=2 + the explicit input-range readiness gate), so its
+# residual `np.std(ra) == 0.0` post-argsort guard was unfireable but harmless.
+# Adopt the canonical input-vector guard for consistency; behaviour is unchanged
+# on this script's gated inputs. Contract unchanged: Optional[float], None on
+# degenerate.
+from experiments._lib.stats import spearman as _spearman  # noqa: E402
 
 
 def _cohen_d(vals: List[float]) -> Optional[float]:
