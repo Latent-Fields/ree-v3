@@ -374,10 +374,11 @@ def test_hdr_is_selectable_and_does_not_drag_in_other_checks():
 #
 # RECONCILIATION with the raw grep that commissioned this gate. `grep -l write_flat_manifest
 # | grep -l dry_run=False` over experiments/v3_exq_*.py returned 617 BEFORE the repairs and
-# returns 594 at this commit (the 23 repaired drivers no longer carry a literal at all).
-# Splitting the 594: 45 have no smoke path whatsoever, so the literal is HONEST -- do not
-# invent a flag for them; 408 guard the writer so a smoke run never reaches it, over-
-# whelmingly `if dry_run: return` in the same function or in the CALLER; 141 fire. The ~4x
+# returned 594 at the commit that added this gate (the 23 repaired drivers no longer carry a
+# literal at all); the batch drawdown below takes it to 561.
+# Splitting the 594 as it stood then: 45 have no smoke path whatsoever, so the literal is
+# HONEST -- do not invent a flag for them; 408 guard the writer so a smoke run never reaches
+# it, overwhelmingly `if dry_run: return` in the same function or in the CALLER; 141 fire. The ~4x
 # gap between the grep and the true population is the entire reason this is an AST gate with
 # a call-graph fixpoint rather than a grep, and the reason a blind sed would have been wrong.
 #
@@ -386,7 +387,20 @@ def test_hdr_is_selectable_and_does_not_drag_in_other_checks():
 # only firing driver already wired for the z_goal liveness block -- smoking it after the
 # repair immediately printed `active_frac=0.000 writer_calls=0 -- WRITER DEFECT`, which is
 # the V3-EXQ-830 failure mode caught for free by the print the hardcoding had suppressed.
-_PINNED_CORPUS_FIRE_COUNT = 141
+#
+# BACKLOG DRAWDOWN (2026-07-27). The residual 141 are being repaired in batches, newest EXQ
+# first. This is NOT "rewriting a completed run's emission to chase a lint": threading the
+# flag is PROVABLY INERT on the evidence path, because `dry_run=bool(args.dry_run)` is
+# identical to `dry_run=False` whenever `--dry-run` is absent, which is every real run. It
+# only changes behaviour under `--dry-run`, which by definition produced no evidence. What
+# made the drawdown worth doing rather than deferring to "fix it when re-run" is that the
+# defect propagates by CLONING, not by re-running: a clone lands under a NEW filename, so
+# nothing at clone time ever consults the source file's backlog entry. Measured at the time
+# of the drawdown: 100 of the 141 firing drivers sit in an EXQ family that has already
+# spawned lettered iterations, and 19 of the 23 drivers repaired above were themselves
+# lettered clones (701/a/b/c, 733/a/a/b/c, ...) -- i.e. the observed repairs are mostly the
+# defect having already propagated. Batch 1 = 34 drivers, EXQ 598..697.
+_PINNED_CORPUS_FIRE_COUNT = 107
 
 
 def test_hdr_corpus_fire_rate_is_pinned():

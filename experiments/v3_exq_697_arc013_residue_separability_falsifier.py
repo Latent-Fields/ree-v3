@@ -561,7 +561,7 @@ if __name__ == "__main__":
     out_path = write_flat_manifest(
         manifest,
         OUT_DIR,
-        dry_run=False,
+        dry_run=bool(args.dry_run),
         config=manifest.get("config"),
         seeds=SEEDS,
         script_path=Path(__file__),

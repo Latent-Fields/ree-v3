@@ -578,7 +578,7 @@ if __name__ == "__main__":
     out_path = write_flat_manifest(
         result,
         out_dir,
-        dry_run=False,
+        dry_run=bool(args.dry_run),
         config=result.get("config"),
         seeds=SEEDS,
         script_path=Path(__file__),
