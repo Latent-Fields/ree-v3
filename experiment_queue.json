@@ -10,18 +10,18 @@
     {
       "queue_id": "V3-EXQ-832",
       "title": "INV-041: childhood exposure regime necessary for E1 ContextMemory differentiation",
-      "experiment_type": "v3_exq_832_inv041_childhood_exposure_context_diff",
       "script": "experiments/v3_exq_832_inv041_childhood_exposure_context_diff.py",
       "priority": 40,
       "machine_affinity": "any",
-      "status": "pending",
       "estimated_minutes": 60,
-      "episodes_per_run": 60,
-      "seeds": 5,
-      "conditions": 3,
-      "backlog_id": "EVB-0316",
       "claim_id": "INV-041",
-      "note": "IGW-20260727-210. Commitment-free exposure-distribution diagnostic for INV-041. 3 arms x 5 seeds: ARM_CHILDHOOD (balanced/forced hazard-proximate exposure A_frac=0.50 + supervised context-labeling ON), ARM_ADULT (avoidance-shaped A_frac=0.05 + labeling ON), ARM_CHILDHOOD_UNSUP (balanced + unsupervised next-zworld, no labels). DV = cosine_sim(mean_prior_A, mean_prior_B) on a held-out BALANCED probe; lower = better differentiation. C1 (load-bearing, INV-041): mean_cos(ADULT)-mean_cos(CHILDHOOD)>=0.10 AND mean_cos(CHILDHOOD)<0.85. C2 (MECH-153): mean_cos(UNSUP)-mean_cos(CHILDHOOD)>=0.10. Substrate-ready: the childhood regime is IMPOSED at the minibatch-sampling level (no emergent commitment layer needed); F-dominant avoidance is the phenomenon ARM_ADULT simulates, not a confound -- a FAIL is a real INV-041 verdict, not a re-derivation of the conversion ceiling. Each (arm,seed) cell RNG-reset so P0 encoder warmup + context-pool collection are bit-identical across arms; context path reset to untrained init before P1 so exposure is the sole differentiation driver. Phased: P0 encoder warmup -> P1 frozen-encoder context-memory training on detached pooled latents -> P2 eval. GOV-REUSE-1: no manifest tags INV-041 and none records cosine-vs-exposure-regime; decisive readout not recoverable -> run. re-derive brake count 0 for INV-041. DV-symmetry: cosine of learned mean priors is NOT invariant under the exposure/labeling manipulation (the learned representation genuinely depends on training exposure); the delta is a measurement, not an arithmetic identity. Smoke (1 seed): CHILDHOOD -0.69, ADULT 0.999, UNSUP 0.9996 -> C1/C2 PASS, direction as hypothesized (not the real verdict; 5-seed run confirms)."
+      "backlog_id": "EVB-0316",
+      "note": "IGW-20260727-210. Commitment-free exposure-distribution diagnostic for INV-041. 3 arms x 5 seeds: ARM_CHILDHOOD (balanced/forced hazard-proximate exposure A_frac=0.50 + supervised context-labeling ON), ARM_ADULT (avoidance-shaped A_frac=0.05 + labeling ON), ARM_CHILDHOOD_UNSUP (balanced + unsupervised next-zworld, no labels). DV = cosine_sim(mean_prior_A, mean_prior_B) on a held-out BALANCED probe; lower = better differentiation. C1 (load-bearing, INV-041): mean_cos(ADULT)-mean_cos(CHILDHOOD)>=0.10 AND mean_cos(CHILDHOOD)<0.85. C2 (MECH-153): mean_cos(UNSUP)-mean_cos(CHILDHOOD)>=0.10. Substrate-ready: the childhood regime is IMPOSED at the minibatch-sampling level (no emergent commitment layer needed); F-dominant avoidance is the phenomenon ARM_ADULT simulates, not a confound -- a FAIL is a real INV-041 verdict, not a re-derivation of the conversion ceiling. Each (arm,seed) cell RNG-reset so P0 encoder warmup + context-pool collection are bit-identical across arms; context path reset to untrained init before P1 so exposure is the sole differentiation driver. Phased: P0 encoder warmup -> P1 frozen-encoder context-memory training on detached pooled latents -> P2 eval. GOV-REUSE-1: no manifest tags INV-041 and none records cosine-vs-exposure-regime; decisive readout not recoverable -> run. re-derive brake count 0 for INV-041. DV-symmetry: cosine of learned mean priors is NOT invariant under the exposure/labeling manipulation (the learned representation genuinely depends on training exposure); the delta is a measurement, not an arithmetic identity. Smoke (1 seed): CHILDHOOD -0.69, ADULT 0.999, UNSUP 0.9996 -> C1/C2 PASS, direction as hypothesized (not the real verdict; 5-seed run confirms).",
+      "status": "pending",
+      "conditions": 3,
+      "episodes_per_run": 60,
+      "experiment_type": "v3_exq_832_inv041_childhood_exposure_context_diff",
+      "seeds": 5
     }
   ]
 }
