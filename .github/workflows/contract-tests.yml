@@ -28,17 +28,27 @@ name: Contract Test Suite
 # on this.
 #
 # NOTE (2026-07-27, first run): the initial run on ubuntu-latest surfaced
-# two pre-existing, environment-independent findings that this workflow
-# is working as intended to catch -- see WORKSPACE_STATE.md / chipped
+# one pre-existing, environment-independent finding this workflow is
+# working as intended to catch -- see WORKSPACE_STATE.md / chipped
 # follow-on tasks rather than this comment for status:
 #   1. tests/preflight/test_queue_integrity.py::test_supersedes_targets_well_formed
 #      -- V3-EXQ-826a's `supersedes` field holds a run_id string, not the
 #      expected queue_id shape. A real experiment_queue.json data defect.
-#   2. tests/contracts/test_runner_manifest_survives_conflict_recovery.py
-#      (C1/C2/C3) -- passes on darwin-arm64 (git 2.51.2) but fails on this
-#      runner's git; the manifest-restore `git checkout <pre_reset_sha> --
-#      <path>` step in experiment_runner._git_push_with_retry doesn't find
-#      the path. Not yet root-caused; needs its own investigation.
+#
+# RESOLVED (2026-07-27/28): tests/contracts/test_runner_manifest_survives_
+# conflict_recovery.py (C1/C2/C3) failed here but passed on darwin-arm64.
+# Root cause was a real bug, not a git-version quirk: git_push_results'
+# initial `git commit` was never checked for success, and GitHub's
+# ubuntu-latest runner has no git identity configured and no GECOS full
+# name for git to auto-derive one from -- so that commit failed outright
+# (exit 128), the manifest never entered a commit, and the later
+# `git checkout <pre_reset_sha> -- <path>` restore step correctly reported
+# a missing pathspec because pre_reset_sha genuinely never contained the
+# manifest. Fixed in experiment_runner.py (_git_commit identity-fallback
+# retry, commit 49668c4) with a C4 regression test that reproduces the
+# no-identity failure host-independently. Every currently-live production
+# host was checked directly and has identity configured, so this had not
+# fired in production.
 
 on:
   push:
