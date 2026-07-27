@@ -109,6 +109,62 @@ def test_evaluate_fleet_lifecycle_pure():
     assert "ree-cloud-1=missing" in msg
 
 
+def test_local_modes_do_not_need_coordinator_env():
+    """--mock and --dry-run must work on a host with no coordinator.env.
+
+    THE POINT OF THIS TEST IS TO BE HOST-INDEPENDENT. The four subprocess tests
+    above pass on the operator's Mac whether or not this invariant holds,
+    because they use the DEFAULT --env-file, and on the Mac that resolves to a
+    real $HOME/REE_Working/REE_assembly/coordinator.env. That file is
+    GITIGNORED and outside this repo, so it exists nowhere else -- and until
+    2026-07-27 run_preflight() short-circuited on the resulting empty URL,
+    skipping every local check including the phase3_writer_ready gate. Result:
+    three tests that were green on one laptop and red on the whole fleet, which
+    nobody noticed because remote_pytest.sh's default args did not collect
+    coordinator/ at all.
+
+    Forcing a nonexistent --env-file reproduces the non-Mac condition
+    deterministically, so a regression fails everywhere rather than only where
+    it is least likely to be run.
+    """
+    for extra in (["--mock"], ["--dry-run"], ["--mock", "--cutover-window"]):
+        proc = subprocess.run(
+            [sys.executable, str(PREFLIGHT),
+             "--env-file", "/nonexistent/coordinator.env", "--json"] + extra,
+            capture_output=True, text=True, timeout=60, check=False)
+        # --json is a machine contract: JSON on stdout regardless of exit code.
+        data = json.loads(proc.stdout)
+        ids = {c["id"] for c in data["checks"]}
+        # The local checks are the whole reason these modes exist.
+        assert "phase3_writer_ready" in ids, (extra, sorted(ids))
+        assert "db_schema_present" in ids, (extra, sorted(ids))
+        writer = next(c for c in data["checks"]
+                      if c["id"] == "phase3_writer_ready")
+        assert writer["status"] == "PASS", (extra, writer)
+        # A missing URL must degrade to SKIP here, not FAIL: there is nothing
+        # to reach and nothing was asked of it.
+        config = next(c for c in data["checks"] if c["id"] == "config")
+        assert config["status"] == "SKIP", (extra, config)
+
+
+def test_live_mode_still_fails_without_url():
+    """Negative control for the test above -- the relaxation is mode-scoped.
+
+    Without --mock/--dry-run, a missing COORDINATOR_URL is still a blocking
+    config FAIL. If this ever passes-by-accident, the check above proves
+    nothing.
+    """
+    proc = subprocess.run(
+        [sys.executable, str(PREFLIGHT),
+         "--env-file", "/nonexistent/coordinator.env", "--json"],
+        capture_output=True, text=True, timeout=60, check=False)
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    data = json.loads(proc.stdout)
+    config = next(c for c in data["checks"] if c["id"] == "config")
+    assert config["status"] == "FAIL", config
+    assert data.get("ok") is False
+
+
 if __name__ == "__main__":
     test_help_exits_zero()
     print("PASS test_help_exits_zero")
@@ -120,4 +176,8 @@ if __name__ == "__main__":
     print("PASS test_cutover_window_flag_accepted")
     test_evaluate_fleet_lifecycle_pure()
     print("PASS test_evaluate_fleet_lifecycle_pure")
+    test_local_modes_do_not_need_coordinator_env()
+    print("PASS test_local_modes_do_not_need_coordinator_env")
+    test_live_mode_still_fails_without_url()
+    print("PASS test_live_mode_still_fails_without_url")
     print("RESULT: PASS (phase3 preflight smoke)")

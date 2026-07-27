@@ -263,16 +263,36 @@ def run_preflight(
     def add(cid: str, cat: str, status: str, msg: str, **detail):
         checks.append(CheckResult(cid, cat, status, msg, detail=detail))
 
+    # A missing URL is only BLOCKING for a live run. --mock and --dry-run both
+    # mean "local checks only, no live coordinator required" (main() already
+    # exempts --mock from the env-file existence check), so short-circuiting
+    # here defeated their whole purpose: every local check below -- including
+    # the phase3_writer_ready implementation gate -- was skipped.
+    #
+    # This mattered because coordinator.env is GITIGNORED and lives at
+    # $HOME/REE_Working/REE_assembly/coordinator.env, entirely outside this
+    # repo. It exists only on the operator's Mac. So the three subprocess tests
+    # in test_phase3_preflight.py passed on the Mac purely because that
+    # untracked local file happened to supply a URL, and failed on any other
+    # host -- confirmed 2026-07-27 on the hub, where the file does not exist.
+    # Host-dependent green is not green.
     if not url:
-        add("config", "reachability", "FAIL",
-            "COORDINATOR_URL not set (coordinator.env)")
-        return _summary(checks, quiet=quiet)
+        if mock or dry_run:
+            add("config", "reachability", "SKIP",
+                "no COORDINATOR_URL: local checks only (mock/dry-run)")
+        else:
+            add("config", "reachability", "FAIL",
+                "COORDINATOR_URL not set (coordinator.env)")
+            return _summary(checks, quiet=quiet)
 
     # --- reachability / hub ---
-    if mock:
+    # `not url` reaches here only in mock/dry-run (the live path returned
+    # above), and _http_get against an empty URL is not a check, it is a crash.
+    if mock or not url:
         add("coordinator_api", "reachability", "SKIP",
-            "mock: skip HTTP checks")
-        add("hub_health", "hub", "SKIP", "mock: skip hub health")
+            "mock: skip HTTP checks" if mock else "no URL: skip HTTP checks")
+        add("hub_health", "hub", "SKIP",
+            "mock: skip hub health" if mock else "no URL: skip hub health")
     else:
         st, body, err = _http_get(url, None, "/health")
         if st == 200 and body and body.get("ok"):
@@ -306,9 +326,9 @@ def run_preflight(
                 "shadow/status unavailable -- cannot evaluate lifecycle")
 
     # --- soak (Phase 2 metrics) ---
-    if mock:
+    if mock or not url:
         add("phase2_shadow_metrics", "soak", "SKIP",
-            "mock: skip check_shadow")
+            "mock: skip check_shadow" if mock else "no URL: skip check_shadow")
     elif not token:
         add("phase2_shadow_metrics", "soak", "SKIP",
             "no COORDINATOR_LOCAL_TOKEN for check_shadow")
@@ -523,7 +543,14 @@ def main() -> int:
     env_path = Path(args.env_file).expanduser()
     if not env_path.exists() and not args.mock:
         sys.stderr.write("ERROR: missing env file: %s\n" % env_path)
-        return 2
+        # --json is a machine contract: a consumer that asked for JSON must get
+        # JSON on stdout, not an empty stream and a bare exit 2. Falling
+        # through still exits 2 via the coordinator_url check at the end, so
+        # the exit-code semantics are unchanged -- only the missing body is
+        # fixed. (test_dry_run_local_checks documents exactly this intent:
+        # "May FAIL without coordinator.env URL; must emit valid JSON.")
+        if not args.json:
+            return 2
 
     summary = run_preflight(
         env_file=env_path,
