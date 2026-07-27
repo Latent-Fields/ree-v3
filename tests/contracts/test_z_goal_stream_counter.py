@@ -557,3 +557,233 @@ def test_z9_harness_goal_off_reports_unmeasured():
     assert stats["ticks_total"] == 0
     assert stats["active_frac"] is None
     assert stats["goal_state_present"] is False
+
+
+# ---- Z10: ZGoalStreamAccumulator -- the per-cell tally for hand-rolled drivers ---------
+#
+# The landed hand-rolled corpus builds a FRESH agent inside a per-cell function and lets
+# it fall out of scope when the cell returns, so wiring those drivers to `agent=[...]`
+# would retain every arm x seed agent purely for provenance. The accumulator reads the
+# counters at end-of-cell and drops the reference. These contracts pin that it pools the
+# same numbers the pooled helper would, and that the ordering trap is not silently wrong.
+
+def test_z10_accumulator_pools_the_same_numbers_as_the_agent_list_helper():
+    agents = []
+    for i, write in enumerate([True, True, False]):
+        agent, env = _agent(goal_on=True, seed=10 + i)
+        _run(agent, env, 4, write_z_goal=write)
+        agents.append(agent)
+
+    acc = ZGS.ZGoalStreamAccumulator()
+    for a in agents:
+        acc.observe(a)
+
+    assert acc.stats() == ZGS.z_goal_stream_stats(agents), (
+        "the accumulator must be a drop-in for the pooled helper -- a driver "
+        "choosing it for memory reasons must not get different numbers"
+    )
+    assert acc.stats()["n_agents"] == 3
+    assert acc.stats()["ticks_total"] == 12
+
+
+def test_z10_accumulator_reads_at_call_time_not_construction_time():
+    """The ordering trap: observe() must be called AFTER the cell has stepped."""
+    agent, env = _agent(goal_on=True, seed=20)
+
+    too_early = ZGS.ZGoalStreamAccumulator()
+    too_early.observe(agent)                      # the mistake -- fresh agent
+    _run(agent, env, 4, write_z_goal=True)
+    correct = ZGS.ZGoalStreamAccumulator()
+    correct.observe(agent)                        # correct -- after stepping
+
+    assert too_early.stats()["ticks_total"] == 0
+    assert correct.stats()["ticks_total"] == 4
+
+
+def test_z10_observe_returns_none_so_the_construction_site_chain_is_not_a_dropin():
+    """`agent = acc.observe(REEAgent(cfg))` must not typecheck as a drop-in, because
+    that is exactly the site where the counters are still zero."""
+    agent, _env = _agent(goal_on=True, seed=21)
+    assert ZGS.ZGoalStreamAccumulator().observe(agent) is None
+
+
+def test_z10_empty_accumulator_reports_unmeasured_not_zeros():
+    assert ZGS.ZGoalStreamAccumulator().stats() is None, (
+        "a recorded z_goal_stream block must always mean the run measured it"
+    )
+
+
+def test_z10_non_agents_contribute_nothing_and_never_raise():
+    acc = ZGS.ZGoalStreamAccumulator()
+    for junk in (None, "agent", 7, {"ticks_total": 99}, object()):
+        acc.observe(junk)
+    assert acc.stats() is None
+
+    agent, env = _agent(goal_on=True, seed=22)
+    _run(agent, env, 3, write_z_goal=True)
+    acc.observe(agent)
+    assert acc.stats()["n_agents"] == 1, "junk must not dilute a real fraction"
+    assert acc.stats()["ticks_total"] == 3
+
+
+def test_z10_observe_accepts_an_iterable_of_agents():
+    pair = []
+    for i in range(2):
+        agent, env = _agent(goal_on=True, seed=30 + i)
+        _run(agent, env, 2, write_z_goal=True)
+        pair.append(agent)
+    acc = ZGS.ZGoalStreamAccumulator()
+    acc.observe(pair)
+    assert acc.stats()["n_agents"] == 2
+    assert acc.stats()["ticks_total"] == 4
+
+
+def test_z10_observe_stats_pools_a_stepharness_cell_block():
+    """StepHarness is cell-local too, so a multi-cell harness driver needs pooling."""
+    acc = ZGS.ZGoalStreamAccumulator()
+    for i in range(2):
+        set_all_seeds(40 + i)
+        env = make_tiny_env(seed=40 + i)
+        cfg = make_tiny_config(env, z_goal_enabled=True, goal_weight=0.5)
+        harness = StepHarness(REEAgent(cfg), env, train_mode=False)
+        harness.run_episode(max_steps=3)
+        acc.observe_stats(harness.z_goal_stream_stats())
+
+    stats = acc.stats()
+    assert stats["ticks_total"] == 6
+    assert stats["writer_calls"] == 6
+    assert stats["writer_defect"] is False
+    assert stats["goal_state_present"] is True
+    assert stats["n_agents"] == 2, "n_agents sums the cells' own n_agents"
+
+
+def test_z10_observe_stats_ignores_junk_and_never_raises():
+    acc = ZGS.ZGoalStreamAccumulator()
+    for junk in (None, "block", 3, [1, 2]):
+        acc.observe_stats(junk)
+    assert acc.stats() is None
+
+
+def test_z10_writer_defect_survives_pooling():
+    """A run whose cells never called update_z_goal must still read as the defect."""
+    acc = ZGS.ZGoalStreamAccumulator()
+    for i in range(3):
+        agent, env = _agent(goal_on=True, seed=50 + i)
+        _run(agent, env, 3, write_z_goal=False)
+        acc.observe(agent)
+    stats = acc.stats()
+    assert stats["writer_calls"] == 0
+    assert stats["writer_defect"] is True
+    assert stats["active_frac"] == 0.0
+
+
+def test_z10_goal_off_arm_does_not_mask_a_live_goal_on_arm():
+    acc = ZGS.ZGoalStreamAccumulator()
+    off, off_env = _agent(goal_on=False, seed=60)
+    _run(off, off_env, 3, write_z_goal=True)
+    acc.observe(off)
+    on, on_env = _agent(goal_on=True, seed=61)
+    _run(on, on_env, 3, write_z_goal=True)
+    acc.observe(on)
+    assert acc.stats()["goal_state_present"] is True
+
+
+def test_z10_accumulator_block_round_trips_through_write_flat_manifest():
+    agent, env = _agent(goal_on=True, seed=70)
+    _run(agent, env, 4, write_z_goal=True)
+    acc = ZGS.ZGoalStreamAccumulator()
+    acc.observe(agent)
+
+    sys.path.insert(0, str(EXPERIMENTS_DIR))
+    from pack_writer import write_flat_manifest  # noqa: E402
+
+    with tempfile.TemporaryDirectory() as td:
+        out = write_flat_manifest(
+            {"run_id": "z10_accumulator_v3", "outcome": "PASS"},
+            td, script_path=Path(__file__),
+            z_goal_stream_stats=acc.stats(),
+        )
+        doc = json.loads(Path(out).read_text())
+    assert doc["z_goal_stream"]["ticks_total"] == 4
+    assert doc["z_goal_stream"]["writer_defect"] is False
+
+
+# ---- Z11: the --dry-run smoke print ---------------------------------------------------
+#
+# The counter deliberately replaced a substrate stderr warning (see the module docstring),
+# on the grounds that "a --dry-run smoke can just print it". These pin that it does, that
+# it stays OUT of a real run and the contract suite, and that it never gates.
+
+def _dry_write(tmp, capsys, **kw):
+    sys.path.insert(0, str(EXPERIMENTS_DIR))
+    from pack_writer import write_flat_manifest  # noqa: E402
+    write_flat_manifest({"run_id": "z11_smoke_v3", "outcome": "PASS"}, tmp,
+                        script_path=Path(__file__), **kw)
+    return capsys.readouterr().out
+
+
+def test_z11_dry_run_prints_the_block(tmp_path, capsys):
+    agent, env = _agent(goal_on=True, seed=80)
+    _run(agent, env, 4, write_z_goal=True)
+    out = _dry_write(tmp_path, capsys, dry_run=True, agent=agent)
+    assert "z_goal_stream:" in out
+    assert "ticks=" in out and "writer_calls=4" in out
+    assert "no writer defect" in out
+
+
+def test_z11_dry_run_names_the_defect_in_words(tmp_path, capsys):
+    agent, env = _agent(goal_on=True, seed=81)
+    _run(agent, env, 4, write_z_goal=False)     # the V3-EXQ-626 shape
+    out = _dry_write(tmp_path, capsys, dry_run=True, agent=agent)
+    assert "WRITER DEFECT" in out, "the one reading that means 'bug' must say so"
+
+
+def test_z11_dry_run_hints_when_the_caller_wired_nothing(tmp_path, capsys):
+    out = _dry_write(tmp_path, capsys, dry_run=True)
+    assert "NOT RECORDED" in out
+    assert "write_flat_manifest" in out, "the hint must name the fix"
+
+
+def test_z11_real_run_prints_nothing(tmp_path, capsys):
+    """A print during a multi-hour run scrolls past unread and would fire across the
+    contract suite -- exactly the objections that got the stderr warning rejected."""
+    agent, env = _agent(goal_on=True, seed=82)
+    _run(agent, env, 3, write_z_goal=False)
+    assert "z_goal_stream" not in _dry_write(tmp_path, capsys, agent=agent)
+    assert "z_goal_stream" not in _dry_write(tmp_path, capsys)
+
+
+def test_z11_print_is_ascii_only(tmp_path, capsys):
+    agent, env = _agent(goal_on=True, seed=83)
+    _run(agent, env, 2, write_z_goal=True)
+    for out in (_dry_write(tmp_path, capsys, dry_run=True, agent=agent),
+                _dry_write(tmp_path, capsys, dry_run=True)):
+        out.encode("ascii")     # repo rule: printed output must survive cp1252
+
+
+def test_z11_print_never_gates_or_raises(tmp_path, capsys):
+    """A zero fraction is a legitimate reading (goal-OFF parity arm, negative control,
+    benefit gate never opened), so the smoke reports and returns -- it must not raise."""
+    sys.path.insert(0, str(EXPERIMENTS_DIR))
+    from pack_writer import write_flat_manifest  # noqa: E402
+    out_path = write_flat_manifest(
+        {"run_id": "z11_nogate_v3", "outcome": "PASS",
+         "z_goal_stream": {"ticks_total": 9, "ticks_active": 0, "writer_calls": 0,
+                           "active_frac": 0.0, "writer_defect": True}},
+        tmp_path, dry_run=True, script_path=Path(__file__),
+    )
+    assert Path(out_path).exists(), "a reported defect must still write the manifest"
+    assert "WRITER DEFECT" in capsys.readouterr().out
+
+
+def test_z11_unmeasured_is_not_reported_as_exoneration(tmp_path, capsys):
+    """`writer_defect` None means UNMEASURED. Printing "no writer defect" there would
+    read as a clean bill of health for a run that had no opportunity to show one --
+    the exact reading a goal-OFF driver produces (measured on V3-EXQ-795, whose
+    trigger knob is benefit_terrain_live_producer, not z_goal_enabled)."""
+    agent, env = _agent(goal_on=False, seed=84)
+    _run(agent, env, 3, write_z_goal=True)
+    out = _dry_write(tmp_path, capsys, dry_run=True, agent=agent)
+    assert "not assessable" in out
+    assert "no writer defect" not in out
+    assert "WRITER DEFECT" not in out

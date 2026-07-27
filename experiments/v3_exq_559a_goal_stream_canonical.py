@@ -52,6 +52,7 @@ from ree_core.residue.field import (  # noqa: E402
 )
 from ree_core.utils.config import REEConfig  # noqa: E402
 from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_559a_goal_stream_canonical"
@@ -245,6 +246,13 @@ def _classify(row: Dict) -> str:
     return "partial_stream_write_only"
 
 
+# z_goal-stream liveness, pooled across the run's per-cell agents for the manifest
+# block. The agent (not the harness) is observed: StepHarness keeps a parallel
+# tally, so a cell with both a train and an eval harness would otherwise report
+# n_agents=2 for one agent. Read at end-of-cell, so no agent is retained.
+_ZG = ZGoalStreamAccumulator()
+
+
 def _run_cell(seed: int, arm: Dict, episodes: int, steps_per_episode: int) -> Dict:
     random.seed(seed)
     np.random.seed(seed)
@@ -388,6 +396,8 @@ def _run_cell(seed: int, arm: Dict, episodes: int, steps_per_episode: int) -> Di
     metrics["classification"] = _classify(metrics)
     del metrics["_prev_wanting_sum"]
     del metrics["_prev_liking_sum"]
+    # z_goal liveness -- read AFTER this cell stepped; the agent is not retained.
+    _ZG.observe(agent)
     return metrics
 
 
@@ -570,6 +580,7 @@ def main(dry_run: bool = False):
         config=manifest.get("config"),
         seeds=SEEDS,
         script_path=Path(__file__),
+        z_goal_stream_stats=_ZG.stats(),
     )
     print(f"Result written to: {out_path}", flush=True)
     return outcome, out_path

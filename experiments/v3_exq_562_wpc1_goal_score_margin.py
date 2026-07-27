@@ -78,6 +78,7 @@ from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.environment.causal_grid_world import CausalGridWorld  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
 from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_562_wpc1_goal_score_margin"
@@ -263,6 +264,13 @@ def _install_score_probe(
     agent.e3.select = select_spy
 
 
+# z_goal-stream liveness, pooled across the run's per-cell agents for the manifest
+# block. The agent (not the harness) is observed: StepHarness keeps a parallel
+# tally, so a cell with both a train and an eval harness would otherwise report
+# n_agents=2 for one agent. Read at end-of-cell, so no agent is retained.
+_ZG = ZGoalStreamAccumulator()
+
+
 def _run_arm_seed(
     arm: Dict,
     seed: int,
@@ -354,6 +362,8 @@ def _run_arm_seed(
         if agent.goal_state is not None else 0.0
     )
 
+    # z_goal liveness -- read AFTER this cell stepped; the agent is not retained.
+    _ZG.observe(agent)
     return {
         "seed": int(seed),
         "arm": arm["arm"],
@@ -564,6 +574,7 @@ def main(dry_run: bool = False):
         config=manifest.get("config"),
         seeds=SEEDS,
         script_path=Path(__file__),
+        z_goal_stream_stats=_ZG.stats(),
     )
     print(f"Result written to: {out_path}", flush=True)
     return outcome, out_path

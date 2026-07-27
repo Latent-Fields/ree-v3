@@ -513,7 +513,65 @@ def write_flat_manifest(
     out_path.write_text(
         json.dumps(manifest, indent=2, default=json_default) + "\n", encoding="utf-8"
     )
+    if dry_run:
+        _print_z_goal_stream_smoke(
+            manifest, wired=(agent is not None or z_goal_stream_stats is not None)
+        )
     return out_path
+
+
+def _print_z_goal_stream_smoke(manifest: Mapping[str, Any], *, wired: bool) -> None:
+    """One ASCII line about z_goal liveness, printed ONLY under ``--dry-run``.
+
+    The counters exist so a dead z_goal stream lands in a run's own record; but a
+    record is read after the fact, and the whole point of the V3-EXQ-830 near-miss
+    was that the defect wants catching BEFORE the multi-hour run. The smoke is where
+    an author is already looking, so the block is surfaced there. Deliberately NOT
+    printed on a real run: a stderr warning from the substrate was considered and
+    rejected (it scrolls past unread over hours, leaves nothing auditable, and fires
+    across the ~1800-test contract suite) -- gating on ``dry_run`` keeps every one of
+    those objections satisfied while still putting the number in front of the author.
+
+    This is a REPORT, never a gate. ``active_frac`` 0.0 is a legitimate reading for a
+    goal-OFF parity arm, for a negative control, and for a correctly-wired run whose
+    benefit gate never opened; ``writer_defect`` is the only line that says "bug".
+    Never raises -- a smoke print must not be able to fail a manifest write.
+    """
+    try:
+        block = manifest.get("z_goal_stream") if isinstance(manifest, dict) else None
+        if not isinstance(block, dict):
+            if not wired:
+                print(
+                    "[smoke] z_goal_stream: NOT RECORDED -- if this run steps an agent, "
+                    "pass agent=<agent or list> (or z_goal_stream_stats=...) to "
+                    "write_flat_manifest, else a dead z_goal stream stays invisible "
+                    "(V3-EXQ-626 / V3-EXQ-830)",
+                    flush=True,
+                )
+            return
+        frac = block.get("active_frac")
+        frac_s = "unmeasured" if frac is None else f"{float(frac):.3f}"
+        defect = block.get("writer_defect")
+        if defect:
+            verdict = ("WRITER DEFECT -- update_z_goal was never called, so z_goal sat "
+                       "at zero-init and every consumer got None")
+        elif defect is None:
+            # None is UNMEASURED, not exoneration: with ticks_total 0 there was no
+            # opportunity to observe the defect. Saying "no writer defect" here would
+            # read as a clean bill of health for a run that measured nothing.
+            verdict = "writer_defect not assessable (no ticks with goal_state present)"
+        else:
+            verdict = "no writer defect"
+        print(
+            f"[smoke] z_goal_stream: active_frac={frac_s} "
+            f"ticks={block.get('ticks_active')}/{block.get('ticks_total')} "
+            f"writer_calls={block.get('writer_calls')} "
+            f"goal_state_present={block.get('goal_state_present')} "
+            f"n_agents={block.get('n_agents')} -- {verdict}",
+            flush=True,
+        )
+    except Exception:
+        pass
 
 
 def _import_stamp_recording_core():

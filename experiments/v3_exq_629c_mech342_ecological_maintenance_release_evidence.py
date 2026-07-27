@@ -171,6 +171,7 @@ from scaffolded_sd054_onboarding import (  # noqa: E402
     stage_plan,
 )
 from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_629c_mech342_ecological_maintenance_release_evidence"
 QUEUE_ID = "V3-EXQ-629c"
@@ -774,6 +775,11 @@ def _build_curriculum_agent(scaffold_cfg, device, seed, dry_run, total_eps):
     return agent, p2, False, ""
 
 
+# z_goal-stream liveness, pooled across the run's per-cell agents for the
+# manifest block (read at end-of-cell, so no agent is retained for provenance).
+_ZG = ZGoalStreamAccumulator()
+
+
 def _run_seed(seed: int, dry_run: bool, total_eps: int) -> Dict[str, Any]:
     set_seed(seed)
     scaffold_cfg = _make_scaffold_cfg(dry_run)
@@ -789,6 +795,7 @@ def _run_seed(seed: int, dry_run: bool, total_eps: int) -> Dict[str, Any]:
     )
     if aborted:
         print(f"verdict: FAIL seed={seed} aborted={reason}", flush=True)
+        _ZG.observe(agent)
         return {
             "seed": seed, "guard_pass": False, "aborted_at": reason,
             "p2_contact_rate": 0.0, "p2_z_goal_norm_at_contact_peak": 0.0,
@@ -818,6 +825,8 @@ def _run_seed(seed: int, dry_run: bool, total_eps: int) -> Dict[str, Any]:
             "healthy_window": healthy,
             "degraded_window": degraded,
         }
+        # z_goal liveness -- this overlay clone has finished both P2 windows.
+        _ZG.observe(arm_agent)
         print(f"  H[occ={healthy['committed_pointer_occupancy']:.3f}"
               f" fires={healthy['mech342_fires']} decommit={healthy['decommit_transitions']}]"
               f" D[occ={degraded['committed_pointer_occupancy']:.3f}"
@@ -828,6 +837,7 @@ def _run_seed(seed: int, dry_run: bool, total_eps: int) -> Dict[str, Any]:
     print(f"verdict: {'PASS' if guard_pass else 'FAIL'} seed={seed} guard_pass={guard_pass}"
           f" (contact_rate={p2.contact_rate:.4f} z_goal_at_contact={p2.z_goal_norm_at_contact_peak:.4f})",
           flush=True)
+    _ZG.observe(agent)
     return {
         "seed": seed,
         "guard_pass": guard_pass,
@@ -1122,6 +1132,7 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
         config=manifest.get("config"),
         seeds=SEEDS,
         script_path=Path(__file__),
+        z_goal_stream_stats=_ZG.stats(),
     )
     print(f"[{EXPERIMENT_TYPE}] manifest -> {out_path}", flush=True)
     print(f"Done. Outcome: {result['outcome']}", flush=True)

@@ -106,6 +106,7 @@ from scaffolded_sd054_onboarding import (  # noqa: E402
     _build_env,
 )
 from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
 from experiments._lib.arm_fingerprint import arm_cell, reset_all_rng  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_812_mech295_cue_authority_sd054"
@@ -495,6 +496,11 @@ def _run_p2_arm(
     return row
 
 
+# z_goal-stream liveness, pooled across the run's per-cell agents for the
+# manifest block (read at end-of-cell, so no agent is retained for provenance).
+_ZG = ZGoalStreamAccumulator()
+
+
 def _run_seed(seed: int, dry_run: bool, total_eps: int) -> Dict[str, Any]:
     torch.manual_seed(seed)
     scaffold_cfg = _make_scaffold_cfg(dry_run)
@@ -516,6 +522,7 @@ def _run_seed(seed: int, dry_run: bool, total_eps: int) -> Dict[str, Any]:
     )
     if s0.aborted:
         print(f"verdict: FAIL seed={seed} aborted_at=stage0 reason={s0.abort_reason}", flush=True)
+        _ZG.observe(agent)
         return {"seed": seed, "aborted_at": "stage0", "abort_reason": s0.abort_reason,
                 "arms": [], "g0_stage0_zgoal": False, "g1_p1_survival": False,
                 "harm_eval_range": 0.0, "harm_train_steps": 0, "seed_pass": False}
@@ -529,6 +536,7 @@ def _run_seed(seed: int, dry_run: bool, total_eps: int) -> Dict[str, Any]:
     )
     if s0b.aborted:
         print(f"verdict: FAIL seed={seed} aborted_at=stage0b reason={s0b.abort_reason}", flush=True)
+        _ZG.observe(agent)
         return {"seed": seed, "aborted_at": "stage0b", "abort_reason": s0b.abort_reason,
                 "arms": [], "g0_stage0_zgoal": bool(s0.z_goal_norm_peak > STAGE0_POSITIVE_CONTROL_FLOOR),
                 "g1_p1_survival": False, "harm_eval_range": 0.0, "harm_train_steps": 0,
@@ -540,6 +548,7 @@ def _run_seed(seed: int, dry_run: bool, total_eps: int) -> Dict[str, Any]:
           f" mean_len={p0.mean_episode_length:.1f}", flush=True)
     if p0.aborted:
         print(f"verdict: FAIL seed={seed} aborted_at=p0 reason={p0.abort_reason}", flush=True)
+        _ZG.observe(agent)
         return {"seed": seed, "aborted_at": "p0", "abort_reason": p0.abort_reason,
                 "arms": [], "g0_stage0_zgoal": bool(s0.z_goal_norm_peak > STAGE0_POSITIVE_CONTROL_FLOOR),
                 "g1_p1_survival": False, "harm_eval_range": 0.0, "harm_train_steps": 0,
@@ -556,6 +565,7 @@ def _run_seed(seed: int, dry_run: bool, total_eps: int) -> Dict[str, Any]:
           f" harm_eval_range={harm_eval_range:.4f}", flush=True)
     if hz.aborted:
         print(f"verdict: FAIL seed={seed} aborted_at=hazard reason={hz.abort_reason}", flush=True)
+        _ZG.observe(agent)
         return {"seed": seed, "aborted_at": "hazard", "abort_reason": hz.abort_reason,
                 "arms": [], "g0_stage0_zgoal": bool(s0.z_goal_norm_peak > STAGE0_POSITIVE_CONTROL_FLOOR),
                 "g1_p1_survival": False, "harm_eval_range": harm_eval_range,
@@ -579,6 +589,8 @@ def _run_seed(seed: int, dry_run: bool, total_eps: int) -> Dict[str, Any]:
     seed_pass = bool(g0 and g1)
     print(f"verdict: {'PASS' if seed_pass else 'FAIL'} seed={seed} g0={g0} g1={g1}", flush=True)
 
+    # z_goal liveness -- read AFTER this cell stepped; the agent is not retained.
+    _ZG.observe(agent)
     return {
         "seed": seed, "aborted_at": None, "abort_reason": "",
         "stage0_z_goal_norm_peak": float(s0.z_goal_norm_peak),
@@ -876,6 +888,7 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
         seeds=SEEDS,
         script_path=Path(__file__),
         started_at=t0,
+        z_goal_stream_stats=_ZG.stats(),
     )
     print(f"[{EXPERIMENT_TYPE}] manifest -> {out_path}", flush=True)
     print(f"Done. Outcome: {result['outcome']}", flush=True)

@@ -238,6 +238,7 @@ from experiments._lib.precondition_gate import (  # noqa: E402
     evaluate_arm_gate,
 )
 from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_799_mech048_stability_temperature_behavioural_did"
 EXPERIMENT_PURPOSE = "diagnostic"
@@ -832,6 +833,11 @@ def _run_measurement_arm(
     }
 
 
+# z_goal-stream liveness, pooled across the run's per-cell agents for the
+# manifest block (read at end-of-cell, so no agent is retained for provenance).
+_ZG = ZGoalStreamAccumulator()
+
+
 def _run_seed(
     seed: int, scaffold_cfg, device, n_eps: int, steps_per_ep: int
 ) -> List[Dict[str, Any]]:
@@ -865,6 +871,9 @@ def _run_seed(
             )
             cell.stamp(row)
         rows.append(row)
+    # z_goal liveness -- one shared onboarded agent per seed, read after the
+    # last arm has stepped it.
+    _ZG.observe(base_agent)
     return rows
 
 
@@ -1283,6 +1292,7 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         seeds=seeds,
         script_path=Path(__file__),
         started_at=t0,
+        z_goal_stream_stats=_ZG.stats(),
     )
 
     for s in complete_seeds:

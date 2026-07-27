@@ -131,6 +131,7 @@ from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
 from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
 from experiments._lib.arm_fingerprint import arm_cell  # noqa: E402
 from experiment_protocol import emit_outcome  # noqa: E402
 
@@ -294,6 +295,11 @@ def _full_config() -> dict:
 # ----------------------------------------------------------------------
 # P0 readiness positive control -- RANGE, the statistic L4a routes on
 # ----------------------------------------------------------------------
+# z_goal-stream liveness, pooled across the run's per-cell agents for the
+# manifest block (read at end-of-cell, so no agent is retained for provenance).
+_ZG = ZGoalStreamAccumulator()
+
+
 def readiness_probe(seed: int) -> Dict[str, float]:
     """Positive control: can the instrument register a CROSS-CANDIDATE RANGE at all?
 
@@ -416,6 +422,8 @@ def run_cell(seed: int, arm: str, episodes: int) -> dict:
             "n_reward_contacts": n_contacts,
         }
         cell.stamp(row)
+    # z_goal liveness -- read AFTER this cell stepped; the agent is not retained.
+    _ZG.observe(agent)
     return row
 
 
@@ -616,6 +624,7 @@ def main(dry_run: bool = False) -> dict:
         manifest, out_dir, dry_run=dry_run,
         config=_full_config(), seeds=list(seeds),
         script_path=Path(__file__), started_at=t0_perf,
+        z_goal_stream_stats=_ZG.stats(),
     )
     print(f"Result written to: {out_path}")
     print(f"Done. Outcome: {ev['outcome']}")

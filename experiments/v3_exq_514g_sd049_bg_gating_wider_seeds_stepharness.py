@@ -86,6 +86,7 @@ from ree_core.utils.config import REEConfig  # noqa: E402
 from experiment_protocol import emit_outcome  # noqa: E402
 from experiments._harness import StepHarness  # noqa: E402
 from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
 
 QUEUE_ID = "V3-EXQ-514g"
 EXPERIMENT_TYPE = "v3_exq_514g_sd049_bg_gating_wider_seeds_stepharness"
@@ -155,6 +156,13 @@ def _entropy(counts: Dict[int, int]) -> float:
             p = c / total
             ent -= p * math.log(p + 1e-12)
     return ent
+
+
+# z_goal-stream liveness, pooled across the run's per-cell agents for the manifest
+# block. The agent (not the harness) is observed: StepHarness keeps a parallel
+# tally, so a cell with both a train and an eval harness would otherwise report
+# n_agents=2 for one agent. Read at end-of-cell, so no agent is retained.
+_ZG = ZGoalStreamAccumulator()
 
 
 def run_diagnostic_for_seed(seed: int, n_episodes: int, device: torch.device) -> Dict:
@@ -268,6 +276,8 @@ def run_diagnostic_for_seed(seed: int, n_episodes: int, device: torch.device) ->
     ever_committed = any(f > 0 for f in ep_committed_frac)
     first_commit_ep = next((i for i, f in enumerate(ep_committed_frac) if f > 0), -1)
 
+    # z_goal liveness -- read AFTER this cell stepped; the agent is not retained.
+    _ZG.observe(agent)
     return {
         "seed": seed,
         "commit_threshold": COMMIT_THRESHOLD,
@@ -434,6 +444,7 @@ def write_manifest(result: Dict, run_id: str) -> str:
         config=manifest.get("config"),
         seeds=SEEDS,
         script_path=Path(__file__),
+        z_goal_stream_stats=_ZG.stats(),
     )
     print(f"[514g] written -> {out_path}", flush=True)
     return str(out_path)

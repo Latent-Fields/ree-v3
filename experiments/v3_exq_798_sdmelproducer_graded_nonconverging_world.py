@@ -136,6 +136,7 @@ from experiment_protocol import emit_outcome
 from _metrics import check_degeneracy
 from experiments._lib.arm_fingerprint import arm_cell
 from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_798_sdmelproducer_graded_nonconverging_world"
 QUEUE_ID = "V3-EXQ-798"
@@ -597,6 +598,11 @@ def _decay_frac(bin_means: Dict[int, float], bin_counts: Dict[int, int]) -> Opti
     return float((early - late) / early)
 
 
+# z_goal-stream liveness, pooled across the run's per-cell agents for the
+# manifest block (read at end-of-cell, so no agent is retained for provenance).
+_ZG = ZGoalStreamAccumulator()
+
+
 def run_cell(arm: Dict[str, Any], seed: int, conv_eps: int, meas_steps: int,
              learn_steps: int, steps: int, probe_steps: int,
              probe_size: int) -> Dict[str, Any]:
@@ -640,6 +646,8 @@ def run_cell(arm: Dict[str, Any], seed: int, conv_eps: int, meas_steps: int,
         noise_sigma=arm["noise"], noise_gen=noise_gen)
 
     print("verdict: PASS", flush=True)
+    # z_goal liveness -- read AFTER this cell stepped; the agent is not retained.
+    _ZG.observe(agent)
     return {
         "arm_id": arm_id,
         "level": arm["level"],
@@ -1019,6 +1027,7 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
     out_path = write_flat_manifest(
         manifest, out_dir, dry_run=False, config=manifest.get("config"),
         seeds=seeds, script_path=Path(__file__),
+        z_goal_stream_stats=_ZG.stats(),
     )
 
     print(f"\nResults written to {out_path}")

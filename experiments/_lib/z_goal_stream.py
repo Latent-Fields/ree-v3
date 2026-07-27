@@ -40,6 +40,21 @@ simply correct. A print during a multi-hour run also scrolls past unread and lea
 auditable afterwards, and it would fire across the ~1800-test contract suite. The counter
 subsumes the warning's only real value; a ``--dry-run`` smoke can just print it.
 
+That print now exists: ``pack_writer.write_flat_manifest`` emits one ``[smoke]
+z_goal_stream:`` line, gated on ``dry_run`` -- so an author sees ``active_frac`` and
+``writer_defect`` before committing to a multi-hour run, while every objection above still
+holds for the real run and for the contract suite. It is a REPORT, never a gate.
+
+Recording it from a driver
+--------------------------
+Pass ``agent=`` (one agent, or an iterable for a multi-arm run) or ``z_goal_stream_stats=``
+to ``write_flat_manifest`` -- or, when the driver calls ``write_flat_manifest(...,
+stamp=False)`` because it stamps upstream, to its own ``stamp_recording_core(...)``, since
+``stamp=False`` skips the stamper entirely. For the usual hand-rolled shape -- a fresh agent
+built INSIDE a per-cell function -- use ``ZGoalStreamAccumulator`` below rather than
+collecting the agents into a run-level list, which would keep every arm x seed agent alive
+until the last cell finishes.
+
 Reading the recorded block
 --------------------------
 ``z_goal_stream`` on the manifest::
@@ -208,6 +223,104 @@ def z_goal_stream_stats(agent: Any) -> Optional[Dict[str, Any]]:
     )
 
 
+class ZGoalStreamAccumulator:
+    """Run-level tally for a driver that builds a FRESH agent per arm x seed.
+
+    Why this exists beside ``z_goal_stream_stats(agent)``. The pooled helper takes the
+    agents themselves, which is right for a driver holding all of them at manifest time.
+    But the landed hand-rolled corpus overwhelmingly builds its agent INSIDE a per-cell
+    function (``_run_cell(arm, seed)`` -> row) and lets it fall out of scope when the
+    cell returns. Wiring those to ``agent=[...]`` would mean appending every agent to a
+    run-level list purely for provenance, so a 3-arm x 5-seed training run keeps fifteen
+    fully-populated agents -- nets, optimiser state, replay buffers, hippocampal banks --
+    alive until the last cell finishes. That is a real peak-memory change on a 3 GB
+    cloud worker, imposed by a provenance field. This reads the three counters off the
+    agent at end-of-cell and drops the reference.
+
+    The same reason applies to a ``StepHarness`` driver: the harness is cell-local too,
+    so its ``z_goal_stream_stats()`` block needs pooling across cells -- ``observe_stats``.
+
+    ORDERING IS THE ONE TRAP: ``observe`` reads the counters AT CALL TIME, so it must be
+    called AFTER the cell has finished stepping, not at construction. Called on a fresh
+    agent it contributes ticks_total 0 and, worse, would make a live run look unmeasured.
+    ``observe`` deliberately returns None rather than the agent, so the tempting
+    ``agent = acc.observe(REEAgent(cfg))`` chain at the construction site does not
+    typecheck as a drop-in and the mistake surfaces immediately.
+
+    Usage::
+
+        _ZG = ZGoalStreamAccumulator()
+
+        def _run_cell(arm, seed):
+            agent = REEAgent(cfg)
+            ...                       # step the agent
+            _ZG.observe(agent)        # AFTER stepping
+            return row
+
+        write_flat_manifest(manifest, ..., z_goal_stream_stats=_ZG.stats())
+    """
+
+    __slots__ = ("_total", "_active", "_calls", "_present", "_n")
+
+    def __init__(self) -> None:
+        self._total = 0
+        self._active = 0
+        self._calls = 0
+        self._present = False
+        self._n = 0
+
+    def observe(self, agent: Any) -> None:
+        """Fold one FINISHED cell's agent (or iterable of agents) into the tally.
+
+        Exception-safe and duck-typed, matching the module's posture: a non-agent
+        contributes nothing rather than raising or diluting the fraction with zeros.
+        """
+        try:
+            for one in _iter_agents(agent):
+                c = _counts(one)
+                if c is None:
+                    continue
+                self._total += c["ticks_total"]
+                self._active += c["ticks_active"]
+                self._calls += c["writer_calls"]
+                self._present = self._present or bool(c["goal_state_present"])
+                self._n += 1
+        except Exception:
+            pass
+
+    def observe_stats(self, stats: Optional[Dict[str, Any]]) -> None:
+        """Fold one cell's precomputed block -- e.g. ``StepHarness.z_goal_stream_stats()``.
+
+        ``n_agents`` is summed rather than counted as one, so a block that already
+        pooled several agents keeps its weight in the run-level ``n_agents``.
+        """
+        try:
+            if not isinstance(stats, dict):
+                return
+            self._total += max(0, int(stats.get("ticks_total") or 0))
+            self._active += max(0, int(stats.get("ticks_active") or 0))
+            self._calls += max(0, int(stats.get("writer_calls") or 0))
+            self._present = self._present or bool(stats.get("goal_state_present"))
+            self._n += max(1, int(stats.get("n_agents") or 1))
+        except Exception:
+            pass
+
+    def stats(self) -> Optional[Dict[str, Any]]:
+        """The run-level block, or None when nothing was observed.
+
+        None (not a zero-filled block) so the manifest keeps the module's invariant:
+        a recorded ``z_goal_stream`` always means the run actually measured it.
+        """
+        if self._n == 0:
+            return None
+        return stats_from_counts(
+            self._total, self._active,
+            writer_calls=self._calls,
+            goal_state_present=self._present,
+            n_agents=self._n,
+        )
+
+
 def stamp_z_goal_stream(
     manifest: Dict[str, Any],
     agent: Any = None,
@@ -240,6 +353,7 @@ def stamp_z_goal_stream(
 
 __all__ = [
     "MANIFEST_KEY",
+    "ZGoalStreamAccumulator",
     "stats_from_counts",
     "z_goal_stream_stats",
     "stamp_z_goal_stream",

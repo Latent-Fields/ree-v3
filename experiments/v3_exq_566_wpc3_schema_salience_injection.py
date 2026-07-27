@@ -63,6 +63,7 @@ from ree_core.environment.causal_grid_world import CausalGridWorld  # noqa: E402
 from ree_core.residue.field import VALENCE_WANTING  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
 from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_566_wpc3_schema_salience_injection"
 QUEUE_ID = "V3-EXQ-566"
@@ -159,6 +160,13 @@ def _make_config(env: CausalGridWorld, arm: Dict[str, Any]) -> REEConfig:
     return cfg
 
 
+# z_goal-stream liveness, pooled across the run's per-cell agents for the manifest
+# block. The agent (not the harness) is observed: StepHarness keeps a parallel
+# tally, so a cell with both a train and an eval harness would otherwise report
+# n_agents=2 for one agent. Read at end-of-cell, so no agent is retained.
+_ZG = ZGoalStreamAccumulator()
+
+
 def _run_arm_seed(
     arm: Dict[str, Any],
     seed: int,
@@ -246,6 +254,8 @@ def _run_arm_seed(
         float(steps_with_injection / steps_total) if steps_total > 0 else 0.0
     )
 
+    # z_goal liveness -- read AFTER this cell stepped; the agent is not retained.
+    _ZG.observe(agent)
     return {
         "arm": arm["arm"],
         "seed": seed,
@@ -392,6 +402,7 @@ def main(dry_run: bool = False):
             config=manifest.get("config"),
             seeds=SEEDS,
             script_path=Path(__file__),
+            z_goal_stream_stats=_ZG.stats(),
         )
         print(f"Manifest written: {out_path}", flush=True)
     else:

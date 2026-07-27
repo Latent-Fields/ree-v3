@@ -65,6 +65,7 @@ from ree_core.hippocampal.ghost_goal_bank import GhostGoalBank  # noqa: E402
 from experiment_protocol import emit_outcome  # noqa: E402
 from experiments._lib.arm_fingerprint import arm_cell  # noqa: E402
 from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_807_sd079_centered_goal_anchor_match"
 EXPERIMENT_PURPOSE = "diagnostic"
@@ -101,6 +102,9 @@ SEED_PASS_FRACTION = 2.0 / 3.0
 # READINESS: the z_goal common-mode cone must be present for SD-079 to have
 # anything to repair. Same statistic the hazard is defined by (min pairwise cosine).
 CONE_MIN_COSINE_FLOOR = 0.90
+
+# z_goal-stream liveness, pooled across arm x seed cells for the manifest block.
+_ZG = ZGoalStreamAccumulator()
 
 
 def _build_env(seed: int) -> CausalGridWorldV2:
@@ -229,6 +233,9 @@ def _run_cell(arm: str, seed: int) -> Dict[str, Any]:
             "n_zgoal_sampled": min(len(zgoals), 200),
         }
         cell.stamp(row)
+    # z_goal liveness -- read AFTER the cell has stepped, then the agent is dropped.
+    # z_goal liveness -- read AFTER this cell stepped; the agent is not retained.
+    _ZG.observe(agent)
     passed = (row["goal_match_spread"] > SPREAD_FLOOR) if centering else \
              (row["goal_match_spread"] <= OFF_SPREAD_CEIL)
     print(f"verdict: {'PASS' if passed else 'FAIL'}", flush=True)
@@ -374,6 +381,7 @@ def main():
         seeds=SEEDS,
         script_path=Path(__file__),
         started_at=t0,
+        z_goal_stream_stats=_ZG.stats(),
     )
     m = result["metrics"]
     print(f"outcome: {result['outcome']}", flush=True)

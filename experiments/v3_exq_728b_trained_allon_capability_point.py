@@ -147,6 +147,7 @@ from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
 from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_728b_trained_allon_capability_point"
@@ -789,6 +790,11 @@ def _unevaluated_row(policy_name: str) -> Dict[str, Any]:
     }
 
 
+# z_goal-stream liveness, pooled across the run's per-cell agents for the
+# manifest block (read at end-of-cell, so no agent is retained for provenance).
+_ZG = ZGoalStreamAccumulator()
+
+
 def _run_cell(
     arm_id: str,
     seed: int,
@@ -806,6 +812,8 @@ def _run_cell(
     guard_ok: Optional[bool] = None
     guard_message: Optional[str] = None
     guard_skipped: bool = False
+    # Bound only by the ree_trained_allon branch; _ZG.observe(None) is a no-op.
+    agent: Optional[REEAgent] = None
 
     # FAIL-FAST ACROSS SEEDS. A frozen world encoder is a property of the CODE PATH, not of
     # a seed: once the warmup has failed to move the encoder, every remaining seed of this
@@ -900,6 +908,8 @@ def _run_cell(
     if guard_ok is False:
         row["zworld_guard_refused"] = True
         row["zworld_guard_skipped"] = guard_skipped
+    # z_goal liveness -- read AFTER eval, which steps the agent through the policy.
+    _ZG.observe(agent)
     return row
 
 
@@ -1360,6 +1370,7 @@ def main() -> Tuple[Optional[str], Optional[str], bool]:
         seeds=SEEDS,
         script_path=Path(__file__),
         elapsed_seconds=(datetime.now(timezone.utc) - _run_started).total_seconds(),
+        z_goal_stream_stats=_ZG.stats(),
     )
 
     print(f"manifest: {out_path}", flush=True)

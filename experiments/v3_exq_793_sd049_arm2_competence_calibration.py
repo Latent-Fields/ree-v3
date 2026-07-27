@@ -171,6 +171,7 @@ from scaffolded_sd054_onboarding import (  # noqa: E402
 from experiments._lib.arm_fingerprint import arm_cell  # noqa: E402
 from experiments._lib.manifest_core import stamp_recording_core  # noqa: E402
 from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
 
 # Both readiness preconditions here ARE their own definitions and are reachable by
 # construction, so the anchor-reachability guard has nothing to add:
@@ -584,6 +585,11 @@ def _full_config(curriculum_amended: bool, density_on: bool, dry_run: bool) -> D
     }
 
 
+# z_goal-stream liveness, pooled across the run's per-cell agents for the
+# manifest block (read at end-of-cell, so no agent is retained for provenance).
+_ZG = ZGoalStreamAccumulator()
+
+
 def _run_seed_arm(seed: int, arm_id: str, label: str, curriculum_amended: bool,
                   density_on: bool, dry_run: bool) -> Dict[str, Any]:
     total_eps = _cell_total_eps(curriculum_amended, dry_run)
@@ -620,6 +626,7 @@ def _run_seed_arm(seed: int, arm_id: str, label: str, curriculum_amended: bool,
             rec = _aborted_record(seed, arm_id, label, curriculum_amended, density_on,
                                   "stage0", s0.abort_reason)
             cell.stamp(rec)
+            _ZG.observe(agent)
             return rec
 
         s0b = scheduler.run_stage0b_consolidation(
@@ -632,6 +639,7 @@ def _run_seed_arm(seed: int, arm_id: str, label: str, curriculum_amended: bool,
             rec = _aborted_record(seed, arm_id, label, curriculum_amended, density_on,
                                   "stage0b", s0b.abort_reason)
             cell.stamp(rec)
+            _ZG.observe(agent)
             return rec
 
         p0 = scheduler.run_p0(agent, device)
@@ -643,6 +651,7 @@ def _run_seed_arm(seed: int, arm_id: str, label: str, curriculum_amended: bool,
             rec = _aborted_record(seed, arm_id, label, curriculum_amended, density_on,
                                   "p0", p0.abort_reason)
             cell.stamp(rec)
+            _ZG.observe(agent)
             return rec
 
         # --- D2: the isolated Stage-H survival gate (one of the two 693a failure legs) ---
@@ -656,6 +665,7 @@ def _run_seed_arm(seed: int, arm_id: str, label: str, curriculum_amended: bool,
             rec = _aborted_record(seed, arm_id, label, curriculum_amended, density_on,
                                   "hazard", hz.abort_reason)
             cell.stamp(rec)
+            _ZG.observe(agent)
             return rec
 
         p1 = scheduler.run_p1(agent, device)
@@ -702,6 +712,8 @@ def _run_seed_arm(seed: int, arm_id: str, label: str, curriculum_amended: bool,
         }
         rec.update(behav)
         cell.stamp(rec)
+    # z_goal liveness -- read AFTER this cell stepped; the agent is not retained.
+    _ZG.observe(agent)
     return rec
 
 
@@ -809,6 +821,7 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
             config={"density_flag_supported": False,
                     "arms": [a[0] for a in arms], "seeds": seeds},
             seeds=seeds, script_path=Path(__file__), started_at=t0,
+            z_goal_stream_stats=_ZG.stats(),
         )
         return manifest
 
@@ -1054,6 +1067,7 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
             "density_flag_supported": True,
         },
         seeds=seeds, script_path=Path(__file__), started_at=t0,
+        z_goal_stream_stats=_ZG.stats(),
     )
     return manifest
 

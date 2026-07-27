@@ -111,6 +111,7 @@ from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
 from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_790_channel_routing_cross_class_magnitude_replication"
 # Two queue entries share this script (790 cloud / 791 Mac). The runner always
@@ -380,6 +381,11 @@ def _e2_contrastive_step(
 # Per-(seed, arm) runner
 # ---------------------------------------------------------------------------
 
+# z_goal-stream liveness, pooled across the run's per-cell agents for the
+# manifest block (read at end-of-cell, so no agent is retained for provenance).
+_ZG = ZGoalStreamAccumulator()
+
+
 def _run_seed_arm(
     arm: Dict[str, Any],
     seed: int,
@@ -571,6 +577,8 @@ def _run_seed_arm(
         if n_fresh_select > 0 else 0.0
     )
 
+    # z_goal liveness -- read AFTER this cell stepped; the agent is not retained.
+    _ZG.observe(agent)
     return {
         "arm_id": arm["arm_id"],
         "label": arm["label"],
@@ -952,6 +960,7 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
             config=manifest.get("config"),
             seeds=SEEDS,
             script_path=Path(__file__),
+            z_goal_stream_stats=_ZG.stats(),
         )
         print(f"Manifest written: {out_path}", flush=True)
     else:

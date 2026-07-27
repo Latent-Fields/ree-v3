@@ -246,6 +246,7 @@ from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
 from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_707c_arc110_loop_segregation_c2_release_repair"
@@ -971,6 +972,11 @@ def _lpfc_reinforce_loss(
     return torch.stack(terms).mean()
 
 
+# z_goal-stream liveness, pooled across the run's per-cell agents for the
+# manifest block (read at end-of-cell, so no agent is retained for provenance).
+_ZG = ZGoalStreamAccumulator()
+
+
 def _run_seed_arm(
     arm: Dict[str, Any],
     seed: int,
@@ -1475,6 +1481,8 @@ def _run_seed_arm(
         and loop_limbic_routed_range_max > LIMBIC_ROUTED_RANGE_FLOOR
     )
 
+    # z_goal liveness -- read AFTER this cell stepped; the agent is not retained.
+    _ZG.observe(agent)
     return {
         "arm_id": arm["arm_id"],
         "label": arm["label"],
@@ -2744,6 +2752,7 @@ def main() -> Tuple[Optional[str], Optional[str], bool]:
         seeds=seeds,
         script_path=Path(__file__),
         elapsed_seconds=(datetime.now(timezone.utc) - _run_started).total_seconds(),
+        z_goal_stream_stats=_ZG.stats(),
     )
 
     print(f"manifest: {out_path}", flush=True)

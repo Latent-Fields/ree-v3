@@ -152,6 +152,7 @@ from scaffolded_sd054_onboarding import (  # noqa: E402
 )
 from experiments._lib.manifest_core import stamp_recording_core  # noqa: E402
 from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_797_mech266_external_task_engagement_instrumentation"
 QUEUE_ID = "V3-EXQ-797"
@@ -594,6 +595,11 @@ def _aborted_seed_record(seed: int, stage: str, reason: str) -> Dict[str, Any]:
     }
 
 
+# z_goal-stream liveness, pooled across the run's per-cell agents for the
+# manifest block (read at end-of-cell, so no agent is retained for provenance).
+_ZG = ZGoalStreamAccumulator()
+
+
 def _run_seed(seed: int, dry_run: bool, total_eps: int) -> Dict[str, Any]:
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -616,6 +622,7 @@ def _run_seed(seed: int, dry_run: bool, total_eps: int) -> Dict[str, Any]:
           f" z_goal_peak={s0.z_goal_norm_peak:.4f} formed={s0.z_goal_formed}", flush=True)
     if s0.aborted:
         print(f"verdict: FAIL seed={seed} aborted_at=stage0 reason={s0.abort_reason}", flush=True)
+        _ZG.observe(agent)
         return _aborted_seed_record(seed, "stage0", s0.abort_reason)
 
     s0b = scheduler.run_stage0b_consolidation(
@@ -627,6 +634,7 @@ def _run_seed(seed: int, dry_run: bool, total_eps: int) -> Dict[str, Any]:
           f" gate={'pass' if s0b.retention_gate_passed else 'FAIL'}", flush=True)
     if s0b.aborted:
         print(f"verdict: FAIL seed={seed} aborted_at=stage0b reason={s0b.abort_reason}", flush=True)
+        _ZG.observe(agent)
         return _aborted_seed_record(seed, "stage0b", s0b.abort_reason)
 
     p0 = scheduler.run_p0(agent, device)
@@ -635,6 +643,7 @@ def _run_seed(seed: int, dry_run: bool, total_eps: int) -> Dict[str, Any]:
           f" mean_len={p0.mean_episode_length:.1f} rv={p0.final_running_variance:.5f}", flush=True)
     if p0.aborted:
         print(f"verdict: FAIL seed={seed} aborted_at=p0 reason={p0.abort_reason}", flush=True)
+        _ZG.observe(agent)
         return _aborted_seed_record(seed, "p0", p0.abort_reason)
 
     hz = scheduler.run_hazard_avoidance(agent, device)
@@ -644,6 +653,7 @@ def _run_seed(seed: int, dry_run: bool, total_eps: int) -> Dict[str, Any]:
           f" survival_gate={'pass' if hz.survival_gate_passed else 'FAIL'}", flush=True)
     if hz.aborted:
         print(f"verdict: FAIL seed={seed} aborted_at=hazard reason={hz.abort_reason}", flush=True)
+        _ZG.observe(agent)
         return _aborted_seed_record(seed, "hazard", hz.abort_reason)
 
     p1 = scheduler.run_p1(agent, device)
@@ -690,6 +700,8 @@ def _run_seed(seed: int, dry_run: bool, total_eps: int) -> Dict[str, Any]:
           f" (contact_rate={p2.contact_rate:.4f}"
           f" z_goal_at_contact={p2.z_goal_norm_at_contact_peak:.4f})", flush=True)
 
+    # z_goal liveness -- read AFTER this cell stepped; the agent is not retained.
+    _ZG.observe(agent)
     return {
         "seed": seed,
         "aborted_at": None,
@@ -981,6 +993,7 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
         config=manifest.get("config"),
         seeds=SEEDS,
         script_path=Path(__file__),
+        z_goal_stream_stats=_ZG.stats(),
     )
 
     print(json.dumps(manifest["acceptance"], indent=2))

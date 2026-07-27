@@ -152,6 +152,7 @@ from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from experiment_protocol import emit_outcome
 from experiments._lib.arm_fingerprint import arm_cell
 from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_669c_mech329_wanting_first_goal_seeding"
 EXPERIMENT_PURPOSE = "evidence"
@@ -268,6 +269,11 @@ def _nursery_episode(agent: REEAgent, env: CausalGridWorldV2, steps: int,
     return writes_this_ep
 
 
+# z_goal-stream liveness, pooled across the run's per-cell agents for the
+# manifest block (read at end-of-cell, so no agent is retained for provenance).
+_ZG = ZGoalStreamAccumulator()
+
+
 def _run_seed_arm(arm: str, seed: int, n_child: int, n_wean: int,
                   steps: int) -> Dict[str, Any]:
     sched = ARM_SCHEDULE[arm]
@@ -325,6 +331,8 @@ def _run_seed_arm(arm: str, seed: int, n_child: int, n_wean: int,
             "p01_mean_complexity": round(float(p01_mean_complexity), 6),
         }
         cell.stamp(row)
+    # z_goal liveness -- read AFTER this cell stepped; the agent is not retained.
+    _ZG.observe(agent)
     return row
 
 
@@ -560,6 +568,7 @@ def main():
         config=result.get("config"),
         seeds=None,
         script_path=Path(__file__),
+        z_goal_stream_stats=_ZG.stats(),
     )
 
     print(f"outcome: {result['outcome']}", flush=True)
