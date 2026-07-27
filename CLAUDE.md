@@ -15515,7 +15515,15 @@ claim says arousal amplifies rather than breaks), MECH-359, MECH-390, SD-011.
   num_hazards=0 in the same config, which would have been the main source of those events.
   CONSEQUENCE FOR THE RE-RUN: V3-EXQ-810a needs THREE changes, and flipping this flag is not
   one of them. (1) LENGTHEN EPISODES -- E3 ticks per episode is what sets the buffer, so ~72
-  steps gives ~7 symbols and makes sizes 4-5 reachable at all. (2) DRIVE THE FULL AGENT LOOP
+  steps gives ~7 symbols and makes sizes 4-5 reachable at all. MEASURED at 72 steps (60 eps,
+  flag ON): buf=8.00 and formed-chunk lengths {2:4, 3:3, 4:6, 5:2} -- sizes 4 and 5 DO form,
+  so the growable ceiling and growable depth stop being inert, and the forming seed improves
+  hard (formed 8->15, crystallised 7->12, tracked 25->134). BUT form_seed_frac STAYS 0.333:
+  seeds 202/303 still form nothing (tracked 4 and 46). So longer episodes are NECESSARY and
+  NOT SUFFICIENT -- they fix the structural inertness, not C1. Caveat on that negative: the
+  72-step probe ran 60 episodes rather than 120, so those seeds got half the outcome reports;
+  the positive is unaffected (seed 101 formed MORE in half the episodes). The residual blocker
+  on 202/303 is behavioural, which is what (2) targets. (2) DRIVE THE FULL AGENT LOOP
   (update_residue/observe_outcome) and consider num_hazards > 0, so salient-event phase resets
   actually fire. (3) RAISE THE SEED COUNT -- C1 is a 3-seed binary vote on a stochastic event,
   so at a true per-seed formation rate of 0.8 it still fails ~10% of the time.
