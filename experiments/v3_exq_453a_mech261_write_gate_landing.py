@@ -589,7 +589,7 @@ def main() -> None:
     out_file = write_flat_manifest(
         output,
         out_dir,
-        dry_run=False,
+        dry_run=bool(args.dry_run),
         config=output.get("config"),
         seeds=SEEDS,
         script_path=Path(__file__),

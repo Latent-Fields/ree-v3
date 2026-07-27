@@ -917,7 +917,7 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
     out_path = write_flat_manifest(
         manifest,
         out_dir,
-        dry_run=False,
+        dry_run=dry_run,
         config=manifest.get("config"),
         seeds=SEEDS,
         script_path=Path(__file__),

@@ -402,7 +402,8 @@ def test_hdr_is_selectable_and_does_not_drag_in_other_checks():
 # defect having already propagated.
 #   batch 1 = 34 drivers, EXQ 598..697
 #   batch 2 = 34 drivers, EXQ 517..597
-_PINNED_CORPUS_FIRE_COUNT = 73
+#   batch 3 = 34 drivers, EXQ 328..514
+_PINNED_CORPUS_FIRE_COUNT = 39
 
 
 def test_hdr_corpus_fire_rate_is_pinned():

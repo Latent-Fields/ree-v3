@@ -277,7 +277,7 @@ def main() -> None:
     out_path = write_flat_manifest(
         manifest,
         out_dir,
-        dry_run=False,
+        dry_run=bool(args.dry_run),
         config=manifest.get("config"),
         seeds=None,
         script_path=Path(__file__),

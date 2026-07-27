@@ -385,7 +385,7 @@ def main(dry_run: bool = False):
     out_path = write_flat_manifest(
         output,
         out_dir,
-        dry_run=False,
+        dry_run=dry_run,
         config=output.get("config"),
         seeds=SEEDS,
         script_path=Path(__file__),

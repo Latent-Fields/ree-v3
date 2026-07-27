@@ -673,7 +673,7 @@ Criteria met: {criteria_met}/4 -> **{outcome}**
     out_path = write_flat_manifest(
         output,
         out_dir,
-        dry_run=False,
+        dry_run=bool(args.dry_run),
         config=output.get("config"),
         seeds=SEEDS,
         script_path=Path(__file__),
