@@ -1,0 +1,72 @@
+name: Contract Test Suite
+
+# Post-push defence-in-depth for the executable-code plane (ree_core/,
+# coordinator/, experiments/). Closes a real gap: the ~2100-test contract
+# suite is otherwise only run (a) locally via the PreToolUse pre-commit hook
+# (scripts/precommit_contracts.sh), which depends on that hook being
+# installed and in sync across every worktree -- documented as drifting
+# silently (CLAUDE.md "Housekeeping" step 5a) -- and is skippable with
+# --no-verify; or (b) manually via scripts/remote_pytest.sh on a cloud
+# worker, which nothing forces anyone to run before a push actually lands.
+# Neither is a check on the pushed commit itself. This workflow is that
+# check, mirroring the queue-validate.yml pattern: fresh clone, no
+# session-local state, fails loudly on the push instead of relying on
+# discipline.
+#
+# Scope: this repo is split into a coordination-data plane (experiment_queue.json,
+# written continuously by phase3 writers -- see CLAUDE.md "Why trunk-only")
+# and an executable-code plane (ree_core/, coordinator/). Triggers are
+# path-filtered to the code plane so this doesn't fire on every automated
+# queue-snapshot commit, which would otherwise dominate the trigger volume.
+#
+# Runs on ubuntu-latest (linux-x86_64), matching the cloud fleet's machine
+# class -- NOT the Mac's darwin-arm64. This matters: torch.multinomial is not
+# bit-identical across machine classes (see reference-cross-machine-class-
+# contract-divergence memory / requirements.txt), so a worker-green suite is
+# a meaningful gate here in a way a Mac-local run would not be. Contracts
+# that assert exact committed actions were already de-flaked to not depend
+# on this.
+
+on:
+  push:
+    branches:
+      - main
+      - 'integration/**'
+    paths:
+      - 'ree_core/**'
+      - 'coordinator/**'
+      - 'experiments/**'
+      - 'tests/**'
+      - 'graceful_timeout.py'
+      - 'validate_queue.py'
+      - 'validate_experiments.py'
+      - 'requirements.txt'
+      - '.github/workflows/contract-tests.yml'
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Fresh checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies (canonical fleet build -- see requirements.txt)
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install numpy pytest
+          pip install "torch==2.12.0" --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Run contract test suite
+        run: |
+          python3 -m pytest tests/ -q
