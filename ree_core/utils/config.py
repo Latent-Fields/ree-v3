@@ -3624,9 +3624,35 @@ class REEConfig:
     chunk_variance_low: float = 0.15
     chunk_variance_high: float = 0.45
     chunk_evaluative_margin: float = 0.05
-    # Sakai 2003 chunk-size budget, 2-5 elements per level.
+    # Sakai 2003 chunk-size budget, 2-5 elements per level. This is the INITIAL
+    # budget, NOT a lifetime cap -- see use_growable_chunk_ceiling below.
     chunk_min_size: int = 2
     chunk_max_size: int = 5
+    # MECH-323 growable ceiling (Ramkumar 2016). Default False -> chunk_max_size
+    # is a hard lifetime cap (as-first-built, bit-identical). True -> the ceiling
+    # starts at chunk_max_size and grows one element at a time toward
+    # floor(chunk_deliberation_horizon * chunk_ceiling_budget_fraction), each
+    # step licensed by a realised marginal outcome gain >= the returns threshold
+    # (the diminishing-returns brake, which is the growth rule itself).
+    # NOTE the derivation REPRODUCES 5 at REE's ACTUAL horizon (30 x 0.1667), so no
+    # replacement constant is asserted; what changes is the parameter's SHAPE.
+    # chunk_deliberation_horizon mirrors HippocampalConfig.horizon -- the ceiling
+    # is derived from the agent's deliberation budget rather than configured
+    # independently, which is what makes two agents with different rollout
+    # budgets settle at different chunk sizes.
+    # Growth reads outcome gain and the deliberation budget, NEVER the repetition
+    # tally: Bo 2009 dissociates chunk SIZE from formation RATE, so coupling this
+    # to chunk_min_repetitions would re-introduce exactly the confound that
+    # dissociation rules out.
+    # chunk_deliberation_horizon is SENTINEL-DEFAULTED: 0 = mirror
+    # HippocampalConfig.horizon (the real deliberation budget); >= 1 = explicit
+    # experimental override, honoured verbatim. Resolved by
+    # ree_core/agent.py:_resolve_chunk_deliberation_horizon.
+    use_growable_chunk_ceiling: bool = False
+    chunk_deliberation_horizon: int = 0
+    chunk_ceiling_budget_fraction: float = 0.1667
+    chunk_ceiling_returns_threshold: float = 0.10
+    chunk_ceiling_hard_max: int = 12
     # R4 chunks-of-chunks recursion cap (2-3 levels).
     chunk_max_depth: int = 3
     chunk_max_library_size: int = 64
@@ -5527,6 +5553,11 @@ class REEConfig:
         chunk_evaluative_margin: float = 0.05,
         chunk_min_size: int = 2,
         chunk_max_size: int = 5,
+        use_growable_chunk_ceiling: bool = False,
+        chunk_deliberation_horizon: int = 0,
+        chunk_ceiling_budget_fraction: float = 0.1667,
+        chunk_ceiling_returns_threshold: float = 0.10,
+        chunk_ceiling_hard_max: int = 12,
         chunk_max_depth: int = 3,
         chunk_max_library_size: int = 64,
         chunk_max_tracked_sequences: int = 512,
@@ -6718,6 +6749,11 @@ class REEConfig:
         config.chunk_evaluative_margin = chunk_evaluative_margin
         config.chunk_min_size = chunk_min_size
         config.chunk_max_size = chunk_max_size
+        config.use_growable_chunk_ceiling = use_growable_chunk_ceiling
+        config.chunk_deliberation_horizon = chunk_deliberation_horizon
+        config.chunk_ceiling_budget_fraction = chunk_ceiling_budget_fraction
+        config.chunk_ceiling_returns_threshold = chunk_ceiling_returns_threshold
+        config.chunk_ceiling_hard_max = chunk_ceiling_hard_max
         config.chunk_max_depth = chunk_max_depth
         config.chunk_max_library_size = chunk_max_library_size
         config.chunk_max_tracked_sequences = chunk_max_tracked_sequences

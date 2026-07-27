@@ -529,6 +529,14 @@ PROBED = {
     # constructs the chunking operator unless use_policy_chunking is also on --
     # so this flag alone would not reach the raise.
     "use_chunk_dissolution_retention",
+    # MECH-323 growable chunk-size ceiling (Ramkumar 2016 / Bo 2009). Probed by
+    # the same file's C11 block: OFF pins the effective ceiling at
+    # max_chunk_size with zero growths, ON grows it end-to-end when a merge
+    # delivers a realised marginal return. Not probed here because the
+    # behaviour needs a driver in which the full-length context predicts and
+    # both one-element-shorter contexts are aliased -- a regime the tiny
+    # fixture in this file cannot produce.
+    "use_growable_chunk_ceiling",
     "use_chunk_replay_origin_path",
     "use_chunk_proposal_injection",
     # ARC-070 decomposition (MECH-321). Probed by

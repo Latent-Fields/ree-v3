@@ -280,6 +280,34 @@ class AgentState:
     serotonin_state: Optional[Dict[str, Any]] = None
 
 
+def _resolve_chunk_deliberation_horizon(config) -> int:
+    """Deliberation horizon the MECH-323 growable chunk ceiling derives from.
+
+    The ceiling is DERIVED from the agent's rollout budget rather than
+    configured beside it (Ramkumar 2016: chunking is the output of an
+    efficiency/computation trade-off whose input is planning cost). The real
+    budget lives on HippocampalConfig.horizon, so that is what is read.
+
+    REEConfig.chunk_deliberation_horizon is a SENTINEL-DEFAULTED override:
+
+        0 (default) -> mirror hippocampal.horizon; fall back to 10 if there is
+                       no hippocampal block to read.
+        >= 1        -> an explicit experimental override; honoured verbatim.
+
+    The sentinel exists so the override is genuinely reachable. Unconditionally
+    mirroring the hippocampal horizon would leave a from_dims knob that accepts
+    a value and silently discards it -- the same class of dead-knob bug as
+    from_dims swallowing an unknown kwarg, just further downstream and harder
+    to see. Preferring the explicit value only when it is set keeps the derived
+    default honest AND the knob live.
+    """
+    explicit = int(getattr(config, "chunk_deliberation_horizon", 0) or 0)
+    if explicit >= 1:
+        return explicit
+    hippocampal = getattr(config, "hippocampal", None)
+    return int(getattr(hippocampal, "horizon", 10) or 10)
+
+
 class REEAgent(nn.Module):
     """
     Reflective-Ethical Engine Agent — V3.
@@ -1267,6 +1295,21 @@ class REEAgent(nn.Module):
                     evaluative_margin=getattr(config, "chunk_evaluative_margin", 0.05),
                     min_chunk_size=getattr(config, "chunk_min_size", 2),
                     max_chunk_size=getattr(config, "chunk_max_size", 5),
+                    use_growable_chunk_ceiling=getattr(
+                        config, "use_growable_chunk_ceiling", False
+                    ),
+                    chunk_deliberation_horizon=_resolve_chunk_deliberation_horizon(
+                        config
+                    ),
+                    chunk_ceiling_budget_fraction=getattr(
+                        config, "chunk_ceiling_budget_fraction", 0.1667
+                    ),
+                    chunk_ceiling_returns_threshold=getattr(
+                        config, "chunk_ceiling_returns_threshold", 0.10
+                    ),
+                    chunk_ceiling_hard_max=getattr(
+                        config, "chunk_ceiling_hard_max", 12
+                    ),
                     max_depth=getattr(config, "chunk_max_depth", 3),
                     max_library_size=getattr(config, "chunk_max_library_size", 64),
                     max_tracked_sequences=getattr(

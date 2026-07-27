@@ -21,6 +21,7 @@ import torch
 
 from ree_core.agent import REEAgent
 from ree_core.policy import (
+    ChunkAccumulator,
     ChunkedPrimitive,
     ChunkLibrary,
     ChunkState,
@@ -557,3 +558,201 @@ def test_c10_dormant_chunks_are_still_suppressed():
     assert chunk.is_selectable is False
     assert chunk not in pc.selectable_chunks()
     assert chunk.selection_weight == 0.0
+
+
+# ----------------------------------------------------------------------
+# C11 -- MECH-323 growable chunk-size ceiling (Ramkumar 2016 / Bo 2009)
+#
+# The budget 2-5 is an INITIAL budget, not a lifetime cap. These contracts pin
+# the four things that make that safe: the derivation reproduces the inherited
+# constant at today's deliberation budget, growth is licensed by realised
+# marginal return (not by practice), the brake actually brakes, and OFF is
+# bit-identical.
+# ----------------------------------------------------------------------
+def _cfg_ceiling(**kw):
+    base = dict(use_growable_chunk_ceiling=True, chunk_deliberation_horizon=60,
+                min_repetitions=3)
+    base.update(kw)
+    return _cfg(**base)
+
+
+def _seed_ceiling_tally(acc, whole_outcomes, sub_outcomes):
+    """Seed the tally at the current ceiling with explicit sub-sequence means."""
+    ceiling = acc.effective_max_chunk_size
+    key = tuple(range(1, ceiling + 1))
+    acc._tally[key] = list(whole_outcomes)
+    acc._tally[key[1:]] = list(sub_outcomes)
+    acc._tally[key[:-1]] = list(sub_outcomes)
+    return key
+
+
+def test_c11_ceiling_is_off_by_default_and_pinned_when_off():
+    acc = ChunkAccumulator(_cfg())
+    assert acc.config.use_growable_chunk_ceiling is False
+    assert acc.effective_max_chunk_size == acc.config.max_chunk_size
+    _seed_ceiling_tally(acc, [1.0] * 8, [0.0] * 8)
+    assert acc.consider_ceiling_growth() is False
+    assert acc.effective_max_chunk_size == 5
+
+
+def test_c11_derivation_reproduces_the_inherited_budget_at_reeds_real_horizon():
+    """THE ANCHOR. A built agent must still derive exactly 5.
+
+    Regression guard against silently raising the constant. Ramkumar 2016
+    licenses no replacement number, so an agent at today's deliberation budget
+    must be left exactly where it was; only a LARGER budget may derive more.
+    Note this reads the real from_dims horizon (30), NOT the HippocampalConfig
+    dataclass default (10) that no built agent actually uses.
+    """
+    cfg = REEConfig.from_dims(body_obs_dim=8, world_obs_dim=16, action_dim=4,
+                              use_policy_chunking=True, use_growable_chunk_ceiling=True)
+    agent = REEAgent(cfg)
+    pcfg = agent.policy_chunking.config
+    assert pcfg.chunk_deliberation_horizon == cfg.hippocampal.horizon == 30
+    assert pcfg.derived_chunk_ceiling == 5
+
+
+@pytest.mark.parametrize("horizon,expected", [(30, 5), (60, 10), (90, 12), (300, 12)])
+def test_c11_ceiling_scales_with_the_deliberation_budget(horizon, expected):
+    """Consequence (ii): different rollout budgets -> different chunk sizes."""
+    assert PolicyChunkingConfig(
+        chunk_deliberation_horizon=horizon).derived_chunk_ceiling == expected
+
+
+def test_c11_growth_requires_a_realised_marginal_return():
+    acc = ChunkAccumulator(_cfg_ceiling())
+    # Whole predicts perfectly; BOTH one-shorter contexts are aliased.
+    _seed_ceiling_tally(acc, [1.0] * 8, [1.0, 0.0] * 4)
+    assert acc.marginal_return_at_ceiling() == pytest.approx(0.5)
+    assert acc.consider_ceiling_growth() is True
+    assert acc.effective_max_chunk_size == 6
+
+
+def test_c11_no_growth_when_a_shorter_context_already_predicts():
+    acc = ChunkAccumulator(_cfg_ceiling())
+    _seed_ceiling_tally(acc, [1.0] * 8, [1.0] * 8)
+    assert acc.marginal_return_at_ceiling() == pytest.approx(0.0)
+    assert acc.consider_ceiling_growth() is False
+    assert acc.effective_max_chunk_size == 5
+
+
+def test_c11_no_evidence_is_not_a_gain_of_zero():
+    """gain=None must refuse even at a zero threshold.
+
+    Distinct from a measured gain of 0.0: an unattested ceiling would otherwise
+    clear a >= 0.0 bar and grow on no evidence at all.
+    """
+    acc = ChunkAccumulator(_cfg_ceiling(chunk_ceiling_returns_threshold=0.0))
+    assert acc.marginal_return_at_ceiling() is None
+    assert acc.consider_ceiling_growth() is False
+
+
+def test_c11_brake_plateaus_below_the_derived_maximum():
+    """Guardrail 2. Growth must stop when returns flatten, NOT at the cap.
+
+    This is the contract that forbids the monotonic accumulator: with headroom
+    to 10 available, flat returns must leave the ceiling at 5.
+    """
+    acc = ChunkAccumulator(_cfg_ceiling())
+    assert acc.config.derived_chunk_ceiling == 10
+    for _ in range(30):
+        _seed_ceiling_tally(acc, [1.0] * 8, [1.0] * 8)
+        if not acc.consider_ceiling_growth():
+            break
+    assert acc.effective_max_chunk_size == 5
+    assert acc._n_ceiling_growths == 0
+
+
+def test_c11_growth_never_exceeds_the_derived_bound():
+    acc = ChunkAccumulator(_cfg_ceiling(chunk_ceiling_returns_threshold=0.0))
+    for _ in range(50):
+        _seed_ceiling_tally(acc, [1.0] * 8, [0.0] * 8)
+        acc.consider_ceiling_growth()
+    assert acc.effective_max_chunk_size == acc.config.derived_chunk_ceiling == 10
+
+
+def test_c11_growth_is_decoupled_from_the_repetition_tally():
+    """Bo 2009: chunk SIZE and formation RATE are separable.
+
+    Unbounded repetition with zero marginal return must not grow the ceiling.
+    Pins that the growth rule reads outcome gain, never practice volume -- the
+    coupling a naive practice-driven accumulator would reintroduce.
+    """
+    acc = ChunkAccumulator(_cfg_ceiling())
+    _seed_ceiling_tally(acc, [1.0] * 500, [1.0] * 500)
+    assert acc.consider_ceiling_growth() is False
+    assert acc.effective_max_chunk_size == 5
+
+
+def test_c11_ceiling_grows_end_to_end_so_the_flag_is_not_inert():
+    """(9,1,2,3,4) is good; both 4-element contexts it contains are aliased."""
+    branches = [([9, 1, 2, 3, 4], 1.0), ([8, 1, 2, 3, 4], 0.0), ([9, 1, 2, 3, 7], 0.0)]
+
+    def drive(on):
+        pc = PolicyChunking(_cfg(min_repetitions=5, use_growable_chunk_ceiling=on,
+                                 chunk_deliberation_horizon=60))
+        for ep in range(600):
+            seq, out = branches[ep % 3]
+            for a in seq:
+                pc.record_step(a)
+            pc.note_outcome(out)
+            pc.end_episode()
+        return pc.accumulator
+
+    off, on = drive(False), drive(True)
+    assert off.effective_max_chunk_size == 5 and off._n_ceiling_growths == 0
+    assert on.effective_max_chunk_size > 5 and on._n_ceiling_growths >= 1
+    # ...and still plateaus well short of the derived bound of 10.
+    assert on.effective_max_chunk_size < on.config.derived_chunk_ceiling
+
+
+def test_c11_reset_returns_the_ceiling_to_the_initial_budget():
+    acc = ChunkAccumulator(_cfg_ceiling())
+    _seed_ceiling_tally(acc, [1.0] * 8, [1.0, 0.0] * 4)
+    assert acc.consider_ceiling_growth() is True
+    acc.reset()
+    assert acc.effective_max_chunk_size == acc.config.max_chunk_size
+    assert acc._n_ceiling_growths == 0
+
+
+@pytest.mark.parametrize("kw", [
+    dict(chunk_ceiling_budget_fraction=0.0),
+    dict(chunk_ceiling_budget_fraction=1.5),
+    dict(chunk_ceiling_returns_threshold=-0.1),
+    dict(chunk_ceiling_hard_max=3),
+    dict(chunk_deliberation_horizon=0),
+])
+def test_c11_incoherent_ceiling_config_is_refused(kw):
+    with pytest.raises(ValueError):
+        PolicyChunkingConfig(**kw).validate()
+
+
+def test_c11_from_dims_forwards_every_ceiling_knob():
+    """All THREE wiring sites, plus agent.py's mapping.
+
+    from_dims silently swallows unknown kwargs, so a knob wired at only two
+    sites is unreachable with NO error -- this asserts the round-trip rather
+    than the signature.
+    """
+    cfg = REEConfig.from_dims(
+        body_obs_dim=8, world_obs_dim=16, action_dim=4,
+        use_policy_chunking=True, use_growable_chunk_ceiling=True,
+        chunk_deliberation_horizon=16, chunk_ceiling_budget_fraction=0.75,
+        chunk_ceiling_returns_threshold=0.2, chunk_ceiling_hard_max=9)
+    assert cfg.use_growable_chunk_ceiling is True
+    assert cfg.chunk_deliberation_horizon == 16
+    assert cfg.chunk_ceiling_budget_fraction == 0.75
+    assert cfg.chunk_ceiling_returns_threshold == 0.2
+    assert cfg.chunk_ceiling_hard_max == 9
+    pcfg = REEAgent(cfg).policy_chunking.config
+    assert pcfg.use_growable_chunk_ceiling is True
+    assert pcfg.chunk_deliberation_horizon == 16  # explicit override beats the mirror
+    assert pcfg.chunk_ceiling_hard_max == 9
+
+
+def test_c11_sentinel_horizon_mirrors_the_hippocampal_budget():
+    """0 = mirror the real budget; the override must stay reachable."""
+    cfg = REEConfig.from_dims(body_obs_dim=8, world_obs_dim=16, action_dim=4,
+                              use_policy_chunking=True, use_growable_chunk_ceiling=True)
+    assert cfg.chunk_deliberation_horizon == 0
+    assert REEAgent(cfg).policy_chunking.config.chunk_deliberation_horizon == 30

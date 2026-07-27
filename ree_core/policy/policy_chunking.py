@@ -66,8 +66,84 @@ OPTIONS STRUCTURE (lit-pull R4, conf 0.72)
     E3 evaluation supplies value at selection time, as for any other proposal.
 
     Recursion (chunks-of-chunks) is permitted to depth 2-3; `depth` is a field
-    on the chunk and `max_depth` caps it. Chunk size is budgeted at 2-5 elements
-    per level (Sakai 2003).
+    on the chunk and `max_depth` caps it. Chunk size STARTS budgeted at 2-5
+    elements per level (Sakai 2003) -- see the growable-ceiling section below
+    for why that is an initial budget and not a lifetime cap.
+
+CHUNK SIZE IS A GROWABLE CEILING, NOT A CONSTANT (lit-pull 2026-07-27)
+    Ramkumar, Acuna, Berniker, Grafton, Turner & Kording 2016 (Nat Commun,
+    10.1038/ncomms12176) shows chunking is the OUTPUT of an efficiency/
+    computation trade-off rather than a fixed capacity. Planning complexity
+    grows with the horizon a movement is optimised over; chunking buys
+    tractability by planning over shorter horizons, at a cost in achievable
+    efficiency. The prediction is a SCHEDULE, not a constant: start with many
+    short chunks because compute binds, then MERGE them as practice lowers the
+    cost of more complex computation. Two macaques learning a ten-element
+    reaching sequence over months do exactly this -- "as chunks become longer
+    over the course of learning, movements are optimized over increasingly
+    longer horizons".
+
+    Two things a fixed 2-5 cannot express:
+      (i)  a hard lifetime cap at 5 FORBIDS the most robust longitudinal
+           signature in this literature, so an REE agent could not reproduce the
+           observed learning trajectory even with every other trigger condition
+           correct;
+      (ii) two agents with different rollout budgets should settle at DIFFERENT
+           chunk sizes -- so a single global maximum is the wrong SHAPE of
+           parameter, not merely the wrong value.
+
+    Bo, Borza & Seidler 2009 (J Neurophysiol, 10.1152/jn.00393.2009) constrains
+    it from the other side: chunk length tracks visuospatial working-memory
+    capacity and DECLINES with age. Together the two papers say the budget
+    should be neither fixed across agents nor fixed within an agent's lifetime.
+
+    use_growable_chunk_ceiling (default OFF) implements this as:
+
+      ceiling starts at max_chunk_size (5), grows one element at a time toward
+      derived_chunk_ceiling = floor(deliberation_horizon * budget_fraction),
+      each step licensed by a realised marginal return >= the returns threshold.
+
+    THE NUMBER 5 IS NOT REPLACED. Ramkumar 2016 proposes no upper bound, so it
+    cannot license any other constant, and none is asserted. The fraction is
+    ANCHORED (0.1667 = 5/30) so that at REE's actual rollout horizon of 30 the
+    derivation returns exactly 5 -- the inherited Sakai budget, unchanged, for
+    an agent with today's deliberation budget. Only an agent with a LARGER
+    budget derives a larger ceiling. What changed is the parameter's shape,
+    from constant to function.
+
+    Read the anchor as a calibration, not a coincidence: the paper fixes the
+    SHAPE of the relationship and nothing about its scale, so the scale is
+    pinned to the one quantity that does carry warrant (Sakai's 2-5, at the
+    budget the agent actually has) rather than to a number invented here.
+
+    THE BRAKE IS THE GROWTH RULE, not a separate cap. What bounds chunk growth
+    empirically is DIMINISHING RETURNS: chunk structures stay near 50-60% of the
+    complexity of executing the sequence as a single unit, and the monkeys never
+    collapse the whole sequence into one chunk. An accumulator that grew
+    monotonically with practice would eventually do exactly that, whatever
+    number it stopped at. So growth is conditioned on each merge having actually
+    paid -- see ChunkAccumulator.consider_ceiling_growth -- and the plateau
+    falls out of the rule instead of being a second parameter.
+
+    DECOUPLED FROM R_min BY CONSTRUCTION. Bo et al. found the capacity-to-chunk-
+    LENGTH correlation in both age groups but the capacity-to-learning-RATE
+    correlation only in the young, so chunk size and formation rate are
+    SEPARABLE quantities. The obvious implementation of a growable ceiling --
+    grow it as repetitions accumulate -- would silently re-couple them, tying
+    size to exactly the rate quantity the dissociation separates it from. Growth
+    here reads REALISED MARGINAL OUTCOME GAIN and the deliberation budget, never
+    the repetition tally. min_repetitions appears in the returns test only as a
+    judge-ability filter (is this sequence attested enough to be measured), not
+    as the thing being measured. Do not "simplify" it into a practice counter.
+
+    TRACTABILITY IS PRESERVED, and is worth stating precisely because the
+    original 2-5 bound was justified by it. The enumeration in note_outcome is
+    NOT combinatorial in the ceiling: it tallies only the SUFFIX of each
+    permitted length (actions[-size:]), so the per-outcome cost is O(ceiling),
+    linear. The combinatorial enumeration the bound guards against is the naive
+    all-sub-sequences-at-all-positions one, which this module never performed.
+    The hard memory bound remains max_tracked_sequences (FIFO-capped), which is
+    unchanged, and chunk_ceiling_hard_max is a further absolute backstop.
 
 HYSTERESIS (lit-pull R5, conf 0.71)
     Formation and dissolution use DIFFERENT thresholds, with the formation
@@ -362,8 +438,40 @@ class PolicyChunkingConfig:
             Must exceed variance_low -- that gap IS the R5 hysteresis.
         evaluative_margin : the accumulated outcome mean must exceed
             (running baseline + this) to form (Graybiel 2008 evaluative gate).
-        min_chunk_size / max_chunk_size : chunk-size budget per level
-            (Sakai 2003, 2-5 elements).
+        min_chunk_size / max_chunk_size : the INITIAL chunk-size budget per
+            level (Sakai 2003, 2-5 elements). Under
+            use_growable_chunk_ceiling this is the STARTING value of a
+            growable ceiling rather than a lifetime cap -- see the
+            module docstring's growable-ceiling section.
+        use_growable_chunk_ceiling : MECH-323 sub-switch. False (default) =
+            max_chunk_size is a hard lifetime cap, the as-first-built
+            behaviour, bit-identical. True = the effective ceiling starts at
+            max_chunk_size and may grow toward derived_chunk_ceiling, one
+            element at a time, each step licensed by a realised marginal
+            return (Ramkumar 2016).
+        chunk_deliberation_horizon : the agent's rollout/planning horizon,
+            mirrored from HippocampalConfig.horizon. The ceiling is DERIVED
+            from this rather than configured independently, which is what
+            makes two agents with different deliberation budgets settle at
+            different chunk sizes.
+        chunk_ceiling_budget_fraction : the fraction of the deliberation
+            horizon a single chunk may span. Default 0.1667 = 5/30 is
+            ANCHORED so that at REE's actual rollout horizon (30, the
+            from_dims HippocampalConfig.horizon) the derivation returns
+            exactly 5 -- it recovers the inherited Sakai budget rather
+            than replacing it with a new number. See derived_chunk_ceiling.
+        chunk_ceiling_returns_threshold : the diminishing-returns BRAKE.
+            Minimum marginal outcome gain (same 0-1 normalised scale as
+            evaluative_margin) that composing at the current ceiling must
+            deliver over the best sub-sequence one element shorter, before
+            the ceiling may grow again. UNCALIBRATED ENGINEERING DEFAULT --
+            Ramkumar 2016 establishes that a brake EXISTS and that chunk
+            structures plateau around 50-60% of single-unit complexity, but
+            quantifies no threshold on this scale. Exactly the status of
+            F_low / F_high: the RELATION is literature-grounded, the VALUE
+            is not.
+        chunk_ceiling_hard_max : absolute backstop on the grown ceiling.
+            A TRACTABILITY bound, not a claim about chunk size.
         max_depth : chunks-of-chunks recursion cap (R4: 2-3 levels).
         max_library_size : hard cap on retained chunks. Bounds memory; the
             lowest-value DISSOLVED chunks are evicted first.
@@ -409,6 +517,11 @@ class PolicyChunkingConfig:
     evaluative_margin: float = 0.05
     min_chunk_size: int = 2
     max_chunk_size: int = 5
+    use_growable_chunk_ceiling: bool = False
+    chunk_deliberation_horizon: int = 10
+    chunk_ceiling_budget_fraction: float = 0.1667
+    chunk_ceiling_returns_threshold: float = 0.10
+    chunk_ceiling_hard_max: int = 12
     max_depth: int = 3
     max_library_size: int = 64
     max_tracked_sequences: int = 512
@@ -439,6 +552,25 @@ class PolicyChunkingConfig:
             raise ValueError("min_chunk_size must be >= 2 (a chunk composes >= 2 elements)")
         if self.max_chunk_size < self.min_chunk_size:
             raise ValueError("max_chunk_size must be >= min_chunk_size")
+        if self.chunk_deliberation_horizon < 1:
+            raise ValueError("chunk_deliberation_horizon must be >= 1")
+        if not (0.0 < self.chunk_ceiling_budget_fraction <= 1.0):
+            raise ValueError(
+                "chunk_ceiling_budget_fraction must be in (0, 1] (a chunk cannot "
+                "usefully span more than the horizon it is evaluated over)"
+            )
+        if self.chunk_ceiling_returns_threshold < 0.0:
+            raise ValueError(
+                "chunk_ceiling_returns_threshold must be >= 0 (it is the "
+                "diminishing-returns BRAKE; a negative bar would license growth "
+                "on a merge that made outcomes WORSE, which is precisely the "
+                "monotonic-growth failure mode Ramkumar 2016 rules out)"
+            )
+        if self.chunk_ceiling_hard_max < self.max_chunk_size:
+            raise ValueError(
+                "chunk_ceiling_hard_max must be >= max_chunk_size (the ceiling "
+                "starts at max_chunk_size and only ever grows)"
+            )
         if self.max_depth < 1:
             raise ValueError("max_depth must be >= 1")
         if self.crystallisation_min < 1:
@@ -478,6 +610,50 @@ class PolicyChunkingConfig:
         """
         raw = float(self.min_repetitions) * float(self.reacquisition_repetition_factor)
         return max(1, int(_ceil(raw)))
+
+    @property
+    def derived_chunk_ceiling(self) -> int:
+        """Upper bound the growable ceiling may reach, DERIVED not configured.
+
+        The Ramkumar 2016 trade-off is between planning cost -- which grows with
+        the horizon a movement is optimised over -- and achievable efficiency.
+        The quantity that sets how long a chunk can usefully be is therefore the
+        agent's own deliberation budget: a chunk longer than the horizon it is
+        evaluated over cannot be assessed as a unit, so the horizon is the
+        natural bound.
+
+            floor(chunk_deliberation_horizon * chunk_ceiling_budget_fraction)
+
+        clamped below by max_chunk_size (the ceiling only ever grows from its
+        initial value) and above by chunk_ceiling_hard_max (tractability).
+
+        AT REE'S ACTUAL DELIBERATION BUDGET THIS RETURNS 5. The real horizon is
+        30 (HippocampalConfig.horizon as set by REEConfig.from_dims -- NOT the
+        HippocampalConfig dataclass default of 10, which no built agent uses),
+        and 30 x 0.1667 = 5 = the inherited Sakai budget.
+
+        That anchoring is the whole reason this is not a disguised way of
+        raising the constant. Ramkumar 2016 gives the SHAPE of the relationship
+        (ceiling scales with the deliberation budget) but proposes no upper
+        bound, so it cannot license any particular replacement number. The scale
+        therefore has to be pinned somewhere, and the only defensible anchor is
+        the one number that does have warrant: the Sakai budget, at the budget
+        the agent actually has. An agent at today's horizon is left exactly
+        where it was; only an agent with a LARGER deliberation budget derives a
+        larger ceiling. What changed is the parameter's shape, from a global
+        constant to a function of the agent's compute.
+
+        The 1e-9 is a floor guard, not a fudge: the anchor case is exactly
+        integral (30 x 0.1667 = 5.001, but an exact 5/6-style fraction would
+        land on 4.999...), and silently flooring the anchor to 4 would move the
+        inherited budget while claiming to preserve it.
+        """
+        raw = float(self.chunk_deliberation_horizon) * float(
+            self.chunk_ceiling_budget_fraction
+        )
+        return max(
+            self.max_chunk_size, min(self.chunk_ceiling_hard_max, int(raw + 1e-9))
+        )
 
 
 def _mean(values: Sequence[float]) -> float:
@@ -554,6 +730,27 @@ class ChunkAccumulator:
         self._n_replay_refusals: int = 0
         self._last_formed_sequence: Tuple[int, ...] = ()
 
+        # Growable ceiling (MECH-323, Ramkumar 2016). Starts at the INITIAL
+        # budget and only ever grows, one element at a time, each step licensed
+        # by a realised marginal return. Read through effective_max_chunk_size,
+        # never directly -- that property is what makes the flag-off path
+        # bit-identical.
+        self._ceiling: int = int(self.config.max_chunk_size)
+        self._n_ceiling_growths: int = 0
+        self._last_ceiling_gain: float = 0.0
+
+    @property
+    def effective_max_chunk_size(self) -> int:
+        """The chunk-size ceiling actually in force this trial.
+
+        With use_growable_chunk_ceiling off this is exactly config.max_chunk_size
+        and the grown value is never consulted, so every enumeration bound below
+        is bit-identical to the as-first-built behaviour.
+        """
+        if not self.config.use_growable_chunk_ceiling:
+            return int(self.config.max_chunk_size)
+        return int(self._ceiling)
+
     # ------------------------------------------------------------------
     # Forward path -- MECH-094-strict (real execution only)
     # ------------------------------------------------------------------
@@ -580,7 +777,7 @@ class ChunkAccumulator:
         self._n_steps_recorded += 1
         # Bound the buffer: only the most recent max_chunk_size actions can
         # start a new contiguous sub-sequence.
-        limit = max(self.config.max_chunk_size * 4, 32)
+        limit = max(self.effective_max_chunk_size * 4, 32)
         if len(self._episode_actions) > limit:
             del self._episode_actions[:-limit]
         return True
@@ -607,7 +804,7 @@ class ChunkAccumulator:
             del self._outcome_history[: -c.window_trials]
 
         actions = self._episode_actions
-        for size in range(c.min_chunk_size, c.max_chunk_size + 1):
+        for size in range(c.min_chunk_size, self.effective_max_chunk_size + 1):
             if len(actions) < size:
                 break
             key = tuple(actions[-size:])
@@ -646,6 +843,104 @@ class ChunkAccumulator:
                 continue
             out.append((key, mu, var))
         return out
+
+    # ------------------------------------------------------------------
+    # Growable ceiling (Ramkumar 2016) -- growth IS the returns brake
+    # ------------------------------------------------------------------
+    def marginal_return_at_ceiling(self) -> Optional[float]:
+        """Best realised outcome gain from composing AT the current ceiling.
+
+        For each tracked sub-sequence whose length equals the current ceiling and
+        which has been repeated enough to be judged, compare its outcome mean
+        against the better of the two sub-sequences ONE ELEMENT SHORTER that it
+        contains (drop-the-first and drop-the-last). That difference is the
+        marginal return of the last merge -- did going from n-1 to n actually buy
+        anything.
+
+        Only the immediate n-1 predecessors are consulted, not every shorter
+        sub-sequence. That is both the cheaper computation (two dict lookups per
+        candidate rather than a quadratic sweep) and the more faithful one: the
+        question the brake asks is whether the LAST merge paid, not whether the
+        chunk beats its smallest constituent.
+
+        Returns:
+            The best marginal gain found, or None if no sequence at the ceiling
+            is yet judgeable -- which is NOT a gain of zero and must not be
+            treated as one. None means "no evidence either way", and the caller
+            refuses to grow on it.
+        """
+        c = self.config
+        ceiling = self.effective_max_chunk_size
+        if ceiling <= c.min_chunk_size:
+            # No shorter sub-sequence exists to compare against.
+            return None
+        best: Optional[float] = None
+        for key, outcomes in self._tally.items():
+            if len(key) != ceiling:
+                continue
+            if len(outcomes) < c.min_repetitions:
+                continue
+            whole = _mean(outcomes)
+            sub_means = [
+                _mean(bucket)
+                for bucket in (self._tally.get(key[1:]), self._tally.get(key[:-1]))
+                if bucket
+            ]
+            if not sub_means:
+                continue
+            gain = whole - max(sub_means)
+            if best is None or gain > best:
+                best = gain
+        return best
+
+    def consider_ceiling_growth(self) -> bool:
+        """Grow the ceiling by one element iff the last merge paid off.
+
+        This is the whole of the Ramkumar 2016 brake, and it is deliberately the
+        GROWTH RULE rather than a separate cap bolted on afterwards. An
+        accumulator that grew with accumulated practice and stopped at some
+        number would still be monotonic, and would still eventually collapse the
+        sequence into a single chunk once that number was reached -- which the
+        efficiency/computation trade-off rules out (the macaques never do it, and
+        chunk structures plateau near 50-60% of single-unit complexity). Tying
+        each growth step to a realised marginal return makes the plateau an
+        OUTCOME of the rule rather than a second parameter: when merging stops
+        paying, growth stops on its own, at whatever size that happens to be.
+
+        Growth is refused, and each refusal is silent-but-diagnosable via
+        chunk_acc_ceiling_* in get_state(), when:
+            - the flag is off                       -> never grows at any setting
+            - the ceiling is already at the derived deliberation-budget bound
+            - no sequence at the ceiling is judgeable yet (gain is None)
+            - the best marginal gain is below chunk_ceiling_returns_threshold
+
+        DELIBERATELY NOT IMPLEMENTED -- SHRINKAGE. Bo et al. 2009 show chunk
+        length DECLINES as visuospatial working-memory capacity declines with
+        age, so the fully faithful parameter would fall as well as rise. The
+        cross-agent half of that is already covered, because derived_chunk_ceiling
+        is a function of the agent's deliberation budget and a smaller-budget
+        agent simply derives a smaller bound. The within-lifetime half is not:
+        nothing here lowers a ceiling once raised. Closing it needs a declining
+        capacity signal to read from, which REE does not currently have, so it is
+        recorded as a gap rather than guessed at.
+
+        Returns:
+            True iff the ceiling grew this call.
+        """
+        c = self.config
+        if not c.use_growable_chunk_ceiling:
+            return False
+        if self._ceiling >= c.derived_chunk_ceiling:
+            return False
+        gain = self.marginal_return_at_ceiling()
+        if gain is None:
+            return False
+        self._last_ceiling_gain = float(gain)
+        if gain < c.chunk_ceiling_returns_threshold:
+            return False
+        self._ceiling += 1
+        self._n_ceiling_growths += 1
+        return True
 
     def mint(
         self,
@@ -729,7 +1024,7 @@ class ChunkAccumulator:
             self._n_replay_refusals += 1
             return None
         seq = tuple(int(a) for a in sequence)
-        if not (c.min_chunk_size <= len(seq) <= c.max_chunk_size):
+        if not (c.min_chunk_size <= len(seq) <= self.effective_max_chunk_size):
             self._n_replay_refusals += 1
             return None
         # (a) value-tag requirement, measured against REAL-execution history.
@@ -766,6 +1061,9 @@ class ChunkAccumulator:
         self._n_simulation_skips = 0
         self._n_replay_refusals = 0
         self._last_formed_sequence = ()
+        self._ceiling = int(self.config.max_chunk_size)
+        self._n_ceiling_growths = 0
+        self._last_ceiling_gain = 0.0
 
     def get_state(self) -> dict:
         """Diagnostic snapshot for experiment manifests."""
@@ -781,6 +1079,13 @@ class ChunkAccumulator:
             "chunk_acc_n_simulation_skips": self._n_simulation_skips,
             "chunk_acc_n_replay_refusals": self._n_replay_refusals,
             "chunk_acc_last_formed": list(self._last_formed_sequence),
+            # Growable-ceiling readout (Ramkumar 2016). With the flag off the
+            # effective ceiling stays pinned at max_chunk_size and growths stay
+            # 0, which is what makes the OFF arm identifiable in a manifest.
+            "chunk_acc_effective_ceiling": self.effective_max_chunk_size,
+            "chunk_acc_ceiling_derived_max": self.config.derived_chunk_ceiling,
+            "chunk_acc_n_ceiling_growths": self._n_ceiling_growths,
+            "chunk_acc_last_ceiling_gain": float(self._last_ceiling_gain),
         }
 
 
@@ -1163,6 +1468,13 @@ class PolicyChunking:
         # the variance that dissolved it.
         formed.extend(self._attempt_reacquisition(variances))
         self.library.tick_maintenance(variances)
+        # Growable ceiling LAST, on the fully-updated tally: the returns test
+        # reads the outcome this trial just credited. A ceiling raised here
+        # takes effect from the NEXT note_outcome, which is deliberate -- the
+        # enumeration for this trial has already run, and re-running it at the
+        # new size would credit the same outcome to a sequence that was not
+        # tracked when the outcome was earned.
+        self.accumulator.consider_ceiling_growth()
         return formed
 
     def _attempt_reacquisition(
