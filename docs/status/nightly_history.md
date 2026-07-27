@@ -2,7 +2,7 @@
 
 This is the preserved reverse-chronological record previously maintained in `README.md`. It is historical operational context, not the canonical source of live claim, experiment, or queue state.
 
-For the stable repository guide, see [README](../../README.md). For the current cross-program research frontier, see [CURRENT_FRONT.md](../../../REE_assembly/docs/CURRENT_FRONT.md).
+For the stable repository guide, see [README](../../README.md). For the current cross-program research frontier, see [CURRENT_FRONT.md](https://github.com/Latent-Fields/REE_assembly/blob/master/docs/CURRENT_FRONT.md).
 
 ## Update Rule
 

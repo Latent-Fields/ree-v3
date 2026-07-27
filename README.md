@@ -3,7 +3,7 @@
 REE V3 is the active implementation substrate for the Reflective-Ethical Engine
 (REE). It is where architectural claims become experiments. The canonical claim,
 evidence, planning, and governance records live in the adjacent
-[`REE_assembly`](../REE_assembly/) repository.
+[`REE_assembly`](https://github.com/Latent-Fields/REE_assembly) repository.
 
 REE is exploratory research. Nothing in this repository has been accepted for
 peer-reviewed publication. A prototype, an implementation, or a result from a
@@ -15,9 +15,9 @@ of general scientific truth.
 Choose the shortest route that matches your task:
 
 - **Understand the research programme:**
-  [How REE develops](../REE_assembly/docs/START_HERE_HOW_REE_DEVELOPS.md).
+  [How REE develops](https://github.com/Latent-Fields/REE_assembly/blob/master/docs/START_HERE_HOW_REE_DEVELOPS.md).
 - **See the current research picture:**
-  [Current Front](../REE_assembly/docs/CURRENT_FRONT.md).
+  [Current Front](https://github.com/Latent-Fields/REE_assembly/blob/master/docs/CURRENT_FRONT.md).
 - **Understand V3's architecture and substrate status:**
   [V3 specification](docs/ree-v3-spec.md).
 - **Find a dated operational snapshot:**
@@ -70,8 +70,8 @@ data belongs in public repositories, and no clinical deployment follows from
 this work. The author being a clinician does not supply clinical validation.
 
 The governing records are the
-[sentience and welfare risk register](../REE_assembly/docs/governance/sentience_welfare_risk_register.md)
-and the [ethics perimeter plan](../REE_assembly/evidence/planning/ethics_perimeter_plan.md).
+[sentience and welfare risk register](https://github.com/Latent-Fields/REE_assembly/blob/master/docs/governance/sentience_welfare_risk_register.md)
+and the [ethics perimeter plan](https://github.com/Latent-Fields/REE_assembly/blob/master/evidence/planning/ethics_perimeter_plan.md).
 
 ## Repository Map
 

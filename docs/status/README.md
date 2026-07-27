@@ -8,7 +8,7 @@ than the repository's stable onboarding documentation.
 - [Repository README](../../README.md): stable purpose, boundaries, and entry
   points for contributors.
 - [V3 specification](../ree-v3-spec.md): component and substrate reference.
-- [Current cross-program frontier](../../../REE_assembly/docs/CURRENT_FRONT.md):
+- [Current cross-program frontier](https://github.com/Latent-Fields/REE_assembly/blob/master/docs/CURRENT_FRONT.md):
   the live research picture generated from canonical records.
 - [Nightly status history](nightly_history.md): dated V3 snapshots in reverse
   chronological order. The most recent preserved entry is 2026-07-27.
