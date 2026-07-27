@@ -35,7 +35,11 @@ compiling. Route any re-queue through /queue-experiment.
 
 RECORDING (settled 2026-07-27): this script predated the Experimental Recording
 Standard (2026-07-12) and wrote its flat manifest with a raw json.dump under a
-MANIFEST_WRITER_EXEMPT. That debt -- which the reopen condition owed -- is now PAID:
+manifest-writer exemption (token spelled out nowhere in this file any more, so a
+grep-based audit of exempt scripts does not false-positive on this prose -- the
+validator's own check is exact set-membership, not a substring match, but a human
+reading a grep hit would have been misled). That debt, which the reopen condition
+owed, is now PAID:
 the tail calls experiments/pack_writer.write_flat_manifest, the exemption is dropped,
 and the z_goal_stream liveness block is recorded via ZGoalStreamAccumulator. Field
 names are unchanged (the writer is a stamp-validate-write wrapper, not a schema
