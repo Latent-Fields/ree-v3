@@ -361,6 +361,8 @@ def write_flat_manifest(
     machine: Optional[str] = None,
     elapsed_seconds: Optional[float] = None,
     started_at: Optional[float] = None,
+    agent: Any = None,
+    z_goal_stream_stats: Optional[Mapping[str, Any]] = None,
     stamp: bool = True,
     overwrite_core: bool = False,
     require_v3: bool = True,
@@ -410,6 +412,15 @@ def write_flat_manifest(
     forces the stamper to overwrite already-present core fields. Returns the written
     Path (hand it to ``experiment_protocol.emit_outcome(manifest_path=...)``).
 
+    ``agent`` (one stepped REEAgent, or an iterable of them for a multi-arm run) and
+    ``z_goal_stream_stats`` (precomputed counts, e.g. ``StepHarness.z_goal_stream_stats()``)
+    are passed through for the ``z_goal_stream`` liveness block -- the runtime backstop
+    for a silently-dead z_goal stream, which the static ``dead_z_goal_stream`` lint
+    cannot see when the config is assembled inside a helper its AST scan can't follow.
+    PASS ONE OF THEM whenever the run steps an agent: the block is omitted rather than
+    zero-filled, so forgetting it leaves the run unmeasured -- exactly the gap that let
+    V3-EXQ-626 report five criteria keyed on a z_goal that never left zero.
+
     ASCII-only output (repo rule); stdlib + a lazy manifest_core import so a
     scalar-only caller needs no torch/ree_core.
     """
@@ -446,17 +457,34 @@ def write_flat_manifest(
     if stamp:
         stamp_fn = _import_stamp_recording_core()
         if stamp_fn is not None:
+            core_kwargs = dict(
+                config=config,
+                seeds=seeds,
+                script_path=script_path,
+                machine=machine,
+                elapsed_seconds=elapsed_seconds,
+                started_at=started_at,
+                overwrite=overwrite_core,
+            )
+            # The z_goal_stream args are NEWER than the rest of the always-core, and
+            # this whole call is wrapped in `except Exception: pass`. So if stamp_fn
+            # ever resolves to an older manifest_core (sys.path can reach a different
+            # checkout -- e.g. an rsync'd staging tree), passing them unconditionally
+            # would raise TypeError and silently skip the ENTIRE always-core stamp: a
+            # strictly worse failure than the one they exist to catch. Send them only
+            # when the caller supplied one, and fall back to the core-only call.
+            zg_kwargs = {}
+            if agent is not None:
+                zg_kwargs["agent"] = agent
+            if z_goal_stream_stats is not None:
+                zg_kwargs["z_goal_stream_stats"] = z_goal_stream_stats
             try:
-                stamp_fn(
-                    manifest,
-                    config=config,
-                    seeds=seeds,
-                    script_path=script_path,
-                    machine=machine,
-                    elapsed_seconds=elapsed_seconds,
-                    started_at=started_at,
-                    overwrite=overwrite_core,
-                )
+                stamp_fn(manifest, **core_kwargs, **zg_kwargs)
+            except TypeError:
+                try:
+                    stamp_fn(manifest, **core_kwargs)
+                except Exception:
+                    pass
             except Exception:
                 pass
 

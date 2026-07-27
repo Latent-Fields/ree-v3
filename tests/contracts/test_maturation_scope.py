@@ -61,12 +61,16 @@ def test_c2_declared_scope_sizes_and_subset():
     """The declared scope is far narrower than the whole tree, and HARM subset of WORLD."""
     world = set(MC._WORLD_SUBSTRATE_SCOPE)
     harm = set(MC._HARM_SUBSTRATE_SCOPE)
-    assert len(world) == 24
-    assert len(harm) == 19
+    # 24 -> 25 / 19 -> 20 on 2026-07-27: experiments/_lib/z_goal_stream.py entered both
+    # legs' data-closure when _harness.py began importing it for the z_goal-liveness
+    # block. Growth here is expected whenever a scope file gains an import; the pin is a
+    # tripwire against SILENT growth, not a ceiling.
+    assert len(world) == 25
+    assert len(harm) == 20
     assert harm <= world
     full = compute_substrate_hash()["n_files"]
-    assert compute_substrate_hash(scope=MC._WORLD_SUBSTRATE_SCOPE)["n_files"] == 24 < full
-    assert compute_substrate_hash(scope=MC._HARM_SUBSTRATE_SCOPE)["n_files"] == 19 < full
+    assert compute_substrate_hash(scope=MC._WORLD_SUBSTRATE_SCOPE)["n_files"] == 25 < full
+    assert compute_substrate_hash(scope=MC._HARM_SUBSTRATE_SCOPE)["n_files"] == 20 < full
 
 
 def test_c3_out_of_closure_edit_hits():
@@ -136,6 +140,6 @@ def test_c6_provenance_records_scope():
     """The scope discriminator is recorded for audit (mirrors config_slice_declared)."""
     prov = MC._scope_provenance("world")
     assert prov["substrate_scope_declared"] is True
-    assert isinstance(prov["substrate_scope"], list) and len(prov["substrate_scope"]) == 24
+    assert isinstance(prov["substrate_scope"], list) and len(prov["substrate_scope"]) == 25
     # unknown leg -> safe default (hash everything, undeclared)
     assert MC._scope_provenance("nonexistent")["substrate_scope_declared"] is False

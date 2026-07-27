@@ -1923,6 +1923,20 @@ def dead_z_goal_stream_lint(path: Path) -> Optional[str]:
     `**kwargs` splat, a preset factory) is invisible to the trigger half, so this
     UNDER-fires rather than over-fires. That is the safe direction for a WARN.
 
+    THE RUNTIME BACKSTOP COVERS THAT BLIND SPOT -- this lint is no longer the only
+    guard. `REEAgent` counts, per `select_action` tick, how often `goal_state` was
+    present and how often `GoalState.is_active()` held (`agent.z_goal_active_frac`),
+    and `experiments/_lib/z_goal_stream.py` surfaces the pooled fraction as the
+    manifest's `z_goal_stream` block via `manifest_core.stamp_recording_core` /
+    `pack_writer.write_flat_manifest(agent=...)` and `StepHarness.z_goal_stream_stats()`.
+    Being read from the run rather than the source, it does not share this scan's
+    blind spot: a config built in an unfollowable helper still reports its true
+    fraction. The two are complementary and neither subsumes the other -- this lint
+    fires at AUTHORING time, before any compute is spent, whereas the counter is only
+    readable once the run exists. Note the counter is RECORD-ONLY by design: 0.0 is
+    correct for a goal-OFF parity arm or the ARM_NO_BENEFIT negative control, so it is
+    a field to read against the run's design, never a gate.
+
     WARN-ONLY IN BOTH MODES -- it never hardens under `--paths`. The landed corpus's
     carriers have all run, and a completed run's pre-registered emission is not
     rewritten; nine of the ten landed carriers are already `non_contributory` and the

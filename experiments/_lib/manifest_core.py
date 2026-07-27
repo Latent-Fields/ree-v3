@@ -43,6 +43,19 @@ Always-core fields it stamps (standard 3b)
                      Complementary to arm_knobs_effective: there the knob never reached a
                      live path, here it did and a bound erased its effect. See
                      experiments/_lib/dose_saturation.py. Also NOT in ALWAYS_CORE_KEYS.
+  z_goal_stream    : {ticks_total, ticks_active, writer_calls, active_frac,
+                     writer_defect, goal_state_present, n_agents} -- was the z_goal stream
+                     LIVE during the run, read off the agent's own per-tick counters.
+                     active_frac 0.0 says the stream was dead (every consumer got
+                     current_z_goal=None); writer_calls says WHY, and only
+                     writer_calls == 0 is the missing-call defect -- a correctly-wired run
+                     whose benefit gate never opened also reads 0.0. writer_defect is that
+                     verdict precomputed. Requires the
+                     caller to pass `agent=` (or `z_goal_stream_stats=`); the block is
+                     OMITTED rather than zero-filled when they don't, so its presence
+                     always means the run measured it. See experiments/_lib/z_goal_stream.py.
+                     Also NOT in ALWAYS_CORE_KEYS -- the legacy corpus cannot carry it, and
+                     it is unavailable to any manifest built outside the stepping process.
   machine          : socket.gethostname() (or a caller override -- the hub records
                      "ree-cloud-1" although its hostname is "ree-worker-1").
   machine_class    : arm_fingerprint.machine_class() -- fingerprint equality is
@@ -100,6 +113,17 @@ except Exception:  # pragma: no cover - path-dependent fallbacks
         from . import dose_saturation as _dose_saturation  # type: ignore
     except Exception:
         import dose_saturation as _dose_saturation  # type: ignore
+
+# Same triple-fallback import shape -- z_goal_stream is a sibling module in this
+# package, and duck-typed/stdlib-only so this module keeps its no-torch/no-ree_core
+# import guarantee even though the block it stamps is read off a live agent.
+try:  # normal package import
+    from experiments._lib import z_goal_stream as _z_goal_stream  # type: ignore
+except Exception:  # pragma: no cover - path-dependent fallbacks
+    try:
+        from . import z_goal_stream as _z_goal_stream  # type: ignore
+    except Exception:
+        import z_goal_stream as _z_goal_stream  # type: ignore
 
 RECORDING_SCHEMA = "rec/v1"
 
@@ -230,6 +254,8 @@ def stamp_recording_core(
     machine: Optional[str] = None,
     extra_substrate_paths: Optional[Iterable[Union[str, Path]]] = None,
     repo_root: Optional[Union[str, Path]] = None,
+    agent: Any = None,
+    z_goal_stream_stats: Optional[Mapping[str, Any]] = None,
     overwrite: bool = False,
 ) -> Dict[str, Any]:
     """Merge the always-record core onto `manifest` in place and return it.
@@ -260,6 +286,14 @@ def stamp_recording_core(
         Override for the recorded machine name (default socket.gethostname()).
     extra_substrate_paths, repo_root
         Passed through to the single-arm substrate-hash computation.
+    agent
+        The stepped REEAgent, or an iterable of them (a multi-arm run builds one per
+        arm x seed). Read for the `z_goal_stream` liveness block. Omitting it simply
+        omits the block -- it is never fabricated from zeros.
+    z_goal_stream_stats
+        A precomputed liveness block (from `z_goal_stream.stats_from_counts`) for a
+        caller that keeps its own counters, e.g. a StepHarness accumulating across
+        agent swaps. Takes precedence over `agent`.
     overwrite
         Force-overwrite already-present fields (default False -> fill-only).
 
@@ -356,6 +390,32 @@ def stamp_recording_core(
         _dose_saturation.stamp_dose_saturation(manifest)
     except Exception:
         pass
+
+    # z_goal_stream -- was the z_goal stream actually LIVE during the run?
+    # The runtime half of the dead-z_goal-stream backstop, complementing the static
+    # `dead_z_goal_stream` lint in validate_experiments.py, which is an AST scan and
+    # so cannot see a config assembled inside a helper it can't follow (a _lib
+    # builder, a **kwargs splat, a preset factory) -- it UNDER-fires by design.
+    # `update_z_goal` is the SOLE z_goal writer in the substrate, so a driver that
+    # hand-rolls its loop and omits it runs with z_goal pinned at zero-init and every
+    # consumer silently no-opping, with nothing raised and (before this) no manifest
+    # field showing it. Generalises the ad-hoc `zgoal_present_frac` readiness gate that
+    # caught V3-EXQ-830, and would have caught V3-EXQ-626, which nothing did.
+    # RECORD-ONLY, never a failure or a warning: an active_frac of 0.0 is CORRECT for a
+    # goal-OFF parity arm or a negative control (V3-EXQ-626b's ARM_NO_BENEFIT), so this
+    # is a field to read against the run's design, not a gate. Omitted entirely when no
+    # counters were supplied -- absence means unmeasured, never "measured zero".
+    # Same _fill posture as everything else: an explicit author value wins.
+    if overwrite or _is_empty(manifest.get(_z_goal_stream.MANIFEST_KEY)):
+        try:
+            _z_goal_stream.stamp_z_goal_stream(
+                manifest,
+                agent,
+                stats=dict(z_goal_stream_stats) if z_goal_stream_stats else None,
+                overwrite=overwrite,
+            )
+        except Exception:
+            pass
 
     # machine / machine_class -- where it ran + the class the hash is valid within.
     _fill("machine", machine if machine else socket.gethostname())

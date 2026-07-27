@@ -54,8 +54,10 @@ def test_verify_scope_static_passes_known_good():
     """Guard 2 passes the world + harm scopes and returns the expanded file set."""
     fw = G.verify_scope_static(WORLD, label="world")
     fh = G.verify_scope_static(HARM, label="harm")
-    assert len(fw) == 24
-    assert len(fh) == 19
+    # 24 -> 25 / 19 -> 20 on 2026-07-27: _harness.py (in both legs) began importing
+    # experiments/_lib/z_goal_stream.py, which the data-closure then required in scope.
+    assert len(fw) == 25
+    assert len(fh) == 20
     assert fh <= fw
 
 
@@ -130,4 +132,4 @@ def test_conservatism_static_only_report():
     rep = G.verify_scope_conservatism(WORLD, label="world")
     assert rep["static_guard"] == "ok"
     assert "trace_guard" not in rep
-    assert rep["n_declared_files"] == 24
+    assert rep["n_declared_files"] == 25

@@ -203,6 +203,11 @@ _WORLD_SUBSTRATE_SCOPE: Tuple[str, ...] = (
     "experiments/_lib/arm_fingerprint.py",
     "experiments/_lib/baselines/maturation_curriculum.py",
     "experiments/_lib/goal_pipeline_tier1.py",
+    # data-closure: _harness.py imports it for the z_goal-liveness block. Inert w.r.t.
+    # the prefix (it only reads counters), but the closure guard is deliberately
+    # conservative about unknown leaf kinds, and scoping it means a future change
+    # there correctly invalidates rather than serving a stale prefix.
+    "experiments/_lib/z_goal_stream.py",
     "ree_core/agent.py",
     "ree_core/cingulate/dacc.py",
     "ree_core/environment/causal_grid_world.py",
@@ -227,6 +232,7 @@ _HARM_SUBSTRATE_SCOPE: Tuple[str, ...] = (
     "experiments/_harness.py",
     "experiments/_lib/arm_fingerprint.py",
     "experiments/_lib/baselines/maturation_curriculum.py",
+    "experiments/_lib/z_goal_stream.py",   # data-closure via _harness.py (see WORLD)
     "ree_core/agent.py",
     "ree_core/environment/causal_grid_world.py",
     "ree_core/heartbeat/beta_gate.py",

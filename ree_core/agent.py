@@ -2715,6 +2715,63 @@ class REEAgent(nn.Module):
         if _goal_cfg is not None and _goal_cfg.z_goal_enabled:
             self.goal_state = GoalState(_goal_cfg, self.device)
 
+        # Dead-z_goal-stream runtime counters (the backstop for the
+        # `dead_z_goal_stream` static lint in validate_experiments.py).
+        #
+        # WHY A COUNTER AT ALL. `update_z_goal()` is the SOLE writer of z_goal in
+        # the substrate -- sense() / generate_trajectories() / select_action() /
+        # update_residue() all leave it untouched, and both GoalState mutators
+        # (`update` / `cue_pull`) are reached only from inside it. A driver that
+        # hand-rolls its inner loop and omits the call therefore runs with z_goal
+        # pinned at zero-init: is_active() stays False, agent.py passes
+        # current_z_goal=None to every consumer, and the E3 goal term, MECH-293
+        # ghost probes, MECH-288's slow BOCPD scale, MECH-189 super-ordinal
+        # anchors, the SD-057 incentive bank, the MECH-295 liking->approach bridge
+        # and the frontopolar counterfactual read ALL silently no-op. Nothing
+        # raises; no manifest field showed it. V3-EXQ-830 caught exactly this, and
+        # only because its readiness gate happened to name an ad-hoc
+        # `zgoal_present_frac`; V3-EXQ-626 was not caught at all and had all five
+        # of its criteria keyed on a z_goal that never left zero.
+        #
+        # WHY IT IS NOT SUBSUMED BY THE LINT. The lint is a static AST scan, so a
+        # config assembled inside a helper it cannot follow (a _lib builder, a
+        # **kwargs splat, a preset factory) is invisible to it and it UNDER-fires
+        # by design. These counters are read from the run itself, so they cover
+        # the blind spot: the condition becomes visible in the manifest without
+        # anyone having pre-registered a gate for it.
+        #
+        # DELIBERATELY NOT A WARNING. A zero fraction is a legitimate, common
+        # measurement (goal-OFF parity arms; V3-EXQ-626b's ARM_NO_BENEFIT negative
+        # control), so a stderr warning would be noisy where a counter reading 0.0
+        # is simply correct -- and it would scroll past unread in a multi-hour run,
+        # leaving nothing auditable afterwards. The counter subsumes the warning's
+        # only real value; a --dry-run smoke can just print it.
+        #
+        # NOT reset by reset(): these are RUN-lifetime accumulators, so the derived
+        # fraction covers the whole run rather than the last episode. That matches
+        # goal_state itself, which reset() also leaves alone (pinned by
+        # tests/contracts/test_dead_z_goal_stream_lint.py
+        # ::test_dzg_agent_reset_does_not_reset_goal_state) -- z_goal is deliberately
+        # cross-episode, so once the stream goes live it stays live. An intermediate
+        # fraction therefore localises the run's WARM-UP PREFIX (the ticks before the
+        # first successful write), not per-episode re-zeroing.
+        # A THIRD counter, because the fraction alone is AMBIGUOUS. An active_frac of
+        # 0.0 proves the stream was dead, but not WHY, and the two causes need
+        # opposite remedies:
+        #   (a) the driver never called update_z_goal        -- the defect; wire the call.
+        #   (b) it called it every tick and GoalState.update's benefit gate never
+        #       opened (benefit_exposure < goal.benefit_threshold, default 0.1)
+        #       because the agent met no resource -- the wiring is FINE and the run
+        #       simply had no goal signal to form.
+        # Measured, not assumed: a StepHarness run on the tiny env (which pins the call
+        # as invariant 2) reads active_frac 0.0 over 5 ticks purely from (b). Without
+        # this counter that reading is indistinguishable from the V3-EXQ-626 defect, and
+        # would send a reader hunting for a call that is already there. writer_calls == 0
+        # with ticks_total > 0 is the UNAMBIGUOUS defect signature.
+        self._z_goal_writer_calls: int = 0
+        self._z_goal_ticks_total: int = 0
+        self._z_goal_ticks_active: int = 0
+
         # MECH-189: super-ordinal goal-anchor ContextMemory writes substrate
         # (infant_substrate:GAP-11 / DEV-NEED-006). AGENT-owned and NOT reset
         # per episode (cross-episode persistence is the point of a super-ordinal
@@ -5183,6 +5240,18 @@ class REEAgent(nn.Module):
         Layer 2 (MECH-091 urgency interrupt): when beta is elevated and z_harm_a
         norm exceeds urgency_interrupt_threshold, abort commitment and re-select.
         """
+        # Dead-z_goal-stream counters (see __init__ for the full rationale).
+        # Placed at the very TOP so every call is counted, including the ticks
+        # that return the held action early (MECH-090) -- a run whose commitment
+        # latch holds for most of the episode still consumed z_goal (or failed to)
+        # on every one of those ticks. Read-only w.r.t. selection: two int bumps
+        # and one tensor reduction that consumes no RNG, so the selected action is
+        # bit-identical with and without this block.
+        if self.goal_state is not None:
+            self._z_goal_ticks_total += 1
+            if self.goal_state.is_active():
+                self._z_goal_ticks_active += 1
+
         # MECH-204 Phase 7 / Option B: accuracy-anchored BROADCAST recalibration.
         # Applied at the TOP of select_action so the anchored running_variance is
         # what this tick's commit gate (running_variance < commit_threshold) and
@@ -9130,6 +9199,65 @@ class REEAgent(nn.Module):
         weight = getattr(self.config.latent, "z_harm_a_aux_loss_weight", 0.1)
         return weight * F.mse_loss(pred, target)
 
+    # --- dead-z_goal-stream runtime counters (read-only surface) ---------------
+    # The counters themselves are bumped at the top of select_action(); see
+    # __init__ for why they exist and why they are run-lifetime (not per-episode).
+    # They sit here, immediately above the sole z_goal writer they instrument.
+
+    @property
+    def z_goal_ticks_total(self) -> int:
+        """select_action() ticks so far on which `goal_state` was present.
+
+        Zero means either the agent was never stepped, or z_goal_enabled is off
+        (goal_state is None) -- the two are distinguished by `goal_state`, which the
+        recording helper reads alongside these counters.
+        """
+        return int(self._z_goal_ticks_total)
+
+    @property
+    def z_goal_ticks_active(self) -> int:
+        """Of `z_goal_ticks_total`, the ticks on which GoalState.is_active() held --
+        i.e. z_goal had actually been written at least once and had not been reset
+        back to zero since."""
+        return int(self._z_goal_ticks_active)
+
+    @property
+    def z_goal_writer_calls(self) -> int:
+        """Calls to `update_z_goal()` -- the SOLE z_goal writer -- so far.
+
+        Counted at the top of the method, so it records that the DRIVER made the
+        call regardless of whether goal_state exists or the benefit gate fired.
+        This is what disambiguates a zero `z_goal_active_frac`; see that property.
+        """
+        return int(self._z_goal_writer_calls)
+
+    @property
+    def z_goal_active_frac(self) -> Optional[float]:
+        """`z_goal_ticks_active / z_goal_ticks_total`, or None when the denominator
+        is zero (nothing was measured, so 0.0 would be a false reading rather than a
+        weak one).
+
+        0.0 means the z_goal stream was DEAD for the whole run: every consumer
+        received current_z_goal=None on every tick. It does NOT by itself mean the
+        driver is buggy -- read it together with `z_goal_writer_calls`:
+
+          writer_calls == 0, ticks_total > 0  -> THE DEFECT. The driver never called
+              update_z_goal, so z_goal could not have moved (V3-EXQ-626, V3-EXQ-830).
+          writer_calls > 0, ticks_active == 0 -> correctly wired, but GoalState.update's
+              benefit gate never opened (benefit_exposure < goal.benefit_threshold,
+              default 0.1) because the run met no resource. Real, and often expected:
+              a StepHarness run -- which pins the call as invariant 2 -- reads exactly
+              this on an env where the agent never reaches benefit.
+          goal_state is None                  -> not measured at all; frac is None.
+
+        A goal-OFF parity arm and a negative control like V3-EXQ-626b's ARM_NO_BENEFIT
+        both read 0.0 correctly. This is a field to interpret against the run's design,
+        never a gate.
+        """
+        if self._z_goal_ticks_total <= 0:
+            return None
+        return float(self._z_goal_ticks_active) / float(self._z_goal_ticks_total)
+
     def update_z_goal(
         self,
         benefit_exposure: float,
@@ -9162,6 +9290,15 @@ class REEAgent(nn.Module):
                          info["sd049_consumed_type_tag_this_tick"]. Only consumed by
                          the SD-057 incentive bank; ignored (legacy path) otherwise.
         """
+        # Dead-z_goal-stream counter: record that the driver CALLED the sole writer,
+        # whether or not the benefit gate below ends up firing and whether or not
+        # goal_state exists. That is exactly the distinction the fraction cannot make
+        # (see __init__): writer_calls == 0 alongside ticks_total > 0 is the
+        # unambiguous "driver omitted the call" defect, while writer_calls > 0 with
+        # ticks_active == 0 is a correctly-wired run that simply met no benefit.
+        # Counted at the very TOP so the early-returns below cannot hide the call.
+        self._z_goal_writer_calls += 1
+
         # SD-024 LIVE-PATH PRODUCER (2026-07-20): write the benefit attractor at
         # the consummatory contact location. This is the missing producer -- until
         # this block existed, ResidueField.accumulate_benefit had NO caller in

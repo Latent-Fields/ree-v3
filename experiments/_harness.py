@@ -24,6 +24,15 @@ Invariants enforced
 4. No bare ``except Exception: pass`` wrappers around agent API calls.
    Failures crash loudly so the script author finds them in --dry-run.
 
+Recorded alongside (not an invariant -- a measurement)
+------------------------------------------------------
+``z_goal_stream_stats()`` returns the run's z_goal liveness block
+({ticks_total, ticks_active, active_frac, goal_state_present, n_agents}) for the
+manifest. Invariant 2 already makes a dead z_goal stream impossible for a harness
+user; the block is recorded so a READER of the manifest can see that, and so the
+same field is present whether or not the run went through this harness. Pass it to
+``pack_writer.write_flat_manifest(..., z_goal_stream_stats=...)``.
+
 Usage sketch
 ------------
     from _harness import StepHarness, StepResult
@@ -59,6 +68,17 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
 import torch
+
+# z_goal liveness block builder. Duck-typed + stdlib-only; the triple-fallback shape
+# matches how the other _lib helpers survive the several ways experiment scripts put
+# experiments/ on sys.path.
+try:  # normal package import
+    from experiments._lib import z_goal_stream as _z_goal_stream  # type: ignore
+except Exception:  # pragma: no cover - path-dependent fallbacks
+    try:
+        from _lib import z_goal_stream as _z_goal_stream  # type: ignore
+    except Exception:
+        import z_goal_stream as _z_goal_stream  # type: ignore
 
 # Avoid pulling REEAgent at module-import time so that scripts that haven't
 # selected a config yet still import the harness. The actual type is REEAgent;
@@ -145,8 +165,20 @@ class StepHarness:
         self._action_prev: Optional[torch.Tensor] = None
         self._step_count: int = 0
 
+        # z_goal stream liveness -- RUN-lifetime, deliberately NOT touched by
+        # reset(). See z_goal_stream_stats() below.
+        self._z_goal_ticks_total: int = 0
+        self._z_goal_ticks_active: int = 0
+        self._z_goal_writer_calls: int = 0
+        self._z_goal_state_present: bool = False
+
     def reset(self) -> None:
-        """Reset per-episode plumbing. Call after env.reset()/agent.reset()."""
+        """Reset per-episode plumbing. Call after env.reset()/agent.reset().
+
+        Deliberately does NOT clear the z_goal liveness counters: they are
+        run-lifetime accumulators, and zeroing them per episode would make the
+        recorded fraction describe only the final episode.
+        """
         self._z_self_prev = None
         self._z_world_prev = None
         self._action_prev = None
@@ -294,6 +326,24 @@ class StepHarness:
                 action[0, idx] = 1.0
                 agent._last_action = action
 
+            # 7. z_goal stream liveness -- counted HERE, not read off the agent at
+            #    the end, so the tally survives an agent swap mid-run (a multi-arm
+            #    driver reusing one harness across arms) and covers exactly the ticks
+            #    this harness drove. Sampled AFTER select_action so it lines up with
+            #    the agent's own counters tick-for-tick; the two are cross-checked by
+            #    tests/contracts/test_z_goal_stream_counter.py.
+            #    writer_calls is counted unconditionally: invariant 2 above called
+            #    update_z_goal for this tick, and that fact is what distinguishes a
+            #    correctly-wired run whose benefit gate never opened (frac 0.0, calls
+            #    > 0 -- the normal reading on an env with no reachable resource) from
+            #    the missing-call defect (frac 0.0, calls 0).
+            self._z_goal_writer_calls += 1
+            if agent.goal_state is not None:
+                self._z_goal_state_present = True
+                self._z_goal_ticks_total += 1
+                if agent.goal_state.is_active():
+                    self._z_goal_ticks_active += 1
+
         if self.hooks.on_action is not None:
             self.hooks.on_action(
                 agent=agent, latent=latent, action=action, obs_dict=obs_dict,
@@ -345,6 +395,49 @@ class StepHarness:
             benefit_exposure=benefit_exposure,
             ticks=ticks,
             residue_metrics=residue_metrics,
+        )
+
+    def z_goal_stream_stats(self) -> Dict[str, Any]:
+        """The run's z_goal-liveness block, for the manifest.
+
+        Hand it straight to the sanctioned writer::
+
+            write_flat_manifest(manifest, script_path=__file__,
+                                z_goal_stream_stats=harness.z_goal_stream_stats())
+
+        WHAT IT ANSWERS. ``update_z_goal`` is the SOLE z_goal writer in the substrate,
+        so a driver that omits it runs with z_goal pinned at zero-init and every
+        consumer -- the E3 goal term, MECH-293 ghost probes, MECH-288's slow BOCPD
+        scale, MECH-189 super-ordinal anchors, the SD-057 incentive bank, the MECH-295
+        liking->approach bridge, the frontopolar counterfactual read -- silently
+        no-opping, with nothing raised. ``active_frac`` makes that visible in the run's
+        own record. A StepHarness user cannot carry the defect (invariant 2 pins the
+        call), so for THIS driver the block is a positive confirmation rather than a
+        warning; it is recorded anyway because a reader of the manifest cannot
+        otherwise tell a harness-driven run from a hand-rolled one.
+
+        READING A ZERO. ``active_frac`` 0.0 is NOT automatically a defect, and for a
+        harness-driven run it never is: invariant 2 guarantees ``writer_calls > 0``, so
+        a zero here means ``GoalState.update``'s benefit gate never opened
+        (``benefit_exposure`` below ``goal.benefit_threshold``, default 0.1) because the
+        run met no resource. That is a real and common reading -- measured on the tiny
+        env, where the agent never reaches benefit in a few ticks -- and it is exactly
+        why ``writer_calls`` is recorded beside the fraction: without it, this run is
+        indistinguishable from the V3-EXQ-626 missing-call defect. A goal-OFF parity arm
+        and a negative control like V3-EXQ-626b's ARM_NO_BENEFIT also read 0.0 correctly.
+
+        ``None`` means nothing was measured (no ticks with goal_state present);
+        ``goal_state_present`` separates "goal off" from "never stepped". A value
+        strictly between 0 and 1 localises the run's WARM-UP PREFIX: ``agent.reset()``
+        does NOT clear ``goal_state``, so once the stream goes live it stays live and
+        the inactive ticks are the ones before the first successful write.
+        """
+        return _z_goal_stream.stats_from_counts(
+            self._z_goal_ticks_total,
+            self._z_goal_ticks_active,
+            writer_calls=self._z_goal_writer_calls,
+            goal_state_present=self._z_goal_state_present,
+            n_agents=1,
         )
 
     def run_episode(
