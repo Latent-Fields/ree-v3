@@ -25,6 +25,8 @@ Choose the shortest route that matches your task:
 - **Inspect the public research record:**
   [REE Development Map](https://latent-fields.github.io/REE_assembly/development_map.html)
   and the [Lab Window](https://latent-fields.github.io/REE_assembly/public_explorer/).
+- **Use the technical public entry page:**
+  [REE V3 Pages](https://latent-fields.github.io/ree-v3/).
 - **Work on experiments, the runner, or shared state:** read
   [CLAUDE.md](CLAUDE.md) before editing.
 
