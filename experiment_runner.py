@@ -345,6 +345,66 @@ def _git_run(*popenargs, **kwargs):
     )
 
 
+_GIT_IDENTITY_FALLBACK_ENV = {
+    "GIT_AUTHOR_NAME": "REE Runner (identity fallback)",
+    "GIT_AUTHOR_EMAIL": "ree-runner@users.noreply.github.com",
+    "GIT_COMMITTER_NAME": "REE Runner (identity fallback)",
+    "GIT_COMMITTER_EMAIL": "ree-runner@users.noreply.github.com",
+}
+
+
+def _is_missing_identity_error(result) -> bool:
+    """True when a `git commit` failed specifically for lack of an author
+    identity, as opposed to any other failure (e.g. "nothing to commit")
+    that should not be silently retried under a different identity."""
+    stderr = getattr(result, "stderr", None) or ""
+    return result.returncode != 0 and (
+        "Please tell me who you are" in stderr or "empty ident name" in stderr
+    )
+
+
+def _git_commit(cwd: str, message: str, timeout: int = 15):
+    """`git commit -m message`, with a fallback identity if the host has no
+    git user.name/user.email configured and no GECOS full name for git to
+    auto-derive one from.
+
+    WHY: every commit call site in this module used to run bare `git
+    commit` and never check its return code -- fine on a host with git
+    identity configured (the commit just succeeds), but on a host with
+    none, `git commit` fails outright (exit 128, "fatal: empty ident name
+    ... not allowed") and the caller proceeds as if it had committed. For
+    git_push_results specifically that means the manifest never enters the
+    commit at all: `pre_reset_sha` (captured afterward) points at the prior,
+    manifest-less HEAD, so the conflict-recovery restore-from-pre_reset_sha
+    step fails with "pathspec ... did not match any file(s)" and the
+    function still logs "pushed results" -- the exact silent-loss shape the
+    V3-EXQ-541 recovery path exists to prevent, just via a different
+    trigger (missing identity instead of a destructive reset ordering bug).
+
+    Confirmed via a GitHub Actions ubuntu-latest CI run (2026-07-27): that
+    ephemeral runner image has no git identity and no GECOS full name, so
+    git's own auto-derive falls back to an empty name and refuses it.
+    Every currently-live production host was checked directly (ree-cloud-1,
+    ree-cloud-3) and has user.name/user.email configured, so this has not
+    fired there -- but nothing enforces that for a future or reprovisioned
+    host, and closing it here is cheap insurance against a repeat of
+    V3-EXQ-541 by a different route.
+    """
+    result = _git_run(["git", "commit", "-m", message],
+                       cwd=cwd, capture_output=True, text=True, timeout=timeout)
+    if _is_missing_identity_error(result):
+        print(f"[runner] WARN: git commit had no author identity on this "
+              f"host -- retrying with a fallback identity. Run "
+              f"'git config --global user.name/user.email' on this host "
+              f"to silence this.", flush=True)
+        env = dict(os.environ)
+        env.update(_GIT_IDENTITY_FALLBACK_ENV)
+        result = _git_run(["git", "commit", "-m", message],
+                           cwd=cwd, capture_output=True, text=True, timeout=timeout,
+                           env=env)
+    return result
+
+
 def _path_is_ephemeral_worker_owned(rel_path: str) -> bool:
     rel_path = rel_path.strip().strip('"')
     if not rel_path:
@@ -1558,10 +1618,7 @@ def _git_push_with_retry(cwd: str, branch: str, label: str,
 
         diff = _git_run(["git", "diff", "--cached", "--quiet"], cwd=cwd, timeout=5)
         if diff.returncode != 0:
-            _git_run(
-                ["git", "commit", "-m", f"auto-sync: re-apply results after conflict {now_utc()[:10]}"],
-                cwd=cwd, capture_output=True, text=True, timeout=15,
-            )
+            _git_commit(cwd, f"auto-sync: re-apply results after conflict {now_utc()[:10]}")
             print(f"[runner] auto-sync: re-applied local results ({label})", flush=True)
             continue  # retry push
         else:
@@ -1685,10 +1742,7 @@ def git_push_queue() -> None:
         )
         if diff.returncode == 0:
             return  # nothing changed
-        _git_run(
-            ["git", "commit", "-m", f"queue: remove completed/failed items {now_utc()[:10]}"],
-            cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=15,
-        )
+        _git_commit(str(REPO_ROOT), f"queue: remove completed/failed items {now_utc()[:10]}")
         _git_push_with_retry(str(REPO_ROOT), "main", "queue update -> ree-v3")
     except Exception as e:
         print(f"[runner] auto-sync queue push error: {e}", flush=True)
@@ -1743,10 +1797,7 @@ def git_push_results(ree_assembly_path: Path, result_files: list[str] | None = N
             print("[runner] auto-sync: nothing new to push", flush=True)
             return
         msg = f"auto-sync: v3 results {now_utc()[:10]}"
-        _git_run(
-            ["git", "commit", "-m", msg],
-            cwd=str(ree_assembly_path), capture_output=True, text=True, timeout=15,
-        )
+        _git_commit(str(ree_assembly_path), msg)
         _git_push_with_retry(str(ree_assembly_path), "master",
                              "results -> REE_assembly",
                              result_files=result_files)
@@ -1785,10 +1836,7 @@ def git_push_status(ree_assembly_path: Path, status_path: Path, queue_id: str) -
         )
         if diff.returncode == 0:
             return  # nothing to push
-        _git_run(
-            ["git", "commit", "-m", f"runner_status: {queue_id} -> {status_path.stem}"],
-            cwd=str(ree_assembly_path), capture_output=True, text=True, timeout=15,
-        )
+        _git_commit(str(ree_assembly_path), f"runner_status: {queue_id} -> {status_path.stem}")
         _git_push_with_retry(str(ree_assembly_path), "master", f"status {queue_id} -> REE_assembly")
     except Exception as e:
         print(f"[runner] auto-sync status push error ({queue_id}): {e}", flush=True)

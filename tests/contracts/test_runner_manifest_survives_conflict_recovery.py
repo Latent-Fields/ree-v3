@@ -31,6 +31,26 @@ Contracts:
       `git add evidence/experiments/` recovery still produces a remote
       master that includes the manifest (existing fallback semantics
       preserved).
+  C4. Host has NO git identity configured (no user.name/user.email, and
+      auto-detection disabled) -> git_push_results still lands the
+      manifest, via _git_commit's fallback identity.
+
+      Regression for a real bug found via a GitHub Actions ubuntu-latest
+      CI run (2026-07-27, workflow run 30245773773): git_push_results'
+      initial `git commit` was never checked for success. On a host with
+      no git identity and no GECOS full name to auto-derive one from,
+      that commit fails outright (exit 128, "fatal: empty ident name ...
+      not allowed"), so the manifest never enters a commit at all --
+      `pre_reset_sha` (captured later in _git_push_with_retry) then
+      points at the PRIOR, manifest-less HEAD, and the conflict-recovery
+      restore-from-pre_reset_sha step fails with "pathspec ... did not
+      match any file(s)" while the function still logs "pushed results".
+      This is the same silent-loss shape the V3-EXQ-541 recovery path
+      (C1-C3 above) exists to prevent, just triggered by missing identity
+      instead of a destructive reset ordering bug. Every currently-live
+      production host was checked directly and has identity configured,
+      so this had not fired in production -- but nothing enforces that
+      for a future host, hence the fallback in _git_commit and this test.
 """
 
 from __future__ import annotations
@@ -129,6 +149,36 @@ def _no_active_evidence_claim(monkeypatch):
                         lambda _path: False)
 
 
+def _mask_git_identity(monkeypatch, tmp_path):
+    """Make every git subprocess this test spawns behave like a host with
+    NO configured identity and no GECOS full name to auto-derive one from
+    -- deterministically, regardless of what identity is actually
+    configured on the machine running the test (so this reproduces the
+    GitHub Actions ubuntu-latest failure on any host, including a
+    developer's Mac that already has user.name/user.email set globally).
+
+    GIT_CONFIG_GLOBAL / GIT_CONFIG_SYSTEM redirect config lookup away from
+    the real global/system config entirely; user.useConfigOnly=true (set
+    via the GIT_CONFIG_COUNT/KEY/VALUE env-config mechanism, so it applies
+    process-wide without threading a `-c` flag through every call site)
+    disables git's GECOS/hostname auto-guess fallback. `-c user.email=...
+    -c user.name=...` on this test's OWN setup commits (_make_repos etc.)
+    still wins over both, since an explicit `-c` is a real config source,
+    not auto-detection -- so only the SUT's un-decorated `git commit`
+    calls are affected.
+    """
+    empty_config = tmp_path / "empty_gitconfig"
+    empty_config.write_text("")
+    for var in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL",
+                "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(empty_config))
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", str(empty_config))
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "user.useConfigOnly")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "true")
+
+
 # ---------------------------------------------------------------------------
 # C1: single manifest survives conflict recovery
 # ---------------------------------------------------------------------------
@@ -194,5 +244,28 @@ def test_c3_result_files_none_fallback_preserves_manifest(tmp_path, monkeypatch)
     files = _files_on_remote(local)
     assert rel in files, (
         f"C3 FAIL: fallback path lost the manifest {rel}.\n"
+        f"files on master: {sorted(files)}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# C4: no git identity configured on the host -> manifest still lands
+# ---------------------------------------------------------------------------
+def test_c4_no_git_identity_still_lands_manifest(tmp_path, monkeypatch):
+    _no_active_evidence_claim(monkeypatch)
+    _mask_git_identity(monkeypatch, tmp_path)
+    local, other = _make_repos(tmp_path)
+    _other_pushes_heartbeat_update(other)
+    manifest = _write_manifest(
+        local, "v3_exq_541_noident_20260727T2234Z_v3.json")
+    _dirty_local_concurrents(local)
+
+    experiment_runner.git_push_results(local, [str(manifest)])
+
+    rel = str(manifest.relative_to(local))
+    files = _files_on_remote(local)
+    assert rel in files, (
+        f"C4 FAIL: manifest {rel} missing from remote master when the host "
+        f"has no git identity configured.\n"
         f"files on master: {sorted(files)}"
     )
