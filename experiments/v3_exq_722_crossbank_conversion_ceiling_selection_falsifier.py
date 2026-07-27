@@ -33,11 +33,14 @@ point re-validate the readiness floors and arm config against the then-current
 substrate before queuing -- do not queue it as-is on the strength of this file
 compiling. Route any re-queue through /queue-experiment.
 
-OWED ON REOPEN: this script predates the Experimental Recording Standard
-(2026-07-12) and still writes its flat manifest with a raw json.dump. It carries
-MANIFEST_WRITER_EXEMPT (below) on the archival not-re-run grounds above. Any reopen
-MUST first migrate the manifest tail to experiments/pack_writer.write_flat_manifest
-and drop that exemption.
+RECORDING (settled 2026-07-27): this script predated the Experimental Recording
+Standard (2026-07-12) and wrote its flat manifest with a raw json.dump under a
+MANIFEST_WRITER_EXEMPT. That debt -- which the reopen condition owed -- is now PAID:
+the tail calls experiments/pack_writer.write_flat_manifest, the exemption is dropped,
+and the z_goal_stream liveness block is recorded via ZGoalStreamAccumulator. Field
+names are unchanged (the writer is a stamp-validate-write wrapper, not a schema
+projector), and no substrate or arm behaviour was touched -- the driver already called
+update_z_goal every tick, so the liveness block only RECORDS a property it already had.
 
 Verified at landing (2026-07-19): compiles, all five substrate imports resolve,
 use_f_eligibility_demotion still present in e3_selector.py, no TODO/stub markers.
@@ -163,10 +166,10 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import json
 import math
 import random
 import sys
+import time
 from collections import Counter, deque
 from datetime import datetime, timezone
 from pathlib import Path
@@ -181,6 +184,8 @@ import torch.nn.functional as F
 
 from experiment_protocol import emit_outcome
 from experiments._lib.arm_fingerprint import compute_arm_fingerprint, reset_all_rng
+from experiments._lib.z_goal_stream import ZGoalStreamAccumulator
+from experiments.pack_writer import write_flat_manifest
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
@@ -192,17 +197,19 @@ SUPERSEDES: Optional[str] = None  # NEW cross-bank generality question, not a fi
 CLAIM_IDS: List[str] = ["MECH-309", "ARC-062", "MECH-448"]
 EXPERIMENT_PURPOSE = "evidence"
 
-# Landed PARKED for preservation only, never queued, never to be re-run as-is (see the
-# PARKED banner in the module docstring). Authored ~2026-06-21/22, i.e. BEFORE the
-# Experimental Recording Standard (2026-07-12) made pack_writer.write_flat_manifest the
-# single sanctioned flat-manifest writer. Migrating the writer now would be an
-# unverifiable edit to a script that cannot be run for real under the re-derive brake, so
-# the migration is DEFERRED and OWED as part of the reopen condition, not skipped.
-MANIFEST_WRITER_EXEMPT = (
-    "parked pre-standard script (authored ~2026-06-21/22, pre-2026-07-12 recording "
-    "standard); landed for preservation only, not queued and not re-run -- migrate to "
-    "pack_writer.write_flat_manifest as part of any reopen"
-)
+# z_goal stream liveness (runtime backstop). This driver hand-rolls its inner loop and
+# builds a FRESH agent inside _run_cell per bank x arm x seed, so the counters are read
+# at end-of-cell and the agent is dropped rather than retained for a run-level list.
+# RECORDING ONLY -- nothing about the run's behaviour changes. This driver was ALREADY
+# correctly wired: it calls agent.update_z_goal(...) every tick the goal_state exists
+# (see _run_cell), so it never carried the V3-EXQ-626 / V3-EXQ-830 writer defect. The
+# block is added because that fact was previously unrecorded, not to repair it.
+# Measured on the 30-step dry-run smoke: writer_calls 871, ticks_active 0, i.e.
+# active_frac 0.0 with writer_defect false -- the "correctly wired, benefit gate never
+# opened" row of the module docstring in _lib/z_goal_stream.py (benefit_exposure stayed
+# below goal.benefit_threshold over so short a run), NOT a dead stream. A real-length
+# run may well read non-zero; either way the number now lands in the run's own record.
+_ZG = ZGoalStreamAccumulator()
 
 # --- CRF-gate calibration amend levers (the 654i now-working stack; matched constant) ---
 CRF_MATURE_CONTEXT_MATCH_THRESHOLD = 0.7
@@ -1262,6 +1269,10 @@ def _run_cell(
         and consumed_dist_max < CONSUMED_MAGNITUDE_CEIL
     )
 
+    # z_goal liveness -- read AFTER this cell has finished stepping (observe() reads the
+    # counters at call time), then the agent is dropped rather than retained.
+    _ZG.observe(agent)
+
     return {
         "bank_id": bank["bank_id"],
         "arm_id": arm["arm_id"],
@@ -1922,6 +1933,7 @@ def main() -> Tuple[Optional[str], Optional[str], bool]:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--out-dir", type=str, default=None)
     args = parser.parse_args()
+    t0 = time.perf_counter()
 
     if args.dry_run:
         seeds = list(DRY_RUN_SEEDS)
@@ -1948,15 +1960,49 @@ def main() -> Tuple[Optional[str], Optional[str], bool]:
     timestamp_utc = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     manifest = _build_manifest(result, timestamp_utc, dry_run=bool(args.dry_run))
 
-    if args.out_dir is not None:
-        out_dir = Path(args.out_dir)
-    else:
-        out_dir = REPO_ROOT.parent / "REE_assembly" / "evidence" / "experiments"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{manifest['run_id']}.json"
+    # Reproducibility core (standard 3b). The gate constants are recorded alongside the
+    # grid because every readiness route and the load-bearing C_PRIMARY margin are keyed
+    # on them; a reader re-deriving a verdict needs the thresholds, not just the outcome.
+    full_config = {
+        "seeds": list(seeds),
+        "p0_warmup_episodes": p0,
+        "p1_bias_train_episodes": p1,
+        "p2_measurement_episodes": p2,
+        "steps_per_episode": steps,
+        "c2_lift_margin_nats": C2_LIFT_MARGIN_NATS,
+        "c2_min_lift_seeds": C2_MIN_LIFT_SEEDS,
+        "min_seeds_for_pass": MIN_SEEDS_FOR_PASS,
+        "frac_pre_ge2_floor": FRAC_PRE_GE2_FLOOR,
+        "consumed_spread_floor": CONSUMED_SPREAD_FLOOR,
+        "consumed_magnitude_ceil": CONSUMED_MAGNITUDE_CEIL,
+        "crf_min_minted": CRF_MIN_MINTED,
+        "crf_frac_active_floor": CRF_FRAC_ACTIVE_FLOOR,
+        "head_delta_min": HEAD_DELTA_MIN,
+        "prop_nonvac_floor": PROP_NONVAC_FLOOR,
+        "demotion_active_frac_floor": DEMOTION_ACTIVE_FRAC_FLOOR,
+        "excluded_count_floor": EXCLUDED_COUNT_FLOOR,
+        "r6_top1_merit_share_floor": R6_TOP1_MERIT_SHARE_FLOOR,
+        "f_eligibility_envelope_floor": F_ELIGIBILITY_ENVELOPE_FLOOR,
+        "banks": manifest["banks"],
+        "arms": manifest["arms"],
+        "config_summary": manifest["config_summary"],
+    }
 
-    with open(out_path, "w") as f:
-        json.dump(manifest, f, indent=2)
+    # Sanctioned flat-manifest writer (Experimental Recording Standard 2026-07-12).
+    # out_dir None => resolve_evidence_experiments_dir(script_path), which is
+    # worktree-aware; --out-dir still overrides. dry_run is threaded through from the
+    # script's own flag (NEVER hardcoded False) so the V3-EXQ-696 dry-run relocation to
+    # _dry_<run_id>.json and the [smoke] z_goal_stream line both stay reachable.
+    out_path = write_flat_manifest(
+        manifest,
+        Path(args.out_dir) if args.out_dir is not None else None,
+        dry_run=bool(args.dry_run),
+        config=full_config,
+        seeds=seeds,
+        script_path=Path(__file__),
+        started_at=t0,
+        z_goal_stream_stats=_ZG.stats(),
+    )
 
     print(f"manifest: {out_path}", flush=True)
     print(
