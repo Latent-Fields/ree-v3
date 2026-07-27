@@ -15430,14 +15430,35 @@ claim says arousal amplifies rather than breaks), MECH-359, MECH-390, SD-011.
   never revived, revive failing closed on every refusal path, dormant chunks still suppressed).
   Registered PROBED in tests/test_flag_inertness.py. Green on ree-cloud-2 (63 passed targeted)
   and on a full local pre-commit gate run (2331 contracts passed).
-  Validation experiment: NOT CURRENTLY CLAIMABLE. The rapid-reacquisition falsifier V3-EXQ-829
-  was authored and landed (script + queue entry, ree-v3 77e3ddc, smoke PASS), but the
-  DB-authoritative phase3 queue snapshot ree-v3 d1d7066 has since REMOVED the entry from
-  experiment_queue.json -- it was never POSTed to the coordinator, so it does not exist in the DB
-  and nothing can claim it. Re-POST is required before MECH-324 can acquire evidence. It is
-  deliberately an OPERATOR-LEVEL driver rather than an agent run: V3-EXQ-810 measured the
+  Validation experiment: RAN 2026-07-27T17:05:39Z AND THE FALSIFIER FAILED. V3-EXQ-829
+  (script + queue entry ree-v3 77e3ddc; run
+  v3_exq_829_mech324_rapid_reacquisition_falsifier_20260727T170539Z_v3 on ree-cloud-2, 66 cells =
+  6 seeds x 11 arms) returned outcome FAIL, evidence_direction MIXED for MECH-324 and SUPPORTS
+  for MECH-323, non-degenerate, self-routing retention_real_but_rapid_reacquisition_falsified.
+  NOT YET AUTOPSIED and NOT marked reviewed -- that is /failure-autopsy and governance work.
+  C3 HELD, so THE STRUCTURAL CORRECTION ABOVE IS REAL: with retention OFF all 12 of 12 dissolved
+  cells stayed dead and with it ON they revived, which is exactly the absorbing-tombstone claim.
+  C5 (mild-dissolution robustness) also held.
+  C1 FAILED, and it is the load-bearing one: reacquisition was SLOWER than acquisition, median
+  r_reacq 90 against a measured median r_acq of 20 (= R_min exactly). C2 also failed -- r_reacq
+  was FLAT at 90 across every f_reacq in {1.0, 0.5, 0.25, 0.1} (forced bars 20 / 10 / 5 / 2), so
+  the bar this correction introduced had NO measurable effect on the DV it was built to move.
+  LIKELY READING, a hypothesis for the autopsy and NOT a verdict: revival is rate-limited by the
+  VARIANCE WINDOW FLUSHING, not by the repetition bar. r_reacq / W = 0.908 +/- 0.029, and the
+  pre-registered W control separates the readings cleanly (median r_reacq 90 at W = 100, 28 at
+  W = 30 -- the DV tracks the WINDOW, not R_min and not f_reacq). Reaching DISSOLVED needs
+  chunk_dissolve_trials = 50 trials of supra-F_high variance, so at dissolution the variance
+  window is necessarily contaminated by the stream that caused it, and variance < F_low cannot
+  clear until that ages out -- ~0.9 W trials, always dominating a repetition term of at most
+  R_min = 20. If that holds, chunk_reacquisition_repetition_factor is INERT BY CONSTRUCTION
+  rather than mis-valued, and the fix is structural (the reacquisition path needs the variance
+  gate scoped to post-dissolution trials too, not just the repetition counter), not a
+  recalibration. The arithmetic-identity degeneracy check passed
+  (all_on_cells_sit_on_forced_bar = false), so the flatness is a real measurement.
+  It is deliberately an OPERATOR-LEVEL driver rather than an agent run: V3-EXQ-810 measured the
   MECH-323 accumulator SILENT under agent control (chunk_accumulator_silent), so an agent-level
-  reacquisition run would measure that readiness gap rather than MECH-324.
+  reacquisition run would have measured that readiness gap rather than MECH-324. Evidence
+  attaches to the OPERATOR, not to chunk-driven behaviour.
   See MECH-324, MECH-323, MECH-322, ARC-071, MECH-094, and the
   dissolution-is-suppression-with-retention section of policy_chunking.py's module docstring.
 
