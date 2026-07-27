@@ -49,7 +49,6 @@ def test_phase3_destabilizing_pressure():
         "Phase 3 env_drift_prob should be elevated (>= 0.4)"
 
     print("PASS: Phase 3 destabilizing pressure kwargs verified")
-    return True
 
 
 def test_phase2_no_extra_dynamics():
@@ -65,7 +64,6 @@ def test_phase2_no_extra_dynamics():
         "Phase 2 should not enable interoceptive_noise (Phase 3 only)"
 
     print("PASS: Phase 2 correctly excludes Phase-3-only dynamics")
-    return True
 
 
 def test_phase_progression():
@@ -99,7 +97,6 @@ def test_phase_progression():
     assert phase3_kwargs.get("multi_source_dynamics_enabled") is True
 
     print("PASS: Phase progression and kwargs evolution verified")
-    return True
 
 
 if __name__ == "__main__":
