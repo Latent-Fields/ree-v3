@@ -1,12 +1,28 @@
 """Smoke tests for phase3_preflight.py (no live hub required)."""
 
 import json
+import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 PREFLIGHT = HERE / "phase3_preflight.py"
+
+
+def _hermetic_env() -> dict:
+    """Environment with every COORDINATOR_URL source stripped.
+
+    run_preflight() falls back to `os.environ` for both COORDINATOR_URL and
+    COORDINATOR_ENV_FILE when the env file supplies neither, so pinning
+    --env-file alone is not sufficient to keep a test off the live hub.
+    """
+    env = dict(os.environ)
+    for key in ("COORDINATOR_URL", "COORDINATOR_TOKEN",
+                "COORDINATOR_ENV_FILE"):
+        env.pop(key, None)
+    return env
 
 
 def test_help_exits_zero():
@@ -31,12 +47,49 @@ def test_mock_json_all_pass_structure():
 
 
 def test_dry_run_local_checks():
-    proc = subprocess.run(
-        [sys.executable, str(PREFLIGHT), "--dry-run", "--json"],
-        capture_output=True, text=True, timeout=60, check=False)
-    # May FAIL without coordinator.env URL; must emit valid JSON.
+    """--dry-run reaches the local checks via an env file with no URL.
+
+    HERMETICITY: --env-file is pinned to a temp file that EXISTS but declares
+    no COORDINATOR_URL. Until 2026-07-27 this test used the DEFAULT --env-file,
+    and --dry-run does NOT skip the HTTP block (only --mock does; --dry-run
+    skips the SSH probes, `if dry_run or mock`). On the operator's Mac the
+    default resolves to a real $HOME/REE_Working/REE_assembly/coordinator.env
+    supplying a live URL, so every run of this unit suite fired /health and
+    /shadow/status at the PRODUCTION coordinator -- making the test's runtime
+    and outcome depend on whether the hub was up.
+
+    Fixed in the TEST, not in run_preflight(): live HTTP under --dry-run is the
+    documented operator contract ("--dry-run skips SSH; --mock forces network
+    checks to SKIP (tests only)" -- PHASE3_CUTOVER.md; and _print_report
+    distinguishes "(dry-run: SSH checks skipped)" from "(mock: network checks
+    skipped)"). --dry-run is the mode for a host with coordinator.env but only
+    "optional SSH to hub" (module header). Making it skip HTTP would gut it.
+
+    Distinct from test_local_modes_do_not_need_coordinator_env below, which
+    pins a NONEXISTENT path and so also exercises main()'s missing-env-file
+    branch. Here the file exists and simply lacks the key.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        env_file = Path(tmp) / "coordinator.env"
+        env_file.write_text(
+            "# no COORDINATOR_URL: forces the local-checks-only path\n"
+            "COORDINATOR_SSH_USER=ree\n", encoding="utf-8")
+        proc = subprocess.run(
+            [sys.executable, str(PREFLIGHT),
+             "--env-file", str(env_file), "--dry-run", "--json"],
+            capture_output=True, text=True, timeout=60, check=False,
+            env=_hermetic_env())
+    # The overall verdict may be FAIL (no URL); --json must still emit a body.
     data = json.loads(proc.stdout)
     assert "checks" in data
+    ids = {c["id"] for c in data["checks"]}
+    # No URL -> the HTTP block must SKIP rather than dial out. A PASS/FAIL on
+    # either of these means the run made a live request to a real coordinator.
+    assert {"hub_health", "coordinator_api"} <= ids, sorted(ids)
+    for cid in ("hub_health", "coordinator_api"):
+        check = next(c for c in data["checks"] if c["id"] == cid)
+        assert check["status"] == "SKIP", check
+    assert "fleet_lifecycle" not in ids, sorted(ids)
     writer = next(c for c in data["checks"]
                   if c["id"] == "phase3_writer_ready")
     # Post-cutover polarity: sync_daemon IS the git writer, so the flag must
@@ -131,7 +184,8 @@ def test_local_modes_do_not_need_coordinator_env():
         proc = subprocess.run(
             [sys.executable, str(PREFLIGHT),
              "--env-file", "/nonexistent/coordinator.env", "--json"] + extra,
-            capture_output=True, text=True, timeout=60, check=False)
+            capture_output=True, text=True, timeout=60, check=False,
+            env=_hermetic_env())
         # --json is a machine contract: JSON on stdout regardless of exit code.
         data = json.loads(proc.stdout)
         ids = {c["id"] for c in data["checks"]}
@@ -157,7 +211,8 @@ def test_live_mode_still_fails_without_url():
     proc = subprocess.run(
         [sys.executable, str(PREFLIGHT),
          "--env-file", "/nonexistent/coordinator.env", "--json"],
-        capture_output=True, text=True, timeout=60, check=False)
+        capture_output=True, text=True, timeout=60, check=False,
+        env=_hermetic_env())
     assert proc.returncode == 2, proc.stdout + proc.stderr
     data = json.loads(proc.stdout)
     config = next(c for c in data["checks"] if c["id"] == "config")
