@@ -26,6 +26,19 @@ name: Contract Test Suite
 # a meaningful gate here in a way a Mac-local run would not be. Contracts
 # that assert exact committed actions were already de-flaked to not depend
 # on this.
+#
+# NOTE (2026-07-27, first run): the initial run on ubuntu-latest surfaced
+# two pre-existing, environment-independent findings that this workflow
+# is working as intended to catch -- see WORKSPACE_STATE.md / chipped
+# follow-on tasks rather than this comment for status:
+#   1. tests/preflight/test_queue_integrity.py::test_supersedes_targets_well_formed
+#      -- V3-EXQ-826a's `supersedes` field holds a run_id string, not the
+#      expected queue_id shape. A real experiment_queue.json data defect.
+#   2. tests/contracts/test_runner_manifest_survives_conflict_recovery.py
+#      (C1/C2/C3) -- passes on darwin-arm64 (git 2.51.2) but fails on this
+#      runner's git; the manifest-restore `git checkout <pre_reset_sha> --
+#      <path>` step in experiment_runner._git_push_with_retry doesn't find
+#      the path. Not yet root-caused; needs its own investigation.
 
 on:
   push:
@@ -54,6 +67,13 @@ jobs:
       - name: Fresh checkout
         uses: actions/checkout@v4
         with:
+          fetch-depth: 1
+
+      - name: Checkout REE_assembly as a sibling (some contracts assume the REE_Working layout)
+        uses: actions/checkout@v4
+        with:
+          repository: Latent-Fields/REE_assembly
+          path: ../REE_assembly
           fetch-depth: 1
 
       - name: Set up Python
