@@ -77,10 +77,30 @@ class BoundaryQueryResult:
     iff step() returned at least one event; posterior is the max posterior
     among the scales that fired (0.0 if none fired). events carries the
     raw BoundaryEvent list for callers that need scale/sources detail.
+
+    suppressed_scales carries the names of the non-slow scales whose
+    detector DID fire this tick but whose event was withheld by the
+    cross-scale rule (a slow fire resets inner and suppresses a same-tick
+    fast event -- see step()). It is diagnostic ONLY: nothing in the
+    fired/posterior/events summary changes because of it, so every
+    existing consumer is bit-identical.
+
+    WHY IT EXISTS. Because the cross-scale rule makes a slow fire REPLACE
+    the same-tick fast event, `events` can never contain a slow and a fast
+    event together -- so "did both scales fire at once?" is structurally
+    unanswerable from `events` alone (it would read as a constant zero).
+    A co-fire measurement is exactly what the MECH-321 scale-resolved
+    probe needs to distinguish "two detectors, two signals" from "two
+    detectors, one signal", so the suppressed fire is surfaced here rather
+    than being silently discarded. Note this records ONLY cross-scale
+    suppression, NOT min_segment_length suppression -- a fast detector
+    fire dropped for being too soon after the previous one is not a
+    co-fire and does not appear here.
     """
     fired: bool
     posterior: float
     events: List[BoundaryEvent] = field(default_factory=list)
+    suppressed_scales: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -424,6 +444,12 @@ class EventSegmenter:
         self._outer: Dict[str, int] = {stream: 0 for stream in self._STREAMS}
         self._inner: Dict[str, int] = {stream: 0 for stream in self._STREAMS}
         self._t_last_seen: Dict[str, int] = {stream: -1 for stream in self._STREAMS}
+        # Per-stream record of the LAST step()'s cross-scale-suppressed scale
+        # names (diagnostic only; see BoundaryQueryResult.suppressed_scales).
+        # Overwritten wholesale on every step() so it can never go stale.
+        self._last_suppressed: Dict[str, List[str]] = {
+            stream: [] for stream in self._STREAMS
+        }
 
     # ------------------------------------------------------------------ #
     # Construction                                                       #
@@ -488,6 +514,7 @@ class EventSegmenter:
             self._outer[stream] = 0
             self._inner[stream] = 0
             self._t_last_seen[stream] = -1
+            self._last_suppressed[stream] = []
 
     def step(
         self,
@@ -539,6 +566,7 @@ class EventSegmenter:
                 slow_fired = True
 
         # Non-slow scales.
+        suppressed: List[str] = []
         for sc in self.scales:
             if sc.name == self.slow_scale_name:
                 continue
@@ -553,6 +581,10 @@ class EventSegmenter:
                 # correctly anchored.
                 if fired:
                     last_fire_t[sc.name] = t
+                    # Diagnostic only -- the withheld fire is recorded so a
+                    # consumer can still measure cross-scale co-fire, which
+                    # is otherwise unobservable (see BoundaryQueryResult).
+                    suppressed.append(sc.name)
                 continue
             if fired and (t - last_fire_t[sc.name]) >= sc.min_segment_length:
                 old_id = self.current_segment_id(input_stream)
@@ -570,6 +602,7 @@ class EventSegmenter:
                 ))
 
         self._t_last_seen[input_stream] = t
+        self._last_suppressed[input_stream] = suppressed
         return events
 
     def force_boundary(
@@ -639,7 +672,8 @@ class EventSegmenter:
              posterior summary: fired = True iff any scale fired this
              tick; posterior = the max posterior among scales that fired
              (0.0 if none fired). Callers needing per-scale detail can
-             still read `.events`.
+             still read `.events`, and `.suppressed_scales` for the
+             non-slow fires the cross-scale rule withheld this tick.
 
         Never called with input_stream="observation" implicitly or
         otherwise routed to the observation-only consumers (MECH-269
@@ -655,5 +689,8 @@ class EventSegmenter:
         events = self.step(latent_dict=latent, pe_dict=pe, t=t, input_stream=stream)
         posterior = max((e.posterior for e in events), default=0.0)
         return BoundaryQueryResult(
-            fired=bool(events), posterior=float(posterior), events=events
+            fired=bool(events),
+            posterior=float(posterior),
+            events=events,
+            suppressed_scales=list(self._last_suppressed[stream]),
         )

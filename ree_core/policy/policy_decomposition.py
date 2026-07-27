@@ -363,6 +363,13 @@ class PolicyDecomposition:
             the primitive was already irreducible (no sub_elements).
         _n_vs_trigger / _n_boundary_fires : which R1 condition(s) fired
             (both may be true on the same call -- OR trigger).
+        _n_boundary_fires_fast / _n_boundary_fires_slow / _n_boundary_cofire :
+            MECH-321 scale-resolved boundary diagnostic. Which MECH-288
+            SCALE produced the boundary, rather than only that one did.
+            Unconditional (no flag): they simply stay 0 for a scale that
+            never fires, so the default path is bit-identical. See the
+            "SCALE-RESOLVED BOUNDARY DIAGNOSTIC" note below for the
+            counting rule and the exact sum identity.
     """
 
     def __init__(self, config: Optional[PolicyDecompositionConfig] = None) -> None:
@@ -376,6 +383,42 @@ class PolicyDecomposition:
         self._n_marked_unreliable: int = 0
         self._n_vs_trigger: int = 0
         self._n_boundary_fires: int = 0
+        # SCALE-RESOLVED BOUNDARY DIAGNOSTIC (MECH-321 scoping spike
+        # 2026-07-27 section 5b). MECH-288 ships TWO qualitatively
+        # heterogeneous scales -- fast (PE-threshold z-score over
+        # z_world+z_self, per-tick) and slow (BOCPD-Gaussian over z_goal,
+        # hazard 1/40) -- and boundary_on() collapses them to a single
+        # fired: bool. These counters recover the scale label that the
+        # collapse discards, so "decomp_fired_frac == 1.0" (opaque) can
+        # become "fast fires on 100% of ticks, slow on 3%" (a
+        # measurement). Unconditional -- no flag -- because a scale that
+        # never fires simply leaves its counter at 0.
+        #
+        # COUNTING RULE. All three count evaluate() CALLS (ticks), not
+        # events, so they are commensurate with _n_boundary_fires:
+        #   _fast   : the tick emitted >=1 non-slow event, OR a non-slow
+        #             detector fired and was withheld by the cross-scale
+        #             rule (boundary.suppressed_scales).
+        #   _slow   : the tick emitted >=1 slow-scale event.
+        #   _cofire : both of the above on the same tick.
+        # "fast" means "non-slow", matching EventSegmenter.step()'s own
+        # partition (slow_scale_name vs everything else) rather than the
+        # literal name "fast", so a renamed or three-scale segmenter still
+        # partitions exhaustively.
+        #
+        # WHY suppressed_scales IS PART OF _fast. A slow fire RESETS inner
+        # and suppresses the same-tick fast event, so `events` can never
+        # hold both scales at once and an events-only co-fire counter would
+        # be a constant 0 -- unable to distinguish the spike's outcome 1
+        # ("dissociable") from its outcome 3 ("two detectors, one signal"),
+        # which is the whole question the probe exists to answer. Counting
+        # the withheld fire makes co-fire observable AND keeps the exact
+        # identity that _fast + _slow - _cofire == _n_boundary_fires (a
+        # tick whose only fast fire was dropped by min_segment_length is
+        # NOT counted -- it emitted nothing and fired nothing downstream).
+        self._n_boundary_fires_fast: int = 0
+        self._n_boundary_fires_slow: int = 0
+        self._n_boundary_cofire: int = 0
         self._last_decomposed_sequence: Tuple[int, ...] = ()
 
         # R5 bottleneck-mode accumulator (allocated/updated only when
@@ -466,6 +509,7 @@ class PolicyDecomposition:
             self._n_vs_trigger += 1
         if boundary_fired:
             self._n_boundary_fires += 1
+        self._accumulate_boundary_scales(boundary, event_segmenter)
 
         bottleneck_mode = self.config.trigger_mode == "bottleneck"
         bottleneck_fired = False
@@ -666,6 +710,42 @@ class PolicyDecomposition:
         return tuple(out)
 
     # ------------------------------------------------------------------
+    def _accumulate_boundary_scales(self, boundary: Any, event_segmenter: Any) -> None:
+        """Accumulate the per-scale boundary counters for ONE evaluate() tick.
+
+        Diagnostic only -- reads the BoundaryQueryResult that evaluate()
+        already obtained and touches nothing that feeds should_decompose.
+
+        Duck-typed in both directions, because PolicyDecomposition
+        deliberately does not import EventSegmenter (module docstring):
+        a segmenter with no slow_scale_name attribute falls back to the
+        literal "slow", and a boundary object with no .events / no
+        .suppressed_scales (the pre-existing stub shape used by several
+        contracts) contributes nothing rather than raising. That is what
+        keeps this safe to call unconditionally.
+
+        See the counting rule in __init__ for why suppressed fires count
+        toward `fast` and why the sum identity holds.
+        """
+        slow_name = getattr(event_segmenter, "slow_scale_name", "slow")
+        events = getattr(boundary, "events", None) or ()
+        suppressed = getattr(boundary, "suppressed_scales", None) or ()
+
+        slow_here = any(getattr(e, "scale", None) == slow_name for e in events)
+        fast_here = any(getattr(e, "scale", None) != slow_name for e in events)
+        # A non-slow detector fire withheld by the cross-scale rule is still
+        # a fast-scale fire for co-fire purposes (see __init__).
+        if any(name != slow_name for name in suppressed):
+            fast_here = True
+
+        if fast_here:
+            self._n_boundary_fires_fast += 1
+        if slow_here:
+            self._n_boundary_fires_slow += 1
+        if fast_here and slow_here:
+            self._n_boundary_cofire += 1
+
+    # ------------------------------------------------------------------
     def reset(self) -> None:
         """Reset all diagnostic counters. NOT called on agent per-episode
         reset() -- see class docstring."""
@@ -676,6 +756,9 @@ class PolicyDecomposition:
         self._n_marked_unreliable = 0
         self._n_vs_trigger = 0
         self._n_boundary_fires = 0
+        self._n_boundary_fires_fast = 0
+        self._n_boundary_fires_slow = 0
+        self._n_boundary_cofire = 0
         self._last_decomposed_sequence = ()
         self._bottleneck_visits = {}
         self._bottleneck_neighbors = {}
@@ -698,6 +781,16 @@ class PolicyDecomposition:
             # does (see decomp_trigger_mode).
             "decomp_n_vs_trigger": self._n_vs_trigger,
             "decomp_n_boundary_fires": self._n_boundary_fires,
+            # MECH-321 scale-resolved boundary diagnostic (spike 5b). WHICH
+            # MECH-288 scale fired, not merely that one did. Exact identity:
+            #   fires_fast + fires_slow - cofire == n_boundary_fires
+            # decomp_n_boundary_fires_slow stays 0 unless the slow BOCPD
+            # scale has its z_goal stream on the rollout side, which is what
+            # decomposition_scale_resolved_probe switches on -- so on the
+            # default path these read (n_boundary_fires, 0, 0).
+            "decomp_n_boundary_fires_fast": self._n_boundary_fires_fast,
+            "decomp_n_boundary_fires_slow": self._n_boundary_fires_slow,
+            "decomp_n_boundary_cofire": self._n_boundary_cofire,
             "decomp_last_decomposed_sequence": list(self._last_decomposed_sequence),
             # R5 bottleneck-mode audit. decomp_trigger_mode names which
             # verdict drove the decisions in this run; the *_bottleneck_*

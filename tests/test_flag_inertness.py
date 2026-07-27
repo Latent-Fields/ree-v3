@@ -536,6 +536,14 @@ PROBED = {
     # C2 loud precondition / C6 R1 OR-trigger / C7 depth-cap / C8 pre-commit
     # withhold-and-replace / C9 mid-execution latch release).
     "use_policy_decomposition",
+    # MECH-321 scale-resolved rollout boundary probe (scoping spike 2026-07-27
+    # section 5b). Probed by the same file's C17 block: OFF pins the rollout
+    # latent_signature to exactly {z_world, z_self} (so MECH-288's slow BOCPD
+    # scale stays structurally dead on the rollout stream, as shipped), ON pins
+    # z_goal present. Deliberately NOT a pure diagnostic -- with z_goal there
+    # the slow scale can contribute to boundary.fired and so change decisions,
+    # which is the whole reason it is flagged rather than always-on.
+    "use_decomposition_scale_resolved_probe",
 } | set(FLAGS_WITH_DEFAULT_BEHAVIOURAL_DELTA) | set(FLAGS_WITH_LOUD_PRECONDITION)
 
 # Audit-confirmed inert / mis-wired flags (finding id -> reason). Documented here

@@ -1800,6 +1800,15 @@ class HippocampalConfig:
     # from the top-level REEConfig knob of the same name by from_dims.
     # Default False is bit-identical to the normal CEM proposer.
     use_chunk_proposal_injection: bool = False
+    # MECH-321 scale-resolved rollout boundary probe (spike 2026-07-27 5b).
+    # Mirrored from the top-level REEConfig knob of the same name by from_dims.
+    # Read by HippocampalModule._evaluate_decomposition_ticks to decide whether
+    # z_goal joins the rollout latent_signature (giving MECH-288's slow BOCPD
+    # scale its stream). This is the FIRST decomposition knob the module reads
+    # from its OWN config -- use_policy_decomposition deliberately has no mirror
+    # because the module acts on set_decomposition_source() instead -- so the
+    # mirror below is required, not optional. Default False is bit-identical.
+    use_decomposition_scale_resolved_probe: bool = False
     # Support-preserving CEM repair (ARC-065 hippocampal-trajectory-sampling
     # child). When enabled, CEM elite refit preserves a first-action class
     # floor when that support is present, and final candidate generation
@@ -3700,6 +3709,48 @@ class REEConfig:
     # bin width + leading-dim count for the coarse fixed z_world region key.
     decomposition_bottleneck_region_quant: float = 1.0
     decomposition_bottleneck_region_dims: int = 8
+    # MECH-321 SCALE-RESOLVED ROLLOUT BOUNDARY PROBE (scoping spike 2026-07-27
+    # section 5b, evidence/planning/mech321_decomposition_scale_scoping_spike_
+    # 2026-07-27.md). MECH-288 ships TWO qualitatively heterogeneous scales --
+    # fast (PE-threshold z-score over z_world+z_self, per-tick) and slow
+    # (BOCPD-Gaussian over z_goal, hazard 1/40). MECH-321 consumes ONE of them:
+    # HippocampalModule._evaluate_decomposition_ticks builds latent_signature
+    # with z_world + z_self and NO z_goal, and the BOCPD detector returns
+    # (False, 0.0, []) when none of its streams is present -- so the slow scale
+    # is STRUCTURALLY DEAD on the rollout stream and cannot fire, ever, as
+    # shipped.
+    #
+    # True -> z_goal joins the rollout latent_signature, giving the slow scale
+    # its stream. NOT A PURE DIAGNOSTIC, which is exactly why it is a flag:
+    # the slow scale can then contribute to boundary.fired, which feeds
+    # MECH-321's R1 OR trigger and CHANGES DECISIONS. Default False is
+    # bit-identical (the key is simply not added).
+    #
+    # The question it decides (spike section 5b): do the fast and slow scales
+    # fire at DISSOCIABLE rollout positions? Read it off the unconditional
+    # decomp_n_boundary_fires_{fast,slow} / decomp_n_boundary_cofire counters
+    # in PolicyDecomposition.get_state(). The campaign motivation is that
+    # decomp_fired_frac_arm1 == 1.0 (V3-EXQ-816d) is saturated and therefore
+    # uninformative, while "fast fires on 100% of ticks, slow on 3%" is a
+    # measurement. Outcome 2 of the decision table -- slow never fires because
+    # z_goal is an integrator that does not move inside one short rollout -- is
+    # a named, publishable possibility, not a failure of the probe.
+    #
+    # FOUR wiring sites, not three: the REEConfig field, the from_dims
+    # signature, the from_dims assignment, AND the mirror onto
+    # config.hippocampal (HippocampalModule reads its OWN config object). The
+    # neighbouring use_policy_decomposition needs only three because the module
+    # never reads it -- do not copy that pattern here.
+    #
+    # KNOWN ASYMMETRY (deliberate, in scope of the spike, chipped separately):
+    # this covers the PRE-COMMITMENT sweep only (R4 first phase, in
+    # hippocampal/module.py). MECH-321's MID-EXECUTION hook in agent.py builds
+    # its own z_world+z_self signature and is NOT extended by this flag, so
+    # mid-execution ticks advance the fast rollout detector but can never
+    # advance the slow one. get_state() reports decomp_n_evaluated_precommit
+    # and _midexec separately, so the analysis can bound the resulting dilution
+    # of the slow fraction rather than having to assume it away.
+    use_decomposition_scale_resolved_probe: bool = False
     # Safety cap on how many ticks the hold re-asserts a single natural-commit run
     # before disarming (guards a degenerate config from latching forever).
     # 0 -> unbounded (the hold persists until a principled release / the committed
@@ -5498,6 +5549,7 @@ class REEConfig:
         decomposition_bottleneck_min_distinct_neighbors: int = 2,
         decomposition_bottleneck_region_quant: float = 1.0,
         decomposition_bottleneck_region_dims: int = 8,
+        use_decomposition_scale_resolved_probe: bool = False,
         # Post-603i E2 escape-affordance linker (readout over detached E2
         # action-consequence features; reuse, not a duplicate predictor).
         use_e2_escape_affordance_linker: bool = False,
@@ -6699,6 +6751,18 @@ class REEConfig:
         )
         config.decomposition_bottleneck_region_quant = decomposition_bottleneck_region_quant
         config.decomposition_bottleneck_region_dims = decomposition_bottleneck_region_dims
+        config.use_decomposition_scale_resolved_probe = use_decomposition_scale_resolved_probe
+        # Mirror onto the hippocampal sub-config: unlike use_policy_decomposition
+        # (which the module never reads -- see the field docstring above),
+        # HippocampalModule._evaluate_decomposition_ticks reads THIS one off its
+        # own config object when building the rollout latent_signature. Without
+        # this line the knob is silently unreachable and the probe reads as a
+        # clean null -- the exact failure mode of
+        # [memory] reference-reeconfig-from-dims-silent-kwargs, one site further
+        # on. Caught by C18b, not by inspection.
+        config.hippocampal.use_decomposition_scale_resolved_probe = (
+            use_decomposition_scale_resolved_probe
+        )
 
         # MECH-341 (ARC-065 Layer-B child): e3_scoring_preserves_trajectory_
         # class_diversity

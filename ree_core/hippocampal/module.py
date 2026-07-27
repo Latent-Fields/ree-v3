@@ -719,6 +719,7 @@ class HippocampalModule(nn.Module):
         seq: Tuple[int, ...],
         hypothesis_tag: bool,
         library: Optional[Any],
+        current_z_goal: Optional[torch.Tensor] = None,
     ):
         """Sweep up to 8 ticks of `traj`'s own rolled-out states, calling
         source.evaluate() at each until one fires an R1 trigger (or the
@@ -729,9 +730,39 @@ class HippocampalModule(nn.Module):
         simulation framing). Bounded at 8: the ARC-071 chunk-size budget is
         2-5 elements per level (Sakai 2003) so this has headroom without
         being unbounded compute per candidate per tick.
+
+        MECH-321 SCALE-RESOLVED PROBE (spike 2026-07-27 section 5b;
+        use_decomposition_scale_resolved_probe, default OFF). The signature
+        below carries z_world + z_self only, which are exactly the fast
+        scale's streams. MECH-288's slow scale reads z_goal, and its
+        BOCPD detector returns (False, 0.0, []) when NONE of its streams
+        is present -- so with the default signature the slow scale is
+        STRUCTURALLY DEAD on the rollout stream and MECH-321 is a
+        single-scale consumer of a two-scale substrate. Setting the flag
+        adds z_goal, giving the slow scale its stream.
+
+        THIS IS NOT A PURE DIAGNOSTIC and that is why it is flagged: with
+        z_goal present the slow scale can newly contribute to
+        boundary.fired, which feeds the R1 OR trigger and therefore
+        CHANGES DECISIONS. OFF is bit-identical (the key is not added, so
+        the dict handed to boundary_on is byte-for-byte the old one).
+
+        z_goal is the agent's CURRENT goal latent, constant across the
+        ticks of one rollout -- Trajectory carries no goal track, and
+        there is nothing to fabricate one from. That is the correct
+        semantics rather than a limitation: z_goal is an INTEGRATOR
+        (config.py goal_cue_centering note), so the slow scale is a
+        goal-SHIFT detector operating across agent ticks at hazard 1/40,
+        which is precisely the distinct timescale that makes it the slow
+        scale. The spike names the consequence in advance -- a rollout may
+        simply be too short to contain two timescales, and that null is
+        itself outcome 2 of the section 5b decision table.
         """
         region_vs = self._region_vs()
         n_ticks = min(len(traj.states), 8) if traj.states else 1
+        scale_probe = bool(
+            getattr(self.config, "use_decomposition_scale_resolved_probe", False)
+        )
         decision = None
         for tick in range(max(n_ticks, 1)):
             latent_signature = {
@@ -746,6 +777,8 @@ class HippocampalModule(nn.Module):
                     else None
                 ),
             }
+            if scale_probe:
+                latent_signature["z_goal"] = current_z_goal
             decision = source.evaluate(
                 region_vs=region_vs,
                 latent_signature=latent_signature,
@@ -846,6 +879,7 @@ class HippocampalModule(nn.Module):
         z_self: torch.Tensor,
         z_world: torch.Tensor,
         action_bias: Optional[torch.Tensor] = None,
+        current_z_goal: Optional[torch.Tensor] = None,
     ) -> List[Trajectory]:
         """ARC-070/MECH-321: withhold or re-segment ARC-071 chunk candidates
         under prediction failure (R1: V_s-drop on the candidate's own
@@ -886,7 +920,13 @@ class HippocampalModule(nn.Module):
                 continue
 
             decision = self._evaluate_decomposition_ticks(
-                source, traj, depth, seq, hypothesis_tag=True, library=library
+                source,
+                traj,
+                depth,
+                seq,
+                hypothesis_tag=True,
+                library=library,
+                current_z_goal=current_z_goal,
             )
             if decision is None or not decision.should_decompose:
                 kept.append(traj)
@@ -1808,6 +1848,7 @@ class HippocampalModule(nn.Module):
                 z_self=z_self,
                 z_world=z_world,
                 action_bias=action_bias,
+                current_z_goal=current_z_goal,
             )
             if chunk_cands:
                 keep_n = max(0, n - len(chunk_cands))
