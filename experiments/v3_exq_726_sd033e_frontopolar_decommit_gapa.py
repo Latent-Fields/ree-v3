@@ -881,12 +881,12 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
     return manifest
 
 
-def _write_manifest(manifest: Dict[str, Any]) -> Path:
+def _write_manifest(manifest: Dict[str, Any], *, dry_run: bool = False) -> Path:
     out_dir = REPO_ROOT.parent / "REE_assembly" / "evidence" / "experiments"
     out_path = write_flat_manifest(
         manifest,
         out_dir,
-        dry_run=False,
+        dry_run=dry_run,
         config=manifest.get("config"),
         seeds=SEEDS,
         script_path=Path(__file__),
@@ -896,7 +896,7 @@ def _write_manifest(manifest: Dict[str, Any]) -> Path:
 
 def main(dry_run: bool = False) -> Tuple[Dict[str, Any], Path]:
     manifest = run_experiment(dry_run=dry_run)
-    out_path = _write_manifest(manifest)
+    out_path = _write_manifest(manifest, dry_run=dry_run)
     print(f"[{EXPERIMENT_TYPE}] outcome={manifest['outcome']} "
           f"label={manifest['evaluation']['label']} -> {out_path}", flush=True)
     if dry_run:

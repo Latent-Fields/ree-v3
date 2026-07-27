@@ -42,7 +42,7 @@ CHECK_NAMES = ("conformance", "readiness", "arm_fingerprint", "degeneracy", "man
                "anchor_reachability", "precondition_recomputability",
                "e3_diagnostics_staleness", "e3_hold_weighted_readout",
                "action_object_selection", "spearman_guard_shape",
-               "dead_z_goal_stream")
+               "dead_z_goal_stream", "hardcoded_dry_run")
 
 # Readiness-gate static lint (proposal_trivial_prediction_readiness_gate_2026-06-06).
 # A diagnostic/baseline script whose interpretation grid self-routes to one of
@@ -2000,6 +2000,262 @@ def dead_z_goal_stream_lint(path: Path) -> Optional[str]:
             "arm, or a negative control like V3-EXQ-626b's ARM_NO_BENEFIT).")
 
 
+# ---- hardcoded dry_run at the sanctioned writer --------------------------------------
+# A driver that accepts `--dry-run` and reduces its work under it, but still hands
+# `pack_writer.write_flat_manifest` a LITERAL `False`, silently disables two things:
+#
+#   (1) the V3-EXQ-696 relocation. `dry_run=True` makes the writer emit
+#       `_dry_<run_id>.json` instead of `<run_id>.json`, which is what keeps a smoke
+#       manifest out of `build_experiment_indexes.py`'s scoring set and off
+#       `pending_review.md` as an action-required FAIL. With the flag hardcoded, a
+#       `--dry-run` smoke writes a real-looking 1-seed / toy-episode manifest straight
+#       into REE_assembly/evidence/experiments/. (`emit_outcome(dry_run=True)` relocates
+#       it afterwards and `generate_pending_review.py` excludes dry_run-flagged
+#       manifests, so this is a defence-in-depth gap rather than a live fire -- but the
+#       first and cheapest layer is off.)
+#   (2) the `[smoke] z_goal_stream:` report. `write_flat_manifest` prints the z_goal
+#       liveness block (active_frac / writer_defect) ONLY under `dry_run`, deliberately:
+#       gating it there is what keeps it from scrolling past unread over a multi-hour run
+#       and from firing across the contract suite. Hardcoding the flag is therefore the
+#       one thing that turns the V3-EXQ-830 early-warning off entirely.
+#
+# REACHABILITY IS THE WHOLE DISCRIMINATOR, and getting it wrong is why a grep massively
+# over-counts. 617 corpus drivers pass a literal `False`; most are CORRECT, because the
+# overwhelmingly common shape is
+#
+#     if dry_run:
+#         print("dry-run complete; manifest not written.")
+#         return ...
+#     ... write_flat_manifest(..., dry_run=False, ...)
+#
+# where the writer is simply never reached in a smoke run and the literal is honest. The
+# guard is also frequently in the CALLER (`if not args.dry_run: out = write_manifest(r)`,
+# with the writer inside that helper), so an intraprocedural check still over-fires --
+# hence the call-graph fixpoint in `_dry_reachable_functions`. Measured on this corpus:
+# 617 literal-False sites -> 453 correctly quiet -> 164 genuine.
+#
+# Canonical fixed shape, V3-EXQ-722:
+#     write_flat_manifest(manifest, out_dir, dry_run=bool(args.dry_run), ...)
+#
+# ADVISORY, and deliberately biased to UNDER-fire. It is a static scan: a flag threaded
+# through a dict, a partial, or a module-level constant is invisible to it, and a driver
+# whose smoke path exits inside a helper the fixpoint cannot resolve reads as reachable.
+# A false WARN on a historical driver costs a reader one minute; hardening this would
+# block commits on ~164 landed scripts whose runs are complete and whose re-run is
+# hypothetical. Exempt with HARDCODED_DRY_RUN_EXEMPT = "<reason>" when the literal is
+# deliberate -- e.g. the caller has already relocated or renamed the output, so a second
+# `_dry_` prefix would double-prefix it.
+_HARDCODED_DRY_RUN_EXEMPT_MARKER = "HARDCODED_DRY_RUN_EXEMPT"
+_DRY_TOKENS = ("dry_run", "DRY_RUN", "dryrun", "smoke")
+
+
+def _mentions_dry(node: ast.AST) -> bool:
+    try:
+        return any(t in ast.unparse(node) for t in _DRY_TOKENS)
+    except Exception:
+        return False
+
+
+def _block_leaves_function(body: List[ast.stmt]) -> bool:
+    """Does this statement list unconditionally leave the enclosing function?"""
+    for st in body:
+        if isinstance(st, (ast.Return, ast.Raise)):
+            return True
+        if isinstance(st, ast.Expr) and isinstance(st.value, ast.Call):
+            fn = st.value.func
+            nm = fn.attr if isinstance(fn, ast.Attribute) else getattr(fn, "id", "")
+            if nm in ("exit", "_exit"):
+                return True
+    return False
+
+
+def _is_negated_test(test: ast.AST) -> bool:
+    try:
+        t = ast.unparse(test).strip()
+    except Exception:
+        return False
+    return (t.startswith("not ") or t.startswith("(not ")
+            or " == False" in t or " is False" in t)
+
+
+def _locally_dry_guarded(node: ast.AST, parent: Dict[int, ast.AST]) -> bool:
+    """True when dry_run being truthy cannot reach `node` from its function's entry.
+
+    Two shapes, both extremely common in the corpus:
+      (a) node sits in the not-dry branch -- `if not dry_run: <node>` or the `else:` of
+          `if dry_run: ...`;
+      (b) node is dominated by an early `if dry_run: return` at some enclosing block.
+    """
+    chain: List[ast.AST] = [node]
+    cur = node
+    while id(cur) in parent:
+        cur = parent[id(cur)]
+        chain.append(cur)
+    chain_ids = {id(x) for x in chain}
+
+    for anc in chain:
+        if isinstance(anc, ast.If) and _mentions_dry(anc.test):
+            in_body = any(id(s) in chain_ids for s in anc.body)
+            in_else = any(id(s) in chain_ids for s in anc.orelse)
+            neg = _is_negated_test(anc.test)
+            if (in_body and neg) or (in_else and not neg):
+                return True
+
+    for anc in chain:
+        body = getattr(anc, "body", None)
+        if not isinstance(body, list):
+            continue
+        idx = None
+        for i, st in enumerate(body):
+            if id(st) in chain_ids:
+                idx = i
+                break
+        if idx is None:
+            continue
+        for st in body[:idx]:
+            if isinstance(st, ast.If) and _mentions_dry(st.test):
+                neg = _is_negated_test(st.test)
+                if (not neg and _block_leaves_function(st.body)):
+                    return True
+                if neg and st.orelse and _block_leaves_function(st.orelse):
+                    return True
+    return False
+
+
+def _dry_reachable_functions(tree: ast.AST, parent: Dict[int, ast.AST]) -> Set[Optional[str]]:
+    """Names of functions callable while dry_run is truthy (module level always is).
+
+    Least-fixpoint over intra-module call edges. Resolution is by BARE NAME, which is
+    what makes this under-fire rather than over-fire on the ambiguous cases: two helpers
+    sharing a name collapse to one node, so a guard on either marks both unreachable.
+    """
+    funcs = {n.name for n in ast.walk(tree)
+             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+
+    def owner(n: ast.AST) -> Optional[str]:
+        cur = parent.get(id(n))
+        while cur is not None:
+            if isinstance(cur, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                return cur.name
+            cur = parent.get(id(cur))
+        return None
+
+    edges = []
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Call):
+            fn = n.func
+            nm = fn.attr if isinstance(fn, ast.Attribute) else getattr(fn, "id", None)
+            if nm in funcs:
+                edges.append((nm, n))
+
+    reachable: Set[Optional[str]] = {None}
+    changed = True
+    while changed:
+        changed = False
+        for nm, call in edges:
+            if nm in reachable:
+                continue
+            if owner(call) in reachable and not _locally_dry_guarded(call, parent):
+                reachable.add(nm)
+                changed = True
+    return reachable
+
+
+def hardcoded_dry_run_lint(path: Path) -> Optional[str]:
+    """Hardcoded `write_flat_manifest(dry_run=False)` check. Issue string, or None.
+
+    Fires when ALL of:
+      (1) the script has a smoke path -- an argparse `--dry-run` flag or a `dry_run`
+          function parameter -- AND actually gates work on it (some `if`/`IfExp` tests
+          it, which is what distinguishes a real smoke mode from a flag that is only
+          forwarded to `emit_outcome`);
+      (2) it calls `write_flat_manifest` with a LITERAL `False` for `dry_run`; and
+      (3) that call site is reachable with dry_run truthy -- interprocedurally, per
+          `_dry_reachable_functions`. This is the discriminator; see the block comment
+          above for why (1)+(2) alone over-count by ~4x.
+
+    Never blocking. See the block comment for the under-fire bias and the exemption.
+    """
+    try:
+        src = path.read_text(encoding="utf-8")
+        tree = ast.parse(src)
+    except (OSError, SyntaxError, UnicodeDecodeError):
+        return None
+    if _HARDCODED_DRY_RUN_EXEMPT_MARKER in src:
+        return None
+
+    parent: Dict[int, ast.AST] = {}
+    for n in ast.walk(tree):
+        for c in ast.iter_child_nodes(n):
+            parent[id(c)] = n
+
+    literal_false_sites = []
+    for n in ast.walk(tree):
+        if not isinstance(n, ast.Call):
+            continue
+        fn = n.func
+        nm = fn.attr if isinstance(fn, ast.Attribute) else getattr(fn, "id", None)
+        if nm != "write_flat_manifest":
+            continue
+        val = next((k.value for k in n.keywords if k.arg == "dry_run"), None)
+        if isinstance(val, ast.Constant) and val.value is False:
+            literal_false_sites.append(n)
+    if not literal_false_sites:
+        return None
+
+    has_flag = False
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Call):
+            fn = n.func
+            nm = fn.attr if isinstance(fn, ast.Attribute) else getattr(fn, "id", "")
+            if nm == "add_argument":
+                for a in n.args:
+                    if isinstance(a, ast.Constant) and a.value in ("--dry-run", "--dry_run"):
+                        has_flag = True
+    has_param = any(
+        isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and any(a.arg == "dry_run"
+                for a in list(n.args.args) + list(n.args.kwonlyargs))
+        for n in ast.walk(tree)
+    )
+    gates_work = any(isinstance(n, (ast.If, ast.IfExp)) and _mentions_dry(n.test)
+                     for n in ast.walk(tree))
+    if not ((has_flag or has_param) and gates_work):
+        return None
+
+    reachable = _dry_reachable_functions(tree, parent)
+
+    def owner(n: ast.AST) -> Optional[str]:
+        cur = parent.get(id(n))
+        while cur is not None:
+            if isinstance(cur, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                return cur.name
+            cur = parent.get(id(cur))
+        return None
+
+    live = [n for n in literal_false_sites
+            if owner(n) in reachable and not _locally_dry_guarded(n, parent)]
+    if not live:
+        return None
+
+    where = ", ".join(f"line {n.lineno} (in {owner(n) or '<module>'})" for n in live)
+    return (
+        f"accepts --dry-run and reduces its work under it, but passes a LITERAL "
+        f"dry_run=False to write_flat_manifest at {where} -- and that call IS reached "
+        f"in a smoke run. Two silent consequences: (1) the V3-EXQ-696 safeguard is "
+        f"off, so `--dry-run` writes a real-looking 1-seed manifest as "
+        f"<run_id>.json rather than _dry_<run_id>.json, straight into the indexer's "
+        f"scoring set; (2) the dry_run-gated `[smoke] z_goal_stream:` liveness report "
+        f"never prints, which is the one place an author sees a dead z_goal stream "
+        f"BEFORE spending multi-hour cloud compute (the V3-EXQ-830 near-miss). Fix by "
+        f"threading the script's own flag: `dry_run=bool(args.dry_run)` (or "
+        f"`dry_run=dry_run` inside a function that takes it) -- see V3-EXQ-722 for the "
+        f"canonical shape. Exempt with {_HARDCODED_DRY_RUN_EXEMPT_MARKER} = "
+        f"\"<reason>\" when the literal is deliberate because the caller already "
+        f"relocated or renamed the output."
+    )
+
+
 # ---- form 2: hold-weighted readout (V3-EXQ-699) --------------------------------------
 # The SECOND form of the pseudo-replication defect, established by the V3-EXQ-699
 # re-adjudication (REE_assembly `ac2fb64028`). Form 1 (above) keys on a diagnostics
@@ -2943,6 +3199,7 @@ def main() -> int:
     ao_selection_warnings: List[Tuple[Path, str]] = []
     spearman_warnings: List[Tuple[Path, str]] = []
     dead_zgoal_warnings: List[Tuple[Path, str]] = []
+    hardcoded_dry_run_warnings: List[Tuple[Path, str]] = []
     for p in paths:
         rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
         if "conformance" in selected:
@@ -3038,6 +3295,14 @@ def main() -> int:
                 # AST scan cannot follow makes it under-fire, and the landed carriers'
                 # runs are complete).
                 dead_zgoal_warnings.append((p, dzg))
+        if "hardcoded_dry_run" in selected:
+            hdr = hardcoded_dry_run_lint(p)
+            if hdr:
+                # WARN-only in BOTH modes -- see hardcoded_dry_run_lint() for why this
+                # one never hardens under --paths (a flag threaded through a dict or a
+                # partial is invisible to the static scan, and the ~164 landed carriers'
+                # runs are complete, so hardening would block commits on history).
+                hardcoded_dry_run_warnings.append((p, hdr))
         if "spearman_guard_shape" in selected:
             sps = spearman_guard_shape_lint(p)
             if sps:
@@ -3060,7 +3325,20 @@ def main() -> int:
           f"{len(e3_hold_warnings)} hold-weighted-readout-warning(s), "
           f"{len(ao_selection_warnings)} action-object-selection-warning(s), "
           f"{len(spearman_warnings)} spearman-guard-shape-warning(s), "
-          f"{len(dead_zgoal_warnings)} dead-z_goal-stream-warning(s)", flush=True)
+          f"{len(dead_zgoal_warnings)} dead-z_goal-stream-warning(s), "
+          f"{len(hardcoded_dry_run_warnings)} hardcoded-dry_run-warning(s)", flush=True)
+    if hardcoded_dry_run_warnings:
+        # Advisory in BOTH modes (never hardens). A fire here means `--dry-run` on that
+        # driver writes a real-looking manifest into the indexer's scoring set AND
+        # suppresses the [smoke] z_goal_stream liveness report. Triage each: the fix is
+        # to thread the script's own flag (V3-EXQ-722 is the canonical shape). A literal
+        # that is deliberate -- the caller already relocated or renamed the output --
+        # should carry HARDCODED_DRY_RUN_EXEMPT rather than be left to re-fire.
+        print("", flush=True)
+        print("[validate_experiments] HARDCODED-DRY_RUN WARNINGS (advisory, non-blocking):", flush=True)
+        for p, warn in hardcoded_dry_run_warnings:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
+            print(f"  - {rel}: {warn}", flush=True)
     if dead_zgoal_warnings:
         # Advisory in BOTH modes (never hardens). A fire here means the script declares a
         # z_goal-dependent config but nothing ever writes z_goal, so every goal-gated

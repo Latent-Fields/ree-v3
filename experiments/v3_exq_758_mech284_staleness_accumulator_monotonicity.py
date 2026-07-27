@@ -492,7 +492,7 @@ def main() -> Tuple[Optional[str], Optional[str], bool]:
     out_path = write_flat_manifest(
         manifest,
         out_dir,
-        dry_run=False,
+        dry_run=bool(args.dry_run),
         config=manifest["config"],
         seeds=seeds,
         script_path=Path(__file__),

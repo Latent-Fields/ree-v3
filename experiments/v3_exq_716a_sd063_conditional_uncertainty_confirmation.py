@@ -746,12 +746,12 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
     return manifest
 
 
-def _write_manifest(manifest: Dict[str, Any]) -> Path:
+def _write_manifest(manifest: Dict[str, Any], *, dry_run: bool = False) -> Path:
     evidence_dir = REPO_ROOT.parent / "REE_assembly" / "evidence" / "experiments"
     out_path = write_flat_manifest(
         manifest,
         evidence_dir,
-        dry_run=False,
+        dry_run=dry_run,
         config=manifest.get("config"),
         seeds=SEEDS,
         script_path=Path(__file__),
@@ -765,7 +765,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     manifest = run_experiment(dry_run=args.dry_run)
-    out_path = _write_manifest(manifest)
+    out_path = _write_manifest(manifest, dry_run=bool(args.dry_run))
 
     print(f"outcome: {manifest['outcome']}", flush=True)
     print(f"label: {manifest['interpretation']['label']}", flush=True)

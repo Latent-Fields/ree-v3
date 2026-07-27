@@ -757,7 +757,7 @@ def run_experiment(steps: int, conv_eps: int, meas_cycles: int,
     }
 
 
-def write_manifest(result: Dict[str, Any]) -> str:
+def write_manifest(result: Dict[str, Any], *, dry_run: bool = False) -> str:
     ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
     run_id = f"{EXPERIMENT_TYPE}_{ts}_v3"
     out_dir = (Path(__file__).resolve().parents[2]
@@ -792,7 +792,7 @@ def write_manifest(result: Dict[str, Any]) -> str:
     out_path = write_flat_manifest(
         manifest,
         out_dir,
-        dry_run=False,
+        dry_run=dry_run,
         config=manifest.get("config"),
         seeds=SEEDS,
         script_path=Path(__file__),
@@ -818,7 +818,7 @@ def main() -> None:
         seeds = SEEDS
 
     result = run_experiment(steps, conv_eps, meas_cycles, seeds)
-    out_path = write_manifest(result)
+    out_path = write_manifest(result, dry_run=bool(args.dry_run))
     print(f"outcome: {result['outcome']}", flush=True)
     print(f"label: {result['interpretation']['label']}", flush=True)
     print(f"readiness_frac={result['readiness_frac']:.2f} "

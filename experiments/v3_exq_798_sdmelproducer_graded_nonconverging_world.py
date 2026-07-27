@@ -1025,7 +1025,7 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
 
     out_dir = Path(__file__).resolve().parents[2] / "REE_assembly" / "evidence" / "experiments"
     out_path = write_flat_manifest(
-        manifest, out_dir, dry_run=False, config=manifest.get("config"),
+        manifest, out_dir, dry_run=dry_run, config=manifest.get("config"),
         seeds=seeds, script_path=Path(__file__),
         z_goal_stream_stats=_ZG.stats(),
     )
