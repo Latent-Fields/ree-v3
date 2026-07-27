@@ -41,7 +41,7 @@ PROTOCOL_MODULE = "experiment_protocol"
 CHECK_NAMES = ("conformance", "readiness", "arm_fingerprint", "degeneracy", "manifest_writer",
                "anchor_reachability", "precondition_recomputability",
                "e3_diagnostics_staleness", "e3_hold_weighted_readout",
-               "action_object_selection")
+               "action_object_selection", "spearman_guard_shape")
 
 # Readiness-gate static lint (proposal_trivial_prediction_readiness_gate_2026-06-06).
 # A diagnostic/baseline script whose interpretation grid self-routes to one of
@@ -2294,6 +2294,272 @@ def action_object_selection_lint(path: Path) -> Optional[str]:
     )
 
 
+# ---- Spearman guard-on-rank-variance shape (SD-081) ---------------------------------
+# The copy-paste defect the canonical helper experiments/_lib/stats.spearman closes:
+# 18 scripts each carried a `_spearman*` copy that computed ORDINAL ranks and then
+# guarded degeneracy on the variance of the RANK vector instead of the INPUT vector:
+#
+#     ra = np.argsort(np.argsort(a))          # ordinal ranks, ties NOT averaged
+#     if np.std(ra) == 0.0: return None       # NEVER True on a constant input
+#
+# Double-argsort of a constant input returns a permutation of 0..K-1 whose std is large
+# (9.23 at K=32), not 0 -- so a constant vector sails past the guard and Spearman is
+# computed against an arbitrary stable-sort tie-break ordering (deterministic noise;
+# confirmed magnitudes up to |0.74| on genuinely constant vectors). Full autopsy:
+# REE_assembly/evidence/planning/failure_autopsy_sd081-spearman-degenerate-dv_2026-07-27.
+#
+# The 18 defective copies were migrated to import the canonical helper, and the canonical
+# helper is pinned by tests/contracts/test_spearman_input_guard.py -- that closes the
+# copies that EXISTED. This lint closes the SHAPE going forward: it flags a NEW hand-rolled
+# ordinal-rank correlation whose degeneracy guard is on the ranks rather than the input,
+# i.e. a "19th copy". The discriminator against the 16 already-safe average-rank helpers in
+# the corpus is that they AVERAGE-RANK ties (a constant input -> all-equal ranks -> genuine
+# 0 rank-variance), which fixes the same class of bug structurally.
+_SPEARMAN_GUARD_SHAPE_EXEMPT_MARKER = "SPEARMAN_GUARD_SHAPE_EXEMPT"
+_SPEARMAN_MEAN_CALLS = ("mean", "nanmean", "fmean", "average", "median")
+
+
+def _sp_is_argsort_call(node: ast.AST) -> bool:
+    if not isinstance(node, ast.Call):
+        return False
+    fn = node.func
+    return ((isinstance(fn, ast.Attribute) and fn.attr == "argsort")
+            or (isinstance(fn, ast.Name) and fn.id == "argsort"))
+
+
+def _sp_has_double_argsort(scope: ast.AST) -> bool:
+    """`np.argsort(np.argsort(...))` or `x.argsort().argsort()` -- ordinal ranking.
+
+    Double-argsort produces ordinal ranks (0..K-1, ties broken by stable sort) and NEVER
+    averages ties -- no safe helper in the corpus uses it, so within a rank-correlation
+    context its presence is the defective signature.
+    """
+    for node in ast.walk(scope):
+        if not _sp_is_argsort_call(node):
+            continue
+        for a in node.args:                       # np.argsort(np.argsort(x))
+            if _sp_is_argsort_call(a):
+                return True
+        fn = node.func                            # x.argsort().argsort()
+        if isinstance(fn, ast.Attribute) and _sp_is_argsort_call(fn.value):
+            return True
+    return False
+
+
+def _sp_has_sorted_range_key(scope: ast.AST) -> bool:
+    """`sorted(range(...), key=...)` -- the ordinal index-sort idiom.
+
+    NOTE this is used by the SAFE average-rank helpers too (to get the sort ORDER, which
+    they then average-rank). So it is only a defective signal in combination with the
+    NOT-averaging discriminator below; on its own it is not.
+    """
+    for node in ast.walk(scope):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                and node.func.id == "sorted"):
+            continue
+        has_range = any(isinstance(a, ast.Call) and isinstance(a.func, ast.Name)
+                        and a.func.id == "range" for a in node.args)
+        has_key = any(kw.arg == "key" for kw in node.keywords)
+        if has_range and has_key:
+            return True
+    return False
+
+
+def _sp_averages_ties(scope: ast.AST) -> bool:
+    """The tie-averaging idiom -- present in EVERY safe average-rank helper, absent in the
+    ordinal defective ones. Two independent signals, either suffices:
+
+      (1) an adjacent-tie equality check `v[order[j+1]] == v[order[i]]` -- an ast.Compare
+          with Eq where at least one operand is a Subscript, and
+      (2) a mean/median call (the averaged midrank), np.mean(...) / statistics.fmean.
+
+    The defective shapes have neither: double-argsort assigns ordinal ranks directly, and
+    the `sorted(range,key=)` ordinal copy assigns `ranks[idx] = rank_val + 1` via
+    enumerate with no tie run. (A `np.std(ra) == 0.0` guard is an Eq whose operands are a
+    Call and a Constant, not a Subscript -- so it does not trip signal (1).)
+    """
+    for node in ast.walk(scope):
+        if isinstance(node, ast.Compare) and any(isinstance(op, ast.Eq) for op in node.ops):
+            if any(isinstance(o, ast.Subscript) for o in [node.left] + list(node.comparators)):
+                return True
+        if isinstance(node, ast.Call):
+            fn = node.func
+            nm = (fn.attr if isinstance(fn, ast.Attribute)
+                  else fn.id if isinstance(fn, ast.Name) else None)
+            if nm in _SPEARMAN_MEAN_CALLS:
+                return True
+    return False
+
+
+def _sp_guards_input(scope: ast.AST, params: set) -> bool:
+    """Does the scope guard the INPUT vector's degeneracy (the correct fix)?
+
+    Recognised: a `len(set(...))` distinct-value count (the canonical helper's exact input
+    guard), OR an `np.std(P)` / `P.std()` degeneracy compare whose subject references an
+    input PARAMETER P (as opposed to a locally-built rank vector). A helper that already
+    guards its input has closed the SD-081 defect and must not fire -- this is the
+    "rather than the INPUT vector" clause.
+    """
+    for node in ast.walk(scope):
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                and node.func.id == "len"
+                and any(isinstance(a, ast.Call) and isinstance(a.func, ast.Name)
+                        and a.func.id == "set" for a in node.args)):
+            return True
+    for node in ast.walk(scope):
+        subj = _sp_std_call_subject(node)
+        if subj is None:
+            continue
+        if {n.id for n in ast.walk(subj) if isinstance(n, ast.Name)} & params:
+            return True
+    return False
+
+
+def _sp_computes_rank_correlation(scope: ast.AST) -> bool:
+    """The scope actually forms a rank correlation -- scopes OUT `sorted(range())` used
+    merely for top-k / ordering. Signalled by a corrcoef/pearsonr call, or a manual
+    Pearson denominator (a sqrt / `** 0.5` of a sum-of-squares)."""
+    for node in ast.walk(scope):
+        if isinstance(node, ast.Call):
+            fn = node.func
+            nm = (fn.attr if isinstance(fn, ast.Attribute)
+                  else fn.id if isinstance(fn, ast.Name) else None)
+            if nm in ("corrcoef", "sqrt", "pearsonr"):
+                return True
+        if (isinstance(node, ast.BinOp) and isinstance(node.op, ast.Pow)
+                and isinstance(node.right, ast.Constant) and node.right.value == 0.5):
+            return True
+    return False
+
+
+def _sp_std_call_subject(node: ast.AST) -> Optional[ast.expr]:
+    """If `node` is a `std(...)` call (np.std(X) or X.std()), return its subject X."""
+    if not isinstance(node, ast.Call):
+        return None
+    fn = node.func
+    if isinstance(fn, ast.Attribute) and fn.attr == "std":
+        return fn.value                                   # X.std()
+    if isinstance(fn, ast.Name) and fn.id == "std":
+        return node.args[0] if node.args else None        # std(X) / np.std(X)
+    return None
+
+
+def _sp_rank_degeneracy_guard(scope: ast.AST, params: set) -> bool:
+    """The DEFECTIVE guard: a Compare against a small numeric (`< 1e-N`, `<= 0`, `== 0`)
+    whose subject is a std-of-RANKS or a denominator/variance name -- NOT an input
+    parameter. The subject is searched inside the operand subtree so a numeric-cast
+    wrapper (`float(np.std(ra)) == 0.0`) does not hide it.
+    """
+    for node in ast.walk(scope):
+        if not isinstance(node, ast.Compare):
+            continue
+        for op, comp in zip(node.ops, node.comparators):
+            if not isinstance(op, (ast.Lt, ast.LtE, ast.Eq)):
+                continue
+            if not (isinstance(comp, ast.Constant)
+                    and isinstance(comp.value, (int, float))
+                    and not isinstance(comp.value, bool)
+                    and abs(comp.value) < 1e-3):
+                continue
+            left = node.left
+            for sub in ast.walk(left):                    # (a) std(rank_vector) guard
+                subj = _sp_std_call_subject(sub)
+                if subj is None:
+                    continue
+                names = {n.id for n in ast.walk(subj) if isinstance(n, ast.Name)}
+                if not (names & params):
+                    return True
+            if isinstance(left, ast.Name):                # (b) denominator/variance name
+                nm = left.id.lower()
+                if (nm.startswith(("den", "dx", "dy", "vx", "vy", "sd_", "std"))
+                        or nm in ("d", "denom", "denominator")):
+                    return True
+    return False
+
+
+def spearman_guard_shape_lint(path: Path) -> Optional[str]:
+    """SD-081 guard-on-rank-variance shape check. Return a warning string, or None.
+
+    Fires on a function that (all of):
+      1. builds ORDINAL ranks -- `np.argsort(np.argsort(...))` or `sorted(range(...),
+         key=...)` (the two spellings the corpus used),
+      2. forms a rank CORRELATION from them (a corrcoef/pearsonr call, or a manual Pearson
+         `** 0.5`/sqrt denominator) -- this scopes out `sorted(range())` used for top-k,
+      3. does NOT average-rank ties (the discriminator against the 16 safe average-rank
+         helpers -- see `_sp_averages_ties`),
+      4. does NOT guard the INPUT vector's degeneracy (`len(set(x)) < 2` / `np.std(x)==0`
+         on a parameter -- the correct fix; a helper that already does this is safe), and
+      5. carries the DEFECTIVE degeneracy guard: a `.std()`/`np.std`/`den < 1e-N` test on
+         the RANK vector (`_sp_rank_degeneracy_guard`).
+
+    That is exactly the shape the SD-081 autopsy names: a constant input sails past a
+    rank-variance guard that can never fire, and Spearman is computed against an arbitrary
+    stable-sort tie-break ordering (phantom |rho| up to 0.74). The fix is the canonical,
+    input-guarded, tie-averaging helper `from experiments._lib.stats import spearman`.
+
+    Evaluated PER FUNCTION-DEF (ast.walk recurses into nested rank helpers, so an outer
+    `_spearman` sees its inner `_rank`'s ordinal construct), which keeps unrelated
+    module-level equality checks from masking the shape.
+
+    WARN-ONLY in BOTH modes -- like the action-object / e3 / recomputability lints it never
+    hardens under --paths. It flags a SUSPECTED defective shape via a static name/AST scan
+    (same limitation class as the other lints: it can miss a helper split across modules or
+    assembled at runtime, and could in principle over-fire on a coincidental ordinal-sort +
+    denominator + no-averaging combination -- measured 0 such coincidences across the 1157
+    corpus scripts). Triage each fire: an ordinal rank correlation guarded on rank variance
+    is the defect; an average-rank helper or an input-guarded one is not.
+
+    Opt-out: SPEARMAN_GUARD_SHAPE_EXEMPT = "<reason>".
+    """
+    if "experiments/_lib/" in str(path).replace("\\", "/"):
+        return None  # the canonical helper lives here; excluded by contract
+    try:
+        src = path.read_text(encoding="utf-8")
+        tree = ast.parse(src, filename=str(path))
+    except (OSError, UnicodeDecodeError, SyntaxError):
+        return None  # check_script already reports unreadable / syntax errors
+    if _SPEARMAN_GUARD_SHAPE_EXEMPT_MARKER in src:
+        return None
+
+    hits: List[str] = []
+    for fn in ast.walk(tree):
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        params = ({a.arg for a in fn.args.args}
+                  | {a.arg for a in fn.args.posonlyargs}
+                  | {a.arg for a in fn.args.kwonlyargs})
+        if not (_sp_has_double_argsort(fn) or _sp_has_sorted_range_key(fn)):
+            continue
+        if not _sp_computes_rank_correlation(fn):
+            continue
+        if _sp_averages_ties(fn):
+            continue  # SAFE: average-ranked ties (constant input -> equal ranks -> 0 var)
+        if _sp_guards_input(fn, params):
+            continue  # guards the input vector, not the ranks -- SD-081 defect closed
+        if not _sp_rank_degeneracy_guard(fn, params):
+            continue  # no rank-variance/denominator guard -- not the guard-on-rank shape
+        hits.append(fn.name)
+
+    if not hits:
+        return None
+    return ("hand-rolled Spearman/rank-correlation helper(s) "
+            + ", ".join(sorted(set(hits)))
+            + " compute ORDINAL ranks (np.argsort(np.argsort(...)) or "
+            "sorted(range(...), key=...)) and guard degeneracy on the variance/std of the "
+            "RANK vector rather than the INPUT vector -- the SD-081 defect. A constant "
+            "input sails past a rank-variance guard that can NEVER fire (double-argsort of "
+            "a constant returns a permutation of 0..K-1, std ~9.23 at K=32, not 0), so "
+            "Spearman is computed against an arbitrary stable-sort tie-break ordering -- "
+            "deterministic noise, |rho| confirmed up to 0.74 on genuinely constant "
+            "vectors. FIX: delete the local helper and use the canonical, input-guarded, "
+            "tie-averaging one: `from experiments._lib.stats import spearman` (returns None "
+            "on a degenerate input; map None to your degenerate sentinel explicitly). "
+            "Exempt with SPEARMAN_GUARD_SHAPE_EXEMPT = \"<reason>\". See "
+            "tests/contracts/test_spearman_input_guard.py + "
+            "REE_assembly/evidence/planning/"
+            "failure_autopsy_sd081-spearman-degenerate-dv_2026-07-27.md.")
+
+
 def _candidate_paths(paths: Sequence[str]) -> List[Path]:
     if paths:
         return [Path(p).resolve() for p in paths]
@@ -2355,6 +2621,7 @@ def main() -> int:
     e3_stale_warnings: List[Tuple[Path, str]] = []
     e3_hold_warnings: List[Tuple[Path, str]] = []
     ao_selection_warnings: List[Tuple[Path, str]] = []
+    spearman_warnings: List[Tuple[Path, str]] = []
     for p in paths:
         rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
         if "conformance" in selected:
@@ -2442,6 +2709,13 @@ def main() -> int:
                 # for why this one never hardens under --paths (it cannot
                 # distinguish selecting-on from reporting-on the collapse).
                 ao_selection_warnings.append((p, aos))
+        if "spearman_guard_shape" in selected:
+            sps = spearman_guard_shape_lint(p)
+            if sps:
+                # WARN-only in BOTH modes -- see spearman_guard_shape_lint() for why
+                # this one never hardens under --paths (static shape scan; flags a
+                # SUSPECTED defective helper, not a proven one).
+                spearman_warnings.append((p, sps))
 
     print("", flush=True)
     print(f"[validate_experiments] checked {len(paths)} scripts: "
@@ -2455,7 +2729,18 @@ def main() -> int:
           f"{len(recomput_warnings)} precondition-recomputability-warning(s), "
           f"{len(e3_stale_warnings)} stale-e3-diagnostics-warning(s), "
           f"{len(e3_hold_warnings)} hold-weighted-readout-warning(s), "
-          f"{len(ao_selection_warnings)} action-object-selection-warning(s)", flush=True)
+          f"{len(ao_selection_warnings)} action-object-selection-warning(s), "
+          f"{len(spearman_warnings)} spearman-guard-shape-warning(s)", flush=True)
+    if spearman_warnings:
+        # Advisory in BOTH modes (never hardens). A fire here means a hand-rolled rank
+        # correlation may emit a phantom |rho| on a constant input (the SD-081 defect):
+        # the fix is to import experiments/_lib/stats.spearman. Triage each -- an
+        # average-rank helper or an input-guarded one is safe and should not appear here.
+        print("", flush=True)
+        print("[validate_experiments] SPEARMAN-GUARD-SHAPE WARNINGS (advisory, non-blocking):", flush=True)
+        for p, warn in spearman_warnings:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
+            print(f"  - {rel}: {warn}", flush=True)
     if ao_selection_warnings:
         # Advisory in BOTH modes (never hardens). A fire here means the driver's
         # action stream may be INVARIANT under its own manipulation -- i.e. the
