@@ -71,6 +71,64 @@ OPTIONS STRUCTURE (lit-pull R4, conf 0.72)
     budgeted at 2-5 elements per level (Sakai 2003) -- see the growable-ceiling
     section below for why that is an initial budget and not a lifetime cap.
 
+THE CREDIT RULE: TRAILING-ONLY STARVES THE TALLY (V3-EXQ-810 readiness FAIL)
+    As first built, note_outcome credited ONLY the sub-sequences ENDING at the
+    current position -- actions[-size:] for each permitted size. That is cheap
+    (O(ceiling) per outcome) but it throws away most of the episode: with a
+    buffer of L symbols it tallies at most one key per size instead of L-size+1,
+    and the LEADING sub-sequences are never tallied at any size.
+
+    Measured cost, on the exact V3-EXQ-810 readiness cells (seeds 101/202/303,
+    ARM_FULL, reproduced bit-for-bit off the manifest at form_seed_frac 0.333):
+    the accumulator formed 7 chunks on seed 101 and ZERO on 202 and 303. The
+    load-bearing C1 criterion therefore failed, and C2 crystallisation with it.
+    Replaying the recorded action streams through the credit rule alone --
+    same feed, same gates, same thresholds -- roughly DOUBLES formation
+    (5->10, 8->10, 8->10 across three streams) and brings the first formation
+    forward (ep18->ep10, ep32->ep27). The sequences it adds are genuine
+    multi-action ones ((2,3), (3,1), (1,3,1)), not artefacts.
+
+    WHY THE ONCE-PER-OUTCOME DEDUP IS LOAD-BEARING, not a micro-optimisation.
+    A sub-sequence can occur SEVERAL TIMES inside one episode. Crediting it
+    once per occurrence would let a single trial advance the repetition tally
+    by 3 or 5 and push the observed variance toward 0 -- manufacturing exactly
+    the (repetitions >= R_min AND variance < F_low) conjunction the formation
+    gate exists to test. min_repetitions means repetition ACROSS TRIALS
+    (Graybiel 1998), so each distinct key takes at most one credit per outcome
+    report. Verified as a live hazard, not a theoretical one: crediting the raw
+    executed-action stream at every position without dedup mints 52-86 "chunks"
+    that are overwhelmingly held-action runs -- (1,1,1,1,1), (2,2,2,2,2), with
+    variance identically 0.0000 -- i.e. one held action re-counted at five
+    lengths. A readiness criterion would PASS on those for an entirely spurious
+    reason. Do not "simplify" the dedup away.
+
+    TRACTABILITY IS PRESERVED. The enumeration is O(L * ceiling), not
+    combinatorial, and L is itself bounded: record_step caps the buffer at
+    max(effective_max_chunk_size * 4, 32). So the per-outcome cost has a fixed
+    ceiling regardless of episode length, and max_tracked_sequences still caps
+    the table. This matters because the original trailing-only rule was
+    justified BY tractability, and that justification is not being discarded --
+    it is being met at a bound that is still constant.
+
+    _was_executed MOVES WITH THE CREDIT RULE, under the same flag. It decides
+    whether a chunk was executed this trial and so feeds crystallisation, and
+    as built it asked whether the chunk ENDS the buffer. Left trailing-only
+    while crediting moved to all-position, chunks formed from non-trailing
+    positions could never be corroborated, so they would form and then never
+    crystallise -- converting a C1 failure into a C2 one. The two rules are one
+    decision and are flagged as one.
+
+    WHAT THIS DOES NOT FIX, stated because it bounds the claim. The buffer is
+    fed one symbol per E3 tick (record_step is reached only on the deliberation
+    path; the non-E3 hold path returns earlier in select_action), and E3 ticks
+    every e3_steps_per_tick = 10 env steps. At the readiness experiment's
+    24-step episodes that is THREE symbols per episode, so sizes 4 and 5 remain
+    structurally unreachable whatever the credit rule -- note_outcome breaks out
+    at len(actions) < size. max_chunk_size=5, the growable ceiling above and the
+    growable depth below are all therefore inert at that episode length. That is
+    an experiment-configuration bound, not a substrate one, and it is why the
+    810a successor must run longer episodes rather than only flipping this flag.
+
 CHUNK SIZE IS A GROWABLE CEILING, NOT A CONSTANT (lit-pull 2026-07-27)
     Ramkumar, Acuna, Berniker, Grafton, Turner & Kording 2016 (Nat Commun,
     10.1038/ncomms12176) shows chunking is the OUTPUT of an efficiency/
@@ -529,6 +587,14 @@ class PolicyChunkingConfig:
             use_growable_chunk_ceiling this is the STARTING value of a
             growable ceiling rather than a lifetime cap -- see the
             module docstring's growable-ceiling section.
+        use_chunk_all_position_credit : MECH-323 sub-switch on the CREDIT
+            RULE. False (default) = only the sub-sequences ENDING at the
+            current position are credited, the as-first-built behaviour,
+            bit-identical. True = every contiguous sub-sequence of permitted
+            length anywhere in the episode buffer is credited, each DISTINCT
+            key at most once per outcome. See the module docstring's
+            credit-rule section for why the once-per-outcome dedup is not
+            optional.
         use_growable_chunk_ceiling : MECH-323 sub-switch. False (default) =
             max_chunk_size is a hard lifetime cap, the as-first-built
             behaviour, bit-identical. True = the effective ceiling starts at
@@ -635,6 +701,7 @@ class PolicyChunkingConfig:
     evaluative_margin: float = 0.05
     min_chunk_size: int = 2
     max_chunk_size: int = 5
+    use_chunk_all_position_credit: bool = False
     use_growable_chunk_ceiling: bool = False
     chunk_deliberation_horizon: int = 10
     chunk_ceiling_budget_fraction: float = 0.1667
@@ -922,6 +989,11 @@ class ChunkAccumulator:
 
         self._n_steps_recorded: int = 0
         self._n_outcomes: int = 0
+        # Credit-rule readout: how many (key, outcome) credits were issued.
+        # With the all-position flag off this is bounded by one per size per
+        # outcome, so an OFF arm is identifiable in a manifest by
+        # n_credit_events <= n_outcomes * (max_chunk_size - min_chunk_size + 1).
+        self._n_credit_events: int = 0
         self._n_chunks_formed: int = 0
         self._n_replay_chunks_formed: int = 0
         self._n_simulation_skips: int = 0
@@ -1002,21 +1074,35 @@ class ChunkAccumulator:
             del self._outcome_history[: -c.window_trials]
 
         actions = self._episode_actions
+        # Each DISTINCT key takes at most ONE credit per outcome report:
+        # min_repetitions counts repetition ACROSS trials, never within one.
+        # Inert when the flag is off (one key per size, and the sizes differ),
+        # which is what keeps the OFF path bit-identical.
+        credited_this_outcome: set = set()
         for size in range(c.min_chunk_size, self.effective_max_chunk_size + 1):
             if len(actions) < size:
                 break
-            key = tuple(actions[-size:])
-            bucket = self._tally.get(key)
-            if bucket is None:
-                if len(self._tally) >= c.max_tracked_sequences:
-                    # FIFO-evict the oldest tracked sequence; bounds the table.
-                    oldest = next(iter(self._tally))
-                    del self._tally[oldest]
-                bucket = []
-                self._tally[key] = bucket
-            bucket.append(outcome)
-            if len(bucket) > c.window_trials:
-                del bucket[: -c.window_trials]
+            if c.use_chunk_all_position_credit:
+                starts = range(len(actions) - size + 1)
+            else:
+                starts = (len(actions) - size,)
+            for start in starts:
+                key = tuple(actions[start : start + size])
+                if key in credited_this_outcome:
+                    continue
+                credited_this_outcome.add(key)
+                bucket = self._tally.get(key)
+                if bucket is None:
+                    if len(self._tally) >= c.max_tracked_sequences:
+                        # FIFO-evict the oldest tracked sequence; bounds the table.
+                        oldest = next(iter(self._tally))
+                        del self._tally[oldest]
+                    bucket = []
+                    self._tally[key] = bucket
+                bucket.append(outcome)
+                if len(bucket) > c.window_trials:
+                    del bucket[: -c.window_trials]
+                self._n_credit_events += 1
 
     def formation_candidates(self) -> List[Tuple[Tuple[int, ...], float, float]]:
         """Sub-sequences meeting the joint MECH-323 formation condition.
@@ -1254,6 +1340,7 @@ class ChunkAccumulator:
         self._trial_index = 0
         self._n_steps_recorded = 0
         self._n_outcomes = 0
+        self._n_credit_events = 0
         self._n_chunks_formed = 0
         self._n_replay_chunks_formed = 0
         self._n_simulation_skips = 0
@@ -1268,6 +1355,13 @@ class ChunkAccumulator:
         return {
             "chunk_acc_n_steps": self._n_steps_recorded,
             "chunk_acc_n_outcomes": self._n_outcomes,
+            # Credit-rule readout. Trailing-only caps this at one credit per
+            # size per outcome; all-position raises it, so the arms are
+            # distinguishable in a manifest without reading the config.
+            "chunk_acc_n_credit_events": self._n_credit_events,
+            "chunk_acc_all_position_credit": bool(
+                self.config.use_chunk_all_position_credit
+            ),
             "chunk_acc_n_tracked_sequences": len(self._tally),
             # The substrate-readiness readout: did the accumulator fire at all.
             "chunk_acc_n_formed": self._n_chunks_formed,
@@ -1862,10 +1956,25 @@ class PolicyChunking:
         return revived
 
     def _was_executed(self, chunk: ChunkedPrimitive) -> bool:
-        """True iff the chunk's sequence ends the current episode action buffer."""
+        """True iff the chunk's sequence was executed in the current episode.
+
+        Under use_chunk_all_position_credit this asks whether the sequence
+        occurs ANYWHERE in the episode buffer; otherwise (default) whether it
+        ENDS the buffer, which is the as-first-built behaviour and bit-identical.
+
+        The two rules are deliberately tied to ONE flag. This predicate feeds
+        crystallisation, so leaving it trailing-only while crediting moved to
+        all-position would let a chunk formed at a non-trailing position form
+        and then never be corroborated -- turning a C1 formation failure into a
+        C2 crystallisation failure rather than fixing anything.
+        """
         actions = self.accumulator._episode_actions
         n = len(chunk.sequence)
-        return len(actions) >= n and tuple(actions[-n:]) == chunk.key
+        if len(actions) < n:
+            return False
+        if self.config.use_chunk_all_position_credit:
+            return _contains_subsequence(tuple(actions), chunk.key)
+        return tuple(actions[-n:]) == chunk.key
 
     def _depth_for(self, sequence: Sequence[int]) -> int:
         """Recursion depth of a candidate: 1 + the deepest chunk it contains.

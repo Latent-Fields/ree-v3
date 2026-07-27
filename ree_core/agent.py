@@ -1299,6 +1299,9 @@ class REEAgent(nn.Module):
                     evaluative_margin=getattr(config, "chunk_evaluative_margin", 0.05),
                     min_chunk_size=getattr(config, "chunk_min_size", 2),
                     max_chunk_size=getattr(config, "chunk_max_size", 5),
+                    use_chunk_all_position_credit=getattr(
+                        config, "use_chunk_all_position_credit", False
+                    ),
                     use_growable_chunk_ceiling=getattr(
                         config, "use_growable_chunk_ceiling", False
                     ),

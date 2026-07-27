@@ -16,6 +16,8 @@ C9  proposal injection is off by default and additive when on
 C10 MECH-324 dissolution is suppression-with-retention (Barnes 2005 / Bouton 2012)
 C11 MECH-323 chunk SIZE is a growable ceiling derived from the deliberation budget
 C12 ARC-071 chunk DEPTH is likewise derived, and bounded by the size ceiling
+C13 MECH-323 credit rule: all-position crediting, and the two guards that stop
+    it becoming a spurious PASS (per-outcome dedup, coupled corroboration)
 """
 
 import pytest
@@ -1053,3 +1055,133 @@ def test_c12_from_dims_forwards_every_depth_knob():
     assert pcfg.chunk_depth_returns_threshold == 0.2
     assert pcfg.chunk_depth_hard_max == 9
     assert pcfg.derived_chunk_max_depth == 9  # floor(40 * 0.25), under hard_max
+
+
+# ----------------------------------------------------------------------
+# C13 -- MECH-323 credit rule (V3-EXQ-810 readiness FAIL)
+#
+# The as-built rule credited ONLY sub-sequences ENDING at the current
+# position, which starved the tally: on the exact 810 readiness cells the
+# accumulator formed 7 chunks on seed 101 and ZERO on 202/303. These pin the
+# flagged all-position rule AND the two properties that stop it becoming a
+# spurious pass.
+# ----------------------------------------------------------------------
+def _trailing_only_reference(seqs, sizes=range(2, 6)):
+    """What the pre-change rule tallies. The OFF path must equal this exactly."""
+    ref = {}
+    for i, s in enumerate(seqs):
+        outcome = 1.0 if i % 2 == 0 else 0.0
+        for size in sizes:
+            if len(s) < size:
+                break
+            ref.setdefault(tuple(s[-size:]), []).append(outcome)
+    return ref
+
+
+def _drive_seqs(pc, seqs):
+    for i, s in enumerate(seqs):
+        for a in s:
+            pc.record_step(a)
+        pc.note_outcome(1.0 if i % 2 == 0 else 0.0)
+        pc.end_episode()
+
+
+def test_c13_credit_rule_defaults_off_and_round_trips_to_the_operator():
+    """FOUR wiring sites. from_dims swallows unknown kwargs silently."""
+    cfg = REEConfig.from_dims(body_obs_dim=8, world_obs_dim=16, action_dim=4)
+    assert cfg.use_chunk_all_position_credit is False
+    assert PolicyChunkingConfig().use_chunk_all_position_credit is False
+
+    on = REEConfig.from_dims(
+        body_obs_dim=8, world_obs_dim=16, action_dim=4,
+        use_policy_chunking=True, use_chunk_all_position_credit=True)
+    assert on.use_chunk_all_position_credit is True
+    assert REEAgent(on).policy_chunking.config.use_chunk_all_position_credit is True
+
+
+def test_c13_off_path_is_bit_identical_to_trailing_only():
+    """The OFF path must reproduce the pre-change tally EXACTLY, not merely
+    'behave similarly' -- this is what makes the flag safe to land."""
+    seqs = [(0, 1, 2, 3) if i % 2 == 0 else (3, 0, 3, 0) for i in range(60)]
+    pc = PolicyChunking(_cfg(min_repetitions=5, window_trials=60,
+                             use_chunk_all_position_credit=False))
+    _drive_seqs(pc, seqs)
+    assert {k: list(v) for k, v in pc.accumulator._tally.items()} == \
+        _trailing_only_reference(seqs)
+
+
+def test_c13_on_credits_non_trailing_subsequences():
+    """The starvation being fixed: a LEADING pair is never tallied when off."""
+    seqs = [(0, 1, 2, 3)] * 10
+    off = PolicyChunking(_cfg(min_repetitions=5, use_chunk_all_position_credit=False))
+    _drive_seqs(off, seqs)
+    on = PolicyChunking(_cfg(min_repetitions=5, use_chunk_all_position_credit=True))
+    _drive_seqs(on, seqs)
+    assert (0, 1) not in off.accumulator._tally
+    assert (0, 1) in on.accumulator._tally
+    assert len(on.accumulator._tally) > len(off.accumulator._tally)
+
+
+def test_c13_a_key_takes_at_most_one_credit_per_outcome():
+    """min_repetitions counts repetition ACROSS trials, never within one.
+
+    Without this a single 5-long held run would advance the tally by 4 and
+    drive variance to 0 -- manufacturing the (reps >= R_min AND var < F_low)
+    conjunction the formation gate exists to test.
+    """
+    pc = PolicyChunking(_cfg(min_repetitions=5, use_chunk_all_position_credit=True))
+    for a in (1, 1, 1, 1, 1):
+        pc.record_step(a)
+    pc.note_outcome(1.0)
+    assert len(pc.accumulator._tally[(1, 1)]) == 1
+    assert len(pc.accumulator._tally[(1, 1, 1)]) == 1
+    assert pc.get_state()["chunk_acc_n_formed"] == 0
+
+
+def test_c13_a_single_held_run_cannot_form_a_chunk():
+    """The spurious-PASS guard, stated at the level a readiness criterion reads.
+
+    Crediting a held-action stream at every position WITHOUT the per-outcome
+    dedup mints run-chunks ((1,1,1,1,1), variance identically 0) that would
+    satisfy C1 for an entirely spurious reason.
+    """
+    pc = PolicyChunking(_cfg(min_repetitions=5, window_trials=60,
+                             use_chunk_all_position_credit=True))
+    for _ in range(3):
+        for a in (1, 1, 1, 1, 1):
+            pc.record_step(a)
+        pc.note_outcome(1.0)
+        pc.end_episode()
+    # 3 trials of a 5-run: 3 credits per key, still short of R_min = 5.
+    assert len(pc.accumulator._tally[(1, 1)]) == 3
+    assert pc.get_state()["chunk_acc_n_formed"] == 0
+
+
+def test_c13_was_executed_moves_with_the_credit_rule():
+    """Coupled by design: if corroboration stayed trailing-only, chunks formed
+    at non-trailing positions would form and then never crystallise -- a C1
+    failure converted into a C2 one."""
+    chunk = ChunkedPrimitive(sequence=(0, 1), initiation_set=(), depth=1)
+    off = PolicyChunking(_cfg(use_chunk_all_position_credit=False))
+    on = PolicyChunking(_cfg(use_chunk_all_position_credit=True))
+    for pc in (off, on):
+        for a in (0, 1, 2, 3):
+            pc.record_step(a)
+    assert off._was_executed(chunk) is False   # (0,1) does not END the buffer
+    assert on._was_executed(chunk) is True     # but it IS in the buffer
+    # the trailing sequence is corroborated under BOTH rules
+    trailing = ChunkedPrimitive(sequence=(2, 3), initiation_set=(), depth=1)
+    assert off._was_executed(trailing) is True
+    assert on._was_executed(trailing) is True
+
+
+def test_c13_uniform_outcomes_still_form_nothing_under_the_new_rule():
+    """C6's relativity contract must survive the credit-rule change."""
+    pc = PolicyChunking(_cfg(min_repetitions=5, window_trials=60,
+                             use_chunk_all_position_credit=True))
+    for _ in range(60):
+        for a in (0, 1, 2, 3):
+            pc.record_step(a)
+        pc.note_outcome(1.0)
+        pc.end_episode()
+    assert pc.get_state()["chunk_acc_n_formed"] == 0

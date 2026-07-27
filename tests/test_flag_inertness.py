@@ -543,6 +543,14 @@ PROBED = {
     # refuses. Not probed here for the same reason as the size ceiling -- the
     # driver needs a nested suffix chain in which each further level pays.
     "use_growable_chunk_depth",
+    # MECH-323 credit rule (V3-EXQ-810 readiness FAIL). Probed by the same
+    # file's C13 block: OFF is asserted bit-identical against a hand-recomputed
+    # trailing-only tally, ON is pinned to credit non-trailing sub-sequences,
+    # to dedup a key to one credit per outcome, and to move _was_executed with
+    # it. Not probed here because the OFF-vs-ON difference is a TALLY-SHAPE
+    # difference over a multi-step episode buffer, which the single-step tiny
+    # fixture in this file cannot produce.
+    "use_chunk_all_position_credit",
     "use_chunk_replay_origin_path",
     "use_chunk_proposal_injection",
     # ARC-070 decomposition (MECH-321). Probed by

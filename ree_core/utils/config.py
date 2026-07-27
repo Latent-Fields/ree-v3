@@ -3656,6 +3656,11 @@ class REEConfig:
     # HippocampalConfig.horizon (the real deliberation budget); >= 1 = explicit
     # experimental override, honoured verbatim. Resolved by
     # ree_core/agent.py:_resolve_chunk_deliberation_horizon.
+    # MECH-323 credit rule. False = only sub-sequences ENDING at the current
+    # position are credited (as-first-built, bit-identical); True = every
+    # contiguous sub-sequence in the episode buffer, each distinct key at most
+    # once per outcome. See policy_chunking.py's credit-rule docstring section.
+    use_chunk_all_position_credit: bool = False
     use_growable_chunk_ceiling: bool = False
     chunk_deliberation_horizon: int = 0
     chunk_ceiling_budget_fraction: float = 0.1667
@@ -5585,6 +5590,7 @@ class REEConfig:
         chunk_evaluative_margin: float = 0.05,
         chunk_min_size: int = 2,
         chunk_max_size: int = 5,
+        use_chunk_all_position_credit: bool = False,
         use_growable_chunk_ceiling: bool = False,
         chunk_deliberation_horizon: int = 0,
         chunk_ceiling_budget_fraction: float = 0.1667,
@@ -6786,6 +6792,7 @@ class REEConfig:
         config.chunk_evaluative_margin = chunk_evaluative_margin
         config.chunk_min_size = chunk_min_size
         config.chunk_max_size = chunk_max_size
+        config.use_chunk_all_position_credit = use_chunk_all_position_credit
         config.use_growable_chunk_ceiling = use_growable_chunk_ceiling
         config.chunk_deliberation_horizon = chunk_deliberation_horizon
         config.chunk_ceiling_budget_fraction = chunk_ceiling_budget_fraction
