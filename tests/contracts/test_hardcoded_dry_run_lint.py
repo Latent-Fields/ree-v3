@@ -41,9 +41,19 @@ an intraprocedural check still over-fires -- hence the call-graph fixpoint. Meas
 introduced this gate. A grep over-counts by ~4x, which is exactly why this is an AST
 gate and not a grep.
 
-SCOPE. This gates NEW scripts. The landed carriers' runs are complete and most are NOT
-retro-edited, hence WARN-only and hence the fire-rate pin is a BACKLOG SIZE, not a
-target of zero.
+SCOPE. This gates NEW scripts, and the gate stays WARN-only: a landed carrier's run is
+complete and its pre-registered emission is not rewritten to chase a lint.
+
+The fire-rate pin was introduced as a BACKLOG SIZE rather than a target of zero. As of
+2026-07-27 the backlog HAS been drawn to zero (see the drawdown note at the pin), so the
+number now happens to be 0 -- but its MEANING is unchanged. It is still a movement
+detector, not a conformance target: a rise means a new script carries the defect, and
+the correct response is to fix that script rather than re-pin. The gate deliberately
+remains advisory in both modes (asserted by test_hdr_is_warn_only_in_both_modes) --
+drawing the backlog down is not a licence to harden it, because the honest-literal
+population (~450 drivers that guard the writer, plus ~45 with no smoke path at all) is
+what makes an AST fixpoint necessary in the first place and a false positive there would
+block a commit for no reason.
 """
 import ast
 import os
@@ -375,7 +385,9 @@ def test_hdr_is_selectable_and_does_not_drag_in_other_checks():
 # RECONCILIATION with the raw grep that commissioned this gate. `grep -l write_flat_manifest
 # | grep -l dry_run=False` over experiments/v3_exq_*.py returned 617 BEFORE the repairs and
 # returned 594 at the commit that added this gate (the 23 repaired drivers no longer carry a
-# literal at all); the batch drawdown below takes it to 561.
+# literal at all); the batch drawdown below takes it to 465. That residue is the HONEST
+# population -- 45 drivers with no smoke path at all plus ~420 that guard the writer so a
+# smoke never reaches it. It is not a remaining backlog and must not be swept.
 # Splitting the 594 as it stood then: 45 have no smoke path whatsoever, so the literal is
 # HONEST -- do not invent a flag for them; 408 guard the writer so a smoke run never reaches
 # it, overwhelmingly `if dry_run: return` in the same function or in the CALLER; 141 fire. The ~4x
@@ -404,7 +416,23 @@ def test_hdr_is_selectable_and_does_not_drag_in_other_checks():
 #   batch 2 = 34 drivers, EXQ 517..597
 #   batch 3 = 34 drivers, EXQ 328..514
 #   batch 4 = 31 drivers, EXQ 115..327
-_PINNED_CORPUS_FIRE_COUNT = 8
+#   batch 5 =  8 drivers, the shape-C residue -- writer in a helper, so a real signature
+#              change rather than a substitution. 6 of them (610c/d/e/f, 655, 656) turned
+#              out to be a THIRD mechanical shape, `dry = "--dry-run" in sys.argv` at
+#              module level -> dry_run=dry. Only 635 and 650 needed a threaded parameter.
+#
+# ONE JUDGEMENT CALL worth recording, because it is the case this comment tells you to
+# watch for. V3-EXQ-635's caller already handled its dry-run output -- it os.remove()s the
+# manifest and prints "(dry-run manifest scrubbed)" -- which is the shape that normally
+# earns HARDCODED_DRY_RUN_EXEMPT. It was THREADED anyway, on two grounds: (1) the scrub
+# runs AFTER the write, so a kill between the two, or the OSError the caller silently
+# swallows, leaves a real-looking <run_id>.json sitting in the scoring set -- the prefix
+# prevents the file ever existing there, which the scrub cannot; (2) a scrub does nothing
+# for the second consequence, the suppressed [smoke] z_goal_stream: report. Verified by
+# smoking it: the manifest is now _dry_-prefixed AND the scrub still fires AND the z_goal
+# report prints. Exempt when threading would be WRONG, not merely when the author built
+# an alternative.
+_PINNED_CORPUS_FIRE_COUNT = 0
 
 
 def test_hdr_corpus_fire_rate_is_pinned():

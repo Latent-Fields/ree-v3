@@ -811,7 +811,7 @@ if __name__ == "__main__":
         manifest_path = write_flat_manifest(
             manifest,
             evidence_dir,
-            dry_run=False,
+            dry_run=dry,
             config=manifest.get("config"),
             seeds=SEEDS,
             script_path=Path(__file__),

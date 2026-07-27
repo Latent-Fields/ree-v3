@@ -418,7 +418,7 @@ def run_experiment(seed=42, warmup_eps=20, eval_eps=6, steps=200, dry_run=False)
     return manifest
 
 
-def _write(manifest) -> str:
+def _write(manifest, *, dry_run: bool = False) -> str:
     out_dir = os.path.join(_REE_V3_ROOT, "..", "REE_assembly", "evidence", "experiments")
     out_dir = os.path.abspath(out_dir)
     os.makedirs(out_dir, exist_ok=True)
@@ -427,7 +427,7 @@ def _write(manifest) -> str:
     path = write_flat_manifest(
         manifest,
         out_dir,
-        dry_run=False,
+        dry_run=dry_run,
         config=manifest.get("config"),
         seeds=None,
         script_path=Path(__file__),
@@ -441,11 +441,16 @@ if __name__ == "__main__":
     ap.add_argument("--seed", type=int, default=42)
     args = ap.parse_args()
     manifest = run_experiment(seed=args.seed, dry_run=args.dry_run)
-    out_path = _write(manifest)
+    out_path = _write(manifest, dry_run=bool(args.dry_run))
     print(f"outcome: {manifest['outcome']}")
     print(f"manifest: {out_path}")
     if args.dry_run:
-        # scrub the dry-run manifest so it never reaches the index
+        # belt-and-braces: the threaded dry_run above already makes this a _dry_-prefixed
+        # path that the indexer skips, so the scrub is now redundant rather than the only
+        # defence. Kept because it also removes the file outright, but note it can no
+        # longer be the thing standing between a smoke and the scoring set: it ran AFTER
+        # the write, so a kill (or the silently-swallowed OSError below) between the two
+        # used to leave a real-looking <run_id>.json behind.
         try:
             os.remove(out_path)
             print("(dry-run manifest scrubbed)")
