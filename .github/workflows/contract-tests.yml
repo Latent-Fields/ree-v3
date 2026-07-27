@@ -64,16 +64,26 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: Fresh checkout
+      # actions/checkout's `path` input refuses to resolve outside
+      # $GITHUB_WORKSPACE (a security guard -- `../REE_assembly` errors
+      # with "is not under ..."), so a true sibling of the default
+      # checkout dir isn't reachable directly. Instead nest BOTH repos as
+      # siblings inside the workspace ($GITHUB_WORKSPACE/ree-v3 and
+      # $GITHUB_WORKSPACE/REE_assembly) and run pytest with
+      # working-directory: ree-v3, so tests/contracts/test_arm_reuse.py's
+      # sibling-repo resolution (ree_v3_root.parent contains REE_assembly)
+      # sees the same shape it expects from a real REE_Working checkout.
+      - name: Checkout ree-v3
         uses: actions/checkout@v4
         with:
+          path: ree-v3
           fetch-depth: 1
 
-      - name: Checkout REE_assembly as a sibling (some contracts assume the REE_Working layout)
+      - name: Checkout REE_assembly as a sibling
         uses: actions/checkout@v4
         with:
           repository: Latent-Fields/REE_assembly
-          path: ../REE_assembly
+          path: REE_assembly
           fetch-depth: 1
 
       - name: Set up Python
@@ -82,11 +92,13 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies (canonical fleet build -- see requirements.txt)
+        working-directory: ree-v3
         run: |
           python3 -m pip install --upgrade pip
           pip install numpy pytest
           pip install "torch==2.12.0" --index-url https://download.pytorch.org/whl/cpu
 
       - name: Run contract test suite
+        working-directory: ree-v3
         run: |
           python3 -m pytest tests/ -q
