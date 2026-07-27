@@ -175,7 +175,12 @@ class LatentStackConfig:
     use_iterative_inference: bool = False
     # Maximum number of settling rounds when use_iterative_inference is True
     # (round 1 == the legacy top-down round; rounds 2..K are the extra settling
-    # iterations). 1 == legacy behaviour even when the master flag is on.
+    # iterations). Default 1 keeps the OFF path bit-identical to legacy.
+    # F-C4 (audit 2026-07-09): a value < 2 WITH use_iterative_inference=True is
+    # refused at LatentStack construction (ValueError) -- it would run
+    # range(settle_iters - 1) == range(0), i.e. zero settling rounds, so the flag
+    # would read as enabled in the manifest while the mechanism is inert and the
+    # experiment would return a false null. Set >= 2 to actually settle.
     inference_settle_iters: int = 1
     # Relative-delta early-stop tolerance: the loop stops once
     # ||z_shared_k - z_shared_{k-1}|| / (||z_shared_k|| + eps) < this value, and

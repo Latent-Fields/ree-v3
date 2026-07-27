@@ -27,6 +27,10 @@ Confirmed instances from that audit (see
   F-C4  `use_iterative_inference=True` with the default `inference_settle_iters=1`
         runs `range(settle_iters-1) == range(0)` -> inert, and emits a NaN
         `final_rel_delta` readout.
+        FIXED 2026-07-27: LatentStack.__init__ REFUSES settle_iters < 2 when the
+        flag is on (ValueError naming both knobs), and final_rel_delta is now the
+        last measured delta rather than a NaN placeholder. Probed by
+        test_fc4_iterative_inference_settles_and_refuses_the_inert_config.
   F-P6  `vs_rollout_gate.unknown_stream_passes` -- both branches are byte-identical.
 
 WHAT THIS FILE DOES
@@ -145,6 +149,77 @@ def test_fc3_dacc_saturation_is_fed_from_the_live_path():
         "DACC.record_outcome was never called during a live episode; "
         "dacc_saturation_enabled is inert (F-C3)"
     )
+
+
+def test_fc4_iterative_inference_settles_and_refuses_the_inert_config():
+    """F-C4: the settling loop must actually run, and the degenerate config raise.
+
+    Under the bug, `use_iterative_inference=True` with the default
+    `inference_settle_iters=1` ran `range(settle_iters - 1) == range(0)`: zero
+    settling rounds, latents bit-identical to OFF, and a NaN `final_rel_delta`
+    readout -- while the manifest recorded the flag as ENABLED. An experiment
+    enabling it to test ARC-004 measured nothing and returned a plausible null.
+
+    Two halves, matching the two halves of the fix:
+      * settle_iters < 2 with the flag ON refuses to build (loud, not inert),
+        following the FLAGS_WITH_LOUD_PRECONDITION precedent.
+      * settle_iters >= 2 produces a non-empty, non-NaN convergence readout.
+    """
+    from ree_core.agent import REEAgent
+    from tests.fixtures.seed_utils import set_all_seeds
+    from tests.fixtures.tiny_configs import make_tiny_config
+    from tests.fixtures.tiny_env import make_tiny_env
+
+    # -- half 1: the inert combination is refused, and names both knobs --------
+    set_all_seeds(0)
+    env = make_tiny_env(seed=0)
+    for iters in (0, 1):
+        with pytest.raises(ValueError) as excinfo:
+            REEAgent(
+                make_tiny_config(
+                    env,
+                    use_iterative_inference=True,
+                    inference_settle_iters=iters,
+                )
+            )
+        msg = str(excinfo.value)
+        assert "inference_settle_iters" in msg and "use_iterative_inference" in msg, (
+            f"settle_iters={iters} raised, but the message does not name the "
+            f"knobs an experimenter must change: {msg}"
+        )
+
+    # -- half 2: an admissible config actually settles -------------------------
+    set_all_seeds(0)
+    env = make_tiny_env(seed=0)
+    agent = REEAgent(
+        make_tiny_config(
+            env,
+            use_iterative_inference=True,
+            inference_settle_iters=6,
+            inference_convergence_rel_tol=1e-9,  # force the full budget
+        )
+    )
+    agent.reset()
+    _flat, od = env.reset()
+    b = od["body_state"]
+    w = od["world_state"]
+    if b.dim() == 1:
+        b = b.unsqueeze(0)
+    if w.dim() == 1:
+        w = w.unsqueeze(0)
+    with torch.no_grad():
+        latent = agent.sense(obs_body=b, obs_world=w)
+
+    ic = latent.inference_convergence
+    assert ic is not None, "flag ON produced no convergence readout"
+    assert ic["per_step_rel_delta"], (
+        "the settling loop ran zero rounds; use_iterative_inference is inert "
+        "(F-C4)"
+    )
+    assert ic["n_iters"] > 1, f"only {ic['n_iters']} inference round(s) ran"
+    frd = ic["final_rel_delta"]
+    assert frd == frd, "final_rel_delta is NaN (F-C4 readout half)"
+    assert frd == ic["per_step_rel_delta"][-1]
 
 
 def test_sd069_phasic_burst_fires_and_changes_the_action_stream():
@@ -591,7 +666,10 @@ KNOWN_INERT = {
     # F-C3 / section 6.
     # non-top-level, documented for completeness:
     # dacc_foraging_weight            F-C2 uniform scalar -> argmin-invariant
-    # latent.use_iterative_inference  F-C4 range(settle_iters-1) no-op + NaN readout
+    # F-C4 FIXED 2026-07-27: latent.use_iterative_inference no longer tolerates
+    # the inert settle_iters<2 combination (LatentStack.__init__ raises) and the
+    # NaN final_rel_delta placeholder is gone. Probed by test_fc4_* above; see
+    # design_implementation_audit_2026-07-09 F-C4.
     # vs_rollout_gate.unknown_stream_passes  F-P6 identical branches
 }
 

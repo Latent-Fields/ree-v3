@@ -1026,6 +1026,30 @@ class LatentStack(nn.Module):
         super().__init__()
         self.config = config or LatentStackConfig()
 
+        # F-C4 (design+implementation audit 2026-07-09): refuse to BUILD an
+        # incoherent iterative-inference config rather than run silently inert.
+        # `use_iterative_inference=True` with `inference_settle_iters <= 1` gives
+        # `range(settle_iters - 1) == range(0)` -- zero settling rounds -- so the
+        # encode() path is bit-identical to the legacy single-round amortized
+        # recognition while the manifest records the flag as ENABLED. An
+        # experiment enabling the flag to test ARC-004 would then measure nothing
+        # and return a plausible null that weights claim confidence as real
+        # evidence. Failing loudly at construction follows the same precedent as
+        # the FLAGS_WITH_LOUD_PRECONDITION set in tests/test_flag_inertness.py
+        # (a dropped precondition must raise, not degrade silently).
+        if getattr(self.config, "use_iterative_inference", False):
+            _settle_iters = int(getattr(self.config, "inference_settle_iters", 1))
+            if _settle_iters < 2:
+                raise ValueError(
+                    "use_iterative_inference=True requires inference_settle_iters "
+                    f">= 2, got {_settle_iters}. Round 1 IS the legacy top-down "
+                    "round, so settle_iters=1 runs zero settling iterations: the "
+                    "flag would read as enabled while the mechanism is inert "
+                    "(finding F-C4). Set inference_settle_iters >= 2 to settle, "
+                    "or use_iterative_inference=False for the legacy single-round "
+                    "amortized encode."
+                )
+
         hidden = 64  # internal hidden dim for encoders
 
         # SD-005: split bottom encoder (MECH-099: harm_dim enables lateral head;
@@ -1297,13 +1321,15 @@ class LatentStack(nn.Module):
         # whole block is skipped and inference_convergence stays None.
         inference_convergence: Optional[Dict[str, object]] = None
         if getattr(self.config, "use_iterative_inference", False):
-            settle_iters = max(1, int(getattr(self.config, "inference_settle_iters", 1)))
+            # F-C4: settle_iters >= 2 is enforced at LatentStack construction, so
+            # the loop below always runs at least one settling round and
+            # per_step_rel_delta is never empty (no NaN final_rel_delta).
+            settle_iters = max(2, int(getattr(self.config, "inference_settle_iters", 2)))
             rel_tol = float(getattr(self.config, "inference_convergence_rel_tol", 0.05))
             eps = 1e-8
             prev_shared = torch.cat([z_beta, z_theta, z_delta], dim=-1)
             per_step_rel_delta: List[float] = []
             n_iters = 1
-            final_rel = float("nan")
             converged = False
             # Rounds 2..settle_iters: repeat the round-1 top-down map.
             for _ in range(settle_iters - 1):
@@ -1322,17 +1348,27 @@ class LatentStack(nn.Module):
                 den = new_shared.norm(dim=-1) + eps
                 rel = float((num / den).mean().item())
                 per_step_rel_delta.append(rel)
-                final_rel = rel
                 n_iters += 1
                 prev_shared = new_shared
                 if rel < rel_tol:
                     converged = True
                     break
+            # F-C4: final_rel_delta is the LAST MEASURED relative delta, never a
+            # NaN placeholder. The construction-time guard makes the empty case
+            # unreachable; if it is ever reached the readout would be vacuous, so
+            # raise rather than emit a NaN that downstream readiness checks
+            # (EXP-0380 R2 asserts final_rel_delta < 0.05) would silently fail.
+            if not per_step_rel_delta:
+                raise RuntimeError(
+                    "iterative-inference settling produced no relative-delta "
+                    f"measurement (settle_iters={settle_iters}); the convergence "
+                    "readout would be vacuous (finding F-C4)"
+                )
             inference_convergence = {
                 "per_step_rel_delta": per_step_rel_delta,
                 "converged": bool(converged),
                 "n_iters": int(n_iters),
-                "final_rel_delta": float(final_rel),
+                "final_rel_delta": float(per_step_rel_delta[-1]),
             }
 
         # SD-007: Reafference correction — subtract expected perspective shift from z_world.

@@ -8,8 +8,9 @@ per-inference-step ||delta z_shared|| convergence signal. This suite pins:
   C1 default-OFF no-op + bit-identical action-relevant latent vs explicit-False.
   C2 flag-ON populates a well-formed inference_convergence readout.
   C3 the settling loop reduces the relative delta (genuine convergence).
-  C4 settle_iters=1 with the flag on is the degenerate single-round case and is
-     bit-identical to OFF for the latent values.
+  C4 settle_iters < 2 with the flag on is REFUSED at construction (finding F-C4:
+     it would run zero settling rounds -- inert while reading as enabled), and
+     final_rel_delta is always a measured value, never the NaN placeholder.
   C5 detach() preserves the readout.
 """
 
@@ -17,6 +18,8 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+
+import pytest
 
 import torch
 
@@ -118,21 +121,47 @@ def test_c3_settling_reduces_relative_delta():
 
 
 # ----------------------------------------------------------------------
-# C4 settle_iters=1 with flag ON is the degenerate single-round case
+# C4 settle_iters < 2 with the flag ON is REFUSED, not silently inert
 # ----------------------------------------------------------------------
-def test_c4_settle_iters_one_is_bit_identical_to_off():
-    _a_off, l_off = _build_and_sense()
-    _a_on, l_on = _build_and_sense(
-        use_iterative_inference=True, inference_settle_iters=1
-    )
-    # one round == the legacy top-down round -> latent values unchanged
-    assert torch.equal(l_off.z_world, l_on.z_world)
-    assert torch.equal(l_off.z_beta, l_on.z_beta)
-    ic = l_on.inference_convergence
-    assert ic is not None
-    assert ic["n_iters"] == 1
-    assert ic["per_step_rel_delta"] == []
-    assert ic["converged"] is False  # cannot assert convergence from one pass
+def test_c4_settle_iters_below_two_refuses_to_build():
+    """The degenerate single-round case must RAISE (finding F-C4).
+
+    Previously this combination was tolerated: `range(settle_iters - 1)` ran
+    zero settling rounds, so the encode path was bit-identical to OFF while the
+    manifest recorded use_iterative_inference=True. An experiment enabling the
+    flag to test ARC-004 measured nothing and returned a plausible null. That is
+    exactly the false-null failure mode test_flag_inertness.py exists to catch,
+    so the incoherent config is now refused at construction.
+    """
+    for iters in (0, 1):
+        with pytest.raises(ValueError) as excinfo:
+            _build_and_sense(
+                use_iterative_inference=True, inference_settle_iters=iters
+            )
+        msg = str(excinfo.value)
+        assert "inference_settle_iters" in msg
+        assert "use_iterative_inference" in msg
+
+
+def test_c4b_readout_final_rel_delta_is_never_nan():
+    """final_rel_delta must be a measured value, not the NaN placeholder.
+
+    The old initialiser was `final_rel = float("nan")`, left in place whenever
+    the settling loop body never ran. EXP-0380 R2 asserts final_rel_delta < 0.05,
+    which a NaN fails silently-and-confusingly rather than loudly.
+    """
+    for iters in (2, 8):
+        _agent, latent = _build_and_sense(
+            use_iterative_inference=True,
+            inference_settle_iters=iters,
+            inference_convergence_rel_tol=1e-9,  # force the full budget
+        )
+        ic = latent.inference_convergence
+        frd = ic["final_rel_delta"]
+        assert frd == frd, f"final_rel_delta is NaN at settle_iters={iters}"
+        assert frd >= 0.0
+        assert ic["per_step_rel_delta"], "no relative-delta measurement recorded"
+        assert frd == ic["per_step_rel_delta"][-1]
 
 
 # ----------------------------------------------------------------------
