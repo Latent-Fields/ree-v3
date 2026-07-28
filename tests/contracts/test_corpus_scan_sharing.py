@@ -237,8 +237,15 @@ def test_corpus_scan_is_transparent(corpus_scan):
     Deliberately a sample, not the whole corpus: re-running every lint over all
     ~1160 drivers is exactly the duplicated work this change removes, so a
     full-corpus differential would cost more than the optimisation saves. Full-corpus
-    coverage is retained by the exact-count pins themselves -- 150 / 63 / 12 / 0 / 0
-    -- which are asserted over every file and would move under any behavioural drift.
+    coverage is retained by the exact-count pins themselves -- one per lint in
+    `_PATH_LINTS`, each living in that lint's own test file -- which are asserted over
+    every file and would move under any behavioural drift. (Stated without the LITERAL
+    LIST for the same reason the zero-pin count below is: it read "150 / 63 / 12 / 0 / 0"
+    when there were five such lints and was never updated as the set grew to nine, so it
+    understated the coverage it was offered as evidence of. The two remaining spellings of
+    that list -- this file's module docstring and conftest's -- are left alone on purpose:
+    both are anchored to "the five lints" as records of the original sharing change, and
+    rewriting a measurement record to match today's set would falsify it.)
 
     ONE ASYMMETRY WORTH KNOWING, for the lints pinned at ZERO (deliberately stated
     without a COUNT -- an earlier version said "the two", which was stale as soon as
