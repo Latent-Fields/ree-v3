@@ -173,6 +173,58 @@ def build(arm: str):
                                        deliberately does NOT bundle it (its own
                                        docstring says so), so without this the
                                        writeback is a no-op and S3 never fires.
+
+    THE MECH-269 SUBSTRATE (added 2026-07-28) is the other half of that same
+    exclusion, and it is what moves S3 onto the real route. Phase E's
+    `offline_gradient_pass` builds `targets` from `source.get((domain, region))`
+    over `replayed_regions`, and `replayed_regions` is populated ONLY from
+    routed draws -- so it stays empty, and the writeback early-returns with
+    `mech273_writeback_regions = 0`, unless `replay_sampler.draw()` returns
+    non-None. `draw()` returns None whenever `AnchorSet.all_with_dual_trace()`
+    is empty, so the chain that has to be closed is:
+
+      use_anchor_sets=True        -> HippocampalModule builds an AnchorSet at
+                                     all (without it agent.py leaves
+                                     sleep_replay_sampler = None outright).
+      use_event_segmenter=True    -> the MECH-288 segmenter that emits the
+        + use_per_stream_vs=True     BoundaryEvents `tick_anchor_set` consumes,
+        + use_invalidation_trigger   and the per-stream V_s the anchors are
+                                     keyed against.
+      use_staleness_accumulator   -> the MECH-284 accumulator the sampler
+                                     freezes a snapshot of at SLEEP_ENTRY.
+
+    ANCHORS ARE SEEDED, NOT WAKING-DERIVED, and the distinction is worth being
+    explicit about. The natural route was tried first and MEASURED: over all
+    36 waking ticks of this probe the segmenter emitted ZERO BoundaryEvents,
+    so the anchor pool stayed empty and `draw()` returned None every time.
+    That is a property of the probe's deliberately tiny task, not a substrate
+    defect -- the policy collapses to a single repeated action within the
+    first episode (see the `actions` field), the z_world / z_self deltas then
+    decay monotonically, and a monotonically decreasing series never rises
+    0.65 sigma above its own trailing window mean, which is what the fast
+    scale's `pe_threshold` detector requires to fire.
+
+    So `_seed_anchors` writes the pool directly, exactly as V3-EXQ-574 (the
+    run that validated MECH-273 Phase E) does. This is upstream of every RNG
+    site under test: what has to be real for this probe to mean anything is
+    the SLEEP-SIDE route -- Phase B draw -> Phase C route -> Phase D
+    aggregate -> Phase E writeback -> S3 -- and all of that is now the
+    production `SleepLoopManager._run_cycle` path. Growing the waking task
+    until the segmenter fires would buy a more faithful anchor provenance at
+    the cost of a much slower probe whose coverage depends on a threshold
+    crossing that is not itself pinned; the coverage gate in main() would then
+    be the thing that silently regressed.
+
+    `mech285_draws_per_cycle` already defaults to 50 (> 0); it is passed
+    explicitly here because a silent default of 0 would re-open exactly the
+    same "path never fired" hole.
+
+    sleep_loop_episodes_K is set ABOVE the episode count on purpose. The probe
+    calls `force_cycle` explicitly at the end of each episode, and
+    `REEAgent.reset()` calls `notify_episode_end`, which at the default K=1
+    would fire a SECOND, implicit cycle per episode. Both arms would still be
+    internally consistent, but the draw counts would stop being readable as
+    "one cycle per episode".
     """
     # A typical experiment driver's `_run_seed`: torch + numpy only. The
     # process-global stdlib `random` is deliberately NOT seeded here -- that
@@ -200,12 +252,54 @@ def build(arm: str):
         # the transition net on a shape mismatch. Keep these aligned.
         harm_dim=32,
         use_e2_harm_s_forward=True,
+        use_affective_harm_stream=True,
         replay_diversity_enabled=True,
+        # MECH-269 anchor substrate -- see the docstring above. Without these
+        # the sleep cluster runs end-to-end and writes back NOTHING.
+        use_anchor_sets=True,
+        use_event_segmenter=True,
+        use_per_stream_vs=True,
+        use_invalidation_trigger=True,
+        use_staleness_accumulator=True,
+        mech285_draws_per_cycle=50,
+        sleep_loop_episodes_K=N_EPISODES + 1,
         stdlib_rng_seed=(BASE_SEED if arm == "pinned" else None),
     )
     cfg.enable_sleep_aggregation_cluster()
     agent = REEAgent(cfg)
     return env, cfg, agent
+
+
+N_ANCHORS = 4
+
+
+def _seed_anchors(agent, n: int = N_ANCHORS) -> None:
+    """Write `n` anchors into the MECH-269 pool so `draw()` can return one.
+
+    Must be called AFTER each `agent.reset()`: reset() -> reset_anchor_set()
+    empties the pool, and an empty pool is exactly the condition that makes
+    Phase E early-return.
+
+    The z_world payload is deterministic by construction (an arange ramp)
+    rather than `torch.randn` as in V3-EXQ-574. Both arms would consume the
+    torch stream identically either way, so randn would not bias the
+    comparison -- but a probe about reproducibility should not add an RNG
+    consumer it does not need, and a fixed ramp makes the seeding trivially
+    identical across processes rather than identical-because-seeded.
+    """
+    anchor_set = getattr(agent.hippocampal, "anchor_set", None)
+    if anchor_set is None:
+        raise RuntimeError(
+            "anchor_set is None -- use_anchor_sets did not take effect"
+        )
+    for i in range(n):
+        z = (torch.arange(32, dtype=torch.float32) + float(i)).unsqueeze(0) / 32.0
+        anchor_set.write_anchor(
+            scale="fast",
+            segment_id=str(i),
+            stream_mixture=(f"s{i}",),
+            z_world=z,
+        )
 
 
 def run(arm: str) -> Dict[str, Any]:
@@ -225,6 +319,7 @@ def run(arm: str) -> Dict[str, Any]:
 
     for _episode in range(N_EPISODES):
         agent.reset()
+        _seed_anchors(agent)
         _flat, obs = env.reset()
         for _ in range(N_STEPS):
             body = obs["body_state"]
@@ -250,21 +345,18 @@ def run(arm: str) -> Dict[str, Any]:
         sleep_metrics.append({k: _f(v) for k, v in sorted(metrics.items())})
 
     # ----------------------------------------------------------------- #
-    # S2 and S3 at their real call sites.                                #
+    # S2 at its real call site.                                          #
     #                                                                     #
-    # The episode loop above reaches S1 only. S2 needs an all-zero        #
-    # retrieval_bias, and S3's writeback early-returns with              #
-    # n_regions == 0 unless the aggregator holds posteriors for the       #
-    # replayed regions -- which needs the MECH-269 anchor-set substrate   #
-    # the sleep cluster deliberately does not bundle (measured on this    #
-    # config: mech273_writeback_regions = 0 every cycle). Rather than     #
-    # build that substrate, drive both sites directly with the agent's    #
-    # OWN seeded consumers and its REAL accumulated waking buffers, so    #
-    # all three sites land in the same digest.                            #
+    # S1 and S3 both now fire through the production route: S1 from       #
+    # `act_with_split_obs` -> `_do_replay` on e3_quiescent ticks, S3 from  #
+    # `force_cycle` -> Phase-E writeback (see build()'s docstring for the  #
+    # MECH-269 config that closes that second path). S2 is the residual   #
+    # direct call: `_sample_exploration_trajectory` needs an all-zero     #
+    # retrieval_bias, which the waking route does not produce on this     #
+    # config. It is still driven through the agent's OWN seeded consumer  #
+    # over its REAL accumulated exploration buffer, so it lands in the    #
+    # same digest as the other two.                                       #
     # ----------------------------------------------------------------- #
-    from ree_core.sleep.phase_manager import SleepPhase  # noqa: E402
-    from ree_core.sleep.routing_gate import RoutedEvent  # noqa: E402
-
     s2_picks: List[int] = []
     buf = agent.hippocampal._exploration_buffer
     if len(buf) > 0:
@@ -275,38 +367,20 @@ def run(arm: str) -> Dict[str, Any]:
             )
             s2_picks.append(next(i for i, t in enumerate(buf) if t is traj))
 
-    s3_metrics: Dict[str, str] = {}
-    agg = getattr(agent, "sleep_self_model_aggregator", None)
-    if agg is not None and getattr(agent, "e2_harm_s", None) is not None:
-        regions = [("fast", "0.1"), ("fast", "0.2")]
-        for r in regions:
-            agg.update(
-                RoutedEvent(
-                    event=r,
-                    anchor_channel=0.6,
-                    probe_channel=0.4,
-                    phase=SleepPhase.SWS_ANALOG,
-                ),
-                evidence=2.0,
-                domain="self",
-            )
-        s3_metrics = {
-            k: _f(v)
-            for k, v in sorted(
-                agg.offline_gradient_pass(
-                    e2_harm_s=agent.e2_harm_s,
-                    replayed_regions=set(regions),
-                    n_steps=5,
-                    domain="self",
-                    use_snapshot=False,
-                    harm_replay_buffer=agent._harm_replay_buffer,
-                ).items()
-            )
-        }
+    # Route-liveness readouts. These are NOT part of the digest -- like
+    # draw_counts they are evidence the path fired, and folding them in would
+    # let a coverage difference masquerade as a result difference. They are
+    # asserted on in main() instead.
+    writeback_regions = [
+        int(float(m.get("mech273_writeback_regions", "0"))) for m in sleep_metrics
+    ]
+    anchor_set = getattr(agent.hippocampal, "anchor_set", None)
+    n_anchors = (
+        len(anchor_set.all_with_dual_trace()) if anchor_set is not None else 0
+    )
 
     payload = {
         "s2_picks": s2_picks,
-        "s3_metrics": s3_metrics,
         "arm": arm,
         "actions": actions,
         "harms": harms,
@@ -328,6 +402,8 @@ def run(arm: str) -> Dict[str, Any]:
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
     payload["draw_counts"] = dict(sorted(counts.items()))
+    payload["writeback_regions_per_cycle"] = writeback_regions
+    payload["n_anchors"] = n_anchors
     payload["env"] = {
         "python": sys.version.split()[0],
         "platform": f"{platform.system().lower()}-{platform.machine()}",
@@ -387,13 +463,35 @@ def main() -> int:
     print(f"actions[:24]   : {rec['actions'][:24]}")
     print(f"harm_buffer    : {rec['harm_replay_buffer_len']}")
     print(f"explore_buffer : {rec['exploration_buffer_len']}")
+    print(f"anchors        : {rec['n_anchors']}")
+    print(f"wb_regions     : {rec['writeback_regions_per_cycle']}")
     print(f"env            : {rec['env']}")
+
+    # Coverage gate. A probe whose paths did not fire produces two matching
+    # digests that mean nothing -- the exact trap the first two builds of this
+    # script fell into. Fail loudly rather than print a reassuring hash.
+    problems = []
     if not rec["draw_counts"]:
+        problems.append("zero stdlib-random draws -- config reaches NO site")
+    if not rec["draw_counts"].get("self_model.choices"):
+        problems.append(
+            "S3 (self_model.choices) never fired -- the Phase-E writeback did"
+            " not sample the waking-pair buffer"
+        )
+    if not any(n > 0 for n in rec["writeback_regions_per_cycle"]):
+        problems.append(
+            "mech273_writeback_regions == 0 in every cycle -- replay_sampler"
+            " drew nothing, so Phase E early-returned"
+        )
+    if problems:
+        for p in problems:
+            print(f"ERROR: {p}", file=sys.stderr)
         print(
-            "WARNING: zero stdlib-random draws -- this config does NOT reach the"
-            " sites, so matching digests would prove nothing.",
+            "Matching digests from this run would prove nothing. Fix the"
+            " config before comparing arms.",
             file=sys.stderr,
         )
+        return 3
     return 0
 
 

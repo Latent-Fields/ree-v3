@@ -15958,15 +15958,50 @@ claim says arousal amplifies rather than breaks), MECH-359, MECH-390, SD-011.
   a FOURTH entropy source still unfound?" was open until measured.
   `scripts/stdlib_rng_cross_process_probe.py` runs a real agent+env+sleep loop on a config
   reaching ALL THREE sites and digests the full trajectory + sleep metrics + every parameter
-  byte. Measured on ree-worker-3 (linux-x86_64, py3.10.12, torch 2.12.0+cpu), draw counts
-  S1=15 / S2=12 / S3=1 in every run:
+  byte. Measured on ree-worker-3 (linux-x86_64, py3.10.12, torch 2.12.0+cpu):
     ARM pinned   (stdlib_rng_seed + env seed + torch/numpy seeded) -- 3 processes, ONE digest
       `8ff7ac0e1d803eb733f7bfd8aa0ebc48539df519496a571edd601e03b467f88d`, identical
       state_dict. Replicated on ree-worker-2: identical in-machine AND byte-identical to
-      worker-3's digest (same machine class).
+      worker-3's digest (same machine class). Draw counts S1=15 / S2=12 / S3=1 every run.
     ARM unpinned (the typical-driver state: torch+numpy seeded, stdlib `random` on OS
       entropy, everything else held) -- 3 processes, THREE DIFFERENT digests and three
       different state_dicts.
+  RE-MEASURED 2026-07-28 ON THE REAL SLEEP ROUTE. The measurement above drove S2 and S3
+  directly at their call sites, because Phase E early-returns with
+  `mech273_writeback_regions = 0` unless `replay_sampler.draw()` returns non-None -- which
+  needs the MECH-269 anchor-set substrate `enable_sleep_aggregation_cluster()` deliberately
+  does not bundle. The probe now closes that chain (`use_anchor_sets`, `use_event_segmenter`,
+  `use_per_stream_vs`, `use_invalidation_trigger`, `use_staleness_accumulator`,
+  `mech285_draws_per_cycle`, `use_affective_harm_stream`, and `sleep_loop_episodes_K` above
+  the episode count so `reset()` cannot fire an implicit second cycle), so **S3 now fires
+  through `SleepLoopManager.force_cycle` -> Phase-E writeback**, not by direct call. Only S2
+  remains direct (`_sample_exploration_trajectory` needs an all-zero retrieval_bias the waking
+  route does not produce), still via the agent's own seeded consumer over its real buffer.
+  New counts, every run of both arms: `mech273_writeback_regions = 4` in all 3 cycles,
+  `self_model.choices = 3` (one per cycle). S1 falls 15 -> 5 and S2 stays 12; the S1 drop is
+  the config change altering how many e3_quiescent replay ticks occur, not lost coverage.
+    ARM pinned   -- 3 processes on ree-worker-3, ONE digest
+      `027b3acdae1177324a9970a0b779ef5cef96a6a3d836680774d567738313e5d0`, identical
+      state_dict. Replicated on ree-worker-2: same digest, again byte-identical across the
+      two boxes of the same machine class.
+    ARM unpinned -- 3 processes, THREE DIFFERENT digests and state_dicts on EACH worker
+      (six distinct digests across the two). Sensitivity is visible in the counters too:
+      unpinned draws S1=10 rather than 5, and one run diverged far enough to install a 5th
+      anchor (`wb_regions [4,4,5]`).
+  ANCHORS ARE SEEDED, NOT WAKING-DERIVED -- worth stating plainly. The natural route was
+  tried first and measured: over all 36 waking ticks the MECH-288 segmenter emitted ZERO
+  BoundaryEvents, so the pool stayed empty and every `draw()` returned None. That is the
+  probe's tiny task, not a substrate defect: the policy collapses to one repeated action in
+  episode 1, the z_world/z_self deltas then decay monotonically, and a monotonically
+  decreasing series never rises 0.65 sigma above its own trailing window mean, which is what
+  the fast scale's `pe_threshold` detector needs. So `_seed_anchors` writes the pool directly,
+  as V3-EXQ-574 (the run that validated MECH-273 Phase E) does -- with a deterministic arange
+  ramp rather than 574's `torch.randn`, since a reproducibility probe should not add an RNG
+  consumer it does not need. Anchor provenance is upstream of every RNG site under test; what
+  had to be real is the sleep-side route, and that is now entirely `_run_cycle`.
+  The coverage check is no longer advisory: `main()` now EXITS 3 if `self_model.choices` is
+  absent or `mech273_writeback_regions` is 0 in every cycle, so a config regression fails
+  loudly instead of printing a reassuring hash.
   So: NO fourth entropy source, and the unpinned arm is what makes that statement mean
   anything -- it proves the probe is sensitive to exactly the entropy this knob closes.
   Do NOT drop the unpinned arm: without it, two matching pinned digests are equally
@@ -15979,11 +16014,7 @@ claim says arousal amplifies rather than breaks), MECH-359, MECH-390, SD-011.
   SCOPE: same machine class only. `torch.multinomial` is not reproducible across
   darwin-arm64/torch 2.10 vs linux-x86_64/torch 2.12 (see the "Running the test suite"
   cross-machine-class note in the umbrella CLAUDE.md), and that is unaffected by this knob.
-  Two footnotes worth keeping, both cost time to find: S3's writeback early-returns with
-  `n_regions == 0` unless the aggregator holds posteriors for the replayed regions, which
-  needs the MECH-269 anchor-set substrate that `enable_sleep_aggregation_cluster()`
-  deliberately does not bundle -- so the probe drives S2/S3 directly at their call sites
-  with the agent's own seeded consumers and real waking buffers; and `harm_dim` must equal
+  One footnote worth keeping, and it still costs time if forgotten: `harm_dim` must equal
   `E2HarmSConfig.z_harm_dim` (32), because `offline_gradient_pass` slices waking pairs to
   that width and a narrower stream slices SHORT rather than erroring, dying later on a
   shape mismatch deep in the transition net.
