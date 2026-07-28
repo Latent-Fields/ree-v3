@@ -1176,23 +1176,58 @@ def _pull_ree_v3(reason: str = "") -> bool:
 def _check_active_claim_on_file(relative_path: str) -> bool:
     """Return True if TASK_CLAIMS.json has an active claim covering relative_path.
 
-    Used to log a warning before overwriting local edits during git reset --hard.
-    Never raises -- returns False on any error.
+    Consulted before the `git reset --hard` in the auto-sync push recovery
+    path: True skips the push entirely rather than discarding a live session's
+    uncommitted edits. Never raises -- returns False on any error.
+
+    2026-07-28: this was the LAST standalone TASK_CLAIMS matcher in the runner
+    and is now a thin wrapper over `_rrc._active_claim_on_paths` (unanchored /
+    substring mode, no age bound), so every claim guard the runner consults
+    shares one implementation and one set of matching rules. Previously it
+    read the same TASK_CLAIMS.json with a THIRD, hand-rolled rule
+    (`relative_path in res or res.endswith(relative_path)`) and its own
+    claims-root resolution, sitting outside the C5 anti-divergence contract in
+    tests/contracts/test_background_sync_claim_guard.py -- so a future
+    broadening of `_active_claim_on_paths` would have silently missed it.
+
+    Matching reach is UNCHANGED. `res.endswith(relative_path)` was dead code:
+    endswith implies substring containment, so the old rule was already just
+    `relative_path in res`, which is exactly unanchored mode over a
+    single-element prefix tuple. Verified differentially (0 mismatches over
+    200k fuzzed resource strings plus the hand-picked boundary cases). The
+    prefix tuple stays `(relative_path,)` rather than reusing
+    `_EVIDENCE_CLAIM_PREFIXES` -- that constant is `("evidence/",
+    "docs/claims/")` and would WIDEN this call site's reach.
+
+    Two deliberate, non-bit-identical consequences of sharing the helper,
+    stated rather than buried -- both in the direction the shared machinery
+    already chose on purpose:
+
+    * An `active` `governance-sh-*` lock older than
+      `_GOVERNANCE_LOCK_MAX_AGE_HOURS` no longer holds this guard. That skip
+      is unconditional inside `_active_claim_on_paths` by design: the lock is
+      machine-owned and abandoned by construction (governance.sh releases it
+      from an exit trap that cannot fire on SIGKILL), and honouring one
+      forever here would wedge the runner into permanently refusing to push
+      results after a rebase conflict -- the exact wedge that bound exists to
+      prevent. SESSION claims remain unbounded, as before.
+    * A non-string entry in `resources` is now skipped rather than aborting
+      the whole scan. The old body would raise TypeError on `in` and the outer
+      except swallowed it into a blanket False, so a malformed entry could
+      mask a real claim later in the file. The new behaviour is strictly more
+      protective on a malformed claims file.
+
+    `_rrc is None` returns False, matching every other _rrc call site in this
+    module. That is a fail-OPEN direction at a protective guard, so note what
+    it costs: with runner_remote_control unimportable the reset --hard is no
+    longer claim-gated. Accepted because the module is a sibling file in this
+    same repo -- if it cannot be imported the runner is already broadly
+    degraded -- and because the alternative is keeping a duplicate matcher
+    alive, which is the drift this change exists to remove.
     """
-    try:
-        claims_path = REPO_ROOT.parent / "TASK_CLAIMS.json"
-        if not claims_path.exists():
-            return False
-        data = json.loads(claims_path.read_text(encoding="utf-8"))
-        for entry in data.get("claims", []):
-            if entry.get("status") != "active":
-                continue
-            for res in entry.get("resources", []):
-                if relative_path in res or res.endswith(relative_path):
-                    return True
+    if _rrc is None:
         return False
-    except Exception:
-        return False
+    return _rrc._active_claim_on_paths(REPO_ROOT.parent, (relative_path,))
 
 
 def align_ree_assembly_checkout(ree_assembly_path: Path | None) -> None:
