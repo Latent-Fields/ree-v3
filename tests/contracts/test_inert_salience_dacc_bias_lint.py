@@ -251,7 +251,24 @@ def test_gate_is_warn_only_even_under_strict(tmp_path):
 # authoring time (set dacc_weight > 0, or add INERT_SALIENCE_DACC_BIAS_EXEMPT), not
 # re-pinned. If the count rises because a genuine inert carrier LANDED, investigate that
 # carrier before re-pinning.
+#
+# THE PIN IS 0, SO IT NEEDS A NON-VACUITY GUARD (added 2026-07-28, mirroring
+# `test_emit_outcome_dry_run_lint.py` at 715189f246). `len([]) == 0` is true of a walk that
+# scanned NOTHING, so without the floor below this preventive gate silently becomes a no-op
+# the moment the shared walk breaks or is re-scoped. A NONZERO pin cannot fail this way --
+# an empty walk yields 0 fires, which is != the pin, so it fails loudly -- which is why only
+# the 0-pinned gates carry this guard and the others deliberately do not.
+# `test_corpus_scan_sharing.py` already asserts `n_glob_files > 500` globally, but that
+# backstop lives in a DIFFERENT FILE: it does not run when this test is run selectively, and
+# a re-scoping that shrank only THIS lint's file set would not trip it. The 2026-07-27
+# uncollected-tests family was exactly the lesson that a check must be reachable from the
+# thing it protects.
 _PINNED_CORPUS_FIRE_COUNT = 0
+
+# ~1166 v3_exq_* drivers at the time of writing; the same `> 500` floor
+# `test_corpus_scan_sharing.py` uses -- loose enough never to fire on corpus churn, tight
+# enough to catch a walk that broke.
+_MIN_CORPUS_FILES_FOR_A_MEANINGFUL_PIN = 500
 
 
 def test_inert_dacc_bias_corpus_fire_rate_is_pinned(corpus_scan):
@@ -260,6 +277,14 @@ def test_inert_dacc_bias_corpus_fire_rate_is_pinned(corpus_scan):
     Per that module's standing pattern, a new corpus-wide lint goes in `path_lints` and
     its corpus test takes `corpus_scan` rather than enumerating `experiments/` itself.
     """
+    # NON-VACUITY, and it must come FIRST. The pin below is 0, and `len([]) == 0` is true
+    # of a walk that scanned nothing at all, so without this the assertion would keep
+    # passing while silently measuring an empty corpus.
+    assert corpus_scan.n_glob_files > _MIN_CORPUS_FILES_FOR_A_MEANINGFUL_PIN, (
+        f"corpus walk covered only {corpus_scan.n_glob_files} v3_exq_* drivers, below the "
+        f"{_MIN_CORPUS_FILES_FOR_A_MEANINGFUL_PIN} floor -- the fire-count pin below is 0 "
+        f"and would pass VACUOUSLY on a walk this small. Fix the walk "
+        f"(tests/contracts/conftest.py) rather than lowering this floor.")
     fired = corpus_scan["inert_salience_dacc_bias_lint"]
     assert len(fired) == _PINNED_CORPUS_FIRE_COUNT, (
         f"inert-salience-dacc_bias fire count moved: {len(fired)} vs pinned "

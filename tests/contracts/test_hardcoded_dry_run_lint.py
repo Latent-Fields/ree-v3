@@ -432,7 +432,24 @@ def test_hdr_is_selectable_and_does_not_drag_in_other_checks():
 # smoking it: the manifest is now _dry_-prefixed AND the scrub still fires AND the z_goal
 # report prints. Exempt when threading would be WRONG, not merely when the author built
 # an alternative.
+#
+# THE PIN IS 0, SO IT NEEDS A NON-VACUITY GUARD (added 2026-07-28, mirroring the sibling
+# gate `test_emit_outcome_dry_run_lint.py` at 715189f246). `len([]) == 0` is true of a walk
+# that scanned NOTHING, so without the floor below this movement detector silently becomes a
+# no-op the moment the shared walk breaks or is re-scoped. A NONZERO pin cannot fail this
+# way -- an empty walk yields 0 fires, which is != the pin, so it fails loudly -- which is
+# why only the 0-pinned gates carry this guard and the others deliberately do not.
+# `test_corpus_scan_sharing.py` already asserts `n_glob_files > 500` globally, but that
+# backstop lives in a DIFFERENT FILE: it does not run when this test is run selectively, and
+# a re-scoping that shrank only THIS lint's file set would not trip it. The 2026-07-27
+# uncollected-tests family was exactly the lesson that a check must be reachable from the
+# thing it protects.
 _PINNED_CORPUS_FIRE_COUNT = 0
+
+# ~1166 v3_exq_* drivers at the time of writing; the same `> 500` floor
+# `test_corpus_scan_sharing.py` uses -- loose enough never to fire on corpus churn, tight
+# enough to catch a walk that broke.
+_MIN_CORPUS_FILES_FOR_A_MEANINGFUL_PIN = 500
 
 
 def test_hdr_corpus_fire_rate_is_pinned(corpus_scan):
@@ -449,6 +466,14 @@ def test_hdr_corpus_fire_rate_is_pinned(corpus_scan):
     counts); the pin below is the standing evidence -- it would move if the
     sharing altered what is scanned.
     """
+    # NON-VACUITY, and it must come FIRST. The pin below is 0, and `len([]) == 0` is true
+    # of a walk that scanned nothing at all, so without this the assertion would keep
+    # passing while silently measuring an empty corpus.
+    assert corpus_scan.n_glob_files > _MIN_CORPUS_FILES_FOR_A_MEANINGFUL_PIN, (
+        f"corpus walk covered only {corpus_scan.n_glob_files} v3_exq_* drivers, below the "
+        f"{_MIN_CORPUS_FILES_FOR_A_MEANINGFUL_PIN} floor -- the fire-count pin below is 0 "
+        f"and would pass VACUOUSLY on a walk this small. Fix the walk "
+        f"(tests/contracts/conftest.py) rather than lowering this floor.")
     fired = corpus_scan["hardcoded_dry_run_lint"]
     assert len(fired) == _PINNED_CORPUS_FIRE_COUNT, (
         f"hardcoded-dry_run fire count moved: {len(fired)} vs pinned "
