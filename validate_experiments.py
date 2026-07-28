@@ -42,8 +42,8 @@ CHECK_NAMES = ("conformance", "readiness", "arm_fingerprint", "degeneracy", "man
                "anchor_reachability", "precondition_recomputability",
                "e3_diagnostics_staleness", "e3_hold_weighted_readout",
                "action_object_selection", "spearman_guard_shape",
-               "dead_z_goal_stream", "hardcoded_dry_run", "config_slice_declaration",
-               "inert_salience_dacc_bias")
+               "dead_z_goal_stream", "hardcoded_dry_run", "emit_outcome_dry_run",
+               "config_slice_declaration", "inert_salience_dacc_bias")
 
 # Readiness-gate static lint (proposal_trivial_prediction_readiness_gate_2026-06-06).
 # A diagnostic/baseline script whose interpretation grid self-routes to one of
@@ -2257,6 +2257,181 @@ def hardcoded_dry_run_lint(path: Path) -> Optional[str]:
     )
 
 
+# ---- unthreaded emit_outcome(dry_run=) (V3-EXQ-696, second layer) ---------------------
+# Sibling of `hardcoded_dry_run` above, on the OTHER end of the same smoke-containment
+# chain. That gate watches the WRITER (`write_flat_manifest`), which picks the
+# `_dry_<run_id>.json` filename; this one watches the SENTINEL EMITTER
+# (`experiment_protocol.emit_outcome`), whose `dry_run=True` MOVES the just-written
+# manifest out of REE_assembly/evidence/experiments/ into a throwaway scratch dir
+# (system tempdir / ree_dry_run_manifests/) before writing the sentinel.
+#
+# WRITER FACTS, read off experiment_protocol.py rather than assumed:
+#   * `dry_run` does NOT skip, rename or relocate the SENTINEL. The sentinel is written
+#     either way, to <signal_dir>/<queue_id>.json or <signal_dir>/_manual/<stem>.json.
+#     `evidence/experiments/_runner_signals/` is GITIGNORED (0 tracked files), and
+#     verify_governance_cycle.py classifies it as telemetry, so the stray `_manual/`
+#     sentinel a smoke leaves behind is local clutter and nothing more. It is NOT the
+#     reason this gate exists.
+#   * What `dry_run=True` actually does is `_relocate_dry_run_manifest(manifest_path)`.
+#     That is the ONLY consequence, and it is why the gate below requires a non-None
+#     `manifest_path`: an `emit_outcome` call with nothing to relocate is harmless.
+#
+# THIS ONE IS A LIVE FIRE, NOT DEFENCE-IN-DEPTH -- which is where it parts company with
+# the sibling gate, whose docstring reasonably records its own consequence as the milder
+# one. The `_dry_` prefix does NOT protect the evidence tree:
+#   * build_experiment_indexes.py globs `*.json` over evidence/experiments/ and contains
+#     NO `_dry_` and NO `dry_run` handling anywhere -- a `_dry_`-prefixed manifest left
+#     in that directory is scored like any other.
+#   * generate_pending_review.py DOES exclude dry_run-flagged manifests (`_is_dry_run`).
+#     That asymmetry is precisely why this went unnoticed for so long: pending_review.md,
+#     the surface humans actually watch, stays clean while claim_evidence.v1.json does not.
+# Confirmed instance, MECH-245: two 1-seed (`seeds: [0]`) `--dry-run` smokes of
+# V3-EXQ-825 dated 2026-07-26T15:12:07Z / 15:14:39Z are TRACKED IN GIT at
+# evidence/experiments/_dry_v3_exq_825_..._v3.json and appear in claim_evidence.v1.json
+# as two `weakens` / FAIL entries -- including in MECH-245's `recent_entries`. They are
+# that claim's ENTIRE negative evidence base: `fail_runs: 2, pass_runs: 1,
+# experimental_confidence: 0.574, evidence_quadrant: plausible_unproven`, where the one
+# genuine run PASSED. The relocation demonstrably works when it is threaded (48 relocated
+# `_dry_` manifests sit in the scratch dir); the 825 pair is simply absent from it.
+#
+# REACHABILITY IS AGAIN THE DISCRIMINATOR, but note the grep error here runs the OPPOSITE
+# way to the sibling's. A naive `grep -L` for the threading idioms over drivers that call
+# emit_outcome and take --dry-run returns 82, roughly a third of the true population,
+# because a driver that threads `dry_run` into `write_flat_manifest` (or any other call)
+# matches the grep while its `emit_outcome` still does not. Measured on this corpus:
+# 1164 drivers -> 928 call emit_outcome -> 734 also have a REAL smoke path -> 273 reach an
+# unthreaded call. So a grep UNDER-counts by ~3.3x, where the sibling's over-counted by
+# ~4x. Either way the AST fixpoint is what produces a usable number.
+#
+# Canonical fixed shape, V3-EXQ-825:
+#     emit_outcome(outcome=..., manifest_path=..., run_id=..., dry_run=result["dry_run"])
+#
+# ADVISORY, and deliberately biased to UNDER-fire, for the same reasons as the sibling: a
+# flag threaded through a dict or resolved in a helper the bare-name fixpoint cannot
+# follow is invisible, and hardening would block commits on ~273 landed drivers whose runs
+# are complete. Threading the flag is PROVABLY INERT on the evidence path -- it changes
+# behaviour only under `--dry-run`, which by definition produced no evidence. Exempt with
+# EMIT_OUTCOME_DRY_RUN_EXEMPT = "<reason>" when the caller already relocates or deletes
+# the manifest itself.
+_EMIT_OUTCOME_DRY_RUN_EXEMPT_MARKER = "EMIT_OUTCOME_DRY_RUN_EXEMPT"
+
+
+def _emit_manifest_arg(call: ast.Call) -> Optional[ast.AST]:
+    """The `manifest_path` argument node of an emit_outcome call, or None.
+
+    None means "nothing to relocate": the argument is absent entirely, or is a literal
+    `None`. emit_outcome's signature is `emit_outcome(outcome, manifest_path=None, *, ...)`
+    so position 1 is the positional spelling.
+    """
+    node: Optional[ast.AST] = call.args[1] if len(call.args) >= 2 else None
+    for k in call.keywords:
+        if k.arg == "manifest_path":
+            node = k.value
+    if node is None or (isinstance(node, ast.Constant) and node.value is None):
+        return None
+    return node
+
+
+def emit_outcome_dry_run_lint(path: Path) -> Optional[str]:
+    """Unthreaded `emit_outcome(dry_run=)` check. Issue string, or None.
+
+    Fires when ALL of:
+      (1) the script has a smoke path -- an argparse `--dry-run` flag or a `dry_run`
+          function parameter -- AND actually gates work on it (some `if`/`IfExp` tests
+          it). Identical precondition to hardcoded_dry_run_lint, for the same reason: a
+          flag that gates nothing is not a smoke mode.
+      (2) it calls `emit_outcome` with a non-None `manifest_path` and either NO `dry_run=`
+          keyword at all or a LITERAL `False`. Both leave the V3-EXQ-696 relocation off;
+          the omission is by far the commoner spelling. A call with no manifest to
+          relocate is skipped -- the sentinel alone is gitignored and harmless.
+      (3) that call site is reachable with dry_run truthy -- interprocedurally, per
+          `_dry_reachable_functions`. This is the discriminator; see the block comment
+          above for the measured 3.3x gap against a grep.
+
+    Never blocking. See the block comment for the live-fire evidence (MECH-245) and the
+    exemption.
+    """
+    try:
+        src = path.read_text(encoding="utf-8")
+        tree = ast.parse(src)
+    except (OSError, SyntaxError, UnicodeDecodeError):
+        return None
+    if _EMIT_OUTCOME_DRY_RUN_EXEMPT_MARKER in src:
+        return None
+
+    parent: Dict[int, ast.AST] = {}
+    for n in ast.walk(tree):
+        for c in ast.iter_child_nodes(n):
+            parent[id(c)] = n
+
+    unthreaded_sites = []
+    for n in ast.walk(tree):
+        if not isinstance(n, ast.Call):
+            continue
+        fn = n.func
+        nm = fn.attr if isinstance(fn, ast.Attribute) else getattr(fn, "id", None)
+        if nm != "emit_outcome":
+            continue
+        if _emit_manifest_arg(n) is None:
+            continue
+        val = next((k.value for k in n.keywords if k.arg == "dry_run"), None)
+        if val is None or (isinstance(val, ast.Constant) and val.value is False):
+            unthreaded_sites.append(n)
+    if not unthreaded_sites:
+        return None
+
+    has_flag = False
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Call):
+            fn = n.func
+            nm = fn.attr if isinstance(fn, ast.Attribute) else getattr(fn, "id", "")
+            if nm == "add_argument":
+                for a in n.args:
+                    if isinstance(a, ast.Constant) and a.value in ("--dry-run", "--dry_run"):
+                        has_flag = True
+    has_param = any(
+        isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and any(a.arg == "dry_run"
+                for a in list(n.args.args) + list(n.args.kwonlyargs))
+        for n in ast.walk(tree))
+    gates_work = any(isinstance(n, (ast.If, ast.IfExp)) and _mentions_dry(n.test)
+                     for n in ast.walk(tree))
+    if not ((has_flag or has_param) and gates_work):
+        return None
+
+    reachable = _dry_reachable_functions(tree, parent)
+
+    def owner(n: ast.AST) -> Optional[str]:
+        cur = parent.get(id(n))
+        while cur is not None:
+            if isinstance(cur, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                return cur.name
+            cur = parent.get(id(cur))
+        return None
+
+    live = [n for n in unthreaded_sites
+            if owner(n) in reachable and not _locally_dry_guarded(n, parent)]
+    if not live:
+        return None
+
+    where = ", ".join(f"line {n.lineno} (in {owner(n) or '<module>'})" for n in live)
+    return (
+        f"accepts --dry-run and reduces its work under it, but calls emit_outcome with a "
+        f"manifest_path and no threaded dry_run= at {where} -- and that call IS reached in "
+        f"a smoke run. emit_outcome(dry_run=True) is what MOVES the smoke manifest out of "
+        f"REE_assembly/evidence/experiments/ into a scratch dir; unthreaded, the manifest "
+        f"stays put. The _dry_ filename prefix does NOT protect it: "
+        f"build_experiment_indexes.py globs *.json with no dry_run handling at all, so the "
+        f"1-seed smoke lands in claim_evidence.v1.json and weights a real claim "
+        f"(confirmed: two V3-EXQ-825 smokes are MECH-245's entire negative evidence base). "
+        f"generate_pending_review.py excludes dry_run manifests, which is why this stays "
+        f"invisible on pending_review.md. Fix by threading the script's own flag: "
+        f"`dry_run=bool(args.dry_run)` (or `dry_run=result[\"dry_run\"]` -- V3-EXQ-825 is "
+        f"the canonical shape). Exempt with {_EMIT_OUTCOME_DRY_RUN_EXEMPT_MARKER} = "
+        f"\"<reason>\" when the caller already relocates or deletes the manifest itself."
+    )
+
+
 # ---- config_slice under-declaration (V3-EXQ-798) -------------------------------------
 # arm_reuse_fingerprint_plan.md section 7b: a `config_slice` that UNDER-approximates --
 # omits a parameter the cell's RECORDED READOUTS depend on -- is a false-cache-HIT bug.
@@ -3600,6 +3775,7 @@ def main() -> int:
     spearman_warnings: List[Tuple[Path, str]] = []
     dead_zgoal_warnings: List[Tuple[Path, str]] = []
     hardcoded_dry_run_warnings: List[Tuple[Path, str]] = []
+    emit_outcome_dry_run_warnings: List[Tuple[Path, str]] = []
     config_slice_warnings: List[Tuple[Path, str]] = []
     inert_dacc_bias_warnings: List[Tuple[Path, str]] = []
     for p in paths:
@@ -3705,6 +3881,14 @@ def main() -> int:
                 # partial is invisible to the static scan, and the ~164 landed carriers'
                 # runs are complete, so hardening would block commits on history).
                 hardcoded_dry_run_warnings.append((p, hdr))
+        if "emit_outcome_dry_run" in selected:
+            eod = emit_outcome_dry_run_lint(p)
+            if eod:
+                # WARN-only in BOTH modes -- see emit_outcome_dry_run_lint() for why this
+                # one never hardens under --paths (a flag resolved in a helper the bare-name
+                # fixpoint cannot follow is invisible, and the ~273 landed carriers' runs are
+                # complete, so hardening would block commits on history).
+                emit_outcome_dry_run_warnings.append((p, eod))
         if "config_slice_declaration" in selected:
             csd = config_slice_under_declaration_lint(p)
             if csd:
@@ -3745,6 +3929,7 @@ def main() -> int:
           f"{len(spearman_warnings)} spearman-guard-shape-warning(s), "
           f"{len(dead_zgoal_warnings)} dead-z_goal-stream-warning(s), "
           f"{len(hardcoded_dry_run_warnings)} hardcoded-dry_run-warning(s), "
+          f"{len(emit_outcome_dry_run_warnings)} emit_outcome-dry_run-warning(s), "
           f"{len(config_slice_warnings)} config_slice-declaration-warning(s), "
           f"{len(inert_dacc_bias_warnings)} inert-salience-dacc_bias-warning(s)", flush=True)
     if inert_dacc_bias_warnings:
@@ -3773,6 +3958,20 @@ def main() -> int:
         print("", flush=True)
         print("[validate_experiments] CONFIG_SLICE-DECLARATION WARNINGS (advisory, non-blocking):", flush=True)
         for p, warn in config_slice_warnings:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
+            print(f"  - {rel}: {warn}", flush=True)
+    if emit_outcome_dry_run_warnings:
+        # Advisory in BOTH modes (never hardens). A fire here means `--dry-run` on that
+        # driver leaves its 1-seed smoke manifest sitting in evidence/experiments/, where
+        # build_experiment_indexes.py scores it into claim_evidence.v1.json against a real
+        # claim -- the `_dry_` prefix does not exempt it, and pending_review.md hides the
+        # problem because IT does exclude dry_run manifests. Triage each: thread the
+        # script's own flag (V3-EXQ-825 is the canonical shape). A caller that already
+        # relocates or deletes the manifest should carry EMIT_OUTCOME_DRY_RUN_EXEMPT rather
+        # than be left to re-fire. Do NOT retro-edit a LANDED driver whose run is complete.
+        print("", flush=True)
+        print("[validate_experiments] EMIT_OUTCOME-DRY_RUN WARNINGS (advisory, non-blocking):", flush=True)
+        for p, warn in emit_outcome_dry_run_warnings:
             rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
             print(f"  - {rel}: {warn}", flush=True)
     if hardcoded_dry_run_warnings:

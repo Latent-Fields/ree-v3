@@ -382,4 +382,5 @@ if __name__ == "__main__":
     emit_outcome(
         outcome=_oc if _oc in ("PASS", "FAIL") else "FAIL",
         manifest_path=out_path,
+        dry_run=bool(args.dry_run),
     )

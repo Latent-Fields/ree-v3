@@ -57,6 +57,21 @@ byte-identical before and after, and its pin is still 0. THIS IS THE STANDING
 PATTERN: a new corpus-wide lint belongs in `path_lints` below, and its corpus
 test takes `corpus_scan` -- it must not enumerate `experiments/` itself.
 
+ONE CHECK RIDES THE PARSE ITSELF RATHER THAN `path_lints`: INVALID ESCAPE
+SEQUENCES. `scan.invalid_escapes` pins `'\\|'`-style invalid escapes at zero
+corpus-wide (`test_invalid_escape_sequence_lint.py`). It is deliberately NOT a
+`path_lints` entry, and the reason is a trap worth stating outright: an invalid
+escape is reported by the **tokenizer, as a warning raised during `ast.parse`**,
+not by anything visible in the resulting tree. A `path -> Optional[str]` lint in
+`path_lints` runs AFTER the pre-registration lint has already parsed that file,
+so its `ast.parse` is a cache HIT -- no real parse, therefore no warning,
+therefore a lint that silently never fires while looking perfectly green. So the
+capture has to happen at the MISS, which is what `invalid_escape_findings` below
+does: it is the FIRST consumer of each file's source, takes the miss under a
+`warnings.catch_warnings` block, and leaves the parse in the cache for the
+pre-registration lint and the path lints to hit as before. Total real parses per
+file are unchanged (one); only which consumer pays for it moves.
+
 SAFETY OF SHARING ONE TREE ACROSS LINTS. Sound only because no consumer mutates
 the AST. Verified over both validators: no `NodeTransformer`, no
 `fix_missing_locations`, no parent-pointer annotation, no `.body.append/insert/pop`,
@@ -99,8 +114,9 @@ from __future__ import annotations
 import ast
 import sys
 import types
+import warnings
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 import pytest
 
@@ -189,10 +205,79 @@ class _LastParseCache:
         return self._tree
 
 
+# The compiler's own wording, stable across the categories it has been raised
+# under. Matched on the MESSAGE rather than the category on purpose: CPython
+# raised this as `DeprecationWarning` up to 3.11 and as `SyntaxWarning` from
+# 3.12, and it is slated to become a `SyntaxError`. Keying on the category would
+# make the contract quietly stop firing on an interpreter upgrade -- the exact
+# failure mode this file exists to prevent.
+INVALID_ESCAPE_MARKER = "invalid escape sequence"
+
+
+def invalid_escape_findings(
+    source: str,
+    path: Path,
+    parse: Optional[Callable] = None,
+) -> List[str]:
+    """Return one message per invalid escape sequence in `source` ([] == clean).
+
+    An invalid escape (`'\\|'`, `'\\d'` outside a raw string) is not visible in the
+    parsed tree -- the tokenizer reports it as a warning while parsing. So this
+    parses under `catch_warnings(record=True)` + `simplefilter("always")` and
+    keeps the warnings whose message carries `INVALID_ESCAPE_MARKER`.
+
+    `simplefilter("always")` is load-bearing twice over: it defeats the default
+    "once per location" filter, and entering `catch_warnings` invalidates the
+    per-module `__warningregistry__` caches, so a file already parsed earlier in
+    the process still reports. Without it this returns [] for everything after
+    the first hit and the pin passes vacuously.
+
+    `parse` defaults to the real `ast.parse`; the shared scan passes the one-entry
+    cache's `parse` so the corpus is still parsed exactly once per file. The
+    negative control passes the real one, which is what makes it a control -- it
+    exercises this function through the same path the corpus does.
+
+    Findings are collected even when the parse then RAISES. A file can carry a
+    warned-about escape on one line and a genuine SyntaxError on another; the
+    escape is real and still worth naming (an unparseable script is separately
+    reported by `check_script`, so nothing is lost by being fail-soft here).
+
+    DE-DUPLICATED, and that is not cosmetic. When the parse fails, CPython's PEG
+    parser makes a SECOND tokenizing pass to build a better error message, and the
+    tokenizer re-emits every escape warning it already emitted -- so an
+    escape-plus-syntax-error file reports each escape TWICE. Observed on the fleet's
+    linux/3.10 (2 findings) and NOT on darwin/3.13 (1), i.e. it is version-dependent
+    and would make any exact count machine-dependent. Order is preserved so the
+    first-reported line stays first. Two identical escapes on ONE line collapse to a
+    single finding; that is intended -- the message points at a line, and the pin is
+    at zero, so a collapsed duplicate cannot hide anything.
+    """
+    if parse is None:
+        parse = ast.parse
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        try:
+            parse(source, str(path))
+        except (SyntaxError, ValueError):
+            pass
+
+    out: List[str] = []
+    for w in caught:
+        if INVALID_ESCAPE_MARKER not in str(w.message):
+            continue
+        finding = f"{path.name}:{w.lineno}: {w.message}"
+        if finding not in out:
+            out.append(finding)
+    return out
+
+
 class CorpusScan:
     """Result of the single shared walk: per-lint fire lists, in sorted order."""
 
-    __slots__ = ("fires", "n_glob_files", "n_rglob_files", "parse_hits", "parse_misses")
+    __slots__ = (
+        "fires", "n_glob_files", "n_rglob_files", "parse_hits", "parse_misses",
+        "invalid_escapes",
+    )
 
     def __init__(self) -> None:
         self.fires: Dict[str, List] = {}
@@ -200,6 +285,11 @@ class CorpusScan:
         self.n_rglob_files = 0
         self.parse_hits = 0
         self.parse_misses = 0
+        # Invalid escape sequences over the whole rglob set. Not in `fires`: it is
+        # not a `path_lints` entry (see the module docstring for why it cannot be),
+        # and `test_every_path_lint_is_covered_by_this_files_differential` treats
+        # every `fires` key as one.
+        self.invalid_escapes: List[str] = []
 
     def __getitem__(self, lint_name: str):
         return self.fires[lint_name]
@@ -231,6 +321,7 @@ def scan_corpus() -> CorpusScan:
         ("dead_z_goal_stream_lint", V.dead_z_goal_stream_lint),
         ("spearman_guard_shape_lint", V.spearman_guard_shape_lint),
         ("hardcoded_dry_run_lint", V.hardcoded_dry_run_lint),
+        ("emit_outcome_dry_run_lint", V.emit_outcome_dry_run_lint),
         ("config_slice_under_declaration_lint", V.config_slice_under_declaration_lint),
         ("inert_salience_dacc_bias_lint", V.inert_salience_dacc_bias_lint),
     )
@@ -255,6 +346,26 @@ def scan_corpus() -> CorpusScan:
                 src = p.read_text(encoding="utf-8", errors="ignore")
             except OSError:
                 src = None  # same `continue` semantics as the old test
+
+            # (1a) invalid escape sequences -- must run BEFORE any other consumer
+            #      of this file, because only the cache MISS does a real parse and
+            #      only a real parse raises the tokenizer's warning. See the module
+            #      docstring. This takes the miss that the pre-registration lint
+            #      used to take; the parse count per file is unchanged.
+            if src is not None:
+                misses_before = cache.misses
+                found = invalid_escape_findings(src, p, cache.parse)
+                if cache.misses == misses_before:
+                    # Cache HIT, i.e. the previously-parsed file had byte-identical
+                    # source (the cache keys on TEXT, not on the path). No real
+                    # parse happened, so no warning could fire and `found` is a
+                    # false clean. Re-parse this one uncached rather than let a
+                    # duplicated file smuggle an escape past the pin. Costs an
+                    # extra parse only for genuine duplicates, of which the corpus
+                    # currently has none.
+                    found = invalid_escape_findings(src, p, ast.parse)
+                scan.invalid_escapes.extend(found)
+
             if src is not None and VQ.prereg_share_feasibility_lint(src):
                 scan.fires["prereg_share_feasibility_lint"].append(p.name)
 
@@ -283,6 +394,18 @@ def last_parse_cache_cls():
     no such ambiguity.
     """
     return _LastParseCache
+
+
+@pytest.fixture(scope="session")
+def invalid_escape_findings_fn():
+    """Hand `invalid_escape_findings` to its contract test via a fixture.
+
+    Same reason as `last_parse_cache_cls`: `tests/conftest.py` and
+    `tests/contracts/conftest.py` both import under the bare module name
+    `conftest`, so a plain `import conftest` on the test side resolves by
+    collection order. A fixture is unambiguous.
+    """
+    return invalid_escape_findings
 
 
 @pytest.fixture(scope="session")
