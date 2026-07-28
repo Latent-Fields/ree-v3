@@ -273,3 +273,83 @@ consumer tries to reuse.
 the imported `_lib/baselines/` module, which is a different kind of change -- the lint is
 currently a strictly single-file `path -> Optional[str]` function riding the shared corpus
 parse cache, and cross-module resolution would need its own calibration.
+
+---
+
+## Addendum 2 (2026-07-28, same day): the cross-module band, closed
+
+The "still open" item above is now closed. `config_slice_under_declaration_lint` resolves a
+`config_slice` built by a helper imported from `experiments/_lib/baselines/` by parsing that
+module: it absorbs the helper's returned dict, a sibling helper it tail-calls
+(`off_path_config_slice` -> `arm_config_slice`), and the module-level dicts it splices in
+(`dict(MATCHED_ENVELOPE)`, `dict(ENV_KWARGS)`) -- whose **keys** are what actually bind the
+driver's constants. The blanket skip is retained **only** as the fallback: if the module cannot
+be located, parsed, or the named function found with a returned value, the check says nothing.
+All 5 affected drivers resolve, so that fallback is currently unreachable in the corpus.
+
+### The two spellings that decide whether this is real or nominal
+
+Parsing the module bought **nothing** on the corpus -- 700c stayed at 55 names -- until both of
+these were handled. The canonical baseline modules write the envelope as an **annotated**
+assignment bound to a `dict(...)` **call**:
+
+```python
+MATCHED_ENVELOPE: Dict[str, Any] = dict(settling_rounds=3, ...)
+```
+
+so a mapping test of `isinstance(node, ast.Dict)` declines to enter it, and a name->value map
+built from `ast.Assign` alone never finds it at all. Each half is a silent no-op on its own: the
+module parses, the helper resolves, and no result changes. Both are now handled
+(`_is_mapping_expr`, `_module_assigns_and_funcs`) and both are pinned directly
+(`test_spliced_module_dict_declares_its_keys_through_dict_call_and_annotation`) rather than left
+to the corpus count -- which, see below, could not have caught them.
+
+### Calibration (done before shipping, per the standing convention)
+
+| driver | before resolution | after | note |
+|---|---|---|---|
+| 700c | 55 | **31** | 0 of the 31 appear as a key or kwarg anywhere in `exq700_arc108_settling_baseline.py` |
+| 700d | 56 | **32** | same module, same profile |
+| 833 | 1 | **1** | `STAGE0_ZGOAL_GATE` -- genuine, see below |
+| 685 | -- | **clean** | one module constant (`DEMO_SEED`), declared |
+| 700c_mint | -- | **clean** | no module-level numeric constants at all |
+
+That the surviving 31 are **absent from the baseline module entirely** is the check that the
+resolution is complete with respect to it rather than partial -- a partial resolution would leave
+names the module does declare. Hand-checked sample of the 31: `CRF_MAINTENANCE_DECAY`,
+`CONTRASTIVE_BATCH_K`, `MAX_GRAD_NORM`, `POLICY_TEMPERATURE` are genuine, and are the **same
+booleans-not-values defect the 704 family carries** -- `MATCHED_ENVELOPE` declares
+`use_candidate_rule_field=True` but none of the CRF values, while `CRF_MAINTENANCE_DECAY = 0.0`
+goes straight into the agent build. The four `FIELD_NOISE_*` / `NOISE_FLOOR_*` names are the
+known over-fire class: read lexically in the loop but bound off for every reusable arm
+(`noise_floor_alpha=(NOISE_FLOOR_ALPHA if noise_on else 0.1)`, all four reusable arms
+`noise_on=False`), which is exactly what the baseline module's own docstring says it excludes on
+purpose. 833's single name is a true positive of the **scheme** band -- the severest one --
+`STAGE0_ZGOAL_GATE = 0.4` decides the recorded `stage0_zgoal_formed` readout and no baseline key
+binds it.
+
+### Outcome: the count did not move, and that is the finding to carry forward
+
+Fire count **56 -> 56**. The two effects cancelled exactly, and reading that as "nothing
+happened" would be wrong -- the **set** turned over by six scripts:
+
+- **+3** 700c, 700d, 833 left the unassessable band and now fire; 685 and 700c_mint left it and
+  are now verifiably clean rather than merely silent.
+- **-3** 114a, 120a, 266b cleared outright as **pre-existing false positives** -- all three
+  declare their constants in an annotated `full_config: Dict[str, Any] = {...}`. Eight more
+  shrank (777 12 -> 7, 777a 11 -> 8, 779 14 -> 8, 779a 18 -> 8, 779b 18 -> 9, 800/801 2 -> 1,
+  and `REINFORCE_BATCH_SIZE` off all 11 direct-call carriers).
+
+A pinned **count** is structurally blind to a net-zero turnover, so the coverage claim is carried
+by a named set instead -- `_CROSS_MODULE_CARRIERS` + `test_cross_module_carriers_stay_covered`,
+mirroring what `_DIRECT_CALL_CARRIERS` does for the loop scope. Reverting the resolver would take
+the count 56 -> 53, which reads as remediation; the named set fails as a loss of coverage.
+`test_no_cross_driver_script_is_silently_unscanned` was tightened in the same pass: its
+accounted-for reason is no longer `"_lib.baselines" in src` (which, once the band is resolvable,
+would let any script go silent just by importing from a baselines module) but an actual
+resolution attempt.
+
+Cost: the resolution is a second parse for ~5 drivers, cached by (path, mtime, size). Corpus
+scan measured at **7.90s before / 7.84s after** -- no measurable change. Per the standing rule
+the landed carriers are **not** retro-fixed; the backlog remains a risk register. The gate stays
+**WARN-only in both modes**.

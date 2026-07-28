@@ -75,13 +75,29 @@ PRE-EXISTING false positives from 13 with-form scripts (V3-EXQ-793 41 names -> 1
 11 -> 2, 751 3 -> 0), which is why the pinned count moved DOWN for the with-form half
 while the direct-call half was added.
 
-THE CROSS-MODULE BAND IS A DOCUMENTED SKIP. For the 4 whose helper is imported from
-`_lib/baselines/`, the declaration is in another file and a single-file scan cannot see
-one key of it. Firing there would be a near-total false positive landing on precisely the
-scripts that FOLLOW the canonical-baseline pattern CLAUDE.md mandates -- measured on
-V3-EXQ-700c, 21 of the 27 constants a fire would name are declared in that module's
-`MATCHED_ENVELOPE`. So the gate says nothing for them. `test_cross_module_slice_is_a_skip`
-pins that, and it is the one band the gate knowingly cannot assess.
+THE CROSS-MODULE BAND IS NOW RESOLVED (2026-07-28), NOT SKIPPED. For the 5 whose helper
+is imported from `_lib/baselines/`, the declaration is in another file. That was a
+blanket SKIP when the gate shipped, because firing blind would have been a near-total
+false positive landing on precisely the scripts that FOLLOW the canonical-baseline
+pattern CLAUDE.md mandates -- measured on V3-EXQ-700c at the time, 21 of the 27 constants
+a fire would have named were declared in that module's `MATCHED_ENVELOPE`.
+
+The resolver now parses that module and absorbs the helper's returned dict, the sibling
+it tail-calls, and the module-level dicts it splices in. All 5 resolve, so the band is
+empty of unassessed scripts: 700c 55 -> 31 surviving names, 700d 56 -> 32, 833 1, and 685
+/ 700c_mint verifiably clean. `test_cross_module_slice_is_resolved_not_skipped` pins the
+resolution with a two-constant differential (silence alone would be indistinguishable
+from the old skip), and `test_unresolvable_cross_module_slice_still_skips` pins the
+fallback, which is the honest answer for a helper we genuinely cannot read.
+
+WHAT MADE THE RESOLUTION REAL RATHER THAN NOMINAL. Parsing the module bought exactly
+NOTHING on the corpus until two spellings the canonical baseline modules actually use
+were handled: the envelope is a `dict(k=v, ...)` CALL rather than a `{...}` literal, and
+it is an ANNOTATED assignment (`MATCHED_ENVELOPE: Dict[str, Any] = ...`). With either
+missing, V3-EXQ-700c stayed at 55 names -- a feature that looks implemented, passes a
+naive "did it parse the module" test, and changes no result.
+`test_spliced_module_dict_declares_its_keys_through_dict_call_and_annotation` is that
+pair, pinned in the driver's own file where both also generalise.
 
 SCOPE. This gates NEW scripts, and the gate stays WARN-only: a landed carrier's run is
 complete and its pre-registered emission is not rewritten to chase a lint. A false HIT
@@ -351,38 +367,172 @@ def test_local_slice_helper_return_is_resolved(tmp_path):
         "a local function's return value")
 
 
-def test_cross_module_slice_is_a_skip(tmp_path):
-    """A slice built by an `_lib/baselines/` helper is declared in ANOTHER file.
+# --------------------------------------------------------------------------------------
+# (2c) the CROSS-MODULE slice -- resolved as of 2026-07-28, skip kept as the fallback
+# --------------------------------------------------------------------------------------
+# Until 2026-07-28 this whole band was a blanket SKIP: the helper's declaration lives in
+# `experiments/_lib/baselines/<mod>.py` and a single-file scan could not see one key of
+# it, so firing blind would have been a near-total false positive landing on exactly the
+# scripts that FOLLOW the canonical-baseline pattern CLAUDE.md mandates for a reusable
+# mint. The resolver now parses that module, so the band is assessed; the skip survives
+# only for a helper that cannot be resolved.
+#
+# THE SHAPE THESE FIXTURES ENCODE, AND WHY IT IS NOT INCIDENTAL. The canonical baseline
+# module declares its envelope as `NAME: Dict[str, Any] = dict(k=v, ...)` and splices it
+# into the returned slice as `"envelope": dict(NAME)`. BOTH halves of that spelling had
+# to be handled before resolution bought anything on the real corpus:
+#   - `dict(...)` rather than a `{...}` literal, so "is this a mapping worth entering?"
+#     cannot be an `isinstance(ast.Dict)` test (measured: 700c stayed at 55 names);
+#   - an ANNOTATED assignment, so a name->value map built from `ast.Assign` alone never
+#     finds the envelope at all (measured: still 55; with both, 31).
+# The fixtures below use that exact spelling on purpose. Rewriting them to a plain
+# `X = {...}` would keep them passing while removing the only coverage of the two facts
+# that make the feature work on the corpus it was built for.
 
-    The gate cannot see one key of it, so firing would be a near-total false positive --
-    and it would land on the scripts following the canonical-baseline pattern CLAUDE.md
-    mandates for a reusable mint. Measured on V3-EXQ-700c: 21 of the 27 constants a fire
-    would name are declared in that module's MATCHED_ENVELOPE. Silence is the honest
-    answer here; closing the band needs cross-module parsing.
+
+def _write_baseline(tmp_path, body: str, mod: str = "probe_baseline") -> None:
+    """Write `<tmp>/_lib/baselines/<mod>.py`, the layout the resolver searches."""
+    pkg = tmp_path / "_lib" / "baselines"
+    pkg.mkdir(parents=True, exist_ok=True)
+    (pkg / f"{mod}.py").write_text(textwrap.dedent(body), encoding="utf-8")
+
+
+# CELL_GAIN, not the fixture's `LR`: the constant scan floors at `len(name) > 2`, so a
+# two-letter name is invisible to it and the "must still fire on the undeclared one" half
+# of the assertion below would pass vacuously with the check silent for the wrong reason.
+_CROSS_MODULE_DRIVER = _DIRECT_CALL.replace(
+    "    from _lib.arm_fingerprint import compute_arm_fingerprint",
+    "    from _lib.arm_fingerprint import compute_arm_fingerprint\n"
+    "    from _lib.baselines.probe_baseline import arm_config_slice",
+).replace(
+    "    LR = 0.001",
+    "    LR = 0.001\n    CELL_GAIN = 0.5",
+).replace(
+    'return {"by_bin": _bin(seed), "lr": LR}',
+    'return {"by_bin": _bin(seed), "lr": LR * CELL_GAIN}',
+).replace(
+    'config_slice={"lr": LR, "arm_id": "A"},',
+    'config_slice=arm_config_slice("A"),')
+
+_CROSS_MODULE_BASELINE = """
+    from typing import Any, Dict
+
+    MATCHED_ENVELOPE: Dict[str, Any] = dict(
+        ssl_bin_edges=(2, 5, 12),
+    )
+
+    def arm_config_slice(arm):
+        return {"arm_id": arm, "matched_envelope": dict(MATCHED_ENVELOPE)}
+"""
+
+
+def test_cross_module_slice_is_resolved_not_skipped(tmp_path):
+    """The gap this closes: the helper's declaration is READ, not assumed absent.
+
+    Silence alone would be an ambiguous assertion -- it is what the old blanket skip
+    produced too. So the driver reads TWO constants: SSL_BIN_EDGES, declared by the
+    cross-module helper's `MATCHED_ENVELOPE`, and CELL_GAIN, declared by nothing. The
+    lint must fire (proving the script was assessed rather than skipped) and must name
+    CELL_GAIN and only CELL_GAIN (proving the cross-module declaration was absorbed).
+    """
+    _write_baseline(tmp_path, _CROSS_MODULE_BASELINE)
+    path = _write(tmp_path, _CROSS_MODULE_DRIVER)
+    ast.parse(path.read_text(encoding="utf-8"))
+    msg = V.config_slice_under_declaration_lint(path)
+    assert msg is not None, (
+        "a resolvable cross-module slice must be ASSESSED -- silence here is "
+        "indistinguishable from the pre-2026-07-28 blanket skip")
+    named = _named(msg)
+    assert "SSL_BIN_EDGES" not in named, (
+        "SSL_BIN_EDGES is declared by the baselines helper's MATCHED_ENVELOPE splice -- "
+        "the resolver must parse that module and absorb its keys")
+    assert named == {"CELL_GAIN"}, (
+        f"only the genuinely-undeclared constant may be named, got {sorted(named)}")
+
+
+def test_spliced_module_dict_declares_its_keys_through_dict_call_and_annotation(tmp_path):
+    """The same two spellings, in the driver's OWN file -- no cross-module hop involved.
+
+    Both halves generalise beyond the cross-module band, and each is a silent no-op on
+    its own, which is why they are pinned directly rather than left to the corpus count.
+    Measured on V3-EXQ-700c while this was built: treating the envelope as opaque
+    because it is a `dict(...)` call rather than a `{...}` literal left the fire at 55
+    names -- i.e. cross-module resolution bought nothing. Handling the mapping but still
+    building the name->value map from `ast.Assign` alone (so an ANNOTATED
+    `MATCHED_ENVELOPE: Dict[str, Any] = ...` is invisible) also left it at 55. Both
+    together took it to 31. On the with-form corpus the annotation half alone cleared
+    V3-EXQ-114a / 120a / 266b outright -- all three declared their constants in an
+    annotated `full_config: Dict[str, Any] = {...}` and were pure false positives -- and
+    shrank five more; the dict()-call half removed REINFORCE_BATCH_SIZE from all 11
+    direct-call carriers.
     """
     src = _DIRECT_CALL.replace(
-        "    from _lib.arm_fingerprint import compute_arm_fingerprint",
-        "    from _lib.arm_fingerprint import compute_arm_fingerprint\n"
-        "    from experiments._lib.baselines.exq700_arc108_settling_baseline import (\n"
-        "        arm_config_slice,\n"
-        "    )",
+        "    SSL_BIN_EDGES = (2, 5, 12)",
+        "    from typing import Any, Dict\n"
+        "    SSL_BIN_EDGES = (2, 5, 12)\n"
+        "    FULL_CONFIG: Dict[str, Any] = dict(ssl_bin_edges=SSL_BIN_EDGES)",
     ).replace(
         'config_slice={"lr": LR, "arm_id": "A"},',
-        'config_slice=arm_config_slice("A", 1, 1, 1, 1),')
+        'config_slice={"lr": LR, "arm_id": "A", "cfg": dict(FULL_CONFIG)},')
     path = _write(tmp_path, src)
     ast.parse(path.read_text(encoding="utf-8"))
     assert V.config_slice_under_declaration_lint(path) is None, (
-        "a config_slice built by a cross-module _lib/baselines helper is unassessable "
-        "by a single-file scan and must be skipped, not fired on")
+        "ssl_bin_edges is declared by an ANNOTATED module-level dict spliced into the "
+        "slice via dict(...) -- both spellings must be entered, or the declaration is "
+        "invisible and the constant is reported as missing")
+
+
+def test_cross_module_tail_call_within_the_baseline_module_is_followed(tmp_path):
+    """`off_path_config_slice()` -> `arm_config_slice()`, the exq700 shape.
+
+    The tail call must resolve in the BASELINE module's namespace, not the driver's --
+    the driver has no such function. If the ctx is not switched, the return is never
+    reached and every envelope key is lost.
+    """
+    _write_baseline(tmp_path, _CROSS_MODULE_BASELINE + """
+
+    def off_path_config_slice():
+        return arm_config_slice("A0")
+    """)
+    src = _CROSS_MODULE_DRIVER.replace(
+        "import arm_config_slice", "import off_path_config_slice").replace(
+        'arm_config_slice("A"),', 'off_path_config_slice(),')
+    path = _write(tmp_path, src)
+    ast.parse(path.read_text(encoding="utf-8"))
+    msg = V.config_slice_under_declaration_lint(path)
+    assert msg is not None and "SSL_BIN_EDGES" not in _named(msg), (
+        "a baseline helper's tail call to a sibling in its own module must be followed "
+        "in that module's namespace")
+
+
+def test_unresolvable_cross_module_slice_still_skips(tmp_path):
+    """The fallback, kept deliberately: no module file -> say nothing, do not fire.
+
+    This is the whole pre-2026-07-28 behaviour, narrowed to the case that still warrants
+    it. Firing on a declaration we cannot see is the failure mode the blanket skip
+    existed to prevent, and it is worse than silence: it lands on the best-behaved
+    population, so it would train readers to ignore the gate.
+    """
+    src = _CROSS_MODULE_DRIVER.replace(
+        "from _lib.baselines.probe_baseline import",
+        "from _lib.baselines.no_such_baseline_module import")
+    path = _write(tmp_path, src)          # note: no _write_baseline -- module is absent
+    ast.parse(path.read_text(encoding="utf-8"))
+    assert V.config_slice_under_declaration_lint(path) is None, (
+        "an UNRESOLVABLE cross-module slice must fall back to the documented skip -- "
+        "the gate must not fire on a declaration it could not read")
 
 
 def test_cross_module_skip_needs_the_slice_to_come_from_that_helper(tmp_path):
     """Merely IMPORTING from `_lib/baselines/` must not buy a blanket exemption.
 
-    The skip is keyed on the config_slice argument itself being a call to the imported
-    helper. A script that imports (say) REUSABLE_ARM_IDS from a baseline module but still
-    builds its slice inline is fully assessable, and silencing it would be a hole big
-    enough to drive the confirmed 798 defect through.
+    Both the resolution and its skip fallback are keyed on the config_slice argument
+    itself being a call to the imported helper. A script that imports (say)
+    REUSABLE_ARM_IDS from a baseline module but still builds its slice inline is fully
+    assessable from its own file, and silencing it would be a hole big enough to drive
+    the confirmed 798 defect through. Kept from the pre-resolution gate: it guarded the
+    blanket skip then and it guards the fallback now, and the fallback is reachable
+    (the module here does not exist), so the hole it describes is still live.
     """
     src = _DIRECT_CALL.replace(
         "    from _lib.arm_fingerprint import compute_arm_fingerprint",
@@ -478,6 +628,37 @@ def test_gate_is_warn_only_even_under_strict(tmp_path):
 # 700c/700d (cross-module skip). Nothing in the direct-call set is silently unexamined
 # any more -- each is either fired on, clean, or skipped for a stated reason.
 #
+# STILL 56 AFTER THE 2026-07-28 CROSS-MODULE RESOLUTION -- AND THAT IS THE HAZARD.
+# Closing the cross-module band did not move the total, because the two effects cancelled
+# EXACTLY. Do not read the unchanged pin as "nothing happened": the SET turned over by six
+# scripts, and a count pin is structurally blind to that.
+#
+#   +3  700c, 700d and 833 left the unassessable band and now fire (55 / 56 / 1 names
+#       before the baseline module is read; 31 / 32 / 1 after). 685 and 700c_mint also
+#       left it and are now verifiably CLEAN rather than skipped -- 685 declares its one
+#       constant, 700c_mint has none.
+#   -3  114a, 120a and 266b cleared outright. All three were PRE-EXISTING FALSE POSITIVES
+#       that declared their constants in an annotated `full_config: Dict[str, Any] = {...}`
+#       which the name->value map, built from `ast.Assign` only, never saw. Eight more
+#       shrank without clearing (777 12 -> 7, 777a 11 -> 8, 779 14 -> 8, 779a 18 -> 8,
+#       779b 18 -> 9, 800 and 801 2 -> 1, and REINFORCE_BATCH_SIZE off all 11 direct-call
+#       carriers).
+#
+# So the coverage claim is carried by `_CROSS_MODULE_CARRIERS` below, not by this number.
+# Calibration before shipping (the standing convention here -- calibrate, do not just
+# re-pin): of 700c's 31 surviving names, ZERO appear as a key or kwarg anywhere in
+# `exq700_arc108_settling_baseline.py`, so the resolution is complete with respect to
+# that module rather than partial. Hand-checked sample: CRF_MAINTENANCE_DECAY,
+# CONTRASTIVE_BATCH_K, MAX_GRAD_NORM and POLICY_TEMPERATURE are genuine -- the envelope
+# declares `use_candidate_rule_field=True` but not the CRF VALUES, the same
+# BOOLEANS-not-VALUES defect the 704 family carries. The four FIELD_NOISE_* /
+# NOISE_FLOOR_* names are the known over-fire class: they are read lexically in the loop
+# but bound off for every reusable arm (`noise_floor_alpha=(NOISE_FLOOR_ALPHA if noise_on
+# else 0.1)`, and all four reusable arms are noise_on=False), which is precisely what the
+# baseline module's docstring says it excludes on purpose. 833's single name is a true
+# positive of the SCHEME band: `STAGE0_ZGOAL_GATE = 0.4` decides the recorded
+# `stage0_zgoal_formed` readout and no baseline key binds it.
+#
 # The backlog is NOT to be retro-fixed: these runs are complete and a completed run's
 # pre-registered emission is not rewritten. It is a risk register -- the entry that
 # matters is the one whose baseline a FUTURE consumer tries to reuse.
@@ -553,6 +734,66 @@ def test_direct_call_carriers_stay_covered(corpus_scan):
         f"has regressed and these are unexamined again:\n  " + "\n  ".join(missing))
 
 
+def _has_unresolvable_baseline_slice(tree, path: Path) -> bool:
+    """True iff some flag-False slice comes from a `_lib/baselines/` helper we can't read.
+
+    Deliberately NOT `_BASELINE_HELPER_MODULE_MARKER in src`. That was the accounted-for
+    reason while the whole band was skipped; leaving it as a blanket excuse after the
+    band became resolvable would let a script go silent merely by importing from a
+    baselines module -- the same invisible fourth state this test exists to forbid,
+    reintroduced through the escape hatch. Only a helper that genuinely cannot be
+    resolved excuses silence now. Measured 2026-07-28: zero of the five cross-module
+    drivers in the corpus take this branch, so it is currently vacuous by design.
+    """
+    helpers = {}
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.ImportFrom) and node.module
+                and V._BASELINE_HELPER_MODULE_MARKER in node.module):
+            continue
+        parts = node.module.split(V._BASELINE_HELPER_MODULE_MARKER + ".", 1)
+        for alias in node.names:
+            helpers[alias.asname or alias.name] = (
+                parts[1] if len(parts) == 2 else "", alias.name)
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and V._call_name(node) in V._FP_CALL_NAMES):
+            continue
+        for kw in node.keywords:
+            if not (kw.arg == "config_slice" and isinstance(kw.value, ast.Call)
+                    and V._call_name(kw.value) in helpers):
+                continue
+            tail, orig = helpers[V._call_name(kw.value)]
+            mod_path = V._baselines_module_path(path, tail) if tail else None
+            mod_tree = V._parse_baseline_module(mod_path) if mod_path else None
+            if mod_tree is None or orig not in V._module_assigns_and_funcs(mod_tree)[1]:
+                return True
+    return False
+
+
+# The cross-module carriers, named -- the same defence `_DIRECT_CALL_CARRIERS` gives the
+# loop scope, for the same reason. Reverting the resolver to the blanket skip takes the
+# total from 56 to 53, which reads as "three backlog carriers were fixed" and is
+# indistinguishable from real remediation if only the total is pinned. It is MORE needed
+# here than there: the resolution landed at a net zero on the count, so the count cannot
+# see this band appear OR disappear.
+_CROSS_MODULE_CARRIERS = frozenset({
+    "v3_exq_700c_arc108_sec7_learned_gating_settling_samelayer_null.py",
+    "v3_exq_700d_arc108_sec7_learned_gating_settling_samelayer_null_retune.py",
+    "v3_exq_833_stageh_strict_goal_isolation_dv.py",
+})
+
+
+def test_cross_module_carriers_stay_covered(corpus_scan):
+    """These 3 build their config_slice in `_lib/baselines/` -- covered only by resolution."""
+    fired = {p.name for p in corpus_scan["config_slice_under_declaration_lint"]}
+    present = {n for n in _CROSS_MODULE_CARRIERS if (EXPERIMENTS_DIR / n).exists()}
+    missing = sorted(present - fired)
+    assert not missing, (
+        "cross-module carriers stopped firing -- if their config_slice was genuinely "
+        "fixed in the baseline module, drop them from _CROSS_MODULE_CARRIERS and re-pin; "
+        "if not, cross-module resolution has regressed to the blanket skip and these are "
+        f"unassessed again:\n  " + "\n  ".join(missing))
+
+
 def test_no_cross_driver_script_is_silently_unscanned():
     """The invariant the 2026-07-28 extension exists to establish.
 
@@ -581,8 +822,8 @@ def test_no_cross_driver_script_is_silently_unscanned():
             continue                                    # fires
         if V._CONFIG_SLICE_EXEMPT_MARKER in src:
             continue                                    # stated: exempt
-        if V._BASELINE_HELPER_MODULE_MARKER in src:
-            continue                                    # stated: cross-module slice
+        if _has_unresolvable_baseline_slice(tree, path):
+            continue                                    # stated: cross-module, unresolvable
         has_consts = any(
             isinstance(n, ast.Assign) and len(n.targets) == 1
             and isinstance(n.targets[0], ast.Name) and len(n.targets[0].id) > 2

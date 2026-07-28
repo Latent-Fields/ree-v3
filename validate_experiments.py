@@ -2459,10 +2459,101 @@ def emit_outcome_dry_run_lint(path: Path) -> Optional[str]:
 _CONFIG_SLICE_EXEMPT_MARKER = "CONFIG_SLICE_DECLARATION_EXEMPT"
 _FP_CALL_NAMES = ("arm_cell", "compute_arm_fingerprint")
 _SLICE_PASSTHROUGH_CALLS = ("dict", "copy", "deepcopy", "OrderedDict")
-# A slice built by a helper imported from here is declared in ANOTHER FILE, so a
-# single-file scan cannot assess it at all -- see the lint docstring's "cross-module
-# slice" block for why that is a SKIP rather than a fire.
+# A slice built by a helper imported from here is declared in ANOTHER FILE. The resolver
+# below parses that file and absorbs the helper's returned dict, so those scripts ARE
+# assessed; the marker now selects the band to RESOLVE rather than the band to skip. The
+# skip survives only as the fallback for a helper that cannot be resolved -- see the lint
+# docstring's "cross-module slice" block.
 _BASELINE_HELPER_MODULE_MARKER = "_lib.baselines"
+
+# Parsed `experiments/_lib/baselines/*.py` modules, keyed by (path, mtime_ns, size) so a
+# rewritten fixture is never served stale. Only ~5 drivers in the corpus reach this, and
+# the whole baselines package is 19 files, so the cache is bounded and tiny. These trees
+# are READ-ONLY here for the same reason the driver tree is (see the parent-map comment
+# in the lint): nothing may mutate an AST the corpus-scan cache shares.
+#
+# Interaction with that corpus-scan cache (`tests/contracts/conftest.py`), which is
+# correct but worth stating: it is keyed on source TEXT and holds exactly ONE entry, so a
+# baseline-module parse here can never be served the wrong tree, but it does EVICT the
+# driver's entry mid-file -- costing the next path lint on that driver one re-parse. This
+# cache is what bounds that: after the first driver, each baseline module is served from
+# here and `ast.parse` is not called at all, so the ceiling is one eviction per distinct
+# baseline module per session (3 in the corpus today). Measured: corpus scan 7.90s before
+# / 7.84s after, i.e. no measurable change.
+_BASELINE_MODULE_CACHE: Dict[Tuple[str, int, int], Optional[ast.Module]] = {}
+
+
+def _baselines_module_path(driver: Path, tail: str) -> Optional[Path]:
+    """Locate `_lib/baselines/<tail>.py` for a driver importing it, or None.
+
+    Both import spellings in the corpus land on the same file:
+    `from _lib.baselines.X import ...` (sys.path-rooted at experiments/) and
+    `from experiments._lib.baselines.X import ...` (repo-rooted); `tail` is whatever
+    follows the marker in either, so only the search root differs.
+    """
+    try:
+        rel = Path(*tail.split(".")).with_suffix(".py")
+    except (TypeError, ValueError):
+        return None
+    for root in (driver.parent / "_lib" / "baselines",
+                 driver.parent.parent / "experiments" / "_lib" / "baselines"):
+        cand = root / rel
+        if cand.is_file():
+            return cand
+    return None
+
+
+def _parse_baseline_module(path: Path) -> Optional[ast.Module]:
+    """Parse a baseline module, cached. None on any failure -- the caller then skips."""
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    key = (str(path), st.st_mtime_ns, st.st_size)
+    if key not in _BASELINE_MODULE_CACHE:
+        try:
+            _BASELINE_MODULE_CACHE[key] = ast.parse(
+                path.read_text(encoding="utf-8"), filename=str(path))
+        except (OSError, UnicodeDecodeError, SyntaxError):
+            _BASELINE_MODULE_CACHE[key] = None
+    return _BASELINE_MODULE_CACHE[key]
+
+
+def _is_mapping_expr(node: ast.AST) -> bool:
+    """A dict LITERAL or a `dict(...)`/`OrderedDict(...)`-style construction.
+
+    Both spellings declare keys, and the canonical baseline modules use the second:
+    `MATCHED_ENVELOPE: Dict[str, Any] = dict(settling_rounds=3, ...)`. Treating only
+    `ast.Dict` as a mapping is why resolving the cross-module helper initially bought
+    nothing on V3-EXQ-700c -- the splice `dict(MATCHED_ENVELOPE)` was followed to a
+    name bound to an `ast.Call`, which the recursion then declined to enter.
+    """
+    return isinstance(node, ast.Dict) or (
+        isinstance(node, ast.Call) and _call_name(node) in _SLICE_PASSTHROUGH_CALLS)
+
+
+def _module_assigns_and_funcs(
+        tree: ast.AST) -> Tuple[Dict[str, List[ast.AST]], Dict[str, List[ast.AST]]]:
+    """`name -> [bound value expr]` and `name -> [def]`, the two maps `_absorb` walks.
+
+    ANNOTATED assignments count. The canonical baseline modules annotate exactly the
+    dicts that matter (`MATCHED_ENVELOPE: Dict[str, Any] = dict(...)`), so collecting
+    only `ast.Assign` leaves the splice unresolvable and the cross-module resolution
+    buys nothing. This only ever ADDS declarations, so it can only reduce fires.
+    """
+    assigns: Dict[str, List[ast.AST]] = {}
+    funcs: Dict[str, List[ast.AST]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for tgt in node.targets:
+                if isinstance(tgt, ast.Name):
+                    assigns.setdefault(tgt.id, []).append(node.value)
+        elif (isinstance(node, ast.AnnAssign) and node.value is not None
+                and isinstance(node.target, ast.Name)):
+            assigns.setdefault(node.target.id, []).append(node.value)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            funcs.setdefault(node.name, []).append(node)
+    return assigns, funcs
 
 
 def _call_name(node: ast.Call) -> Optional[str]:
@@ -2543,23 +2634,57 @@ def config_slice_under_declaration_lint(path: Path) -> Optional[str]:
     CONVERSION_MARGIN, which enclosing-function scope pulls in. Loop scope changes the
     result of ZERO with-form scripts, so this extension is strictly additive.
 
-    CROSS-MODULE SLICE -- A DOCUMENTED SKIP, NOT A FIRE. When a flag-False call's
-    `config_slice` is built by a helper imported from `experiments/_lib/baselines/`
-    (`arm_config_slice(...)` / `off_path_config_slice(...)`), the declaration lives in
-    ANOTHER FILE and this single-file scan cannot see one key of it. Firing there is a
-    near-total false positive, and it would land on exactly the scripts following the
-    canonical-baseline pattern CLAUDE.md mandates for a reusable mint -- the best-behaved
-    population, not the worst. Measured on V3-EXQ-700c: 21 of the 27 constants a fire
-    would have named are declared in that module's `MATCHED_ENVELOPE`. So the check
-    returns None for those scripts and says nothing. This is the one band the gate
-    knowingly cannot assess; closing it needs cross-module parsing.
+    CROSS-MODULE SLICE -- RESOLVED, WITH THE SKIP KEPT AS THE FALLBACK. When a
+    flag-False call's `config_slice` is built by a helper imported from
+    `experiments/_lib/baselines/` (`arm_config_slice(...)` /
+    `off_path_config_slice(...)`), the declaration lives in ANOTHER FILE. Until
+    2026-07-28 that was a blanket SKIP, because firing blind would have been a
+    near-total false positive landing on exactly the scripts following the
+    canonical-baseline pattern CLAUDE.md mandates for a reusable mint -- the
+    best-behaved population, not the worst. Measured on V3-EXQ-700c at the time: 21 of
+    the 27 constants a fire would have named were declared in that module's
+    `MATCHED_ENVELOPE`.
+
+    The resolver now parses that module and absorbs the helper's returned dict --
+    including a same-module helper it tail-calls (`off_path_config_slice` ->
+    `arm_config_slice`) and any module-level dict it splices in (`dict(MATCHED_ENVELOPE)`,
+    `dict(ENV_KWARGS)`), whose KEYS are what actually bind the driver's constants. All
+    five resolve, so the band holds no unassessed script: 700c 55 -> 31 surviving names,
+    700d 56 -> 32, 833 1, and 685 / 700c_mint verifiably clean (one declared constant,
+    and no module-level numeric constants at all). Calibrated before shipping -- of
+    700c's 31, ZERO appear as a key or kwarg anywhere in the baseline module, so the
+    resolution is complete with respect to it rather than partial.
+
+    The skip survives ONLY as the fallback: if the module file cannot be located, parsed,
+    or the named function found with a returned value, the check returns None and says
+    nothing, exactly as before.
+
+    TWO SPELLINGS DECIDE WHETHER THIS IS REAL OR NOMINAL. Parsing the module bought
+    nothing at all until both were handled, because the canonical baseline modules write
+    the envelope as an ANNOTATED assignment bound to a `dict(...)` CALL:
+    `MATCHED_ENVELOPE: Dict[str, Any] = dict(settling_rounds=3, ...)`. Treating a mapping
+    as `ast.Dict`-only, or building the name->value map from `ast.Assign` only, each
+    leaves 700c at 55 names -- the module is parsed, the helper is found, and no result
+    changes. Both are fixed here (`_is_mapping_expr`, `_module_assigns_and_funcs`), and
+    both generalise to the single-file path: on the with-form corpus the annotation half
+    alone cleared V3-EXQ-114a / 120a / 266b as pre-existing false positives (all three
+    declare in an annotated `full_config: Dict[str, Any] = {...}`) and shrank five more,
+    and the mapping half removed REINFORCE_BATCH_SIZE from all 11 direct-call carriers.
+
+    Deliberately narrow in two ways. It follows the CALL form only -- a bare imported
+    name used as the slice is not resolved (and, as before, does not skip either). And
+    it does not chase imports out of the baseline module: a helper whose return splices
+    in something imported from a THIRD file resolves partially, which is the same
+    over-fire direction the gate already lives with elsewhere and is why the gate stays
+    WARN-only.
 
     Known limits, both directions, same class as the other static lints here:
       - UNDER-fires when the value is not a module-level literal (assembled at runtime,
-        imported from a _lib module, read from argv/env), when the cell body calls a
-        helper through an alias/partial the name-based call graph cannot follow, on the
-        cross-module slices described above, and -- for the direct-call form -- when the
-        arm is run OUTSIDE the loop holding the fingerprint call.
+        imported from a _lib module other than a resolved baselines helper, read from
+        argv/env), when the cell body calls a helper through an alias/partial the
+        name-based call graph cannot follow, on an unresolvable cross-module slice as
+        described above, and -- for the direct-call form -- when the arm is run OUTSIDE
+        the loop holding the fingerprint call.
       - OVER-fires when the constant is genuinely bound by something else already in the
         slice (a derived count beside a declared edge list), when a threshold is read
         lexically inside the scope for an early-exit/progress print, and on the
@@ -2627,50 +2752,94 @@ def config_slice_under_declaration_lint(path: Path) -> Optional[str]:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             funcs.setdefault(node.name, []).append(node)
 
-    # -- 1d. cross-module slice -> unassessable, say nothing (see docstring)
-    baseline_helpers: Set[str] = set()
+    # -- 1d. helpers imported from `_lib/baselines/` -- local alias -> (module tail,
+    #        name in that module). These build the slice in ANOTHER FILE; step 2 resolves
+    #        them, and only an UNRESOLVABLE one falls back to the documented skip.
+    baseline_helpers: Dict[str, Tuple[str, str]] = {}
     for node in ast.walk(tree):
-        if (isinstance(node, ast.ImportFrom) and node.module
+        if not (isinstance(node, ast.ImportFrom) and node.module
                 and _BASELINE_HELPER_MODULE_MARKER in node.module):
-            for alias in node.names:
-                baseline_helpers.add(alias.asname or alias.name)
-    for call in fp_calls:
-        for kw in call.keywords:
-            if (kw.arg == "config_slice" and isinstance(kw.value, ast.Call)
-                    and _call_name(kw.value) in baseline_helpers):
-                return None
+            continue
+        parts = node.module.split(_BASELINE_HELPER_MODULE_MARKER + ".", 1)
+        tail = parts[1] if len(parts) == 2 else ""
+        for alias in node.names:
+            baseline_helpers[alias.asname or alias.name] = (tail, alias.name)
 
     # -- 2. resolve the declared config_slice into keys + value-expression names
-    assigns: Dict[str, List[ast.AST]] = {}
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Assign):
-            for tgt in node.targets:
-                if isinstance(tgt, ast.Name):
-                    assigns.setdefault(tgt.id, []).append(node.value)
+    assigns = _module_assigns_and_funcs(tree)[0]
 
     declared_keys: Set[str] = set()
     declared_names: Set[str] = set()
+    # Set when a config_slice IS built by a baselines helper we could not resolve. The
+    # gate then says nothing rather than firing on a declaration it cannot see.
+    unresolved_cross_module: List[str] = []
 
-    def _absorb(expr: Optional[ast.AST], depth: int = 0, seen: Optional[frozenset] = None) -> None:
+    _DRIVER_CTX = "<driver>"
+    # ctx key -> (assigns, funcs) for a resolved baselines module. `seen` is keyed by
+    # (ctx, name) so a helper named the same in two modules does not self-block.
+    module_ctx: Dict[str, Tuple[Dict[str, List[ast.AST]], Dict[str, List[ast.AST]]]] = {
+        _DRIVER_CTX: (assigns, funcs)}
+
+    def _resolve_baseline_ctx(tail: str) -> Optional[str]:
+        """Parse `_lib/baselines/<tail>.py` into a ctx key, or None if unresolvable."""
+        if not tail:
+            return None
+        mod_path = _baselines_module_path(path, tail)
+        if mod_path is None:
+            return None
+        key = str(mod_path)
+        if key not in module_ctx:
+            mod_tree = _parse_baseline_module(mod_path)
+            if mod_tree is None:
+                return None
+            module_ctx[key] = _module_assigns_and_funcs(mod_tree)
+        return key
+
+    def _absorb(expr: Optional[ast.AST], depth: int = 0, seen: Optional[frozenset] = None,
+                ctx: str = _DRIVER_CTX) -> None:
         seen = seen or frozenset()
         if expr is None or depth > 8:
             return
+        ctx_assigns, ctx_funcs = module_ctx[ctx]
         if isinstance(expr, ast.Name):
             declared_names.add(expr.id)
-            if expr.id in seen:
+            if (ctx, expr.id) in seen:
                 return
-            for val in assigns.get(expr.id, []):
-                _absorb(val, depth + 1, seen | {expr.id})
+            for val in ctx_assigns.get(expr.id, []):
+                _absorb(val, depth + 1, seen | {(ctx, expr.id)}, ctx)
             return
         if isinstance(expr, ast.Call):
             callee = _call_name(expr)
             if callee in _SLICE_PASSTHROUGH_CALLS:
                 for arg in expr.args:
-                    _absorb(arg, depth + 1, seen)
+                    _absorb(arg, depth + 1, seen, ctx)
                 for kw in expr.keywords:
                     if kw.arg:
                         declared_keys.add(kw.arg)
-                    _absorb(kw.value, depth + 1, seen)
+                    _absorb(kw.value, depth + 1, seen, ctx)
+                return
+            # `config_slice=arm_config_slice(arm, ...)` imported from `_lib/baselines/` --
+            # the canonical-baseline shape CLAUDE.md mandates for a reusable mint. The
+            # declaration is in that module, so resolve it there. Only reachable from the
+            # driver ctx: this does not chase imports out of a baseline module.
+            # Checked AFTER the local-function branch below by the `callee not in
+            # ctx_funcs` guard: a local `def` of the same name shadows the import in
+            # Python, so it must shadow it here too.
+            if (ctx == _DRIVER_CTX and callee in baseline_helpers
+                    and callee not in ctx_funcs):
+                tail, orig = baseline_helpers[callee]
+                sub = _resolve_baseline_ctx(tail)
+                if sub is None or orig not in module_ctx.get(sub, ({}, {}))[1]:
+                    unresolved_cross_module.append(callee)
+                    return
+                absorbed = False
+                for defn in module_ctx[sub][1][orig]:
+                    for node in ast.walk(defn):
+                        if isinstance(node, ast.Return) and node.value is not None:
+                            absorbed = True
+                            _absorb(node.value, depth + 1, seen | {(sub, orig)}, sub)
+                if not absorbed:
+                    unresolved_cross_module.append(callee)
                 return
             # `config_slice=_arm_config_slice(arm, ...)` -- a LOCAL helper returning the
             # slice dict. Absorb what it returns. Without this the slice reads as empty
@@ -2679,31 +2848,45 @@ def config_slice_under_declaration_lint(path: Path) -> Optional[str]:
             # from 13 with-form scripts (V3-EXQ-793 41 names -> 15, 794 11 -> 2, 751
             # 3 -> 0) and is what keeps the direct-call form's new coverage honest, since
             # 10 of those 15 scripts declare their slice through exactly this shape.
-            if callee in funcs and callee not in seen:
-                for defn in funcs[callee]:
+            # Resolved in the CURRENT ctx, so a baseline helper's tail call to a sibling
+            # in its own module (`off_path_config_slice` -> `arm_config_slice`) lands
+            # here with that module's funcs, not the driver's.
+            if callee in ctx_funcs and (ctx, callee) not in seen:
+                for defn in ctx_funcs[callee]:
                     for sub in ast.walk(defn):
                         if isinstance(sub, ast.Return) and sub.value is not None:
-                            _absorb(sub.value, depth + 1, seen | {callee})
+                            _absorb(sub.value, depth + 1, seen | {(ctx, callee)}, ctx)
                 return
         if isinstance(expr, ast.Dict):
             for key, val in zip(expr.keys, expr.values):
                 if key is None:          # {**other}
-                    _absorb(val, depth + 1, seen)
+                    _absorb(val, depth + 1, seen, ctx)
                     continue
                 if isinstance(key, ast.Constant) and isinstance(key.value, str):
                     declared_keys.add(key.value)
                 for sub in ast.walk(val):
                     if isinstance(sub, ast.Name):
                         declared_names.add(sub.id)
+                        # `"matched_envelope": dict(MATCHED_ENVELOPE)` -- the KEYS of a
+                        # spliced module-level dict are what bind the driver's constants
+                        # (SETTLING_ROUNDS <- "settling_rounds"), so a value that merely
+                        # NAMES the envelope declares nothing on its own. Same recursion
+                        # the generic branch below already does; without it, resolving a
+                        # cross-module helper buys almost nothing, since the canonical
+                        # baseline shape is exactly one such splice per group.
+                        for nested in ([] if (ctx, sub.id) in seen
+                                       else ctx_assigns.get(sub.id, [])):
+                            if _is_mapping_expr(nested):
+                                _absorb(nested, depth + 1, seen | {(ctx, sub.id)}, ctx)
                     elif isinstance(sub, ast.Attribute):
                         declared_names.add(sub.attr)
             return
         for sub in ast.walk(expr):
             if isinstance(sub, ast.Name):
                 declared_names.add(sub.id)
-                for val in assigns.get(sub.id, []):
+                for val in ctx_assigns.get(sub.id, []):
                     if isinstance(val, ast.Dict):
-                        _absorb(val, depth + 1, seen)
+                        _absorb(val, depth + 1, seen, ctx)
             elif isinstance(sub, ast.Attribute):
                 declared_names.add(sub.attr)
 
@@ -2723,6 +2906,12 @@ def config_slice_under_declaration_lint(path: Path) -> Optional[str]:
                 and node.func.value.id in declared_names):
             for arg in node.args:
                 _absorb(arg)
+
+    # -- 2b. the fallback: a baselines helper we could NOT resolve leaves the slice
+    #        partly invisible, which is the pre-2026-07-28 situation for the whole band.
+    #        Say nothing rather than fire on a declaration we cannot see.
+    if unresolved_cross_module:
+        return None
 
     # -- 3. module-level numeric constants
     consts: Set[str] = set()
