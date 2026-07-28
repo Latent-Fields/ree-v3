@@ -39,13 +39,49 @@ is that pair asserted directly: the lint must name SSL_BIN_EDGES on 798 and must
 name it on 798a.
 
 CALL-GRAPH SCOPING IS THE DISCRIMINATOR. Scoping the constant scan to the cell's own
-call graph (the `with` body plus every module-level function transitively called from
+call graph (the cell body plus every module-level function transitively called from
 it) is what separates a readout-affecting parameter from an adjudication threshold
 applied downstream in `evaluate(rows)`. Measured while this gate was written: without
 the scoping the check fires on 67 of the 83 cross-driver drivers, dominated by
 `THRESH_*` / `FLOOR_*` criterion constants that no cell ever reads; with it, 48. A
 whole-module constant scan over-counts by ~40%, which is why this is a call-graph gate
 and not a name scan.
+
+BOTH CALL FORMS ARE SCOPED (extended 2026-07-28). The gate originally located the cell
+body only via `with arm_cell(...) as cell:`, so the 15 cross-driver scripts calling
+`compute_arm_fingerprint(...)` directly returned early and were scanned not at all --
+unexamined, not cleared. The direct-call form has no lexical cell body, so its scope is
+the NEAREST ENCLOSING LOOP of the fingerprint call, which is where the sibling statement
+that actually runs the arm lives. `test_direct_call_form_is_scoped` and
+`test_direct_call_scope_is_the_loop_not_the_enclosing_function` are that pair.
+
+WHY NOT THE ENCLOSING FUNCTION -- the measurement that decided it, and the reason not to
+"simplify" the loop walk away. In the direct-call corpus the enclosing function is
+`run_experiment` in 13 of 15 cases, and `run_experiment` calls `evaluate(rows)` too, so
+enclosing-function scope collapses into very nearly the whole-module scan this gate was
+built to avoid. Calibrated against the with-form scripts, where the `with` body IS ground
+truth: enclosing-function scope reproduces the correct missing set in only 28 of 60, adds
+271 spurious constants, and is byte-identical to a whole-module scan in 18 of 60; loop
+scope reproduces it in 40 of 60, adds 79, degenerates in 7, and changes the result of
+ZERO with-form scripts.
+
+TWO DEFECTS, NOT ONE. Scoping was only half the gap. All 15 direct-call scripts build
+their slice through a HELPER rather than a literal dict, and the resolver did not follow
+one: 10 via a local in-file `_arm_config_slice()`, 4 via a helper imported from
+`experiments/_lib/baselines/`. Without following the local helper the slice reads as
+empty and the new fires would have been dominated by constants that ARE declared one call
+away -- so `_absorb` now absorbs a local function's `return` values. That also removes
+PRE-EXISTING false positives from 13 with-form scripts (V3-EXQ-793 41 names -> 15, 794
+11 -> 2, 751 3 -> 0), which is why the pinned count moved DOWN for the with-form half
+while the direct-call half was added.
+
+THE CROSS-MODULE BAND IS A DOCUMENTED SKIP. For the 4 whose helper is imported from
+`_lib/baselines/`, the declaration is in another file and a single-file scan cannot see
+one key of it. Firing there would be a near-total false positive landing on precisely the
+scripts that FOLLOW the canonical-baseline pattern CLAUDE.md mandates -- measured on
+V3-EXQ-700c, 21 of the 27 constants a fire would name are declared in that module's
+`MATCHED_ENVELOPE`. So the gate says nothing for them. `test_cross_module_slice_is_a_skip`
+pins that, and it is the one band the gate knowingly cannot assess.
 
 SCOPE. This gates NEW scripts, and the gate stays WARN-only: a landed carrier's run is
 complete and its pre-registered emission is not rewritten to chase a lint. A false HIT
@@ -220,6 +256,149 @@ def test_unparseable_file_is_not_an_error(tmp_path):
 
 
 # --------------------------------------------------------------------------------------
+# (2b) the DIRECT `compute_arm_fingerprint(...)` form -- no lexical cell body
+# --------------------------------------------------------------------------------------
+# The shape of all 15 direct-call drivers: the fingerprint call computes a hash and the
+# arm is run by a SIBLING statement in the same loop body. `run_experiment` also calls
+# `evaluate(rows)`, which is what makes enclosing-function scope degenerate -- so these
+# fixtures deliberately include that adjudication call at the same level the real drivers
+# do, and the negative assertion below is the whole point of using the loop.
+_DIRECT_CALL = """
+    from pathlib import Path
+    from _lib.arm_fingerprint import compute_arm_fingerprint
+
+    SSL_BIN_EDGES = (2, 5, 12)
+    LR = 0.001
+    THRESH_C1 = 0.42
+
+    def _bin(x):
+        lo, mid, hi = SSL_BIN_EDGES
+        return 0 if x <= lo else (1 if x <= mid else (2 if x <= hi else 3))
+
+    def _run_seed_arm(arm, seed):
+        return {"by_bin": _bin(seed), "lr": LR}
+
+    def evaluate(rows):
+        return all(r["by_bin"] >= THRESH_C1 for r in rows)
+
+    def run_experiment():
+        rows = []
+        for seed in (1, 2):
+            row = _run_seed_arm("A", seed)
+            row["arm_fingerprint"] = compute_arm_fingerprint(
+                config_slice={"lr": LR, "arm_id": "A"},
+                seed=seed,
+                script_path=Path(__file__),
+                include_driver_script_in_hash=False,
+            )
+            rows.append(row)
+        return evaluate(rows)
+"""
+
+
+def test_direct_call_form_is_scoped(tmp_path):
+    """The 15-script gap: before 2026-07-28 this returned None and scanned nothing.
+
+    Same defect as the confirmed 798 instance, expressed in the form that has no `with`.
+    """
+    msg = V.config_slice_under_declaration_lint(_write(tmp_path, _DIRECT_CALL))
+    assert msg is not None, (
+        "a direct compute_arm_fingerprint(include_driver_script_in_hash=False) call is "
+        "cross-driver-reusable exactly like the `with arm_cell` form -- it must be scoped")
+    assert "SSL_BIN_EDGES" in _named(msg)
+
+
+def test_direct_call_scope_is_the_loop_not_the_enclosing_function(tmp_path):
+    """THRESH_C1 is read only by `evaluate(rows)`, called from the SAME function.
+
+    This is the measurement that rejected enclosing-function scope: `run_experiment` is
+    the enclosing function in 13 of the 15 real scripts and it calls `evaluate` too, so
+    scoping to it would pull the entire adjudication block in and degenerate into the
+    whole-module scan (28/60 fidelity, +271 constants, vs loop scope's 40/60 and +79).
+    If this assertion ever fails, the scope has been widened back to the function.
+    """
+    msg = V.config_slice_under_declaration_lint(_write(tmp_path, _DIRECT_CALL))
+    assert msg is not None
+    assert "THRESH_C1" not in _named(msg), (
+        "THRESH_C1 is an adjudication threshold read only downstream in evaluate(rows) -- "
+        "the direct-call scope must be the LOOP holding the fingerprint call, not its "
+        "enclosing function")
+    assert _named(msg) == {"SSL_BIN_EDGES"}
+
+
+def test_local_slice_helper_return_is_resolved(tmp_path):
+    """`config_slice=_arm_config_slice(...)` -- 10 of the 15 declare their slice this way.
+
+    Without following the local helper's `return`, the slice resolves as EMPTY and every
+    constant the cell reads is reported missing -- including the ones declared one call
+    away. That over-firing is what this resolution removes (and it cleared pre-existing
+    false positives on 13 with-form scripts too).
+    """
+    src = _DIRECT_CALL.replace(
+        'config_slice={"lr": LR, "arm_id": "A"},',
+        'config_slice=_arm_config_slice("A"),'
+    ).replace(
+        "    def _bin(x):",
+        '    def _arm_config_slice(arm):\n'
+        '        return {"lr": LR, "arm_id": arm, "ssl_bin_edges": list(SSL_BIN_EDGES)}\n'
+        "\n"
+        "    def _bin(x):",
+    )
+    path = _write(tmp_path, src)
+    ast.parse(path.read_text(encoding="utf-8"))  # fixture must be valid Python
+    assert V.config_slice_under_declaration_lint(path) is None, (
+        "the helper's returned dict declares ssl_bin_edges -- the resolver must follow "
+        "a local function's return value")
+
+
+def test_cross_module_slice_is_a_skip(tmp_path):
+    """A slice built by an `_lib/baselines/` helper is declared in ANOTHER file.
+
+    The gate cannot see one key of it, so firing would be a near-total false positive --
+    and it would land on the scripts following the canonical-baseline pattern CLAUDE.md
+    mandates for a reusable mint. Measured on V3-EXQ-700c: 21 of the 27 constants a fire
+    would name are declared in that module's MATCHED_ENVELOPE. Silence is the honest
+    answer here; closing the band needs cross-module parsing.
+    """
+    src = _DIRECT_CALL.replace(
+        "    from _lib.arm_fingerprint import compute_arm_fingerprint",
+        "    from _lib.arm_fingerprint import compute_arm_fingerprint\n"
+        "    from experiments._lib.baselines.exq700_arc108_settling_baseline import (\n"
+        "        arm_config_slice,\n"
+        "    )",
+    ).replace(
+        'config_slice={"lr": LR, "arm_id": "A"},',
+        'config_slice=arm_config_slice("A", 1, 1, 1, 1),')
+    path = _write(tmp_path, src)
+    ast.parse(path.read_text(encoding="utf-8"))
+    assert V.config_slice_under_declaration_lint(path) is None, (
+        "a config_slice built by a cross-module _lib/baselines helper is unassessable "
+        "by a single-file scan and must be skipped, not fired on")
+
+
+def test_cross_module_skip_needs_the_slice_to_come_from_that_helper(tmp_path):
+    """Merely IMPORTING from `_lib/baselines/` must not buy a blanket exemption.
+
+    The skip is keyed on the config_slice argument itself being a call to the imported
+    helper. A script that imports (say) REUSABLE_ARM_IDS from a baseline module but still
+    builds its slice inline is fully assessable, and silencing it would be a hole big
+    enough to drive the confirmed 798 defect through.
+    """
+    src = _DIRECT_CALL.replace(
+        "    from _lib.arm_fingerprint import compute_arm_fingerprint",
+        "    from _lib.arm_fingerprint import compute_arm_fingerprint\n"
+        "    from experiments._lib.baselines.exq700_arc108_settling_baseline import (\n"
+        "        REUSABLE_ARM_IDS,\n"
+        "    )")
+    path = _write(tmp_path, src)
+    ast.parse(path.read_text(encoding="utf-8"))
+    msg = V.config_slice_under_declaration_lint(path)
+    assert msg is not None and "SSL_BIN_EDGES" in _named(msg), (
+        "the slice is still an inline dict -- importing something unrelated from a "
+        "baselines module must not suppress the check")
+
+
+# --------------------------------------------------------------------------------------
 # (3) the confirmed instance, as a differential
 # --------------------------------------------------------------------------------------
 
@@ -282,20 +461,42 @@ def test_gate_is_warn_only_even_under_strict(tmp_path):
 # --------------------------------------------------------------------------------------
 # (5) pinned corpus fire count
 # --------------------------------------------------------------------------------------
-# 48 of the 68 with-form cross-driver drivers (83 pass the flag at all; 15 use the
-# non-`with` form the scan does not scope). Established 2026-07-28 by the audit that
-# introduced this gate. The backlog is NOT to be retro-fixed: these runs are complete and
-# a completed run's pre-registered emission is not rewritten. It is a risk register --
-# the entry that matters is the one whose baseline a FUTURE consumer tries to reuse.
+# 56 of the 85 cross-driver drivers, re-pinned 2026-07-28 (from 48) when the direct-call
+# form was brought into scope. The move is the NET of three effects, all measured, and it
+# is worth keeping them separate because two of them pull the count DOWN:
 #
-# Severity is not uniform across the 48, and the written finding
+#   48 -> 46  with-form, resolver: two scripts' fires were PRE-EXISTING FALSE POSITIVES
+#             and went to zero once a local slice-helper's return was followed (735, 751).
+#             Nine more shrank without clearing (793/793a 41 -> 15, 794/794a 11 -> 2,
+#             766 8 -> 1, 767/767a/768/768a, 795, 832).
+#   46 -> 45  with-form, cross-module skip: 833 builds its slice from an `_lib/baselines/`
+#             helper, so it moved into the unassessable band.
+#   45 -> 56  +11 direct-call scripts, newly scoped at all rather than silently skipped.
+#
+# Current split: 45 with-form + 11 direct-call. The remaining 4 direct-call scripts are
+# 685 (nothing undeclared), 700c_mint (no module-level numeric constants at all), and
+# 700c/700d (cross-module skip). Nothing in the direct-call set is silently unexamined
+# any more -- each is either fired on, clean, or skipped for a stated reason.
+#
+# The backlog is NOT to be retro-fixed: these runs are complete and a completed run's
+# pre-registered emission is not rewritten. It is a risk register -- the entry that
+# matters is the one whose baseline a FUTURE consumer tries to reuse.
+#
+# The 11 direct-call carriers are ONE DRIVER FAMILY (704/704b, 707/707a/707b/707c,
+# 708/708a/708b, 710, 714 -- the ARC-110 / MECH-440 / MECH-451 lineage on a shared
+# template), so their 38-45 names each are the same defect replicated, not 11 independent
+# problems: their `_arm_config_slice` declares the envelope's BOOLEANS
+# (`use_f_eligibility_demotion`) but not its VALUES (`f_eligibility_envelope_floor`,
+# passed straight to the agent build). Spot-verified on 704.
+#
+# Severity is not uniform across the 56, and the written finding
 # (REE_assembly/evidence/planning/) records the classification. The band that matters
 # most is a SCHEME constant -- a binning/quantisation choice like V3-EXQ-798's
 # SSL_BIN_EDGES -- because a consumer that changes it gets numbers that are not merely
 # differently-parameterised but differently-MEANING. Training hyperparameters
 # (MAX_GRAD_NORM, CONTRASTIVE_BATCH_K) are the common band and are lower severity: a
 # consumer changing them is usually running a different experiment anyway.
-_PINNED_CORPUS_FIRE_COUNT = 48
+_PINNED_CORPUS_FIRE_COUNT = 56
 
 
 def test_config_slice_corpus_fire_rate_is_pinned(corpus_scan):
@@ -320,3 +521,80 @@ def test_confirmed_carrier_is_in_the_pinned_set(corpus_scan):
     """V3-EXQ-798 must be in the backlog -- it is the confirmed instance."""
     names = {p.name for p in corpus_scan["config_slice_under_declaration_lint"]}
     assert "v3_exq_798_sdmelproducer_graded_nonconverging_world.py" in names
+
+
+# The direct-call carriers, named. A regression to `with`-only scoping takes the total
+# count from 56 to 45 and would read as "11 backlog carriers were fixed" -- which is
+# indistinguishable from real remediation if only the total is pinned. Naming them makes
+# a silent loss of coverage fail as a loss of coverage.
+_DIRECT_CALL_CARRIERS = frozenset({
+    "v3_exq_704_mech451_finer_channel_granularity_falsifier.py",
+    "v3_exq_704b_mech451_finer_channel_granularity_falsifier.py",
+    "v3_exq_707_arc110_loop_segregation_validation.py",
+    "v3_exq_707a_arc110_loop_segregation_validation.py",
+    "v3_exq_707b_arc110_loop_segregation_c2_release.py",
+    "v3_exq_707c_arc110_loop_segregation_c2_release_repair.py",
+    "v3_exq_708_mech440_noisy_selection_head_propagation_falsifier.py",
+    "v3_exq_708a_mech440_noisy_selection_head_propagation_falsifier.py",
+    "v3_exq_708b_mech440_precommit_distribution_shape_falsifier.py",
+    "v3_exq_710_disinhibitory_soft_competitive_settling_validation.py",
+    "v3_exq_714_fullstack_selection_valuation_conversion_falsifier.py",
+})
+
+
+def test_direct_call_carriers_stay_covered(corpus_scan):
+    """These 11 have NO `with arm_cell(...)` -- they are covered only by the loop scope."""
+    fired = {p.name for p in corpus_scan["config_slice_under_declaration_lint"]}
+    present = {n for n in _DIRECT_CALL_CARRIERS if (EXPERIMENTS_DIR / n).exists()}
+    missing = sorted(present - fired)
+    assert not missing, (
+        "direct-call carriers stopped firing -- if their config_slice was genuinely fixed, "
+        "drop them from _DIRECT_CALL_CARRIERS and re-pin; if not, the non-`with` scoping "
+        f"has regressed and these are unexamined again:\n  " + "\n  ".join(missing))
+
+
+def test_no_cross_driver_script_is_silently_unscanned():
+    """The invariant the 2026-07-28 extension exists to establish.
+
+    Every script passing `include_driver_script_in_hash=False` must be in exactly one of
+    three states -- fires, verifiably clean, or skipped for a STATED reason (exempt
+    marker, no module-level numeric constants, cross-module slice). The old failure mode
+    was a fourth, invisible state: `return None` because the scan could not find a `with`,
+    which looks identical to "clean" from the outside. This test reconstructs the reason
+    for every silent script and fails if one has no accounted-for reason.
+    """
+    unexplained = []
+    for path in sorted(EXPERIMENTS_DIR.glob("v3_exq_*.py")):
+        try:
+            src = path.read_text(encoding="utf-8")
+            tree = ast.parse(src)
+        except (OSError, UnicodeDecodeError, SyntaxError):
+            continue
+        cross = [n for n in ast.walk(tree)
+                 if isinstance(n, ast.Call) and V._call_name(n) in V._FP_CALL_NAMES
+                 and any(k.arg == "include_driver_script_in_hash"
+                         and isinstance(k.value, ast.Constant) and k.value.value is False
+                         for k in n.keywords)]
+        if not cross:
+            continue
+        if V.config_slice_under_declaration_lint(path) is not None:
+            continue                                    # fires
+        if V._CONFIG_SLICE_EXEMPT_MARKER in src:
+            continue                                    # stated: exempt
+        if V._BASELINE_HELPER_MODULE_MARKER in src:
+            continue                                    # stated: cross-module slice
+        has_consts = any(
+            isinstance(n, ast.Assign) and len(n.targets) == 1
+            and isinstance(n.targets[0], ast.Name) and len(n.targets[0].id) > 2
+            and n.targets[0].id.isupper() and V._is_numeric_literal(n.value)
+            for n in tree.body)
+        if not has_consts:
+            continue                                    # stated: nothing to check
+        # Silent with constants present and no stated reason: it must be that every
+        # constant the cell reads is declared. Assert the scope actually found a cell.
+        if not any(isinstance(n, (ast.With, ast.AsyncWith)) for n in ast.walk(tree)):
+            unexplained.append(path.name)
+    assert not unexplained, (
+        "cross-driver scripts silently unscanned -- no `with` cell, module-level numeric "
+        "constants present, and no stated skip reason. This is the exact gap the 15 "
+        f"direct-call scripts were in before 2026-07-28:\n  " + "\n  ".join(unexplained))

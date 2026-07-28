@@ -2459,6 +2459,10 @@ def emit_outcome_dry_run_lint(path: Path) -> Optional[str]:
 _CONFIG_SLICE_EXEMPT_MARKER = "CONFIG_SLICE_DECLARATION_EXEMPT"
 _FP_CALL_NAMES = ("arm_cell", "compute_arm_fingerprint")
 _SLICE_PASSTHROUGH_CALLS = ("dict", "copy", "deepcopy", "OrderedDict")
+# A slice built by a helper imported from here is declared in ANOTHER FILE, so a
+# single-file scan cannot assess it at all -- see the lint docstring's "cross-module
+# slice" block for why that is a SKIP rather than a fire.
+_BASELINE_HELPER_MODULE_MARKER = "_lib.baselines"
 
 
 def _call_name(node: ast.Call) -> Optional[str]:
@@ -2490,8 +2494,8 @@ def _is_numeric_literal(node: ast.AST) -> bool:
 def config_slice_under_declaration_lint(path: Path) -> Optional[str]:
     """Under-declared arm-reuse `config_slice` check. Return an issue string, or None.
 
-    Gates only the CROSS-DRIVER set: a script that opens at least one
-    `with arm_cell(...)` / `compute_arm_fingerprint(...)` passing
+    Gates only the CROSS-DRIVER set: a script that makes at least one
+    `arm_cell(...)` / `compute_arm_fingerprint(...)` call passing
     `include_driver_script_in_hash=False`. That flag removes the driver's own content
     from the substrate hash, so every module-level constant the cell reads becomes
     invisible to the fingerprint unless the `config_slice` names it. A consumer with a
@@ -2506,21 +2510,59 @@ def config_slice_under_declaration_lint(path: Path) -> Optional[str]:
 
     Fires on a module-level UPPER_SNAKE constant bound to a NUMERIC literal (or a
     tuple/list of numerics -- the bin-edges shape) that is read from the CELL'S OWN CALL
-    GRAPH (the `with` body plus every module-level function transitively called from
-    it) and is not named in the resolved config_slice, by value-expression name or by a
+    GRAPH and is not named in the resolved config_slice, by value-expression name or by a
     key whose name matches it. Scoping to the cell call graph is what separates a
     readout-affecting parameter from an adjudication threshold applied downstream in
     `evaluate(rows)` -- without it the check over-fires ~3x on THRESH_*/FLOOR_* criterion
     constants that no cell ever reads.
 
+    LOCATING THE CELL BODY -- TWO FORMS. The `with arm_cell(...) as cell:` form has a
+    lexical body, and that body (plus its transitive module-level callees) is the scope.
+    The DIRECT `compute_arm_fingerprint(...)` form has no cell body at all: the call only
+    computes a hash, and the arm is run by a sibling statement. For those, the scope is
+    the NEAREST ENCLOSING LOOP body of the call (plus transitive callees), falling back to
+    the enclosing function when there is no loop -- because the shape is invariably
+
+        for arm in ARMS:                     # <- the scope
+            row = _run_seed_arm(arm, seed)   # the cell body, a sibling statement
+            row["arm_fingerprint"] = compute_arm_fingerprint(config_slice=..., ...)
+
+    so the loop body is the closest static analogue of a `with` body. Both root sets are
+    used together, so a script mixing the forms is scoped for each.
+
+    WHY THE LOOP AND NOT THE ENCLOSING FUNCTION (measured 2026-07-28, do not "simplify"
+    this to the enclosing function). In the direct-call corpus the enclosing function is
+    `run_experiment` in 13 of 15 cases -- the whole-experiment driver, which calls
+    `evaluate(rows)` too -- so enclosing-function scope degenerates into very nearly the
+    whole-module scan this gate exists to avoid. Calibrated against the with-form scripts,
+    where the `with` body is ground truth: enclosing-function scope reproduces the correct
+    missing set in only 28 of 60, adds 271 spurious constants, and is byte-identical to a
+    whole-module scan in 18 of 60. Loop scope reproduces it in 40 of 60, adds 79, and
+    degenerates in 7. On the direct-call scripts the difference is the adjudication block:
+    loop scope excludes MIN_SEEDS_FOR_PASS / DIVERGENT_PASS_FRACTION / ABLATION_MARGIN /
+    CONVERSION_MARGIN, which enclosing-function scope pulls in. Loop scope changes the
+    result of ZERO with-form scripts, so this extension is strictly additive.
+
+    CROSS-MODULE SLICE -- A DOCUMENTED SKIP, NOT A FIRE. When a flag-False call's
+    `config_slice` is built by a helper imported from `experiments/_lib/baselines/`
+    (`arm_config_slice(...)` / `off_path_config_slice(...)`), the declaration lives in
+    ANOTHER FILE and this single-file scan cannot see one key of it. Firing there is a
+    near-total false positive, and it would land on exactly the scripts following the
+    canonical-baseline pattern CLAUDE.md mandates for a reusable mint -- the best-behaved
+    population, not the worst. Measured on V3-EXQ-700c: 21 of the 27 constants a fire
+    would have named are declared in that module's `MATCHED_ENVELOPE`. So the check
+    returns None for those scripts and says nothing. This is the one band the gate
+    knowingly cannot assess; closing it needs cross-module parsing.
+
     Known limits, both directions, same class as the other static lints here:
       - UNDER-fires when the value is not a module-level literal (assembled at runtime,
         imported from a _lib module, read from argv/env), when the cell body calls a
-        helper through an alias/partial the name-based call graph cannot follow, or when
-        the slice is built in a function this scan cannot resolve.
+        helper through an alias/partial the name-based call graph cannot follow, on the
+        cross-module slices described above, and -- for the direct-call form -- when the
+        arm is run OUTSIDE the loop holding the fingerprint call.
       - OVER-fires when the constant is genuinely bound by something else already in the
         slice (a derived count beside a declared edge list), when a threshold is read
-        lexically inside the `with` body for an early-exit/progress print, and on the
+        lexically inside the scope for an early-exit/progress print, and on the
         name heuristic's near-misses (declared key `ssl_bin_edges` does not
         substring-match the constant `N_SSL_BINS`).
     The remedy is cheap in both directions: add the key to the slice, or add the marker.
@@ -2541,7 +2583,20 @@ def config_slice_under_declaration_lint(path: Path) -> Optional[str]:
     if _CONFIG_SLICE_EXEMPT_MARKER in src:
         return None
 
-    # -- 1. cross-driver cell bodies: `with arm_cell(..., include_driver=False)`
+    def _is_cross_driver(call: ast.Call) -> bool:
+        return any(kw.arg == "include_driver_script_in_hash"
+                   and isinstance(kw.value, ast.Constant) and kw.value.value is False
+                   for kw in call.keywords)
+
+    # -- 1a. every cross-driver fingerprint call, in either form
+    fp_calls: List[ast.Call] = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and _call_name(node) in _FP_CALL_NAMES
+        and _is_cross_driver(node)]
+    if not fp_calls:
+        return None  # driver is in the hash (or no cell) -- constants already bound
+
+    # -- 1b. cell bodies of the `with arm_cell(..., include_driver=False)` form
     cell_withs: List[Tuple[ast.AST, ast.Call]] = []
     for node in ast.walk(tree):
         if not isinstance(node, (ast.With, ast.AsyncWith)):
@@ -2550,12 +2605,40 @@ def config_slice_under_declaration_lint(path: Path) -> Optional[str]:
             call = item.context_expr
             if not isinstance(call, ast.Call) or _call_name(call) not in _FP_CALL_NAMES:
                 continue
-            if any(kw.arg == "include_driver_script_in_hash"
-                   and isinstance(kw.value, ast.Constant) and kw.value.value is False
-                   for kw in call.keywords):
+            if _is_cross_driver(call):
                 cell_withs.append((node, call))
-    if not cell_withs:
-        return None  # driver is in the hash (or no cell) -- constants already bound
+    with_ctx_ids = {id(call) for _, call in cell_withs}
+
+    # -- 1c. parent map + module-level functions (both needed below)
+    #
+    # An EXTERNAL id-keyed dict, deliberately -- NOT `node.parent = ...`. This lint runs
+    # against a tree shared across all the path lints by the corpus-scan parse cache
+    # (`tests/contracts/conftest.py`), whose soundness rests on no consumer mutating the
+    # AST it is handed; that module names parent-pointer annotation as one of the
+    # specific things that would break it. The dict is rebuilt per call, which is cheap
+    # next to the parse the cache already saved.
+    parent: Dict[int, ast.AST] = {}
+    for node in ast.walk(tree):
+        for child in ast.iter_child_nodes(node):
+            parent[id(child)] = node
+
+    funcs: Dict[str, List[ast.AST]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            funcs.setdefault(node.name, []).append(node)
+
+    # -- 1d. cross-module slice -> unassessable, say nothing (see docstring)
+    baseline_helpers: Set[str] = set()
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.ImportFrom) and node.module
+                and _BASELINE_HELPER_MODULE_MARKER in node.module):
+            for alias in node.names:
+                baseline_helpers.add(alias.asname or alias.name)
+    for call in fp_calls:
+        for kw in call.keywords:
+            if (kw.arg == "config_slice" and isinstance(kw.value, ast.Call)
+                    and _call_name(kw.value) in baseline_helpers):
+                return None
 
     # -- 2. resolve the declared config_slice into keys + value-expression names
     assigns: Dict[str, List[ast.AST]] = {}
@@ -2579,14 +2662,29 @@ def config_slice_under_declaration_lint(path: Path) -> Optional[str]:
             for val in assigns.get(expr.id, []):
                 _absorb(val, depth + 1, seen | {expr.id})
             return
-        if isinstance(expr, ast.Call) and _call_name(expr) in _SLICE_PASSTHROUGH_CALLS:
-            for arg in expr.args:
-                _absorb(arg, depth + 1, seen)
-            for kw in expr.keywords:
-                if kw.arg:
-                    declared_keys.add(kw.arg)
-                _absorb(kw.value, depth + 1, seen)
-            return
+        if isinstance(expr, ast.Call):
+            callee = _call_name(expr)
+            if callee in _SLICE_PASSTHROUGH_CALLS:
+                for arg in expr.args:
+                    _absorb(arg, depth + 1, seen)
+                for kw in expr.keywords:
+                    if kw.arg:
+                        declared_keys.add(kw.arg)
+                    _absorb(kw.value, depth + 1, seen)
+                return
+            # `config_slice=_arm_config_slice(arm, ...)` -- a LOCAL helper returning the
+            # slice dict. Absorb what it returns. Without this the slice reads as empty
+            # and the fire is dominated by constants that ARE declared, just one call
+            # away: measured 2026-07-28, following local returns removes false positives
+            # from 13 with-form scripts (V3-EXQ-793 41 names -> 15, 794 11 -> 2, 751
+            # 3 -> 0) and is what keeps the direct-call form's new coverage honest, since
+            # 10 of those 15 scripts declare their slice through exactly this shape.
+            if callee in funcs and callee not in seen:
+                for defn in funcs[callee]:
+                    for sub in ast.walk(defn):
+                        if isinstance(sub, ast.Return) and sub.value is not None:
+                            _absorb(sub.value, depth + 1, seen | {callee})
+                return
         if isinstance(expr, ast.Dict):
             for key, val in zip(expr.keys, expr.values):
                 if key is None:          # {**other}
@@ -2609,7 +2707,7 @@ def config_slice_under_declaration_lint(path: Path) -> Optional[str]:
             elif isinstance(sub, ast.Attribute):
                 declared_names.add(sub.attr)
 
-    for _, call in cell_withs:
+    for call in fp_calls:
         got_kw = False
         for kw in call.keywords:
             if kw.arg == "config_slice":
@@ -2637,16 +2735,30 @@ def config_slice_under_declaration_lint(path: Path) -> Optional[str]:
     if not consts:
         return None
 
-    # -- 4. the cell's own call graph
-    funcs: Dict[str, List[ast.AST]] = {}
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            funcs.setdefault(node.name, []).append(node)
+    # -- 4. the cell's own call graph, rooted per form (see docstring):
+    #       `with` -> the cell body; direct call -> its nearest enclosing loop.
+    def _direct_call_scope(call: ast.Call) -> Optional[ast.AST]:
+        node: Optional[ast.AST] = parent.get(id(call))
+        while node is not None:
+            if isinstance(node, (ast.For, ast.AsyncFor, ast.While)):
+                return node
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                return node     # fallback: no loop between the call and its function
+            node = parent.get(id(node))
+        return None
+
+    roots: List[ast.AST] = [with_node for with_node, _ in cell_withs]
+    for call in fp_calls:
+        if id(call) in with_ctx_ids:
+            continue            # already covered by its own `with` body
+        scope = _direct_call_scope(call)
+        if scope is not None:
+            roots.append(scope)
 
     reachable: Set[str] = set()
     frontier: List[str] = []
-    for with_node, _ in cell_withs:
-        for stmt in with_node.body:
+    for root in roots:
+        for stmt in getattr(root, "body", []):
             for sub in ast.walk(stmt):
                 if isinstance(sub, ast.Call) and _call_name(sub) in funcs:
                     frontier.append(_call_name(sub))
@@ -2662,7 +2774,7 @@ def config_slice_under_declaration_lint(path: Path) -> Optional[str]:
                     if callee in funcs and callee not in reachable:
                         frontier.append(callee)
 
-    scopes: List[ast.AST] = [w for w, _ in cell_withs]
+    scopes: List[ast.AST] = list(roots)
     for name in reachable:
         scopes.extend(funcs.get(name, []))
 

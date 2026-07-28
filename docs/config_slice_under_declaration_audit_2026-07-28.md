@@ -170,9 +170,11 @@ Known limits, stated so the fire set is not over-read:
 
 - **Under-fires** when the value is not a module-level literal (assembled at runtime, imported
   from `_lib`, read from argv/env), when the cell calls a helper through an alias/partial the
-  name-based call graph cannot follow, when the slice is built in a function the scan cannot
-  resolve, and **on the 15 non-`with` cross-driver scripts**, which it does not scope at all.
-  A `False` here is not a clearance.
+  name-based call graph cannot follow, and **on cross-module slices** (a helper imported from
+  `_lib/baselines/` -- see the addendum). A `False` here is not a clearance.
+  *(The "does not scope the 15 non-`with` scripts" limit recorded here originally was closed
+  the same day -- see **Addendum** below. The slice-built-in-a-function limit was closed too,
+  for local helpers.)*
 - **Over-fires** on derived constants already bound by a declared key (798a's `N_SSL_BINS`), on
   thresholds read lexically inside the `with` body, and on name-heuristic near-misses.
 - **String constants are deliberately out of scope.** In this corpus they are overwhelmingly
@@ -180,10 +182,94 @@ Known limits, stated so the fire set is not over-read:
 
 Opt-out: `CONFIG_SLICE_DECLARATION_EXEMPT = "<reason>"`.
 
-**Pinned corpus fire count: 48** (`_PINNED_CORPUS_FIRE_COUNT`, per the existing convention
-alongside 150 / 63 / 12 / 0). A NEW script in that list should be fixed or exempted, not
-re-pinned; a count that DROPS because a carrier was fixed should be re-pinned.
+**Pinned corpus fire count: 56** (`_PINNED_CORPUS_FIRE_COUNT`, per the existing convention
+alongside 150 / 63 / 12 / 0). Was 48 as first landed; re-pinned the same day by the addendum
+below. A NEW script in that list should be fixed or exempted, not re-pinned; a count that
+DROPS because a carrier was fixed should be re-pinned.
 
 The lint is registered in `tests/contracts/conftest.py`'s `path_lints` per that module's
 standing pattern -- it does not enumerate `experiments/` itself, so it adds no seventh
 corpus walk.
+
+---
+
+## Addendum (2026-07-28, same day): the 15 non-`with` scripts, closed
+
+As landed above, the lint located the cell body **only** via `with arm_cell(...) as cell:`.
+Of the 85 scripts passing `include_driver_script_in_hash=False`, 70 use that form; the other
+15 call `compute_arm_fingerprint(...)` directly, so the lint returned early and scanned
+nothing. **Those 15 were unexamined, not cleared** -- and that state was invisible from
+outside, because "returned None because I could not find a cell" looks exactly like "clean".
+
+Investigating them turned up **two** defects, not one.
+
+### Defect 1 -- scope. The chosen scope is the nearest enclosing LOOP, not the enclosing function.
+
+The direct-call form has no lexical cell body: the call computes a hash and the arm is run by
+a sibling statement. The obvious candidate scope -- the enclosing function plus transitive
+callees -- **degenerates**, and it was measured rather than assumed. The enclosing function is
+`run_experiment` in 13 of the 15, and `run_experiment` also calls `evaluate(rows)`, so the
+scope swallows the whole adjudication block. Calibrated against the 60 with-form scripts,
+where the `with` body **is** ground truth:
+
+| scope | fires (of 60) | reproduces with-scope set | spurious constants added | byte-identical to whole-module scan |
+|---|---|---|---|---|
+| `with` body (ground truth) | 48 | -- | -- | -- |
+| **nearest loop** (shipped) | 52 | **40 / 60** | **+79** | 7 / 60 |
+| enclosing function (rejected) | 52 | 28 / 60 | +271 | 18 / 60 |
+| whole module (the original over-firing baseline) | 55 | -- | +588 | -- |
+
+On the direct-call scripts the difference is exactly the adjudication band: loop scope excludes
+`MIN_SEEDS_FOR_PASS`, `DIVERGENT_PASS_FRACTION`, `ABLATION_MARGIN`, `CONVERSION_MARGIN`, all of
+which enclosing-function scope pulls in. Attribution on V3-EXQ-700c confirmed the loop-scope
+names are read by `_make_agent` (27), `_run_seed_arm` (15) and `_lpfc_reinforce_loss` (3) --
+the arm-execution path -- and by **no** criteria function. *(Worth recording: those names carry
+`_FLOOR` / `_THRESHOLD` suffixes and read at a glance like criteria. Judging them by suffix
+rather than by which function reads them is what nearly got loop scope wrongly rejected here.)*
+
+**Loop scope changes the result of zero with-form scripts**, so the extension is strictly
+additive; the with-form half of the pin moved only for defect 2.
+
+### Defect 2 -- declaration resolution. All 15 build the slice through a helper.
+
+None of the 15 passes a literal dict except V3-EXQ-714. The rest call a helper the resolver did
+not follow, so the slice resolved as **empty** and the fire was dominated by constants that are
+in fact declared one call away:
+
+- **10 scripts** (704, 704b, 707, 707a, 707b, 707c, 708, 708a, 708b, 710) use a **local in-file**
+  `_arm_config_slice()`. `_absorb` now absorbs a local function's `return` values. This also
+  cleared **pre-existing false positives on 13 with-form scripts** (793/793a 41 names -> 15,
+  794/794a 11 -> 2, 766 8 -> 1, 751 3 -> 0, 735 1 -> 0), which is why the with-form half of the
+  pin moved **down**.
+- **4 scripts** (685, 700c, 700c_mint, 700d) import the helper from
+  `experiments/_lib/baselines/`. That is genuinely **cross-module** and a single-file scan cannot
+  see one key of it, so these are now an explicit **documented skip** rather than a fire. This
+  matters because firing there would be a near-total false positive landing on the *best-behaved*
+  population -- the canonical-baseline pattern CLAUDE.md mandates for a reusable mint. Measured
+  on 700c: **21 of the 27** constants a fire would have named are declared in that module's
+  `MATCHED_ENVELOPE`. The skip is keyed on the `config_slice` argument itself being a call to the
+  imported helper, not on the mere presence of a `_lib/baselines` import -- a script that imports
+  `REUSABLE_ARM_IDS` but builds its slice inline stays fully assessed
+  (`test_cross_module_skip_needs_the_slice_to_come_from_that_helper`).
+
+### Outcome
+
+Fire count **48 -> 56**: 45 with-form (was 48; -2 resolver, -1 cross-module skip) + **11
+direct-call newly covered**. The four remaining direct-call scripts are accounted for
+individually -- 685 has nothing undeclared, 700c_mint has no module-level numeric constants,
+700c/700d are the cross-module skip. `test_no_cross_driver_script_is_silently_unscanned` is the
+standing check that no cross-driver script sits in the old invisible fourth state.
+
+The 11 new carriers are **one driver family** (the ARC-110 / MECH-440 / MECH-451 lineage on a
+shared template), so their 38-45 names each are the same defect replicated rather than 11
+independent problems: their `_arm_config_slice` declares the envelope's **booleans**
+(`use_f_eligibility_demotion`) but not its **values** (`f_eligibility_envelope_floor`, which
+goes straight into the agent build). Spot-verified on 704 at line 440 against a slice that
+declares only the boolean. Per the standing rule these landed runs are **not** retro-fixed --
+the backlog is a risk register, and the entry that matters is the one whose baseline a future
+consumer tries to reuse.
+
+**Still open (out of scope here):** the cross-module band. Closing it needs the lint to parse
+the imported `_lib/baselines/` module, which is a different kind of change -- the lint is
+currently a strictly single-file `path -> Optional[str]` function riding the shared corpus
+parse cache, and cross-module resolution would need its own calibration.
