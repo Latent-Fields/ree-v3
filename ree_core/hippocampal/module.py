@@ -138,6 +138,26 @@ class HippocampalModule(nn.Module):
         # this stores what was EXECUTED, not what was considered by CEM.
         self._committed_trajectory_buffer: Optional[Trajectory] = None
 
+        # Stdlib-`random` source for the MECH-165 replay draws (2026-07-28).
+        #
+        # Defaults to the `random` MODULE ITSELF, so `self._rng.random()` and
+        # `self._rng.choice()` resolve to exactly the same bound methods of the
+        # process-global Random instance that the pre-knob `random.random()` /
+        # `random.choice()` calls used. The default path is therefore not merely
+        # equivalent but literally the same call -- bit-identical to every
+        # landed run. Only when a seed is supplied is a module-local
+        # random.Random substituted; random.seed() is never called, so seeding
+        # this module never perturbs the host process's global RNG.
+        #
+        # Rationale: experiment drivers seed torch and numpy but not stdlib
+        # `random`, which auto-seeds from OS entropy at import -- so a run that
+        # reaches these draws is not reproducible across processes. See
+        # REEConfig.stdlib_rng_seed for the measured liveness of each site.
+        self._rng: Any = random
+        _replay_seed = getattr(config, "replay_rng_seed", None)
+        if _replay_seed is not None:
+            self.seed_replay_rng(int(_replay_seed))
+
         # MECH-165: exploration trajectory buffer for diverse replay
         self._exploration_buffer: List[Trajectory] = []
         self._exploration_buffer_maxlen: int = getattr(config, "exploration_buffer_len", 50)
@@ -2247,6 +2267,23 @@ class HippocampalModule(nn.Module):
             dtype=torch.float32,
         )
 
+    def seed_replay_rng(self, seed: Optional[int]) -> None:
+        """Give this module its own seeded stdlib-`random` stream.
+
+        `seed=None` is a no-op that LEAVES the current source in place, so the
+        default (process-global `random`) survives and the path stays
+        bit-identical to every landed run. A non-None seed installs a
+        module-local `random.Random`; the global RNG is never reseeded, so this
+        cannot perturb any other consumer in the host process.
+
+        Governs the two stdlib draws in this module: the per-step mode roll in
+        diverse_replay(mode="auto") and the zero-weight fallback in
+        _sample_exploration_trajectory.
+        """
+        if seed is None:
+            return
+        self._rng = random.Random(int(seed))
+
     def _sample_exploration_trajectory(
         self,
         retrieval_bias: Optional[torch.Tensor] = None,
@@ -2267,7 +2304,7 @@ class HippocampalModule(nn.Module):
             weights = weights * bias
 
         if float(weights.sum().item()) <= 0.0:
-            return random.choice(self._exploration_buffer)
+            return self._rng.choice(self._exploration_buffer)
 
         idx = int(torch.multinomial(weights, num_samples=1, replacement=True).item())
         return self._exploration_buffer[idx]
@@ -2304,7 +2341,7 @@ class HippocampalModule(nn.Module):
         for _ in range(num_replay_steps):
             step_mode = mode
             if step_mode == "auto":
-                r = random.random()
+                r = self._rng.random()
                 has_buffer = len(self._exploration_buffer) > 0
                 if r < self._reverse_fraction and has_buffer:
                     step_mode = "reverse"

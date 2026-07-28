@@ -94,6 +94,12 @@ class SelfModelAggregatorConfig(BayesianAggregatorConfig):
     # Bounded number of gradient steps per offline pass. Default 100
     # per C6. <= 0 -> no-op (diagnostic mode).
     offline_n_steps: int = 100
+    # Opt-in seed for the stdlib-`random` waking-pair sample in
+    # offline_gradient_pass (2026-07-28). Mirrored from the top-level
+    # REEConfig.stdlib_rng_seed by REEAgent (derive_stdlib_rng_seed stream 1).
+    # None (default) leaves the draw on the process-global `random` instance --
+    # bit-identical to every landed run. See REEConfig.stdlib_rng_seed.
+    rng_seed: Optional[int] = None
 
     def __post_init__(self) -> None:  # type: ignore[override]
         super().__post_init__()
@@ -128,6 +134,14 @@ class SelfModelAggregator(BayesianAggregator):
         self, config: Optional[SelfModelAggregatorConfig] = None
     ) -> None:
         super().__init__(config or SelfModelAggregatorConfig())
+        # Stdlib-`random` source for the offline-writeback waking-pair sample.
+        # Defaults to the `random` MODULE ITSELF, so `self._rng.choices(...)`
+        # is the same bound method of the process-global Random instance that
+        # the pre-knob `random.choices(...)` call used -- bit-identical by
+        # construction, not merely by equivalence. A non-None rng_seed installs
+        # a local random.Random instead; random.seed() is never called.
+        _seed = getattr(self._config, "rng_seed", None)
+        self._rng = random if _seed is None else random.Random(int(_seed))
         # Phase E diagnostics.
         self._n_offline_passes: int = 0
         self._n_offline_steps: int = 0
@@ -231,7 +245,7 @@ class SelfModelAggregator(BayesianAggregator):
             # Sample n_regions pairs from the waking replay buffer.
             # .view(-1) collapses any leading batch-1 dim from sense() so
             # the stack yields [n_regions, z_dim] / [n_regions, a_dim].
-            sampled = random.choices(harm_replay_buffer, k=n_regions)
+            sampled = self._rng.choices(harm_replay_buffer, k=n_regions)
             z_harm_s = torch.stack(
                 [p[0].view(-1)[:z_dim] for p in sampled], dim=0
             ).to(device)

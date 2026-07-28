@@ -40,7 +40,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ree_core.utils.config import REEConfig
+from ree_core.utils.config import (
+    STDLIB_RNG_STREAM_HIPPOCAMPAL_REPLAY,
+    STDLIB_RNG_STREAM_SELF_MODEL_WRITEBACK,
+    REEConfig,
+    derive_stdlib_rng_seed,
+)
 from ree_core.latent.stack import LatentStack, LatentState
 from ree_core.goal import GoalState, SuperOrdinalGoalMemory
 from ree_core.latent.theta_buffer import ThetaBuffer
@@ -2506,6 +2511,13 @@ class REEAgent(nn.Module):
                         offline_n_steps=int(
                             getattr(config, "mech273_offline_n_steps", 100)
                         ),
+                        # Opt-in stdlib-`random` seed for the waking-pair
+                        # sample in offline_gradient_pass. None (default)
+                        # leaves it on the process-global `random`.
+                        rng_seed=derive_stdlib_rng_seed(
+                            getattr(config, "stdlib_rng_seed", None),
+                            STDLIB_RNG_STREAM_SELF_MODEL_WRITEBACK,
+                        ),
                     )
                 )
             self.sleep_loop = SleepLoopManager(
@@ -2702,6 +2714,20 @@ class REEAgent(nn.Module):
         self._episode_actions: List[torch.Tensor] = []
         self._episode_bla_peak_tag: float = 0.0
         self._episode_bla_peak_encoding_gain: float = 1.0
+
+        # Opt-in stdlib-`random` seed for the hippocampal replay draws.
+        # from_dims already mirrors this onto config.hippocampal.replay_rng_seed
+        # (so HippocampalModule.__init__ picks it up), but a hand-constructed
+        # REEConfig that sets only the top-level knob has no mirror -- seed here
+        # so BOTH construction paths honour it. seed_replay_rng(None) is a no-op
+        # that leaves the process-global `random` in place, so the default path
+        # is untouched.
+        self.hippocampal.seed_replay_rng(
+            derive_stdlib_rng_seed(
+                getattr(self.config, "stdlib_rng_seed", None),
+                STDLIB_RNG_STREAM_HIPPOCAMPAL_REPLAY,
+            )
+        )
 
         # MECH-165: pass config to hippocampal for buffer sizing
         if self.config.replay_diversity_enabled:

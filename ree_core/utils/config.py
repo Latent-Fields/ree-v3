@@ -18,6 +18,29 @@ from ree_core.goal import GoalConfig
 from ree_core.neuromodulation.serotonin import SerotoninConfig
 
 
+# Stream ids for derive_stdlib_rng_seed. Each stdlib-`random` consumer in
+# ree_core gets its own namespace so two consumers seeded from the same base
+# never draw a correlated sequence.
+STDLIB_RNG_STREAM_HIPPOCAMPAL_REPLAY = 0
+STDLIB_RNG_STREAM_SELF_MODEL_WRITEBACK = 1
+
+
+def derive_stdlib_rng_seed(base: Optional[int], stream: int) -> Optional[int]:
+    """Derive a distinct, reproducible per-consumer seed from a base seed.
+
+    Returns None when `base` is None, so callers can pass the result straight
+    through to a consumer and keep the legacy process-global `random` default.
+
+    Mirrors the `_derive_env_seed` idiom already used for
+    ScaffoldedSD054OnboardingConfig.scaffold_env_seed: streams namespace the
+    consumers so the hippocampal replay roll and the sleep self-model writeback
+    sample cannot shadow each other when both are seeded from one base.
+    """
+    if base is None:
+        return None
+    return int(base) * 1000000 + int(stream) * 100000
+
+
 @dataclass
 class LatentStackConfig:
     """Configuration for the V3 latent stack (L-space).
@@ -1814,6 +1837,13 @@ class HippocampalConfig:
     # because the module acts on set_decomposition_source() instead -- so the
     # mirror below is required, not optional. Default False is bit-identical.
     use_decomposition_scale_resolved_probe: bool = False
+    # Opt-in seed for this module's stdlib-`random` replay draws (2026-07-28).
+    # Mirrored from the top-level REEConfig.stdlib_rng_seed by from_dims (via
+    # derive_stdlib_rng_seed stream 0), and honoured on direct HippocampalConfig
+    # construction too. None (default) leaves the draws on the process-global
+    # `random` instance -- bit-identical to every landed run. See
+    # REEConfig.stdlib_rng_seed for the full rationale and liveness measurement.
+    replay_rng_seed: Optional[int] = None
     # Support-preserving CEM repair (ARC-065 hippocampal-trajectory-sampling
     # child). When enabled, CEM elite refit preserves a first-action class
     # floor when that support is present, and final candidate generation
@@ -2416,6 +2446,30 @@ class REEConfig:
     reverse_replay_fraction: float = 0.3     # fraction of replay calls using reverse mode
     random_replay_fraction: float = 0.2      # fraction using random action rollout
     exploration_buffer_len: int = 50         # max stored exploration trajectories (FIFO)
+
+    # Opt-in seed for the STDLIB-`random` draws inside ree_core (2026-07-28).
+    #
+    # Three ree_core call sites draw from the stdlib `random` module, which
+    # auto-seeds from OS entropy at import: HippocampalModule.diverse_replay's
+    # per-step mode roll (mode="auto"), HippocampalModule's zero-weight
+    # exploration-buffer fallback, and SelfModelAggregator's waking-pair sample
+    # in the offline writeback. Experiment drivers seed only torch and numpy, so
+    # wherever those sites are reached the run is NOT reproducible across
+    # processes. Measured liveness (2026-07-28): the diverse_replay roll fires
+    # once per replay step whenever replay_diversity_enabled=True; the writeback
+    # sample fires whenever use_mech273_self_model=True with a non-empty harm
+    # replay buffer; the fallback needs an all-zero BLA retrieval_bias.
+    #
+    # None (default) leaves every site on the process-global `random` instance,
+    # exactly as before this knob existed, so every landed run stays comparable.
+    # When set, each consumer gets its OWN random.Random instance seeded from a
+    # derived per-consumer stream (see derive_stdlib_rng_seed) -- module-local,
+    # never random.seed(), so the host process's global RNG is untouched.
+    #
+    # Setting this CHANGES RESULTS for any run that reaches a site: a seeded run
+    # is not comparable to a landed one. Pin it deliberately, within one
+    # experiment, as a seeded pair.
+    stdlib_rng_seed: Optional[int] = None
 
     # MECH-216: E1 predictive wanting (schema readout).
     # schema_wanting_threshold: minimum schema_salience to seed VALENCE_WANTING.
@@ -5313,6 +5367,9 @@ class REEConfig:
         reverse_replay_fraction: float = 0.3,
         random_replay_fraction: float = 0.2,
         exploration_buffer_len: int = 50,
+        # Opt-in seed for the stdlib-`random` draws in ree_core (default None
+        # = process-global `random`, bit-identical to every landed run).
+        stdlib_rng_seed: Optional[int] = None,
         # VALENCE_WANTING gradient in trajectory scoring
         wanting_weight: float = 0.0,
         # MECH-216: E1 predictive wanting (schema readout)
@@ -6458,6 +6515,12 @@ class REEConfig:
         config.reverse_replay_fraction = reverse_replay_fraction
         config.random_replay_fraction = random_replay_fraction
         config.exploration_buffer_len = exploration_buffer_len
+
+        # Opt-in stdlib-`random` seed (None = legacy process-global `random`).
+        config.stdlib_rng_seed = stdlib_rng_seed
+        config.hippocampal.replay_rng_seed = derive_stdlib_rng_seed(
+            stdlib_rng_seed, STDLIB_RNG_STREAM_HIPPOCAMPAL_REPLAY
+        )
 
         # MECH-216: E1 predictive wanting
         config.schema_wanting_threshold = schema_wanting_threshold
