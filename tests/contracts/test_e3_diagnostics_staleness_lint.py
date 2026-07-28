@@ -418,9 +418,10 @@ def test_e3s_is_warn_only_under_strict_and_paths():
 _PINNED_CORPUS_FIRE_COUNT = 63
 
 
-def test_e3s_corpus_fire_rate_is_pinned():
-    fired = [p for p in sorted(EXPERIMENTS_DIR.glob("v3_exq_*.py"))
-             if V.e3_diagnostics_staleness_lint(p) is not None]
+def test_e3s_corpus_fire_rate_is_pinned(corpus_scan):
+    # Shared corpus walk -- same file set, lint and order as the old inline
+    # comprehension; see tests/contracts/conftest.py.
+    fired = corpus_scan["e3_diagnostics_staleness_lint"]
     assert len(fired) == _PINNED_CORPUS_FIRE_COUNT, (
         f"stale-E3-diagnostics fire count moved: {len(fired)} vs pinned "
         f"{_PINNED_CORPUS_FIRE_COUNT}. If a NEW script is in this list, fix the script "

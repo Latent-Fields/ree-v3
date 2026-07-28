@@ -349,10 +349,12 @@ def test_real_safe_average_rank_helpers_not_flagged():
             assert V.spearman_guard_shape_lint(real) is None, fname
 
 
-def test_corpus_has_zero_fires():
+def test_corpus_has_zero_fires(corpus_scan):
     """All 18 defective copies were migrated to the canonical helper, so the live corpus
     must carry ZERO of this shape. A rise means a new hand-rolled defective helper landed
-    (the thing this gate exists to catch) -- or a real false positive to triage."""
-    fires = [p.name for p in sorted(EXPERIMENTS_DIR.glob("v3_exq_*.py"))
-             if V.spearman_guard_shape_lint(p) is not None]
+    (the thing this gate exists to catch) -- or a real false positive to triage.
+
+    Shared corpus walk -- same file set, lint and order as the old inline
+    comprehension; see tests/contracts/conftest.py."""
+    fires = [p.name for p in corpus_scan["spearman_guard_shape_lint"]]
     assert fires == [], f"unexpected spearman-guard-shape fires: {fires}"

@@ -1,0 +1,229 @@
+"""Contract tests for the shared corpus scan in `tests/contracts/conftest.py`.
+
+WHAT THIS GUARDS. Five corpus-wide lint contracts used to enumerate and parse
+`experiments/` independently, so the corpus was parsed five times per session.
+`conftest.scan_corpus()` now walks it once and applies every lint to each file as
+it is parsed, sharing the parse via a one-entry cache installed onto
+`validate_experiments.ast` / `validate_queue.ast`.
+
+That is a performance change that must be BEHAVIOURALLY INVISIBLE. The primary
+evidence is the four exact-count pins themselves (150 / 63 / 12 / 0) plus the
+pre-registration hit list, which are full-corpus assertions and would move if the
+sharing altered what is scanned or what a lint sees. The tests here are the
+second line: they check the cache's own semantics directly, prove the sharing
+actually happened (rather than silently degrading to a re-parse per lint, which
+would be green but pointless), and differentially re-run a bounded sample of
+files UNCACHED to confirm identical verdicts.
+
+The one soundness precondition is that no consumer mutates the AST it is handed.
+That was verified over both validators when this landed -- no NodeTransformer, no
+fix_missing_locations, no parent-pointer annotation, no node mutation; every
+consumer is a read-only walk. If a lint ever starts rewriting its tree, the
+sample check below is what should catch it.
+"""
+
+from __future__ import annotations
+
+import ast
+import sys
+import types
+from pathlib import Path
+
+import pytest
+
+REPO_ROOT = Path(__file__).resolve().parents[2]  # ree-v3/
+sys.path.insert(0, str(REPO_ROOT))
+
+import validate_experiments as V  # noqa: E402
+import validate_queue as VQ  # noqa: E402
+
+EXPERIMENTS_DIR = REPO_ROOT / "experiments"
+
+_PATH_LINTS = (
+    ("e3_hold_weighted_readout_lint", V.e3_hold_weighted_readout_lint),
+    ("e3_diagnostics_staleness_lint", V.e3_diagnostics_staleness_lint),
+    ("dead_z_goal_stream_lint", V.dead_z_goal_stream_lint),
+    ("spearman_guard_shape_lint", V.spearman_guard_shape_lint),
+)
+
+
+# ---- (1) the cache's own semantics ---------------------------------------------------
+def test_cache_returns_the_same_tree_for_repeated_source(last_parse_cache_cls):
+    """The point of the cache: the second consumer of a file gets the first's parse."""
+    cache = last_parse_cache_cls(ast)
+    src = "x = 1\ndef f():\n    return x\n"
+    first = cache.parse(src, filename="a.py")
+    second = cache.parse(src, filename="b.py")  # different filename, same text
+    assert first is second, "repeated parse of identical source must be shared"
+    assert (cache.misses, cache.hits) == (1, 1)
+
+
+def test_cache_reparses_when_source_changes(last_parse_cache_cls):
+    cache = last_parse_cache_cls(ast)
+    a = cache.parse("a = 1\n")
+    b = cache.parse("b = 2\n")
+    c = cache.parse("a = 1\n")  # evicted -- only ONE entry is held, by design
+    assert a is not b
+    assert c is not a, "cache must hold exactly one entry (memory bound)"
+    assert cache.misses == 3 and cache.hits == 0
+
+
+def test_cache_holds_only_one_entry(last_parse_cache_cls):
+    """Peak memory is the reason this is a size-1 cache, not an lru_cache(None):
+    holding all 1162 corpus trees was measured at 886 MiB on a 3.8 GB hub."""
+    cache = last_parse_cache_cls(ast)
+    cache.parse("x = 1\n")
+    assert cache._key == "x = 1\n"
+    cache.parse("y = 2\n")
+    assert cache._key == "y = 2\n", "previous entry must be evicted, not retained"
+
+
+def test_cache_replays_syntax_error_to_every_consumer(last_parse_cache_cls):
+    """A broken corpus file must fail identically for the 2nd consumer as the 1st --
+    otherwise a lint's `except SyntaxError: return None` would stop firing on it."""
+    cache = last_parse_cache_cls(ast)
+    bad = "def (:\n"
+    with pytest.raises(SyntaxError):
+        cache.parse(bad)
+    with pytest.raises(SyntaxError):
+        cache.parse(bad)
+    assert cache.misses == 1 and cache.hits == 1
+
+
+def test_shim_exposes_everything_else_as_the_real_ast(last_parse_cache_cls):
+    """The lints call ast.walk/ast.Name/isinstance through the same module global,
+    so the installed shim must be indistinguishable from `ast` for non-parse access."""
+    cache = last_parse_cache_cls(ast)
+    shim = cache.module
+    assert shim.Name is ast.Name
+    assert shim.walk is ast.walk
+    assert shim.FunctionDef is ast.FunctionDef
+    assert shim.parse is not ast.parse, "parse must be the cached one"
+    tree = shim.parse("v = 1\n")
+    assert any(isinstance(n, shim.Name) for n in shim.walk(tree))
+
+
+def test_shim_is_a_real_module_not_a_getattr_proxy(last_parse_cache_cls):
+    """REGRESSION GUARD -- this exact mistake was made and measured.
+
+    A `__getattr__`-forwarding proxy is functionally correct and was the first
+    implementation. It made the corpus tests 48% SLOWER (63.14s -> 93.56s, idle
+    hub, back-to-back on the same base), because the lints resolve `ast.Name` /
+    `ast.walk` / `ast.FunctionDef` through this global inside `ast.walk` loops
+    over every node of every corpus file. On a module those are C-level dict
+    lookups; through `__getattr__` every one becomes a Python call, which cost
+    far more than the shared parse saves.
+
+    So the installed object must be a genuine module with the attributes present
+    in its own `__dict__` -- not resolved dynamically.
+    """
+    shim = last_parse_cache_cls(ast).module
+    assert isinstance(shim, types.ModuleType), (
+        "the installed ast stand-in must be a real module -- a __getattr__ proxy "
+        "makes attribute lookup a Python call and regresses the suite")
+    for name in ("Name", "walk", "FunctionDef", "AsyncFunctionDef", "Module"):
+        assert name in shim.__dict__, (
+            f"{name} must be a direct __dict__ entry on the shim, not forwarded")
+
+
+def test_cache_passes_through_non_str_source(last_parse_cache_cls):
+    """bytes / explicit mode arguments are not cacheable and must not be mangled."""
+    cache = last_parse_cache_cls(ast)
+    tree = cache.parse(b"z = 1\n")
+    assert isinstance(tree, ast.Module)
+    expr = cache.parse("1 + 1", "<t>", "eval")
+    assert isinstance(expr, ast.Expression)
+    assert cache.misses == 0 and cache.hits == 0, "pass-through must not populate the cache"
+
+
+# ---- (2) the sharing actually happened ------------------------------------------------
+def test_shared_scan_parses_each_file_once(corpus_scan):
+    """Guards against a silent degradation to one parse per lint.
+
+    Every file in the rglob set is parsed once for the pre-registration lint (a
+    miss); each top-level `v3_exq_*.py` driver is then handed to four more lints,
+    which must all HIT. Asserted as inequalities rather than exact numbers so an
+    added or removed corpus lint does not make this brittle -- the property being
+    pinned is 'the extra consumers reuse the parse', not a specific arithmetic.
+
+    THE SMALL RESIDUE IS EXPECTED AND BOUNDED. A few lint discharge rules parse a
+    LIBRARY file rather than the driver under test -- measured on the hub
+    2026-07-27: `pack_writer.py`, `_metrics.py`, `_lib/arm_fingerprint.py`,
+    `_lib/capability_eval.py`, `_lib/z_goal_stream.py`,
+    `goal_stream_stages_sd054.py`, `scaffolded_sd054_onboarding.py`, once each.
+    Each such parse transiently evicts the one-entry cache, so the next lint for
+    the current driver re-parses it. That cost 1252 parses against an ideal 1237,
+    and 4640 hits against an ideal 4648 -- a 0.25% residue on ~5900 would-be
+    parses, not worth a second cache slot (which would reintroduce unbounded
+    memory growth as the number of such helper files grows). `_RESIDUE_SLACK` is
+    generous so that adding another helper-parsing rule does not fail this test;
+    a real degradation -- a lint re-parsing every driver -- overshoots by ~1160,
+    two orders of magnitude past the slack.
+    """
+    assert corpus_scan.n_glob_files > 500, "corpus unexpectedly small -- check the walk"
+    assert corpus_scan.n_rglob_files >= corpus_scan.n_glob_files
+    # 4 path-lints per driver, each of which must reuse the pre-registration parse.
+    assert corpus_scan.parse_hits >= 3 * corpus_scan.n_glob_files, (
+        f"parse sharing degraded: {corpus_scan.parse_hits} hits for "
+        f"{corpus_scan.n_glob_files} drivers -- the lints are re-parsing")
+    # One miss per file walked, not one per (file, lint) pair.
+    _RESIDUE_SLACK = 64
+    assert corpus_scan.parse_misses <= corpus_scan.n_rglob_files + _RESIDUE_SLACK, (
+        f"more parses ({corpus_scan.parse_misses}) than files walked "
+        f"({corpus_scan.n_rglob_files}) + slack ({_RESIDUE_SLACK}) -- the cache is "
+        f"not being hit. A lint is re-parsing the driver it was handed.")
+
+
+def test_scan_restores_the_real_ast_module(corpus_scan):
+    """The proxy is installed only for the duration of the walk. If it leaked, every
+    later test in the session would run against a stale one-entry cache."""
+    assert V.ast is ast
+    assert VQ.ast is ast
+
+
+# ---- (3) differential: cached verdicts == uncached verdicts ---------------------------
+def _sample_paths(corpus_scan, per_lint=6, stride=140):
+    """A bounded, deterministic sample: files that FIRE each lint (the load-bearing
+    ones -- a comparison over only-clean files would prove None == None), plus a
+    fixed-stride spread of the rest to catch a false NEGATIVE."""
+    picked = []
+    for name, _ in _PATH_LINTS:
+        picked.extend(corpus_scan[name][:per_lint])
+    drivers = sorted(EXPERIMENTS_DIR.glob("v3_exq_*.py"))
+    picked.extend(drivers[::stride])
+    seen, out = set(), []
+    for p in picked:
+        if p not in seen:
+            seen.add(p)
+            out.append(p)
+    return out
+
+
+def test_corpus_scan_is_transparent(corpus_scan):
+    """Re-run every lint UNCACHED over a bounded sample and require identical verdicts.
+
+    Deliberately a sample, not the whole corpus: re-running all five lints over all
+    ~1160 drivers is exactly the duplicated work this change removes, so a
+    full-corpus differential would cost more than the optimisation saves. Full-corpus
+    coverage is retained by the exact-count pins themselves -- 150 / 63 / 12 / 0 --
+    which are asserted over every file and would move under any behavioural drift.
+    """
+    assert V.ast is ast, "must run uncached -- the proxy should not be installed here"
+    sample = _sample_paths(corpus_scan)
+    assert len(sample) >= 12, f"sample too small to be meaningful: {len(sample)}"
+
+    for name, fn in _PATH_LINTS:
+        fired = set(corpus_scan[name])
+        for p in sample:
+            uncached = fn(p) is not None
+            assert uncached == (p in fired), (
+                f"{name} disagrees on {p.name}: shared scan said "
+                f"{'FIRE' if p in fired else 'clean'}, uncached said "
+                f"{'FIRE' if uncached else 'clean'}")
+
+    prereg_hits = set(corpus_scan["prereg_share_feasibility_lint"])
+    for p in sample:
+        src = p.read_text(encoding="utf-8", errors="ignore")
+        uncached = bool(VQ.prereg_share_feasibility_lint(src))
+        assert uncached == (p.name in prereg_hits), (
+            f"prereg_share_feasibility_lint disagrees on {p.name}")

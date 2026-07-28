@@ -262,18 +262,16 @@ def test_finding_reaches_validate_errors(tmp_path, monkeypatch):
 
 
 # ---- (11) corpus-wide false-positive guard ---------------------------------
-def test_no_false_positives_across_experiments_corpus():
+def test_no_false_positives_across_experiments_corpus(corpus_scan):
     """The check must be quiet on the entire existing corpus except the one known
     defect. If a new script trips this, that script has an unsatisfiable gate --
-    fix the script, do not loosen the check."""
-    hits = []
-    for p in sorted(EXPERIMENTS_DIR.rglob("*.py")):
-        try:
-            src = p.read_text(encoding="utf-8", errors="ignore")
-        except OSError:
-            continue
-        if _lint(src):
-            hits.append(p.name)
+    fix the script, do not loosen the check.
+
+    Shared corpus walk -- still the full `rglob("*.py")` set, in the same sorted
+    order and with the same per-file OSError skip as the old inline loop; the walk
+    is merely shared with the other corpus lints so the tree is parsed once per
+    session. See tests/contracts/conftest.py."""
+    hits = corpus_scan["prereg_share_feasibility_lint"]
     assert hits in (
         [], ["v3_exq_785_mech463_arousal_variance_amplifier_decomp.py"]
     ), f"unexpected pre-registration feasibility hits: {hits}"

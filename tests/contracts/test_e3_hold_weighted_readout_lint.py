@@ -468,9 +468,11 @@ def test_hw_is_warn_only_under_strict_and_paths():
 _PINNED_CORPUS_FIRE_COUNT = 150
 
 
-def test_hw_corpus_fire_rate_is_pinned():
-    fired = [p for p in sorted(EXPERIMENTS_DIR.glob("v3_exq_*.py"))
-             if V.e3_hold_weighted_readout_lint(p) is not None]
+def test_hw_corpus_fire_rate_is_pinned(corpus_scan):
+    # Same file set (top-level `v3_exq_*.py`), same lint, same sorted order -- the
+    # walk is just shared with the other corpus lints so the corpus is parsed once
+    # per session instead of once per lint. See tests/contracts/conftest.py.
+    fired = corpus_scan["e3_hold_weighted_readout_lint"]
     assert len(fired) == _PINNED_CORPUS_FIRE_COUNT, (
         f"hold-weighted-readout fire count moved: {len(fired)} vs pinned "
         f"{_PINNED_CORPUS_FIRE_COUNT}. If a NEW script is in this list, fix the script "
