@@ -87,6 +87,22 @@
       "episodes_per_run": 80,
       "experiment_type": "v3_exq_798a_sdmelproducer_graded_nonconverging_world_c4readable",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-835",
+      "title": "MECH-068/CSH-1: consolidation-operator selectivity dissociation (frozen-E1, analytic lambda/rho argmin flip)",
+      "experiment_type": "v3_exq_835_mech068_consolidation_selectivity_ablation",
+      "script": "experiments/v3_exq_835_mech068_consolidation_selectivity_ablation.py",
+      "priority": 40,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 20,
+      "episodes_per_run": 18,
+      "seeds": 5,
+      "conditions": 1,
+      "backlog_id": "EVB-0207",
+      "claim_id": "MECH-068",
+      "note": "MECH-068 FIRST experimental probe (prior evidence lit-only, Cowley 2023, conf<=0.72). CSH-1 discriminating test: freeze E1 (encoders+e1 requires_grad=False), sweep E3 consolidation weights lambda_ethical/rho_residue, measure whether trajectory preference changes while E1 basis stays fixed. Measurement-only, NOT commitment-gated. DESIGN: capture per-candidate score decomposition at genuine E3 select ticks (latch-clear idiom, n_latched recorded) at baseline (lambda=1,rho=0.5, affective_harm_scale=0 so score is exactly linear), then ANALYTICALLY recompute argmin winner under a (lambda,rho) grid (score=f+lambda*m+rho*phi, linear, single read-site e3_selector.py:1162). Load-bearing DV = selection flip-rate; PASS(supports)=max flip>=0.05, FAIL(weakens)=argmin invariant to lambda/rho (f-dominance). Uses argmin (deterministic) NOT multinomial -> machine-independent, so machine_affinity=any. P0 readiness gate (harm/residue cross-candidate range>1e-4 AND >=2 candidates) self-routes substrate_not_ready rather than a false FAIL, so a null is a real claim result not a vacuous ceiling. DV-symmetry: lambda scales a non-constant per-candidate cost channel -> not argmin-invariant. GOV-REUSE-1: no manifest tags MECH-068; decisive flip-under-frozen-E1 readout not recorded (reanalysis_query 0 matches) -> run. re-derive brake=0."
     }
   ]
 }
