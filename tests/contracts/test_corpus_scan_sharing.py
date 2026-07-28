@@ -48,6 +48,8 @@ _PATH_LINTS = (
     ("dead_z_goal_stream_lint", V.dead_z_goal_stream_lint),
     ("spearman_guard_shape_lint", V.spearman_guard_shape_lint),
     ("hardcoded_dry_run_lint", V.hardcoded_dry_run_lint),
+    ("config_slice_under_declaration_lint", V.config_slice_under_declaration_lint),
+    ("inert_salience_dacc_bias_lint", V.inert_salience_dacc_bias_lint),
 )
 
 

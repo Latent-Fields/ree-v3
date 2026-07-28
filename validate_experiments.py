@@ -42,7 +42,8 @@ CHECK_NAMES = ("conformance", "readiness", "arm_fingerprint", "degeneracy", "man
                "anchor_reachability", "precondition_recomputability",
                "e3_diagnostics_staleness", "e3_hold_weighted_readout",
                "action_object_selection", "spearman_guard_shape",
-               "dead_z_goal_stream", "hardcoded_dry_run")
+               "dead_z_goal_stream", "hardcoded_dry_run", "config_slice_declaration",
+               "inert_salience_dacc_bias")
 
 # Readiness-gate static lint (proposal_trivial_prediction_readiness_gate_2026-06-06).
 # A diagnostic/baseline script whose interpretation grid self-routes to one of
@@ -2256,6 +2257,266 @@ def hardcoded_dry_run_lint(path: Path) -> Optional[str]:
     )
 
 
+# ---- config_slice under-declaration (V3-EXQ-798) -------------------------------------
+# arm_reuse_fingerprint_plan.md section 7b: a `config_slice` that UNDER-approximates --
+# omits a parameter the cell's RECORDED READOUTS depend on -- is a false-cache-HIT bug.
+# The governing asymmetry is that a false MISS only wastes compute while a false HIT
+# corrupts a scientific conclusion, so the slice is meant to be OVER-inclusive.
+#
+# The interaction that makes this sharp: `include_driver_script_in_hash=False` is
+# MANDATORY for a cross-driver-reusable mint (CLAUDE.md, "Saving a baseline for reuse"),
+# and it is exactly that flag which drops the driver -- and therefore every module-level
+# constant defined in it -- out of the substrate hash. So the more reusable a mint is
+# made, the more load the config_slice has to carry. With the driver IN the hash a
+# module-level constant is already bound by content, so only the flag-False set is gated.
+_CONFIG_SLICE_EXEMPT_MARKER = "CONFIG_SLICE_DECLARATION_EXEMPT"
+_FP_CALL_NAMES = ("arm_cell", "compute_arm_fingerprint")
+_SLICE_PASSTHROUGH_CALLS = ("dict", "copy", "deepcopy", "OrderedDict")
+
+
+def _call_name(node: ast.Call) -> Optional[str]:
+    f = node.func
+    if isinstance(f, ast.Name):
+        return f.id
+    if isinstance(f, ast.Attribute):
+        return f.attr
+    return None
+
+
+def _is_numeric_literal(node: ast.AST) -> bool:
+    """A number, or a non-empty tuple/list of numbers. bool is excluded on purpose.
+
+    Deliberately narrow. A binning scheme (SSL_BIN_EDGES = (2, 5, 12)), a learning
+    rate, a budget, a gain -- the parameters that silently change what a readout MEANS
+    -- are numeric. Strings are overwhelmingly labels/paths/run-ids here, and gating
+    them would drown the signal.
+    """
+    if isinstance(node, ast.Constant):
+        return isinstance(node.value, (int, float)) and not isinstance(node.value, bool)
+    if isinstance(node, (ast.Tuple, ast.List)):
+        return bool(node.elts) and all(
+            isinstance(e, ast.Constant) and isinstance(e.value, (int, float))
+            and not isinstance(e.value, bool) for e in node.elts)
+    return False
+
+
+def config_slice_under_declaration_lint(path: Path) -> Optional[str]:
+    """Under-declared arm-reuse `config_slice` check. Return an issue string, or None.
+
+    Gates only the CROSS-DRIVER set: a script that opens at least one
+    `with arm_cell(...)` / `compute_arm_fingerprint(...)` passing
+    `include_driver_script_in_hash=False`. That flag removes the driver's own content
+    from the substrate hash, so every module-level constant the cell reads becomes
+    invisible to the fingerprint unless the `config_slice` names it. A consumer with a
+    different value for that constant then HITs the cell and silently reads a readout
+    computed under a different scheme.
+
+    Confirmed instance (V3-EXQ-798, landed 2026-07-23): the cells record
+    `learn_pe_by_ssl_bin` / `learn_ssl_bin_counts` / `learn_decay_frac`, all computed
+    against the module-level `SSL_BIN_EDGES = (2, 5, 12)`, which is absent from the
+    slice. The successor 798a declares it (`"binning"` / `"n_bins"` /
+    `"ssl_bin_edges"`) and is the reference for the correct shape.
+
+    Fires on a module-level UPPER_SNAKE constant bound to a NUMERIC literal (or a
+    tuple/list of numerics -- the bin-edges shape) that is read from the CELL'S OWN CALL
+    GRAPH (the `with` body plus every module-level function transitively called from
+    it) and is not named in the resolved config_slice, by value-expression name or by a
+    key whose name matches it. Scoping to the cell call graph is what separates a
+    readout-affecting parameter from an adjudication threshold applied downstream in
+    `evaluate(rows)` -- without it the check over-fires ~3x on THRESH_*/FLOOR_* criterion
+    constants that no cell ever reads.
+
+    Known limits, both directions, same class as the other static lints here:
+      - UNDER-fires when the value is not a module-level literal (assembled at runtime,
+        imported from a _lib module, read from argv/env), when the cell body calls a
+        helper through an alias/partial the name-based call graph cannot follow, or when
+        the slice is built in a function this scan cannot resolve.
+      - OVER-fires when the constant is genuinely bound by something else already in the
+        slice (a derived count beside a declared edge list), when a threshold is read
+        lexically inside the `with` body for an early-exit/progress print, and on the
+        name heuristic's near-misses (declared key `ssl_bin_edges` does not
+        substring-match the constant `N_SSL_BINS`).
+    The remedy is cheap in both directions: add the key to the slice, or add the marker.
+
+    Opt-out: CONFIG_SLICE_DECLARATION_EXEMPT = "<reason>".
+
+    WARN-only in BOTH modes -- it never hardens under --paths. The fire set is
+    best-effort (see the limits above), a false HIT needs a CONSUMER to exist before it
+    can corrupt anything, and the landed carriers' runs are complete, so hardening would
+    block commits on history rather than on the authoring path.
+    """
+    try:
+        src = path.read_text(encoding="utf-8")
+        tree = ast.parse(src, filename=str(path))
+    except (OSError, UnicodeDecodeError, SyntaxError):
+        return None  # check_script already reports unreadable / syntax errors
+
+    if _CONFIG_SLICE_EXEMPT_MARKER in src:
+        return None
+
+    # -- 1. cross-driver cell bodies: `with arm_cell(..., include_driver=False)`
+    cell_withs: List[Tuple[ast.AST, ast.Call]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.With, ast.AsyncWith)):
+            continue
+        for item in node.items:
+            call = item.context_expr
+            if not isinstance(call, ast.Call) or _call_name(call) not in _FP_CALL_NAMES:
+                continue
+            if any(kw.arg == "include_driver_script_in_hash"
+                   and isinstance(kw.value, ast.Constant) and kw.value.value is False
+                   for kw in call.keywords):
+                cell_withs.append((node, call))
+    if not cell_withs:
+        return None  # driver is in the hash (or no cell) -- constants already bound
+
+    # -- 2. resolve the declared config_slice into keys + value-expression names
+    assigns: Dict[str, List[ast.AST]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for tgt in node.targets:
+                if isinstance(tgt, ast.Name):
+                    assigns.setdefault(tgt.id, []).append(node.value)
+
+    declared_keys: Set[str] = set()
+    declared_names: Set[str] = set()
+
+    def _absorb(expr: Optional[ast.AST], depth: int = 0, seen: Optional[frozenset] = None) -> None:
+        seen = seen or frozenset()
+        if expr is None or depth > 8:
+            return
+        if isinstance(expr, ast.Name):
+            declared_names.add(expr.id)
+            if expr.id in seen:
+                return
+            for val in assigns.get(expr.id, []):
+                _absorb(val, depth + 1, seen | {expr.id})
+            return
+        if isinstance(expr, ast.Call) and _call_name(expr) in _SLICE_PASSTHROUGH_CALLS:
+            for arg in expr.args:
+                _absorb(arg, depth + 1, seen)
+            for kw in expr.keywords:
+                if kw.arg:
+                    declared_keys.add(kw.arg)
+                _absorb(kw.value, depth + 1, seen)
+            return
+        if isinstance(expr, ast.Dict):
+            for key, val in zip(expr.keys, expr.values):
+                if key is None:          # {**other}
+                    _absorb(val, depth + 1, seen)
+                    continue
+                if isinstance(key, ast.Constant) and isinstance(key.value, str):
+                    declared_keys.add(key.value)
+                for sub in ast.walk(val):
+                    if isinstance(sub, ast.Name):
+                        declared_names.add(sub.id)
+                    elif isinstance(sub, ast.Attribute):
+                        declared_names.add(sub.attr)
+            return
+        for sub in ast.walk(expr):
+            if isinstance(sub, ast.Name):
+                declared_names.add(sub.id)
+                for val in assigns.get(sub.id, []):
+                    if isinstance(val, ast.Dict):
+                        _absorb(val, depth + 1, seen)
+            elif isinstance(sub, ast.Attribute):
+                declared_names.add(sub.attr)
+
+    for _, call in cell_withs:
+        got_kw = False
+        for kw in call.keywords:
+            if kw.arg == "config_slice":
+                _absorb(kw.value)
+                got_kw = True
+        if not got_kw and len(call.args) >= 2:
+            _absorb(call.args[1])       # positional (seed, config_slice, ...)
+    # `slice_cfg.update({...})` after the dict() copy is the dominant per-arm idiom.
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "update"
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id in declared_names):
+            for arg in node.args:
+                _absorb(arg)
+
+    # -- 3. module-level numeric constants
+    consts: Set[str] = set()
+    for node in tree.body:
+        if (isinstance(node, ast.Assign) and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)):
+            name = node.targets[0].id
+            if len(name) > 2 and name.isupper() and _is_numeric_literal(node.value):
+                consts.add(name)
+    if not consts:
+        return None
+
+    # -- 4. the cell's own call graph
+    funcs: Dict[str, List[ast.AST]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            funcs.setdefault(node.name, []).append(node)
+
+    reachable: Set[str] = set()
+    frontier: List[str] = []
+    for with_node, _ in cell_withs:
+        for stmt in with_node.body:
+            for sub in ast.walk(stmt):
+                if isinstance(sub, ast.Call) and _call_name(sub) in funcs:
+                    frontier.append(_call_name(sub))
+    while frontier:
+        name = frontier.pop()
+        if name in reachable:
+            continue
+        reachable.add(name)
+        for defn in funcs.get(name, []):
+            for sub in ast.walk(defn):
+                if isinstance(sub, ast.Call):
+                    callee = _call_name(sub)
+                    if callee in funcs and callee not in reachable:
+                        frontier.append(callee)
+
+    scopes: List[ast.AST] = [w for w, _ in cell_withs]
+    for name in reachable:
+        scopes.extend(funcs.get(name, []))
+
+    read_by_cell: Set[str] = set()
+    for scope in scopes:
+        for sub in ast.walk(scope):
+            if (isinstance(sub, ast.Name) and isinstance(sub.ctx, ast.Load)
+                    and sub.id in consts):
+                read_by_cell.add(sub.id)
+
+    # -- 5. undeclared?
+    missing: List[str] = []
+    for name in sorted(read_by_cell):
+        if name in declared_names:
+            continue
+        low = name.lower()
+        if any(low == k.lower() or low in k.lower() or k.lower() in low
+               for k in declared_keys if len(k) > 2):
+            continue
+        missing.append(name)
+    if not missing:
+        return None
+
+    shown = ", ".join(missing[:6]) + (f", +{len(missing) - 6} more" if len(missing) > 6 else "")
+    return (
+        f"emits a CROSS-DRIVER-reusable arm fingerprint "
+        f"(include_driver_script_in_hash=False, so the driver's own content is NOT in "
+        f"the substrate hash) but its config_slice omits {len(missing)} module-level "
+        f"numeric constant(s) the cell's call graph reads: {shown}. Under-approximating "
+        f"the slice is a false-cache-HIT bug (arm_reuse_fingerprint_plan.md 7b): a "
+        f"consumer with a different value HITs these cells and silently reads readouts "
+        f"computed under a different scheme -- a false MISS only wastes compute, a false "
+        f"HIT corrupts a conclusion. Confirmed instance V3-EXQ-798 (SSL_BIN_EDGES absent "
+        f"while the cells record learn_pe_by_ssl_bin); 798a is the reference fix -- it "
+        f"declares \"binning\" / \"n_bins\" / \"ssl_bin_edges\" in its cell_config. Fix by "
+        f"adding each readout-affecting constant to the config_slice dict. Exempt with "
+        f"{_CONFIG_SLICE_EXEMPT_MARKER} = \"<reason>\" when the constant is genuinely "
+        f"bound by something already in the slice."
+    )
+
+
 # ---- form 2: hold-weighted readout (V3-EXQ-699) --------------------------------------
 # The SECOND form of the pseudo-replication defect, established by the V3-EXQ-699
 # re-adjudication (REE_assembly `ac2fb64028`). Form 1 (above) keys on a diagnostics
@@ -3136,6 +3397,145 @@ def spearman_guard_shape_lint(path: Path) -> Optional[str]:
             "failure_autopsy_sd081-spearman-degenerate-dv_2026-07-27.md.")
 
 
+# ---- inert salience_apply_to_dacc_bias (MECH-244) ------------------------------------
+# agent.py (dACC score-bias activation) does, gated by this flag:
+#     dacc_score_bias = dacc_score_bias * write_gate("e3_policy")
+# which reads as "the MECH-261 write-gate now modulates action selection". But the bias
+# it scales comes from `DACCtoE3Adapter.forward` (ree_core/cingulate/dacc.py), and that
+# function multiplies the ENTIRE bias by `self.config.dacc_weight`
+# (`weight = dacc_weight * drive_gain`; `bias = weight * (...)`), with `dacc_weight` and
+# every per-candidate sub-weight defaulting to 0.0. So `salience_apply_to_dacc_bias=True`
+# WITHOUT a positive `dacc_weight` scales the ZERO vector by the gate -- arithmetically
+# inert, no error, and any arm resting on that channel is a guaranteed null that LOOKS
+# measured. Caught live authoring V3-EXQ-799 (measured dacc_bias cross-candidate range =
+# 0.0 in all four arms before dacc_weight was added). Same family as the
+# from_dims-swallows-unknown-kwargs hazard: a flag necessary but not sufficient.
+_INERT_SALIENCE_DACC_BIAS_EXEMPT_MARKER = "INERT_SALIENCE_DACC_BIAS_EXEMPT"
+
+
+def _dacc_weight_is_positive(value: ast.AST) -> bool:
+    """True if a `dacc_weight=<value>` expression plausibly activates the channel.
+
+    A numeric literal is positive iff it is non-zero (an explicit `dacc_weight=0.0`
+    is the inert case the gate exists to catch). `None`/`False` are not positive.
+    Anything NON-literal -- a module constant `DACC_WEIGHT`, an attribute, a call, an
+    arithmetic expression -- is treated as set-and-positive: its runtime value is not
+    statically known, so assuming it activates the channel is the false-negative-safe
+    choice (V3-EXQ-799 uses `dacc_weight=DACC_WEIGHT`, and must NOT fire).
+    """
+    if isinstance(value, ast.Constant):
+        if isinstance(value.value, bool):
+            return False
+        if isinstance(value.value, (int, float)):
+            return value.value != 0
+        return False  # None, str, etc.
+    return True  # Name / Attribute / Call / BinOp / ... -- value unknown, assume live
+
+
+def _dacc_weight_set_positively_anywhere(tree: ast.AST) -> bool:
+    """File-wide escape: some site sets dacc_weight to a positive value.
+
+    Suppresses a fire when the weight is activated separately from the flag call --
+    `cfg = REEConfig.from_dims(..., salience_apply_to_dacc_bias=True); cfg.dacc_weight
+    = 0.5`, or a positive `dacc_weight=` keyword on a DIFFERENT config construction.
+    Covers keyword args on any call, `<x>.dacc_weight = <positive>` attribute assigns,
+    and `<d>["dacc_weight"] = <positive>` subscript assigns.
+    """
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Call):
+            for kw in n.keywords:
+                if kw.arg == "dacc_weight" and _dacc_weight_is_positive(kw.value):
+                    return True
+        elif isinstance(n, ast.Assign):
+            for tgt in n.targets:
+                if isinstance(tgt, ast.Attribute) and tgt.attr == "dacc_weight" \
+                        and _dacc_weight_is_positive(n.value):
+                    return True
+                if isinstance(tgt, ast.Subscript) and isinstance(tgt.slice, ast.Constant) \
+                        and tgt.slice.value == "dacc_weight" \
+                        and _dacc_weight_is_positive(n.value):
+                    return True
+    return False
+
+
+def inert_salience_dacc_bias_lint(path: Path) -> Optional[str]:
+    """Inert `salience_apply_to_dacc_bias=True` check. Return an issue string, or None.
+
+    Fires when a config construction passes a LITERAL `salience_apply_to_dacc_bias=True`
+    but no positive `dacc_weight` is set -- neither in that same call nor anywhere in the
+    file (`_dacc_weight_set_positively_anywhere` is the escape for the weight-set-
+    separately idiom). Because `DACCtoE3Adapter.forward` multiplies the whole dACC->E3
+    score bias by `dacc_weight` (default 0.0), the flag is then arithmetically inert: the
+    `write_gate("e3_policy")` modulation in agent.py scales the zero vector, so any arm
+    whose readout depends on that channel is a guaranteed null that looks measured.
+
+    Confirmed near-miss (V3-EXQ-799, 2026-07): authored with the flag True and no
+    dacc_weight; a P0 probe measured dacc_bias cross-candidate range = 0.0 in all four
+    arms, and the driver added `dacc_weight=DACC_WEIGHT` + `dacc_interaction_weight` to
+    make the channel live. That fixed shape (flag True WITH a positive dacc_weight) is the
+    reference and must NOT fire.
+
+    Detection is AST-call-keyword based, so it is deliberately blind to a flag that
+    reaches the config through a dict/**kwargs, a helper the scan cannot follow, or a
+    docstring mention (V3-EXQ-455a lists the flag in its Arms docstring but is a gated
+    NotImplementedError stub that constructs no config -- correctly not a fire; its
+    inertness is a stronger form than this gate targets). Under-fires in those cases,
+    which is the acceptable direction for an advisory net.
+
+    Opt-out: INERT_SALIENCE_DACC_BIAS_EXEMPT = "<reason>" -- use when the bias is
+    deliberately enabled while being DRIVEN FROM ANOTHER HEAD, so the flag is meant to be
+    on without a dacc_weight.
+
+    WARN-only in BOTH modes -- never hardens under --paths. A fire is a SUSPECTED inert
+    channel (the weight could be assembled at runtime in a way the scan cannot see), and a
+    landed carrier's run is complete, so hardening would block commits on history.
+    """
+    try:
+        src = path.read_text(encoding="utf-8")
+        tree = ast.parse(src, filename=str(path))
+    except (OSError, SyntaxError, UnicodeDecodeError):
+        return None  # check_script already reports unreadable / syntax errors
+
+    if _INERT_SALIENCE_DACC_BIAS_EXEMPT_MARKER in src:
+        return None
+
+    flag_sites = []
+    for n in ast.walk(tree):
+        if not isinstance(n, ast.Call):
+            continue
+        for kw in n.keywords:
+            if kw.arg == "salience_apply_to_dacc_bias" and isinstance(kw.value, ast.Constant) \
+                    and kw.value.value is True:
+                # Positive dacc_weight IN THIS SAME call clears it outright.
+                same_call_positive = any(
+                    k.arg == "dacc_weight" and _dacc_weight_is_positive(k.value)
+                    for k in n.keywords)
+                if not same_call_positive:
+                    flag_sites.append(n)
+    if not flag_sites:
+        return None
+
+    # File-wide escape: dacc_weight set positively elsewhere (separate assign / call).
+    if _dacc_weight_set_positively_anywhere(tree):
+        return None
+
+    where = ", ".join(f"line {n.lineno}" for n in flag_sites)
+    return (
+        f"enables salience_apply_to_dacc_bias=True at {where} but sets no positive "
+        f"dacc_weight (it defaults to 0.0). agent.py scales the dACC->E3 score bias by "
+        f"write_gate(\"e3_policy\"), but DACCtoE3Adapter.forward "
+        f"(ree_core/cingulate/dacc.py) multiplies that whole bias by dacc_weight -- so "
+        f"the gate modulates the ZERO vector. The channel is arithmetically inert: any "
+        f"arm resting on it is a guaranteed null that looks measured (the V3-EXQ-799 "
+        f"near-miss, where the measured dacc_bias cross-candidate range was 0.0 in every "
+        f"arm). Fix by setting dacc_weight > 0 AND at least one per-candidate sub-weight "
+        f"(dacc_interaction_weight / dacc_foraging_weight / dacc_suppression_weight) in "
+        f"the same config -- V3-EXQ-799 is the canonical shape. Exempt with "
+        f"{_INERT_SALIENCE_DACC_BIAS_EXEMPT_MARKER} = \"<reason>\" when the bias is "
+        f"deliberately driven from another head."
+    )
+
+
 def _candidate_paths(paths: Sequence[str]) -> List[Path]:
     if paths:
         return [Path(p).resolve() for p in paths]
@@ -3200,6 +3600,8 @@ def main() -> int:
     spearman_warnings: List[Tuple[Path, str]] = []
     dead_zgoal_warnings: List[Tuple[Path, str]] = []
     hardcoded_dry_run_warnings: List[Tuple[Path, str]] = []
+    config_slice_warnings: List[Tuple[Path, str]] = []
+    inert_dacc_bias_warnings: List[Tuple[Path, str]] = []
     for p in paths:
         rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
         if "conformance" in selected:
@@ -3303,6 +3705,22 @@ def main() -> int:
                 # partial is invisible to the static scan, and the ~164 landed carriers'
                 # runs are complete, so hardening would block commits on history).
                 hardcoded_dry_run_warnings.append((p, hdr))
+        if "config_slice_declaration" in selected:
+            csd = config_slice_under_declaration_lint(p)
+            if csd:
+                # WARN-only in BOTH modes -- see config_slice_under_declaration_lint()
+                # for why this one never hardens under --paths (best-effort static scan
+                # in both directions, a false HIT needs a CONSUMER to exist before it
+                # can corrupt anything, and the landed carriers' runs are complete).
+                config_slice_warnings.append((p, csd))
+        if "inert_salience_dacc_bias" in selected:
+            isd = inert_salience_dacc_bias_lint(p)
+            if isd:
+                # WARN-only in BOTH modes -- see inert_salience_dacc_bias_lint() for why
+                # this one never hardens under --paths (a dacc_weight assembled at runtime
+                # is invisible to the static scan, and the landed carriers' runs are
+                # complete).
+                inert_dacc_bias_warnings.append((p, isd))
         if "spearman_guard_shape" in selected:
             sps = spearman_guard_shape_lint(p)
             if sps:
@@ -3326,7 +3744,37 @@ def main() -> int:
           f"{len(ao_selection_warnings)} action-object-selection-warning(s), "
           f"{len(spearman_warnings)} spearman-guard-shape-warning(s), "
           f"{len(dead_zgoal_warnings)} dead-z_goal-stream-warning(s), "
-          f"{len(hardcoded_dry_run_warnings)} hardcoded-dry_run-warning(s)", flush=True)
+          f"{len(hardcoded_dry_run_warnings)} hardcoded-dry_run-warning(s), "
+          f"{len(config_slice_warnings)} config_slice-declaration-warning(s), "
+          f"{len(inert_dacc_bias_warnings)} inert-salience-dacc_bias-warning(s)", flush=True)
+    if inert_dacc_bias_warnings:
+        # Advisory in BOTH modes (never hardens). A fire here means the script enables
+        # salience_apply_to_dacc_bias=True with no positive dacc_weight, so the
+        # write_gate("e3_policy") modulation in agent.py scales the ZERO vector -- the
+        # dACC->E3 behavioural channel is inert and any arm resting on it is a null that
+        # looks measured. Triage each: set dacc_weight > 0 plus a per-candidate sub-weight
+        # (V3-EXQ-799 is the canonical shape), or carry INERT_SALIENCE_DACC_BIAS_EXEMPT
+        # when the bias is deliberately driven from another head. Do NOT retro-edit a
+        # LANDED driver whose run is complete.
+        print("", flush=True)
+        print("[validate_experiments] INERT-SALIENCE-DACC_BIAS WARNINGS (advisory, non-blocking):", flush=True)
+        for p, warn in inert_dacc_bias_warnings:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
+            print(f"  - {rel}: {warn}", flush=True)
+    if config_slice_warnings:
+        # Advisory in BOTH modes (never hardens). A fire here means the script mints a
+        # CROSS-DRIVER-reusable arm cell whose config_slice under-approximates what the
+        # cell actually reads, so a future consumer can take a false cache HIT and read
+        # readouts computed under a different scheme. Triage each: add the readout-
+        # affecting constant to the slice (V3-EXQ-798a is the canonical shape), or mark
+        # CONFIG_SLICE_DECLARATION_EXEMPT when it is genuinely bound by a key already
+        # declared. Do NOT retro-edit a LANDED driver whose run is complete -- a
+        # completed run's pre-registered emission is not rewritten; fix the successor.
+        print("", flush=True)
+        print("[validate_experiments] CONFIG_SLICE-DECLARATION WARNINGS (advisory, non-blocking):", flush=True)
+        for p, warn in config_slice_warnings:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
+            print(f"  - {rel}: {warn}", flush=True)
     if hardcoded_dry_run_warnings:
         # Advisory in BOTH modes (never hardens). A fire here means `--dry-run` on that
         # driver writes a real-looking manifest into the indexer's scoring set AND
