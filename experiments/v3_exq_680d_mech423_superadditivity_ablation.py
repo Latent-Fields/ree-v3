@@ -990,5 +990,5 @@ if __name__ == "__main__":
     args = parser.parse_args()
     _outcome, _manifest_path = main(dry_run=args.dry_run)
     _outcome_clean = str(_outcome).upper() if str(_outcome).upper() in ("PASS", "FAIL") else "FAIL"
-    emit_outcome(outcome=_outcome_clean, manifest_path=_manifest_path)
+    emit_outcome(outcome=_outcome_clean, manifest_path=_manifest_path, dry_run=bool(args.dry_run))
     sys.exit(0)

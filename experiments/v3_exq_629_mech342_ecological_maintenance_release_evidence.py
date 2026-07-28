@@ -963,4 +963,5 @@ if __name__ == "__main__":
         queue_id=QUEUE_ID,
         exit_reason="ok" if manifest["outcome"] == "PASS" else "fail",
         signal_dir=signal_dir,
+        dry_run=bool(args.dry_run),
     )

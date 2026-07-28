@@ -1079,4 +1079,5 @@ if __name__ == "__main__":
     emit_outcome(
         outcome=_raw if _raw in ("PASS", "FAIL") else "FAIL",
         manifest_path=str(out_path),
+        dry_run=bool(args.dry_run),
     )

@@ -463,5 +463,6 @@ if __name__ == "__main__":
     emit_outcome(
         outcome=_outcome if _outcome in ("PASS", "FAIL") else "FAIL",
         manifest_path=_out_path,
+        dry_run=bool(args.dry_run),
     )
     sys.exit(0)

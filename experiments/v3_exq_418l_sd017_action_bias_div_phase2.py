@@ -847,4 +847,5 @@ if __name__ == "__main__":
     emit_outcome(
         outcome=_outcome_clean,
         manifest_path=out_path,
+        dry_run=bool(args.dry_run),
     )

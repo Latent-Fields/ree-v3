@@ -1129,5 +1129,5 @@ def main() -> Tuple[Optional[str], Optional[str]]:
 if __name__ == "__main__":
     _outcome, _manifest_path = main()
     if _outcome is not None:
-        emit_outcome(outcome=_outcome, manifest_path=_manifest_path)
+        emit_outcome(outcome=_outcome, manifest_path=_manifest_path, dry_run=bool(args.dry_run))
     sys.exit(0)

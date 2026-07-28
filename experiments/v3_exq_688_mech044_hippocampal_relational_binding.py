@@ -473,4 +473,5 @@ if __name__ == "__main__":
     emit_outcome(
         outcome=result["outcome"],
         manifest_path=str(out_path),
+        dry_run=bool(args.dry_run),
     )

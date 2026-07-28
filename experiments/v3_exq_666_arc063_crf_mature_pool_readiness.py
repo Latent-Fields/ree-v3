@@ -637,4 +637,4 @@ def main(dry_run: bool = False):
 if __name__ == "__main__":
     _dry = "--dry-run" in sys.argv
     _outcome, _path = main(dry_run=_dry)
-    emit_outcome(outcome=_outcome, manifest_path=_path)
+    emit_outcome(outcome=_outcome, manifest_path=_path, dry_run=_dry)

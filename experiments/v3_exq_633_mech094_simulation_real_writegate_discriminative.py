@@ -568,5 +568,6 @@ if __name__ == "__main__":
         outcome=result["outcome"],
         manifest_path=result["manifest_path"],
         run_id=result["run_id"],
+        dry_run=bool(args.dry_run),
     )
     sys.exit(0 if result["all_pass"] else 1)

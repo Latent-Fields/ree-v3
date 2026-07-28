@@ -219,5 +219,5 @@ if __name__ == "__main__":
     if result == 0:
         sys.exit(0)
     outcome, out_path = result
-    emit_outcome(outcome=outcome, manifest_path=out_path)
+    emit_outcome(outcome=outcome, manifest_path=out_path, dry_run=bool(args.dry_run))
     sys.exit(0)

@@ -620,5 +620,6 @@ if __name__ == "__main__":
     if _res.get("manifest_path"):
         _o = str(_res["outcome"]).upper()
         emit_outcome(outcome=_o if _o in ("PASS", "FAIL") else "FAIL",
-                     manifest_path=_res["manifest_path"])
+                     manifest_path=_res["manifest_path"],
+                     dry_run=bool(args.dry_run))
     sys.exit(0 if _res["outcome"] == "PASS" else 1)

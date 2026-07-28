@@ -655,4 +655,5 @@ if __name__ == "__main__":
         _result["outcome"],
         manifest_path=_result["manifest_path"],
         extra=_result["extra"],
+        dry_run=bool(args.dry_run),
     )

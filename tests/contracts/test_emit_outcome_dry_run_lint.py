@@ -621,7 +621,42 @@ def test_eod_is_selectable_and_does_not_drag_in_other_checks():
 # judgement is the work. Verified by smoking 720 and 814 --dry-run (both exit 0, no
 # manifest left in evidence/experiments/, and 720's sentinel now records
 # `"dry_run": true` where it recorded false before).
-_PINNED_CORPUS_FIRE_COUNT = 265
+#
+# DRAWDOWN, batch 2 (2026-07-28): 265 -> 14. The ENTIRE REST OF THE CORPUS -- 251 drivers
+# across every band -- threaded in one pass. The 14 that remain are NOT residue: they are
+# 460d-k / 461c / 464c-d / 466c / 467c-d, held under an active TASK_CLAIMS claim by session
+# mech-244-experiment-84dce1 with live uncommitted edits, and were EXCLUDED so this batch
+# could not entangle with that work. They are mechanically identical to the rest; whoever
+# holds that claim next should thread them and re-pin to 0.
+#
+# BATCH 1'S "expect more of this" WAS WRONG, AND THE COUNTER-EXAMPLE IS THE POINT.
+# V3-EXQ-121 was smoked as batch 2's witness and leaked for real: it writes its manifest
+# ITSELF to `evidence/experiments/<experiment_type>/<run_id>.json` -- a real experiment
+# subdirectory, with NO `_dry_` prefix, because it never goes through
+# `write_flat_manifest` at all. That is also why the sibling `hardcoded_dry_run` gate
+# (pinned 0) is blind to it: the sibling watches the WRITER, and this driver has no writer
+# to watch. The emitter gate was the ONLY layer that saw it. Post-repair the smoke's
+# manifest lands in the scratch dir (48 -> 49 files) and is absent from the evidence tree.
+# So the population is genuinely mixed -- benign shapes AND real leaks -- and the count is
+# an upper bound on exposure only in the sense that some members are already safe by other
+# means, never in the sense that the gate is noise.
+#
+# HOW BATCH 2 WAS DONE, since 251 files is past hand-editing. A script reused THIS MODULE'S
+# OWN site selection -- `V._emit_manifest_arg`, `V._dry_reachable_functions`,
+# `V._locally_dry_guarded` -- so the sites edited are exactly the sites the lint flags,
+# with no re-derivation that could drift. Per site it picked the threaded expression from
+# what is provably BOUND at that site's scope (`dry_run` param/local, `dry`/`_dry`/
+# `_dry_run`, else `bool(args.dry_run)` only where argparse declares the flag AND `args` is
+# bound there), and REFUSED rather than guessing -- the 4 refusals were the 666 family,
+# which binds `_dry = "--dry-run" in sys.argv`, handled once that name was added. Edits are
+# byte-offset splices at the call node, applied right-to-left, each verified to re-parse
+# and to silence the lint or be rolled back. Audit of every changed line across all 251:
+# the ONLY additions are `dry_run=` on an emit_outcome call and the only deletions are the
+# same calls without it. `validate_experiments --strict` over the 247-file first pass is
+# byte-identical before/after once the emit_outcome section is excluded -- 242 OK, 191
+# non-conforming, 21 anchor-reachability, 38 precondition-recomputability, 16 stale-e3,
+# 45 hold-weighted, 1 dead-z_goal all unchanged.
+_PINNED_CORPUS_FIRE_COUNT = 14
 
 
 def test_eod_corpus_fire_rate_is_pinned(corpus_scan):

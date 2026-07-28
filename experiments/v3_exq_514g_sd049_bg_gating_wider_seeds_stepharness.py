@@ -483,4 +483,5 @@ if __name__ == "__main__":
         manifest_path=_out_path,
         run_id=_run_id,
         exit_reason="ok" if _outcome_emit == "PASS" else "fail",
+        dry_run=bool(args.dry_run),
     )

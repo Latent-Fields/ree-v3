@@ -1255,4 +1255,5 @@ if __name__ == "__main__":
             manifest_path=str(manifest_path),
             run_id=run_id,
             queue_id=QUEUE_ID,
+            dry_run=dry,
         )

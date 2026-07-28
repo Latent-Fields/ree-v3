@@ -548,4 +548,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     _result, _manifest_path = main()
-    emit_outcome(outcome=_result, manifest_path=_manifest_path)
+    emit_outcome(outcome=_result, manifest_path=_manifest_path, dry_run=bool(args.dry_run))
