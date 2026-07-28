@@ -536,6 +536,48 @@ def _print_z_goal_stream_smoke(manifest: Mapping[str, Any], *, wired: bool) -> N
     goal-OFF parity arm, for a negative control, and for a correctly-wired run whose
     benefit gate never opened; ``writer_defect`` is the only line that says "bug".
     Never raises -- a smoke print must not be able to fail a manifest write.
+
+    NOT RECORDED IS THE CORPUS NORM, NOT A DEFECT COUNT -- do not read a run of them
+    as an alarm. Census 2026-07-28 over the 1164 ``experiments/v3_exq_*.py`` drivers
+    (AST, not grep): 565 both step an agent and call this writer, and **537 of them
+    (95%) never pass ``agent=``/``z_goal_stream_stats=``**, so NOT RECORDED is all the
+    report can print for them. These kwargs postdate nearly the whole corpus; a smoke
+    of any five drivers picked blind hits it ~77% of the time, which is why an
+    arbitrary 5-for-5 sample means nothing on its own. Only 28 drivers are wired.
+
+    "NOT RECORDED" IS NOT "DEAD" -- the two are different measurements, which is why
+    this report's population dwarfs the static ``dead_z_goal_stream`` lint's 12
+    corpus-wide fires. Decomposing the 537: **268 set no trigger knob at all**, where
+    ``goal_state`` is None, ``update_z_goal`` early-returns and the omission is a true
+    no-op (the lint's docstring makes the same point for ~500 hand-rolled loops);
+    **259 set a knob but demonstrably write z_goal** by one of the four accepted
+    routes, so the lint is silent CORRECTLY; **10 the lint already fires on**. The two
+    instruments are complementary and neither subsumes the other, confirmed on the
+    corpus rather than argued: 11 of the 12 lint carriers are ALSO unwired, so the
+    lint catches exactly what this report cannot, and V3-EXQ-798 trips both.
+
+    RESIDUAL AFTER THAT DECOMPOSITION: 3 drivers, and the mechanism generalises.
+    ``v3_exq_786{,a,b}_mech163_dual_system_recruitment`` build their config through
+    ``_lib/goal_pipeline_tier1.build_config``, which sets ``z_goal_enabled=True`` with
+    ``goal_weight=0.5`` -- invisible to the lint's ``_sets_knob_truthy``, which reads
+    only in-file keywords and attribute assignments and is documented to UNDER-fire on
+    a config assembled in an unfollowable helper. They then hand-roll a loop calling
+    the real ``REEAgent.select_action`` with no ``update_z_goal`` anywhere, and never
+    wire this writer. So BOTH guards are blind at once and the E3 goal term runs
+    configured-live on ``current_z_goal=None`` -- the V3-EXQ-830 shape exactly.
+    (740/740a/744 share the blind spot but only call ``agent.sense(...)``; no consumer
+    reads z_goal without a ``select_action``, so they are moot. The larger
+    ``goal_pipeline_tier1`` cohort routes through ``run_seed_arm`` -> ``StepHarness``,
+    which pins the call, and is fine.)
+
+    DECISION (2026-07-28): NO corpus-wide retrofit. Wiring ``agent=`` into 537 landed
+    drivers is churn against completed runs whose manifests are not rewritten, and it
+    would not have caught the 786 family any earlier than the lint would have. The
+    cheap fix is at the OTHER guard -- teach ``_sets_knob_truthy`` to follow a local
+    config-builder helper one level, using the module-resolution machinery
+    ``_uses_a_z_goal_driving_helper`` already has -- which closes this exact blind spot
+    at authoring time, before compute is spent. Wiring stays the standing expectation
+    for NEW drivers via /queue-experiment, not a backfill obligation.
     """
     try:
         block = manifest.get("z_goal_stream") if isinstance(manifest, dict) else None
