@@ -2276,23 +2276,35 @@ def hardcoded_dry_run_lint(path: Path) -> Optional[str]:
 #     That is the ONLY consequence, and it is why the gate below requires a non-None
 #     `manifest_path`: an `emit_outcome` call with nothing to relocate is harmless.
 #
-# THIS ONE IS A LIVE FIRE, NOT DEFENCE-IN-DEPTH -- which is where it parts company with
-# the sibling gate, whose docstring reasonably records its own consequence as the milder
-# one. The `_dry_` prefix does NOT protect the evidence tree:
-#   * build_experiment_indexes.py globs `*.json` over evidence/experiments/ and contains
-#     NO `_dry_` and NO `dry_run` handling anywhere -- a `_dry_`-prefixed manifest left
-#     in that directory is scored like any other.
-#   * generate_pending_review.py DOES exclude dry_run-flagged manifests (`_is_dry_run`).
-#     That asymmetry is precisely why this went unnoticed for so long: pending_review.md,
-#     the surface humans actually watch, stays clean while claim_evidence.v1.json does not.
+# DEFENCE-IN-DEPTH, LIKE THE SIBLING -- DOWNGRADED 2026-07-28 (REE_assembly cb7298c1c4).
+# This block previously read THIS ONE IS A LIVE FIRE, on the grounds that
+# build_experiment_indexes.py contained no `dry_run` handling anywhere while
+# generate_pending_review.py did, so a smoke contaminated claim_evidence.v1.json while
+# pending_review.md -- the surface humans actually watch -- stayed clean. That downstream
+# gap is now closed on both sides, so the consequence is the milder one. THE GATE STAYS:
+# it is the first and cheapest layer, it fires at authoring time rather than after a
+# manifest is on disk, and it is the only layer that lives in this repo.
+#
+# THE MECHANISM WAS NOT THE `_dry_` FLAT MANIFEST. That file keeps its `dry_run` flag and
+# was never on the scoring path; the indexer scores the RUN PACK at
+# `<experiment_type>/runs/<run_id>/manifest.json`. sync_v3_results._is_flat_v3 minted that
+# pack FROM the smoke -- converting canonical `..._v3` run_ids unconditionally, consulting
+# `_is_dry_run` only on the mid-string casualty branch -- and build_runpack_docs writes an
+# `experiment_pack/v1` manifest with NO dry_run field, so the scored artifact was by
+# construction indistinguishable from a real run. The repair gates the converter on both
+# branches and has the indexer carry the flag over from the flat sibling by run_id.
+#
 # Confirmed instance, MECH-245: two 1-seed (`seeds: [0]`) `--dry-run` smokes of
-# V3-EXQ-825 dated 2026-07-26T15:12:07Z / 15:14:39Z are TRACKED IN GIT at
-# evidence/experiments/_dry_v3_exq_825_..._v3.json and appear in claim_evidence.v1.json
-# as two `weakens` / FAIL entries -- including in MECH-245's `recent_entries`. They are
-# that claim's ENTIRE negative evidence base: `fail_runs: 2, pass_runs: 1,
-# experimental_confidence: 0.574, evidence_quadrant: plausible_unproven`, where the one
-# genuine run PASSED. The relocation demonstrably works when it is threaded (48 relocated
-# `_dry_` manifests sit in the scratch dir); the 825 pair is simply absent from it.
+# V3-EXQ-825 dated 2026-07-26T15:12:07Z / 15:14:39Z were tracked in git as BOTH
+# `_dry_v3_exq_825_..._v3.json` (flagged, inert) and two `weakens` / FAIL run packs
+# (unflagged, scored), the latter appearing in MECH-245's `recent_entries`. They were that
+# claim's ENTIRE negative evidence base: `fail_runs: 2, pass_runs: 1,
+# experimental_confidence: 0.571, evidence_quadrant: plausible_unproven`, where the one
+# genuine run PASSED. After the repair: `fail_runs: 0`, `experimental_confidence: 0.771`,
+# quadrant `confirmed_established`. Corpus-wide, 25 dry manifests had 25 matching scored
+# packs and the rebuild dropped 22 entries (the rest already carried inactive directions).
+# The relocation demonstrably works when it is threaded (48 relocated `_dry_` manifests
+# sit in the scratch dir); the 825 pair is simply absent from it.
 #
 # REACHABILITY IS AGAIN THE DISCRIMINATOR, but note the grep error here runs the OPPOSITE
 # way to the sibling's. A naive `grep -L` for the threading idioms over drivers that call
@@ -2348,8 +2360,8 @@ def emit_outcome_dry_run_lint(path: Path) -> Optional[str]:
           `_dry_reachable_functions`. This is the discriminator; see the block comment
           above for the measured 3.3x gap against a grep.
 
-    Never blocking. See the block comment for the live-fire evidence (MECH-245) and the
-    exemption.
+    Never blocking. See the block comment for the MECH-245 evidence, why this is
+    defence-in-depth rather than a live fire since 2026-07-28, and the exemption.
     """
     try:
         src = path.read_text(encoding="utf-8")
