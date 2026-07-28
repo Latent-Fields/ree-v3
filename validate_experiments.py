@@ -43,7 +43,7 @@ CHECK_NAMES = ("conformance", "readiness", "arm_fingerprint", "degeneracy", "man
                "e3_diagnostics_staleness", "e3_hold_weighted_readout",
                "action_object_selection", "spearman_guard_shape",
                "dead_z_goal_stream", "hardcoded_dry_run", "emit_outcome_dry_run",
-               "write_pack_dry_run",
+               "write_pack_dry_run", "dry_run_unreachable_criterion",
                "config_slice_declaration", "inert_salience_dacc_bias")
 
 # Readiness-gate static lint (proposal_trivial_prediction_readiness_gate_2026-06-06).
@@ -2643,6 +2643,407 @@ def write_pack_dry_run_lint(path: Path) -> Optional[str]:
     )
 
 
+# ---- criterion unreachable under --dry-run (2026-07-28 smoke-in-autopsy audit) --------
+# FOURTH member of the dry-run family, and the only one that is not about WRITING an
+# artifact. The three siblings above all ask "does the smoke's output get correctly marked
+# as a smoke?" -- write_flat_manifest's filename, emit_outcome's relocation, write_pack's
+# flag. This one asks a different question about the same smoke: "is every criterion the
+# driver reports on actually EVALUABLE at the reduced episode count?"
+#
+# THE DEFECT. A `--dry-run` smoke reduces episodes drastically (`p1_eps = 4 if dry_run else
+# P1_TRAIN_EPISODES`). When a driver gates a DETECTOR on an absolute mid-training episode
+# index, the reduced path never reaches that index, so the detector's latch stays False --
+# not because the policy behaved well, but because the comparison is arithmetically
+# unsatisfiable. The driver then reports that False as a finding. It is a VACUOUS NEGATIVE
+# that is indistinguishable, in the manifest and on stdout, from a real negative result.
+#
+# CANONICAL INSTANCE, `v3_exq_543i_arc062_differential_heads_falsifier.py`:
+#
+#     MID_TRAINING_EP = 30                                    # module-level, line 255
+#     ...
+#     p1_eps = 4 if dry_run else P1_TRAIN_EPISODES            # line ~1495
+#     _p1_train(agent, env, p1_eps, ...)                      # line 1544
+#     ...
+#     def _p1_train(..., num_episodes, ...):
+#         for ep in range(num_episodes):                      # line 1033
+#             if (probe["applicable"] and (ep + 1) >= MID_TRAINING_EP   # line 1286
+#                     and probe["mean_tv_distance"] < INERT_GATING_THRESHOLD
+#                     and not inert_gating_detected):
+#                 inert_gating_detected = True
+#
+# `ep + 1` tops out at 4 in a smoke; the gate needs 30. So `p1_inert_gating_detected`
+# (emitted at line 1312) is structurally unsettable in ANY dry run: 0/36 cells detected,
+# exactly one probe per cell. The SIGN WAS INVERTED -- the smoke's gated arms had
+# `mean_tv_distance` about 100x BELOW the inert threshold, so every arm would have flagged
+# INERT had the gate not blocked it. That vacuous `false` was read as evidence of escape,
+# and a bistability finding built on it blocked a claim disposition for two months. The
+# whole 543 lineage (b..l) inherited the shape from one another -- 11 carriers, which is
+# the entire corpus population of this gate.
+#
+# THIS IS THE MECHANICAL FORM OF A MANUAL STEP. The 2026-07-28 `/failure-autopsy` Step 2a
+# guard tells an adjudicating session to read the dry-run reduction block against every
+# criterion by hand. That is exactly the check below, run over the corpus instead of by a
+# reader who has to remember to do it. Full write-up (section 1.1):
+# REE_assembly/evidence/planning/dry_run_smoke_in_autopsy_audit_2026-07-28.md
+#
+# WHAT SEPARATES THE DEFECT FROM THE BENIGN CASE, and it is NOT "the branch is dead". Of
+# the 409 corpus drivers whose dry loop bound this scan can resolve, 13 contain an
+# episode-index conjunct that cannot be satisfied at the reduced count. Two of those are
+# CORRECT and must not fire:
+#   * v3_exq_430 line 229 -- `ep >= WARMUP_EPISODES` gates a SLEEP CYCLE;
+#   * v3_exq_165 line 449 -- `ep > 0` gates a VALUE SHUFFLE.
+# Both gate a scheduled ACTION. An action that a smoke skips is a smaller smoke, which is
+# the point of a smoke; nothing false is reported. The 11 that do fire all gate a REPORTED
+# DETECTOR LATCH. So the discriminator is the latch, not the dead branch: a name that is
+# initialised `False`, set `True` only inside the unreachable branch, and whose value
+# escapes into a dict entry or an f-string -- i.e. reaches a manifest or the run log, where
+# a reader takes it for a measurement. Requiring that is what keeps this from firing on
+# every reduced training schedule in the corpus.
+#
+# The earlier draft of this gate also accepted a detector-ish NAME (`*_detected`, `*_flag`,
+# ...) as an alternative to being reported. That arm was dropped: on this corpus it selects
+# exactly the same 11 files, so it bought no coverage and only added a naming convention to
+# game. Escaping into output is the property that makes a vacuous false HARMFUL, so it is
+# the only property tested.
+#
+# COST, because a corpus lint that gets slower every time the corpus grows is the creep
+# CLAUDE.md tracks by name. Measured over the 1167-driver corpus (Mac, read+parse included,
+# which the shared scan in tests/contracts/conftest.py removes): 10.8s, against 7.6s for
+# `write_pack_dry_run_lint` and 14.4s for `hardcoded_dry_run_lint`. The first draft was
+# 36.9s -- a fresh `ast.walk` per precondition plus one per candidate loop inside the bound
+# resolver, i.e. O(loops x tree). It is now ONE walk that fills every scan at once, with the
+# `_dry_reachable_functions` fixpoint DEFERRED until an unsatisfiable conjunct is actually
+# found (13 of 409 resolvable drivers), so the common path never pays for it. Keep both
+# properties if this is ever edited.
+#
+# ADVISORY, and deliberately biased to UNDER-fire, like all three siblings. It is a static
+# scan: a bound assembled arithmetically, threaded through a dict, or resolved two call
+# levels deep is invisible; only `range()` loops are considered; only `>=`/`>` (and the
+# mirrored `<=`/`<`) against an int literal or a module-level int constant are compared;
+# and interprocedural bound resolution goes exactly ONE level, by bare name, and gives up
+# entirely unless EVERY call site resolves. A false WARN costs a reader one minute; the 11
+# carriers are landed drivers whose runs are complete, so hardening would block commits on
+# history. Exempt with DRY_RUN_UNREACHABLE_CRITERION_EXEMPT = "<reason>" when the criterion
+# is genuinely not meant to be evaluable in a smoke AND the driver does not report its
+# latch as a result.
+_DRY_UNREACHABLE_CRITERION_EXEMPT_MARKER = "DRY_RUN_UNREACHABLE_CRITERION_EXEMPT"
+
+
+def _int_const(node: Optional[ast.AST]) -> Optional[int]:
+    """The int value of an integer literal, or None. `True`/`False` are NOT ints here."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, int) and not isinstance(node.value, bool):
+        return node.value
+    return None
+
+
+def _module_int_constants(tree: ast.AST) -> Dict[str, int]:
+    """Module-level `NAME = <int literal>` bindings -- the thresholds gates compare against."""
+    out: Dict[str, int] = {}
+    for st in getattr(tree, "body", []):
+        if isinstance(st, ast.Assign) and len(st.targets) == 1 and isinstance(st.targets[0], ast.Name):
+            v = _int_const(st.value)
+            if v is not None:
+                out[st.targets[0].id] = v
+    return out
+
+
+def _dry_reduced_int_bindings(tree: ast.AST) -> Dict[str, int]:
+    """name -> the int it takes when dry_run is truthy, for the two reduction shapes.
+
+    `X = 4 if dry_run else BIG` (overwhelmingly the common one) and `if dry_run: X = 4`.
+    Rebindings resolve to the MAX, which is the conservative direction: a larger bound
+    makes a gate MORE reachable and so makes this scan fire LESS.
+    """
+    out: Dict[str, int] = {}
+
+    def note(name: str, val: int) -> None:
+        out[name] = max(out[name], val) if name in out else val
+
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Assign) and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name):
+            v = n.value
+            if isinstance(v, ast.IfExp) and _mentions_dry(v.test):
+                branch = v.orelse if _is_negated_test(v.test) else v.body
+                iv = _int_const(branch)
+                if iv is not None:
+                    note(n.targets[0].id, iv)
+        if isinstance(n, ast.If) and _mentions_dry(n.test):
+            dry_body = n.orelse if _is_negated_test(n.test) else n.body
+            for st in dry_body:
+                if isinstance(st, ast.Assign) and len(st.targets) == 1 and isinstance(st.targets[0], ast.Name):
+                    iv = _int_const(st.value)
+                    if iv is not None:
+                        note(st.targets[0].id, iv)
+    return out
+
+
+def _enclosing_function(node: ast.AST, parent: Dict[int, ast.AST]):
+    cur = parent.get(id(node))
+    while cur is not None:
+        if isinstance(cur, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            return cur
+        cur = parent.get(id(cur))
+    return None
+
+
+def _resolve_dry_bound(expr: ast.AST, calls_by_name: Dict[str, List[ast.Call]],
+                       parent: Dict[int, ast.AST],
+                       dry_ints: Dict[str, int]) -> Optional[int]:
+    """Upper bound on `expr` under dry_run, or None when it cannot be resolved.
+
+    Three cases, in order: an int literal; a name bound by a dry-run reduction; a PARAMETER
+    of the enclosing function, resolved one level out through that function's call sites by
+    bare name. The parameter case is what reaches the canonical specimen, whose loop lives
+    in `_p1_train(num_episodes)` while the reduction lives in its caller. It gives up unless
+    EVERY call site resolves to an int, and then takes the MAX -- so a single unresolvable
+    or full-size call site silences the file rather than producing a guess.
+
+    `calls_by_name` is prebuilt by the caller from its single tree walk. Re-deriving it here
+    would make the scan O(loops x tree), which on this corpus cost ~3x the sibling gates.
+    """
+    iv = _int_const(expr)
+    if iv is not None:
+        return iv
+    if not isinstance(expr, ast.Name):
+        return None
+    if expr.id in dry_ints:
+        return dry_ints[expr.id]
+
+    fn = _enclosing_function(expr, parent)
+    if fn is None:
+        return None
+    params = [a.arg for a in list(fn.args.args) + list(fn.args.kwonlyargs)]
+    if expr.id not in params:
+        return None
+    pos = params.index(expr.id)
+
+    vals: List[int] = []
+    for c in calls_by_name.get(fn.name, ()):
+        arg = c.args[pos] if pos < len(c.args) else next(
+            (k.value for k in c.keywords if k.arg == expr.id), None)
+        if arg is None:
+            return None
+        v = _int_const(arg)
+        if v is None and isinstance(arg, ast.Name) and arg.id in dry_ints:
+            v = dry_ints[arg.id]
+        if v is None:
+            return None
+        vals.append(v)
+    return max(vals) if vals else None
+
+
+def _and_conjuncts(test: ast.AST) -> List[ast.AST]:
+    """Flatten an `and` chain. Only conjuncts matter: a false OR-disjunct proves nothing."""
+    if isinstance(test, ast.BoolOp) and isinstance(test.op, ast.And):
+        out: List[ast.AST] = []
+        for v in test.values:
+            out.extend(_and_conjuncts(v))
+        return out
+    return [test]
+
+
+def dry_run_unreachable_criterion_lint(path: Path) -> Optional[str]:
+    """Criterion unsatisfiable under the driver's own --dry-run. Issue string, or None.
+
+    Fires when ALL of:
+      (1) the script has a smoke path -- an argparse `--dry-run` flag or a `dry_run`
+          function parameter -- AND actually gates work on it. Identical precondition to
+          all three siblings, for the same reason: a flag that gates nothing is not a
+          smoke mode.
+      (2) some name is bound to a reduced int under dry_run, and an episode loop
+          `for v in range(<that name>)` -- directly, or one call level out via a parameter
+          -- takes its bound from it.
+      (3) an `if` inside that loop has an AND-conjunct comparing the loop variable
+          (optionally `v + k`) against an int threshold that the reduced bound can never
+          satisfy.
+      (4) that branch latches a detector: `flag = True` for a name also assigned `False`
+          elsewhere, whose value escapes into a dict entry or an f-string. This is the
+          discriminator between a vacuous REPORTED negative and a merely-skipped scheduled
+          action -- see the block comment for the two corpus cases it correctly spares.
+      (5) the gate is reachable with dry_run truthy, interprocedurally per
+          `_dry_reachable_functions` -- the claim in the message is that the gate IS
+          evaluated in a smoke and cannot be true, so a gate the smoke never reaches at
+          all is a different (and quieter) shape.
+
+    Never blocking. See the block comment for the under-fire bias and the exemption.
+    """
+    try:
+        src = path.read_text(encoding="utf-8")
+        tree = ast.parse(src)
+    except (OSError, SyntaxError, UnicodeDecodeError):
+        return None
+    if _DRY_UNREACHABLE_CRITERION_EXEMPT_MARKER in src:
+        return None
+
+    dry_ints = _dry_reduced_int_bindings(tree)
+    if not dry_ints:
+        return None
+
+    # ONE walk, reused by every scan below. The naive form -- a fresh `ast.walk(tree)` per
+    # precondition plus one per candidate loop inside `_resolve_dry_bound` -- measured 36.9s
+    # over the 1167-driver corpus against ~11-14s for the sibling gates, which is exactly
+    # the O(corpus) creep the 2026-07-28 scan-sharing work removed. Restructured to a single
+    # walk plus a deferred fixpoint (below), it lands in the siblings' band.
+    parent: Dict[int, ast.AST] = {}
+    calls_by_name: Dict[str, List[ast.Call]] = {}
+    has_flag = has_param = gates_work = False
+    # `latches` = names somewhere assigned a literal False, i.e. flags with an off state.
+    # `reported` = names whose value reaches a dict entry (a manifest) or an f-string (the
+    # run log). Collected from the whole VALUE SUBTREE, not just a bare `Name` value -- the
+    # specimen emits `"p1_inert_gating_detected": bool(inert_gating_detected)`, and a
+    # bare-Name test misses that `bool(...)` wrapper, which would make this gate vacuous
+    # against the very file it was written for.
+    latches: Set[str] = set()
+    reported: Set[str] = set()
+    loops: List[ast.For] = []
+
+    def absorb_names(node: ast.AST) -> None:
+        for s in ast.walk(node):
+            if isinstance(s, ast.Name):
+                reported.add(s.id)
+
+    for n in ast.walk(tree):
+        for c in ast.iter_child_nodes(n):
+            parent[id(c)] = n
+        if isinstance(n, ast.Call):
+            nm = _call_name(n)
+            if nm is not None:
+                calls_by_name.setdefault(nm, []).append(n)
+            if nm == "add_argument":
+                for a in n.args:
+                    if isinstance(a, ast.Constant) and a.value in ("--dry-run", "--dry_run"):
+                        has_flag = True
+        elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if any(a.arg == "dry_run" for a in list(n.args.args) + list(n.args.kwonlyargs)):
+                has_param = True
+        elif isinstance(n, ast.Assign):
+            if isinstance(n.value, ast.Constant) and n.value.value is False:
+                for t in n.targets:
+                    if isinstance(t, ast.Name):
+                        latches.add(t.id)
+        elif isinstance(n, ast.Dict):
+            for v in n.values:
+                if v is not None:          # None is the `**spread` entry's key slot
+                    absorb_names(v)
+        elif isinstance(n, ast.JoinedStr):
+            absorb_names(n)
+        elif isinstance(n, ast.For) and isinstance(n.target, ast.Name):
+            it = n.iter
+            if (isinstance(it, ast.Call) and _call_name(it) == "range"
+                    and 1 <= len(it.args) <= 2):
+                loops.append(n)
+        if isinstance(n, (ast.If, ast.IfExp)) and _mentions_dry(n.test):
+            gates_work = True
+
+    if not ((has_flag or has_param) and gates_work):
+        return None
+    if not (loops and latches and reported):
+        return None
+
+    mod_consts = _module_int_constants(tree)
+
+    # The reachability fixpoint is the expensive step and is DEFERRED behind the arithmetic:
+    # an unsatisfiable episode-index conjunct is rare (13 of the 409 drivers whose bound
+    # resolves), so paying for the fixpoint only once one is found keeps the common path
+    # cheap. Computed lazily on first use rather than up front.
+    reachable_cache: List[Set[Optional[str]]] = []
+
+    def is_reachable(n: ast.AST) -> bool:
+        if not reachable_cache:
+            reachable_cache.append(_dry_reachable_functions(tree, parent))
+        fn = _enclosing_function(n, parent)
+        return (fn.name if fn is not None else None) in reachable_cache[0]
+
+    findings: List[Tuple[int, str, str, int, int]] = []
+    for loop in loops:
+        bound = _resolve_dry_bound(loop.iter.args[-1], calls_by_name, parent, dry_ints)
+        if bound is None:
+            continue
+        var, max_index = loop.target.id, bound - 1
+
+        def lhs_max(e: ast.AST) -> Optional[int]:
+            """Largest value the compared expression can take at the reduced bound."""
+            if isinstance(e, ast.Name) and e.id == var:
+                return max_index
+            if (isinstance(e, ast.BinOp) and isinstance(e.op, ast.Add)
+                    and isinstance(e.left, ast.Name) and e.left.id == var):
+                k = _int_const(e.right)
+                return None if k is None else max_index + k
+            return None
+
+        def threshold(e: ast.AST) -> Optional[int]:
+            v = _int_const(e)
+            if v is not None:
+                return v
+            return mod_consts.get(e.id) if isinstance(e, ast.Name) else None
+
+        for node in ast.walk(loop):
+            if not isinstance(node, ast.If):
+                continue
+            for cj in _and_conjuncts(node.test):
+                if not (isinstance(cj, ast.Compare) and len(cj.ops) == 1):
+                    continue
+                op = cj.ops[0]
+                lo, thr, strict = lhs_max(cj.left), threshold(cj.comparators[0]), None
+                if lo is not None and thr is not None and isinstance(op, (ast.GtE, ast.Gt)):
+                    strict = isinstance(op, ast.Gt)
+                else:
+                    # mirrored form: `THRESHOLD <= ep + 1`
+                    lo, thr = lhs_max(cj.comparators[0]), threshold(cj.left)
+                    if lo is not None and thr is not None and isinstance(op, (ast.LtE, ast.Lt)):
+                        strict = isinstance(op, ast.Lt)
+                if strict is None:
+                    continue
+                if not ((strict and lo <= thr) or (not strict and lo < thr)):
+                    continue
+                # Reachability LAST: it is the expensive check and only an unsatisfiable
+                # conjunct earns it (see `is_reachable`'s deferred fixpoint above).
+                if not is_reachable(node) or _locally_dry_guarded(node, parent):
+                    continue
+                for st in ast.walk(node):
+                    if not (isinstance(st, ast.Assign) and isinstance(st.value, ast.Constant)
+                            and st.value.value is True):
+                        continue
+                    for tg in st.targets:
+                        if (isinstance(tg, ast.Name) and tg.id in latches
+                                and tg.id in reported):
+                            try:
+                                text = ast.unparse(cj)
+                            except Exception:
+                                text = f"<{var} vs {thr}>"
+                            findings.append((node.lineno, text, tg.id, lo, thr))
+    if not findings:
+        return None
+
+    seen: Set[Tuple[int, str]] = set()
+    parts = []
+    for lineno, text, flag, lo, thr in findings:
+        key = (lineno, flag)
+        if key in seen:
+            continue
+        seen.add(key)
+        parts.append(f"line {lineno}: `{text}` tops out at {lo} < {thr}, latching `{flag}`")
+    where = "; ".join(parts)
+    return (
+        f"accepts --dry-run and reduces its episode counts under it, but gates a REPORTED "
+        f"detector on an absolute episode index the reduced run can never reach -- {where}. "
+        f"The latch is therefore hardcoded false in any smoke, WHATEVER the policy did, and "
+        f"the driver reports that false into its manifest/log where it is indistinguishable "
+        f"from a measured negative. This is not hypothetical: in v3_exq_543i the sign was "
+        f"INVERTED -- the smoke's gated arms sat about 100x BELOW the inert threshold, so "
+        f"every arm would have flagged INERT had the gate not blocked it, and the vacuous "
+        f"false was read as evidence of escape, blocking a claim disposition for two "
+        f"months. Fix by scaling the gate with the run: derive the threshold from the "
+        f"actual episode count (e.g. a fraction of it) rather than a module-level absolute, "
+        f"or exclude the criterion from the smoke explicitly instead of letting it report a "
+        f"structural false. Exempt with {_DRY_UNREACHABLE_CRITERION_EXEMPT_MARKER} = "
+        f"\"<reason>\" when the criterion is genuinely not meant to be evaluable in a smoke "
+        f"AND its latch is not reported as a result. Full write-up: "
+        f"REE_assembly/evidence/planning/dry_run_smoke_in_autopsy_audit_2026-07-28.md "
+        f"section 1.1. Do NOT retro-edit a LANDED driver whose run is complete."
+    )
+
+
 # ---- config_slice under-declaration (V3-EXQ-798) -------------------------------------
 # arm_reuse_fingerprint_plan.md section 7b: a `config_slice` that UNDER-approximates --
 # omits a parameter the cell's RECORDED READOUTS depend on -- is a false-cache-HIT bug.
@@ -4289,6 +4690,7 @@ def main() -> int:
     hardcoded_dry_run_warnings: List[Tuple[Path, str]] = []
     emit_outcome_dry_run_warnings: List[Tuple[Path, str]] = []
     write_pack_dry_run_warnings: List[Tuple[Path, str]] = []
+    dry_unreachable_criterion_warnings: List[Tuple[Path, str]] = []
     config_slice_warnings: List[Tuple[Path, str]] = []
     inert_dacc_bias_warnings: List[Tuple[Path, str]] = []
     for p in paths:
@@ -4410,6 +4812,15 @@ def main() -> int:
                 # siblings, and the same refusal to retro-edit landed drivers whose runs
                 # are complete).
                 write_pack_dry_run_warnings.append((p, wpd))
+        if "dry_run_unreachable_criterion" in selected:
+            duc = dry_run_unreachable_criterion_lint(p)
+            if duc:
+                # WARN-only in BOTH modes -- see dry_run_unreachable_criterion_lint() for
+                # why this one never hardens under --paths (a bound assembled arithmetically
+                # or threaded through a dict is invisible to the static scan, and the 11
+                # landed carriers' runs are complete, so hardening would block commits on
+                # history).
+                dry_unreachable_criterion_warnings.append((p, duc))
         if "config_slice_declaration" in selected:
             csd = config_slice_under_declaration_lint(p)
             if csd:
@@ -4452,6 +4863,7 @@ def main() -> int:
           f"{len(hardcoded_dry_run_warnings)} hardcoded-dry_run-warning(s), "
           f"{len(emit_outcome_dry_run_warnings)} emit_outcome-dry_run-warning(s), "
           f"{len(write_pack_dry_run_warnings)} write_pack-dry_run-warning(s), "
+          f"{len(dry_unreachable_criterion_warnings)} dry_run-unreachable-criterion-warning(s), "
           f"{len(config_slice_warnings)} config_slice-declaration-warning(s), "
           f"{len(inert_dacc_bias_warnings)} inert-salience-dacc_bias-warning(s)", flush=True)
     if inert_dacc_bias_warnings:
@@ -4480,6 +4892,22 @@ def main() -> int:
         print("", flush=True)
         print("[validate_experiments] CONFIG_SLICE-DECLARATION WARNINGS (advisory, non-blocking):", flush=True)
         for p, warn in config_slice_warnings:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
+            print(f"  - {rel}: {warn}", flush=True)
+    if dry_unreachable_criterion_warnings:
+        # Advisory in BOTH modes (never hardens). A fire here means the driver's --dry-run
+        # smoke reports a criterion it cannot possibly evaluate: the detector is gated on an
+        # absolute mid-training episode index the reduced run never reaches, so its latch is
+        # hardcoded false whatever the policy did, and that false goes into the manifest
+        # looking like a measurement. Triage each: scale the gate with the actual episode
+        # count, or exclude the criterion from the smoke explicitly. A driver whose latch is
+        # genuinely not reported should carry DRY_RUN_UNREACHABLE_CRITERION_EXEMPT rather
+        # than be left to re-fire. Do NOT retro-edit a LANDED driver whose run is complete --
+        # adjudicate the affected RESULT instead (that is what the /failure-autopsy Step 2a
+        # dry-run guard is for).
+        print("", flush=True)
+        print("[validate_experiments] DRY_RUN-UNREACHABLE-CRITERION WARNINGS (advisory, non-blocking):", flush=True)
+        for p, warn in dry_unreachable_criterion_warnings:
             rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
             print(f"  - {rel}: {warn}", flush=True)
     if write_pack_dry_run_warnings:

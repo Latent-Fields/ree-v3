@@ -365,6 +365,7 @@ def scan_corpus() -> CorpusScan:
         ("hardcoded_dry_run_lint", V.hardcoded_dry_run_lint),
         ("emit_outcome_dry_run_lint", V.emit_outcome_dry_run_lint),
         ("write_pack_dry_run_lint", V.write_pack_dry_run_lint),
+        ("dry_run_unreachable_criterion_lint", V.dry_run_unreachable_criterion_lint),
         ("config_slice_under_declaration_lint", V.config_slice_under_declaration_lint),
         ("inert_salience_dacc_bias_lint", V.inert_salience_dacc_bias_lint),
     )
