@@ -1,5 +1,28 @@
 """A `subprocess.run` whose timeout path terminates the child GRACEFULLY.
 
+VENDORED COPY -- KEEP IN SYNC
+-----------------------------
+The canonical copy of this module is `ree-v3/graceful_timeout.py`, where its
+contract lives (`ree-v3/tests/contracts/test_graceful_timeout_lockfile.py`).
+Byte-identical copies are vendored into:
+
+    ree-v3/graceful_timeout.py               <- canonical (+ contract test)
+    REE_assembly/graceful_timeout.py            (serve.py)
+    REE_Working/scripts/graceful_timeout.py     (igw_routine_tick.py)
+
+The three copies below this banner are byte-identical, and the banner
+itself is identical too, so `shasum` over all three must match.
+
+WHY VENDORED RATHER THAN SHARED. These are three independently-cloned git
+repos -- a cross-repo import (`sys.path` hop into a sibling checkout) would
+work on this Mac and break on the hub, the cloud workers, and any fresh
+clone, silently falling back to the stdlib `subprocess.run` and re-arming
+the exact bug this module fixes. The module is ~240 lines of pure stdlib
+with no project imports and no configuration, so a copy cannot drift
+functionally without someone editing it. If you DO edit it, edit the
+canonical copy, re-run its contract, and re-copy to the two others
+(`shasum` the three; they must match below the banner).
+
 WHY THIS EXISTS
 ---------------
 `subprocess.run(..., timeout=N)` SIGKILLs the child when the timeout fires.
