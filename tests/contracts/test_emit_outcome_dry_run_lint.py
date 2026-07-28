@@ -573,7 +573,7 @@ def test_eod_pack_writer_can_mark_a_pack_dry(tmp_path):
     from experiments.pack_writer import ExperimentPackWriter
     w = ExperimentPackWriter(output_root=tmp_path, repo_root=REPO_ROOT,
                    runner_name="contract", runner_version="0")
-    common = dict(experiment_type="et", timestamp_utc="20260728T000000Z", status="FAIL",
+    common = dict(experiment_type="et", timestamp_utc="2026-07-28T00:00:00Z", status="FAIL",
                   metrics_values={"fatal_error_count": 0.0}, summary_markdown="x")
     dry = w.write_pack(run_id="et_dry_v3", dry_run=True, **common)
     real = w.write_pack(run_id="et_real_v3", **common)
