@@ -78,8 +78,12 @@ script carries the defect and the correct response is to fix that script rather 
 re-pin. Threading the flag is PROVABLY INERT on the evidence path
 (`dry_run=bool(args.dry_run)` equals `dry_run=False` whenever `--dry-run` is absent, which
 is every real run), so a drawdown is safe -- but it is a drawdown of ~272 historical
-drivers and belongs in its own batches, not here. That drawdown is now UNDER WAY; the
-running record, batch by batch, is the comment above `_PINNED_CORPUS_FIRE_COUNT`.
+drivers and belongs in its own batches, not here. That drawdown is now COMPLETE (batches
+1-3, all 2026-07-28), and the pin below reads 0; the running record, batch by batch, is the
+comment above `_PINNED_CORPUS_FIRE_COUNT`. The pin's JOB IS UNCHANGED by reaching 0 -- it
+is still a movement detector, and a rise still means a NEW script carries the defect and
+should be fixed rather than re-pinned. At 0 it also needs the non-vacuity guard that now
+sits alongside it, for the reason recorded there.
 """
 import ast
 import os
@@ -656,7 +660,58 @@ def test_eod_is_selectable_and_does_not_drag_in_other_checks():
 # byte-identical before/after once the emit_outcome section is excluded -- 242 OK, 191
 # non-conforming, 21 anchor-reachability, 38 precondition-recomputability, 16 stale-e3,
 # 45 hold-weighted, 1 dead-z_goal all unchanged.
-_PINNED_CORPUS_FIRE_COUNT = 14
+#
+# DRAWDOWN, batch 3 (2026-07-28): 14 -> 0. THE BACKLOG IS CLOSED. These were batch 2's
+# deliberate exclusion -- 460d-k / 461c / 464c-d / 466c / 467c-d, held at the time under an
+# active TASK_CLAIMS claim by session mech-244-experiment-84dce1 with live uncommitted
+# `scaffold_env_seed` edits. That claim is closed and the files were clean, so the
+# exclusion's only reason had lapsed. All 14 threaded `dry_run=bool(args.dry_run)`; the
+# corpus walk now returns 0 of 1166.
+#
+# ALL 14 WERE ONE SHAPE, AND IT IS A THIRD BENIGN VARIANT -- worth recording because it
+# extends batch 1's taxonomy rather than repeating it. Their call regions were BYTE-
+# IDENTICAL (single sha1 across all 14), and every one of them has a `main()` that returns
+# EARLY under --dry-run with `{"outcome": ..., "manifest_path": None}`, guarded caller-side
+# by `if _res.get("manifest_path"):`. So the flagged call is UNREACHABLE in a smoke run and
+# none of the 14 ever leaked a manifest. Batch 1's variants were (a) an `if result == 0`
+# sentinel guard and (b) a None flowing through a TUPLE return; this is (c) a None flowing
+# through a DICT return, which the gate cannot see for the same reason -- it does not track
+# values across the return boundary. The literal `write_flat_manifest(dry_run=False)` in all
+# 14 is correct for the same reason, which is why the sibling `hardcoded_dry_run` gate
+# (pinned 0) reports them clean.
+#
+# NOT EXEMPTED, PER THE V3-EXQ-635 JUDGEMENT. Unreachable-today is not "threading would be
+# WRONG"; it is "threading is currently redundant", which is the case the judgement
+# explicitly declines to exempt. Threading makes the guarantee LOCAL to the call site, so it
+# survives a later edit that lets the dry-run path fall through to the emitter -- the exact
+# regression the guard shape invites. Inertness is provable, not merely asserted:
+# `emit_outcome`'s own signature declares `dry_run: bool = False`
+# (experiment_protocol.py:154), so `dry_run=bool(args.dry_run)` with the flag absent is
+# byte-identical to omitting the kwarg, which is every real run.
+#
+# METHOD, and why it was cheap where batch 2's was not: one uniform splice, since the 14
+# shapes hashed identically. Per file -- assert the shape hash, assert the two anchor lines
+# (`manifest_path=_res["manifest_path"],` then `)`), insert, `ast.parse`, re-run the lint,
+# and ROLL BACK on any failure. 0 rollbacks. Audit of every changed line across the 14: the
+# only addition is `dry_run=bool(args.dry_run),` x14 and there are ZERO deletions.
+# `validate_experiments --strict --paths <the 14>` is IDENTICAL before and after once the
+# emit_outcome section is excluded (exit 0 both; 14 OK, 0 non-conforming, 1 anchor-
+# reachability, 14 precondition-recomputability), with the emit_outcome line itself going
+# 14 -> 0. Witness smoke: 467c --dry-run, which confirms the unreachability above -- it
+# writes NO manifest in either location, by design of the early return.
+#
+# THE PIN IS NOW 0, SO IT NEEDS A NON-VACUITY GUARD, added below. A `== 0` assertion passes
+# just as happily when the corpus walk found NOTHING, which converts this movement detector
+# into a silent no-op the moment the walk breaks or is re-scoped. This repo hit that defect
+# class three times on 2026-07-27 (the uncollected-tests family), so the guard is not
+# hypothetical hygiene. Note the SIBLING gate `test_hardcoded_dry_run_lint.py` is pinned 0
+# with NO such guard and is a live instance of the same latent defect.
+_PINNED_CORPUS_FIRE_COUNT = 0
+
+# Below this, a `== 0` pin would pass vacuously on an empty walk. The corpus is ~1166
+# drivers; `test_corpus_scan_sharing.py` uses the same `> 500` floor, which is loose enough
+# never to fire on ordinary corpus churn and tight enough to catch a walk that broke.
+_MIN_CORPUS_FILES_FOR_A_MEANINGFUL_PIN = 500
 
 
 def test_eod_corpus_fire_rate_is_pinned(corpus_scan):
@@ -664,6 +719,14 @@ def test_eod_corpus_fire_rate_is_pinned(corpus_scan):
     enumerating `experiments/` itself -- the standing pattern that conftest's module
     docstring lays down for a new corpus-wide lint.
     """
+    # NON-VACUITY, and it must come FIRST. The pin below is 0, and `len([]) == 0` is true
+    # of a walk that scanned nothing at all, so without this the assertion would keep
+    # passing while silently measuring an empty corpus.
+    assert corpus_scan.n_glob_files > _MIN_CORPUS_FILES_FOR_A_MEANINGFUL_PIN, (
+        f"corpus walk covered only {corpus_scan.n_glob_files} v3_exq_* drivers, below the "
+        f"{_MIN_CORPUS_FILES_FOR_A_MEANINGFUL_PIN} floor -- the fire-count pin below is 0 "
+        f"and would pass VACUOUSLY on a walk this small. Fix the walk "
+        f"(tests/contracts/conftest.py) rather than lowering this floor.")
     fired = corpus_scan["emit_outcome_dry_run_lint"]
     assert len(fired) == _PINNED_CORPUS_FIRE_COUNT, (
         f"emit_outcome-dry_run fire count moved: {len(fired)} vs pinned "
