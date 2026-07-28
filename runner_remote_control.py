@@ -43,7 +43,7 @@ import json
 import os
 import socket
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -261,6 +261,157 @@ def write_heartbeat(
     return path if not skip_local_write else None
 
 
+_EVIDENCE_CLAIM_PREFIXES = ("evidence/", "docs/claims/")
+
+# ree-v3 working-tree paths that carry a session's uncommitted SUBSTRATE work.
+# Deliberately excludes experiment_queue.json: the queue is DB-authoritative
+# under Phase 3 and materialised by the hub writer, so a session claiming it
+# is not holding substrate edits the pull could sweep -- and queue claims are
+# common enough that including them would gate the pull most of the time.
+_REE_V3_CODE_CLAIM_PREFIXES = ("ree_core/", "experiments/", "tests/")
+
+# Upper bound on how long a single active claim may gate the ree-v3 pull.
+# TASK_CLAIMS.json's own `stale_after_hours` is 6 (and CLAUDE.md treats a
+# claim older than that as stale), so an entry past this age is assumed
+# abandoned rather than live. Without the bound one forgotten `active` entry
+# would disable the Mac runner's code+queue sync indefinitely; REE_assembly
+# needs no equivalent bound because skipping ITS push only defers telemetry
+# that is regenerated on the next tick.
+_REE_V3_CLAIM_MAX_AGE_HOURS = 6.0
+
+
+def _claim_age_hours(entry: dict) -> float | None:
+    """Age of a TASK_CLAIMS entry in hours, or None if it cannot be dated.
+
+    `claimed_at` is written by scripts/task_claim.py as UTC ISO-8601 with a
+    trailing Z. A naive (tz-less) value is read as UTC.
+    """
+    raw = entry.get("claimed_at")
+    if not isinstance(raw, str) or not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except Exception:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - parsed).total_seconds() / 3600.0
+
+
+def _claim_resource_matches(
+    res: str,
+    prefixes: tuple[str, ...],
+    repo_name: str | None,
+    anchored: bool,
+) -> bool:
+    """True when a TASK_CLAIMS `resources` entry falls under `prefixes`.
+
+    Two match modes, and the difference is load-bearing rather than stylistic:
+
+    * anchored=False (substring) -- the original REE_assembly behaviour,
+      preserved verbatim so the evidence guard stays bit-identical.
+    * anchored=True (prefix, after stripping one optional leading
+      `<repo_name>/` segment) -- required for the ree-v3 prefixes. A
+      substring test for "experiments/" would also match every
+      `REE_assembly/evidence/experiments/...` resource, and evidence claims
+      are the single most common kind, so substring matching would gate the
+      ree-v3 pull almost permanently for reasons having nothing to do with
+      ree-v3.
+
+    In anchored mode a bare directory resource matches its own prefix: real
+    TASK_CLAIMS entries spell whole directories all three ways -- as
+    `ree-v3/experiments`, `ree-v3/experiments/` and
+    `ree-v3/experiments/diagnostics` -- and the trailing-slash-less form is
+    the one a plain startswith() silently misses.
+    """
+    if not isinstance(res, str):
+        return False
+    if not anchored:
+        return any(p in res for p in prefixes)
+    cleaned = res.strip().lstrip("./")
+    if repo_name and cleaned.startswith(repo_name + "/"):
+        cleaned = cleaned[len(repo_name) + 1:]
+    return any(
+        cleaned.startswith(p) or cleaned == p.rstrip("/") for p in prefixes
+    )
+
+
+def _active_claim_on_paths(
+    claims_root: Path,
+    prefixes: tuple[str, ...],
+    *,
+    repo_name: str | None = None,
+    anchored: bool = False,
+    max_age_hours: float | None = None,
+) -> bool:
+    """Return True if TASK_CLAIMS.json (at `claims_root`) has an active claim
+    naming a resource under `prefixes`. Best-effort -- False on any error.
+
+    `claims_root` is the REE_Working umbrella dir that holds TASK_CLAIMS.json.
+    On the cloud workers that file does not exist at all, so every caller of
+    this helper is inert there and the fleet is unaffected by any of it.
+
+    Failure directions, all deliberately fail-OPEN (return False, caller
+    proceeds): missing claims file, unparseable JSON, absent/empty
+    `resources`, non-active status, and -- when `max_age_hours` is set -- a
+    claim that is stale or cannot be dated. Fail-open is correct here because
+    this helper only establishes that a claim EXISTS; a caller that needs the
+    protective direction narrows further at its own call site.
+    """
+    try:
+        claims_path = claims_root / "TASK_CLAIMS.json"
+        if not claims_path.exists():
+            return False
+        data = json.loads(claims_path.read_text(encoding="utf-8"))
+        for entry in data.get("claims", []):
+            if entry.get("status") != "active":
+                continue
+            if max_age_hours is not None:
+                age = _claim_age_hours(entry)
+                # An undatable claim cannot be bounded, and an unbounded gate
+                # is the wedge failure -- so it does not hold the pull.
+                if age is None or age > max_age_hours:
+                    continue
+            for res in entry.get("resources", []):
+                if _claim_resource_matches(res, prefixes, repo_name, anchored):
+                    return True
+        return False
+    except Exception:
+        return False
+
+
+def _active_claim_on_ree_v3_code(ree_v3_path: Path) -> bool:
+    """True if an active, non-stale TASK_CLAIMS claim covers ree-v3 substrate
+    code (`ree_core/`, `experiments/`, `tests/`).
+
+    Consulted by experiment_runner before `git pull --rebase --autostash` on
+    the SHARED /Users/dgolden/REE_Working/ree-v3 checkout. Added 2026-07-28
+    after the runner's autostash was confirmed to have orphaned an
+    in-progress ARC-071 substrate change into `stash@{0}` -- with five older
+    entries behind it unnoticed for up to eight days. When an autostash pop
+    fails, no error reaches the owning session and `git status` shows the
+    files unmodified, so the work reads as having silently vanished.
+
+    KNOWN LIMITATION, stated rather than papered over: this only protects
+    sessions that opened a claim naming those paths, and substrate sessions
+    do not reliably do that today. It is a COMPLEMENT to, not a replacement
+    for, the detection route -- REE_Working/scripts/audit_stashes.py
+    (REE_Working 4cc9cb9c35) -- which covers the no-claim case by reporting
+    any non-empty stash list at session start and close. Neither route
+    subsumes the other: this one prevents, that one detects.
+
+    Full triage: REE_assembly/evidence/planning/
+    ree_v3_orphaned_autostash_triage.md ("Coverage gap", recommendation (a)).
+    """
+    return _active_claim_on_paths(
+        ree_v3_path.parent,
+        _REE_V3_CODE_CLAIM_PREFIXES,
+        repo_name="ree-v3",
+        anchored=True,
+        max_age_hours=_REE_V3_CLAIM_MAX_AGE_HOURS,
+    )
+
+
 def _active_claim_on_evidence_dir(ree_assembly_path: Path) -> bool:
     """Return True if TASK_CLAIMS.json has an active claim covering any
     REE_assembly/evidence/ subdirectory (experiments/, planning/, literature/,
@@ -289,21 +440,16 @@ def _active_claim_on_evidence_dir(ree_assembly_path: Path) -> bool:
     edits out of the working tree (it briefly showed clean) and then restoring
     them on a later tick -- the identical shape to the two confirmed evidence/
     autostash-revert incidents. claims.yaml deserves the same protection.
+
+    2026-07-28: the body was lifted into the generalised `_active_claim_on_paths`
+    so the same machinery could gate the ree-v3 pull (see
+    `_active_claim_on_ree_v3_code`). This is a WIDENING, not a rewrite --
+    substring matching, no age bound, and the same two prefixes are all
+    retained here on purpose, so REE_assembly behaviour is bit-identical.
     """
-    try:
-        claims_path = ree_assembly_path.parent / "TASK_CLAIMS.json"
-        if not claims_path.exists():
-            return False
-        data = json.loads(claims_path.read_text(encoding="utf-8"))
-        for entry in data.get("claims", []):
-            if entry.get("status") != "active":
-                continue
-            for res in entry.get("resources", []):
-                if "evidence/" in res or "docs/claims/" in res:
-                    return True
-        return False
-    except Exception:
-        return False
+    return _active_claim_on_paths(
+        ree_assembly_path.parent, _EVIDENCE_CLAIM_PREFIXES
+    )
 
 
 # Runner telemetry dirs whose working-tree contents are fully regenerable on

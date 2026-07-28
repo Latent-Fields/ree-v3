@@ -1061,6 +1061,118 @@ def git_pull(repo_path: Path, label: str) -> None:
             return
 
 
+def _ree_v3_code_dirty() -> bool | None:
+    """True if the ree-v3 working tree has modified or staged TRACKED paths
+    under the guarded substrate prefixes -- i.e. content that
+    `git pull --rebase --autostash` would actually stash. False if there is
+    none. None when it cannot be determined (git failed or timed out).
+
+    Untracked files are excluded deliberately (`-uno`): autostash does not
+    touch them, and the pull path already handles untracked paths that would
+    block a checkout via _prepull_stash_blocking_untracked.
+    """
+    prefixes = getattr(_rrc, "_REE_V3_CODE_CLAIM_PREFIXES", ())
+    if not prefixes:
+        return None
+    r = _git_run(
+        ["git", "status", "--porcelain", "-uno"],
+        cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=15,
+    )
+    if r is None or getattr(r, "returncode", 1) != 0:
+        return None
+    for line in (r.stdout or "").splitlines():
+        if len(line) < 4:
+            continue
+        path = line[3:]
+        # Renames report "old -> new"; the new path is the working-tree one.
+        if " -> " in path:
+            path = path.split(" -> ", 1)[1]
+        path = path.strip().strip('"')
+        if path.startswith(prefixes):
+            return True
+    return False
+
+
+def _ree_v3_pull_blocked(reason: str = "") -> bool:
+    """True when pulling ree-v3 right now would autostash a concurrent
+    session's claimed, uncommitted substrate work.
+
+    Blocks only on the conjunction of BOTH conditions:
+      1. an active, non-stale TASK_CLAIMS claim naming ree-v3 substrate code
+         (_rrc._active_claim_on_ree_v3_code), and
+      2. that content actually being dirty in the working tree.
+
+    The second condition is what makes this usable rather than a permanent
+    hold. Measured 2026-07-28: 8 of the 10 then-active claims named
+    `ree-v3/experiments/` or `ree-v3/tests/`, so a claim-only gate would have
+    left the Mac runner unable to pull ree-v3 essentially always -- stale
+    code and, worse, a stale queue. A clean tree has nothing for autostash to
+    sweep, so skipping the pull then buys no protection and costs sync.
+
+    Failure directions, chosen per hazard rather than uniformly:
+      * `_rrc` unimportable, no claims file, unparseable claims, no matching
+        claim, claim stale or undatable -> NOT blocked (fail open, pull runs).
+        These all mean "no evidence a session is at risk"; on the cloud
+        workers TASK_CLAIMS.json does not exist at all, so this whole guard
+        is inert there and cannot wedge the fleet.
+      * matching live claim AND the dirty check is indeterminate (git failed
+        or timed out) -> BLOCKED. Here a session IS known to be at risk and
+        we merely cannot confirm the tree state; a deferred pull is
+        recoverable and loud, a swept stash is neither. The claim's 6h age
+        bound keeps even this direction from holding the pull indefinitely.
+    """
+    if _rrc is None:
+        return False
+    if not _rrc._active_claim_on_ree_v3_code(REPO_ROOT):
+        return False
+    dirty = _ree_v3_code_dirty()
+    if dirty is False:
+        return False
+    detail = "dirty substrate paths" if dirty else "tree state unknown"
+    suffix = f" ({reason})" if reason else ""
+    print(
+        f"[runner] git pull ree-v3: SKIPPED{suffix} -- active TASK_CLAIMS "
+        f"claim on ree-v3 substrate code + {detail}. Pulling would autostash "
+        f"that session's uncommitted work; resumes once the claim closes.",
+        flush=True,
+    )
+    return True
+
+
+def _pull_ree_v3(reason: str = "") -> bool:
+    """git_pull(REPO_ROOT, "ree-v3") unless _ree_v3_pull_blocked says the pull
+    would autostash a session's claimed substrate work. Never raises.
+
+    Returns True if the pull was attempted, False if it was skipped.
+
+    Added 2026-07-28 after the runner's `git pull --rebase --autostash`
+    against the SHARED ree-v3 checkout was confirmed to have orphaned an
+    in-progress ARC-071 substrate change into `stash@{0}`, with five older
+    entries behind it unnoticed for up to eight days. A failed autostash pop
+    reports nothing to the owning session -- `git status` shows the files
+    unmodified -- so the work reads as silently vanished.
+
+    KNOWN LIMITATION, stated rather than papered over: this protects only
+    sessions that opened a claim naming ree-v3 substrate paths, and substrate
+    sessions do not reliably do that today. It is a COMPLEMENT to, not a
+    replacement for, REE_Working/scripts/audit_stashes.py (REE_Working
+    4cc9cb9c35), which covers the no-claim case by reporting any non-empty
+    stash list at session start and close. Prevention and detection here
+    cover disjoint populations; neither makes the other redundant.
+    """
+    try:
+        if _ree_v3_pull_blocked(reason):
+            return False
+    except Exception:
+        # The guard must never be the reason a pull does not happen.
+        pass
+    try:
+        git_pull(REPO_ROOT, "ree-v3")
+    except Exception:
+        pass
+    return True
+
+
 def _check_active_claim_on_file(relative_path: str) -> bool:
     """Return True if TASK_CLAIMS.json has an active claim covering relative_path.
 
@@ -1351,23 +1463,22 @@ def _write_synthetic_error_manifest(
 def _sync_pull_tick(ree_assembly_path: Path | None) -> None:
     """One iteration of the --auto-sync background pull. Never raises.
 
-    Pulls ree-v3 unconditionally, then pulls REE_assembly UNLESS a Claude
-    session holds an active TASK_CLAIMS claim covering any evidence/ path.
-    The REE_assembly skip mirrors runner_remote_control.push_heartbeat /
-    push_commands: `git pull --rebase --autostash` can stack failing
-    autostash stashes and silently revert a concurrent session's
-    uncommitted evidence/claims edits (the EXQ-232 / substrate_queue.json
-    revert incident class). The ree-v3 pull is intentionally unguarded --
-    only REE_assembly carries the high-contention evidence files.
+    Pulls ree-v3, then pulls REE_assembly UNLESS a Claude session holds an
+    active TASK_CLAIMS claim covering any evidence/ path. The REE_assembly
+    skip mirrors runner_remote_control.push_heartbeat / push_commands:
+    `git pull --rebase --autostash` can stack failing autostash stashes and
+    silently revert a concurrent session's uncommitted evidence/claims edits
+    (the EXQ-232 / substrate_queue.json revert incident class).
 
-    Default path (no active evidence claim, or runner_remote_control
-    unimportable) is bit-identical to the pre-guard behaviour: both pulls
-    run, each best-effort.
+    2026-07-28: the ree-v3 pull is no longer unguarded either -- it goes
+    through `_pull_ree_v3`, which applies the same protection to substrate
+    code. See that function for why the two guards are not symmetric.
+
+    Default path (no active claim, or runner_remote_control unimportable)
+    is bit-identical to the pre-guard behaviour: both pulls run, each
+    best-effort.
     """
-    try:
-        git_pull(REPO_ROOT, "ree-v3")
-    except Exception:
-        pass
+    _pull_ree_v3("auto-sync tick")
     if not ree_assembly_path:
         return
     if _rrc is not None and _rrc._active_claim_on_evidence_dir(ree_assembly_path):
@@ -3130,7 +3241,7 @@ def main():
     # Pull ree-v3 before preflight so a stale local queue doesn't block startup.
     # (The full auto-sync pull of REE_assembly happens after preflight as before.)
     if args.auto_sync:
-        git_pull(REPO_ROOT, "ree-v3")
+        _pull_ree_v3("startup pre-preflight")
         _refresh_runner_version()
 
     if not args.skip_preflight and os.environ.get("REE_SKIP_PREFLIGHT") != "1":
@@ -3205,7 +3316,7 @@ def main():
             if coordinator_claims_authoritative():
                 print("[runner] Coordination: coordinator claims authoritative; "
                       "git remains status/result/queue transport", flush=True)
-            git_pull(REPO_ROOT, "ree-v3")
+            _pull_ree_v3("startup auto-sync")
             git_pull(ree_assembly_path, "REE_assembly")
         else:
             print("[runner] Auto-sync: ON but REE_assembly not found -- sync disabled", flush=True)
@@ -4144,7 +4255,7 @@ def main():
         time.sleep(args.loop_interval)
 
         if args.auto_sync and ree_assembly_path:
-            git_pull(REPO_ROOT, "ree-v3")
+            _pull_ree_v3("between-pass")
             # Refresh the readable runner version off the freshly-pulled HEAD.
             # Between-pass only: never runs git while an experiment is live.
             _refresh_runner_version()

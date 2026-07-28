@@ -20,9 +20,15 @@ ARC-026 supersession, recurring 2026-05-08 on substrate_queue.json):
 Fix: the per-tick pull body was extracted to module-level
 `_sync_pull_tick(ree_assembly_path)`, which skips ONLY the REE_assembly
 pull for the tick when `_rrc._active_claim_on_evidence_dir(...)` is True --
-the exact guard push_heartbeat / push_commands already use. The ree-v3
-pull (REPO_ROOT) is intentionally unguarded; only REE_assembly carries the
-high-contention evidence files.
+the exact guard push_heartbeat / push_commands already use.
+
+2026-07-28 UPDATE: the ree-v3 pull is no longer unguarded either. It now
+routes through `experiment_runner._pull_ree_v3`, which applies an analogous
+(but deliberately NOT symmetric) guard for ree-v3 substrate paths -- see
+tests/contracts/test_ree_v3_pull_claim_guard.py for that guard's own
+contracts and for the confirmed 2026-07-27 orphaned-autostash incident that
+motivated it. The tests below therefore pin BOTH guards explicitly rather
+than letting the ree-v3 side read the real TASK_CLAIMS.json.
 
 Contracts:
   C1. No active evidence claim -> both ree-v3 AND REE_assembly are pulled
@@ -38,6 +44,9 @@ Contracts:
       cannot silently diverge.
   C6. _sync_pull_tick never raises even if git_pull itself raises
       (best-effort; matches the try/except the daemon previously inlined).
+  C7. The two guards are INDEPENDENT: an active ree-v3 substrate claim
+      skips only the ree-v3 pull and leaves REE_assembly alone, and vice
+      versa (C2). A single claim must not gate both repos.
 """
 
 from __future__ import annotations
@@ -52,6 +61,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import experiment_runner  # noqa: E402
 import runner_remote_control  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def no_ree_v3_claim(monkeypatch):
+    """Default the ree-v3 substrate guard OFF for this file's contracts.
+
+    Without this the ree-v3 half would consult the REAL
+    /Users/dgolden/REE_Working/TASK_CLAIMS.json and the real working tree,
+    making every assertion below depend on whatever other sessions happen to
+    be holding open. The ree-v3 guard has its own contract file.
+    """
+    monkeypatch.setattr(
+        runner_remote_control, "_active_claim_on_ree_v3_code", lambda _p: False
+    )
 
 
 @pytest.fixture
@@ -136,6 +159,24 @@ def test_c5_uses_the_same_guard_as_push_heartbeat(
     )
     assert record_pulls == ["ree-v3"], (
         "C5 FAIL: the consulted guard did not gate the REE_assembly pull."
+    )
+
+
+def test_c7_ree_v3_claim_skips_only_ree_v3(record_pulls, monkeypatch, tmp_path):
+    """The two guards are independent: a ree-v3 substrate claim must not gate
+    the REE_assembly pull, just as an evidence claim does not gate ree-v3."""
+    monkeypatch.setattr(
+        runner_remote_control, "_active_claim_on_evidence_dir", lambda _p: False
+    )
+    monkeypatch.setattr(
+        runner_remote_control, "_active_claim_on_ree_v3_code", lambda _p: True
+    )
+    monkeypatch.setattr(experiment_runner, "_ree_v3_code_dirty", lambda: True)
+    monkeypatch.setattr(experiment_runner, "_rrc", runner_remote_control)
+    experiment_runner._sync_pull_tick(tmp_path / "REE_assembly")
+    assert record_pulls == ["REE_assembly"], (
+        "C7 FAIL: an active ree-v3 substrate claim must skip ONLY the ree-v3 "
+        "pull; REE_assembly has its own, separate guard."
     )
 
 
