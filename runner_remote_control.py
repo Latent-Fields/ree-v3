@@ -275,9 +275,48 @@ _REE_V3_CODE_CLAIM_PREFIXES = ("ree_core/", "experiments/", "tests/")
 # claim older than that as stale), so an entry past this age is assumed
 # abandoned rather than live. Without the bound one forgotten `active` entry
 # would disable the Mac runner's code+queue sync indefinitely; REE_assembly
-# needs no equivalent bound because skipping ITS push only defers telemetry
-# that is regenerated on the next tick.
+# needs no equivalent FLAT bound because skipping ITS push only defers
+# telemetry that is regenerated on the next tick -- but see the shape-aware
+# governance-lock bound below, which is narrower and exists for a different
+# reason (an unowned machine lock, not a stale human session).
 _REE_V3_CLAIM_MAX_AGE_HOURS = 6.0
+
+# session_id prefix written by REE_assembly/scripts/governance.sh (49d5c87922),
+# which opens a claim over evidence/ for the duration of a regen so this very
+# heartbeat's pull-rebase-autostash cannot sweep a half-written ~1050-1190-file
+# artifact set. It is released by an exit trap -- which cannot fire on SIGKILL
+# or power loss, so an orphaned lock would otherwise gate the guard forever.
+_GOVERNANCE_LOCK_PREFIX = "governance-sh-"
+
+# Age past which such a lock is abandoned BY CONSTRUCTION, and so stops holding
+# the REE_assembly guard. A regen is a minutes-long derive-only pipeline, so 2h
+# is ~an order of magnitude above any live run -- no running regen is ever aged
+# out, even on a badly loaded machine -- while a killed one stops wedging the
+# heartbeat the same working day.
+#
+# THIS BOUND APPLIES ONLY TO `governance-sh-*`. Session claims stay UNBOUNDED
+# here on purpose: a flat 6h bound was evaluated on 2026-07-28 and REJECTED on
+# measured evidence -- it would have de-protected both stale entries live at
+# that moment (12.3h `dazzling-dubinsky-dec79b`, 11.1h `zealous-merkle-f5dfc8`),
+# and BOTH were holding real uncommitted work in the shared ree-v3 checkout.
+# Bounding a human session's claim converts a LOUD failure (the heartbeat
+# visibly stops pushing) into a QUIET one (autostash silently sweeps live
+# work), which is the trade this whole guard exists to refuse. See CLAUDE.md
+# "Heartbeat-stale != abandoned claim" and the standing memory
+# `feedback_heartbeat_stale_not_abandoned`.
+#
+# KEEP IN SYNC WITH `GOVERNANCE_REAP_HOURS` in
+# REE_Working/scripts/audit_stale_claims.py -- one threshold with one meaning:
+# the age at which this guard stops honouring a governance lock is the age at
+# which that auditor reaps and ANNOUNCES it (bucket G, run with --apply by
+# /session-land). That pairing is what stops the aging-out here from being
+# silent, and it is why the two numbers must not drift apart.
+#
+# (NOT prune_task_claims_done.py, which is deliberately `done`-only -- its own
+# docstring says stale-active claims are audit_stale_claims.py's job. The reap
+# moved in REE_Working 906ba26; earlier drafts of the triage doc and of this
+# task's brief both point at the pruner, and that cross-reference is stale.)
+_GOVERNANCE_LOCK_MAX_AGE_HOURS = 2.0
 
 
 def _claim_age_hours(entry: dict) -> float | None:
@@ -296,6 +335,46 @@ def _claim_age_hours(entry: dict) -> float | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return (datetime.now(timezone.utc) - parsed).total_seconds() / 3600.0
+
+
+def _expired_governance_lock(entry: dict) -> bool:
+    """True for a `governance-sh-*` lock old enough to be abandoned.
+
+    THE NARROWNESS IS THE DESIGN, not an implementation detail. A blanket age
+    bound over every claim would convert a LOUD failure into a QUIET one: today
+    a wedged guard means the heartbeat visibly stops pushing, which someone
+    notices and asks about; a flat bound would instead have it silently resume
+    with the protection lapsed, nobody told, and -- if a regen really is still
+    running -- the original autostash hazard back unannounced. So only the
+    machine-owned shape ages out:
+
+    * `governance-sh-<host>` is written by REE_assembly/scripts/governance.sh
+      around a regen and released by an exit trap, so a surviving entry means
+      the process was SIGKILLed (or the box lost power). 2h is ~an order of
+      magnitude above any real regen, so no running one is ever aged out.
+    * Every other (session) claim stays UNBOUNDED, exactly as before. That
+      preserves CLAUDE.md's confirm-before-clearing rule and the standing
+      memory `feedback_heartbeat_stale_not_abandoned` -- a heartbeat-stale
+      session may still be RUNNING locally. Measured 2026-07-28, a flat 6h
+      bound would have de-protected two sessions holding live uncommitted work
+      at that instant, so the flat form is not a conservative simplification of
+      this one; it is the opposite choice.
+
+    An UNDATABLE governance lock is treated as expired (fail-open), matching
+    `_active_claim_on_paths`'s documented convention for `max_age_hours`. This
+    deliberately diverges from audit_stale_claims.py, which leaves an undatable
+    lock unreaped: that script MUTATES TASK_CLAIMS.json and so needs certainty
+    before acting, whereas this defers one heartbeat push and self-corrects on
+    the next tick. `claimed_at` is machine-written by task_claim.py, so the
+    case should not arise in practice either way.
+    """
+    session_id = entry.get("session_id")
+    if not isinstance(session_id, str):
+        return False
+    if not session_id.startswith(_GOVERNANCE_LOCK_PREFIX):
+        return False
+    age = _claim_age_hours(entry)
+    return age is None or age > _GOVERNANCE_LOCK_MAX_AGE_HOURS
 
 
 def _claim_resource_matches(
@@ -357,6 +436,12 @@ def _active_claim_on_paths(
     claim that is stale or cannot be dated. Fail-open is correct here because
     this helper only establishes that a claim EXISTS; a caller that needs the
     protective direction narrows further at its own call site.
+
+    One bound applies to EVERY caller regardless of `max_age_hours`: an aged
+    `governance-sh-*` lock is skipped per-entry (see `_expired_governance_lock`
+    for why that shape, and only that shape, is bounded). It is unconditional
+    because such a lock is machine-owned and abandoned by construction, so
+    there is no caller for which honouring it indefinitely is correct.
     """
     try:
         claims_path = claims_root / "TASK_CLAIMS.json"
@@ -365,6 +450,10 @@ def _active_claim_on_paths(
         data = json.loads(claims_path.read_text(encoding="utf-8"))
         for entry in data.get("claims", []):
             if entry.get("status") != "active":
+                continue
+            # Machine-owned regen lock orphaned by a killed governance.sh.
+            # Bounded for every caller; the session claims below are not.
+            if _expired_governance_lock(entry):
                 continue
             if max_age_hours is not None:
                 age = _claim_age_hours(entry)
@@ -443,9 +532,25 @@ def _active_claim_on_evidence_dir(ree_assembly_path: Path) -> bool:
 
     2026-07-28: the body was lifted into the generalised `_active_claim_on_paths`
     so the same machinery could gate the ree-v3 pull (see
-    `_active_claim_on_ree_v3_code`). This is a WIDENING, not a rewrite --
-    substring matching, no age bound, and the same two prefixes are all
-    retained here on purpose, so REE_assembly behaviour is bit-identical.
+    `_active_claim_on_ree_v3_code`). That was a WIDENING, not a rewrite --
+    substring matching and the same two prefixes were retained on purpose --
+    and it deliberately took NO age bound, so REE_assembly behaviour stayed
+    bit-identical.
+
+    2026-07-28 (later, this change): that "no age bound" decision is now
+    narrowed in exactly one place, and this paragraph exists so the narrowing
+    is stated rather than silently contradicting the paragraph above.
+    `governance.sh` holds a `governance-sh-<host>` claim over evidence/ for the
+    length of a regen (REE_assembly 49d5c87922) and releases it from an exit
+    trap -- but a SIGKILL or power loss leaves that entry `active` forever, and
+    an unbounded guard then gates this push indefinitely until a human clears
+    it by hand. Such locks now age out at `_GOVERNANCE_LOCK_MAX_AGE_HOURS`.
+    SESSION claims remain unbounded, which is the entire reason the bound is
+    shape-aware rather than flat; `_expired_governance_lock` carries that
+    argument and the measured evidence behind it.
+
+    So REE_assembly behaviour is no longer bit-identical, and the single way it
+    differs is: a governance regen lock older than 2h stops holding the push.
     """
     return _active_claim_on_paths(
         ree_assembly_path.parent, _EVIDENCE_CLAIM_PREFIXES
