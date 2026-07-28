@@ -353,3 +353,111 @@ Cost: the resolution is a second parse for ~5 drivers, cached by (path, mtime, s
 scan measured at **7.90s before / 7.84s after** -- no measurable change. Per the standing rule
 the landed carriers are **not** retro-fixed; the backlog remains a risk register. The gate stays
 **WARN-only in both modes**.
+
+---
+
+## Addendum 3 (2026-07-28T21:44Z): 833's `STAGE0_ZGOAL_GATE` adjudicated -- DECLARE, deferred to run completion
+
+Addendum 2 left `STAGE0_ZGOAL_GATE` named as "a true positive of the scheme band" without saying
+what to do about it. This addendum decides that, and records why the code edit is **deliberately
+not landed in the same pass**.
+
+### Verdict: declare it. Exemption is not available on the merits.
+
+The tension is real and worth stating, because the naive reading of the baseline module points
+the other way. `off_path_config_slice()`'s own docstring says the slice
+
+> "must NOT carry acceptance thresholds or ON-arm gains -- those do not change the computation,
+> and folding them in would refuse a legitimate reuse on every threshold tweak."
+
+`STAGE0_ZGOAL_GATE = 0.4` **is** an acceptance threshold, so read literally that rule licenses its
+omission and the lint is over-firing. It does not, and the reason is the rule's rationale rather
+than its wording: a threshold is excluded because **each consumer recomputes it from raw rows**, so
+addressing it buys nothing. That rationale holds for every other threshold in the driver --
+`HARM_DISC_RANGE_FLOOR`, `SURVIVAL_FLOOR_STEPS`, `MIN_FRACTION`, `K_SE`, `ABS_FLOOR_STEPS`,
+`NULL_PRECISION_CEILING_STEPS` -- all of which are read in the post-hoc analysis, **outside**
+`arm_cell`. It fails for `STAGE0_ZGOAL_GATE` alone, which is read **inside the cell body** and
+whose verdict is stamped into the cached row as `stage0_zgoal_formed` (driver lines 471, 617).
+A consumer does not recompute an inherited field; it reads it. That is the constant crossing from
+*threshold* into *scheme*, and it is exactly the line the lint's call-graph scope implements. It is
+the only constant in this driver that crosses it.
+
+So declaring the gate does not violate the module's rule -- it honours the rule's actual reason,
+and the rule's wording should be amended so the next author does not read it as licensing the
+omission. `CONFIG_SLICE_DECLARATION_EXEMPT` would be a false statement here: nothing already in the
+slice binds the gate.
+
+### Severity is genuinely lower than 798's, and that is what makes deferral affordable
+
+Both record paths stamp the raw `stage0_z_goal_norm_peak` **beside** the derived boolean
+(lines 470/471 and 616/617). A consumer at a different gate can therefore recompute formation
+exactly; the false HIT is **recoverable**. Contrast the confirmed 798 instance, where
+`learn_pe_by_ssl_bin` is a per-bin aggregate under `SSL_BIN_EDGES` -- lossy, and the original
+binning is not recoverable from the stamped row. Recoverability does not change the verdict (it
+depends on a future consumer *noticing*, which is the assumption the fingerprint mechanism exists
+to remove) but it is what makes waiting a sound trade rather than a compromise.
+
+### Fork taken: WAIT for V3-EXQ-833 to finish, then declare. The edit is blocked, not forgotten.
+
+Landing the one-line declaration now would **certainly** destroy the run's reuse value, and this
+was verified rather than assumed:
+
+- `_SUBSTRATE_GLOBS` includes `experiments/_lib/**/*.py` (`arm_fingerprint.py:68-73`), so any byte
+  change to the baseline module changes the substrate hash.
+- `experiment_runner.py:2958-2962` starts `_background_sync` as a daemon thread that calls
+  `_sync_pull_tick` -> `_pull_ree_v3` **every 60s while the experiment subprocess is running**. The
+  hub's checkout therefore adopts `origin/main` within ~a minute of a push, mid-run.
+- `substrate_stability_report()` re-hashes from disk at stamp time, so the manifest would carry
+  `substrate_stable_across_run: false`, and `arm_reuse.source_run_substrate_unstable()` refuses to
+  serve **any** cell from it.
+
+Confirmed live at 21:43Z: 833 running on the hub as PID 2515777, claimed `2026-07-27T23:39:56Z`,
+`estimated_minutes=1800`, zero manifests emitted -- roughly 8h remaining of a 30h run over
+2 arms x 20 seeds.
+
+That trade is one-sided. The cost of landing now is the whole ARM_LEGACY cell bank of a 30-hour
+mint, refused for **every** consumer including the overwhelmingly likely one using the same
+family-standard 0.4. The cost of waiting is that 833's own cells carry the under-declared address
+for a hazard that is recoverable in-row. The run's scientific result is unaffected either way
+(`CLAIM_IDS = []`, `EXPERIMENT_PURPOSE = "diagnostic"`).
+
+Not taken, and why: the `_ree_v3_pull_blocked` guard (`experiment_runner.py:1142`) would skip the
+hub's pull if a TASK_CLAIMS claim named the substrate path, which could be used to slip the edit
+past. Defeating a safety mechanism to beat a deadline that does not exist is not a fix.
+
+### The deferred patch, so the follow-on is mechanical
+
+In `experiments/_lib/baselines/stageh_strict_goal_isolation.py` -- move the constant to the
+lineage module (it is a lineage-level pre-registered value, not a driver detail; the driver already
+imports six constants from here), declare it, and correct the docstring rule:
+
+```python
+# --- Stage-0 formation gate (scaffold family standard) ----------------------
+# IN THE SLICE, unlike the driver's other thresholds: this one is read INSIDE
+# the cell and its verdict is stamped as `stage0_zgoal_formed`, so a consumer
+# INHERITS it rather than recomputing it. See audit Addendum 3.
+STAGE0_ZGOAL_GATE = 0.4
+```
+
+then in `off_path_config_slice()`'s returned dict:
+
+```python
+        "stage0_zgoal_gate": float(STAGE0_ZGOAL_GATE),
+```
+
+and in the driver, drop the local `STAGE0_ZGOAL_GATE = 0.4` (line 278) in favour of adding
+`STAGE0_ZGOAL_GATE` to the existing `from experiments._lib.baselines.stageh_strict_goal_isolation
+import (...)` block at line 249.
+
+Amend the `off_path_config_slice` docstring's threshold rule to read: acceptance thresholds
+applied in **analysis** are excluded; a threshold read inside the cell whose verdict is stamped
+into the row is **scheme** and must be declared.
+
+Then re-run the lint on 833 (expect silent), re-pin `_PINNED_CORPUS_FIRE_COUNT` 56 -> 55 in
+`tests/contracts/test_config_slice_declaration_lint.py`, and drop 833 from
+`_CROSS_MODULE_CARRIERS` in the same file.
+
+**833's already-minted cells keep the old address.** That is correct and should not be papered
+over: they were computed under a slice that does not name the gate. Re-minting them is not
+warranted (recoverable in-row, gate at the family standard), but a successor that varies the gate
+must not consume them, and the REUSE paragraph of the module docstring is where that belongs.
