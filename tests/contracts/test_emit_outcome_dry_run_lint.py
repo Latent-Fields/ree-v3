@@ -12,7 +12,7 @@ Surfaces under test:
       than trusted: `dry_run` RELOCATES the manifest and does NOT skip or move the
       sentinel.
   (4) The DOWNSTREAM facts, asserted against REE_assembly when it is present: the indexer
-      has no dry_run exclusion and pending_review does.
+      AND the flat->pack converter both refuse dry-run manifests, and pending_review does.
 
 SIBLING GATE. This is the second half of `hardcoded_dry_run` (test_hardcoded_dry_run_lint.py).
 That one watches the WRITER -- `write_flat_manifest`, whose `dry_run` picks the
@@ -23,29 +23,43 @@ together; the two flags are threaded from the same `args.dry_run` and a driver c
 one right and the other wrong. V3-EXQ-650 was exactly that: it threaded the writer and not
 the emitter.
 
-WHY THIS ONE IS A LIVE FIRE AND THE SIBLING IS NOT. The sibling's docstring records its
-consequence as a defence-in-depth gap, reasoning that `emit_outcome(dry_run=True)`
-relocates the manifest afterwards and `generate_pending_review.py` excludes dry_run
-manifests. Both backstops fail HERE, and that is the whole point of this gate:
+DEFENCE-IN-DEPTH, LIKE ITS SIBLING -- DOWNGRADED 2026-07-28. This gate was authored as a
+LIVE FIRE on the reasoning that both downstream backstops failed here: an unthreaded
+`emit_outcome` is precisely the case where no relocation happens, and
+`build_experiment_indexes.py` contained no `dry_run` handling at all, so only
+`generate_pending_review.py` filtered smokes -- pending_review.md, the surface humans
+watch, staying clean while claim_evidence.v1.json did not.
 
-  * the first backstop IS this defect -- an unthreaded `emit_outcome` is precisely the
-    case where no relocation happens; and
-  * `build_experiment_indexes.py` globs `*.json` over evidence/experiments/ and contains
-    NO `_dry_` and NO `dry_run` handling anywhere, so a `_dry_`-prefixed 1-seed smoke left
-    in that directory is scored like any other manifest. Only `generate_pending_review.py`
-    filters them. That asymmetry is why this went unnoticed: pending_review.md, the
-    surface humans watch, stays clean while claim_evidence.v1.json does not.
+REE_assembly `cb7298c1c4` closed the downstream half, so the consequence claim is now
+defence-in-depth. THE GATE ITSELF STAYS: it is the first and cheapest layer, it fires at
+authoring time rather than after a manifest is already on disk, and it is the only layer
+that fires in this repo at all.
+
+THE ACTUAL MECHANISM WAS NOT THE FLAT `_dry_` MANIFEST -- worth reading before trusting
+this docstring's original account, which had it wrong. The flat smoke keeps its `dry_run`
+flag and is not on the scoring path at all; `_scan_runs` scores the RUN PACK at
+`<experiment_type>/runs/<run_id>/manifest.json`. `sync_v3_results._is_flat_v3` minted that
+pack from the smoke -- it converted canonical `..._v3` run_ids UNCONDITIONALLY, consulting
+`_is_dry_run` only via `_is_evidence_grade` on the mid-string casualty branch -- and
+`build_runpack_docs` emits an `experiment_pack/v1` manifest with NO dry_run field. So the
+scored artifact was, by construction, indistinguishable from a real run. The repair gates
+the converter on both branches and has the indexer carry the flag across from the flat
+sibling by run_id.
 
 CONFIRMED INSTANCE, MECH-245 (2026-07-28). Two 1-seed (`seeds: [0]`) `--dry-run` smokes of
-V3-EXQ-825 dated 2026-07-26T15:12:07Z / 15:14:39Z are TRACKED IN GIT at
-evidence/experiments/_dry_v3_exq_825_..._v3.json and appear in claim_evidence.v1.json as
-two `weakens` / FAIL entries, including in MECH-245's `recent_entries`. They are that
-claim's ENTIRE negative evidence base -- `fail_runs: 2, pass_runs: 1,
-experimental_confidence: 0.574, evidence_quadrant: plausible_unproven` -- while the one
-genuine run PASSED. The relocation demonstrably works when threaded (48 relocated `_dry_`
-manifests sat in the scratch dir when this was written); the 825 pair is simply absent
-from it. 825's own source threads the flag today, so the fix landed after the damage --
+V3-EXQ-825 dated 2026-07-26T15:12:07Z / 15:14:39Z were tracked in git as BOTH
+`_dry_v3_exq_825_..._v3.json` (flagged, harmless) and two `status: FAIL` /
+`evidence_direction: weakens` run packs (unflagged, scored). They were that claim's ENTIRE
+negative evidence base -- `fail_runs: 2, pass_runs: 1, experimental_confidence: 0.571,
+evidence_quadrant: plausible_unproven` -- while the one genuine run PASSED. After the
+repair: `fail_runs: 0`, `experimental_confidence: 0.771`, quadrant `confirmed_established`.
+The exposure was corpus-wide, not one claim: 25 dry-run manifests on disk had 25 matching
+scored packs, and the rebuild dropped 22 entries (the rest already carried inactive
+directions). 825's own source threads the flag today, so its fix landed after the damage --
 which is why the corpus witness below asserts it CLEAN rather than firing.
+
+The relocation demonstrably works when threaded (48 relocated `_dry_` manifests sat in the
+scratch dir when this was written); the 825 pair is simply absent from it.
 
 REACHABILITY IS AGAIN THE DISCRIMINATOR, but the grep error runs the OPPOSITE way to the
 sibling's. A naive `grep -L` for the threading idioms over drivers that call emit_outcome
@@ -64,7 +78,8 @@ script carries the defect and the correct response is to fix that script rather 
 re-pin. Threading the flag is PROVABLY INERT on the evidence path
 (`dry_run=bool(args.dry_run)` equals `dry_run=False` whenever `--dry-run` is absent, which
 is every real run), so a drawdown is safe -- but it is a drawdown of ~272 historical
-drivers and belongs in its own batches, not here.
+drivers and belongs in its own batches, not here. That drawdown is now UNDER WAY; the
+running record, batch by batch, is the comment above `_PINNED_CORPUS_FIRE_COUNT`.
 """
 import ast
 import os
@@ -429,21 +444,52 @@ def test_eod_dry_run_does_not_skip_or_move_the_sentinel():
 
 # ---- (6) the downstream facts (REE_assembly, existence-guarded) -------------------------
 
-def test_eod_the_indexer_has_no_dry_run_exclusion():
-    """THE reason this is a live fire rather than defence-in-depth.
+def test_eod_the_indexer_excludes_dry_run_manifests():
+    """The downstream backstop this gate used to be the sole defence for.
 
-    If someone adds a dry_run filter to the indexer, this test fails -- and that is the
-    signal to downgrade this gate's consequence claim, not to delete the assertion.
+    Inverted 2026-07-28 (REE_assembly cb7298c1c4). It previously asserted the ABSENCE of
+    any exclusion, which is what made this gate a live fire; the fix landed, so it now
+    pins the exclusion's PRESENCE. If it fails, the smoke manifests reach
+    claim_evidence.v1.json again and MECH-245-shaped contamination is live -- restore the
+    filter rather than relaxing the test.
+
+    `_load_dry_run_run_ids` specifically: the run pack that `_scan_runs` scores carries no
+    dry_run field of its own, so a per-manifest flag check is NOT sufficient. The flag has
+    to be carried across from the flat sibling by run_id, and that function is where.
     """
     indexer = ASSEMBLY / "evidence" / "experiments" / "scripts" / "build_experiment_indexes.py"
     if not indexer.exists():
         return  # sibling repo not checked out (bare worker) -- nothing to assert
     src = indexer.read_text(encoding="utf-8", errors="ignore")
-    assert "_dry_" not in src and "dry_run" not in src, (
-        "build_experiment_indexes.py now mentions dry_run/_dry_. If it gained a real "
-        "exclusion, the smoke manifests no longer reach claim_evidence.v1.json and this "
-        "gate's consequence claim should be downgraded to defence-in-depth (see the "
-        "module docstring). Re-read it before changing anything.")
+    for token in ("_is_dry_run", "_load_dry_run_run_ids", "dry_run_ids"):
+        assert token in src, (
+            f"build_experiment_indexes.py no longer defines/uses {token} -- the dry-run "
+            "exclusion has been dropped or refactored away. A --dry-run smoke's run pack "
+            "is indistinguishable from a real run on its own, so without this the smokes "
+            "score again (confirmed on MECH-245). See the module docstring.")
+
+
+def test_eod_the_pack_converter_refuses_dry_run_manifests():
+    """The UPSTREAM half -- and the one that actually minted the scored artifact.
+
+    `sync_v3_results._is_flat_v3` converted canonical `..._v3` run_ids unconditionally,
+    so a smoke became a run pack on the next governance run. Gating the indexer alone is
+    not enough: the converter would keep re-minting a pack for every dry flat manifest on
+    disk, including ones a cleanup had just removed.
+    """
+    conv = ASSEMBLY / "evidence" / "experiments" / "scripts" / "sync_v3_results.py"
+    if not conv.exists():
+        return
+    src = conv.read_text(encoding="utf-8", errors="ignore")
+    tree = ast.parse(src)
+    fn = next((n for n in ast.walk(tree)
+               if isinstance(n, ast.FunctionDef) and n.name == "_is_flat_v3"), None)
+    assert fn is not None, "sync_v3_results._is_flat_v3 is gone -- re-derive this gate"
+    body = ast.unparse(fn)
+    assert "_is_dry_run" in body, (
+        "sync_v3_results._is_flat_v3 no longer consults _is_dry_run. Dry-run smokes are "
+        "being converted into scored run packs again -- this is the mechanism behind the "
+        "MECH-245 contamination, not the flat _dry_ manifest.")
 
 
 def test_eod_pending_review_does_exclude_dry_run_manifests():
@@ -539,7 +585,43 @@ def test_eod_is_selectable_and_does_not_drag_in_other_checks():
 # The newest cohort -- the drivers most likely to be re-run or cloned as templates -- is
 # almost clean already, because `emit_outcome(dry_run=...)` became the house style around
 # the V3-EXQ-696 incident. The mass is historical.
-_PINNED_CORPUS_FIRE_COUNT = 272
+#
+# DRAWDOWN, batch 1 (2026-07-28): 272 -> 265. The whole EXQ >= 700 cohort -- 720, 725,
+# 725a, 814, 824, 824a, 831 -- taken first for the reason the distribution note gives:
+# the defect propagates by CLONING, and a clone lands under a new filename where nothing
+# consults the source's backlog entry, so the newest drivers are worth more than their
+# count. Batches continue downward through 500-699 (186 at this pin), 300-499 (47) and
+# below 300 (32). Re-pin per batch; this comment is the running record.
+#
+# WHAT BATCH 1 ACTUALLY FOUND, because it changes how later batches should be read: NONE
+# of the 7 was the plain unthreaded-and-leaking shape the gate was commissioned from.
+# Two distinct benign shapes, both repaired by threading rather than exempted, per the
+# V3-EXQ-635 judgement recorded in the sibling gate ("exempt when threading would be
+# WRONG, not merely when the author built an alternative"):
+#
+#   (a) 814/824/824a/831 -- `main()` returns 0 BEFORE writing any manifest under
+#       --dry-run, so the flagged call is unreachable in a smoke run and 824/824a/831's
+#       literal `dry_run=False` was correct. The gate cannot see this: the guard is
+#       `if result == 0`, a sentinel-value test naming no dry token, so the caller-side
+#       guard heuristic does not match. Threaded anyway -- it costs nothing and makes the
+#       guarantee LOCAL, surviving a future edit that lets the dry-run path fall through.
+#
+#   (b) 720/725/725a -- the 635 shape: the writer IS threaded (so the file is already
+#       `_dry_`-prefixed), a post-hoc `out_path.unlink()` scrubs it, and
+#       `manifest_for_sentinel` is already None under --dry-run. The gate cannot see the
+#       None because it flows through a tuple return. Threaded via a 3-tuple
+#       (`return outcome, manifest, bool(args.dry_run)`); the unlink was DELIBERATELY
+#       KEPT rather than replaced by the relocation, because `_relocate_dry_run_manifest`
+#       swallows every exception and returns the path unchanged, so on a move failure it
+#       LEAVES the file in evidence/ where the unlink removes it. Relocation is the
+#       weaker guarantee in the failure case here, not the stronger one.
+#
+# So batch 1 lowered the count without any of the 7 having leaked a manifest. Expect more
+# of this below 700: the count is an upper bound on real exposure, and the per-driver
+# judgement is the work. Verified by smoking 720 and 814 --dry-run (both exit 0, no
+# manifest left in evidence/experiments/, and 720's sentinel now records
+# `"dry_run": true` where it recorded false before).
+_PINNED_CORPUS_FIRE_COUNT = 265
 
 
 def test_eod_corpus_fire_rate_is_pinned(corpus_scan):

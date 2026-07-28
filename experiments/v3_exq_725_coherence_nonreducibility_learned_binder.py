@@ -1465,7 +1465,7 @@ def _build_manifest(
     }
 
 
-def main() -> Tuple[Optional[str], Optional[str]]:
+def main() -> Tuple[Optional[str], Optional[str], bool]:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--dry-run", action="store_true",
@@ -1539,11 +1539,17 @@ def main() -> Tuple[Optional[str], Optional[str]]:
     outcome_norm = result["outcome"].upper()
     outcome_emit = outcome_norm if outcome_norm in ("PASS", "FAIL") else "FAIL"
     manifest_for_sentinel = str(out_path) if not args.dry_run else None
-    return outcome_emit, manifest_for_sentinel
+    return outcome_emit, manifest_for_sentinel, bool(args.dry_run)
 
 
 if __name__ == "__main__":
-    _outcome, _manifest_path = main()
+    _outcome, _manifest_path, _dry_run = main()
     if _outcome is not None:
-        emit_outcome(outcome=_outcome, manifest_path=_manifest_path)
+        # dry_run is threaded even though manifest_for_sentinel is already None
+        # under --dry-run (so emit_outcome has nothing to relocate): it keeps the
+        # smoke-manifest guarantee LOCAL to this call rather than resting on the
+        # unlink above plus a None that only main() can see. Inert on the evidence
+        # path -- False whenever --dry-run is absent, which is every real run.
+        emit_outcome(outcome=_outcome, manifest_path=_manifest_path,
+                     dry_run=_dry_run)
     sys.exit(0)

@@ -421,5 +421,10 @@ if __name__ == "__main__":
         emit_outcome(outcome="PASS", manifest_path=None, dry_run=True)
         sys.exit(0)
     outcome, out_path = result
-    emit_outcome(outcome=outcome, manifest_path=out_path)
+    # main() returns 0 before writing a manifest under --dry-run, so this call is
+    # unreachable in a smoke run. Threaded anyway so the guarantee is LOCAL: it
+    # survives a future edit that lets the dry-run path fall through to the
+    # writer. Inert on the evidence path -- False whenever --dry-run is absent.
+    emit_outcome(outcome=outcome, manifest_path=out_path,
+                 dry_run=bool(args.dry_run))
     sys.exit(0)
