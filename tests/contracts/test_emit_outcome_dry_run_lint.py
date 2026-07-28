@@ -570,8 +570,8 @@ def test_eod_pack_writer_can_mark_a_pack_dry(tmp_path):
     way at all to mark a smoke. The argument is opt-in (a driver must thread it), which is
     exactly why `build_experiment_indexes._load_dry_run_run_ids` keeps its run_id arm.
     """
-    from experiments.pack_writer import PackWriter
-    w = PackWriter(output_root=tmp_path, repo_root=REPO_ROOT,
+    from experiments.pack_writer import ExperimentPackWriter
+    w = ExperimentPackWriter(output_root=tmp_path, repo_root=REPO_ROOT,
                    runner_name="contract", runner_version="0")
     common = dict(experiment_type="et", timestamp_utc="20260728T000000Z", status="FAIL",
                   metrics_values={"fatal_error_count": 0.0}, summary_markdown="x")
