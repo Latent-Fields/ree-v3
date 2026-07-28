@@ -480,8 +480,8 @@ calibration_gap = mean(causal_signal near-hazard) - mean(causal_signal safe)
 | Metric | Near-Hazard | Safe | Margin |
 |---|---|---|---|
 | net_eval (z_harm) | {probe["mean_net_eval_near"]:.4f} | {probe["mean_net_eval_safe"]:.4f} | {probe["calibration_gap"]:.4f} |
-| \|\|z_harm\|\| norm | {probe["mean_z_harm_norm_near"]:.4f} | {probe["mean_z_harm_norm_safe"]:.4f} | {probe["z_harm_selectivity_margin"]:.4f} |
-| \|\|z_world\|\| norm | {probe["mean_z_world_norm_near"]:.4f} | {probe["mean_z_world_norm_safe"]:.4f} | -- |
+| \\|\\|z_harm\\|\\| norm | {probe["mean_z_harm_norm_near"]:.4f} | {probe["mean_z_harm_norm_safe"]:.4f} | {probe["z_harm_selectivity_margin"]:.4f} |
+| \\|\\|z_world\\|\\| norm | {probe["mean_z_world_norm_near"]:.4f} | {probe["mean_z_world_norm_safe"]:.4f} | -- |
 
 net_eval pred_std: {probe["net_eval_pred_std"]:.4f}
 Warmup: harm={warmup_harm}  benefit={warmup_benefit}

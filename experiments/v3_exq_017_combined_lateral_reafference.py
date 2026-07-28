@@ -623,7 +623,7 @@ the lateral head provides harm-salient z_harm context. The combined attribution:
 | Metric | Near-Hazard | Safe | Margin |
 |---|---|---|---|
 | Combined causal_sig | {probe["mean_causal_sig_near"]:.4f} | {probe["mean_causal_sig_safe"]:.4f} | {probe["calibration_gap"]:.4f} |
-| \|\|z_harm\|\| norm | {probe["mean_z_harm_norm_near"]:.4f} | {probe["mean_z_harm_norm_safe"]:.4f} | {probe["z_harm_selectivity_margin"]:.4f} |
+| \\|\\|z_harm\\|\\| norm | {probe["mean_z_harm_norm_near"]:.4f} | {probe["mean_z_harm_norm_safe"]:.4f} | {probe["z_harm_selectivity_margin"]:.4f} |
 
 pred_std: {probe["net_eval_pred_std"]:.4f}
 Warmup: harm={warmup_harm}  benefit={warmup_benefit}
