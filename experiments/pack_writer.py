@@ -257,6 +257,7 @@ class ExperimentPackWriter:
         latent: Optional[Any] = None,
         config: Optional[Any] = None,
         timing: Optional[Any] = None,
+        dry_run: bool = False,
     ) -> EmittedPack:
         status = status.upper()
         if status not in {"PASS", "FAIL"}:
@@ -326,6 +327,18 @@ class ExperimentPackWriter:
         }
         if scenario:
             manifest_doc["scenario"] = dict(scenario)
+
+        # Dry-run self-identification (2026-07-28). A pack written for a
+        # `--dry-run` smoke must SAY SO in its own manifest. Until now no pack on
+        # any code path carried the flag, so the only carrier for a given run was
+        # its FLAT sibling and `build_experiment_indexes` had to carry it across
+        # BY RUN_ID -- which makes deleting a flat dry manifest without its pack
+        # silently promote that smoke back to real scored evidence. A caller that
+        # threads `dry_run=args.dry_run` here (the same value it threads to
+        # `write_flat_manifest`) gets a pack that is excluded on its own merits.
+        # Conditional add on a truthy value, so every real run stays byte-identical.
+        if dry_run:
+            manifest_doc["dry_run"] = True
 
         manifest_path.write_text(json.dumps(manifest_doc, indent=2) + "\n", encoding="utf-8")
 

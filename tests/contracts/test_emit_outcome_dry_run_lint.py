@@ -496,6 +496,149 @@ def test_eod_the_pack_converter_refuses_dry_run_manifests():
         "MECH-245 contamination, not the flat _dry_ manifest.")
 
 
+def _load_assembly_module(rel_parts, mod_name):
+    """Import an REE_assembly script by path, or None if the sibling repo is absent."""
+    import importlib.util
+    path = ASSEMBLY.joinpath(*rel_parts)
+    if not path.exists():
+        return None
+    spec = importlib.util.spec_from_file_location(mod_name, path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_eod_a_converted_pack_carries_the_dry_run_flag():
+    """A pack minted from a dry flat manifest must SAY SO in its own manifest.
+
+    The residual fragility after the 2026-07-28 fix (REE_assembly cb7298c1c4 / 5189800eea):
+    both halves were gated, but `build_runpack_docs` emitted an `experiment_pack/v1`
+    manifest with NO dry_run field, so a pack could not be identified as a smoke on its
+    own. The indexer therefore had to carry the flag across from the flat sibling BY
+    RUN_ID -- which made the flat manifest the sole carrier for its pack, and made
+    `git rm`-ing a flat dry manifest without its pack silently promote that smoke back to
+    scored evidence. This pins the pack's self-identification, which is what dissolves
+    that coupling. Behavioural, not a token grep: it calls the real mapping function.
+    """
+    sync = _load_assembly_module(
+        ("evidence", "experiments", "scripts", "sync_v3_results.py"), "_sync_v3_results_c")
+    if sync is None:
+        return  # sibling repo not checked out (bare worker) -- nothing to assert
+    dry = {
+        "run_id": "v3_exq_999_contract_probe_20260728T000000Z_v3",
+        "architecture_epoch": "ree_hybrid_guardrails_v1",
+        "status": "FAIL",
+        "dry_run": True,
+        "claim_ids": ["MECH-999"],
+    }
+    manifest, _metrics, _summary = sync.build_runpack_docs(dry, "v3_exq_999_contract_probe")
+    assert manifest.get("dry_run") is True, (
+        "build_runpack_docs no longer carries dry_run into the pack. The pack is what "
+        "build_experiment_indexes scores, so without this field it is indistinguishable "
+        "from a real run when read alone, and the dry-run exclusion goes back to "
+        "depending on the flat sibling surviving on disk. See MECH-245.")
+
+
+def test_eod_a_real_run_pack_gains_no_dry_run_key():
+    """The negative control: the carry is a conditional add, not a blanket key.
+
+    A field written unconditionally (`dry_run: False` on every pack) would rewrite the
+    byte shape of the entire historical corpus on the next governance regen, and would
+    make an ABSENT flag mean something different from what it means today.
+    """
+    sync = _load_assembly_module(
+        ("evidence", "experiments", "scripts", "sync_v3_results.py"), "_sync_v3_results_c2")
+    if sync is None:
+        return
+    real = {
+        "run_id": "v3_exq_999_contract_probe_20260728T000000Z_v3",
+        "architecture_epoch": "ree_hybrid_guardrails_v1",
+        "status": "PASS",
+        "claim_ids": ["MECH-999"],
+    }
+    manifest, _m, _s = sync.build_runpack_docs(real, "v3_exq_999_contract_probe")
+    assert "dry_run" not in manifest, (
+        "build_runpack_docs now writes dry_run on every pack. It must be a conditional "
+        "add on a truthy value so non-dry packs stay byte-identical.")
+
+
+def test_eod_pack_writer_can_mark_a_pack_dry(tmp_path):
+    """The OTHER pack writer -- `pack_writer.PackWriter.write_pack` -- takes the flag too.
+
+    `write_pack` writes `runs/<run_id>/manifest.json` directly, bypassing the flat
+    manifest and therefore the converter, so a driver that emits its pack this way had no
+    way at all to mark a smoke. The argument is opt-in (a driver must thread it), which is
+    exactly why `build_experiment_indexes._load_dry_run_run_ids` keeps its run_id arm.
+    """
+    from experiments.pack_writer import PackWriter
+    w = PackWriter(output_root=tmp_path, repo_root=REPO_ROOT,
+                   runner_name="contract", runner_version="0")
+    common = dict(experiment_type="et", timestamp_utc="20260728T000000Z", status="FAIL",
+                  metrics_values={"fatal_error_count": 0.0}, summary_markdown="x")
+    dry = w.write_pack(run_id="et_dry_v3", dry_run=True, **common)
+    real = w.write_pack(run_id="et_real_v3", **common)
+    import json as _json
+    assert _json.loads(dry.manifest_path.read_text())["dry_run"] is True, \
+        "write_pack(dry_run=True) no longer marks the pack -- a smoke emitted this way scores"
+    assert "dry_run" not in _json.loads(real.manifest_path.read_text()), \
+        "write_pack now writes dry_run unconditionally -- it must be a conditional add"
+
+
+def test_eod_no_dry_pack_on_disk_depends_on_its_flat_sibling():
+    """The backfill invariant: every dry pack in the evidence tree self-identifies.
+
+    All 36 historical dry packs were backfilled with `"dry_run": true` on 2026-07-28. Once
+    that holds, deleting a flat dry manifest can no longer resurrect its pack as evidence.
+    A failure here means a NEW unflagged dry pack landed (thread `dry_run` through whichever
+    writer produced it) or a backfill was reverted -- restore the flag, do not relax this.
+
+    ONLY MEANINGFUL WHERE THE EVIDENCE TREE IS MATERIALISED. `remote_pytest.sh` stages just
+    `REE_assembly/evidence/experiments/scripts`, so on a cloud worker this directory exists
+    but holds no run packs at all. The guard below is on finding at least one pack rather
+    than on the directory existing, so the worker case reads as SKIPPED-NOT-STAGED instead
+    of silently passing an assertion it never evaluated.
+    """
+    import json as _json
+    base = ASSEMBLY / "evidence" / "experiments"
+    if not base.is_dir():
+        return
+    if not any(base.glob("**/runs/*/manifest.json")):
+        return  # evidence tree not staged (cloud worker) -- nothing to assert
+
+    def _dry(d, p):
+        if str(d.get("dry_run", "")).strip().lower() in ("true", "1", "yes"):
+            return True
+        if p.name.startswith("_dry_"):
+            return True
+        return str(d.get("run_id", "")).endswith("_dry")
+
+    def _read(p):
+        try:
+            d = _json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+        return d if isinstance(d, dict) else None
+
+    dry_flat_ids = set()
+    for p in list(base.glob("*.json")) + list(base.glob("*/*.json")):
+        if "runs" in p.parts:
+            continue
+        d = _read(p)
+        if d and _dry(d, p) and d.get("run_id"):
+            dry_flat_ids.add(str(d["run_id"]))
+
+    orphans = []
+    for m in base.glob("**/runs/*/manifest.json"):
+        d = _read(m)
+        if not d or str(d.get("run_id", "")) not in dry_flat_ids:
+            continue
+        if not _dry(d, m):
+            orphans.append(str(m.relative_to(base)))
+    assert not orphans, (
+        "dry-run pack(s) that carry no dry_run flag of their own, so their exclusion "
+        "depends entirely on the flat sibling staying on disk: " + ", ".join(sorted(orphans)[:10]))
+
+
 def test_eod_pending_review_does_exclude_dry_run_manifests():
     """The other half of the asymmetry: this is why the defect stays invisible."""
     pending = ASSEMBLY / "scripts" / "generate_pending_review.py"
