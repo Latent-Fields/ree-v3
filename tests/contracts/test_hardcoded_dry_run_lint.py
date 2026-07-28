@@ -435,9 +435,21 @@ def test_hdr_is_selectable_and_does_not_drag_in_other_checks():
 _PINNED_CORPUS_FIRE_COUNT = 0
 
 
-def test_hdr_corpus_fire_rate_is_pinned():
-    fired = [p for p in sorted(EXPERIMENTS_DIR.glob("v3_exq_*.py"))
-             if V.hardcoded_dry_run_lint(p) is not None]
+def test_hdr_corpus_fire_rate_is_pinned(corpus_scan):
+    """Consumes the SHARED corpus walk (`tests/contracts/conftest.py`) rather than
+    enumerating `experiments/` itself.
+
+    The file set is unchanged -- `corpus_scan` applies this lint to exactly
+    `sorted(EXPERIMENTS_DIR.glob("v3_exq_*.py"))`, in the same order, via the same
+    `V.hardcoded_dry_run_lint(p) is not None` test, with the lint function itself
+    untouched. What changes is only that the parse is shared with the five other
+    corpus-wide lints instead of this test paying for a sixth full walk and parse
+    of ~1160 drivers. Verified full-corpus differentially against an independent
+    uncached scan when this was wired in (identical fire sets, identical file
+    counts); the pin below is the standing evidence -- it would move if the
+    sharing altered what is scanned.
+    """
+    fired = corpus_scan["hardcoded_dry_run_lint"]
     assert len(fired) == _PINNED_CORPUS_FIRE_COUNT, (
         f"hardcoded-dry_run fire count moved: {len(fired)} vs pinned "
         f"{_PINNED_CORPUS_FIRE_COUNT}. If a NEW script is in this list, fix the script "

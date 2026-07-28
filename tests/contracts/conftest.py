@@ -1,6 +1,6 @@
 """Shared, session-scoped scan of `experiments/` for the corpus-wide lint contracts.
 
-WHAT THIS CHANGES. Five contract tests each assert a property over the WHOLE
+WHAT THIS CHANGES. Six contract tests each assert a property over the WHOLE
 `experiments/` corpus (~1160 `v3_exq_*.py` drivers, ~1240 `*.py` under the tree).
 Each one used to enumerate the corpus itself and call its lint file-by-file, and
 every one of those lints opens with the same prelude:
@@ -8,21 +8,21 @@ every one of those lints opens with the same prelude:
     src  = path.read_text(encoding="utf-8")
     tree = ast.parse(src, filename=str(path))
 
-so the corpus was read and **parsed five times per pytest session**. This module
-makes that happen ONCE and hands every lint the same parse.
+so the corpus was read and **parsed once per corpus lint per pytest session**.
+This module makes that happen ONCE and hands every lint the same parse.
 
 NOTHING IS SAMPLED, CAPPED OR SKIPPED. Each lint is still applied to exactly the
-file set it applied to before -- the four `validate_experiments` lints to
+file set it applied to before -- the five `validate_experiments` lints to
 `sorted(EXPERIMENTS_DIR.glob("v3_exq_*.py"))`, the `validate_queue` pre-registration
 lint to `sorted(EXPERIMENTS_DIR.rglob("*.py"))` -- in the same sorted order, with
 the same per-file error handling. The lint functions themselves are untouched and
 are called with the same arguments as before. This is "do the same work once
-instead of five times", not a coverage reduction: the exact-count pins
-(150 / 63 / 12 / 0 and the pre-registration hit list) are the evidence for that,
-and they are unchanged. If a change here altered what is scanned, those four
-counts would move.
+instead of once per lint", not a coverage reduction: the exact-count pins
+(150 / 63 / 12 / 0 / 0 and the pre-registration hit list) are the evidence for
+that, and they are unchanged. If a change here altered what is scanned, those
+five counts would move.
 
-WHY THE LOOP IS INVERTED (five lints inside one file walk, not one file walk per
+WHY THE LOOP IS INVERTED (every lint inside one file walk, not one file walk per
 lint). The obvious shape -- a fixture that returns `{path: tree}` for the whole
 corpus -- was measured and REJECTED: holding all 1162 trees resident costs
 **886 MiB** (measured on the hub, 2026-07-27). The hub is a 3.8 GB box that also
@@ -36,7 +36,7 @@ time (`_LastParseCache`, below, holds exactly one), so peak memory is unchanged
 from the old behaviour while the parse is still paid once.
 
 WHY THE PARSE CACHE RATHER THAN A `tree=` PARAMETER ON EACH LINT. Threading a
-pre-parsed tree through would mean changing five production lint signatures in
+pre-parsed tree through would mean changing every production lint signature in
 `validate_experiments.py` / `validate_queue.py`. Caching the parse instead keeps
 the production validators bit-identical, which matters for three reasons:
   (1) the gate's behaviour when run for real (`validate_experiments.py` on the
@@ -45,6 +45,17 @@ the production validators bit-identical, which matters for three reasons:
       the cache covers new ones for free -- there was a sixth corpus-scanning
       lint in flight in another session while this was written; and
   (3) `validate_experiments.py` is a high-contention file.
+
+THAT SIXTH LINT LANDED, AND (2) IS WHY FOLDING IT IN WAS A THREE-LINE CHANGE.
+`hardcoded_dry_run_lint` (ree-v3 `5a1e645`, backlog drawn to zero by `506c713`)
+arrived from session `festive-bose-705787` with its own
+`for p in sorted(EXPERIMENTS_DIR.glob("v3_exq_*.py"))` loop -- i.e. it re-added
+exactly the sixth full-corpus walk+parse this module exists to remove. Wiring it
+in needed only a `path_lints` entry and a fixture argument on its pinned test,
+because the cache required no signature change of it. Its production function is
+byte-identical before and after, and its pin is still 0. THIS IS THE STANDING
+PATTERN: a new corpus-wide lint belongs in `path_lints` below, and its corpus
+test takes `corpus_scan` -- it must not enumerate `experiments/` itself.
 
 SAFETY OF SHARING ONE TREE ACROSS LINTS. Sound only because no consumer mutates
 the AST. Verified over both validators: no `NodeTransformer`, no
@@ -197,15 +208,17 @@ class CorpusScan:
 def scan_corpus() -> CorpusScan:
     """Walk `experiments/` once and apply every corpus-wide lint to each file.
 
-    Ordering and file sets are chosen to reproduce, exactly, what the five tests
+    Ordering and file sets are chosen to reproduce, exactly, what the six tests
     did independently:
 
       * `sorted(EXPERIMENTS_DIR.rglob("*.py"))` drives the outer loop -- this is
         the pre-registration lint's own file set, and it is a SUPERSET of the
-        other four's (`glob("v3_exq_*.py")` is the top level of the same tree),
+        others' (`glob("v3_exq_*.py")` is the top level of the same tree),
         so one walk covers both and each lint still sees its own set.
-      * the four `validate_experiments` lints are applied only to top-level
+      * the `validate_experiments` lints are applied only to top-level
         `v3_exq_*.py`, i.e. exactly `EXPERIMENTS_DIR.glob("v3_exq_*.py")`.
+        `is_driver` below is that glob spelled as a predicate, so a lint moved
+        into `path_lints` keeps its own file set unchanged.
       * `rglob`/`glob` results are sorted, so each fire list comes out in the
         same order the old per-test `sorted(...)` comprehensions produced.
     """
@@ -217,6 +230,8 @@ def scan_corpus() -> CorpusScan:
         ("e3_diagnostics_staleness_lint", V.e3_diagnostics_staleness_lint),
         ("dead_z_goal_stream_lint", V.dead_z_goal_stream_lint),
         ("spearman_guard_shape_lint", V.spearman_guard_shape_lint),
+        ("hardcoded_dry_run_lint", V.hardcoded_dry_run_lint),
+        ("config_slice_under_declaration_lint", V.config_slice_under_declaration_lint),
     )
 
     scan = CorpusScan()
