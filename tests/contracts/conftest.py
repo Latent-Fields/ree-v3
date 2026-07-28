@@ -98,6 +98,36 @@ same base (`c7ef00c`), running exactly the five corpus tests:
 i.e. **~-16s, ~-24%**, reproducible. Per-test before: hw 26.6-28.2s, spearman
 10.6-11.1s, dzg 9.7-10.4s, e3s 9.6-10.1s, prereg 6.6-7.0s.
 
+SECOND MEASUREMENT -- FOLDING IN THE SIXTH LINT (2026-07-28). The pair above is the
+original five-lint share (`60a6131`). Folding `hardcoded_dry_run_lint` into
+`path_lints` (`7328f1e`, the three-line change described above) was A/B'd
+separately, on an IDLE, UNCONTENDED `ree-worker-4`, two pairs back-to-back, running
+exactly the SIX corpus tests -- the five above plus `test_hardcoded_dry_run_lint.py`:
+
+    pair 1:  68.69s -> 63.32s   (-5.37s, -7.8%)
+    pair 2:  66.37s -> 63.26s   (-3.11s, -4.7%)
+
+132 tests passed in BOTH halves of both pairs, so coverage is identical -- which is
+the whole point: the fold-in deletes a sixth full-corpus walk+parse, not an
+assertion. Pre-half = pristine `37673f2`; post-half = `37673f2` plus ONLY `7328f1e`'s
+change to the three `tests/contracts` files, with one line removed that `7328f1e`
+had swept in from another session (`config_slice_under_declaration_lint`, since
+landed on its own as `25bf07e`), so the delta isolates the `hardcoded_dry_run`
+fold-in alone. Both halves ran from throwaway DETACHED git worktrees, so neither
+carried any other session's uncommitted work.
+
+READ THAT PAIR AS A DELTA ONLY -- ITS ABSOLUTE SECONDS ARE NOT COMPARABLE TO THE
+BLOCK ABOVE. `ree-worker-4` is a DIFFERENT BOX from the `ree-worker-2` the
+66.91 -> 50.34s pair was taken on: the hub and `ree-worker-2` were both held by other
+sessions' pytest runs at the time, which is why the surge worker was used. So
+63.26s here is NOT "slower than" 49.80s above -- different machine, different day,
+and a six-test set rather than a five-test set. Only the within-pair ratio carries
+across. That is the same rule the next paragraph states, applied to these two blocks
+with respect to each other. (Originally recorded in `WORKSPACE_STATE.md`
+2026-07-28T06:17Z, session `elated-shamir-5ef201`; the docstring edit was deferred
+because a third session had ~125 uncommitted lines in this file at the time -- the
+CLAUDE.md read-modify-write hazard.)
+
 TAKE THE MEASUREMENT PROTOCOL SERIOUSLY IF YOU REVISIT THIS. Three earlier
 attempts at this number were wrong, all in the optimistic-looking direction until
 checked: two were polluted by another session's full-suite run on the shared hub,
