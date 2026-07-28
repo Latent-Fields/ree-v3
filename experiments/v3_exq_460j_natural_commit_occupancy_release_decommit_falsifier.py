@@ -151,7 +151,7 @@ import json
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import torch
@@ -171,6 +171,7 @@ from ree_core.utils.config import REEConfig  # noqa: E402
 from scaffolded_sd054_onboarding import (  # noqa: E402
     ScaffoldedSD054OnboardingConfig,
     ScaffoldedSD054OnboardingScheduler,
+    _derive_env_seed,
     _sd049_kwargs,
     _sense_with_optional_harm,
     stage_plan,
@@ -286,7 +287,8 @@ ARMS: List[Dict[str, Any]] = [
 ]
 
 
-def _make_scaffold_cfg(dry_run: bool) -> ScaffoldedSD054OnboardingConfig:
+def _make_scaffold_cfg(dry_run: bool,
+                       env_seed: Optional[int] = None) -> ScaffoldedSD054OnboardingConfig:
     if dry_run:
         stage0, stage0b, p0, hazard, p1, p2, steps = 2, 2, 5, 5, 5, 2, 30
     else:
@@ -335,6 +337,7 @@ def _make_scaffold_cfg(dry_run: bool) -> ScaffoldedSD054OnboardingConfig:
         scaffold_harm_pathway_lr=HARM_PATHWAY_LR,
         scaffold_harm_pathway_in_p0=True,
         scaffold_train_rule_bias_head=True,
+        scaffold_env_seed=env_seed,
     )
     if steps < 75:
         cfg.scaffold_p1_survival_gate_steps = max(1, steps // 4)
@@ -406,16 +409,28 @@ def _make_config(env) -> REEConfig:
     return cfg
 
 
-def _build_closure_env(scaffold_cfg: ScaffoldedSD054OnboardingConfig) -> CausalGridWorldV2:
+def _build_closure_env(scaffold_cfg: ScaffoldedSD054OnboardingConfig,
+                       seed: Optional[int] = None) -> CausalGridWorldV2:
     """P2-config foraging env (world_obs_dim parity) WITH subgoal_mode + waypoint
     tolerance-band completion so the SD-034 closure operator has completions to fire on
-    (mirror 460h)."""
+    (mirror 460h).
+
+    `seed` is the DRIVER-OWNED counterpart of the scheduler's `scaffold_env_seed`
+    (see `_run_seed`). Default None passes `seed=None` straight through to
+    CausalGridWorldV2, whose `np.random.default_rng(None)` takes OS entropy at
+    CONSTRUCTION and does not consume the numpy global RNG -- so the default is
+    bit-identical to every landed run, and `_run_seed`'s np/torch seeding still
+    does not reach this env unless the knob is set. Do NOT flip the default:
+    pinning it unconditionally would change the eval-arm env layout, and
+    therefore the results, breaking comparability with the landed runs.
+    """
     p2_hfa = (
         scaffold_cfg.scaffold_p2_hazard_food_attraction_guard
         if scaffold_cfg.scaffold_p2_hazard_food_attraction_guard >= 0.0
         else scaffold_cfg.scaffold_p2_hazard_food_attraction
     )
     return CausalGridWorldV2(
+        seed=seed,
         size=scaffold_cfg.scaffold_env_size,
         num_hazards=scaffold_cfg.scaffold_p2_num_hazards,
         num_resources=scaffold_cfg.scaffold_p2_num_resources,
@@ -792,15 +807,30 @@ def _aborted_seed_record(seed: int, stage: str, reason: str) -> Dict[str, Any]:
     }
 
 
-def _run_seed(seed: int, dry_run: bool, total_eps: int) -> Dict[str, Any]:
+def _run_seed(seed: int, dry_run: bool, total_eps: int,
+              env_seed_base: Optional[int] = None) -> Dict[str, Any]:
     torch.manual_seed(seed)
     np.random.seed(seed)
-    scaffold_cfg = _make_scaffold_cfg(dry_run)
+    # Env-seed base for THIS seed. None (default) leaves both the scheduler's
+    # curriculum envs and this driver's own eval envs on OS entropy, exactly as
+    # in the landed run. When the knob is set, the run seed is folded in so the
+    # seeds still see different worlds rather than collapsing onto one shared
+    # layout -- `_derive_env_seed` multiplies the base by 1e6, so adjacent bases
+    # cannot collide.
+    seed_env_base = None if env_seed_base is None else int(env_seed_base) + int(seed)
+    scaffold_cfg = _make_scaffold_cfg(dry_run, env_seed=seed_env_base)
     device = torch.device("cpu")
     steps_per_ep = scaffold_cfg.scaffold_steps_per_episode
     eval_eps = 2 if dry_run else CLOSURE_EVAL_EPISODES
 
-    probe_env = _build_closure_env(scaffold_cfg)
+    # Stream 2 is the DRIVER-OWNED env stream: the scaffold module reserves
+    # stream 0 for the scheduler's curriculum builds and stream 1 for its
+    # read-only harm-discriminativeness probe, so this can never collide with
+    # either. idx is the construction order within this driver: 0 = the
+    # world_obs_dim parity probe env, 1 + arm_i = the per-arm eval env.
+    probe_env = _build_closure_env(
+        scaffold_cfg, seed=_derive_env_seed(seed_env_base, stream=2, idx=0)
+    )
     probe_env.reset()
     agent = REEAgent(_make_config(probe_env)).to(device)
     scheduler = ScaffoldedSD054OnboardingScheduler(scaffold_cfg)
@@ -867,8 +897,11 @@ def _run_seed(seed: int, dry_run: bool, total_eps: int) -> Dict[str, Any]:
 
     # Eval all four arms on the SAME trained substrate (clone per arm; lever toggled).
     arms_out: Dict[str, Any] = {}
-    for arm in ARMS:
-        closure_env = _build_closure_env(scaffold_cfg)
+    for arm_i, arm in enumerate(ARMS):
+        closure_env = _build_closure_env(
+            scaffold_cfg,
+            seed=_derive_env_seed(seed_env_base, stream=2, idx=1 + arm_i),
+        )
         closure_env.reset()
         print(f"Seed {seed} Condition {arm['key']}", flush=True)
         agent_arm = _clone_arm(agent, device, arm)
@@ -949,8 +982,10 @@ def _frac(flags: List[bool]) -> float:
     return float(sum(1 for f in flags if f)) / float(len(flags)) if flags else 0.0
 
 
-def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
-    print(f"[{EXPERIMENT_TYPE}] starting (dry_run={dry_run})", flush=True)
+def run_experiment(dry_run: bool = False,
+                   env_seed_base: Optional[int] = None) -> Dict[str, Any]:
+    print(f"[{EXPERIMENT_TYPE}] starting (dry_run={dry_run}, "
+          f"env_seed_base={env_seed_base})", flush=True)
     seeds = SEEDS[:1] if dry_run else SEEDS
     n_arms = len(ARMS)
     if dry_run:
@@ -963,7 +998,7 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
 
     per_seed: List[Dict[str, Any]] = []
     for s in seeds:
-        per_seed.append(_run_seed(s, dry_run, total_eps))
+        per_seed.append(_run_seed(s, dry_run, total_eps, env_seed_base=env_seed_base))
 
     n = len(per_seed)
     guard_flags = [r["guard_pass"] for r in per_seed]
@@ -1306,8 +1341,9 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
     }
 
 
-def main(dry_run: bool = False) -> Dict[str, Any]:
-    result = run_experiment(dry_run=dry_run)
+def main(dry_run: bool = False,
+         env_seed_base: Optional[int] = None) -> Dict[str, Any]:
+    result = run_experiment(dry_run=dry_run, env_seed_base=env_seed_base)
     if dry_run:
         print(f"[{EXPERIMENT_TYPE}] dry-run complete; manifest not written.", flush=True)
         return {"outcome": result["outcome"], "manifest_path": None}
@@ -1324,6 +1360,11 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
         "experiment_purpose": EXPERIMENT_PURPOSE,
         "supersedes": SUPERSEDES,
         "architecture_epoch": "ree_hybrid_guardrails_v1",
+        # None = the landed run's OS-entropy env seeding (both the scheduler's
+        # curriculum envs and this driver's own eval envs). An int here means the
+        # run's envs were PINNED and it is therefore NOT comparable to a landed
+        # run -- record it so a reader can tell the two apart.
+        "env_seed_base": env_seed_base,
         "timestamp_utc": timestamp,
         "outcome": result["outcome"],
         "evidence_direction": result["evidence_direction"],
@@ -1419,8 +1460,16 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument(
+        "--env-seed", type=int, default=None,
+        help="Opt-in env-seed base. Omitted (the default) reproduces the landed "
+             "run's OS-entropy env seeding exactly. Set it and every env this run "
+             "builds -- the scheduler's curriculum envs AND this driver's own eval "
+             "envs -- is deterministically seeded, so the run reproduces bitwise "
+             "across processes. A pinned run is NOT comparable to a landed one.",
+    )
     args = ap.parse_args()
-    _res = main(dry_run=args.dry_run)
+    _res = main(dry_run=args.dry_run, env_seed_base=args.env_seed)
     if _res.get("manifest_path"):
         _outcome_raw = str(_res["outcome"]).upper()
         emit_outcome(
