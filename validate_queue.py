@@ -219,14 +219,27 @@ def _preregistered_shares_at_or_above_unity(tree) -> "list[tuple[str, float, int
     return out
 
 
-def prereg_share_feasibility_lint(source: str) -> list[str]:
+def prereg_share_feasibility_lint(source: str, filename: str = "<unknown>") -> list[str]:
     """Reject a pre-registered incumbent share that its own non-triviality gate
     makes unreachable. Returns a list of message bodies (empty == clean).
 
     Fail-soft: an unparseable script yields no findings (other checks report it).
+
+    `filename` is passed straight through to `ast.parse` and changes NO verdict --
+    it only labels the diagnostics CPython attributes to this parse. This is the
+    gate that parses every driver, so it is also where the tokenizer's own warnings
+    surface, and with the old bare `ast.parse(source)` they were emitted against
+    `<unknown>`:
+
+        <unknown>:455: DeprecationWarning: invalid escape sequence '\\|'
+
+    Nobody could act on that, so three real invalid escapes sat in the corpus
+    un-chased until 2026-07-28 (ree-v3 `37673f280b`). Naming the file makes such a
+    warning self-locating. Optional with the old default so existing single-argument
+    callers are unaffected.
     """
     try:
-        tree = ast.parse(source)
+        tree = ast.parse(source, filename)
     except (SyntaxError, ValueError):
         return []
 
@@ -972,7 +985,7 @@ def validate(queue_path: Path = QUEUE_FILE) -> list[str]:
                 # Pre-registration feasibility: a pre-registered share >= 1.0
                 # cannot coexist with a ">= 2 non-trivial components" gate over a
                 # sum-to-one decomposition (V3-EXQ-785, 2026-07-19).
-                for finding in prereg_share_feasibility_lint(source):
+                for finding in prereg_share_feasibility_lint(source, str(script_path)):
                     errors.append(f"{prefix}: script {script_val} {finding}")
 
         # Silent re-queue guard: queue_id must not already have a completion
