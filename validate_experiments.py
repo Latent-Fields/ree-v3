@@ -43,6 +43,7 @@ CHECK_NAMES = ("conformance", "readiness", "arm_fingerprint", "degeneracy", "man
                "e3_diagnostics_staleness", "e3_hold_weighted_readout",
                "action_object_selection", "spearman_guard_shape",
                "dead_z_goal_stream", "hardcoded_dry_run", "emit_outcome_dry_run",
+               "write_pack_dry_run",
                "config_slice_declaration", "inert_salience_dacc_bias")
 
 # Readiness-gate static lint (proposal_trivial_prediction_readiness_gate_2026-06-06).
@@ -2444,6 +2445,204 @@ def emit_outcome_dry_run_lint(path: Path) -> Optional[str]:
     )
 
 
+# ---- unthreaded write_pack(dry_run=) (V3-EXQ-696, third layer) -----------------------
+# THIRD sibling of `hardcoded_dry_run` and `emit_outcome_dry_run`, on the one remaining
+# unwatched end of the same smoke-containment chain. Read the three together:
+#
+#   gate                    watches                       what its dry_run does
+#   hardcoded_dry_run       write_flat_manifest           picks the `_dry_<run_id>.json` name
+#   emit_outcome_dry_run    experiment_protocol.emit_outcome  RELOCATES the flat manifest out
+#                                                         of evidence/experiments/
+#   write_pack_dry_run      pack_writer.write_pack        marks the RUN PACK dry (THIS ONE)
+#
+# WHY THE PACK IS THE ONE THAT MATTERS. The flat manifest is NOT on the indexer's scoring
+# path; `build_experiment_indexes._scan_runs` scores the RUN PACK at
+# `<experiment_type>/runs/<run_id>/manifest.json`. That is the whole mechanism of the
+# MECH-245 incident written up above: the flat smoke kept its `dry_run` flag and was inert,
+# while the pack minted from it carried NO dry_run field and was by construction
+# indistinguishable from a real run.
+#
+# WHAT CHANGED ON 2026-07-28, and why this gate exists at all. Until that date a pack could
+# not self-identify: `build_runpack_docs` wrote an `experiment_pack/v1` manifest with no
+# dry_run key. Two repairs landed together (REE_assembly b84252a0ba; ree-v3 0f3bedbed4 /
+# d5b1613615 / b281854a04): `sync_v3_results.build_runpack_docs` now copies a truthy
+# top-level `dry_run` into the pack, and `ExperimentPackWriter.write_pack` gained a
+# `dry_run=False` keyword that marks the pack directly.
+#
+# THE GAP THIS GATE CLOSES: `write_pack`'s `dry_run` IS OPT-IN. A driver that threads its
+# flag into `write_flat_manifest` (so the flat file is correctly `_dry_`-prefixed) but NOT
+# into `write_pack` still emits an UNFLAGGED pack. Such a pack is excluded only by
+# `_load_dry_run_run_ids`'s cross-file carry BY RUN_ID from the flat sibling -- the exact
+# coupling the 2026-07-28 work set out to dissolve, and the reason that run_id arm had to be
+# KEPT rather than simplified away. So the coupling survives PRECISELY for drivers of this
+# shape, and this gate is what makes that population visible instead of implicit.
+#
+# THAT THE FALLBACK IS LOAD-BEARING IS NOT THEORETICAL. The same session found
+# `_load_dry_run_run_ids` had never globbed `*/*.json` (per-experiment-subdirectory flat
+# manifests), so 13 dry packs were still scored as real evidence, contributing phantom runs
+# to ARC-042, MECH-070, MECH-075, MECH-104, MECH-153, MECH-155, MECH-156 and MECH-231. A
+# silent fallback is exactly where that class of hole hides.
+#
+# WHY CONDITION (b) -- "already threads dry_run into write_flat_manifest or emit_outcome".
+# It is the discriminator that makes this gate about the PACK rather than about dry-run
+# awareness in general. A driver that threads nothing is already reported by one or both
+# siblings; firing here as well would triple-report one undifferentiated "the author did not
+# think about --dry-run". Requiring a demonstrated threading elsewhere isolates the genuinely
+# half-threaded shape: an author who KNOWS about smoke containment and covered one path while
+# leaving the scored one open. "Threaded" means a `dry_run=` keyword whose value is not a
+# literal `False` -- a literal False is the sibling gate's business, not evidence of intent.
+#
+# CORPUS POPULATION IS ZERO TODAY, AND THAT IS THE HONEST STATE. Of 1167 top-level
+# `v3_exq_*.py` drivers, ZERO call `write_pack` at all; the only non-test caller anywhere in
+# the repo is `experiments/run.py`, which has no `dry_run` and so no smoke path. Drivers
+# reach the pack indirectly, via `write_flat_manifest` plus the `sync_v3_results` converter,
+# which is the path the converter-side repair already gates. The gate is therefore EMPTY,
+# not vacuous: the shape it detects is real, reachable and unguarded by anything else, and it
+# fires the moment a driver calls `write_pack` directly under a smoke path -- which is a
+# shape the pack writer's new keyword actively invites. See the pin comment in
+# tests/contracts/test_write_pack_dry_run_lint.py for what would make it fire.
+#
+# ADVISORY, and deliberately biased to UNDER-fire, for the same reasons as both siblings: a
+# flag threaded through a dict, a partial, or a helper the bare-name fixpoint cannot follow
+# is invisible, and `dry_run` passed POSITIONALLY to write_pack (19th positional, so
+# implausible but legal) is not matched. Exempt with WRITE_PACK_DRY_RUN_EXEMPT = "<reason>"
+# when the caller already relocates, renames or deletes the pack itself.
+_WRITE_PACK_DRY_RUN_EXEMPT_MARKER = "WRITE_PACK_DRY_RUN_EXEMPT"
+
+# The calls whose threaded `dry_run=` counts as the author having demonstrated smoke
+# awareness. Deliberately the two SIBLING GATES' own watched names, so the three gates
+# partition one population rather than overlapping on it.
+_DRY_THREADING_WITNESS_NAMES = ("write_flat_manifest", "emit_outcome")
+
+
+def _call_name(node: ast.Call) -> Optional[str]:
+    """Bare callee name of a Call -- `f(...)` and `obj.f(...)` both yield `f`.
+
+    Same resolution the sibling gates use inline, factored out because this gate needs
+    it at three sites. Bare-name resolution is what keeps the family under-firing rather
+    than over-firing on ambiguous cases (see `_dry_reachable_functions`).
+    """
+    fn = node.func
+    return fn.attr if isinstance(fn, ast.Attribute) else getattr(fn, "id", None)
+
+
+def _dry_run_kw(call: ast.Call) -> Optional[ast.AST]:
+    """The `dry_run=` keyword VALUE node of a call, or None when the keyword is absent."""
+    return next((k.value for k in call.keywords if k.arg == "dry_run"), None)
+
+
+def _threads_dry_run_elsewhere(tree: ast.AST) -> bool:
+    """True when some `write_flat_manifest`/`emit_outcome` call threads a real dry_run.
+
+    "Real" = the keyword is present and is not a literal `False`. A literal False is the
+    `hardcoded_dry_run` gate's subject and is evidence of the OPPOSITE of intent, so it
+    must not satisfy this precondition.
+    """
+    for n in ast.walk(tree):
+        if not isinstance(n, ast.Call) or _call_name(n) not in _DRY_THREADING_WITNESS_NAMES:
+            continue
+        val = _dry_run_kw(n)
+        if val is not None and not (isinstance(val, ast.Constant) and val.value is False):
+            return True
+    return False
+
+
+def write_pack_dry_run_lint(path: Path) -> Optional[str]:
+    """Unthreaded `write_pack(dry_run=)` check. Issue string, or None.
+
+    Fires when ALL of:
+      (1) it calls `write_pack` with either NO `dry_run=` keyword at all or a LITERAL
+          `False`, at a site reachable with dry_run truthy -- interprocedurally, per
+          `_dry_reachable_functions`. Checked FIRST because it is by far the rarest
+          condition on this corpus (0 of 1167 drivers call `write_pack` at all), so it
+          early-returns the whole scan for essentially every file.
+      (2) the script has a smoke path -- an argparse `--dry-run` flag or a `dry_run`
+          function parameter -- AND actually gates work on it (some `if`/`IfExp` tests
+          it). Identical precondition to both siblings, for the same reason: a flag that
+          gates nothing is not a smoke mode.
+      (3) it ALREADY threads a real `dry_run` into `write_flat_manifest` or
+          `emit_outcome`. This is what makes the gate about the PACK specifically rather
+          than about dry-run awareness in general -- see the block comment above.
+
+    Never blocking, in either mode. See the block comment for why the corpus population is
+    currently 0, why that is empty rather than vacuous, and the exemption.
+    """
+    try:
+        src = path.read_text(encoding="utf-8")
+        tree = ast.parse(src)
+    except (OSError, SyntaxError, UnicodeDecodeError):
+        return None
+    if _WRITE_PACK_DRY_RUN_EXEMPT_MARKER in src:
+        return None
+
+    unthreaded_sites = []
+    for n in ast.walk(tree):
+        if not isinstance(n, ast.Call) or _call_name(n) != "write_pack":
+            continue
+        val = _dry_run_kw(n)
+        if val is None or (isinstance(val, ast.Constant) and val.value is False):
+            unthreaded_sites.append(n)
+    if not unthreaded_sites:
+        return None
+
+    parent: Dict[int, ast.AST] = {}
+    for n in ast.walk(tree):
+        for c in ast.iter_child_nodes(n):
+            parent[id(c)] = n
+
+    has_flag = False
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Call) and _call_name(n) == "add_argument":
+            for a in n.args:
+                if isinstance(a, ast.Constant) and a.value in ("--dry-run", "--dry_run"):
+                    has_flag = True
+    has_param = any(
+        isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and any(a.arg == "dry_run"
+                for a in list(n.args.args) + list(n.args.kwonlyargs))
+        for n in ast.walk(tree))
+    gates_work = any(isinstance(n, (ast.If, ast.IfExp)) and _mentions_dry(n.test)
+                     for n in ast.walk(tree))
+    if not ((has_flag or has_param) and gates_work):
+        return None
+
+    if not _threads_dry_run_elsewhere(tree):
+        return None
+
+    reachable = _dry_reachable_functions(tree, parent)
+
+    def owner(n: ast.AST) -> Optional[str]:
+        cur = parent.get(id(n))
+        while cur is not None:
+            if isinstance(cur, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                return cur.name
+            cur = parent.get(id(cur))
+        return None
+
+    live = [n for n in unthreaded_sites
+            if owner(n) in reachable and not _locally_dry_guarded(n, parent)]
+    if not live:
+        return None
+
+    where = ", ".join(f"line {n.lineno} (in {owner(n) or '<module>'})" for n in live)
+    return (
+        f"threads dry_run into write_flat_manifest/emit_outcome -- so it KNOWS about smoke "
+        f"containment -- but calls write_pack with no threaded dry_run= at {where}, and "
+        f"that call IS reached in a smoke run. The run pack, NOT the flat manifest, is what "
+        f"build_experiment_indexes._scan_runs scores, so an unflagged pack from a 1-seed "
+        f"smoke weights a real claim (confirmed: MECH-245's entire negative evidence base "
+        f"was two such packs). Since 2026-07-28 write_pack takes `dry_run=`, but it is "
+        f"OPT-IN: unthreaded, the pack is excluded only by _load_dry_run_run_ids carrying "
+        f"the flag over from the flat sibling BY RUN_ID -- a silent cross-file fallback that "
+        f"had itself never globbed the per-experiment subdirectories, leaving 13 dry packs "
+        f"scored against ARC-042 / MECH-070 / MECH-075 / MECH-104 / MECH-153 / MECH-155 / "
+        f"MECH-156 / MECH-231. Fix by threading the script's own flag: "
+        f"`write_pack(..., dry_run=bool(args.dry_run))`, which makes the pack self-identify "
+        f"and needs no cross-file carry. Exempt with {_WRITE_PACK_DRY_RUN_EXEMPT_MARKER} = "
+        f"\"<reason>\" when the caller already relocates, renames or deletes the pack itself."
+    )
+
+
 # ---- config_slice under-declaration (V3-EXQ-798) -------------------------------------
 # arm_reuse_fingerprint_plan.md section 7b: a `config_slice` that UNDER-approximates --
 # omits a parameter the cell's RECORDED READOUTS depend on -- is a false-cache-HIT bug.
@@ -4089,6 +4288,7 @@ def main() -> int:
     dead_zgoal_warnings: List[Tuple[Path, str]] = []
     hardcoded_dry_run_warnings: List[Tuple[Path, str]] = []
     emit_outcome_dry_run_warnings: List[Tuple[Path, str]] = []
+    write_pack_dry_run_warnings: List[Tuple[Path, str]] = []
     config_slice_warnings: List[Tuple[Path, str]] = []
     inert_dacc_bias_warnings: List[Tuple[Path, str]] = []
     for p in paths:
@@ -4202,6 +4402,14 @@ def main() -> int:
                 # fixpoint cannot follow is invisible, and the ~273 landed carriers' runs are
                 # complete, so hardening would block commits on history).
                 emit_outcome_dry_run_warnings.append((p, eod))
+        if "write_pack_dry_run" in selected:
+            wpd = write_pack_dry_run_lint(p)
+            if wpd:
+                # WARN-only in BOTH modes -- see write_pack_dry_run_lint() for why this one
+                # never hardens under --paths (same static-scan blind spots as its two
+                # siblings, and the same refusal to retro-edit landed drivers whose runs
+                # are complete).
+                write_pack_dry_run_warnings.append((p, wpd))
         if "config_slice_declaration" in selected:
             csd = config_slice_under_declaration_lint(p)
             if csd:
@@ -4243,6 +4451,7 @@ def main() -> int:
           f"{len(dead_zgoal_warnings)} dead-z_goal-stream-warning(s), "
           f"{len(hardcoded_dry_run_warnings)} hardcoded-dry_run-warning(s), "
           f"{len(emit_outcome_dry_run_warnings)} emit_outcome-dry_run-warning(s), "
+          f"{len(write_pack_dry_run_warnings)} write_pack-dry_run-warning(s), "
           f"{len(config_slice_warnings)} config_slice-declaration-warning(s), "
           f"{len(inert_dacc_bias_warnings)} inert-salience-dacc_bias-warning(s)", flush=True)
     if inert_dacc_bias_warnings:
@@ -4271,6 +4480,22 @@ def main() -> int:
         print("", flush=True)
         print("[validate_experiments] CONFIG_SLICE-DECLARATION WARNINGS (advisory, non-blocking):", flush=True)
         for p, warn in config_slice_warnings:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
+            print(f"  - {rel}: {warn}", flush=True)
+    if write_pack_dry_run_warnings:
+        # Advisory in BOTH modes (never hardens). A fire here means the driver already
+        # threads its flag into write_flat_manifest/emit_outcome but calls write_pack
+        # unthreaded, so `--dry-run` emits an UNFLAGGED run pack -- and the pack, not the
+        # flat manifest, is what build_experiment_indexes scores. Such a pack is excluded
+        # only by _load_dry_run_run_ids' cross-file carry by run_id, the silent fallback
+        # the 2026-07-28 work set out to dissolve. Triage each: thread the flag
+        # (`dry_run=bool(args.dry_run)`), which makes the pack self-identify. A caller that
+        # already relocates or deletes the pack should carry WRITE_PACK_DRY_RUN_EXEMPT
+        # rather than be left to re-fire. Do NOT retro-edit a LANDED driver whose run is
+        # complete.
+        print("", flush=True)
+        print("[validate_experiments] WRITE_PACK-DRY_RUN WARNINGS (advisory, non-blocking):", flush=True)
+        for p, warn in write_pack_dry_run_warnings:
             rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
             print(f"  - {rel}: {warn}", flush=True)
     if emit_outcome_dry_run_warnings:

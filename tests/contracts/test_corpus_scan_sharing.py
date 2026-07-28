@@ -49,6 +49,7 @@ _PATH_LINTS = (
     ("spearman_guard_shape_lint", V.spearman_guard_shape_lint),
     ("hardcoded_dry_run_lint", V.hardcoded_dry_run_lint),
     ("emit_outcome_dry_run_lint", V.emit_outcome_dry_run_lint),
+    ("write_pack_dry_run_lint", V.write_pack_dry_run_lint),
     ("config_slice_under_declaration_lint", V.config_slice_under_declaration_lint),
     ("inert_salience_dacc_bias_lint", V.inert_salience_dacc_bias_lint),
 )
@@ -239,17 +240,21 @@ def test_corpus_scan_is_transparent(corpus_scan):
     coverage is retained by the exact-count pins themselves -- 150 / 63 / 12 / 0 / 0
     -- which are asserted over every file and would move under any behavioural drift.
 
-    ONE ASYMMETRY WORTH KNOWING, for the two lints pinned at ZERO. `_sample_paths`
-    seeds itself from each lint's fire list, so a lint with no corpus fires
-    contributes no positive witness and is compared only over the stride spread,
-    i.e. only in the false-NEGATIVE direction (None == None). A zero pin likewise
-    cannot detect a lint that has been silenced. What covers those two is that each
-    such lint has its own synthetic positive cases in its own test file, run
+    ONE ASYMMETRY WORTH KNOWING, for the lints pinned at ZERO (deliberately stated
+    without a COUNT -- an earlier version said "the two", which was stale as soon as
+    a third zero-pinned lint landed, and is the kind of drift nothing checks).
+    `_sample_paths` seeds itself from each lint's fire list, so a lint with no corpus
+    fires contributes no positive witness and is compared only over the stride
+    spread, i.e. only in the false-NEGATIVE direction (None == None). A zero pin
+    likewise cannot detect a lint that has been silenced. What covers those is that
+    each such lint has its own synthetic positive cases in its own test file, run
     UNCACHED (`test_hdr_fires_on_the_reachable_hardcoded_shape` and the spearman
     equivalent), so 'the lint still fires at all' is pinned independently of this
     scan. When a zero-pinned lint is first wired into `scan_corpus`, run a one-off
     full-corpus differential to confirm the fire SETS match -- done for
-    `hardcoded_dry_run_lint` when it was folded in.
+    `hardcoded_dry_run_lint` when it was folded in, and for `write_pack_dry_run_lint`
+    (2026-07-28: both sides empty over all 1167 drivers, since ZERO of them call
+    `write_pack` at all -- see that file's pin comment for why empty is not vacuous).
     """
     assert V.ast is ast, "must run uncached -- the proxy should not be installed here"
     sample = _sample_paths(corpus_scan)
