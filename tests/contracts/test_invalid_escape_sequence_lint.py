@@ -121,33 +121,57 @@ def test_detector_fires_on_an_f_string(tmp_path, invalid_escape_findings_fn):
     assert len(invalid_escape_findings_fn(src, p)) == 1
 
 
-def test_detector_fires_even_when_a_warning_was_already_raised_this_process(
-    tmp_path, invalid_escape_findings_fn
+@pytest.mark.parametrize("ambient", ["ignore", "error", "once", "default"])
+def test_detector_is_immune_to_ambient_warning_filters(
+    tmp_path, invalid_escape_findings_fn, ambient
 ):
-    """Guards the `simplefilter("always")` in the detector.
+    """Guards the `simplefilter("always")` inside the detector.
 
-    Python's default filter reports a given warning ONCE per location and caches
-    that in `__warningregistry__`. Without the reset, the corpus's second offender
-    -- and every offender in any test that runs after the first -- would go
-    unreported and the pin would pass vacuously.
+    MUTATION-VERIFIED, and be precise about which params do the work: with the
+    `simplefilter` line deleted from `invalid_escape_findings`, the `ignore` and
+    `error` params go to 0 findings and FAIL; `once` and `default` still pass. So
+    the guard rests on those two, and `once`/`default` are baseline coverage that
+    the detector behaves under ordinary configuration. Do not delete the first two
+    thinking the other two still cover this -- they do not.
+
+    An earlier version of this test tried to guard the same call by "warming"
+    `__warningregistry__` with a prior parse, on the theory that the default
+    once-per-location filter would then silence the detector. That test was
+    VACUOUS: the tokenizer passes no registry for this warning, so repeated parses
+    of the same file warn every time even under `default`, and removing
+    `simplefilter("always")` did not make it fail. It was a contract that could not
+    fail -- the exact defect class this file exists to prevent -- and it also leaked
+    a stray warning into every suite run's summary.
+
+    The real hazard is an ambient filter that suppresses the category, which is
+    ordinary configuration: `-W ignore` / `-W error` on the command line, or a
+    pytest `filterwarnings` ini entry. Measured on a file that HAS a bad escape,
+    without the `simplefilter` call:
+
+        ambient=ignore -> 0 findings        ambient=error -> 0 findings
+
+    `error` is the nastier of the two: CPython turns a tokenizer warning-turned-
+    error into a **SyntaxError**, which the detector's fail-soft `except` swallows,
+    so the file reads as clean rather than raising. Either way the corpus pin would
+    sit reassuringly at zero while real offenders went unreported.
+
+    `catch_warnings()` restores the ambient filter state on exit, so this does not
+    leak configuration into the rest of the session.
     """
     src = "s = 'a\\|b'\n"
-    first = tmp_path / "dup_a.py"
-    second = tmp_path / "dup_b.py"
-    for p in (first, second):
-        p.write_text(src, encoding="utf-8")
+    p = tmp_path / f"ambient_{ambient}.py"
+    p.write_text(src, encoding="utf-8")
 
-    # Warm the interpreter's warning state the way a real earlier parse would.
     with warnings.catch_warnings():
-        warnings.simplefilter("default")
-        try:
-            ast.parse(src, str(first))
-        except SyntaxError:  # pragma: no cover -- source is valid, just warned-about
-            pass
+        warnings.resetwarnings()
+        warnings.simplefilter(ambient)
+        found = invalid_escape_findings_fn(src, p)
 
-    assert len(invalid_escape_findings_fn(src, second)) == 1, (
-        "detector went quiet after an earlier parse -- the warning registry is not "
-        "being reset, so the pin would pass vacuously")
+    assert len(found) == 1, (
+        f"detector went blind under ambient filter '{ambient}' (got {found}). The "
+        f"simplefilter('always') inside invalid_escape_findings is what makes it "
+        f"independent of ambient warning configuration -- without it the corpus pin "
+        f"passes vacuously under -W ignore / -W error or a pytest filterwarnings ini.")
 
 
 # ---- FALSE-POSITIVE controls: the legitimate spellings must stay clean -------------

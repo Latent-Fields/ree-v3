@@ -256,11 +256,23 @@ def invalid_escape_findings(
     parses under `catch_warnings(record=True)` + `simplefilter("always")` and
     keeps the warnings whose message carries `INVALID_ESCAPE_MARKER`.
 
-    `simplefilter("always")` is load-bearing twice over: it defeats the default
-    "once per location" filter, and entering `catch_warnings` invalidates the
-    per-module `__warningregistry__` caches, so a file already parsed earlier in
-    the process still reports. Without it this returns [] for everything after
-    the first hit and the pin passes vacuously.
+    `simplefilter("always")` is load-bearing, but NOT for the reason first
+    documented here. It is not about `__warningregistry__` dedup: the tokenizer
+    passes no registry for this warning, so repeated parses of the SAME file warn
+    every time even under the `default` filter (measured). The real hazard is an
+    ambient filter that suppresses the category -- `-W ignore`, or a pytest
+    `filterwarnings` ini entry. Measured, for a file that HAS a bad escape:
+
+        ambient=ignore   without always -> 0 findings   with always -> 1
+        ambient=error    without always -> 0 findings   with always -> 1
+
+    Both are silent blindness, and `error` is the nastier one: CPython converts a
+    warning-turned-error from the tokenizer into a **SyntaxError**, which the
+    fail-soft `except` below then swallows. Either way the corpus pin would sit at
+    zero while offenders went unreported. `simplefilter("always")` inside the
+    `catch_warnings` block makes the detector independent of ambient
+    configuration. Pinned by `test_detector_is_immune_to_ambient_warning_filters`,
+    which FAILS if the `simplefilter` call is removed.
 
     `parse` defaults to the real `ast.parse`; the shared scan passes the one-entry
     cache's `parse` so the corpus is still parsed exactly once per file. The
