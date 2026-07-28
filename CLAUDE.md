@@ -15953,6 +15953,40 @@ claim says arousal amplifies rather than breaks), MECH-359, MECH-390, SD-011.
   bit-identical and whose ON path is pinned by contracts -- there is no substrate behaviour
   to validate empirically. The natural first consumer is any future cross-process determinism
   check that needs `replay_diversity_enabled=True`.
+  CROSS-PROCESS REPRODUCTION VERIFIED 2026-07-28 -- the 12 contracts pin determinism WITHIN
+  one process only, so "does a pinned run actually reproduce in a SECOND process, or is there
+  a FOURTH entropy source still unfound?" was open until measured.
+  `scripts/stdlib_rng_cross_process_probe.py` runs a real agent+env+sleep loop on a config
+  reaching ALL THREE sites and digests the full trajectory + sleep metrics + every parameter
+  byte. Measured on ree-worker-3 (linux-x86_64, py3.10.12, torch 2.12.0+cpu), draw counts
+  S1=15 / S2=12 / S3=1 in every run:
+    ARM pinned   (stdlib_rng_seed + env seed + torch/numpy seeded) -- 3 processes, ONE digest
+      `8ff7ac0e1d803eb733f7bfd8aa0ebc48539df519496a571edd601e03b467f88d`, identical
+      state_dict. Replicated on ree-worker-2: identical in-machine AND byte-identical to
+      worker-3's digest (same machine class).
+    ARM unpinned (the typical-driver state: torch+numpy seeded, stdlib `random` on OS
+      entropy, everything else held) -- 3 processes, THREE DIFFERENT digests and three
+      different state_dicts.
+  So: NO fourth entropy source, and the unpinned arm is what makes that statement mean
+  anything -- it proves the probe is sensitive to exactly the entropy this knob closes.
+  Do NOT drop the unpinned arm: without it, two matching pinned digests are equally
+  consistent with "the seeding works" and with "the sites never fired". The draw counters
+  are the second, direct check on the same thing, and they earned their keep -- the FIRST
+  two probe builds reported ZERO draws (the `tiny_loop.step_once` path never reaches
+  `_do_replay`, the only waking route to S1; and `agent.run_sleep_cycle()` stops before the
+  Phase-E WRITEBACK that reaches S3, which needs `SleepLoopManager.force_cycle`). Both would
+  have produced two matching, entirely meaningless digests.
+  SCOPE: same machine class only. `torch.multinomial` is not reproducible across
+  darwin-arm64/torch 2.10 vs linux-x86_64/torch 2.12 (see the "Running the test suite"
+  cross-machine-class note in the umbrella CLAUDE.md), and that is unaffected by this knob.
+  Two footnotes worth keeping, both cost time to find: S3's writeback early-returns with
+  `n_regions == 0` unless the aggregator holds posteriors for the replayed regions, which
+  needs the MECH-269 anchor-set substrate that `enable_sleep_aggregation_cluster()`
+  deliberately does not bundle -- so the probe drives S2/S3 directly at their call sites
+  with the agent's own seeded consumers and real waking buffers; and `harm_dim` must equal
+  `E2HarmSConfig.z_harm_dim` (32), because `offline_gradient_pass` slices waking pairs to
+  that width and a narrower stream slices SHORT rather than erroring, dying later on a
+  shape mismatch deep in the transition net.
   See REE_assembly/evidence/planning/scaffold_goal_freeze_e3_read_path_triage_2026-07-27.md
   ("Follow-on: the residual entropy source is NAMED and FIXED", point 4), MECH-165 (S1/S2),
   MECH-273 (S3), and `experiments/scaffolded_sd054_onboarding.py` scaffold_env_seed (the
