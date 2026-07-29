@@ -733,6 +733,7 @@ def train_a2c(
     use_policy_kl_anchor: bool = False,
     kl_anchor_coef: float = 0.0,
     measure_policy_drift: bool = False,
+    offline_ewc_anchor: Optional[Any] = None,
 ) -> Dict[str, Any]:
     # coef_schedule / entropy_schedule (MECH-457 bootstrap-explorer, 2026-07-16): OPTIONAL
     # training-progress schedules for the intrinsic coefficient and rollout entropy, computed
@@ -828,6 +829,18 @@ def train_a2c(
             "(got both True); an anchored arm already records mean_policy_kl_to_anchor_recent "
             "through its PolicyKLAnchor, and the monitor is for the UNCONSTRAINED control."
         )
+    # offline_ewc_anchor (SD-083, MECH-476 INTERVAL/NOVELTY arms, 2026-07-29): OPTIONAL
+    # OFFLINE-derived, Fisher-weighted (EWC) trust-region anchor, built by
+    # mech457_offline_consolidation.consolidate_offline_window() BEFORE this call (during the
+    # offline policy-consolidation window) and passed in ready-made. DISTINCT from the ONLINE
+    # PolicyKLAnchor above -- it is trace-selective (per-parameter Fisher), interval-accumulated
+    # and novelty-gated, which is the MECH-476 content the global KL anchor cannot express. Its
+    # penalty is parameter-space (batch-independent), so it is added once per policy update. Duck-
+    # typed (not imported here, to avoid an import cycle: the offline module imports RNDModule from
+    # this file); the caller passes an OfflineEWCAnchor or None. Default None -> no term, byte-
+    # identical. It composes with the online KL anchor rather than excluding it, but the MECH-476
+    # falsifier arms use the offline anchor ALONE (no use_policy_kl_anchor) so the two mechanisms
+    # stay separately readable.
     # Snapshot BEFORE the first update. rep.policy() is the live actor-critic; PolicyKLAnchor
     # raises if it is None (z_world reps built without an action_critic).
     kl_anchor = (
@@ -1045,6 +1058,11 @@ def train_a2c(
                 loss = loss + kl_anchor.penalty(
                     torch.stack(kl_live_logits), torch.stack(kl_ref_logits)
                 )
+            if offline_ewc_anchor is not None:
+                # SD-083 offline EWC penalty: parameter-space (batch-independent), so it is added
+                # once per update from the live params vs the frozen post-install snapshot. Its
+                # coefficient already carries the interval-capture x novelty scaling.
+                loss = loss + offline_ewc_anchor.penalty()
             if torch.isfinite(loss):
                 optimiser.zero_grad(set_to_none=True)
                 loss.backward()
@@ -1056,7 +1074,7 @@ def train_a2c(
             n_credit_passes += _prioritized_credit_replay(
                 rep, optimiser, params, replay_obs, replay_actions, rets, ep_value_f,
                 passes=int(credit_replay_passes), topk=int(credit_topk),
-                kl_anchor=kl_anchor,
+                kl_anchor=kl_anchor, offline_ewc_anchor=offline_ewc_anchor,
             )
 
         if intrinsic is not None:
@@ -1138,6 +1156,21 @@ def train_a2c(
         # SENTINEL -- a consumer must branch on this key before reading the KL of a control.
         "policy_drift_monitor_installed": bool(drift_monitor_only),
         "mean_policy_kl_is_measured": bool(kl_anchor is not None),
+        # SD-083 offline policy-consolidation window. Emitted unconditionally (0.0 / False when
+        # no anchor) so a consumer reads one stable key. offline_ewc_installed=True means the
+        # window built a live Fisher-weighted anchor that bound this refinement.
+        "offline_ewc_installed": bool(offline_ewc_anchor is not None),
+        "offline_ewc_coef": round(
+            float(getattr(offline_ewc_anchor, "coef", 0.0)) if offline_ewc_anchor is not None
+            else 0.0, 6
+        ),
+        "offline_ewc_fisher_mass": round(
+            float(getattr(offline_ewc_anchor, "fisher_mass", 0.0)) if offline_ewc_anchor is not None
+            else 0.0, 6
+        ),
+        "mean_offline_ewc_penalty_recent": round(
+            offline_ewc_anchor.mean_realised_penalty() if offline_ewc_anchor is not None else 0.0, 6
+        ),
         "n_return_episodes": int(n_returns),
         "n_credit_replay_passes": int(n_credit_passes),
     }
@@ -1148,6 +1181,7 @@ def _prioritized_credit_replay(
     replay_obs: List[Dict[str, Any]], replay_actions: List[int], rets: List[float],
     values_f: List[float], passes: int = CREDIT_REPLAY_PASSES, topk: int = CREDIT_TOPK,
     kl_anchor: Optional["PolicyKLAnchor"] = None,
+    offline_ewc_anchor: Optional[Any] = None,
 ) -> int:
     """Mattar & Daw prioritized sweeping + Foster & Wilson reverse replay, RL-native.
 
@@ -1214,7 +1248,11 @@ def _prioritized_credit_replay(
             kl_anchor.penalty(torch.stack(kl_live), torch.stack(kl_ref))
             if (kl_anchor is not None and kl_live) else 0.0
         )
-        loss = CREDIT_LR_SCALE * (policy_loss + value_loss + kl_pen)
+        # SD-083: the offline EWC penalty binds the replay update too, for the same reason the KL
+        # anchor does (an unconstrained second policy-gradient step would leak the protection and
+        # make a retention null unreadable). Parameter-space -> no per-transition buffer needed.
+        ewc_pen = offline_ewc_anchor.penalty() if offline_ewc_anchor is not None else 0.0
+        loss = CREDIT_LR_SCALE * (policy_loss + value_loss + kl_pen + ewc_pen)
         if torch.isfinite(loss):
             optimiser.zero_grad(set_to_none=True)
             loss.backward()

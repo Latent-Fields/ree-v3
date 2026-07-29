@@ -1461,6 +1461,29 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
 - SD-004: E2 action objects; HippocampalModule navigates action-object space O
 - SD-005: z_gamma split into z_self (E2 domain) + z_world (E3/Hippocampal/ResidueField domain)
 - SD-006: Asynchronous multi-rate loop execution (phase 1: time-multiplexed)
+- SD-083: consolidation.offline_policy_window -- IMPLEMENTED 2026-07-29. TESTBED locus (the
+  mech457 bootstrap-explorer stack under experiments/_lib/, alongside its sibling PolicyKLAnchor
+  / MECH-475), NOT ree_core/ -- it is a MECH-476 falsifier instrument, not a cognifold faculty.
+  Module: experiments/_lib/mech457_offline_consolidation.py (OfflineEWCAnchor +
+  consolidate_offline_window). An OFFLINE, trace-selective (Fisher-weighted EWC, Kirkpatrick
+  2017), interval-accumulated (capture c(N)=capture_max*(1-exp(-N/tau))), novelty-gated (Moncada
+  2007; the lineage's own RNDModule) policy-consolidation window run BETWEEN install_bc_prior and
+  the RL refinement. The window BUILDS PROTECTION and does NOT retrain (theta unchanged -> post_bc
+  invariant to the interval), which is what makes the INTERVAL axis orthogonal to the DOSE axis.
+  Config: BootstrapExplorerConfig.use_offline_consolidation (default False; set True + N>0 +
+  offline_ewc_max_coef>0 to enable) -- NOT REEConfig; this lineage has its own config object.
+  Data flow: install_bc_prior -> consolidate_offline_window (theta*, Fisher F, capture c) ->
+  OfflineEWCAnchor -> train_a2c per-update penalty coef*sum_i F_i (theta_i-theta*_i)^2. Backward
+  compatible: disabled by default; existing retention arms (788/789/792/836) unaffected.
+  DISTINCT from MECH-475 PolicyKLAnchor (online / global / no-interval) -- that distinction is the
+  MECH-476 content (Walker 2003 divergence). MECH-094: N/A (no simulated memory writes). Phased
+  training: N/A (raw_view, no encoder head; window takes no optimiser step on theta).
+  Contract: tests/contracts/test_sd083_offline_consolidation.py (12/12). Validation: the 12/12
+  contract set + V3-EXQ-836b's N=0 control arm (the embedded ON/OFF window ablation). Evidence
+  arms queued: V3-EXQ-836b (INTERVAL) + V3-EXQ-836c (NOVELTY).
+  SD doc: REE_assembly/docs/architecture/sd_083_offline_policy_consolidation_window.md.
+  Cognifold-port follow-on (IF MECH-476 supported): port into the ONE SD-017 sleep loop, unifying
+  with MECH-441 novelty + MECH-204. See MECH-476 / MECH-475.
 
 ## cross_stream_binding_substrate: Shared-latent-factor cross-stream binding (2026-07-08)
 - cross_stream_binding_substrate: latent.cross_stream_binding -- IMPLEMENTED 2026-07-08.

@@ -232,6 +232,32 @@ class BootstrapExplorerConfig:
     # consumer may later read.
     retention_probe_every: Optional[int] = None
 
+    # OFFLINE POLICY-CONSOLIDATION WINDOW (SD-083, MECH-476 INTERVAL + NOVELTY arms, 2026-07-29).
+    # A trace-selective, interval-accumulated, novelty-gated consolidation phase run BETWEEN the
+    # BC install and the RL refinement. DISTINCT from use_policy_kl_anchor above, and that
+    # distinction is the scientific point (the Walker 2003 divergence MECH-476 names): the KL
+    # anchor is ONLINE / global / no-interval; this is OFFLINE (a real A->B interval before RL),
+    # TRACE-SELECTIVE (a Fisher-weighted EWC penalty, Kirkpatrick 2017), INTERVAL-DEPENDENT (a
+    # capture resource c(N) = capture_max*(1-exp(-N/tau)) accumulated over offline_window_steps),
+    # and NOVELTY-GATED (Moncada 2007 behavioural tagging; the lineage's own RNDModule supplies
+    # the novelty). The window builds PROTECTION and does NOT retrain -- theta is unchanged, so
+    # post_bc competence is invariant to the interval, which is what makes the INTERVAL axis
+    # orthogonal to the DOSE axis (dose moves theta*; interval builds the anchor around a fixed
+    # theta*). Consumed by consolidate_offline_window() -> OfflineEWCAnchor, threaded into
+    # train_a2c as offline_ewc_anchor. OFF: use_offline_consolidation=False -> no window, no
+    # anchor, byte-identical. See mech457_offline_consolidation.py and
+    # REE_assembly/docs/architecture/sd_083_offline_policy_consolidation_window.md.
+    # Declared in as_slice() for the retention_probe_every reason: a consolidated and an
+    # unconsolidated cell are different ARTIFACTS even where they would otherwise be near-identical
+    # COMPUTATIONS, so they must not share an arm fingerprint.
+    use_offline_consolidation: bool = False
+    offline_window_steps: int = 0
+    offline_capture_tau: float = 200.0
+    offline_capture_max: float = 1.0
+    offline_ewc_max_coef: float = 0.0
+    offline_fisher_samples: int = 256
+    offline_novelty_pairing: str = "none"   # none | paired | unpaired
+
     def as_slice(self) -> Dict[str, Any]:
         """Config fields for the arm_fingerprint config_slice / manifest (declared)."""
         return {
@@ -263,6 +289,13 @@ class BootstrapExplorerConfig:
             "retention_probe_every": (
                 None if self.retention_probe_every is None else int(self.retention_probe_every)
             ),
+            "use_offline_consolidation": bool(self.use_offline_consolidation),
+            "offline_window_steps": int(self.offline_window_steps),
+            "offline_capture_tau": float(self.offline_capture_tau),
+            "offline_capture_max": float(self.offline_capture_max),
+            "offline_ewc_max_coef": float(self.offline_ewc_max_coef),
+            "offline_fisher_samples": int(self.offline_fisher_samples),
+            "offline_novelty_pairing": str(self.offline_novelty_pairing),
         }
 
 
@@ -330,6 +363,7 @@ def train_bootstrap_explorer(
     cfg: BootstrapExplorerConfig, denom: Optional[int] = None,
     bc_demo: Optional[Any] = None,
     probe_fn: Optional[Callable[[int], Dict[str, Any]]] = None,
+    offline_ewc_anchor: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """Train the composed bootstrap explorer on `rep` (z_world cotrain or raw 5x5) for
     cfg.n_episodes episodes, returning the mech457_explorer_classes.train_a2c guard dict.
@@ -427,6 +461,7 @@ def train_bootstrap_explorer(
         use_policy_kl_anchor=bool(cfg.use_policy_kl_anchor),
         kl_anchor_coef=float(cfg.kl_anchor_coef),
         measure_policy_drift=bool(cfg.measure_policy_drift),
+        offline_ewc_anchor=offline_ewc_anchor,
     )
 
 

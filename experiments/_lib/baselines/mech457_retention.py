@@ -48,6 +48,7 @@ from typing import Any, Dict, List, Optional
 import experiments._lib.mech457_bootstrap_explorer as boot
 import experiments._lib.mech457_explorer_classes as mech
 import experiments._lib.mech457_fanout as fan
+import experiments._lib.mech457_offline_consolidation as offcons
 from experiments._lib.capability_eval import (
     COMPETENCE_RESOURCE_FLOOR,
     LocalViewGreedyPolicy,
@@ -87,6 +88,13 @@ def reference_config(
     kl_anchor_coef: float = 0.0,
     measure_policy_drift: bool = False,
     retention_probe_every: Optional[int] = None,
+    use_offline_consolidation: bool = False,
+    offline_window_steps: int = 0,
+    offline_capture_tau: float = 200.0,
+    offline_capture_max: float = 1.0,
+    offline_ewc_max_coef: float = 0.0,
+    offline_fisher_samples: int = 256,
+    offline_novelty_pairing: str = "none",
 ) -> boot.BootstrapExplorerConfig:
     """The shared reference RL-refinement config.
 
@@ -101,6 +109,14 @@ def reference_config(
     anything to the loss, so a control reports a MEASURED drift rather than a 0.0 sentinel. It
     is mutually exclusive with use_policy_kl_anchor (train_a2c raises on both) because an
     anchored arm already measures that quantity.
+
+    use_offline_consolidation / offline_* (SD-083, MECH-476 INTERVAL + NOVELTY arms) are a FOURTH
+    disjoint axis -- an OFFLINE, trace-selective, interval-accumulated, novelty-gated
+    consolidation window applied BEFORE the RL refinement (built by
+    consolidate_offline_window() below and passed to train_off_arm as offline_ewc_anchor). It is
+    distinct from use_policy_kl_anchor (the ONLINE, global update constraint) by construction: a
+    different mechanism, a different locus (pre-RL window vs per-update KL), and a different claim
+    (MECH-476 vs MECH-475). All default no-op.
     """
     budget = int(on_budget) if on_budget is not None else int(fan.RL_EPISODES * REF_BUDGET_MULTIPLIER)
     return boot.BootstrapExplorerConfig(
@@ -125,6 +141,13 @@ def reference_config(
         kl_anchor_coef=float(kl_anchor_coef),
         measure_policy_drift=bool(measure_policy_drift),
         retention_probe_every=retention_probe_every,
+        use_offline_consolidation=bool(use_offline_consolidation),
+        offline_window_steps=int(offline_window_steps),
+        offline_capture_tau=float(offline_capture_tau),
+        offline_capture_max=float(offline_capture_max),
+        offline_ewc_max_coef=float(offline_ewc_max_coef),
+        offline_fisher_samples=int(offline_fisher_samples),
+        offline_novelty_pairing=str(offline_novelty_pairing),
     )
 
 
@@ -262,15 +285,48 @@ def make_probe_fn(rep_agent: Any, seed: int, env_kwargs: Dict[str, Any], *,
     return _probe
 
 
+def consolidate_offline_window(rep_agent: Any, seed: int, env_kwargs: Dict[str, Any], *,
+                               steps: int, cfg: boot.BootstrapExplorerConfig,
+                               demo: Any) -> Dict[str, Any]:
+    """SD-083 offline policy-consolidation window, run BETWEEN install_bc_prior and train_off_arm.
+
+    Reads the offline_* knobs off cfg and returns the offcons diagnostic dict (its `anchor` key is
+    an OfflineEWCAnchor or None). The driver passes that anchor to train_off_arm. A no-op cfg
+    (use_offline_consolidation False, or a zero window/coefficient) returns anchor=None and touches
+    no RNG, so the cell is bit-identical to the unconstrained control. The window does NOT change
+    the installed policy, so post_bc competence measured before this call is still valid after it.
+    """
+    if not bool(cfg.use_offline_consolidation):
+        return {"anchor": None, "offline_window_steps": int(cfg.offline_window_steps),
+                "offline_novelty_pairing": str(cfg.offline_novelty_pairing),
+                "capture_resource": 0.0, "novelty_factor": 0.0, "measured_novelty": None,
+                "effective_ewc_coef": 0.0, "fisher_mass": 0.0, "n_fisher_states": 0}
+    return offcons.consolidate_offline_window(
+        rep_agent, demo, env_kwargs, seed, steps=int(steps),
+        offline_window_steps=int(cfg.offline_window_steps),
+        offline_ewc_max_coef=float(cfg.offline_ewc_max_coef),
+        offline_capture_tau=float(cfg.offline_capture_tau),
+        offline_capture_max=float(cfg.offline_capture_max),
+        offline_fisher_samples=int(cfg.offline_fisher_samples),
+        offline_novelty_pairing=str(cfg.offline_novelty_pairing),
+    )
+
+
 def train_off_arm(rep_agent: Any, seed: int, env_kwargs: Dict[str, Any], *,
                   steps: int, arm_label: str, cfg: boot.BootstrapExplorerConfig,
-                  demo: Optional[Any] = None, probe_fn: Optional[Any] = None) -> Dict[str, Any]:
+                  demo: Optional[Any] = None, probe_fn: Optional[Any] = None,
+                  offline_ewc_anchor: Optional[Any] = None) -> Dict[str, Any]:
     """Run the reference RL refinement on an installed policy; returns the train_a2c guard dict
-    (which carries competence_trajectory, bc_aux_coef_first/_last)."""
+    (which carries competence_trajectory, bc_aux_coef_first/_last).
+
+    offline_ewc_anchor (SD-083): OPTIONAL pre-built OfflineEWCAnchor from
+    consolidate_offline_window(); None -> unconstrained refinement (byte-identical to the pre-SD-083
+    callers)."""
     train_env = x734._make_env(seed, env_kwargs)
     return boot.train_bootstrap_explorer(
         rep_agent, train_env, seed=seed, steps=int(steps), arm_label=arm_label, cfg=cfg,
         denom=int(cfg.n_episodes), bc_demo=demo, probe_fn=probe_fn,
+        offline_ewc_anchor=offline_ewc_anchor,
     )
 
 
