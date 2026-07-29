@@ -46,6 +46,24 @@
       "seeds": 6
     },
     {
+      "queue_id": "V3-EXQ-837",
+      "title": "MECH-475 decisive falsifier: does the distributional (informative) critic reverse the iatrogenic optimisation inversion in >=2 of 769/781/771?",
+      "script": "experiments/v3_exq_837_mech475_distributional_critic_iatrogenic_falsifier.py",
+      "priority": 38,
+      "machine_affinity": "any",
+      "estimated_minutes": 720,
+      "claim_id": "MECH-475",
+      "note": "MECH-475 DECISIVE FALSIFIER (claim what_would_answer (a)). EVIDENCE experiment tagging MECH-475 only. Tests whether the destructiveness of added optimisation pressure is the UNINFORMATIVE value baseline's doing: re-runs the three destructive ACQUISITION-side treatments -- 769 capacity/budget, 781 earned approach drive, 771 metabolic coupling -- each with the 788 DISTRIBUTIONAL (informative) critic in place, and asks whether the treatment-below-control inversion REVERSES OR FLATTENS. Each family runs its CONTROL and TREATMENT under BOTH a scalar and a distributional critic, raw_view, on the non-regressed reference build (128-wide / 3x budget / z_world detached / credit-replay 3 / topk 32); capacity treat is the 769 256/5x arm, byte-identical. VERDICT: SUPPORTED (PASS, supports) if >=2 of 3 families reverse/flatten; WEAKENED (FAIL, weakens) => MECH-475 WITHDRAWN (whole content is the causal attribution); substrate_not_ready_requeue (FAIL, non_degenerate=false) if <2 families are scorable. DV = competence TRAJECTORY (late_competence = mean of last 3 probe readings, 250-ep cadence), NOT terminal (mandatory; the signature is invisible to terminal-only measurement). MULTI-TREATMENT: the three heterogeneous families are scored INDEPENDENTLY via precondition_gate.aggregate_arm_gates (any-family-green; a red family NEVER vacates a green one -- the V3-EXQ-785 lesson); the 2-of-3 is read across per-family results, never all(...)'d. NON-DEGENERACY GUARD (the claim's): a family whose scalar CONTROL did not clear the readiness anchors, or whose scalar inversion did not reproduce on this build, is excluded and self-routes substrate_not_ready_requeue, never a reversal/weakens verdict. DV-SYMMETRY (per family): DV=foraging_competence is a resource-collection RATE (a magnitude), and none of +capacity/+budget, the intrinsic approach STATE reward, the env starvation coupling, or the value-estimator swap is invariant under a symmetry of it -- each changes the learned policy or env dynamics and thus the actual foraging rate (no broadcast scalar / monotone rescale / permutation). RE-DERIVE BRAKE DOES NOT FIRE: MECH-475 is newly registered (2026-07-22, split_from MECH-457) testing a DIFFERENT mechanism (baseline informativeness) via a NEW manipulation (the distributional critic, now a built substrate feature with 788 as its positive control) -- the sanctioned substrate-now-built brake-release case, not a lettered re-pose of an eliminated axis. GOV-REUSE-1: decisive readout = the treatment-vs-control reversal under the distributional critic on the acquisition path; recorded in NO prior manifest (788 tested only the retention/BC-installed leg; 769/781/771 ran only the scalar critic) -> not recoverable, run. Verified the distributional critic threads BootstrapExplorerConfig->make_rep(raw_view)->train_bootstrap_explorer and genuinely engages (dry smoke: scalar vs dist late_competence differ per arm, not a silent scalar collapse). raw_view ONLY (the reference-build regime where the bootstrap takes and where all the inversions were measured). MINT-AS-YOU-GO: the scalar/dist reference controls and the metabolic-decouple controls emitted reuse-eligible (include_driver_script_in_hash=False). COORDINATION: the ree-v3/experiment_queue.json working tree carried a concurrent session's UNCOMMITTED V3-EXQ-836 (sweet-williams, MECH-476 dose-sweep) at authoring time; to avoid the read-modify-write contamination hazard this entry is added via the coordinator POST /queue/add (authoritative under Phase 3) and the git commit carries the SCRIPT ONLY -- neither sweeping nor dropping the foreign 836 entry. Smoke PASS (self-routes substrate_not_ready_requeue on dry budgets, as designed; distributional critic verified biting).",
+      "status": "pending",
+      "claim_ids": [
+        "MECH-475"
+      ],
+      "conditions": 16,
+      "episodes_per_run": 3000,
+      "experiment_type": "v3_exq_837_mech475_distributional_critic_iatrogenic_falsifier",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-798a",
       "title": "SD-MEL-PRODUCER validation, C4 measurable: graded, above-reference, LEARNABLE waking MEL from a non-converging world",
       "script": "experiments/v3_exq_798a_sdmelproducer_graded_nonconverging_world_c4readable.py",
