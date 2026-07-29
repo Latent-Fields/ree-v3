@@ -190,6 +190,7 @@ from experiments.scaffolded_sd054_onboarding import (  # noqa: E402
     ScaffoldedSD054OnboardingConfig,
     ScaffoldedSD054OnboardingScheduler,
     _benefit_and_drive,
+    _derive_env_seed,
 )
 from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E402
@@ -351,13 +352,28 @@ def _make_config(env: CausalGridWorldV2, arm: Dict[str, Any]) -> REEConfig:
     )
 
 
-def _make_scaffold_cfg() -> ScaffoldedSD054OnboardingConfig:
+def _make_scaffold_cfg(env_seed: Optional[int] = None) -> ScaffoldedSD054OnboardingConfig:
+    """Build the scheduler config.
+
+    `env_seed` sets `scaffold_env_seed`, the scheduler-side env-seed knob. None
+    (the default) leaves the scheduler's P0/P1 curriculum envs on their legacy
+    OS-entropy path -- `np.random.default_rng(None)` takes entropy at
+    CONSTRUCTION and does not consume the numpy global RNG, so this driver's
+    `np.random.seed(seed)` never reached them and the default is bit-identical
+    to every landed run. Do NOT flip the default: pinning it would change the
+    curriculum layouts, and therefore the results.
+
+    Note this driver does NOT import goal_stream_stages_sd054 (verified by AST),
+    so `goal_stream_env_seed` is not in play here and the two module-owned
+    streams cannot collide within this run.
+    """
     return ScaffoldedSD054OnboardingConfig(
         use_scaffolded_sd054_onboarding_scheduler=True,
         scaffold_p0_episode_budget=SCAFFOLD_P0_BUDGET,
         scaffold_p1_episode_budget=SCAFFOLD_P1_BUDGET,
         scaffold_p2_episode_budget=1,  # P2 owned by this script, not scheduler
         scaffold_steps_per_episode=SCAFFOLD_TRAIN_STEPS,
+        scaffold_env_seed=env_seed,
     )
 
 
@@ -691,13 +707,23 @@ def _run_arm_seed(
     train_steps_per_episode: int,
     p2_episodes: int,
     p2_steps_per_episode: int,
+    env_seed_base: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Scaffolded P0 -> Scaffolded P1 -> bespoke P2 pipeline for one cell."""
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
 
-    scaffold_cfg = _make_scaffold_cfg()
+    # Env-seed base for THIS cell. None (the default) leaves the scheduler's
+    # curriculum envs on OS entropy and this driver's own two envs on the bare
+    # run seed, exactly as in the landed run. When the knob is set, ONE base
+    # drives both: the run seed is folded in so cells still see different worlds
+    # (_derive_env_seed multiplies the base by 1e6, so adjacent bases cannot
+    # collide), and the driver envs move onto the driver-owned stream 2 -- the
+    # scaffold module reserves stream 0 for its curriculum builds and stream 1
+    # for its harm probe, so nothing can collide.
+    seed_env_base = None if env_seed_base is None else int(env_seed_base) + int(seed)
+    scaffold_cfg = _make_scaffold_cfg(env_seed=seed_env_base)
     scaffold_cfg.scaffold_p0_episode_budget = scaffold_p0_budget
     scaffold_cfg.scaffold_p1_episode_budget = scaffold_p1_budget
     scaffold_cfg.scaffold_steps_per_episode = train_steps_per_episode
@@ -712,7 +738,12 @@ def _run_arm_seed(
 
     # Build the target-env config first so the agent's REEConfig has the right
     # body / world / action dims for the scaffolded scheduler's P2 env.
-    target_env = CausalGridWorldV2(seed=seed, **_target_env_kwargs(scaffold_cfg))
+    # idx 0 on the driver-owned stream 2 = the dims-probe target env.
+    target_env = CausalGridWorldV2(
+        seed=(seed if seed_env_base is None
+              else _derive_env_seed(seed_env_base, stream=2, idx=0)),
+        **_target_env_kwargs(scaffold_cfg),
+    )
     cfg = _make_config(target_env, arm)
     agent = REEAgent(cfg)
     device = torch.device("cpu")
@@ -789,7 +820,12 @@ def _run_arm_seed(
 
     # Bespoke P2 measurement on a fresh target env (so the episode RNG sequence
     # matches the canonical 603-lineage measurement-loop pattern).
-    p2_env = CausalGridWorldV2(seed=seed, **_target_env_kwargs(scaffold_cfg))
+    # idx 1 on the driver-owned stream 2 = the bespoke P2 measurement env.
+    p2_env = CausalGridWorldV2(
+        seed=(seed if seed_env_base is None
+              else _derive_env_seed(seed_env_base, stream=2, idx=1)),
+        **_target_env_kwargs(scaffold_cfg),
+    )
     row = _run_p2_measurement(
         agent, p2_env, arm, seed,
         episodes=p2_episodes,
@@ -966,7 +1002,8 @@ def _evidence_direction_per_claim(summary: Dict[str, Any]) -> Dict[str, str]:
 # Top-level orchestration
 # ---------------------------------------------------------------------------
 
-def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
+def run_experiment(dry_run: bool = False,
+                   env_seed_base: Optional[int] = None) -> Dict[str, Any]:
     global TOTAL_RUNS
     seeds = DRY_RUN_SEEDS if dry_run else SEEDS
     scaffold_p0 = DRY_RUN_P0_BUDGET if dry_run else SCAFFOLD_P0_BUDGET
@@ -989,6 +1026,7 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
                 train_steps_per_episode=train_steps,
                 p2_episodes=p2_episodes,
                 p2_steps_per_episode=p2_steps,
+                env_seed_base=env_seed_base,
             )
             rows.append(cell)
 
@@ -1027,6 +1065,12 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         "scaffold_p1_budget": int(scaffold_p1),
         "scaffold_steps_per_episode": int(train_steps),
         "p2_episodes": int(p2_episodes),
+        # None = the landed run's env seeding: the scheduler's P0/P1 curriculum
+        # envs on OS entropy, this driver's own two envs on the bare run seed.
+        # An int here means the run's envs were PINNED -- scheduler curriculum via
+        # scaffold_env_seed, driver envs via stream 2 -- and it is therefore NOT
+        # comparable to a landed run. Record it so a reader can tell them apart.
+        "env_seed_base": env_seed_base,
         "substrate_prereqs_cleared": {
             "mech307_default_value_recalibration": {
                 "cleared_at": "2026-05-15",
@@ -1106,8 +1150,19 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=EXPERIMENT_TYPE)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--env-seed", type=int, default=None,
+        help="Opt-in env-seed base. Omitted (the default) reproduces the landed "
+             "run's env seeding exactly -- the scheduler's P0/P1 curriculum envs "
+             "on OS entropy, this driver's own envs on the bare run seed. Set it "
+             "and ONE base drives both, via scaffold_env_seed and the "
+             "driver-owned stream 2, so the run reproduces bitwise across "
+             "processes. The run seed is folded in per cell, so the seeds still "
+             "see different worlds. A pinned run is NOT comparable to a landed "
+             "one.",
+    )
     args = parser.parse_args()
-    result = run_experiment(dry_run=args.dry_run)
+    result = run_experiment(dry_run=args.dry_run, env_seed_base=args.env_seed)
     if args.dry_run:
         sys.exit(0)
     _outcome_raw = str(result.get("outcome", "FAIL")).upper()

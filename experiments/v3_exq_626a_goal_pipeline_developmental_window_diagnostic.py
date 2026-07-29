@@ -109,6 +109,11 @@ from ree_core.utils.config import REEConfig
 
 from experiment_protocol import emit_outcome
 from experiments.pack_writer import write_flat_manifest  # noqa: E402
+# The shared env-seed derivation helper. Lives in the scaffold module because
+# that is where the streams are namespaced. This driver imports NEITHER
+# goal_stream_stages_sd054 NOR the scaffold scheduler (verified by AST) -- it
+# builds its own envs -- so only the driver-owned stream 2 is in play here.
+from experiments.scaffolded_sd054_onboarding import _derive_env_seed  # noqa: E402
 
 # -- Header constants --------------------------------------------------------
 EXPERIMENT_TYPE = "v3_exq_626a_goal_pipeline_developmental_window_diagnostic"
@@ -604,9 +609,30 @@ def run_seed_arm(
     p2_eps: int,
     steps_per_episode: int,
     total_training_eps: int,
+    env_seed_base: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """Run all three phases for one seed x arm cell. Returns flat dict."""
+    """Run all three phases for one seed x arm cell. Returns flat dict.
+
+    `env_seed_base` is the opt-in driver-owned env-seed base. None (the default)
+    passes `seed=seed` to every `_build_env` call exactly as the landed run did.
+
+    Unlike the rest of the env-seed batch this driver had NO unseeded env to fix
+    -- `_build_env` takes `seed` as a required positional and all four call sites
+    already pass one -- so the knob here is a LAYOUT knob, not a determinism fix:
+    it decouples env layout from the torch/numpy run seed. The per-site idx below
+    preserves the landed run's layout RELATIONSHIPS: P1 rebuilds an env every
+    episode but on one shared idx, so all P1 episodes keep the single shared
+    layout they have today rather than gaining across-episode variation.
+    """
     print(f"Seed {seed} Condition {arm.name}", flush=True)
+    # Fold the run seed into the base so cells still see different worlds
+    # (_derive_env_seed multiplies the base by 1e6, so adjacent bases cannot
+    # collide). Stream 2 is the driver-owned stream; the scaffold module reserves
+    # 0 and 1, and goal_stream_stages_sd054 owns 3.
+    _sb = None if env_seed_base is None else int(env_seed_base) + int(seed)
+
+    def _env_seed(idx: int) -> int:
+        return seed if _sb is None else int(_derive_env_seed(_sb, stream=2, idx=idx))
 
     agent = build_agent(seed, device, world_obs_dim)
     world_dim = agent.config.latent.world_dim
@@ -628,7 +654,7 @@ def run_seed_arm(
         hazard_food_attraction=arm.hfa_p0,
         proximity_harm_scale=0.05,
         spawn_in_reef_half=True,
-        seed=seed,
+        seed=_env_seed(0),
     )
     p0_episodes: List[Dict[str, Any]] = []
     for ep in range(p0_eps):
@@ -665,7 +691,10 @@ def run_seed_arm(
             hazard_food_attraction=hfa_now,
             proximity_harm_scale=_lerp(0.05, 0.1, t),
             spawn_in_reef_half=False,
-            seed=seed,
+            # One shared idx across ALL P1 episodes on purpose -- see the
+            # docstring. A per-episode idx would add across-episode layout
+            # variation the landed run does not have.
+            seed=_env_seed(1),
         )
         ep_metrics = _run_episode(
             agent, env_p1, device, steps_per_episode,
@@ -694,7 +723,7 @@ def run_seed_arm(
         hazard_food_attraction=arm.hfa_p2,
         proximity_harm_scale=0.1,
         spawn_in_reef_half=False,
-        seed=seed,
+        seed=_env_seed(2),
     )
     p2_episodes: List[Dict[str, Any]] = []
     for ep in range(p2_eps):
@@ -905,6 +934,7 @@ def emit_manifest(
     out_dir: Path,
     dry_run: bool,
     cfg_phases: Dict[str, int],
+    env_seed_base: Optional[int] = None,
 ) -> Path:
     ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
     run_id = f"{EXPERIMENT_TYPE}_{ts}_v3"
@@ -920,6 +950,12 @@ def emit_manifest(
         "architecture_epoch": ARCHITECTURE_EPOCH,
         "timestamp_utc": ts,
         "dry_run": dry_run,
+        # None = the landed run's env seeding, where every env is built from the
+        # bare run seed. An int here means the run's env LAYOUTS were driven from
+        # an independent base (driver-owned stream 2) instead, and it is therefore
+        # NOT comparable to a landed run -- record it so a reader can tell them
+        # apart. This driver had no unseeded env to begin with; see run_seed_arm.
+        "env_seed_base": env_seed_base,
         "related_queue_ids": ["V3-EXQ-621a", "V3-EXQ-622", "V3-EXQ-626"],
         "design_doc": (
             "REE_assembly/evidence/planning/"
@@ -997,6 +1033,7 @@ def main(args: argparse.Namespace) -> Tuple[str, Optional[str]]:
                 p0_eps=p0_eps, p1_eps=p1_eps, p2_eps=p2_eps,
                 steps_per_episode=steps_per_ep,
                 total_training_eps=total_training_eps,
+                env_seed_base=args.env_seed,
             )
             cells.append(cell)
 
@@ -1023,13 +1060,24 @@ def main(args: argparse.Namespace) -> Tuple[str, Optional[str]]:
         "p0_eps": p0_eps, "p1_eps": p1_eps, "p2_eps": p2_eps,
         "steps_per_episode": steps_per_ep,
     }
-    out_path = emit_manifest(cells, acceptance, out_dir, dry_run=False, cfg_phases=cfg_phases)
+    out_path = emit_manifest(cells, acceptance, out_dir, dry_run=False, cfg_phases=cfg_phases,
+                             env_seed_base=args.env_seed)
     return outcome, str(out_path)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--env-seed", type=int, default=None,
+        help="Opt-in env-seed base. Omitted (the default) reproduces the landed "
+             "run's env seeding exactly -- every env built from the bare run "
+             "seed. Unlike the rest of the batch this driver had no unseeded env, "
+             "so this is a LAYOUT knob, not a determinism fix: it drives env "
+             "layouts from an independent base (driver-owned stream 2) while "
+             "preserving the landed run's layout relationships. The run seed is "
+             "folded in per cell. A pinned run is NOT comparable to a landed one.",
+    )
     parser.add_argument(
         "--output-dir",
         type=str,

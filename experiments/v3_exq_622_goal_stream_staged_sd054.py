@@ -31,10 +31,10 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -104,8 +104,20 @@ def make_stage_cfg(
     s2_eps: int,
     s3_eps: int,
     steps_per_ep: int,
+    env_seed: Optional[int] = None,
 ) -> GoalStreamStagesConfig:
+    """Build the staged-curriculum config.
+
+    `env_seed` sets `GoalStreamStagesConfig.goal_stream_env_seed`, the
+    module-owned env-seed knob added in ree-v3 856b8219d5. None (the default)
+    leaves `GoalStreamStagesRunner._next_env_seed` returning None, so every env
+    the curriculum builds passes `seed=None` to CausalGridWorldV2 and takes OS
+    entropy at construction -- bit-identical to every landed run of this driver.
+    Do NOT flip the default: pinning it would change every stage's env layout,
+    and therefore the results.
+    """
     return GoalStreamStagesConfig(
+        goal_stream_env_seed=env_seed,
         steps_per_episode=steps_per_ep,
         s0_episode_budget=s0_eps,
         s1_episode_budget=s1_eps,
@@ -168,10 +180,22 @@ def run_seed(
     world_obs_dim: int,
     cfg: GoalStreamStagesConfig,
     total_eps: int,
+    env_seed_base: Optional[int] = None,
 ) -> Tuple[List[StageMetrics], Dict[str, Any]]:
     print(f"Seed {seed} Condition {CONDITION}")
     agent = build_agent(seed, device, world_obs_dim)
-    runner = GoalStreamStagesRunner(cfg)
+    # Env-seed base for THIS seed. `cfg` is shared across SEEDS and a fresh
+    # GoalStreamStagesRunner (and so a fresh _env_build_count) is built per seed,
+    # so handing every seed the SAME base would give all three seeds an identical
+    # layout sequence -- collapsing the across-seed layout variation this driver
+    # has today. Fold the run seed in, as the rest of the env-seed batch does:
+    # _derive_env_seed multiplies the base by 1e6, so adjacent bases cannot
+    # collide. None (the default) leaves the curriculum on OS entropy.
+    seed_cfg = (
+        cfg if env_seed_base is None
+        else replace(cfg, goal_stream_env_seed=int(env_seed_base) + int(seed))
+    )
+    runner = GoalStreamStagesRunner(seed_cfg)
     ep_done = 0
     stages: List[StageMetrics] = []
 
@@ -212,6 +236,7 @@ def emit_manifest(
     acceptance_summary: Dict[str, Any],
     out_dir: Path,
     dry_run: bool,
+    env_seed_base: Optional[int] = None,
 ) -> Path:
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     run_id = f"v3_exq_622_goal_stream_staged_sd054_{ts}_v3"
@@ -254,6 +279,11 @@ def emit_manifest(
             "S3_dacc_per_ep_min": S3_DACC_PER_EP_MIN,
         },
         "triage_memo": "REE_assembly/evidence/planning/z_goal_collapse_triage_2026-05-31.md",
+        # None = the landed run's OS-entropy env seeding (every env the staged
+        # curriculum builds). An int here means the run's envs were PINNED, via
+        # GoalStreamStagesConfig.goal_stream_env_seed, and it is therefore NOT
+        # comparable to a landed run -- record it so a reader can tell them apart.
+        "env_seed_base": env_seed_base,
     }
     out_path = write_flat_manifest(
         manifest,
@@ -274,7 +304,9 @@ def main(args: argparse.Namespace) -> Tuple[str, str | None]:
     else:
         s0, s1, s2, s3, steps = 40, 30, 30, 30, 200
 
-    cfg = make_stage_cfg(s0, s1, s2, s3, steps)
+    # The base config carries the BASE; each seed's actual curriculum seed is
+    # base+seed, folded in by run_seed.
+    cfg = make_stage_cfg(s0, s1, s2, s3, steps, env_seed=args.env_seed)
     total_eps = total_training_episodes(cfg)
 
     probe = CausalGridWorldV2(
@@ -292,7 +324,8 @@ def main(args: argparse.Namespace) -> Tuple[str, str | None]:
     all_cells: List[Dict[str, Any]] = []
     n_pass_seeds = 0
     for seed in SEEDS:
-        stages, acc = run_seed(seed, device, world_obs_dim, cfg, total_eps)
+        stages, acc = run_seed(seed, device, world_obs_dim, cfg, total_eps,
+                               env_seed_base=args.env_seed)
         if acc["overall_pass"]:
             n_pass_seeds += 1
         all_cells.append(
@@ -318,7 +351,8 @@ def main(args: argparse.Namespace) -> Tuple[str, str | None]:
         return outcome, None
 
     out_dir = Path(args.output_dir)
-    out_path = emit_manifest(all_cells, acceptance_summary, out_dir, dry_run=False)
+    out_path = emit_manifest(all_cells, acceptance_summary, out_dir, dry_run=False,
+                             env_seed_base=args.env_seed)
     outcome = "PASS" if acceptance_summary["all_seeds_pass"] else "FAIL"
     print(f"Overall: {outcome} ({n_pass_seeds}/{len(SEEDS)} seeds)")
     return outcome, str(out_path)
@@ -327,6 +361,16 @@ def main(args: argparse.Namespace) -> Tuple[str, str | None]:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--env-seed", type=int, default=None,
+        help="Opt-in env-seed base. Omitted (the default) reproduces the landed "
+             "run's OS-entropy env seeding exactly. Set it and every env the "
+             "staged curriculum builds is deterministically seeded via "
+             "GoalStreamStagesConfig.goal_stream_env_seed, so the run reproduces "
+             "bitwise across processes. The run seed is folded in per seed, so "
+             "the seeds still see different worlds. A pinned run is NOT "
+             "comparable to a landed one.",
+    )
     parser.add_argument(
         "--output-dir",
         type=str,
