@@ -285,10 +285,16 @@ def test_c2_identity_freshness_survives_an_equal_valued_recompute():
 
 def test_c2_rate_matched_shuffle_preserves_the_hold_pattern():
     """The Q-081 shuffle control must permute FRESH samples only. A whole-series
-    shuffle would also destroy the hold structure and let the control pass trivially."""
+    shuffle would also destroy the hold structure and let the control pass trivially.
+
+    NB rate_matched_shuffle_index is SUPERSEDED for Q-081 adjudication (it destroys
+    within-stream autocorrelation -> false Outcome A; use q081_surrogate.block_permute_stream).
+    This test only pins its mechanical hold-preservation property, so it asserts the
+    DeprecationWarning fires rather than treating the call as an endorsed use."""
     fresh = np.zeros(30, dtype=bool)
     fresh[::10] = True
-    idx = rate_matched_shuffle_index(None, [], fresh, np.random.default_rng(0))
+    with pytest.warns(DeprecationWarning, match="SUPERSEDED for Q-081"):
+        idx = rate_matched_shuffle_index(None, [], fresh, np.random.default_rng(0))
     assert np.array_equal(np.sort(idx), np.arange(30))
     held = ~fresh
     assert np.array_equal(idx[held], np.flatnonzero(held)), "held samples must not move"

@@ -82,6 +82,7 @@ ASCII-only output (repo rule).
 from __future__ import annotations
 
 import socket
+import warnings
 from typing import Any, Dict, List, Optional, Sequence
 
 import numpy as np
@@ -630,15 +631,34 @@ def rate_matched_shuffle_index(
     fresh: np.ndarray,
     rng: np.random.Generator,
 ) -> np.ndarray:
-    """Index permutation for the Q-081 rate-matched shuffle control.
+    """SUPERSEDED for Q-081 adjudication -- DO NOT use to compute a Q-081 p-value.
 
-    Q-081's `what_would_answer` names this control as not optional, and the audit
-    (section 3) sharpens it: the shuffle must be matched to the ACTUAL tick schedule,
-    not to a nominal `% 10`. This permutes only the FRESH samples among themselves and
-    leaves held samples where they are, so the shuffled surrogate keeps the identical
-    hold pattern and destroys only the cross-stream alignment. A naive whole-series
-    shuffle would destroy the hold structure too and make the control pass trivially.
+    Use ``q081_surrogate.block_permute_stream`` (via ``make_surrogate``) instead.
+
+    This permutes each FRESH sample INDIVIDUALLY. It preserves tick times and the
+    per-stream marginal, but DESTROYS within-stream autocorrelation -- which
+    manufactures a FALSE Outcome A: measured 6/8 uncoupled seeds spuriously
+    significant, vs 0/8 for the block permutation that replaces it. See
+    ``REE_assembly/evidence/planning/q081_surrogate_null_design.md`` section 2
+    ("What the surrogate replaces") for why an individual-sample shuffle cannot
+    adjudicate a cross-stream coupling claim. The function is retained only so its
+    mechanical hold-preservation property stays testable; it emits a
+    ``DeprecationWarning`` on every call. Any real Q-081 null MUST go through the
+    block-permutation surrogate.
+
+    (Historical intent, now superseded:) it permuted only the FRESH samples among
+    themselves and left held samples in place, so the surrogate kept the identical
+    hold pattern and destroyed only cross-stream alignment -- but preserving the
+    hold pattern is not enough; within-stream autocorrelation must be preserved too,
+    which requires block permutation, not individual-sample permutation.
     """
+    warnings.warn(
+        "rate_matched_shuffle_index() is SUPERSEDED for Q-081 adjudication: it "
+        "destroys within-stream autocorrelation and manufactures a false Outcome A. "
+        "Use q081_surrogate.block_permute_stream / make_surrogate instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     del clock, clock_columns  # accepted for call-site clarity; schedule comes from `fresh`
     idx = np.arange(len(fresh))
     fresh_pos = np.flatnonzero(np.asarray(fresh, dtype=bool))
