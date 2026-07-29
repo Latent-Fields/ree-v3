@@ -81,6 +81,7 @@ from experiment_protocol import emit_outcome
 from experiments.scaffolded_sd054_onboarding import (
     ScaffoldedSD054OnboardingConfig,
     ScaffoldedSD054OnboardingScheduler,
+    _derive_env_seed,
 )
 from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
@@ -126,8 +127,14 @@ def build_agent(seed: int, device: torch.device, world_obs_dim: int):
     return agent
 
 
-def make_scheduler_cfg(arm: str, p0_eps: int, p1_eps: int, p2_eps: int, steps_per_ep: int):
-    """Build the scheduler config per arm."""
+def make_scheduler_cfg(arm: str, p0_eps: int, p1_eps: int, p2_eps: int,
+                       steps_per_ep: int, env_seed: Optional[int] = None):
+    """Build the scheduler config per arm.
+
+    `env_seed` sets `scaffold_env_seed`, the scheduler-side env-seed knob; None
+    (the default) leaves the scheduler on its legacy OS-entropy path exactly as
+    every landed run of this driver had it. ARM_0_ALL_OFF runs no scheduler, so
+    its config is untouched."""
     if arm == "ARM_0_ALL_OFF":
         return ScaffoldedSD054OnboardingConfig(
             use_scaffolded_sd054_onboarding_scheduler=False,
@@ -139,6 +146,7 @@ def make_scheduler_cfg(arm: str, p0_eps: int, p1_eps: int, p2_eps: int, steps_pe
         scaffold_p2_episode_budget=p2_eps,
         scaffold_steps_per_episode=steps_per_ep,
         scaffold_p1_survival_gate_steps=75,
+        scaffold_env_seed=env_seed,
     )
     if arm == "ARM_1_SCAFFOLD_ONLY":
         # Hold goal-pipeline gates at the silent end of the anneal (drive_floor stays high,
@@ -151,12 +159,21 @@ def make_scheduler_cfg(arm: str, p0_eps: int, p1_eps: int, p2_eps: int, steps_pe
     return cfg
 
 
-def baseline_flat_training(agent, device, steps_per_ep: int, episodes: int) -> Tuple[int, List[float]]:
+def baseline_flat_training(agent, device, steps_per_ep: int, episodes: int,
+                           seed: Optional[int] = None) -> Tuple[int, List[float]]:
     """
     ARM_0 ALL_OFF baseline: 603c-style flat random-policy training on the target env without
     the scaffolded onboarding scheduler. Returns (cells_attempted, per-episode lengths).
+
+    `seed` is the DRIVER-OWNED counterpart of the scheduler's `scaffold_env_seed`.
+    Default None passes seed=None straight through to CausalGridWorldV2, whose
+    `np.random.default_rng(None)` takes OS entropy at CONSTRUCTION and does not
+    consume the numpy global RNG -- so the default is bit-identical to every
+    landed run. Do NOT flip the default: pinning it unconditionally would change
+    the baseline env layout, and therefore the results.
     """
     env = CausalGridWorldV2(
+        seed=seed,
         size=12,
         num_hazards=4,
         num_resources=5,
@@ -193,9 +210,14 @@ def baseline_flat_training(agent, device, steps_per_ep: int, episodes: int) -> T
     return len(lengths), lengths
 
 
-def measure_arm0_baseline(agent, device, p2_eps: int, steps_per_ep: int) -> Dict[str, Any]:
-    """ARM_0 P2 measurement on the target env after flat training."""
+def measure_arm0_baseline(agent, device, p2_eps: int, steps_per_ep: int,
+                          seed: Optional[int] = None) -> Dict[str, Any]:
+    """ARM_0 P2 measurement on the target env after flat training.
+
+    `seed` is the DRIVER-OWNED env seed; None (the default) is the landed run's
+    OS-entropy path. See `baseline_flat_training` for why."""
     env = CausalGridWorldV2(
+        seed=seed,
         size=12,
         num_hazards=4,
         num_resources=5,
@@ -271,15 +293,36 @@ def measure_arm0_baseline(agent, device, p2_eps: int, steps_per_ep: int) -> Dict
     }
 
 
-def run_cell(arm: str, seed: int, device, world_obs_dim: int, p0_eps: int, p1_eps: int, p2_eps: int, steps_per_ep: int) -> CellResult:
+def run_cell(arm: str, seed: int, device, world_obs_dim: int, p0_eps: int,
+             p1_eps: int, p2_eps: int, steps_per_ep: int,
+             env_seed_base: Optional[int] = None) -> CellResult:
     agent = build_agent(seed, device, world_obs_dim)
-    sched_cfg = make_scheduler_cfg(arm, p0_eps, p1_eps, p2_eps, steps_per_ep)
+    # Env-seed base for THIS cell. None (default) leaves both the scheduler's
+    # curriculum envs and this driver's own ARM_0 envs on OS entropy, exactly as
+    # in the landed run. When the knob is set, the cell seed is folded in so the
+    # seeds still see different worlds rather than collapsing onto one shared
+    # layout -- `_derive_env_seed` multiplies the base by 1e6, so adjacent bases
+    # cannot collide.
+    seed_env_base = None if env_seed_base is None else int(env_seed_base) + int(seed)
+    sched_cfg = make_scheduler_cfg(arm, p0_eps, p1_eps, p2_eps, steps_per_ep,
+                                   env_seed=seed_env_base)
     scheduler = ScaffoldedSD054OnboardingScheduler(sched_cfg)
 
     if arm == "ARM_0_ALL_OFF":
         # Flat training on the target env (no scheduler).
-        n_eps_done, lengths = baseline_flat_training(agent, device, steps_per_ep, p0_eps + p1_eps)
-        measurement = measure_arm0_baseline(agent, device, p2_eps, steps_per_ep)
+        # Stream 2 is the DRIVER-OWNED env stream: the scaffold module reserves
+        # stream 0 for the scheduler's curriculum builds and stream 1 for its
+        # read-only harm-discriminativeness probe, so this can never collide
+        # with either. idx is the construction order within this driver
+        # (0 = flat-training env, 1 = the P2 measurement env).
+        n_eps_done, lengths = baseline_flat_training(
+            agent, device, steps_per_ep, p0_eps + p1_eps,
+            seed=_derive_env_seed(seed_env_base, stream=2, idx=0),
+        )
+        measurement = measure_arm0_baseline(
+            agent, device, p2_eps, steps_per_ep,
+            seed=_derive_env_seed(seed_env_base, stream=2, idx=1),
+        )
         cell_completed = True  # baseline always "completes" -- the measurement IS the comparison
         return CellResult(
             arm=arm,
@@ -388,7 +431,9 @@ def evaluate_acceptance(cells: List[CellResult]) -> Dict[str, Any]:
     }
 
 
-def emit_manifest(cells: List[CellResult], acceptance: Dict[str, Any], out_dir: Path, dry_run: bool):
+def emit_manifest(cells: List[CellResult], acceptance: Dict[str, Any],
+                  out_dir: Path, dry_run: bool,
+                  env_seed_base: Optional[int] = None):
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     run_id = f"v3_exq_621_scaffolded_sd054_onboarding_substrate_readiness_{ts}_v3"
     outcome = "PASS" if acceptance["overall_pass"] else "FAIL"
@@ -408,6 +453,11 @@ def emit_manifest(cells: List[CellResult], acceptance: Dict[str, Any], out_dir: 
         "scoring_excluded": "diagnostic_probe",
         "timestamp_utc": ts,
         "dry_run": dry_run,
+        # None = the landed run's OS-entropy env seeding (both the scheduler's
+        # curriculum envs and this driver's own ARM_0 envs). An int here means the
+        # run's envs were PINNED and it is therefore NOT comparable to a landed
+        # run -- record it so a reader can tell the two apart.
+        "env_seed_base": env_seed_base,
         "acceptance": acceptance,
         "cells": [asdict(c) for c in cells],
         "seeds": SEEDS,
@@ -454,7 +504,8 @@ def main(args: argparse.Namespace):
         for seed in SEEDS:
             print(f"--- {arm} seed={seed} (P0={p0_eps} P1={p1_eps} P2={p2_eps} steps={steps_per_ep}) ---")
             result = run_cell(
-                arm, seed, device, world_obs_dim, p0_eps, p1_eps, p2_eps, steps_per_ep
+                arm, seed, device, world_obs_dim, p0_eps, p1_eps, p2_eps, steps_per_ep,
+                env_seed_base=getattr(args, "env_seed", None),
             )
             print(
                 f"  completed={result.cell_completed} "
@@ -475,7 +526,8 @@ def main(args: argparse.Namespace):
             f"c3={acceptance['C3_cascade_consequential']}"
         )
         return outcome, None
-    out_path = emit_manifest(cells, acceptance, out_dir, dry_run=False)
+    out_path = emit_manifest(cells, acceptance, out_dir, dry_run=False,
+                             env_seed_base=getattr(args, "env_seed", None))
     outcome = "PASS" if acceptance["overall_pass"] else "FAIL"
     print(f"Overall: {outcome}")
     return outcome, str(out_path)
@@ -484,6 +536,14 @@ def main(args: argparse.Namespace):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true", help="Reduced-budget smoke run.")
+    parser.add_argument(
+        "--env-seed", type=int, default=None,
+        help="Opt-in env-seed base. Omitted (the default) reproduces the landed "
+             "run's OS-entropy env seeding exactly. Set it and every env this run "
+             "builds -- the scheduler's curriculum envs AND this driver's own ARM_0 "
+             "envs -- is deterministically seeded, so the run reproduces bitwise "
+             "across processes. A pinned run is NOT comparable to a landed one.",
+    )
     parser.add_argument(
         "--output-dir",
         type=str,
