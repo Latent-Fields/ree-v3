@@ -31,6 +31,13 @@ Confirmed twice, in opposite orders:
     `zgoal_present_frac = 0.0`. Without that gate the run would have burned ~5h of cloud
     time and reported a wiring artefact as a finding that CLOSED a design question.
 
+  - V3-EXQ-786 / 786a / 786b (found 2026-07-28): the knob was in ANOTHER FILE. They call
+    `_lib/goal_pipeline_tier1.build_config()` (`z_goal_enabled=True, goal_weight=0.5`)
+    and then hand-roll a loop around the real `select_action(candidates, ticks)`. The
+    single-file trigger scan saw no knob, and the runtime backstop was also opted out of
+    (no `agent=` / `z_goal_stream_stats=` at write_flat_manifest) -- BOTH guards blind on
+    the same three drivers. Closed by the one-level helper resolution in section 4b.
+
 SCOPE. This gates NEW scripts. The landed carriers' runs are complete and are NOT
 retro-edited, hence WARN-only and hence the fire-rate pin is a BACKLOG SIZE, not a
 target of zero. It is knob-gated rather than shape-gated on purpose: ~500 corpus scripts
@@ -287,6 +294,248 @@ def test_dzg_arm_fingerprint_import_does_not_blanket_exempt():
         "discharge silently exempts most of the corpus.")
 
 
+# ---- (4b) the trigger follows a LOCAL config-builder helper one level ----------------
+#
+# Closed 2026-07-29. Before this, `_sets_knob_truthy` read only in-file kwargs and
+# attribute assignments, so a driver whose config is assembled in a `_lib` builder showed
+# the scan NO knob and the trigger never armed. That was not hypothetical: V3-EXQ-786 /
+# 786a / 786b call `_lib/goal_pipeline_tier1.build_config()` (which sets
+# `z_goal_enabled=True, goal_weight=0.5`) and then hand-roll a loop around the real
+# `REEAgent.select_action(candidates, ticks)` with no `update_z_goal` and no StepHarness.
+# The runtime backstop did not cover them either -- none passes `agent=` /
+# `z_goal_stream_stats=` to `write_flat_manifest` -- so BOTH guards were blind at once.
+
+_HELPER_MODULE = '''
+"""A local config builder, of the `_lib/goal_pipeline_tier1.build_config` shape."""
+from ree_core.utils.config import REEConfig
+
+
+def build_config(env):
+    return REEConfig.from_dims(world_dim=32, z_goal_enabled=True, goal_weight=0.5)
+'''
+
+_DRIVER_VIA_HELPER = '''
+"""A driver whose knob lives in another file."""
+from _lib.{mod} import build_config
+from ree_core.agent import REEAgent
+
+
+def run(env):
+    cfg = build_config(env)
+    agent = REEAgent(cfg)
+    obs = env.reset()
+    for _ in range(200):
+        latent = agent.sense(obs)
+        action = agent.select_action(latent)
+        obs, r, done, info = env.step(action)
+    return agent
+'''
+
+
+def _lint_with_helper(helper_src: str, driver_tmpl: str = _DRIVER_VIA_HELPER):
+    """Write a throwaway helper into experiments/_lib/ and lint a driver that calls it."""
+    lib = EXPERIMENTS_DIR / "_lib"
+    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False, dir=str(lib)) as h:
+        h.write(helper_src)
+        helper = Path(h.name)
+    try:
+        return _lint_src(driver_tmpl.format(mod=helper.stem)), helper
+    finally:
+        os.unlink(helper)
+
+
+def test_dzg_fires_on_a_knob_set_in_a_local_config_builder_helper():
+    """THE V3-EXQ-786 SHAPE. The knob is in another file; the dead loop is in this one."""
+    out, _ = _lint_with_helper(_HELPER_MODULE)
+    assert out is not None
+    assert "z_goal_enabled" in out
+    assert "helper" in out, (
+        "the message must say the knob is NOT in this file -- a triager who greps the "
+        "driver for z_goal_enabled and finds nothing will otherwise dismiss the warning")
+
+
+def test_dzg_cross_module_trigger_is_resolved_not_merely_silent():
+    """A two-sided differential: silence alone cannot distinguish resolved from blind.
+
+    Asserts BOTH that the single-file scan sees nothing (so the fire can only have come
+    from the resolver) AND that the resolver sees the knob. Without the first half this
+    test would still pass if `_sets_knob_truthy` were quietly widened instead.
+    """
+    lib = EXPERIMENTS_DIR / "_lib"
+    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False, dir=str(lib)) as h:
+        h.write(_HELPER_MODULE)
+        helper = Path(h.name)
+    try:
+        driver = _DRIVER_VIA_HELPER.format(mod=helper.stem)
+        tree = ast.parse(driver)
+        assert V._sets_knob_truthy(tree, V._DEAD_ZGOAL_TRIGGER_KNOBS) == [], (
+            "the driver must carry NO in-file knob, else this is not the blind spot")
+        assert V._helper_sets_knob_truthy(
+            tree, V._DEAD_ZGOAL_TRIGGER_KNOBS) == ["z_goal_enabled"]
+    finally:
+        os.unlink(helper)
+
+
+def test_dzg_helper_resolution_is_one_level_only():
+    """ONE level. Following what the helper itself calls is unbounded.
+
+    A transitive walk is what made the sibling DISCHARGE useless (`_lib/
+    arm_fingerprint.py` reaches `_harness`, exempting most of the corpus); the same
+    unboundedness applies in the trigger direction, so it stays at one level and the
+    residual blind spot is documented rather than chased.
+    """
+    two_level = _HELPER_MODULE.replace(
+        "    return REEConfig.from_dims(world_dim=32, z_goal_enabled=True, goal_weight=0.5)",
+        "    return _inner()\n\n\ndef _inner():\n"
+        "    return REEConfig.from_dims(world_dim=32, z_goal_enabled=True)")
+    out, _ = _lint_with_helper(two_level)
+    assert out is None
+
+
+def test_dzg_importing_a_config_builder_without_calling_it_does_not_fire():
+    """An unused import builds no config -- the mirror of the discharge-side narrowing."""
+    uncalled = _DRIVER_VIA_HELPER.replace("    cfg = build_config(env)",
+                                          "    cfg = REEConfig.from_dims(world_dim=32)")
+    uncalled = uncalled.replace("from ree_core.agent import REEAgent",
+                                "from ree_core.agent import REEAgent\n"
+                                "from ree_core.utils.config import REEConfig")
+    out, _ = _lint_with_helper(_HELPER_MODULE, uncalled)
+    assert out is None
+
+
+def test_dzg_helper_setting_the_knob_false_is_silent():
+    off = _HELPER_MODULE.replace("z_goal_enabled=True", "z_goal_enabled=False")
+    out, _ = _lint_with_helper(off)
+    assert out is None
+
+
+def test_dzg_helper_module_cache_is_stat_keyed_not_path_keyed():
+    """A helper edited mid-session must not be served stale.
+
+    Not hypothetical: `_lib/goal_pipeline_tier1.py` was being edited by a concurrent
+    session while this resolver was written, and its `z_goal_enabled=True` moved between
+    two reads. A path-only cache key would pin the lint to whichever version it saw first.
+    """
+    lib = EXPERIMENTS_DIR / "_lib"
+    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False, dir=str(lib)) as h:
+        h.write(_HELPER_MODULE)
+        helper = Path(h.name)
+    try:
+        driver = _DRIVER_VIA_HELPER.format(mod=helper.stem)
+        tree = ast.parse(driver)
+        assert V._helper_sets_knob_truthy(tree, V._DEAD_ZGOAL_TRIGGER_KNOBS) == [
+            "z_goal_enabled"]
+        # Rewrite in place with the knob off. Size differs, so the stat key moves even if
+        # the filesystem's mtime resolution were coarse.
+        helper.write_text(
+            _HELPER_MODULE.replace("z_goal_enabled=True, goal_weight=0.5",
+                                   "z_goal_enabled=False") + "\n# padding\n",
+            encoding="utf-8")
+        assert V._helper_sets_knob_truthy(tree, V._DEAD_ZGOAL_TRIGGER_KNOBS) == [], (
+            "the resolver served a stale parse of an edited helper module")
+    finally:
+        os.unlink(helper)
+
+
+# The three drivers the resolver was built for. Named, not just counted: the fire-count
+# pin is structurally blind to a net-zero turnover, so reverting the resolver would take
+# the count 18 -> 15 and read as remediation rather than as lost coverage.
+_CROSS_MODULE_CARRIERS = (
+    "v3_exq_786_mech163_dual_system_recruitment.py",
+    "v3_exq_786a_mech163_dual_system_recruitment.py",
+    "v3_exq_786b_mech163_dual_system_recruitment.py",
+)
+
+
+def test_dzg_real_786_family_is_the_cross_module_witness():
+    for name in _CROSS_MODULE_CARRIERS:
+        p = EXPERIMENTS_DIR / name
+        assert p.is_file(), name
+        src = p.read_text(encoding="utf-8")
+        tree = ast.parse(src)
+        assert V._sets_knob_truthy(tree, V._DEAD_ZGOAL_TRIGGER_KNOBS) == [], (
+            f"{name} should carry no IN-FILE knob -- if it starts to, this stops being "
+            f"the cross-module witness and a synthetic one is needed")
+        assert V.dead_z_goal_stream_lint(p) is not None, name
+
+
+def test_dzg_786_family_is_opted_out_of_the_runtime_backstop_too():
+    """Why the lint had to close this: the other guard does not cover these three.
+
+    `write_flat_manifest(agent=...)` / `StepHarness.z_goal_stream_stats()` is what emits
+    the `z_goal_stream` block. None of the 786 family passes either, so there is no
+    runtime fraction to read and the two-guard argument does not hold for them.
+    """
+    for name in _CROSS_MODULE_CARRIERS:
+        src = (EXPERIMENTS_DIR / name).read_text(encoding="utf-8")
+        assert "z_goal_stream_stats" not in src, name
+        assert "agent=agent" not in src, name
+
+
+# The GAP-4 Tier-1 cohort routes its whole loop through
+# `goal_pipeline_tier1.run_seed_arm` -> StepHarness, which pins the call. They consume
+# the SAME `build_config`, so the trigger half now sees their knob too -- what keeps them
+# out of the fire set is the driver-shape scope gate, asserted structurally below rather
+# than assumed.
+_TIER1_STEPHARNESS_COHORT = (
+    "v3_exq_471a_catatonic_lock_gap4_tier1.py",
+    "v3_exq_475a_sd036_decay_gap4_tier1.py",
+    "v3_exq_483c_sd037_broadcast_gap4_tier1.py",
+    "v3_exq_483d_sd037_broadcast_gap4_override_signal.py",
+    "v3_exq_483e_sd037_consumer_cascade_4arm.py",
+    "v3_exq_490g_mech295_cascade_gap4_tier1.py",
+    "v3_exq_490h_mech295_cascade_gap4_tier1.py",
+    "v3_exq_490i_mech295_cascade_gap4_tier1.py",
+    "v3_exq_490j_mech295_cascade_gap4_tier1_severed_bridge_baseline.py",
+    "v3_exq_490k_mech295_modulatory_sufficiency.py",
+    "v3_exq_524a_reef_showcase_gap4_tier1.py",
+    "v3_exq_620_sd037_axis_a_phase1_consumer_input_distributions.py",
+    "v3_exq_620b_sd037_axis_a_phase1_consumer_input_distributions_stream_on.py",
+    "v3_exq_625_sd037_axis_b_phase1b_consumer_input_distributions_sustained_threat.py",
+    "v3_exq_625b_sd037_axis_b_phase1b_consumer_input_distributions_sustained_threat.py",
+    "v3_exq_625c_sd037_axis_b_phase1b_dynamic_crossings_mech341.py",
+    "v3_exq_784_sd074_probe_warmup_desaturation_budget_sweep.py",
+    "v3_exq_827_inv091_cross_stream_similarity_band.py",
+    "v3_exq_827a_inv091_cross_stream_similarity_band_phase_sync.py",
+    "v3_exq_828_inv091_cross_stream_similarity_band_remaining_ablations.py",
+)
+
+
+def test_dzg_tier1_stepharness_cohort_stays_clean():
+    """The widened trigger must not convert a blind spot into 20 false positives."""
+    missing = [n for n in _TIER1_STEPHARNESS_COHORT if not (EXPERIMENTS_DIR / n).is_file()]
+    assert not missing, (
+        f"cohort filenames drifted: {missing}. A silently-absent name would make this "
+        f"test pass vacuously -- exactly the coverage it exists to provide.")
+    present = list(_TIER1_STEPHARNESS_COHORT)
+    for name in present:
+        assert V.dead_z_goal_stream_lint(EXPERIMENTS_DIR / name) is None, name
+
+
+def test_dzg_tier1_cohort_is_excluded_by_the_scope_gate_not_by_luck():
+    """The structural reason, asserted -- so a later scope-gate widening fails HERE.
+
+    Measured 2026-07-29: 20 of 20 delegate the whole loop and make no direct
+    `sense`/`select_action` call. The discharge half is deliberately NOT extended to
+    follow helpers, because the helper the 786 family calls for its WARMUP
+    (`warmup_train` -> StepHarness) DOES write z_goal -- discharging on it would exempt
+    exactly the three drivers the resolver exists to catch.
+    """
+    checked = 0
+    for name in _TIER1_STEPHARNESS_COHORT:
+        p = EXPERIMENTS_DIR / name
+        assert p.is_file(), f"{name} missing -- a skip here would pass vacuously"
+        checked += 1
+        tree = ast.parse(p.read_text(encoding="utf-8"))
+        stepped = [n.func.attr for n in ast.walk(tree)
+                   if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                   and n.func.attr in ("sense", "select_action")]
+        assert not stepped, (
+            f"{name} now steps the agent directly ({sorted(set(stepped))}) -- it is no "
+            f"longer excluded by the scope gate and needs a real discharge")
+    assert checked == 20, f"expected the full 20-driver cohort, checked {checked}"
+
+
 # ---- (5) the opt-out ----------------------------------------------------------------
 
 def test_dzg_explicit_opt_out_is_honoured():
@@ -503,7 +752,40 @@ def test_dzg_is_warn_only_under_strict_and_paths():
 #                and cannot have produced the between-arm difference the criteria test.
 #   - 263, 593   never landed a manifest at all (263's lineage continued as 263a/263b,
 #                both of which DO call update_z_goal).
-_PINNED_CORPUS_FIRE_COUNT = 12
+#
+# RE-PINNED 12 -> 18 on 2026-07-29, deliberately: the trigger half now resolves a knob set
+# inside a local config-builder helper (see section 4b). The six additions are all
+# PRE-EXISTING carriers that were invisible, not new defects, and no script was edited.
+# All six route through `_lib/goal_pipeline_tier1.build_config()`, which sets
+# `z_goal_enabled=True, goal_weight=0.5`:
+#   - 786, 786a, 786b  THE REASON FOR THE WIDENING. They call `build_config`, then
+#                hand-roll a loop around the real `select_action(candidates, ticks)` with
+#                no update_z_goal and no StepHarness -- the V3-EXQ-830 shape, in three
+#                landed drivers. They are also opted out of the RUNTIME backstop (no
+#                `agent=` / `z_goal_stream_stats=` at write_flat_manifest), so nothing at
+#                all was watching them. Adjudicating what, if anything, their conclusions
+#                rest on is /failure-autopsy work and is NOT settled here.
+#   - 740, 740a, 744  step the agent via `sense()` only. KEPT IN, and the reasoning is
+#                the load-bearing part: `sense()` is ITSELF a major z_goal consumer
+#                surface -- it reads `goal_state` / `z_goal` at ~8 sites, including the
+#                MECH-288 event-segmenter `latent_dict` (`"z_goal": goal_state.z_goal`),
+#                the MECH-269 per-stream V_s update, the MECH-294 theta packet's goal
+#                slot and the AIC drive read. So "sense-only, therefore no consumer reads
+#                z_goal" is FALSE in general, and narrowing the scope gate to
+#                select_action-only to spare these three would re-open the gate for a
+#                future sense-side MECH-288 / MECH-269 driver -- which is precisely what
+#                V3-EXQ-830 was (a MECH-288 slow-BOCPD-scale reader). These three in
+#                particular do look inert (checked 2026-07-29: they enable NONE of
+#                use_event_segmenter / use_per_stream_vs / use_multi_content_theta_packet
+#                / use_mech293_ghost_probes, and their criteria are effective-rank and
+#                noise-fit quantities with no goal reference), i.e. the same
+#                knobs-were-inert class as 701/718/798 above. Inert is a per-script
+#                finding, not a rule.
+# What did NOT move: the 20-driver GAP-4 Tier-1 cohort consumes the SAME `build_config`,
+# so the widened trigger sees their knob too -- they stay out via the driver-shape scope
+# gate (20 of 20 make no direct sense/select_action call), pinned structurally by
+# test_dzg_tier1_cohort_is_excluded_by_the_scope_gate_not_by_luck.
+_PINNED_CORPUS_FIRE_COUNT = 18
 
 
 def test_dzg_corpus_fire_rate_is_pinned(corpus_scan):

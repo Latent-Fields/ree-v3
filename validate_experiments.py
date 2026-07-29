@@ -1772,7 +1772,26 @@ def _writes_z_goal_directly(tree: ast.Module) -> bool:
     return False
 
 
-_LOCAL_MODULE_CACHE: Dict[str, Optional[ast.Module]] = {}
+# Parsed `experiments/**.py` helper modules, keyed by (path, mtime_ns, size) rather than
+# by path alone so a module edited mid-session is never served stale. That is not
+# hypothetical here: `_lib/goal_pipeline_tier1.py` -- the module the trigger resolver
+# below follows -- was being edited by a concurrent session while this resolver was
+# written, and its `z_goal_enabled=True` moved line 221 -> 254 between two reads.
+# Mirrors `_BASELINE_MODULE_CACHE`'s discipline (see the config_slice cross-module
+# resolver) for the same reason.
+_LOCAL_MODULE_CACHE: Dict[Tuple[str, int, int], Optional[ast.Module]] = {}
+
+
+# Dotted-name -> rel-path resolutions. Memoised because this is FILESYSTEM work
+# (`is_file()` per candidate prefix) and, since the trigger half started resolving
+# helpers, it runs for every import of every driver rather than only for the handful
+# that carry an in-file knob -- tens of thousands of stat calls across the corpus.
+# Keyed on the dotted name alone, which is safe because it caches only WHERE a module
+# is, never its CONTENT -- freshness is the stat-keyed `_LOCAL_MODULE_CACHE`'s job.
+# (One consequence, stated rather than defended against: a module CREATED mid-session
+# stays negatively cached. Irrelevant for a scan, and the alternative -- re-statting a
+# miss -- gives back the saving, since misses are the common case.)
+_LOCAL_MODULE_PATH_CACHE: Dict[str, Optional[str]] = {}
 
 
 def _resolve_local_experiment_module(raw: str) -> Optional[str]:
@@ -1783,25 +1802,42 @@ def _resolve_local_experiment_module(raw: str) -> Optional[str]:
     resolve there. Longest-prefix match, so `experiments._lib.stats` finds
     `_lib/stats.py`.
     """
+    if raw in _LOCAL_MODULE_PATH_CACHE:
+        return _LOCAL_MODULE_PATH_CACHE[raw]
     cand = raw[len("experiments."):] if raw.startswith("experiments.") else raw
+    found: Optional[str] = None
     while cand:
         rel = cand.replace(".", "/") + ".py"
         if (EXPERIMENTS_DIR / rel).is_file():
-            return rel
+            found = rel
+            break
         if "." not in cand:
-            return None
+            break
         cand = cand.rsplit(".", 1)[0]
-    return None
+    _LOCAL_MODULE_PATH_CACHE[raw] = found
+    return found
+
+
+def _local_module_stat_key(rel: str) -> Optional[Tuple[str, int, int]]:
+    path = EXPERIMENTS_DIR / rel
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    return (str(path), st.st_mtime_ns, st.st_size)
 
 
 def _parse_local_experiment_module(rel: str) -> Optional[ast.Module]:
-    if rel not in _LOCAL_MODULE_CACHE:
+    key = _local_module_stat_key(rel)
+    if key is None:
+        return None
+    if key not in _LOCAL_MODULE_CACHE:
         try:
-            _LOCAL_MODULE_CACHE[rel] = ast.parse(
+            _LOCAL_MODULE_CACHE[key] = ast.parse(
                 (EXPERIMENTS_DIR / rel).read_text(encoding="utf-8"), filename=rel)
         except (OSError, UnicodeDecodeError, SyntaxError, ValueError):
-            _LOCAL_MODULE_CACHE[rel] = None
-    return _LOCAL_MODULE_CACHE[rel]
+            _LOCAL_MODULE_CACHE[key] = None
+    return _LOCAL_MODULE_CACHE[key]
 
 
 def _called_names(tree: ast.Module) -> Set[str]:
@@ -1816,6 +1852,158 @@ def _called_names(tree: ast.Module) -> Set[str]:
                 if isinstance(node.func.value, ast.Name):
                     out.add(node.func.value.id)
     return out
+
+
+def _imported_local_helpers(tree: ast.Module) -> Dict[str, Tuple[str, Optional[str]]]:
+    """`local alias -> (module rel path, original name)`, for locally-resolvable imports.
+
+    The original name is None for a whole-module import (`import _lib.foo as m`), where
+    the callable is named at the CALL site (`m.build_config(...)`) rather than at the
+    import. Both spellings are collected in one walk so the discharge half
+    (`_uses_a_z_goal_driving_helper`) and the trigger half (`_helper_sets_knob_truthy`)
+    agree by construction about which modules count as "local".
+    """
+    out: Dict[str, Tuple[str, Optional[str]]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+            rel = _resolve_local_experiment_module(node.module)
+            if rel:
+                for a in node.names:
+                    out[a.asname or a.name] = (rel, a.name)
+        elif isinstance(node, ast.Import):
+            for a in node.names:
+                rel = _resolve_local_experiment_module(a.name)
+                if rel:
+                    out[a.asname or a.name.split(".")[-1]] = (rel, None)
+    return out
+
+
+# `(stat key, knobs) -> {function name: [knob it sets truthy]}` for a local helper
+# module. Bounded two ways: by the stat key (one entry per module VERSION per session)
+# and by the substring pre-filter in `_local_module_knob_setters`, which returns {}
+# without parsing at all for a module whose text never mentions a knob. That pre-filter
+# is what keeps this from adding a parse for every locally-imported module in the
+# corpus -- only ~10 files under experiments/ mention either trigger knob, so the extra
+# evictions of the shared one-entry corpus-scan cache (tests/contracts/conftest.py) stay
+# inside the residue that test_shared_scan_parses_each_file_once already budgets for.
+_LOCAL_KNOB_SETTER_CACHE: Dict[
+    Tuple[Tuple[str, int, int], Tuple[str, ...]], Dict[str, List[str]]] = {}
+
+
+def _local_module_knob_setters(rel: str, knobs: Sequence[str]) -> Dict[str, List[str]]:
+    """`function name -> knobs that function sets truthy`, for one local helper module.
+
+    ONE LEVEL ONLY: each function's own body is scanned with the same `_sets_knob_truthy`
+    used on the driver; a function this one calls is NOT followed. That bounds the walk
+    and keeps the discharge/trigger asymmetry visible -- see `_helper_sets_knob_truthy`.
+    """
+    key = _local_module_stat_key(rel)
+    if key is None:
+        return {}
+    cache_key = (key, tuple(knobs))
+    if cache_key in _LOCAL_KNOB_SETTER_CACHE:
+        return _LOCAL_KNOB_SETTER_CACHE[cache_key]
+
+    out: Dict[str, List[str]] = {}
+    try:
+        src = (EXPERIMENTS_DIR / rel).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        _LOCAL_KNOB_SETTER_CACHE[cache_key] = out
+        return out
+    # Substring pre-filter. A module that never spells a knob cannot set it in any of the
+    # AST forms `_sets_knob_truthy` recognises, so this is a sound superset -- and it is
+    # the difference between parsing ~10 modules and parsing every local import in the
+    # corpus.
+    if any(k in src for k in knobs):
+        sub = _parse_local_experiment_module(rel)
+        if sub is not None:
+            for node in ast.walk(sub):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    hit = _sets_knob_truthy(
+                        ast.Module(body=list(node.body), type_ignores=[]), knobs)
+                    if hit:
+                        out[node.name] = hit
+    _LOCAL_KNOB_SETTER_CACHE[cache_key] = out
+    return out
+
+
+def _helper_sets_knob_truthy(tree: ast.Module, knobs: Sequence[str]) -> List[str]:
+    """Knobs a LOCAL config-builder helper sets, for a driver that imports and calls it.
+
+    THE BLIND SPOT THIS CLOSES, and why it is not merely theoretical. `_sets_knob_truthy`
+    reads only in-file keyword arguments and attribute assignments, so a driver whose
+    config is assembled inside a `_lib` builder shows the scan NO knob at all and the
+    trigger half never arms. Confirmed live 2026-07-28: `_lib/goal_pipeline_tier1.py`'s
+    `build_config()` sets `z_goal_enabled=True` (with `goal_weight=0.5`), and
+    V3-EXQ-786 / 786a / 786b call it, then hand-roll a loop around the real
+    `REEAgent.select_action(candidates, ticks)` with no `update_z_goal` and no
+    StepHarness. Both guards were blind at once -- the lint because the knob is in
+    another file, and the runtime backstop because those three never pass
+    `agent=` / `z_goal_stream_stats=` to `write_flat_manifest`. That is the V3-EXQ-830
+    defect shape, carried by three landed drivers.
+
+    Mirrors the config_slice cross-module resolver (which parses the
+    `_lib/baselines/<mod>.py` a helper comes from) in structure and caching discipline.
+
+    THREE NARROWINGS, each load-bearing:
+      - ONE LEVEL. The helper's own body is scanned; what IT calls is not followed. A
+        transitive walk is what made the sibling discharge useless (`_lib/
+        arm_fingerprint.py` reaches `_harness` and would exempt most of the corpus), and
+        the same unboundedness applies in the trigger direction.
+      - CALLED, not merely imported. An unused import builds no config.
+      - LOCALLY RESOLVABLE ONLY. `**kwargs` splats, preset factories reached through
+        arbitrary indirection, and anything outside `experiments/` stay invisible; the
+        residual blind spot is narrowed, not eliminated.
+
+    ASYMMETRY WITH THE DISCHARGE HALF -- do not "fix" this into symmetry. The discharge
+    is deliberately NOT extended to follow helpers, because the helper the 786 family
+    calls for its WARMUP (`warmup_train`, which drives StepHarness and therefore does
+    write z_goal) is not the loop that carries the defect: their MEASUREMENT loop is
+    hand-rolled and goal-dead. Discharging on a warmup helper would exempt exactly the
+    three drivers this resolver exists to catch. What keeps the cohort that DELEGATES its
+    whole loop (`run_seed_arm` -> StepHarness: V3-EXQ-471a/475a/483c-e/490g-k/524a/620/
+    620b/625/625b/625c/784/827/827a/828) out of the fire set is the scope gate below --
+    measured 2026-07-29: 20 of 20 of them make no direct `sense`/`select_action` call at
+    all, so the driver-shape requirement excludes them without any discharge rule.
+    """
+    imported = _imported_local_helpers(tree)
+    if not imported:
+        return []
+
+    # SHORT-CIRCUIT BEFORE THE CALL WALK, and this ordering is the cost of the feature.
+    # `_local_module_knob_setters` is cached and does no parse for a module whose text
+    # never mentions a knob, so this pass is nearly free -- whereas collecting call sites
+    # is a full `ast.walk` of the driver, and this resolver now runs for EVERY driver
+    # that carries no in-file knob (i.e. nearly the whole corpus). Almost none of them
+    # import a knob-bearing module, so almost none of them should pay for that walk.
+    relevant = {alias: (rel, orig) for alias, (rel, orig) in imported.items()
+                if _local_module_knob_setters(rel, knobs)}
+    if not relevant:
+        return []
+
+    # One walk for both call spellings: a bare `f(...)`, and `alias.attr(...)` (the
+    # whole-module import, where the callable is named at the call site).
+    called: Set[str] = set()
+    mod_attr_calls: Dict[str, Set[str]] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if isinstance(node.func, ast.Name):
+            called.add(node.func.id)
+        elif isinstance(node.func, ast.Attribute):
+            called.add(node.func.attr)
+            if isinstance(node.func.value, ast.Name):
+                called.add(node.func.value.id)
+                mod_attr_calls.setdefault(node.func.value.id, set()).add(node.func.attr)
+
+    found: Set[str] = set()
+    for alias, (rel, orig) in relevant.items():
+        setters = _local_module_knob_setters(rel, knobs)
+        if orig is not None and alias in called:
+            found.update(setters.get(orig, ()))
+        for attr in mod_attr_calls.get(alias, ()):
+            found.update(setters.get(attr, ()))
+    return sorted(found)
 
 
 def _uses_a_z_goal_driving_helper(tree: ast.Module) -> bool:
@@ -1846,18 +2034,7 @@ def _uses_a_z_goal_driving_helper(tree: ast.Module) -> bool:
       - The imported name must be CALLED, not merely imported. An unused import is not a
         z_goal write.
     """
-    imported: Dict[str, str] = {}          # local alias -> source module rel path
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
-            rel = _resolve_local_experiment_module(node.module)
-            if rel:
-                for a in node.names:
-                    imported[a.asname or a.name] = rel
-        elif isinstance(node, ast.Import):
-            for a in node.names:
-                rel = _resolve_local_experiment_module(a.name)
-                if rel:
-                    imported[a.asname or a.name.split(".")[-1]] = rel
+    imported = {alias: rel for alias, (rel, _orig) in _imported_local_helpers(tree).items()}
     if not imported:
         return False
     called = _called_names(tree)
@@ -1920,20 +2097,43 @@ def dead_z_goal_stream_lint(path: Path) -> Optional[str]:
     mask). That is a BEHAVIOUR CHANGE, not a wiring fix, and it means a "just add the
     call" patch to a landed harness is not comparable to the runs that came before it.
 
-    Static AST scan, so it shares the limitation class of the other name-scan lints: a
-    config assembled inside a helper this scan cannot follow (a `_lib` builder, a
-    `**kwargs` splat, a preset factory) is invisible to the trigger half, so this
-    UNDER-fires rather than over-fires. That is the safe direction for a WARN.
+    THE TRIGGER FOLLOWS A LOCAL CONFIG-BUILDER HELPER ONE LEVEL -- and the blind spot it
+    closes was a REAL CARRIER, not a hypothetical. This docstring previously framed the
+    unfollowable-helper case as "UNDER-fires rather than over-fires ... the safe
+    direction for a WARN". That framing was wrong twice over, and is retracted:
 
-    THE RUNTIME BACKSTOP COVERS THAT BLIND SPOT -- this lint is no longer the only
-    guard. `REEAgent` counts, per `select_action` tick, how often `goal_state` was
+      - It was not merely under-firing, it was MISSING A LIVE FAMILY. Measured
+        2026-07-28: `_lib/goal_pipeline_tier1.py`'s `build_config()` sets
+        `z_goal_enabled=True` with `goal_weight=0.5`, and V3-EXQ-786 / 786a / 786b call
+        it and then hand-roll a loop around the real
+        `REEAgent.select_action(candidates, ticks)` with no `update_z_goal` and no
+        StepHarness. Three landed drivers carrying the V3-EXQ-830 shape, invisible.
+      - "Safe direction" presumed the runtime backstop covered the residue. For this
+        family it did NOT: all three omit `agent=` / `z_goal_stream_stats=` at
+        `write_flat_manifest`, so no `z_goal_stream` block is emitted at all. BOTH
+        guards were blind at once, which is the state the two-guard argument below is
+        supposed to rule out.
+
+    So `_helper_sets_knob_truthy` now resolves a knob set inside a local
+    (`experiments/`, `experiments/_lib/`) helper the driver imports AND calls, one level
+    deep, mirroring the config_slice cross-module resolver. The residue is genuinely
+    narrower but still real, and is stated as a limit rather than as a safety property:
+    a `**kwargs` splat, a preset factory reached through arbitrary indirection, a helper
+    outside `experiments/`, or a knob set two levels down all remain invisible. Treat
+    silence from this gate as "no carrier FOUND", never as "no carrier".
+
+    THE RUNTIME BACKSTOP IS COMPLEMENTARY BUT NOT A SUBSTITUTE -- and the 786 family is
+    the proof, since it is opted out of the backstop too (see above). `REEAgent` counts,
+    per `select_action` tick, how often `goal_state` was
     present and how often `GoalState.is_active()` held (`agent.z_goal_active_frac`),
     and `experiments/_lib/z_goal_stream.py` surfaces the pooled fraction as the
     manifest's `z_goal_stream` block via `manifest_core.stamp_recording_core` /
     `pack_writer.write_flat_manifest(agent=...)` and `StepHarness.z_goal_stream_stats()`.
     Being read from the run rather than the source, it does not share this scan's
-    blind spot: a config built in an unfollowable helper still reports its true
-    fraction. The two are complementary and neither subsumes the other -- this lint
+    blind spot WHEN IT IS WIRED: a config built in an unfollowable helper still reports
+    its true fraction -- but it is opt-in per driver, and the 786 family is the standing
+    demonstration that "opt-in" and "covered" are different things.
+    The two are complementary and neither subsumes the other -- this lint
     fires at AUTHORING time, before any compute is spent, whereas the counter is only
     readable once the run exists. Note the counter is RECORD-ONLY by design: 0.0 is
     correct for a goal-OFF parity arm or the ARM_NO_BENEFIT negative control, so it is
@@ -1957,7 +2157,12 @@ def dead_z_goal_stream_lint(path: Path) -> Optional[str]:
     if _DEAD_ZGOAL_EXEMPT_MARKER in src:
         return None
 
+    # Direct first -- it is the cheap check and it short-circuits nearly every file in
+    # the corpus. Only when the driver shows NO knob of its own is the local
+    # config-builder helper resolved (the V3-EXQ-786 blind spot).
     knobs = _sets_knob_truthy(tree, _DEAD_ZGOAL_TRIGGER_KNOBS)
+    via_helper = [] if knobs else _helper_sets_knob_truthy(tree, _DEAD_ZGOAL_TRIGGER_KNOBS)
+    knobs = knobs or via_helper
     if not knobs:
         return None
 
@@ -1979,8 +2184,11 @@ def dead_z_goal_stream_lint(path: Path) -> Optional[str]:
     if not any(isinstance(n, (ast.For, ast.While)) for n in ast.walk(tree)):
         return None
 
-    return (f"DEAD Z_GOAL STREAM: sets {', '.join(knobs)} but never writes z_goal -- no "
-            "agent.update_z_goal(...), no goal_state.update(...)/cue_pull(...), no "
+    where = (" (set inside a local config-builder helper this driver calls, NOT in this "
+             "file -- grep the helper before concluding the knob is absent)"
+             if via_helper else "")
+    return (f"DEAD Z_GOAL STREAM: sets {', '.join(knobs)}{where} but never writes z_goal "
+            "-- no agent.update_z_goal(...), no goal_state.update(...)/cue_pull(...), no "
             "_z_goal assignment, and no StepHarness. update_z_goal is the SOLE writer in "
             "the substrate (sense/generate_trajectories/select_action/update_residue all "
             "leave z_goal untouched), so it stays pinned at zero-init for the whole run, "
