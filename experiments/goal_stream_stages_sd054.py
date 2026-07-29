@@ -15,8 +15,10 @@ Stages (sequential within each seed; agent weights carry forward):
 
 from __future__ import annotations
 
+import sys
 from collections import deque
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Deque, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -27,7 +29,26 @@ import torch.optim as optim
 # The shared env-seed derivation helper. Lives in the scaffold module because
 # that is where the streams are namespaced; the stream ids are disjoint (see
 # GoalStreamStagesRunner._next_env_seed).
-from scaffolded_sd054_onboarding import _derive_env_seed  # noqa: E402
+#
+# PACKAGE spelling, deliberately, and the sys.path insert exists to make it
+# resolve no matter how THIS module was loaded. A bare-name
+# `from scaffolded_sd054_onboarding import ...` resolves only when
+# `experiments/` is itself on sys.path -- true under direct script execution
+# (sys.path[0] = the script's dir, which is how experiment_runner.py invokes
+# drivers) but NOT under `import experiments.goal_stream_stages_sd054` from the
+# repo root, which raised ModuleNotFoundError. Worse, a process that used BOTH
+# spellings -- a test that puts experiments/ on sys.path and then imports a
+# driver by the package path -- got two distinct module objects with separate
+# module-level state, so a monkeypatch applied to one was invisible to the
+# other. This module's only importer (v3_exq_622_goal_stream_staged_sd054.py:53)
+# and both sibling SD-054 drivers (603e:189, 626a:116) already spell their
+# cross-module imports as `experiments.<mod>`; this line was the odd one out.
+# Same sys.path idiom as v3_exq_622_goal_stream_staged_sd054.py:44.
+_REPO_ROOT = str(Path(__file__).resolve().parent.parent)
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
+from experiments.scaffolded_sd054_onboarding import _derive_env_seed  # noqa: E402
 
 
 def _lerp(start: float, end: float, t: float) -> float:

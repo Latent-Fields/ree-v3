@@ -62,11 +62,20 @@ for _p in (_REPO, os.path.join(_REPO, "experiments")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import goal_stream_stages_sd054 as gs  # noqa: E402
+# PACKAGE spelling for the two LIBRARY modules, bare-name for the three
+# DRIVERS -- the asymmetry is deliberate. `d622` imports
+# `experiments.goal_stream_stages_sd054`, so a bare `import
+# goal_stream_stages_sd054` here produced a SECOND, distinct module object for
+# the very module this file pins (measured 2026-07-29: the two spellings were
+# not the same object), with separate module-level state -- so a monkeypatch on
+# `gs` would silently miss the copy `d622` actually runs. The drivers stay
+# bare-name because that is how experiment_runner.py loads them and nothing
+# else in this process imports them by the package path.
+import experiments.goal_stream_stages_sd054 as gs  # noqa: E402
 import v3_exq_603e_q045_mech313_mech260_scaffolded_sd054 as d603  # noqa: E402
 import v3_exq_622_goal_stream_staged_sd054 as d622  # noqa: E402
 import v3_exq_626a_goal_pipeline_developmental_window_diagnostic as d626  # noqa: E402
-from scaffolded_sd054_onboarding import _derive_env_seed  # noqa: E402
+from experiments.scaffolded_sd054_onboarding import _derive_env_seed  # noqa: E402
 
 # Stream ids, restated as constants so a future edit that renumbers them fails
 # here rather than silently colliding two callers onto one env layout.
