@@ -55,7 +55,11 @@
       "estimated_minutes": 320,
       "claim_id": "MECH-476",
       "note": "MECH-476 falsifier, NOVELTY / behavioural-tagging axis (Moncada & Viola 2007). Unblocked by SD-083. Weak-but-took install (150 BC episodes) x {paired,unpaired} novelty at fixed interval N=300; SUPPORTED if retained_fraction[paired]-[unpaired]>=0.15. Smoke PASS on cloud worker (paired novelty_factor=1.0 measured_novelty=2.63; unpaired pinned 0.05; delta positive in dry-run). GOV-REUSE-1: novelty-gated retention recorded in no prior manifest -> run. CALIBRATION: weak dose chosen so unpaired erodes; if unpaired also fully retains (dose too strong) re-queue lettered at a lower dose, NOT a WEAKENED verdict; install_took gate catches the too-weak case.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-4",
+        "claimed_at": "2026-07-29T17:21:03Z"
+      },
       "architecture_epoch": "ree_hybrid_guardrails_v1",
       "conditions": 2,
       "episodes_per_run": 3000,
