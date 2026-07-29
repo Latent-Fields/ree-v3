@@ -196,6 +196,11 @@ from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
 from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments._metrics import check_degeneracy  # noqa: E402
+from experiments._lib.arm_fingerprint import (  # noqa: E402
+    compute_arm_fingerprint,
+    reset_all_rng,
+)
 
 
 EXPERIMENT_TYPE = "v3_exq_603e_q045_mech313_mech260_scaffolded_sd054"
@@ -710,9 +715,22 @@ def _run_arm_seed(
     env_seed_base: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Scaffolded P0 -> Scaffolded P1 -> bespoke P2 pipeline for one cell."""
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
+    # Was `random.seed(seed); np.random.seed(seed); torch.manual_seed(seed)`.
+    # reset_all_rng is a VERIFIED no-op substitution for those three lines here,
+    # not merely an equivalent-looking one: it issues the same three calls in the
+    # same order, and the only two things it adds are inert for this driver --
+    # torch.cuda.manual_seed_all (guarded by cuda.is_available(); every cell of
+    # this experiment runs on `torch.device("cpu")`) and reseeding the
+    # _harness._action_random fallback, which this driver never reaches (it uses
+    # neither StepHarness nor _harness, directly or through
+    # scaffolded_sd054_onboarding). Importing _harness inside reset_all_rng also
+    # consumes no global RNG -- its module-level `random.Random()` draws from OS
+    # entropy, not the seeded global stream. Confirmed empirically 2026-07-29 by
+    # comparing the python/numpy/torch draws (incl. multinomial + the raw torch
+    # RNG state) after each form in a fresh process with _harness unimported:
+    # bit-identical. The cell therefore computes exactly what it computed before,
+    # and only now also declares itself order-independent to the fingerprint.
+    reset_all_rng(seed)
 
     # Env-seed base for THIS cell. None (the default) leaves the scheduler's
     # curriculum envs on OS entropy and this driver's own two envs on the bare
@@ -835,6 +853,152 @@ def _run_arm_seed(
     row["cell_diagnostics"] = cell_diagnostics
     print(f"verdict: PASS arm={arm['arm']} seed={seed}", flush=True)
     return row
+
+
+# ---------------------------------------------------------------------------
+# Arm fingerprint (Phase 0, emit-only) + non-degeneracy self-report
+# ---------------------------------------------------------------------------
+
+def _cell_config_slice(
+    arm: Dict[str, Any],
+    scaffold_p0_budget: int,
+    scaffold_p1_budget: int,
+    train_steps_per_episode: int,
+    p2_episodes: int,
+    p2_steps_per_episode: int,
+    env_seed_base: Optional[int],
+) -> Dict[str, Any]:
+    """Everything outside the hashed substrate that a cell's result depends on.
+
+    Whole-config, NOT a narrowed slice: `config_slice_declared` is left False
+    below, so this is the conservative (over-inclusive) form the plan calls the
+    safe default. Over-inclusion can only cause a false cache MISS; the
+    under-declared slice is the false-HIT bug, and that asymmetry is why nothing
+    here is trimmed.
+    """
+    return {
+        "arm": dict(arm),
+        "scaffold_p0_episode_budget": int(scaffold_p0_budget),
+        "scaffold_p1_episode_budget": int(scaffold_p1_budget),
+        "scaffold_steps_per_episode": int(train_steps_per_episode),
+        "p2_episodes": int(p2_episodes),
+        "p2_steps_per_episode": int(p2_steps_per_episode),
+        "fifo_warmup_steps": int(
+            min(FIFO_WARMUP_STEPS, max(0, p2_steps_per_episode - 1))
+        ),
+        "env_seed_base": env_seed_base,
+        "world_dim": WORLD_DIM,
+        "harm_a_dim": HARM_A_DIM,
+        "harm_obs_a_dim": HARM_OBS_A_DIM,
+        "harm_history_len": HARM_HISTORY_LEN,
+        "noise_floor_alpha": NOISE_FLOOR_ALPHA,
+        "matched_noise_temperature": MATCHED_NOISE_TEMPERATURE,
+        "dacc_suppression_weight": DACC_SUPPRESSION_WEIGHT,
+        "dacc_suppression_memory": DACC_SUPPRESSION_MEMORY,
+        "h_pos_rolling_window": H_POS_ROLLING_WINDOW,
+    }
+
+
+def _stamp_arm_fingerprint(row: Dict[str, Any], seed: int,
+                           config_slice: Dict[str, Any]) -> Dict[str, Any]:
+    """Emit the per-cell arm fingerprint into `row` (Phase 0: emit-only).
+
+    Records a content-addressed identity for the (substrate, config, seed) cell.
+    It consults no cache, skips no computation, and is called AFTER the cell has
+    finished -- so it cannot alter what the cell computed.
+
+    `include_driver_script_in_hash` is left at its default True on purpose. This
+    driver's ARM_0 baseline is not factored into a canonical
+    `experiments/_lib/baselines/` module, so its OFF computation is defined by
+    this file rather than by hashed substrate; excluding the driver would claim a
+    cross-driver reuse contract the code does not support, which is the
+    under-declared-slice false-HIT trap. Only a re-run of THIS driver can match,
+    which is exactly the guarantee that holds.
+
+    An aborted cell (scaffold P0/P1 gate) carries no P2 measurement, so it is
+    marked ineligible rather than banked as a reusable baseline.
+    """
+    extra_ineligible = (
+        None if row.get("p2_run", False)
+        else ["cell_aborted_before_p2_measurement"]
+    )
+    row["arm_fingerprint"] = compute_arm_fingerprint(
+        config_slice=config_slice,
+        seed=seed,
+        script_path=Path(__file__),
+        rng_fully_reset=True,   # reset_all_rng(seed) runs at cell entry
+        extra_ineligible_reasons=extra_ineligible,
+    )
+    return row
+
+
+def degeneracy_report(rows: List[Dict[str, Any]],
+                      summary: Dict[str, Any]) -> Dict[str, Any]:
+    """Measurement-time non-degeneracy self-report for the manifest root.
+
+    EMISSION-ONLY. Reads quantities `_evaluate` has already produced and returns
+    the non_degenerate / degeneracy_reason / degenerate_metrics block. It feeds
+    neither `overall_pass`, `_interpretation_label`, nor
+    `_evidence_direction_per_claim` -- the run adjudicates exactly as it did
+    before, and now additionally reports whether its criteria could fire at all.
+
+    One entry per load-bearing gate of `overall_pass`:
+
+      C2 / FP2 (entropy leg)   selection entropy compared ACROSS arms
+      FP2 (behavioural leg)    reef_fraction, ARM_3 vs ARM_4
+      C4                       z_goal_norm_peak on ARM_3
+      C5                       rolling_h_pos_mean on ARM_3
+
+    The entropy entry is the five per-arm MEANS -- the level the criteria
+    actually compare -- so zero spread there means the arms were bit-identical
+    and no entropy criterion could ever have fired. That is the 603-lineage
+    signature `metric_groups_are_degenerate` documents, and pooling raw per-cell
+    values instead would let cross-seed variance mask it.
+
+    The two ARM_3 entries carry floor=0.0: an unwritten z_goal channel or an
+    unmeasured position entropy would otherwise route through
+    `_interpretation_label` as SUBSTRATE_FAILURE, which reads as a measured
+    finding about the substrate rather than as "nothing was measured".
+
+    An all-aborted matrix yields no observations at all, which
+    `metric_is_degenerate` correctly reports as degenerate -- the same run
+    `_evidence_direction_per_claim` already routes non_contributory.
+    """
+    def _arm_cell_values(arm_name: str, key: str) -> List[float]:
+        return [
+            float(r[key]) for r in rows
+            if r.get("arm") == arm_name and r.get("p2_run", False)
+            and r.get(key) is not None
+        ]
+
+    return check_degeneracy(
+        {
+            "selected_action_entropy_by_arm": {
+                "values": [
+                    summary["entropy_ARM_0"],
+                    summary["entropy_ARM_1"],
+                    summary["entropy_ARM_2"],
+                    summary["entropy_ARM_3"],
+                    summary["entropy_ARM_4_matched_noise"],
+                ],
+                "floor": 0.0,
+            },
+            "reef_fraction_ARM_3_vs_ARM_4": {
+                "values": [
+                    summary["reef_fraction_ARM_3"],
+                    summary["reef_fraction_ARM_4_matched_noise"],
+                ],
+            },
+            "z_goal_norm_peak_ARM_3": {
+                "values": _arm_cell_values("ARM_3_both_on", "z_goal_norm_peak"),
+                "floor": 0.0,
+            },
+            "rolling_h_pos_mean_ARM_3": {
+                "values": _arm_cell_values("ARM_3_both_on", "rolling_h_pos_mean"),
+                "floor": 0.0,
+            },
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1028,6 +1192,20 @@ def run_experiment(dry_run: bool = False,
                 p2_steps_per_episode=p2_steps,
                 env_seed_base=env_seed_base,
             )
+            # Emit-only: stamped AFTER the cell has run, so it cannot alter it.
+            _stamp_arm_fingerprint(
+                cell,
+                seed,
+                _cell_config_slice(
+                    arm,
+                    scaffold_p0_budget=scaffold_p0,
+                    scaffold_p1_budget=scaffold_p1,
+                    train_steps_per_episode=train_steps,
+                    p2_episodes=p2_episodes,
+                    p2_steps_per_episode=p2_steps,
+                    env_seed_base=env_seed_base,
+                ),
+            )
             rows.append(cell)
 
     summary = _evaluate(rows)
@@ -1124,6 +1302,18 @@ def run_experiment(dry_run: bool = False,
             f"Fix A (from 603b, retained): P2 STEPS_PER_EPISODE={STEPS_PER_EPISODE}.",
         ],
     }
+
+    # Non-degeneracy self-report at the manifest root (emission-only; see
+    # degeneracy_report). Placed after `manifest` is assembled and before the
+    # write, and deliberately NOT consulted by `outcome` / `label` / `edpc`
+    # above -- those are already computed.
+    degeneracy = degeneracy_report(rows, summary)
+    manifest.update(degeneracy)
+    print(
+        f"non_degenerate: {degeneracy['non_degenerate']} "
+        f"reason={degeneracy['degeneracy_reason'] or '(none)'}",
+        flush=True,
+    )
 
     out_dir = REPO_ROOT.parent / "REE_assembly" / "evidence" / "experiments"
     out_path = out_dir / f"{run_id}.json"

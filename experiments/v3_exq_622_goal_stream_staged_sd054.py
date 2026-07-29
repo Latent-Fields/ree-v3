@@ -55,6 +55,7 @@ from experiments.goal_stream_stages_sd054 import (
     GoalStreamStagesRunner,
     StageMetrics,
 )
+from experiments._metrics import check_degeneracy  # noqa: E402
 from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_622_goal_stream_staged_sd054"
@@ -231,12 +232,111 @@ def run_seed(
     return stages, acceptance
 
 
+def degeneracy_report(all_cells: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Measurement-time non-degeneracy self-report for the staged ladder.
+
+    EMISSION-ONLY. Reads the stage metrics this run already collected and
+    returns the manifest-root block (non_degenerate / degeneracy_reason /
+    degenerate_metrics). Nothing here feeds `evaluate_overall`, the per-stage
+    gates, or `outcome` -- a run computes exactly what it computed before this
+    block existed; it just now says whether its own criteria could fire.
+
+    One entry per pre-registered gate of the ladder:
+
+      S0        z_goal_norm_peak_max          >= S0_Z_GOAL_PEAK_MIN
+      S1 / S2   z_goal_norm_median_last_...   >= S1/S2_Z_GOAL_MEDIAN_MIN
+      S1/S2/S3  median_episode_length_last_.. >= S1/S2/S3_MEDIAN_EP_LEN_MIN
+      S3        approach_commit OR bridge OR dACC bias
+
+    The two z_goal entries carry floor=0.0 because a z_goal channel that never
+    wrote is precisely the V3-EXQ-621 vacuity this diagnostic was built to
+    decompose -- the ladder would then report "S0 FAIL" as if the goal feed
+    were too weak, when in fact nothing was measured at all.
+
+    S3 is scored as ONE threshold-normalised max rather than three separate
+    entries because its gate is a DISJUNCTION. Normalising each leg by its own
+    floor makes the max >= 1.0 exactly when the disjunction passes, so zero
+    spread in the max means S3's verdict was CONSTANT across cells and the gate
+    could not have come out any other way -- which is the degeneracy question.
+    Three separate entries would instead fire on any one pinned leg, which
+    over-reports: a dACC leg flat at zero says nothing about vacuity while the
+    approach leg is still crossing its floor.
+
+    Note this catches saturation in BOTH directions, and the upward one is the
+    live case here: the dry-run smoke reports `constant=100`, i.e. an
+    approach_commit_rate pinned at 1.0 against its 0.01 floor, so the S3
+    arbitration gate passes unconditionally. That is a vacuous PASS, not a
+    measured arbitration result, and it is exactly what this block exists to
+    surface rather than leave to a manual autopsy.
+
+    `median_episode_length_last_window` gets the bare zero-spread test and NO
+    ceiling rail: episodes running to the step cap is a genuine survival
+    result here (S3 is a frozen-policy eval), not a saturated readout, so a
+    ceiling would mislabel success as vacuity.
+    """
+    stages = [st for cell in all_cells for st in cell.get("stages", [])]
+    s3_stages = [st for st in stages if st.get("stage") == "S3"]
+
+    def _s3_arbitration_norm(st: Dict[str, Any]) -> float:
+        return max(
+            float(st.get("approach_commit_rate", 0.0)) / S3_APPROACH_COMMIT_MIN,
+            float(st.get("bridge_cue_fires_per_ep_mean", 0.0)) / S3_BRIDGE_PER_EP_MIN,
+            float(st.get("dacc_bias_nonzero_per_ep_mean", 0.0)) / S3_DACC_PER_EP_MIN,
+        )
+
+    report = check_degeneracy(
+        {
+            "z_goal_norm_peak_max": {
+                "values": [st.get("z_goal_norm_peak_max") for st in stages],
+                "floor": 0.0,
+            },
+            "z_goal_norm_median_last_window": {
+                "values": [
+                    st.get("z_goal_norm_median_last_window") for st in stages
+                ],
+                "floor": 0.0,
+            },
+            "median_episode_length_last_window": {
+                "values": [
+                    st.get("median_episode_length_last_window") for st in stages
+                ],
+            },
+            "s3_arbitration_evidence_norm": {
+                "values": [_s3_arbitration_norm(st) for st in s3_stages],
+                "floor": 0.0,
+            },
+        }
+    )
+    # Non-gating: the normalised max above collapses WHICH leg pinned, and its
+    # reason string reports only the ratio (approach saturated at 1.0 against a
+    # 0.01 floor reads as "constant=100"). Record the raw legs so a reader can
+    # attribute the flag without re-deriving it. Nothing reads this.
+    report["s3_arbitration_legs"] = {
+        "approach_commit_rate": [
+            st.get("approach_commit_rate") for st in s3_stages
+        ],
+        "bridge_cue_fires_per_ep_mean": [
+            st.get("bridge_cue_fires_per_ep_mean") for st in s3_stages
+        ],
+        "dacc_bias_nonzero_per_ep_mean": [
+            st.get("dacc_bias_nonzero_per_ep_mean") for st in s3_stages
+        ],
+        "thresholds": {
+            "approach_commit_rate": S3_APPROACH_COMMIT_MIN,
+            "bridge_cue_fires_per_ep_mean": S3_BRIDGE_PER_EP_MIN,
+            "dacc_bias_nonzero_per_ep_mean": S3_DACC_PER_EP_MIN,
+        },
+    }
+    return report
+
+
 def emit_manifest(
     all_cells: List[Dict[str, Any]],
     acceptance_summary: Dict[str, Any],
     out_dir: Path,
     dry_run: bool,
     env_seed_base: Optional[int] = None,
+    degeneracy: Optional[Dict[str, Any]] = None,
 ) -> Path:
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     run_id = f"v3_exq_622_goal_stream_staged_sd054_{ts}_v3"
@@ -285,6 +385,10 @@ def emit_manifest(
         # comparable to a landed run -- record it so a reader can tell them apart.
         "env_seed_base": env_seed_base,
     }
+    # Non-degeneracy self-report at the manifest root (emission-only; see
+    # degeneracy_report). Computed by the caller so --dry-run reports it too.
+    manifest.update(degeneracy if degeneracy is not None
+                    else degeneracy_report(all_cells))
     out_path = write_flat_manifest(
         manifest,
         out_dir,
@@ -345,6 +449,13 @@ def main(args: argparse.Namespace) -> Tuple[str, str | None]:
         "progressive_ladder": "S0 AND S1 AND S2 AND S3 per seed",
     }
 
+    degeneracy = degeneracy_report(all_cells)
+    print(
+        f"non_degenerate: {degeneracy['non_degenerate']} "
+        f"reason={degeneracy['degeneracy_reason'] or '(none)'}",
+        flush=True,
+    )
+
     if args.dry_run:
         outcome = "PASS" if acceptance_summary["all_seeds_pass"] else "FAIL"
         print(f"verdict: dry_run overall={outcome}")
@@ -352,7 +463,7 @@ def main(args: argparse.Namespace) -> Tuple[str, str | None]:
 
     out_dir = Path(args.output_dir)
     out_path = emit_manifest(all_cells, acceptance_summary, out_dir, dry_run=False,
-                             env_seed_base=args.env_seed)
+                             env_seed_base=args.env_seed, degeneracy=degeneracy)
     outcome = "PASS" if acceptance_summary["all_seeds_pass"] else "FAIL"
     print(f"Overall: {outcome} ({n_pass_seeds}/{len(SEEDS)} seeds)")
     return outcome, str(out_path)
