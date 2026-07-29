@@ -202,7 +202,8 @@ def build_off_arm(seed: int, env_kwargs: Dict[str, Any], *, steps: int,
 
 
 def install_bc_prior(rep_agent: Any, seed: int, env_kwargs: Dict[str, Any], *,
-                     steps: int, eval_eps: int, arm_label: str) -> Dict[str, Any]:
+                     steps: int, eval_eps: int, arm_label: str,
+                     n_bc: Optional[int] = None) -> Dict[str, Any]:
     """BC warm-start to the ~20.9 competence point, then measure whether the install TOOK.
 
     Returns post_bc_foraging_competence and install_took. This is the covariate V3-EXQ-780
@@ -211,12 +212,19 @@ def install_bc_prior(rep_agent: Any, seed: int, env_kwargs: Dict[str, Any], *,
     autopsy). Both retention legs MUST route on it: an install that did not take is
     UNINFORMATIVE about retention and self-routes substrate_not_ready_requeue, never a
     retention verdict.
+
+    n_bc is the INSTALL DOSE (number of BC episodes). It defaults to BC_WARMSTART_EPISODES (300)
+    -- the ~20.9 install point 780 measured -- so every existing caller is byte-identical. It is
+    threaded so a dose-sweep (V3-EXQ-836, MECH-476 consolidation-as-a-process falsifier) can vary
+    the install dose while holding the refinement fixed: the returned bc_install_dose records what
+    was actually run.
     """
+    dose = int(n_bc) if n_bc is not None else int(BC_WARMSTART_EPISODES)
     demo = LocalViewGreedyPolicy(seed=seed)
     bc_env = x734._make_env(seed, env_kwargs)
     wguard = mech.warmstart_bc_rep(
-        rep_agent, bc_env, seed=seed, n_bc=int(BC_WARMSTART_EPISODES), steps=int(steps),
-        demo=demo, arm_label=arm_label, denom=int(BC_WARMSTART_EPISODES),
+        rep_agent, bc_env, seed=seed, n_bc=dose, steps=int(steps),
+        demo=demo, arm_label=arm_label, denom=dose,
     )
     postbc_env = x734._make_env(seed, env_kwargs)
     postbc_row = evaluate_seed(
@@ -225,6 +233,7 @@ def install_bc_prior(rep_agent: Any, seed: int, env_kwargs: Dict[str, Any], *,
     post_bc = float(postbc_row["foraging_competence"])
     return {
         "demo": demo,
+        "bc_install_dose": dose,
         "post_bc_foraging_competence": round(post_bc, 6),
         "install_took": bool(post_bc >= POST_BC_INSTALL_FLOOR),
         "bc_warmstart_action_match_recent": round(
