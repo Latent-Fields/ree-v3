@@ -92,6 +92,43 @@ def _action_onehot(idx: int, device) -> torch.Tensor:
     return v
 
 
+# --- Opt-in driver-owned env seed (default OFF) ---------------------------
+# `CausalGridWorldV2` forwards to `CausalGridWorld.__init__`, whose only RNG is
+# `self._rng = np.random.default_rng(seed)`. `np.random.default_rng(None)` takes
+# OS entropy AT CONSTRUCTION and does NOT consume the numpy global RNG, so this
+# driver's `np.random.seed(...)` / `torch.manual_seed(...)` never reached its
+# env. The defect is per CONSTRUCTION, not per process.
+#
+# `_ENV_SEED_BASE` stays None unless `--env-seed` is passed, and None hands
+# `seed=None` straight to the FACTORY -- bit-identical to every landed run of
+# this driver. DO NOT FLIP THE DEFAULT: pinning it unconditionally would change
+# the env layout, and therefore the result, of a run already on the record.
+#
+# Keyed on a per-CONSTRUCTION counter rather than a fixed per-site index. This
+# driver builds a fresh env per cell, so a fixed idx would put every arm and
+# every seed on ONE shared layout and silently delete the across-arm /
+# across-seed layout variation the unseeded default has. The counter is the
+# stronger form of "fold the run seed into the base": it makes every
+# construction distinct across seeds, arms AND repeats without needing the run
+# seed in scope at the construction site.
+_ENV_SEED_BASE = None                 # None = OS entropy (the landed default)
+_ENV_SEED_STATE = {"n": 0}            # per-CONSTRUCTION counter, not a knob
+
+
+def _next_env_seed():
+    """Seed for the NEXT env construction, or None when the knob is unset."""
+    if _ENV_SEED_BASE is None:
+        return None
+    idx = _ENV_SEED_STATE["n"]
+    _ENV_SEED_STATE["n"] = idx + 1
+    # stream 2 = driver-owned (the scaffold module reserves 0 for its curriculum
+    # builds and 1 for its harm probe). Inlined rather than kept in a module
+    # constant: it is a namespace tag, and a module-level numeric would read to
+    # validate_experiments' config_slice-declaration lint as a readout-affecting
+    # knob that every arm fingerprint must then declare.
+    return int(_ENV_SEED_BASE) * 1000000 + 2 * 100000 + idx
+
+
 def run_condition(condition: str, seed: int, dry_run: bool = False) -> Dict:
     """Run one condition x seed."""
     print(f"Seed {seed} Condition {condition}")
@@ -105,6 +142,7 @@ def run_condition(condition: str, seed: int, dry_run: bool = False) -> Dict:
     agent.to(device)
 
     env = CausalGridWorldV2(
+        seed=_next_env_seed(),
         size=10,
         num_hazards=3,
         num_resources=3,
@@ -228,7 +266,16 @@ def main():
     parser.add_argument("--output-dir", type=str,
                         default=str(Path(__file__).resolve().parents[2] /
                                     "REE_assembly" / "evidence" / "experiments"))
+    parser.add_argument(
+        "--env-seed", type=int, default=None,
+        help="Opt-in env-seed base. Omitted (the default) reproduces the landed run's "
+             "OS-entropy env seeding exactly. Set it and every env this run builds "
+             "is deterministically seeded, so the run reproduces bitwise across "
+             "processes. A pinned run is NOT comparable to a landed one.",
+    )
     args = parser.parse_args()
+    # set the MODULE knob -- a plain assignment here would bind a local
+    globals()["_ENV_SEED_BASE"] = args.env_seed
 
     print(f"EXQ-255: MECH-203 Benefit-Salience Tagging Diagnostic")
     print(f"  dry_run={args.dry_run}")
@@ -292,6 +339,7 @@ def main():
     out_path = Path(args.output_dir) / f"{run_id}.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w") as f:
+        output["env_seed_base"] = _ENV_SEED_BASE
         json.dump(output, f, indent=2, default=str)
     print(f"  Output: {out_path}")
 
