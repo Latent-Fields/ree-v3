@@ -51,10 +51,46 @@ REE_assembly/evidence/planning/arm_reuse_fingerprint_plan.md sections 7b/9.7).
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
 from typing import Any, Dict
 
-from scaffolded_sd054_onboarding import ScaffoldedSD054OnboardingConfig
-from ree_core.utils.config import REEConfig
+# Path shim -- the _lib idiom (see ../probe_warmup.py:143-153 and
+# ./maturation_curriculum.py:117-123). Required, not cosmetic: BOTH load orders
+# were broken before this existed.
+#   * `import experiments._lib.baselines.stageh_strict_goal_isolation` from the
+#     repo root raised ModuleNotFoundError: scaffolded_sd054_onboarding. A
+#     bare-name import resolves only when experiments/ is itself on sys.path --
+#     true under direct script execution (sys.path[0] = the script's own dir,
+#     which is how experiment_runner.py invokes every driver, and why production
+#     never sees this) but not under the package spelling, which is exactly how
+#     this module's only importer spells it
+#     (v3_exq_833_stageh_strict_goal_isolation_dv.py:249).
+#   * `cd experiments && import _lib.baselines.stageh_strict_goal_isolation`
+#     raised ModuleNotFoundError: ree_core -- the repo root is not on the path.
+# Note this module sits TWO levels below experiments/, not one.
+#
+# The scaffold import below stays BARE deliberately, and here that is
+# load-bearing rather than merely conservative. Driver 833 spells the same
+# module bare at :243 while importing THIS module package-spelled at :249, so
+# rewriting this line to `experiments.scaffolded_sd054_onboarding` would put two
+# copies of that ~3700-line module in the one process that matters. The config
+# object crosses that boundary: build_scaffold_cfg() below returns a
+# ScaffoldedSD054OnboardingConfig which 833:513-516 hands to _build_env() and
+# ScaffoldedSD054OnboardingScheduler() imported from the OTHER copy, so the
+# instance and the class it is checked against would no longer be the same
+# class object. Same reasoning as ree-v3 73407e22e1, which left
+# test_driver_closure_env_seed_determinism.py:48 bare because switching it
+# would have created a second identity rather than removed one.
+_BASELINES_DIR = Path(__file__).resolve().parent    # experiments/_lib/baselines
+_EXP_DIR = _BASELINES_DIR.parent.parent             # experiments
+_REPO_ROOT = _EXP_DIR.parent                        # ree-v3
+for _p in (str(_REPO_ROOT), str(_EXP_DIR)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+from scaffolded_sd054_onboarding import ScaffoldedSD054OnboardingConfig  # noqa: E402
+from ree_core.utils.config import REEConfig  # noqa: E402
 
 # --- Lineage identity -------------------------------------------------------
 LINEAGE = "stageh_strict_goal_isolation"

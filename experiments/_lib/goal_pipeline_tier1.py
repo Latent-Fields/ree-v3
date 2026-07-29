@@ -30,7 +30,9 @@ from __future__ import annotations
 
 import math
 import random
+import sys
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -38,11 +40,42 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 
-from _harness import StepHarness, StepHooks
-from ree_core.agent import REEAgent
-from ree_core.environment.causal_grid_world import CausalGridWorldV2
-from ree_core.residue.field import VALENCE_WANTING
-from ree_core.utils.config import REEConfig
+# Path shim -- the _lib idiom (see probe_warmup.py:143-153 and
+# baselines/maturation_curriculum.py:117-123). Required, not cosmetic: BOTH
+# load orders were broken before this existed.
+#   * `import experiments._lib.goal_pipeline_tier1` from the repo root raised
+#     ModuleNotFoundError: _harness. A bare-name import resolves only when
+#     experiments/ is itself on sys.path -- true under direct script execution
+#     (sys.path[0] = the script's own dir, which is how experiment_runner.py
+#     invokes every driver, and why production never sees this) but not under
+#     the package spelling used by contract tests and tooling.
+#   * `cd experiments && import _lib.goal_pipeline_tier1` raised
+#     ModuleNotFoundError: ree_core -- the repo root is not on the path there.
+# Inserting both directories makes this module import cleanly either way.
+#
+# The harness import below stays BARE deliberately. Rewriting it to
+# `experiments._harness` would also clear the first error, but it would split
+# _harness into two module objects -- and therefore two copies of the
+# module-level `_action_random` (_harness.py:90) -- in any process that imports
+# the harness bare and this module package-spelled. Measured across this
+# module's 30 importers, that rewrite CREATES the split in 11 of them (the ten
+# bare/bare drivers plus probe_warmup.py, whose own shim comment at :144 notes
+# that this module imports its harness flat) and removes it in only 3
+# (827/827a/828). Same reasoning as ree-v3 73407e22e1, which left
+# test_driver_closure_env_seed_determinism.py:48 bare because switching it
+# would have created a second identity rather than removed one.
+_LIB_DIR = Path(__file__).resolve().parent          # experiments/_lib
+_EXP_DIR = _LIB_DIR.parent                          # experiments
+_REPO_ROOT = _EXP_DIR.parent                        # ree-v3
+for _p in (str(_REPO_ROOT), str(_EXP_DIR)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+from _harness import StepHarness, StepHooks  # noqa: E402
+from ree_core.agent import REEAgent  # noqa: E402
+from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E402
+from ree_core.residue.field import VALENCE_WANTING  # noqa: E402
+from ree_core.utils.config import REEConfig  # noqa: E402
 
 DRIVE_FLOOR_OPERATING = 0.9
 DRIVE_EMA_ALPHA_OFF = 1.0
