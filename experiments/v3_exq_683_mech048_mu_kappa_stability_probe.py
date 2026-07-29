@@ -1,6 +1,29 @@
 """
 V3-EXQ-683 -- MECH-048 mu/kappa Stability Overlay Probe
 
+HELD -- DO NOT REPAIR. The `TypeError: unexpected keyword argument 'device'`
+  on env construction is NOT why this never ran, and fixing it would be
+  actively harmful. This design is VACUOUS: it sets pcc_stability values and
+  reads H(softmax(scores/T)), so "entropy falls as mu rises" is an ARITHMETIC
+  IDENTITY of the coupling -- the delta is fixed before the run, the
+  DV-symmetry failure class of failure_autopsy_V3-EXQ-604c s3. MECH-048 is at
+  exp=0, so a vacuous first entry would CORRUPT the claim rather than leave
+  it empty. That is why it was held rather than repaired; the reasoning is
+  recorded verbatim in the V3-EXQ-799 queue note ("VACUITY CONSTRAINT (why
+  V3-EXQ-683 was HELD, not repaired)"), ree-v3 4f72ff4.
+
+  REPLACED BY V3-EXQ-799 (v3_exq_799_mech048_stability_temperature_behavioural_did.py),
+  which drives mu ONLY from upstream environment and reads a trajectory-level
+  behavioural DV as a difference-in-differences against a coupling-OFF
+  control, so no arithmetic can manufacture the effect.
+
+  For the record, since `--dry-run` returns a stub BEFORE constructing an env
+  and so never surfaced this: `device` is invalid because CausalGridWorld is
+  numpy-only and its __init__ has never accepted it -- `device` belongs on
+  the agent config (this file already sets `config.device = "cpu"` at :157).
+  No manifest was ever produced under this id. Adjudicated 2026-07-29
+  (session sweet-williams-f30676).
+
 Claim: MECH-048 (mu/kappa stability overlays modulate mode entropy and switching pressure)
 
 Motivation (2026-06-15):

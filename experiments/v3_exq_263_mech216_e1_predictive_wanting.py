@@ -1,6 +1,27 @@
 """
 V3-EXQ-263: MECH-216 E1 Predictive Wanting Validation
 
+RETIRED -- DO NOT REPAIR. SUPERSEDED BY V3-EXQ-263a (ree-v3 ad533d8, 2026-04-09).
+  This driver never ran. It errored 5x on 2026-04-09 and was repaired by
+  SUPERSESSION rather than in place: `/diagnose-errors` queued
+  v3_exq_263a_mech216_e1_predictive_wanting.py carrying
+  `"supersedes": "V3-EXQ-263"`, which ran the same day (PASS, `supports`
+  MECH-216). Lineage continued 263b -> 332 -> 332a; four successor manifests
+  exist. This file is the fossil of the pre-fix draft and is kept only as
+  provenance for that supersession.
+
+  It is NOT a case of the env signature drifting out from under a
+  once-working script -- it was never correct. `CausalGridWorld.__init__`
+  has never accepted `obs_dim` or `body_obs_dim`; the correct idiom (used by
+  263a) is to pass neither and READ `env.body_obs_dim` / `env.world_obs_dim`
+  back off the constructed env. Per ad533d8 the ctor kwargs were only one of
+  five defects here -- the others being a missing sys.path, a wrong
+  env.reset() unpack, wrong obs-dict keys (body_obs/world_obs, which are
+  body_state/world_state), and a wrong env.step() signature. So the
+  `TypeError: unexpected keyword argument 'obs_dim'` you get on import is
+  the FIRST of five, not the only one: dropping it just advances to the next.
+  Adjudicated 2026-07-29 (session sweet-williams-f30676).
+
 Tests whether E1's schema readout head learns to predict resource proximity from
 LSTM hidden state, and whether the resulting schema_salience seeds VALENCE_WANTING
 at approach positions before direct resource contact.
