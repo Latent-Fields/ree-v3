@@ -4,6 +4,12 @@
 # --strict on staged experiments/v3_exq_*.py paths. Both checks self-gate: if
 # no relevant paths are staged, the corresponding block is a no-op.
 #
+# The contract SUITE (Block 2) is ROUTED to a free machine (2026-07-29): a
+# free-memory-gated choice between the local Mac (only when it has a real
+# margin) and the cloud fleet via remote_pytest.sh. Coverage is unchanged --
+# the full suite runs either way; only WHERE it runs moves, to keep the 8GB
+# multi-session Mac off the OOM edge. See the Block 2 header below.
+#
 # Called from the PreToolUse hook in REE_Working/.claude/settings.json on
 # any `git commit` bash invocation. Self-gates: if no ree_core/** or
 # experiments/_lib/** paths are staged in the ree-v3 repo, this script exits 0
@@ -168,12 +174,97 @@ if ! echo "$STAGED" | grep -qE '^(ree_core/|experiments/_lib/)'; then
     exit 0
 fi
 
-echo "[precommit_contracts] ree_core/ or experiments/_lib/ change staged -- running contracts" >&2
-if (cd "$REPO" && "$PY" -m pytest -q --tb=line tests/contracts) >&2; then
+# ---------------------------------------------------------------------------
+# Block 2 ROUTING (2026-07-29): the full contract suite must not run on the
+# 8GB Mac. Several Claude sessions share this laptop; the suite peaks
+# hundreds of MB and the box regularly sits at tens of MB free, so a local
+# `pytest tests/contracts` here risks an OUT-OF-MEMORY (OOM) kill -- and an
+# OOM kill auto-resumes every open session at once, recreating the overload.
+# The repo rule is already "run the suite on the fleet, not the Mac"
+# (REE_Working/CLAUDE.md "Running the test suite"); this gate now obeys it.
+#
+# WHERE the suite runs (this is routing only -- COVERAGE is unchanged; the
+# full tests/contracts suite runs either way, so there is no false-pass risk,
+# unlike a test-SUBSET optimisation):
+#   * remote (default when the Mac is loaded): delegate to remote_pytest.sh,
+#     which does its own fleet routing (hub first, then running workers, then
+#     wakes an off worker), ships the WORKING TREE incl. uncommitted edits
+#     (correct for a pre-commit gate), holds a cross-session lock, and blocks
+#     on a red run. All the "route to a free box" logic lives there already;
+#     this gate only decides local-vs-delegate.
+#   * local (fast path, no rsync): the Mac IS a valid free machine when it
+#     genuinely has a memory margin -- e.g. a solo/light session -- so skip
+#     the ~74s worker wake + rsync round-trip and run here.
+#
+# The decision is memory-gated and errs toward remote when uncertain. Env:
+#   REE_PRECOMMIT_CONTRACTS_TARGET       auto (default) | local | remote
+#   REE_PRECOMMIT_CONTRACTS_LOCAL_FLOOR_MB   local only if avail >= this (default 3000)
+#   REE_PRECOMMIT_CONTRACTS_FREE_MB      override the measured available MB (tests)
+#   REE_PRECOMMIT_REMOTE_PYTEST          path to the fleet router (default resolved)
+#   REE_PRECOMMIT_CONTRACTS_DECIDE_ONLY  1 -> print the resolved target and exit 0
+#                                        WITHOUT running (tests only)
+# FAIL-SAFE: if remote is chosen but the router is missing/not executable, fall
+# back to LOCAL rather than skip the gate -- a skipped gate is the dangerous
+# direction, and local is exactly today's behaviour.
+# ---------------------------------------------------------------------------
+TARGET="${REE_PRECOMMIT_CONTRACTS_TARGET:-auto}"
+FLOOR_MB="${REE_PRECOMMIT_CONTRACTS_LOCAL_FLOOR_MB:-3000}"
+REMOTE_PYTEST="${REE_PRECOMMIT_REMOTE_PYTEST:-$REPO/../scripts/remote_pytest.sh}"
+
+# Available (reclaimable) memory in MB on macOS: free + speculative + inactive
+# pages x page size. Returns -1 on any non-macOS / unparseable state, which the
+# numeric compare below treats as "below floor" -> route remote.
+mac_available_mb() {
+    if [ -n "${REE_PRECOMMIT_CONTRACTS_FREE_MB:-}" ]; then
+        echo "$REE_PRECOMMIT_CONTRACTS_FREE_MB"; return
+    fi
+    command -v vm_stat >/dev/null 2>&1 || { echo -1; return; }
+    local psz vs f s i
+    psz=$(sysctl -n hw.pagesize 2>/dev/null || echo 4096)
+    vs=$(vm_stat 2>/dev/null) || { echo -1; return; }
+    f=$(echo "$vs" | awk -F'[:.]' '/Pages free/{gsub(/ /,"",$2);print $2}')
+    s=$(echo "$vs" | awk -F'[:.]' '/Pages speculative/{gsub(/ /,"",$2);print $2}')
+    i=$(echo "$vs" | awk -F'[:.]' '/Pages inactive/{gsub(/ /,"",$2);print $2}')
+    [ -z "$f" ] && { echo -1; return; }
+    echo $(( ( (f + ${s:-0} + ${i:-0}) * psz ) / 1048576 ))
+}
+
+if [ "$TARGET" = "auto" ]; then
+    AVAIL=$(mac_available_mb)
+    if [ "${AVAIL:-0}" -ge "$FLOOR_MB" ] 2>/dev/null; then
+        TARGET="local"
+    else
+        TARGET="remote"
+    fi
+    echo "[precommit_contracts] auto target=$TARGET (mac_available=${AVAIL}MB, local_floor=${FLOOR_MB}MB)" >&2
+fi
+
+if [ "$TARGET" = "remote" ] && [ ! -x "$REMOTE_PYTEST" ]; then
+    echo "[precommit_contracts] remote_pytest not executable ($REMOTE_PYTEST) -- FALLING BACK to local (gate never skipped)" >&2
+    TARGET="local"
+fi
+
+if [ "${REE_PRECOMMIT_CONTRACTS_DECIDE_ONLY:-0}" = "1" ]; then
+    echo "[precommit_contracts] DECIDE_ONLY: resolved target=$TARGET" >&2
     exit 0
 fi
 
-echo "[precommit_contracts] contract tests failed -- blocking commit" >&2
+echo "[precommit_contracts] ree_core/ or experiments/_lib/ change staged -- running contracts ($TARGET)" >&2
+if [ "$TARGET" = "remote" ]; then
+    # remote_pytest ships the working tree to a free fleet box and runs there.
+    # Unset the private index (ree_commit sets GIT_INDEX_FILE/GIT_DIR when it
+    # re-runs this hook) so the router's own git calls see the normal repo; it
+    # tests on-disk content, which is exactly what ree_commit commits.
+    if (cd "$REPO" && env -u GIT_INDEX_FILE -u GIT_DIR "$REMOTE_PYTEST" tests/contracts -q --tb=line) >&2; then
+        exit 0
+    fi
+else
+    if (cd "$REPO" && "$PY" -m pytest -q --tb=line tests/contracts) >&2; then
+        exit 0
+    fi
+fi
+
+echo "[precommit_contracts] contract tests failed ($TARGET) -- blocking commit" >&2
 echo "[precommit_contracts] fix the failing tests or run with --no-verify to bypass" >&2
 if [ "$NO_BLOCK" = "1" ]; then
     exit 0
