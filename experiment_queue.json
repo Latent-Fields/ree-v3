@@ -27,6 +27,25 @@
       "seeds": 20
     },
     {
+      "queue_id": "V3-EXQ-836",
+      "title": "MECH-476 DOSE-axis consolidation falsifier: does interference-resistance (retained fraction) grow with BC install dose?",
+      "script": "experiments/v3_exq_836_mech476_dose_dependent_consolidation.py",
+      "priority": 40,
+      "machine_affinity": "any",
+      "estimated_minutes": 360,
+      "claim_id": "MECH-476",
+      "note": "MECH-476 (candidate/v3_pending, split_from MECH-457) falsifier, BUILDABLE DOSE axis only. Varies BC install dose (300/600/900 episodes) holding the unconstrained RL refinement fixed; DV = retained_fraction trajectory (baselines.mech457_retention). SUPPORTED (PASS/supports) if retained_fraction_mean is monotone non-decreasing in dose with spread >= 0.15 (a consolidation PROCESS, Krakauer 2005 over-training result); WEAKENED (FAIL/weakens -> withdraw into MECH-459/460) if invariant to dose (spread < 0.15). Prerequisite: per-arm install_took strict majority (precondition_gate); <2 scorable arms self-routes substrate_not_ready_requeue, NOT a verdict. DV-SYMMETRY (all arms): DV=retained_fraction (competence ratio); manipulation=BC install episode count; retained_fraction is NOT invariant under adding BC episodes (more install changes the policy params + its erosion-robustness -- the hypothesis itself), so no arm's delta is an arithmetic identity. GOV-REUSE-1: dose never varied in 780/788/789/792 (all single-dose) -> not recoverable, must run. Re-derive brake: 0 braking autopsies (fresh claim). BLOCKED SIBLING ARMS routed to /implement-substrate NOT queued here: the A->B offline INTERVAL (as a consolidation process) and the Moncada-2007 NOVELTY-tagging pairing both need an offline policy-consolidation window the substrate lacks (SLEEP DRIVER: none); home = sleep_substrate_plan.md SD-017/MECH-204. Lit grounding: evidence/literature/targeted_review_mech_457_consolidation (Krakauer2005 design source, Walker2003, Moncada2007, BinIbrahim2024, Kirkpatrick2017-EWC). Smoke PASS (self-route path exercised end-to-end; validator --strict 0 warnings).",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-07-29T07:35:02Z"
+      },
+      "conditions": 3,
+      "episodes_per_run": 3000,
+      "experiment_type": "v3_exq_836_mech476_dose_dependent_consolidation",
+      "seeds": 6
+    },
+    {
       "queue_id": "V3-EXQ-798a",
       "title": "SD-MEL-PRODUCER validation, C4 measurable: graded, above-reference, LEARNABLE waking MEL from a non-converging world",
       "script": "experiments/v3_exq_798a_sdmelproducer_graded_nonconverging_world_c4readable.py",
@@ -45,21 +64,6 @@
       "episodes_per_run": 80,
       "experiment_type": "v3_exq_798a_sdmelproducer_graded_nonconverging_world_c4readable",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-836",
-      "title": "MECH-476 DOSE-axis consolidation falsifier: does interference-resistance (retained fraction) grow with BC install dose?",
-      "experiment_type": "v3_exq_836_mech476_dose_dependent_consolidation",
-      "script": "experiments/v3_exq_836_mech476_dose_dependent_consolidation.py",
-      "priority": 40,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 360,
-      "episodes_per_run": 3000,
-      "seeds": 6,
-      "conditions": 3,
-      "claim_id": "MECH-476",
-      "note": "MECH-476 (candidate/v3_pending, split_from MECH-457) falsifier, BUILDABLE DOSE axis only. Varies BC install dose (300/600/900 episodes) holding the unconstrained RL refinement fixed; DV = retained_fraction trajectory (baselines.mech457_retention). SUPPORTED (PASS/supports) if retained_fraction_mean is monotone non-decreasing in dose with spread >= 0.15 (a consolidation PROCESS, Krakauer 2005 over-training result); WEAKENED (FAIL/weakens -> withdraw into MECH-459/460) if invariant to dose (spread < 0.15). Prerequisite: per-arm install_took strict majority (precondition_gate); <2 scorable arms self-routes substrate_not_ready_requeue, NOT a verdict. DV-SYMMETRY (all arms): DV=retained_fraction (competence ratio); manipulation=BC install episode count; retained_fraction is NOT invariant under adding BC episodes (more install changes the policy params + its erosion-robustness -- the hypothesis itself), so no arm's delta is an arithmetic identity. GOV-REUSE-1: dose never varied in 780/788/789/792 (all single-dose) -> not recoverable, must run. Re-derive brake: 0 braking autopsies (fresh claim). BLOCKED SIBLING ARMS routed to /implement-substrate NOT queued here: the A->B offline INTERVAL (as a consolidation process) and the Moncada-2007 NOVELTY-tagging pairing both need an offline policy-consolidation window the substrate lacks (SLEEP DRIVER: none); home = sleep_substrate_plan.md SD-017/MECH-204. Lit grounding: evidence/literature/targeted_review_mech_457_consolidation (Krakauer2005 design source, Walker2003, Moncada2007, BinIbrahim2024, Kirkpatrick2017-EWC). Smoke PASS (self-route path exercised end-to-end; validator --strict 0 warnings)."
     }
   ]
 }
