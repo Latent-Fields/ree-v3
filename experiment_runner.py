@@ -1495,6 +1495,32 @@ def _write_synthetic_error_manifest(
     return run_id, str(manifest_path)
 
 
+_EVIDENCE_GUARD_ERROR_COUNT = 0
+
+
+def _on_evidence_guard_error(exc: BaseException) -> None:
+    """Log a failure of the REE_assembly evidence-claim guard, rate-limited.
+
+    Deliberately NOT silent, and deliberately NOT once-per-tick. This guard
+    can only fail deterministically (a stale `runner_remote_control` with no
+    `_active_claim_on_evidence_dir`, or a non-Path `ree_assembly_path`), so
+    it fails on EVERY tick or on none: log-every-time would be 1440 identical
+    lines/day, and a single line would scroll out of a multi-hour run's
+    output. First occurrence, then hourly (every 60th tick, the loop being
+    60s), keeps it both visible and bounded -- the `_on_git_timeout` lesson
+    in runner_remote_control.py is that silent absorption is the real defect.
+    """
+    global _EVIDENCE_GUARD_ERROR_COUNT
+    _EVIDENCE_GUARD_ERROR_COUNT += 1
+    n = _EVIDENCE_GUARD_ERROR_COUNT
+    if n == 1 or n % 60 == 0:
+        print(
+            f"[runner] evidence-claim guard FAILED (#{n}): {exc!r} -- "
+            "proceeding with the REE_assembly pull (fail-open)",
+            flush=True,
+        )
+
+
 def _sync_pull_tick(ree_assembly_path: Path | None) -> None:
     """One iteration of the --auto-sync background pull. Never raises.
 
@@ -1512,12 +1538,42 @@ def _sync_pull_tick(ree_assembly_path: Path | None) -> None:
     Default path (no active claim, or runner_remote_control unimportable)
     is bit-identical to the pre-guard behaviour: both pulls run, each
     best-effort.
+
+    2026-07-29: "Never raises" is now TRUE rather than merely intended. The
+    evidence-guard call was this function's only unwrapped statement, and
+    `_background_sync` has no try/except of its own, so an exception here
+    terminated the sync thread for the rest of the experiment -- silently,
+    and for the whole run, since nothing restarts it. That is the "sync stops
+    permanently" mode investigated on 2026-07-29 (session
+    beautiful-tereshkova-263da4) and found NOT to occur for git failures;
+    this was the one residual path where it still could.
+
+    `_active_claim_on_paths` does carry a blanket `except Exception: return
+    False`, so the guard's BODY was already total -- but two sub-expressions
+    sit OUTSIDE that try and were therefore unprotected: the attribute lookup
+    `_rrc._active_claim_on_evidence_dir` (`_rrc` is imported best-effort at
+    module import; a worker running a `runner_remote_control.py` older than
+    that function raises AttributeError), and the `ree_assembly_path.parent`
+    the wrapper evaluates before calling in. Both are Exception subclasses.
+
+    The wrap fails OPEN -- the pull proceeds when the guard cannot be
+    evaluated -- matching `_pull_ree_v3` ("the guard must never be the reason
+    a pull does not happen") and `_active_claim_on_paths`'s own documented
+    failure directions. Fail-CLOSED was considered and rejected: because this
+    guard can only fail deterministically, skipping on error would stop
+    REE_assembly pulls for the entire run, which is the same wedge in a
+    quieter costume. The protective direction is not lost, only degraded to
+    the pre-2026-05-01 baseline for as long as the fault lasts, and it is
+    logged rather than absorbed.
     """
     _pull_ree_v3("auto-sync tick")
     if not ree_assembly_path:
         return
-    if _rrc is not None and _rrc._active_claim_on_evidence_dir(ree_assembly_path):
-        return
+    try:
+        if _rrc is not None and _rrc._active_claim_on_evidence_dir(ree_assembly_path):
+            return
+    except Exception as exc:
+        _on_evidence_guard_error(exc)
     try:
         git_pull(ree_assembly_path, "REE_assembly")
     except Exception:
@@ -2957,8 +3013,22 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
 
         if auto_sync:
             def _background_sync():
+                # Defence in depth. `_sync_pull_tick` promises never to raise
+                # and (as of 2026-07-29) keeps that promise, but this loop is
+                # the ONLY thing standing between one escaped exception and a
+                # dead sync thread: the thread is never restarted, so a single
+                # raise stops --auto-sync for the rest of the experiment with
+                # no error surfaced anywhere. Catching per-iteration means a
+                # future addition to the tick body degrades to one skipped
+                # pull instead of terminating the loop. BaseException is left
+                # to propagate on purpose -- SystemExit/KeyboardInterrupt
+                # SHOULD stop this thread.
                 while not _hb_stop.wait(timeout=60):
-                    _sync_pull_tick(ree_assembly_path)
+                    try:
+                        _sync_pull_tick(ree_assembly_path)
+                    except Exception as _exc:
+                        print(f"[runner] background sync warn: {_exc!r}",
+                              flush=True)
             _sync_thread = threading.Thread(target=_background_sync, daemon=True)
             _sync_thread.start()
 

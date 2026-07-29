@@ -47,6 +47,28 @@ Contracts:
   C7. The two guards are INDEPENDENT: an active ree-v3 substrate claim
       skips only the ree-v3 pull and leaves REE_assembly alone, and vice
       versa (C2). A single claim must not gate both repos.
+  C8. A guard that cannot be EVALUATED (stale _rrc lacking the function;
+      any exception from it) fails OPEN and is logged, rather than
+      propagating and killing the sync thread. C8c pins the log's rate
+      limit.
+  C9. _background_sync's loop body is try/except-guarded, so no future
+      addition to the tick can terminate the thread. Structural, because
+      the closure is nested inside run_experiment().
+  C10. _sync_pull_tick contains no unguarded call other than the
+      provably-total _pull_ree_v3 -- the property whose absence made the
+      docstring's "Never raises" false from the 2026-07-28 extraction until
+      2026-07-29.
+
+2026-07-29 UPDATE (C8/C9/C10): `_sync_pull_tick` said "Never raises" but its
+guard call was unwrapped, and `_background_sync`'s loop had no try/except of
+its own -- so an exception there ended --auto-sync for the rest of the
+experiment, silently and unrecoverably. `_active_claim_on_paths`' blanket
+`except Exception` made the guard's BODY total, but not the attribute lookup
+`_rrc._active_claim_on_evidence_dir` nor the `ree_assembly_path.parent`
+evaluated ahead of it. Fail-open was chosen over fail-closed because the
+failure mode is deterministic: a fail-closed guard would suppress every
+REE_assembly pull for the whole run. Context: WORKSPACE_STATE.md
+2026-07-29T17:0xZ, session beautiful-tereshkova-263da4, side-finding (2).
 """
 
 from __future__ import annotations
@@ -189,3 +211,185 @@ def test_c6_never_raises_when_git_pull_raises(monkeypatch, tmp_path):
     # Must swallow the exception for BOTH pulls -- best-effort, exactly as
     # the daemon's inlined try/except did before the extraction.
     experiment_runner._sync_pull_tick(tmp_path / "REE_assembly")
+
+
+# --------------------------------------------------------------------------
+# C8/C9/C10 -- "Never raises" made TRUE, not merely intended (2026-07-29).
+#
+# The guard call was _sync_pull_tick's ONLY unwrapped statement and
+# _background_sync had no try/except, so one exception from the guard killed
+# the sync thread for the remainder of the experiment -- silently, and
+# permanently, since nothing restarts it.
+#
+# `_active_claim_on_paths` already carries a blanket `except Exception:
+# return False`, so the guard BODY was total. What was not covered is the
+# part of the call expression evaluated BEFORE that try runs: the attribute
+# lookup on the best-effort-imported `_rrc` module, and the
+# `ree_assembly_path.parent` the wrapper computes. C8 pins the first of
+# those, which is the realistic one -- a worker whose runner_remote_control.py
+# predates _active_claim_on_evidence_dir.
+# --------------------------------------------------------------------------
+
+
+def test_c8_stale_rrc_without_the_guard_fn_fails_open(
+    record_pulls, monkeypatch, tmp_path, capsys
+):
+    """A `_rrc` module lacking _active_claim_on_evidence_dir must not raise.
+
+    This is the concrete escape route the blanket except inside
+    `_active_claim_on_paths` cannot close: AttributeError is raised by the
+    attribute LOOKUP, before any code inside that function runs.
+    """
+    class _StaleRRC:  # no _active_claim_on_evidence_dir at all
+        pass
+
+    monkeypatch.setattr(experiment_runner, "_rrc", _StaleRRC())
+    monkeypatch.setattr(experiment_runner, "_EVIDENCE_GUARD_ERROR_COUNT", 0)
+    experiment_runner._sync_pull_tick(tmp_path / "REE_assembly")
+
+    assert record_pulls == ["ree-v3", "REE_assembly"], (
+        "C8 FAIL: an unevaluable guard must fail OPEN (pull proceeds), "
+        "matching _pull_ree_v3 and _active_claim_on_paths' documented "
+        "failure directions. Failing closed would stop REE_assembly pulls "
+        "for the whole run, since this failure is deterministic."
+    )
+    assert "evidence-claim guard FAILED" in capsys.readouterr().out, (
+        "C8 FAIL: the failure must be LOGGED, not silently absorbed -- the "
+        "_on_git_timeout lesson."
+    )
+
+
+def test_c8b_guard_raising_arbitrary_exception_does_not_escape(
+    record_pulls, monkeypatch, tmp_path
+):
+    """Same contract for any exception from the guard, not just AttributeError."""
+    def _boom(_p):
+        raise RuntimeError("claims file on fire")
+
+    monkeypatch.setattr(
+        runner_remote_control, "_active_claim_on_evidence_dir", _boom
+    )
+    monkeypatch.setattr(experiment_runner, "_rrc", runner_remote_control)
+    experiment_runner._sync_pull_tick(tmp_path / "REE_assembly")
+    assert record_pulls == ["ree-v3", "REE_assembly"], (
+        "C8b FAIL: _sync_pull_tick's docstring promises it never raises."
+    )
+
+
+def test_c8c_guard_error_log_is_rate_limited(monkeypatch, tmp_path, capsys):
+    """First occurrence then hourly -- not once (invisible), not every tick
+    (1440 identical lines/day, the loop being 60s)."""
+    monkeypatch.setattr(experiment_runner, "git_pull", lambda repo, label: None)
+    monkeypatch.setattr(
+        runner_remote_control, "_active_claim_on_evidence_dir",
+        lambda _p: (_ for _ in ()).throw(RuntimeError("x")),
+    )
+    monkeypatch.setattr(experiment_runner, "_rrc", runner_remote_control)
+    monkeypatch.setattr(experiment_runner, "_EVIDENCE_GUARD_ERROR_COUNT", 0)
+
+    for _ in range(120):
+        experiment_runner._sync_pull_tick(tmp_path / "REE_assembly")
+
+    n_logged = capsys.readouterr().out.count("evidence-claim guard FAILED")
+    assert n_logged == 3, (
+        f"C8c FAIL: expected 3 log lines over 120 ticks (#1, #60, #120), "
+        f"got {n_logged}."
+    )
+
+
+def _background_sync_ast():
+    """Return the ast.FunctionDef for the nested `_background_sync` closure.
+
+    Source-level because the closure is defined inside run_experiment() and
+    is not reachable as an attribute for monkeypatching.
+    """
+    import ast
+
+    src = Path(experiment_runner.__file__).read_text(encoding="utf-8")
+    for node in ast.walk(ast.parse(src)):
+        if isinstance(node, ast.FunctionDef) and node.name == "_background_sync":
+            return node
+    raise AssertionError(
+        "_background_sync not found in experiment_runner.py -- if it was "
+        "renamed, re-point this contract rather than deleting it."
+    )
+
+
+def test_c9_background_sync_loop_body_is_exception_guarded():
+    """Defence in depth: no future addition to the tick body can kill the thread.
+
+    The loop is the only thing between one escaped exception and a sync thread
+    that is dead for the rest of the experiment (it is never restarted, and the
+    death is silent). This pins the try/except INSIDE the while, so a failing
+    tick costs one skipped pull rather than all remaining pulls.
+    """
+    import ast
+
+    fn = _background_sync_ast()
+    whiles = [n for n in fn.body if isinstance(n, ast.While)]
+    assert whiles, "C9 FAIL: _background_sync no longer has a while loop."
+
+    tries = [n for n in whiles[0].body if isinstance(n, ast.Try)]
+    assert tries, (
+        "C9 FAIL: _background_sync's loop body must wrap its work in "
+        "try/except. Without it, one raise ends --auto-sync for the run."
+    )
+
+    calls = [
+        n for n in ast.walk(tries[0])
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+        and n.func.id == "_sync_pull_tick"
+    ]
+    assert calls, (
+        "C9 FAIL: the _sync_pull_tick call must be INSIDE the try, not "
+        "beside it."
+    )
+
+    handlers = tries[0].handlers
+    assert any(
+        h.type is not None and isinstance(h.type, ast.Name)
+        and h.type.id == "Exception"
+        for h in handlers
+    ), (
+        "C9 FAIL: the handler must catch Exception specifically. A bare "
+        "`except:` would also swallow SystemExit/KeyboardInterrupt, which "
+        "SHOULD be able to stop this thread."
+    )
+
+
+def test_c10_sync_pull_tick_has_no_unguarded_statements():
+    """Every statement in _sync_pull_tick's body is a guard, a return, or
+    wrapped -- the property C8 restores, asserted structurally so it cannot
+    silently regress the way it did between the 2026-07-28 extraction and
+    2026-07-29.
+    """
+    import ast
+
+    src = Path(experiment_runner.__file__).read_text(encoding="utf-8")
+    fn = next(
+        n for n in ast.walk(ast.parse(src))
+        if isinstance(n, ast.FunctionDef) and n.name == "_sync_pull_tick"
+    )
+    # Calls that are NOT inside a Try within this function.
+    guarded = {
+        id(c) for t in ast.walk(fn) if isinstance(t, ast.Try)
+        for c in ast.walk(t) if isinstance(c, ast.Call)
+    }
+    unguarded = [
+        c for c in ast.walk(fn)
+        if isinstance(c, ast.Call) and id(c) not in guarded
+    ]
+    names = sorted(
+        c.func.id if isinstance(c.func, ast.Name)
+        else getattr(c.func, "attr", "<expr>")
+        for c in unguarded
+    )
+    # _pull_ree_v3 is itself documented "Never raises" and is total by
+    # construction (both halves internally wrapped); it is the one sanctioned
+    # unguarded call.
+    assert names == ["_pull_ree_v3"], (
+        "C10 FAIL: unguarded call(s) in _sync_pull_tick: "
+        f"{names}. Every call here must either be inside a try/except or be "
+        "itself provably total -- the function's docstring promises it never "
+        "raises, and _background_sync's thread dies permanently if it does."
+    )
