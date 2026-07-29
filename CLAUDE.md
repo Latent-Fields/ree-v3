@@ -1496,6 +1496,35 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
   This is the assertion test_mech321_scale_resolved_boundary.py could not make: it reaches
   the hook only by setting fake_traj.metadata, _committed_step_idx=1 and beta_gate.elevate()
   directly -- reachability-in-principle, which is exactly why the defect survived.
+  VALIDATION EXPERIMENT: V3-EXQ-839 (experiments/v3_exq_839_sd084_midexec_reachability.py,
+  queued 2026-07-29, b1a896fb1e). DIAGNOSTIC, claim_ids=[] -- validates the BUILD, weights
+  no claim. Acceptance criterion verbatim from the autopsy's failure_record_entry.target:
+  decomp_n_evaluated_midexec > 0 on a standard select_action -> update_residue loop with no
+  hand-injected preconditions. 2 arms x 6 seeds in TWO pre-registered tiers -- ATTRIBUTABLE
+  (3,47,71,89) commit multi-action programs and fire the hook when ON; NEGATIVE CONTROL
+  (23,53) commit none while pre-commit decomposition stays live, so the DV must be zero in
+  BOTH arms and the arms bit-identical. The control tier is the point: it makes a zero DV
+  ATTRIBUTABLE, so "SD-084 failed" can never be confused with "this seed never committed a
+  multi-action program" (which self-routes substrate_not_ready_requeue, never a verdict).
+  Baseline module experiments/_lib/baselines/sd084_midexec_reachability.py; OFF cells minted
+  reuse-eligible (include_driver_script_in_hash=False).
+  TWO THINGS AUTHORING THAT EXPERIMENT ESTABLISHED, worth knowing before touching this area:
+  (1) SEED-DEPENDENCE IS REAL AND MEASURED. Gate (6) is len(remaining)>1, so the hook only
+      fires after a MULTI-ACTION commit, and E3 commits a multi-action ARC-071 chunk only when
+      it beats the CEM-optimised candidates on raw score -- there is NO chunk-selection-bias
+      knob. --seed-scan over ten seeds (darwin-arm64, seeded env, 2ep x 60 steps): OFF midexec
+      = 0 on ALL TEN including seed 47 which commits 30 multi-action programs; ON midexec
+      14-29 on exactly the four attributable seeds. Seed 47 is the cleanest cell -- OFF and ON
+      identical in multi-action commits (30), total commits (72) and precommit (343), so the
+      only difference is whether the hook could SEE the program.
+  (2) THE CONTRACT'S ENV IS UNSEEDED, AND reset_all_rng(seed) DOES NOT FIX THAT. The contract
+      builds CausalGridWorldV2() with seed=None, which is fine for its existential
+      anti-vacuity assertions but NOT for any paired/quantitative measurement. Same-arm
+      replicate (OFF twice at one seed): 3-11 of 24 actions differed, precommit 40 vs 84. With
+      seed= passed to the env: 0/24 and identical counts. So pass an explicit env seed in any
+      experiment here -- otherwise a paired behavioural delta measures RNG noise, and an
+      arm-fingerprint emitted reuse_eligible is a LIE (it promises purity in
+      substrate+config+seed).
   See MECH-321, ARC-070, ARC-071, MECH-288 (no claim status changed).
 - SD-004: E2 action objects; HippocampalModule navigates action-object space O
 - SD-005: z_gamma split into z_self (E2 domain) + z_world (E3/Hippocampal/ResidueField domain)
