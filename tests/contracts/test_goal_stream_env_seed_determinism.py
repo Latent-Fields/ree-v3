@@ -43,6 +43,49 @@ BOTH directions are pinned, and both matter:
   * knob SET   -> deterministic, distinct, reproducible, collision-free seeds,
     and a same-seed env reproduces bitwise.
 
+KNOWN DIVERGENCE, DELIBERATE -- 603e's two driver envs (documented 2026-07-29).
+The batch's governing principle is that a PINNED run should differ from a landed
+run only in seed VALUES, never in structural RELATIONSHIPS. 603e breaks that in
+exactly one place, knowingly, and this is the record of why.
+
+On the DEFAULT path both of 603e's own envs are built with the identical call --
+`CausalGridWorldV2(seed=seed, **_target_env_kwargs(scaffold_cfg))` -- so they are
+BIT-IDENTICAL layouts (measured, all three seeds). Under `--env-seed` they are
+given distinct idx on stream 2 (0 = the dims probe, 1 = the bespoke P2
+measurement env), so a pinned run has them DIFFERENT where a landed run has them
+the same.
+
+Why this is harmless, and why the divergence was kept rather than repaired:
+  * `target_env` is a DIMS PROBE. It appears at exactly one line --
+    `cfg = _make_config(target_env, arm)` -- to read body/world/action dims off
+    the env. It is never `reset()`, never stepped, and discarded immediately.
+    Its layout is therefore unobservable in any result, which is what makes the
+    seed relationship between the two envs scientifically inert.
+  * Distinct idx is the DEFENSIVE choice. If a future edit ever starts stepping
+    `target_env`, distinct layouts prevent it from silently sharing a world with
+    the measurement env; the faithful-to-landed choice (one shared idx) would
+    couple them at exactly the moment that coupling started to matter.
+  * A pinned run is ALREADY declared not comparable to a landed one -- every
+    driver's `--env-seed` help text and its manifest `env_seed_base` comment say
+    so -- so the divergence cannot mislead a reader who follows that contract.
+
+TWO NEIGHBOURING BIT-IDENTITIES, pre-existing and NOT introduced by the knob,
+recorded here because they look like the same finding and are not:
+  * 626a rebuilds its P1 env every episode from the SAME run seed, so every P1
+    episode shares one layout;
+  * 626a's P1 and P2 envs share placement kwargs and the run seed, so the P2
+    measurement phase runs on the exact world trained on in P1.
+Neither is a scoring hazard: 626a carries `CLAIM_IDS = []` with
+`experiment_purpose = "diagnostic"`, so it is excluded from confidence/conflict
+scoring, and its C1-C5 criteria are all within-world ACROSS-ARM comparisons,
+which a shared layout does not confound (it removes layout variance between
+arms). The one reading it will NOT support is generalisation: P2 is not a
+held-out world. These are observed properties of a landed driver, NOT ratified
+design intent -- the 626a docstring says nothing about a fixed P1 world.
+
+If you change the idx assignment below, update this block and say why. The test
+is here to make the choice conscious, not to freeze it.
+
 Env-level rather than whole-curriculum on purpose: the causal chain is
 seed -> env layout -> observations, and a full dry-run of any of these drivers
 costs minutes (a 626a/622-class full-curriculum dry-run was measured at >5m37s
@@ -89,6 +132,16 @@ STAGES = ("S0", "S1", "S2", "S3")
 
 def _cfg(**kw):
     return gs.GoalStreamStagesConfig(steps_per_episode=5, **kw)
+
+
+def _layout(env):
+    """Layout identity of a constructed env -- what the seed actually controls.
+
+    Deliberately NOT a rollout: these comparisons are about the world the seed
+    lays out at CONSTRUCTION, before any policy touches it.
+    """
+    return (tuple(map(tuple, getattr(env, "resources", []) or [])),
+            tuple(map(tuple, getattr(env, "hazards", []) or [])))
 
 
 # --------------------------------------------------------------------------- #
@@ -270,6 +323,98 @@ def test_603e_does_not_import_the_goal_stream_module():
         elif isinstance(n, ast.Import):
             mods.update(a.name for a in n.names)
     assert not any("goal_stream_stages_sd054" in m for m in mods)
+
+
+# --------------------------------------------------------------------------- #
+# The KNOWN DIVERGENCE (see the module docstring). Executable documentation:
+# these three pin BOTH sides of it, so it cannot drift silently in either
+# direction and cannot be "tidied" without a conscious decision.
+# --------------------------------------------------------------------------- #
+
+def test_603e_default_gives_its_two_envs_the_SAME_layout():
+    """The landed relationship. Both driver envs are built with the identical
+    call, so on the default path they are bit-identical -- pinned here because
+    it is the baseline the divergence below is measured against, and because a
+    future edit that quietly de-duplicated them would change a landed run."""
+    cfg = d603._make_scaffold_cfg()
+    assert cfg.scaffold_env_seed is None
+    kw = d603._target_env_kwargs(cfg)
+    for seed in d603.SEEDS:
+        a = _layout(d603.CausalGridWorldV2(seed=seed, **kw))
+        b = _layout(d603.CausalGridWorldV2(seed=seed, **kw))
+        assert a == b, f"seed {seed}: the landed default no longer shares a layout"
+
+
+def _603e_driver_stream_idx():
+    """The (stream, idx) pairs 603e ACTUALLY passes to `_derive_env_seed`.
+
+    Read from source rather than re-derived: asserting that idx 0 and idx 1
+    differ would pass even if the driver used idx 0 at both sites, which is
+    precisely the change this is meant to catch.
+    """
+    import ast
+    src = open(os.path.join(
+        _REPO, "experiments/v3_exq_603e_q045_mech313_mech260_scaffolded_sd054.py")).read()
+    pairs = []
+    for n in ast.walk(ast.parse(src)):
+        if not (isinstance(n, ast.Call) and getattr(n.func, "id", None) == "_derive_env_seed"):
+            continue
+        kw = {k.arg: k.value for k in n.keywords}
+        if not {"stream", "idx"} <= set(kw):
+            continue
+        try:
+            pairs.append((ast.literal_eval(kw["stream"]), ast.literal_eval(kw["idx"])))
+        except ValueError:
+            continue  # non-literal -- not one of the two fixed driver sites
+    return pairs
+
+
+def test_603e_pinned_gives_its_two_envs_DISTINCT_layouts():
+    """The divergence itself. Deliberate and defensive -- `target_env` is a dims
+    probe that is never stepped, so this is unobservable in any result; distinct
+    idx keeps the two from silently sharing a world if one ever IS stepped.
+
+    Pinned from 603e's OWN call sites, then carried through to real layouts, so
+    the assertion fails if either the idx assignment or the derivation changes.
+    """
+    driver_sites = [p for p in _603e_driver_stream_idx() if p[0] == DRIVER_STREAM]
+    assert len(driver_sites) == 2, (
+        f"expected exactly 2 driver-stream sites in 603e, found {driver_sites}"
+    )
+    idxs = sorted(i for _s, i in driver_sites)
+    assert idxs == [0, 1], (
+        f"603e's driver-owned idx assignment changed to {idxs}. If the two envs "
+        "were deliberately collapsed onto one idx (the faithful-to-landed "
+        "choice), update the KNOWN DIVERGENCE block in this file's docstring and "
+        "flip this test to assert equality."
+    )
+
+    sb = 7 + d603.SEEDS[0]
+    kw = d603._target_env_kwargs(d603._make_scaffold_cfg(env_seed=sb))
+    seeds = [_derive_env_seed(sb, stream=DRIVER_STREAM, idx=i) for i in idxs]
+    assert seeds[0] != seeds[1]
+    assert _layout(d603.CausalGridWorldV2(seed=seeds[0], **kw)) != \
+           _layout(d603.CausalGridWorldV2(seed=seeds[1], **kw))
+
+
+def test_603e_target_env_is_never_stepped():
+    """THE LOAD-BEARING PREMISE of the divergence being harmless. If
+    `target_env` ever gains a `.reset()` / `.step()` call, its layout becomes
+    observable, the pinned-vs-default asymmetry stops being inert, and this
+    decision must be revisited -- so assert the premise rather than trusting the
+    prose."""
+    import ast
+    src = open(os.path.join(
+        _REPO, "experiments/v3_exq_603e_q045_mech313_mech260_scaffolded_sd054.py")).read()
+    uses = [n for n in ast.walk(ast.parse(src))
+            if isinstance(n, ast.Attribute)
+            and isinstance(n.value, ast.Name) and n.value.id == "target_env"]
+    assert not uses, (
+        "target_env now has attribute access "
+        f"({sorted({u.attr for u in uses})}) -- it was a write-only dims probe "
+        "when the pinned/default idx divergence was accepted as harmless. "
+        "Re-read the KNOWN DIVERGENCE block in this file's docstring."
+    )
 
 
 def test_626a_default_still_hands_over_the_bare_run_seed(monkeypatch):
