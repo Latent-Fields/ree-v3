@@ -318,7 +318,7 @@ class CorpusScan:
 
     __slots__ = (
         "fires", "n_glob_files", "n_rglob_files", "parse_hits", "parse_misses",
-        "invalid_escapes",
+        "invalid_escapes", "lint_parse_misses",
     )
 
     def __init__(self) -> None:
@@ -332,6 +332,14 @@ class CorpusScan:
         # and `test_every_path_lint_is_covered_by_this_files_differential` treats
         # every `fires` key as one.
         self.invalid_escapes: List[str] = []
+        # Real parses (cache MISSES) incurred INSIDE each path lint's own call,
+        # summed over every driver it was handed. This is the attribution that
+        # makes the sharing guard direct rather than a global budget: a healthy
+        # lint's figure is O(number of helper modules it resolves) and does NOT
+        # grow with the corpus, while the failure being guarded -- a lint that
+        # re-parses the driver it was handed -- is exactly `n_glob_files`. See
+        # `test_shared_scan_parses_each_file_once`.
+        self.lint_parse_misses: Dict[str, int] = {}
 
     def __getitem__(self, lint_name: str):
         return self.fires[lint_name]
@@ -373,6 +381,7 @@ def scan_corpus() -> CorpusScan:
     scan = CorpusScan()
     for name, _ in path_lints:
         scan.fires[name] = []
+        scan.lint_parse_misses[name] = 0
     scan.fires["prereg_share_feasibility_lint"] = []
 
     cache = _LastParseCache(ast)
@@ -418,7 +427,21 @@ def scan_corpus() -> CorpusScan:
                 continue
             scan.n_glob_files += 1
             for name, fn in path_lints:
-                if fn(p) is not None:
+                # Charge every real parse this lint triggers to the lint itself.
+                # Two things land in this bucket, and the distinction matters when
+                # reading a failure:
+                #   * the lint parsing a HELPER module (an import target it has to
+                #     resolve to discharge its rule). Bounded per lint by the number
+                #     of distinct helper modules, because those resolvers hold their
+                #     own stat-keyed caches -- constant in corpus size.
+                #   * the lint re-parsing THIS driver because the previous lint's
+                #     helper parse evicted the one-entry cache. Charged here, to the
+                #     lint that pays it, not to the one that caused the eviction.
+                # A lint that stops sharing altogether lands `n_glob_files` here.
+                misses_before = cache.misses
+                fired = fn(p) is not None
+                scan.lint_parse_misses[name] += cache.misses - misses_before
+                if fired:
                     scan.fires[name].append(p)
     finally:
         V.ast, VQ.ast = v_ast_saved, vq_ast_saved

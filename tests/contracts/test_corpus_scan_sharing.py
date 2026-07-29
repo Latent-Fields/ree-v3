@@ -164,11 +164,75 @@ def test_shared_scan_parses_each_file_once(corpus_scan):
     the current driver re-parses it. Measured then, with FOUR path lints: 1252
     parses against an ideal 1237, and 4640 hits against an ideal 4648 -- a 0.25%
     residue on ~5900 would-be parses, not worth a second cache slot (which would
-    reintroduce unbounded
-    memory growth as the number of such helper files grows). `_RESIDUE_SLACK` is
-    generous so that adding another helper-parsing rule does not fail this test;
-    a real degradation -- a lint re-parsing every driver -- overshoots by ~1160,
-    two orders of magnitude past the slack.
+    reintroduce unbounded memory growth as the number of such helper files grows).
+
+    THE RESIDUE IS NOT THE FAILURE. A real degradation -- a lint that stops
+    reusing the shared parse and re-parses the DRIVER it was handed -- costs one
+    extra parse per driver, i.e. `n_glob_files` (~1170), where the whole residue
+    is a few dozen. The two are separated by more than an order of magnitude and
+    the guard below only has to sit between them.
+
+    WHY THE BUDGET IS A FRACTION OF THE CORPUS AND IS ATTRIBUTED PER LINT, AND NOT
+    A FIXED `_RESIDUE_SLACK`. This used to be a single global allowance of 64
+    parses over `n_rglob_files`, and it was on a trajectory to fail for a reason
+    that is not a degradation. Measured 2026-07-29 at `dd3205f878`:
+    `glob=1172 rglob=1251 hits=12950 misses=1296`, i.e. 45 of the 64 already
+    consumed -- against 15 when the paragraph above was written with FOUR path
+    lints, there now being TEN. `dd3205f878` alone (`dead_z_goal_stream_lint`
+    learning to resolve a local config-builder helper) took distinct helper-module
+    parses from 7 to 21 and accounted for +14 of that. Two more helper-parsing
+    rules would have breached 64 and failed this test for doing exactly what the
+    residue paragraph says is fine.
+
+    The asymptotics are what settle it, so state them rather than re-tuning a
+    number. Per lint, the residue is O(distinct helper modules it resolves) --
+    those resolvers hold stat-keyed caches, so a helper is parsed at most once per
+    session no matter how many drivers reference it -- and is therefore CONSTANT in
+    corpus size. The failure is O(`n_glob_files`). A fixed constant separates the
+    two with a margin that SHRINKS every time a lint is added; a budget
+    proportional to the corpus separates them with a margin that GROWS. Hence:
+
+      * per lint, real parses charged to that lint must stay under one in
+        `_PER_LINT_MISS_DIVISOR` of the drivers it was handed. This is the direct
+        statement of the property -- 'this lint reused the parse it was given' --
+        and it names the offending lint instead of reporting one opaque total.
+      * globally, the residue outside the path lints (the invalid-escape and
+        pre-registration pass over the non-driver rglob files) is held under
+        `_GLOBAL_RESIDUE_DIVISOR`-th of one extra parse per driver.
+
+    NOT A TAUTOLOGY, AND THE RESIDUE IS FULLY ACCOUNTED FOR. Re-measured on an idle
+    `ree-worker-4`, 2026-07-29 at `a21f487709` (`glob=1173 rglob=1252 hits=12961
+    misses=1297` -- the same 45 of residue, one driver later). The per-lint charges
+    are not a diffuse tax; they are four numbers with named causes, and they sum to
+    exactly the 45:
+
+        dead_z_goal_stream_lint             21  its own distinct local helper
+                                                modules (`_LOCAL_MODULE_CACHE`, via
+                                                `_local_module_knob_setters` and
+                                                `_uses_a_z_goal_driving_helper`)
+        spearman_guard_shape_lint           18  driver re-parses inherited from
+                                                those 21 evictions -- it runs
+                                                immediately after dead_z
+        config_slice_under_declaration_lint  3  distinct baseline modules
+                                                (`_BASELINE_MODULE_CACHE`, whose own
+                                                comment reads "3 in the corpus today")
+        inert_salience_dacc_bias_lint        3  inherited the same way, running
+                                                immediately after config_slice
+        the other six                        0
+
+    So the worst lint sits at 21 against a budget of 146 -- 7x headroom -- while a
+    lint that stopped sharing would land 1173, 8x the budget and 56x the current
+    worst. The global budget is 293 against 45 used. Both bounds move with the
+    corpus; neither moves with the lint count.
+
+    ONE PROPERTY OF THE ATTRIBUTION TO KNOW BEFORE READING A FAILURE. The helper
+    caches are module-global and shared across lints, so the FIRST lint to touch a
+    given helper pays for it and the rest ride free, and an eviction is charged to
+    the NEXT lint rather than to the one that caused it -- which is why the two
+    largest figures above are adjacent pairs. Reordering `path_lints` would shuffle
+    these numbers without changing any behaviour, or the total. The per-lint figure
+    is an attribution of COST, not of misbehaviour; what it pins is that no single
+    lint's cost scales with the corpus.
     """
     assert corpus_scan.n_glob_files > 500, "corpus unexpectedly small -- check the walk"
     assert corpus_scan.n_rglob_files >= corpus_scan.n_glob_files
@@ -179,12 +243,36 @@ def test_shared_scan_parses_each_file_once(corpus_scan):
     assert corpus_scan.parse_hits >= (len(_PATH_LINTS) - 1) * corpus_scan.n_glob_files, (
         f"parse sharing degraded: {corpus_scan.parse_hits} hits for "
         f"{corpus_scan.n_glob_files} drivers -- the lints are re-parsing")
-    # One miss per file walked, not one per (file, lint) pair.
-    _RESIDUE_SLACK = 64
-    assert corpus_scan.parse_misses <= corpus_scan.n_rglob_files + _RESIDUE_SLACK, (
+
+    # The direct property: no lint re-parses the drivers it is handed. Indexing
+    # `lint_parse_misses` by `_PATH_LINTS` also KeyErrors if the scan's lint set and
+    # this file's mirror drift apart, so a lint cannot be added to one and silently
+    # left unguarded here.
+    _PER_LINT_MISS_DIVISOR = 8
+    per_lint_budget = corpus_scan.n_glob_files // _PER_LINT_MISS_DIVISOR
+    for name, _ in _PATH_LINTS:
+        charged = corpus_scan.lint_parse_misses[name]
+        assert charged <= per_lint_budget, (
+            f"{name} triggered {charged} real parses across "
+            f"{corpus_scan.n_glob_files} drivers, over the budget of "
+            f"{per_lint_budget} (1 in {_PER_LINT_MISS_DIVISOR} drivers). Expected is "
+            f"a couple of dozen at most -- one per distinct HELPER module it "
+            f"resolves. A figure near {corpus_scan.n_glob_files} means the lint is "
+            f"re-parsing the driver it was handed instead of reusing the shared "
+            f"parse; a figure that merely drifted up means it now resolves a helper "
+            f"PER DRIVER rather than once per module, which is a real doubling of "
+            f"corpus parse work and wants a stat-keyed cache in the resolver.")
+
+    # One miss per file walked, not one per (file, lint) pair. Residue budgeted as a
+    # fraction of one extra parse per driver so it tracks the corpus rather than the
+    # lint count -- see the docstring for why the old fixed slack could not.
+    _GLOBAL_RESIDUE_DIVISOR = 4
+    residue_budget = corpus_scan.n_glob_files // _GLOBAL_RESIDUE_DIVISOR
+    assert corpus_scan.parse_misses <= corpus_scan.n_rglob_files + residue_budget, (
         f"more parses ({corpus_scan.parse_misses}) than files walked "
-        f"({corpus_scan.n_rglob_files}) + slack ({_RESIDUE_SLACK}) -- the cache is "
-        f"not being hit. A lint is re-parsing the driver it was handed.")
+        f"({corpus_scan.n_rglob_files}) + residue budget ({residue_budget}) -- the "
+        f"cache is not being hit. Per-lint charges: "
+        f"{ {n: corpus_scan.lint_parse_misses[n] for n, _ in _PATH_LINTS} }")
 
 
 def test_every_path_lint_is_covered_by_this_files_differential(corpus_scan):
