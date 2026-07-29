@@ -24,6 +24,11 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 
+# The shared env-seed derivation helper. Lives in the scaffold module because
+# that is where the streams are namespaced; the stream ids are disjoint (see
+# GoalStreamStagesRunner._next_env_seed).
+from scaffolded_sd054_onboarding import _derive_env_seed  # noqa: E402
+
 
 def _lerp(start: float, end: float, t: float) -> float:
     t = max(0.0, min(1.0, float(t)))
@@ -65,10 +70,26 @@ def _set_bridge_anneal(agent, cfg: "GoalStreamStagesConfig", anneal_t: float) ->
     agent.config.mech307_conjunction_z_beta_threshold = float(z_beta)
 
 
-def _build_env(cfg: "GoalStreamStagesConfig", stage: str, anneal_t: float = 0.0):
+def _build_env(cfg: "GoalStreamStagesConfig", stage: str, anneal_t: float = 0.0,
+               seed: Optional[int] = None):
+    """Build the stage env.
+
+    `seed` is the MODULE-OWNED env seed, the counterpart of
+    `ScaffoldedSD054OnboardingConfig.scaffold_env_seed`. Default None passes
+    seed=None straight through to CausalGridWorldV2, whose
+    `np.random.default_rng(None)` takes OS entropy at CONSTRUCTION and does NOT
+    consume the numpy global RNG -- so a caller's `np.random.seed(...)` /
+    `torch.manual_seed(...)` never reached this env, and the default remains
+    bit-identical to every landed run of every importing driver. Do NOT flip the
+    default: pinning it unconditionally would change every stage's env layout,
+    and therefore the results.
+
+    It rides in `common`, which all four stage branches splat, so a new stage
+    branch inherits the seeding rather than silently reverting to OS entropy."""
     from ree_core.environment.causal_grid_world import CausalGridWorldV2
 
     common = dict(
+        seed=seed,
         size=cfg.env_size,
         limb_damage_enabled=True,
         reef_enabled=True,
@@ -202,6 +223,12 @@ class GoalStreamStagesConfig:
     s3_bridge_per_ep_min: float = 1.0
     s3_dacc_per_ep_min: float = 0.5
 
+    # Module-owned env-seed base (mirror of
+    # ScaffoldedSD054OnboardingConfig.scaffold_env_seed). None = the legacy
+    # OS-entropy path every landed run used; set it and every env this curriculum
+    # builds is deterministically seeded and reproduces across processes.
+    goal_stream_env_seed: Optional[int] = None
+
 
 @dataclass
 class StageMetrics:
@@ -226,6 +253,33 @@ class GoalStreamStagesRunner:
 
     def __init__(self, cfg: GoalStreamStagesConfig):
         self.cfg = cfg
+        # Construction counter for goal_stream_env_seed. Only ever advanced when
+        # the knob is set, so the default path is bit-identical (see
+        # _next_env_seed).
+        self._env_build_count: int = 0
+
+    def _next_env_seed(self) -> Optional[int]:
+        """Deterministic per-construction env seed, or None (legacy OS entropy).
+
+        Returns None -- and does NOT advance the counter -- whenever
+        `goal_stream_env_seed` is unset, so the default path passes `seed=None`
+        through to CausalGridWorldV2 exactly as it did before this knob existed.
+
+        Keyed on construction ORDER rather than stage, because S0/S1/S2 build a
+        FRESH env every episode. A per-stage idx would collapse all of a stage's
+        episodes onto one shared layout and silently remove the across-episode
+        layout variation the curriculum currently has.
+
+        Stream 3 is this module's own: the scaffolded_sd054_onboarding module
+        reserves 0 (its curriculum builds) and 1 (its harm probe), and 2 is the
+        driver-owned stream. V3-EXQ-603e imports BOTH modules, so a shared stream
+        could otherwise put two different curricula on one layout."""
+        base = self.cfg.goal_stream_env_seed
+        if base is None:
+            return None
+        seed = _derive_env_seed(base, stream=3, idx=self._env_build_count)
+        self._env_build_count += 1
+        return seed
 
     def run_all(self, agent, device: torch.device) -> List[StageMetrics]:
         _set_goal_pipeline_frozen(agent, frozen=False)
@@ -277,9 +331,10 @@ class GoalStreamStagesRunner:
                 )
             if stage == "S2":
                 _set_bridge_anneal(agent, self.cfg, anneal_t)
-                env = _build_env(self.cfg, "S2", anneal_t=anneal_t)
+                env = _build_env(self.cfg, "S2", anneal_t=anneal_t,
+                                 seed=self._next_env_seed())
             else:
-                env = _build_env(self.cfg, stage)
+                env = _build_env(self.cfg, stage, seed=self._next_env_seed())
 
             ep_len, z_peak, mean_harm, bridge_fires = self._train_episode(
                 agent, env, device, e1_opt, wf_opt, wf_buf, world_dim
@@ -294,7 +349,7 @@ class GoalStreamStagesRunner:
         )
 
     def _run_eval_stage(self, agent, device: torch.device, stage: str) -> StageMetrics:
-        env = _build_env(self.cfg, "S3")
+        env = _build_env(self.cfg, "S3", seed=self._next_env_seed())
         agent.eval()
         _set_bridge_anneal(agent, self.cfg, 1.0)
 
