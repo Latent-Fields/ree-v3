@@ -35,7 +35,11 @@
       "estimated_minutes": 360,
       "claim_id": "MECH-294",
       "note": "MECH-294 behavioural-evidence successor (experiment_purpose=evidence; weights confidence). Unblocked by route-range readiness V3-EXQ-790 (both science criteria PASS; false substrate_not_ready_requeue withdrawn as a gate defect per failure_autopsy_V3-EXQ-790_2026-07-22, user-adjudicated) + V3-EXQ-791a PASS (label route_range_substrate_ready, ree-cloud-2). GOV-REUSE-1: decisive readout = committed-action-class TV across joint/alt/shuffled binding WITH per-candidate coherence routed; NOT recorded (V3-EXQ-661 measured TV~0 with SCALAR coherence, pre the 2026-06-19 per-candidate amend), checked 657/657a/661 -> run. Re-derive brake count=1 (<2) -> not braked. Routes per-candidate co-binding coherence via modulatory_channel_route_source=coherence through the route-range selection authority. C1 (JOINT!=ALTERNATION) + C2 (JOINT!=SHUFFLED) are the load-bearing joint-clause criteria (design memo S6/S7.3). Same-statistic readiness gate asserts route_range (a cross-candidate RANGE -- the stat the authority carves and C1/C2 route on downstream), so a committed-TV null is a claim result ONLY when the manipulation is a supra-floor range, never the 661 rescale-invisible scalar. DV-symmetry (per arm): JOINT/ALT per-candidate coherence is a supra-floor/distinct cross-candidate range (NOT a broadcast scalar -> not invariant under the argmax symmetry of the committed-class DV); SHUFFLED ~0 (inert structural control, carries no route-range gate, scored only on committed-window sample + candidate diversity). Smoke 2026-07-29 mode-distinct as designed: route_range JOINT 0.068 / ALT 0.057 / SHUF 0.0 / OFF 0.0; smoke PASS, no crash, all 4 arms build+route. goal_latent packet slot is benefit-gated (benefit_exposure=0.0 per the proven 649/791a harness), so co-binding is tested over the current streams; z_goal_stream_stats recorded for review. Queued under --allow-overlap vs gracious-snyder SD-084/V3-EXQ-839 (different task, shared experiment_queue.json append target -- not duplicated work).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-3",
+        "claimed_at": "2026-07-29T21:27:25Z"
+      },
       "conditions": 4,
       "episodes_per_run": 80,
       "experiment_type": "v3_exq_840_mech294_theta_packet_binding_committed_action_falsifier",
