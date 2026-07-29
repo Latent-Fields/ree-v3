@@ -27,6 +27,38 @@
       "seeds": 20
     },
     {
+      "queue_id": "V3-EXQ-836b",
+      "title": "MECH-476 INTERVAL falsifier: retained_fraction vs offline consolidation-window steps (SD-083)",
+      "script": "experiments/v3_exq_836b_mech476_interval_dependent_consolidation.py",
+      "priority": 40,
+      "machine_affinity": "any",
+      "estimated_minutes": 600,
+      "claim_id": "MECH-476",
+      "note": "MECH-476 A->B->A retrograde-interference falsifier, INTERVAL axis. Unblocked by SD-083 offline policy-consolidation window (ree-v3 42ab95f688). Sweeps offline_window_steps {0,150,400,900} at fixed BC dose 300; N=0 is the embedded unconstrained control (c=0, no anchor). DV retained_fraction trajectory; SUPPORTED if monotone-increasing in N with spread>=0.15. Smoke PASS on cloud worker (dry-run plumbing green: capture + ewc_coef grow with N). GOV-REUSE-1: decisive readout (retained_fraction under an offline window) is recorded in NO prior manifest -- SD-083 just landed, no run has exercised it -> run. offline_ewc_max_coef=100 pre-registered; if first result shows no protection at any N, autopsy disambiguates no-process vs coef-too-weak (a lettered re-calibration, not a verdict).",
+      "status": "pending",
+      "architecture_epoch": "ree_hybrid_guardrails_v1",
+      "conditions": 4,
+      "episodes_per_run": 3000,
+      "experiment_type": "v3_exq_836b_mech476_interval_dependent_consolidation",
+      "seeds": 6
+    },
+    {
+      "queue_id": "V3-EXQ-836c",
+      "title": "MECH-476 NOVELTY falsifier: Moncada behavioural-tagging of a weak install (SD-083)",
+      "script": "experiments/v3_exq_836c_mech476_novelty_tagging_consolidation.py",
+      "priority": 40,
+      "machine_affinity": "any",
+      "estimated_minutes": 320,
+      "claim_id": "MECH-476",
+      "note": "MECH-476 falsifier, NOVELTY / behavioural-tagging axis (Moncada & Viola 2007). Unblocked by SD-083. Weak-but-took install (150 BC episodes) x {paired,unpaired} novelty at fixed interval N=300; SUPPORTED if retained_fraction[paired]-[unpaired]>=0.15. Smoke PASS on cloud worker (paired novelty_factor=1.0 measured_novelty=2.63; unpaired pinned 0.05; delta positive in dry-run). GOV-REUSE-1: novelty-gated retention recorded in no prior manifest -> run. CALIBRATION: weak dose chosen so unpaired erodes; if unpaired also fully retains (dose too strong) re-queue lettered at a lower dose, NOT a WEAKENED verdict; install_took gate catches the too-weak case.",
+      "status": "pending",
+      "architecture_epoch": "ree_hybrid_guardrails_v1",
+      "conditions": 2,
+      "episodes_per_run": 3000,
+      "experiment_type": "v3_exq_836c_mech476_novelty_tagging_consolidation",
+      "seeds": 6
+    },
+    {
       "queue_id": "V3-EXQ-838",
       "title": "Q-081 prospective cross-stream recording: INTACT vs iei_permute / circular_shift / suppress (RV z_world x operating_mode)",
       "script": "experiments/v3_exq_838_q081_cross_stream_recording.py",
@@ -46,38 +78,6 @@
       "episodes_per_run": 20,
       "experiment_type": "v3_exq_838_q081_cross_stream_recording",
       "seeds": 5
-    },
-    {
-      "architecture_epoch": "ree_hybrid_guardrails_v1",
-      "status": "pending",
-      "machine_affinity": "any",
-      "seeds": 6,
-      "claim_id": "MECH-476",
-      "episodes_per_run": 3000,
-      "queue_id": "V3-EXQ-836b",
-      "title": "MECH-476 INTERVAL falsifier: retained_fraction vs offline consolidation-window steps (SD-083)",
-      "experiment_type": "v3_exq_836b_mech476_interval_dependent_consolidation",
-      "script": "experiments/v3_exq_836b_mech476_interval_dependent_consolidation.py",
-      "priority": 40,
-      "estimated_minutes": 600,
-      "conditions": 4,
-      "note": "MECH-476 A->B->A retrograde-interference falsifier, INTERVAL axis. Unblocked by SD-083 offline policy-consolidation window (ree-v3 42ab95f688). Sweeps offline_window_steps {0,150,400,900} at fixed BC dose 300; N=0 is the embedded unconstrained control (c=0, no anchor). DV retained_fraction trajectory; SUPPORTED if monotone-increasing in N with spread>=0.15. Smoke PASS on cloud worker (dry-run plumbing green: capture + ewc_coef grow with N). GOV-REUSE-1: decisive readout (retained_fraction under an offline window) is recorded in NO prior manifest -- SD-083 just landed, no run has exercised it -> run. offline_ewc_max_coef=100 pre-registered; if first result shows no protection at any N, autopsy disambiguates no-process vs coef-too-weak (a lettered re-calibration, not a verdict)."
-    },
-    {
-      "architecture_epoch": "ree_hybrid_guardrails_v1",
-      "status": "pending",
-      "machine_affinity": "any",
-      "seeds": 6,
-      "claim_id": "MECH-476",
-      "episodes_per_run": 3000,
-      "queue_id": "V3-EXQ-836c",
-      "title": "MECH-476 NOVELTY falsifier: Moncada behavioural-tagging of a weak install (SD-083)",
-      "experiment_type": "v3_exq_836c_mech476_novelty_tagging_consolidation",
-      "script": "experiments/v3_exq_836c_mech476_novelty_tagging_consolidation.py",
-      "priority": 40,
-      "estimated_minutes": 320,
-      "conditions": 2,
-      "note": "MECH-476 falsifier, NOVELTY / behavioural-tagging axis (Moncada & Viola 2007). Unblocked by SD-083. Weak-but-took install (150 BC episodes) x {paired,unpaired} novelty at fixed interval N=300; SUPPORTED if retained_fraction[paired]-[unpaired]>=0.15. Smoke PASS on cloud worker (paired novelty_factor=1.0 measured_novelty=2.63; unpaired pinned 0.05; delta positive in dry-run). GOV-REUSE-1: novelty-gated retention recorded in no prior manifest -> run. CALIBRATION: weak dose chosen so unpaired erodes; if unpaired also fully retains (dose too strong) re-queue lettered at a lower dose, NOT a WEAKENED verdict; install_took gate catches the too-weak case."
     }
   ]
 }
