@@ -42,26 +42,6 @@
       "seeds": 10
     },
     {
-      "queue_id": "V3-EXQ-836b",
-      "title": "MECH-476 INTERVAL falsifier: retained_fraction vs offline consolidation-window steps (SD-083)",
-      "script": "experiments/v3_exq_836b_mech476_interval_dependent_consolidation.py",
-      "priority": 40,
-      "machine_affinity": "any",
-      "estimated_minutes": 600,
-      "claim_id": "MECH-476",
-      "note": "MECH-476 A->B->A retrograde-interference falsifier, INTERVAL axis. Unblocked by SD-083 offline policy-consolidation window (ree-v3 42ab95f688). Sweeps offline_window_steps {0,150,400,900} at fixed BC dose 300; N=0 is the embedded unconstrained control (c=0, no anchor). DV retained_fraction trajectory; SUPPORTED if monotone-increasing in N with spread>=0.15. Smoke PASS on cloud worker (dry-run plumbing green: capture + ewc_coef grow with N). GOV-REUSE-1: decisive readout (retained_fraction under an offline window) is recorded in NO prior manifest -- SD-083 just landed, no run has exercised it -> run. offline_ewc_max_coef=100 pre-registered; if first result shows no protection at any N, autopsy disambiguates no-process vs coef-too-weak (a lettered re-calibration, not a verdict).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-07-29T17:15:35Z"
-      },
-      "architecture_epoch": "ree_hybrid_guardrails_v1",
-      "conditions": 4,
-      "episodes_per_run": 3000,
-      "experiment_type": "v3_exq_836b_mech476_interval_dependent_consolidation",
-      "seeds": 6
-    },
-    {
       "queue_id": "V3-EXQ-687a",
       "title": "MECH-313 committed-path authority dissociation (687 successor, DIAGNOSTIC)",
       "script": "experiments/v3_exq_687a_mech313_committed_authority_dissociation.py",
