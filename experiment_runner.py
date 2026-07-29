@@ -2533,6 +2533,42 @@ def now_utc() -> str:
 
 _write_status_lock = threading.Lock()
 
+_STATUS_WRITE_ERROR_COUNT = 0
+_STATUS_WRITE_ERROR_LAST_LOG = [0.0]
+_STATUS_WRITE_ERROR_LOG_INTERVAL = 3600.0
+
+
+def _on_status_write_error(exc: BaseException) -> None:
+    """Log a failure of the per-tick status write, rate-limited by TIME.
+
+    Deliberately not silent (the `_on_git_timeout` lesson: silent absorption
+    is the real defect) and deliberately not once-per-occurrence: the status
+    write fires every STATUS_WRITE_INTERVAL (5s) from the `_heartbeat` thread
+    AND again from the stdout pump, so a persistent fault -- a full disk, a
+    permission change, a status file locked by another process -- would emit
+    on the order of 1400 identical lines/hour and scroll the experiment's own
+    output away.
+
+    Rate-limited on the CLOCK rather than on a tick count (which is what the
+    sibling `_on_evidence_guard_error` does), because that helper serves a
+    single 60s loop where count and elapsed time are interchangeable. Here two
+    callers on different cadences share one counter, so a modulus would not
+    correspond to any fixed interval. First occurrence, then at most hourly.
+    The count is still reported so the line says how many were suppressed.
+    """
+    global _STATUS_WRITE_ERROR_COUNT
+    _STATUS_WRITE_ERROR_COUNT += 1
+    n = _STATUS_WRITE_ERROR_COUNT
+    now_mono = time.monotonic()
+    if n == 1 or now_mono - _STATUS_WRITE_ERROR_LAST_LOG[0] >= _STATUS_WRITE_ERROR_LOG_INTERVAL:
+        _STATUS_WRITE_ERROR_LAST_LOG[0] = now_mono
+        print(
+            f"[runner] status write FAILED (#{n}): {exc!r} -- the experiment "
+            "continues; runner_status/machines telemetry is STALE until this "
+            "clears",
+            flush=True,
+        )
+
 
 def write_status(status: dict, path: Path) -> None:
     if _phase3_hub_local_ree_assembly_writes_gated():
@@ -2880,6 +2916,52 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
         )
 
     def update_status_current():
+        """Refresh `status` and write it to disk. Never raises.
+
+        2026-07-29: made total. The body ends in `write_status`, a disk write,
+        and had no try/except anywhere in it or in any of its three callers'
+        immediate context -- so a transient IO error (full disk, permission
+        change, a locked or truncated status file) propagated. What that cost
+        differed per caller, and all three directions were wrong:
+
+          1. The pre-launch call, which sits OUTSIDE run_experiment's big try,
+             escaped the function entirely and landed in main()'s
+             `except Exception as _run_exc` -- which adds the queue_id to
+             `completed_ids` and drops it from the queue. A status-file hiccup
+             therefore BURNED the queue entry without the experiment ever
+             being launched.
+          2. The stdout-pump call, inside the big try, aborted the
+             `for line in proc.stdout` loop: the run was recorded ERROR with
+             an IO message as its `result_summary`, `_hb_stop.set()` and
+             `proc.wait()` were both skipped, and the `finally` cleared
+             `proc_ref` -- orphaning a still-live subprocess that the SIGTERM
+             handler could no longer kill.
+          3. The `_heartbeat` thread call terminated that thread for the rest
+             of the experiment, silently and unrecoverably (nothing restarts
+             it), stopping both `runner_status/*.json` and the remote-control
+             heartbeat. The cloud-scaler's HEARTBEAT_FRESH_MIN git-fallback
+             path reads a stale heartbeat as idle, so this is not cosmetic.
+
+        Failing OPEN is right in all three: this function is TELEMETRY, and
+        telemetry must never be the reason an experiment does not start, does
+        not finish, or is misreported. The degraded state is a stale status
+        file, which the explorer and scaler already have to tolerate -- the
+        phase3 heartbeat writer commits on state-changes only, so staleness is
+        an expected reading there, not a novel one. Fail-closed was not
+        considered viable for the same reason as the sibling guard in
+        `_sync_pull_tick`: these faults are typically persistent, so aborting
+        on error converts one lost write into a lost run.
+
+        Note this does NOT make a genuinely full disk invisible -- the
+        experiment's own manifest write still fails, loudly, at the end. It
+        only stops a telemetry write from pre-empting that.
+        """
+        try:
+            _update_status_current_inner()
+        except Exception as _exc:
+            _on_status_write_error(_exc)
+
+    def _update_status_current_inner():
         status["current"] = {
             "queue_id": item["queue_id"],
             "backlog_id": item.get("backlog_id", ""),
@@ -3005,9 +3087,26 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
                 print(f"[runner] remote heartbeat warn: {_exc}", flush=True)
 
         def _heartbeat():
+            # Defence in depth, exactly as in `_background_sync` below. Both
+            # calls in this body are now individually total -- `update_status_
+            # current` as of 2026-07-29, `_push_remote_heartbeat` from the
+            # start -- but this loop is the ONLY thing between one escaped
+            # exception and a heartbeat thread that is dead for the rest of
+            # the experiment: nothing restarts it, and the death is silent, so
+            # runner_status/*.json and the remote-control heartbeat simply
+            # stop, taking the explorer /machines dashboard and the
+            # cloud-scaler's telemetry stale with them. Catching per-iteration
+            # means a future addition to this body costs one skipped tick
+            # rather than every remaining tick. Exception, not BaseException:
+            # SystemExit/KeyboardInterrupt SHOULD still be able to stop this
+            # thread.
             while not _hb_stop.wait(timeout=STATUS_WRITE_INTERVAL):
-                update_status_current()
-                _push_remote_heartbeat()
+                try:
+                    update_status_current()
+                    _push_remote_heartbeat()
+                except Exception as _exc:
+                    print(f"[runner] heartbeat tick warn: {_exc!r}",
+                          flush=True)
         _hb_thread = threading.Thread(target=_heartbeat, daemon=True)
         _hb_thread.start()
 
