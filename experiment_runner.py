@@ -1258,9 +1258,34 @@ def align_after_coordinator_result(
               f"{manifest_path}", flush=True)
 
     def _delayed_pulls() -> None:
+        # Defence in depth -- the third and last daemon-thread loop in this
+        # file, after `_heartbeat` and `_background_sync` (both guarded
+        # 2026-07-29). The severity here is genuinely LOWER than at those
+        # two, and stating that is the point rather than the objection:
+        # `_sync_pull_tick` is provably total as of 3dcb3ccd2d and contract
+        # C10 PINS that totality, and this loop is bounded at two
+        # iterations, so an escaped exception would cost one skipped delayed
+        # pull -- not a permanently dead thread, which is what made the
+        # other two serious. This is hardening against a FUTURE regression,
+        # not a live defect. What it buys: C10 protects the CALLEE, nothing
+        # protected this CALL SITE, so a second statement added to this body
+        # would have silently re-armed the whole class here; and guarding
+        # all three makes "every daemon loop body in this file is guarded" a
+        # checkable invariant (tests/contracts/test_daemon_thread_loop_
+        # guards.py enumerates the threads rather than naming them) instead
+        # of a case-by-case argument that has to be re-made per thread.
+        # Per-iteration, so a failed first pull still leaves the second.
+        # Exception, not BaseException -- SystemExit/KeyboardInterrupt
+        # SHOULD still stop this thread. Logged rather than swallowed
+        # silently (the _on_git_timeout lesson); unrate-limited because two
+        # iterations cannot flood, unlike the unbounded sibling loops.
         for delay in (45, 120):
-            time.sleep(delay)
-            _sync_pull_tick(ree_assembly_path)
+            try:
+                time.sleep(delay)
+                _sync_pull_tick(ree_assembly_path)
+            except Exception as _exc:
+                print(f"[runner] post-result align warn: {_exc!r}",
+                      flush=True)
 
     threading.Thread(
         target=_delayed_pulls, daemon=True, name="post-result-align",
