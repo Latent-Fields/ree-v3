@@ -3095,6 +3095,8 @@ class REEAgent(nn.Module):
         # episode boundary (a fresh trial starts with no carried-over closure commit).
         self.e3._closure_committed_active = False
         self.e3._closure_committed_trajectory = None  # C-STEP extension: clear on reset
+        # SD-084: a fresh episode starts with no carried-over committed program.
+        self.e3._persistent_committed_trajectory = None
         # SD-061: reset the stuck-state detector + proposal-entropy regulator
         # per episode (preserve no cross-episode impasse state) + the lagged
         # stuck_score the next _e3_tick reads.
@@ -5437,6 +5439,7 @@ class REEAgent(nn.Module):
                 # latch on this de-commit so it cannot keep re-arming the eval.
                 self.e3._closure_committed_active = False
                 self.e3._closure_committed_trajectory = None  # C-STEP extension
+                self.e3._persistent_committed_trajectory = None  # SD-084
 
         # Commit/release-DURATION lever: graded natural-commit-occupancy release
         # (rung-6 of f_dominance_conversion_ceiling; the duration face PARALLEL to
@@ -5493,10 +5496,42 @@ class REEAgent(nn.Module):
                 self.e3._committed_trajectory = None
                 self.e3._closure_committed_active = False  # rung-6 amend: clear latch
                 self.e3._closure_committed_trajectory = None  # C-STEP extension
+                self.e3._persistent_committed_trajectory = None  # SD-084
                 # Natural-commit latch-hold yields to the rung-6 duration release
                 # -- this IS the lever shortening the held natural commit (the
                 # whole point); the hold disarms so the occupancy stays shortened.
                 self._ncl_lever_fired = True
+
+        # SD-084 REAP of the persistent committed-program handle. A handle that
+        # outlives beta elevation is by definition dead: the committed program
+        # it points at has been released. Reaping here -- before the MECH-321
+        # mid-execution hook below, which is its only consumer -- is what keeps
+        # the hook from ever firing against a STALE trajectory.
+        #
+        # An INVARIANT rather than a list of clear sites, deliberately. agent.py
+        # has TEN beta_gate.release() sites and only five of them clear
+        # e3._committed_trajectory; the other five need not, because
+        # post_action_update tears it down every tick regardless. This handle
+        # removes exactly that backstop, so clearing only at the five documented
+        # sites would strand a stale trajectory on the MECH-091 safety release
+        # and on the E3-tick non-commit release, among others -- and gate (2)
+        # below (beta elevated) would then re-open on a LATER, unrelated commit
+        # with the dead program still installed. The explicit clears at the
+        # principled de-commit sites are kept alongside this for same-tick
+        # observability and idiom-match; they are redundant with it, not
+        # load-bearing.
+        #
+        # Known interaction: the natural-commit latch hold re-asserts beta later
+        # in this method (after the hook), so a handle reaped here is not
+        # resurrected by that re-assert. That is correct -- the F-driven program
+        # has genuinely ended, e3._committed_trajectory is None there too, and
+        # the stepping path already falls back. use_natural_commit_latch_hold is
+        # default-off in any case.
+        #
+        # Unconditional: with the flag off nothing reads the handle, so this is
+        # output-neutral (bit-identical).
+        if not self.beta_gate.is_elevated:
+            self.e3._persistent_committed_trajectory = None
 
         # ARC-070/MECH-321 mid-execution decomposition (R4 second phase): the
         # REMAINING (unexecuted) content of an already-committed ARC-071
@@ -5521,7 +5556,19 @@ class REEAgent(nn.Module):
             and self.hippocampal is not None
             and self.hippocampal.event_segmenter is not None
         ):
+            # Gate (4). SD-084: the UNION of the F-driven handle and the
+            # persistent one. The F-driven handle is checked FIRST and is the
+            # only one consulted when use_persistent_committed_program_handle is
+            # off, so the OFF path is the legacy
+            # `_mid_traj = self.e3._committed_trajectory` exactly -- and stays
+            # structurally unsatisfiable, which is the V3-EXQ-830 null. With the
+            # flag on, a program committed on a PREVIOUS tick is visible here for
+            # the first time, which is what makes this hook reachable at all.
             _mid_traj = self.e3._committed_trajectory
+            if _mid_traj is None and getattr(
+                self.config, "use_persistent_committed_program_handle", False
+            ):
+                _mid_traj = self.e3._persistent_committed_trajectory
             _mid_meta = _mid_traj.metadata if _mid_traj is not None else None
             if _mid_meta and _mid_meta.get("source") in (
                 "arc071_chunk",
@@ -5615,6 +5662,11 @@ class REEAgent(nn.Module):
                         self.e3._committed_trajectory = None
                         self.e3._closure_committed_active = False
                         self.e3._closure_committed_trajectory = None
+                        # SD-084: this hook's own release must also drop the
+                        # persistent handle, or the aborted macro would remain
+                        # visible to gate (4) on the very next tick and the hook
+                        # would re-fire against the program it just abandoned.
+                        self.e3._persistent_committed_trajectory = None
 
         # SD-061: update the stuck-state detector every tick (not gated on beta
         # elevation -- impasse can build before commitment). Feeds the next
@@ -5702,6 +5754,7 @@ class REEAgent(nn.Module):
                     self.e3._committed_trajectory = None
                     self.e3._closure_committed_active = False  # rung-6 amend: clear latch
                     self.e3._closure_committed_trajectory = None  # C-STEP extension
+                    self.e3._persistent_committed_trajectory = None  # SD-084
 
         # MECH-269 / MECH-090 read-side hook: V_s -> commit release.
         # If any anchor key snapshotted at commit entry has dropped out of the
@@ -8658,6 +8711,7 @@ class REEAgent(nn.Module):
                         self._committed_anchor_keys = None
                         self.e3._committed_trajectory = None
                         self.e3._closure_committed_active = False  # rung-6 amend: clear latch
+                        self.e3._persistent_committed_trajectory = None  # SD-084
                         self._ncl_hold_active = False
                         metrics["habenula_decommit_fired"] = torch.tensor(1.0)
 

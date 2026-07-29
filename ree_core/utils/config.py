@@ -3912,6 +3912,42 @@ class REEConfig:
     # COMMIT LATCH -- aborting the remaining macro. Default False is
     # bit-identical (the key is simply not added to the dict).
     use_decomposition_scale_resolved_probe_midexec: bool = False
+    # SD-084 PERSISTENT COMMITTED-PROGRAM HANDLE. Makes MECH-321's R4
+    # MID-EXECUTION hook REACHABLE. The hook (agent.py select_action) gates on
+    # a committed trajectory surviving from a PREVIOUS tick -- it re-evaluates
+    # the REMAINING, unexecuted content of an already-committed chunk -- but
+    # E3Selector.post_action_update's LAST statement is an unconditional
+    # `self._committed_trajectory = None`, and REEAgent.update_residue calls it
+    # every step. So under the standard select_action -> update_residue driver
+    # loop the gate can NEVER be satisfied: the hook has never executed in any
+    # experiment. V3-EXQ-830 measured decomp_n_evaluated_midexec = 0 in all 10
+    # cells (5 seeds x 2 arms) against decomp_n_evaluated_precommit 1862-2618.
+    # Diagnosis: failure_autopsy_V3-EXQ-830_2026-07-29 section 3.
+    #
+    # With this flag ON, gate (4) reads the UNION of the F-driven
+    # _committed_trajectory and E3Selector._persistent_committed_trajectory --
+    # a handle set at commit entry that post_action_update does NOT tear down.
+    # This mirrors the existing _closure_committed_trajectory precedent, which
+    # was built for exactly this reason and whose docstring says so.
+    #
+    # NOT A PURE DIAGNOSTIC -- this flag CHANGES BEHAVIOUR when on. A reachable
+    # mid-execution hook can newly reach boundary.fired, which feeds MECH-321's
+    # R1 OR trigger, and a mid-execution fire RELEASES THE COMMIT LATCH,
+    # ABORTING THE REMAINING MACRO. Agents running with this on will take
+    # different action sequences from agents running with it off. It is not a
+    # measurement-only knob and must not be enabled in an arm that is meant to
+    # be behaviourally identical to a default-path control.
+    #
+    # THREE wiring sites, like the midexec probe flag above and for the same
+    # reason: the REEConfig field, the from_dims signature, and the from_dims
+    # assignment. No sub-config mirror -- the consumer is REEAgent, which reads
+    # the top-level REEConfig off self.config. The SETTER in E3Selector.select
+    # is deliberately UNGATED (E3Selector holds an E3Config, not this config);
+    # storing a reference nothing reads is output-neutral, exactly as the
+    # neighbouring _fp_chosen_world_endpoint / last_raw_scores already are.
+    # Default False -> the union reduces to the legacy
+    # `_committed_trajectory is not None` -> bit-identical.
+    use_persistent_committed_program_handle: bool = False
     # Safety cap on how many ticks the hold re-asserts a single natural-commit run
     # before disarming (guards a degenerate config from latching forever).
     # 0 -> unbounded (the hold persists until a principled release / the committed
@@ -5727,6 +5763,7 @@ class REEConfig:
         decomposition_bottleneck_region_dims: int = 8,
         use_decomposition_scale_resolved_probe: bool = False,
         use_decomposition_scale_resolved_probe_midexec: bool = False,
+        use_persistent_committed_program_handle: bool = False,
         # Post-603i E2 escape-affordance linker (readout over detached E2
         # action-consequence features; reuse, not a duplicate predictor).
         use_e2_escape_affordance_linker: bool = False,
@@ -6966,6 +7003,12 @@ class REEConfig:
         # mirror provides on the pre-commitment side.
         config.use_decomposition_scale_resolved_probe_midexec = (
             use_decomposition_scale_resolved_probe_midexec
+        )
+        # SD-084: persistent committed-program handle (MECH-321 R4 mid-execution
+        # reachability). Same three-site pattern and same no-mirror reasoning as
+        # the midexec probe flag above -- the consumer is REEAgent.select_action.
+        config.use_persistent_committed_program_handle = (
+            use_persistent_committed_program_handle
         )
 
         # MECH-341 (ARC-065 Layer-B child): e3_scoring_preserves_trajectory_

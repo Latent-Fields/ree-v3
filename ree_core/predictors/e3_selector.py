@@ -360,6 +360,32 @@ class E3TrajectorySelector(nn.Module):
         # repeating _last_action. init None -> with the trajectory flag off every
         # consuming union reduces to the bool-latch behaviour -> bit-identical.
         self._closure_committed_trajectory: Optional[Trajectory] = None
+        # SD-084 PERSISTENT COMMITTED-PROGRAM HANDLE (MECH-321 R4 mid-execution
+        # reachability; failure_autopsy_V3-EXQ-830_2026-07-29 section 3). The
+        # F-driven _committed_trajectory above is torn down every tick by the
+        # last statement of post_action_update, so any consumer needing the
+        # committed program to survive ACROSS ticks can never see it. That is
+        # precisely what MECH-321's R4 mid-execution hook needs -- it
+        # re-evaluates the REMAINING, unexecuted content of an already-committed
+        # chunk -- and why that hook has never executed in any experiment
+        # (decomp_n_evaluated_midexec = 0 in all 10 V3-EXQ-830 cells).
+        #
+        # SET on commit entry (the same `if committed:` path that sets
+        # _committed_trajectory) and NOT torn down by post_action_update, so it
+        # persists across ticks. Liveness is maintained by REEAgent.select_action,
+        # which reaps it whenever the beta gate is not elevated -- see the SD-084
+        # block there for why an invariant is used rather than a list of clear
+        # sites (five of agent.py's ten beta_gate.release() sites do not clear
+        # _committed_trajectory, because post_action_update backstops them; this
+        # handle has no such backstop).
+        #
+        # Stored UNCONDITIONALLY, like _last_selected_trajectory and the
+        # _fp_*_world_endpoint refs below: a run with
+        # use_persistent_committed_program_handle off never reads it, so the
+        # write is output-neutral (bit-identical). Gating the setter would need
+        # a fourth wiring site, since this selector holds an E3Config while the
+        # flag lives on the top-level REEConfig its consumer reads.
+        self._persistent_committed_trajectory: Optional[Trajectory] = None
         # ARC-016: store last selected trajectory for rv updates regardless of
         # commitment.  Without this, rv only updates when committed, creating a
         # deadlock: rv starts above commit_threshold -> agent never commits ->
@@ -3497,6 +3523,13 @@ class E3TrajectorySelector(nn.Module):
 
         if committed:
             self._committed_trajectory = selected_trajectory
+            # SD-084: install the same trajectory into the PERSISTENT handle,
+            # which post_action_update does not tear down. This is the commit
+            # ENTRY point, so the two handles agree at the moment of commit and
+            # diverge only afterwards -- the F-driven one dies at the end of the
+            # tick, the persistent one lives until REEAgent reaps it on beta
+            # release. Unconditional: output-neutral when nothing reads it.
+            self._persistent_committed_trajectory = selected_trajectory
         # Always store for rv updates (ARC-016 deadlock fix)
         self._last_selected_trajectory = selected_trajectory
 

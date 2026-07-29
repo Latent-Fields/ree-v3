@@ -650,6 +650,21 @@ PROBED = {
     # sibling, one step sharper: a mid-execution fire releases the commit
     # latch, aborting the remaining macro.
     "use_decomposition_scale_resolved_probe_midexec",
+    # SD-084 persistent committed-program handle. Probed by
+    # test_mech321_midexec_natural_reachability.py: ON, the MECH-321 R4
+    # mid-execution hook fires in a REAL rollout (decomp_n_evaluated_midexec >
+    # 0) with nothing injected; OFF, the same loop yields exactly 0 WHILE STILL
+    # committing multi-action programs -- so the zero is post_action_update's
+    # unconditional teardown, not an empty arm. That pairing is the probe: it
+    # is the flag, not the absence of committed programs, that moves the
+    # counter. Note this flag is what makes the sibling
+    # use_decomposition_scale_resolved_probe_midexec above REACHABLE at all --
+    # until SD-084 landed, that flag modified a dict inside a block that never
+    # executed in any experiment (V3-EXQ-830: 0 mid-execution evaluations in
+    # all 10 cells). NOT a pure diagnostic: a reachable mid-execution hook can
+    # newly reach boundary.fired and its fire releases the commit latch,
+    # aborting the remaining macro.
+    "use_persistent_committed_program_handle",
 } | set(FLAGS_WITH_DEFAULT_BEHAVIOURAL_DELTA) | set(FLAGS_WITH_LOUD_PRECONDITION)
 
 # Audit-confirmed inert / mis-wired flags (finding id -> reason). Documented here

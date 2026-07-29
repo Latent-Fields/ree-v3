@@ -1458,6 +1458,45 @@ MECH-073 reframed as consequence of ARC-013 applied to z_world.
 MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequisite.
 
 ## SD Design Decisions Implemented
+- SD-084: e3.persistent_committed_program_handle -- IMPLEMENTED 2026-07-29.
+  Makes MECH-321's R4 MID-EXECUTION hook REACHABLE. That hook (agent.py select_action)
+  gates on a committed trajectory surviving from a PREVIOUS tick, but the LAST statement of
+  E3Selector.post_action_update is an unconditional `self._committed_trajectory = None` and
+  every driver calls update_residue each step -- so the hook had NEVER executed in any
+  experiment (V3-EXQ-830: decomp_n_evaluated_midexec = 0 in all 10 cells against
+  decomp_n_evaluated_precommit 1862-2618). Diagnosis: REE_assembly
+  evidence/planning/failure_autopsy_V3-EXQ-830_2026-07-29.md section 3.
+  Module: E3Selector._persistent_committed_trajectory (e3_selector.py), mirroring the
+  existing _closure_committed_trajectory precedent built for the same reason.
+  Config: REEConfig.use_persistent_committed_program_handle (default False; set True to
+  enable). THREE wiring sites (field + from_dims signature + from_dims assignment); no
+  sub-config mirror -- the consumer is REEAgent, which reads top-level REEConfig.
+  Data flow: E3Selector.select `if committed:` -> _persistent_committed_trajectory
+  (SET, unconditional -- output-neutral, per the _fp_*_world_endpoint precedent) ->
+  survives post_action_update -> agent.py gate (4) reads the UNION -> PolicyDecomposition
+  .evaluate() on the remaining unexecuted actions.
+  LIVENESS IS AN INVARIANT, NOT A SITE LIST: select_action reaps the handle whenever
+  beta is not elevated. agent.py has TEN beta_gate.release() sites and only FIVE clear
+  _committed_trajectory (the rest are backstopped by post_action_update, a backstop this
+  handle removes), so clearing only at the documented de-commit sites would strand a stale
+  trajectory and fire the hook against an already-released program. The six explicit
+  clears are kept for same-tick observability and are redundant with the reap.
+  Backward compatible: disabled by default; OFF path is bit-identical (two attribute
+  writes nothing reads) and reproduces the V3-EXQ-830 structural zero exactly.
+  NOT A PURE DIAGNOSTIC WHEN ON: a reachable mid-execution hook can newly reach
+  boundary.fired (feeding MECH-321's R1 OR trigger), and a mid-execution fire RELEASES
+  THE COMMIT LATCH, ABORTING THE REMAINING MACRO -- action sequences change.
+  MECH-094: N/A (waking path, no replay/simulation/memory-write surface).
+  Phased training: N/A (no encoder head, no new parameters).
+  Also makes use_decomposition_scale_resolved_probe_midexec (aaf5caac26) REACHABLE rather
+  than merely unexercised -- it must not be read as validated by V3-EXQ-830.
+  Contract: tests/contracts/test_mech321_midexec_natural_reachability.py -- asserts the
+  hook fires in a REAL rollout with NOTHING injected, plus an OFF negative control that
+  still commits multi-action programs (so its zero is the teardown, not an empty arm).
+  This is the assertion test_mech321_scale_resolved_boundary.py could not make: it reaches
+  the hook only by setting fake_traj.metadata, _committed_step_idx=1 and beta_gate.elevate()
+  directly -- reachability-in-principle, which is exactly why the defect survived.
+  See MECH-321, ARC-070, ARC-071, MECH-288 (no claim status changed).
 - SD-004: E2 action objects; HippocampalModule navigates action-object space O
 - SD-005: z_gamma split into z_self (E2 domain) + z_world (E3/Hippocampal/ResidueField domain)
 - SD-006: Asynchronous multi-rate loop execution (phase 1: time-multiplexed)
