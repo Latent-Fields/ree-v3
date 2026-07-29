@@ -65,6 +65,22 @@
       "episodes_per_run": 3000,
       "experiment_type": "v3_exq_836c_mech476_novelty_tagging_consolidation",
       "seeds": 6
+    },
+    {
+      "queue_id": "V3-EXQ-687a",
+      "title": "MECH-313 committed-path authority dissociation (687 successor, DIAGNOSTIC)",
+      "experiment_type": "v3_exq_687a_mech313_committed_authority_dissociation",
+      "script": "experiments/v3_exq_687a_mech313_committed_authority_dissociation.py",
+      "priority": 38,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 300,
+      "episodes_per_run": 220,
+      "seeds": 3,
+      "conditions": 4,
+      "claim_id": "Q-045",
+      "supersedes": "V3-EXQ-687",
+      "note": "DIAGNOSTIC (excluded from confidence/conflict scoring). Successor to V3-EXQ-687 per failure_autopsy_V3-EXQ-687_2026-06-18 (arms the 569i-validated GAP-A conversion stack constant on all arms + adds a MECH-260 operativity precondition), RE-SCOPED from evidence to diagnostic. WHY RE-SCOPED: a static line-pin at authoring time shows MECH-313 is a UNIFORM softmax-temperature lift (agent.py:7261) entering E3 at one site (e3_selector.py:3101), while the committed branch is a hard argmin over _modulatory_accum (e3_selector.py:3380) under the default use_gap_scaled_commit_temperature=False. A uniform temperature is a monotone rescaling, so it cannot move an argmin: on a committed-action DV ARM_1==ARM_0 and ARM_3==ARM_2 ARITHMETICALLY and the Q-045 interaction cell is unmeasurable. So this probe measures WHETHER the tonic channel reaches committed selection (emitting precommit vs committed entropy + the committed fraction) instead of assuming it does. use_gap_scaled_commit_temperature is left FALSE deliberately -- flipping it would test 'MECH-313 GIVEN MECH-439'. DV-SYMMETRY (required declaration): ARM_1/ARM_3 committed_action_entropy IS invariant under the manipulation -- that is the hypothesis under test, measured not assumed; precommit_entropy is NOT invariant (softmax is temperature-scaled) and is the positive control. ARM_2/ARM_3 dACC suppression is a PER-CANDIDATE additive penalty (dacc.py:401), not a broadcast scalar, so it is not invariant under argmin. ARM_0 no manipulation. INSTRUMENT REPAIR: V3-EXQ-687 read the dACC bundle as dacc._last_bundle, which does not exist (it is agent._dacc_last_bundle, agent.py:6148), so its dacc_max_suppression was pinned to 0.0 BY CONSTRUCTION -- an artifact, not a measurement, and the 687 autopsy section 6.2 record/score-decoupling root cause rests on it. Repaired here; the smoke now reads suppression 1.0 on both dACC arms. RE-DERIVE BRAKE: fires at 5/8/13 autopsies (Q-045/MECH-313/MECH-260) vs threshold 2; RELEASED because the named upstream substrate (GAP-A conversion stack) is built and VALIDATED by V3-EXQ-569i PASS/supports, and the 687 autopsy records recommended_substrate_queue_entry.action=none. GOV-REUSE-1: decisive readout is committed-vs-precommit action entropy under a fresh-selection gate; checked 687 and 603e manifests -- neither records a fresh-select-gated or precommit entropy at all (687 emitted only the hold-weighted selected_action_entropy), so not recoverable -> run. Carries the five 603e-autopsy instrument repairs: fresh-selection gating via _lib/fresh_select (sentinel key, NOT the = None idiom -- agent.py:9660 reads the dict on non-E3 ticks), both readouts kept distinct, pre-registered margin plus a cross-seed-SD gate (603e's C3 landed true on 0.001235 nats), behavioural-coverage conjunct, and FIFO warmup expressed in FRESH SELECTIONS. Smoke PASS; validate_experiments --strict OK with 0 warnings."
     }
   ]
 }
