@@ -10,6 +10,16 @@ reported its norm as "dacc_score_bias_mean" -- but score_bias is the [K]
 tensor that DACCtoE3Adapter produces from the bundle, not the raw mode_ev
 slice. Plus a ``try/except: norm=0.0`` was hiding shape mismatches.
 
+NOTE ON THAT SPELLING (2026-07-29): ``agent.dacc._last_bundle`` above is
+quoted as the ORIGINAL BUG and is doubly wrong -- there is no ``_last_bundle``
+attribute on the dACC module at all. The bundle lives on the AGENT as
+``agent._dacc_last_bundle`` (written ``ree_core/agent.py:6148``, canonical
+read ``:10340``). Use that spelling. ``getattr(dacc, "_last_bundle", None)``
+returns None on every tick, so any max/mean derived from it is pinned to 0.0
+BY CONSTRUCTION rather than measured. ``validate_experiments.py``'s
+``dacc_last_bundle`` lint now fails the corpus on the wrong spelling so the
+class cannot silently return.
+
 Single-source-of-truth extractors mean the script does not have to know
 which substrate slot to read; bug fixes propagate through one place.
 
@@ -70,16 +80,29 @@ def extract_dacc_score_bias(agent) -> Optional[torch.Tensor]:
     measuring. Reading the raw bundle slot ``mode_ev`` instead (as the
     EXQ-490 cohort did) measures something different.
 
-    The score_bias is cached on the agent in ``_last_dacc_score_bias`` if
-    present; otherwise we recompute via the adapter using the last bundle.
+    The score_bias is cached on the agent in ``_dacc_last_bias`` if present;
+    otherwise we recompute via the adapter using the last bundle.
+
+    INSTRUMENT REPAIR (2026-07-29). BOTH substrate attribute names in this
+    function were wrong, so it returned None unconditionally whenever dACC was
+    enabled and ``extract_dacc_diagnostics`` below therefore emitted its
+    zero-filled dict on every tick -- a structural zero, not a measurement:
+      * the cache is ``agent._dacc_last_bias`` (``ree_core/agent.py:2699``,
+        written ``:6151``/``:6282``), never ``agent._last_dacc_score_bias``;
+      * the bundle is ``agent._dacc_last_bundle`` (written ``:6148``, canonical
+        read ``:10340``), never ``dacc._last_bundle`` -- the dACC module has no
+        such attribute (``ree_core/cingulate/dacc.py`` defines none).
+    Neither name existed anywhere in ``ree_core``, so ``getattr`` swallowed both
+    silently. These extractors had no callers at the time of the repair, so no
+    landed manifest is affected through this file.
     """
     dacc = getattr(agent, "dacc", None)
     if dacc is None:
         return None
-    cached = getattr(agent, "_last_dacc_score_bias", None)
+    cached = getattr(agent, "_dacc_last_bias", None)
     if cached is not None:
         return cached
-    bundle = getattr(dacc, "_last_bundle", None)
+    bundle = getattr(agent, "_dacc_last_bundle", None)
     if bundle is None:
         return None
     adapter = getattr(agent, "dacc_adapter", None)

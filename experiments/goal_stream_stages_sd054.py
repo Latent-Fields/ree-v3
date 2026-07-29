@@ -677,10 +677,21 @@ class GoalStreamStagesRunner:
             if bg is not None and getattr(bg, "is_elevated", False):
                 approach_commit_steps += 1
 
+            # INSTRUMENT REPAIR (2026-07-29): this read was `getattr(dacc,
+            # "_last_bundle")`, an attribute the dACC module does not define, so
+            # it returned None every tick and dacc_bias_nonzero was pinned to 0
+            # BY CONSTRUCTION. The bundle lives on the AGENT (ree_core/agent.py
+            # :6148; canonical read :10340). The `or` chain was also unsafe: with
+            # the correct path `mode_ev` is a [K] tensor and `x or y` calls
+            # __bool__ on it, raising "Boolean value of Tensor with more than one
+            # value is ambiguous" -- and it sat OUTSIDE the try below, so fixing
+            # only the attribute would have turned a silent zero into a crash.
             if dacc is not None:
-                bundle = getattr(dacc, "_last_bundle", None)
+                bundle = getattr(agent, "_dacc_last_bundle", None)
                 if bundle is not None:
-                    sb = bundle.get("mode_ev") or bundle.get("harm_interaction")
+                    sb = bundle.get("mode_ev")
+                    if sb is None:
+                        sb = bundle.get("harm_interaction")
                     if sb is not None:
                         try:
                             if float(torch.as_tensor(sb).norm().item()) > 1e-6:

@@ -3235,7 +3235,8 @@ class ScaffoldedSD054OnboardingScheduler:
             bridge_cue_fires_baseline = int(getattr(bridge, "_n_cue_fires", 0))
         dacc = getattr(agent, "dacc", None)
         # dACC bias is tracked per-step by integration sites (no internal counter
-        # on the module itself); fall back to per-tick checking via _last_bundle.
+        # on the module itself); fall back to per-tick checking via the agent's
+        # _dacc_last_bundle (NOT dacc._last_bundle -- see the read site below).
         dacc_bias_nonzero_local = 0
 
         # V3-EXQ-640 post-cue instrumentation state (read-only). active_windows
@@ -3278,10 +3279,22 @@ class ScaffoldedSD054OnboardingScheduler:
                 approach_commit_steps += 1
 
             # dACC bias nonzero step-wise: bundle is populated each select_action tick.
+            #
+            # INSTRUMENT REPAIR (2026-07-29): this read was `getattr(dacc,
+            # "_last_bundle")`, an attribute the dACC module does not define, so
+            # it returned None every tick and dacc_bias_nonzero was pinned to 0
+            # BY CONSTRUCTION. The bundle lives on the AGENT (ree_core/agent.py
+            # :6148; canonical read :10340). The `or` chain was also unsafe: with
+            # the correct path `mode_ev` is a [K] tensor and `x or y` calls
+            # __bool__ on it, raising "Boolean value of Tensor with more than one
+            # value is ambiguous" -- and it sat OUTSIDE the try below, so fixing
+            # only the attribute would have turned a silent zero into a crash.
             if dacc is not None:
-                bundle = getattr(dacc, "_last_bundle", None)
+                bundle = getattr(agent, "_dacc_last_bundle", None)
                 if bundle is not None:
-                    sb = bundle.get("mode_ev") or bundle.get("harm_interaction")
+                    sb = bundle.get("mode_ev")
+                    if sb is None:
+                        sb = bundle.get("harm_interaction")
                     if sb is not None:
                         try:
                             if float(torch.as_tensor(sb).norm().item()) > 1e-6:

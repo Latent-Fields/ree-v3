@@ -44,7 +44,8 @@ CHECK_NAMES = ("conformance", "readiness", "arm_fingerprint", "degeneracy", "man
                "action_object_selection", "spearman_guard_shape",
                "dead_z_goal_stream", "hardcoded_dry_run", "emit_outcome_dry_run",
                "write_pack_dry_run", "dry_run_unreachable_criterion",
-               "config_slice_declaration", "inert_salience_dacc_bias")
+               "config_slice_declaration", "inert_salience_dacc_bias",
+               "dacc_last_bundle")
 
 # Readiness-gate static lint (proposal_trivial_prediction_readiness_gate_2026-06-06).
 # A diagnostic/baseline script whose interpretation grid self-routes to one of
@@ -4832,6 +4833,117 @@ def inert_salience_dacc_bias_lint(path: Path) -> Optional[str]:
     )
 
 
+_DACC_LAST_BUNDLE_EXEMPT_MARKER = "DACC_LAST_BUNDLE_EXEMPT"
+
+
+def _unparse_recv(node: "ast.AST") -> str:
+    """Best-effort source text for a receiver expression, for the message only.
+
+    Goes through the module-global `ast` deliberately: the shared corpus-scan fixture
+    swaps that global for a parse cache, and every other unparse in this file does the
+    same. Never raises -- a lint must not fail on an exotic receiver it only wanted to
+    quote back to the reader.
+    """
+    try:
+        return ast.unparse(node).strip()
+    except Exception:
+        return "<expr>"
+
+
+def dacc_last_bundle_lint(path: Path) -> Optional[str]:
+    """Wrong-attribute dACC bundle read. Return an issue string, or None.
+
+    Fires on any access to an attribute literally named ``_last_bundle`` -- either
+    ``<expr>._last_bundle`` or ``getattr(<expr>, "_last_bundle", ...)``. NO object in
+    the substrate defines that attribute. The dACC bundle lives on the AGENT as
+    ``agent._dacc_last_bundle`` (written ``ree_core/agent.py:6148``, canonical read
+    ``:10340``); ``ree_core/cingulate/dacc.py`` defines no ``_last_bundle`` at all.
+
+    Why this is a MEASUREMENT defect rather than a style nit: ``getattr`` with a default
+    swallows the miss, so the read yields None on every tick and every max/mean derived
+    from it is pinned to 0.0 BY CONSTRUCTION -- a structural zero that is indistinguishable
+    in the manifest from a measured zero. The per-candidate ``suppression`` [K] tensor
+    (``dacc.py:401``, packed at ``:430``) is the usual casualty, via
+    ``dacc_max_suppression``; ``pe`` and ``mode_ev`` readouts fail the same way.
+
+    Confirmed carrier (V3-EXQ-687, 2026-06-18): self-routed ``substrate_not_ready_requeue``
+    on a failed PRE_MECH260 precondition, ``dacc_max_suppression=0.0`` "with a full FIFO".
+    With the corrected path a 687a smoke run reads suppression 1.0 on both dACC arms, so
+    MECH-260 may never have been inoperative. The reference implementation is
+    ``v3_exq_687a_mech313_committed_authority_dissociation.py::_dacc_diag``.
+
+    SECOND-ORDER TRAP the fix must carry (this lint does not detect it -- read the site):
+    several carriers pair the wrong attribute with ``bundle.get("mode_ev") or
+    bundle.get("harm_interaction")``. ``mode_ev`` is a [K] tensor, so ``or`` invokes
+    ``__bool__`` and raises "Boolean value of Tensor with more than one value is
+    ambiguous". In the two SD-054 stage helpers that expression sat OUTSIDE the enclosing
+    try, so repairing the attribute ALONE converts a silent zero into a crash. Rewrite as
+    an explicit ``if sb is None:`` fallback when fixing.
+
+    Detection is AST-based and keys on EXACT attribute-name equality, which matters twice:
+    a substring test would match the CORRECT ``_dacc_last_bundle`` (it contains
+    ``_last_bundle``) and fire on every repaired site, and comments/docstrings are invisible
+    to the AST, so the several drivers that merely DESCRIBE the defect in prose -- 490h,
+    490i, 490j, 687a, and this file's own quoting of it -- correctly do not fire. It is
+    blind to an attribute name assembled at runtime, the acceptable direction for a net.
+
+    Opt-out: DACC_LAST_BUNDLE_EXEMPT = "<reason>" -- for a genuine ``_last_bundle`` on some
+    future object that really defines one.
+
+    WARN-only in BOTH modes -- never hardens under --paths. The 15 landed carrier drivers'
+    runs are COMPLETE and are deliberately not retro-edited (a completed run's
+    pre-registered emission is not rewritten), so hardening would block commits on history.
+    """
+    try:
+        src = path.read_text(encoding="utf-8")
+        tree = ast.parse(src, filename=str(path))
+    except (OSError, SyntaxError, UnicodeDecodeError):
+        return None  # check_script already reports unreadable / syntax errors
+
+    if _DACC_LAST_BUNDLE_EXEMPT_MARKER in src:
+        return None
+
+    # (lineno, rendered) so the message reads in SOURCE order. ast.walk is BFS, so
+    # collecting straight into a list interleaves a nested site ahead of an earlier
+    # top-level one -- deterministic, but it reads as though the lint missed one.
+    found: List[Tuple[int, str]] = []
+    for n in ast.walk(tree):
+        # getattr(<expr>, "_last_bundle", ...) -- the swallowing form.
+        if (isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                and n.func.id == "getattr" and len(n.args) >= 2
+                and isinstance(n.args[1], ast.Constant)
+                and n.args[1].value == "_last_bundle"):
+            found.append((n.lineno,
+                          f"line {n.lineno}: getattr({_unparse_recv(n.args[0])}, "
+                          f'"_last_bundle", ...)'))
+        # <expr>._last_bundle -- the raising form. EXACT match, so the correct
+        # `_dacc_last_bundle` (which contains this as a substring) never fires.
+        elif isinstance(n, ast.Attribute) and n.attr == "_last_bundle":
+            found.append((n.lineno,
+                          f"line {n.lineno}: {_unparse_recv(n.value)}._last_bundle"))
+
+    if not found:
+        return None
+    sites = [s for _, s in sorted(found, key=lambda t: t[0])]
+
+    return (
+        f"reads a `_last_bundle` attribute that NO substrate object defines, at "
+        f"{'; '.join(sites)}. The dACC bundle lives on the AGENT as "
+        f"`agent._dacc_last_bundle` (ree_core/agent.py:6148, canonical read :10340); "
+        f"ree_core/cingulate/dacc.py defines no `_last_bundle`. With a getattr default "
+        f"the miss is SILENT, so the read is None every tick and any derived "
+        f"max/mean (dacc_max_suppression, dacc_pe, dacc_bias_nonzero) is pinned to 0.0 "
+        f"BY CONSTRUCTION -- structurally indistinguishable in the manifest from a "
+        f"measured zero. This is the V3-EXQ-687 carrier shape. Fix by reading "
+        f"`getattr(agent, \"_dacc_last_bundle\", None)`; reference implementation is "
+        f"v3_exq_687a_...::_dacc_diag. WHEN FIXING, also check for "
+        f"`bundle.get(\"mode_ev\") or bundle.get(...)` at the same site: mode_ev is a [K] "
+        f"tensor, so `or` raises on __bool__ and the attribute fix alone can turn a "
+        f"silent zero into a crash -- use an explicit `if sb is None:` fallback. Exempt "
+        f"with {_DACC_LAST_BUNDLE_EXEMPT_MARKER} = \"<reason>\"."
+    )
+
+
 def _candidate_paths(paths: Sequence[str]) -> List[Path]:
     if paths:
         return [Path(p).resolve() for p in paths]
@@ -4901,6 +5013,7 @@ def main() -> int:
     dry_unreachable_criterion_warnings: List[Tuple[Path, str]] = []
     config_slice_warnings: List[Tuple[Path, str]] = []
     inert_dacc_bias_warnings: List[Tuple[Path, str]] = []
+    dacc_last_bundle_warnings: List[Tuple[Path, str]] = []
     for p in paths:
         rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
         if "conformance" in selected:
@@ -5045,6 +5158,13 @@ def main() -> int:
                 # is invisible to the static scan, and the landed carriers' runs are
                 # complete).
                 inert_dacc_bias_warnings.append((p, isd))
+        if "dacc_last_bundle" in selected:
+            dlb = dacc_last_bundle_lint(p)
+            if dlb:
+                # WARN-only in BOTH modes -- see dacc_last_bundle_lint() for why this one
+                # never hardens under --paths (the 15 landed carrier drivers' runs are
+                # complete and are deliberately not retro-edited).
+                dacc_last_bundle_warnings.append((p, dlb))
         if "spearman_guard_shape" in selected:
             sps = spearman_guard_shape_lint(p)
             if sps:
@@ -5073,7 +5193,22 @@ def main() -> int:
           f"{len(write_pack_dry_run_warnings)} write_pack-dry_run-warning(s), "
           f"{len(dry_unreachable_criterion_warnings)} dry_run-unreachable-criterion-warning(s), "
           f"{len(config_slice_warnings)} config_slice-declaration-warning(s), "
-          f"{len(inert_dacc_bias_warnings)} inert-salience-dacc_bias-warning(s)", flush=True)
+          f"{len(inert_dacc_bias_warnings)} inert-salience-dacc_bias-warning(s), "
+          f"{len(dacc_last_bundle_warnings)} dacc-_last_bundle-warning(s)", flush=True)
+    if dacc_last_bundle_warnings:
+        # Advisory in BOTH modes (never hardens). A fire here means the script reads a
+        # `_last_bundle` attribute NO substrate object defines, so the read is None every
+        # tick and any derived dACC readout is a STRUCTURAL zero that looks measured.
+        # Triage each: read `getattr(agent, "_dacc_last_bundle", None)` instead
+        # (v3_exq_687a_...::_dacc_diag is the canonical shape), and at the same site
+        # replace any `bundle.get("mode_ev") or ...` with an explicit `if sb is None:`
+        # fallback -- mode_ev is a [K] tensor and `or` raises on it. Do NOT retro-edit a
+        # LANDED driver whose run is complete; record it for governance instead.
+        print("", flush=True)
+        print("[validate_experiments] DACC-_LAST_BUNDLE WARNINGS (advisory, non-blocking):", flush=True)
+        for p, warn in dacc_last_bundle_warnings:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
+            print(f"  - {rel}: {warn}", flush=True)
     if inert_dacc_bias_warnings:
         # Advisory in BOTH modes (never hardens). A fire here means the script enables
         # salience_apply_to_dacc_bias=True with no positive dacc_weight, so the

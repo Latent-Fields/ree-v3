@@ -53,6 +53,7 @@ _PATH_LINTS = (
     ("dry_run_unreachable_criterion_lint", V.dry_run_unreachable_criterion_lint),
     ("config_slice_under_declaration_lint", V.config_slice_under_declaration_lint),
     ("inert_salience_dacc_bias_lint", V.inert_salience_dacc_bias_lint),
+    ("dacc_last_bundle_lint", V.dacc_last_bundle_lint),
 )
 
 
