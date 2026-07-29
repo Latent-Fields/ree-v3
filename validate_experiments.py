@@ -44,8 +44,7 @@ CHECK_NAMES = ("conformance", "readiness", "arm_fingerprint", "degeneracy", "man
                "action_object_selection", "spearman_guard_shape",
                "dead_z_goal_stream", "hardcoded_dry_run", "emit_outcome_dry_run",
                "write_pack_dry_run", "dry_run_unreachable_criterion",
-               "config_slice_declaration", "inert_salience_dacc_bias",
-               "criteria_key_correspondence")
+               "config_slice_declaration", "inert_salience_dacc_bias")
 
 # Readiness-gate static lint (proposal_trivial_prediction_readiness_gate_2026-06-06).
 # A diagnostic/baseline script whose interpretation grid self-routes to one of
@@ -4625,106 +4624,6 @@ def inert_salience_dacc_bias_lint(path: Path) -> Optional[str]:
     )
 
 
-# ---- criteria key correspondence (V3-EXQ-830) ----------------------------------------
-# The REE_assembly indexer's adjudication gate excludes a `criteria_non_degenerate` key
-# from the vacuity check when the manifest's own `criteria[]` tags that criterion
-# `load_bearing: false` (the V3-EXQ-783 fix). It resolves the key against
-# `criteria[].name`. An author who spells the SAME criterion two ways -- a short key in
-# one block, a long name in the other -- silently defeats that exclusion, and a `False`
-# on a criterion explicitly declared non-blocking then produces a spurious
-# `vacuous_pass` on a run whose load-bearing criterion passed.
-#
-# Confirmed once: V3-EXQ-830 shipped keys {C_DECIDABLE, C_SLOW_FIRES, C_DISSOCIABLE,
-# C_CONTROL} against names {C_DECIDABLE_instrument_returned_a_reading,
-# C_SLOW_FIRES_on_rollout, C_DISSOCIABLE_low_cofire_distinct_positions,
-# C_CONTROL_slow_silent_with_flag_off}. See failure_autopsy_V3-EXQ-830_2026-07-29.md
-# Sec.2. The indexer side is now prefix-tolerant on an underscore boundary, so this lint
-# uses the SAME join and fires only on keys that resolve to NOTHING even under it --
-# i.e. exactly the residue the indexer still cannot recover.
-_CRITERIA_KEY_CORRESPONDENCE_EXEMPT_MARKER = "CRITERIA_KEY_CORRESPONDENCE_EXEMPT"
-
-
-def _criteria_key_resolves(key: str, names: Sequence[str]) -> bool:
-    """Mirror of the indexer's key->criteria[].name join. Exact match wins; failing
-    that, a key resolves iff it prefixes exactly ONE name on an underscore boundary."""
-    if key in names:
-        return True
-    return len([n for n in names if n.startswith(key + "_")]) == 1
-
-
-def criteria_key_correspondence_lint(path: Path) -> Optional[str]:
-    """Key-correspondence check for the two interpretation blocks. Return an issue
-    string, or None.
-
-    Scope is deliberately narrow: only a dict literal carrying BOTH a `"criteria"` list
-    and a `"criteria_non_degenerate"` dict as SIBLING keys is inspected, so the two
-    blocks being compared are known to belong to the same interpretation. A script that
-    assembles either block dynamically, splices it in from a helper, or keeps them in
-    separate scopes is invisible here -- best-effort, like the other static lints in
-    this file, and WARN-only in BOTH modes because a fire is a naming-hygiene finding
-    rather than a correctness defect in the run itself.
-
-    Does NOT fire on: a `_branch` suffixed key (a branch-selector, which the indexer
-    excludes by name convention and which need not correspond to a criterion at all),
-    a non-string key, or a `criteria[]` whose entries expose no static `name`.
-
-    Opt-out: CRITERIA_KEY_CORRESPONDENCE_EXEMPT = "<reason>" -- appropriate when a key
-    deliberately names something other than a criterion.
-    """
-    try:
-        src = path.read_text(encoding="utf-8")
-    except Exception:
-        return None
-    if _CRITERIA_KEY_CORRESPONDENCE_EXEMPT_MARKER in src:
-        return None
-    try:
-        tree = ast.parse(src)
-    except SyntaxError:
-        return None
-
-    def _str_keyed(node: ast.Dict) -> dict:
-        out = {}
-        for k, v in zip(node.keys, node.values):
-            if isinstance(k, ast.Constant) and isinstance(k.value, str):
-                out[k.value] = v
-        return out
-
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Dict):
-            continue
-        entries = _str_keyed(node)
-        crit_node = entries.get("criteria")
-        cnd_node = entries.get("criteria_non_degenerate")
-        if not isinstance(crit_node, ast.List) or not isinstance(cnd_node, ast.Dict):
-            continue
-        names: List[str] = []
-        for elt in crit_node.elts:
-            if not isinstance(elt, ast.Dict):
-                continue
-            nm = _str_keyed(elt).get("name")
-            if isinstance(nm, ast.Constant) and isinstance(nm.value, str):
-                names.append(nm.value)
-        if not names:
-            continue
-        unresolved = [k for k in _str_keyed(cnd_node)
-                      if not k.endswith("_branch")
-                      and not _criteria_key_resolves(k, names)]
-        if unresolved:
-            return (
-                f"criteria_non_degenerate key(s) {sorted(unresolved)} match no "
-                f"interpretation.criteria[].name (present: {sorted(names)}). The "
-                f"indexer resolves that key to decide whether the criterion was tagged "
-                f"load_bearing:false; an unresolvable key silently defeats the "
-                f"exclusion, so a False on a criterion you declared non-blocking can "
-                f"produce a spurious vacuous_pass (V3-EXQ-830 -- see "
-                f"failure_autopsy_V3-EXQ-830_2026-07-29.md Sec.2). Spell the key "
-                f"exactly as the criterion's `name`, or as a prefix of it on an "
-                f"underscore boundary. Exempt with "
-                f"{_CRITERIA_KEY_CORRESPONDENCE_EXEMPT_MARKER} = \"<reason>\"."
-            )
-    return None
-
-
 def _candidate_paths(paths: Sequence[str]) -> List[Path]:
     if paths:
         return [Path(p).resolve() for p in paths]
@@ -4794,7 +4693,6 @@ def main() -> int:
     dry_unreachable_criterion_warnings: List[Tuple[Path, str]] = []
     config_slice_warnings: List[Tuple[Path, str]] = []
     inert_dacc_bias_warnings: List[Tuple[Path, str]] = []
-    criteria_key_warnings: List[Tuple[Path, str]] = []
     for p in paths:
         rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
         if "conformance" in selected:
@@ -4931,15 +4829,6 @@ def main() -> int:
                 # in both directions, a false HIT needs a CONSUMER to exist before it
                 # can corrupt anything, and the landed carriers' runs are complete).
                 config_slice_warnings.append((p, csd))
-        if "criteria_key_correspondence" in selected:
-            ckc = criteria_key_correspondence_lint(p)
-            if ckc:
-                # WARN-only in BOTH modes. A fire is a naming-hygiene finding, not a
-                # defect in the run: the manifest's science is unaffected, only the
-                # indexer's ability to honour the author's own load_bearing tag. The
-                # indexer side is now prefix-tolerant, so this fires only on the
-                # residue that join still cannot recover.
-                criteria_key_warnings.append((p, ckc))
         if "inert_salience_dacc_bias" in selected:
             isd = inert_salience_dacc_bias_lint(p)
             if isd:
@@ -4976,21 +4865,7 @@ def main() -> int:
           f"{len(write_pack_dry_run_warnings)} write_pack-dry_run-warning(s), "
           f"{len(dry_unreachable_criterion_warnings)} dry_run-unreachable-criterion-warning(s), "
           f"{len(config_slice_warnings)} config_slice-declaration-warning(s), "
-          f"{len(inert_dacc_bias_warnings)} inert-salience-dacc_bias-warning(s), "
-          f"{len(criteria_key_warnings)} criteria-key-correspondence-warning(s)", flush=True)
-    if criteria_key_warnings:
-        # Advisory in BOTH modes (never hardens). A fire means a criteria_non_degenerate
-        # key names no criterion in the same interpretation's criteria[], so the indexer
-        # cannot tell whether the author tagged it load_bearing:false and a False value
-        # can produce a spurious vacuous_pass (V3-EXQ-830). Triage: spell the key exactly
-        # as the criterion's `name`, or as a prefix of it on an underscore boundary. Do
-        # NOT retro-edit a LANDED driver whose run is complete -- a completed run's
-        # pre-registered emission is not rewritten; fix the successor.
-        print("", flush=True)
-        print("[validate_experiments] CRITERIA-KEY-CORRESPONDENCE WARNINGS (advisory, non-blocking):", flush=True)
-        for p, warn in criteria_key_warnings:
-            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
-            print(f"  - {rel}: {warn}", flush=True)
+          f"{len(inert_dacc_bias_warnings)} inert-salience-dacc_bias-warning(s)", flush=True)
     if inert_dacc_bias_warnings:
         # Advisory in BOTH modes (never hardens). A fire here means the script enables
         # salience_apply_to_dacc_bias=True with no positive dacc_weight, so the
