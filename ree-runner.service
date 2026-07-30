@@ -30,6 +30,35 @@ StartLimitIntervalSec=900
 Type=simple
 User=<user>
 WorkingDirectory=/home/<user>/REE_Working/ree-v3
+
+# Close the cold-boot stale-code window (2026-07-30).
+#
+# The cloud-scaler powers workers on and off continuously, and Python does not
+# hot-reload: a worker that powers on loads whatever experiment_runner.py its
+# disk held when it was last powered OFF, then keeps executing that build for
+# its ENTIRE session -- even though its own loop pulls newer code to disk within
+# ~60s. So every runner bugfix had a silent one-boot lag. Confirmed live:
+# ree-cloud-2 cold-booted 07:35:34Z onto r4528 ba79ebb, which is OLDER than the
+# prepull-stash fix 9077eb7073 that had been on origin/main since 06:51:52Z.
+#
+# ree-git-sync-repair.timer does NOT cover this -- it is OnBootSec=10min, i.e.
+# it fires ~10 minutes AFTER the runner has started and claimed work. Do not
+# try to fix this with After=/Wants= on that unit either: ordering on a
+# 10-minute boot timer would delay the runner by 10 minutes.
+#
+# Leading '-' = fail open: systemd ignores the exit status, so a network blip
+# at boot leaves the worker on stale code (recoverable next tick) instead of
+# with a dead runner. The script also always exits 0 and wraps every git call
+# in `timeout`, because TimeoutStartUSec (1min30s) COVERS ExecStartPre.
+#
+# The script path is deliberately RELATIVE (only the first token of an Exec*
+# line must be absolute; /bin/sh is). systemd applies WorkingDirectory to all
+# Exec* lines, so this resolves to the runner's OWN checkout on every box --
+# including the hub, whose drop-in repoints WorkingDirectory at the isolated
+# ~/REE_Working_runner tree. Hardcoding an absolute path here would pull the
+# hub's ~/REE_Working instead and wedge every phase3 writer.
+ExecStartPre=-/bin/sh ./coordinator/deploy/runner-prestart-pull.sh
+
 ExecStart=/home/<user>/.venv/ree/bin/python3 experiment_runner.py --auto-sync --loop --loop-interval 120 --remote-control --machine <machine>
 
 # Graceful drain: give 10 minutes for current experiment episode to finish
