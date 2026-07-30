@@ -73,6 +73,14 @@ LIFECYCLE_LIVE_SECONDS = int(
 LIFECYCLE_STALE_AFTER_DAYS = float(
     os.environ.get("COORDINATOR_LIFECYCLE_STALE_AFTER_DAYS", "7")
 )
+# Drain-window claim fence: how long a pending shutdown notice makes /claim
+# refuse a machine with verdict "draining". Must exceed the ACPI drain
+# window the scaler's `hcloud server shutdown` opens (~26 min measured
+# 2026-07-30). Set to 0 to disable. See db.claim_fence_active.
+CLAIM_FENCE_SECONDS = int(
+    os.environ.get("COORDINATOR_CLAIM_FENCE_SECONDS",
+                   str(db.CLAIM_FENCE_DEFAULT_SECONDS))
+)
 MODE = os.environ.get("COORDINATOR_MODE", "shadow")
 
 # /writer-health reads this file, written by sync_daemon on every tick.
@@ -311,7 +319,7 @@ class Handler(BaseHTTPRequestHandler):
                     "SELECT machine, last_seen, state, current_exq, "
                     "progress_json, seconds_elapsed, seconds_remaining, "
                     "last_shutdown_at, shutdown_reason, "
-                    "expected_wake_condition "
+                    "expected_wake_condition, claim_fence_cleared_at "
                     "FROM heartbeats ORDER BY machine"
                 ).fetchall():
                     row = dict(r)
@@ -327,6 +335,17 @@ class Handler(BaseHTTPRequestHandler):
                         row.get("last_shutdown_at"),
                         live_threshold_seconds=LIFECYCLE_LIVE_SECONDS,
                         stale_after_seconds=stale_after_seconds,
+                    )
+                    # Surfaced because the 2026-07-30 orphan was hard to
+                    # diagnose precisely BECAUSE nothing showed that a
+                    # machine was mid-drain: lifecycle_state reads "live"
+                    # throughout the window (the runner keeps heartbeating),
+                    # so the drain is invisible to every existing readout.
+                    row["claim_fenced"] = db.claim_fence_active(
+                        row.get("last_shutdown_at"),
+                        row.get("claim_fence_cleared_at"),
+                        row.get("shutdown_reason"),
+                        fence_seconds=CLAIM_FENCE_SECONDS,
                     )
                     machines.append(row)
                 recent = [dict(r) for r in conn.execute(
@@ -365,9 +384,15 @@ class Handler(BaseHTTPRequestHandler):
                 return
             conn = db.connect(DB_PATH)
             try:
+                # Shadow mode leaves the fence off: git is authoritative
+                # there, so a "draining" verdict the git path never
+                # produces would register as a spurious divergence and
+                # break the apples-to-apples comparison evaluate_claim
+                # exists for. Production runs MODE=coordinator.
+                fence = 0 if MODE == "shadow" else CLAIM_FENCE_SECONDS
                 coord_verdict = db.evaluate_claim(
                     conn, qid, machine, STALE_HOURS,
-                    HEARTBEAT_FRESH_SECONDS)
+                    HEARTBEAT_FRESH_SECONDS, fence_seconds=fence)
                 if MODE == "shadow":
                     diverged = db.log_claim(
                         conn, qid, machine, git_verdict, coord_verdict)
@@ -378,7 +403,8 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     real = db.try_claim(
                         conn, qid, machine, STALE_HOURS,
-                        HEARTBEAT_FRESH_SECONDS)
+                        HEARTBEAT_FRESH_SECONDS,
+                        fence_seconds=CLAIM_FENCE_SECONDS)
                     # Phase 3: claim_log is the audit trail for who tried to
                     # claim what + the coordinator's verdict. The shadow path
                     # above logs evaluate_claim's predicted verdict; under
@@ -509,6 +535,33 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {"ok": True, "machine": machine,
                              "reason": reason,
                              "expected_wake_condition": wake})
+            return
+
+        if path == "/claim_fence/clear":
+            # Disarm the drain-window claim fence for a machine. The scaler
+            # calls this immediately after `hcloud server poweron` -- a
+            # freshly-woken worker must be able to claim at once rather than
+            # sitting out the remainder of its own shutdown's fence window.
+            #
+            # Same auth + explicit-machine contract as /shutdown_notify: the
+            # token's own label is never substituted, so an empty body
+            # cannot create a stray heartbeat row for the token name.
+            # Idempotent -- re-clearing an already-clear machine is a no-op
+            # in effect, so the scaler can call it unconditionally on every
+            # poweron without tracking state.
+            if body is None or not isinstance(body, dict):
+                self._send(400, {"error": "bad body"})
+                return
+            machine = body.get("machine")
+            if not machine or not isinstance(machine, str):
+                self._send(400, {"error": "machine required"})
+                return
+            conn = db.connect(DB_PATH)
+            try:
+                db.record_claim_fence_clear(conn, machine)
+            finally:
+                conn.close()
+            self._send(200, {"ok": True, "machine": machine})
             return
 
         if path == "/commands/issue":

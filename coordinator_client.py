@@ -117,6 +117,16 @@ def claim(queue_id, machine):
     Coordinator mode must not fall through to running unclaimed work. Any
     HTTP/auth/timeout failure returns 'error' so the runner can skip and
     retry on the next loop tick.
+
+    'draining' is the coordinator's drain-window claim fence: this machine
+    has a pending shutdown notice, so it must not take new work it cannot
+    finish before powering off. Deliberately mapped to 'error' rather than
+    surfaced as a new verdict -- 'error' already means "skip this item and
+    retry next tick", which is exactly the wanted behaviour, and mapping it
+    keeps the runner's claim-verdict vocabulary unchanged. The print is the
+    whole point of naming it: an unexplained 'error' on every claim for
+    ~26 minutes is what made the 2026-07-30 V3-EXQ-841 orphan hard to read
+    from the runner side.
     """
     if MODE != "coordinator":
         return "error"
@@ -124,6 +134,11 @@ def claim(queue_id, machine):
     if not r or not r.get("authoritative"):
         return "error"
     verdict = r.get("verdict")
+    if verdict == "draining":
+        print("[coordinator_client] %s: refused -- %s is draining "
+              "(pending shutdown); not claiming new work"
+              % (queue_id, machine), flush=True)
+        return "error"
     if verdict in ("ok", "already_claimed", "error"):
         return verdict
     return "error"

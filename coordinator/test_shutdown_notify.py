@@ -438,5 +438,438 @@ class ShutdownNotifyHTTPTest(unittest.TestCase):
             self.assertEqual(e.code, 400)
 
 
+# ---------------------------------------------------------------------------
+# 4. Drain-window claim fence
+#
+# Incident, 2026-07-30 (hub `journalctl -u cloud-scaler`): the scaler decided
+# correctly at 07:00:18Z to shut ree-worker-4 down (claimable=0
+# held_by_self=0 lease=none idle_ok=1 reason=clean_idle), announced the
+# shutdown, and issued `hcloud server shutdown` -- an ACPI soft-off, so the
+# box kept running while it drained. Its runner then CLAIMED V3-EXQ-841, a
+# 600-estimated-minute experiment, at 07:08:39Z, eight minutes in, and the
+# box powered off ~07:26-07:30Z holding it. The claim was not re-claimable
+# until 17:08:58Z (~10h): _claim_recoverable needs BOTH stale_hours (6) and
+# a stale owner heartbeat.
+#
+# The scaler was not at fault and could not have fixed it: HELD_BY_SELF
+# worked throughout (its 07:15/07:20/07:25 votes all said "keeping
+# ree-worker-4 running") and was simply undeliverable -- an in-flight ACPI
+# shutdown cannot be retracted, and all three protection layers are
+# decision-time-only. Hence a fence on the CLAIM path.
+# ---------------------------------------------------------------------------
+
+class ClaimFenceStateTest(unittest.TestCase):
+    """Pure function: db.claim_fence_active."""
+
+    FENCE = 1800
+
+    def _fenced(self, shutdown, cleared=None, reason="scaler_idle_after_grace",
+                fence_seconds=None):
+        return db.claim_fence_active(
+            shutdown, cleared, reason,
+            fence_seconds=(self.FENCE if fence_seconds is None
+                           else fence_seconds))
+
+    def test_no_shutdown_notice_is_not_fenced(self):
+        self.assertFalse(self._fenced(None))
+
+    def test_fresh_scaler_shutdown_fences(self):
+        self.assertTrue(self._fenced(_iso(_now() - timedelta(minutes=1))))
+
+    def test_incident_replay_eight_minutes_into_the_drain(self):
+        # The exact moment V3-EXQ-841 was claimed: 8m21s after the
+        # 07:00:18Z announce. This is the case the fence exists for.
+        self.assertTrue(
+            self._fenced(_iso(_now() - timedelta(minutes=8, seconds=21))))
+
+    def test_fence_window_outlasts_the_measured_drain(self):
+        # The drain ran ~26 minutes. A fence that lapsed before the box
+        # actually powered off would leave the tail of the window open --
+        # the whole defect. Pinned against the shipped default, not FENCE.
+        self.assertGreater(db.CLAIM_FENCE_DEFAULT_SECONDS, 26 * 60)
+        self.assertTrue(db.claim_fence_active(
+            _iso(_now() - timedelta(minutes=26)), None,
+            "scaler_idle_after_grace",
+            fence_seconds=db.CLAIM_FENCE_DEFAULT_SECONDS))
+
+    def test_expired_shutdown_no_longer_fences(self):
+        # Bounded so a machine woken by a MANUAL `hcloud server poweron`
+        # (which never calls the clear) recovers on its own.
+        self.assertFalse(self._fenced(_iso(_now() - timedelta(minutes=31))))
+
+    def test_clear_newer_than_shutdown_disarms(self):
+        shutdown = _iso(_now() - timedelta(minutes=5))
+        cleared = _iso(_now() - timedelta(minutes=1))
+        self.assertFalse(self._fenced(shutdown, cleared))
+
+    def test_clear_older_than_shutdown_does_not_disarm(self):
+        # A clear from a PREVIOUS wake must not disarm a NEW shutdown.
+        cleared = _iso(_now() - timedelta(hours=3))
+        shutdown = _iso(_now() - timedelta(minutes=2))
+        self.assertTrue(self._fenced(shutdown, cleared))
+
+    def test_same_second_tie_leaves_the_fence_armed(self):
+        # These timestamps are 1-second resolution, so a collision is
+        # order-ambiguous. The two errors are not symmetric: a wrong
+        # refusal costs one poll tick, a wrong grant is the 10h orphan.
+        # Ties must therefore stay fenced -- hence a STRICT `>` in
+        # claim_fence_active, unlike lifecycle_state's `>=`.
+        t = _iso(_now() - timedelta(minutes=1))
+        self.assertTrue(self._fenced(t, t))
+
+    def test_process_exit_reasons_do_not_fence(self):
+        # The runner posts these itself on the way out. ree-runner.service
+        # carries Restart=always, so fencing on them would stall the
+        # restarted runner for the whole window on an ordinary
+        # `systemctl restart` or a remote stop -- a regression, not a fix.
+        fresh = _iso(_now() - timedelta(minutes=1))
+        for reason in ("runner_drain_complete", "runner_signal_exit"):
+            self.assertFalse(self._fenced(fresh, reason=reason), reason)
+
+    def test_unrecognised_reason_fences(self):
+        # Default-deny: an unknown reason is treated as a machine shutdown.
+        fresh = _iso(_now() - timedelta(minutes=1))
+        self.assertTrue(self._fenced(fresh, reason="some_future_reason"))
+        self.assertTrue(self._fenced(fresh, reason=None))
+
+    def test_zero_fence_seconds_disables(self):
+        fresh = _iso(_now() - timedelta(minutes=1))
+        self.assertFalse(self._fenced(fresh, fence_seconds=0))
+
+
+class ClaimFenceDBTest(unittest.TestCase):
+    """try_claim / evaluate_claim / record_claim_fence_clear against a
+    real DB."""
+
+    FENCE = 1800
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp(prefix="claim_fence_db_")
+        self._dbpath = os.path.join(self._tmp, "c.db")
+        db.init_db(self._dbpath)
+        self._conn = db.connect(self._dbpath)
+        db.upsert_experiment(self._conn, {
+            "queue_id": "V3-EXQ-841",
+            "script": "experiments/v3_exq_841.py",
+            "priority": 50,
+            "machine_affinity": "any",
+            "status": "pending",
+            "estimated_minutes": 600,
+        })
+
+    def tearDown(self):
+        self._conn.close()
+        import shutil
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def _claim(self, machine="ree-cloud-4", fence=None):
+        return db.try_claim(
+            self._conn, "V3-EXQ-841", machine,
+            fence_seconds=self.FENCE if fence is None else fence)
+
+    def test_unfenced_machine_claims_normally(self):
+        self.assertEqual(self._claim(), "ok")
+
+    def test_fenced_machine_is_refused(self):
+        db.record_shutdown_notice(
+            self._conn, "ree-cloud-4", reason="scaler_idle_after_grace")
+        self.assertEqual(self._claim(), "draining")
+
+    def test_refusal_does_not_mutate_the_item(self):
+        # The point of the fence is that the item stays claimable by
+        # someone else. A refusal that still stamped claimed_by would
+        # reproduce the orphan it exists to prevent.
+        db.record_shutdown_notice(
+            self._conn, "ree-cloud-4", reason="scaler_idle_after_grace")
+        self.assertEqual(self._claim(), "draining")
+        row = self._conn.execute(
+            "SELECT status, claimed_by_machine FROM experiments "
+            "WHERE queue_id=?", ("V3-EXQ-841",)).fetchone()
+        self.assertEqual(row["status"], "pending")
+        self.assertIsNone(row["claimed_by_machine"])
+
+    def test_fence_is_machine_scoped(self):
+        # A healthy sibling must still be able to take the work. This is
+        # what turns a 10h orphan into a re-route.
+        db.record_shutdown_notice(
+            self._conn, "ree-cloud-4", reason="scaler_idle_after_grace")
+        self.assertEqual(self._claim(), "draining")
+        self.assertEqual(self._claim(machine="ree-cloud-3"), "ok")
+
+    def test_fence_survives_a_fresh_heartbeat(self):
+        # THE load-bearing case. The runner keeps heartbeating for the
+        # whole drain window, so lifecycle_state reads "live" throughout
+        # and a gracefully_offline-based fence would never fire. The fence
+        # must key off the pending shutdown notice, not liveness.
+        db.record_shutdown_notice(
+            self._conn, "ree-cloud-4", reason="scaler_idle_after_grace")
+        db.upsert_heartbeat(
+            self._conn, "ree-cloud-4", state="idle",
+            current_exq=None, progress=None, gpu=None)
+        state = db.lifecycle_state(
+            self._conn.execute(
+                "SELECT last_seen FROM heartbeats WHERE machine=?",
+                ("ree-cloud-4",)).fetchone()["last_seen"],
+            self._conn.execute(
+                "SELECT last_shutdown_at FROM heartbeats WHERE machine=?",
+                ("ree-cloud-4",)).fetchone()["last_shutdown_at"],
+            live_threshold_seconds=300, stale_after_seconds=7 * 86400)
+        self.assertEqual(state, "live")
+        self.assertEqual(self._claim(), "draining")
+
+    def test_clear_disarms_and_claiming_resumes(self):
+        db.record_shutdown_notice(
+            self._conn, "ree-cloud-4", reason="scaler_idle_after_grace")
+        self.assertEqual(self._claim(), "draining")
+        time.sleep(1.1)  # 1-second timestamp resolution
+        db.record_claim_fence_clear(self._conn, "ree-cloud-4")
+        self.assertEqual(self._claim(), "ok")
+
+    def test_clear_preserves_last_shutdown_at(self):
+        # lifecycle_state and phase3_preflight read that column: a machine
+        # powered on but not yet heartbeating should stay
+        # gracefully_offline for the ~90s it takes to boot, not drop
+        # straight to stale.
+        db.record_shutdown_notice(
+            self._conn, "ree-cloud-4", reason="scaler_idle_after_grace")
+        db.record_claim_fence_clear(self._conn, "ree-cloud-4")
+        row = self._conn.execute(
+            "SELECT last_shutdown_at, shutdown_reason FROM heartbeats "
+            "WHERE machine=?", ("ree-cloud-4",)).fetchone()
+        self.assertIsNotNone(row["last_shutdown_at"])
+        self.assertEqual(row["shutdown_reason"], "scaler_idle_after_grace")
+
+    def test_clear_is_idempotent(self):
+        # The scaler calls it unconditionally on every poweron.
+        db.record_claim_fence_clear(self._conn, "ree-cloud-4")
+        db.record_claim_fence_clear(self._conn, "ree-cloud-4")
+        self.assertEqual(self._claim(), "ok")
+
+    def test_default_fence_seconds_is_off(self):
+        # Both claim entry points default to fence_seconds=0 so existing
+        # callers -- and the shadow comparison, which must stay
+        # apples-to-apples with the git path -- are unchanged unless the
+        # fence is explicitly wired in.
+        db.record_shutdown_notice(
+            self._conn, "ree-cloud-4", reason="scaler_idle_after_grace")
+        self.assertEqual(
+            db.try_claim(self._conn, "V3-EXQ-841", "ree-cloud-4"), "ok")
+
+    def test_evaluate_claim_agrees_with_try_claim(self):
+        db.record_shutdown_notice(
+            self._conn, "ree-cloud-4", reason="scaler_idle_after_grace")
+        self.assertEqual(
+            db.evaluate_claim(self._conn, "V3-EXQ-841", "ree-cloud-4",
+                              fence_seconds=self.FENCE),
+            "draining")
+
+    def test_machine_with_no_row_is_not_fenced(self):
+        self.assertFalse(
+            db.machine_claim_fenced(self._conn, "never-seen", self.FENCE))
+
+
+class ClaimFenceHTTPTest(unittest.TestCase):
+    """End-to-end via the real app.py, in MODE=coordinator.
+
+    Separate from ShutdownNotifyHTTPTest because that one runs
+    MODE=shadow, where the fence is deliberately off (git is the claim
+    authority there, so a "draining" verdict would register as a spurious
+    divergence).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.mkdtemp(prefix="claim_fence_http_")
+        cls._dbpath = os.path.join(cls._tmp, "c.db")
+        cls._tokens = os.path.join(cls._tmp, "tokens.json")
+        with open(cls._tokens, "w", encoding="utf-8") as fh:
+            json.dump({
+                "tok-cloud-4": "ree-cloud-4",
+                "tok-cloud-3": "ree-cloud-3",
+                "tok-scaler": "scaler",
+            }, fh)
+        db.init_db(cls._dbpath)
+        conn = db.connect(cls._dbpath)
+        for qid in ("V3-EXQ-841", "V3-EXQ-842"):
+            db.upsert_experiment(conn, {
+                "queue_id": qid,
+                "script": "experiments/%s.py" % qid.lower(),
+                "priority": 50,
+                "machine_affinity": "any",
+                "status": "pending",
+                "estimated_minutes": 600,
+            })
+        conn.close()
+        cls._port = _free_port()
+        env = dict(os.environ)
+        env.update({
+            "COORDINATOR_DB": cls._dbpath,
+            "COORDINATOR_TOKENS_FILE": cls._tokens,
+            "COORDINATOR_BIND_HOST": "127.0.0.1",
+            "COORDINATOR_BIND_PORT": str(cls._port),
+            "COORDINATOR_MODE": "coordinator",
+        })
+        cls._proc = subprocess.Popen(
+            [sys.executable, str(HERE / "app.py")],
+            env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True)
+        cls._base = "http://127.0.0.1:%d" % cls._port
+        for _ in range(50):
+            try:
+                st, _ = _http("GET", cls._base + "/health")
+                if st == 200:
+                    return
+            except urllib.error.URLError:
+                time.sleep(0.1)
+        cls._proc.terminate()
+        raise RuntimeError("coordinator did not come up")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._proc.terminate()
+        try:
+            cls._proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            cls._proc.kill()
+        import shutil
+        shutil.rmtree(cls._tmp, ignore_errors=True)
+
+    def test_drain_window_incident_end_to_end(self):
+        # 07:00:18Z -- scaler announces, then issues hcloud shutdown.
+        st, _ = _http("POST", self._base + "/shutdown_notify",
+                      token="tok-scaler",
+                      body={"machine": "ree-cloud-4",
+                            "reason": "scaler_idle_after_grace",
+                            "expected_wake_condition": "claimable>0"})
+        self.assertEqual(st, 200)
+
+        # 07:08:39Z -- the draining runner tries to take a 600-minute
+        # experiment it cannot possibly finish. Refused.
+        st, jb = _http("POST", self._base + "/claim", token="tok-cloud-4",
+                       body={"queue_id": "V3-EXQ-841",
+                             "machine": "ree-cloud-4"})
+        self.assertEqual(st, 200)
+        self.assertTrue(jb["authoritative"])
+        self.assertEqual(jb["verdict"], "draining")
+
+        # The item is still there for a healthy worker -- a re-route, not
+        # a 10h orphan.
+        st, jb = _http("POST", self._base + "/claim", token="tok-cloud-3",
+                       body={"queue_id": "V3-EXQ-841",
+                             "machine": "ree-cloud-3"})
+        self.assertEqual(st, 200)
+        self.assertEqual(jb["verdict"], "ok")
+
+    def test_status_surfaces_claim_fenced(self):
+        # Own machine label: these tests share one server process, and a
+        # fence clear left by a sibling test would otherwise decide this
+        # one at 1-second timestamp resolution.
+        _http("POST", self._base + "/shutdown_notify", token="tok-scaler",
+              body={"machine": "ree-fence-status",
+                    "reason": "scaler_idle_after_grace"})
+        st, jb = _http("GET", self._base + "/shadow/status",
+                       token="tok-scaler")
+        self.assertEqual(st, 200)
+        machines = {m["machine"]: m for m in jb["machines"]}
+        self.assertTrue(machines["ree-fence-status"]["claim_fenced"])
+
+    def test_clear_endpoint_disarms(self):
+        machine = "ree-fence-clear"
+        _http("POST", self._base + "/shutdown_notify", token="tok-scaler",
+              body={"machine": machine,
+                    "reason": "scaler_idle_after_grace"})
+        st, jb = _http("POST", self._base + "/claim", token="tok-scaler",
+                       body={"queue_id": "V3-EXQ-842",
+                             "machine": machine})
+        self.assertEqual(jb["verdict"], "draining")
+
+        time.sleep(1.1)  # 1-second timestamp resolution
+        st, jb = _http("POST", self._base + "/claim_fence/clear",
+                       token="tok-scaler", body={"machine": machine})
+        self.assertEqual(st, 200)
+        self.assertTrue(jb["ok"])
+
+        st, jb = _http("POST", self._base + "/claim", token="tok-scaler",
+                       body={"queue_id": "V3-EXQ-842",
+                             "machine": machine})
+        self.assertEqual(jb["verdict"], "ok")
+
+    def test_clear_requires_auth(self):
+        st, _ = _http("POST", self._base + "/claim_fence/clear",
+                      body={"machine": "ree-cloud-4"})
+        self.assertEqual(st, 401)
+
+    def test_clear_requires_explicit_machine_field(self):
+        # Same contract as /shutdown_notify: the token's own label is
+        # never substituted, so an empty body cannot create a stray
+        # heartbeat row named after the token.
+        st, _ = _http("POST", self._base + "/claim_fence/clear",
+                      token="tok-scaler", body={})
+        self.assertEqual(st, 400)
+
+
+class ScalerClearFenceWiringTest(unittest.TestCase):
+    """The scaler must actually CALL the clear on poweron.
+
+    Loads the real cloud-scaler.py by path (it lives under deploy/ and is
+    not importable as a package module) and drives hcloud_poweron with
+    subprocess.run stubbed, so a poweron branch that forgets the clear
+    fails here rather than in production.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "cloud_scaler_under_test",
+            str(HERE / "deploy" / "cloud-scaler.py"))
+        cls.scaler = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.scaler)
+
+    def _run_poweron(self, script_exists):
+        calls = []
+
+        def fake_run(argv, **kwargs):
+            calls.append(list(argv))
+            return None
+
+        real_run = self.scaler.subprocess.run
+        real_exists = self.scaler.os.path.exists
+        self.scaler.subprocess.run = fake_run
+        self.scaler.os.path.exists = lambda p: script_exists
+        try:
+            self.scaler.hcloud_poweron(
+                "ree-worker-4", affinity="ree-cloud-4",
+                clear_fence_script="/usr/local/bin/clear.sh")
+        finally:
+            self.scaler.subprocess.run = real_run
+            self.scaler.os.path.exists = real_exists
+        return calls
+
+    def test_poweron_clears_the_fence(self):
+        calls = self._run_poweron(script_exists=True)
+        self.assertEqual(calls[0][:3], ["hcloud", "server", "poweron"])
+        self.assertEqual(calls[-1], ["/usr/local/bin/clear.sh",
+                                     "ree-cloud-4"])
+
+    def test_missing_clear_script_does_not_break_poweron(self):
+        # Degraded, not broken: the fence expires on its own timer.
+        calls = self._run_poweron(script_exists=False)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][:3], ["hcloud", "server", "poweron"])
+
+    def test_every_poweron_call_site_passes_the_clear_script(self):
+        # hcloud_poweron takes affinity/clear_fence_script rather than the
+        # call sites doing the clear themselves, precisely so a branch
+        # cannot forget. Pin that no call site regresses to the bare form.
+        src = (HERE / "deploy" / "cloud-scaler.py").read_text()
+        sites = [ln for ln in src.splitlines()
+                 if "hcloud_poweron(" in ln and not ln.strip().startswith(
+                     ("def ", "#"))]
+        self.assertGreaterEqual(len(sites), 2)
+        for ln in sites:
+            self.assertIn("affinity=affinity", ln)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

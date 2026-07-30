@@ -80,6 +80,9 @@ def _migrate_heartbeats(conn):
     if "expected_wake_condition" not in cols:
         conn.execute(
             "ALTER TABLE heartbeats ADD COLUMN expected_wake_condition TEXT")
+    if "claim_fence_cleared_at" not in cols:
+        conn.execute(
+            "ALTER TABLE heartbeats ADD COLUMN claim_fence_cleared_at TEXT")
     if "heartbeat_payload_json" not in cols:
         conn.execute(
             "ALTER TABLE heartbeats ADD COLUMN heartbeat_payload_json TEXT")
@@ -247,17 +250,143 @@ def _claim_recoverable(conn, row, queue_id, stale_hours,
         conn, queue_id, row["claimed_by_machine"], heartbeat_fresh_seconds)
 
 
+# ---- drain-window claim fence ---------------------------------------------
+#
+# A worker the scaler has issued `hcloud server shutdown` against keeps
+# running for the whole ACPI drain window (measured 2026-07-30: ~26 min on
+# ree-worker-4). Its runner poll loop stays alive throughout, so without a
+# fence it happily claims fresh work and then powers off holding it -- the
+# claim is then orphaned until the 6h stale threshold in _claim_recoverable
+# above. Confirmed incident: V3-EXQ-841, a 600-estimated-minute experiment,
+# claimed by ree-cloud-4 at 07:08:39Z -- 8 minutes into a drain announced at
+# 07:00:18Z -- and not re-claimable until 17:08Z (~10h).
+#
+# The scaler cannot retract an in-flight ACPI shutdown, and its three
+# protection layers (HUB_NAME skip, HELD_BY_SELF, lease veto) are all
+# evaluated at DECISION time -- they can only decline to issue a NEW
+# shutdown. All five of the scaler's subsequent "keeping ree-worker-4
+# running" votes during that window were undeliverable. So the fence has to
+# live on the claim path, not the shutdown path.
+#
+# Server-side (here) rather than runner-local, deliberately: this also
+# covers a runner whose SIGTERM handler never fires. The runner-local drain
+# fence does exist and works (experiment_runner breaks out of the claim loop
+# on _drain_flag), but in the confirmed incident it never armed -- the
+# runner claimed 8 minutes in, so it had not observed a drain signal at all.
+
+# Shutdown reasons that announce a PROCESS exit, not a machine shutdown.
+# The runner posts these itself on its way out (experiment_runner
+# _announce_intentional_shutdown). The ree-runner unit carries
+# Restart=always, so fencing on these would stall the restarted runner for
+# the whole fence window on an ordinary `systemctl restart` or remote stop.
+# The scaler's own notice (default reason "scaler_idle_after_grace") is the
+# one that means "this machine is going away", and anything unrecognised
+# fences -- default-deny is the safe direction for the incident above.
+PROCESS_EXIT_SHUTDOWN_REASONS = frozenset({
+    "runner_drain_complete",
+    "runner_signal_exit",
+})
+
+# How long a pending shutdown notice fences claims. Must exceed the ACPI
+# drain window (~26 min measured) or the fence lapses while the box is
+# still up and claiming. Bounded so a machine woken by a MANUAL `hcloud
+# server poweron` -- which never calls record_claim_fence_clear -- recovers
+# on its own instead of staying fenced forever.
+CLAIM_FENCE_DEFAULT_SECONDS = 1800
+
+
+def claim_fence_active(last_shutdown_at, claim_fence_cleared_at,
+                       shutdown_reason, *, fence_seconds, now=None):
+    """Is this machine inside a pending shutdown's claim fence?
+
+    Pure function; mirrors lifecycle_state's timestamp-comparison style.
+    Fenced when a shutdown notice is (a) present, (b) not a process-exit
+    reason, (c) not superseded by a later fence clear, and (d) still inside
+    the fence window.
+
+    fence_seconds <= 0 disables the fence entirely (the default on both
+    claim entry points, so existing callers and the shadow comparison are
+    bit-identical unless the fence is explicitly wired in).
+    """
+    if not fence_seconds or fence_seconds <= 0:
+        return False
+    shutdown_dt = _parse_utc(last_shutdown_at)
+    if shutdown_dt is None:
+        return False
+    if shutdown_reason in PROCESS_EXIT_SHUTDOWN_REASONS:
+        return False
+    cleared_dt = _parse_utc(claim_fence_cleared_at)
+    # STRICTLY newer, unlike lifecycle_state's `shutdown_dt >= seen_dt`.
+    # These timestamps have 1-second resolution, so a clear and a shutdown
+    # notice landing in the same second are indistinguishable by order --
+    # and the two outcomes are not symmetric. Refusing a claim from a
+    # machine that is actually fine costs one poll tick; granting one to a
+    # machine that is actually draining is the 10h orphan. So a tie leaves
+    # the fence ARMED and the clear must be strictly newer to disarm.
+    if cleared_dt is not None and cleared_dt > shutdown_dt:
+        return False
+    now_dt = now or datetime.now(timezone.utc)
+    return (now_dt - shutdown_dt).total_seconds() <= fence_seconds
+
+
+def machine_claim_fenced(conn, machine, fence_seconds, now=None):
+    """DB-backed claim_fence_active for `machine`. False when no row."""
+    if not fence_seconds or fence_seconds <= 0:
+        return False
+    row = conn.execute(
+        "SELECT last_shutdown_at, claim_fence_cleared_at, shutdown_reason "
+        "FROM heartbeats WHERE machine=?",
+        (machine,),
+    ).fetchone()
+    if row is None:
+        return False
+    return claim_fence_active(
+        row["last_shutdown_at"], row["claim_fence_cleared_at"],
+        row["shutdown_reason"], fence_seconds=fence_seconds, now=now)
+
+
+def record_claim_fence_clear(conn, machine):
+    """Disarm the claim fence for `machine` (the scaler calls this on
+    poweron). Stamps claim_fence_cleared_at=now, which supersedes any
+    shutdown notice older than it.
+
+    Deliberately does NOT null last_shutdown_at: lifecycle_state and
+    phase3_preflight read that column, and a machine that is powered on but
+    has not heartbeated yet should stay `gracefully_offline` rather than
+    dropping straight to `stale` for the ~90s it takes to boot.
+
+    Same row-creation contract as record_shutdown_notice -- sentinel
+    last_seen so lifecycle_state does not mistake the write for liveness.
+    """
+    conn.execute(
+        """
+        INSERT INTO heartbeats (machine, last_seen, claim_fence_cleared_at)
+        VALUES (?,?,?)
+        ON CONFLICT(machine) DO UPDATE SET
+          claim_fence_cleared_at=excluded.claim_fence_cleared_at
+        """,
+        (machine, _NEVER_HEARTBEATED_SENTINEL, utcnow()),
+    )
+
+
 def try_claim(conn, queue_id, machine, stale_hours=6,
-              heartbeat_fresh_seconds=900):
+              heartbeat_fresh_seconds=900, fence_seconds=0):
     """Atomic conditional claim. Returns one of: 'ok', 'already_claimed',
-    'error'. Mirrors experiment_runner.attempt_claim() semantics exactly so
-    the shadow comparison is apples-to-apples.
+    'draining', 'error'. Mirrors experiment_runner.attempt_claim() semantics
+    exactly so the shadow comparison is apples-to-apples.
+
+    'draining' means the machine has a pending shutdown notice -- see
+    claim_fence_active. Checked first and machine-scoped, so it is
+    independent of the item's own eligibility. fence_seconds=0 (the
+    default) disables it.
 
     Atomicity: BEGIN IMMEDIATE takes the write lock before the SELECT, so no
     other request can interleave between the eligibility check and the UPDATE.
     """
     now = utcnow()
     try:
+        if machine_claim_fenced(conn, machine, fence_seconds):
+            return "draining"
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
             "SELECT status, machine_affinity, claimed_by_machine, claimed_at "
@@ -291,10 +420,12 @@ def try_claim(conn, queue_id, machine, stale_hours=6,
 
 
 def evaluate_claim(conn, queue_id, machine, stale_hours=6,
-                   heartbeat_fresh_seconds=900):
+                   heartbeat_fresh_seconds=900, fence_seconds=0):
     """Read-only: what verdict WOULD the coordinator return, without
     mutating the mirror. Used by the shadow audit so the comparison does
     not perturb state. Same logic as try_claim()."""
+    if machine_claim_fenced(conn, machine, fence_seconds):
+        return "draining"
     row = conn.execute(
         "SELECT status, machine_affinity, claimed_by_machine, claimed_at "
         "FROM experiments "

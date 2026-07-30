@@ -166,9 +166,13 @@ the explorer + preflight until the 7-day watchdog window expires.
 One-time setup on ree-cloud-1:
 
 ```
-# 1. Install the helper (run as a sudo-capable user on cloud-1)
+# 1. Install the helpers (run as a sudo-capable user on cloud-1)
 sudo cp coordinator_announce_shutdown.sh /usr/local/bin/
 sudo chmod 755 /usr/local/bin/coordinator_announce_shutdown.sh
+# The symmetric disarm -- see "Drain-window claim fence" below. Install
+# BOTH: the announce arms the fence, this is what clears it on poweron.
+sudo cp coordinator_clear_claim_fence.sh /usr/local/bin/
+sudo chmod 755 /usr/local/bin/coordinator_clear_claim_fence.sh
 
 # 2. Mint a dedicated scaler token (revocable independently of worker
 #    tokens). Add to tokens.json (next to app.py):
@@ -192,6 +196,53 @@ ssh-keygen -t ed25519 -f ~/scaler_key -N "" -C "github-scaler"
 #    "Hardening (optional)" below to lock the key to a forced command.
 cat ~/scaler_key.pub | sudo tee -a /home/ree/.ssh/authorized_keys
 ```
+
+### Drain-window claim fence
+
+`hcloud server shutdown` is an ACPI soft-off, deliberately -- it gives
+the runner a drain window to finish the experiment it is on. Measured
+2026-07-30 on ree-worker-4, that window ran about 26 minutes, and the
+runner's poll loop stays alive for all of it. Without a fence it keeps
+claiming NEW work and then powers off holding it: V3-EXQ-841, a
+600-estimated-minute experiment, was claimed 8 minutes into the drain
+and stayed `claimed` by a powered-off box for ~10 hours (the coordinator
+only recovers a claim once BOTH `COORDINATOR_STALE_HOURS` (6) has passed
+AND the owner's heartbeat has gone stale).
+
+The scaler cannot fix this from its side. Its three protection layers
+(HUB_NAME skip, HELD_BY_SELF, lease veto) are all evaluated when it
+DECIDES to shut a box down; once ACPI shutdown is in flight there is no
+way to retract it. In the incident HELD_BY_SELF worked perfectly and
+voted "keeping ree-worker-4 running" five times into the void.
+
+So the fence lives on the claim path, coordinator-side:
+
+- `POST /shutdown_notify` ARMS it. `POST /claim` from that machine then
+  returns `verdict: "draining"` and changes nothing, so the item stays
+  claimable by a healthy worker.
+- `POST /claim_fence/clear` DISARMS it. The scaler calls this via
+  `coordinator_clear_claim_fence.sh` immediately after every
+  `hcloud server poweron`, so a freshly-woken worker claims at once
+  instead of sitting out the rest of its own shutdown's window.
+- The fence also EXPIRES after `COORDINATOR_CLAIM_FENCE_SECONDS`
+  (default 1800; must stay above the ~26-minute drain window). That
+  expiry is what covers a box woken by a manual `hcloud server
+  poweron`, which never calls the clear. Set it to `0` to disable the
+  fence entirely.
+- Shutdown notices the RUNNER posts about itself
+  (`runner_drain_complete`, `runner_signal_exit`) do not fence:
+  `ree-runner.service` carries `Restart=always`, so fencing on those
+  would stall the restarted runner after an ordinary `systemctl
+  restart`. Any other reason fences -- default-deny.
+
+`GET /shadow/status` reports `claim_fenced` per machine. It is worth
+knowing that `lifecycle_state` stays `live` for the whole drain window
+(the runner keeps heartbeating), which is exactly why the drain was
+invisible before this field existed.
+
+Not installing `coordinator_clear_claim_fence.sh` is degraded but safe:
+the scaler logs that the script is missing and the fence falls back to
+expiring on its timer.
 
 ### Hardening (optional)
 

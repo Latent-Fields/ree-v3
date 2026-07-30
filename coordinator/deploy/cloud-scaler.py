@@ -59,6 +59,7 @@ DEFAULT_HEARTBEATS_DIR = (
     "/home/ree/REE_Working/REE_assembly/evidence/experiments/runner_heartbeats"
 )
 DEFAULT_ANNOUNCE_SCRIPT = "/usr/local/bin/coordinator_announce_shutdown.sh"
+DEFAULT_CLEAR_FENCE_SCRIPT = "/usr/local/bin/coordinator_clear_claim_fence.sh"
 
 # Phase-3 telemetry transport (2026-06-23). Freshness/state/current_exq now
 # come from the coordinator DB over WireGuard (COORDINATOR_URL/shadow/status,
@@ -335,15 +336,53 @@ def hcloud_describe_status(server_name, dry_run=False):
         return "unknown"
 
 
-def hcloud_poweron(server_name, dry_run=False):
+def hcloud_poweron(server_name, affinity=None, clear_fence_script=None,
+                   dry_run=False):
+    """Power a worker on, then disarm its drain-window claim fence.
+
+    affinity + clear_fence_script are taken here rather than at the call
+    sites deliberately: a poweron that forgets the clear leaves the worker
+    unable to claim for the remainder of its own shutdown's fence window,
+    and there is more than one poweron branch in the decision matrix. Both
+    are optional so the clear is simply skipped when not configured.
+    """
     if dry_run:
         log("[DRY] would poweron %s" % server_name)
+        if affinity and clear_fence_script:
+            log("[DRY] would clear claim fence for %s via %s"
+                % (affinity, clear_fence_script))
         return
     try:
         subprocess.run(["hcloud", "server", "poweron", server_name],
                        check=True, timeout=60)
     except Exception as exc:  # noqa: BLE001
         log("ERROR hcloud poweron %s failed: %r" % (server_name, exc))
+        return
+    if affinity and clear_fence_script:
+        clear_claim_fence(affinity, clear_fence_script)
+
+
+def clear_claim_fence(affinity, clear_fence_script):
+    """Best-effort call to coordinator_clear_claim_fence.sh -- disarms the
+    coordinator's drain-window claim fence so a freshly-woken worker can
+    claim immediately instead of sitting out the rest of its own shutdown's
+    fence window.
+
+    Failure is degraded, not broken: the fence expires on its own timer
+    (COORDINATOR_CLAIM_FENCE_SECONDS), which is also what covers a machine
+    woken by a manual `hcloud server poweron`.
+    """
+    if not os.path.exists(clear_fence_script):
+        log("[scaler] clear-fence script %s missing -- skipping for %s"
+            % (clear_fence_script, affinity))
+        return
+    try:
+        subprocess.run([clear_fence_script, affinity],
+                       check=True, timeout=15)
+        log("    [scaler] cleared claim fence for %s" % affinity)
+    except Exception as exc:  # noqa: BLE001
+        log("    [scaler] WARN: claim-fence clear failed for %s "
+            "(%r) (fence will expire on its own timer)" % (affinity, exc))
 
 
 def hcloud_shutdown(server_name, dry_run=False):
@@ -440,9 +479,12 @@ def run_once(queue_path, heartbeats_dir, announce_script,
              idle_grace_min, heartbeat_fresh_min, surge_queue_threshold,
              hub_name, workers, dry_run=False,
              coordinator_url=None, coordinator_token=None,
-             lease_dir=None, max_lease_min=None):
+             lease_dir=None, max_lease_min=None,
+             clear_fence_script=None):
     """One pass over the WORKERS list. Mirrors the bash for-loop body
     one-to-one. Returns 0 on success."""
+    if clear_fence_script is None:
+        clear_fence_script = DEFAULT_CLEAR_FENCE_SCRIPT
     if lease_dir is None:
         lease_dir = DEFAULTS["PYTEST_LEASE_DIR"]
     if max_lease_min is None:
@@ -509,7 +551,9 @@ def run_once(queue_path, heartbeats_dir, announce_script,
         # Decision matrix -- ORDERED, identical to the bash if/elif chain.
         if claimable > 0 and status == "off" and mode == "full":
             log("  -> queue has work, starting %s" % server_name)
-            hcloud_poweron(server_name, dry_run=dry_run)
+            hcloud_poweron(server_name, affinity=affinity,
+                           clear_fence_script=clear_fence_script,
+                           dry_run=dry_run)
 
         elif status == "off" and mode == "surge":
             # Surge mode: cloud-4 powers on only when cloud-2 + cloud-3
@@ -530,7 +574,9 @@ def run_once(queue_path, heartbeats_dir, announce_script,
                     "starting %s"
                     % (claimable, surge_queue_threshold,
                        cloud_2_held, cloud_3_held, server_name))
-                hcloud_poweron(server_name, dry_run=dry_run)
+                hcloud_poweron(server_name, affinity=affinity,
+                               clear_fence_script=clear_fence_script,
+                               dry_run=dry_run)
             else:
                 log("  -> surge mode but conditions not met "
                     "(claimable=%d/threshold=%d, cloud-2=%s/held=%d, "
@@ -601,6 +647,9 @@ def main(argv=None):
                         help="runner_heartbeats directory path")
     parser.add_argument("--announce-script", default=DEFAULT_ANNOUNCE_SCRIPT,
                         help="coordinator_announce_shutdown.sh path")
+    parser.add_argument("--clear-fence-script",
+                        default=DEFAULT_CLEAR_FENCE_SCRIPT,
+                        help="coordinator_clear_claim_fence.sh path")
     parser.add_argument("--dry-run", action="store_true",
                         help=("read state and log decisions, but do NOT "
                               "issue hcloud poweron/shutdown or announce"))
@@ -654,6 +703,7 @@ def main(argv=None):
         queue_path=args.queue,
         heartbeats_dir=args.heartbeats_dir,
         announce_script=args.announce_script,
+        clear_fence_script=args.clear_fence_script,
         idle_grace_min=idle_grace_min,
         heartbeat_fresh_min=heartbeat_fresh_min,
         surge_queue_threshold=surge_queue_threshold,
