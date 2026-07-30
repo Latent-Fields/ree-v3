@@ -302,6 +302,24 @@ _UNTRACKED_RUNNER_SIGNAL_RE = re.compile(
 )
 _PREPULL_STASH_MESSAGE = "runner-prepull-untracked"
 
+# Upper bound on how many prepull entries one restore pass will try to pop.
+# The pop loop is a REAPER for entries stranded by older code (the pop used to
+# be reachable from only some of git_pull's exit paths), so it must be able to
+# clear a backlog -- ree-cloud-3 carried 13 -- while still being bounded so a
+# pathological stash list cannot stall a pull tick indefinitely.
+_PREPULL_DRAIN_MAX = 50
+
+# How many consecutive pull ticks a given untracked runner-owned path may be
+# stashed before the runner escalates. A worker pulls REE_assembly every ~60s,
+# so 60 is roughly an hour and 240 roughly four hours. Purpose: a manifest that
+# is never going to land (its run never reached origin and the coordinator has
+# no row for it) would otherwise be stashed and popped ~1440 times a day
+# forever, entirely silently. Counted IN-PROCESS -- the runner is long-lived,
+# and file mtime is useless here because every pop rewrites the file.
+_PREPULL_STUCK_WARN_AT = 60
+_PREPULL_STUCK_WARN_EVERY = 240
+_PREPULL_STASH_CYCLES: dict[str, int] = {}
+
 
 # --- Git subprocess entry point -------------------------------------------
 # EVERY git call in this module goes through _git_run, never subprocess.run
@@ -605,6 +623,31 @@ def _untracked_paths_for_prepull_stash(repo_path: Path) -> list[str]:
         return []
 
 
+def _note_prepull_stash_cycle(paths: list[str]) -> None:
+    """Count how often each path is stashed, and escalate one that never lands.
+
+    A run manifest the worker wrote but could not deliver stays untracked
+    forever: every pull tick stashes it, every restore pops it back, and
+    nothing ever notices. Observed on ree-cloud-3, where the same file cycled
+    ~1440 times a day for days while the run it recorded existed at no path on
+    origin/master. Re-stashing is CORRECT (it keeps the pull moving and the
+    evidence on disk); doing so in silence is not. Best-effort, never raises.
+    """
+    for rel in paths:
+        n = _PREPULL_STASH_CYCLES.get(rel, 0) + 1
+        _PREPULL_STASH_CYCLES[rel] = n
+        if n < _PREPULL_STUCK_WARN_AT:
+            continue
+        if n != _PREPULL_STUCK_WARN_AT and \
+                (n - _PREPULL_STUCK_WARN_AT) % _PREPULL_STUCK_WARN_EVERY != 0:
+            continue
+        print(f"[runner] WARN untracked runner-owned path has been stashed "
+              f"{n} times and still has not landed: {rel} -- it is not "
+              f"reaching origin. Check whether the run exists on "
+              f"origin/master and in the coordinator DB; if neither, this "
+              f"file is the only copy and needs manual delivery.", flush=True)
+
+
 def _prepull_stash_blocking_untracked(repo_path: Path, label: str) -> bool:
     """Stash untracked flat manifests/signals that block alignment. Never raises."""
     if label != "REE_assembly":
@@ -621,6 +664,7 @@ def _prepull_stash_blocking_untracked(repo_path: Path, label: str) -> bool:
         if r.returncode == 0:
             print(f"[runner] git pull {label}: stashed {len(paths)} untracked "
                   f"runner-owned path(s) before pull", flush=True)
+            _note_prepull_stash_cycle(paths)
             return True
         print(f"[runner] git pull {label}: prepull stash warn: "
               f"{r.stderr.strip()}", flush=True)
@@ -629,8 +673,14 @@ def _prepull_stash_blocking_untracked(repo_path: Path, label: str) -> bool:
     return False
 
 
-def _find_prepull_stash_ref(repo_path: Path) -> str | None:
+def _find_prepull_stash_ref(repo_path: Path, skip: int = 0) -> str | None:
     """Return the stash ref (e.g. "stash@{2}") holding the prepull stash.
+
+    `skip` passes over that many prepull matches before returning one, so the
+    restore loop can step past an entry whose pop failed (which must be KEPT,
+    never dropped) and still reap the ones stacked behind it. Entries are
+    listed newest-first and popping a later one never reorders an earlier one,
+    so a fixed skip count stays stable across pops within a pass.
 
     Searched BY MESSAGE, never by position. The previous implementation
     inspected only `git stash list -1` and returned early unless the prepull
@@ -647,9 +697,13 @@ def _find_prepull_stash_ref(repo_path: Path) -> str | None:
     )
     if r.returncode != 0:
         return None
+    seen = 0
     for line in (r.stdout or "").splitlines():
         line = line.strip()
         if not line or _PREPULL_STASH_MESSAGE not in line:
+            continue
+        if seen < skip:
+            seen += 1
             continue
         return line.split(None, 1)[0]
     return None
@@ -783,7 +837,7 @@ def _clear_redundant_blocking_untracked(
 
 
 def _postpull_restore_prepull_stash(repo_path: Path, label: str) -> None:
-    """Pop the prepull stash back into the tree. NEVER drops it on failure.
+    """Pop EVERY prepull stash back into the tree. NEVER drops one on failure.
 
     A pop failure used to be treated as "the paths are on origin now" and the
     stash was dropped. That inference is unsound -- see _find_prepull_stash_ref
@@ -791,26 +845,51 @@ def _postpull_restore_prepull_stash(repo_path: Path, label: str) -> None:
     would have destroyed the only copy of a run's evidence. A stranded stash
     costs disk; a dropped one costs an experiment. So on failure we keep the
     stash and log loudly enough that an operator can recover it by hand.
+
+    This drains ALL prepull entries, not just the newest, which makes it the
+    REAPER for entries already stranded across the fleet. It has to be: until
+    2026-07-30 this pop was reachable from only three of git_pull's five exit
+    paths, so every pull that failed all three retries (or raised) left its
+    entry behind permanently with nothing to collect it. ree-cloud-3 had
+    accumulated 13 that way, two of them holding run manifests present at no
+    path on origin/master. Reaping restores them to the working tree, where
+    they are visible to `git status` and to runner_git_health.py, and where the
+    ordinary untracked-path machinery can finally deliver or clear them --
+    rather than invisible in a stash list nobody reads.
+
+    Nothing here can destroy evidence: `git stash pop` refuses to overwrite an
+    existing file, so a collision fails the pop and the entry is KEPT.
     """
     if label != "REE_assembly":
         return
+    restored = 0
+    failed = 0
     try:
-        ref = _find_prepull_stash_ref(repo_path)
-        if ref is None:
-            return
-        pop = _git_run(
-            ["git", "stash", "pop", ref],
-            cwd=str(repo_path), capture_output=True, text=True, timeout=30,
-        )
-        if pop.returncode != 0:
-            print(f"[runner] git pull {label}: WARN prepull stash {ref} "
-                  f"({_PREPULL_STASH_MESSAGE}) could NOT be restored and was "
-                  f"KEPT (not dropped) -- it may hold the only copy of a run "
-                  f"manifest. Recover with: git stash show -p {ref}. "
-                  f"git said: {pop.stderr.strip()}", flush=True)
+        for _ in range(_PREPULL_DRAIN_MAX):
+            # Re-resolve each time: indices shift after every successful pop.
+            # `failed` steps over entries we already tried and must not drop.
+            ref = _find_prepull_stash_ref(repo_path, skip=failed)
+            if ref is None:
+                break
+            pop = _git_run(
+                ["git", "stash", "pop", ref],
+                cwd=str(repo_path), capture_output=True, text=True, timeout=30,
+            )
+            if pop.returncode != 0:
+                failed += 1
+                print(f"[runner] git pull {label}: WARN prepull stash {ref} "
+                      f"({_PREPULL_STASH_MESSAGE}) could NOT be restored and "
+                      f"was KEPT (not dropped) -- it may hold the only copy "
+                      f"of a run manifest. Recover with: git stash show -p "
+                      f"{ref}. git said: {pop.stderr.strip()}", flush=True)
+                continue
+            restored += 1
     except Exception as exc:
         print(f"[runner] git pull {label}: prepull stash restore error "
               f"(stash kept): {exc}", flush=True)
+    if restored > 1:
+        print(f"[runner] git pull {label}: reaped {restored} stranded prepull "
+              f"stash entry(ies) back into the working tree", flush=True)
 
 
 # --- Runner code version (readable, refreshes between passes) --------------
@@ -954,6 +1033,12 @@ def git_pull(repo_path: Path, label: str) -> None:
     origin's version: origin (the hub writer) is the canonical source for
     these paths under Phase 3. Non-ephemeral conflicts are left in place
     and a warning is emitted -- those need manual repair.
+
+    INVARIANT: the prepull stash is restored on EVERY exit path -- success,
+    total failure, and exception alike. That is what the try/finally at the
+    bottom is for, and why the restore must not be called from anywhere else
+    in this function. See the comment on the `finally` and
+    tests/contracts/test_runner_prepull_stash_safety.py C8.
     """
     import time
     _LOCK_HINTS = ("cannot lock ref", "unable to resolve reference",
@@ -965,100 +1050,105 @@ def git_pull(repo_path: Path, label: str) -> None:
     if pre is not None and (pre[0] or pre[1]):
         _recover_ephemeral_pull_conflict(repo_path, label)
     _prepull_stash_blocking_untracked(repo_path, label)
-    for attempt in range(3):
-        try:
-            r = _git_run(
-                ["git", "pull", "--rebase", "--autostash"],
-                cwd=str(repo_path), capture_output=True, text=True, timeout=30,
-            )
-            if r.returncode == 0:
-                # Git returns 0 even when the rebase fast-forwarded
-                # cleanly but the autostash pop produced UU markers --
-                # the wedge surface that bit cloud-3. Check stdout for
-                # the telltale "Applying autostash resulted in conflicts"
-                # line OR scan porcelain status; either way, trigger
-                # the ephemeral-conflict recovery before returning so
-                # the next tick doesn't bail with "Pulling is not possible
-                # because you have unmerged files."
-                msg = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else "ok"
-                combined = (r.stdout or "") + "\n" + (r.stderr or "")
-                if "autostash resulted in conflicts" in combined:
-                    print(f"[runner] git pull {label}: rebase ok but "
-                          f"autostash pop conflicted, resolving...",
-                          flush=True)
-                    _recover_ephemeral_pull_conflict(repo_path, label)
-                else:
-                    print(f"[runner] git pull {label}: {msg}", flush=True)
-                _postpull_restore_prepull_stash(repo_path, label)
-                _warn_on_stash_bloat(repo_path, label)
-                return
-            stderr = r.stderr.strip()
-            if any(h in stderr.lower() for h in _LOCK_HINTS) and attempt < 2:
-                print(f"[runner] git pull {label}: transient lock, retrying "
-                      f"({attempt + 1}/2)...", flush=True)
-                time.sleep(2)
-                continue
-            # A failed --rebase pull may stop mid-rebase and leave
-            # .git/rebase-merge behind, which wedges EVERY later git op on
-            # this repo ("there is already a rebase-merge directory") until
-            # a manual / launchd repair. Abort it so the next tick starts
-            # clean. Lost work is impossible here: autostash is restored by
-            # the abort, and a failed pull changed nothing to begin with.
-            _git_run(["git", "rebase", "--abort"], cwd=str(repo_path),
-                            capture_output=True, timeout=10)
-            _git_run(["git", "rebase", "--quit"], cwd=str(repo_path),
-                            capture_output=True, timeout=10)
-            # If the pull aborted because untracked files would be
-            # overwritten (the 2026-07-20 cloud-3 wedge), clear the ones
-            # provably already on origin and retry once. Unverifiable paths
-            # are left alone, so this cannot silently destroy evidence.
-            if _clear_redundant_blocking_untracked(repo_path, label, stderr):
-                r3 = _git_run(
+    try:
+        for attempt in range(3):
+            try:
+                r = _git_run(
                     ["git", "pull", "--rebase", "--autostash"],
-                    cwd=str(repo_path), capture_output=True, text=True,
-                    timeout=30,
+                    cwd=str(repo_path), capture_output=True, text=True, timeout=30,
                 )
-                if r3.returncode == 0:
-                    msg = (r3.stdout.strip().splitlines()[-1]
-                           if r3.stdout.strip() else "ok")
-                    print(f"[runner] git pull {label}: {msg} "
-                          f"(post-untracked-clear)", flush=True)
-                else:
-                    print(f"[runner] git pull {label} post-untracked-clear "
-                          f"warn: {r3.stderr.strip()}", flush=True)
-                _postpull_restore_prepull_stash(repo_path, label)
-                _warn_on_stash_bloat(repo_path, label)
+                if r.returncode == 0:
+                    # Git returns 0 even when the rebase fast-forwarded
+                    # cleanly but the autostash pop produced UU markers --
+                    # the wedge surface that bit cloud-3. Check stdout for
+                    # the telltale "Applying autostash resulted in conflicts"
+                    # line OR scan porcelain status; either way, trigger
+                    # the ephemeral-conflict recovery before returning so
+                    # the next tick doesn't bail with "Pulling is not possible
+                    # because you have unmerged files."
+                    msg = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else "ok"
+                    combined = (r.stdout or "") + "\n" + (r.stderr or "")
+                    if "autostash resulted in conflicts" in combined:
+                        print(f"[runner] git pull {label}: rebase ok but "
+                              f"autostash pop conflicted, resolving...",
+                              flush=True)
+                        _recover_ephemeral_pull_conflict(repo_path, label)
+                    else:
+                        print(f"[runner] git pull {label}: {msg}", flush=True)
+                    return
+                stderr = r.stderr.strip()
+                if any(h in stderr.lower() for h in _LOCK_HINTS) and attempt < 2:
+                    print(f"[runner] git pull {label}: transient lock, retrying "
+                          f"({attempt + 1}/2)...", flush=True)
+                    time.sleep(2)
+                    continue
+                # A failed --rebase pull may stop mid-rebase and leave
+                # .git/rebase-merge behind, which wedges EVERY later git op on
+                # this repo ("there is already a rebase-merge directory") until
+                # a manual / launchd repair. Abort it so the next tick starts
+                # clean. Lost work is impossible here: autostash is restored by
+                # the abort, and a failed pull changed nothing to begin with.
+                _git_run(["git", "rebase", "--abort"], cwd=str(repo_path),
+                                capture_output=True, timeout=10)
+                _git_run(["git", "rebase", "--quit"], cwd=str(repo_path),
+                                capture_output=True, timeout=10)
+                # If the pull aborted because untracked files would be
+                # overwritten (the 2026-07-20 cloud-3 wedge), clear the ones
+                # provably already on origin and retry once. Unverifiable paths
+                # are left alone, so this cannot silently destroy evidence.
+                if _clear_redundant_blocking_untracked(repo_path, label, stderr):
+                    r3 = _git_run(
+                        ["git", "pull", "--rebase", "--autostash"],
+                        cwd=str(repo_path), capture_output=True, text=True,
+                        timeout=30,
+                    )
+                    if r3.returncode == 0:
+                        msg = (r3.stdout.strip().splitlines()[-1]
+                               if r3.stdout.strip() else "ok")
+                        print(f"[runner] git pull {label}: {msg} "
+                              f"(post-untracked-clear)", flush=True)
+                    else:
+                        print(f"[runner] git pull {label} post-untracked-clear "
+                              f"warn: {r3.stderr.strip()}", flush=True)
+                    return
+                # If the failure left UU markers on ephemeral worker-owned
+                # paths (the 2026-05-31 cloud-3 wedge), auto-resolve by taking
+                # origin's version and retry the pull once.
+                if _recover_ephemeral_pull_conflict(repo_path, label):
+                    r2 = _git_run(
+                        ["git", "pull", "--rebase", "--autostash"],
+                        cwd=str(repo_path), capture_output=True, text=True,
+                        timeout=30,
+                    )
+                    if r2.returncode == 0:
+                        msg = (r2.stdout.strip().splitlines()[-1]
+                               if r2.stdout.strip() else "ok")
+                        print(f"[runner] git pull {label}: {msg} "
+                              f"(post-recovery)", flush=True)
+                    else:
+                        print(f"[runner] git pull {label} post-recovery warn: "
+                              f"{r2.stderr.strip()}", flush=True)
+                    return
+                print(f"[runner] git pull {label} warn: {stderr}", flush=True)
                 return
-            # If the failure left UU markers on ephemeral worker-owned
-            # paths (the 2026-05-31 cloud-3 wedge), auto-resolve by taking
-            # origin's version and retry the pull once.
-            if _recover_ephemeral_pull_conflict(repo_path, label):
-                r2 = _git_run(
-                    ["git", "pull", "--rebase", "--autostash"],
-                    cwd=str(repo_path), capture_output=True, text=True,
-                    timeout=30,
-                )
-                if r2.returncode == 0:
-                    msg = (r2.stdout.strip().splitlines()[-1]
-                           if r2.stdout.strip() else "ok")
-                    print(f"[runner] git pull {label}: {msg} "
-                          f"(post-recovery)", flush=True)
-                else:
-                    print(f"[runner] git pull {label} post-recovery warn: "
-                          f"{r2.stderr.strip()}", flush=True)
-                _postpull_restore_prepull_stash(repo_path, label)
-                _warn_on_stash_bloat(repo_path, label)
+            except Exception as e:
+                _git_run(["git", "rebase", "--abort"], cwd=str(repo_path),
+                                capture_output=True, timeout=10)
+                _git_run(["git", "rebase", "--quit"], cwd=str(repo_path),
+                                capture_output=True, timeout=10)
+                print(f"[runner] git pull {label} error: {e}", flush=True)
                 return
-            print(f"[runner] git pull {label} warn: {stderr}", flush=True)
-            _warn_on_stash_bloat(repo_path, label)
-            return
-        except Exception as e:
-            _git_run(["git", "rebase", "--abort"], cwd=str(repo_path),
-                            capture_output=True, timeout=10)
-            _git_run(["git", "rebase", "--quit"], cwd=str(repo_path),
-                            capture_output=True, timeout=10)
-            print(f"[runner] git pull {label} error: {e}", flush=True)
-            return
+    finally:
+        # SINGLE exit point for the prepull stash. Until 2026-07-30 the
+        # restore was called from three of this function's five exit
+        # paths: a pull that failed all three retries, or raised, left
+        # its stash entry behind PERMANENTLY and nothing ever reaped it
+        # (ree-cloud-3 accumulated 13, two holding the only surviving
+        # copy of a completed run's manifest -- one of them 40.9 hours
+        # of compute). A `finally` is load-bearing, not defensive: it is
+        # what makes a future exit path structurally unable to leak.
+        _postpull_restore_prepull_stash(repo_path, label)
+        _warn_on_stash_bloat(repo_path, label)
 
 
 def _ree_v3_code_dirty() -> bool | None:

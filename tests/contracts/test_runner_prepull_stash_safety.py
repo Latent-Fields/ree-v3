@@ -34,13 +34,43 @@ Contracts:
   C5. git_pull recovers from an untracked-blocked pull when the blocking file
       is a NESTED run-pack file provably already on origin (the wedge), and
       does NOT delete a blocking file it cannot verify.
+
+Background -- 2026-07-30 orphaned-stash leak (C8/C9/C10 below):
+  _postpull_restore_prepull_stash was called from only THREE of git_pull's
+  five exit paths. A pull that failed all three retries, or raised, returned
+  without ever popping -- so the entry stayed behind permanently and nothing
+  reaped it. At roughly one pull per 62s per worker this compounded:
+  ree-cloud-3 held 13 orphaned entries, two of which contained run manifests
+  present at NO path on origin/master (V3-EXQ-707c / ARC-110, 40.9 hours of
+  compute) -- again the only surviving copies. Second-order, the push/pop
+  cycle generated ~6 unreachable objects per tick, reaching 20,326 loose
+  objects (84 MiB), which tripped git's unreachable-object guard and wrote
+  .git/gc.log -- and the mere PRESENCE of gc.log disables automatic gc on
+  that repo indefinitely.
+
+  The defect was STRUCTURAL, not a wrong branch: the call was correct
+  everywhere it appeared and simply absent from two paths. So C8 pins the
+  structure (the restore must be in a `finally` covering every `return`)
+  rather than only the behaviour, which is what lets a NEW exit path added
+  later fail the suite instead of silently leaking again.
+
+Contracts:
+  C8. Structural -- git_pull's restore call is in a `finally` whose `try`
+      encloses every return/raise in the function, and appears nowhere else.
+  C9. Behavioural -- a pull that fails every retry, and a pull that raises,
+      both still restore the prepull stash.
+  C10. The restore DRAINS all prepull entries (the reaper for entries already
+      stranded on the fleet), still without ever dropping one, and a path
+      that keeps being re-stashed without landing is escalated.
 """
 
 from __future__ import annotations
 
+import ast
 import json
 import subprocess
 import sys
+
 from pathlib import Path
 
 import pytest
@@ -322,3 +352,342 @@ def test_c7_bare_and_dashed_verdicts_match_every_generation(gen):
                for p in experiment_runner.RE_RUN_DONE_PATTERNS)
     assert experiment_runner.RE_EXQ_DASHED_OUTCOME.search(
         f"{gen}-EXQ-001 (probe) -- PASS in 3m")
+
+
+# --- C8: the restore is STRUCTURALLY unmissable ----------------------------
+#
+# The 2026-07-30 leak was not a wrong branch -- every call site that existed
+# was correct. The call was simply MISSING from two of five exit paths. A
+# behavioural test only pins the paths someone thought to write a case for, so
+# the structure itself is pinned here: any future `return` added to git_pull
+# outside the guarded `try` fails this test by construction.
+
+_RESTORE_FN = "_postpull_restore_prepull_stash"
+
+
+def _git_pull_ast() -> ast.FunctionDef:
+    src = Path(experiment_runner.__file__).read_text()
+    for node in ast.parse(src).body:
+        if isinstance(node, ast.FunctionDef) and node.name == "git_pull":
+            return node
+    raise AssertionError("git_pull not found in experiment_runner")
+
+
+def _calls_restore(node: ast.AST) -> bool:
+    return any(
+        isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+        and n.func.id == _RESTORE_FN
+        for n in ast.walk(node)
+    )
+
+
+def _restore_guards(fn: ast.FunctionDef) -> list[ast.Try]:
+    return [t for t in ast.walk(fn)
+            if isinstance(t, ast.Try)
+            and any(_calls_restore(s) for s in t.finalbody)]
+
+
+def _exits_outside_guard(fn: ast.FunctionDef) -> list[ast.AST]:
+    """Return/raise nodes the restore `finally` does NOT cover.
+
+    Shared by the real-code assertion and its negative control, so the
+    detector itself is exercised against a known-bad shape rather than only
+    against code that already passes.
+    """
+    guards = _restore_guards(fn)
+    if len(guards) != 1:
+        # No single guard -- by definition nothing is covered.
+        return [n for n in ast.walk(fn)
+                if isinstance(n, (ast.Return, ast.Raise))]
+    guarded = {id(n) for stmt in guards[0].body for n in ast.walk(stmt)}
+    return [n for n in ast.walk(fn)
+            if isinstance(n, (ast.Return, ast.Raise)) and id(n) not in guarded]
+
+
+# The shape of git_pull BEFORE 2026-07-30, reduced to its control flow: the
+# restore is called from some returns and not others. The detector must
+# reject this; if it does not, the assertion below is vacuous.
+_PRE_FIX_SHAPE = '''
+def git_pull(repo_path, label):
+    _prepull_stash_blocking_untracked(repo_path, label)
+    for attempt in range(3):
+        try:
+            if ok():
+                _postpull_restore_prepull_stash(repo_path, label)
+                return
+            if retryable() and attempt < 2:
+                continue
+            if recovered():
+                _postpull_restore_prepull_stash(repo_path, label)
+                return
+            print("warn")
+            return                      # <-- LEAKS
+        except Exception:
+            return                      # <-- LEAKS
+'''
+
+
+def test_c8_detector_rejects_the_pre_fix_shape():
+    """Negative control: the pre-fix control flow must FAIL this contract."""
+    fn = next(n for n in ast.parse(_PRE_FIX_SHAPE).body
+              if isinstance(n, ast.FunctionDef))
+    assert _restore_guards(fn) == [], (
+        "fixture invalid: the pre-fix shape has no restore `finally`"
+    )
+    escaping = _exits_outside_guard(fn)
+    assert escaping, (
+        "the structural detector does NOT flag the known-defective shape -- "
+        "test_c8_restore_lives_in_a_finally_covering_every_exit is vacuous"
+    )
+    assert len(escaping) == 4
+
+
+def test_c8_restore_lives_in_a_finally_covering_every_exit():
+    fn = _git_pull_ast()
+
+    guards = _restore_guards(fn)
+    assert len(guards) == 1, (
+        f"expected exactly one `finally` calling {_RESTORE_FN} in git_pull, "
+        f"found {len(guards)} -- the prepull stash must have ONE restore "
+        f"point, or exit paths can diverge again"
+    )
+
+    # Every exit from git_pull must be inside the guarded `try` body, so the
+    # finally runs for it. `raise` counts: git_pull promises never to raise,
+    # but a leaked stash on the way out would be the same evidence loss.
+    escaping = _exits_outside_guard(fn)
+    assert not escaping, (
+        f"git_pull has {len(escaping)} exit(s) at line(s) "
+        f"{sorted(n.lineno for n in escaping)} outside the try/finally that "
+        f"restores the prepull stash. That is EXACTLY the 2026-07-30 leak: "
+        f"an exit path with no pop strands the stash permanently, and it may "
+        f"hold the only copy of a completed run's manifest."
+    )
+
+
+def test_c8_restore_is_not_also_called_from_individual_exit_paths():
+    """The per-exit-path idiom must be GONE, not merely supplemented.
+
+    Leaving the old inline calls in place beside the finally would double-pop
+    and, worse, would let a future edit delete the finally while the suite
+    still passed on the surviving inline calls.
+    """
+    fn = _git_pull_ast()
+    guard = next(
+        t for t in ast.walk(fn)
+        if isinstance(t, ast.Try) and any(_calls_restore(s) for s in t.finalbody)
+    )
+    in_finally = {
+        id(n) for stmt in guard.finalbody for n in ast.walk(stmt)
+    }
+    stray = [
+        n for n in ast.walk(fn)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+        and n.func.id == _RESTORE_FN and id(n) not in in_finally
+    ]
+    assert not stray, (
+        f"{_RESTORE_FN} is still called from inside git_pull's body at "
+        f"line(s) {sorted(n.lineno for n in stray)} -- remove the per-exit "
+        f"calls; the finally is the single restore point"
+    )
+
+
+# --- C9: behaviour on the two paths that used to leak ----------------------
+
+def _seed_untracked_manifest(clone: Path, rel: str) -> None:
+    p = clone / rel
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps({"run_id": Path(rel).stem}) + "\n")
+
+
+def test_c9_total_pull_failure_still_restores_the_stash(origin_and_clone,
+                                                        capsys, tmp_path):
+    """The leak proper: every retry fails, function returns, stash stranded."""
+    _, clone = origin_and_clone
+    rel = "evidence/experiments/v3_exq_707c_arc110_20260728T010203Z_v3.json"
+    _seed_untracked_manifest(clone, rel)
+    payload = (clone / rel).read_text()
+
+    # Make the pull fail unrecoverably for every attempt.
+    _git(clone, "remote", "set-url", "origin", str(tmp_path / "gone.git"))
+
+    experiment_runner.git_pull(clone, "REE_assembly")
+
+    out = capsys.readouterr().out
+    assert experiment_runner._PREPULL_STASH_MESSAGE not in \
+        _git(clone, "stash", "list").stdout, (
+            f"prepull stash was STRANDED by a totally failed pull -- the "
+            f"2026-07-30 leak. Runner said: {out}"
+        )
+    assert (clone / rel).exists(), "manifest not restored to the working tree"
+    assert (clone / rel).read_text() == payload
+
+
+def test_c9_leak_reproduces_when_the_restore_is_disabled(origin_and_clone,
+                                                         monkeypatch, tmp_path):
+    """Fixture-validity control for the test above.
+
+    With the restore neutralised, the SAME scenario must strand the stash --
+    otherwise the passing test proves nothing about the leak, only that this
+    scenario never stashed anything in the first place.
+    """
+    _, clone = origin_and_clone
+    rel = "evidence/experiments/v3_exq_707e_probe_20260728T010203Z_v3.json"
+    _seed_untracked_manifest(clone, rel)
+    _git(clone, "remote", "set-url", "origin", str(tmp_path / "gone.git"))
+
+    monkeypatch.setattr(experiment_runner,
+                        "_postpull_restore_prepull_stash",
+                        lambda *a, **k: None)
+    experiment_runner.git_pull(clone, "REE_assembly")
+    monkeypatch.undo()
+
+    assert experiment_runner._PREPULL_STASH_MESSAGE in \
+        _git(clone, "stash", "list").stdout, (
+            "the leak did not reproduce with the restore disabled -- the "
+            "C9 scenario does not actually exercise the defective path"
+        )
+    assert not (clone / rel).exists(), "manifest should be inside the stash"
+
+    # ...and the real restore then reaps exactly that entry.
+    experiment_runner._postpull_restore_prepull_stash(clone, "REE_assembly")
+    assert experiment_runner._PREPULL_STASH_MESSAGE not in \
+        _git(clone, "stash", "list").stdout
+    assert (clone / rel).exists()
+
+
+def test_c9_exception_path_still_restores_the_stash(origin_and_clone,
+                                                    monkeypatch):
+    """git_pull's `except Exception` return also used to skip the pop."""
+    _, clone = origin_and_clone
+    rel = "evidence/experiments/v3_exq_707d_probe_20260728T010203Z_v3.json"
+    _seed_untracked_manifest(clone, rel)
+
+    real = experiment_runner._git_run
+
+    def boom(cmd, *a, **kw):
+        if len(cmd) > 1 and cmd[1] == "pull":
+            raise OSError("simulated git explosion")
+        return real(cmd, *a, **kw)
+
+    monkeypatch.setattr(experiment_runner, "_git_run", boom)
+    experiment_runner.git_pull(clone, "REE_assembly")
+    monkeypatch.undo()
+
+    assert experiment_runner._PREPULL_STASH_MESSAGE not in \
+        _git(clone, "stash", "list").stdout, (
+            "prepull stash was stranded by the exception exit path"
+        )
+    assert (clone / rel).exists()
+
+
+# --- C10: the reaper, and escalation of a manifest that never lands --------
+
+def test_c10_restore_drains_every_stranded_prepull_entry(origin_and_clone,
+                                                         capsys):
+    """Entries already stranded across the fleet must be collected.
+
+    ree-cloud-3 held 13. Fixing the leak stops new ones; without a drain the
+    existing ones stay invisible in a stash list nobody reads, which is where
+    two irreplaceable manifests were found.
+    """
+    _, clone = origin_and_clone
+    rels = [f"evidence/experiments/v3_exq_90{i}_probe_2026070{i}T000000Z_v3.json"
+            for i in range(1, 6)]
+    for rel in rels:
+        _seed_untracked_manifest(clone, rel)
+        _git(clone, "stash", "push", "--include-untracked", "-m",
+             experiment_runner._PREPULL_STASH_MESSAGE, "--", rel)
+
+    listed = _git(clone, "stash", "list").stdout
+    assert listed.count(experiment_runner._PREPULL_STASH_MESSAGE) == 5
+
+    experiment_runner._postpull_restore_prepull_stash(clone, "REE_assembly")
+    out = capsys.readouterr().out
+
+    assert experiment_runner._PREPULL_STASH_MESSAGE not in \
+        _git(clone, "stash", "list").stdout, (
+            f"stranded entries were not reaped: {out}"
+        )
+    for rel in rels:
+        assert (clone / rel).exists(), f"{rel} not restored to the tree"
+    assert "reaped 5" in out
+
+
+def test_c10_drain_steps_past_an_unpoppable_entry_without_dropping_it(
+        origin_and_clone, capsys):
+    """A collision must not stop the reaper -- nor cost the colliding entry.
+
+    The never-drop rule (C2) is absolute, so an entry whose pop fails stays.
+    Before the skip-past, that one entry blocked every older entry behind it
+    from ever being reaped.
+    """
+    _, clone = origin_and_clone
+    blocked = "evidence/experiments/v3_exq_911_blocked_20260701T000000Z_v3.json"
+    reapable = "evidence/experiments/v3_exq_912_ok_20260701T000000Z_v3.json"
+    for rel in (reapable, blocked):      # `blocked` ends up newest / on top
+        _seed_untracked_manifest(clone, rel)
+        _git(clone, "stash", "push", "--include-untracked", "-m",
+             experiment_runner._PREPULL_STASH_MESSAGE, "--", rel)
+
+    # Recreate the top entry's path so its pop collides and fails.
+    _seed_untracked_manifest(clone, blocked)
+    (clone / blocked).write_text('{"run_id": "collision"}\n')
+
+    experiment_runner._postpull_restore_prepull_stash(clone, "REE_assembly")
+    out = capsys.readouterr().out
+
+    remaining = _git(clone, "stash", "list").stdout
+    assert remaining.count(experiment_runner._PREPULL_STASH_MESSAGE) == 1, (
+        "the unpoppable entry must be KEPT (never dropped) and the other "
+        f"reaped -- stash list is:\n{remaining}"
+    )
+    assert (clone / reapable).exists(), (
+        f"the reapable entry behind the collision was not restored: {out}"
+    )
+    assert "KEPT (not dropped)" in out
+
+
+def test_c10_repeatedly_stashed_path_is_escalated(capsys):
+    """A manifest that never lands must stop being re-stashed in silence.
+
+    On ree-cloud-3 the same file was stashed and popped ~1440 times a day for
+    days. Re-stashing is correct; doing it silently is what let it run.
+    """
+    rel = "evidence/experiments/v3_exq_913_stuck_20260701T000000Z_v3.json"
+    experiment_runner._PREPULL_STASH_CYCLES.pop(rel, None)
+    try:
+        for _ in range(experiment_runner._PREPULL_STUCK_WARN_AT - 1):
+            experiment_runner._note_prepull_stash_cycle([rel])
+        assert "WARN" not in capsys.readouterr().out, (
+            "escalated too early -- a transient undelivered manifest is "
+            "normal and must not be noisy"
+        )
+
+        experiment_runner._note_prepull_stash_cycle([rel])
+        out = capsys.readouterr().out
+        assert "WARN" in out and rel in out
+        assert "has not landed" in out
+
+        # ...then stays quiet until the next escalation interval.
+        for _ in range(experiment_runner._PREPULL_STUCK_WARN_EVERY - 1):
+            experiment_runner._note_prepull_stash_cycle([rel])
+        assert "WARN" not in capsys.readouterr().out
+        experiment_runner._note_prepull_stash_cycle([rel])
+        assert "WARN" in capsys.readouterr().out
+    finally:
+        experiment_runner._PREPULL_STASH_CYCLES.pop(rel, None)
+
+
+def test_c10_runner_stdout_stays_ascii():
+    """CLAUDE.md: anything reaching stdout must be ASCII (cp1252 mojibake).
+
+    Every runner print is prefixed `[runner]`, so the prefix is a reliable
+    marker for the lines that actually reach a terminal.
+    """
+    offenders = [
+        (i, ln) for i, ln in
+        enumerate(Path(experiment_runner.__file__).read_text().splitlines(), 1)
+        if "[runner]" in ln and not ln.isascii()
+    ]
+    assert not offenders, f"non-ASCII in runner output: {offenders}"
