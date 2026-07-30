@@ -329,7 +329,8 @@ class Handler(BaseHTTPRequestHandler):
                     "SELECT machine, last_seen, state, current_exq, "
                     "progress_json, seconds_elapsed, seconds_remaining, "
                     "last_shutdown_at, shutdown_reason, "
-                    "expected_wake_condition, claim_fence_cleared_at "
+                    "expected_wake_condition, claim_fence_cleared_at, "
+                    "last_process_exit_at, process_exit_reason "
                     "FROM heartbeats ORDER BY machine"
                 ).fetchall():
                     row = dict(r)
@@ -340,9 +341,19 @@ class Handler(BaseHTTPRequestHandler):
                             if isinstance(raw_pj, str) and raw_pj else {})
                     except (TypeError, ValueError):
                         row["progress"] = {}
+                    # announced_offline_at, not last_shutdown_at directly:
+                    # a runner process exit is stored in its own column
+                    # since the 2026-07-30 split, and it has always counted
+                    # as "announced going away" for THIS readout (the runner
+                    # announces runner_drain_complete precisely to get
+                    # gracefully_offline on a manual systemctl stop). The
+                    # fence and the reaper below deliberately do NOT use the
+                    # helper -- they mean a machine shutdown specifically.
                     row["lifecycle_state"] = db.lifecycle_state(
                         row.get("last_seen"),
-                        row.get("last_shutdown_at"),
+                        db.announced_offline_at(
+                            row.get("last_shutdown_at"),
+                            row.get("last_process_exit_at")),
                         live_threshold_seconds=LIFECYCLE_LIVE_SECONDS,
                         stale_after_seconds=stale_after_seconds,
                     )

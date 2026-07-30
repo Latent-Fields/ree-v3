@@ -54,6 +54,16 @@ CREATE TABLE IF NOT EXISTS results (
 -- last_shutdown_at + shutdown_reason + expected_wake_condition are set by
 -- POST /shutdown_notify. They survive across heartbeats so a machine that
 -- boots, runs, and shuts down again carries the latest cycle's record.
+-- POST /shutdown_notify carries TWO different events and stores them in
+-- SEPARATE column pairs: a MACHINE shutdown ("this box is going away",
+-- e.g. the scaler's scaler_idle_after_grace) lands in last_shutdown_at +
+-- shutdown_reason and is what arms the claim fence; a RUNNER PROCESS EXIT
+-- ("the process is exiting, the box stays up" -- runner_signal_exit /
+-- runner_drain_complete) lands in last_process_exit_at +
+-- process_exit_reason and deliberately does not fence. They were one pair
+-- until 2026-07-30, when a process exit was measured overwriting the
+-- scaler's reason ~1s after it was written and disarming the fence.
+-- See db.record_shutdown_notice.
 CREATE TABLE IF NOT EXISTS heartbeats (
     machine                 TEXT PRIMARY KEY,
     last_seen               TEXT NOT NULL,     -- ISO-8601 UTC
@@ -66,6 +76,8 @@ CREATE TABLE IF NOT EXISTS heartbeats (
     last_shutdown_at        TEXT,              -- ISO-8601 UTC, nullable
     shutdown_reason         TEXT,              -- free text, nullable
     expected_wake_condition TEXT,              -- free text, nullable
+    last_process_exit_at    TEXT,              -- ISO-8601 UTC, nullable
+    process_exit_reason     TEXT,              -- free text, nullable
     -- PLAN.md step 6: full payloads from the runner so sync_daemon can
     -- materialise rich runner_heartbeats/*.json and runner_status/*.json
     -- files in REE_assembly. Populated by POST /heartbeat (payload field)

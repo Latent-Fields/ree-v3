@@ -83,6 +83,19 @@ def _migrate_heartbeats(conn):
     if "claim_fence_cleared_at" not in cols:
         conn.execute(
             "ALTER TABLE heartbeats ADD COLUMN claim_fence_cleared_at TEXT")
+    # Split out of last_shutdown_at/shutdown_reason so a runner process exit
+    # can no longer clobber (and thereby disarm) a machine-shutdown notice.
+    # See record_shutdown_notice. Purely additive: existing rows keep NULL,
+    # which announced_offline_at and the fence both read as "no process-exit
+    # recorded" -- so a live DB picks this up without a rebuild, and rows
+    # written before the split (which may carry a process-exit reason in
+    # shutdown_reason) stay correct via the exclusion in claim_fence_active.
+    if "last_process_exit_at" not in cols:
+        conn.execute(
+            "ALTER TABLE heartbeats ADD COLUMN last_process_exit_at TEXT")
+    if "process_exit_reason" not in cols:
+        conn.execute(
+            "ALTER TABLE heartbeats ADD COLUMN process_exit_reason TEXT")
     if "heartbeat_payload_json" not in cols:
         conn.execute(
             "ALTER TABLE heartbeats ADD COLUMN heartbeat_payload_json TEXT")
@@ -330,6 +343,15 @@ def claim_fence_active(last_shutdown_at, claim_fence_cleared_at,
     shutdown_dt = _parse_utc(last_shutdown_at)
     if shutdown_dt is None:
         return False
+    # Since the 2026-07-30 column split (see record_shutdown_notice) a
+    # process-exit reason is written to process_exit_reason and never
+    # reaches shutdown_reason, so this is belt-and-braces for NEW rows.
+    # KEEP IT: it is still load-bearing for rows written BEFORE the split,
+    # which really do carry e.g. 'runner_signal_exit' here -- the live
+    # coordinator DB had exactly that for ree-cloud-4 on the day it was
+    # found. Without this, adopting the new code would read those legacy
+    # rows as an armed machine-shutdown fence and refuse claims from
+    # healthy boxes until the stamps aged out of the window.
     if shutdown_reason in PROCESS_EXIT_SHUTDOWN_REASONS:
         return False
     cleared_dt = _parse_utc(claim_fence_cleared_at)
@@ -451,7 +473,13 @@ def machine_departed(last_seen, last_shutdown_at, claim_fence_cleared_at,
           that runner already released its claim on the way out
           (experiment_runner._do_immediate_exit) and systemd's
           Restart=always brings it straight back, so reaping on those would
-          race a live machine for no benefit, and
+          race a live machine for no benefit. As in claim_fence_active, the
+          2026-07-30 column split means a process exit no longer lands in
+          shutdown_reason at all, so this check now mainly protects rows
+          written before the split -- and the split also removes the second
+          bug it was masking: a process exit used to overwrite
+          last_shutdown_at too, so a real machine departure stopped being
+          reapable the moment the exiting runner announced itself, and
       (c) no fence-clear supersedes it -- the scaler stamps one on every
           poweron, so a machine that has been woken is not "departed"
           however long ago its last shutdown was, and
@@ -868,11 +896,47 @@ def record_shutdown_notice(conn, machine, reason=None,
                            expected_wake_condition=None):
     """Record an intentional shutdown for `machine`.
 
-    Sets last_shutdown_at to now, plus optional reason and wake-condition.
+    TWO KINDS OF EVENT ARRIVE HERE, AND THEY ARE STORED SEPARATELY. Both
+    reach this function through the single POST /shutdown_notify endpoint,
+    but they are different claims about the world:
+
+      MACHINE SHUTDOWN  -- "this box is going away" (the scaler's
+        "scaler_idle_after_grace", a manual poweroff, anything
+        unrecognised). Written to last_shutdown_at / shutdown_reason /
+        expected_wake_condition. THIS is what arms the claim fence.
+      RUNNER PROCESS EXIT -- "the runner process is exiting, the box stays
+        up" (PROCESS_EXIT_SHUTDOWN_REASONS). Written to
+        last_process_exit_at / process_exit_reason. Deliberately does NOT
+        fence, because ree-runner.service carries Restart=always and
+        fencing an ordinary `systemctl restart` would stall the restarted
+        runner for the whole fence window.
+
+    WHY THE COLUMNS ARE SPLIT (confirmed in production 2026-07-30). They
+    used to share one pair, so a process-exit notice OVERWROTE the
+    machine-shutdown reason -- and because process-exit reasons are exactly
+    the ones claim_fence_active excludes, that overwrite DISARMED the fence
+    the scaler had just armed. Measured on ree-cloud-4: the scaler
+    announced at 18:10:12Z, and one second later the row read
+    shutdown_reason='runner_signal_exit'. The fence survived ~1 second.
+
+    That did not break the incident the fence was built for (there the
+    runner never exited -- it kept polling for the whole ~26min ACPI drain,
+    so nothing overwrote anything). The residual it DID leave is the
+    runner-exits-early path: an idle worker with nothing to drain announces
+    its process exit within seconds, the box then takes minutes to actually
+    power off, and Restart=always can bring a runner back inside that
+    window -- UNFENCED, free to claim into a dying box. Splitting the
+    columns removes the interference at the source: neither event can
+    clobber the other, and each read path names the one it means.
+
+    Note `expected_wake_condition` is a property of a MACHINE shutdown
+    (when will this box come back), so the process-exit path leaves it
+    untouched rather than nulling it. The runner never sends one.
+
     Creates a heartbeat row if none exists yet (the scaler workflow can
     announce a shutdown for a machine that hasn't checked in yet, e.g.
     on first provisioning). Idempotent on repeated calls -- each call
-    overwrites the prior shutdown notice for that machine.
+    overwrites the prior notice OF ITS OWN KIND for that machine.
 
     Contract for `last_seen`: it represents the most recent HEARTBEAT,
     not "most recent write to this row." A shutdown_notify is not a
@@ -889,6 +953,19 @@ def record_shutdown_notice(conn, machine, reason=None,
         a table rebuild).
     """
     now = utcnow()
+    if reason in PROCESS_EXIT_SHUTDOWN_REASONS:
+        conn.execute(
+            """
+            INSERT INTO heartbeats
+              (machine, last_seen, last_process_exit_at, process_exit_reason)
+            VALUES (?,?,?,?)
+            ON CONFLICT(machine) DO UPDATE SET
+              last_process_exit_at=excluded.last_process_exit_at,
+              process_exit_reason=excluded.process_exit_reason
+            """,
+            (machine, _NEVER_HEARTBEATED_SENTINEL, now, reason),
+        )
+        return
     conn.execute(
         """
         INSERT INTO heartbeats
@@ -903,6 +980,40 @@ def record_shutdown_notice(conn, machine, reason=None,
         (machine, _NEVER_HEARTBEATED_SENTINEL, now, reason,
          expected_wake_condition),
     )
+
+
+def announced_offline_at(last_shutdown_at, last_process_exit_at):
+    """The most recent "this machine announced it was going away" stamp.
+
+    Exists to keep lifecycle_state's INPUTS equivalent to what they were
+    before the columns above were split, without giving lifecycle_state a
+    second parameter or a reason-awareness it does not want. It is the
+    read-side counterpart of the write-side routing: the fence and the
+    reaper ask specifically about a MACHINE shutdown and so read
+    last_shutdown_at directly, while lifecycle_state asks the looser
+    question "did this machine announce anything on the way out" -- for
+    which a runner process exit has always counted, and must keep counting.
+
+    That is load-bearing, not theoretical: experiment_runner announces
+    "runner_drain_complete" on a signal-induced drain precisely so
+    /shadow/status reports gracefully_offline rather than stale for a
+    manual `systemctl stop` (the path the scaler never sees). Feeding
+    lifecycle_state only last_shutdown_at would silently regress every such
+    machine to `stale`.
+
+    Pure function. Returns the raw ISO string of whichever stamp is later,
+    so lifecycle_state's own parsing and malformed-is-missing contract are
+    unchanged. Returns last_shutdown_at when neither parses (lifecycle_state
+    treats that as missing either way).
+    """
+    parsed = []
+    for raw in (last_shutdown_at, last_process_exit_at):
+        dt = _parse_utc(raw)
+        if dt is not None:
+            parsed.append((dt, raw))
+    if not parsed:
+        return last_shutdown_at
+    return max(parsed)[1]
 
 
 def lifecycle_state(last_seen, last_shutdown_at, *,

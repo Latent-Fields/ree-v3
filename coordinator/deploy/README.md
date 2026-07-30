@@ -240,6 +240,47 @@ knowing that `lifecycle_state` stays `live` for the whole drain window
 (the runner keeps heartbeating), which is exactly why the drain was
 invisible before this field existed.
 
+#### The two notice kinds are stored separately (fixed 2026-07-30)
+
+`POST /shutdown_notify` carries two different events, and they now land in
+two different column pairs on `heartbeats`:
+
+| event | reasons | columns | fences? |
+|---|---|---|---|
+| machine shutdown | `scaler_idle_after_grace`, anything unrecognised, `null` | `last_shutdown_at` + `shutdown_reason` + `expected_wake_condition` | yes |
+| runner process exit | `runner_drain_complete`, `runner_signal_exit` | `last_process_exit_at` + `process_exit_reason` | no |
+
+They shared one pair until 2026-07-30, and that was a defect: the upsert
+overwrote both columns, so the runner's process-exit announce replaced the
+scaler's machine-shutdown reason -- with a reason the fence excludes, which
+DISARMED the fence the scaler had just armed. Measured on ree-cloud-4:
+
+```
+18:10:12Z  journalctl -u cloud-scaler: "announced shutdown_notify for ree-cloud-4"
+18:10:13Z  coordinator DB: last_shutdown_at=...18:10:13Z
+                           shutdown_reason='runner_signal_exit'
+```
+
+The fence survived about one second.
+
+This did **not** break the incident the fence was built for: there the
+runner never exited, it polled for the whole ~26-minute drain, so nothing
+overwrote anything and the arming held for the window that mattered. The
+residual it left is the **runner-exits-early** path -- an idle worker with
+nothing to drain announces its process exit within seconds, the box then
+takes minutes to actually power off, and `Restart=always` can bring a
+runner back inside that window, unfenced and free to claim into a dying
+box.
+
+Operationally: `GET /shadow/status` now also reports
+`last_process_exit_at` / `process_exit_reason`, so "the runner bounced"
+and "the box is going away" are finally distinguishable in the readout.
+The column addition is an additive migration (`_migrate_heartbeats`), so a
+live DB picks it up on the next `db.connect` with no rebuild. Rows written
+*before* the split may still carry a process-exit reason in
+`shutdown_reason`; `claim_fence_active` keeps its reason exclusion
+precisely so those legacy rows are not misread as an armed fence.
+
 Not installing `coordinator_clear_claim_fence.sh` is degraded but safe:
 the scaler logs that the script is missing and the fence falls back to
 expiring on its timer.

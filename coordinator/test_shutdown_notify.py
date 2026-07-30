@@ -1,10 +1,14 @@
-"""Tests for the shutdown_notify endpoint + lifecycle_state derivation.
+"""Tests for the shutdown_notify endpoint + lifecycle_state derivation,
+the drain-window claim fence, and the machine-shutdown / process-exit split.
 
-Three test classes:
-
-  LifecycleStateTest    -- pure function, no HTTP, no DB write.
-  ShutdownNoticeDBTest  -- record_shutdown_notice round-trip + idempotency.
+  LifecycleStateTest     -- pure function, no HTTP, no DB write.
+  ShutdownNoticeDBTest   -- record_shutdown_notice round-trip + idempotency.
   ShutdownNotifyHTTPTest -- end-to-end via the real app.py entrypoint.
+  ClaimFence{State,DB,HTTP}Test -- the drain-window claim fence.
+  ScalerClearFenceWiringTest    -- the scaler clears the fence on poweron.
+  AnnouncedOfflineAtTest        -- lifecycle_state's combined input.
+  ProcessExitDoesNotDisarmFenceTest -- a runner process exit must not
+      clobber (and thereby disarm) an unexpired machine-shutdown notice.
 
 All printed text is ASCII-only.
 """
@@ -690,7 +694,10 @@ class ClaimFenceHTTPTest(unittest.TestCase):
             }, fh)
         db.init_db(cls._dbpath)
         conn = db.connect(cls._dbpath)
-        for qid in ("V3-EXQ-841", "V3-EXQ-842"):
+        # 841/842 are the real incident ids (deliberate -- those tests are
+        # incident replays). The third is a plain fixture and is spelled so
+        # it can never be confused with a real queue entry.
+        for qid in ("V3-EXQ-841", "V3-EXQ-842", "V3-EXQ-FENCE-OVERWRITE"):
             db.upsert_experiment(conn, {
                 "queue_id": qid,
                 "script": "experiments/%s.py" % qid.lower(),
@@ -794,6 +801,37 @@ class ClaimFenceHTTPTest(unittest.TestCase):
                              "machine": machine})
         self.assertEqual(jb["verdict"], "ok")
 
+    def test_process_exit_does_not_disarm_the_fence_end_to_end(self):
+        # The measured 2026-07-30 production sequence, through the real
+        # endpoint: scaler announces, the idle runner announces its own
+        # process exit ~1s later, and the fence must SURVIVE that.
+        machine = "ree-fence-overwrite"
+        _http("POST", self._base + "/shutdown_notify", token="tok-scaler",
+              body={"machine": machine,
+                    "reason": "scaler_idle_after_grace",
+                    "expected_wake_condition": "claimable>0"})
+        st, _ = _http("POST", self._base + "/shutdown_notify",
+                      token="tok-scaler",
+                      body={"machine": machine,
+                            "reason": "runner_signal_exit"})
+        self.assertEqual(st, 200)
+
+        st, jb = _http("GET", self._base + "/shadow/status",
+                       token="tok-scaler")
+        row = {m["machine"]: m for m in jb["machines"]}[machine]
+        self.assertTrue(row["claim_fenced"])
+        # The two events are both retained, in their own columns.
+        self.assertEqual(row["shutdown_reason"], "scaler_idle_after_grace")
+        self.assertEqual(row["process_exit_reason"], "runner_signal_exit")
+        self.assertEqual(row["expected_wake_condition"], "claimable>0")
+
+        # And the restarted runner really is refused. Before the fix this
+        # returned "ok" and could claim into a box that was powering off.
+        st, jb = _http("POST", self._base + "/claim", token="tok-scaler",
+                       body={"queue_id": "V3-EXQ-FENCE-OVERWRITE",
+                             "machine": machine})
+        self.assertEqual(jb["verdict"], "draining")
+
     def test_clear_requires_auth(self):
         st, _ = _http("POST", self._base + "/claim_fence/clear",
                       body={"machine": "ree-cloud-4"})
@@ -869,6 +907,222 @@ class ScalerClearFenceWiringTest(unittest.TestCase):
         self.assertGreaterEqual(len(sites), 2)
         for ln in sites:
             self.assertIn("affinity=affinity", ln)
+
+
+# ---------------------------------------------------------------------------
+# 5. A runner PROCESS EXIT must not clobber a MACHINE shutdown notice.
+#
+# Confirmed in production 2026-07-30 on ree-cloud-4: record_shutdown_notice
+# was one ON CONFLICT DO UPDATE overwriting both last_shutdown_at and
+# shutdown_reason, so the runner's own process-exit announce overwrote the
+# scaler's machine-shutdown reason -- and because process-exit reasons are
+# exactly the ones claim_fence_active excludes, that DISARMED the fence the
+# scaler had armed one second earlier. Measured:
+#   18:10:12Z  scaler journal: "announced shutdown_notify for ree-cloud-4"
+#   18:10:13Z  DB: shutdown_reason='runner_signal_exit'
+# ---------------------------------------------------------------------------
+
+
+class AnnouncedOfflineAtTest(unittest.TestCase):
+    """Pure function: db.announced_offline_at.
+
+    Keeps lifecycle_state's inputs equivalent to the pre-split behaviour --
+    a runner process exit has always counted as "announced going away" for
+    that readout, and must keep counting.
+    """
+
+    def test_both_missing(self):
+        self.assertIsNone(db.announced_offline_at(None, None))
+
+    def test_only_machine_shutdown(self):
+        t = _iso(_now())
+        self.assertEqual(db.announced_offline_at(t, None), t)
+
+    def test_only_process_exit(self):
+        t = _iso(_now())
+        self.assertEqual(db.announced_offline_at(None, t), t)
+
+    def test_picks_the_later_of_the_two(self):
+        older = _iso(_now() - timedelta(hours=2))
+        newer = _iso(_now() - timedelta(minutes=5))
+        self.assertEqual(db.announced_offline_at(older, newer), newer)
+        self.assertEqual(db.announced_offline_at(newer, older), newer)
+
+    def test_malformed_is_ignored_in_favour_of_the_parseable_one(self):
+        good = _iso(_now())
+        self.assertEqual(db.announced_offline_at("not-a-date", good), good)
+        self.assertEqual(db.announced_offline_at(good, "not-a-date"), good)
+
+    def test_both_malformed_stays_malformed(self):
+        # lifecycle_state treats unparseable as missing either way; the
+        # point is that this does not raise.
+        self.assertEqual(
+            db.announced_offline_at("junk", "junk2"), "junk")
+
+
+class ProcessExitDoesNotDisarmFenceTest(unittest.TestCase):
+    """record_shutdown_notice routing, against a real DB."""
+
+    FENCE = 1800
+    QUIET = 900
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp(prefix="process_exit_split_")
+        self._dbpath = os.path.join(self._tmp, "c.db")
+        db.init_db(self._dbpath)
+        self._conn = db.connect(self._dbpath)
+
+    def tearDown(self):
+        self._conn.close()
+        import shutil
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def _row(self, machine="ree-cloud-4"):
+        return self._conn.execute(
+            "SELECT * FROM heartbeats WHERE machine=?", (machine,)).fetchone()
+
+    def _fenced(self, machine="ree-cloud-4"):
+        return db.machine_claim_fenced(self._conn, machine, self.FENCE)
+
+    def test_the_measured_incident_the_fence_survives(self):
+        # THE case. Scaler arms; the idle runner (nothing to drain) posts
+        # its process exit a second later. Before the fix the second call
+        # disarmed the fence.
+        db.record_shutdown_notice(
+            self._conn, "ree-cloud-4", reason="scaler_idle_after_grace",
+            expected_wake_condition="claimable>0")
+        self.assertTrue(self._fenced())
+        db.record_shutdown_notice(
+            self._conn, "ree-cloud-4", reason="runner_signal_exit")
+        self.assertTrue(self._fenced())
+
+    def test_both_process_exit_reasons_are_harmless(self):
+        for reason in ("runner_signal_exit", "runner_drain_complete"):
+            machine = "ree-" + reason
+            db.record_shutdown_notice(
+                self._conn, machine, reason="scaler_idle_after_grace")
+            db.record_shutdown_notice(self._conn, machine, reason=reason)
+            self.assertTrue(self._fenced(machine), reason)
+
+    def test_the_two_events_are_stored_separately(self):
+        db.record_shutdown_notice(
+            self._conn, "ree-cloud-4", reason="scaler_idle_after_grace",
+            expected_wake_condition="claimable>0")
+        db.record_shutdown_notice(
+            self._conn, "ree-cloud-4", reason="runner_signal_exit")
+        row = self._row()
+        self.assertEqual(row["shutdown_reason"], "scaler_idle_after_grace")
+        self.assertEqual(row["process_exit_reason"], "runner_signal_exit")
+        self.assertIsNotNone(row["last_shutdown_at"])
+        self.assertIsNotNone(row["last_process_exit_at"])
+        # expected_wake_condition describes the MACHINE shutdown, so a
+        # process exit must not null it.
+        self.assertEqual(row["expected_wake_condition"], "claimable>0")
+
+    def test_process_exit_does_not_extend_the_fence_window(self):
+        # The window is measured from the MACHINE announce. If a process
+        # exit bumped last_shutdown_at instead of its own column, a runner
+        # restart loop could hold the fence open indefinitely.
+        db.record_shutdown_notice(
+            self._conn, "ree-cloud-4", reason="scaler_idle_after_grace")
+        armed_at = self._row()["last_shutdown_at"]
+        db.record_shutdown_notice(
+            self._conn, "ree-cloud-4", reason="runner_drain_complete")
+        self.assertEqual(self._row()["last_shutdown_at"], armed_at)
+
+    def test_process_exit_alone_still_does_not_fence(self):
+        # The exclusion exists because ree-runner.service is Restart=always;
+        # fencing an ordinary `systemctl restart` would stall the restarted
+        # runner for the whole window. Splitting the columns must not
+        # quietly turn that back on.
+        db.record_shutdown_notice(
+            self._conn, "ree-cloud-4", reason="runner_signal_exit")
+        self.assertFalse(self._fenced())
+        self.assertIsNone(self._row()["last_shutdown_at"])
+
+    def test_machine_shutdown_after_a_process_exit_still_fences(self):
+        # Reverse order: runner exits first, scaler powers the box down
+        # afterwards. The later machine notice must arm.
+        db.record_shutdown_notice(
+            self._conn, "ree-cloud-4", reason="runner_signal_exit")
+        db.record_shutdown_notice(
+            self._conn, "ree-cloud-4", reason="scaler_idle_after_grace")
+        self.assertTrue(self._fenced())
+
+    def test_process_exit_does_not_cancel_a_departure(self):
+        # Same overwrite, reaper side: a process exit used to move
+        # last_shutdown_at AND swap in an excluded reason, so a genuinely
+        # departed machine stopped being reapable the moment its exiting
+        # runner announced itself.
+        db.record_shutdown_notice(
+            self._conn, "ree-cloud-4", reason="scaler_idle_after_grace")
+        db.record_shutdown_notice(
+            self._conn, "ree-cloud-4", reason="runner_signal_exit")
+        # Silence it: backdate last_seen past the quiet window.
+        old = _iso(_now() - timedelta(seconds=self.QUIET + 600))
+        self._conn.execute(
+            "UPDATE heartbeats SET last_seen=? WHERE machine=?",
+            (old, "ree-cloud-4"))
+        self.assertTrue(
+            db.machine_has_departed(self._conn, "ree-cloud-4", self.QUIET))
+
+    def test_lifecycle_state_still_reads_a_process_exit(self):
+        # experiment_runner announces runner_drain_complete precisely so a
+        # manual `systemctl stop` reports gracefully_offline rather than
+        # stale. Routing it to its own column must not regress that.
+        db.record_shutdown_notice(
+            self._conn, "ree-cloud-4", reason="runner_drain_complete")
+        row = self._row()
+        self.assertEqual(
+            db.lifecycle_state(
+                row["last_seen"],
+                db.announced_offline_at(row["last_shutdown_at"],
+                                        row["last_process_exit_at"]),
+                live_threshold_seconds=300,
+                stale_after_seconds=7 * 86400),
+            "gracefully_offline")
+
+    def test_legacy_row_written_before_the_split_does_not_fence(self):
+        # The live DB carried shutdown_reason='runner_signal_exit' for
+        # ree-cloud-4 on the day this was found. Adopting the new code must
+        # not read those rows as an armed machine-shutdown fence -- which is
+        # why claim_fence_active KEEPS its reason exclusion.
+        self._conn.execute(
+            "INSERT INTO heartbeats (machine, last_seen, last_shutdown_at, "
+            "shutdown_reason) VALUES (?,?,?,?)",
+            ("ree-legacy", _iso(_now()), _iso(_now()), "runner_signal_exit"))
+        self.assertFalse(self._fenced("ree-legacy"))
+
+    def test_migration_adds_the_columns_to_an_old_db(self):
+        # Purely additive, same contract as every other heartbeats column.
+        import sqlite3
+        old = os.path.join(self._tmp, "old.db")
+        raw = sqlite3.connect(old)
+        raw.execute(
+            "CREATE TABLE heartbeats (machine TEXT PRIMARY KEY, "
+            "last_seen TEXT NOT NULL, last_shutdown_at TEXT, "
+            "shutdown_reason TEXT)")
+        raw.execute(
+            "INSERT INTO heartbeats (machine, last_seen) VALUES (?,?)",
+            ("ree-old", _iso(_now())))
+        raw.commit()
+        raw.close()
+        conn = db.connect(old)
+        try:
+            cols = {r[1] for r in conn.execute(
+                "PRAGMA table_info(heartbeats)")}
+            self.assertIn("last_process_exit_at", cols)
+            self.assertIn("process_exit_reason", cols)
+            # Existing row survives with NULLs, and still round-trips.
+            db.record_shutdown_notice(
+                conn, "ree-old", reason="runner_signal_exit")
+            row = conn.execute(
+                "SELECT * FROM heartbeats WHERE machine=?",
+                ("ree-old",)).fetchone()
+            self.assertEqual(row["process_exit_reason"], "runner_signal_exit")
+            self.assertIsNone(row["last_shutdown_at"])
+        finally:
+            conn.close()
 
 
 if __name__ == "__main__":
