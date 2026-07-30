@@ -691,3 +691,90 @@ def test_c10_runner_stdout_stays_ascii():
         if "[runner]" in ln and not ln.isascii()
     ]
     assert not offenders, f"non-ASCII in runner output: {offenders}"
+
+
+def test_c10b_every_non_docstring_string_literal_is_ascii():
+    """The `[runner]`-prefix scan above does NOT cover the whole class.
+
+    Two real violations sat outside it until 2026-07-30: the progress bar
+    at `print_progress_bar` built `bar` from block-drawing characters and
+    printed it on a LATER line, and the queue listing used check/cross
+    marks. Neither line contains `[runner]`, so C10 was blind to both, and
+    a grep over `print()` arguments misses the first as well because the
+    offending literal is ASSIGNED and printed later.
+
+    An AST scan over string literals is the predicate that actually covers
+    the class: it follows the value rather than the call site. Comments
+    never enter the AST, so CLAUDE.md's explicit permission for Unicode in
+    comments (the box-drawing section headers in this module) holds with no
+    special-casing. Docstrings are excluded for the same documented reason.
+    """
+    tree = ast.parse(Path(experiment_runner.__file__).read_text())
+    docstrings = {
+        id(n.body[0].value) for n in ast.walk(tree)
+        if isinstance(n, (ast.Module, ast.ClassDef,
+                          ast.FunctionDef, ast.AsyncFunctionDef))
+        and n.body and isinstance(n.body[0], ast.Expr)
+        and isinstance(n.body[0].value, ast.Constant)
+        and isinstance(n.body[0].value.value, str)
+    }
+    offenders = sorted({
+        n.lineno for n in ast.walk(tree)
+        if isinstance(n, ast.Constant) and isinstance(n.value, str)
+        and id(n) not in docstrings and not n.value.isascii()
+    })
+    assert not offenders, (
+        "non-ASCII string literal(s) at line(s) %s -- these reach a terminal "
+        "as mojibake on Windows cp1252. See CLAUDE.md 'ASCII-Only in Python "
+        "Output' for the replacement table (-- for em-dash, -> for arrow, "
+        "x for multiplication sign)." % offenders
+    )
+
+
+def test_c10b_predicate_is_not_vacuous():
+    """Pin that C10b would actually FAIL on the code it was written for.
+
+    A scan asserting "no offenders" passes just as happily against a
+    predicate that can never match anything, so the guard is only worth
+    having if it is shown to fire. Both real 2026-07-30 violations are
+    replayed here in the exact form they had in the module -- a literal
+    assigned then printed later, and a conditional expression -- and the
+    comment case is replayed alongside them as a negative control, since
+    excluding comments is the whole reason an AST scan is used instead of
+    a line scan.
+    """
+    src = (
+        '"""Module docstring may hold Unicode: em-dash."""\n'
+        '# Comment may hold Unicode: box-drawing chars\n'
+        'def f():\n'
+        '    """Docstring may hold Unicode too."""\n'
+        '    bar = "block" * 3\n'
+        '    ok = "plain ascii"\n'
+        '    return bar, ok\n'
+    )
+    offending = src.replace('"block"', '"█"').replace(
+        '"plain ascii"', '"✓"')
+
+    def scan(text):
+        tree = ast.parse(text)
+        docstrings = {
+            id(n.body[0].value) for n in ast.walk(tree)
+            if isinstance(n, (ast.Module, ast.ClassDef,
+                              ast.FunctionDef, ast.AsyncFunctionDef))
+            and n.body and isinstance(n.body[0], ast.Expr)
+            and isinstance(n.body[0].value, ast.Constant)
+            and isinstance(n.body[0].value.value, str)
+        }
+        return sorted({
+            n.lineno for n in ast.walk(tree)
+            if isinstance(n, ast.Constant) and isinstance(n.value, str)
+            and id(n) not in docstrings and not n.value.isascii()
+        })
+
+    # The clean source has a Unicode module docstring, a Unicode comment and
+    # a Unicode function docstring, and must still report nothing.
+    assert scan(src) == [], "predicate must permit comments and docstrings"
+    # Both violation shapes must be caught: the assigned-then-printed literal
+    # (line 5) and the one used directly in an expression (line 6).
+    assert scan(offending) == [5, 6], (
+        "predicate failed to catch the replayed 2026-07-30 violations")

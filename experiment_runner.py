@@ -3117,7 +3117,7 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
         remaining = seconds_remaining()
         width = 30
         filled = int(width * pct / 100)
-        bar = '█' * filled + '░' * (width - filled)
+        bar = '#' * filled + '-' * (width - filled)
         if remaining > 90:
             time_str = f"~{int(remaining / 60)} min remaining"
         elif remaining > 0:
@@ -3828,7 +3828,7 @@ def main():
             affinity = item.get("machine_affinity", "any")
             claim = item.get("claimed_by")
             claim_str = f" [claimed:{claim['machine']}]" if claim else ""
-            mine = "✓" if _affinity_matches(item, machine) else f"✗({affinity})"
+            mine = "*" if _affinity_matches(item, machine) else f"x({affinity})"
             print(f"  {mine} {item['queue_id']} {(item.get('claim_id') or ''):12s} ~{(mins or 0):.0f}min  "
                   f"{'READY' if runnable else 'NEEDS_SCRIPT'}: {item.get('title', item['queue_id'])}{claim_str}")
         if PID_FILE.exists():
