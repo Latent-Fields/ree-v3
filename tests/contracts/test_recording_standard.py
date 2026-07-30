@@ -49,7 +49,22 @@ def test_stamp_fills_always_core_single_arm():
     assert m["elapsed_seconds"] == 12.5
     assert m["config"] == {"lr": 0.01, "episodes": 10}
     assert m["seeds"] == [0, 1, 2]
-    assert mc.missing_core_fields(m) == []
+
+    # substrate_commit is the one always-core field with an ENVIRONMENTAL
+    # dependency: it needs a real git checkout. Every production run has one (the
+    # runner pulls before executing), but the tree `scripts/remote_pytest.sh`
+    # stages deliberately excludes `.git/`, so the field is legitimately absent
+    # there. Assert the strong property when git is present and the exact,
+    # single-field shortfall when it is not -- rather than relaxing to a
+    # tautology, which would stop this test noticing a real regression in any of
+    # the other six core fields.
+    if (_REE_V3_ROOT / ".git").exists():
+        assert isinstance(m["substrate_commit"], dict)
+        assert len(m["substrate_commit"]["commit"]) == 40
+        assert mc.missing_core_fields(m) == []
+    else:
+        assert mc.missing_core_fields(m) == ["substrate_commit"]
+
     json.dumps(m)  # serialisable
 
 

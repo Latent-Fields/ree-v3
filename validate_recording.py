@@ -61,9 +61,12 @@ except Exception:  # pragma: no cover - standalone fallback
             missing_core_fields,
         )
     except Exception:
+        # Keep in sync with manifest_core.ALWAYS_CORE_KEYS -- pinned by
+        # tests/contracts/test_substrate_commit.py so this copy cannot drift
+        # silently the way it did when substrate_commit was added.
         ALWAYS_CORE_KEYS = (
-            "recording_schema", "substrate_hash", "machine", "machine_class",
-            "elapsed_seconds", "config", "seeds",
+            "recording_schema", "substrate_hash", "substrate_commit",
+            "machine", "machine_class", "elapsed_seconds", "config", "seeds",
         )
         RECORDING_SCHEMA = "rec/v1"
 

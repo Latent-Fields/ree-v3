@@ -78,7 +78,9 @@ importable without torch/ree_core.
 
 from __future__ import annotations
 
+import os
 import socket
+import subprocess
 import time
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Union
@@ -133,12 +135,45 @@ RECORDING_SCHEMA = "rec/v1"
 ALWAYS_CORE_KEYS: Sequence[str] = (
     "recording_schema",
     "substrate_hash",
+    "substrate_commit",
     "machine",
     "machine_class",
     "elapsed_seconds",
     "config",
     "seeds",
 )
+
+# Git repo-location env vars that a PARENT git process (a pre-commit hook shelling
+# out to python, the runner's own git invocation) exports into our environment.
+# They MUST be stripped before `git rev-parse` below, or the SHA resolves against
+# whatever repo the parent was pointed at instead of the substrate this run
+# actually executed -- recording a confidently WRONG provenance value, which is
+# strictly worse than recording none. Same list and same reason as
+# pack_writer._GIT_LOCATION_ENV_VARS and tests/contracts/test_arm_reuse.py's
+# _resolve_ree_working_root; duplicated rather than imported because pack_writer
+# imports THIS module (importing back would be circular) and this module keeps a
+# stdlib-only guarantee.
+_GIT_LOCATION_ENV_VARS = (
+    "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX",
+    "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_INDEX_VERSION",
+    "GIT_CEILING_DIRECTORIES", "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+)
+
+# Fallback if arm_fingerprint ever stops exposing _SUBSTRATE_GLOBS. Kept in sync
+# by test_substrate_commit.py, which asserts the two agree rather than trusting
+# this copy.
+_SUBSTRATE_GLOBS_FALLBACK: Sequence[str] = (
+    "ree_core/**/*.py",
+    "experiments/_harness.py",
+    "experiments/_metrics.py",
+    "experiments/_lib/**/*.py",
+)
+
+# Cap on the dirty-path list recorded for diagnosis. A dirty substrate is already
+# the exceptional case; the names are what make it actionable, but an unbounded
+# list could balloon a manifest during a large refactor.
+_MAX_DIRTY_PATHS = 20
 
 
 def _is_empty(value: Any) -> bool:
@@ -243,6 +278,155 @@ def compute_single_arm_substrate_hash(
     return str(sub["substrate_hash"])
 
 
+def _git_value(
+    args: Sequence[str], cwd: Path, *, strip: bool = True
+) -> Optional[str]:
+    """Run a read-only git command in `cwd`. Returns stdout on success --
+    POSSIBLY THE EMPTY STRING -- and None only on failure.
+
+    ``strip=False`` right-strips ONLY, and is required for ``status --porcelain``:
+    a porcelain v1 line is ``XY<space>PATH`` where column 0 is the staged status
+    and is a SPACE for the common unstaged-modification case (`` M path``). A full
+    ``.strip()`` silently eats that leading space on the FIRST line only, shifting
+    the fixed path offset by one and yielding a truncated name (``xperiments/...``)
+    for the first dirty file while every later line parses correctly -- a
+    corrupted-but-plausible value, which is the worst failure shape for a
+    provenance field.
+
+    The empty-vs-None distinction is load-bearing and is deliberately NOT the
+    ``stdout.strip() or None`` idiom used elsewhere in the repo. For
+    ``git status --porcelain`` the CLEAN case *is* empty output, so collapsing ""
+    to None would make a clean substrate indistinguishable from a failed probe and
+    report ``dirty: null`` on virtually every run -- the common case, silently
+    unmeasured. Callers that want falsy-on-empty can still just test the string.
+
+    Never raises: a missing git binary, a non-repo directory, or a non-zero exit
+    all yield None. Provenance stamping must never be able to fail an experiment
+    that has already spent its compute.
+    """
+    env = {k: v for k, v in os.environ.items() if k not in _GIT_LOCATION_ENV_VARS}
+    try:
+        result = subprocess.run(
+            ["git", *args], cwd=str(cwd), check=True,
+            capture_output=True, text=True, env=env,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        return None
+    return result.stdout.strip() if strip else result.stdout.rstrip("\n")
+
+
+def _git_pathspecs_from_globs(globs: Sequence[str]) -> Sequence[str]:
+    """Convert pathlib-style substrate globs into git pathspecs covering >= the same files.
+
+    THE TWO GLOB DIALECTS DISAGREE, AND NAIVELY REUSING THE GLOBS UNDER-REPORTS.
+    ``substrate_hash`` selects files with ``Path.glob``, where ``**`` matches ZERO
+    or more directories -- so ``ree_core/**/*.py`` includes ``ree_core/agent.py``
+    and ``experiments/_lib/**/*.py`` includes ``experiments/_lib/manifest_core.py``.
+    Git's default pathspec matching treats the same string as wildmatch with a
+    LITERAL ``/`` after ``**``, so both of those top-level files fail to match and
+    ``git status -- <glob>`` reports a clean tree while the hashed substrate is in
+    fact modified. Measured on this repo: 4 top-level ``ree_core/*.py`` files plus
+    every top-level ``_lib`` module were invisible that way.
+
+    So each glob is truncated at its first wildcard component, yielding a plain
+    directory-or-file pathspec that git matches recursively. That is an
+    OVER-approximation (a directory spec also covers non-.py files in those trees),
+    and the direction is chosen deliberately: a spurious ``dirty: true`` is a cheap
+    over-report that costs a reader one `git diff`, whereas a false ``dirty: false``
+    is the silent under-report this whole field exists to prevent.
+    """
+    specs: List[str] = []
+    for g in globs:
+        keep: List[str] = []
+        for part in str(g).split("/"):
+            if any(ch in part for ch in "*?["):
+                break
+            keep.append(part)
+        spec = "/".join(keep) if keep else "."
+        if spec and spec not in specs:
+            specs.append(spec)
+    return tuple(specs)
+
+
+def substrate_commit(repo_root: Optional[Union[str, Path]] = None) -> Optional[Dict[str, Any]]:
+    """Identify WHICH commit the substrate this run executed corresponds to.
+
+    Returns ``{"commit", "dirty", "branch"?, "dirty_count"?, "dirty_paths"?}``, or
+    None when the checkout cannot be resolved (no git binary, not a repo, unborn
+    HEAD). ``dirty`` is None -- not False -- when HEAD resolved but the status
+    probe did not, so "unverified" is never reported as "clean".
+
+    WHY THIS EXISTS BESIDE ``substrate_hash``, WHICH ALREADY DETECTS CHANGE.
+    ``substrate_hash`` is a content hash: it proves two runs executed different
+    substrate, but it is opaque, so it cannot tell you WHAT differed. Diagnosis
+    needs a commit you can `git diff`. The motivating case is V3-EXQ-614 vs 614a --
+    bit-identical drivers, identical seeds, identical ``config_summary``, and a
+    verdict that flipped FAIL -> PASS because ``e3_diversity_entropy_lambda``
+    changed 0.05 -> 0.5 in ree-v3 `a45ca7f`, which landed between the two runs.
+    A hash pair would have said "these differ"; the commit pair reduces it to one
+    `git diff`. The two fields are complementary and both are stamped:
+    hash = detection (and covers uncommitted edits a SHA cannot), commit = diagnosis.
+
+    ``dirty`` IS DELIBERATELY SCOPED, and the scope is the whole point. It covers
+    exactly the trees ``substrate_hash`` hashes (arm_fingerprint._SUBSTRATE_GLOBS),
+    so it means "the substrate this run executed differs from the recorded commit".
+    An unscoped ``git status --porcelain`` would report dirty on nearly every run in
+    these shared multi-session checkouts -- one open ``experiment_queue.json`` edit
+    by an unrelated session is enough -- and a flag that is true almost always
+    carries no information. When dirty, up to ``_MAX_DIRTY_PATHS`` offending paths
+    are recorded, because "dirty" alone is not actionable but the names are.
+
+    The repo is resolved from the RUNNING CODE's own location (arm_fingerprint's
+    ``_REPO_ROOT``, i.e. this file's ``parents[2]``), never from cwd and never from
+    a hardcoded path: the hub and each cloud worker run from their own checkouts,
+    and a worktree must report its own HEAD.
+    """
+    root = Path(repo_root).resolve() if repo_root else getattr(_afp, "_REPO_ROOT", Path(__file__).resolve().parents[2])
+    root = Path(root)
+    commit = _git_value(["rev-parse", "HEAD"], root)
+    if not commit:
+        # Not a repo, no git, or an unborn HEAD. Absent beats wrong.
+        return None
+
+    out: Dict[str, Any] = {"commit": commit}
+
+    globs = getattr(_afp, "_SUBSTRATE_GLOBS", None) or _SUBSTRATE_GLOBS_FALLBACK
+    status = _git_value(
+        ["status", "--porcelain", "--", *_git_pathspecs_from_globs(globs)],
+        root, strip=False,
+    )
+    if status is None:
+        # HEAD resolved but status did not: report the commit without claiming
+        # cleanliness we did not verify.
+        out["dirty"] = None
+    else:
+        paths = []
+        for line in status.splitlines():
+            # porcelain v1: 2 status columns + a space, then the path.
+            entry = line[3:].strip() if len(line) > 3 else ""
+            # A rename/copy renders as "OLD -> NEW"; the NEW path is the live one.
+            if " -> " in entry:
+                entry = entry.split(" -> ", 1)[1]
+            entry = entry.strip('"')
+            if entry:
+                paths.append(entry)
+        out["dirty"] = bool(paths)
+        if paths:
+            uniq = sorted(set(paths))
+            # Record the TOTAL beside the capped list. A silently truncated list
+            # reads as the complete set, which would understate the blast radius
+            # of a dirty substrate at exactly the moment someone is trying to
+            # judge whether a run is trustworthy. len(dirty_paths) < dirty_count
+            # is the self-evident truncation signal.
+            out["dirty_count"] = len(uniq)
+            out["dirty_paths"] = uniq[:_MAX_DIRTY_PATHS]
+
+    branch = _git_value(["rev-parse", "--abbrev-ref", "HEAD"], root)
+    if branch and branch != "HEAD":
+        out["branch"] = branch
+    return out
+
+
 def stamp_recording_core(
     manifest: Dict[str, Any],
     config: Optional[Mapping[str, Any]] = None,
@@ -330,6 +514,18 @@ def stamp_recording_core(
                 # Never let provenance stamping crash an experiment. A missing
                 # substrate_hash is a soft-validate WARN, not a run failure.
                 pass
+
+    # substrate_commit -- WHICH commit the substrate_hash above corresponds to.
+    # Stamped beside the hash, never instead of it: the hash DETECTS a difference
+    # (including uncommitted edits, which no SHA can express), the commit lets you
+    # DIAGNOSE it with a git diff. See substrate_commit() for the V3-EXQ-614/614a
+    # case that motivated it. Same never-crash posture as the hash branch above --
+    # absent is a soft-validate WARN, and absent always beats a wrong SHA.
+    if overwrite or _is_empty(manifest.get("substrate_commit")):
+        try:
+            _fill("substrate_commit", substrate_commit(repo_root=repo_root))
+        except Exception:
+            pass
 
     # substrate_stable_across_run -- did the substrate hold still for the whole run?
     # Two independent tests, either of which can only ever prove INSTABILITY:
@@ -457,6 +653,7 @@ __all__ = [
     "ALWAYS_CORE_KEYS",
     "compute_single_arm_substrate_hash",
     "multi_arm_substrate_hashes",
+    "substrate_commit",
     "stamp_recording_core",
     "missing_core_fields",
 ]
