@@ -188,6 +188,27 @@ If the queue references a script not yet on `origin/main` (e.g. V3-EXQ-543k),
 either push the script to `main` or copy it to
 `experiments/` on the worker until pushed.
 
+**This step is load-bearing for the cold-boot code refresh, not just hygiene.**
+`ree-runner.service` carries
+`ExecStartPre=-/bin/sh ./coordinator/deploy/runner-prestart-pull.sh`, which pulls
+ree-v3 before the runner process loads `experiment_runner.py` (added 2026-07-30;
+without it a worker runs whatever build its disk held at last poweroff for its
+ENTIRE session, because Python does not hot-reload). That script lives in the
+tree it refreshes, so **it cannot bootstrap itself**: a checkout predating
+`310a80e` has no script, `ExecStartPre` fails open (by design -- see the unit
+comment), and the runner starts on stale code. The in-loop pull then puts the
+script on disk, so the NEXT start is protected -- i.e. a stale checkout costs
+exactly one boot. Completing this step removes even that one.
+
+Verify after start -- the version line must match `origin/main`:
+
+```bash
+journalctl -u ree-runner --no-pager | grep -E "prestart|Runner version" | tail -4
+# want: "[prestart] ree-v3 already current at <sha>"  (or "advanced X -> Y")
+#       "[runner] Runner version: r<N> <sha> <date>"  with <sha> == origin/main
+git -C ~/REE_Working/ree-v3 rev-parse --short=7 origin/main
+```
+
 ### C. Coordinator bearer token
 
 On **ree-cloud-1** only:
