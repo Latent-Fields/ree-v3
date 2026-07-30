@@ -55,6 +55,34 @@ Environment=PHASE3_RUNNER_TELEMETRY_OFF_GIT=1
 # Command-channel cutover: fetch+ack remote-control commands via the coordinator.
 Environment=PHASE3_COMMANDS_VIA_COORDINATOR=1
 
+# 2026-07-30: override the main unit's Restart=on-failure so a CLEAN drain
+# (exit 0) from a queued `stop` remote-control command respawns the runner with
+# the latest disk bytes. Without it the runner drains and stays dead until a
+# manual restart -- and since ExecStartPre=runner-prestart-pull.sh only pulls at
+# START, a runner that never restarts never reloads code. cloud-2/cloud-3 have
+# carried this since 2026-05-30; the hub was left out, and as a result sat on
+# r4072 35c103c (2026-07-20) code for TEN DAYS and then stayed dead for hours
+# after a clean 06:07:04Z exit on 2026-07-30.
+#
+# Safe on the HUB specifically -- and it was NOT before 2026-06-02. The reason
+# the hub was manual-only is co-tenancy: the runner shared ~/REE_Working with
+# the coordinator + sync_daemon writers, so unattended respawns could dirty the
+# writers' tree and wedge the whole coordination-data plane. The isolated
+# checkout (WorkingDirectory=~/REE_Working_runner, above) removed that
+# structurally, which is what makes "the hub uses the STANDARD WORKER config"
+# true of the restart policy too.
+#
+# What this does NOT change:
+#   - StartLimitBurst=5 / StartLimitIntervalUSec=15min / RestartSec=60 are
+#     inherited from the main unit, so a persistently-failing runner still
+#     fails the unit LOUDLY within 15min rather than churning forever. This
+#     override adds only the exit-0 arm; on-failure already covered crashes.
+#   - `systemctl stop ree-runner` still holds it down. Restart= does not fire
+#     on an explicit unit stop, so the operator hold is intact.
+#   - `systemctl daemon-reload` does not start an inactive unit; starting the
+#     hub runner remains a deliberate operator action.
+Restart=always
+
 # ExecStart must include: --machine ree-cloud-1
 # (socket.gethostname() is ree-worker-1, so pin the affinity name explicitly.)
 #
