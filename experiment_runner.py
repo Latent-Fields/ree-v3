@@ -3213,18 +3213,41 @@ def smart_assign(items: list[dict], available_machines: list[str]) -> None:
     pass
 
 
-# STUB: recover_stale_claims ──────────────────────────────────────────────────
 def recover_stale_claims(queue_file: Path, machine: str) -> int:
-    """
-    TODO: Scan queue for stale claims from offline machines and reset them.
+    """Report stale claims held by other machines. Observability only --
+    recovery itself is coordinator-side, deliberately.
 
-    Current behaviour: just logs any stale claims it finds.
-    Full implementation would:
-    - Check claimed_by.claimed_at against CLAIM_TTL_HOURS
-    - Verify the claiming machine is unreachable (e.g. ping or last-seen file)
-    - Reset item to pending + commit + push
-    - Needs care to avoid two machines both recovering the same claim simultaneously
-      (use attempt_claim pattern: try to push, back off if rejected).
+    This was a stub ("logs stale claims but doesn't auto-reset them") and is
+    no longer one: the reset it described now lives in
+    coordinator/db.py `_claim_recoverable`, which recovers a claim either by
+    the 6h `stale_hours` floor or -- since the 2026-07-30 V3-EXQ-841 orphan
+    -- as soon as its owner has announced a machine shutdown and gone quiet
+    (`claim_orphaned_by_departure`).
+
+    WHY NOT HERE, where the stub sat. Three reasons, in order of weight:
+
+    1. AUTHORITY. Under Phase 3 the coordinator owns claims (workers POST
+       /claim; see acquire_claim -> coordinator_client.claim). The queue file
+       this function reads is materialised FROM the coordinator DB by
+       sync_daemon's phase3_queue_writer, so resetting `claimed_by` here
+       would be overwritten on the next writer tick -- and until it was, the
+       two would disagree about who holds what.
+    2. COVERAGE. A runner-side reaper only runs where a runner runs. The
+       orphan cases that matter are exactly the ones where the owning
+       machine is gone; the coordinator is the one process guaranteed to be
+       up to notice.
+    3. MUTUAL EXCLUSION. The stub's own TODO flagged that two machines could
+       recover the same claim at once and proposed a push-and-back-off
+       protocol. try_claim's BEGIN IMMEDIATE gives that for free -- several
+       workers can find the same orphan reapable in the same second and
+       exactly one wins the UPDATE.
+
+    The same argument settled the drain-window claim fence (coordinator/db.py
+    "drain-window claim fence"), which went server-side for reason 2 above.
+
+    So this stays a report. It is still worth having: it is the only place a
+    stale claim is visible in the runner's own log, and in git-mode (no
+    coordinator) it is the only place at all.
     """
     try:
         data = json.loads(queue_file.read_text())
@@ -3234,10 +3257,18 @@ def recover_stale_claims(queue_file: Path, machine: str) -> int:
             if cb and cb.get("machine") != machine and _is_stale_claim(cb, item["queue_id"]):
                 stale.append((item["queue_id"], cb["machine"], cb["claimed_at"]))
         if stale:
-            print(f"[runner] Stale claims detected (not yet auto-recovering): "
-                  f"{[q for q, _, _ in stale]}", flush=True)
-            print(f"[runner] To recover manually: set claimed_by=null in experiment_queue.json "
-                  f"and push.", flush=True)
+            print(f"[runner] Stale claims detected: {[q for q, _, _ in stale]}",
+                  flush=True)
+            if coordinator_claims_authoritative():
+                print("[runner] Recovery is coordinator-side -- these become "
+                      "claimable on the next /claim once the stale_hours "
+                      "floor passes, or immediately if the owner announced a "
+                      "shutdown and went quiet. No action needed here.",
+                      flush=True)
+            else:
+                print("[runner] git-mode: no coordinator to recover these. "
+                      "To recover manually, set claimed_by=null in "
+                      "experiment_queue.json and push.", flush=True)
         return len(stale)
     except Exception as e:
         print(f"[runner] recover_stale_claims error: {e}", flush=True)

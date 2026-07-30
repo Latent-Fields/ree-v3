@@ -241,9 +241,26 @@ def _has_fresh_owner_heartbeat(conn, queue_id, claimed_by_machine,
 
 
 def _claim_recoverable(conn, row, queue_id, stale_hours,
-                       heartbeat_fresh_seconds):
+                       heartbeat_fresh_seconds, reap_quiet_seconds=0):
+    """Is this claim available to a DIFFERENT machine?
+
+    Two independent routes, ORed:
+
+      (a) TIME -- the claim is older than `stale_hours` and its owner is not
+          heartbeating against this very queue_id. The original rule. It is
+          evidence of ABSENCE, so it needs the long 6h floor to be safe.
+      (b) DEPARTURE -- the owner announced a machine shutdown and has since
+          gone quiet. Evidence of PRESENCE (of a departure), so it is safe
+          in minutes rather than hours. See claim_orphaned_by_departure.
+
+    reap_quiet_seconds=0 (the default) disables (b) entirely, so every
+    existing caller and the shadow comparison stay bit-identical unless the
+    reaper is explicitly wired in.
+    """
     if row["status"] != "claimed":
         return False
+    if claim_orphaned_by_departure(conn, row, reap_quiet_seconds):
+        return True
     if not _is_stale(row["claimed_at"], stale_hours):
         return False
     return not _has_fresh_owner_heartbeat(
@@ -369,8 +386,151 @@ def record_claim_fence_clear(conn, machine):
     )
 
 
+# ---- stale-claim reaper (departure-evidence recovery) ----------------------
+#
+# The fence above (claim_fence_active) stops a draining worker TAKING a
+# claim it cannot finish. It cannot help a claim that is ALREADY orphaned by
+# any other route -- a worker that crashes, is SIGKILLed, loses network, or
+# was shut down before the fence existed. For those, _claim_recoverable's
+# 6h `stale_hours` floor was until now the only recovery path, and it is a
+# floor: the confirmed V3-EXQ-841 incident (2026-07-30) sat orphaned ~10h
+# because the owner was provably powered off within minutes and nothing
+# could act on that.
+#
+# WHY NOT SIMPLY LOWER stale_hours. `_is_stale` + `_has_fresh_owner_heartbeat`
+# reason from the ABSENCE of telemetry, and absence is not abandonment:
+# CLAUDE.md carries an explicit standing warning that a heartbeat-stale
+# machine (especially the Mac, DLAPTOP-4) may still be RUNNING the
+# experiment. Releasing that claim causes a DUPLICATE RUN, which is strictly
+# worse than a slow recovery -- it burns fleet hours and can produce two
+# manifests for one queue_id. So the floor stays where it is, and recovery
+# is instead widened with a POSITIVE signal.
+#
+# THE POSITIVE SIGNAL is the shutdown notice the machine (or the scaler on
+# its behalf) already posts to /shutdown_notify, plus subsequent silence.
+# "Announced it was going away AND then stopped talking" is a different
+# claim about the world from "stopped talking", and it is one the Mac never
+# satisfies: the runner only ever announces PROCESS_EXIT_SHUTDOWN_REASONS,
+# which are excluded below.
+#
+# WHY NOT hcloud POWER STATE, which is the other authoritative signal (and
+# is what cloud-scaler.py reads). It would mean a blocking subprocess to an
+# external API inside the /claim request path of a zero-dependency stdlib
+# service, on a box whose network path to Hetzner is not part of any other
+# claim decision -- a new failure mode on the hot path, for a signal the
+# scaler has ALREADY translated into a shutdown notice before it powers a
+# box off. The DB is the right place to read it from.
+#
+# WHY IN THE CLAIM PREDICATE rather than a background sweeper thread. The
+# only thing a reaped claim needs to become is CLAIMABLE, and try_claim's
+# BEGIN IMMEDIATE already makes exactly one machine win. A sweeper would add
+# a scheduler, a second writer, and a window in which the row says pending
+# while an owner is still finishing -- for no gain. Cost: the git queue
+# snapshot keeps showing the stale `claimed_by` until some worker actually
+# asks, which is a visibility lag of one poll (~30s), not a correctness gap.
+# `departed` is surfaced on /shadow/status so the orphan is visible anyway.
+
+# How long a machine must be SILENT after announcing a shutdown before its
+# claims are reapable. Deliberately equal to the default
+# heartbeat_fresh_seconds (900) -- one number for "we would have heard from
+# this machine by now", used by both the absence rule and this one. It must
+# comfortably exceed the runner's ~60s heartbeat cadence; it does NOT need
+# to exceed the ~26min ACPI drain window, because a draining box keeps
+# heartbeating and so is never quiet while it drains.
+CLAIM_REAP_QUIET_DEFAULT_SECONDS = 900
+
+
+def machine_departed(last_seen, last_shutdown_at, claim_fence_cleared_at,
+                     shutdown_reason, *, quiet_seconds, now=None):
+    """Has this machine announced a departure and then gone quiet?
+
+    Pure function, same shape as claim_fence_active. True when:
+      (a) a shutdown notice is present, and
+      (b) it is a MACHINE departure, not a process exit -- the runner's own
+          `runner_signal_exit` / `runner_drain_complete` are excluded because
+          that runner already released its claim on the way out
+          (experiment_runner._do_immediate_exit) and systemd's
+          Restart=always brings it straight back, so reaping on those would
+          race a live machine for no benefit, and
+      (c) no fence-clear supersedes it -- the scaler stamps one on every
+          poweron, so a machine that has been woken is not "departed"
+          however long ago its last shutdown was, and
+      (d) the machine has been silent for at least `quiet_seconds`.
+
+    (d) is what makes this safe. A worker inside its ACPI drain window is
+    still heartbeating, so it is never quiet; the signal only fires once the
+    box has actually stopped. quiet_seconds <= 0 disables entirely.
+    """
+    if not quiet_seconds or quiet_seconds <= 0:
+        return False
+    if shutdown_reason in PROCESS_EXIT_SHUTDOWN_REASONS:
+        return False
+    shutdown_dt = _parse_utc(last_shutdown_at)
+    if shutdown_dt is None:
+        return False
+    cleared_dt = _parse_utc(claim_fence_cleared_at)
+    # `>=`, which is the OPPOSITE strictness from claim_fence_active's `>`
+    # -- deliberately, and the difference is the whole point. Both face the
+    # same ambiguity (1-second timestamp resolution cannot order a clear and
+    # a notice landing in the same second) and both resolve it toward the
+    # cheaper error, but "cheaper" points opposite ways:
+    #
+    #   fence   -- wrong refusal costs one poll tick; wrong grant is the 10h
+    #              orphan. So a tie stays FENCED, i.e. the clear must be
+    #              strictly newer to disarm.
+    #   reaper  -- wrong deferral costs one poll tick; wrong reap risks a
+    #              DUPLICATE RUN on a machine that was just powered back on.
+    #              So a tie is NOT a departure, i.e. a clear at the same
+    #              second is enough to cancel.
+    #
+    # This is not hypothetical precision: record_claim_fence_clear and
+    # record_shutdown_notice both stamp utcnow(), so a scaler poweron
+    # following its own shutdown notice can land in the same second.
+    if cleared_dt is not None and cleared_dt >= shutdown_dt:
+        return False
+    seen_dt = _parse_utc(last_seen)
+    if seen_dt is not None:
+        now_dt = now or datetime.now(timezone.utc)
+        if (now_dt - seen_dt).total_seconds() < quiet_seconds:
+            return False
+    return True
+
+
+def machine_has_departed(conn, machine, quiet_seconds, now=None):
+    """DB-backed machine_departed for `machine`. False when no row."""
+    if not machine or not quiet_seconds or quiet_seconds <= 0:
+        return False
+    row = conn.execute(
+        "SELECT last_seen, last_shutdown_at, claim_fence_cleared_at, "
+        "shutdown_reason FROM heartbeats WHERE machine=?",
+        (machine,),
+    ).fetchone()
+    if row is None:
+        return False
+    return machine_departed(
+        row["last_seen"], row["last_shutdown_at"],
+        row["claim_fence_cleared_at"], row["shutdown_reason"],
+        quiet_seconds=quiet_seconds, now=now)
+
+
+def claim_orphaned_by_departure(conn, row, quiet_seconds, now=None):
+    """Is this claimed row held by a machine that has provably departed?
+
+    Note what this does NOT do: it never marks anything completed, and it
+    never touches the results table. The only transition it enables is
+    claimed -> claimed-by-someone-else, via try_claim. A run that died
+    before writing its manifest stays a run that has no manifest -- the
+    reaper cannot manufacture or mask a phantom completion.
+    """
+    if row["status"] != "claimed":
+        return False
+    return machine_has_departed(
+        conn, row["claimed_by_machine"], quiet_seconds, now=now)
+
+
 def try_claim(conn, queue_id, machine, stale_hours=6,
-              heartbeat_fresh_seconds=900, fence_seconds=0):
+              heartbeat_fresh_seconds=900, fence_seconds=0,
+              reap_quiet_seconds=0):
     """Atomic conditional claim. Returns one of: 'ok', 'already_claimed',
     'draining', 'error'. Mirrors experiment_runner.attempt_claim() semantics
     exactly so the shadow comparison is apples-to-apples.
@@ -380,8 +540,19 @@ def try_claim(conn, queue_id, machine, stale_hours=6,
     independent of the item's own eligibility. fence_seconds=0 (the
     default) disables it.
 
+    reap_quiet_seconds enables departure-evidence recovery of a claim held
+    by a machine that announced a shutdown and went quiet -- see
+    claim_orphaned_by_departure. 0 (the default) disables it.
+
+    The reaper cannot hand a claim to a draining machine: the fence is
+    evaluated first and is machine-scoped, so a departed owner's claim
+    becoming reapable does not make a departing CALLER eligible to take it.
+
     Atomicity: BEGIN IMMEDIATE takes the write lock before the SELECT, so no
     other request can interleave between the eligibility check and the UPDATE.
+    That is also what makes the reaper safe under a fleet-wide poll: several
+    workers can find the same orphan reapable in the same second, and exactly
+    one of them wins the UPDATE.
     """
     now = utcnow()
     try:
@@ -400,7 +571,8 @@ def try_claim(conn, queue_id, machine, stale_hours=6,
             conn.execute("ROLLBACK")
             return "already_claimed"
         eligible = row["status"] == "pending" or _claim_recoverable(
-            conn, row, queue_id, stale_hours, heartbeat_fresh_seconds)
+            conn, row, queue_id, stale_hours, heartbeat_fresh_seconds,
+            reap_quiet_seconds)
         if not eligible:
             conn.execute("ROLLBACK")
             return "already_claimed"
@@ -420,7 +592,8 @@ def try_claim(conn, queue_id, machine, stale_hours=6,
 
 
 def evaluate_claim(conn, queue_id, machine, stale_hours=6,
-                   heartbeat_fresh_seconds=900, fence_seconds=0):
+                   heartbeat_fresh_seconds=900, fence_seconds=0,
+                   reap_quiet_seconds=0):
     """Read-only: what verdict WOULD the coordinator return, without
     mutating the mirror. Used by the shadow audit so the comparison does
     not perturb state. Same logic as try_claim()."""
@@ -437,7 +610,8 @@ def evaluate_claim(conn, queue_id, machine, stale_hours=6,
     if not _affinity_ok(row["machine_affinity"], machine):
         return "already_claimed"
     eligible = row["status"] == "pending" or _claim_recoverable(
-        conn, row, queue_id, stale_hours, heartbeat_fresh_seconds)
+        conn, row, queue_id, stale_hours, heartbeat_fresh_seconds,
+        reap_quiet_seconds)
     return "ok" if eligible else "already_claimed"
 
 

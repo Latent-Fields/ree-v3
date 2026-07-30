@@ -20,6 +20,8 @@ Config (env):
   COORDINATOR_TOKENS_FILE  JSON {token: machine} (default ./tokens.json)
   COORDINATOR_STALE_HOURS  stale-claim cutoff, default 6
   COORDINATOR_HEARTBEAT_FRESH_SECONDS live-owner grace window, default 900
+  COORDINATOR_CLAIM_REAP_QUIET_SECONDS departed-owner silence before its
+                           claims are reapable, default 900 (0 disables)
   COORDINATOR_MODE         shadow (default) | coordinator
 """
 
@@ -80,6 +82,14 @@ LIFECYCLE_STALE_AFTER_DAYS = float(
 CLAIM_FENCE_SECONDS = int(
     os.environ.get("COORDINATOR_CLAIM_FENCE_SECONDS",
                    str(db.CLAIM_FENCE_DEFAULT_SECONDS))
+)
+# Stale-claim reaper: how long a machine must be silent AFTER announcing a
+# machine shutdown before another worker may take over its claims, without
+# waiting out COORDINATOR_STALE_HOURS. Set to 0 to disable (recovery then
+# falls back to the 6h floor alone). See db.claim_orphaned_by_departure.
+CLAIM_REAP_QUIET_SECONDS = int(
+    os.environ.get("COORDINATOR_CLAIM_REAP_QUIET_SECONDS",
+                   str(db.CLAIM_REAP_QUIET_DEFAULT_SECONDS))
 )
 MODE = os.environ.get("COORDINATOR_MODE", "shadow")
 
@@ -347,6 +357,19 @@ class Handler(BaseHTTPRequestHandler):
                         row.get("shutdown_reason"),
                         fence_seconds=CLAIM_FENCE_SECONDS,
                     )
+                    # Reaper visibility. Because recovery happens inside the
+                    # claim predicate, an orphaned claim stays visibly
+                    # `claimed` until some worker next asks for it -- this
+                    # flag is what says "and its owner is gone", so the
+                    # orphan is diagnosable from the status readout rather
+                    # than only from the claim that eventually succeeds.
+                    row["departed"] = db.machine_departed(
+                        row.get("last_seen"),
+                        row.get("last_shutdown_at"),
+                        row.get("claim_fence_cleared_at"),
+                        row.get("shutdown_reason"),
+                        quiet_seconds=CLAIM_REAP_QUIET_SECONDS,
+                    )
                     machines.append(row)
                 recent = [dict(r) for r in conn.execute(
                     "SELECT queue_id, machine, git_verdict, coord_verdict, "
@@ -390,9 +413,15 @@ class Handler(BaseHTTPRequestHandler):
                 # break the apples-to-apples comparison evaluate_claim
                 # exists for. Production runs MODE=coordinator.
                 fence = 0 if MODE == "shadow" else CLAIM_FENCE_SECONDS
+                # Same reasoning for the reaper: it widens eligibility, so
+                # in shadow mode it would produce 'ok' where the git path
+                # says 'already_claimed' and register as a spurious
+                # divergence. Off in shadow, on under MODE=coordinator.
+                reap = 0 if MODE == "shadow" else CLAIM_REAP_QUIET_SECONDS
                 coord_verdict = db.evaluate_claim(
                     conn, qid, machine, STALE_HOURS,
-                    HEARTBEAT_FRESH_SECONDS, fence_seconds=fence)
+                    HEARTBEAT_FRESH_SECONDS, fence_seconds=fence,
+                    reap_quiet_seconds=reap)
                 if MODE == "shadow":
                     diverged = db.log_claim(
                         conn, qid, machine, git_verdict, coord_verdict)
@@ -404,7 +433,8 @@ class Handler(BaseHTTPRequestHandler):
                     real = db.try_claim(
                         conn, qid, machine, STALE_HOURS,
                         HEARTBEAT_FRESH_SECONDS,
-                        fence_seconds=CLAIM_FENCE_SECONDS)
+                        fence_seconds=CLAIM_FENCE_SECONDS,
+                        reap_quiet_seconds=CLAIM_REAP_QUIET_SECONDS)
                     # Phase 3: claim_log is the audit trail for who tried to
                     # claim what + the coordinator's verdict. The shadow path
                     # above logs evaluate_claim's predicted verdict; under
