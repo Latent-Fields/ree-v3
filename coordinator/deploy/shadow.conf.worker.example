@@ -24,6 +24,10 @@
 Environment=COORDINATION_MODE=coordinator
 Environment=COORDINATOR_URL=http://10.8.0.1:8787
 Environment=COORDINATOR_TOKEN=<paste from coordinator.env>
+# Shadow-mode client log. Live on cloud-2/3/4 and declared in the hub template
+# since the isolated-checkout cutover; it was simply never recorded here
+# (systemd_dropin_drift.py reported it EXTRA on all three workers 2026-07-30).
+Environment=COORDINATOR_LOG=/home/ree/coordinator_shadow.log
 
 # Phase 3: runner does not git-push results / queue / heartbeats (hub sync_daemon owns those).
 Environment=PHASE3_DISABLE_RUNNER_RESULT_PUSH=1
@@ -55,30 +59,47 @@ Environment=PHASE3_RUNNER_TELEMETRY_OFF_GIT=1
 # writer's PHASE3_SPOOL_SIDEFILES (shadow.conf.hub.example); the worker just
 # spools, the hub writer commits. Companions are read-only side data, so this is
 # safe on any worker.
-# Environment=PHASE3_SPOOL_SIDEFILES=1
+#
+# ROLLOUT COMPLETE (recorded 2026-07-30). Live on cloud-1/2/3/4. Note it is
+# currently delivered by a SEPARATE `sidefiles.conf` drop-in rather than this
+# file -- systemd merges every *.conf in the .d directory, so the effective
+# config is the same and it is declared here as part of the worker baseline.
+Environment=PHASE3_SPOOL_SIDEFILES=1
 
 # Clean drain (exit 0) from a queued stop should respawn with latest disk bytes.
 Restart=always
 
 # --- Command-channel coordinator migration (2026-06-02) -------------------
-# Staged rollout, both default OFF (git command-file remains the channel).
-# Enable per-worker, cloud-2 (idle) FIRST as the canary; verify stop/pause/
-# resume/release_claim round-trip via the coordinator AND no systemd restart
-# loop BEFORE touching cloud-3/4. serve.py must also have
-# PHASE3_COMMANDS_DUAL_WRITE=1 set (after this flag) so issued commands reach
-# the coordinator channel.
+# ROLLOUT COMPLETE (recorded 2026-07-30). Both steps below are live on
+# cloud-1/2/3/4; the coordinator is the SOLE command channel and the git
+# command-file path is no longer in use. They are recorded here as ACTIVE
+# baseline directives rather than as staged instructions, because a flag that
+# is live on every machine while the template still describes it as a
+# not-yet-started canary is exactly the drift systemd_dropin_drift.py exists to
+# catch (it reported both as UNDECLARED on 2026-07-30, on all four boxes).
 #
-# Step 1 (canary): dual-read -- fetch+ack via coordinator AND git file.
-# Environment=PHASE3_COMMANDS_VIA_COORDINATOR=1
+# The original staging is preserved for the record: enable per-worker, cloud-2
+# (idle) FIRST as the canary; verify stop/pause/resume/release_claim round-trip
+# via the coordinator AND no systemd restart loop BEFORE touching cloud-3/4.
+# serve.py must also have PHASE3_COMMANDS_DUAL_WRITE=1 set (after this flag) so
+# issued commands reach the coordinator channel. Re-follow that order if these
+# are ever rolled back and re-enabled.
 #
-# Step 2 (after step 1 proven): coordinator is the SOLE channel. Implies
-# VIA_COORDINATOR; self-guards back to git if the coordinator is unreachable.
-# Removes the restart-loop hazard that made _HEARTBEAT_WRITE hub-only, so a
-# worker on this flag MAY also set PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE.
-# Environment=PHASE3_COMMANDS_OFF_GIT=1
+# Step 1: dual-read -- fetch+ack via coordinator AND git file.
+Environment=PHASE3_COMMANDS_VIA_COORDINATOR=1
+#
+# Step 2: coordinator is the SOLE channel. Implies VIA_COORDINATOR;
+# self-guards back to git if the coordinator is unreachable.
+Environment=PHASE3_COMMANDS_OFF_GIT=1
 
 # ExecStart must include: --machine ree-cloud-2  (or -3 / -4 as appropriate)
 #
-# Do NOT set PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE on a worker UNLESS
-# PHASE3_COMMANDS_OFF_GIT is also set (then the command-file restart-loop
-# hazard is gone -- acks persist in the coordinator).
+# PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE is PERMITTED but NOT SET on any worker,
+# and this is not an instruction to add it. Its precondition is now satisfied
+# everywhere (PHASE3_COMMANDS_OFF_GIT=1 above removes the command-file
+# restart-loop hazard that made _HEARTBEAT_WRITE hub-only -- acks persist in the
+# coordinator). PHASE3_RUNNER_TELEMETRY_OFF_GIT already suppresses the telemetry
+# file writes on workers, so there is nothing left for it to buy here. Left
+# unset deliberately: setting it would be a live-config change with no benefit,
+# and the 2026-05-30 restart-loop incident came from setting it when its
+# precondition did NOT hold.

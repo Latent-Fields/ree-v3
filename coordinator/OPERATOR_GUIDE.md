@@ -569,6 +569,33 @@ python3 ree-v3/coordinator/deploy/systemd_dropin_drift.py
 `--machine ree-cloud-1` to scope, `--show-ok` to see what passed, `--json` for
 machine-readable output, `--exit-nonzero` to gate (`--strict` also gates notes).
 
+**Run it after waking a surge worker.** `ree-worker-4` is manual-start and
+spends nearly all its time powered off, so it is `UNREACHABLE` on almost every
+run and misses every fleet-wide fix applied while it was down. It was the one
+box still missing `PHASE3_DISABLE_RUNNER_CLAIM_PUSH` after the 2026-07-30
+remediation, for exactly that reason. This is a standing instruction, not a
+one-off: any worker that sleeps through a config change stays behind until
+someone checks it, and this audit is that check.
+
+**It grades the unit CONFIG, not the running process's environment.** After a
+`daemon-reload` the audit reports `OK` while the *already-running* process still
+carries the old environment -- systemd re-reads the unit files but does not
+re-exec anything. That is the correct scope for this check (the question is "is
+the config right"), and it is precisely why `daemon_code_drift.py` is a separate
+check rather than a section of this one: config-correct and process-correct are
+two different properties, and after a config change without a restart the fleet
+is legitimately the first without being the second. If you need the running
+process to pick the change up, restart the unit -- but see the caution below.
+
+**Do not restart a runner to apply a non-urgent config change.**
+`TimeoutStopSec=10min`: `systemctl restart` SIGTERMs the runner, which drains
+gracefully (finishes the current experiment, releases the claim), but systemd
+SIGKILLs it at the 10-minute mark. An experiment longer than that is destroyed
+mid-flight -- intercepted as an infra-crash by `_transient_exit_codes`, so no
+phantom completion is recorded, but the compute is wasted. Check for an
+in-flight experiment first (`pgrep -f experiments/v3_exq`) and prefer letting
+the change take effect at the next natural restart when the flag is not urgent.
+
 **Why it reads `systemctl show` and not the drop-in files.** All three of these
 have bitten:
 - systemd merges **every** `*.conf` in the `.d` directory. The fleet has a

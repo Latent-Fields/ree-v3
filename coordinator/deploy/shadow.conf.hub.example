@@ -55,6 +55,23 @@ Environment=PHASE3_RUNNER_TELEMETRY_OFF_GIT=1
 # Command-channel cutover: fetch+ack remote-control commands via the coordinator.
 Environment=PHASE3_COMMANDS_VIA_COORDINATOR=1
 
+# Coordinator is the SOLE command channel (implies VIA_COORDINATOR above;
+# self-guards back to git if the coordinator is unreachable). Live on the hub
+# and on cloud-2/3/4; recorded here 2026-07-30 after systemd_dropin_drift.py
+# reported it EXTRA on the hub -- i.e. running on the machine while this
+# template did not mention it at all.
+Environment=PHASE3_COMMANDS_OFF_GIT=1
+
+# Side-file sync: ship a run's COMPANION artifacts (e.g. the
+# *_episode_log.json that fishtank_viz.html reads) to the coordinator after the
+# manifest POST. The hub runs a RUNNER as well as the writers, so it needs the
+# spooling half of this flag exactly like any worker -- distinct from the
+# ree-sync-daemon PHASE3_SPOOL_SIDEFILES documented in the reference block at
+# the foot of this file, which is the COMMITTING half. Both are required and
+# both are live. Currently delivered by a separate `sidefiles.conf` drop-in
+# (systemd merges every *.conf in the .d directory), recorded here 2026-07-30.
+Environment=PHASE3_SPOOL_SIDEFILES=1
+
 # 2026-07-30: override the main unit's Restart=on-failure so a CLEAN drain
 # (exit 0) from a queued `stop` remote-control command respawns the runner with
 # the latest disk bytes. Without it the runner drains and stays dead until a
