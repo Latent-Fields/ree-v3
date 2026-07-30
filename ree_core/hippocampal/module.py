@@ -2562,6 +2562,92 @@ class HippocampalModule(nn.Module):
         self._committed_trajectory_buffer = None
 
     # ------------------------------------------------------------------ #
+    # MECH-217: offline trajectory-consolidated wanting spread (2026-07-30) #
+    # ------------------------------------------------------------------ #
+
+    def spread_reverse_replay_wanting(self, trajectory: Trajectory) -> dict:
+        """MECH-217: offline (SWS/REM) trajectory-consolidated wanting spread.
+
+        Biological basis: Foster & Wilson 2006 (Nature) -- reverse replay
+        during sleep/quiet rest reactivates the reverse of a real traversed
+        path. Offline complement to MECH-290's backward_credit_sweep (waking,
+        fires at BetaGate release on the committed trajectory). This method
+        is called by REEAgent.run_rem_attribution_pass() (SD-017 REM pass)
+        on each MECH-165 reverse-replayed trajectory.
+
+        Reads the CURRENT VALENCE_WANTING at the trajectory terminus
+        (world_states[0] -- the reversed sequence starts at the original
+        episode's most recent state) and writes a decayed, gain-scaled
+        fraction of it at each EARLIER waypoint:
+            spread_t = gain * wanting_at_terminus * gamma^t   (t = steps_from_terminus, t >= 1)
+        The terminus itself (t=0) is deliberately never written: it is the
+        read source, and self-writing it would create a
+        v <- v * (1 + gain) feedback loop compounding across repeated REM
+        cycles. gain is a numerical-stability guard, not part of the MECH-217
+        claim text (see HippocampalConfig.offline_wanting_spread_gain).
+
+        The trajectory is real recorded waking experience (MECH-165
+        exploration buffer, reverse-ordered by reverse_replay() -- a pure
+        temporal reversal, no new E2 rollout), not simulated/imagined
+        content, so it carries hypothesis_tag=False and this write does not
+        violate the MECH-094 gate (ResidueField.update_valence enforces the
+        gate itself via the hypothesis_tag argument passed through here).
+
+        No-op when:
+          - use_offline_wanting_spread is False (backward compat)
+          - trajectory has no world_states, or fewer than 2 (nothing to
+            spread to besides the terminus itself)
+          - wanting_at_terminus <= 0 (nothing yet learned at that endpoint)
+
+        Args:
+            trajectory: a reverse-ordered Trajectory (reverse_replay() output).
+
+        Returns:
+            dict: n_steps_spread (int), wanting_at_terminus (float),
+                  mean_spread (float). Empty dict on the flag-off no-op.
+        """
+        if not getattr(self.config, "use_offline_wanting_spread", False):
+            return {}
+        world_states = trajectory.world_states
+        if world_states is None or len(world_states) < 2:
+            return {
+                "n_steps_spread": 0,
+                "wanting_at_terminus": 0.0,
+                "mean_spread": 0.0,
+            }
+
+        terminus = world_states[0]
+        valence = self.residue_field.evaluate_valence(terminus)
+        wanting_at_terminus = float(valence[..., VALENCE_WANTING].mean().item())
+        if wanting_at_terminus <= 0.0:
+            return {
+                "n_steps_spread": 0,
+                "wanting_at_terminus": wanting_at_terminus,
+                "mean_spread": 0.0,
+            }
+
+        gamma = float(getattr(self.config, "offline_wanting_spread_gamma", 0.9))
+        gain = float(getattr(self.config, "offline_wanting_spread_gain", 0.1))
+        total_spread = 0.0
+        n_steps = 0
+        for steps_from_terminus in range(1, len(world_states)):
+            z_w = world_states[steps_from_terminus]
+            spread = gain * wanting_at_terminus * (gamma ** steps_from_terminus)
+            self.residue_field.update_valence(
+                z_w, VALENCE_WANTING, spread,
+                hypothesis_tag=trajectory.hypothesis_tag,
+            )
+            total_spread += spread
+            n_steps += 1
+
+        mean_spread = total_spread / n_steps if n_steps > 0 else 0.0
+        return {
+            "n_steps_spread": n_steps,
+            "wanting_at_terminus": wanting_at_terminus,
+            "mean_spread": mean_spread,
+        }
+
+    # ------------------------------------------------------------------ #
     # MECH-269 base: per-stream verisimilitude (Phase 1, 2026-04-22)      #
     # ------------------------------------------------------------------ #
 

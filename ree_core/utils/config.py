@@ -2133,6 +2133,38 @@ class HippocampalConfig:
     backward_sweep_gamma: float = 0.9        # temporal discount per step back
     backward_sweep_min_quality: float = 0.6  # only sweep on high-quality completions
 
+    # MECH-217: offline (SWS/REM) trajectory-consolidated wanting spread.
+    # Biological basis: Foster & Wilson 2006 (Nature) -- reverse replay
+    # during sleep/quiet rest reactivates the reverse of a real traversed
+    # path. Offline complement to MECH-290 (waking, fires at BetaGate
+    # release on the committed trajectory); this fires during the SD-017
+    # REM pass (REEAgent.run_rem_attribution_pass) on MECH-165 reverse-
+    # replayed exploration trajectories -- real recorded experience, not
+    # simulated content, so MECH-094 does not block the write.
+    # When enabled, HippocampalModule.spread_reverse_replay_wanting() is
+    # called by run_rem_attribution_pass() for each reverse trajectory.
+    # It reads the CURRENT VALENCE_WANTING at the trajectory terminus
+    # (world_states[0] of the reversed sequence -- the original episode's
+    # most recent state) and writes a decayed, gain-scaled fraction at each
+    # EARLIER waypoint (steps_from_terminus >= 1):
+    #   spread_t = gain * wanting_at_terminus * gamma^steps_from_terminus
+    # The terminus itself (steps_from_terminus=0) is deliberately never
+    # written: it is the read source, and self-writing it would create a
+    # v <- v*(1+gain) feedback loop that compounds across repeated REM
+    # cycles. No-op when wanting_at_terminus <= 0 (nothing yet learned at
+    # that endpoint to spread).
+    # offline_wanting_spread_gain is NOT part of the MECH-217 claim text --
+    # an added numerical-stability guard (bounded step size, same class of
+    # concern as an EMA/TD step size) so the write is a bounded fraction of
+    # the terminus value rather than a 1:1 copy.
+    # Requires ResidueConfig.valence_enabled=True to write VALENCE_WANTING;
+    # silently skips valence write if disabled (via update_valence's own
+    # guard).
+    # Backward compatible: disabled by default.
+    use_offline_wanting_spread: bool = False
+    offline_wanting_spread_gamma: float = 0.9  # per-waypoint decay (MECH-217 spec)
+    offline_wanting_spread_gain: float = 0.1   # stability guard on the write magnitude
+
 
 @dataclass
 class ResidueConfig:
@@ -6235,6 +6267,10 @@ class REEConfig:
         use_backward_credit_sweep: bool = False,
         backward_sweep_gamma: float = 0.9,
         backward_sweep_min_quality: float = 0.6,
+        # MECH-217: offline (SWS/REM) trajectory-consolidated wanting spread
+        use_offline_wanting_spread: bool = False,
+        offline_wanting_spread_gamma: float = 0.9,
+        offline_wanting_spread_gain: float = 0.1,
         # Sleep-aggregation cluster GAP-3 unified master flag (resolves the
         # eight Phase A-E sub-flags True via enable_sleep_aggregation_cluster()
         # at the end of from_dims). Default False: bit-identical pre-GAP-3.
@@ -7510,6 +7546,11 @@ class REEConfig:
         config.hippocampal.use_backward_credit_sweep = use_backward_credit_sweep
         config.hippocampal.backward_sweep_gamma = backward_sweep_gamma
         config.hippocampal.backward_sweep_min_quality = backward_sweep_min_quality
+
+        # MECH-217: offline (SWS/REM) trajectory-consolidated wanting spread
+        config.hippocampal.use_offline_wanting_spread = use_offline_wanting_spread
+        config.hippocampal.offline_wanting_spread_gamma = offline_wanting_spread_gamma
+        config.hippocampal.offline_wanting_spread_gain = offline_wanting_spread_gain
 
         # Sleep-aggregation cluster Phase A
         config.use_sleep_loop = use_sleep_loop

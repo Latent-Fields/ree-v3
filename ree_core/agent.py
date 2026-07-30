@@ -10181,12 +10181,18 @@ class REEAgent(nn.Module):
               rem_mean_harm_terrain: mean residue terrain score across rollouts
               rem_terrain_variance: variance of terrain scores (context differentiation proxy)
               rem_n_reverse: number of reverse-order rollouts included
+              rem_wanting_spread_n_steps: MECH-217 -- total waypoints written across all
+                  reverse rollouts this pass (0 when use_offline_wanting_spread is False)
+              rem_wanting_spread_mean: MECH-217 -- mean per-waypoint spread value across
+                  all reverse rollouts this pass (0.0 when no waypoints were written)
         """
         metrics: Dict[str, float] = {
             "rem_n_rollouts": 0.0,
             "rem_mean_harm_terrain": 0.0,
             "rem_terrain_variance": 0.0,
             "rem_n_reverse": 0.0,
+            "rem_wanting_spread_n_steps": 0.0,
+            "rem_wanting_spread_mean": 0.0,
         }
 
         if not self.config.rem_enabled:
@@ -10227,10 +10233,22 @@ class REEAgent(nn.Module):
                 mode="reverse",
                 retrieval_bias=retrieval_bias,
             )
+            wanting_spread_total = 0.0
+            wanting_spread_n = 0
             for traj in reverse_trajs:
                 score = self.hippocampal._score_trajectory(traj)
                 terrain_scores.append(float(score.item() if isinstance(score, torch.Tensor) else score))
                 n_reverse += 1
+                # MECH-217: offline trajectory-consolidated wanting spread.
+                # No-op (empty dict) when use_offline_wanting_spread is False.
+                spread_result = self.hippocampal.spread_reverse_replay_wanting(traj)
+                n_spread = spread_result.get("n_steps_spread", 0)
+                if n_spread:
+                    wanting_spread_n += n_spread
+                    wanting_spread_total += spread_result["mean_spread"] * n_spread
+            metrics["rem_wanting_spread_n_steps"] = float(wanting_spread_n)
+            if wanting_spread_n > 0:
+                metrics["rem_wanting_spread_mean"] = wanting_spread_total / wanting_spread_n
         else:
             # No exploration buffer yet: extra forward rollouts
             extra = self.hippocampal.replay(recent, num_replay_steps=n_reverse_steps)

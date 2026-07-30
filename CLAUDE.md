@@ -2292,6 +2292,79 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
   Validation experiment: to be queued post-476a (SD-038 anti-recency sequenced after).
   See MECH-290, ARC-028, MECH-105, SD-014 (VALENCE_WANTING write paths), MECH-165.
 
+- MECH-217: goal.replay_wanting_spread -- IMPLEMENTED 2026-07-30.
+  Offline (SWS/REM) complement to MECH-290 (waking): spreads VALENCE_WANTING
+  backward along a previously-traversed approach path during the SD-017 REM
+  pass, instead of at waking BetaGate release.
+  Module: ree_core/hippocampal/module.py
+    HippocampalModule.spread_reverse_replay_wanting(trajectory) -> dict.
+    Called from REEAgent.run_rem_attribution_pass() (agent.py) for each
+    MECH-165 reverse-replayed trajectory in the reverse branch (only when
+    the exploration buffer has stored trajectories -- the branch that
+    already exists at agent.py's reverse-replay pass, ~10222-10251).
+  Biological basis: Foster & Wilson 2006 (Nature) -- reverse replay during
+  sleep/quiet rest reactivates the reverse of a real traversed path.
+  Data flow: HippocampalModule._exploration_buffer (real recorded waking
+    trajectory, MECH-165) -> reverse_replay() (pure temporal reversal,
+    no new E2 rollout) -> spread_reverse_replay_wanting() reads the CURRENT
+    VALENCE_WANTING at world_states[0] (the terminus -- the reversed
+    sequence's first element is the original episode's most recent state)
+    via ResidueField.evaluate_valence(), then writes at each EARLIER
+    waypoint (steps_from_terminus >= 1):
+      spread_t = gain * wanting_at_terminus * gamma^steps_from_terminus
+    via ResidueField.update_valence(z_w, VALENCE_WANTING, spread_t,
+    hypothesis_tag=trajectory.hypothesis_tag).
+  Deliberately does NOT write at the terminus itself (steps_from_terminus=0):
+    it is the read source; self-writing it would create a
+    v <- v*(1+gain) feedback loop compounding across repeated REM cycles.
+    Verified by smoke test: terminus value bit-for-bit unchanged after a
+    pass that wrote 25 waypoint updates derived from it.
+  No-op (returns {}) when wanting_at_terminus <= 0 -- nothing yet learned at
+    that endpoint to spread; naturally gates on whether the trajectory
+    actually ended somewhere valuable, no separate "was this a resource
+    contact" bookkeeping needed.
+  Scope decision: the write is NOT placed inside the shared
+    HippocampalModule.reverse_replay()/diverse_replay() methods (as the
+    claims.yaml note originally suggested), because those methods are also
+    called from REEAgent._do_replay() (MECH-092 quiescent WAKING replay,
+    agent.py ~8580) whenever mode="auto" rolls "reverse" -- that path is
+    explicitly documented as "All replay content carries hypothesis_tag=True
+    -- cannot produce residue." Doing the write inside the shared method
+    would leak the offline-only effect into ordinary waking quiescent
+    cycles. The call is made only from run_rem_attribution_pass(), so it
+    fires strictly on the SD-017 REM pass.
+  MECH-094: trajectory.hypothesis_tag is False here (reverse_replay() does
+    not set it True) -- this is real recorded waking experience, reverse-
+    ordered, not simulated/imagined content, so the write does not violate
+    the MECH-094 gate (ResidueField.update_valence enforces the gate itself
+    via the hypothesis_tag argument passed through).
+  Config (HippocampalConfig, ree_core/utils/config.py):
+    use_offline_wanting_spread (bool, default False) -- master switch.
+    offline_wanting_spread_gamma (float, default 0.9) -- per-waypoint decay,
+      matches the MECH-217 claim text.
+    offline_wanting_spread_gain (float, default 0.1) -- NOT part of the
+      MECH-217 claim text; an added numerical-stability guard (bounded
+      EMA/TD-style step size) so the write is a bounded fraction of the
+      terminus value rather than a 1:1 copy, further damping compounding
+      across overlapping paths visited in repeated sleep cycles.
+    All wired through REEConfig.from_dims().
+  Telemetry: run_rem_attribution_pass() returns two new metrics keys,
+    rem_wanting_spread_n_steps and rem_wanting_spread_mean (both 0.0 when
+    the flag is off).
+  Backward compatible: use_offline_wanting_spread=False by default; all
+    methods are no-ops; existing experiments unaffected.
+  No trainable parameters. No phased training needed.
+  Smoke: flag-off no-op verified (rem_wanting_spread_n_steps=0); flag-on
+    verified an earlier waypoint received nonzero VALENCE_WANTING while the
+    terminus itself stayed exactly unchanged (no feedback loop). Full
+    tests/test_flag_inertness.py + sleep-phase + MECH-293 contract suite
+    (94 tests) PASS on ree-cloud-1 with this change applied.
+  Validation experiment: EXP-0301/EVB-0349 queued (see /queue-experiment).
+  See MECH-290 (waking analog), MECH-165 (reverse_replay substrate),
+  SD-014 (VALENCE_WANTING write paths), SD-017 (REM pass host), MECH-216
+  (waking schema-conditioned wanting, the sibling mechanism), ARC-051
+  (multi-level wanting hierarchy consumer), MECH-094 (hypothesis_tag gate).
+
 ## SD Design Decisions Validated (V3) — 2026-03-18
 - SD-003: self_attribution.counterfactual_e2_pipeline — **SUPERSEDED 2026-04-18** after
   28 accumulated FAILs across the two-pass counterfactual architecture. Successor layer:
