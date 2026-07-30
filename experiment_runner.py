@@ -1165,6 +1165,420 @@ def _refresh_runner_version() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Mid-session code refresh: BETWEEN-EXPERIMENT self re-exec.
+#
+# The cold-boot half of the stale-code problem was fixed 2026-07-30 (310a80e:
+# ExecStartPre runs coordinator/deploy/runner-prestart-pull.sh, refreshing
+# ree-v3 before the Python process loads it). That acts at process START only.
+# A LONG-LIVED runner still executes whatever it loaded at launch, forever,
+# because Python does not hot-reload -- while its own in-loop `git pull` keeps
+# advancing the code ON DISK underneath it.
+#
+# Measured 2026-07-30:
+#   - The hub (ree-cloud-1) ran `r4072 35c103c 2026-07-20` for TEN DAYS. Last
+#     "Runner version:" line in its journal was Jul 20 05:22:05; the process
+#     only exited 2026-07-30T06:07:04Z. Its own pull had been advancing the
+#     disk the whole time.
+#   - ree-cloud-3 ran `r4515 e68d52b` (launched 2026-07-29T21:27Z) all through
+#     2026-07-30 while its disk sat at origin/main, logging
+#     "git pull ree-v3: Already up to date." every 60s against code the
+#     process was not running.
+#
+# _refresh_runner_version() above already RENDERS the divergence
+# ("r4530 9077eb7 2026-07-30 (running r4515 e68d52b)") and the comment on it
+# notes "a runner restart is needed to load it". Nothing consumed that signal.
+# This block consumes it: when the on-disk build is strictly newer AND it
+# changed a module this process actually loaded, the runner re-execs itself.
+#
+# WHY os.execve RATHER THAN A CLEAN EXIT FOR systemd Restart=always:
+#   exit-0-and-let-systemd-respawn is lower blast radius on the fleet, and the
+#   hub gained Restart=always on 2026-07-30 (8d7d327). But the Mac runner is
+#   launched by hand from the explorer (serve.py /api/runner/v3/start), NOT by
+#   systemd -- a clean exit there leaves NO runner at all. execve is the only
+#   mechanism that behaves identically on every box. It also preserves the PID,
+#   so runner.pid stays valid and nothing has to be rewritten.
+#
+# THE FOUR THINGS THAT MAKE THIS SAFE (each is a separate guard below):
+#   1. BETWEEN EXPERIMENTS ONLY. The single call site is after the between-pass
+#      pull, where _current_claim has been cleared, no experiment subprocess is
+#      alive, and this pass's results have already been pushed. So a re-exec
+#      can neither orphan a coordinator claim nor manufacture a phantom
+#      completion (cf. reference_phantom_completion_crash_before_manifest).
+#      _self_restart_busy_reason() re-checks all of that rather than trusting
+#      the call site's position.
+#   2. NO RE-EXEC LOOP. execve does NOT go through systemd, so the unit's
+#      StartLimitBurst=5 / StartLimitIntervalSec=900 do NOT bound it. Two
+#      independent brakes replace them: the on-disk build must be STRICTLY
+#      NEWER by commit count (a force-push or a sideways move cannot ping-pong
+#      the runner), and a minimum interval between restarts is carried forward
+#      THROUGH the exec in the environment (in-memory state does not survive).
+#   3. ONLY WHEN IT MATTERS. The trigger is the intersection of the pulled
+#      diff with sys.modules -- the set of files this process actually loaded.
+#      That is exactly the definition of "stale code" and it is self-
+#      maintaining: no allowlist to rot, no denylist to over-fire. The bulk of
+#      ree-v3 traffic is new experiments/ drivers, which run as SUBPROCESSES
+#      and are therefore already fresh on every run -- those never restart the
+#      runner.
+#   4. THE NEW BUILD IS CHECKED BEFORE WE COMMIT TO IT. Once execve succeeds
+#      there is no way back, and main() does sys.exit(rc) on a failing startup
+#      preflight -- on the Mac that would be a permanently dead runner. So the
+#      new experiment_runner.py is compiled and the startup preflight suite is
+#      run (the same suite, via the same argv builder) BEFORE the exec, and a
+#      failure aborts the restart and leaves the runner on the old build.
+#
+# Off switch: REE_RUNNER_NO_SELF_RESTART=1 (systemd drop-in or shell).
+# ---------------------------------------------------------------------------
+_REEXEC_DISABLE_ENV = "REE_RUNNER_NO_SELF_RESTART"
+_REEXEC_LAST_ENV = "REE_RUNNER_SELF_RESTART_LAST"       # epoch secs, carried through exec
+_REEXEC_COUNT_ENV = "REE_RUNNER_SELF_RESTART_COUNT"     # generations since first launch
+_REEXEC_MIN_INTERVAL_ENV = "REE_RUNNER_SELF_RESTART_MIN_INTERVAL_SEC"
+_REEXEC_DEFAULT_MIN_INTERVAL_SEC = 600
+_LAST_SELF_RESTART_NOTE: str | None = None   # dedup for the "not restarting" line
+
+
+def _version_rev_count(version: str | None) -> int | None:
+    """Commit count from a `_git_code_version` string ('r4530 9077eb7 ...').
+
+    None when absent or unparseable -- callers must treat that as "do not
+    restart", never as "assume newer"."""
+    if not version:
+        return None
+    head = version.split()[0] if version.split() else ""
+    if not head.startswith("r") or not head[1:].isdigit():
+        return None
+    return int(head[1:])
+
+
+def _version_sha(version: str | None) -> str | None:
+    """Short sha from a `_git_code_version` string, or None."""
+    if not version:
+        return None
+    parts = version.split()
+    return parts[1] if len(parts) > 1 else None
+
+
+def _env_epoch(name: str) -> float | None:
+    """Read an epoch-seconds env var. None when unset or unparseable."""
+    raw = os.environ.get(name)
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
+
+def _reexec_min_interval_sec() -> int:
+    """Minimum seconds between self-restarts. Env-tunable; never negative, so
+    the brake cannot be disabled by setting a nonsense value (use
+    REE_RUNNER_NO_SELF_RESTART=1 to turn the feature off)."""
+    raw = os.environ.get(_REEXEC_MIN_INTERVAL_ENV)
+    if raw:
+        try:
+            return max(0, int(raw))
+        except ValueError:
+            pass
+    return _REEXEC_DEFAULT_MIN_INTERVAL_SEC
+
+
+def _loaded_repo_modules() -> set[str]:
+    """Repo-relative paths of every module this PROCESS has loaded from
+    REPO_ROOT -- i.e. exactly the code that is frozen until a restart.
+
+    Derived from sys.modules rather than a hand-maintained list: an allowlist
+    silently rots when the runner starts importing something new (and rotting
+    toward "never restart" reproduces the very defect this fixes), while a
+    denylist over-fires on the experiments/ drivers that dominate ree-v3
+    traffic and are subprocess-fresh anyway.
+
+    Under-triggers only for a module imported LATER than this call, which by
+    the end of a pass is close to empty: the V3-parity smoke pulls ree_core in
+    on the parent side. Note that is correct rather than merely tolerable --
+    if the parent never imported it, a change to it does not stale the parent.
+    """
+    out: set[str] = set()
+    for mod in list(sys.modules.values()):
+        path = getattr(mod, "__file__", None)
+        if not path:
+            continue
+        try:
+            rel = Path(path).resolve().relative_to(REPO_ROOT)
+        except (ValueError, OSError, RuntimeError):
+            continue  # outside the repo (stdlib, site-packages) or unresolvable
+        out.add(rel.as_posix())
+    # __main__ normally supplies this, but a wrapper launcher may not.
+    out.add("experiment_runner.py")
+    return out
+
+
+def _changed_paths_since(old_sha: str) -> list[str] | None:
+    """Repo-relative paths changed between `old_sha` and HEAD.
+
+    None means "cannot tell" (git failed, or old_sha is unreachable after a
+    force-push) -- the caller restarts conservatively in that case, since the
+    strictly-newer and rate-limit brakes still apply."""
+    try:
+        r = _git_run(
+            ["git", "-C", str(REPO_ROOT), "diff", "--name-only",
+             f"{old_sha}..HEAD"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except Exception:
+        return None
+    if r.returncode != 0:
+        return None
+    return [ln.strip() for ln in r.stdout.splitlines() if ln.strip()]
+
+
+def _self_restart_busy_reason(
+    *,
+    current_claim,
+    current_proc,
+    drain_flag,
+    pause_flag,
+    force_stop_flag,
+    suspend_flag,
+) -> str | None:
+    """None when the runner is genuinely idle between experiments; otherwise a
+    short ASCII reason why a self-restart must NOT happen right now.
+
+    Pure, so the "never mid-run" invariant is testable without a live runner.
+    Each container is the mutable-list closure main() uses; truthiness is
+    non-empty."""
+    if current_claim:
+        return f"holding claim {current_claim[0]}"
+    if current_proc:
+        return "an experiment subprocess is alive"
+    if drain_flag:
+        return "drain requested -- exiting anyway"
+    if force_stop_flag:
+        return "force-stop requested"
+    if suspend_flag:
+        return "suspend requested"
+    if pause_flag:
+        return "paused"
+    return None
+
+
+def _should_self_restart(
+    *,
+    disk_version: str | None,
+    process_version: str | None,
+    changed_paths: list[str] | None,
+    loaded_paths: set[str],
+    now: float,
+    last_restart: float | None,
+    min_interval_sec: int,
+    disabled: bool,
+) -> tuple[bool, str]:
+    """Pure decision: should this process re-exec onto the on-disk build?
+
+    Returns (should_restart, ASCII reason). Every "no" path is a distinct
+    reason string so the journal explains a runner that is NOT restarting --
+    silence is what let the ten-day hub staleness go unnoticed."""
+    if disabled:
+        return False, f"disabled by {_REEXEC_DISABLE_ENV}"
+    if not process_version or not disk_version:
+        return False, "runner version unavailable (git unreadable)"
+    if disk_version == process_version:
+        return False, "already running the on-disk build"
+
+    disk_n = _version_rev_count(disk_version)
+    proc_n = _version_rev_count(process_version)
+    if disk_n is None or proc_n is None:
+        return False, "commit count unreadable -- refusing to restart blind"
+    if disk_n <= proc_n:
+        # Anti-oscillation. A force-push or a reset can move HEAD sideways or
+        # backwards; without this the runner could ping-pong between two builds
+        # forever, and execve is NOT bounded by systemd's StartLimitBurst.
+        return False, (
+            f"on-disk build r{disk_n} is not strictly newer than the running "
+            f"build r{proc_n}"
+        )
+
+    if last_restart is not None:
+        elapsed = now - last_restart
+        if elapsed < min_interval_sec:
+            return False, (
+                f"rate-limited: {int(elapsed)}s since the last self-restart, "
+                f"minimum is {min_interval_sec}s"
+            )
+
+    if changed_paths is None:
+        return True, (
+            f"cannot diff the running build onto HEAD (r{proc_n} unreachable?); "
+            f"on-disk r{disk_n} is newer -- restarting conservatively"
+        )
+
+    overlap = sorted(set(changed_paths) & loaded_paths)
+    if not overlap:
+        # The common case by volume: new experiments/ drivers. Those execute as
+        # SUBPROCESSES from the current disk on every run, so they are never
+        # stale and must never cost a restart.
+        return False, (
+            f"r{proc_n}..r{disk_n} changed {len(changed_paths)} file(s), none "
+            f"of them loaded by this process"
+        )
+
+    shown = ", ".join(overlap[:4])
+    if len(overlap) > 4:
+        shown += f", +{len(overlap) - 4} more"
+    return True, f"loaded module(s) changed in r{proc_n}..r{disk_n}: {shown}"
+
+
+def _preflight_pytest_argv(preflight_dir: Path) -> list[str]:
+    """Argv for the startup preflight suite.
+
+    Shared by main()'s startup gate and the pre-exec gate ON PURPOSE: the
+    pre-exec check is only meaningful if it runs the SAME suite the new process
+    will run at startup, and a drifted copy would let the runner exec into a
+    build that then sys.exit()s."""
+    return [sys.executable, "-m", "pytest", "-q", "--tb=line", str(preflight_dir)]
+
+
+def _new_build_is_loadable(skip_preflight: bool) -> tuple[bool, str]:
+    """Check the ON-DISK build before committing to it with execve.
+
+    Two layers, cheapest first:
+      1. compile() the new experiment_runner.py -- catches a truncated or
+         half-written checkout. Syntax only; it does NOT prove the imports
+         resolve, which is what layer 2 is for.
+      2. Run the startup preflight suite as a subprocess (so it loads the new
+         code, not ours). main() does sys.exit(rc) when this fails at startup,
+         and on the Mac -- launched by hand, no systemd Restart= -- that exit
+         is a permanently dead runner. Checking here converts that into a
+         skipped restart.
+
+    Honoured skip: when the runner itself runs with --skip-preflight (or
+    REE_SKIP_PREFLIGHT=1) the new process will not run the suite either, so
+    running it here would gate on something the child does not gate on."""
+    runner_src = REPO_ROOT / "experiment_runner.py"
+    try:
+        compile(runner_src.read_text(encoding="utf-8"), str(runner_src), "exec")
+    except Exception as exc:
+        return False, f"on-disk experiment_runner.py does not compile: {exc!r}"
+
+    if skip_preflight or os.environ.get("REE_SKIP_PREFLIGHT") == "1":
+        return True, "compiles (preflight skipped, matching this runner's flags)"
+
+    preflight_dir = REPO_ROOT / "tests" / "preflight"
+    if not preflight_dir.exists():
+        return True, "compiles (no tests/preflight to run)"
+    try:
+        rc = subprocess.call(_preflight_pytest_argv(preflight_dir),
+                             cwd=str(REPO_ROOT))
+    except Exception as exc:
+        return False, f"could not run the preflight suite on the new build: {exc!r}"
+    if rc != 0:
+        return False, (
+            f"the on-disk build FAILS the startup preflight (exit {rc}); it "
+            f"would sys.exit() on launch -- staying on the running build"
+        )
+    return True, "compiles and passes the startup preflight"
+
+
+def _self_restart_now(reason: str, now: float) -> None:
+    """execve onto the on-disk build. Does not return on success.
+
+    argv is rebuilt from the RESOLVED runner path plus this process's own
+    arguments, so --machine / --auto-sync / --loop / --remote-control and every
+    other flag survive verbatim. sys.argv[0] is deliberately not reused: it can
+    be relative, and resolving it later would depend on the CWD.
+
+    Restart bookkeeping rides in the environment because execve destroys all
+    in-memory state -- an in-process timestamp would reset the rate limit on
+    every restart, which is precisely the loop the limit exists to prevent."""
+    runner_src = REPO_ROOT / "experiment_runner.py"
+    argv = [sys.executable, str(runner_src), *sys.argv[1:]]
+    env = dict(os.environ)
+    prev_count = 0
+    try:
+        prev_count = int(os.environ.get(_REEXEC_COUNT_ENV, "0"))
+    except ValueError:
+        pass
+    env[_REEXEC_LAST_ENV] = str(int(now))
+    env[_REEXEC_COUNT_ENV] = str(prev_count + 1)
+
+    print(f"[runner] Mid-session code refresh: {reason}", flush=True)
+    print(f"[runner] Self-restarting (generation {prev_count + 1}) onto "
+          f"{_git_code_version('HEAD')} -- exec: {' '.join(argv)}", flush=True)
+    # execve replaces the image immediately: no atexit, no finally, no thread
+    # shutdown. Nothing here needs one -- the per-experiment heartbeat and
+    # background-sync threads are stopped when a run ends, runner.pid holds the
+    # PID execve preserves, and the pass's results were pushed before the wait.
+    # The one casualty is the "post-result-align" delayed REE_assembly pull,
+    # which is a soft realignment the new process's own loop repeats.
+    try:
+        sys.stdout.flush()
+        sys.stderr.flush()
+    except Exception:
+        pass
+    try:
+        os.execve(argv[0], argv, env)
+    except Exception as exc:
+        # execve only returns by failing. Carry on with the old build: stale
+        # code is strictly better than a dead runner.
+        print(f"[runner] Self-restart FAILED ({exc!r}) -- continuing on the "
+              f"running build.", flush=True)
+
+
+def _maybe_self_restart(args, busy_reason: str | None) -> None:
+    """Restart onto newer on-disk code when it is safe to do so. Never raises.
+
+    Call ONLY from between passes, after the ree-v3 pull. Long-lived fleet mode
+    only (--loop --auto-sync): a --once runner exits on its own, and without
+    --auto-sync nothing is advancing the disk in the first place."""
+    def _note_once(message: str) -> None:
+        """Print a refusal ONCE per distinct reason.
+
+        The builds diverge for most of a worker's life (new experiments/
+        drivers land constantly) and a paused runner stays paused, so an
+        unconditional line here would be ~1440 journal lines per worker per day
+        -- and a message everyone scrolls past is worth no more than silence.
+        Printing on CHANGE keeps one legible line per situation, which is the
+        observability the ten-day staleness lacked."""
+        global _LAST_SELF_RESTART_NOTE
+        if message != _LAST_SELF_RESTART_NOTE:
+            _LAST_SELF_RESTART_NOTE = message
+            print(f"[runner] {message}", flush=True)
+
+    try:
+        if not (args.loop and args.auto_sync) or args.dry_run:
+            return
+        if busy_reason is not None:
+            _note_once(f"Self-restart check skipped: {busy_reason}")
+            return
+
+        disk_version = _git_code_version("HEAD")
+        proc_sha = _version_sha(_RUNNER_PROCESS_VERSION)
+        changed = _changed_paths_since(proc_sha) if proc_sha else None
+        should, reason = _should_self_restart(
+            disk_version=disk_version,
+            process_version=_RUNNER_PROCESS_VERSION,
+            changed_paths=changed,
+            loaded_paths=_loaded_repo_modules(),
+            now=time.time(),
+            last_restart=_env_epoch(_REEXEC_LAST_ENV),
+            min_interval_sec=_reexec_min_interval_sec(),
+            disabled=os.environ.get(_REEXEC_DISABLE_ENV) == "1",
+        )
+        if not should:
+            # Only interesting once the builds actually diverge; identical
+            # builds are the steady state and need no commentary at all.
+            if disk_version and disk_version != _RUNNER_PROCESS_VERSION:
+                _note_once(f"Not self-restarting: {reason}")
+            return
+
+        ok, detail = _new_build_is_loadable(bool(args.skip_preflight))
+        if not ok:
+            print(f"[runner] Self-restart ABORTED: {detail}", flush=True)
+            return
+        _self_restart_now(f"{reason} [new build {detail}]", time.time())
+    except Exception as exc:
+        print(f"[runner] Self-restart check warn: {exc!r}", flush=True)
+
+
+# ---------------------------------------------------------------------------
 # Guard B (Version-Layering Doctrine): V3-parity preflight smoke before claiming.
 #
 # The startup regression-suite preflight (tests/preflight, incl.
@@ -3758,6 +4172,14 @@ def main():
     _capture_process_version()
     if _RUNNER_VERSION:
         print(f"[runner] Runner version: {_RUNNER_VERSION}", flush=True)
+    # Make a mid-session self-restart legible in the journal. Without this the
+    # only trace of one is a second "Runner version:" line, which is exactly how
+    # the ten-day hub staleness stayed invisible: the ABSENCE of that line was
+    # the signal, and nobody was looking for an absence.
+    if os.environ.get(_REEXEC_COUNT_ENV):
+        print(f"[runner] Self-restart generation "
+              f"{os.environ.get(_REEXEC_COUNT_ENV)} (this process was re-exec'd "
+              f"onto newer code by its predecessor).", flush=True)
 
     # Pull ree-v3 before preflight so a stale local queue doesn't block startup.
     # (The full auto-sync pull of REE_assembly happens after preflight as before.)
@@ -3770,7 +4192,7 @@ def main():
         if preflight_dir.exists():
             print(f"[runner] Preflight: running {preflight_dir}", flush=True)
             rc = subprocess.call(
-                [sys.executable, "-m", "pytest", "-q", "--tb=line", str(preflight_dir)],
+                _preflight_pytest_argv(preflight_dir),
                 cwd=str(REPO_ROOT),
             )
             if rc != 0:
@@ -4785,6 +5207,25 @@ def main():
             # actually changed) BEFORE the next pass tries to claim.
             if not args.skip_preflight:
                 _run_v3_parity_gate()
+            # Mid-session code refresh -- the ONLY self-restart call site, and
+            # it is here for four reasons that all have to hold at once:
+            #   * the pull immediately above is what can make the process stale;
+            #   * no claim is held and no experiment subprocess is alive (this
+            #     is between passes, and _current_claim was cleared when the
+            #     last run finished) -- so a restart cannot orphan a claim or
+            #     fake a completion;
+            #   * this pass's results were already pushed before the wait; and
+            #   * the V3-parity gate has just vetted the freshly-pulled tree.
+            # _maybe_self_restart re-derives the idle precondition rather than
+            # trusting this position, and does not return when it restarts.
+            _maybe_self_restart(args, _self_restart_busy_reason(
+                current_claim=_current_claim,
+                current_proc=_current_proc,
+                drain_flag=_drain_flag,
+                pause_flag=_pause_flag,
+                force_stop_flag=_force_stop_flag,
+                suspend_flag=_suspend_flag,
+            ))
 
         # Re-merge peer status after pull so monolithic file stays current and
         # completed_ids absorbs anything another machine finished since last pass.
