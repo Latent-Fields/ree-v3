@@ -28,6 +28,23 @@
       "episodes_per_run": 120,
       "experiment_type": "v3_exq_841_mech163_q085_grain_dose_response",
       "seeds": 8
+    },
+    {
+      "queue_id": "V3-EXQ-842",
+      "title": "MECH-217 offline wanting-spread substrate readiness (EVB-0349)",
+      "script": "experiments/v3_exq_842_mech217_offline_wanting_spread_readiness.py",
+      "priority": 30,
+      "machine_affinity": "any",
+      "estimated_minutes": 3,
+      "claim_id": "MECH-217",
+      "backlog_id": "EVB-0349",
+      "note": "Substrate readiness diagnostic for MECH-217 (EXP-0301 / EVB-0349), immediately following the 2026-07-30 implementation landing (HippocampalConfig.use_offline_wanting_spread, offline_wanting_spread_gamma/gain; HippocampalModule.spread_reverse_replay_wanting() called from REEAgent.run_rem_attribution_pass() on the SD-017 REM pass). 2-arm (ARM_OFF/ARM_ON) x 3-seed ablation, scripted greedy-toward-resource walk (privileged, isolates the spread mechanism from the agent's own navigation policy), terminus wanting seeded directly (isolates from MECH-203, unused here). Measures near-vs-far-vs-off-path-control VALENCE_WANTING after N_CYCLES wake-sleep cycles. GOV-REUSE-1: brand-new substrate just landed; no existing manifest could carry this readout -> not recoverable, run. Not braked (zero prior autopsies on MECH-217). Not the full behavioural navigation-lift claim (a follow-up EXQ once this PASSes). Smoke: --dry-run PASS (1 seed, 2 cycles); full 6-cell run (3 seeds x 2 arms) also verified PASS locally before queuing (manifest not kept -- queued run is the recorded evidence). validate_experiments.py --strict OK (0 warnings).",
+      "status": "pending",
+      "conditions": 2,
+      "episodes_per_run": 6,
+      "experiment_purpose": "diagnostic",
+      "experiment_type": "v3_exq_842_mech217_offline_wanting_spread_readiness",
+      "seeds": 3
     }
   ]
 }
