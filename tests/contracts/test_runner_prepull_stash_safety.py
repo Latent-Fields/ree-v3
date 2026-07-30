@@ -62,6 +62,29 @@ Contracts:
   C10. The restore DRAINS all prepull entries (the reaper for entries already
       stranded on the fleet), still without ever dropping one, and a path
       that keeps being re-stashed without landing is escalated.
+
+Background -- 2026-07-30 collision backlog (C11 below):
+  First production observation of the reaper, 07:11Z on ree-cloud-4: it
+  iterated all SIX stranded entries in a single pull, exactly as C10
+  promises, and drained ZERO. Every pop failed with
+  "<path> already exists, no checkout" and each was correctly KEPT. But a
+  KEPT entry was kept FOREVER: once a manifest has landed by any other route
+  its file exists, so the pop collides on every future restart of every
+  future runner build and the count can never fall.
+
+  All six were then shown to hold nothing unique -- five byte-equivalent
+  modulo serialization, and one (v3_exq_836c) holding the runner's raw
+  self-routed evidence_direction "mixed" where the LANDED copy carries the
+  governance-reviewed "non_contributory" plus a reviewer note. That last one
+  is why the predicate is CONTAINMENT (stash subset of landed) rather than
+  equality: under equality every governance-reviewed run's entry would be
+  unretirable forever, which is the same permanent backlog with extra steps.
+
+Contracts:
+  C11. A collided entry is RETIRED (archive-tag, then drop) when every path
+      it holds is already carried by what landed, and KEPT -- named, not just
+      counted -- when any path holds content the landed copy lacks. The
+      archived content stays recoverable through the tag after the drop.
 """
 
 from __future__ import annotations
@@ -778,3 +801,217 @@ def test_c10b_predicate_is_not_vacuous():
     # (line 5) and the one used directly in an expression (line 6).
     assert scan(offending) == [5, 6], (
         "predicate failed to catch the replayed 2026-07-30 violations")
+
+
+# --- C11: the collision drain ----------------------------------------------
+#
+# C2/C10 made a collided entry KEPT rather than dropped, which stopped the
+# evidence loss but created a permanent backlog: once a manifest has landed by
+# any other route its file exists, so `git stash pop` collides on every future
+# restart of every future runner build and the count never falls. Confirmed in
+# production 2026-07-30T07:11Z on ree-cloud-4 -- the reaper iterated all six
+# entries in one pull, exactly as designed, and drained ZERO.
+#
+# The predicate is CONTAINMENT (stash subset of landed), never equality: the
+# one ree-cloud-4 entry that differed did so because governance had reviewed
+# the landed copy, so an equality test would keep every reviewed run's entry
+# forever -- reproducing the very backlog being fixed.
+
+def _stash_one(clone: Path, rel: str, payload: dict) -> None:
+    p = clone / rel
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(payload) + "\n")
+    _git(clone, "stash", "push", "--include-untracked", "-m",
+         experiment_runner._PREPULL_STASH_MESSAGE, "--", rel)
+
+
+def _relay(clone: Path, rel: str, payload: dict) -> None:
+    """Recreate the path on disk so the pop collides with it."""
+    p = clone / rel
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(payload) + "\n")
+
+
+def _n_prepull(clone: Path) -> int:
+    return _git(clone, "stash", "list").stdout.count(
+        experiment_runner._PREPULL_STASH_MESSAGE)
+
+
+def test_c11_collision_with_identical_content_is_retired(origin_and_clone,
+                                                         capsys):
+    """Byte-identical landed copy -- the entry carries nothing unique."""
+    _, clone = origin_and_clone
+    rel = "evidence/experiments/v3_exq_920_same_20260730T000000Z_v3.json"
+    payload = {"run_id": "v3_exq_920_same", "outcome": "PASS"}
+    _stash_one(clone, rel, payload)
+    _relay(clone, rel, payload)
+
+    experiment_runner._postpull_restore_prepull_stash(clone, "REE_assembly")
+    out = capsys.readouterr().out
+
+    assert _n_prepull(clone) == 0, f"redundant entry was not retired: {out}"
+    assert "retired redundant prepull stash" in out
+    assert (clone / rel).exists(), "the landed copy must be left in place"
+
+
+def test_c11_collision_with_contained_content_is_retired(origin_and_clone,
+                                                         capsys):
+    """The governance-reviewed shape: landed copy is a strict SUPERSET.
+
+    This is the ree-cloud-4 stash@{1} case -- the runner wrote
+    evidence_direction "mixed", the reviewed copy on origin carries
+    "non_contributory" plus a reviewer note. Contained, so retirable.
+    """
+    _, clone = origin_and_clone
+    rel = "evidence/experiments/v3_exq_921_reviewed_20260730T000000Z_v3.json"
+    _stash_one(clone, rel, {"run_id": "v3_exq_921", "outcome": "FAIL"})
+    _relay(clone, rel, {
+        "run_id": "v3_exq_921",
+        "outcome": "FAIL",
+        "queue_id": "V3-EXQ-921",
+        "epistemic_category": "measurement_test_design_defect",
+        "evidence_direction_note": "reviewed",
+    })
+
+    experiment_runner._postpull_restore_prepull_stash(clone, "REE_assembly")
+    out = capsys.readouterr().out
+
+    assert _n_prepull(clone) == 0, (
+        f"a contained entry must retire, not linger forever: {out}"
+    )
+    assert "retired redundant prepull stash" in out
+
+
+def test_c11_collision_with_divergent_content_is_kept(origin_and_clone,
+                                                      capsys):
+    """A CHANGED value means the stash holds something the landed copy lacks.
+
+    This is the real-evidence-loss case and must never be auto-retired.
+    """
+    _, clone = origin_and_clone
+    rel = "evidence/experiments/v3_exq_922_diverge_20260730T000000Z_v3.json"
+    _stash_one(clone, rel, {"run_id": "v3_exq_922", "elapsed_seconds": 147000})
+    _relay(clone, rel, {"run_id": "v3_exq_922", "elapsed_seconds": 1})
+
+    experiment_runner._postpull_restore_prepull_stash(clone, "REE_assembly")
+    out = capsys.readouterr().out
+
+    assert _n_prepull(clone) == 1, (
+        f"a divergent entry must be KEPT -- it may hold unique evidence: {out}"
+    )
+    assert "is NOT redundant" in out
+    assert rel in out, "the unproven path must be named, not just counted"
+
+
+def test_c11_extra_key_in_stash_is_divergent_and_kept(origin_and_clone,
+                                                      capsys):
+    """Containment is DIRECTIONAL: a key only the stash has is unique data."""
+    _, clone = origin_and_clone
+    rel = "evidence/experiments/v3_exq_923_extra_20260730T000000Z_v3.json"
+    _stash_one(clone, rel, {"run_id": "v3_exq_923", "episode_log": [1, 2, 3]})
+    _relay(clone, rel, {"run_id": "v3_exq_923"})
+
+    experiment_runner._postpull_restore_prepull_stash(clone, "REE_assembly")
+    out = capsys.readouterr().out
+
+    assert _n_prepull(clone) == 1, (
+        f"a stash-only key is unique evidence and must be KEPT: {out}"
+    )
+
+
+def test_c11_no_collision_still_restores(origin_and_clone, capsys):
+    """The proven path must be untouched: no collision -> ordinary restore."""
+    _, clone = origin_and_clone
+    rel = "evidence/experiments/v3_exq_924_free_20260730T000000Z_v3.json"
+    _stash_one(clone, rel, {"run_id": "v3_exq_924"})
+
+    experiment_runner._postpull_restore_prepull_stash(clone, "REE_assembly")
+    out = capsys.readouterr().out
+
+    assert _n_prepull(clone) == 0
+    assert (clone / rel).exists(), f"the entry must be restored to disk: {out}"
+    assert "retired redundant" not in out, (
+        "an ordinary restore must not be reported as a retirement"
+    )
+
+
+def test_c11_retired_content_survives_through_the_archive_tag(
+        origin_and_clone, capsys):
+    """The safety property that makes the drop legitimate.
+
+    A plain drop leaves the commit reachable only until gc prunes it. The tag
+    is what preserves it, so the content must still be readable afterwards.
+    """
+    _, clone = origin_and_clone
+    rel = "evidence/experiments/v3_exq_925_tagged_20260730T000000Z_v3.json"
+    _stash_one(clone, rel, {"run_id": "v3_exq_925", "outcome": "PASS"})
+    _relay(clone, rel, {"run_id": "v3_exq_925", "outcome": "PASS",
+                        "queue_id": "V3-EXQ-925"})
+
+    experiment_runner._postpull_restore_prepull_stash(clone, "REE_assembly")
+    capsys.readouterr()
+
+    tags = [t for t in _git(clone, "tag", "-l", "stash-archive/*"
+                            ).stdout.split() if t]
+    assert len(tags) == 1, f"expected exactly one archive tag, got {tags}"
+    assert tags[0].startswith("stash-archive/"), tags[0]
+
+    shown = _git(clone, "show", f"{tags[0]}^3:{rel}").stdout
+    assert json.loads(shown)["run_id"] == "v3_exq_925", (
+        "the archived content must still be recoverable after the drop"
+    )
+
+
+def test_c11_multi_path_entry_needs_every_path_contained(origin_and_clone,
+                                                         capsys):
+    """One proven path must not carry an unproven sibling out of the stash.
+
+    git's collision message names only the FIRST colliding path, which is why
+    the predicate enumerates the stash's own tree instead of parsing it.
+    """
+    _, clone = origin_and_clone
+    ok = "evidence/experiments/v3_exq_926_ok_20260730T000000Z_v3.json"
+    bad = "evidence/experiments/v3_exq_926_bad_20260730T000000Z_v3.json"
+    for r, payload in ((ok, {"run_id": "ok"}), (bad, {"run_id": "bad"})):
+        p = clone / r
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(payload) + "\n")
+    _git(clone, "stash", "push", "--include-untracked", "-m",
+         experiment_runner._PREPULL_STASH_MESSAGE, "--", ok, bad)
+
+    _relay(clone, ok, {"run_id": "ok", "queue_id": "Q"})   # contained
+    _relay(clone, bad, {"run_id": "SOMETHING ELSE"})       # divergent
+
+    experiment_runner._postpull_restore_prepull_stash(clone, "REE_assembly")
+    out = capsys.readouterr().out
+
+    assert _n_prepull(clone) == 1, (
+        f"one unproven path must veto retirement of the whole entry: {out}"
+    )
+    assert bad in out
+
+
+def test_c11_containment_predicate_is_directional_and_not_vacuous():
+    """Unit-level pins on _json_content_contained itself."""
+    j = lambda d: (json.dumps(d)).encode()   # noqa: E731
+    contained = experiment_runner._json_content_contained
+
+    assert contained(b"same", b"same")
+    assert contained(j({"a": 1}), j({"a": 1, "b": 2}))
+    assert not contained(j({"a": 1, "b": 2}), j({"a": 1}))
+    assert not contained(j({"a": 1}), j({"a": 2}))
+    assert not contained(b"not json", b"also not json")
+    assert not contained(j({"a": 1}), b"{ broken")
+    assert not contained(j([1, 2]), j([1, 2, 3]))    # lists are not objects
+
+
+def test_c11_non_collision_failure_is_never_retired(origin_and_clone):
+    """Only the collision shape is eligible; other failures keep the entry."""
+    ok = subprocess.CompletedProcess(
+        args=[], returncode=1, stdout="", stderr="CONFLICT (content): merge")
+    collide = subprocess.CompletedProcess(
+        args=[], returncode=1,
+        stdout="evidence/x.json already exists, no checkout", stderr="")
+
+    assert not experiment_runner._pop_failed_on_collision(ok)
+    assert experiment_runner._pop_failed_on_collision(collide)

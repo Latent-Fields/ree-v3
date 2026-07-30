@@ -745,23 +745,58 @@ def _upstream_ref(repo_path: Path) -> str:
     return ref if r.returncode == 0 and ref else "origin/master"
 
 
+def _json_content_contained(inner: bytes, outer: bytes) -> bool:
+    """True only when `outer` PROVABLY already carries everything in `inner`.
+
+    Two ways to prove it, in order of strength:
+      1. Byte-identical.
+      2. Both sides parse as JSON objects and `outer` is a SUPERSET -- every
+         key present in `inner` is present in `outer` with an equal value.
+         This is the normal shape for a run manifest that the hub writer has
+         already committed: the landed copy adds `machine`,
+         `evidence_direction*`, `queue_id` etc. on top of what the worker
+         wrote.
+
+    Anything else -- unreadable, non-JSON and not byte-identical, or any key
+    whose value differs -- is NOT contained.
+
+    CONTAINMENT, NOT EQUALITY, is the right predicate, and the difference is
+    load-bearing rather than a convenience. A run whose landed manifest has
+    been through governance review carries a reviewer note, an
+    `epistemic_category`, and often a CHANGED `evidence_direction` (observed
+    2026-07-30 on ree-cloud-4: the worker self-routed "mixed", the reviewed
+    copy on origin says "non_contributory"). Under an equality test every
+    reviewed run's entry would be unretirable forever -- which is exactly the
+    permanent-backlog defect this predicate exists to end. Under containment
+    the reviewed copy is a strict superset and the entry retires cleanly,
+    while a stash holding a key or value the landed copy LACKS still fails,
+    which is the case that must never be auto-retired.
+    """
+    if inner == outer:
+        return True
+    try:
+        inner_obj = json.loads(inner.decode("utf-8"))
+        outer_obj = json.loads(outer.decode("utf-8"))
+    except Exception:
+        return False
+    if not isinstance(inner_obj, dict) or not isinstance(outer_obj, dict):
+        return False
+    for k, v in inner_obj.items():
+        if k not in outer_obj or outer_obj[k] != v:
+            return False
+    return True
+
+
 def _untracked_path_is_redundant(
     repo_path: Path, rel: str, upstream: str,
 ) -> bool:
     """True only when `upstream` PROVABLY already carries this file's content.
 
-    Two ways to prove it, in order of strength:
-      1. Byte-identical to the upstream blob.
-      2. Both sides parse as JSON objects and upstream is a SUPERSET -- every
-         key present locally is present upstream with an equal value. This is
-         the normal shape for a run manifest that the hub writer has already
-         committed: origin's copy adds `machine`, `evidence_direction*`,
-         `queue_id` etc. on top of what the worker wrote.
-
-    Anything else -- path absent upstream, unreadable, non-JSON and not
-    byte-identical, or any key whose value differs -- is NOT redundant. The
-    caller must leave those in place, even though that means the pull stays
-    wedged: a wedge is visible and repairable, silent evidence loss is not.
+    Thin wrapper over _json_content_contained: read the worktree file, read
+    the upstream blob, ask whether upstream contains it. Anything unprovable
+    -- path absent upstream, unreadable -- is NOT redundant. The caller must
+    leave those in place, even though that means the pull stays wedged: a
+    wedge is visible and repairable, silent evidence loss is not.
     """
     show = _git_run(
         ["git", "show", f"{upstream}:{rel}"],
@@ -773,19 +808,7 @@ def _untracked_path_is_redundant(
         local_bytes = (repo_path / rel).read_bytes()
     except Exception:
         return False
-    if local_bytes == show.stdout:
-        return True
-    try:
-        local_obj = json.loads(local_bytes.decode("utf-8"))
-        origin_obj = json.loads(show.stdout.decode("utf-8"))
-    except Exception:
-        return False
-    if not isinstance(local_obj, dict) or not isinstance(origin_obj, dict):
-        return False
-    for k, v in local_obj.items():
-        if k not in origin_obj or origin_obj[k] != v:
-            return False
-    return True
+    return _json_content_contained(local_bytes, show.stdout)
 
 
 def _clear_redundant_blocking_untracked(
@@ -836,6 +859,163 @@ def _clear_redundant_blocking_untracked(
     return bool(removed)
 
 
+def _pop_failed_on_collision(pop: subprocess.CompletedProcess) -> bool:
+    """True when a pop failed because a stashed path ALREADY EXISTS on disk.
+
+    git refuses to overwrite an existing untracked file and says, per path:
+        <path> already exists, no checkout
+        error: could not restore untracked files from stash
+        The stash entry is kept in case you need it again.
+
+    Which stream carries which line varies by git version, so scan both. Only
+    this failure shape is eligible for retirement -- any other pop failure
+    (a genuine conflict, a corrupt entry) keeps the entry untouched.
+    """
+    blob = f"{pop.stdout or ''}\n{pop.stderr or ''}".lower()
+    return ("already exists, no checkout" in blob
+            or "could not restore untracked files from stash" in blob)
+
+
+def _stash_untracked_paths(repo_path: Path, ref: str) -> list[str]:
+    """Repo-relative paths held in a `-u` stash's untracked commit.
+
+    A stash made with --include-untracked stores the untracked files in a
+    THIRD parent commit, `<ref>^3` -- they are absent from `git stash show`,
+    which reports only the tracked diff. Since the prepull stash holds nothing
+    BUT untracked files, `git stash show` on one is empty and `^3` is the only
+    place its content is reachable.
+    """
+    r = _git_run(
+        ["git", "ls-tree", "-r", "--name-only", f"{ref}^3"],
+        cwd=str(repo_path), capture_output=True, text=True, timeout=15,
+    )
+    if r.returncode != 0:
+        return []
+    return [ln.strip().strip('"') for ln in r.stdout.splitlines() if ln.strip()]
+
+
+def _stash_entry_is_redundant(
+    repo_path: Path, ref: str, upstream: str,
+) -> tuple[bool, list[str]]:
+    """Is EVERY path in this stash already carried by what landed?
+
+    Returns (redundant, unproven_paths). "What landed" is checked in two
+    places, either of which suffices: the working-tree file (which is what
+    collided in the first place) and the upstream blob.
+
+    Deliberately enumerates `<ref>^3` rather than parsing the paths out of
+    git's collision message. The message names only the FIRST colliding path,
+    so a multi-path entry could be retired on the strength of one proven path
+    while another went unchecked. Requiring every path to be proven is what
+    makes the retirement safe.
+
+    Fails CLOSED everywhere: an entry whose paths cannot be enumerated, whose
+    blob cannot be read, or any of whose paths is unproven, is NOT redundant.
+    """
+    paths = _stash_untracked_paths(repo_path, ref)
+    if not paths:
+        return False, []
+    unproven: list[str] = []
+    for rel in paths:
+        blob = _git_run(
+            ["git", "show", f"{ref}^3:{rel}"],
+            cwd=str(repo_path), capture_output=True, timeout=15,
+        )
+        if blob.returncode != 0:
+            unproven.append(rel)
+            continue
+        stashed = blob.stdout
+        landed: bytes | None = None
+        try:
+            wt = repo_path / rel
+            if wt.is_file():
+                landed = wt.read_bytes()
+        except Exception:
+            landed = None
+        if landed is not None and _json_content_contained(stashed, landed):
+            continue
+        up = _git_run(
+            ["git", "show", f"{upstream}:{rel}"],
+            cwd=str(repo_path), capture_output=True, timeout=15,
+        )
+        if up.returncode == 0 and _json_content_contained(stashed, up.stdout):
+            continue
+        unproven.append(rel)
+    return (not unproven), unproven
+
+
+def _archive_and_drop_stash(repo_path: Path, ref: str) -> str | None:
+    """Tag a stash commit local-only, then drop it. Returns the tag, or None.
+
+    TAG FIRST, then drop. A plain `git stash drop` leaves the commit reachable
+    only until `git gc` prunes it, so the tag is what actually preserves the
+    content -- `git show <tag>^3:<path>` still returns it afterwards. Tags are
+    never pushed, by design (see
+    REE_assembly/evidence/planning/ree_v3_orphaned_autostash_triage.md).
+
+    If the tag cannot be created the entry is NOT dropped: an untagged drop is
+    the one action that could actually lose the content.
+    """
+    sha_r = _git_run(
+        ["git", "rev-parse", ref],
+        cwd=str(repo_path), capture_output=True, text=True, timeout=10,
+    )
+    sha = (sha_r.stdout or "").strip()
+    if sha_r.returncode != 0 or not sha:
+        return None
+    tag = f"stash-archive/{datetime.now(timezone.utc).strftime('%Y%m%d')}-{sha[:8]}"
+    t = _git_run(
+        ["git", "tag", tag, sha],
+        cwd=str(repo_path), capture_output=True, text=True, timeout=10,
+    )
+    if t.returncode != 0:
+        # Already tagged (same content re-seen) is fine; anything else is not.
+        chk = _git_run(
+            ["git", "rev-parse", f"{tag}^{{commit}}"],
+            cwd=str(repo_path), capture_output=True, text=True, timeout=10,
+        )
+        if chk.returncode != 0 or (chk.stdout or "").strip() != sha:
+            return None
+    d = _git_run(
+        ["git", "stash", "drop", ref],
+        cwd=str(repo_path), capture_output=True, text=True, timeout=15,
+    )
+    if d.returncode != 0:
+        return None
+    return tag
+
+
+def _retire_redundant_prepull_stash(
+    repo_path: Path, label: str, ref: str, upstream: str,
+    pop: subprocess.CompletedProcess,
+) -> bool:
+    """Retire a collided prepull entry iff its content already landed.
+
+    Returns True only when the entry was archived AND dropped. Every other
+    outcome returns False, which the caller treats as "keep".
+    """
+    if not _pop_failed_on_collision(pop):
+        return False
+    redundant, unproven = _stash_entry_is_redundant(repo_path, ref, upstream)
+    if not redundant:
+        if unproven:
+            print(f"[runner] git pull {label}: prepull stash {ref} collided "
+                  f"and is NOT redundant -- {len(unproven)} path(s) hold "
+                  f"content the landed copy lacks: "
+                  f"{', '.join(unproven[:5])}"
+                  f"{' ...' if len(unproven) > 5 else ''}", flush=True)
+        return False
+    tag = _archive_and_drop_stash(repo_path, ref)
+    if tag is None:
+        print(f"[runner] git pull {label}: prepull stash {ref} is redundant "
+              f"but could NOT be archived -- KEPT, not dropped", flush=True)
+        return False
+    print(f"[runner] git pull {label}: retired redundant prepull stash {ref} "
+          f"-- every path already carried by what landed; archived as {tag} "
+          f"(recover with: git stash apply {tag})", flush=True)
+    return True
+
+
 def _postpull_restore_prepull_stash(repo_path: Path, label: str) -> None:
     """Pop EVERY prepull stash back into the tree. NEVER drops one on failure.
 
@@ -859,11 +1039,24 @@ def _postpull_restore_prepull_stash(repo_path: Path, label: str) -> None:
 
     Nothing here can destroy evidence: `git stash pop` refuses to overwrite an
     existing file, so a collision fails the pop and the entry is KEPT.
+
+    A KEPT entry used to be kept FOREVER, which was the residual defect. Once
+    a manifest has landed by any other route its file exists, so the pop
+    collides on every future restart of every future runner build and the
+    count never falls. First observed in production 2026-07-30T07:11Z on
+    ree-cloud-4: the reaper iterated all six entries in one pull exactly as
+    designed and drained ZERO of them, every pop failing with
+    "already exists, no checkout". So a collided entry is now checked for
+    CONTAINMENT against what landed, and retired (archive-tag, then drop) when
+    -- and only when -- it holds nothing the landed copy lacks. An entry that
+    holds anything unique is still kept, and now says so by name.
     """
     if label != "REE_assembly":
         return
     restored = 0
+    retired = 0
     failed = 0
+    upstream = _upstream_ref(repo_path)
     try:
         for _ in range(_PREPULL_DRAIN_MAX):
             # Re-resolve each time: indices shift after every successful pop.
@@ -876,6 +1069,12 @@ def _postpull_restore_prepull_stash(repo_path: Path, label: str) -> None:
                 cwd=str(repo_path), capture_output=True, text=True, timeout=30,
             )
             if pop.returncode != 0:
+                if _retire_redundant_prepull_stash(
+                        repo_path, label, ref, upstream, pop):
+                    # Retired entries are GONE, so `failed` must NOT advance:
+                    # the next lookup at the same skip finds the next entry.
+                    retired += 1
+                    continue
                 failed += 1
                 print(f"[runner] git pull {label}: WARN prepull stash {ref} "
                       f"({_PREPULL_STASH_MESSAGE}) could NOT be restored and "
@@ -890,6 +1089,9 @@ def _postpull_restore_prepull_stash(repo_path: Path, label: str) -> None:
     if restored > 1:
         print(f"[runner] git pull {label}: reaped {restored} stranded prepull "
               f"stash entry(ies) back into the working tree", flush=True)
+    if retired:
+        print(f"[runner] git pull {label}: retired {retired} redundant prepull "
+              f"stash entry(ies) whose content had already landed", flush=True)
 
 
 # --- Runner code version (readable, refreshes between passes) --------------
