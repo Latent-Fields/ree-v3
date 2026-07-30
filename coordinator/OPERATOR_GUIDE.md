@@ -533,6 +533,105 @@ coordination-data plane (see `REE_Working/CLAUDE.md`).
 
 ---
 
+## Unit config drift -- a live drop-in that never matched its template
+
+**The gap.** `deploy/shadow.conf.hub.example` and `shadow.conf.worker.example`
+are the documented source of truth for each machine's
+`/etc/systemd/system/ree-runner.service.d/` drop-in. They are tracked, reviewed,
+and argued about in commit messages -- and until 2026-07-30 **nothing compared
+them to any live machine**. They described intent; reality was never checked
+against them, so every divergence was found by a human noticing an outage.
+
+Two confirmed instances, both found by accident:
+
+1. **`Restart=always` missing on the hub for ~2 months.** cloud-2 and cloud-3
+   carried it since 2026-05-30; the hub never got it. The main unit's
+   `Restart=on-failure` does not respawn on a *clean* exit, so when the hub
+   runner drained cleanly (exit 0) at 2026-07-30T06:07:04Z it stayed dead for
+   hours. Worse: `ExecStartPre=runner-prestart-pull.sh` only pulls at **start**,
+   so a runner that never restarts never reloads code -- the hub had been
+   executing `r4072 35c103c` (2026-07-20) for **ten days**. Fixed 2026-07-30
+   (`3544757` + a live drop-in edit), but only because someone noticed.
+2. **`PHASE3_DISABLE_RUNNER_CLAIM_PUSH=1` in both templates and on zero
+   machines.** Verified across all four boxes 2026-07-30. Impact is ~zero today
+   (`PHASE3_DISABLE_RUNNER_QUEUE_PUSH=1` already suppresses that push via
+   `_claim_push_gated`), which is exactly why it matters: a directive sat in a
+   reviewed template, on no machine, for two months, and nothing noticed.
+
+**The check.** `deploy/systemd_dropin_drift.py` compares every `[Service]`
+directive in a machine's template against the **effective merged value** from
+`systemctl show`. Run it from the Mac (read-only, exit 0 by default):
+
+```bash
+python3 ree-v3/coordinator/deploy/systemd_dropin_drift.py
+```
+
+`--machine ree-cloud-1` to scope, `--show-ok` to see what passed, `--json` for
+machine-readable output, `--exit-nonzero` to gate (`--strict` also gates notes).
+
+**Why it reads `systemctl show` and not the drop-in files.** All three of these
+have bitten:
+- systemd merges **every** `*.conf` in the `.d` directory. The fleet has a
+  second live drop-in (`sidefiles.conf`) beside `shadow.conf`, so a
+  `shadow.conf`-only reader grades a partial config.
+- systemd **ignores** files not ending in `.conf`. Every box carries 4-5
+  `shadow.conf.bak.*` backups that a naive glob would read as live. (A backup
+  that *did* end in `.conf` would be read -- which is why `DropInPaths` is
+  printed, so a stray one is visible.)
+- A main-unit default shadowing an unapplied drop-in directive is visible
+  **only** in the merged value. That is incident 1 exactly.
+
+**Four verdicts, because "does not match" has four causes:**
+
+| Verdict | Meaning | Usual fix |
+|---|---|---|
+| `MISSING` | Template declares it; live unit does not have it | Add to the drop-in |
+| `DIFFERENT` | Both have it, values disagree | Usually the machine |
+| `EXTRA` | Live has it; template never mentions it | Usually the **template** |
+| `UNDECLARED` | Live has it; template has it only as a commented/staged line | Update the template -- a rollout finished and was never recorded |
+
+`MISSING`/`DIFFERENT` are **findings**; `EXTRA`/`UNDECLARED` are **notes** (the
+machine works, the docs lag). Decide the direction before acting: a divergence
+can mean the machine is wrong *or* the template is stale.
+
+**Each machine is graded against its OWN template.** The hub legitimately
+carries `WorkingDirectory=/home/ree/REE_Working_runner/ree-v3` and must **not**
+carry `PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE` (obsolete under the isolated
+checkout; it re-arms the command spin). Grading machines against each other
+would flag both as drift.
+
+**Detection only, and deliberately so.** It never writes to
+`/etc/systemd/system/**`, never runs `daemon-reload`, never restarts a unit --
+it prints the remediation instead. A wrong automatic edit to a live unit takes
+a fleet machine down, and repair direction is the documented failure mode in
+the analogous `audit_vendored_copies.py` work. It also never powers a machine
+on: a powered-off worker is **normal**, reported `UNREACHABLE` (an unknown,
+never a finding), and waking one is billable. `hcloud server list` remains the
+authority on power state.
+
+Secret-shaped values are redacted in all output, and any template value in
+`<angle brackets>` (e.g. `COORDINATOR_TOKEN=<paste from coordinator.env>`) is
+checked for **presence only** -- an absent token is still a finding, a
+different one never is.
+
+The queried property set is **derived from the templates**, so adding a
+directive to a template automatically extends coverage; a hardcoded list would
+silently stop covering the next `Restart=always`. Tests:
+`deploy/test_systemd_dropin_drift.py` (time- and fleet-independent; includes a
+negative control asserting a matching machine yields no finding *and* that a
+nonzero number of directives were actually graded, so the all-clear cannot be
+vacuous).
+
+**Sibling of, not part of, `daemon_code_drift.py`.** That check asks whether the
+running *process* is bound to stale bytecode; this asks whether the *unit config
+that launches it* is the one we think it is. Incident 1 was both at once, and
+the code-drift check could not have caught it -- a runner that never restarts is
+trivially "current" against whatever it started with. They also run in different
+places: `daemon_code_drift` is hub-local inside the 3-minute `ree-live-status`
+oneshot, while this one fans out over ssh to four boxes.
+
+---
+
 ## File map
 
 | Question | Read |
