@@ -24,6 +24,74 @@ Operating substrate (post GAP-3 / V3-EXQ-582a):
     -- measures the primary PAG override pathway directly. eval_tier1 now
     populates this metric automatically (broadcast_override.override_signal
     > 1e-3 step count).
+
+2026-07-30 correction (THIRD defeat-by-construction in this cohort).
+The 2026-05-29 bullet above is WRONG in both directions, and the C3 lift
+criterion it installed could not pass on the pairing it was applied to.
+Both errors are recorded here rather than deleted, because the shape of the
+mistake is the reason for the capability guard added below.
+
+  (a) The SATURATION evidence was measured on the wrong contrast.
+      483c's four arms -- OFF_OFF / ON_OFF / OFF_ON / ON_ON -- are ALL
+      gap4_operating=True; they factorialise use_pag_freeze_gate x
+      use_broadcast_override WITHIN the GAP-4 stack. So "saturates at 1.0 in
+      OFF_OFF baseline under drive_floor=0.9 + goal_stream" is a statement
+      about a gap4 arm, and 524a has no baseline arm at all (single-arm).
+      approach_commit_rate does saturate on a WITHIN-gap4 sub-feature
+      contrast; it is perfectly discriminative on the BETWEEN-path contrast
+      the default was then applied to -- 490i measured base 0.0 vs gap4 1.0
+      on 3/3 seeds. The deprecation generalised one contrast type to the
+      other.
+
+  (b) The REPLACEMENT range was also measured on the gap4 arm only.
+      "483c/524a manifests show range 0.09-0.36" describes ARM_1/ON_ON
+      values. Nobody measured goal_norm_peak on a non-gap4 arm. When 490i
+      finally did, the legacy arm sat ABOVE the gap4 arm on every seed
+      (base 0.792/12.489/0.468 vs gap4 0.226/0.092/0.296), so the
+      `gap4 > base + 0.01` predicate returned False 3/3 -- inverted, not
+      merely short of threshold.
+
+Why goal_norm_peak cannot carry a cross-arm lift criterion at all:
+  * It is a LIFETIME RUNNING MAXIMUM. GoalState.reset() zeroes it, but
+    REEAgent.reset() never calls GoalState.reset(), so the value reported by
+    eval_tier1 is the max over every warmup AND eval step of the agent's
+    life (~12k steps), not a per-episode or per-eval statistic. An
+    extreme-value statistic over 12k samples has no central tendency and is
+    dominated by a single excursion -- which is what the ARM_0 seed-7 spike
+    (12.489, ~26x its own seed-42 value) is.
+  * It is a norm in each arm's OWN FREE-SCALE latent space. z_goal is an EMA
+    toward z_world (goal.py:825-830), and nothing in the latent stack L2- or
+    layer-normalises z_world. The two arms are built by DIFFERENT REEConfig
+    constructors (goal_stream(...) vs from_dims(...)) with different encoders
+    and different auxiliary losses, so their z_world scales are not
+    commensurable. Comparing them with a fixed ADDITIVE threshold (0.01)
+    compares two unrelated units.
+  * ARM_0_legacy_collapsed is not a goal-severed control: from_dims(...) sets
+    z_goal_enabled=True. "Collapsed" names the legacy config path, not an
+    absent goal stream. The 490i autopsy already flagged this as
+    "C3_lift_vs_baseline metric-design contamination"; the metric was left
+    in place as the default.
+
+Fixes installed 2026-07-30:
+  * C3_METRICS registry -- every C3 lift metric now DECLARES its direction,
+    its ceiling, and whether it is valid across a gap4/non-gap4 boundary.
+    _c3_lift_compare reads the registry instead of hardcoding `>`.
+  * c3_lift_capability() -- a PRE-REGISTRATION CAPABILITY GUARD. Before a
+    lift result may be read as a substrate finding, it asks whether the
+    metric was able to move in the claimed direction on this pairing at all,
+    and returns invalid_cross_arm / degenerate / saturated / inverted / ok.
+  * evaluate_tier1_cohort now returns C3_lift_status + criterion_valid +
+    recommended_evidence_direction, and tier1_evidence_direction() maps a
+    defeated-by-construction criterion to "non_contributory" instead of
+    "weakens". This is the direct fix for the algorithm-generated-weakens
+    pattern the 2026-05-29 cluster autopsy had to correct by hand.
+  * DEFAULT_C3_LIFT_METRIC reverted to approach_commit_rate, which is the
+    correct default for this harness's canonical BETWEEN-path contrast. On a
+    within-gap4 contrast the guard now reports `saturated` loudly rather than
+    silently returning a wrong answer.
+  * harm_norm_sustain_ratio added -- a scale-free, decay-shaped metric for
+    SD-036 / Q-040. See its registry entry for why no goal-side metric can
+    serve those claims (the SD-036 regulator never touches z_goal).
 """
 
 from __future__ import annotations
@@ -96,14 +164,118 @@ TIER1_DACC_BIAS_MIN = 1
 TIER1_APPROACH_COMMIT_MIN = 1
 TIER1_GOAL_ACTIVE_FRAC_MIN = 0.05
 TIER1_SEEDS_PASS_MIN = 2
-# Default C3_lift_vs_baseline metric is goal_norm_peak delta -- substrate-side,
-# cross-claim-comparable. approach_commit_rate saturates at 1.0 in OFF_OFF
-# baseline under drive_floor=0.9 + goal_stream + reef (per 483c/524a autopsies),
-# so it has no headroom. Per-script callers can override c3_lift_metric to
-# "override_signal_nonzero_steps" (SD-037-specific) at the call site.
 TIER1_GOAL_NORM_PEAK_DELTA = 0.01
 TIER1_OVERRIDE_SIGNAL_DELTA = 1
-DEFAULT_C3_LIFT_METRIC = "goal_norm_peak_delta"
+TIER1_HARM_SUSTAIN_DELTA = 0.01
+# Tolerance below which two arms' metric values count as the SAME value, i.e.
+# the toggled feature did not perturb this metric at all. Deliberately loose
+# relative to float noise: 483c seed 7 produced goal_norm_peak values equal to
+# 8 decimal places across OFF/ON arms, which is a degenerate criterion, not a
+# near-miss.
+TIER1_C3_DEGENERATE_TOL = 1e-6
+
+# ---------------------------------------------------------------------------
+# C3 lift metric registry.
+#
+# Every C3_lift_vs_baseline metric DECLARES its properties so the comparison
+# and the capability guard can both be derived rather than hardcoded. Adding a
+# metric means adding an entry here; _c3_lift_compare and c3_lift_capability
+# pick it up automatically.
+#
+#   key             row field read from the per-(arm, seed) metrics dict
+#   direction       "higher" -> gap4 must EXCEED base to count as lift
+#                   "lower"  -> gap4 must FALL BELOW base to count as lift
+#                   (a decay/suppression mechanism is expected to REDUCE its
+#                   readout; hardcoding `>` silently mis-signs those claims)
+#   delta           required absolute margin beyond the baseline
+#   ceiling/floor   saturation bound of the metric, or None. A baseline
+#                   already at the bound cannot be beaten in that direction.
+#   cross_arm_valid False -> the metric is NOT comparable between a
+#                   gap4_operating=True and a gap4_operating=False arm.
+#   scale_free      informational: True when the metric is a ratio of an
+#                   arm's own quantities and so carries no latent-scale unit.
+# ---------------------------------------------------------------------------
+C3_METRICS: Dict[str, Dict[str, Any]] = {
+    "approach_commit_rate": dict(
+        key="approach_commit_rate",
+        direction="higher",
+        delta=0.0,
+        ceiling=1.0,
+        floor=0.0,
+        cross_arm_valid=True,
+        scale_free=True,
+        note=(
+            "Canonical BETWEEN-path lift: a severed/legacy arm cannot commit "
+            "approach, an operating GAP-4 arm can. 490i measured base 0.0 vs "
+            "gap4 1.0 on 3/3 seeds. SATURATES at 1.0 on a WITHIN-gap4 "
+            "sub-feature contrast (483c: all 12 rows = 1.0). Replaying 483c "
+            "through the guard reports `degenerate` rather than `saturated` -- "
+            "both hold, and the degeneracy check runs first because 'the "
+            "toggle does not move this metric' is the more specific finding. "
+            "Either way criterion_valid is False; pick a mechanism-specific "
+            "metric for a within-gap4 contrast."
+        ),
+    ),
+    "goal_norm_peak_delta": dict(
+        key="goal_norm_peak",
+        direction="higher",
+        delta=TIER1_GOAL_NORM_PEAK_DELTA,
+        ceiling=None,
+        floor=0.0,
+        cross_arm_valid=False,
+        scale_free=False,
+        note=(
+            "RETAINED FOR BACK-COMPAT ONLY -- do not select for a new "
+            "experiment. goal_norm_peak is a LIFETIME RUNNING MAXIMUM of an "
+            "UNNORMALISED latent norm (see module docstring, 2026-07-30). It "
+            "is not comparable across the gap4 boundary (different REEConfig "
+            "constructors -> different z_world scales), and an additive "
+            "threshold on an extreme-value statistic has no stable meaning "
+            "even within one arm (ARM_0 spread 0.47-12.49 across 3 seeds)."
+        ),
+    ),
+    "override_signal_nonzero_steps": dict(
+        key="override_signal_nonzero_steps",
+        direction="higher",
+        delta=TIER1_OVERRIDE_SIGNAL_DELTA,
+        ceiling=None,
+        floor=0.0,
+        cross_arm_valid=True,
+        scale_free=False,
+        note=(
+            "SD-037-specific. OFF arms have broadcast_override=None so the "
+            "signal is 0 by construction; cleanly discriminative for ON arms."
+        ),
+    ),
+    "harm_norm_sustain_ratio": dict(
+        key="harm_norm_sustain_ratio",
+        direction="lower",
+        delta=TIER1_HARM_SUSTAIN_DELTA,
+        ceiling=1.0,
+        floor=0.0,
+        cross_arm_valid=True,
+        scale_free=True,
+        note=(
+            "SD-036 / Q-040 decay-shaped readout: mean ||z_harm|| over eval "
+            "steps divided by that arm's own peak ||z_harm||. Scale-free (a "
+            "ratio of one arm's own quantities), and DECAY-shaped -- a "
+            "working GABAergic decay regulator should LOWER it, hence "
+            "direction='lower'. This is the metric a goal-side readout cannot "
+            "replace: the SD-036 regulator ticks z_harm / z_harm_a / z_beta "
+            "(regulators/gabaergic_decay.py) and NEVER touches z_goal, so no "
+            "goal_* metric is causally reachable by the toggle. The substrate "
+            "comment at agent.py:4163 names exactly this quantity as the "
+            "V3-EXQ-471 catatonic-lock signature: 'a single hazard contact "
+            "pinned z_harm_norm at ~0.7 for 199 steps'."
+        ),
+    ),
+}
+
+# Canonical contrast for this harness is BETWEEN-path (gap4_operating False vs
+# True), for which approach_commit_rate is the discriminative metric. See the
+# module docstring for why the 2026-05-29 switch away from it was made on
+# within-gap4 evidence and did not hold here.
+DEFAULT_C3_LIFT_METRIC = "approach_commit_rate"
 
 ENV_FISHTANK_KWARGS: Dict[str, Any] = dict(
     size=10,
@@ -478,10 +650,23 @@ def eval_tier1(
         "goal_active_steps": 0,
         "resource_contacts": 0,
         "action_counts": {},
+        # SD-036 / Q-040 decay readout accumulators (see harm_norm_sustain_ratio
+        # in C3_METRICS). Tracked over EVAL steps only.
+        "harm_norm_sum": 0.0,
+        "harm_norm_peak": 0.0,
+        "harm_norm_steps": 0,
     }
 
     def on_post_step(*, agent, latent, action, obs_dict, ticks, step, **kwargs) -> None:
         metrics["total_eval_steps"] += 1
+        zh = getattr(latent, "z_harm", None)
+        if zh is not None:
+            with torch.no_grad():
+                hn = float(torch.as_tensor(zh).norm().item())
+            metrics["harm_norm_sum"] += hn
+            metrics["harm_norm_steps"] += 1
+            if hn > metrics["harm_norm_peak"]:
+                metrics["harm_norm_peak"] = hn
         if _approach_commit(agent):
             metrics["approach_commit_steps"] += 1
         if _dacc_bias_norm(agent) > 1e-6:
@@ -528,6 +713,25 @@ def eval_tier1(
         metrics["goal_norm_peak"] = float(getattr(agent.goal_state, "_goal_norm_peak", 0.0))
     else:
         metrics["goal_norm_peak"] = 0.0
+    # Provenance, because the field name reads like an eval-scoped statistic and
+    # is not one: GoalState.reset() zeroes _goal_norm_peak but REEAgent.reset()
+    # never calls it, so this is a running maximum over the agent's whole life
+    # (warmup + eval, ~12k steps). Recorded rather than "fixed" so historical
+    # manifests stay comparable; see C3_METRICS["goal_norm_peak_delta"].
+    metrics["goal_norm_peak_scope"] = "agent_lifetime_running_max"
+
+    # SD-036 / Q-040: scale-free decay readout. Mean ||z_harm|| over eval steps
+    # as a fraction of this arm's OWN peak ||z_harm||. A working decay regulator
+    # lowers it (harm returns toward baseline between contacts instead of
+    # staying pinned). 0.0 when the arm has no harm stream or never fired.
+    _hpeak = float(metrics["harm_norm_peak"])
+    _hsteps = int(metrics["harm_norm_steps"])
+    if _hpeak > 1e-12 and _hsteps > 0:
+        metrics["harm_norm_mean"] = float(metrics["harm_norm_sum"]) / _hsteps
+        metrics["harm_norm_sustain_ratio"] = metrics["harm_norm_mean"] / _hpeak
+    else:
+        metrics["harm_norm_mean"] = 0.0
+        metrics["harm_norm_sustain_ratio"] = 0.0
     return metrics
 
 
@@ -540,44 +744,193 @@ def tier1_seed_pass(metrics: Dict[str, Any]) -> Dict[str, bool]:
     }
 
 
+def _c3_metric_spec(metric: str) -> Dict[str, Any]:
+    try:
+        return C3_METRICS[metric]
+    except KeyError:
+        raise ValueError(
+            "Unknown c3_lift_metric '{}'. Supported: {}.".format(
+                metric, ", ".join(sorted(C3_METRICS))
+            )
+        )
+
+
 def _c3_lift_compare(
     gap4_row: Dict[str, Any],
     base_row: Dict[str, Any],
     metric: str,
 ) -> bool:
-    """Per-seed C3 lift predicate. Caller chooses the metric per call site.
+    """Per-seed C3 lift predicate, direction-aware via the C3_METRICS registry.
 
-    Supported metrics:
-      "goal_norm_peak_delta" (default): substrate-side, cross-claim-comparable.
-          PASS when gap4.goal_norm_peak > base.goal_norm_peak + TIER1_GOAL_NORM_PEAK_DELTA.
-          Has headroom because GAP-4 operating substrate amplifies seeding
-          (range 0.09-0.36 observed on 483c/524a per the 2026-05-29 cluster
-          autopsy) while OFF_OFF lacks the bridge / amplification stack.
-      "override_signal_nonzero_steps": SD-037-specific.
-          PASS when gap4.override_signal_nonzero_steps > base.override_signal_nonzero_steps
-          + TIER1_OVERRIDE_SIGNAL_DELTA. OFF arms have broadcast_override=None
-          so signal is 0 by construction; cleanly discriminative for SD-037
-          ON arms.
-      "approach_commit_rate": LEGACY. Saturates at 1.0 in OFF_OFF baseline
-          under drive_floor=0.9 + goal_stream + reef (per 483c/524a autopsies).
-          No headroom for lift. Retained only for back-compat / debugging.
+    "Lift" means the gap4 arm moved AWAY from the baseline in the direction the
+    metric declares, by at least its declared delta. For direction="lower" (a
+    decay / suppression readout) that means gap4 < base - delta; hardcoding `>`
+    for every metric is what mis-signed SD-036. See C3_METRICS for the per-
+    metric rationale and the module docstring for the 2026-07-30 correction.
     """
-    if metric == "goal_norm_peak_delta":
-        return float(gap4_row.get("goal_norm_peak", 0.0)) > (
-            float(base_row.get("goal_norm_peak", 0.0)) + TIER1_GOAL_NORM_PEAK_DELTA
+    spec = _c3_metric_spec(metric)
+    key = spec["key"]
+    delta = float(spec["delta"])
+    g = float(gap4_row.get(key, 0.0))
+    b = float(base_row.get(key, 0.0))
+    if spec["direction"] == "lower":
+        return g < (b - delta)
+    return g > (b + delta)
+
+
+def _rows_cross_gap4_boundary(
+    gap4_rows: List[Dict[str, Any]], base_rows: List[Dict[str, Any]]
+) -> Optional[bool]:
+    """True when the two arms sit on opposite sides of the gap4_operating split.
+
+    Returns None when the rows do not carry gap4_operating provenance (runs
+    produced before run_seed_arm started emitting it), in which case the
+    cross-arm validity check is skipped rather than guessed.
+    """
+    g_flags = {r.get("gap4_operating") for r in gap4_rows}
+    b_flags = {r.get("gap4_operating") for r in base_rows}
+    if None in g_flags or None in b_flags or not g_flags or not b_flags:
+        return None
+    return bool(g_flags != b_flags)
+
+
+def c3_lift_capability(
+    gap4_rows: List[Dict[str, Any]],
+    base_rows: List[Dict[str, Any]],
+    metric: str,
+) -> Dict[str, Any]:
+    """PRE-REGISTRATION CAPABILITY GUARD for the C3 lift criterion.
+
+    Asks, against the rows actually produced, whether this metric was CAPABLE
+    of moving in its declared direction on this arm pairing -- before a failed
+    lift is allowed to be read as a substrate finding.
+
+    Motivation: goal_pipeline:GAP-4 Tier-1 has now been defeated by
+    construction three times, each time discovered only after a cohort had
+    run and stamped claim directions off the result.
+      1. approach_commit_rate saturated at 1.0 in the 483c/524a baseline arm
+         (within-gap4 contrast) -- no headroom.
+      2. mech295_bias_range_mean = 0.0, making an argmin-flip impossible
+         (V3-EXQ-490k).
+      3. goal_norm_peak_delta inverted on the between-path pairing, introduced
+         by the rebuild that was fixing (1) -- see the module docstring.
+    Each was individually invisible and collectively a pattern, so the check
+    belongs in the harness rather than in each author's head.
+
+    status values, most severe first:
+      "invalid_cross_arm" -- the metric declares cross_arm_valid=False and the
+          two arms straddle the gap4_operating boundary. The comparison has no
+          meaning; the result must not be read at all.
+      "degenerate" -- base and gap4 values are equal within
+          TIER1_C3_DEGENERATE_TOL on >= TIER1_SEEDS_PASS_MIN paired seeds. The
+          toggled feature does not perturb this metric, so the criterion cannot
+          fire regardless of substrate behaviour.
+      "saturated" -- the baseline already sits at the metric's bound in the
+          direction of the claim on >= TIER1_SEEDS_PASS_MIN paired seeds. It
+          cannot be beaten in that direction.
+      "inverted" -- the baseline beats the gap4 arm in the claimed direction on
+          EVERY paired seed. Either the pairing or the metric's declared
+          direction is wrong; this is a criterion defect, not a null result.
+      "no_pairs" -- no seed pairs to compare.
+      "ok" -- the metric could move in the claimed direction here. A False lift
+          under "ok" IS a substrate finding.
+
+    Only "ok" (and "no_pairs", which simply disables the criterion) leaves
+    criterion_valid True.
+    """
+    spec = _c3_metric_spec(metric)
+    key = spec["key"]
+    lower = spec["direction"] == "lower"
+    bound = spec["floor"] if lower else spec["ceiling"]
+
+    pairs: List[Tuple[float, float]] = []
+    for g in gap4_rows:
+        b = next((x for x in base_rows if x.get("seed") == g.get("seed")), None)
+        if b is None:
+            continue
+        pairs.append((float(g.get(key, 0.0)), float(b.get(key, 0.0))))
+
+    detail: Dict[str, Any] = {
+        "metric": metric,
+        "metric_key": key,
+        "direction": spec["direction"],
+        "delta": spec["delta"],
+        "n_pairs": len(pairs),
+        "pairs": [{"gap4": g, "base": b} for g, b in pairs],
+    }
+
+    if not pairs:
+        return dict(detail, status="no_pairs", criterion_valid=True, reason="no paired seeds")
+
+    crosses = _rows_cross_gap4_boundary(gap4_rows, base_rows)
+    detail["crosses_gap4_boundary"] = crosses
+    if crosses and not spec["cross_arm_valid"]:
+        return dict(
+            detail,
+            status="invalid_cross_arm",
+            criterion_valid=False,
+            reason=(
+                "metric '{}' is not comparable between a gap4_operating arm and a "
+                "non-gap4 arm (different REEConfig constructors -> different latent "
+                "scales); pick a scale-free metric".format(metric)
+            ),
         )
-    if metric == "override_signal_nonzero_steps":
-        return int(gap4_row.get("override_signal_nonzero_steps", 0)) > (
-            int(base_row.get("override_signal_nonzero_steps", 0)) + TIER1_OVERRIDE_SIGNAL_DELTA
+
+    n_degenerate = sum(1 for g, b in pairs if abs(g - b) <= TIER1_C3_DEGENERATE_TOL)
+    if n_degenerate >= TIER1_SEEDS_PASS_MIN:
+        return dict(
+            detail,
+            status="degenerate",
+            criterion_valid=False,
+            reason=(
+                "baseline and gap4 '{}' are identical within {} on {}/{} paired seeds "
+                "-- the toggled feature does not perturb this metric".format(
+                    key, TIER1_C3_DEGENERATE_TOL, n_degenerate, len(pairs)
+                )
+            ),
         )
-    if metric == "approach_commit_rate":
-        return float(gap4_row.get("approach_commit_rate", 0)) > float(
-            base_row.get("approach_commit_rate", 0)
+
+    if bound is not None:
+        n_sat = sum(1 for _g, b in pairs if abs(b - float(bound)) <= TIER1_C3_DEGENERATE_TOL)
+        if n_sat >= TIER1_SEEDS_PASS_MIN:
+            return dict(
+                detail,
+                status="saturated",
+                criterion_valid=False,
+                reason=(
+                    "baseline '{}' already sits at the {} bound {} on {}/{} paired seeds "
+                    "-- no headroom in the '{}' direction".format(
+                        key,
+                        "floor" if lower else "ceiling",
+                        bound,
+                        n_sat,
+                        len(pairs),
+                        spec["direction"],
+                    )
+                ),
+            )
+
+    # "Baseline beats gap4" = the baseline sits FURTHER in the claimed direction
+    # than the arm that is supposed to be moving there.
+    if lower:
+        beaten_by_base = sum(1 for g, b in pairs if b < g)
+    else:
+        beaten_by_base = sum(1 for g, b in pairs if b > g)
+    if beaten_by_base == len(pairs):
+        return dict(
+            detail,
+            status="inverted",
+            criterion_valid=False,
+            reason=(
+                "baseline beats gap4 on '{}' in the claimed ('{}') direction on all "
+                "{} paired seeds -- the pairing or the declared direction is wrong, "
+                "this is a criterion defect not a null result".format(
+                    key, spec["direction"], len(pairs)
+                )
+            ),
         )
-    raise ValueError(
-        "Unknown c3_lift_metric '{}'. Supported: goal_norm_peak_delta, "
-        "override_signal_nonzero_steps, approach_commit_rate.".format(metric)
-    )
+
+    return dict(detail, status="ok", criterion_valid=True, reason="metric can move in the claimed direction")
 
 
 def evaluate_tier1_cohort(
@@ -606,7 +959,13 @@ def evaluate_tier1_cohort(
 
     c3_lift = True
     lifts = 0
+    capability: Dict[str, Any] = {
+        "status": "no_pairs",
+        "criterion_valid": True,
+        "reason": "no baseline arm configured",
+    }
     if baseline_arm_id and base_rows:
+        capability = c3_lift_capability(gap4_rows, base_rows, c3_lift_metric)
         for g in gap4_rows:
             seed = g.get("seed")
             b = next((x for x in base_rows if x.get("seed") == seed), None)
@@ -617,7 +976,8 @@ def evaluate_tier1_cohort(
         c3_lift = lifts >= TIER1_SEEDS_PASS_MIN
 
     passed = bool(c1 and c2 and c3_direct and c4 and c3_lift)
-    return {
+    criterion_valid = bool(capability.get("criterion_valid", True))
+    acceptance: Dict[str, Any] = {
         "pass": passed,
         "C1_cue_fires": c1,
         "C2_dacc_bias": c2,
@@ -625,10 +985,38 @@ def evaluate_tier1_cohort(
         "C3_lift_vs_baseline": c3_lift,
         "C3_lift_count": lifts,
         "C3_lift_metric": c3_lift_metric,
+        "C3_lift_status": capability.get("status"),
+        "C3_lift_capability": capability,
         "C4_goal_active": c4,
+        "criterion_valid": criterion_valid,
         "gap4_arm_id": gap4_arm_id,
         "baseline_arm_id": baseline_arm_id,
     }
+    acceptance["recommended_evidence_direction"] = tier1_evidence_direction(acceptance)
+    return acceptance
+
+
+def tier1_evidence_direction(acceptance: Dict[str, Any]) -> str:
+    """Map a Tier-1 acceptance block to a claim evidence_direction.
+
+    Use this INSTEAD of the `"supports" if outcome == "PASS" else "weakens"`
+    idiom. That idiom is what produced the algorithm-generated `weakens`
+    stamps the 2026-05-29 V3-EXQ-490g-cohort autopsy had to correct by hand:
+    it cannot distinguish "the substrate did not do the thing" from "the
+    acceptance criterion was incapable of registering the thing".
+
+      PASS                      -> "supports"
+      FAIL, criterion invalid   -> "non_contributory"   (criterion defect)
+      FAIL, criterion valid     -> "weakens"            (substrate finding)
+
+    A criterion-capability failure is a fact about the harness, not about the
+    claim, and must never move claim confidence. See c3_lift_capability.
+    """
+    if acceptance.get("pass"):
+        return "supports"
+    if not acceptance.get("criterion_valid", True):
+        return "non_contributory"
+    return "weakens"
 
 
 def run_seed_arm(
@@ -672,6 +1060,11 @@ def run_seed_arm(
         seed=seed,
         arm_label=arm.arm_id,
     )
+    # Arm provenance -- c3_lift_capability needs it to detect a comparison that
+    # straddles the gap4_operating boundary (different REEConfig constructors,
+    # so unnormalised latent quantities are not commensurable). Rows produced
+    # before this field existed simply skip that check rather than guess.
+    metrics["gap4_operating"] = bool(arm.gap4_operating)
     checks = tier1_seed_pass(metrics)
     passed = all(checks.values())
     print(f"verdict: {'PASS' if passed else 'FAIL'}", flush=True)
