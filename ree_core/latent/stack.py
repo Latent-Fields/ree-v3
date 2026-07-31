@@ -1204,6 +1204,56 @@ class LatentStack(nn.Module):
             z_harm=torch.zeros(batch_size, harm_dim, device=device) if harm_dim > 0 else None,
         )
 
+    @staticmethod
+    def _gaba_state_blend(
+        z_now: Optional[torch.Tensor],
+        z_prev: Optional[torch.Tensor],
+        alpha: float,
+    ) -> Optional[torch.Tensor]:
+        """SD-036: blend a harm stream with its previous (decayed) value.
+
+            z(t) = alpha * encode(obs_t) + (1 - alpha) * z_decayed(t-1)
+
+        `z_prev` comes from the caller's prev_state, which the agent stores
+        AFTER the GABAergic regulator has applied its per-tick rescale -- so
+        the carried term is the DECAYED previous value, which is what gives
+        the regulator temporal authority. `prev_state` is detached by the
+        agent, so gradient reaches the harm encoder only through the
+        `alpha * z_now` term (the same arrangement z_self / z_world / z_beta
+        already live with).
+
+        Fails open -- returns `z_now` unchanged -- when there is no previous
+        value (first tick after reset, or the stream is disabled) or when the
+        shapes disagree (e.g. a MECH-099 lateral head whose harm_dim differs
+        from the SD-010 z_harm_dim). A shape mismatch must not raise here:
+        this runs on the hot path of every sense() call.
+
+        Args:
+            z_now:  This tick's encoder output for the stream, or None.
+            z_prev: The previous tick's post-decay stream value, or None.
+            alpha:  Input-drive weight. 1.0 = legacy pure feedforward;
+                    0.0 = pure autoregression (input never enters).
+
+        Returns:
+            The blended stream tensor, or `z_now` when the blend does not apply.
+        """
+        if z_now is None or z_prev is None:
+            return z_now
+        if z_prev.shape != z_now.shape:
+            return z_now
+        a = float(alpha)
+        if a >= 1.0:
+            return z_now
+        if a <= 0.0:
+            # clone(), not a bare `.to()`: same device+dtype makes `.to()` a
+            # no-op returning the SAME tensor, which would alias prev_state's
+            # storage into this tick's LatentState. The regulator is
+            # out-of-place so it would not corrupt anything today, but an
+            # aliased latent field is a trap for the next in-place consumer.
+            return z_prev.to(device=z_now.device, dtype=z_now.dtype).clone()
+        prev = z_prev.to(device=z_now.device, dtype=z_now.dtype)
+        return a * z_now + (1.0 - a) * prev
+
     def _split_observation(
         self,
         observation: torch.Tensor,
@@ -1483,6 +1533,50 @@ class LatentStack(nn.Module):
                 if hh.dim() == 1:
                     hh = hh.unsqueeze(0).expand(batch_size, -1)
             z_harm_a, harm_accum_pred = self.affective_harm_encoder(hoa, hh)
+
+        # SD-036: harm-stream decay recurrence. Blend each harm stream with its
+        # PREVIOUS (already-decayed) value so the GABAergic regulator's rescale
+        # is carried across ticks instead of being discarded by the next
+        # encode(). Applied to the LatentState FIELD rather than to a specific
+        # encoder output, so it covers both the SD-010 dedicated stream above
+        # and the MECH-099 lateral head that it overrides -- the same
+        # stream-name keying the regulator itself uses.
+        #
+        # Note this deliberately runs AFTER both harm encoders have been
+        # called: harm_accum_pred (the SD-011 auxiliary head that trains the
+        # affective encoder to predict accumulated exposure) is a separate
+        # encoder output and is NOT blended, so compute_harm_accum_loss keeps
+        # its full gradient path regardless of the recurrence weight.
+        #
+        # Off by default (gaba_harm_state_recurrence=False); REEAgent mirrors
+        # REEConfig.use_gabaergic_decay onto it. See LatentStackConfig for the
+        # measurement that motivated this and for why the design doc's literal
+        # "input drives OR decay" switch is not implementable on a dense
+        # continuously-present harm_obs field.
+        #
+        # MECH-094: this blend is deliberately NOT gated on hypothesis_tag,
+        # and that is compliant rather than an oversight. MECH-094 forbids
+        # replay/DMN content being subject to waking DECAY -- and it is not:
+        # the regulator's tick() returns early under simulation_mode, so no
+        # exp(-tau*tone) is ever applied on those ticks. What remains here is
+        # only the stream's temporal continuity, which every other stateful
+        # stream (z_self, z_world, z_beta, z_theta, z_delta) already carries
+        # across simulation ticks -- agent.sense() stores _current_latent
+        # unconditionally. Gating only the harm streams would make them the
+        # odd ones out, not safer.
+        if getattr(self.config, "gaba_harm_state_recurrence", False):
+            if getattr(self.config, "gaba_recurrence_z_harm_s", True):
+                z_harm = self._gaba_state_blend(
+                    z_harm,
+                    prev_state.z_harm,
+                    getattr(self.config, "gaba_state_alpha_z_harm_s", 0.5),
+                )
+            if getattr(self.config, "gaba_recurrence_z_harm_a", True):
+                z_harm_a = self._gaba_state_blend(
+                    z_harm_a,
+                    prev_state.z_harm_a,
+                    getattr(self.config, "gaba_state_alpha_z_harm_a", 0.2),
+                )
 
         # SD-015 / MECH-112: ResourceEncoder produces object-type latent from world_obs.
         # world_obs already extracted above (from _split_observation); reuse it here.
