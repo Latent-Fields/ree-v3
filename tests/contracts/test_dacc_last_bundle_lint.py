@@ -306,20 +306,23 @@ def test_landed_carrier_drivers_still_fire():
 
 
 def test_only_known_helper_carrier_remains():
-    """Non-driver carriers under experiments/. `_lib/goal_pipeline_tier1.py` is the one
-    remaining, DEFERRED on 2026-07-29 because another session (dazzling-taussig-f58f4c)
-    held the claim on it with uncommitted work in the shared checkout. It is live _lib
-    code consumed by 483d/483e/490j, so unlike the frozen drivers it SHOULD be repaired
-    -- this pin is the reminder, and it must be updated to an empty set when that lands.
+    """Non-driver carriers under experiments/. `_lib/goal_pipeline_tier1.py` was the
+    last one, DEFERRED on 2026-07-29 because another session (dazzling-taussig-f58f4c)
+    held the claim on it with uncommitted work in the shared checkout, and repaired
+    2026-07-31 (chip-20260729-dacc-tier1-carrier) -- it is live _lib code consumed by
+    483d/483e/490j, so unlike the frozen drivers it SHOULD be repaired. Tightened to
+    the empty set now that it has landed; if something NEW appears here it means a
+    shared helper has regressed, which is the multiplier case and matters more than a
+    single driver.
     """
     drivers = set(EXPERIMENTS_DIR.glob("v3_exq_*.py"))
     actual = {str(p.relative_to(EXPERIMENTS_DIR))
               for p in sorted(EXPERIMENTS_DIR.rglob("*.py"))
               if p not in drivers and V.dacc_last_bundle_lint(p)}
-    assert actual == {"_lib/goal_pipeline_tier1.py"}, (
-        f"helper carrier set changed: {sorted(actual)}. If goal_pipeline_tier1.py was "
-        f"repaired, tighten this to set(). If something NEW appears, a shared helper "
-        f"has regressed -- that is the multiplier case and matters more than a driver.")
+    assert actual == set(), (
+        f"helper carrier set changed: {sorted(actual)}. A shared helper has regressed "
+        f"to the wrong dACC bundle attribute -- that is the multiplier case and "
+        f"matters more than a single driver.")
 
 
 # ---- (5b) the repair actually reads data ---------------------------------------------

@@ -481,7 +481,7 @@ def _approach_commit(agent: REEAgent) -> bool:
 def _dacc_bias_norm(agent: REEAgent) -> float:
     if agent.dacc is None:
         return 0.0
-    bundle = getattr(agent.dacc, "_last_bundle", None)
+    bundle = getattr(agent, "_dacc_last_bundle", None)
     if bundle is None:
         return 0.0
     sb = bundle.get("mode_ev")
