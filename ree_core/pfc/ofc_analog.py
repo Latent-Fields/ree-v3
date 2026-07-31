@@ -445,6 +445,42 @@ class OFCAnalog(nn.Module):
         self._last_devaluation_bias_abs_mean = 0.0
         self._last_outcome_prediction = None
 
+    def head_state_dict(self) -> dict:
+        """Serializable state_dict of the TRAINABLE heads only (never state_code --
+        that is per-episode runtime state, not a trained parameter).
+
+        SD-033b commitment_closure:GAP-8-affordability (chip-20260730-ofc-deval-
+        affordable). Enables a caller to persist a trained head to disk (via
+        experiments/_lib/ofc_head_cache.py) and reload it into a fresh OFCAnalog
+        instance later, instead of paying the gradient-tracking training cost on
+        every consuming cell -- see that module's docstring for the affordability
+        problem this exists to solve and the reuse-key discipline that makes it
+        scientifically sound. Returns a dict with 'state_bias_head' always present
+        and 'devaluation_bias_head' present only when that head was built
+        (use_devaluation_head=True).
+        """
+        result: dict = {"state_bias_head": self.state_bias_head.state_dict()}
+        if self.devaluation_bias_head is not None:
+            result["devaluation_bias_head"] = self.devaluation_bias_head.state_dict()
+        return result
+
+    def load_head_state_dict(self, blob: dict) -> None:
+        """Load a previously-saved head state_dict (see head_state_dict()).
+
+        Loads 'state_bias_head' unconditionally (raises via PyTorch's own
+        strict-by-default load_state_dict if the shapes/keys do not match this
+        instance's state_dim/world_dim/hidden_dim -- a mismatched architecture
+        must fail loudly, never silently produce a wrong-shape head). Loads
+        'devaluation_bias_head' only if BOTH the blob carries it AND this
+        instance built one (use_devaluation_head=True); a blob trained without
+        the decoupled head is still a valid partial load for a caller that only
+        wants state_bias_head. Does NOT touch use_ofc_analog / train_* flags or
+        state_code -- purely a weight load onto the already-constructed heads.
+        """
+        self.state_bias_head.load_state_dict(blob["state_bias_head"])
+        if "devaluation_bias_head" in blob and self.devaluation_bias_head is not None:
+            self.devaluation_bias_head.load_state_dict(blob["devaluation_bias_head"])
+
     def get_state(self) -> dict:
         """Diagnostic snapshot for experiment manifests."""
         result = {
