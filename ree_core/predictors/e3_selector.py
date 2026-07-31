@@ -1149,6 +1149,8 @@ class E3TrajectorySelector(nn.Module):
 
         SD-011: z_harm_a amplifies lambda_ethical when affective_harm_scale > 0.
         SD-016 (MECH-152): optional terrain_weight scales M/B after evaluation.
+        SD-085: f_weight scales F's contribution to the score (default 1.0,
+        bit-identical to pre-SD-085 behaviour).
         """
         f = self.compute_reality_cost(trajectory)
         if harm_forward_model is not None and z_harm_s_current is not None:
@@ -1185,7 +1187,7 @@ class E3TrajectorySelector(nn.Module):
             w_harm = terrain_weight[:, 0]  # [batch]
             m = m * w_harm
 
-        score = f + lambda_eff * m + self.config.rho_residue * phi
+        score = self.config.f_weight * f + lambda_eff * m + self.config.rho_residue * phi
 
         # ARC-030 / MECH-112: Go channel — subtract benefit from cost.
         # Gated until _benefit_samples_seen >= _BENEFIT_WARMUP_SAMPLES to prevent
@@ -1251,6 +1253,7 @@ class E3TrajectorySelector(nn.Module):
         if self.e3_score_decomp_enabled:
             self._last_traj_components = {
                 "f": float(f.detach().mean().item()),
+                "f_weighted": float((self.config.f_weight * f).detach().mean().item()),
                 "harm_weighted": float((lambda_eff * m).detach().mean().item()),
                 "residue_weighted": float((self.config.rho_residue * phi).detach().mean().item()),
                 "benefit_weighted": _dc_benefit_w,

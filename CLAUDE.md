@@ -1458,6 +1458,28 @@ MECH-073 reframed as consequence of ARC-013 applied to z_world.
 MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequisite.
 
 ## SD Design Decisions Implemented
+- SD-085: e3.reality_cost_weight -- IMPLEMENTED 2026-07-31.
+  E3TrajectorySelector.score_trajectory (ree_core/predictors/e3_selector.py). Config:
+  E3Config.f_weight (default 1.0, no-op; sibling to lambda_ethical/rho_residue -- always-
+  present multiplicative coefficient on an always-computed score term, no use_* master
+  switch). NOT wired through REEConfig.from_dims() -- set directly per-arm (cfg.e3.f_weight
+  = X), matching how lambda_ethical/rho_residue are already swept (see
+  v3_exq_735_drive_reward_balance_sweep.py). Data flow: compute_reality_cost() -> f ->
+  self.config.f_weight * f enters score_trajectory's score sum (was unweighted at implicit
+  coefficient 1.0 before this SD). Also adds a `f_weighted` key to _last_traj_components
+  (e3_score_decomp_enabled diagnostics only); the existing `f` key's raw-unweighted meaning
+  is unchanged.
+  Backward compatible: f_weight=1.0 default is an IEEE-754 identity multiply, bit-identical
+  to pre-SD-085 behaviour on every existing call site.
+  Motivated by V3-EXQ-571 (F monopolises ~88-89% of E3 committed-selection variance) and
+  built for ARC-062 GOV-FANOUT-1 Leg P-B (F-dominance discriminator, distinct from the
+  eligibility-face MECH-448/449 levers and the duration-face
+  use_natural_commit_urgency_release). No phased training required (scalar coefficient, not
+  a learned parameter). No MECH-094 concern (no simulation/replay content touched).
+  Validation experiment: queued this session (see queue entry below).
+  See REE_assembly/docs/architecture/sd_085_e3_reality_cost_weight.md,
+  REE_assembly/evidence/planning/arc_062_conversion_fanout_2026-07-29.md ("P-B buildability
+  resolution"). Related: ARC-062, MECH-090, MECH-448, MECH-449.
 - SD-084: e3.persistent_committed_program_handle -- IMPLEMENTED 2026-07-29.
   Makes MECH-321's R4 MID-EXECUTION hook REACHABLE. That hook (agent.py select_action)
   gates on a committed trajectory surviving from a PREVIOUS tick, but the LAST statement of
