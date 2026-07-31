@@ -83,6 +83,59 @@ class LatentStackConfig:
     alpha_world: float = 0.3   # SD-008: set to 0.9+ to fix event suppression
     alpha_self: float = 0.3
 
+    # SD-036: harm-stream decay recurrence -- gives the GABAergic decay
+    # regulator TEMPORAL authority over z_harm (SD-010) and z_harm_a (SD-011).
+    #
+    # Without this, both harm streams are PURE FEEDFORWARD encodes of the
+    # current observation, so the regulator's per-tick rescale is discarded by
+    # the next encode() and z_s(t+1) is not a function of z_s(t) at all. The
+    # regulator then degenerates to a single-tick constant rescale, which any
+    # scale-free DV (e.g. harm_norm_sustain_ratio = mean/peak) is EXACTLY
+    # invariant to -- structurally vacuating the pre-registered SD-036
+    # dose-response falsifier. Measured 2026-07-31 on the pre-fix substrate:
+    # peak-normalised ||z_harm|| trajectories were bit-identical across
+    # gaba_tone in {0.0, 0.3, 1.0, 2.0} (max deviation <= 2.0e-07) and the raw
+    # ratio at tone=0.0 was 1.05127107 == exp(0.05) to 8 significant figures.
+    # z_beta, which DOES blend with prev_state, compounded normally (2.0e-02 to
+    # 2.9e-02) -- the contrast that localised the defect to the harm streams.
+    #
+    # Shape: a prev_state blend, matching the substrate's established idiom for
+    # a stateful stream (z_self / z_world / z_beta all use one). The DECAY
+    # ARITHMETIC ITSELF STAYS IN THE REGULATOR -- encode() supplies only the
+    # recurrence, so SD-036's architectural commitment ("multi-target
+    # regulation lives at the regulator, not in each target") is preserved.
+    # Composed with the regulator's end-of-tick rescale the stream becomes a
+    # leaky integrator with pole (1 - alpha) * exp(-tau * gaba_tone), so BOTH
+    # the relaxation time constant and the steady-state gain are functions of
+    # gaba_tone -- the trajectory SHAPE changes, not just its scale.
+    #
+    # Why NOT the design doc's literal "input drives OR decay" switch: it
+    # presumes an event-like input, and harm_obs is a dense continuously-present
+    # field view. Measured over 60 steps (seed 0, 471-lineage env):
+    # ||harm_obs|| ranged 2.32 to 5.21 and was never zero, so there is no
+    # "absence of input" tick to switch on. A hard switch would either never
+    # fire (threshold low) or permanently starve the stream of input
+    # (threshold high). The regulator's existing suspend-on-input gate
+    # (gaba_input_threshold_*) remains the soft form of that mechanism.
+    #
+    # gaba_harm_state_recurrence is MIRRORED from REEConfig.use_gabaergic_decay
+    # by REEAgent.__init__ -- do not set it directly; the default False keeps a
+    # bare LatentStackConfig bit-identical to legacy.
+    gaba_harm_state_recurrence: bool = False
+    # Per-stream ablation flags. Both True once the master switch is on; set
+    # one False to run the decay-without-recurrence control arm for that stream.
+    gaba_recurrence_z_harm_s: bool = True
+    gaba_recurrence_z_harm_a: bool = True
+    # Input-drive weights. Higher = tracks the instantaneous encode more
+    # closely (weaker decay authority); lower = integrates more (stronger).
+    # Sensory-discriminative harm (SD-010, spinothalamic analogue) tracks
+    # stimulus intensity, so it stays input-led; affective-motivational harm
+    # (SD-011, spinoparabrachial analogue) integrates, matching the design
+    # doc's "emotional residue persists longer" rationale for its slower tau.
+    # 0.0 = pure autoregression (input never enters); 1.0 = legacy feedforward.
+    gaba_state_alpha_z_harm_s: float = 0.5
+    gaba_state_alpha_z_harm_a: float = 0.2
+
     # SELF-1 / DR-13 (self_model_v4): z_self temporal depth. When
     # use_self_recurrence is True, encode() replaces the z_self EMA smoothing
     # step ONLY with a dedicated gated self-recurrence (SelfRecurrenceCell,
@@ -496,6 +549,19 @@ class E3Config:
     # Scoring weights — placeholder parameters, not tuned constants
     lambda_ethical: float = 1.0
     rho_residue: float = 0.5
+    # SD-085: weight on F (reality cost) in score_trajectory's committed-selection
+    # score. Sibling to lambda_ethical/rho_residue (always-present multiplicative
+    # coefficient on an always-computed term, no use_* master switch — the
+    # coefficient itself is the control). 1.0 is bit-identical to the pre-SD-085
+    # behaviour (F entered the score unweighted). NOT wired through
+    # REEConfig.from_dims() — set directly per-arm (cfg.e3.f_weight = X), matching
+    # how lambda_ethical/rho_residue are already swept (see
+    # v3_exq_735_drive_reward_balance_sweep.py). Motivated by V3-EXQ-571 (F
+    # monopolises ~88-89% of E3 committed-selection variance) and ARC-062
+    # GOV-FANOUT-1 Leg P-B (F-dominance discriminator, distinct from the
+    # eligibility-face MECH-448/449 levers). See
+    # docs/architecture/sd_085_e3_reality_cost_weight.md.
+    f_weight: float = 1.0
 
     # Dynamic precision (ARC-016): precision derived from prediction error variance
     # commit_threshold is in VARIANCE SPACE: committed when running_variance < threshold.
@@ -3488,9 +3554,11 @@ class REEConfig:
     # rescales: "none" (default, no routing, bit-identical) / "cand_world_summary"
     # (the [K, world_dim] world-summary channel -- ARC-065/569f cluster lead, the
     # genuine projection case) / "curiosity" / "gated_policy" / "mech295" /
-    # "coherence" (each an already-computed per-candidate [K] bias, identity-
-    # routed). route_weight sets the routed-channel proportion in _modulatory_accum
-    # before the authority rescale.
+    # "coherence" / "lateral_pfc" (each an already-computed per-candidate [K]
+    # bias, identity-routed; "lateral_pfc" is the SD-033a rule-apprehension
+    # channel -- NOT "gated_policy", which is the unrelated ARC-062 Phase-1
+    # GatedPolicy module). route_weight sets the routed-channel proportion in
+    # _modulatory_accum before the authority rescale.
     use_modulatory_channel_routing: bool = False
     modulatory_channel_route_source: str = "none"
     modulatory_channel_route_weight: float = 1.0
@@ -3799,6 +3867,18 @@ class REEConfig:
     # maintenance off nothing dissolves and the flag would read enabled while
     # never running.
     use_chunk_dissolution_retention: bool = False
+    # MECH-324 rapid-reacquisition data-flow fix: the revival gate's variance/
+    # mean readout defaults to the sequence's whole-lifetime accumulator tally,
+    # which is saturated with the dissolution episode's own high-variance
+    # outcomes at the moment of dissolution -- this makes r_reacq track
+    # window_trials instead of chunk_reacquisition_repetition_factor's bar
+    # (V3-EXQ-829's confirmed flat result). True -> the gate instead reads a
+    # dedicated per-chunk window populated only from real executions since the
+    # most recent dissolution. Requires use_chunk_dissolution_retention -- the
+    # pairing is REFUSED loudly by PolicyChunkingConfig.validate(), since with
+    # retention off no chunk is ever dormant and the flag would be silently
+    # inert.
+    use_reacquisition_window_isolation: bool = False
     chunk_reacquisition_repetition_factor: float = 0.25
     # MECH-322 sleep-replay carve-out. SAFETY-CRITICAL: False by default EVEN
     # WHEN chunking is on, so the shipped default is MECH-094-strict and no
@@ -5778,6 +5858,7 @@ class REEConfig:
         chunk_crystallisation_min: int = 5,
         chunk_dissolve_trials: int = 50,
         use_chunk_dissolution_retention: bool = False,
+        use_reacquisition_window_isolation: bool = False,
         chunk_reacquisition_repetition_factor: float = 0.25,
         use_chunk_replay_origin_path: bool = False,
         chunk_replay_value_quantile: float = 0.75,
@@ -6020,6 +6101,11 @@ class REEConfig:
         gaba_input_threshold_z_harm_s: float = 0.0,
         gaba_input_threshold_z_harm_a: float = 0.0,
         gaba_input_threshold_z_beta: float = 0.0,
+        # SD-036 harm-stream decay recurrence (LatentStackConfig-scoped).
+        gaba_recurrence_z_harm_s: bool = True,
+        gaba_recurrence_z_harm_a: bool = True,
+        gaba_state_alpha_z_harm_s: float = 0.5,
+        gaba_state_alpha_z_harm_a: float = 0.2,
         use_pag_freeze_gate: bool = False,
         pag_theta_freeze: float = 2.0,
         pag_duration_input_threshold: float = 0.4,
@@ -6992,6 +7078,7 @@ class REEConfig:
         config.chunk_crystallisation_min = chunk_crystallisation_min
         config.chunk_dissolve_trials = chunk_dissolve_trials
         config.use_chunk_dissolution_retention = use_chunk_dissolution_retention
+        config.use_reacquisition_window_isolation = use_reacquisition_window_isolation
         config.chunk_reacquisition_repetition_factor = (
             chunk_reacquisition_repetition_factor
         )
@@ -7297,6 +7384,16 @@ class REEConfig:
         config.gaba_input_threshold_z_harm_s = gaba_input_threshold_z_harm_s
         config.gaba_input_threshold_z_harm_a = gaba_input_threshold_z_harm_a
         config.gaba_input_threshold_z_beta = gaba_input_threshold_z_beta
+        # SD-036 harm-stream decay recurrence. These live on LatentStackConfig
+        # because encode() is where the recurrence is applied. The master gate
+        # (config.latent.gaba_harm_state_recurrence) is deliberately NOT set
+        # here -- REEAgent.__init__ mirrors it from use_gabaergic_decay, so an
+        # experiment that flips the master switch post-construction (rather
+        # than through from_dims) still gets the recurrence.
+        config.latent.gaba_recurrence_z_harm_s = gaba_recurrence_z_harm_s
+        config.latent.gaba_recurrence_z_harm_a = gaba_recurrence_z_harm_a
+        config.latent.gaba_state_alpha_z_harm_s = gaba_state_alpha_z_harm_s
+        config.latent.gaba_state_alpha_z_harm_a = gaba_state_alpha_z_harm_a
         config.use_pag_freeze_gate = use_pag_freeze_gate
         config.pag_theta_freeze = pag_theta_freeze
         config.pag_duration_input_threshold = pag_duration_input_threshold

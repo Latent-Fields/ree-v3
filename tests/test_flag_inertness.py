@@ -604,6 +604,16 @@ PROBED = {
     # constructs the chunking operator unless use_policy_chunking is also on --
     # so this flag alone would not reach the raise.
     "use_chunk_dissolution_retention",
+    # MECH-324 reacquisition-window isolation (data-flow fix for V3-EXQ-829's
+    # confirmed flat r_reacq signature). Probed by the same file's C10 block:
+    # OFF reproduces the bug (reformed-after == window_trials, contaminated
+    # whole-lifetime tally), ON pins reformed-after == the reduced bar via an
+    # isolated post-dissolution window, plus a numerical-floor case
+    # (len(window) < 2 refuses even when the repetition bar is cleared). Its
+    # precondition on use_chunk_dissolution_retention is likewise asserted in
+    # PolicyChunkingConfig.validate() rather than here, for the same
+    # tiny-fixture-never-reaches-the-raise reason as that flag.
+    "use_reacquisition_window_isolation",
     # MECH-323 growable chunk-size ceiling (Ramkumar 2016 / Bo 2009). Probed by
     # the same file's C11 block: OFF pins the effective ceiling at
     # max_chunk_size with zero growths, ON grows it end-to-end when a merge

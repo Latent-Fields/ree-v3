@@ -497,6 +497,16 @@ class ChunkedPrimitive:
             than R_min. Zeroed on each dissolution and on each revival. Not the
             accumulator's tally length -- see the module docstring on why the
             saturated sliding window cannot serve here.
+        reacquisition_outcomes : outcomes observed on real executions SINCE the
+            most recent dissolution, counted only under
+            use_chunk_dissolution_retention. FIFO-capped at window_trials.
+            Populated regardless of use_reacquisition_window_isolation (mirrors
+            the existing convention that new fields are written under the
+            enclosing flag and only *consulted* under the sub-flag -- see
+            n_dissolutions/n_reacquisitions above); read only when
+            use_reacquisition_window_isolation is True, as the isolated
+            (non-dissolution-contaminated) variance/mean source for the
+            revival gate.
     """
 
     sequence: Tuple[int, ...]
@@ -514,6 +524,7 @@ class ChunkedPrimitive:
     n_dissolutions: int = 0
     n_reacquisitions: int = 0
     reacquisition_repetitions: int = 0
+    reacquisition_outcomes: List[float] = field(default_factory=list)
 
     @property
     def key(self) -> Tuple[int, ...]:
@@ -676,6 +687,19 @@ class PolicyChunkingConfig:
             maintenance off nothing ever dissolves, so retention would be a
             silently inert flag rather than an arm -- config validation REFUSES
             that pairing rather than tolerating it.
+        use_reacquisition_window_isolation : MECH-324 sub-switch under
+            use_chunk_dissolution_retention. False (default) = the revival gate
+            reads the sequence's whole-lifetime accumulator tally, which is
+            saturated with the dissolution episode's own high-variance outcomes
+            at the moment of dissolution -- this makes r_reacq track window_trials
+            instead of the reacquisition_repetition_factor bar (V3-EXQ-829's
+            confirmed flat result). True = the revival gate instead reads a
+            dedicated per-chunk window populated only from real executions since
+            the most recent dissolution. Bit-identical to False-behaviour when
+            False. Requires use_chunk_dissolution_retention: with retention off
+            no chunk is ever dormant, so the isolated window is never populated
+            and the flag would be silently inert -- config validation REFUSES
+            that pairing rather than tolerating it.
         reacquisition_repetition_factor : the rapid-reacquisition parameter.
             Multiplies R_min to give the repetition bar a DORMANT chunk must
             clear to re-form. Must be in (0, 1] -- at 1.0 reacquisition is no
@@ -718,6 +742,7 @@ class PolicyChunkingConfig:
     crystallisation_min: int = 5
     dissolve_trials: int = 50
     use_chunk_dissolution_retention: bool = False
+    use_reacquisition_window_isolation: bool = False
     reacquisition_repetition_factor: float = 0.25
     use_chunk_replay_origin_path: bool = False
     replay_value_quantile: float = 0.75
@@ -800,6 +825,13 @@ class PolicyChunkingConfig:
                 "use_chunk_dissolution_retention requires use_chunk_maintenance "
                 "(with maintenance off no chunk ever dissolves, so the retention "
                 "path could never fire and the flag would be silently inert)"
+            )
+        if self.use_reacquisition_window_isolation and not self.use_chunk_dissolution_retention:
+            raise ValueError(
+                "use_reacquisition_window_isolation requires "
+                "use_chunk_dissolution_retention (with retention off no chunk is "
+                "ever dormant, so the isolated window is never populated and the "
+                "flag would be silently inert)"
             )
         if not (0.0 < self.replay_value_quantile < 1.0):
             raise ValueError("replay_value_quantile must be in (0, 1)")
@@ -1465,7 +1497,10 @@ class ChunkLibrary:
     # Maintenance
     # ------------------------------------------------------------------
     def note_real_execution(
-        self, sequence: Sequence[int], outcome_variance: float
+        self,
+        sequence: Sequence[int],
+        outcome_variance: float,
+        outcome_signal: Optional[float] = None,
     ) -> Optional[ChunkState]:
         """Credit a REAL waking execution of a chunk; advance its lifecycle.
 
@@ -1477,6 +1512,10 @@ class ChunkLibrary:
         Args:
             sequence : the executed chunk's action sequence.
             outcome_variance : current windowed outcome variance for it.
+            outcome_signal : the raw per-trial outcome (not its derived
+                variance), used only to populate the DISSOLVED chunk's
+                post-dissolution reacquisition_outcomes window. None (default)
+                = fully backward compatible; nothing is appended.
 
         Returns:
             The chunk's new state, or None if the sequence is not a chunk.
@@ -1522,6 +1561,10 @@ class ChunkLibrary:
             # terminal and nothing is counted at all.
             if c.use_chunk_dissolution_retention and chunk.is_dormant:
                 chunk.reacquisition_repetitions += 1
+                if outcome_signal is not None:
+                    chunk.reacquisition_outcomes.append(float(outcome_signal))
+                    if len(chunk.reacquisition_outcomes) > c.window_trials:
+                        del chunk.reacquisition_outcomes[: -c.window_trials]
         return chunk.state
 
     def _mark_dissolved(self, chunk: ChunkedPrimitive) -> None:
@@ -1530,12 +1573,13 @@ class ChunkLibrary:
         One helper for BOTH dissolution sites -- the slow T_dissolve decay and
         the MECH-322 corroboration deadline -- so the trace cannot be recorded
         at one and silently forgotten at the other. Inert when retention is off:
-        the two new fields are written but nothing reads them.
+        the new fields are written but nothing reads them.
         """
         chunk.state = ChunkState.DISSOLVED
         chunk.selection_weight = 0.0
         chunk.n_dissolutions += 1
         chunk.reacquisition_repetitions = 0
+        chunk.reacquisition_outcomes = []
         self._n_dissolved += 1
 
     def dormant_chunks(self) -> List[ChunkedPrimitive]:
@@ -1597,6 +1641,7 @@ class ChunkLibrary:
         chunk.dissolving_trials = 0
         chunk.episodes_since_corroboration = 0
         chunk.reacquisition_repetitions = 0
+        chunk.reacquisition_outcomes = []
         chunk.n_reacquisitions += 1
         if value_tag is not None:
             chunk.value_tag = float(value_tag)
@@ -1890,7 +1935,9 @@ class PolicyChunking:
         for chunk in self.library.all_chunks():
             var = variances.get(chunk.key)
             if var is not None and self._was_executed(chunk):
-                self.library.note_real_execution(chunk.key, var)
+                self.library.note_real_execution(
+                    chunk.key, var, outcome_signal=float(outcome_signal)
+                )
         # Rapid reacquisition runs BEFORE tick_maintenance and AFTER the
         # note_real_execution pass that feeds its counter. Ordering matters:
         # tick_maintenance only acts on CRYSTALLISED / DISSOLVING, so a chunk
@@ -1934,6 +1981,19 @@ class PolicyChunking:
         chunk's is saturated, so it clears any reduced bar on the first
         post-dissolution trial.
 
+        The variance/mean readout for the gate below has the SAME hazard: by
+        default (use_reacquisition_window_isolation=False) it reads
+        accumulator._tally[chunk.key], the sequence's whole-lifetime window --
+        saturated at the moment of dissolution with the very high-variance
+        stream that caused it, so var < variance_low cannot clear until that
+        episode ages out of the window (~window_trials trials), independent of
+        `bar`. This is what made r_reacq track window_trials instead of
+        reacquisition_repetition_factor (V3-EXQ-829). With the flag True, the
+        gate instead reads chunk.reacquisition_outcomes -- populated only from
+        real executions since the most recent dissolution -- so the two
+        counters (repetitions, outcomes) agree by construction and `bar` is
+        the actual binding constraint.
+
         Inert (returns []) unless BOTH maintenance and retention are on.
         """
         c = self.config
@@ -1945,10 +2005,24 @@ class PolicyChunking:
         for chunk in self.library.dormant_chunks():
             if chunk.reacquisition_repetitions < bar:
                 continue
-            var = variances.get(chunk.key)
-            if var is None or var >= c.variance_low:
+            if c.use_reacquisition_window_isolation:
+                window = chunk.reacquisition_outcomes
+                if len(window) < 2:
+                    # Numerical-stability floor, not a second bar: _variance()
+                    # is definitionally 0.0 (not "undefined") below n=2, which
+                    # would let a single post-dissolution sample trivially
+                    # clear the variance gate at bar==1 settings with zero
+                    # evidence of consistency.
+                    continue
+                var = _variance(window)
+                mu = _mean(window)
+            else:
+                var = variances.get(chunk.key)
+                if var is None:
+                    continue
+                mu = _mean(self.accumulator._tally.get(chunk.key, ()))
+            if var >= c.variance_low:
                 continue
-            mu = _mean(self.accumulator._tally.get(chunk.key, ()))
             if mu <= baseline + c.evaluative_margin:
                 continue
             if self.library.revive(chunk.key, value_tag=mu):

@@ -1345,6 +1345,9 @@ class REEAgent(nn.Module):
                     use_chunk_dissolution_retention=getattr(
                         config, "use_chunk_dissolution_retention", False
                     ),
+                    use_reacquisition_window_isolation=getattr(
+                        config, "use_reacquisition_window_isolation", False
+                    ),
                     reacquisition_repetition_factor=getattr(
                         config, "chunk_reacquisition_repetition_factor", 0.25
                     ),
@@ -2065,6 +2068,20 @@ class REEAgent(nn.Module):
             )
             self.gabaergic_decay = GABAergicDecayRegulator(gaba_cfg)
             self.gabaergic_decay.register_default_streams(gaba_cfg)
+            # SD-036 harm-stream decay recurrence: give the regulator TEMPORAL
+            # authority over z_harm / z_harm_a by turning on the prev_state
+            # blend in LatentStack.encode(). Without it the regulator's rescale
+            # is discarded by the next encode() and decay never compounds for
+            # those two streams (z_beta was unaffected -- it already blends).
+            #
+            # Mirrored here rather than in REEConfig.from_dims on purpose: an
+            # experiment that flips config.use_gabaergic_decay AFTER
+            # construction (the common idiom -- V3-EXQ-475 sets several config
+            # fields that way) would otherwise get the regulator without the
+            # recurrence, i.e. silently back to the vacuous single-tick
+            # rescale. Mirroring at the one place that reads the master switch
+            # makes the two impossible to separate.
+            self.config.latent.gaba_harm_state_recurrence = True
 
         # MECH-279: PAG freeze-gate. When use_pag_freeze_gate=True, the gate
         # ticks each select_action() and constrains the action selector to a
@@ -7415,8 +7432,9 @@ class REEAgent(nn.Module):
         # representation is projected (parameter-free, range-preserving):
         #   cand_world_summary -> cand_world_summaries [K, world_dim] (the 569f
         #     world-summary channel; the genuine [K, world_dim] projection case)
-        #   curiosity / gated_policy / mech295 / coherence -> the already-computed
-        #     per-candidate [K] bias for that channel (identity-routed).
+        #   curiosity / gated_policy / mech295 / coherence / lateral_pfc -> the
+        #     already-computed per-candidate [K] bias for that channel
+        #     (identity-routed).
         # Default "none" -> channel_route_bias=None -> bit-identical.
         channel_route_bias = None
         if getattr(self.config, "use_modulatory_channel_routing", False):
@@ -7437,6 +7455,14 @@ class REEAgent(nn.Module):
                 _route_repr = _bdc_m295
             elif _route_source == "coherence":
                 _route_repr = _bdc_coherence
+            elif _route_source == "lateral_pfc":
+                # ARC-062/MECH-309 fix (2026-07-31): identity-routes the
+                # SD-033a LateralPFCAnalog rule-apprehension bias -- the
+                # channel use_candidate_rule_field actually differentiates
+                # (NOT "gated_policy", which is the unrelated ARC-062 Phase-1
+                # GatedPolicy module; see arc_062_conversion_fanout_2026-07-29.md
+                # erratum).
+                _route_repr = _bdc_lpfc
             if _route_repr is not None:
                 channel_route_bias = project_channel_range(_route_repr)
         # DR-12 (self_model_v4:SELF-4) VERSION-LAYERING GUARD (2026-06-17): the

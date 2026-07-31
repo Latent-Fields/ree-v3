@@ -564,6 +564,199 @@ def test_c10_dormant_chunks_are_still_suppressed():
     assert chunk.selection_weight == 0.0
 
 
+def _dissolve_via_real_contamination(pc, seq, max_trials=30):
+    """Drive DISSOLVED through the REAL state machine, contaminating the
+    accumulator's tally for `seq` exactly as a real high-variance regime
+    would (unlike `_dissolve()`, which forces the state directly and never
+    touches the tally -- see V3-EXQ-829 / the MECH-324 reacquisition-window
+    isolation design doc for why that shortcut hid the bug this fixes)."""
+    chunk = pc.library.get(seq)
+    for t in range(max_trials):
+        for a in seq:
+            pc.record_step(a)
+        pc.note_outcome(10.0 if t % 2 == 0 else -10.0)
+        pc.end_episode()
+        if chunk.state is ChunkState.DISSOLVED:
+            return t + 1
+    return None
+
+
+def test_c10_reacquisition_window_isolation_off_by_default_and_requires_retention():
+    """Default OFF, and the dependency is LOUD rather than silently inert."""
+    assert PolicyChunkingConfig().use_reacquisition_window_isolation is False
+    cfg = REEConfig.from_dims(body_obs_dim=8, world_obs_dim=16, action_dim=4)
+    assert cfg.use_reacquisition_window_isolation is False
+
+    with pytest.raises(ValueError) as excinfo:
+        PolicyChunkingConfig(
+            use_chunk_maintenance=True,
+            use_chunk_dissolution_retention=False,
+            use_reacquisition_window_isolation=True,
+        ).validate()
+    assert "use_chunk_dissolution_retention" in str(excinfo.value)
+
+
+def test_c10_from_dims_forwards_window_isolation_to_the_operator():
+    """The REEConfig three-site hazard: field + signature + assignment + agent."""
+    cfg = REEConfig.from_dims(
+        body_obs_dim=8,
+        world_obs_dim=16,
+        action_dim=4,
+        use_policy_chunking=True,
+        use_chunk_maintenance=True,
+        use_chunk_dissolution_retention=True,
+        use_reacquisition_window_isolation=True,
+    )
+    agent = REEAgent(cfg)
+    assert agent.policy_chunking.config.use_reacquisition_window_isolation is True
+
+
+def test_c10_window_isolation_off_reproduces_the_v3_exq_829_flat_signature():
+    """The confirmed bug, pinned so the OFF arm stays the honest (buggy) null.
+
+    Dissolving via REAL high-variance execution of the target sequence (not
+    the `_dissolve()` shortcut) contaminates accumulator._tally[target] with
+    the dissolution episode's own outcomes. With the isolation flag OFF, the
+    revival gate reads that same contaminated, whole-lifetime tally, so
+    clearing the variance gate takes on the order of window_trials real
+    target executions -- NOT the (much lower) reacquisition bar. This is
+    exactly V3-EXQ-829's measured median_r_reacq/window_trials ~ 0.9 signature,
+    reproduced deterministically here as reformed-after == window_trials
+    rather than == bar.
+    """
+    cfg = _cfg_retention(
+        min_repetitions=20,
+        window_trials=20,
+        dissolve_trials=20,
+        reacquisition_repetition_factor=0.15,  # bar = ceil(20 * 0.15) = 3
+        use_reacquisition_window_isolation=False,
+    )
+    pc = PolicyChunking(cfg)
+    _run(pc, trials=80)
+    target, filler = (0, 1, 2, 3), (3, 0, 3, 0)
+    chunk = pc.library.get(target)
+    assert _dissolve_via_real_contamination(pc, target) is not None
+    bar = pc.config.reacquisition_min_repetitions
+    assert bar < pc.config.window_trials, "the test must set up a real gap to measure"
+
+    # Re-present the target regime interleaved with a filler arm (mirrors
+    # _run()'s own good/bad interleaving) so the population baseline stays
+    # anchored below the target's reward instead of chasing it to a
+    # mu-equals-baseline deadlock -- an artifact of a single-sequence-only
+    # loop, not a substrate property.
+    target_reps = 0
+    reformed_after = None
+    for t in range(120):
+        seq = target if t % 2 == 0 else filler
+        for a in seq:
+            pc.record_step(a)
+        pc.note_outcome(1.0 if seq is target else 0.0)
+        pc.end_episode()
+        if seq is target:
+            target_reps += 1
+        if chunk.state is not ChunkState.DISSOLVED:
+            reformed_after = target_reps
+            break
+
+    assert reformed_after is not None, "must eventually reform once the window clears"
+    assert reformed_after > bar, (
+        "OFF must NOT reform at the reduced bar -- it should be bound by "
+        "window_trials instead, which is the bug this fix corrects"
+    )
+    assert reformed_after == pc.config.window_trials, (
+        f"reformed after {reformed_after} target repetitions, expected exactly "
+        f"window_trials={pc.config.window_trials} (the contaminated window "
+        "must fully flush before the variance gate can clear)"
+    )
+
+
+def test_c10_window_isolation_on_reforms_at_the_reduced_bar():
+    """The fix: with isolation ON, reacquisition is bound by `bar`, not `W`.
+
+    Identical setup to the OFF test above (same contamination path, same
+    config apart from the flag) -- only the flag changes the outcome, which
+    is the point: this is a data-flow fix, not a threshold recalibration.
+    """
+    cfg = _cfg_retention(
+        min_repetitions=20,
+        window_trials=20,
+        dissolve_trials=20,
+        reacquisition_repetition_factor=0.15,  # bar = ceil(20 * 0.15) = 3
+        use_reacquisition_window_isolation=True,
+    )
+    pc = PolicyChunking(cfg)
+    _run(pc, trials=80)
+    target, filler = (0, 1, 2, 3), (3, 0, 3, 0)
+    chunk = pc.library.get(target)
+    assert _dissolve_via_real_contamination(pc, target) is not None
+    bar = pc.config.reacquisition_min_repetitions
+
+    target_reps = 0
+    reformed_after = None
+    for t in range(120):
+        seq = target if t % 2 == 0 else filler
+        for a in seq:
+            pc.record_step(a)
+        pc.note_outcome(1.0 if seq is target else 0.0)
+        pc.end_episode()
+        if seq is target:
+            target_reps += 1
+        if chunk.state is not ChunkState.DISSOLVED:
+            reformed_after = target_reps
+            break
+
+    assert reformed_after == bar, (
+        f"reformed after {reformed_after} target repetitions, expected exactly "
+        f"the reduced bar {bar} -- rapid reacquisition should now be governed "
+        "by reacquisition_repetition_factor, not window_trials"
+    )
+    assert chunk.reacquisition_outcomes == [], (
+        "revive() must reset the isolated window (symmetric with "
+        "reacquisition_repetitions) so a later re-dissolution starts clean"
+    )
+
+
+def test_c10_window_isolation_numerical_floor_refuses_a_single_sample():
+    """len(window) < 2 is a stability floor, not a second bar.
+
+    _variance() is definitionally 0.0 below n=2, which would let one
+    post-dissolution sample trivially clear the variance gate at bar==1
+    settings with zero evidence of consistency. One sample must be refused;
+    two (still consistent, still above baseline) must be judged and revive.
+    """
+    cfg = _cfg_retention(
+        min_repetitions=4,
+        window_trials=20,
+        dissolve_trials=5,
+        reacquisition_repetition_factor=0.25,  # bar = ceil(4 * 0.25) = 1
+        use_reacquisition_window_isolation=True,
+    )
+    pc = PolicyChunking(cfg)
+    _run(pc, trials=40)
+    target = (0, 1, 2, 3)
+    chunk = pc.library.get(target)
+    assert _dissolve_via_real_contamination(pc, target) is not None
+    assert pc.config.reacquisition_min_repetitions == 1
+
+    for a in target:
+        pc.record_step(a)
+    pc.note_outcome(1.0)
+    pc.end_episode()
+    assert chunk.reacquisition_repetitions == 1
+    assert len(chunk.reacquisition_outcomes) == 1
+    assert chunk.state is ChunkState.DISSOLVED, (
+        "bar is cleared (1 >= 1) but len(window) < 2 must still refuse"
+    )
+
+    for a in target:
+        pc.record_step(a)
+    pc.note_outcome(1.0)
+    pc.end_episode()
+    assert chunk.state is not ChunkState.DISSOLVED, (
+        "len(window) == 2 must be judgeable and revive"
+    )
+
+
 # ----------------------------------------------------------------------
 # C11 -- MECH-323 growable chunk-size ceiling (Ramkumar 2016 / Bo 2009)
 #
