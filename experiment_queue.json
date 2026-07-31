@@ -231,6 +231,23 @@
       "experiment_type": "v3_exq_848_arc005_precision_only_decoupled_ladder",
       "seeds": 5,
       "supersedes_note": "Not a lettered supersession of V3-EXQ-802 -- 802's C1/C3 occupancy result stands unchallenged. This is a new, precision-ONLY, decoupled-ladder design correcting 802's joint-ladder dilution confound on the precision DV specifically."
+    },
+    {
+      "queue_id": "V3-EXQ-852",
+      "title": "SD-085 substrate-readiness diagnostic: E3Config.f_weight reachable and correct through the full agent pipeline (ARC-062 GOV-FANOUT-1 Leg P-B prerequisite, NOT Leg P-B itself)",
+      "script": "experiments/v3_exq_852_sd085_f_weight_substrate_readiness.py",
+      "priority": 15,
+      "machine_affinity": "any",
+      "estimated_minutes": 5,
+      "note": "Minimal Step-8 /implement-substrate validation for SD-085 (REE_assembly docs/architecture/sd_085_e3_reality_cost_weight.md), landed ree-v3 main 12374fb. A unit-level smoke test (real E3TrajectorySelector + real Trajectory, tensor-exact torch.equal assertions) already confirmed f_weight at the score_trajectory function level during implementation; this run confirms the knob is reachable and correct through the FULL AGENT pipeline (REEConfig.from_dims -> REEAgent -> agent.e3.select()) on a real env, and stays numerically stable over a short run. NOT ARC-062 GOV-FANOUT-1 Leg P-B (arc_062_conversion_fanout_2026-07-29.md Section 2 Leg P-B, whose \"P-B buildability resolution\" note this SD closes) -- that is the separate scientific F-attenuation ladder (rule-apprehension channel ON, many seeds, C1/C2 statistics), deliberately out of scope of this run, to be authored in its own future /queue-experiment session now that this SD has landed. GOV-REUSE-1 (Step 2.4): decisive readout (f_weight through a real agent select() call) does not exist in any recorded manifest -- f_weight did not exist before this session. Not recoverable -> run. claim_ids=[] (diagnostic; supports nothing directly, brake-exempt). Smoke --dry-run PASS (1 seed, 1 episode): C1/C2/C3 all pass, min_candidates=32, z_goal_stream correctly reads unmeasured (goal_state not wired in this run). validate_experiments.py --strict: 0 findings (ANCHOR_REACHABILITY_EXEMPT declared -- candidate_pool_non_trivial is the degeneracy definition, reachable by construction).",
+      "status": "pending",
+      "architecture_epoch": "ree_hybrid_guardrails_v1",
+      "claim_ids": [],
+      "conditions": 2,
+      "episodes_per_run": 2,
+      "experiment_purpose": "diagnostic",
+      "experiment_type": "v3_exq_852_sd085_f_weight_substrate_readiness",
+      "seeds": 3
     }
   ]
 }
