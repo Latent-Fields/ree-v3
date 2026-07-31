@@ -160,3 +160,118 @@ def test_g5_select_action_runs_with_source_on():
         action = agent.select_action(candidates, ticks)
     assert action is not None
     assert torch.isfinite(action).all()
+
+
+def _build_agent_with_active_goal(candidate_summary_source: str, seed: int = 42):
+    """SD-057 L7 dACC-consume variant: use_mech_consume ON and goal_state
+    seeded ACTIVE (via cue_pull, no benefit gate needed), so the
+    candidate_goal_proximity block in select_action actually fires."""
+    from ree_core.environment.causal_grid_world import CausalGridWorldV2
+
+    torch.manual_seed(seed)
+    env = CausalGridWorldV2(
+        seed=seed, size=12, num_hazards=0, num_resources=5,
+        hazard_harm=0.0, harm_history_len=10,
+    )
+    cfg = REEConfig.from_dims(
+        body_obs_dim=env.body_obs_dim, world_obs_dim=env.world_obs_dim,
+        action_dim=env.action_dim, self_dim=32, world_dim=32, alpha_world=0.9,
+        use_support_preserving_cem=True,
+        support_preserving_stratified_elites=True,
+        support_preserving_ao_std_floor=0.2,
+        support_preserving_min_first_action_classes=2,
+        use_dacc=True,  # SD-057 L7 (use_mech_consume) requires use_dacc.
+        use_mech_consume=True,
+        candidate_summary_source=candidate_summary_source,
+    )
+    cfg.goal.z_goal_enabled = True
+    agent = REEAgent(cfg)
+    agent.reset()
+    _flat, obs_dict = env.reset()
+    body = obs_dict["body_state"].float().unsqueeze(0)
+    world = obs_dict["world_state"].float().unsqueeze(0)
+    with torch.no_grad():
+        latent = agent.sense(obs_body=body, obs_world=world)
+    # Seed z_goal directly so goal_state.is_active() is True -- the SD-057 L7
+    # dACC-consume block (agent.py select_action) gates on this, and cue_pull
+    # is the no-benefit-gate way to activate it deterministically for a test.
+    agent.goal_state.cue_pull(latent.z_world.detach(), 1.0)
+    assert agent.goal_state.is_active()
+    ticks = agent.clock.advance()
+    wdim = latent.z_world.shape[-1]
+    e1_prior = (
+        agent._e1_tick(latent) if ticks.get("e1_tick", False)
+        else torch.zeros(1, wdim)
+    )
+    candidates = agent.generate_trajectories(latent, e1_prior, ticks)
+    return agent, candidates, ticks
+
+
+def test_g6_dacc_goal_proximity_uses_candidate_world_summaries():
+    """Regression test (found 2026-07-31, chip-20260731-arc005-802-precision-
+    anomaly, while diagnosing why V3-EXQ-802's precision DV was invariant to
+    all four ARC-005 control-plane channels): the SD-057 L7 (MECH-348)
+    dACC-consume candidate_goal_proximity previously read
+    get_world_state_sequence()[0, 0, :] directly -- the collapsed proposer
+    timestep-0 state, identical across every candidate by construction -- so
+    it could never discriminate between candidates. This is the same failure
+    class ARC-065 GAP-A (G1-G5 above) already fixed for the sibling
+    lateral_pfc/ofc/mech295/gated_policy/tonic_vigor channels; the
+    dACC-consume block's own comment claimed to mirror MECH-295's build but
+    had only copied its legacy fallback half. Fixed by mirroring MECH-295's
+    _candidate_world_summaries()-first pattern exactly."""
+    agent, candidates, _ = _build_agent_with_active_goal("e2_world_forward")
+    K = len(candidates)
+    assert K >= 2
+
+    # The legacy collapsed-proposer summary -- what the bug used, always
+    # uniform across candidates. Sanity-checks the bug this test guards.
+    proposer_summ = torch.stack(
+        [c.get_world_state_sequence()[0, 0, :] for c in candidates], dim=0
+    )
+    with torch.no_grad():
+        proposer_gp = agent.goal_state.goal_proximity(proposer_summ).detach()
+    proposer_range = float((proposer_gp.max() - proposer_gp.min()).item())
+    assert proposer_range == 0.0, (
+        "sanity check failed: the collapsed proposer summary is expected to "
+        "be exactly uniform across candidates -- this is the bug being "
+        "regression-tested, so a nonzero range here means the fixture no "
+        "longer reproduces it"
+    )
+
+    # Strictly per-candidate-divergent world_forward (same technique as G3)
+    # so the fixed path has a genuine discriminative signal to carry.
+    def _divergent_wf(z, a):
+        n = z.shape[0]
+        return (
+            torch.arange(n, dtype=z.dtype)
+            .unsqueeze(1)
+            .expand(n, z.shape[1])
+            .clone()
+        )
+
+    agent.e2.world_forward = _divergent_wf  # type: ignore[assignment]
+    fixed_summ = agent._candidate_world_summaries(candidates)
+    assert fixed_summ is not None
+    with torch.no_grad():
+        fixed_gp = agent.goal_state.goal_proximity(fixed_summ).detach()
+    fixed_range = float((fixed_gp.max() - fixed_gp.min()).item())
+    assert fixed_range > 0.0, (
+        "candidate_goal_proximity must carry nonzero cross-candidate range "
+        "once candidate_summary_source='e2_world_forward' is set and "
+        "e2.world_forward genuinely diverges by candidate -- the fix under "
+        "test"
+    )
+
+
+def test_g7_dacc_goal_proximity_default_unchanged():
+    """Bit-identical guarantee: with candidate_summary_source left at its
+    'proposer' default, the SD-057 L7 dACC-consume block must still take the
+    legacy collapsed-proposer fallback path end-to-end through select_action
+    -- the fix is fully opt-in, never changing default behaviour."""
+    agent, candidates, ticks = _build_agent_with_active_goal("proposer")
+    assert agent._candidate_world_summaries(candidates) is None
+    with torch.no_grad():
+        action = agent.select_action(candidates, ticks)
+    assert action is not None
+    assert torch.isfinite(action).all()

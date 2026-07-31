@@ -6113,6 +6113,26 @@ class REEAgent(nn.Module):
             # object-discriminative. Gated by use_mech_consume; None otherwise
             # (adapter skips the goal term -> bit-identical). Mirrors the
             # MECH-295 first-step z_world summary build.
+            #
+            # BUG FIX (found 2026-07-31, chip-20260731-arc005-802-precision-anomaly):
+            # this previously read get_world_state_sequence()[0, 0, :] directly --
+            # timestep 0, the trajectory's STARTING world-state, identical across
+            # every candidate (they all branch from the same current latent).
+            # candidate_goal_proximity was therefore structurally uniform across
+            # candidates (measured: exactly 0.0 cross-candidate range on every
+            # call), unable to discriminate between candidates regardless of
+            # z_goal. Same failure class ARC-065 GAP-A already fixed for the
+            # lateral_pfc/ofc/mech295/gated_policy/tonic_vigor bias channels
+            # (V3-EXQ-614e autopsy, 2026-06-07): "the proposer first-step z_world
+            # collapses to cross-candidate spread ~0 under monostrategy". This
+            # block's own comment already claimed to mirror MECH-295's build but
+            # only copied its legacy fallback half, missing the
+            # _candidate_world_summaries() preferred path MECH-295 tries first
+            # (agent.py's mech295 block, ~line 6670). Fixed by mirroring that
+            # exact pattern. Bit-identical by default: candidate_summary_source
+            # defaults "proposer", under which _candidate_world_summaries()
+            # returns None and this falls through to the same legacy timestep-0
+            # loop as before.
             _dacc_goal_prox: Optional[torch.Tensor] = None
             if (
                 getattr(self.config, "use_mech_consume", False)
@@ -6120,15 +6140,18 @@ class REEAgent(nn.Module):
                 and self.goal_state.is_active()
                 and self._current_latent is not None
             ):
-                _gp_list: List[torch.Tensor] = []
-                for c in candidates:
-                    if c.world_states is not None:
-                        _gp_list.append(c.get_world_state_sequence()[0, 0, :])
-                    else:
-                        _gp_list.append(self._current_latent.z_world[0].detach())
+                _gp_summaries = self._candidate_world_summaries(candidates)
+                if _gp_summaries is None:
+                    _gp_list: List[torch.Tensor] = []
+                    for c in candidates:
+                        if c.world_states is not None:
+                            _gp_list.append(c.get_world_state_sequence()[0, 0, :])
+                        else:
+                            _gp_list.append(self._current_latent.z_world[0].detach())
+                    _gp_summaries = torch.stack(_gp_list, dim=0)
                 with torch.no_grad():
                     _dacc_goal_prox = self.goal_state.goal_proximity(
-                        torch.stack(_gp_list, dim=0)
+                        _gp_summaries
                     ).detach()
             bundle = self.dacc(
                 z_harm_a=z_harm_a.squeeze(0) if z_harm_a.dim() > 1 else z_harm_a,
