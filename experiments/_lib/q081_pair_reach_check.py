@@ -307,6 +307,7 @@ def run_pair_specific_reach_probe(
     strict: bool = True,
     tol: float = 0.0,
     min_boundary_events: int = 1,
+    mode: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Cheap end-to-end pre-flight: build a tiny, UNTRAINED agent+env pair (the
     exact V3-EXQ-838 reach configuration: `use_anchor_sets=True`,
@@ -343,6 +344,16 @@ def run_pair_specific_reach_probe(
     cheaper-still precondition: an agent without a REACH_CONSUMERS flag live
     cannot possibly show pair-specific reach either, and that failure mode is
     detectable from config alone, with no rollout at all.
+
+    `mode` selects the manipulation lever tested against INTACT, from
+    `q081_landmark_removal.MODES` minus `"off"` (default: `None`, which resolves
+    to `PRIMARY_MODE` = `"iei_permute"`, the pre-registered primary tested by
+    V3-EXQ-838). Added 2026-07-31 for V3-EXQ-848's untried-lever reach scan
+    (GOV-FANOUT-1 H1 leg: "reach scan across untried levers") -- the module's
+    original single-lever form is preserved exactly when `mode` is omitted, so
+    this is purely additive. `mode="jitter"` in particular has never been run
+    against this pair at any level (RV or precursor): 824/824a/838 covered
+    off/iei_permute/circular_shift/suppress only.
 
     Returns the same report shape as `assert_pair_specific_reach`, plus
     `behavioural_reach_precondition`, `is_degenerate`, `n_boundaries_true_total`,
@@ -394,11 +405,19 @@ def run_pair_specific_reach_probe(
     from .q081_landmark_removal import (  # noqa: E402
         LandmarkRemovalConfig,
         LandmarkScrambler,
+        MODES,
         PRIMARY_MODE,
         assert_behavioural_reach,
     )
     from .q081_profile import q081_profile_kwargs  # noqa: E402
     from .arm_fingerprint import reset_all_rng  # noqa: E402
+
+    resolved_mode = PRIMARY_MODE if mode is None else mode
+    if resolved_mode not in MODES or resolved_mode == "off":
+        raise ValueError(
+            f"mode={resolved_mode!r} is not a valid manipulation lever; must be "
+            f"one of {sorted(set(MODES) - {'off'})}."
+        )
 
     WORLD_DIM = SELF_DIM = 32
     ALPHA_WORLD = 0.9  # SD-008: z_world-fidelity-dependent experiments need >= 0.9
@@ -487,7 +506,7 @@ def run_pair_specific_reach_probe(
         "off", agent_intact
     )
     manipulated_trace, _, _, _manip_preservation = _collect_trace(
-        PRIMARY_MODE, agent_manipulated, donor_lookup=donor_index
+        resolved_mode, agent_manipulated, donor_lookup=donor_index
     )
 
     # NON-DEGENERACY GUARD -- see the module docstring "WHY UNTRAINED IS
@@ -531,7 +550,7 @@ def run_pair_specific_reach_probe(
     report["n_episodes"] = n_episodes
     report["steps_per_episode"] = steps_per_episode
     report["seed"] = seed
-    report["manipulation_mode"] = PRIMARY_MODE
+    report["manipulation_mode"] = resolved_mode
     return report
 
 
