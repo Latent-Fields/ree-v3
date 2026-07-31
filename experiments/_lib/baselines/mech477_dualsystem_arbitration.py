@@ -104,16 +104,51 @@ ASCII-only output (repo rule).
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
 
-from _lib.goal_pipeline_tier1 import ENV_FISHTANK_KWARGS, ArmSpec, build_config, warmup_train
-from ree_core.agent import REEAgent
-from ree_core.environment.causal_grid_world import CausalGridWorldV2
-from ree_core.hippocampal.curiosity import FamiliarityTracker
+# Path shim -- the _lib idiom (see ../probe_warmup.py:143-153 and
+# ./maturation_curriculum.py:117-123, and the same fix applied to the sibling
+# defect in ./stageh_strict_goal_isolation.py). Required, not cosmetic: BOTH
+# load orders were broken before this existed.
+#   * `import experiments._lib.baselines.mech477_dualsystem_arbitration` from
+#     the repo root raised ModuleNotFoundError: _lib. A bare-name import
+#     resolves only when experiments/ is itself on sys.path -- true under
+#     direct script execution (sys.path[0] = the script's own dir, which is
+#     how experiment_runner.py invokes every driver, and why production never
+#     sees this) but not under the package spelling used by contract tests and
+#     tooling.
+#   * `cd experiments && import _lib.baselines.mech477_dualsystem_arbitration`
+#     raised ModuleNotFoundError: ree_core -- the repo root is not on the path
+#     there.
+# Note this module sits TWO levels below experiments/, not one.
+#
+# The goal_pipeline_tier1 import below stays BARE deliberately, matching the
+# corpus majority: across this dependency's 30 importers (this module
+# included), 25 spell it bare and only 4 (v3_exq_827/827a/828/784) spell it
+# package-qualified. This module's own importers (V3-EXQ-811/811a) import IT
+# bare too (`from _lib.baselines import mech477_dualsystem_arbitration`), and
+# neither imports goal_pipeline_tier1 directly, so there is no live process
+# where a package-spelled rewrite here would remove an existing identity
+# split -- it would only be a unilateral departure from the majority spelling.
+# Same reasoning as ree-v3 73407e22e1 and b72340ade9: adopt the package
+# spelling only where it REMOVES a module-identity split, never where it
+# would merely be a cosmetic swap.
+_BASELINES_DIR = Path(__file__).resolve().parent    # experiments/_lib/baselines
+_EXP_DIR = _BASELINES_DIR.parent.parent             # experiments
+_REPO_ROOT = _EXP_DIR.parent                        # ree-v3
+for _p in (str(_REPO_ROOT), str(_EXP_DIR)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+from _lib.goal_pipeline_tier1 import ENV_FISHTANK_KWARGS, ArmSpec, build_config, warmup_train  # noqa: E402
+from ree_core.agent import REEAgent  # noqa: E402
+from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E402
+from ree_core.hippocampal.curiosity import FamiliarityTracker  # noqa: E402
 
 LINEAGE = "mech477_dualsystem_arbitration"
 

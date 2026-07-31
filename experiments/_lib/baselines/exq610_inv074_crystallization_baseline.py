@@ -57,7 +57,9 @@ ASCII-only output (repo rule).
 from __future__ import annotations
 
 import random
+import sys
 from collections import Counter
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -66,10 +68,44 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.distributions import Categorical
 
-from ree_core.agent import REEAgent
-from ree_core.environment.causal_grid_world import CausalGridWorldV2
-from ree_core.utils.config import REEConfig
-from infant_curriculum import InfantCurriculumScheduler
+# Path shim -- the _lib idiom (see ../probe_warmup.py:143-153 and
+# ./maturation_curriculum.py:117-123, and the same fix applied to the sibling
+# defects in ./stageh_strict_goal_isolation.py and ./mech477_dualsystem_arbitration.py).
+# Required, not cosmetic: BOTH load orders were broken before this existed.
+#   * `import experiments._lib.baselines.exq610_inv074_crystallization_baseline`
+#     from the repo root raised ModuleNotFoundError: infant_curriculum. A
+#     bare-name import resolves only when experiments/ is itself on sys.path --
+#     true under direct script execution (sys.path[0] = the script's own dir,
+#     which is how experiment_runner.py invokes every driver, and why
+#     production never sees this) but not under the package spelling used by
+#     contract tests and tooling.
+#   * `cd experiments && import _lib.baselines.exq610_inv074_crystallization_baseline`
+#     raised ModuleNotFoundError: ree_core -- the repo root is not on the path
+#     there.
+# Note this module sits TWO levels below experiments/, not one.
+#
+# The infant_curriculum import below stays BARE deliberately, matching the
+# corpus majority: of this module's ~30 importers of infant_curriculum, all
+# but two (v3_exq_669 / v3_exq_669a) spell it bare. This module's own
+# importers (V3-EXQ-610-mint, V3-EXQ-685) import IT bare too (`from
+# _lib.baselines.exq610_inv074_crystallization_baseline import ...`), and
+# neither imports infant_curriculum directly, so there is no live process
+# where a package-spelled rewrite here would remove an existing identity
+# split -- it would only be a unilateral departure from the majority spelling.
+# Same reasoning as ree-v3 73407e22e1 and b72340ade9: adopt the package
+# spelling only where it REMOVES a module-identity split, never where it
+# would merely be a cosmetic swap.
+_BASELINES_DIR = Path(__file__).resolve().parent    # experiments/_lib/baselines
+_EXP_DIR = _BASELINES_DIR.parent.parent             # experiments
+_REPO_ROOT = _EXP_DIR.parent                        # ree-v3
+for _p in (str(_REPO_ROOT), str(_EXP_DIR)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+from ree_core.agent import REEAgent  # noqa: E402
+from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E402
+from ree_core.utils.config import REEConfig  # noqa: E402
+from infant_curriculum import InfantCurriculumScheduler  # noqa: E402
 
 
 # Stable identity tag for the canonical OFF baseline (carried into the manifest
