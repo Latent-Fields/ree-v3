@@ -16186,3 +16186,97 @@ claim says arousal amplifies rather than breaks), MECH-359, MECH-390, SD-011.
   ("Follow-on: the residual entropy source is NAMED and FIXED", point 4), MECH-165 (S1/S2),
   MECH-273 (S3), and `experiments/scaffolded_sd054_onboarding.py` scaffold_env_seed (the
   design precedent this follows).
+
+## INV091-NULL-VALIDATION-RUN-LENGTH: standing default eval budget for the INV-091 driver family
+
+- INV091-NULL-VALIDATION-RUN-LENGTH (substrate_queue.json sd_id, not a numbered SD --
+  a run-length default fix, not a new architectural feature) -- IMPLEMENTED 2026-07-31.
+  New `experiments/_lib/inv091_driver_defaults.py`: standing default eval-phase episode/step
+  budget (`INV091_WARMUP_EPISODES=40`, `INV091_EVAL_EPISODES=24` [was 10],
+  `INV091_STEPS_PER_EPISODE=150`) for the INV-091 cross-stream-similarity-band driver family
+  (v3_exq_827 -> 827a -> 828 lineage). All three runs to date were executed at
+  `EVAL_EPISODES=10` (1500 eval-phase steps) and every one found `null_validation.checked=False`
+  -- too short for `q081_surrogate.plan_blocks` to build a valid constrained-realisation null.
+  The worst POST-phase-sync-fix deficit recorded (V3-EXQ-828, 6 arms) was 2848 steps needed
+  against 1500 supplied; 827's 12000-step reading is excluded from the sizing basis (it was
+  driven by the pre-fix lockstep clock-collapse bug that 827a's redesign already corrected, not
+  a property of a correctly-built driver). The new default (24 * 150 = 3600 eval-phase steps)
+  clears the recorded 2848-step floor with 26% margin.
+  Config: no new `REEConfig` / `ree_core` flag -- these are experiment-driver constants, not
+  substrate config. `q081_surrogate.py`'s null-validation THRESHOLD (`DEFAULT_SAFETY_FACTOR`,
+  `DEFAULT_MIN_BLOCKS`) is untouched; only the caller's run length is bumped to clear it.
+  Data flow: n/a (no new latent, encoder, or agent-loop wiring).
+  Backward compatible: no already-run experiment's recorded result changes; 827/827a/828 stay
+  exactly as reviewed and scored in claims.yaml. A future successor script in this family opts
+  in by importing the new constants (see the module docstring for the exact import).
+  Not a new architectural feature, so no SD doc / phased-training / MECH-094 considerations
+  apply.
+  Validation: 5 new contracts, `tests/contracts/test_inv091_null_validation_run_length.py`
+  (positive floor-clearance check with a documented margin threshold; warmup/step-length
+  unchanged from the original driver; a negative control against the original undersized
+  1500-step configuration; the module's own top-level assert fires on a regressed constant;
+  the exact import path the docstring documents) -- all pass, alongside the existing
+  `test_q081_surrogate_null.py` + `test_q081_landmark_removal.py` (66 passed total).
+  Validation experiment: none queued in this session (scope discipline -- this is a substrate
+  readiness fix, not the experiment itself). A `/queue-experiment` follow-on for the next
+  INV-091 driver-family successor, importing these constants, is the natural next step and is
+  chipped rather than done here.
+  See INV-091, `REE_assembly/evidence/planning/substrate_queue.json` sd_id
+  INV091-NULL-VALIDATION-RUN-LENGTH.
+
+## Q081-REACH-CHECK-PAIR-SPECIFIC: cheap empirical pre-flight reach probe for Q-081
+
+- Q081-REACH-CHECK-PAIR-SPECIFIC (substrate_queue.json sd_id, not a numbered SD -- an
+  experiment-layer diagnostic library, not a new architectural feature) -- IMPLEMENTED
+  2026-07-31. New `experiments/_lib/q081_pair_reach_check.py`: three consecutive Q-081
+  landmark-removal runs (V3-EXQ-824, 824a, 838) found RV(z_world, operating_mode)
+  bit-identical between the INTACT arm and every manipulation arm at every seed, despite
+  `assert_behavioural_reach()` (q081_landmark_removal.py) reporting the REACH_CONSUMERS
+  flags MET each time from 824a onward -- a blanket flag check is necessary but not
+  sufficient. This module is the EMPIRICAL check: it reads `agent.salience._input_signals`
+  (the closed, named set of values `SalienceCoordinator.tick()` computes `operating_mode`
+  from -- source-traced in the module docstring) at every tick for an INTACT vs the
+  PRIMARY_MODE=`iei_permute` manipulation arm, over a short untrained rollout, and diffs
+  them. Because `operating_mode` is a deterministic function of exactly these precursor
+  values (plus static config), this is a necessary-and-sufficient test, cheaper than
+  waiting for an RV statistic on the softmax OUTPUT across a full multi-seed recording run
+  -- and it NAMES which signal (if any) moved and at which tick.
+  Config: no new `REEConfig` / `ree_core` flag -- same discipline as
+  `q081_landmark_removal.py` / `q081_surrogate.py` (experiment-layer only, no
+  backward-compatibility surface).
+  Data flow: n/a (no new latent, encoder, or agent-loop wiring; reads an existing plain
+  dict attribute non-destructively).
+  MATCHED-ARM CONSTRUCTION (load-bearing, found empirically while building this): both
+  arms run from a `copy.deepcopy()` of ONE seeded, freshly-constructed agent, with
+  `reset_all_rng(seed)` (arm_fingerprint.py) called before each arm's rollout -- exactly
+  V3-EXQ-838's `arm_cell` discipline. An early version without this produced a
+  false-positive "reach" (a `drive_level` divergence) that was actually uncontrolled
+  global torch RNG state ordering between the two arms, not the landmark manipulation;
+  fixed and re-verified (5/5 seeds correctly report no reach once RNG-matched).
+  NON-DEGENERACY GUARD (load-bearing, found empirically): the hippocampal event
+  segmenter's boundary trigger fires SPARSELY on an untrained, randomly-initialised
+  network, with large seed-to-seed variance (0 boundaries in 1200 untrained ticks at one
+  seed, 76-120 at others, identical config otherwise). A rollout with zero true boundary
+  events gave the manipulation nothing to scramble; `run_pair_specific_reach_probe`
+  reports `is_degenerate=True` (raises when strict) rather than a misleading "no reach"
+  verdict -- the same class of guard MECH-466's own non-degeneracy convention specifies.
+  Not a new architectural feature, so no SD doc / phased-training / MECH-094
+  considerations apply (no simulation/replay content is written; it is a read-only
+  diagnostic).
+  Validation: 15 contract tests, `tests/contracts/test_q081_pair_reach_check.py` (pure
+  detector-fires-on-real-divergence / detector-does-not-false-positive-on-identical-
+  traces / tolerance / first-divergent-tick-is-earliest / length-mismatch-raises tests
+  against fakes; a live REEAgent/env smoke test against the real substrate; a live
+  degeneracy-guard-raises test) -- all pass in ~7.5s. Manual run at the module's own
+  non-degenerate defaults (n_episodes=3, steps_per_episode=400, env_size=6): seeds 0 and 1
+  cleared the guard and both reproduced V3-EXQ-824a/838's confirmed finding
+  (`has_pair_specific_reach=False`); seed 2 came back correctly flagged degenerate.
+  Validation experiment: none queued in this session (scope discipline -- this is a
+  substrate readiness / pre-flight-gate fix, not a Q-081 evidence experiment itself). A
+  future Q-081 driver should call `run_pair_specific_reach_probe(...)` or
+  `assert_pair_specific_reach(..., strict=True)` BEFORE committing to a full multi-seed
+  recording run: a raise means a full run would reproduce the same non_contributory
+  result -- do not run it; find a different manipulation lever with confirmed reach to a
+  named salience signal, or reframe the measured pair onto a confirmed-reachable one (H2).
+  See Q-081, INV-091, `REE_assembly/evidence/planning/substrate_queue.json` sd_id
+  Q081-REACH-CHECK-PAIR-SPECIFIC.
