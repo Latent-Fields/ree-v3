@@ -456,6 +456,64 @@ def test_channel_routing_below_floor_inactive():
     assert diag["modulatory_channel_route_range"] < 1.0
 
 
+def test_channel_routing_lateral_pfc_source_agent_level():
+    """ARC-062/MECH-309 P-A erratum fix (2026-07-31): agent-level wiring contract
+    for modulatory_channel_route_source="lateral_pfc" -- the SD-033a LateralPFCAnalog
+    rule-apprehension bias (_bdc_lpfc) reaches the route-range authority via
+    REEAgent.select_action's elif chain, mirroring the existing per-source agent-level
+    contract in test_mech294_per_candidate_coherence.py::test_c7. NOT "gated_policy":
+    that channel is the unrelated ARC-062 Phase-1 GatedPolicy module (no connection
+    to LateralPFCAnalog/CandidateRuleField -- see the plan doc erratum)."""
+    from ree_core.agent import REEAgent
+    from ree_core.environment.causal_grid_world import CausalGridWorldV2
+    from ree_core.utils.config import REEConfig
+
+    torch.manual_seed(11)
+    env = CausalGridWorldV2(
+        seed=11, size=12, num_hazards=0, num_resources=5,
+        hazard_harm=0.0, harm_history_len=10,
+    )
+    cfg = REEConfig.from_dims(
+        body_obs_dim=env.body_obs_dim, world_obs_dim=env.world_obs_dim,
+        action_dim=env.action_dim, self_dim=32, world_dim=32, alpha_world=0.9,
+        use_lateral_pfc_analog=True,
+        use_modulatory_selection_authority=True,
+        use_modulatory_channel_routing=True,
+        modulatory_channel_route_source="lateral_pfc",
+        modulatory_channel_route_min_range_floor=1e-6,
+    )
+    agent = REEAgent(cfg)
+    agent.reset()
+    agent.e3.e3_score_decomp_enabled = True  # populates _bdc_lpfc (agent.py gate)
+    _flat, obs_dict = env.reset()
+    body = obs_dict["body_state"].float().unsqueeze(0)
+    world = obs_dict["world_state"].float().unsqueeze(0)
+    with torch.no_grad():
+        latent = agent.sense(obs_body=body, obs_world=world)
+    ticks = agent.clock.advance()
+    wdim = latent.z_world.shape[-1]
+    e1_prior = (
+        agent._e1_tick(latent) if ticks.get("e1_tick", False)
+        else torch.zeros(1, wdim)
+    )
+    candidates = agent.generate_trajectories(latent, e1_prior, ticks)
+    assert len(candidates) >= 2
+
+    with torch.no_grad():
+        action = agent.select_action(candidates, ticks)
+    assert action is not None
+    assert torch.isfinite(action).all()
+
+    diag = agent.e3.last_score_diagnostics
+    assert diag is not None and "modulatory_channel_route_active" in diag, (
+        "the lateral_pfc channel must reach the route-range authority without error"
+    )
+    assert diag["modulatory_channel_route_range"] > 1e-6, (
+        "lateral_pfc route source must carry the LateralPFCAnalog bias's "
+        "cross-candidate range (P0 readiness gate)"
+    )
+
+
 # ---------------------------------------------------------------------------
 # CONVERSION amend (569g/682, 2026-06-15): gain/contrast normalize_basis (a)
 # + shortlist-then-modulate (b). behavioral_diversity_isolation:GAP-A.
