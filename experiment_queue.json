@@ -48,6 +48,25 @@
       "seeds": 3
     },
     {
+      "queue_id": "V3-EXQ-475b",
+      "title": "Q-040.c: is dACC behavioural-adjustment magnitude proportional to V_s precision-modulated forward-PE under MECH-269b=ON? (475a-conditions successor)",
+      "script": "experiments/v3_exq_475b_q040c_dacc_pe_weight_delta_correlation.py",
+      "priority": 45,
+      "machine_affinity": "any",
+      "estimated_minutes": 90,
+      "note": "Successor to V3-EXQ-475a in the goal_pipeline:GAP-4 Tier-1 cohort. Tests claims.yaml Q-040's third sub-question (Q-040.c), never previously queued -- 475a itself tests a different question (SD-036 GABAergic decay). Factorial on MECH-269b use_vs_rollout_gating OFF/ON (full V_s invalidation circuit held ON in both arms, 490b/490c convention), 475a-conditions gap4-operating substrate (gaba decay + PAG freeze + dACC ON), 3 seeds. Primary DV: per-seed Spearman rho (degeneracy-safe, via experiments/_lib/stats.py) between per-step precision-weighted PE and dACC score-bias-vector magnitude. Gate-firing (P1) and dACC-engagement (P2) preconditions self-route substrate_not_ready_requeue before any verdict is read. PASS = >=2/3 ON-arm seeds |rho|>=0.3 AND >=2/3 OFF-arm seeds |rho|<0.15. validate_experiments.py --strict: 0 findings. --dry-run smoke PASS (ran end-to-end, correctly self-routed substrate_not_ready_requeue at smoke scale). See goal_pipeline_plan.md GAP-4 row (REE_assembly c7d41de299) for full context.",
+      "status": "pending",
+      "architecture_epoch": "ree_hybrid_guardrails_v1",
+      "claim_ids": [
+        "Q-040"
+      ],
+      "conditions": 6,
+      "episodes_per_run": 60,
+      "experiment_purpose": "evidence",
+      "experiment_type": "v3_exq_475b_q040c_dacc_pe_weight_delta_correlation",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-844",
       "title": "MECH-321 R4 mid-execution: does the abort hook improve task/harm outcome?",
       "script": "experiments/v3_exq_844_mech321_r4_midexec_task_effect.py",
@@ -247,25 +266,6 @@
       "episodes_per_run": 2,
       "experiment_purpose": "diagnostic",
       "experiment_type": "v3_exq_852_sd085_f_weight_substrate_readiness",
-      "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-475b",
-      "title": "Q-040.c: is dACC behavioural-adjustment magnitude proportional to V_s precision-modulated forward-PE under MECH-269b=ON? (475a-conditions successor)",
-      "script": "experiments/v3_exq_475b_q040c_dacc_pe_weight_delta_correlation.py",
-      "priority": 45,
-      "machine_affinity": "any",
-      "estimated_minutes": 90,
-      "note": "Successor to V3-EXQ-475a in the goal_pipeline:GAP-4 Tier-1 cohort. Tests claims.yaml Q-040's third sub-question (Q-040.c), never previously queued -- 475a itself tests a different question (SD-036 GABAergic decay). Factorial on MECH-269b use_vs_rollout_gating OFF/ON (full V_s invalidation circuit held ON in both arms, 490b/490c convention), 475a-conditions gap4-operating substrate (gaba decay + PAG freeze + dACC ON), 3 seeds. Primary DV: per-seed Spearman rho (degeneracy-safe, via experiments/_lib/stats.py) between per-step precision-weighted PE and dACC score-bias-vector magnitude. Gate-firing (P1) and dACC-engagement (P2) preconditions self-route substrate_not_ready_requeue before any verdict is read. PASS = >=2/3 ON-arm seeds |rho|>=0.3 AND >=2/3 OFF-arm seeds |rho|<0.15. validate_experiments.py --strict: 0 findings. --dry-run smoke PASS (ran end-to-end, correctly self-routed substrate_not_ready_requeue at smoke scale). See goal_pipeline_plan.md GAP-4 row (REE_assembly c7d41de299) for full context.",
-      "status": "pending",
-      "architecture_epoch": "ree_hybrid_guardrails_v1",
-      "claim_ids": [
-        "Q-040"
-      ],
-      "conditions": 6,
-      "episodes_per_run": 60,
-      "experiment_purpose": "evidence",
-      "experiment_type": "v3_exq_475b_q040c_dacc_pe_weight_delta_correlation",
       "seeds": 3
     }
   ]
