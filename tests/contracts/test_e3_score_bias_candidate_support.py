@@ -477,6 +477,17 @@ def test_channel_routing_lateral_pfc_source_agent_level():
         body_obs_dim=env.body_obs_dim, world_obs_dim=env.world_obs_dim,
         action_dim=env.action_dim, self_dim=32, world_dim=32, alpha_world=0.9,
         use_lateral_pfc_analog=True,
+        # GAP-D un-zero: LateralPFCAnalog's bias_head last Linear is ZEROED by
+        # default (lateral_pfc_analog.py train_rule_bias_head=False), so
+        # compute_bias is deterministically degenerate (range 0.0) without this.
+        lateral_pfc_train_rule_bias_head=True,
+        # ARC-065 GAP-A: the collapsed "proposer" cand_world_summaries source
+        # (default) is the SAME first-step z_world for every candidate on tick
+        # 0 (actions have not yet been applied), so compute_bias's input --
+        # and therefore its output range -- is degenerate regardless of the
+        # un-zero fix above. e2_world_forward genuinely depends on the
+        # per-candidate action (654j's own matched-stack default).
+        candidate_summary_source="e2_world_forward",
         use_modulatory_selection_authority=True,
         use_modulatory_channel_routing=True,
         modulatory_channel_route_source="lateral_pfc",
