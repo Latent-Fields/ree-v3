@@ -5596,6 +5596,116 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
   Design doc: REE_assembly/docs/architecture/sd_036_gabaergic_decay_regulator.md
   See SD-036, MECH-279, MECH-094, SD-010, SD-011, MECH-090, SD-012.
 
+- SD-036 harm-stream decay RECURRENCE -- IMPLEMENTED 2026-07-31.
+  THE DECAY ABOVE HAD NO TEMPORAL AUTHORITY OVER THE TWO HARM STREAMS UNTIL
+  THIS LANDED, AND THAT SILENTLY VACUATED THE ENTIRE PRE-REGISTERED SD-036
+  EXPERIMENT PROGRAMME. Read this before designing any SD-036 experiment.
+  Defect: LatentStack.encode() produced z_harm (SD-010) and z_harm_a (SD-011)
+  as PURE FEEDFORWARD encodes of the current observation. The regulator ticks
+  in sense() AFTER that encode and the agent stores the decayed value as
+  _current_latent -- but the next encode() overwrote it from the encoder
+  instead of reading it back. So for those two streams z_s(t+1) was not a
+  function of z_s(t) AT ALL: the regulator degenerated to a one-step constant
+  rescale, discarded every tick. z_beta was never affected -- it already
+  blends with prev_state (stack.py, alpha_shared) -- and that contrast is
+  what localised the defect.
+  Measured on the pre-fix substrate (one identical recorded observation tape
+  replayed into agents differing ONLY in gaba_tone; 60 steps, seed 0,
+  471-lineage env), peak-normalised trajectory max-deviation vs tone=1.0:
+    z_harm    <= 2.0e-07 (shape BIT-IDENTICAL); raw ratio at tone=0.0
+              1.05127107 == exp(0.05) to 8 significant figures
+    z_harm_a  <= 1.4e-07 (shape BIT-IDENTICAL); raw ratio 1.02020133
+              == exp(0.02)
+    z_beta    2.0e-02 .. 2.9e-02 -- genuinely compounds, does NOT match a
+              single-tick exp(-tau * delta_tone)
+  Post-fix the same measurement gives z_harm 1.3e-02 .. 1.8e-02 and z_harm_a
+  5.0e-02 .. 7.1e-02, with z_beta unchanged to the digit.
+  WHY THIS MATTERED SCIENTIFICALLY: any SCALE-FREE DV is exactly invariant to
+  a constant rescale. harm_norm_sustain_ratio (= mean/peak, in
+  experiments/_lib/goal_pipeline_tier1.py) is the DV of the registered SD-036
+  dose-response falsifier, and its spread across the whole
+  gaba_tone {0.3, 0.5, 1.0, 1.5, 2.0} sweep was 8.6e-08 -- structurally
+  vacuous, not merely underpowered. A fixed-ABSOLUTE-threshold DV would
+  instead have shown a clean monotone dose-response, i.e. a confident-but-
+  wrong confirmation of the trivial rescale. Post-fix the spread is 1.4e-03
+  (z_harm) and 1.0e-01 (z_harm_a, monotone decreasing in tone).
+  Fix: a prev_state blend in encode(), matching the substrate's established
+  idiom for a stateful stream:
+    z_s(t) = alpha_s * encode(obs_t) + (1 - alpha_s) * z_s_decayed(t-1)
+  Composed with the regulator's end-of-tick rescale the stream is a leaky
+  integrator with pole (1 - alpha_s) * exp(-tau_s * gaba_tone), so gaba_tone
+  moves BOTH the relaxation time constant and the steady-state gain -- the
+  trajectory SHAPE, not just its scale.
+  THE DECAY ARITHMETIC STAYS IN THE REGULATOR. encode() supplies only the
+  recurrence, so SD-036's architectural commitment ("multi-target regulation
+  lives at the regulator, not in each target") is preserved -- do not move
+  exp(-tau*tone) into the stack.
+  Applied to the LatentState FIELD, not to a specific encoder output, so it
+  also covers the MECH-099 lateral head that SD-010 overrides -- the same
+  stream-name keying the regulator uses. harm_accum_pred (the SD-011 aux head
+  target) is a separate encoder output and is NOT blended, so
+  compute_harm_accum_loss keeps its full gradient path.
+  WHY NOT the design doc's literal "input drives OR decay" switch: it
+  presumes an EVENT-like input. harm_obs is a dense continuously-present
+  field view (hazard field + resource field + exposure). Measured over 60
+  steps, ||harm_obs|| ranged 2.32 .. 5.21 and was NEVER zero, so there is no
+  "absence of input" tick to switch on; a hard switch would either never fire
+  or permanently starve the stream. The regulator's existing suspend-on-input
+  gate (gaba_input_threshold_*) remains the soft form of that mechanism.
+  Related measurement worth knowing: harm_encoder(zeros) has norm 0.462 and
+  affective_harm_encoder(zeros, zeros) 0.332. So the "~0.7 pinned z_harm_norm"
+  in the V3-EXQ-471 origin exemplar is substantially an ENCODER FLOOR
+  response to the ambient hazard field, not pure temporal persistence -- the
+  design doc's root-cause story is at best incomplete. Flagged for governance;
+  NOT acted on here.
+  Config: LatentStackConfig.gaba_harm_state_recurrence (bool, default False)
+  is MIRRORED from REEConfig.use_gabaergic_decay by REEAgent.__init__ -- do
+  not set it directly. Mirroring at the agent (rather than in from_dims) is
+  deliberate: an experiment that flips config.use_gabaergic_decay AFTER
+  construction (the idiom V3-EXQ-475 uses for several fields) would otherwise
+  get the regulator without the recurrence, i.e. silently back to the vacuous
+  rescale. Four from_dims knobs, all LatentStackConfig-scoped:
+  gaba_recurrence_z_harm_s / _a (bool, both True -- set one False for the
+  decay-without-recurrence control arm) and gaba_state_alpha_z_harm_s (0.5) /
+  gaba_state_alpha_z_harm_a (0.2). alpha 1.0 = legacy feedforward;
+  0.0 = pure autoregression (input never enters).
+  Alpha rationale: sensory-discriminative harm (SD-010, spinothalamic
+  analogue) tracks stimulus intensity so it stays input-led; affective-
+  motivational harm (SD-011, spinoparabrachial analogue) integrates, matching
+  the design doc's "emotional residue persists longer" rationale for its
+  slower tau. Measured tradeoff -- lower alpha gives stronger decay authority;
+  at alpha_s=0.3 the z_harm sustain-ratio response goes non-monotone (spread
+  3.7e-04, noise-level), at 0.5 and 0.7 it is monotone. 0.5/0.2 keeps all
+  three registered streams in the same responsiveness band (z_harm 1.8e-02,
+  z_beta 2.9e-02, z_harm_a 7.1e-02), which is what observable #3
+  (multi-stream cluster) needs in order to discriminate regulator-layer decay
+  from per-stream decay.
+  BACKWARD COMPATIBLE, verified differentially rather than asserted: with
+  use_gabaergic_decay=False the full latent trajectory is BIT-IDENTICAL to
+  the pre-change substrate (max|diff| = 0.000e+00 on z_harm, z_harm_a and
+  z_beta over the 60-step tape, run against a detached worktree at the
+  pre-change commit).
+  NOT backward compatible for gaba_tone=0.0 WITH the master switch ON, by
+  design: the regulator suspends decay at tone 0 but the recurrence is still
+  active, so the stream is a leaky integrator with pole (1 - alpha) rather
+  than the legacy feedforward one. tone=0 is therefore no longer the
+  "legacy" control arm -- use use_gabaergic_decay=False for legacy, or
+  gaba_recurrence_z_harm_s/_a=False to isolate decay from recurrence.
+  Contracts: tests/contracts/test_sd_036_gabaergic_decay.py C11-C16. These
+  step a REAL REEAgent through sense() over a fixed observation tape -- the
+  thing no SD-036 test did before, and precisely why the defect survived.
+  C1-C10 all exercised the regulator against a synthetic _Latent() stand-in
+  re-ticked IN PLACE, where compounding holds trivially. C13 is the
+  differential control: ablating one stream's recurrence must restore that
+  stream's pre-fix vacuity (< 1e-05) while the other stays live, which is
+  what stops C11/C12 passing for unrelated reasons. Verified to FAIL against
+  the pre-change substrate (C11, C12, C14 all fail there).
+  Validation experiment: NOT queued by this landing -- see the SD-036 entry
+  above and the design doc's "Predicted observables" 1-3, all three of which
+  were unbuildable before this and are now buildable.
+  Design doc: REE_assembly/docs/architecture/sd_036_gabaergic_decay_regulator.md
+  See SD-036, SD-010, SD-011, MECH-090, MECH-099, MECH-279, MECH-094.
+
 - MECH-279: pag.freeze_gate -- IMPLEMENTED 2026-04-22.
   Module: ree_core/pag/freeze_gate.py (PAGFreezeGate, PAGFreezeGateConfig,
   PAGFreezeGateOutput). Periaqueductal-gray-analog committed-freeze gate.
@@ -10728,9 +10838,15 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
       selectable via modulatory_channel_route_source: "cand_world_summary" (the
       [K, world_dim] world-summary channel -- 569f cluster lead, the genuine
       projection case, sourced from cand_world_summaries / the ARC-065 GAP-A helper) /
-      "curiosity" / "gated_policy" / "mech295" / "coherence" (each an already-computed
-      per-candidate [K] bias, identity-routed; the MECH-294 compose bias stashed as
-      _bdc_coherence). Default "none" -> channel_route_bias=None -> bit-identical.
+      "curiosity" / "gated_policy" / "mech295" / "coherence" / "lateral_pfc" (each an
+      already-computed per-candidate [K] bias, identity-routed; the MECH-294 compose
+      bias stashed as _bdc_coherence; "lateral_pfc" (2026-07-31, ARC-062/MECH-309 P-A
+      erratum fix) is the SD-033a LateralPFCAnalog rule-apprehension bias stashed as
+      _bdc_lpfc -- the channel use_candidate_rule_field actually differentiates.
+      NOT "gated_policy": that routes the unrelated ARC-062 Phase-1 GatedPolicy
+      module's bias (_bdc_gp), which has no connection to LateralPFCAnalog/
+      CandidateRuleField -- see arc_062_conversion_fanout_2026-07-29.md erratum).
+      Default "none" -> channel_route_bias=None -> bit-identical.
   P0 readiness gate: modulatory_channel_route_range lets a retest assert the
   modulatory bias ITSELF carries cross-candidate range derived from the channel under
   test BEFORE any behavioural falsifier is scored (so an unrouted channel cannot
@@ -15705,6 +15821,76 @@ claim says arousal amplifies rather than breaks), MECH-359, MECH-390, SD-011.
   attaches to the OPERATOR, not to chunk-driven behaviour.
   See MECH-324, MECH-323, MECH-322, ARC-071, MECH-094, and the
   dissolution-is-suppression-with-retention section of policy_chunking.py's module docstring.
+
+- ARC-071 / MECH-324: reacquisition-window ISOLATION fix -- corrects V3-EXQ-829's
+  confirmed FALSIFIED result -- IMPLEMENTED 2026-07-31 (IGW-20260731-196; ree-v3
+  7747a01c94). A targeted bugfix to the revival gate's data flow, not a new
+  mechanism -- the dissolution-with-retention structure above is unchanged.
+  Design doc: REE_assembly/docs/architecture/mech324_reacquisition_window_isolation.md.
+  ROOT CAUSE (confirmed by V3-EXQ-829, ree-v3 77e3ddc): the revival gate in
+  PolicyChunking._attempt_reacquisition() read variance/mean from
+  ChunkAccumulator._tally[key] -- the sequence's WHOLE-LIFETIME sliding window,
+  FIFO-capped at window_trials, never reset or segmented at dissolution.
+  Reaching DISSOLVED requires dissolve_trials (default 50) of supra-F_high
+  outcomes for that exact sequence, written into that SAME tally bucket, so at
+  the moment of dissolution the bucket is saturated with the contaminating
+  stream that caused the dissolution. Clearing var < F_low then takes ~0.9 x
+  window_trials trials regardless of the reacquisition_repetition_factor bar --
+  exactly V3-EXQ-829's measured signature (median_r_reacq flat across every
+  tested f_reacq, r_reacq/window_trials = 0.908 +/- 0.029).
+  FIX: ree_core/policy/policy_chunking.py -- new field
+  ChunkedPrimitive.reacquisition_outcomes (List[float], FIFO-capped at
+  window_trials), populated only from real executions SINCE the most recent
+  dissolution (ChunkLibrary.note_real_execution()'s new outcome_signal param,
+  threaded from PolicyChunking.note_outcome()); reset to [] in both
+  _mark_dissolved() and revive() (symmetric with reacquisition_repetitions).
+  PolicyChunking._attempt_reacquisition() branches on the new flag: True reads
+  var/mu from chunk.reacquisition_outcomes (isolated, post-dissolution-only)
+  instead of accumulator._tally[key] (contaminated, whole-lifetime); a
+  len(window) < 2 numerical-stability floor prevents a single post-dissolution
+  sample from trivially clearing the variance gate at bar==1 settings (var is
+  definitionally 0.0 below n=2 -- "no evidence" masquerading as "perfect
+  consistency").
+  Config: PolicyChunkingConfig.use_reacquisition_window_isolation /
+  REEConfig.use_reacquisition_window_isolation (default False). NESTED UNDER
+  use_chunk_dissolution_retention -- with retention off no chunk is ever
+  dormant, so the isolated window would never populate; the pairing is REFUSED
+  loudly by PolicyChunkingConfig.validate(), matching the established
+  sub-switch convention (see use_chunk_dissolution_retention above).
+  Backward compatible: with the flag at default False, _attempt_reacquisition()
+  takes the untouched else-branch reading the same contaminated tally exactly
+  as before -- bit-identical output. reacquisition_outcomes is still populated
+  (written under the enclosing use_chunk_dissolution_retention flag, consulted
+  only under the new sub-flag -- same convention as n_dissolutions /
+  n_reacquisitions), but nothing reads it on the OFF path, so this is memory
+  bookkeeping only. Both prerequisite switches (use_chunk_maintenance,
+  use_chunk_dissolution_retention) already default False, so every existing
+  experiment with default config is completely unaffected regardless of this
+  change.
+  MECH-094: does not apply. The fix only touches the real-execution
+  (note_real_execution) path reached from PolicyChunking.note_outcome(), never
+  the hypothesis_tag=True replay carve-out (ChunkAccumulator.record_replay_sequence);
+  replay-origin chunks remain permanently excluded from revival, unchanged.
+  Phased training: no (pure arithmetic, no learned parameters, no gradients).
+  Contracts: 5 new tests in tests/contracts/test_arc071_policy_chunking.py C10
+  block -- off-by-default + precondition, from_dims 3-site forwarding, the bug
+  REPRODUCED via real dissolution (contaminating note_outcome calls on the
+  target sequence, NOT the existing suite's _dissolve() shortcut -- confirmed
+  that shortcut never touches the tally and so never exercised this path),
+  the fix confirmed (reformed-after == the reduced bar instead of ==
+  window_trials), and the len(window)<2 numerical floor. All 100 tests in the
+  file green (95 pre-existing + 5 new); registered PROBED in
+  tests/test_flag_inertness.py. Full tests/contracts suite verified green
+  locally on the Mac (3085 passed, 0 failed, 632s) after fleet-wide contention
+  (hub + all 3 cloud workers running real hours-long experiments) prevented
+  the remote pre-commit gate; committed --no-verify with explicit user
+  approval.
+  Validation experiment: V3-EXQ-829a queued (supersedes V3-EXQ-829), adding
+  use_reacquisition_window_isolation as a third ablation axis crossed with
+  829's exact f_reacq sweep and window_trials {30,100}; smoke --dry-run
+  confirmed C1-C6 all green at n=1 (rho_ISOON=1.0, rho_ISOOFF=n/a correctly
+  reproducing the flat signature).
+  See MECH-324, MECH-323, ARC-071, MECH-094, V3-EXQ-829, V3-EXQ-829a.
 
 - ARC-071 / MECH-323: chunk CREDIT RULE is all-position, not trailing-only -- IMPLEMENTED
   2026-07-27. ree_core/policy/policy_chunking.py (ChunkAccumulator.note_outcome,
