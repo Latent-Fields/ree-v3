@@ -6,5 +6,22 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-844",
+      "title": "MECH-321 R4 mid-execution: does the abort hook improve task/harm outcome?",
+      "script": "experiments/v3_exq_844_mech321_r4_midexec_task_effect.py",
+      "priority": 45,
+      "machine_affinity": "any",
+      "estimated_minutes": 35,
+      "claim_id": "MECH-321",
+      "note": "EVIDENCE successor to V3-EXQ-839 (confirmed failure_autopsy_V3-EXQ-839_2026-07-30.md), which validated MECH-321 R4's mid-execution abort hook is REACHABLE (SD-084 persistent handle; 415 evaluations ON, 0 OFF) but adjudicated reachability ONLY. This run tests the TASK-OUTCOME question the autopsy routed here: does aborting a stale committed macro mid-execution (V_s drop / MECH-288 boundary on the remaining content) reduce execution-time forward-prediction error / harm relative to letting it run to completion? NOT a repeat of the 2026-07-29-refused 816e env-harshening re-queue -- that refusal targets the PRE-COMMIT/R1 forward-PE discrimination-floor axis (816/816b/816c/816d); this is R4 (mid-execution), reached via 839's clean (non-verdict-free) reachability result, per the 2026-07-30 governance note's explicit routing. Reuses the sd084_midexec_reachability baseline module verbatim (env/schedule/both seed tiers, ARM_HANDLE_OFF/ARM_HANDLE_ON) -- the only manipulation is unchanged; only the instrumentation (per-tick forward-PE + harm) and DV differ. GOV-REUSE-1: 839's own behavioural_delta is a WHOLE-RUN aggregate (mixed/near-null: seed 3/71/89 harm delta -0.0007/-0.0020/-0.0004) and retains no per-tick forward-PE or raw harm sequence, so the decisive windowed (post-divergence-tick) statistic this run needs is not recoverable via reanalysis -- fresh run required; OFF arm reuse attempted via try_reuse_cell citing 839's mint and correctly refused (needed_keys not in 839's schema), falls through to a fresh run, re-minted reuse-eligible for a future consumer. Seed tiers RE-MEASURED fresh (not imported from 839): ON-decomposes seeds (this run's own decomp_n_decomposed_midexec > 0) carry the load-bearing C1; fires-but-inert / negative-control seeds (839's seed 47 pattern) are a non-gating null check. HOLD-WEIGHTED-READOUT triage: C1 uses the FRESH-e3-selection-restricted windowed harm delta (not the hold-weighted all-tick mean), per validate_experiments's advisory -- both variants recorded, kept distinct. Effect-size gate mirrors V3-EXQ-816's P1-P3/EFFECT_SIZE_K_SIGMA shape; n is small (<=3 seeds ever decompose) by SUBSTRATE CONSTRUCTION (no chunk-selection-bias knob), not under-design -- self-routes midexec_task_effect_underpowered rather than a forced verdict if so. Smoke PASS (validate_experiments --strict 0 findings incl. arm_fingerprint; validate_recording --strict OK, 0 always-core gaps).",
+      "status": "pending",
+      "architecture_epoch": "ree_hybrid_guardrails_v1",
+      "conditions": 2,
+      "episodes_per_run": 12,
+      "experiment_type": "v3_exq_844_mech321_r4_midexec_task_effect",
+      "seeds": 6
+    }
+  ]
 }
