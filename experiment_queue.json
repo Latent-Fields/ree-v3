@@ -155,6 +155,26 @@
       "experiment_purpose": "diagnostic",
       "experiment_type": "v3_exq_847_arc062_pd_context_modeswitch_committed_class_divergence",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-848",
+      "title": "ARC-005 precision-only decoupled ladder: does the control plane route PRECISION, isolated from channels 3/4's occupancy-only authority? (successor to V3-EXQ-802)",
+      "script": "experiments/v3_exq_848_arc005_precision_only_decoupled_ladder.py",
+      "priority": 40,
+      "machine_affinity": "any",
+      "estimated_minutes": 90,
+      "claim_ids": [
+        "ARC-005"
+      ],
+      "experiment_purpose": "evidence",
+      "status": "pending",
+      "architecture_epoch": "ree_hybrid_guardrails_v1",
+      "conditions": 6,
+      "episodes_per_run": 2000,
+      "experiment_type": "v3_exq_848_arc005_precision_only_decoupled_ladder",
+      "seeds": 5,
+      "supersedes_note": "Not a lettered supersession of V3-EXQ-802 -- 802's C1/C3 occupancy result stands unchallenged. This is a new, precision-ONLY, decoupled-ladder design correcting 802's joint-ladder dilution confound on the precision DV specifically.",
+      "note": "Diagnosed this session (chip-20260731-arc005-802-precision-anomaly, documented in REE_assembly/evidence/planning/arc_005_control_plane_routing_plan.md GAP-A-precision-diagnostic node): 802's joint 4-channel ladder required channels 3/4 (mode prior, pcc_stability -- never expected to touch precision, only occupancy per this plan doc's own channel table) to move precision alongside channels 1/2, diluting any real 1/2 signal with two channels structurally incapable of contributing. This experiment DECOUPLES: channels 1/2 laddered L0/L1/L2, channels 3/4 held FIXED at L0 in every cell. Also applies a real substrate bug fix landed this session (ree_core/agent.py SD-057 L7 dACC-consume block was reading get_world_state_sequence()[0,0,:], the collapsed proposer starting state identical across every candidate -- fixed by mirroring the existing ARC-065 GAP-A _candidate_world_summaries() pattern) via use_mech_consume=True + z_goal_enabled=True + candidate_summary_source='e2_world_forward', all new relative to 802. PRE-REGISTERED EXPECTATION (stated in the script's dv_symmetry_declaration): this run is expected to STILL show a near-zero null on all 10 units, for two separate already-diagnosed reasons -- channel 1's fixed wiring reaches a dacc_adapter network whose response magnitude is quantifiably negligible (~1e-8 vs ~0.87 scale of other score_bias components), consistent with the adapter never having trained on non-degenerate values of this input; channel 2 (phasic temperature) is architecturally argmax-invariant under REE's normal committed-selection regime (~97% commitment rate measured this session). A null here is a CLEAN, MECHANISTICALLY-EXPLAINED confirmation, not a surprise -- self-routes evidence_direction=non_contributory (never 'weakens' or 'mixed') when all 10 units land in the near-zero band, per the mandatory_design_check disposition for a DV-symmetry-invariant manipulation. GOV-REUSE-1: the decisive readout (precision monotonicity on a channel-1/2-ONLY ladder) does not exist in any recorded manifest -- 802 only ever varied all 4 channels together; not recoverable by reanalysis. Re-derive brake checked: 0 substrate_ceiling autopsies tag ARC-005 (one autopsy target exists, recommended_epistemic_category='standard', not a ceiling) -- not braked. TRACK B (channel 2 under an uncommitted/exploratory-only regime, the only way to let temperature matter) and TRACK C (retraining dacc_adapter on live goal_proximity) are explicitly OUT OF SCOPE here -- noted as candidate follow-on work, not built. Smoke --dry-run PASS (12 cells, 2 seeds x 3 levels x 2 contents at dry scale): all verdicts PASS, z_goal_stream active_frac=0.130 writer_calls=600 -- no writer defect (confirms the channel-1 fix's z_goal prerequisite is genuinely live), result already lands the pre-registered null pattern (all_near_zero_null=true, label=precision_channel_authority_null_expected) even at dry-run scale. validate_experiments.py --strict: 0 findings across all checks."
     }
   ]
 }
