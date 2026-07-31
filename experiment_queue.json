@@ -159,6 +159,23 @@
       "seeds": 10
     },
     {
+      "queue_id": "V3-EXQ-836e",
+      "title": "MECH-476 INTERVAL falsifier REDESIGN: noise-scaled margin + n=10 (supersedes 836b)",
+      "script": "experiments/v3_exq_836e_mech476_interval_dependent_consolidation_redesign.py",
+      "priority": 40,
+      "machine_affinity": "any",
+      "estimated_minutes": 800,
+      "supersedes": "V3-EXQ-836b",
+      "claim_id": "MECH-476",
+      "note": "Redesign of V3-EXQ-836b per failure_autopsy_v3-exq-836b_2026-07-29.md (REE_assembly 4cff1b73e8): 836b's non_monotone_interval_response verdict rested on a FIXED 0.15 margin not scaled to observed per-arm noise (per-arm SEMs 0.098-0.147 at n=6, comparable to the between-arm deltas [+0.147,+0.213,-0.157] the verdict was read from) and did not survive a leave-one-out check (the n400 peak was driven by one seed at retained_fraction=1.285 against siblings 0.202-0.934; dropping it pulls the mean 0.749->0.642, collapsing the non-monotone peak). Same measurement_test_design_defect as siblings 836 (dose) and 836c (novelty), both already redone under this rule (V3-EXQ-836a, V3-EXQ-836d) -- this queues the third and final leg of the family. Fix (both applied, IDENTICAL convention to 836a/836d): (1) RESISTANCE_INTERVAL_MARGIN replaced with a noise-scaled floor max(EFFECT_SIZE_K=1.5 * sd_delta, EFFECT_SIZE_ABS_FLOOR=0.05), sd_delta = SD of the per-seed paired (max_N-min_N) retained_fraction delta, mirroring v3_exq_824a's EFFECT_SIZE_K/ABS_FLOOR convention and matching the sibling redesigns' constants exactly for a consistent discrimination standard across MECH-476's three arms; (2) seeds 6->10 per arm (same seed tuple 42-51 as 836a/836d); (3) median reported alongside mean per arm; (4) in-line leave-one-out robustness diagnostic. STOP-CHECK / coordination (chip chip-20260729-836b-redo-noise-scaled): confirmed via experiment_queue.json + evidence/ search that 836a (dose redesign, status=claimed on ree-cloud-2 as of this queueing) and 836d (novelty redesign, supersedes 836c, status=pending) are ALREADY queued under this exact convention; neither has produced a manifest yet, so nothing here is reanalyzable from them (GOV-REUSE-1 checked -- each leg's decisive readout is leg-specific). This entry adopts the identical EFFECT_SIZE_K/ABS_FLOOR/seed-count/leave-one-out shape for cross-arm comparability. User-confirmed routing precedent: 836a/836d both cite AskUserQuestion 2026-07-29 (\"Redesign re-run (noise-scaled margin + more seeds)\") for the same MECH-476 family; this leg follows the same user-approved routing (failure_autopsy_v3-exq-836b_2026-07-29.md Section 7: \"Routing: /queue-experiment -- 836b redo under a noise-scaled discrimination rule (same route the cluster gave 836/836c)\"). GOV-REUSE-1: the noise-scaled interval-response verdict at n=10 is not recorded in any prior manifest (836b's own manifest computed it under the wrong rule and at n=6) -> must run. Re-derive brake: does not apply -- 836b's epistemic_category is measurement_test_design_defect (not substrate_ceiling) with recommended_substrate_queue_entry.action=none. Smoke PASS (validate_experiments.py --strict: 1 OK / 0 warnings; --dry-run runs end-to-end on 3 interval arms x 2 seeds toy scale, all arms readiness-gated green, correctly self-routes retention_invariant_to_interval_no_process at toy scale (spread=0.0 < effective floor 0.05), no crash; dry-run manifest written then cleaned up per the dry_run relocation contract, sentinel emitted).",
+      "status": "pending",
+      "architecture_epoch": "ree_hybrid_guardrails_v1",
+      "conditions": 4,
+      "episodes_per_run": 3000,
+      "experiment_type": "v3_exq_836e_mech476_interval_dependent_consolidation_redesign",
+      "seeds": 10
+    },
+    {
       "queue_id": "V3-EXQ-847",
       "title": "ARC-062 GOV-FANOUT-1 Leg P-D (H4 diagnostic): context-conditioned (reef vs open) committed-class TV-divergence, ARM_ON vs ARM_OFF",
       "script": "experiments/v3_exq_847_arc062_pd_context_modeswitch_committed_class_divergence.py",
@@ -194,23 +211,6 @@
       "experiment_type": "v3_exq_848_arc005_precision_only_decoupled_ladder",
       "seeds": 5,
       "supersedes_note": "Not a lettered supersession of V3-EXQ-802 -- 802's C1/C3 occupancy result stands unchallenged. This is a new, precision-ONLY, decoupled-ladder design correcting 802's joint-ladder dilution confound on the precision DV specifically."
-    },
-    {
-      "queue_id": "V3-EXQ-836e",
-      "title": "MECH-476 INTERVAL falsifier REDESIGN: noise-scaled margin + n=10 (supersedes 836b)",
-      "script": "experiments/v3_exq_836e_mech476_interval_dependent_consolidation_redesign.py",
-      "priority": 40,
-      "machine_affinity": "any",
-      "estimated_minutes": 800,
-      "note": "Redesign of V3-EXQ-836b per failure_autopsy_v3-exq-836b_2026-07-29.md (REE_assembly 4cff1b73e8): 836b's non_monotone_interval_response verdict rested on a FIXED 0.15 margin not scaled to observed per-arm noise (per-arm SEMs 0.098-0.147 at n=6, comparable to the between-arm deltas [+0.147,+0.213,-0.157] the verdict was read from) and did not survive a leave-one-out check (the n400 peak was driven by one seed at retained_fraction=1.285 against siblings 0.202-0.934; dropping it pulls the mean 0.749->0.642, collapsing the non-monotone peak). Same measurement_test_design_defect as siblings 836 (dose) and 836c (novelty), both already redone under this rule (V3-EXQ-836a, V3-EXQ-836d) -- this queues the third and final leg of the family. Fix (both applied, IDENTICAL convention to 836a/836d): (1) RESISTANCE_INTERVAL_MARGIN replaced with a noise-scaled floor max(EFFECT_SIZE_K=1.5 * sd_delta, EFFECT_SIZE_ABS_FLOOR=0.05), sd_delta = SD of the per-seed paired (max_N-min_N) retained_fraction delta, mirroring v3_exq_824a's EFFECT_SIZE_K/ABS_FLOOR convention and matching the sibling redesigns' constants exactly for a consistent discrimination standard across MECH-476's three arms; (2) seeds 6->10 per arm (same seed tuple 42-51 as 836a/836d); (3) median reported alongside mean per arm; (4) in-line leave-one-out robustness diagnostic. STOP-CHECK / coordination (chip chip-20260729-836b-redo-noise-scaled): confirmed via experiment_queue.json + evidence/ search that 836a (dose redesign, status=claimed on ree-cloud-2 as of this queueing) and 836d (novelty redesign, supersedes 836c, status=pending) are ALREADY queued under this exact convention; neither has produced a manifest yet, so nothing here is reanalyzable from them (GOV-REUSE-1 checked -- each leg's decisive readout is leg-specific). This entry adopts the identical EFFECT_SIZE_K/ABS_FLOOR/seed-count/leave-one-out shape for cross-arm comparability. User-confirmed routing precedent: 836a/836d both cite AskUserQuestion 2026-07-29 (\"Redesign re-run (noise-scaled margin + more seeds)\") for the same MECH-476 family; this leg follows the same user-approved routing (failure_autopsy_v3-exq-836b_2026-07-29.md Section 7: \"Routing: /queue-experiment -- 836b redo under a noise-scaled discrimination rule (same route the cluster gave 836/836c)\"). GOV-REUSE-1: the noise-scaled interval-response verdict at n=10 is not recorded in any prior manifest (836b's own manifest computed it under the wrong rule and at n=6) -> must run. Re-derive brake: does not apply -- 836b's epistemic_category is measurement_test_design_defect (not substrate_ceiling) with recommended_substrate_queue_entry.action=none. Smoke PASS (validate_experiments.py --strict: 1 OK / 0 warnings; --dry-run runs end-to-end on 3 interval arms x 2 seeds toy scale, all arms readiness-gated green, correctly self-routes retention_invariant_to_interval_no_process at toy scale (spread=0.0 < effective floor 0.05), no crash; dry-run manifest written then cleaned up per the dry_run relocation contract, sentinel emitted).",
-      "supersedes": "V3-EXQ-836b",
-      "claim_id": "MECH-476",
-      "status": "pending",
-      "architecture_epoch": "ree_hybrid_guardrails_v1",
-      "conditions": 4,
-      "episodes_per_run": 3000,
-      "experiment_type": "v3_exq_836e_mech476_interval_dependent_consolidation_redesign",
-      "seeds": 10
     }
   ]
 }
