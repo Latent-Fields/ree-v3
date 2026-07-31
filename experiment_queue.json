@@ -121,6 +121,23 @@
       "episodes_per_run": 3000,
       "experiment_type": "v3_exq_836d_mech476_novelty_tagging_consolidation_redesign",
       "seeds": 10
+    },
+    {
+      "queue_id": "V3-EXQ-829a",
+      "title": "MECH-324 rapid-reacquisition falsifier RE-RUN: reacquisition-window isolation fix (supersedes 829)",
+      "script": "experiments/v3_exq_829a_mech324_rapid_reacquisition_window_isolation_fix.py",
+      "priority": 40,
+      "machine_affinity": "any",
+      "estimated_minutes": 20,
+      "supersedes": "V3-EXQ-829",
+      "claim_id": "MECH-324",
+      "note": "Validation for IGW-20260731-196 (/implement-substrate MECH-324/MECH-323 reacquisition-window isolation fix; design doc REE_assembly/docs/architecture/mech324_reacquisition_window_isolation.md). V3-EXQ-829 (ree-v3 77e3ddc) FALSIFIED rapid reacquisition: median_r_reacq flat at 90 (W=100) / 28 (W=30) across every tested f_reacq, r_reacq/window_trials = 0.908 +/- 0.029 -- the revival gate's variance/mean readout came from the accumulator's whole-lifetime tally, saturated at dissolution with the contaminating stream, so clearing the variance gate tracked window_trials, not the reacquisition_repetition_factor bar. FIX: new sub-switch use_reacquisition_window_isolation (default False, nested under use_chunk_dissolution_retention) routes the revival gate through a dedicated per-chunk window (ChunkedPrimitive.reacquisition_outcomes) populated only from real post-dissolution executions. This run adds the flag as a THIRD ablation axis (ISOON/ISOOFF) crossed with 829's EXACT f_reacq sweep {1.0,0.5,0.25,0.1} and window_trials {30,100} -- the ISOOFF arms are the direct apples-to-apples reproduction of 829's own measurement (in-run negative control, not a separate claim), the ISOON arms are the corrected substrate under test. Same seeds as 829 (11,23,37,43,59,71) for direct comparability. Load-bearing C1/C2/C3 now read the ISOON default arm (unchanged thresholds: SCALING_RHO_FLOOR=0.8, R_MIN=20); C4 (ISOON short-window), C5 (paired ISOON-vs-ISOOFF direct comparison), C6 (ISOOFF reproduces 829's flat signature) are reported, non-gating. Dropped 829's MILD-dissolution arm (C5 there) to bound this run's grid to 18 arms x 6 seeds = 108 cells -- orthogonal to the isolation question and already confirmed non-artifactual by 829 itself; a successor may re-add it if an isolation x dissolution-stream interaction becomes a live question. GOV-REUSE-1: 829's cells fingerprinted with the DEFAULT include_driver_script_in_hash=True (829's own docstring: deliberate refuse-by-default), so a different driver can never match regardless of config -- checked before authoring, not recoverable via try_reuse_cell, fresh run required. This run fingerprints the same way (pure-python operator cells, no reuse value). Precondition/readiness-gate machinery, DV-symmetry class, and OUTCOME_SPAN pre-registration are unchanged from 829 (isolation changes which window the two existing MECH-323 gates read, not the gates themselves or the driver's harness). Smoke --dry-run PASS (1 seed x 18 arms, all preconditions green, C1-C6 all True at n=1, rho_ISOON=1.0 exact, rho_ISOOFF=n/a correctly reproducing the flat/undefined-rank signature; validate_experiments.py --strict 0 findings incl. arm_fingerprint; progress instrumentation correct, ep N/1050 boundary prints + 18 verdict lines at n=1 -> 108 expected at n=6).",
+      "status": "pending",
+      "architecture_epoch": "ree_hybrid_guardrails_v1",
+      "conditions": 18,
+      "episodes_per_run": 1050,
+      "experiment_type": "v3_exq_829a_mech324_rapid_reacquisition_window_isolation_fix",
+      "seeds": 6
     }
   ]
 }
