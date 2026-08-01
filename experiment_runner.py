@@ -363,6 +363,105 @@ def _git_run(*popenargs, **kwargs):
     )
 
 
+# --- Zero-byte loose object detection --------------------------------------
+# Confirmed 2026-08-01 (ree-cloud-4): a hard VM reboot mid-write left 4 loose
+# objects in REE_assembly's .git/objects/ as empty (0-byte) files. Nothing
+# about this is a runner-timeout issue -- graceful_timeout (SIGTERM before
+# SIGKILL) had already been live for over a week when it happened, and the
+# object's mtime lines up exactly with a `journalctl --list-boots` entry
+# ending mid-second. A hard reset gives zero chance for any application-level
+# cleanup, graceful or not. But it then sat silently: every subsequent
+# `git pull` re-printed a raw git stderr dump ("object file ... is empty")
+# indistinguishable at a glance from an ordinary transient failure, for two
+# days, until noticed by hand. Git does not self-heal a corrupt object --
+# once written, it stays broken until a human intervenes (fsck/reclone) -- so
+# unlike a git TIMEOUT (which is normal, self-resolving, and only needs to
+# stay visible), THIS class of failure specifically needs to be called out
+# as "will not clear on its own" the first tick it appears.
+_GIT_CORRUPTION_STATE: dict[str, int] = {}   # label -> zero-byte object count as of last scan
+_GIT_CORRUPTION_EVENT_COUNT = 0
+
+
+def _scan_zero_byte_loose_objects(repo_path: Path) -> list[str]:
+    """Return the "xx/yyyy..." names of any zero-byte files under
+    repo_path/.git/objects/<2-hex-dir>/.
+
+    Deliberately NOT `git fsck --full`: fsck reads and hashes every object
+    reachable from every ref, which took minutes on the ~5GB REE_assembly
+    checkout and can itself die mid-scan on the first corrupt object it
+    meets (observed: it printed 4 errors then hit "fatal: loose object ...
+    is corrupt" and stopped, before reaching the rest of the object store).
+    This is a pure `os.scandir` + `st_size` walk over the loose-object
+    subdirectories -- no git subprocess, no object parsing -- so it is cheap
+    enough to run on every `git_pull` tick regardless of outcome. Loose
+    objects are packed away by `git gc --auto` well before their count would
+    make this walk slow.
+
+    A zero-byte loose object is unconditionally corrupt: git never writes an
+    empty object file for any real content (even the empty blob is a couple
+    of bytes zlib-compressed), so a hit here needs no further judgement call
+    the way e.g. an untracked file's redundancy does.
+    """
+    objects_dir = repo_path / ".git" / "objects"
+    if not objects_dir.is_dir():
+        return []
+    hits: list[str] = []
+    try:
+        with os.scandir(objects_dir) as it:
+            subdirs = [e for e in it if e.is_dir(follow_symlinks=False) and len(e.name) == 2]
+    except OSError:
+        return []
+    for sub in subdirs:
+        try:
+            with os.scandir(sub.path) as it:
+                for f in it:
+                    try:
+                        if f.is_file(follow_symlinks=False) and f.stat().st_size == 0:
+                            hits.append(f"{sub.name}/{f.name}")
+                    except OSError:
+                        continue  # vanished between scandir and stat -- not our problem
+        except OSError:
+            continue
+    return hits
+
+
+def _record_git_corruption_scan(repo_path: Path, label: str) -> None:
+    """Refresh `_GIT_CORRUPTION_STATE[label]` and print a loud, greppable
+    line on every transition (clean -> corrupt, or corrupt -> clean).
+
+    Rate-limited on CHANGE rather than printed every tick, mirroring the
+    `_on_status_write_error` lesson: a persistent fault printed unrated would
+    scroll the experiment's own output away, but corruption that stays
+    silent after the first tick recreates exactly the gap this exists to
+    close. Never raises -- a diagnostic must not break the pull it guards.
+    """
+    global _GIT_CORRUPTION_EVENT_COUNT
+    try:
+        hits = _scan_zero_byte_loose_objects(repo_path)
+    except Exception:
+        return
+    n = len(hits)
+    prev = _GIT_CORRUPTION_STATE.get(label, 0)
+    _GIT_CORRUPTION_STATE[label] = n
+    if n and n != prev:
+        _GIT_CORRUPTION_EVENT_COUNT += 1
+        print(
+            f"[runner] GIT CORRUPTION #{_GIT_CORRUPTION_EVENT_COUNT}: {n} "
+            f"zero-byte loose object(s) in {label} ({repo_path}) -- this "
+            f"will NOT self-heal, every pull will keep warning until a human "
+            f"repairs it (reclone the checkout; see CLAUDE.md 'hub writer "
+            f"wedge' memory / reference-hub-writer-wedge). First few: "
+            f"{hits[:4]}",
+            flush=True,
+        )
+    elif n == 0 and prev:
+        print(
+            f"[runner] git corruption in {label} CLEARED ({prev} -> 0 "
+            f"zero-byte object(s))",
+            flush=True,
+        )
+
+
 _GIT_IDENTITY_FALLBACK_ENV = {
     "GIT_AUTHOR_NAME": "REE Runner (identity fallback)",
     "GIT_AUTHOR_EMAIL": "ree-runner@users.noreply.github.com",
@@ -1655,8 +1754,16 @@ def git_pull(repo_path: Path, label: str) -> None:
     bottom is for, and why the restore must not be called from anywhere else
     in this function. See the comment on the `finally` and
     tests/contracts/test_runner_prepull_stash_safety.py C8.
+
+    Also scans for zero-byte (corrupt) loose objects on every call, win or
+    lose -- see `_record_git_corruption_scan`. This is diagnostic only: it
+    never blocks or alters the pull, only surfaces a class of failure
+    (a hard host reboot mid-write) that git will not self-heal and that
+    otherwise looks, on a quick glance at the log, like an ordinary
+    transient pull failure.
     """
     import time
+    _record_git_corruption_scan(repo_path, label)
     _LOCK_HINTS = ("cannot lock ref", "unable to resolve reference",
                    "lock file", "index.lock")
     # Heal any UU state left over from a previous tick BEFORE attempting
@@ -3339,6 +3446,17 @@ def write_status(status: dict, path: Path) -> None:
     with _write_status_lock:
         tmp = path.with_suffix(".tmp")
         status["last_updated"] = now_utc()
+        if _GIT_CORRUPTION_STATE:
+            # Fleet-visibility channel for _record_git_corruption_scan: this
+            # is the ONE place all ~20 write_status() call sites funnel
+            # through, so adding it here covers every one of them without
+            # touching each individually. Only set once a scan has actually
+            # run (empty dict pre-first-pull would otherwise read as "known
+            # clean" rather than "not yet checked"); filtered to non-zero so
+            # a cleared repo drops back to an empty object, not a stale count.
+            status["git_corruption"] = {
+                k: v for k, v in _GIT_CORRUPTION_STATE.items() if v
+            }
         # Pin encoding so cross-platform readers (sync_daemon reads on
         # Linux; runners write on Mac/Windows) interpret the bytes the
         # same way the writer produced them.
