@@ -250,12 +250,31 @@ def test_live_probe_runs_end_to_end_against_real_substrate():
     the module's own (non-degenerate) defaults -- `run_pair_specific_reach_probe()`
     with no overrides -- which is what a real Q-081 driver should call. That
     was run manually while building this module (not as a fast contract test,
-    since it costs ~1-2 minutes per seed): at n_episodes=3,
-    steps_per_episode=400, env_size=6, seeds 0 and 1 each cleared the
-    non-degeneracy guard (76 and 120 true boundary events respectively) and
-    both reproduced V3-EXQ-824a/838's confirmed finding
-    (has_pair_specific_reach=False); seed 2 came back degenerate (0 boundary
-    events), correctly flagged rather than misreported as "no reach".
+    since it costs ~1-2 minutes per seed).
+
+    STALE-NUMBERS NOTE (2026-08-01, positive-control follow-on): this
+    docstring previously cited specific per-seed boundary-event counts from
+    that manual run ("seed 0 -> 76 events, seed 1 -> 120, seed 2 ->
+    degenerate"). Those figures are WITHDRAWN, not merely outdated: building
+    the `suppress`-mode positive control below found that
+    `run_pair_specific_reach_probe` built its agent template (random weight
+    init for every torch.nn.Module in the agent) BEFORE `reset_all_rng(seed)`
+    was ever called -- `reset_all_rng` only ran later, inside `_collect_trace`,
+    once the template already existed. So `seed` controlled the env and the
+    two arms' matched comparison, but NOT the agent's initial weights, which
+    depended on whatever torch's global RNG state happened to be at CALL TIME
+    in that process -- confirmed empirically: three back-to-back calls with
+    identical kwargs returned three different boundary counts. Fixed
+    2026-08-01 by moving `reset_all_rng(seed)` before the template is built
+    (see the module source, `run_pair_specific_reach_probe`, immediately
+    before `agent_template = _make_agent_template()`); verified via
+    `test_pair_specific_reach_probe_seed_is_fully_deterministic_across_calls`
+    below. The old cited numbers were measured under the pre-fix,
+    process-history-dependent construction and cannot be reproduced or
+    trusted; a fresh measurement for `iei_permute`/`jitter` at these settings
+    was not re-run here (out of scope for this positive-control task -- see
+    `test_suppress_mode_positive_control_live_probe` below for the
+    correctly-seeded `suppress`-mode figures this fix made possible).
     """
     report = run_pair_specific_reach_probe(
         n_episodes=2, steps_per_episode=15, seed=0, env_size=5, strict=False,
@@ -289,3 +308,163 @@ def test_live_probe_degeneracy_guard_raises_when_strict():
         run_pair_specific_reach_probe(
             n_episodes=1, steps_per_episode=5, seed=0, env_size=5, strict=True,
         )
+
+
+# --------------------------------------------------------------------------- #
+# Regression: run_pair_specific_reach_probe's `seed` must fully determine the #
+# run, including agent construction (2026-08-01 defect fix)                   #
+# --------------------------------------------------------------------------- #
+
+
+def test_pair_specific_reach_probe_seed_is_fully_deterministic_across_calls():
+    """Guards the 2026-08-01 defect fix: `seed` must be a COMPLETE determinant
+    of the run, not just of the env and the intact-vs-manipulated arm match.
+
+    Found while building the `suppress`-mode positive control below:
+    `run_pair_specific_reach_probe` builds its agent TEMPLATE
+    (`_make_agent_template()` -> `REEAgent(cfg)`, which randomly initialises
+    every torch.nn.Module weight in the agent) before `reset_all_rng(seed)` is
+    ever called -- `reset_all_rng` previously only ran later, inside
+    `_collect_trace`, once the template already existed. So the agent's
+    INITIAL WEIGHTS depended on whatever torch's global RNG state happened to
+    be at call time in the current process (e.g. state left behind by a prior
+    test in the same pytest session), not on `seed`. Confirmed empirically
+    pre-fix: three back-to-back calls with byte-identical kwargs
+    (mode="suppress", n_episodes=1, steps_per_episode=150, env_size=6, seed=1)
+    returned three different `n_boundaries_true_total` values (9, then 5, then
+    4) in one process, and yet a fourth value in a fresh process. This is
+    exactly the hazard a PINNED-SEED regression test (this file's whole
+    purpose) cannot tolerate: a test asserting an exact value at a "fixed"
+    seed would pass or fail depending on what ran before it in the same
+    pytest session -- test-order-dependent flakiness, not substrate drift.
+
+    Fixed by moving `reset_all_rng(seed)` to the top of
+    `run_pair_specific_reach_probe`, before `_make_agent_template()` is
+    called. This test calls the function TWICE with identical kwargs (cheap,
+    tiny-scale params -- degenerate is fine here; determinism is what is under
+    test, not non-degeneracy) and asserts every field that could plausibly
+    move with agent-construction RNG state is byte-identical between calls.
+    """
+    kwargs = dict(n_episodes=1, steps_per_episode=15, seed=0, env_size=5, strict=False)
+    first = run_pair_specific_reach_probe(**kwargs)
+    second = run_pair_specific_reach_probe(**kwargs)
+    assert first["n_boundaries_true_total"] == second["n_boundaries_true_total"]
+    assert first["n_ticks_compared"] == second["n_ticks_compared"]
+    assert first["is_degenerate"] == second["is_degenerate"]
+    assert first["has_pair_specific_reach"] == second["has_pair_specific_reach"]
+    assert first["divergent_signals"] == second["divergent_signals"]
+    assert first["dropped_ticks"] == second["dropped_ticks"]
+
+
+# --------------------------------------------------------------------------- #
+# Positive control: does the live probe machinery detect a MAXIMAL            #
+# manipulation (mode="suppress", a full lesion) end-to-end against the real   #
+# substrate? (Q081-REACH-CHECK-PAIR-SPECIFIC follow-on, 2026-08-01)           #
+# --------------------------------------------------------------------------- #
+
+
+def test_suppress_mode_positive_control_live_probe():
+    """Sensitivity positive control for the LIVE probe machinery (as opposed
+    to `pair_specific_reach_report`'s pure comparison logic, already covered
+    by `test_detects_divergent_signal_and_first_tick` above).
+
+    WHY THIS TEST EXISTS. V3-EXQ-824/824a/838/849 found no reach from
+    timing-preserving landmark manipulations (`iei_permute`/`jitter`) to
+    either the RV(z_world, operating_mode) statistic or any of this module's
+    named salience-precursor signals. Nobody had confirmed that the live
+    ROLLOUT + snapshot-diffing machinery in `run_pair_specific_reach_probe`
+    (deepcopy'd matched arms, reset_all_rng, StepHarness, episode-aligned
+    comparison) can detect a reach that is genuinely there when run
+    end-to-end, as opposed to the pure comparison function, which synthetic
+    unit tests already validate. `mode="suppress"` is the maximal available
+    manipulation: unlike `iei_permute`/`jitter`/`circular_shift` (which
+    scramble boundary TIMING but preserve the boundary-emission DRIVE), it
+    removes boundary emission to consumers ENTIRELY (see
+    `q081_landmark_removal.py`'s `_on_step`: `mode == "suppress" -> out = []`)
+    -- a full lesion, deliberately not the scientific primary (it confounds
+    "misaligned" with "absent"), but exactly the right instrument for testing
+    detector SENSITIVITY: if a full removal cannot show reach, no partial
+    scramble ever could either.
+
+    EMPIRICAL RESULT (measured 2026-08-01, post the reset_all_rng-before-
+    construction fix above, at n_episodes=1, steps_per_episode=150,
+    env_size=6): `mode="suppress"` shows NO reach at seed=2 either --
+    has_pair_specific_reach=False, 8 true boundary events fired by the
+    segmenter and ALL suppressed (non-degenerate: the manipulation had real
+    boundaries to remove), 150/150 ticks compared (full episode, no early
+    death), no divergence in any of the 8 signals actually populated in this
+    profile (aic_salience, dacc_difficulty, dacc_foraging, dacc_pe,
+    drive_level, is_offline, pacc_autonomic, pcc_stability). Seeds 0 and 1 at
+    the same tiny-scale settings came back degenerate (0 true boundary
+    events); seed 2 is pinned here because it is the cheapest seed found
+    (among 0-4) that reliably clears the non-degeneracy guard at this
+    contract-test-friendly scale (~15-20s), confirmed byte-reproducible
+    across repeated calls post-fix.
+
+    THIS IS NOT AN UNEXAMINED NULL -- an instrument-bug audit was done before
+    trusting it (full write-up in the session report, not reproduced here in
+    full):
+      1. The suppression genuinely reaches the consumer: a separate
+         instrumented run (LandmarkScrambler attached directly, not through
+         this probe) confirmed `write_anchor` call count and the active-
+         anchor-set count diverge from the intact arm starting a few ticks
+         into the episode, while the segmenter's OWN true-fire count matches
+         the intact arm exactly (same RNG) -- so this is a real, measurable
+         downstream effect, not a wrapper that silently fails to intercept.
+      2. Source trace of every `SALIENCE_SIGNAL_NAMES` writer call site in
+         `ree_core/agent.py` (~6080-6380) found NONE reads
+         `anchor_set`/`vs_rollout_gate`/`invalidation_trigger`/
+         `boundary_event_queue` state, directly or (for the two signals
+         that COULD carry an indirect path: the dACC bundle via
+         `e3.last_scores`, and `external_task_drive` via z_world proximity)
+         indirectly -- and in this untrained, short-horizon probe regime,
+         `self.dacc` never even constructs (this profile does not set
+         `use_dacc=True`) and z_world itself never diverged between arms
+         either. So "no reach" here reflects a real structural property of
+         THIS profile's checked-signal set at THIS probe scale, not a
+         mistimed read.
+      3. `snapshot_salience_signals` is called immediately after
+         `harness.step()` returns, i.e. after sense() (which runs the
+         scrambled/suppressed segmenter step) AND select_action() (which runs
+         the salience coordinator's tick) have both completed for that tick --
+         the read point is not stale relative to the manipulation.
+
+    WHAT THIS DOES AND DOES NOT VALIDATE. It confirms the live rollout +
+    snapshot machinery is wired correctly and would show a real divergence if
+    one existed in the checked signals (the intervention IS live; the read
+    point IS correct) -- so a future `iei_permute`/`jitter` null from this
+    same probe is not explained by "the harness never actually ran the
+    manipulation" or "the snapshot was read before the effect landed". It
+    does NOT mean the probe's checked signal set has a live wired path FROM
+    boundary events at all under `q081_profile_kwargs()` -- per point 2
+    above, it structurally does not, for any of the 8 populated signals, so a
+    genuine positive control for "does the probe detect reach when a real
+    wired dependency exists" would need a manipulation on something those
+    8 signals actually read (z_harm_a, drive_level, beta_gate, offline mode),
+    not on the boundary/landmark train. That is out of this test's scope.
+    """
+    report = run_pair_specific_reach_probe(
+        mode="suppress",
+        n_episodes=1,
+        steps_per_episode=150,
+        env_size=6,
+        seed=2,
+        strict=False,
+    )
+    assert report["manipulation_mode"] == "suppress"
+    assert report["behavioural_reach_precondition"]["has_behavioural_reach"] is True
+    # Non-degenerate: the segmenter fired real boundary events for suppress to
+    # remove. A degenerate run here would make "no reach" vacuous, exactly the
+    # failure mode the non-degeneracy guard exists to catch.
+    assert report["is_degenerate"] is False
+    assert report["n_boundaries_true_total"] == 8
+    # Full episode ran (no early termination), so the comparison covers the
+    # whole requested rollout on both arms.
+    assert report["n_ticks_compared"] == 150
+    assert report["dropped_ticks"] == {"intact": 0, "manipulated": 0}
+    # The actual positive-control result: even the maximal manipulation shows
+    # no reach to any checked signal at this seed/scale. See the module-level
+    # docstring above for why this is not read as "the detector is broken".
+    assert report["has_pair_specific_reach"] is False
+    assert report["divergent_signals"] == {}
+    assert report["first_divergent_tick"] is None

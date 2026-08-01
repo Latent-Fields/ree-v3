@@ -491,6 +491,36 @@ def run_pair_specific_reach_probe(
         scrambler.detach()
         return trace, donor_index, reach_precondition, preservation
 
+    # DEFECT FIX (found 2026-08-01 while building the "suppress"-mode positive-
+    # control regression test, V3-EXQ-848-adjacent Q081-REACH-CHECK-PAIR-SPECIFIC
+    # follow-on): without this reset, `_make_agent_template()` below constructs
+    # `REEAgent(cfg)` -- which randomly initialises every torch.nn.Module weight
+    # in the agent -- against WHATEVER torch's global RNG state happens to be at
+    # that moment in the process, NOT a state derived from `seed`. `seed` was
+    # only ever threaded into `reset_all_rng(seed)` inside `_collect_trace`,
+    # which runs AFTER the template (and therefore the agent's initial weights)
+    # already exists. The docstring's "reset_all_rng makes each arm a pure
+    # function of `seed`" claim was true for arm-vs-arm (both arms deepcopy the
+    # SAME template, so that comparison was never confounded) but FALSE for
+    # call-to-call reproducibility of a given `seed` -- confirmed empirically:
+    # three back-to-back calls with identical kwargs (mode="suppress",
+    # n_episodes=1, steps_per_episode=150, env_size=6, seed=1) returned
+    # n_boundaries_true_total of 9, then 5, then 4 in one process, and 24 in a
+    # fresh process -- because each call's agent template inherited whatever
+    # torch RNG state the PRECEDING call (or, in a pytest session, a prior test)
+    # left behind. This silently made every previously-cited "seed N gives M
+    # boundary events" figure in this module's docstrings (and in
+    # test_live_probe_runs_end_to_end_against_real_substrate's docstring)
+    # process-history-dependent, not `seed`-dependent -- a hazard for exactly
+    # the kind of pinned-seed regression test this fix now makes possible.
+    # Resetting here, before the FIRST torch operation of this function, makes
+    # the entire probe (agent construction + both arms' rollouts) a pure
+    # function of `seed`, verified via 3 back-to-back calls returning identical
+    # n_boundaries_true_total/n_ticks_compared after this fix. NO existing
+    # caller relied on the old inter-call entanglement (the module was never
+    # documented or tested as giving that), so this is a pure bug fix, not a
+    # behaviour change to preserve.
+    reset_all_rng(seed)
     agent_template = _make_agent_template()
     # hippocampal._rng defaults to the `random` MODULE itself (module.py:156),
     # which copy.deepcopy cannot pickle. seed_replay_rng() installs a
