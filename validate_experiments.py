@@ -5260,6 +5260,16 @@ def agent_construction_before_seed_lint(path: Path) -> Optional[str]:
     section 8. NOT retro-fixed: all four Q-081 carriers plus 849 have landed manifests;
     a completed run's pre-registered emission is not rewritten.
 
+    ALL 18 pinned carriers triaged (2026-08-01): every one is immaterial to its own
+    reported finding, for one of four recurring reasons -- see
+    `REE_assembly/evidence/planning/agent_seed_order_lint_backlog_triage.md` for the
+    per-script verdicts. Two of those reasons are genuine PRECISION GAPS in this
+    lint's Tier-1, one-hop design (a `--dry-run`-only branch fires identically to a
+    real path; a discarded "probe" construction fires even when the real, scored
+    agent is built two call-hops away inside a correctly-resetting `arm_cell`) --
+    documented there rather than fixed, since the backlog is already provably
+    harmless regardless of this lint's own false-positive rate on it.
+
     PREVENTION for new scripts: `experiments/_lib/arm_fingerprint.seeded_construct
     (seed, factory)` calls `reset_all_rng(seed)` THEN `factory()`, guaranteeing correct
     order BY CONSTRUCTION rather than by discipline -- use it (or seed via

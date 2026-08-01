@@ -452,17 +452,20 @@ def test_selector_runs_only_this_check():
 # NOT retro-edited (a completed run's pre-registered emission is not rewritten).
 #
 # The 18: v3_exq_108, 418j, 418k, 615, 635, 688, 785, 785a, 787, 804, 805, 824, 824a,
-# 827, 827a, 828, 828a, 838. Adjudicated for the two families this audit actually
-# traced through to a finding (Q-081: 824/824a/838; INV-091: 827/827a/828/828a) --
-# see REE_assembly/evidence/planning/q081_landmark_removal_arm_design.md section 8:
-# immaterial to each carrier's OWN reported result, because every arm within a seed
-# is matched via copy.deepcopy of the one shared (seed-uncontrolled) template, so
-# what those shared weights happen to be cannot explain a between-arm difference or
-# lack thereof. The remaining 8 (108, 418j, 418k, 615, 635, 688, 785, 785a, 787, 804,
-# 805 -- MECH-135/SD-016/ARC-065/modulatory-bias/MECH-044/MECH-463 x3/ARC-003/ARC-016)
-# were NOT individually re-adjudicated by this audit; they are flagged here for a
-# future session (or the claim each is tagged to) to triage the same way, not
-# pre-judged as immaterial by this pin's mere existence.
+# 827, 827a, 828, 828a, 838.
+#
+# ALL 18 triaged (2026-08-01) -- every one immaterial to its own reported finding.
+# Full per-script verdicts + the four recurring reasons (shared-object/deepcopy
+# design; effect margin swamping plausible init variance; unseeded construction
+# confined to a --dry-run-only branch never reached by the scored run; a discarded
+# "probe" construction while the real, scored agent is built two call-hops away
+# inside a correctly-resetting arm_cell) in
+# REE_assembly/evidence/planning/agent_seed_order_lint_backlog_triage.md. That doc
+# also names two genuine PRECISION GAPS in this lint's Tier-1, one-hop design found
+# during the triage (branch-unawareness; one-hop-only name resolution missing the
+# probe-then-real-build-two-hops-away idiom) -- documented there, not fixed here,
+# since the backlog is provably harmless regardless of this lint's own
+# false-positive rate on it.
 _PINNED_CORPUS_FIRE_COUNT = 18
 
 
