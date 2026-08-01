@@ -377,6 +377,7 @@ def scan_corpus() -> CorpusScan:
         ("config_slice_under_declaration_lint", V.config_slice_under_declaration_lint),
         ("inert_salience_dacc_bias_lint", V.inert_salience_dacc_bias_lint),
         ("dacc_last_bundle_lint", V.dacc_last_bundle_lint),
+        ("agent_construction_before_seed_lint", V.agent_construction_before_seed_lint),
     )
 
     scan = CorpusScan()

@@ -55,7 +55,7 @@ import platform
 import random
 import sys
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, TypeVar
 
 FINGERPRINT_SCHEMA = "arm_fp/v1"
 REGIME = "A"
@@ -479,6 +479,53 @@ def reset_all_rng(seed: int) -> None:
             _h2._action_random.seed(seed)
         except Exception:
             pass
+
+
+_T = TypeVar("_T")
+
+
+def seeded_construct(seed: int, factory: Callable[[], _T]) -> _T:
+    """`reset_all_rng(seed)` THEN `return factory()` -- correct construction order
+    guaranteed BY CONSTRUCTION, not by discipline.
+
+    WHY THIS EXISTS. `torch.nn.Module` weight init draws from torch's OWN global RNG
+    (`torch.manual_seed`), never from numpy's or Python's `random`. A driver that
+    builds `REEAgent(cfg)` -- directly, or via a `make_agent(env)`-style wrapper --
+    before ever calling `reset_all_rng`/`torch.manual_seed` gets an agent whose initial
+    weights depend on whatever the process's global torch RNG state happens to be at
+    that moment (import order, prior random draws in the same process), NOT on `seed`.
+    Confirmed 2026-08-01 across the corpus: `experiments/_lib/q081_pair_reach_check.py`
+    had exactly this bug (fixed, `02c155c658`), and 18 driver scripts share the same
+    shape as a static-lint backlog (`validate_experiments.agent_construction_before_
+    seed_lint`; see that function's docstring and
+    `REE_assembly/evidence/planning/q081_landmark_removal_arm_design.md` section 8 for
+    the audit and why it did NOT retroactively invalidate the confirmed carriers'
+    findings -- their arm comparisons are matched via `copy.deepcopy` of one shared
+    template, so what the shared weights happen to be is immaterial to THAT
+    comparison; it only breaks exact seed-to-seed reproducibility).
+
+    Getting the order right by hand is easy to get wrong exactly once and have it
+    silently ship: `reset_all_rng(seed)` two statements after `agent = make_agent(env)`
+    reads as "seeded", passes review, and is wrong. This function removes the
+    ordering decision entirely -- there is no way to call it and get the order
+    backwards.
+
+        agent = seeded_construct(seed, lambda: make_agent(env))
+        # equivalent to, and preferred over:
+        #   reset_all_rng(seed)
+        #   agent = make_agent(env)
+
+    `factory` takes no arguments so it composes with any existing `make_agent`/
+    `REEAgent(cfg)` call site via a lambda or `functools.partial` -- no signature
+    change needed on the factory itself. Does not touch `rng_fully_reset` /
+    `compute_arm_fingerprint` bookkeeping; combine with `arm_cell(...)` as usual for
+    scripts that also want fingerprint emission (call `seeded_construct` for the
+    agent, still enter `arm_cell` for the per-arm reset + stamp -- the two are
+    independent facilities, and `arm_cell.__enter__` already reset-and-marks
+    correctly for anything constructed AFTER cell entry).
+    """
+    reset_all_rng(seed)
+    return factory()
 
 
 def compute_arm_fingerprint(

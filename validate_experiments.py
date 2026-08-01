@@ -46,7 +46,7 @@ CHECK_NAMES = ("conformance", "readiness", "arm_fingerprint", "degeneracy", "man
                "dead_z_goal_stream", "hardcoded_dry_run", "emit_outcome_dry_run",
                "write_pack_dry_run", "dry_run_unreachable_criterion",
                "config_slice_declaration", "inert_salience_dacc_bias",
-               "dacc_last_bundle")
+               "dacc_last_bundle", "agent_seed_order")
 
 # Readiness-gate static lint (proposal_trivial_prediction_readiness_gate_2026-06-06).
 # A diagnostic/baseline script whose interpretation grid self-routes to one of
@@ -5118,6 +5118,240 @@ def dacc_last_bundle_lint(path: Path) -> Optional[str]:
     )
 
 
+_AGENT_SEED_ORDER_EXEMPT_MARKER = "AGENT_SEED_ORDER_EXEMPT"
+
+# Recognised as a torch-RNG seed event -- see agent_construction_before_seed_lint.
+_TORCH_SEED_CALL_NAMES = ("manual_seed",)   # matched via full dotted path below
+_TORCH_SEED_HELPER_NAMES = ("reset_all_rng", "seeded_construct")
+
+
+class _DirectFlowWalker(ast.NodeVisitor):
+    """Collects `ast.Call` nodes belonging to ONE function's own execution flow.
+
+    Deliberately does NOT descend into nested `FunctionDef` / `AsyncFunctionDef` /
+    `Lambda` bodies -- those are separate call frames, invoked (if ever) at a time
+    this walk cannot order relative to the enclosing function's own statements.
+    Also records `with arm_cell(...) as x:` context managers, whose `__enter__`
+    calls `reset_all_rng` (see `_lib/arm_fingerprint.py::_ArmCell.__enter__`) unless
+    constructed with `do_reset=False`.
+    """
+
+    def __init__(self) -> None:
+        self.calls: List[ast.Call] = []
+        self.arm_cell_seed_lines: List[int] = []
+
+    def visit_FunctionDef(self, node: ast.AST) -> None:
+        pass
+
+    def visit_AsyncFunctionDef(self, node: ast.AST) -> None:
+        pass
+
+    def visit_Lambda(self, node: ast.AST) -> None:
+        pass
+
+    def visit_With(self, node: ast.With) -> None:
+        for item in node.items:
+            ctx = item.context_expr
+            if isinstance(ctx, ast.Call):
+                if (isinstance(ctx.func, ast.Name) and ctx.func.id == "arm_cell"
+                        and not any(kw.arg == "do_reset"
+                                   and isinstance(kw.value, ast.Constant)
+                                   and kw.value.value is False
+                                   for kw in ctx.keywords)):
+                    self.arm_cell_seed_lines.append(node.lineno)
+                self.calls.append(ctx)
+        for stmt in node.body:
+            self.visit(stmt)
+
+    def visit_AsyncWith(self, node: ast.AsyncWith) -> None:
+        self.visit_With(node)  # type: ignore[arg-type]
+
+    def visit_Call(self, node: ast.Call) -> None:
+        self.calls.append(node)
+        self.generic_visit(node)
+
+
+def _call_name(node: ast.Call) -> Optional[str]:
+    f = node.func
+    if isinstance(f, ast.Name):
+        return f.id
+    if isinstance(f, ast.Attribute):
+        return f.attr
+    return None
+
+
+def _is_direct_torch_seed_call(node: ast.Call) -> bool:
+    name = _call_name(node)
+    if name in _TORCH_SEED_HELPER_NAMES:
+        return True
+    if name not in _TORCH_SEED_CALL_NAMES:
+        return False
+    # require the receiver to plausibly be `torch` (or `torch.random`), not an
+    # unrelated `.manual_seed()` on some other object.
+    f = node.func
+    if not isinstance(f, ast.Attribute):
+        return False
+    recv = f.value
+    if isinstance(recv, ast.Name):
+        return recv.id == "torch"
+    if isinstance(recv, ast.Attribute):
+        return recv.attr == "random" and isinstance(recv.value, ast.Name) and recv.value.id == "torch"
+    return False
+
+
+def agent_construction_before_seed_lint(path: Path) -> Optional[str]:
+    """Agent-weight non-reproducibility: `REEAgent(...)` built before torch is seeded.
+
+    `torch.nn.Module` weight init (Linear/Conv/etc. default initialisers) draws from
+    TORCH'S OWN global RNG, not numpy's or Python's `random` -- `np.random.seed(...)` /
+    `random.seed(...)` alone do NOT make agent weights reproducible, only
+    `torch.manual_seed(...)` (equivalently `reset_all_rng`, which calls it) does. A
+    script that constructs its agent before ever seeding torch gets an agent whose
+    initial weights depend on whatever the process's global torch RNG state happens to
+    be at that moment -- a function of import order and prior random draws in the same
+    process, NOT of `seed`. Confirmed empirically (three back-to-back calls with
+    identical kwargs returned three different boundary-event counts) and by source
+    read across the whole corpus, 2026-08-01.
+
+    Fires on a MODULE-LEVEL function that, in its own direct statement flow (not
+    inside a nested def -- a separate call frame), calls BOTH:
+      (a) an agent constructor -- `REEAgent(...)` directly, or a call to another
+          module-level function whose OWN body directly constructs `REEAgent`
+          (one hop; covers the near-universal `make_agent(env)`-wraps-`REEAgent(cfg)`
+          shape), and
+      (b) a torch-RNG seed call -- `torch.manual_seed(...)` / `torch.random.manual_seed
+          (...)`, `reset_all_rng(...)`, `seeded_construct(...)` directly, a call to
+          another module-level function whose OWN body directly does one of those (one
+          hop), or `with arm_cell(seed, ...) as cell:` (its `__enter__` calls
+          `reset_all_rng` unless `do_reset=False`) --
+    but the FIRST seed event in that function's own flow is not STRICTLY EARLIER (by
+    source line) than the FIRST agent-construction event.
+
+    THIS IS TIER 1 ONLY -- an unambiguous, high-confidence shape, not an exhaustive
+    "is this script reproducible" check. It deliberately does NOT fire on a function
+    that constructs an agent with NO seed call anywhere in its own local flow: that
+    case is common and often fine (many diagnostic scripts never claim seed-driven
+    weight reproducibility at all, and the seeding may legitimately happen in a caller
+    this static, single-function scan cannot see) and is far noisier to adjudicate --
+    scoped out on purpose rather than guessed at. So a clean result here is NOT proof a
+    script's agent weights ARE reproducible; it only proves this specific "looks
+    seeded, order is wrong" defect is absent.
+
+    A helper function that BOTH constructs an agent AND seeds within its OWN body (e.g.
+    `run_integration_arm(seed): torch.manual_seed(seed); ...; REEAgent(cfg)`, correctly
+    ordered) is excluded from the one-hop NAME resolution used to interpret ITS
+    CALLERS -- a single call site to such a dual-purpose helper cannot be read as
+    "agent" or "seed" from the outside, since the helper's own internal order is what
+    actually matters and it is independently checked on its own account (module-level
+    functions are all scanned). Without this exclusion, a call to a CORRECTLY-ordered
+    helper collapses to one line classified as both events simultaneously and produces
+    a spurious tie -- measured and fixed during this lint's construction (2026-08-01,
+    `v3_exq_519a_sd051_conditioned_safety_store_readiness.py::run_integration_arm`).
+
+    CONFIRMED CARRIERS (2026-08-01 audit; the shape that motivated this lint): the
+    Q-081 family `v3_exq_824`/`824a`/`838` and the INV-091 family `v3_exq_827`/`827a`/
+    `828`/`828a` all build one shared P0 agent template per seed via `make_agent(...)`
+    BEFORE any `with arm_cell(seed, ...)` in the same `run_seed`/`_run_seed`, so every
+    arm within a seed shares byte-identical (but seed-UNCONTROLLED) initial weights.
+    Audited immaterial to each script's OWN reported finding (arms are still matched
+    via `copy.deepcopy` of that one shared template, so the reported INTACT-vs-
+    manipulated comparisons are unconfounded regardless of what those shared weights
+    are) -- see `REE_assembly/evidence/planning/q081_landmark_removal_arm_design.md`
+    section 8. NOT retro-fixed: all four Q-081 carriers plus 849 have landed manifests;
+    a completed run's pre-registered emission is not rewritten.
+
+    PREVENTION for new scripts: `experiments/_lib/arm_fingerprint.seeded_construct
+    (seed, factory)` calls `reset_all_rng(seed)` THEN `factory()`, guaranteeing correct
+    order BY CONSTRUCTION rather than by discipline -- use it (or seed via
+    `arm_cell`/`reset_all_rng`/`torch.manual_seed` textually before the agent
+    constructor call) for any new driver.
+
+    Opt-out: AGENT_SEED_ORDER_EXEMPT = "<reason>" -- appropriate when the flagged
+    function's agent is deliberately NOT meant to be seed-reproducible (e.g. an
+    intentionally-shared, order-independent template whose weights the criteria never
+    depend on), or when a single-arm design makes cross-seed weight variation
+    immaterial by construction. Do NOT retro-edit a LANDED driver to silence this --
+    the exemption is for NEW work; a landed script's genuine backlog membership is
+    part of the historical record (see CONFIRMED CARRIERS above).
+
+    WARN-only in BOTH modes -- never hardens under --paths. Interprocedural
+    reproducibility (does ANY caller seed before invoking a function with no local
+    seed evidence?) is out of scope by design (see TIER 1 ONLY above), so this can
+    under-fire; it does not over-fire on the one-hop dual-purpose-helper shape (see
+    above). The corpus fire count is a BACKLOG SIZE, not a target -- landed carriers'
+    runs are complete and are deliberately not retro-edited.
+    """
+    try:
+        src = path.read_text(encoding="utf-8")
+        tree = ast.parse(src, filename=str(path))
+    except (OSError, SyntaxError, UnicodeDecodeError):
+        return None  # check_script already reports unreadable / syntax errors
+
+    if _AGENT_SEED_ORDER_EXEMPT_MARKER in src:
+        return None
+
+    module_funcs = {n.name: n for n in tree.body
+                    if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    if not module_funcs:
+        return None
+
+    walks = {}
+    for name, fn in module_funcs.items():
+        w = _DirectFlowWalker()
+        for stmt in fn.body:
+            w.visit(stmt)
+        walks[name] = w
+
+    ctor_names, seed_names = set(), set()
+    for name, w in walks.items():
+        if any(_call_name(c) == "REEAgent" for c in w.calls):
+            ctor_names.add(name)
+        if any(_is_direct_torch_seed_call(c) for c in w.calls) or w.arm_cell_seed_lines:
+            seed_names.add(name)
+
+    # Dual-purpose helpers are unresolvable from a caller's single call site --
+    # see the docstring. Excluded from resolving OTHER functions' calls; still
+    # independently scanned below on their own account.
+    dual = ctor_names & seed_names
+    resolved_ctor = ctor_names - dual
+    resolved_seed = seed_names - dual
+
+    findings: List[Tuple[str, int, List[int]]] = []
+    for name, w in walks.items():
+        agent_lines = sorted({c.lineno for c in w.calls
+                              if _call_name(c) == "REEAgent" or _call_name(c) in resolved_ctor})
+        seed_lines = sorted({c.lineno for c in w.calls
+                             if _is_direct_torch_seed_call(c) or _call_name(c) in resolved_seed}
+                            | set(w.arm_cell_seed_lines))
+        if not agent_lines or not seed_lines:
+            continue
+        first_agent = agent_lines[0]
+        if not any(s < first_agent for s in seed_lines):
+            findings.append((name, first_agent, seed_lines))
+
+    if not findings:
+        return None
+
+    findings.sort(key=lambda f: f[1])
+    parts = [
+        f"{fn}() constructs an agent at line {first_agent} with no torch-RNG seed "
+        f"call earlier in its own flow (seed call(s) found at line(s) "
+        f"{', '.join(str(s) for s in seeds)}, all at or after {first_agent})"
+        for fn, first_agent, seeds in findings
+    ]
+    return (
+        "agent weights are not seed-reproducible: " + "; ".join(parts) + ". "
+        "torch.nn.Module weight init draws from torch's OWN global RNG, so "
+        "np.random.seed/random.seed alone never covers this -- only "
+        "torch.manual_seed/reset_all_rng/arm_cell(do_reset=True, default) does, and "
+        "it must run BEFORE the agent is constructed. Fix with "
+        "experiments/_lib/arm_fingerprint.seeded_construct(seed, factory), or move the "
+        "seed call textually earlier. Exempt with "
+        f"{_AGENT_SEED_ORDER_EXEMPT_MARKER} = \"<reason>\" only when this agent is "
+        "deliberately not meant to be seed-reproducible."
+    )
+
+
 def _candidate_paths(paths: Sequence[str]) -> List[Path]:
     if paths:
         return [Path(p).resolve() for p in paths]
@@ -5189,6 +5423,7 @@ def main() -> int:
     config_slice_warnings: List[Tuple[Path, str]] = []
     inert_dacc_bias_warnings: List[Tuple[Path, str]] = []
     dacc_last_bundle_warnings: List[Tuple[Path, str]] = []
+    agent_seed_order_warnings: List[Tuple[Path, str]] = []
     for p in paths:
         rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
         if "conformance" in selected:
@@ -5354,6 +5589,14 @@ def main() -> int:
                 # this one never hardens under --paths (static shape scan; flags a
                 # SUSPECTED defective helper, not a proven one).
                 spearman_warnings.append((p, sps))
+        if "agent_seed_order" in selected:
+            aso = agent_construction_before_seed_lint(p)
+            if aso:
+                # WARN-only in BOTH modes -- see agent_construction_before_seed_lint()
+                # for why this one never hardens under --paths (interprocedural
+                # reproducibility is out of scope by design, and the landed carriers'
+                # runs are complete).
+                agent_seed_order_warnings.append((p, aso))
 
     print("", flush=True)
     print(f"[validate_experiments] checked {len(paths)} scripts: "
@@ -5377,7 +5620,24 @@ def main() -> int:
           f"{len(dry_unreachable_criterion_warnings)} dry_run-unreachable-criterion-warning(s), "
           f"{len(config_slice_warnings)} config_slice-declaration-warning(s), "
           f"{len(inert_dacc_bias_warnings)} inert-salience-dacc_bias-warning(s), "
-          f"{len(dacc_last_bundle_warnings)} dacc-_last_bundle-warning(s)", flush=True)
+          f"{len(dacc_last_bundle_warnings)} dacc-_last_bundle-warning(s), "
+          f"{len(agent_seed_order_warnings)} agent-seed-order-warning(s)", flush=True)
+    if agent_seed_order_warnings:
+        # Advisory in BOTH modes (never hardens). A fire here means the flagged
+        # function constructs REEAgent before ever seeding torch's global RNG in its
+        # own flow, so that agent's initial weights depend on process-level torch RNG
+        # history, not on `seed` -- see agent_construction_before_seed_lint() for the
+        # full reasoning and the confirmed Q-081 / INV-091 carrier shape. Triage each:
+        # confirm (as for Q-081) whether the script's own comparison is arm-matched
+        # via copy.deepcopy of the one shared template (immaterial to that finding) or
+        # whether cross-seed/cross-run weight reproducibility is actually load-bearing
+        # (matters). Fix new work with experiments/_lib/arm_fingerprint.seeded_construct.
+        # Do NOT retro-edit a LANDED driver whose run is complete.
+        print("", flush=True)
+        print("[validate_experiments] AGENT-SEED-ORDER WARNINGS (advisory, non-blocking):", flush=True)
+        for p, warn in agent_seed_order_warnings:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
+            print(f"  - {rel}: {warn}", flush=True)
     if dacc_last_bundle_warnings:
         # Advisory in BOTH modes (never hardens). A fire here means the script reads a
         # `_last_bundle` attribute NO substrate object defines, so the read is None every
