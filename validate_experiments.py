@@ -5125,6 +5125,21 @@ _TORCH_SEED_CALL_NAMES = ("manual_seed",)   # matched via full dotted path below
 _TORCH_SEED_HELPER_NAMES = ("reset_all_rng", "seeded_construct")
 
 
+def _is_guard_clause(body: List[ast.stmt]) -> bool:
+    """True if `body` (an `if` block's statements) unconditionally exits --
+    `return`/`raise`/`continue`/`break` as its last statement. See
+    `_DirectFlowWalker.visit_If` for why this matters: a guard-clause branch and
+    the code that follows the `if` are MUTUALLY EXCLUSIVE execution paths (taking
+    the branch means never reaching what follows, and vice versa), so merging
+    their events into one flat ordering check is unsound -- confirmed real
+    instance: `v3_exq_418k_sd016_context_memory_reef.py::main`'s `if
+    args.dry_run: ...; return` block builds an agent with no seed call of its
+    own, but the REAL run path (reached only when `args.dry_run` is False) calls
+    a correctly-seeded function -- the two were never going to run together.
+    """
+    return bool(body) and isinstance(body[-1], (ast.Return, ast.Raise, ast.Continue, ast.Break))
+
+
 class _DirectFlowWalker(ast.NodeVisitor):
     """Collects `ast.Call` nodes belonging to ONE function's own execution flow.
 
@@ -5134,11 +5149,21 @@ class _DirectFlowWalker(ast.NodeVisitor):
     Also records `with arm_cell(...) as x:` context managers, whose `__enter__`
     calls `reset_all_rng` (see `_lib/arm_fingerprint.py::_ArmCell.__enter__`) unless
     constructed with `do_reset=False`.
+
+    A guard-clause `if` (see `_is_guard_clause`) is ISOLATED into its own
+    `_DirectFlowWalker`, appended to `self.isolated_scopes`, rather than merged
+    into `self.calls` -- the caller checks each scope (main flow, plus every
+    isolated branch, recursively) for the ordering violation INDEPENDENTLY, since
+    they are mutually-exclusive execution paths. `if`s that do NOT unconditionally
+    exit are treated as before (merged into the surrounding flow) -- real branch-
+    sensitive analysis for arbitrary if/else is out of scope; the guard-clause
+    shape is the one confirmed real false-positive source.
     """
 
     def __init__(self) -> None:
         self.calls: List[ast.Call] = []
         self.arm_cell_seed_lines: List[int] = []
+        self.isolated_scopes: List["_DirectFlowWalker"] = []
 
     def visit_FunctionDef(self, node: ast.AST) -> None:
         pass
@@ -5148,6 +5173,21 @@ class _DirectFlowWalker(ast.NodeVisitor):
 
     def visit_Lambda(self, node: ast.AST) -> None:
         pass
+
+    def visit_If(self, node: ast.If) -> None:
+        self.visit(node.test)  # the condition always evaluates -- stays in this flow
+        if _is_guard_clause(node.body):
+            sub = _DirectFlowWalker()
+            for stmt in node.body:
+                sub.visit(stmt)
+            self.isolated_scopes.append(sub)
+            self.isolated_scopes.extend(sub.isolated_scopes)  # flatten nested guards
+            sub.isolated_scopes = []
+        else:
+            for stmt in node.body:
+                self.visit(stmt)
+        for stmt in node.orelse:
+            self.visit(stmt)
 
     def visit_With(self, node: ast.With) -> None:
         for item in node.items:
@@ -5169,6 +5209,103 @@ class _DirectFlowWalker(ast.NodeVisitor):
     def visit_Call(self, node: ast.Call) -> None:
         self.calls.append(node)
         self.generic_visit(node)
+
+
+def _flatten_walker(w: "_DirectFlowWalker") -> Tuple[List[ast.Call], List[int]]:
+    """All calls + arm_cell lines from `w` AND every isolated sub-scope, merged.
+
+    Used only for the coarse one-hop ctor/seed NAME resolution ("can calling
+    this function ever construct/seed, in ANY branch") -- branch-sensitivity
+    only matters for the per-scope ORDERING check, done separately below.
+    """
+    calls = list(w.calls)
+    arm_cell = list(w.arm_cell_seed_lines)
+    for sub in w.isolated_scopes:
+        sub_calls, sub_arm = _flatten_walker(sub)
+        calls += sub_calls
+        arm_cell += sub_arm
+    return calls, arm_cell
+
+
+def _build_parent_map(tree: ast.Module) -> Dict[int, ast.AST]:
+    """Map `id(child)` -> parent node, for the whole module. Built fresh (never
+    cached on the nodes themselves via `setattr` -- the shared corpus-scan parse
+    cache in `tests/contracts/conftest.py` requires every consumer to be
+    read-only; see that module's docstring) so `_is_discarded_agent_subscript`
+    can ask "is this Call's result immediately subscripted" without needing a
+    full parent-tracking traversal of its own.
+    """
+    parent_of: Dict[int, ast.AST] = {}
+    for node in ast.walk(tree):
+        for child in ast.iter_child_nodes(node):
+            parent_of[id(child)] = node
+    return parent_of
+
+
+def _find_agent_tuple_index(fn_node: ast.AST) -> Optional[int]:
+    """If `fn_node` assigns `X = REEAgent(...)` and returns a tuple literal
+    containing `Name(id=X)`, return X's position in that tuple. `None` if
+    undeterminable (agent not returned via a simple tuple literal, or not
+    assigned to a single plain name) -- callers must treat `None` as "cannot
+    verify", never as "definitely not the agent".
+    """
+    agent_var: Optional[str] = None
+    for node in ast.walk(fn_node):
+        if (isinstance(node, ast.Assign) and isinstance(node.value, ast.Call)
+                and _call_name(node.value) == "REEAgent" and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)):
+            agent_var = node.targets[0].id
+            break
+    if agent_var is None:
+        return None
+    for node in ast.walk(fn_node):
+        if isinstance(node, ast.Return) and isinstance(node.value, ast.Tuple):
+            for i, elt in enumerate(node.value.elts):
+                if isinstance(elt, ast.Name) and elt.id == agent_var:
+                    return i
+    return None
+
+
+def _is_discarded_agent_subscript(
+    call: ast.Call, parent_of: Dict[int, ast.AST], ctor_agent_index: Dict[str, Optional[int]],
+) -> bool:
+    """True only when POSITIVELY CONFIRMED that `call`'s result is subscripted
+    for an element OTHER than the agent, so the constructed `REEAgent` itself
+    is unreachable after this statement and cannot be the object any later
+    code actually uses.
+
+    Confirmed real shape (5 of the original 18 backlog carriers, 2026-08-01
+    triage): `probe_slice = _build(seed)[4]` before `with arm_cell(...)`, used
+    only to harvest a static config-slice dict for the fingerprint -- the
+    `REEAgent` object `_build` also constructs and returns (at a DIFFERENT
+    tuple position) is immediately garbage; the REAL, scored agent is built by
+    a second, correctly-seeded call inside the `arm_cell` block. Flagging the
+    discarded probe as "the" agent-construction event is a false positive.
+
+    DELIBERATELY CONSERVATIVE -- returns False (do not discard, i.e. treat as a
+    real construction) whenever this cannot be positively verified: `call` is
+    `REEAgent(...)` directly (never itself a tuple -- subscripting it would be
+    a TypeError, so this branch never applies to it), the resolved one-hop
+    ctor function's agent position could not be determined
+    (`_find_agent_tuple_index` returned `None`), or the subscript's index is
+    not a simple integer constant. A false NEGATIVE here (missing a genuine
+    two-hop bug) is the safe failure direction for a WARN-only, evidence-
+    integrity-relevant lint -- silently suppressing a real fire is worse than
+    occasionally still flagging a benign one.
+    """
+    parent = parent_of.get(id(call))
+    if not isinstance(parent, ast.Subscript):
+        return False
+    name = _call_name(call)
+    if name == "REEAgent":
+        return False
+    idx = ctor_agent_index.get(name) if name else None
+    if idx is None:
+        return False
+    sl = parent.slice
+    if isinstance(sl, ast.Constant) and isinstance(sl.value, int):
+        return sl.value != idx
+    return False
 
 
 def _call_name(node: ast.Call) -> Optional[str]:
@@ -5260,15 +5397,35 @@ def agent_construction_before_seed_lint(path: Path) -> Optional[str]:
     section 8. NOT retro-fixed: all four Q-081 carriers plus 849 have landed manifests;
     a completed run's pre-registered emission is not rewritten.
 
-    ALL 18 pinned carriers triaged (2026-08-01): every one is immaterial to its own
-    reported finding, for one of four recurring reasons -- see
+    ALL 18 originally-pinned carriers triaged (2026-08-01): every one immaterial to
+    its own reported finding, for one of four recurring reasons -- see
     `REE_assembly/evidence/planning/agent_seed_order_lint_backlog_triage.md` for the
-    per-script verdicts. Two of those reasons are genuine PRECISION GAPS in this
-    lint's Tier-1, one-hop design (a `--dry-run`-only branch fires identically to a
-    real path; a discarded "probe" construction fires even when the real, scored
-    agent is built two call-hops away inside a correctly-resetting `arm_cell`) --
-    documented there rather than fixed, since the backlog is already provably
-    harmless regardless of this lint's own false-positive rate on it.
+    per-script verdicts. Two of those reasons turned out to be genuine PRECISION
+    GAPS in this lint's Tier-1 design, and were FIXED the same day (not merely
+    documented), because trusting future fires shouldn't require re-deriving this
+    triage each time:
+      1. Branch-unawareness -- a `--dry-run`-only guard-clause branch (`if
+         args.dry_run: ...; return`) was merged into the same ordering check as
+         the function's real path, even though the two are mutually exclusive.
+         Fixed by isolating any guard-clause `if` (body ends in an unconditional
+         `return`/`raise`/`continue`/`break`) into its own independently-checked
+         scope -- see `_DirectFlowWalker.visit_If` / `_is_guard_clause`.
+      2. One-hop-only resolution couldn't see a "probe, discard, real-build-two-
+         hops-away" idiom: `probe_slice = _build(seed)[N]` before `arm_cell`,
+         used only to harvest a static config dict, while the REAL agent is
+         built two call-hops away inside the (correctly resetting) `arm_cell`
+         block. Fixed not by extending hop resolution (which would just move the
+         blind spot) but by recognising the discard itself: a ctor call whose
+         result is immediately subscripted for a POSITIVELY CONFIRMED non-agent
+         tuple position doesn't count as a construction event -- see
+         `_is_discarded_agent_subscript` / `_find_agent_tuple_index`. Both are
+         DELIBERATELY CONSERVATIVE: when either cannot positively verify its
+         precondition, they do NOT suppress (a missed fire is the worse failure
+         direction for an evidence-integrity lint).
+    Fixing these cleared 7 of the 18 (418j, 418k, 785, 785a, 787, 804, 805) --
+    all seven were already independently triaged immaterial before the fix, so
+    this is a lint-precision improvement, not a materiality reversal. Backlog
+    pin is now 11 (`tests/contracts/test_agent_construction_seed_order_lint.py`).
 
     PREVENTION for new scripts: `experiments/_lib/arm_fingerprint.seeded_construct
     (seed, factory)` calls `reset_all_rng(seed)` THEN `factory()`, guaranteeing correct
@@ -5312,11 +5469,14 @@ def agent_construction_before_seed_lint(path: Path) -> Optional[str]:
             w.visit(stmt)
         walks[name] = w
 
+    # Coarse "can calling this function ever construct/seed" (branch-insensitive
+    # on purpose -- see _flatten_walker).
     ctor_names, seed_names = set(), set()
     for name, w in walks.items():
-        if any(_call_name(c) == "REEAgent" for c in w.calls):
+        all_calls, all_arm_cell = _flatten_walker(w)
+        if any(_call_name(c) == "REEAgent" for c in all_calls):
             ctor_names.add(name)
-        if any(_is_direct_torch_seed_call(c) for c in w.calls) or w.arm_cell_seed_lines:
+        if any(_is_direct_torch_seed_call(c) for c in all_calls) or all_arm_cell:
             seed_names.add(name)
 
     # Dual-purpose helpers are unresolvable from a caller's single call site --
@@ -5326,17 +5486,38 @@ def agent_construction_before_seed_lint(path: Path) -> Optional[str]:
     resolved_ctor = ctor_names - dual
     resolved_seed = seed_names - dual
 
-    findings: List[Tuple[str, int, List[int]]] = []
-    for name, w in walks.items():
-        agent_lines = sorted({c.lineno for c in w.calls
-                              if _call_name(c) == "REEAgent" or _call_name(c) in resolved_ctor})
+    # Which tuple position (if any) is the agent, for every one-hop ctor
+    # function -- used only to positively confirm a discarded-probe subscript;
+    # see _is_discarded_agent_subscript.
+    ctor_agent_index = {name: _find_agent_tuple_index(module_funcs[name])
+                        for name in resolved_ctor}
+    parent_of = _build_parent_map(tree)
+
+    def _scope_findings(w: "_DirectFlowWalker") -> List[Tuple[int, List[int]]]:
+        """Ordering violations in `w`'s OWN direct flow, plus (recursively)
+        each isolated guard-clause branch, checked INDEPENDENTLY -- see
+        _DirectFlowWalker.visit_If for why isolated scopes must not be merged
+        with the surrounding flow (mutually-exclusive execution paths)."""
+        out: List[Tuple[int, List[int]]] = []
+        agent_lines = sorted({
+            c.lineno for c in w.calls
+            if (_call_name(c) == "REEAgent" or _call_name(c) in resolved_ctor)
+            and not _is_discarded_agent_subscript(c, parent_of, ctor_agent_index)
+        })
         seed_lines = sorted({c.lineno for c in w.calls
                              if _is_direct_torch_seed_call(c) or _call_name(c) in resolved_seed}
                             | set(w.arm_cell_seed_lines))
-        if not agent_lines or not seed_lines:
-            continue
-        first_agent = agent_lines[0]
-        if not any(s < first_agent for s in seed_lines):
+        if agent_lines and seed_lines:
+            first_agent = agent_lines[0]
+            if not any(s < first_agent for s in seed_lines):
+                out.append((first_agent, seed_lines))
+        for sub in w.isolated_scopes:
+            out.extend(_scope_findings(sub))
+        return out
+
+    findings: List[Tuple[str, int, List[int]]] = []
+    for name, w in walks.items():
+        for first_agent, seed_lines in _scope_findings(w):
             findings.append((name, first_agent, seed_lines))
 
     if not findings:

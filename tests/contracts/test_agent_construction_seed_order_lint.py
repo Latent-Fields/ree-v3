@@ -28,8 +28,8 @@ only breaks exact seed-to-seed reproducibility across separate runs. See
 for the full audit.
 
 SCOPE. Like every other WARN-only lint in this family, this gates NEW scripts.
-The 18 landed carriers' runs are complete and are NOT retro-edited, so the
-fire-rate pin is a BACKLOG SIZE, not a target of zero.
+Landed carriers' runs are complete and are NOT retro-edited, so the fire-rate
+pin is a BACKLOG SIZE, not a target of zero.
 
 TIER 1 ONLY -- see agent_construction_before_seed_lint()'s own docstring. This
 does NOT attempt "is this script's agent seed-reproducible" in general (that
@@ -37,6 +37,56 @@ needs interprocedural analysis this lint deliberately does not do); it fires
 only on the unambiguous, high-confidence shape: a real seed call exists in the
 SAME function, but too late. A clean result here is not proof of
 reproducibility -- only proof this specific defect is absent.
+
+PRECISION PASS (2026-08-01, same day as the original 18-file audit). Triaging
+all 18 for materiality (`REE_assembly/evidence/planning/
+agent_seed_order_lint_backlog_triage.md`) surfaced two genuine FALSE-POSITIVE
+shapes in the original Tier-1 design, both fixed here rather than merely
+documented, because a lint whose fires require manual disambiguation before
+they can be trusted is exactly the kind of noise that stops getting read:
+
+  1. BRANCH-UNAWARENESS. The original walker merged an `if args.dry_run: ...;
+     return` guard-clause branch's calls into the same flat timeline as the
+     function's real path, even though the two are mutually exclusive
+     execution paths (SD-016 418j/418k: the unseeded construction was
+     confined to the dry-run smoke-test branch; the real run path was already
+     correctly seeded). Fixed by isolating any guard-clause `if` -- one whose
+     body unconditionally exits -- into its own scope, checked independently
+     (`_DirectFlowWalker.visit_If` / `_is_guard_clause`).
+  2. ONE-HOP-ONLY RESOLUTION vs. a "probe, discard, real-build-two-hops-away"
+     idiom. A recurring author pattern (confirmed in 5 of the original 18:
+     MECH-463 785/785a/787, ARC-003 804, ARC-016 805) builds a throwaway probe
+     via a one-hop-visible ctor call (`probe_slice = _build(seed)[4]`, used
+     only to harvest a static config dict) BEFORE `arm_cell`, while the REAL,
+     scored agent is built by a second call two hops away
+     (`_collect_cell` -> `_build`), invisible to one-hop resolution, INSIDE
+     the (correctly resetting) `arm_cell` block. Fixed not by extending hop
+     resolution (which would just make the lint blind in a different way) but
+     by recognising the discard itself: a ctor call whose result is
+     immediately subscripted for a POSITIVELY CONFIRMED non-agent tuple
+     position doesn't count as an agent-construction event at all
+     (`_is_discarded_agent_subscript` / `_find_agent_tuple_index`).
+
+Both fixes are DELIBERATELY CONSERVATIVE in the false-negative direction: when
+either cannot positively verify its precondition (an `if` that doesn't
+unconditionally exit; a subscript whose extracted index or the ctor's return
+shape can't be resolved), they do NOT suppress. A missed fire (silently
+letting a genuine 3rd-shape bug through) would re-introduce exactly the
+evidence-integrity risk this whole effort exists to close off -- worse than
+occasionally still flagging a benign construction, which is what led to (1)
+and (2) being noticed and fixed in the first place. See
+`test_guard_clause_with_genuine_bug_inside_still_fires` and
+`test_subscript_extracting_the_agent_itself_still_fires` below for the
+negative controls proving the conservative direction actually holds, and
+`test_real_688_construction_bug_still_fires` for the real-corpus negative
+control (688's flagged construction is a genuine unseeded build, NOT a
+discarded probe, and must keep firing).
+
+Backlog count after the fix: 11 (was 18; 418j, 418k, 785, 785a, 787, 804, 805
+cleared -- all seven were already independently triaged IMMATERIAL before this
+fix, for reasons unrelated to whether the lint itself should have fired on
+them; see the triage doc for the full per-script record, now annotated with
+which precision gap explains each cleared fire).
 """
 import os
 import subprocess
@@ -251,6 +301,203 @@ def run_integration_arm(seed, arm_name):
     assert "run_integration_arm" in r
 
 
+# ---- (2b) precision fix 1: guard-clause branch isolation ---------------------------
+
+def test_clean_when_unseeded_construction_is_confined_to_a_dry_run_guard_clause():
+    """Confirmed real shape: v3_exq_418k_sd016_context_memory_reef.py::main.
+    An `if args.dry_run: ...; return` block builds an agent with no local seed
+    call, but the REAL run path (reached only when the branch is NOT taken) is
+    a separate, correctly-seeded call -- the two never execute together, so
+    merging their events into one timeline was the false-positive source."""
+    src = '''
+import argparse
+import torch
+from ree_core.agent import REEAgent
+from ree_core.utils.config import REEConfig
+
+
+def _make_agent(env):
+    cfg = REEConfig.from_dims(world_dim=32)
+    return REEAgent(cfg)
+
+
+def _run_one_arm_seed(seed):
+    torch.manual_seed(seed)
+    env = make_env(seed)
+    agent = _make_agent(env)
+    return agent
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dry-run", action="store_true")
+    args = parser.parse_args()
+    if args.dry_run:
+        env = make_env(42)
+        agent = _make_agent(env)
+        print("dry run", agent)
+        return
+    for seed in [0, 1, 2]:
+        _run_one_arm_seed(seed)
+'''
+    assert _lint_src(src) is None
+
+
+def test_guard_clause_with_genuine_bug_inside_still_fires():
+    """Conservative-direction negative control: a guard-clause branch that
+    itself has BOTH an agent construction and a too-late seed call is a
+    genuine violation CONFINED to that branch, and must still fire -- guard-
+    clause isolation checks each scope independently, it does not exempt
+    branches from Tier 1 wholesale."""
+    src = '''
+import argparse
+import torch
+from ree_core.agent import REEAgent
+from ree_core.utils.config import REEConfig
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dry-run", action="store_true")
+    args = parser.parse_args()
+    if args.dry_run:
+        cfg = REEConfig.from_dims(world_dim=32)
+        agent = REEAgent(cfg)
+        torch.manual_seed(42)  # too late, inside this same isolated branch
+        print("dry run", agent)
+        return
+    print("real run")
+'''
+    r = _lint_src(src)
+    assert r is not None
+    assert "main" in r
+
+
+def test_non_exiting_if_branches_are_still_merged_as_before():
+    """An `if`/`else` that does NOT unconditionally exit is not a guard clause
+    (no isolation) -- both branches still merge into the same flow, matching
+    pre-fix behaviour. Real branch-sensitive analysis for arbitrary if/else is
+    out of scope; only the confirmed guard-clause shape is isolated."""
+    src = '''
+import torch
+from ree_core.agent import REEAgent
+from ree_core.utils.config import REEConfig
+
+
+def run(seed, flag):
+    if flag:
+        cfg = REEConfig.from_dims(world_dim=32)
+        agent = REEAgent(cfg)
+    else:
+        cfg = REEConfig.from_dims(world_dim=16)
+        agent = REEAgent(cfg)
+    torch.manual_seed(seed)  # too late for either branch's construction
+    return agent
+'''
+    r = _lint_src(src)
+    assert r is not None
+
+
+# ---- (2c) precision fix 2: discarded-probe subscript detection --------------------
+
+def test_clean_when_flagged_construction_is_a_discarded_probe_subscript():
+    """Confirmed real shape (785/785a/787/804/805): a throwaway probe call
+    extracts only a non-agent tuple element via `[N]` before `arm_cell`; the
+    constructed REEAgent itself is immediately garbage. The REAL, scored agent
+    is built two call-hops away (`_collect_cell` -> `_build`) inside the
+    (correctly resetting) `arm_cell` block -- invisible to one-hop resolution,
+    but the discard detection means there is no remaining agent event to
+    wrongly pin on the probe."""
+    src = '''
+from ree_core.agent import REEAgent
+from ree_core.utils.config import REEConfig
+from experiments._lib.arm_fingerprint import arm_cell
+
+
+def _build(seed):
+    cfg = REEConfig.from_dims(world_dim=32)
+    agent = REEAgent(cfg)
+    env = make_env(seed)
+    kw = {"world_dim": 32}
+    return agent, env, {}, None, kw
+
+
+def _collect_cell(seed):
+    agent, env, obs, decoder, kw = _build(seed)
+    return run_rollout(agent, env)
+
+
+def run_experiment(seeds):
+    for seed in seeds:
+        probe_slice = _build(seed)[4]
+        with arm_cell(seed, config_slice=probe_slice) as cell:
+            rows = _collect_cell(seed)
+            cell.stamp({"rows": rows})
+'''
+    assert _lint_src(src) is None
+
+
+def test_subscript_extracting_the_agent_itself_still_fires():
+    """Conservative-direction negative control: when the subscript's constant
+    index DOES match the agent's real position in the returned tuple (proven
+    via _find_agent_tuple_index), it is a genuine use, not a discard, and must
+    still fire. Guards against over-generalising "subscript = discard". (A
+    torch.manual_seed call after the extraction is included so this actually
+    exercises the discard heuristic -- without ANY seed evidence at all the
+    case would stay clean regardless, per Tier 1's separate "no local seed
+    evidence" scope decision, and would not test what this test is for.)"""
+    src = '''
+import torch
+from ree_core.agent import REEAgent
+from ree_core.utils.config import REEConfig
+
+
+def _build(seed):
+    cfg = REEConfig.from_dims(world_dim=32)
+    agent = REEAgent(cfg)
+    env = make_env(seed)
+    return env, agent, {}
+
+
+def run_experiment(seeds):
+    for seed in seeds:
+        agent = _build(seed)[1]  # index 1 IS the agent -- must not be discarded
+        torch.manual_seed(seed)  # too late
+        agent.eval()
+'''
+    r = _lint_src(src)
+    assert r is not None
+
+
+def test_subscript_with_unresolvable_ctor_shape_still_fires():
+    """Conservative-direction negative control: when the ctor function's
+    return shape can't be analysed (not a simple tuple literal), the subscript
+    discard heuristic must NOT apply -- default to firing rather than
+    silently trusting an unverifiable discard. (Seed call included for the
+    same reason as the sibling test above -- otherwise "no local seed
+    evidence" would explain a clean result regardless of the discard logic.)"""
+    src = '''
+import torch
+from ree_core.agent import REEAgent
+from ree_core.utils.config import REEConfig
+
+
+def _build(seed):
+    cfg = REEConfig.from_dims(world_dim=32)
+    agent = REEAgent(cfg)
+    bundle = {"agent": agent, "env": make_env(seed)}
+    return bundle  # not a tuple literal -- _find_agent_tuple_index can't resolve this
+
+
+def run_experiment(seeds):
+    for seed in seeds:
+        probe = _build(seed)["agent"]
+        torch.manual_seed(seed)  # too late
+'''
+    r = _lint_src(src)
+    assert r is not None
+
+
 def test_clean_when_no_agent_constructed():
     src = '''
 def run(seed):
@@ -415,6 +662,60 @@ def test_real_q081_pair_reach_check_lib_module_is_not_scanned():
     assert V.agent_construction_before_seed_lint(p849) is None
 
 
+# ---- (5b) real corpus witnesses for the two precision fixes ------------------------
+
+def test_real_418j_and_418k_no_longer_false_fire_on_the_dry_run_branch():
+    """Precision fix 1 (guard-clause isolation): these were in the original
+    18-file backlog ONLY because main()'s --dry-run branch was merged into the
+    same flow as the real run path. Both scripts' real path
+    (_run_one_arm_seed) was already correctly seeded (confirmed during the
+    2026-08-01 triage) -- clearing the fire is a strict precision
+    improvement, not a loosening of the rule."""
+    for name in (
+        "v3_exq_418j_sd016_context_memory_reef.py",
+        "v3_exq_418k_sd016_context_memory_reef.py",
+    ):
+        p = EXPERIMENTS_DIR / name
+        assert p.exists(), name
+        assert V.agent_construction_before_seed_lint(p) is None, name
+
+
+def test_real_mech463_and_arc_family_no_longer_false_fire_on_discarded_probes():
+    """Precision fix 2 (discarded-probe subscript detection): all five were in
+    the original 18-file backlog ONLY because a throwaway
+    `probe_slice = _build(seed)[N]` before `arm_cell` was misread as the
+    load-bearing construction. Each script's REAL, scored agent (built via
+    _collect_cell inside arm_cell) was already correctly seeded (confirmed
+    during the 2026-08-01 triage)."""
+    for name in (
+        "v3_exq_785_mech463_arousal_variance_amplifier_decomp.py",
+        "v3_exq_785a_mech463_arousal_exogenous_urgency_decomp.py",
+        "v3_exq_787_mech463_hazard_geometry_exogenous_proximity.py",
+        "v3_exq_804_arc003_e3_selection_authority.py",
+        "v3_exq_805_arc016_eval_derived_commit_threshold.py",
+    ):
+        p = EXPERIMENTS_DIR / name
+        assert p.exists(), name
+        assert V.agent_construction_before_seed_lint(p) is None, name
+
+
+def test_real_688_construction_bug_still_fires():
+    """Negative control for precision fix 2: 688's flagged construction
+    (`test_agent = _build_agent(...)`, a P0-only readiness probe) is a GENUINE
+    unseeded build directly assigned to a name and used
+    (`_p0_readiness_checks(test_agent)`) -- not a discarded, immediately-
+    subscripted probe. It must keep firing; the fix must not over-suppress
+    real bugs that merely happen to also be immaterial for other reasons
+    (688's arm comparison is separately, correctly seeded and never reached in
+    the landed runs -- see the triage doc -- but that is a materiality
+    finding, not something this lint should silently assume)."""
+    p = EXPERIMENTS_DIR / "v3_exq_688_mech044_hippocampal_relational_binding.py"
+    assert p.exists()
+    r = V.agent_construction_before_seed_lint(p)
+    assert r is not None
+    assert "run_experiment" in r
+
+
 # ---- (6) invariants: WARN-only, never blocks ---------------------------------------
 
 def test_is_warn_only_under_strict_and_paths():
@@ -447,26 +748,31 @@ def test_selector_runs_only_this_check():
 
 # ---- (7) corpus-wide pin -----------------------------------------------------------
 
-# Pinned 2026-08-01 against the v3_exq_*.py corpus, at the commit that introduced this
-# gate. This is a BACKLOG SIZE, not a target -- all 18 have run and are deliberately
-# NOT retro-edited (a completed run's pre-registered emission is not rewritten).
+# RE-PINNED 18 -> 11 on 2026-08-01, same day, deliberately: fixing the two
+# precision gaps the materiality triage found (branch-unawareness; one-hop-only
+# resolution missing the probe-then-real-build-two-hops-away idiom -- see the
+# module docstring's PRECISION PASS section) cleared 7 of the original 18:
+#   - 418j, 418k (SD-016): unseeded construction was confined to main()'s
+#     --dry-run guard-clause branch; the real run path was already correct.
+#   - 785, 785a, 787 (MECH-463), 804 (ARC-003), 805 (ARC-016): the flagged
+#     construction was a discarded probe (`probe_slice = _build(seed)[N]`);
+#     the real, scored agent (built inside arm_cell) was already correct.
+# All seven were independently triaged IMMATERIAL before this fix (they never
+# invalidated anything) -- the fix is about the LINT's own precision (fewer
+# fires needing manual disambiguation going forward), not about un-flagging a
+# risk. Original pin + full per-script triage (all 18, including these 7's
+# materiality reasoning) preserved in
+# REE_assembly/evidence/planning/agent_seed_order_lint_backlog_triage.md.
 #
-# The 18: v3_exq_108, 418j, 418k, 615, 635, 688, 785, 785a, 787, 804, 805, 824, 824a,
-# 827, 827a, 828, 828a, 838.
-#
-# ALL 18 triaged (2026-08-01) -- every one immaterial to its own reported finding.
-# Full per-script verdicts + the four recurring reasons (shared-object/deepcopy
-# design; effect margin swamping plausible init variance; unseeded construction
-# confined to a --dry-run-only branch never reached by the scored run; a discarded
-# "probe" construction while the real, scored agent is built two call-hops away
-# inside a correctly-resetting arm_cell) in
-# REE_assembly/evidence/planning/agent_seed_order_lint_backlog_triage.md. That doc
-# also names two genuine PRECISION GAPS in this lint's Tier-1, one-hop design found
-# during the triage (branch-unawareness; one-hop-only name resolution missing the
-# probe-then-real-build-two-hops-away idiom) -- documented there, not fixed here,
-# since the backlog is provably harmless regardless of this lint's own
-# false-positive rate on it.
-_PINNED_CORPUS_FIRE_COUNT = 18
+# The remaining 11: v3_exq_108, 615, 635, 688, 824, 824a, 827, 827a, 828, 828a,
+# 838. All still TRUE positives (a real unseeded construction exists) and all
+# still individually triaged IMMATERIAL -- via shared-object/deepcopy design
+# (824/824a/827/827a/828/828a/838/635/108) or effect margin swamping plausible
+# init variance (615), or (688) a genuine unseeded P0-only probe that never
+# fed the separately-correct arm comparison. This is a BACKLOG SIZE, not a
+# target -- all 11 have run and are deliberately NOT retro-edited (a completed
+# run's pre-registered emission is not rewritten).
+_PINNED_CORPUS_FIRE_COUNT = 11
 
 
 def test_corpus_fire_rate_is_pinned(corpus_scan):
