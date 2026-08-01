@@ -13,10 +13,33 @@ ree-v3 repo, so nothing real (pytest / a worker) runs and the tests are determin
   R5 remote path BLOCKS the commit on a red router run (exit 2).
   R6 FAIL-SAFE: remote chosen but the router is missing -> fall back to local, never skip.
   R7 the header documents routing (guards against a silent revert to unconditional local pytest).
+
+STAGGERED LOCAL-RACE FALLBACK (2026-08-01): when remote is chosen but is still running after
+RACE_AFTER seconds, the gate re-checks the SAME memory floor and, if it clears and no other
+session holds the cross-session lock, ALSO starts a local run -- whichever finishes first decides
+the commit. Confirmed live 2026-08-01: a hub run nice'd behind a real experiment took 2h+ against
+a ~13min clean baseline (not the ~2x remote_pytest.sh's own advisory assumes), while a same-tree
+local run finished in 13m53s.
+
+  R8  remote finishes before the race deadline -> local is never started, even with a
+      near-zero race window (the REMOTE_RC check comes before the deadline check).
+  R9  remote outlives the race window, Mac clears the floor -> local starts, wins, and its
+      (green) exit code decides the commit; "race winner: local" is logged.
+  R10 remote outlives the race window, Mac is BELOW the floor -> local is never started;
+      the commit waits on (and is decided by) remote alone.
+  R11 remote outlives the race window, Mac clears the floor, but another session already
+      holds the race lock -> local is never started, and the pre-existing lock is left
+      untouched (this session must not release a lock it did not acquire).
+  R12 a RED local win still blocks the commit (exit 2), same as a red remote run.
+  R13 REE_PRECOMMIT_CONTRACTS_DISABLE_RACE=1 -> local is never started even with an
+      immediately-expired race window; old block-on-remote-only behaviour.
+  R14 a race lock older than RACE_LOCK_MAX_MIN is STOLEN, not wedged forever -- the
+      recovery a session that dies without its EXIT trap running (SIGKILL / OOM) needs.
 """
 
 import os
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -62,6 +85,19 @@ def _stub_router(tmp_path, exit_code):
     return stub, marker
 
 
+def _stub_sleeper(tmp_path, name, exit_code, sleep_sec=0.0):
+    """A stand-in for either the remote router or `run_local_pytest` that
+    records it ran, sleeps `sleep_sec` (to simulate "still running" past the
+    race deadline), then exits `exit_code`."""
+    marker = tmp_path / f"{name}_ran"
+    stub = tmp_path / f"{name}_stub.sh"
+    stub.write_text(
+        f'#!/usr/bin/env bash\ntouch "{marker}"\nsleep {sleep_sec}\nexit {exit_code}\n'
+    )
+    stub.chmod(0o755)
+    return stub, marker
+
+
 # --------------------------------------------------------------------------- R1
 def test_r1_self_gate_no_relevant_path(tmp_path):
     repo = _fake_repo(tmp_path, "README.md")     # not ree_core/ or _lib/
@@ -96,6 +132,19 @@ def test_r4_remote_passes_through_green(tmp_path):
     assert p.returncode == 0, p.stderr
 
 
+# ------------------------------------------------------------------------ R4b
+def test_r4b_direct_local_path_invokes_run_local_pytest_override(tmp_path):
+    """TARGET=local chosen from the start (no race involved) must also honour
+    the REE_PRECOMMIT_CONTRACTS_LOCAL_PYTEST override, and pass its exit
+    through -- the non-race counterpart to R4."""
+    repo = _fake_repo(tmp_path, "ree_core/y.py")
+    stub, marker = _stub_sleeper(tmp_path, "local", 0, sleep_sec=0.0)
+    p = _run(repo, {"REE_PRECOMMIT_CONTRACTS_TARGET": "local",
+                    "REE_PRECOMMIT_CONTRACTS_LOCAL_PYTEST": str(stub)}, decide_only=False)
+    assert marker.exists(), "local override was not invoked"
+    assert p.returncode == 0, p.stderr
+
+
 # --------------------------------------------------------------------------- R5
 def test_r5_remote_blocks_on_red(tmp_path):
     repo = _fake_repo(tmp_path, "experiments/_lib/x.py")
@@ -121,3 +170,123 @@ def test_r7_header_documents_routing():
     src = GATE.read_text()
     assert "ROUTING" in src and "remote_pytest" in src, "Block 2 routing header missing"
     assert "OUT-OF-MEMORY" in src or "OOM" in src, "the OOM rationale must stay documented"
+
+
+def _race_env(tmp_path, remote_stub, local_stub, race_after_sec, free_mb, lock_dir=None):
+    return {
+        "REE_PRECOMMIT_CONTRACTS_TARGET": "remote",
+        "REE_PRECOMMIT_REMOTE_PYTEST": str(remote_stub),
+        "REE_PRECOMMIT_CONTRACTS_LOCAL_PYTEST": str(local_stub),
+        "REE_PRECOMMIT_CONTRACTS_REMOTE_RACE_AFTER_SEC": str(race_after_sec),
+        "REE_PRECOMMIT_CONTRACTS_RACE_POLL_SEC": "0.1",
+        "REE_PRECOMMIT_CONTRACTS_FREE_MB": str(free_mb),
+        "REE_PRECOMMIT_CONTRACTS_RACE_LOCK_DIR": str(lock_dir or (tmp_path / "race.lock")),
+    }
+
+
+# --------------------------------------------------------------------------- R8
+def test_r8_fast_remote_never_races_when_it_finishes_within_the_window(tmp_path):
+    """REMOTE_RC is checked before the deadline on every poll, so a remote
+    that finishes comfortably inside the race window must win outright. Uses
+    a non-zero window (2s) with an instant remote (0s) so the test itself
+    isn't racing the same clock it's trying to pin -- a literal
+    race_after_sec=0 has no buffer for remote's own process-spawn latency
+    and is a test-harness flake, not a gate behaviour to assert on."""
+    repo = _fake_repo(tmp_path, "experiments/_lib/x.py")
+    remote, remote_marker = _stub_sleeper(tmp_path, "remote", 0, sleep_sec=0.0)
+    local, local_marker = _stub_sleeper(tmp_path, "local", 0, sleep_sec=0.0)
+    p = _run(repo, _race_env(tmp_path, remote, local, race_after_sec=2, free_mb=99999),
+              decide_only=False)
+    assert p.returncode == 0, p.stderr
+    assert remote_marker.exists()
+    assert not local_marker.exists(), "local must not run when remote already finished"
+    assert "race winner: remote" in p.stderr, p.stderr
+
+
+# --------------------------------------------------------------------------- R9
+def test_r9_slow_remote_races_and_local_wins(tmp_path):
+    repo = _fake_repo(tmp_path, "experiments/_lib/x.py")
+    remote, remote_marker = _stub_sleeper(tmp_path, "remote", 0, sleep_sec=2.0)
+    local, local_marker = _stub_sleeper(tmp_path, "local", 0, sleep_sec=0.1)
+    p = _run(repo, _race_env(tmp_path, remote, local, race_after_sec=0, free_mb=99999),
+              decide_only=False)
+    assert p.returncode == 0, p.stderr
+    assert remote_marker.exists()
+    assert local_marker.exists(), "local should have been started once the window expired"
+    assert "starting a local race" in p.stderr, p.stderr
+    assert "race winner: local" in p.stderr, p.stderr
+
+
+# --------------------------------------------------------------------------- R10
+def test_r10_slow_remote_below_floor_never_races(tmp_path):
+    repo = _fake_repo(tmp_path, "experiments/_lib/x.py")
+    remote, remote_marker = _stub_sleeper(tmp_path, "remote", 0, sleep_sec=0.5)
+    local, local_marker = _stub_sleeper(tmp_path, "local", 0, sleep_sec=0.0)
+    p = _run(repo, _race_env(tmp_path, remote, local, race_after_sec=0, free_mb=100),
+              decide_only=False)
+    assert p.returncode == 0, p.stderr
+    assert remote_marker.exists()
+    assert not local_marker.exists(), "local must not run below the memory floor"
+    assert "NOT racing locally" in p.stderr and "mac_available=100MB" in p.stderr, p.stderr
+    assert "race winner: remote" in p.stderr, p.stderr
+
+
+# --------------------------------------------------------------------------- R11
+def test_r11_slow_remote_lock_held_by_another_session_never_races(tmp_path):
+    repo = _fake_repo(tmp_path, "experiments/_lib/x.py")
+    remote, remote_marker = _stub_sleeper(tmp_path, "remote", 0, sleep_sec=0.5)
+    local, local_marker = _stub_sleeper(tmp_path, "local", 0, sleep_sec=0.0)
+    lock_dir = tmp_path / "race.lock"
+    lock_dir.mkdir()  # simulate another session already racing
+    p = _run(repo, _race_env(tmp_path, remote, local, race_after_sec=0, free_mb=99999,
+                              lock_dir=lock_dir), decide_only=False)
+    assert p.returncode == 0, p.stderr
+    assert not local_marker.exists(), "local must not run while another session holds the lock"
+    assert "another session already racing" in p.stderr, p.stderr
+    assert lock_dir.exists(), "must not release a lock this session did not acquire"
+
+
+# --------------------------------------------------------------------------- R12
+def test_r12_red_local_win_blocks_commit(tmp_path):
+    repo = _fake_repo(tmp_path, "experiments/_lib/x.py")
+    remote, remote_marker = _stub_sleeper(tmp_path, "remote", 0, sleep_sec=2.0)
+    local, local_marker = _stub_sleeper(tmp_path, "local", 2, sleep_sec=0.1)
+    p = _run(repo, _race_env(tmp_path, remote, local, race_after_sec=0, free_mb=99999),
+              decide_only=False)
+    assert local_marker.exists()
+    assert p.returncode == 2, f"a red local race win must BLOCK the commit (got {p.returncode})\n{p.stderr}"
+    assert "race winner: local (rc=2)" in p.stderr, p.stderr
+
+
+# --------------------------------------------------------------------------- R13
+def test_r13_disable_race_never_starts_local(tmp_path):
+    repo = _fake_repo(tmp_path, "experiments/_lib/x.py")
+    remote, remote_marker = _stub_sleeper(tmp_path, "remote", 0, sleep_sec=0.5)
+    local, local_marker = _stub_sleeper(tmp_path, "local", 0, sleep_sec=0.0)
+    env = _race_env(tmp_path, remote, local, race_after_sec=0, free_mb=99999)
+    env["REE_PRECOMMIT_CONTRACTS_DISABLE_RACE"] = "1"
+    p = _run(repo, env, decide_only=False)
+    assert p.returncode == 0, p.stderr
+    assert not local_marker.exists(), "REE_PRECOMMIT_CONTRACTS_DISABLE_RACE=1 must suppress the race"
+    assert "race winner: remote" in p.stderr, p.stderr
+
+
+# --------------------------------------------------------------------------- R14
+def test_r14_stale_lock_is_stolen_not_wedged_forever(tmp_path):
+    """A lock left behind by a session that died without its EXIT trap
+    running (SIGKILL / OOM) must not permanently disable racing for every
+    future session."""
+    repo = _fake_repo(tmp_path, "experiments/_lib/x.py")
+    remote, remote_marker = _stub_sleeper(tmp_path, "remote", 0, sleep_sec=0.5)
+    local, local_marker = _stub_sleeper(tmp_path, "local", 0, sleep_sec=0.0)
+    lock_dir = tmp_path / "race.lock"
+    lock_dir.mkdir()
+    old = time.time() - 120  # 2 minutes old
+    os.utime(lock_dir, (old, old))
+    env = _race_env(tmp_path, remote, local, race_after_sec=0, free_mb=99999, lock_dir=lock_dir)
+    env["REE_PRECOMMIT_CONTRACTS_RACE_LOCK_MAX_MIN"] = "1"   # 2min old >= 1min max -> stale
+    p = _run(repo, env, decide_only=False)
+    assert p.returncode == 0, p.stderr
+    assert "stealing stale race lock" in p.stderr, p.stderr
+    assert local_marker.exists(), "the stale lock must have been stolen so local could race"
+    assert "race winner: local" in p.stderr, p.stderr

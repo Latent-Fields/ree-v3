@@ -206,6 +206,22 @@ fi
 # FAIL-SAFE: if remote is chosen but the router is missing/not executable, fall
 # back to LOCAL rather than skip the gate -- a skipped gate is the dangerous
 # direction, and local is exactly today's behaviour.
+#
+# STAGGERED LOCAL-RACE FALLBACK (2026-08-01): when TARGET=remote is chosen,
+# remote_pytest's OWN "expect roughly 2x" hub-contention advisory is a single
+# 2026-07-20 measurement against a suite roughly half today's size and does
+# not bound slowdown when the hub is nice'd behind a CPU-heavy experiment --
+# confirmed 2026-08-01, a nice'd run took 2h+ against a ~13min clean
+# baseline (~9-10x, not ~2x) while a same-tree local run finished in 13m53s.
+# Rather than block indefinitely OR flip the default to local (which
+# reintroduces the multi-session OOM incident above), the gate now starts
+# remote immediately as before and, if it is still running after
+# REE_PRECOMMIT_CONTRACTS_REMOTE_RACE_AFTER_MIN minutes (default 20),
+# RE-CHECKS the same memory floor at that later point and -- only if it
+# still clears, and no other session already holds the local-race lock --
+# ALSO starts a local run, taking whichever finishes first. See the Block 2
+# execution section below for the full env var list. Coverage is unchanged
+# either way; this is still routing, not a test-subset shortcut.
 # ---------------------------------------------------------------------------
 TARGET="${REE_PRECOMMIT_CONTRACTS_TARGET:-auto}"
 FLOOR_MB="${REE_PRECOMMIT_CONTRACTS_LOCAL_FLOOR_MB:-3000}"
@@ -250,16 +266,150 @@ if [ "${REE_PRECOMMIT_CONTRACTS_DECIDE_ONLY:-0}" = "1" ]; then
 fi
 
 echo "[precommit_contracts] ree_core/ or experiments/_lib/ change staged -- running contracts ($TARGET)" >&2
+
+run_local_pytest() {
+    # Testable indirection, same shape as REMOTE_PYTEST above.
+    if [ -n "${REE_PRECOMMIT_CONTRACTS_LOCAL_PYTEST:-}" ]; then
+        "$REE_PRECOMMIT_CONTRACTS_LOCAL_PYTEST"
+    else
+        (cd "$REPO" && "$PY" -m pytest -q --tb=line tests/contracts)
+    fi
+}
+
 if [ "$TARGET" = "remote" ]; then
-    # remote_pytest ships the working tree to a free fleet box and runs there.
-    # Unset the private index (ree_commit sets GIT_INDEX_FILE/GIT_DIR when it
-    # re-runs this hook) so the router's own git calls see the normal repo; it
-    # tests on-disk content, which is exactly what ree_commit commits.
-    if (cd "$REPO" && env -u GIT_INDEX_FILE -u GIT_DIR "$REMOTE_PYTEST" tests/contracts -q --tb=line) >&2; then
+    # ---------------------------------------------------------------------
+    # STAGGERED LOCAL-RACE FALLBACK (2026-08-01).
+    #
+    # remote_pytest's own hub-contention advisory ("expect roughly 2x") is a
+    # single 2026-07-20 measurement against a suite roughly half today's
+    # size, and does not bound slowdown when the hub is nice'd behind a
+    # CPU-heavy experiment: confirmed 2026-08-01, a nice'd run took 2h+
+    # against a ~13min clean baseline (~9-10x, not ~2x), while a same-tree
+    # local run on this Mac finished in 13m53s clean (3217 passed).
+    #
+    # Neither extreme is right: blocking indefinitely on a stuck remote run
+    # wastes real time; flipping the DEFAULT to local reintroduces the
+    # documented multi-session OOM incident this gate exists to prevent
+    # (CLAUDE.md "several sessions... load 25-30"). So: start remote
+    # immediately as before (unchanged fast path when it's healthy), and if
+    # it has not finished after RACE_AFTER minutes, ALSO start a local run
+    # -- re-checking the SAME memory floor at that later point (Mac load can
+    # only be judged when you're about to use it, not 20 minutes earlier),
+    # and only if no other session already holds the local-race lock (the
+    # guard against every contended session piling a local run onto the Mac
+    # at once, which is exactly the incident this whole gate exists to
+    # avoid). Whichever finishes first decides the commit; the other is
+    # killed. Coverage is identical either way -- this is routing, not a
+    # test-subset shortcut.
+    #
+    # Env:
+    #   REE_PRECOMMIT_CONTRACTS_REMOTE_RACE_AFTER_MIN  minutes before trying
+    #                                                   a local race (default 20)
+    #   REE_PRECOMMIT_CONTRACTS_REMOTE_RACE_AFTER_SEC  test-only override, raw
+    #                                                   seconds, takes precedence
+    #   REE_PRECOMMIT_CONTRACTS_RACE_POLL_SEC          poll interval (default 15)
+    #   REE_PRECOMMIT_CONTRACTS_DISABLE_RACE           1 -> old behaviour, block
+    #                                                   on remote only, no race
+    #   REE_PRECOMMIT_CONTRACTS_RACE_LOCK_DIR          cross-session lock dir
+    #                                                   (default /tmp/ree_precommit_local_race.lock)
+    #   REE_PRECOMMIT_CONTRACTS_LOCAL_PYTEST           test-only: run this
+    #                                                   instead of `$PY -m pytest`
+    # ---------------------------------------------------------------------
+    RACE_AFTER_SEC="${REE_PRECOMMIT_CONTRACTS_REMOTE_RACE_AFTER_SEC:-}"
+    if [ -z "$RACE_AFTER_SEC" ]; then
+        RACE_AFTER_MIN="${REE_PRECOMMIT_CONTRACTS_REMOTE_RACE_AFTER_MIN:-20}"
+        RACE_AFTER_SEC=$(( RACE_AFTER_MIN * 60 ))
+    fi
+    POLL_SEC="${REE_PRECOMMIT_CONTRACTS_RACE_POLL_SEC:-15}"
+    RACE_LOCK_DIR="${REE_PRECOMMIT_CONTRACTS_RACE_LOCK_DIR:-/tmp/ree_precommit_local_race.lock}"
+    RACE_LOCK_MAX_MIN="${REE_PRECOMMIT_CONTRACTS_RACE_LOCK_MAX_MIN:-45}"
+
+    # Stale-lock recovery, mirroring remote_pytest.sh's own
+    # REMOTE_PYTEST_LOCK_MAX_MIN pattern: a session that dies without
+    # running its EXIT trap (SIGKILL, an OOM kill -- exactly the failure
+    # mode this whole gate exists to avoid) would otherwise leave the lock
+    # dir behind forever, silently disabling every future session's race.
+    steal_stale_race_lock() {
+        [ -d "$RACE_LOCK_DIR" ] || return 0
+        local mtime now age_min
+        # BSD stat (macOS, where this gate normally runs) first; GNU stat
+        # (Linux, e.g. this function's own contract tests when routed
+        # through the cloud fleet) as a fallback -- portable, not a
+        # production requirement, since the gate itself always runs on the
+        # Mac in real use.
+        mtime=$(stat -f %m "$RACE_LOCK_DIR" 2>/dev/null) || mtime=$(stat -c %Y "$RACE_LOCK_DIR" 2>/dev/null)
+        [ -n "$mtime" ] || return 0
+        now=$(date +%s)
+        age_min=$(( (now - mtime) / 60 ))
+        if [ "$age_min" -ge "$RACE_LOCK_MAX_MIN" ]; then
+            echo "[precommit_contracts] stealing stale race lock -- ${age_min}min old (>= ${RACE_LOCK_MAX_MIN}min)" >&2
+            rmdir "$RACE_LOCK_DIR" >/dev/null 2>&1
+        fi
+    }
+
+    WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/ree_precommit_race.XXXXXX")"
+    REMOTE_LOG="$WORKDIR/remote.log"; REMOTE_RC="$WORKDIR/remote.rc"
+    LOCAL_LOG="$WORKDIR/local.log"; LOCAL_RC="$WORKDIR/local.rc"
+    REMOTE_PID=""; LOCAL_PID=""; LOCAL_LOCK_HELD=""
+
+    cleanup_race() {
+        [ -n "$REMOTE_PID" ] && kill "$REMOTE_PID" >/dev/null 2>&1
+        [ -n "$LOCAL_PID" ] && kill "$LOCAL_PID" >/dev/null 2>&1
+        [ -n "$LOCAL_LOCK_HELD" ] && rmdir "$RACE_LOCK_DIR" >/dev/null 2>&1
+        rm -rf "$WORKDIR" >/dev/null 2>&1
+    }
+    trap cleanup_race EXIT
+
+    # remote_pytest ships the working tree to a free fleet box and runs
+    # there. Unset the private index (ree_commit sets GIT_INDEX_FILE/GIT_DIR
+    # when it re-runs this hook) so the router's own git calls see the
+    # normal repo; it tests on-disk content, which is exactly what
+    # ree_commit commits.
+    ( cd "$REPO" && env -u GIT_INDEX_FILE -u GIT_DIR "$REMOTE_PYTEST" tests/contracts -q --tb=line >"$REMOTE_LOG" 2>&1
+      echo $? >"$REMOTE_RC" ) &
+    REMOTE_PID=$!
+
+    if [ "${REE_PRECOMMIT_CONTRACTS_DISABLE_RACE:-0}" = "1" ]; then
+        DEADLINE=0   # never race -- old blocking-on-remote-only behaviour
+    else
+        DEADLINE=$(( $(date +%s) + RACE_AFTER_SEC ))
+    fi
+    RACE_SKIP_LOGGED=""
+
+    while :; do
+        [ -f "$REMOTE_RC" ] && break
+        if [ "$DEADLINE" != "0" ] && [ "$(date +%s)" -ge "$DEADLINE" ] && [ -z "$LOCAL_PID" ]; then
+            NOW_AVAIL=$(mac_available_mb)
+            steal_stale_race_lock
+            if [ "${NOW_AVAIL:-0}" -ge "$FLOOR_MB" ] 2>/dev/null && mkdir "$RACE_LOCK_DIR" >/dev/null 2>&1; then
+                LOCAL_LOCK_HELD=1
+                echo "[precommit_contracts] remote still running after ${RACE_AFTER_SEC}s -- starting a local race (mac_available=${NOW_AVAIL}MB >= ${FLOOR_MB}MB)" >&2
+                ( run_local_pytest >"$LOCAL_LOG" 2>&1; echo $? >"$LOCAL_RC" ) &
+                LOCAL_PID=$!
+            elif [ -z "$RACE_SKIP_LOGGED" ]; then
+                RACE_SKIP_LOGGED=1
+                if [ "${NOW_AVAIL:-0}" -lt "$FLOOR_MB" ] 2>/dev/null; then
+                    echo "[precommit_contracts] remote still running after ${RACE_AFTER_SEC}s -- NOT racing locally (mac_available=${NOW_AVAIL}MB < ${FLOOR_MB}MB)" >&2
+                else
+                    echo "[precommit_contracts] remote still running after ${RACE_AFTER_SEC}s -- NOT racing locally (another session already racing: $RACE_LOCK_DIR held)" >&2
+                fi
+            fi
+        fi
+        [ -n "$LOCAL_PID" ] && [ -f "$LOCAL_RC" ] && break
+        sleep "$POLL_SEC"
+    done
+
+    if [ -f "$LOCAL_RC" ]; then
+        WINNER="local"; WINNER_RC="$(cat "$LOCAL_RC")"; cat "$LOCAL_LOG" >&2
+    else
+        WINNER="remote"; WINNER_RC="$(cat "$REMOTE_RC")"; cat "$REMOTE_LOG" >&2
+    fi
+    echo "[precommit_contracts] race winner: $WINNER (rc=$WINNER_RC)" >&2
+    if [ "$WINNER_RC" = "0" ]; then
         exit 0
     fi
 else
-    if (cd "$REPO" && "$PY" -m pytest -q --tb=line tests/contracts) >&2; then
+    if run_local_pytest >&2; then
         exit 0
     fi
 fi
