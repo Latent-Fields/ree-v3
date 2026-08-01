@@ -8,30 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-850",
-      "title": "GOV-FANOUT-1 H1: does F1/REM precision recalibration damp SD-076 drift before eval? (single-axis INFL-only re-run of 794a, F1 disabled)",
-      "script": "experiments/v3_exq_850_mech204_sd076_h1_f1_damping_probe.py",
-      "priority": 60,
-      "machine_affinity": "any",
-      "estimated_minutes": 25,
-      "note": "GOV-FANOUT-1 leg (H1 of 3), fanout source failure_autopsy_V3-EXQ-794a_2026-07-31.json target v3_exq_794a_..._20260724T063301Z_v3. Sibling H2 (exposure-budget leg) is V3-EXQ-853, a distinct script from the same fanout source; H3 (wrong mechanism form, weakened not eliminated) routes to a /lit-pull commission, not an experiment. DESIGN: copy-modified from V3-EXQ-794a, kept to ONLY the INFL-only arms (ARM_INFL_LO/HI; dropped ARM_OFF_OFF/ARM_BCAST_ONLY/ARM_BOTH_LO/ARM_BOTH_HI -- single-axis probe, not the 2x3 factorial). Same LO=0.6/HI=0.8 asymmetry doses, same N_TRAIN_EPS=30 training budget, same SD-076 headroom-repair knobs as 794a. MANIPULATION: use_rem_precision_recalibration False instead of True (F1/REM writeback disabled); verified by direct code read (ree_core/sleep/phase_manager.py WRITEBACK block writes no metrics at all when the flag is False) and by the run's own f1_recalib_disabled_confirmed precondition, a genuine manipulation check not a config assertion. GOV-REUSE-1 (Step 2.4): reanalysis_query.py query --readout rv_final --claim MECH-204 (2026-07-31) finds only v3_exq_794/794a, both F1 ON -- the F1-disabled + full-behavioural-loop + repaired-floor combination is recorded nowhere. Not recoverable -> run. RE-DERIVE BRAKE (2.5b): 0 confirmed substrate_ceiling autopsies for MECH-204 or SD-076; also exempt as a GOV-FANOUT-1 discrimination leg regardless. claim_ids=[MECH-204, SD-076]: both mechanisms directly implicated by the interaction under test. No in-run OFF/baseline arm needed -- the decisive comparison is BETWEEN-RUN against two pre-registered external reference points (794a's own rv_final 0.003998/0.003870 LO/HI, and the SD-076 repair's isolated validation smoke 0.0025377/0.0021031 LO/HI), not a within-run control; the inflation_lowers_rv precondition is instead checked against the substrate's own internally-tracked un-inflated counterfactual EMA. Smoke --dry-run PASS, validate_experiments.py --strict clean (0 findings).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-08-01T00:07:48Z"
-      },
-      "architecture_epoch": "ree_hybrid_guardrails_v1",
-      "claim_ids": [
-        "MECH-204",
-        "SD-076"
-      ],
-      "conditions": 2,
-      "episodes_per_run": 30,
-      "experiment_purpose": "diagnostic",
-      "experiment_type": "v3_exq_850_mech204_sd076_h1_f1_damping_probe",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-849",
       "title": "Q-081 cheap reach pre-flight SCAN: does any lever (iei_permute replication, or untried jitter) give the cross-stream recording manipulation precursor-level reach to operating_mode? H1/H2 discriminator, follow-on of V3-EXQ-838 autopsy",
       "script": "experiments/v3_exq_849_q081_reach_preflight_scan.py",
@@ -39,7 +15,11 @@
       "machine_affinity": "any",
       "estimated_minutes": 20,
       "note": "Follow-on of failure_autopsy_v3-exq-838_2026-07-29.md (REE_assembly 4cff1b73e8), routed per GOV-FANOUT-1 (queue-experiment SKILL.md sec 2.5b): 838 is the THIRD consecutive bit-identical RV(z_world, operating_mode) result (824, 824a, 838) and refuted the 824a-recommended fix (use_per_region_vs=True); the autopsy explicitly refuses another blind full re-run and routes to a CHEAP pre-flight probe BEFORE any full run, plus a fanout_recommendation registering two live hypotheses on hypothesis registry qid q081-cross-stream-shared-organisation: H1 (axis=substrate, operating_mode CAN be made reachable via an untried mechanism) vs H2 (axis=measurement, operating_mode is not downstream of these manipulations; reframe the DV pair). This run is that single pre-flight (GOV-FANOUT-1 explicitly sanctions one combined probe over two full legs). SUBSTRATE: uses experiments/_lib/q081_pair_reach_check.py (Q081-REACH-CHECK-PAIR-SPECIFIC, substrate_queue.json, IMPLEMENTED 2026-07-31) which diffs the PRECURSOR of operating_mode (agent.salience._input_signals, the closed set SalienceCoordinator.tick() computes the softmax from) between INTACT and a manipulated arm over a short UNTRAINED rollout -- cheaper than and, for a null, strictly stronger than an RV statistic on the softmax output (operating_mode is a deterministic function of exactly those signals). Extended this session (small, backward-compatible addition: run_pair_specific_reach_probe(mode=...), default unchanged) to accept a `mode` parameter so it can scan more than the one lever the substrate module shipped with. SCANS TWO LEVERS x 5 seeds (10 cells): (1) mode=iei_permute, replicating 838's own best-known (RV-level-refuted) lever at the cheaper precursor level -- this formalises as a governance-visible recorded manifest what was previously only a manual dev-validation run (substrate_queue.json implemented_utc note: seeds 0/1 non-degenerate, has_pair_specific_reach=False); (2) mode=jitter, the ONE genuinely UNTRIED lever already present in q081_landmark_removal.MODES -- never run against this pair at any level (824/824a/838 covered off/iei_permute/circular_shift/suppress only). GOV-FANOUT-1 null declaration (per leg, in the script docstring): a no-reach result on both levers would mean real cumulative evidence toward H2 (four structurally different manipulation families plus two REACH_CONSUMERS flags now show zero precursor-level reach), but would NOT mean no lever anywhere could reach operating_mode (a direct operating_mode write path is a substrate BUILD, out of scope for a cheap probe) nor that Q-081 itself is settled. GOV-REUSE-1 (Step 2.4): decisive readout is precursor-level has_pair_specific_reach on mode=jitter -- never computed by any prior run (824/824a/838 never tried jitter; q081_pair_reach_check.py's own manual validation only tried iei_permute); not recoverable by reanalysis, proceeds to run. RE-DERIVE BRAKE (Step 2.5b): does not formally fire for Q-081 -- R3 counts only substrate_ceiling category autopsies, and Q-081's chain (824/824a/838) is measurement_test_design_defect, per the autopsy's own Step 8 finding. DV-SYMMETRY: not applicable -- this is a diagnostic reach probe over a boolean precursor-divergence detector, not an arm scored against a DV symmetry class. Smoke --dry-run PASS (1 seed x 2 levers at n_episodes=2/steps_per_episode=15/env_size=6 toy scale): both cells ran end-to-end, self-routed q081_reach_preflight_no_lever_found (informative, not a crash). validate_experiments.py --strict: 0 findings (added ANCHOR_REACHABILITY_EXEMPT for the at_least_one_non_degenerate_cell precondition, justified by the substrate module's own prior manual validation at these exact settings). tests/contracts/test_q081_pair_reach_check.py (15) + test_q081_landmark_removal.py all still pass after the mode= extension. NOT multi-arm in the arm_fingerprint sense (no training, no reuse-eligible baseline arm to mint) -- results recorded under reach_scan_results, not arm_results, so no arm_cell() obligation applies. Self-routes substrate_not_ready_requeue (FAIL) only if every one of the 10 cells is degenerate; otherwise PASS with label q081_reach_preflight_lever_found (H1 live) or q081_reach_preflight_no_lever_found (H2 favoured) per whichever lever(s), if any, show reach.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-08-01T00:48:24Z"
+      },
       "architecture_epoch": "ree_hybrid_guardrails_v1",
       "claim_ids": [
         "Q-081"
