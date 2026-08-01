@@ -232,6 +232,36 @@
       "experiment_purpose": "diagnostic",
       "experiment_type": "v3_exq_852_sd085_f_weight_substrate_readiness",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-856",
+      "title": "SD-087: harm_surprise_pe OFF vs ON affective fingerprint (664 re-run)",
+      "experiment_type": "v3_exq_856_sd087_harm_surprise_pe_fingerprint",
+      "script": "experiments/v3_exq_856_sd087_harm_surprise_pe_fingerprint.py",
+      "priority": 40,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 120,
+      "episodes_per_run": 50,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_id": "SD-087",
+      "note": "Falsifier for SD-087 (candidate registered 2026-08-01, REE_assembly 58ab5d11db), from the 2026-06-10 z_harm_a saturation intake. Two-arm re-run of the V3-EXQ-664 affective fingerprint on the SAME raw-warmup substrate, varying ONLY harm_surprise_pe_enabled (config.py:2306, default False): ARM_OFF = 664 default (z_harm_a trained vs EMA accumulated-harm target), ARM_ON = True (trained vs the SD-020 precision-weighted affective-surprise PE target). DVs: within-episode CoV(z_harm_a) and inverted mode-ordering (shelter > avoid mean z_harm_a). PASS (SD-087 upheld) = signature (sub-floor CoV AND shelter>avoid) present in OFF and materially reduced in ON; FAIL = signature survives the flag flip -> relocates defect to encoder/env, hands to Q-086/V3-EXQ-857. NON-DEGENERACY (self-routes substrate_not_ready_requeue via non_degenerate=false): (1) PE-branch differentiation asserted STRUCTURALLY -- after warmup ARM_ON _harm_obs_ema > PE_EMA_FLOOR=1e-4 and ARM_OFF == 0.0 (the EMA is mutated only inside the compute_harm_accum_loss PE branch, agent.py:9322-9333, and reset() never clears it; smoke confirmed OFF=0.0, ON=0.021-0.035); (2) OFF must reproduce the 664 signature before ON means anything. GOV-REUSE-1: the ON arm has never been run; 664 (2026-06-10) is OFF-only, carries no substrate_hash (pre-2026-07-12), and z_harm_a dynamics changed 2026-07-31 (SD-036 recurrence, ree-v3 35e8969) -> not recoverable, run. RE-DERIVE BRAKE: SD-087 candidate 2026-08-01, 0 autopsies -> does not fire. DV-SYMMETRY (both arms): the manipulation changes the z_harm_a TRAINING TARGET and hence the learned affective encoder; the CoV and per-mode-mean DVs are functions of the resulting latent, not invariant under any broadcast/rescale/permutation. SCOPE: raw-warmup only (scaffold_train_harm_pathway off, no scaffolded_sd054_onboarding), matched to 664 so the OFF arm reproduces the signature; conclusions scoped to raw-warmup agents (intake candidate 5 / SD-086/SD-087 scope_note). MINT: first of the affective_fishtank lineage; OFF/harsh arm factored into experiments/_lib/baselines/affective_fishtank.py and emitted include_driver_script_in_hash=False (reuse-eligible for 857's HARSH arm + future siblings). Smoke PASS end-to-end (validate_experiments --strict 0 findings incl arm_fingerprint; 6 cells ran; PE differentiation confirmed; z_goal recorded no-defect; toy-scale FAIL is the 3-vs-50 episode non-degeneracy self-route, not structural)."
+    },
+    {
+      "queue_id": "V3-EXQ-857",
+      "title": "Q-086: gentler-env confound control for z_harm_a saturation (664 re-run)",
+      "experiment_type": "v3_exq_857_q086_gentler_env_fingerprint",
+      "script": "experiments/v3_exq_857_q086_gentler_env_fingerprint.py",
+      "priority": 38,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 110,
+      "episodes_per_run": 50,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_id": "Q-086",
+      "note": "Environment-confound control for Q-086 (candidate registered 2026-08-01, REE_assembly 58ab5d11db), intake candidate 3. Two-arm re-run of the V3-EXQ-664 affective fingerprint varying ONLY env harshness: ARM_HARSH = 664 default (num_hazards=4, hazard_food_attraction=0.7), ARM_GENTLE = num_hazards=1, hazard_food_attraction=0.2. Both keep harm_surprise_pe_enabled=False (the observed-pathology config). Discriminates representational/calibration pathology (z_harm_a still pegs high, sub-floor CoV, level does NOT drop in the benign env) from faithful chronic suffering (level/range track hazard density). Diagnostic purpose (excluded from confidence scoring). NON-DEGENERACY (readiness precondition -> substrate_not_ready_requeue): the SENSORY tier z_harm_s must differ across arms beyond seed noise -- cross-arm |delta mean z_harm_s| as an SNR vs pooled cross-seed SD must exceed Z_HARM_S_SNR_K=2.0 (recomputable: measured SNR vs threshold). If z_harm_s is unmoved the env was not made gentler and the run cannot answer Q-086. ANCHOR_REACHABILITY_EXEMPT: the precondition IS the manipulation-took degeneracy definition; its reachability is the empirical question the two arms answer, and a below-gate reading is the correct substrate_not_ready verdict, not an unmeetable hand-narrowed predicate. GOV-REUSE-1: the gentle-env arm has never been run; 664 is harsh-only, pre-substrate-hash, z_harm_a dynamics changed 2026-07-31 -> not recoverable, run. RE-DERIVE BRAKE: Q-086 candidate 2026-08-01, 0 autopsies -> does not fire. DV-SYMMETRY (both arms): env harshness changes the environment's harm dynamics and hence both z_harm_s and z_harm_a; the CoV/level DVs are functions of the resulting latents, not invariant under any broadcast/rescale/permutation. SCOPE: raw-warmup only (intake candidate 5). MINT: reuses the affective_fishtank baseline module; ARM_HARSH is fingerprint-identical to V3-EXQ-856's ARM_OFF (same mint), ARM_GENTLE minted reuse-eligible. Smoke PASS end-to-end (validate_experiments --strict 0 findings; 6 cells ran; z_goal recorded no-defect; toy-scale FAIL is the readiness-gate self-route at 3 warmup episodes)."
     }
   ]
 }
