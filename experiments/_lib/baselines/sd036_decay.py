@@ -376,24 +376,53 @@ def train_agent(
 # ---------------------------------------------------------------------------
 # Stream recording -- the measurement instrument.
 # ---------------------------------------------------------------------------
+# Fishtank mode-classifier thresholds. Taken VERBATIM from
+# experiments/v3_exq_475_sd036_decay_unlocks_exq471.py:61-62, which took them
+# from EXQ-223a / EXQ-471 -- so the mode labels here are directly comparable to
+# the origin exemplar's "200 steps stuck in avoid" trace. Do not retune them:
+# their whole value is that they are the SAME rule the lock was observed under.
+HARM_MODE_THRESH = 0.25
+EXPLORE_ERR_THRESH = 0.10
+
+
+def classify_mode(
+    z_harm_norm: float, world_change_norm: float, harm_signal: float
+) -> str:
+    """The V3-EXQ-475 / EXQ-471 fishtank mode classifier, verbatim."""
+    if z_harm_norm > HARM_MODE_THRESH:
+        return "avoid"
+    if harm_signal > 0.01:
+        return "approach"
+    if world_change_norm > EXPLORE_ERR_THRESH:
+        return "explore"
+    return "neutral"
+
+
 def record_stream_trajectories(
     agent: REEAgent,
     env: CausalGridWorldV2,
     *,
     steps: int,
-) -> Dict[str, np.ndarray]:
+) -> Dict[str, Any]:
     """Run a FROZEN rollout and record the per-step norm of each decay stream.
 
     No learning happens here (`train_mode=False`, and no optimizer is
     constructed), so the same trained agent can be re-evaluated at several
     `gaba_tone` values without the earlier evaluations changing its weights.
+
+    Also records the per-step MODE under the 471-lineage classifier. That is the
+    behavioural readout for the design doc's observable #1 (the avoid-mode lock),
+    which no scale-free stream DV can express -- and which the V3-EXQ-475 script
+    had and this lineage would otherwise have lost.
     """
     out: Dict[str, List[float]] = {"z_harm": [], "z_harm_a": [], "z_beta": []}
+    modes: List[str] = []
     harness = StepHarness(agent, env, train_mode=False)
     _, obs_dict = env.reset()
     agent.reset()
     harness.reset()
     agent.eval()
+    z_world_prev = None
 
     with torch.no_grad():
         for _ in range(steps):
@@ -402,12 +431,95 @@ def record_stream_trajectories(
             for key in out:
                 z = getattr(latent, key, None)
                 out[key].append(float(z.norm()) if z is not None else float("nan"))
+
+            z_harm_norm = out["z_harm"][-1]
+            world_change = (
+                float((latent.z_world - z_world_prev).norm().item())
+                if z_world_prev is not None and latent.z_world is not None
+                else 0.0
+            )
+            modes.append(
+                classify_mode(z_harm_norm, world_change, float(result.harm_signal))
+            )
+            z_world_prev = (
+                latent.z_world.detach() if latent.z_world is not None else None
+            )
+
             obs_dict = result.next_obs_dict
             if result.done:
                 _, obs_dict = env.reset()
                 harness.reset()
+                z_world_prev = None
 
-    return {k: np.asarray(v, dtype=np.float64) for k, v in out.items()}
+    arrays: Dict[str, Any] = {
+        k: np.asarray(v, dtype=np.float64) for k, v in out.items()
+    }
+    arrays["modes"] = modes
+    return arrays
+
+
+def mode_metrics(modes: List[str]) -> Dict[str, Any]:
+    """Observable-#1 readouts derived from the mode sequence.
+
+    NON-GATING. These quantify the avoid-lock behaviourally; they do not carry
+    the verdict, because the encoder floor may put `z_harm_norm` permanently
+    above HARM_MODE_THRESH (see `floor_vs_mode_threshold`), in which case a
+    100% avoid fraction is a property of the classifier + floor, not evidence
+    against the decay regulator.
+    """
+    n = len(modes)
+    if n == 0:
+        return {"n_steps": 0}
+    counts: Dict[str, int] = {}
+    for m in modes:
+        counts[m] = counts.get(m, 0) + 1
+
+    longest = cur = 0
+    first_exit = None
+    for i, m in enumerate(modes):
+        if m == "avoid":
+            cur += 1
+            longest = max(longest, cur)
+        else:
+            if first_exit is None and modes[0] == "avoid":
+                first_exit = i
+            cur = 0
+
+    return {
+        "n_steps": n,
+        "mode_counts": counts,
+        "avoid_frac": counts.get("avoid", 0) / n,
+        "longest_avoid_run": longest,
+        # The design doc's "mode flip by ~t=50" readout. None = never left avoid
+        # (or never started in it).
+        "first_exit_from_avoid_step": first_exit,
+    }
+
+
+def floor_vs_mode_threshold(floor: Dict[str, float]) -> Dict[str, Any]:
+    """Is observable #1 reachable AT ALL under the 471 classifier?
+
+    Makes the encoder-floor caveat quantitative instead of rhetorical. If the
+    ambient floor norm of `harm_encoder(zeros)` already exceeds
+    HARM_MODE_THRESH, then `z_harm_norm` cannot fall below the avoid threshold
+    no matter how fast the regulator decays, so observable #1 as worded is
+    UNREACHABLE by construction and a 100% avoid fraction says nothing about
+    SD-036. Recorded on every run, PASS or FAIL.
+    """
+    f = floor.get("harm_encoder_zero_norm")
+    if f is None:
+        return {"assessable": False}
+    return {
+        "assessable": True,
+        "harm_encoder_zero_norm": float(f),
+        "harm_mode_threshold": HARM_MODE_THRESH,
+        "observable_1_reachable": bool(f <= HARM_MODE_THRESH),
+        "note": (
+            "If observable_1_reachable is False, z_harm_norm cannot drop below "
+            "the avoid threshold even under infinitely fast decay -- the mode "
+            "lock is then an encoder-floor property, not an SD-036 failure."
+        ),
+    }
 
 
 # ---------------------------------------------------------------------------

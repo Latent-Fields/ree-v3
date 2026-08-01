@@ -313,6 +313,12 @@ def run_cell(arm: str, seed: int) -> Dict[str, Any]:
                 "z_harm_a_trajectory": [float(x) for x in traj["z_harm_a"]],
                 "z_harm_trajectory": [float(x) for x in traj["z_harm"]],
                 "z_beta_trajectory": [float(x) for x in traj["z_beta"]],
+                # Observable #1's BEHAVIOURAL readout, under the verbatim
+                # V3-EXQ-475 / EXQ-471 classifier. Non-gating -- see
+                # floor_vs_mode_threshold for why a 100% avoid_frac may be an
+                # encoder-floor property rather than an SD-036 failure.
+                "mode_metrics": B.mode_metrics(traj["modes"]),
+                "mode_sequence": list(traj["modes"]),
             }
             per_tone.append(tone_row)
 
@@ -549,6 +555,11 @@ def run_experiment(seeds: List[int], dry_run: bool = False) -> Dict[str, Any]:
         "arm_results": arm_results,
         "readiness_control": readiness,
         "encoder_floor_summary": floor_summary,
+        # Quantifies the observable-#1 caveat instead of only asserting it: if
+        # the ambient encoder floor already exceeds the avoid threshold, the
+        # mode lock cannot be resolved by ANY decay rate, and a 100% avoid_frac
+        # is not evidence against SD-036.
+        "observable_1_reachability": B.floor_vs_mode_threshold(floor_summary),
         "interpretation": {
             "label": label,
             "preconditions": [
