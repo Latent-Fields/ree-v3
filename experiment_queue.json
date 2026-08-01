@@ -133,6 +133,26 @@
       "experiment_type": "v3_exq_864_sd076_wci_rv_trajectory_crossover_diagnostic",
       "machine_affinity_note": "prefer cloud (linux-x86_64-py3.10); no hardware requirement.",
       "seeds": 2
+    },
+    {
+      "queue_id": "V3-EXQ-843",
+      "title": "MECH-203 SWS replay-selection dose-response over tonic 5-HT (serotonergic replay-salience tagging)",
+      "script": "experiments/v3_exq_843_mech203_sws_replay_salience_dose_response.py",
+      "priority": 40,
+      "machine_affinity": "any",
+      "estimated_minutes": 30,
+      "status": "pending",
+      "architecture_epoch": "ree_hybrid_guardrails_v1",
+      "claim_ids": [
+        "MECH-203"
+      ],
+      "conditions": 1,
+      "episodes_per_run": 40,
+      "experiment_purpose": "evidence",
+      "experiment_type": "v3_exq_843_mech203_sws_replay_salience_dose_response",
+      "seeds": 3,
+      "backlog_id": "EVB-0157",
+      "note": "MECH-203 (serotonergic replay-salience tagging) has NEVER had a valid test: the only prior runs, v3_exq_255/256, were invalidated by an env.step() return-order bug (obs,reward,done,truncated,info=env.step() against the real 5-tuple flat_obs,harm_signal,done,info,obs_dict) that broke every episode after step 1 (n_benefit_samples=0, all metrics 0). This is a redesign testing the REPLAY-SELECTION half of the mechanism (drive_state -> priority path via HippocampalModule._select_valence_weighted_start), not 255's static valence-field tagging -- hence a new EXQ number, not a lettered fix. GOV-REUSE-1: decisive readout (benefit_replay_fraction across a t5ht dose sweep, over the REAL selection path) is not recorded anywhere valid; not recoverable by reanalysis. DV-symmetry (604c check) declared in the script docstring: the manipulation is a non-uniform drive-weight reweighting, not a broadcast/monotone/permutation symmetry, so the argmax-selection DV is not invariant under it. Provenance: authored by an IGW-auto-spawned session (claim igw-214-proposal-for-mech-203, 2026-07-30T19:11:14Z) that wrote the script and smoke-tested it (2026-07-30T19:17:44Z sentinel) but crashed/was abandoned before queuing -- the script and an orphaned TASK_CLAIMS entry both outlived the worktree, which had already been GC'd (see REE_Working WORKSPACE_STATE.md 2026-08-01T18:38Z). Finished this session: code-reviewed against the current substrate (every attribute access -- agent.serotonin/.hippocampal._select_valence_weighted_start/.residue_field, REEConfig.from_dims kwargs, CausalGridWorldV2 factory, env.step()'s 5-tuple order -- grepped live against ree_core; the drive_state formula matches agent.py::_do_replay's serotonin branch exactly). Fixed one real defect: emit_outcome() was called from inside a main() helper rather than directly in the `if __name__ == \"__main__\":` block, which validate_experiments.py's AST-based runner-conformance check does not trace through function calls -- refactored main() into _run(dry_run) returning (outcome, out_path, run_id), with emit_outcome() now called directly at module level. validate_experiments.py --strict: 0 non-conforming, 0 warnings across all 20 checks. --dry-run: 3 seeds complete cleanly, correct progress instrumentation ([train] ep N/M, verdict PASS/FAIL x3, Seed/Condition boundary lines), [smoke] z_goal_stream reports \"no writer defect\" (active_frac=0.000 expected on the tiny dry-run dose). Measurement-only design (no phased training, no gradient descent)."
     }
   ]
 }
