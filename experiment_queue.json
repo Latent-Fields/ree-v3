@@ -27,29 +27,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-475b",
-      "title": "Q-040.c: is dACC behavioural-adjustment magnitude proportional to V_s precision-modulated forward-PE under MECH-269b=ON? (475a-conditions successor)",
-      "script": "experiments/v3_exq_475b_q040c_dacc_pe_weight_delta_correlation.py",
-      "priority": 45,
-      "machine_affinity": "any",
-      "estimated_minutes": 90,
-      "note": "Successor to V3-EXQ-475a in the goal_pipeline:GAP-4 Tier-1 cohort. Tests claims.yaml Q-040's third sub-question (Q-040.c), never previously queued -- 475a itself tests a different question (SD-036 GABAergic decay). Factorial on MECH-269b use_vs_rollout_gating OFF/ON (full V_s invalidation circuit held ON in both arms, 490b/490c convention), 475a-conditions gap4-operating substrate (gaba decay + PAG freeze + dACC ON), 3 seeds. Primary DV: per-seed Spearman rho (degeneracy-safe, via experiments/_lib/stats.py) between per-step precision-weighted PE and dACC score-bias-vector magnitude. Gate-firing (P1) and dACC-engagement (P2) preconditions self-route substrate_not_ready_requeue before any verdict is read. PASS = >=2/3 ON-arm seeds |rho|>=0.3 AND >=2/3 OFF-arm seeds |rho|<0.15. validate_experiments.py --strict: 0 findings. --dry-run smoke PASS (ran end-to-end, correctly self-routed substrate_not_ready_requeue at smoke scale). See goal_pipeline_plan.md GAP-4 row (REE_assembly c7d41de299) for full context.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-08-01T03:02:53Z"
-      },
-      "architecture_epoch": "ree_hybrid_guardrails_v1",
-      "claim_ids": [
-        "Q-040"
-      ],
-      "conditions": 6,
-      "episodes_per_run": 60,
-      "experiment_purpose": "evidence",
-      "experiment_type": "v3_exq_475b_q040c_dacc_pe_weight_delta_correlation",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-851",
       "title": "ARC-062 GOV-FANOUT-1 Leg P-A (H1: selection-authority coupling gap) -- lateral_pfc route source (corrects the design doc's gated_policy erratum)",
       "script": "experiments/v3_exq_851_arc062_pa_lateral_pfc_route_source_gapfanout.py",
@@ -102,7 +79,11 @@
       "estimated_minutes": 240,
       "claim_id": "INV-091",
       "note": "NULL-VALIDATION-ONLY RE-RUN of V3-EXQ-828's design (run-length correction; NOT a redesign, NOT a supersession). V3-EXQ-828 (six arms: intact + broadcast_off + mode_decorrelated + residue_off + rate_randomized + harm_collapse) scored weakens (2026-07-29 governance, confirmed failure_autopsy_2026-07-28-sweep): intact does not distinguish itself as behaviourally optimal, residue_off has the best composite reward. That scored verdict stands unchanged and is NOT retracted here (claims.yaml INV-091 evidence_quality_note explicitly says 827/827a/828 stay exactly as scored). What 828 additionally recorded: null_validation.checked=False at every arm -- its EVAL_EPISODES=10 / STEPS_PER_EPISODE=150 (1500 eval-phase steps) fell short of q081_surrogate.plan_blocks' minimum-array-length bound (worst-arm deficit 2464-2848 steps needed). Registered as substrate_queue.json sd_id INV091-NULL-VALIDATION-RUN-LENGTH, IMPLEMENTED 2026-07-31 (ree-v3 99249a1ad9, experiments/_lib/inv091_driver_defaults.py: EVAL_EPISODES 10->24, 3600 eval-phase steps, 26% margin over the 2848-step worst case). This run is the first consumer of that default: SAME six-arm design, patches, DVs, thresholds (SIMILARITY_MOVE_FLOOR=0.02, COMPOSITE_MARGIN=0.15), and DV-symmetry arguments as 828, changed ONLY to import WARMUP_EPISODES/EVAL_EPISODES/STEPS_PER_EPISODE from inv091_driver_defaults.py instead of 828's own hardcoded (undersized) copies. C1/C2 are computed fresh from this run's own (longer) data -- a genuinely new, higher-powered data point to be read alongside 827a and 828, not a correction of either. GOV-REUSE-1 (Step 2.4): decisive readout is null_validation.checked (+ real_statistic_verdict / artefactual_statistic_verdict / null_validated) at eval_episodes=24 -- never computed at this run length by any prior run (827: 1500 steps checked=False; 827a: 1099 steps checked=False; 828: 1500 steps checked=False); not recoverable by reanalysis, the surrogate-block construction genuinely needs the longer array. Proceeds to run. RE-DERIVE BRAKE (Step 2.5b): counted 1 substrate_ceiling/non_contributory-category autopsy target for INV-091 (failure_autopsy_2026-07-28-sweep), below the >=2 threshold -- brake does not fire. Substrate readiness: all mechanisms (SD-032a salience coordinator, MECH-094 residue tagging, SD-006 multi-rate clock, SD-010/SD-011 harm streams, MECH-287 invalidation trigger) already IMPLEMENTED, used across 827/827a/828 themselves -- no substrate gap. Verified the null-validation call site feeds EVAL-phase arrays only: _null_validation(per_seed[SEEDS[0]][\"intact\"][\"_arrays\"]) reads _eval_pass's acc[\"_arrays\"], populated exclusively from StreamTraceRecorder during the eval loop; warmup runs through the separate untraced warmup_train() path and never touches the TraceStore -- call shape preserved unchanged from 828. Config-slice gap found and fixed during this authoring (pre-existing in 828 too, unrelated to the run-length change): base_max_lag_ticks / min_fresh_cos_samples were read by the cell's call graph but absent from the declared config_slice (validate_experiments.py CONFIG_SLICE-DECLARATION warning) -- added to both this script's slice. Smoke PASS (--dry-run, 2 warmup/2 eval eps/20 steps): all 6 arms x 3 seeds ran end-to-end with no crashes; null_validation correctly reports checked=False with a legible 'need >=320 steps, got 40' reason at toy scale, confirming the same refusal logic that will pass at the real 3600-step eval budget. validate_experiments.py --strict: OK, 0 warnings (post-fix). validate_recording.py-equivalent always-core fields present (substrate_hash, machine, elapsed_seconds, config, seeds). manifest carries null_validation_successor_of='V3-EXQ-828' (informational cite, not supersedes) and complements=['V3-EXQ-827a','V3-EXQ-828']. MINT: all six arms emitted reuse-eligible (include_driver_script_in_hash=False); fingerprints naturally distinct from 828's since eval_episodes differs (part of config_slice), not a collision. A synthesis of INV-091's evidence must read this manifest ALONGSIDE V3-EXQ-827a's and V3-EXQ-828's, not in isolation.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-3",
+        "claimed_at": "2026-08-01T05:00:29Z"
+      },
       "architecture_epoch": "ree_hybrid_guardrails_v1",
       "conditions": 1,
       "episodes_per_run": 40,
