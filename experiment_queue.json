@@ -29,30 +29,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-848",
-      "title": "ARC-005 precision-only decoupled ladder: does the control plane route PRECISION, isolated from channels 3/4's occupancy-only authority? (successor to V3-EXQ-802)",
-      "script": "experiments/v3_exq_848_arc005_precision_only_decoupled_ladder.py",
-      "priority": 40,
-      "machine_affinity": "any",
-      "estimated_minutes": 90,
-      "note": "Diagnosed this session (chip-20260731-arc005-802-precision-anomaly, documented in REE_assembly/evidence/planning/arc_005_control_plane_routing_plan.md GAP-A-precision-diagnostic node): 802's joint 4-channel ladder required channels 3/4 (mode prior, pcc_stability -- never expected to touch precision, only occupancy per this plan doc's own channel table) to move precision alongside channels 1/2, diluting any real 1/2 signal with two channels structurally incapable of contributing. This experiment DECOUPLES: channels 1/2 laddered L0/L1/L2, channels 3/4 held FIXED at L0 in every cell. Also applies a real substrate bug fix landed this session (ree_core/agent.py SD-057 L7 dACC-consume block was reading get_world_state_sequence()[0,0,:], the collapsed proposer starting state identical across every candidate -- fixed by mirroring the existing ARC-065 GAP-A _candidate_world_summaries() pattern) via use_mech_consume=True + z_goal_enabled=True + candidate_summary_source='e2_world_forward', all new relative to 802. PRE-REGISTERED EXPECTATION (stated in the script's dv_symmetry_declaration): this run is expected to STILL show a near-zero null on all 10 units, for two separate already-diagnosed reasons -- channel 1's fixed wiring reaches a dacc_adapter network whose response magnitude is quantifiably negligible (~1e-8 vs ~0.87 scale of other score_bias components), consistent with the adapter never having trained on non-degenerate values of this input; channel 2 (phasic temperature) is architecturally argmax-invariant under REE's normal committed-selection regime (~97% commitment rate measured this session). A null here is a CLEAN, MECHANISTICALLY-EXPLAINED confirmation, not a surprise -- self-routes evidence_direction=non_contributory (never 'weakens' or 'mixed') when all 10 units land in the near-zero band, per the mandatory_design_check disposition for a DV-symmetry-invariant manipulation. GOV-REUSE-1: the decisive readout (precision monotonicity on a channel-1/2-ONLY ladder) does not exist in any recorded manifest -- 802 only ever varied all 4 channels together; not recoverable by reanalysis. Re-derive brake checked: 0 substrate_ceiling autopsies tag ARC-005 (one autopsy target exists, recommended_epistemic_category='standard', not a ceiling) -- not braked. TRACK B (channel 2 under an uncommitted/exploratory-only regime, the only way to let temperature matter) and TRACK C (retraining dacc_adapter on live goal_proximity) are explicitly OUT OF SCOPE here -- noted as candidate follow-on work, not built. Smoke --dry-run PASS (12 cells, 2 seeds x 3 levels x 2 contents at dry scale): all verdicts PASS, z_goal_stream active_frac=0.130 writer_calls=600 -- no writer defect (confirms the channel-1 fix's z_goal prerequisite is genuinely live), result already lands the pre-registered null pattern (all_near_zero_null=true, label=precision_channel_authority_null_expected) even at dry-run scale. validate_experiments.py --strict: 0 findings across all checks.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-08-01T11:08:54Z"
-      },
-      "architecture_epoch": "ree_hybrid_guardrails_v1",
-      "claim_ids": [
-        "ARC-005"
-      ],
-      "conditions": 6,
-      "episodes_per_run": 2000,
-      "experiment_purpose": "evidence",
-      "experiment_type": "v3_exq_848_arc005_precision_only_decoupled_ladder",
-      "seeds": 5,
-      "supersedes_note": "Not a lettered supersession of V3-EXQ-802 -- 802's C1/C3 occupancy result stands unchallenged. This is a new, precision-ONLY, decoupled-ladder design correcting 802's joint-ladder dilution confound on the precision DV specifically."
-    },
-    {
       "queue_id": "V3-EXQ-858",
       "title": "ARC-062 GOV-FANOUT-1 Leg P-B (H2: F-dominance) -- f_weight attenuation ladder, committed-class entropy",
       "script": "experiments/v3_exq_858_arc062_pb_fweight_attenuation_ladder_committed_class_entropy.py",
@@ -71,25 +47,6 @@
       "episodes_per_run": 350,
       "experiment_purpose": "diagnostic",
       "experiment_type": "v3_exq_858_arc062_pb_fweight_attenuation_ladder_committed_class_entropy",
-      "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-857",
-      "title": "Q-086: gentler-env confound control for z_harm_a saturation (664 re-run)",
-      "script": "experiments/v3_exq_857_q086_gentler_env_fingerprint.py",
-      "priority": 38,
-      "machine_affinity": "any",
-      "estimated_minutes": 110,
-      "claim_id": "Q-086",
-      "note": "Environment-confound control for Q-086 (candidate registered 2026-08-01, REE_assembly 58ab5d11db), intake candidate 3. Two-arm re-run of the V3-EXQ-664 affective fingerprint varying ONLY env harshness: ARM_HARSH = 664 default (num_hazards=4, hazard_food_attraction=0.7), ARM_GENTLE = num_hazards=1, hazard_food_attraction=0.2. Both keep harm_surprise_pe_enabled=False (the observed-pathology config). Discriminates representational/calibration pathology (z_harm_a still pegs high, sub-floor CoV, level does NOT drop in the benign env) from faithful chronic suffering (level/range track hazard density). Diagnostic purpose (excluded from confidence scoring). NON-DEGENERACY (readiness precondition -> substrate_not_ready_requeue): the SENSORY tier z_harm_s must differ across arms beyond seed noise -- cross-arm |delta mean z_harm_s| as an SNR vs pooled cross-seed SD must exceed Z_HARM_S_SNR_K=2.0 (recomputable: measured SNR vs threshold). If z_harm_s is unmoved the env was not made gentler and the run cannot answer Q-086. ANCHOR_REACHABILITY_EXEMPT: the precondition IS the manipulation-took degeneracy definition; its reachability is the empirical question the two arms answer, and a below-gate reading is the correct substrate_not_ready verdict, not an unmeetable hand-narrowed predicate. GOV-REUSE-1: the gentle-env arm has never been run; 664 is harsh-only, pre-substrate-hash, z_harm_a dynamics changed 2026-07-31 -> not recoverable, run. RE-DERIVE BRAKE: Q-086 candidate 2026-08-01, 0 autopsies -> does not fire. DV-SYMMETRY (both arms): env harshness changes the environment's harm dynamics and hence both z_harm_s and z_harm_a; the CoV/level DVs are functions of the resulting latents, not invariant under any broadcast/rescale/permutation. SCOPE: raw-warmup only (intake candidate 5). MINT: reuses the affective_fishtank baseline module; ARM_HARSH is fingerprint-identical to V3-EXQ-856's ARM_OFF (same mint), ARM_GENTLE minted reuse-eligible. Smoke PASS end-to-end (validate_experiments --strict 0 findings; 6 cells ran; z_goal recorded no-defect; toy-scale FAIL is the readiness-gate self-route at 3 warmup episodes).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-08-01T12:45:05Z"
-      },
-      "conditions": 2,
-      "episodes_per_run": 50,
-      "experiment_type": "v3_exq_857_q086_gentler_env_fingerprint",
       "seeds": 3
     }
   ]
