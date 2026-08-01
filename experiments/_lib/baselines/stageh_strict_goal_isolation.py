@@ -47,6 +47,11 @@ REUSE. `off_path_config_slice()` is the content address of the OFF path. Mint
 and consume it with `include_driver_script_in_hash=False` so a successor's
 different driver can match this lineage's banked ARM_LEGACY cells (see
 REE_assembly/evidence/planning/arm_reuse_fingerprint_plan.md sections 7b/9.7).
+V3-EXQ-833's own banked cells were minted BEFORE `stage0_zgoal_gate` entered
+the slice, so they carry the pre-declaration address: a successor that VARIES
+the gate must not consume them (their `stage0_zgoal_formed` was computed at
+0.4). A successor holding the gate at the family-standard 0.4 is unaffected in
+substance but will still cache-MISS, which is the correct, cheap direction.
 """
 
 from __future__ import annotations
@@ -145,6 +150,12 @@ PAG_DURATION_INPUT_THRESHOLD = 0.2
 HARM_PATHWAY_LR = 1e-3
 HARM_PATHWAY_ENCODER_LR = 3e-4   # decoupled (lower) encoder LR
 HARM_PATHWAY_WARMUP_STEPS = 250  # linear LR warmup over the first N steps
+
+# --- Stage-0 formation gate (scaffold family standard) ----------------------
+# IN THE SLICE, unlike the driver's other thresholds: this one is read INSIDE
+# the cell and its verdict is stamped as `stage0_zgoal_formed`, so a consumer
+# INHERITS it rather than recomputing it. See audit Addendum 3.
+STAGE0_ZGOAL_GATE = 0.4
 
 
 def build_scaffold_cfg(dry_run: bool,
@@ -270,9 +281,16 @@ def off_path_config_slice(dry_run: bool = False) -> Dict[str, Any]:
 
     Declares ONLY what the OFF computation reads: env/stage regime, schedule, the
     substrate-operating config both arms run, and the OFF arm's own value of the
-    manipulated knob. It must NOT carry acceptance thresholds or ON-arm gains --
-    those do not change the computation, and folding them in would refuse a
-    legitimate reuse on every threshold tweak.
+    manipulated knob. It must NOT carry ON-arm gains -- those do not change the
+    OFF computation.
+
+    THRESHOLDS: an acceptance threshold applied in the post-hoc ANALYSIS is
+    EXCLUDED (it does not change the computation, and folding it in would refuse
+    a legitimate reuse on every threshold tweak). But a threshold read INSIDE the
+    cell whose verdict is STAMPED INTO THE ROW is SCHEME, not analysis -- a
+    consumer INHERITS that field rather than recomputing it -- and MUST be
+    declared. `STAGE0_ZGOAL_GATE` is the only such constant in this lineage; see
+    audit Addendum 3.
     """
     return {
         "lineage": LINEAGE,
@@ -294,6 +312,7 @@ def off_path_config_slice(dry_run: bool = False) -> Dict[str, Any]:
                       PAG_DURATION_INPUT_THRESHOLD],
         "harm_pathway": [HARM_PATHWAY_LR, HARM_PATHWAY_ENCODER_LR,
                          HARM_PATHWAY_WARMUP_STEPS],
+        "stage0_zgoal_gate": float(STAGE0_ZGOAL_GATE),
         "escape_bridge": False,
         "truncated_after_stage_h": True,
         "dry_run": bool(dry_run),

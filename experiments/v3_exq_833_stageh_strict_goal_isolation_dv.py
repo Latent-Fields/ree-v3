@@ -252,6 +252,7 @@ from experiments._lib.baselines.stageh_strict_goal_isolation import (  # noqa: E
     HAZARD_STAGE_BUDGET,
     HAZARD_STAGE_STABILITY_WINDOW,
     HAZARD_STAGE_SURVIVAL_GATE_STEPS,
+    STAGE0_ZGOAL_GATE,
     TRAIN_STEPS,
     arm_config_slice,
     build_agent_config,
@@ -275,7 +276,9 @@ LEGACY = "ARM_LEGACY"
 STRICT = "ARM_STRICT"
 
 # ---- Pre-registered constants (NOT derived from this run's statistics) ----
-STAGE0_ZGOAL_GATE = 0.4          # z_goal formation gate (scaffold family standard)
+# STAGE0_ZGOAL_GATE is imported from the lineage module: it is read INSIDE the
+# cell and stamped as `stage0_zgoal_formed`, so it is declared in the arm
+# fingerprint's config_slice. See audit Addendum 3.
 HARM_DISC_RANGE_FLOOR = 0.02     # 603i flat ~0.002; 603k/603q discriminative ~0.13-0.40
 SURVIVAL_FLOOR_STEPS = 8.0       # below this the agent dies instantly; nothing to compare
 MIN_FRACTION = 2.0 / 3.0         # per-arm fraction-of-seeds threshold

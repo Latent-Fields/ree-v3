@@ -655,9 +655,10 @@ def test_gate_is_warn_only_even_under_strict(tmp_path):
 # NOISE_FLOOR_* names are the known over-fire class: they are read lexically in the loop
 # but bound off for every reusable arm (`noise_floor_alpha=(NOISE_FLOOR_ALPHA if noise_on
 # else 0.1)`, and all four reusable arms are noise_on=False), which is precisely what the
-# baseline module's docstring says it excludes on purpose. 833's single name is a true
+# baseline module's docstring says it excludes on purpose. 833's single name was a true
 # positive of the SCHEME band: `STAGE0_ZGOAL_GATE = 0.4` decides the recorded
-# `stage0_zgoal_formed` readout and no baseline key binds it.
+# `stage0_zgoal_formed` readout and no baseline key bound it. RESOLVED 2026-08-01 (see
+# the pin below) -- the constant moved into the lineage module and is now declared.
 #
 # The backlog is NOT to be retro-fixed: these runs are complete and a completed run's
 # pre-registered emission is not rewritten. It is a risk register -- the entry that
@@ -677,7 +678,11 @@ def test_gate_is_warn_only_even_under_strict(tmp_path):
 # differently-parameterised but differently-MEANING. Training hyperparameters
 # (MAX_GRAD_NORM, CONTRASTIVE_BATCH_K) are the common band and are lower severity: a
 # consumer changing them is usually running a different experiment anyway.
-_PINNED_CORPUS_FIRE_COUNT = 56
+# 2026-08-01: 56 -> 55. V3-EXQ-833 cleared -- `STAGE0_ZGOAL_GATE` was moved into the
+# lineage module and declared in `off_path_config_slice()` per audit Addendum 3, so the
+# SCHEME-band true positive described above is resolved. It is also dropped from
+# `_CROSS_MODULE_CARRIERS`.
+_PINNED_CORPUS_FIRE_COUNT = 55
 
 
 def test_config_slice_corpus_fire_rate_is_pinned(corpus_scan):
@@ -775,15 +780,19 @@ def _has_unresolvable_baseline_slice(tree, path: Path) -> bool:
 # indistinguishable from real remediation if only the total is pinned. It is MORE needed
 # here than there: the resolution landed at a net zero on the count, so the count cannot
 # see this band appear OR disappear.
+#
+# 833 was DROPPED 2026-08-01: `STAGE0_ZGOAL_GATE` now lives in the lineage module and is
+# declared as `stage0_zgoal_gate` in `off_path_config_slice()` (audit Addendum 3), so the
+# carrier is genuinely fixed rather than silently unscanned. That is the one sanctioned
+# reason to shrink this set, and it takes the pin 56 -> 55.
 _CROSS_MODULE_CARRIERS = frozenset({
     "v3_exq_700c_arc108_sec7_learned_gating_settling_samelayer_null.py",
     "v3_exq_700d_arc108_sec7_learned_gating_settling_samelayer_null_retune.py",
-    "v3_exq_833_stageh_strict_goal_isolation_dv.py",
 })
 
 
 def test_cross_module_carriers_stay_covered(corpus_scan):
-    """These 3 build their config_slice in `_lib/baselines/` -- covered only by resolution."""
+    """These 2 build their config_slice in `_lib/baselines/` -- covered only by resolution."""
     fired = {p.name for p in corpus_scan["config_slice_under_declaration_lint"]}
     present = {n for n in _CROSS_MODULE_CARRIERS if (EXPERIMENTS_DIR / n).exists()}
     missing = sorted(present - fired)
