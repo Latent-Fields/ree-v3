@@ -56,30 +56,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-843",
-      "title": "MECH-203 SWS replay-selection dose-response over tonic 5-HT (serotonergic replay-salience tagging)",
-      "script": "experiments/v3_exq_843_mech203_sws_replay_salience_dose_response.py",
-      "priority": 40,
-      "machine_affinity": "any",
-      "estimated_minutes": 30,
-      "backlog_id": "EVB-0157",
-      "note": "MECH-203 (serotonergic replay-salience tagging) has NEVER had a valid test: the only prior runs, v3_exq_255/256, were invalidated by an env.step() return-order bug (obs,reward,done,truncated,info=env.step() against the real 5-tuple flat_obs,harm_signal,done,info,obs_dict) that broke every episode after step 1 (n_benefit_samples=0, all metrics 0). This is a redesign testing the REPLAY-SELECTION half of the mechanism (drive_state -> priority path via HippocampalModule._select_valence_weighted_start), not 255's static valence-field tagging -- hence a new EXQ number, not a lettered fix. GOV-REUSE-1: decisive readout (benefit_replay_fraction across a t5ht dose sweep, over the REAL selection path) is not recorded anywhere valid; not recoverable by reanalysis. DV-symmetry (604c check) declared in the script docstring: the manipulation is a non-uniform drive-weight reweighting, not a broadcast/monotone/permutation symmetry, so the argmax-selection DV is not invariant under it. Provenance: authored by an IGW-auto-spawned session (claim igw-214-proposal-for-mech-203, 2026-07-30T19:11:14Z) that wrote the script and smoke-tested it (2026-07-30T19:17:44Z sentinel) but crashed/was abandoned before queuing -- the script and an orphaned TASK_CLAIMS entry both outlived the worktree, which had already been GC'd (see REE_Working WORKSPACE_STATE.md 2026-08-01T18:38Z). Finished this session: code-reviewed against the current substrate (every attribute access -- agent.serotonin/.hippocampal._select_valence_weighted_start/.residue_field, REEConfig.from_dims kwargs, CausalGridWorldV2 factory, env.step()'s 5-tuple order -- grepped live against ree_core; the drive_state formula matches agent.py::_do_replay's serotonin branch exactly). Fixed one real defect: emit_outcome() was called from inside a main() helper rather than directly in the `if __name__ == \"__main__\":` block, which validate_experiments.py's AST-based runner-conformance check does not trace through function calls -- refactored main() into _run(dry_run) returning (outcome, out_path, run_id), with emit_outcome() now called directly at module level. validate_experiments.py --strict: 0 non-conforming, 0 warnings across all 20 checks. --dry-run: 3 seeds complete cleanly, correct progress instrumentation ([train] ep N/M, verdict PASS/FAIL x3, Seed/Condition boundary lines), [smoke] z_goal_stream reports \"no writer defect\" (active_frac=0.000 expected on the tiny dry-run dose). Measurement-only design (no phased training, no gradient descent).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-08-01T19:16:27Z"
-      },
-      "architecture_epoch": "ree_hybrid_guardrails_v1",
-      "claim_ids": [
-        "MECH-203"
-      ],
-      "conditions": 1,
-      "episodes_per_run": 40,
-      "experiment_purpose": "evidence",
-      "experiment_type": "v3_exq_843_mech203_sws_replay_salience_dose_response",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-858",
       "title": "ARC-062 GOV-FANOUT-1 Leg P-B (H2: F-dominance) -- f_weight attenuation ladder, committed-class entropy",
       "script": "experiments/v3_exq_858_arc062_pb_fweight_attenuation_ladder_committed_class_entropy.py",
@@ -108,7 +84,11 @@
       "machine_affinity": "any",
       "estimated_minutes": 40,
       "note": "PURE INSTRUMENTATION/MEASUREMENT DIAGNOSTIC investigating Finding B of failure_autopsy_V3-EXQ-860_2026-08-01.md/.json (the wrong-signed inflation_lowers_rv precondition: rv_final ended up ABOVE the un-inflated wci_symmetric_rv_ref counterfactual in both arms at STEPS_PER_EP=1000, LO -2.76e-4 / HI -1.46e-4 vs a +1e-4 threshold -- opposite the intended direction; siblings V3-EXQ-850/853 at STEPS_PER_EP=200 showed small positive-but-sub-threshold values, never negative). Sweeps STEPS_PER_EP in {200, 500, 1000} at a REDUCED N_TRAIN_EPS=8 (vs 860's 30 -- cheaper by design; sufficient to see several F1/REM-recalibration cycles settle, not intended to match 860's full statistical power) and instruments the WITHIN-EPISODE trajectory of (rv, wci_symmetric_rv_ref, diff=ref-rv) at ~40 samples per episode across EVERY training episode -- not just the end-of-training snapshot 860/853/850 recorded. No eval phase (the puzzle is purely about training-phase EMA dynamics; eval never touches it, per 860's own docstring). Both inflation doses kept (ARM_INFL_LO=0.6, ARM_INFL_HI=0.8), 2 seeds, 3 STEPS_PER_EP values = 6 conditions x 2 seeds = 12 cells. Total steps ~54400 train-only (~30% of 860's 180000 train-only steps, plus zero eval overhead 860 also paid).\n\nDOES NOT BLOCK the EVB-0454 SD-076 decision (deadline 2026-08-03T20:50:36Z) -- that decision proceeds on V3-EXQ-860's Finding A (the closure-fraction comparison: LO 2.9%/HI 2.5% vs 853's confounded 12-22%), which is unaffected by this puzzle per the autopsy's own section 2 (\"This does not undermine Finding A\"). claim_ids=[SD-076] only, matching the 860/853/850-h2 convention -- Phase 7 broadcast is not engaged, so this is not MECH-204 evidence. experiment_purpose=diagnostic, excluded from confidence/conflict scoring; evidence_direction='unknown' throughout -- this is data-quality/instrumentation, not a hypothesis test on SD-076/MECH-204.\n\nGOV-REUSE-1 (Step 2.4): decisive readout (within-episode rv/wci_symmetric_rv_ref trajectory) checked via REE_assembly/scripts/reanalysis_query.py query --readout rv_trajectory_within_episode --claim SD-076 (2026-08-01) against all 5 manifests in the 794/794a/850-h1/850-h2/860 lineage -- 0 carry any within-episode trajectory readout (all record only end-of-training snapshots). Not recoverable -> run.\n\nSubstrate readiness (Step 2.5): identical surface to 860, re-verified directly against current ree_core source 2026-08-01 (E3TrajectorySelector._running_variance/._wci_symmetric_rv_ref, update_running_variance called from post_action_update on every training tick, the REEConfig.e3 waking_confidence_* fields). No new build needed. claims.yaml: SD-076 candidate/standard, no additional gate.\n\nRe-derive brake (Step 2.5b): does not apply -- this is not a re-test of the H1/H2/H3 discrimination (no dose-response/closure-fraction criterion, no substrate verdict); it is pure instrument diagnosis of a puzzle that only surfaced in 860 itself. 0 prior substrate_ceiling autopsies for SD-076 (860's own re_derive_brake block: fired=false).\n\nCode review / smoke (Step 3.5/4): validate_experiments.py --strict: 0 non-conforming, 0 warnings of any kind (config_slice-declaration warning fixed by declaring trajectory_variation_floor). --dry-run smoke (2 steps_per_ep values x 2 arms x 2 seeds = 8 cells): all complete, verdict PASS x8, sentinel written, 0 evidence/ leak confirmed. Progress instrumentation verified: [train] ep N/M with M=n_train (loop bound), one verdict line per cell x8.\n\nCONCURRENCY NOTES: (1) TASK_CLAIMS.json contention on ree-v3/experiment_queue.json arbitrated via --allow-overlap this session (owner: frosty-satoshi-2e7cbc, unrelated 845a/475c requeue + INV091 dynamic budget + hazard-decomp lit-pull work) -- genuinely different task on the same shared file, not duplicate work. (2) ID COLLISION: V3-EXQ-863 was claimed by a concurrent session (ARC-062/MECH-309 lateral_pfc full replication) between initial ID selection and queue append; re-verified live at append time (git pull + working-tree-vs-HEAD audit clean) and incremented to V3-EXQ-864.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-3",
+        "claimed_at": "2026-08-01T19:53:02Z"
+      },
       "architecture_epoch": "ree_hybrid_guardrails_v1",
       "claim_ids": [
         "SD-076"
