@@ -5969,10 +5969,23 @@ class REEAgent(nn.Module):
             # flag is on) so a closure-armed hold advances an actual committed PROGRAM
             # instead of repeating _last_action. Bit-identical when the closure latch is
             # unused (the `or` reduces to _committed_trajectory).
+            # ARC-071 commit-latch persistence (2026-08-01, H1 confirmed by
+            # diagnostic_arc071_commit_latch_h1h2_probe_2026-07-31.md): both handles
+            # above are unconditionally None here whenever E3Selector.post_action_update
+            # (e3_selector.py:3910) has already torn down _committed_trajectory for this
+            # tick, which is every tick by SD-084 design -- so this branch never advanced
+            # _committed_step_idx past its first post-commit value. Mirror the MECH-321
+            # hook's fallback (agent.py:5584-5588 above) to the SD-084 persistent handle,
+            # gated on the same flag. Default False -> bit-identical (the `or` chain below
+            # is unreachable and this reduces to the pre-fix behaviour exactly).
             _step_traj = (
                 self.e3._committed_trajectory
                 or self.e3._closure_committed_trajectory
             )
+            if _step_traj is None and getattr(
+                self.config, "use_persistent_committed_program_handle", False
+            ):
+                _step_traj = self.e3._persistent_committed_trajectory
             if self.beta_gate.is_elevated and _step_traj is not None:
                 traj = _step_traj
                 horizon = traj.actions.shape[1]
