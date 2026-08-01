@@ -673,6 +673,15 @@ def test_gate_is_warn_only_even_under_strict(tmp_path):
 # `--strict` corpus backlog. The one that mattered was 833, because it alone MINTED
 # reusable cells from that family; it is fixed and dropped from the carriers set below.
 #
+# DO NOT generalise that to the whole backlog -- the discriminator cuts both ways, which is
+# what makes it worth applying. Measured the same day: all 11 direct-call carriers below
+# (704/704b, 707/707a/707b/707c, 708/708a/708b, 710, 714) DO mint fingerprints, so their
+# fires are REAL false-hit exposure, not a source-pattern artefact. The rule stays
+# "not retro-fixed, handled at consumption time" -- but for that band the consumption-time
+# check is load-bearing rather than theoretical, and an author building a NEW driver on that
+# shared `_arm_config_slice` template should fix the template's BOOLEANS-not-VALUES defect
+# before minting, exactly as 833's lineage module was fixed here.
+#
 # The 11 direct-call carriers are ONE DRIVER FAMILY (704/704b, 707/707a/707b/707c,
 # 708/708a/708b, 710, 714 -- the ARC-110 / MECH-440 / MECH-451 lineage on a shared
 # template), so their 38-45 names each are the same defect replicated, not 11 independent

@@ -532,6 +532,24 @@ lint exists to prevent cannot occur. **Do not retro-edit them.** It buys nothing
 the standing rule that a completed run's pre-registered emission is not rewritten, and touching a
 historical `v3_exq_*.py` blocks on the pre-existing `--strict` corpus backlog.
 
+### The discriminator cuts both ways -- the ARC-110 band IS exposed
+
+Do not read the section above as "backlog fires are cosmetic". Measured the same day: all 11
+direct-call carriers (704/704b, 707/707a/707b/707c, 708/708a/708b, 710, 714 -- the ARC-110 /
+MECH-440 / MECH-451 lineage on a shared `_arm_config_slice` template) **do** mint fingerprints.
+Their fires are real false-hit exposure, not a source-pattern artefact, and that template's known
+defect is the mirror of 833's: it declares the envelope's BOOLEANS (`use_f_eligibility_demotion`)
+but not its VALUES (`f_eligibility_envelope_floor`).
+
+The standing rule is unchanged -- completed runs are not retro-fixed, and the entry that matters is
+the one a future consumer tries to reuse. But for that band the consumption-time check is
+load-bearing rather than theoretical, and an author building a NEW driver on that template should
+fix the template before minting, exactly as this addendum fixed 833's lineage module.
+
+That is the whole value of the mint-vs-no-mint test: it splits an undifferentiated 55-entry risk
+register into a band that can be safely left alone (19, no banked cells) and a band that cannot.
+Applying it to the remaining ~25 carriers has not been done.
+
 ### What a successor author must actually do
 
 The trigger is not "a sibling driver exists" -- it is **"I am about to mint a reusable arm from a
