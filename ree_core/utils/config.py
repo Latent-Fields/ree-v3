@@ -2666,6 +2666,12 @@ class REEConfig:
     # the adapter's bias weight on it. Both no-op default (bit-identical OFF).
     use_mech_consume: bool = False
     dacc_goal_readout_weight: float = 0.0
+    # arc005_dacc_adapter_goal_proximity_training (IGW-20260801-199), SD-057 L7 amend:
+    # per-candidate-set min-max rescale of candidate_goal_proximity before the weight
+    # multiply above, correcting a units/calibration mismatch between z_goal's small
+    # operating norm and the z_world candidate summaries' larger one. No-op default
+    # (bit-identical OFF). See DACCConfig.dacc_goal_readout_normalize docstring.
+    dacc_goal_readout_normalize: bool = False
     # dACC output weighting (all zero by default -- no behavioural effect until set).
     # dacc_weight: scales -mode_ev[K] contribution to score_bias.
     dacc_weight: float = 0.0
@@ -5548,6 +5554,7 @@ class REEConfig:
         super_ordinal_cue_baseline_alpha: float = 0.02,  # SD-077: EMA rate for the common-mode baseline
         use_mech_consume: bool = False,  # SD-057 phase-2 L7 (MECH-348): dACC object-discriminative goal readout
         dacc_goal_readout_weight: float = 0.0,  # SD-057 L7: dACC goal-readout bias weight
+        dacc_goal_readout_normalize: bool = False,  # arc005_dacc_adapter_goal_proximity_training (IGW-20260801-199), SD-057 L7 amend
         # MECH-203/204: serotonergic neuromodulation
         tonic_5ht_enabled: bool = False,
         # MECH-204 F1: cross-cycle persistent zero-point EMA alpha
@@ -6809,6 +6816,7 @@ class REEConfig:
         config.use_dacc = use_dacc
         config.use_mech_consume = use_mech_consume  # SD-057 L7
         config.dacc_goal_readout_weight = dacc_goal_readout_weight  # SD-057 L7
+        config.dacc_goal_readout_normalize = dacc_goal_readout_normalize  # arc005_dacc_adapter_goal_proximity_training (IGW-20260801-199)
         config.dacc_weight = dacc_weight
         config.dacc_interaction_weight = dacc_interaction_weight
         config.dacc_foraging_weight = dacc_foraging_weight

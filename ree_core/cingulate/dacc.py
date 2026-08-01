@@ -70,6 +70,26 @@ class DACCConfig:
     dacc_suppression_weight: float = 0.0     # MECH-260 recency/monostrategy suppression weight
     dacc_goal_readout_weight: float = 0.0    # SD-057 L7 (MECH-348): object-discriminative z_goal readout weight (0=no-op)
 
+    # arc005_dacc_adapter_goal_proximity_training (IGW-20260801-199), SD-057 L7 amend.
+    # The raw candidate_goal_proximity fed into the goal-readout term is bounded [0,1]
+    # by construction (GoalState.goal_proximity = 1/(1+MSE)) but its ACHIEVED range in
+    # practice is far narrower than that -- confirmed by direct instrumentation of the
+    # live V3-EXQ-848 driver (per-candidate-set gp_range ~0.003-0.03, vs the full [0,1]
+    # nominal range) for a well-understood, non-representational reason: the persistent
+    # z_goal attractor's operating norm (typically a small fraction of a unit -- it is
+    # zero unless a benefit-exposure pull has recently fired, and decays continuously)
+    # is calibrated independently of the z_world candidate summaries' operating norm
+    # (typically O(0.5-1.5), and drifting upward within an episode). goal_proximity's
+    # MSE-sum distance is therefore dominated by ||z_world||^2 rather than genuine
+    # goal-relative displacement -- a units/calibration mismatch, NOT a broken or
+    # undertrained consumer (DACCtoE3Adapter has no nn.Parameter anywhere -- see the
+    # module docstring). When True, rescales candidate_goal_proximity to [0,1] via
+    # per-candidate-set min-max BEFORE the existing dacc_goal_readout_weight multiply,
+    # so what reaches score_bias is the candidate SET's relative proximity spread
+    # (what actually matters for influencing an argmin) rather than its absolute,
+    # calibration-diluted magnitude. False (default) is bit-identical to today.
+    dacc_goal_readout_normalize: bool = False
+
     # MECH-260 history window (number of recent action classes to track).
     dacc_suppression_memory: int = 8
 

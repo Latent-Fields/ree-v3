@@ -537,6 +537,9 @@ class REEAgent(nn.Module):
                 dacc_goal_readout_weight=getattr(
                     config, "dacc_goal_readout_weight", 0.0
                 ),  # SD-057 L7 (MECH-348)
+                dacc_goal_readout_normalize=getattr(
+                    config, "dacc_goal_readout_normalize", False
+                ),  # arc005_dacc_adapter_goal_proximity_training (IGW-20260801-199), SD-057 L7 amend
                 # MECH-268 / SD-034 (F-C3 fix): propagate the history-conditioned
                 # PE-saturation knobs from REEConfig so dacc_saturation_enabled can
                 # actually fire in the live path. Previously unpropagated -> the
@@ -6257,6 +6260,27 @@ class REEAgent(nn.Module):
                     _dacc_goal_prox = self.goal_state.goal_proximity(
                         _gp_summaries
                     ).detach()
+                    # arc005_dacc_adapter_goal_proximity_training (IGW-20260801-199),
+                    # SD-057 L7 amend. Direct instrumentation of the live V3-EXQ-848
+                    # driver confirmed the raw goal_proximity value here is bounded
+                    # [0,1] as designed but its ACHIEVED cross-candidate range is
+                    # small (measured ~0.003-0.03) because z_goal's operating norm is
+                    # calibrated independently of (and typically much smaller than)
+                    # the candidate world-summaries' norm -- a units mismatch, not a
+                    # broken signal (see DACCConfig.dacc_goal_readout_normalize
+                    # docstring). Rescale to the candidate SET's own [0,1] range
+                    # before the dacc_goal_readout_weight multiply downstream, so
+                    # what reaches score_bias is the relative proximity spread that
+                    # actually matters for influencing an argmin. A near-flat vector
+                    # (max-min <= 1e-9) is left AS-IS rather than divided by ~zero --
+                    # it carries no discriminative signal regardless of rescaling.
+                    # No-op (bit-identical) when dacc_goal_readout_normalize is False
+                    # (default).
+                    if getattr(self.config, "dacc_goal_readout_normalize", False):
+                        _gp_min = _dacc_goal_prox.min()
+                        _gp_range = _dacc_goal_prox.max() - _gp_min
+                        if _gp_range > 1e-9:
+                            _dacc_goal_prox = (_dacc_goal_prox - _gp_min) / _gp_range
             bundle = self.dacc(
                 z_harm_a=z_harm_a.squeeze(0) if z_harm_a.dim() > 1 else z_harm_a,
                 z_harm_a_pred=self._harm_a_pred_prev,
