@@ -223,6 +223,30 @@ class PolicyDecompositionConfig:
             the region key. Default 8 (coarse locality bucket; keeps the
             key low-dimensional so distinct regions still collide into the
             same bucket when they are genuinely nearby). Default 8.
+        use_harm_aware_selection : SD-hazard-aware-policy-decomposition
+            (V3-EXQ-844 autopsy successor). Master switch for the two-stage
+            threat-modulated selection rule over candidate re-tilings
+            (targeted_review_threat_modulated_defensive_path_selection
+            SYNTHESIS.md Form B). False (default) = every leaf tile produced
+            by a decomposition is added to the pool unweighted, exactly the
+            pre-existing harm-blind additive recombination -- bit-identical.
+        harm_bias_gain : Stage 1 (graded). Gain on the per-leaf harm-penalty
+            bias fed to the caller's score_bias composition (mirrors
+            InstrumentalAvoidanceGateConfig.action_bias_gain).
+        harm_bias_scale : Stage 1. Clamp on the graded bias magnitude, so
+            this channel cannot dominate the additive score_bias chain --
+            same discipline as every other threat-response bias in this
+            codebase (InstrumentalAvoidanceGate, EscapeAffordanceBridge).
+        harm_threat_floor, harm_threat_ref : Stage 1/2. z_harm_a-norm linear
+            ramp bounds for w(h) in [0, 1] (Cooper 2016's sigmoidal-not-
+            linear finding is realised by the gain+clamp saturating the
+            ramp, not by the ramp shape itself -- mirrors
+            InstrumentalAvoidanceGateConfig.threat_floor/threat_ref exactly).
+        harm_override_w_threshold : Stage 2 (categorical). w(h) at/above
+            this restricts a withheld chunk's leaf tiles to the single
+            lowest-harm-penalty one (Mobbs 2007 / Evans 2018 categorical
+            regime shift), overriding the harm-blind additive default.
+            Below it, all leaves are kept (Evans 2018 freeze-as-fallback).
     """
 
     use_policy_decomposition: bool = False
@@ -233,6 +257,12 @@ class PolicyDecompositionConfig:
     bottleneck_min_distinct_neighbors: int = 2
     bottleneck_region_quant: float = 1.0
     bottleneck_region_dims: int = 8
+    use_harm_aware_selection: bool = False
+    harm_bias_gain: float = 0.1
+    harm_bias_scale: float = 0.1
+    harm_threat_floor: float = 0.1
+    harm_threat_ref: float = 0.5
+    harm_override_w_threshold: float = 0.9
 
     _VALID_TRIGGER_MODES = ("vs_boundary", "bottleneck")
 
@@ -255,6 +285,14 @@ class PolicyDecompositionConfig:
             raise ValueError("bottleneck_region_quant must be > 0")
         if self.bottleneck_region_dims < 1:
             raise ValueError("bottleneck_region_dims must be >= 1")
+        if self.harm_bias_gain < 0.0:
+            raise ValueError("harm_bias_gain must be >= 0")
+        if self.harm_bias_scale < 0.0:
+            raise ValueError("harm_bias_scale must be >= 0")
+        if self.harm_threat_floor < 0.0:
+            raise ValueError("harm_threat_floor must be >= 0")
+        if not (0.0 <= self.harm_override_w_threshold <= 1.0):
+            raise ValueError("harm_override_w_threshold must be in [0, 1]")
 
 
 # ----------------------------------------------------------------------
@@ -466,6 +504,12 @@ class PolicyDecomposition:
         self._bottleneck_neighbors: Dict[Tuple[int, ...], set] = {}
         self._bottleneck_prev_key: Optional[Tuple[int, ...]] = None
         self._n_bottleneck_fires: int = 0
+
+        # SD-hazard-aware-policy-decomposition diagnostics. Both stay 0 when
+        # use_harm_aware_selection is False (the caller never calls harm_bias
+        # / select_harm_aware_leaves with a nonzero effect in that case).
+        self._n_harm_override_fires: int = 0
+        self._n_harm_bias_nonzero: int = 0
 
     # ------------------------------------------------------------------
     def evaluate(
@@ -801,6 +845,8 @@ class PolicyDecomposition:
         self._bottleneck_neighbors = {}
         self._bottleneck_prev_key = None
         self._n_bottleneck_fires = 0
+        self._n_harm_override_fires = 0
+        self._n_harm_bias_nonzero = 0
 
     def get_state(self) -> dict:
         """Diagnostic snapshot for experiment manifests."""
@@ -836,4 +882,138 @@ class PolicyDecomposition:
             "decomp_trigger_mode": self.config.trigger_mode,
             "decomp_n_bottleneck_fires": self._n_bottleneck_fires,
             "decomp_n_bottleneck_regions_tracked": len(self._bottleneck_visits),
+            # SD-hazard-aware-policy-decomposition. use_harm_aware_selection
+            # names whether the two-stage rule is active in this run;
+            # n_harm_override_fires is stage 2's categorical restriction
+            # (should be 0 whenever use_harm_aware_selection is False --
+            # the bit-identity guarantee); n_harm_bias_nonzero is stage 1's
+            # graded bias having actually fired at least once for a leaf.
+            "decomp_use_harm_aware_selection": bool(self.config.use_harm_aware_selection),
+            "decomp_n_harm_override_fires": self._n_harm_override_fires,
+            "decomp_n_harm_bias_nonzero": self._n_harm_bias_nonzero,
         }
+
+    # ------------------------------------------------------------------
+    # SD-hazard-aware-policy-decomposition (V3-EXQ-844 autopsy successor).
+    #
+    # WHAT THIS ADDS. _apply_policy_decomposition (hippocampal/module.py) and
+    # evaluate()/decompose_sequence() above read only z_self/z_world/z_goal
+    # and perform a binary decompose/keep test per withheld chunk -- every
+    # leaf tile a decomposition produces is additively recombined into the
+    # candidate pool with no ranking among them (V3-EXQ-844 code-verified
+    # root cause). The three methods below give the caller a harm-valence-
+    # weighted RANKED SELECTION among one chunk's own candidate re-tilings,
+    # per the targeted_review_threat_modulated_defensive_path_selection
+    # lit-pull (9 entries; Fanselow PIC, Mobbs 2007/2020, Evans 2018, Cooper
+    # 2016, Blanchard & Blanchard 1989) Form B recommendation:
+    #
+    #   Stage 1 (graded, always active): a per-leaf score_bias contribution
+    #     -w(h) * harm_penalty(leaf), clamped -- harm_bias() below. The
+    #     caller (HippocampalModule._apply_policy_decomposition) tags this
+    #     onto each leaf Trajectory's metadata as "decomposition_harm_bias";
+    #     REEAgent.select_action's existing additive score_bias chain (the
+    #     same chain InstrumentalAvoidanceGate / EscapeAffordanceBridge /
+    #     dACC compose into) gathers it in. This keeps ARC-007 value-
+    #     flatness intact: PolicyDecomposition never scores a trajectory
+    #     itself, it only contributes one more additive term that E3 (the
+    #     sole value-supplying authority) folds in like every other
+    #     threat-response bias source.
+    #
+    #   Stage 2 (categorical, threshold-gated): at/above harm_override_
+    #     w_threshold, restrict the withheld chunk's OWN leaf tiles to the
+    #     single lowest-harm-penalty one -- select_harm_aware_leaves()
+    #     below. This is a pool-ADMISSION decision, the same authority
+    #     _apply_policy_decomposition already exercises when it excludes a
+    #     depth-capped / irreducible candidate rather than offering it
+    #     blind, so it does not need (and does not use) an oversized score
+    #     bias to "win" -- it simply removes the competing re-tilings for
+    #     THIS chunk from the pool, mirroring Mobbs 2007 / Evans 2018's
+    #     categorical vmPFC->PAG regime shift.
+    #
+    # harm_penalty(leaf) itself is NOT computed here -- this module stays
+    # duck-typed / dependency-free (module docstring "WHAT THIS MODULE DOES
+    # NOT DEPEND ON"). The caller reads it from the residue field's
+    # VALENCE_HARM_DISCRIMINATIVE channel (SD-014) on the leaf's OWN
+    # predicted world_states, mirroring how HippocampalModule.build_goal_
+    # payload already reads VALENCE_WANTING at a z_world location for SD-039
+    # -- applied here to each candidate's own rollout instead of the agent's
+    # current position.
+    #
+    # BIT-IDENTICAL WHEN OFF. use_harm_aware_selection defaults False;
+    # harm_bias() and select_harm_aware_leaves() are both unconditional
+    # early-returns in that case (0.0 / all-leaves-kept respectively), and
+    # the caller never even computes harm_penalty when the flag is off (see
+    # HippocampalModule._apply_policy_decomposition), so this is a genuine
+    # no-op path, not merely a zero-valued one.
+    # ------------------------------------------------------------------
+
+    def harm_threat_scale(self, z_harm_a_norm: float) -> float:
+        """Linear ramp from 0 at harm_threat_floor to 1 at harm_threat_ref.
+
+        Identical shape to InstrumentalAvoidanceGate.threat_scale /
+        EscapeAffordanceBridge.threat_scale -- the z_harm_a-norm-to-[0,1]
+        convention already shared across this codebase's PFC threat-response
+        modules. Reused rather than re-derived, per biology-before-formal-
+        definitions: this is an engineering primitive, not a claim.
+        """
+        z = float(z_harm_a_norm)
+        lo = float(self.config.harm_threat_floor)
+        hi = float(self.config.harm_threat_ref)
+        if z <= lo:
+            return 0.0
+        if hi <= lo:
+            return 1.0
+        return float(max(0.0, min(1.0, (z - lo) / (hi - lo))))
+
+    def harm_bias(self, harm_penalty: float, z_harm_a_norm: float) -> float:
+        """Form B stage 1 (graded): w(h) * harm_penalty, clamped to
+        harm_bias_scale. Positive = unfavourable (REE lower-is-better score
+        convention, matching every other score_bias source in this
+        codebase). Returns 0.0 when the flag is off, below harm_threat_floor,
+        or harm_penalty <= 0.
+        """
+        if not self.config.use_harm_aware_selection:
+            return 0.0
+        w = self.harm_threat_scale(z_harm_a_norm)
+        if w <= 0.0:
+            return 0.0
+        penalty = float(self.config.harm_bias_gain) * w * max(0.0, float(harm_penalty))
+        biased = float(max(0.0, min(float(self.config.harm_bias_scale), penalty)))
+        if biased > 0.0:
+            self._n_harm_bias_nonzero += 1
+        return biased
+
+    def select_harm_aware_leaves(
+        self,
+        leaves_with_penalty: Sequence[Tuple[Any, float]],
+        z_harm_a_norm: float,
+    ) -> List[Any]:
+        """Form B stage 2 (categorical override).
+
+        leaves_with_penalty: (item, harm_penalty) pairs for ONE withheld
+        chunk's own candidate re-tilings (item is caller-defined -- the
+        caller passes leaf Trajectory objects; this method is duck-typed
+        over item and never inspects it).
+
+        Below harm_override_w_threshold: all items are kept, in order --
+        the harm-blind additive-recombination default (Evans 2018 freeze-
+        as-fallback), unchanged from pre-existing behaviour.
+
+        At/above threshold: only the single lowest-harm-penalty item is
+        kept (stable argmin -- first item wins a tie), overriding ordinary
+        structural-cost scoring for this chunk's decomposition the way
+        Mobbs 2007 / Evans 2018 describe a categorical regime shift.
+        """
+        items = [item for item, _ in leaves_with_penalty]
+        if not self.config.use_harm_aware_selection or not items:
+            return items
+        w = self.harm_threat_scale(z_harm_a_norm)
+        if w < float(self.config.harm_override_w_threshold):
+            return items
+        best_idx = min(
+            range(len(leaves_with_penalty)),
+            key=lambda i: leaves_with_penalty[i][1],
+        )
+        if len(items) > 1:
+            self._n_harm_override_fires += 1
+        return [items[best_idx]]

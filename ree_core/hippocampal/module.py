@@ -39,7 +39,11 @@ import torch.nn as nn
 from ree_core.utils.config import HippocampalConfig
 from ree_core.hippocampal.curiosity import FamiliarityTracker
 from ree_core.predictors.e2_fast import E2FastPredictor, Trajectory
-from ree_core.residue.field import ResidueField, VALENCE_WANTING
+from ree_core.residue.field import (
+    ResidueField,
+    VALENCE_WANTING,
+    VALENCE_HARM_DISCRIMINATIVE,
+)
 from ree_core.hippocampal.event_segmenter import (
     BoundaryEvent,
     EventSegmenter,
@@ -893,6 +897,33 @@ class HippocampalModule(nn.Module):
         }
         return traj
 
+    def _decomposition_harm_penalty(self, traj: Trajectory) -> float:
+        """SD-hazard-aware-policy-decomposition: per-tile harm-valence
+        readout for a MECH-321 candidate re-tiling.
+
+        Mean VALENCE_HARM_DISCRIMINATIVE (SD-014 residue-field channel) over
+        the tile's OWN predicted world_states -- the same per-location
+        valence channel build_goal_payload already reads for VALENCE_WANTING
+        (SD-039), applied here to each decomposition candidate's own rollout
+        rather than the agent's current z_world, so distinct re-tilings of
+        the same withheld chunk carry independently-estimated hazard along
+        each of their own predicted paths. 0.0 (no penalty) when
+        world_states are unavailable or the read fails -- never raises, so a
+        residue-field hiccup degrades to the pre-existing harm-blind
+        behaviour for that one candidate rather than aborting the sweep.
+        """
+        if not traj.world_states:
+            return 0.0
+        try:
+            stacked = torch.stack(list(traj.world_states), dim=0)  # [H, batch, world_dim]
+            h, b, d = stacked.shape
+            flat = stacked.reshape(h * b, d)
+            with torch.no_grad():
+                valence = self.residue_field.evaluate_valence(flat)  # [H*B, VALENCE_DIM]
+            return float(valence[..., VALENCE_HARM_DISCRIMINATIVE].mean().item())
+        except Exception:
+            return 0.0
+
     def _apply_policy_decomposition(
         self,
         chunk_cands: List[Trajectory],
@@ -900,6 +931,7 @@ class HippocampalModule(nn.Module):
         z_world: torch.Tensor,
         action_bias: Optional[torch.Tensor] = None,
         current_z_goal: Optional[torch.Tensor] = None,
+        z_harm_a: Optional[torch.Tensor] = None,
     ) -> List[Trajectory]:
         """ARC-070/MECH-321: withhold or re-segment ARC-071 chunk candidates
         under prediction failure (R1: V_s-drop on the candidate's own
@@ -919,6 +951,15 @@ class HippocampalModule(nn.Module):
         before any candidate is selected or committed to. MECH-321's
         mid-execution phase (R4 second phase) is a separate, execution-side
         hook in ree_core/agent.py's beta-gate release handling.
+
+        SD-hazard-aware-policy-decomposition (z_harm_a, optional): when the
+        registered source has use_harm_aware_selection=True, each withheld
+        chunk's own candidate re-tilings are additionally ranked by a
+        harm-valence readout on their own predicted paths (see
+        _decomposition_harm_penalty / PolicyDecomposition.harm_bias /
+        select_harm_aware_leaves). z_harm_a=None or the flag off reproduces
+        the exact pre-existing behaviour: every leaf tile is added
+        unweighted, no metadata is added, no residue-field read happens.
         """
         source = getattr(self, "_decomposition_source", None)
         if source is None or self.event_segmenter is None or not chunk_cands:
@@ -930,6 +971,15 @@ class HippocampalModule(nn.Module):
         n_withheld = 0
         n_decomposed = 0
         n_marked_unreliable = 0
+        harm_aware = bool(
+            getattr(getattr(source, "config", None), "use_harm_aware_selection", False)
+        )
+        z_harm_a_norm = (
+            float(z_harm_a.detach().norm(dim=-1).mean().item())
+            if (harm_aware and z_harm_a is not None)
+            else 0.0
+        )
+        n_harm_override = 0
 
         for traj in chunk_cands:
             meta = traj.metadata or {}
@@ -961,6 +1011,7 @@ class HippocampalModule(nn.Module):
             leaves = self._recursive_leaf_tiles(
                 source, decision.sub_elements, library=library
             )
+            leaf_trajs: List[Trajectory] = []
             for leaf_seq, leaf_depth in leaves:
                 leaf_traj = self._rollout_tile(
                     leaf_seq,
@@ -971,7 +1022,32 @@ class HippocampalModule(nn.Module):
                     parent_sequence=seq,
                 )
                 if leaf_traj is not None:
-                    decomposed_out.append(leaf_traj)
+                    leaf_trajs.append(leaf_traj)
+
+            if harm_aware and leaf_trajs:
+                # SD-hazard-aware-policy-decomposition Form B. Stage 1: tag
+                # every leaf with its own harm-penalty + graded score_bias
+                # contribution (read by REEAgent.select_action's score_bias
+                # composition -- see the "decomposition_harm_bias" metadata
+                # key). Stage 2: categorical override among THIS chunk's own
+                # leaves only (select_harm_aware_leaves), independent of
+                # other withheld chunks in this sweep.
+                leaves_with_penalty = [
+                    (lt, self._decomposition_harm_penalty(lt)) for lt in leaf_trajs
+                ]
+                for lt, penalty in leaves_with_penalty:
+                    lt.metadata["decomposition_harm_penalty"] = float(penalty)
+                    lt.metadata["decomposition_harm_bias"] = source.harm_bias(
+                        penalty, z_harm_a_norm
+                    )
+                kept_leaves = source.select_harm_aware_leaves(
+                    leaves_with_penalty, z_harm_a_norm
+                )
+                if len(kept_leaves) < len(leaf_trajs):
+                    n_harm_override += 1
+                decomposed_out.extend(kept_leaves)
+            else:
+                decomposed_out.extend(leaf_trajs)
 
         if n_withheld:
             self._last_propose_diagnostics.update({
@@ -980,6 +1056,11 @@ class HippocampalModule(nn.Module):
                 "mech321_chunks_marked_unreliable": int(n_marked_unreliable),
                 "mech321_leaf_tiles_added": int(len(decomposed_out)),
             })
+            if harm_aware:
+                self._last_propose_diagnostics.update({
+                    "mech321_harm_aware_active": True,
+                    "mech321_harm_override_fires": int(n_harm_override),
+                })
         return kept + decomposed_out
 
     def _build_chunk_candidates(
@@ -1506,6 +1587,7 @@ class HippocampalModule(nn.Module):
         operating_mode: Optional[Dict[str, float]] = None,
         current_z_goal: Optional[torch.Tensor] = None,
         persistence_appraisal: Optional[PersistenceAppraisal] = None,
+        z_harm_a: Optional[torch.Tensor] = None,
     ) -> List[Trajectory]:
         """
         Propose candidate trajectories via terrain-guided CEM in action-object space.
@@ -1557,6 +1639,12 @@ class HippocampalModule(nn.Module):
                             MECH-292 ghost-goal bank ranking)
             persistence_appraisal: optional MECH-340 global gate inputs
                             (REEAgent supplies when gate enabled)
+            z_harm_a:       [batch, z_harm_a_dim] or None (SD-hazard-aware-
+                            policy-decomposition; consumed only by
+                            _apply_policy_decomposition's harm-aware
+                            selection when that flag is on -- otherwise
+                            unused, matching current_z_goal's None-is-inert
+                            semantics)
 
         Returns:
             List of Trajectory objects
@@ -1869,6 +1957,7 @@ class HippocampalModule(nn.Module):
                 z_world=z_world,
                 action_bias=action_bias,
                 current_z_goal=current_z_goal,
+                z_harm_a=z_harm_a,
             )
             if chunk_cands:
                 keep_n = max(0, n - len(chunk_cands))

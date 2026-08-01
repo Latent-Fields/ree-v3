@@ -62,6 +62,30 @@ C17b the mirrored ceiling MOVES: under ARC-071's use_growable_chunk_depth
     derived from the deliberation budget, so the INERT test follows
     derived_chunk_max_depth instead. Omitted / not-higher leaves the guard
     byte-identical, which is the do-no-harm pin for every shipped run.
+
+SD-hazard-aware-policy-decomposition (V3-EXQ-844 autopsy successor; two-stage
+threat-modulated selection among a withheld chunk's OWN candidate re-tilings
+-- added 2026-08-01):
+C18 config: use_harm_aware_selection defaults False; from_dims forwards the
+    harm_* params (three-site wiring pin, mirrors C1/C11)
+C19 PolicyDecomposition.harm_threat_scale: linear ramp 0 at floor, 1 at ref,
+    1.0 when ref<=floor (degenerate-ramp safety, mirrors
+    InstrumentalAvoidanceGate.threat_scale)
+C20 PolicyDecomposition.harm_bias: 0 when the flag is off or w<=0; clamped to
+    harm_bias_scale; increments the nonzero diagnostic counter
+C21 PolicyDecomposition.select_harm_aware_leaves: below
+    harm_override_w_threshold keeps every item unchanged (harm-blind
+    default); at/above it keeps only the single lowest-penalty item (stable
+    argmin); flag off is a pure passthrough regardless of w
+C22 live agent, pre-commit, BELOW threshold: every leaf tile of a withheld
+    chunk is kept (additive recombination preserved) and tagged with
+    decomposition_harm_penalty / decomposition_harm_bias metadata
+C23 live agent, pre-commit, AT/ABOVE threshold: only the lowest-harm-penalty
+    leaf survives; mech321_harm_override_fires == 1
+C24 live agent: a candidate's decomposition_harm_bias metadata is gathered
+    into REEAgent.select_action's composed score_bias chain (differential
+    check against an untagged candidate, so any other uniform bias source
+    already active in the minimal test config cancels out)
 """
 
 import warnings
@@ -81,6 +105,7 @@ from ree_core.policy import (
     PolicyDecompositionConfig,
     depth_cap_config_issues,
 )
+from ree_core.residue.field import VALENCE_HARM_DISCRIMINATIVE
 from ree_core.utils.config import REEConfig
 
 
@@ -818,3 +843,277 @@ def test_c17b_agent_passes_the_derived_bound_only_when_depth_grows():
                  chunk_deliberation_horizon=60) == []
     # Growable but at REE's real budget the derivation is still 3 -> inert.
     assert len(warns(use_policy_chunking=True, use_growable_chunk_depth=True)) == 1
+
+
+# ----------------------------------------------------------------------
+# SD-hazard-aware-policy-decomposition (V3-EXQ-844 autopsy successor)
+# ----------------------------------------------------------------------
+def test_c18_harm_aware_config_defaults_off_and_from_dims_forwards():
+    cfg = REEConfig.from_dims(body_obs_dim=8, world_obs_dim=16, action_dim=4)
+    assert cfg.decomposition_use_harm_aware_selection is False
+    assert cfg.decomposition_harm_bias_gain == 0.1
+    assert cfg.decomposition_harm_bias_scale == 0.1
+    assert cfg.decomposition_harm_threat_floor == 0.1
+    assert cfg.decomposition_harm_threat_ref == 0.5
+    assert cfg.decomposition_harm_override_w_threshold == 0.9
+
+    cfg2 = REEConfig.from_dims(
+        body_obs_dim=8, world_obs_dim=16, action_dim=4,
+        use_event_segmenter=True, use_policy_decomposition=True,
+        decomposition_use_harm_aware_selection=True,
+        decomposition_harm_bias_gain=0.2,
+        decomposition_harm_bias_scale=0.3,
+        decomposition_harm_threat_floor=0.05,
+        decomposition_harm_threat_ref=0.6,
+        decomposition_harm_override_w_threshold=0.8,
+    )
+    assert cfg2.decomposition_use_harm_aware_selection is True
+    agent = REEAgent(cfg2)
+    pdc = agent.policy_decomposition.config
+    assert pdc.use_harm_aware_selection is True
+    assert pdc.harm_bias_gain == 0.2
+    assert pdc.harm_bias_scale == 0.3
+    assert pdc.harm_threat_floor == 0.05
+    assert pdc.harm_threat_ref == 0.6
+    assert pdc.harm_override_w_threshold == 0.8
+
+
+# ----------------------------------------------------------------------
+# C19 -- harm_threat_scale pure ramp
+# ----------------------------------------------------------------------
+def test_c19_harm_threat_scale_ramp():
+    pd = PolicyDecomposition(
+        config=PolicyDecompositionConfig(harm_threat_floor=0.2, harm_threat_ref=0.8)
+    )
+    assert pd.harm_threat_scale(0.0) == 0.0
+    assert pd.harm_threat_scale(0.2) == 0.0
+    assert pd.harm_threat_scale(0.8) == pytest.approx(1.0)
+    assert pd.harm_threat_scale(5.0) == 1.0  # clamped, not extrapolated
+    assert pd.harm_threat_scale(0.5) == pytest.approx(0.5)  # midpoint
+
+
+def test_c19_harm_threat_scale_degenerate_ramp_is_safe():
+    """ref <= floor must not divide by zero or raise -- mirrors
+    InstrumentalAvoidanceGate.threat_scale's own degenerate-ramp handling."""
+    pd = PolicyDecomposition(
+        config=PolicyDecompositionConfig(harm_threat_floor=0.5, harm_threat_ref=0.5)
+    )
+    assert pd.harm_threat_scale(0.4) == 0.0
+    assert pd.harm_threat_scale(0.6) == 1.0
+
+
+# ----------------------------------------------------------------------
+# C20 -- harm_bias graded term
+# ----------------------------------------------------------------------
+def test_c20_harm_bias_off_flag_and_below_floor_are_zero():
+    pd_off = PolicyDecomposition(
+        config=PolicyDecompositionConfig(use_harm_aware_selection=False)
+    )
+    assert pd_off.harm_bias(harm_penalty=10.0, z_harm_a_norm=10.0) == 0.0
+
+    pd_on = PolicyDecomposition(
+        config=PolicyDecompositionConfig(
+            use_harm_aware_selection=True, harm_threat_floor=0.5, harm_threat_ref=1.0
+        )
+    )
+    assert pd_on.harm_bias(harm_penalty=10.0, z_harm_a_norm=0.1) == 0.0
+
+
+def test_c20_harm_bias_clamped_and_diagnostic_counted():
+    pd = PolicyDecomposition(
+        config=PolicyDecompositionConfig(
+            use_harm_aware_selection=True,
+            harm_threat_floor=0.0,
+            harm_threat_ref=1.0,
+            harm_bias_gain=1.0,
+            harm_bias_scale=0.1,
+        )
+    )
+    # w(1.0) = 1.0, gain=1.0, penalty=5.0 -> raw 5.0, clamped to harm_bias_scale.
+    biased = pd.harm_bias(harm_penalty=5.0, z_harm_a_norm=1.0)
+    assert biased == pytest.approx(0.1)
+    assert pd._n_harm_bias_nonzero == 1
+
+    # A small penalty under the clamp should scale through unclamped.
+    small = pd.harm_bias(harm_penalty=0.05, z_harm_a_norm=1.0)
+    assert small == pytest.approx(0.05)
+    assert pd._n_harm_bias_nonzero == 2
+
+    # Negative penalty is never a favourable bias -- floors at 0.
+    assert pd.harm_bias(harm_penalty=-3.0, z_harm_a_norm=1.0) == 0.0
+    assert pd._n_harm_bias_nonzero == 2
+
+
+# ----------------------------------------------------------------------
+# C21 -- select_harm_aware_leaves categorical override
+# ----------------------------------------------------------------------
+def test_c21_select_harm_aware_leaves_below_threshold_keeps_all():
+    pd = PolicyDecomposition(
+        config=PolicyDecompositionConfig(
+            use_harm_aware_selection=True,
+            harm_threat_floor=0.0,
+            harm_threat_ref=1.0,
+            harm_override_w_threshold=0.9,
+        )
+    )
+    leaves = [("a", 0.9), ("b", 0.1), ("c", 0.5)]
+    kept = pd.select_harm_aware_leaves(leaves, z_harm_a_norm=0.5)  # w=0.5 < 0.9
+    assert kept == ["a", "b", "c"]
+    assert pd._n_harm_override_fires == 0
+
+
+def test_c21_select_harm_aware_leaves_at_threshold_keeps_lowest_penalty():
+    pd = PolicyDecomposition(
+        config=PolicyDecompositionConfig(
+            use_harm_aware_selection=True,
+            harm_threat_floor=0.0,
+            harm_threat_ref=1.0,
+            harm_override_w_threshold=0.9,
+        )
+    )
+    leaves = [("a", 0.9), ("b", 0.1), ("c", 0.5)]
+    kept = pd.select_harm_aware_leaves(leaves, z_harm_a_norm=0.9)  # w=0.9 >= 0.9
+    assert kept == ["b"]
+    assert pd._n_harm_override_fires == 1
+
+    # A single-leaf chunk never "overrides" anything -- counter must not move.
+    single = pd.select_harm_aware_leaves([("only", 0.9)], z_harm_a_norm=1.0)
+    assert single == ["only"]
+    assert pd._n_harm_override_fires == 1
+
+
+def test_c21_select_harm_aware_leaves_off_flag_is_passthrough():
+    pd = PolicyDecomposition(config=PolicyDecompositionConfig())
+    leaves = [("a", 0.9), ("b", 0.1)]
+    assert pd.select_harm_aware_leaves(leaves, z_harm_a_norm=999.0) == ["a", "b"]
+    assert pd._n_harm_override_fires == 0
+
+
+# ----------------------------------------------------------------------
+# C22/C23 -- live agent pool-admission (real _apply_policy_decomposition,
+# real residue_field call site; the VALENCE read itself is monkeypatched to
+# a deterministic, call-order-keyed function so the test is independent of
+# live E2/RBF network values and depends only on this SD's wiring).
+# ----------------------------------------------------------------------
+def _harm_aware_env_agent(**extra_cfg):
+    env, obs_dict, agent = _env_agent(
+        use_event_segmenter=True,
+        use_policy_chunking=True,
+        use_chunk_proposal_injection=True,
+        use_policy_decomposition=True,
+        decomposition_vs_threshold=0.99,  # near-certain trigger, as in C8
+        decomposition_use_harm_aware_selection=True,
+        decomposition_harm_threat_floor=0.0,
+        decomposition_harm_threat_ref=1.0,
+        decomposition_harm_override_w_threshold=0.5,
+        **extra_cfg,
+    )
+    seq = (0, 1, 2)
+    chunk = ChunkedPrimitive(
+        sequence=seq, depth=1, state=ChunkState.CRYSTALLISED, selection_weight=1.0
+    )
+    agent.policy_chunking.library.register(chunk)
+
+    penalties = [0.9, 0.1, 0.5]  # deterministic per-leaf-call-order penalties
+    calls = {"n": 0}
+
+    def fake_evaluate_valence(z):
+        i = calls["n"] % len(penalties)
+        calls["n"] += 1
+        out = torch.zeros(z.shape[0], 6, dtype=z.dtype, device=z.device)
+        out[:, VALENCE_HARM_DISCRIMINATIVE] = penalties[i]
+        return out
+
+    agent.hippocampal.residue_field.evaluate_valence = fake_evaluate_valence
+    return env, obs_dict, agent, seq
+
+
+def test_c22_harm_aware_below_threshold_keeps_all_leaves_and_tags_metadata():
+    env, obs_dict, agent, seq = _harm_aware_env_agent()
+    obs_body, obs_world = obs_dict["body_state"], obs_dict["world_state"]
+    latent = agent.sense(obs_body, obs_world)
+    latent.z_harm_a = None  # w(h)=0 -- below harm_override_w_threshold
+    ticks = agent.clock.advance()
+    e1_prior = (
+        agent._e1_tick(latent)
+        if ticks["e1_tick"]
+        else torch.zeros(1, 32, device=agent.device)
+    )
+    agent.generate_trajectories(latent, e1_prior, ticks)
+
+    diag = agent.hippocampal._last_propose_diagnostics
+    assert diag.get("mech321_harm_aware_active") is True
+    assert diag.get("mech321_harm_override_fires", 0) == 0
+    n_leaves = diag["mech321_leaf_tiles_added"]
+    assert n_leaves >= 2  # the seq=(0,1,2) depth-1 chunk unpacks to >=2 leaves
+
+    committed = agent._committed_candidates
+    tagged = [
+        c for c in committed
+        if c.metadata and "decomposition_harm_penalty" in c.metadata
+    ]
+    assert len(tagged) == n_leaves
+    for c in tagged:
+        assert c.metadata["decomposition_harm_bias"] == 0.0  # w=0 -> graded bias 0
+
+
+def test_c23_harm_aware_at_threshold_keeps_only_lowest_penalty_leaf():
+    env, obs_dict, agent, seq = _harm_aware_env_agent()
+    obs_body, obs_world = obs_dict["body_state"], obs_dict["world_state"]
+    latent = agent.sense(obs_body, obs_world)
+    # High-norm z_harm_a -> w(h) saturates to 1.0 >= override_w_threshold=0.5.
+    latent.z_harm_a = torch.ones(1, 8)
+    ticks = agent.clock.advance()
+    e1_prior = (
+        agent._e1_tick(latent)
+        if ticks["e1_tick"]
+        else torch.zeros(1, 32, device=agent.device)
+    )
+    agent.generate_trajectories(latent, e1_prior, ticks)
+
+    diag = agent.hippocampal._last_propose_diagnostics
+    assert diag.get("mech321_harm_aware_active") is True
+    assert diag.get("mech321_harm_override_fires", 0) == 1
+    assert diag["mech321_leaf_tiles_added"] == 1
+
+    committed = agent._committed_candidates
+    tagged = [
+        c for c in committed
+        if c.metadata and "decomposition_harm_penalty" in c.metadata
+    ]
+    assert len(tagged) == 1
+    # penalties = [0.9, 0.1, 0.5] -- the second leaf (0.1) must be the
+    # survivor, ruling out an accidental "always keeps the first" bug.
+    assert tagged[0].metadata["decomposition_harm_penalty"] == pytest.approx(0.1)
+
+
+# ----------------------------------------------------------------------
+# C24 -- score_bias composition in REEAgent.select_action
+# ----------------------------------------------------------------------
+def test_c24_decomposition_harm_bias_metadata_gathered_into_score_bias():
+    env, obs_dict, agent = _env_agent(use_event_segmenter=True)
+    obs_body, obs_world = obs_dict["body_state"], obs_dict["world_state"]
+    latent = agent.sense(obs_body, obs_world)
+    ticks = agent.clock.advance()
+    e1_prior = (
+        agent._e1_tick(latent)
+        if ticks["e1_tick"]
+        else torch.zeros(1, 32, device=agent.device)
+    )
+    candidates = agent.generate_trajectories(latent, e1_prior, ticks)
+    assert len(candidates) >= 2
+
+    candidates[0].metadata = dict(candidates[0].metadata or {})
+    candidates[0].metadata["decomposition_harm_bias"] = 0.05
+    candidates[1].metadata = dict(candidates[1].metadata or {})
+    candidates[1].metadata.pop("decomposition_harm_bias", None)
+
+    agent.select_action(candidates, ticks)
+
+    assert agent._last_e3_score_bias is not None
+    # Differential check: any OTHER uniform bias source already active in
+    # this minimal config cancels out, isolating this SD's contribution.
+    delta = float(agent._last_e3_score_bias[0].item()) - float(
+        agent._last_e3_score_bias[1].item()
+    )
+    assert delta == pytest.approx(0.05, abs=1e-5)

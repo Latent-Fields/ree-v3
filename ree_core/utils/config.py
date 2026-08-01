@@ -3941,6 +3941,25 @@ class REEConfig:
     # bin width + leading-dim count for the coarse fixed z_world region key.
     decomposition_bottleneck_region_quant: float = 1.0
     decomposition_bottleneck_region_dims: int = 8
+    # SD-hazard-aware-policy-decomposition (V3-EXQ-844 autopsy successor).
+    # Two-stage threat-modulated selection among a withheld chunk's OWN
+    # candidate re-tilings (targeted_review_threat_modulated_defensive_
+    # path_selection SYNTHESIS.md Form B): a graded score_bias term always
+    # active (decomposition_harm_bias_gain/scale/threat_floor/threat_ref)
+    # plus a threshold-gated categorical override
+    # (decomposition_harm_override_w_threshold) that restricts a chunk's
+    # leaves to the single lowest-harm-penalty one near high threat. Same
+    # "no hippocampal sub-config mirror" shape as use_policy_decomposition
+    # itself: PolicyDecomposition reads its OWN config object (constructed
+    # from these fields at REEAgent init), never REEConfig directly. Default
+    # False / all-zero-effect knobs -> bit-identical. See
+    # ree_core/policy/policy_decomposition.py.
+    decomposition_use_harm_aware_selection: bool = False
+    decomposition_harm_bias_gain: float = 0.1
+    decomposition_harm_bias_scale: float = 0.1
+    decomposition_harm_threat_floor: float = 0.1
+    decomposition_harm_threat_ref: float = 0.5
+    decomposition_harm_override_w_threshold: float = 0.9
     # MECH-321 SCALE-RESOLVED ROLLOUT BOUNDARY PROBE (scoping spike 2026-07-27
     # section 5b, evidence/planning/mech321_decomposition_scale_scoping_spike_
     # 2026-07-27.md). MECH-288 ships TWO qualitatively heterogeneous scales --
@@ -5910,6 +5929,12 @@ class REEConfig:
         decomposition_bottleneck_min_distinct_neighbors: int = 2,
         decomposition_bottleneck_region_quant: float = 1.0,
         decomposition_bottleneck_region_dims: int = 8,
+        decomposition_use_harm_aware_selection: bool = False,
+        decomposition_harm_bias_gain: float = 0.1,
+        decomposition_harm_bias_scale: float = 0.1,
+        decomposition_harm_threat_floor: float = 0.1,
+        decomposition_harm_threat_ref: float = 0.5,
+        decomposition_harm_override_w_threshold: float = 0.9,
         use_decomposition_scale_resolved_probe: bool = False,
         use_decomposition_scale_resolved_probe_midexec: bool = False,
         use_persistent_committed_program_handle: bool = False,
@@ -7142,6 +7167,16 @@ class REEConfig:
         )
         config.decomposition_bottleneck_region_quant = decomposition_bottleneck_region_quant
         config.decomposition_bottleneck_region_dims = decomposition_bottleneck_region_dims
+        config.decomposition_use_harm_aware_selection = (
+            decomposition_use_harm_aware_selection
+        )
+        config.decomposition_harm_bias_gain = decomposition_harm_bias_gain
+        config.decomposition_harm_bias_scale = decomposition_harm_bias_scale
+        config.decomposition_harm_threat_floor = decomposition_harm_threat_floor
+        config.decomposition_harm_threat_ref = decomposition_harm_threat_ref
+        config.decomposition_harm_override_w_threshold = (
+            decomposition_harm_override_w_threshold
+        )
         config.use_decomposition_scale_resolved_probe = use_decomposition_scale_resolved_probe
         # Mirror onto the hippocampal sub-config: unlike use_policy_decomposition
         # (which the module never reads -- see the field docstring above),

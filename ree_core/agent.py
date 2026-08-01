@@ -1448,6 +1448,26 @@ class REEAgent(nn.Module):
                     bottleneck_region_dims=getattr(
                         config, "decomposition_bottleneck_region_dims", 8
                     ),
+                    # SD-hazard-aware-policy-decomposition (V3-EXQ-844
+                    # autopsy successor). Default-False / no-op knobs.
+                    use_harm_aware_selection=getattr(
+                        config, "decomposition_use_harm_aware_selection", False
+                    ),
+                    harm_bias_gain=getattr(
+                        config, "decomposition_harm_bias_gain", 0.1
+                    ),
+                    harm_bias_scale=getattr(
+                        config, "decomposition_harm_bias_scale", 0.1
+                    ),
+                    harm_threat_floor=getattr(
+                        config, "decomposition_harm_threat_floor", 0.1
+                    ),
+                    harm_threat_ref=getattr(
+                        config, "decomposition_harm_threat_ref", 0.5
+                    ),
+                    harm_override_w_threshold=getattr(
+                        config, "decomposition_harm_override_w_threshold", 0.9
+                    ),
                 )
             )
             self.hippocampal.set_decomposition_source(self.policy_decomposition)
@@ -5083,6 +5103,7 @@ class REEAgent(nn.Module):
                 action_bias=self._cue_action_bias,
                 current_z_goal=_current_z_goal,
                 persistence_appraisal=_persistence_appraisal,
+                z_harm_a=latent_state.z_harm_a,
             )
         finally:
             if _dgpe_temp_restore is not None:
@@ -7122,6 +7143,49 @@ class REEAgent(nn.Module):
                 dacc_score_bias = dacc_score_bias + ia_bias.to(
                     dtype=dacc_score_bias.dtype, device=dacc_score_bias.device
                 )
+
+        # SD-hazard-aware-policy-decomposition (V3-EXQ-844 autopsy successor):
+        # ARC-070/MECH-321 decomposition-leaf harm-aware selection, stage 1
+        # (graded). HippocampalModule._apply_policy_decomposition tags each
+        # decomposed leaf-tile candidate's metadata with
+        # "decomposition_harm_bias" (already gain-weighted by w(z_harm_a) and
+        # clamped to harm_bias_scale -- see PolicyDecomposition.harm_bias)
+        # when use_harm_aware_selection is on; this block only GATHERS that
+        # per-candidate metadata into a [K] tensor and composes it additively,
+        # exactly like every other threat-response bias above. Stage 2 (the
+        # categorical override among a chunk's own re-tilings) already
+        # happened at candidate-admission time in _apply_policy_decomposition
+        # and needs no further composition here. Every non-MECH-321 candidate,
+        # and every MECH-321 leaf when the flag is off, carries no such
+        # metadata key, so this block is a genuine no-op (not merely
+        # zero-valued) unless at least one candidate carries the key.
+        if len(candidates) > 0:
+            _hab_values = [
+                c.metadata.get("decomposition_harm_bias") if c.metadata else None
+                for c in candidates
+            ]
+            if any(v is not None for v in _hab_values):
+                _hab_dtype = (
+                    dacc_score_bias.dtype
+                    if dacc_score_bias is not None
+                    else torch.float32
+                )
+                _hab_device = (
+                    dacc_score_bias.device
+                    if dacc_score_bias is not None
+                    else self.device
+                )
+                hab_bias = torch.tensor(
+                    [float(v) if v is not None else 0.0 for v in _hab_values],
+                    dtype=_hab_dtype,
+                    device=_hab_device,
+                )
+                if dacc_score_bias is None:
+                    dacc_score_bias = hab_bias
+                else:
+                    dacc_score_bias = dacc_score_bias + hab_bias.to(
+                        dtype=dacc_score_bias.dtype, device=dacc_score_bias.device
+                    )
 
         # SD-059 / MECH-358: relief/safety escape-affordance APPROACH bonus.
         # Under FUTURE threat (z_harm_a), favour (negative bias -- REE
