@@ -40,6 +40,7 @@ PROTOCOL_MODULE = "experiment_protocol"
 # arm-fingerprint contracts onto the broader (non-v3_exq_) script set the gate scopes.
 CHECK_NAMES = ("conformance", "readiness", "arm_fingerprint", "degeneracy", "manifest_writer",
                "anchor_reachability", "precondition_recomputability",
+               "ceiling_route_anchor_floor",
                "e3_diagnostics_staleness", "e3_hold_weighted_readout",
                "action_object_selection", "spearman_guard_shape",
                "dead_z_goal_stream", "hardcoded_dry_run", "emit_outcome_dry_run",
@@ -704,6 +705,179 @@ def anchor_reachability_lint(path: Path) -> Optional[str]:
             "RECORDS that status without silencing this warning (591b-f, 778d->778h). "
             "See experiments/_lib/readiness_anchor.py + "
             "failure_autopsy_SD-068-rem-fanout-cluster_2026-07-18.md sec 2 (Learning 1).")
+
+
+# Ceiling-below-random-anchor standing lint (autopsy competence-objective cluster
+# 734/737b/742a, 2026-07-22, sec 5 Learning 2, user-adjudicated confirmed).
+#
+# A diagnostic/baseline script that SELF-ROUTES to a ceiling-class label
+# (substrate_ceiling / ree_substrate_ceiling / learner_ceiling /
+# learner_or_observability_ceiling) AND declares a `random_walk` FLOOR anchor is asserting
+# that some LEARNER cannot clear a floor a control can, framed as a capacity / representation
+# / observation-encoding limitation. Under a genuine ceiling a learner asymptotes toward its
+# random anchor from below and plateaus; it does NOT end up systematically WORSE than random
+# on an oracle-achievable env. A learner below its own random_walk anchor is therefore not at
+# a ceiling -- it is optimising a different objective than the scored DV (the 734
+# survival-vs-forage inversion: PPO survived 175.0 steps vs the oracle's 20.4 while foraging
+# 17x less). Emitting a ceiling verdict on that run mislabels objective-misspecification as a
+# substrate limitation -- the exact mis-route this autopsy exists to prevent, and the
+# information (the below-random score) was present in 734/737b/742a and in every predecessor,
+# consumed by nothing.
+#
+# The obligation is discharged by wiring experiments/_lib/anchor_floor_guard.py:
+# `refuse_ceiling_below_random(label, learner_scores, random_anchor, ...)` into the
+# self-route computation, which downgrades a ceiling label resting on a sub-random learner to
+# substrate_not_ready_requeue and records the refuting numbers in the manifest. v3_exq_734 is
+# the reference consumer.
+#
+# WARN-ONLY IN BOTH MODES -- like anchor_reachability_lint / precondition_recomputability_lint
+# it never hardens under --paths, because whether a given cell's score is below its anchor is
+# NOT statically decidable (both are computed from live run data). This can therefore flag
+# only a MISSING GUARD, never an actually-unsupported verdict, so a full-glob run surfaces the
+# backlog without blocking. It keys on an ACTUAL emitted ceiling route (a `label`/
+# `interpretation_label` assignment to a ceiling constant, or a ceiling label used as an
+# interpretation_grid KEY) rather than a bare string mention, so a driver that merely
+# describes a ceiling label in prose does not fire (verified 2026-08-01: of the 3 corpus
+# scripts declaring both a ceiling string and a random_walk floor -- 728/728b/734 -- only 734
+# emits a ceiling label, and it wires the guard). Exempt with a reason ONLY when the ceiling
+# route genuinely cannot rest on a sub-random learner (e.g. a readout-side control unaffected
+# by the floor, the 737/742 recorded_preconditions case).
+_CEILING_ANCHOR_FLOOR_EXEMPT_MARKER = "CEILING_ANCHOR_FLOOR_EXEMPT"
+_CEILING_ROUTE_LABELS = frozenset({
+    "substrate_ceiling", "ree_substrate_ceiling",
+    "learner_ceiling", "learner_or_observability_ceiling",
+})
+_CEILING_GUARD_NAMES = ("refuse_ceiling_below_random", "anchor_floor_guard",
+                        "ceiling_route_refusal")
+
+
+def _emits_ceiling_route(tree: ast.Module) -> List[str]:
+    """Ceiling-class labels this script actually SELF-ROUTES to, in source order.
+
+    An emitted route is one of:
+      * `label = "<ceiling>"` / `interpretation_label = "<ceiling>"` (a variable assignment);
+      * a dict entry `"label"`/`"interpretation_label": "<ceiling>"`;
+      * a `"<ceiling>": ...` dict KEY (the interpretation_grid emittable-label convention).
+    A ceiling label appearing only inside a description STRING (prose) is NOT an emitted route
+    and is deliberately not matched. Static scan only -- a label assembled at runtime is
+    invisible, same limitation class as the other lints.
+    """
+    found: List[str] = []
+    _LABEL_TARGETS = {"label", "interpretation_label"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            if isinstance(node.value, ast.Constant) and node.value.value in _CEILING_ROUTE_LABELS:
+                for tgt in node.targets:
+                    if isinstance(tgt, ast.Name) and tgt.id in _LABEL_TARGETS:
+                        found.append(node.value.value)
+        elif isinstance(node, ast.Dict):
+            for k, v in zip(node.keys, node.values):
+                k_is_str = isinstance(k, ast.Constant) and isinstance(k.value, str)
+                # "<ceiling>": ...  -- a grid KEY naming an emittable label
+                if k_is_str and k.value in _CEILING_ROUTE_LABELS:
+                    found.append(k.value)
+                # "label": "<ceiling>"
+                elif (k_is_str and k.value in _LABEL_TARGETS
+                        and isinstance(v, ast.Constant) and v.value in _CEILING_ROUTE_LABELS):
+                    found.append(v.value)
+    # de-dupe, preserve order
+    seen: set = set()
+    out: List[str] = []
+    for lbl in found:
+        if lbl not in seen:
+            seen.add(lbl)
+            out.append(lbl)
+    return out
+
+
+def _declares_random_walk_floor(tree: ast.Module) -> bool:
+    """True iff the script declares a `random_walk` FLOOR anchor via a `floor="random_walk"`
+    keyword argument (the capability_eval.build_report convention). Precise on purpose: a bare
+    `"random_walk"` string mention (an arm listing, a docstring) is not a floor DECLARATION."""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.keyword) and node.arg == "floor":
+            v = node.value
+            if isinstance(v, ast.Constant) and v.value == "random_walk":
+                return True
+    return False
+
+
+def ceiling_route_anchor_floor_lint(path: Path) -> Optional[str]:
+    """Ceiling-below-random-anchor check. Return a warning string, or None.
+
+    Fires when a diagnostic/baseline script self-routes to a ceiling-class label AND declares a
+    random_walk floor anchor BUT never wires anchor_floor_guard.refuse_ceiling_below_random --
+    so a ceiling verdict resting on a learner below its own random floor would be emitted
+    rather than refused (autopsy 734/737b/742a sec 5.2). WARN-only in both modes; see the
+    module comment above for why it can only ever flag a missing guard.
+    """
+    try:
+        src = path.read_text(encoding="utf-8")
+        tree = ast.parse(src, filename=str(path))
+    except (OSError, UnicodeDecodeError, SyntaxError):
+        return None  # check_script already reports unreadable / syntax errors
+
+    if _has_main_block(tree) is None:
+        return None  # library-style helper, no entry point -- exempt
+
+    names: set = set()
+    strings: set = set()
+    purposes: set = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            names.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            names.add(node.attr)
+        elif isinstance(node, ast.alias):
+            names.add((node.asname or node.name).split(".")[-1])
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+            strings.add(node.value)
+        if isinstance(node, ast.keyword) and node.arg == "experiment_purpose":
+            val = node.value
+            if isinstance(val, ast.Constant) and isinstance(val.value, str):
+                purposes.add(val.value)
+        if isinstance(node, ast.Assign):
+            for tgt in node.targets:
+                if isinstance(tgt, ast.Name) and tgt.id.lower() == "experiment_purpose":
+                    val = node.value
+                    if isinstance(val, ast.Constant) and isinstance(val.value, str):
+                        purposes.add(val.value)
+
+    if (_CEILING_ANCHOR_FLOOR_EXEMPT_MARKER in names
+            or _CEILING_ANCHOR_FLOOR_EXEMPT_MARKER in strings):
+        return None
+    if not (purposes & {"diagnostic", "baseline"}):
+        return None
+
+    emitted = _emits_ceiling_route(tree)
+    if not emitted:
+        return None  # does not self-route to a ceiling label -- nothing to guard
+    if not _declares_random_walk_floor(tree):
+        return None  # no random_walk floor anchor to compare a learner against
+
+    if any(n in names for n in _CEILING_GUARD_NAMES):
+        return None  # guard present
+
+    return ("self-routes to ceiling-class label(s) "
+            + ", ".join(emitted)
+            + " AND declares a random_walk floor anchor, but never wires "
+            "anchor_floor_guard.refuse_ceiling_below_random. A learner scoring BELOW its own "
+            "random_walk anchor is NOT at a ceiling -- under a real ceiling it asymptotes "
+            "toward the anchor from below, it does not end up worse than random on an "
+            "oracle-achievable env; a below-random score is the signature of optimising a "
+            "different objective than the scored DV (the 734 survival-vs-forage inversion, "
+            "PPO survival 175.0 vs oracle 20.4 while foraging 17x less). Emitting a ceiling "
+            "verdict on that run mislabels objective-misspecification as a substrate limit. "
+            "Add `from experiments._lib.anchor_floor_guard import refuse_ceiling_below_random` "
+            "and, after computing the self-route label, "
+            "`label, rec = refuse_ceiling_below_random(label, {<learner_arm>: <score>, ...}, "
+            "<random_walk_score>, rung=..., context=...)` (v3_exq_734 is the reference "
+            "consumer), which downgrades a ceiling label resting on a sub-random learner to "
+            "substrate_not_ready_requeue and records the refuting numbers. Exempt with "
+            "CEILING_ANCHOR_FLOOR_EXEMPT = \"<reason>\" ONLY when the ceiling route genuinely "
+            "cannot rest on a sub-random learner (e.g. a readout-side control unaffected by "
+            "the floor -- the 737/742 recorded_preconditions case). See "
+            "failure_autopsy_competence-objective-cluster-734-737b-742a_2026-07-22.md sec 5.2.")
 
 
 # Precondition-recomputability static lint (V3-EXQ-726, fixed 2026-07-18 fd7ca8c7cb).
@@ -5002,6 +5176,7 @@ def main() -> int:
     specimen_warnings: List[Tuple[Path, str]] = []
     n_anchor_superseded = 0
     recomput_warnings: List[Tuple[Path, str]] = []
+    ceiling_floor_warnings: List[Tuple[Path, str]] = []
     e3_stale_warnings: List[Tuple[Path, str]] = []
     e3_hold_warnings: List[Tuple[Path, str]] = []
     ao_selection_warnings: List[Tuple[Path, str]] = []
@@ -5082,6 +5257,13 @@ def main() -> int:
                 # WARN-only in BOTH modes -- see precondition_recomputability_lint()
                 # for why this one never hardens under --paths.
                 recomput_warnings.append((p, rec))
+        if "ceiling_route_anchor_floor" in selected:
+            crf = ceiling_route_anchor_floor_lint(p)
+            if crf:
+                # WARN-only in BOTH modes -- see ceiling_route_anchor_floor_lint() for why
+                # this one never hardens under --paths (below-random is not statically
+                # decidable, so it can only flag a MISSING guard).
+                ceiling_floor_warnings.append((p, crf))
         if "e3_diagnostics_staleness" in selected:
             e3s = e3_diagnostics_staleness_lint(p)
             if e3s:
@@ -5183,6 +5365,7 @@ def main() -> int:
           f"{len(anchor_warnings)} anchor-reachability-warning(s)"
           + (f" ({n_anchor_superseded} superseded)" if n_anchor_superseded else "") + ", "
           f"{len(recomput_warnings)} precondition-recomputability-warning(s), "
+          f"{len(ceiling_floor_warnings)} ceiling-route-anchor-floor-warning(s), "
           f"{len(e3_stale_warnings)} stale-e3-diagnostics-warning(s), "
           f"{len(e3_hold_warnings)} hold-weighted-readout-warning(s), "
           f"{len(ao_selection_warnings)} action-object-selection-warning(s), "
@@ -5357,6 +5540,22 @@ def main() -> int:
         print("", flush=True)
         print("[validate_experiments] Precondition-RECOMPUTABILITY WARNINGS (advisory, non-blocking):", flush=True)
         for p, warn in recomput_warnings:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
+            print(f"  - {rel}: {warn}", flush=True)
+    if ceiling_floor_warnings:
+        # Advisory in BOTH modes (never hardens -- whether a cell's score is below its own
+        # random_walk anchor is computed from live run data, so this flags a MISSING guard,
+        # never a proven-unsupported verdict). A fire here means the driver self-routes to a
+        # ceiling-class label with a random_walk floor but never wires
+        # anchor_floor_guard.refuse_ceiling_below_random, so a ceiling verdict resting on a
+        # sub-random learner would be emitted rather than refused (autopsy sec 5.2). Triage
+        # each: wire the guard (v3_exq_734 is the reference), or mark
+        # CEILING_ANCHOR_FLOOR_EXEMPT when the ceiling route cannot rest on a sub-random
+        # learner (the 737/742 recorded_preconditions case). Do NOT retro-edit a LANDED
+        # driver whose run is complete -- adjudicate the affected RESULT instead.
+        print("", flush=True)
+        print("[validate_experiments] CEILING-ROUTE-ANCHOR-FLOOR WARNINGS (advisory, non-blocking):", flush=True)
+        for p, warn in ceiling_floor_warnings:
             rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
             print(f"  - {rel}: {warn}", flush=True)
     if anchor_warnings:

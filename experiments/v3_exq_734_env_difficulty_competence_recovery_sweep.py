@@ -127,7 +127,8 @@ ethics_preflight:
   involves_human_data_or_clinical_context: false
   decision: allow
 
-UNTRAINED-WORLD-ENCODER GUARD (wired 2026-07-19; DETECTION ONLY).
+UNTRAINED-WORLD-ENCODER GUARD (wired 2026-07-19; GATING -- arm-and-rung-scoped refusal since
+ree-v3 26ff282, 2026-07-22).
   experiments/_lib/zworld_encoder_guard.py is wired into the `ree_trained_allon` arm only.
   NONE of the optimizer groups inside `_train_all_on_agent` (e2, lateral-PFC bias head, OFC
   devaluation head) covers ANY of the 61 latent_stack parameters, so
@@ -154,8 +155,9 @@ UNTRAINED-WORLD-ENCODER GUARD (wired 2026-07-19; DETECTION ONLY).
   V3-EXQ-785 defect), no arm's gate result may vacate another arm's, and no rung's may vacate
   another rung's: `non_degenerate` is ANY-(rung,arm)-green, not all-green.
 
-  SCOPE: DETECTION ONLY. Nothing here attempts to make the encoder train; that fix is
-  downstream of the V3-EXQ-783 adjudication and belongs to governance.
+  SCOPE: GATING (refusal), NOT REPAIR. The guard REFUSES a frozen-encoder arm (see the STRICT
+  policy above); "detection only" would understate it. What it does NOT do is make the encoder
+  train -- that fix is downstream of the V3-EXQ-783 adjudication and belongs to governance.
   Diagnosis: REE_assembly/evidence/planning/
              zworld_bc_install_failure_V3-EXQ-780_2026-07-19.md
 
@@ -214,6 +216,7 @@ from experiments._lib.zworld_encoder_guard import (
     assert_world_encoder_trained,
     zworld_precondition,
 )
+from experiments._lib.anchor_floor_guard import refuse_ceiling_below_random
 # _train_all_on_agent + E2_TRAIN_IN_P1 moved to experiments/_lib/allon_training.py on
 # 2026-07-23 to close a substrate-hash under-inclusion (see that module's docstring): a
 # driver file is invisible to arm_fingerprint's _SUBSTRATE_GLOBS, so a training-recipe edit
@@ -692,7 +695,8 @@ def _run_cell(
     elif arm_id == "ree_trained_allon":
         train_env = _make_env(seed, env_kwargs)
         agent = _make_all_on_agent(train_env)
-        # z_world untrained-encoder guard -- DETECTION ONLY, scoped to THIS arm on THIS rung.
+        # z_world untrained-encoder guard -- GATING (refuses this arm on this rung), scoped to
+        # THIS arm on THIS rung.
         # The guard lives here rather than inside _train_all_on_agent because 737/742 import
         # that function and carry different premises (see module docstring).
         before = latent_stack_snapshot(agent)
@@ -1066,6 +1070,30 @@ def run_experiment(
     if any_ree_guard_red:
         outcome = "FAIL"
         label = "substrate_not_ready_requeue"
+
+    # STANDING LINT (autopsy 734/737b/742a sec 5.2): a ceiling-class self-route on a learner
+    # scoring BELOW its own random_walk anchor is unsupported. Under a capacity/representation
+    # ceiling a learner asymptotes toward the anchor from below; it does not end up worse than
+    # random on an oracle-achievable env. A below-random learner is optimising a different
+    # objective than the scored DV (the 734 survival-vs-forage inversion), so a ceiling verdict
+    # mislabels objective-misspecification as a substrate limitation. Checked at the maximally
+    # de-risked D3 rung (the "even hazard-free" claim). This is ORTHOGONAL to the encoder guard
+    # above: it catches the 737b case, where a genuinely trained encoder still scored below the
+    # random floor (guard GREEN, ceiling reading still wrong). Downgrades to
+    # substrate_not_ready_requeue and records the numbers that refute the ceiling reading, so
+    # they are CONSUMED rather than merely present in the manifest.
+    label, ceiling_route_refusal_record = refuse_ceiling_below_random(
+        label,
+        {
+            "ree_trained_allon": _arm_forage(D3_RUNG_ID, "ree_trained_allon"),
+            "vanilla_ppo": _arm_forage(D3_RUNG_ID, "vanilla_ppo"),
+        },
+        _arm_forage(D3_RUNG_ID, "random_walk"),
+        rung=D3_RUNG_ID,
+        context="V3-EXQ-734 D3 hazard-free ceiling self-route",
+    )
+    if ceiling_route_refusal_record is not None:
+        outcome = "FAIL"
     direction = "non_contributory"
 
     load_bearing_passed = bool(ree_recovers and not any_ree_guard_red)
@@ -1103,6 +1131,10 @@ def run_experiment(
 
     interpretation = {
         "label": label,
+        # None unless the ceiling-below-random-anchor standing lint fired (autopsy sec 5.2).
+        # When present, `label` above has already been downgraded to substrate_not_ready_requeue
+        # and this record names the sub-random learner(s) that refute the ceiling reading.
+        "ceiling_route_refusal": ceiling_route_refusal_record,
         "ree_recovery_rungs": ree_recovery_rungs,
         "ppo_recovery_rungs": ppo_recovery_rungs,
         "hardest_ree_recovery_rung": hardest_ree_recovery_rung,
@@ -1335,7 +1367,11 @@ def _build_manifest(result: Dict[str, Any], timestamp_utc: str, dry_run: bool) -
         "diagnostics": {
             "zworld_encoder_guard": {
                 "policy": "strict",
-                "scope": "detection_only",
+                # GATING, not detection-only: a frozen-encoder cell is REFUSED (unevaluated
+                # row + cross-cell fail-fast, "DO NOT EVALUATE A REFUSED ARM"), and any red ree
+                # cell forces the whole-run label to substrate_not_ready_requeue -- the run
+                # never emits a substrate-verdict label. Landed ree-v3 26ff282 (2026-07-22).
+                "scope": "gating",
                 "guarded_arm": "ree_trained_allon",
                 "guard_site": (
                     "this script's _run_cell call site, NOT inside _train_all_on_agent "
