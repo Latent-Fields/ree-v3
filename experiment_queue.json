@@ -114,6 +114,25 @@
       "experiment_purpose": "diagnostic",
       "experiment_type": "v3_exq_858_arc062_pb_fweight_attenuation_ladder_committed_class_entropy",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-864",
+      "title": "SD-076 diagnostic: wci_symmetric_rv_ref/rv within-episode trajectory crossover (V3-EXQ-860 Finding B follow-up)",
+      "script": "experiments/v3_exq_864_sd076_wci_rv_trajectory_crossover_diagnostic.py",
+      "priority": 35,
+      "machine_affinity": "any",
+      "machine_affinity_note": "prefer cloud (linux-x86_64-py3.10); no hardware requirement.",
+      "estimated_minutes": 40,
+      "episodes_per_run": 8,
+      "seeds": 2,
+      "conditions": 6,
+      "status": "pending",
+      "architecture_epoch": "ree_hybrid_guardrails_v1",
+      "claim_ids": [
+        "SD-076"
+      ],
+      "experiment_type": "v3_exq_864_sd076_wci_rv_trajectory_crossover_diagnostic",
+      "note": "PURE INSTRUMENTATION/MEASUREMENT DIAGNOSTIC investigating Finding B of failure_autopsy_V3-EXQ-860_2026-08-01.md/.json (the wrong-signed inflation_lowers_rv precondition: rv_final ended up ABOVE the un-inflated wci_symmetric_rv_ref counterfactual in both arms at STEPS_PER_EP=1000, LO -2.76e-4 / HI -1.46e-4 vs a +1e-4 threshold -- opposite the intended direction; siblings V3-EXQ-850/853 at STEPS_PER_EP=200 showed small positive-but-sub-threshold values, never negative). Sweeps STEPS_PER_EP in {200, 500, 1000} at a REDUCED N_TRAIN_EPS=8 (vs 860's 30 -- cheaper by design; sufficient to see several F1/REM-recalibration cycles settle, not intended to match 860's full statistical power) and instruments the WITHIN-EPISODE trajectory of (rv, wci_symmetric_rv_ref, diff=ref-rv) at ~40 samples per episode across EVERY training episode -- not just the end-of-training snapshot 860/853/850 recorded. No eval phase (the puzzle is purely about training-phase EMA dynamics; eval never touches it, per 860's own docstring). Both inflation doses kept (ARM_INFL_LO=0.6, ARM_INFL_HI=0.8), 2 seeds, 3 STEPS_PER_EP values = 6 conditions x 2 seeds = 12 cells. Total steps ~54400 train-only (~30% of 860's 180000 train-only steps, plus zero eval overhead 860 also paid).\n\nDOES NOT BLOCK the EVB-0454 SD-076 decision (deadline 2026-08-03T20:50:36Z) -- that decision proceeds on V3-EXQ-860's Finding A (the closure-fraction comparison: LO 2.9%/HI 2.5% vs 853's confounded 12-22%), which is unaffected by this puzzle per the autopsy's own section 2 (\"This does not undermine Finding A\"). claim_ids=[SD-076] only, matching the 860/853/850-h2 convention -- Phase 7 broadcast is not engaged, so this is not MECH-204 evidence. experiment_purpose=diagnostic, excluded from confidence/conflict scoring; evidence_direction='unknown' throughout -- this is data-quality/instrumentation, not a hypothesis test on SD-076/MECH-204.\n\nGOV-REUSE-1 (Step 2.4): decisive readout (within-episode rv/wci_symmetric_rv_ref trajectory) checked via REE_assembly/scripts/reanalysis_query.py query --readout rv_trajectory_within_episode --claim SD-076 (2026-08-01) against all 5 manifests in the 794/794a/850-h1/850-h2/860 lineage -- 0 carry any within-episode trajectory readout (all record only end-of-training snapshots). Not recoverable -> run.\n\nSubstrate readiness (Step 2.5): identical surface to 860, re-verified directly against current ree_core source 2026-08-01 (E3TrajectorySelector._running_variance/._wci_symmetric_rv_ref, update_running_variance called from post_action_update on every training tick, the REEConfig.e3 waking_confidence_* fields). No new build needed. claims.yaml: SD-076 candidate/standard, no additional gate.\n\nRe-derive brake (Step 2.5b): does not apply -- this is not a re-test of the H1/H2/H3 discrimination (no dose-response/closure-fraction criterion, no substrate verdict); it is pure instrument diagnosis of a puzzle that only surfaced in 860 itself. 0 prior substrate_ceiling autopsies for SD-076 (860's own re_derive_brake block: fired=false).\n\nCode review / smoke (Step 3.5/4): validate_experiments.py --strict: 0 non-conforming, 0 warnings of any kind (config_slice-declaration warning fixed by declaring trajectory_variation_floor). --dry-run smoke (2 steps_per_ep values x 2 arms x 2 seeds = 8 cells): all complete, verdict PASS x8, sentinel written, 0 evidence/ leak confirmed. Progress instrumentation verified: [train] ep N/M with M=n_train (loop bound), one verdict line per cell x8.\n\nCONCURRENCY NOTES: (1) TASK_CLAIMS.json contention on ree-v3/experiment_queue.json arbitrated via --allow-overlap this session (owner: frosty-satoshi-2e7cbc, unrelated 845a/475c requeue + INV091 dynamic budget + hazard-decomp lit-pull work) -- genuinely different task on the same shared file, not duplicate work. (2) ID COLLISION: V3-EXQ-863 was claimed by a concurrent session (ARC-062/MECH-309 lateral_pfc full replication) between initial ID selection and queue append; re-verified live at append time (git pull + working-tree-vs-HEAD audit clean) and incremented to V3-EXQ-864."
     }
   ]
 }
