@@ -15,7 +15,11 @@
       "machine_affinity": "any",
       "estimated_minutes": 25,
       "note": "GOV-FANOUT-1 leg (H1 of 3), fanout source failure_autopsy_V3-EXQ-794a_2026-07-31.json target v3_exq_794a_..._20260724T063301Z_v3. Sibling H2 (exposure-budget leg) is V3-EXQ-853, a distinct script from the same fanout source; H3 (wrong mechanism form, weakened not eliminated) routes to a /lit-pull commission, not an experiment. DESIGN: copy-modified from V3-EXQ-794a, kept to ONLY the INFL-only arms (ARM_INFL_LO/HI; dropped ARM_OFF_OFF/ARM_BCAST_ONLY/ARM_BOTH_LO/ARM_BOTH_HI -- single-axis probe, not the 2x3 factorial). Same LO=0.6/HI=0.8 asymmetry doses, same N_TRAIN_EPS=30 training budget, same SD-076 headroom-repair knobs as 794a. MANIPULATION: use_rem_precision_recalibration False instead of True (F1/REM writeback disabled); verified by direct code read (ree_core/sleep/phase_manager.py WRITEBACK block writes no metrics at all when the flag is False) and by the run's own f1_recalib_disabled_confirmed precondition, a genuine manipulation check not a config assertion. GOV-REUSE-1 (Step 2.4): reanalysis_query.py query --readout rv_final --claim MECH-204 (2026-07-31) finds only v3_exq_794/794a, both F1 ON -- the F1-disabled + full-behavioural-loop + repaired-floor combination is recorded nowhere. Not recoverable -> run. RE-DERIVE BRAKE (2.5b): 0 confirmed substrate_ceiling autopsies for MECH-204 or SD-076; also exempt as a GOV-FANOUT-1 discrimination leg regardless. claim_ids=[MECH-204, SD-076]: both mechanisms directly implicated by the interaction under test. No in-run OFF/baseline arm needed -- the decisive comparison is BETWEEN-RUN against two pre-registered external reference points (794a's own rv_final 0.003998/0.003870 LO/HI, and the SD-076 repair's isolated validation smoke 0.0025377/0.0021031 LO/HI), not a within-run control; the inflation_lowers_rv precondition is instead checked against the substrate's own internally-tracked un-inflated counterfactual EMA. Smoke --dry-run PASS, validate_experiments.py --strict clean (0 findings).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-08-01T00:07:48Z"
+      },
       "architecture_epoch": "ree_hybrid_guardrails_v1",
       "claim_ids": [
         "MECH-204",
