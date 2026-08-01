@@ -664,6 +664,15 @@ def test_gate_is_warn_only_even_under_strict(tmp_path):
 # pre-registered emission is not rewritten. It is a risk register -- the entry that
 # matters is the one whose baseline a FUTURE consumer tries to reuse.
 #
+# WORKED EXAMPLE of that last clause, measured 2026-08-01 (audit Addendum 4). 19 of these
+# carriers are the scaffold family (603f/g/h/i/k/l/m/o/p/q, 634/634b/634c, 638/638a,
+# 640/640a/640b, 652), each with its own local `STAGE0_ZGOAL_GATE = 0.4`. Every one of
+# them mints ZERO arm fingerprints -- they predate arm reuse -- so no banked cell exists
+# and the false-hit consequence the lint exists to prevent CANNOT occur for them. They
+# fire on the source pattern alone. Fixing them buys nothing and blocks on the pre-existing
+# `--strict` corpus backlog. The one that mattered was 833, because it alone MINTED
+# reusable cells from that family; it is fixed and dropped from the carriers set below.
+#
 # The 11 direct-call carriers are ONE DRIVER FAMILY (704/704b, 707/707a/707b/707c,
 # 708/708a/708b, 710, 714 -- the ARC-110 / MECH-440 / MECH-451 lineage on a shared
 # template), so their 38-45 names each are the same defect replicated, not 11 independent

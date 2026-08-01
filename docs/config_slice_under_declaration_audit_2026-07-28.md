@@ -461,3 +461,93 @@ Then re-run the lint on 833 (expect silent), re-pin `_PINNED_CORPUS_FIRE_COUNT` 
 over: they were computed under a slice that does not name the gate. Re-minting them is not
 warranted (recoverable in-row, gate at the family standard), but a successor that varies the gate
 must not consume them, and the REUSE paragraph of the module docstring is where that belongs.
+
+---
+
+## Addendum 4 (2026-08-01T00:39Z): Addendum 3 LANDED, and what a successor author actually needs
+
+The deferred patch is on `origin/main` as `20545e7`. V3-EXQ-833 finished 2026-07-30T06:07:01Z,
+so the `experiments/_lib/**` edit no longer destabilises a live mint. Landed exactly as Addendum 3
+specified -- constant moved to the lineage module, `stage0_zgoal_gate` in `off_path_config_slice()`,
+docstring threshold rule amended, driver imports it, REUSE paragraph warns off a gate-varying
+consumer -- plus the contract re-pin `_PINNED_CORPUS_FIRE_COUNT` 56 -> 55 and 833 dropped from
+`_CROSS_MODULE_CARRIERS`. Lint silent on 833; 24/24 contracts in
+`tests/contracts/test_config_slice_declaration_lint.py` pass.
+
+The pre-commit contract gate could NOT run: it routes to `remote_pytest.sh` and all four fleet
+boxes were mid-experiment (836d ~9h remaining, 840b ~6h, ~47h queued). Committed `--no-verify`
+with explicit user approval, on the strength of the targeted local run.
+
+### The results are NOT invalidated. This was never a measurement defect.
+
+Stated plainly because "the fingerprint was wrong" invites the wrong inference. The defect was in
+the reuse ADDRESS -- what the content hash DECLARES -- not in what the cell COMPUTED. 833 ran at
+gate 0.4, as pre-registered; `stage0_zgoal_formed` is the correct verdict for that gate; the DV and
+the conclusion are untouched. The hazard was always PROSPECTIVE: a *future* consumer at a
+*different* gate served a banked cell computed at 0.4. Three things bound it further:
+
+1. **Recoverable in-row** (Addendum 3's severity argument): the raw `stage0_z_goal_norm_peak` is
+   stamped BESIDE the derived boolean, so a consumer at any gate can recompute formation exactly.
+2. **Weights no claim.** 833 is `EXPERIMENT_PURPOSE = "diagnostic"` with `CLAIM_IDS = []`. Even a
+   realised false hit could not have moved a claim's confidence.
+3. **833's cells are ALREADY reuse-refused, by a second and independent guard** -- see below.
+
+So: no re-run is warranted, and no successor needs to be ARRANGED to repair anything. A successor
+is worth queuing when the *science* calls for one, not because of this fix.
+
+### 833's banked cells are already refused -- `substrate_stable_across_run: false`
+
+The manifest carries `substrate_stable_across_run: false`, so `arm_reuse.evaluate_cell` returns
+`REFUSE_SUBSTRATE_UNSTABLE` for every cell of this run regardless of address. Read the detail
+before drawing the alarming conclusion:
+
+```
+per_cell_hashes_disagree: false
+distinct_cell_substrate_hashes: ["40460396..."]     # ONE hash, all cells
+process_snapshot_drift: recorded 40460396... vs on_disk_now fa1f816c...
+```
+
+Every cell executed ONE substrate -- the 2026-07-20 prospective fix (identity frozen once per
+process, here at 2026-07-28T00:22:39Z, minutes into the run) worked exactly as designed. What
+moved is the DISK, over a 40-hour run that spanned many landings. That is the benign, expected
+case, and it is the documented deliberate OVER-REFUSAL: for a reuse gate the recorded data cannot
+prove which cells executed what, so it refuses. It is an INSTRUMENT event, not a confound verdict;
+nothing adjudicates 833's science off it.
+
+Net: the false-hit channel this addendum closes is, for 833's own cells specifically, doubly shut.
+The declaration still had to land -- it is what makes the address correct for any cell minted from
+this lineage FROM NOW ON.
+
+### The 19 sibling drivers carry the PATTERN but not the HAZARD -- do not "fix" them
+
+An earlier note flagged ~10 scaffold-family siblings with their own local `STAGE0_ZGOAL_GATE = 0.4`
+as follow-on work. Measured: there are **19** (603f/g/h/i/k/l/m/o/p/q, 634/634b/634c, 638/638a,
+640/640a/640b, 652) and **every one of them mints ZERO arm fingerprints** -- no
+`compute_arm_fingerprint` call, no `include_driver_script_in_hash`, no `reuse_eligible` anywhere.
+They predate the arm-reuse mechanism.
+
+No fingerprint means no banked cell, which means no consumer can take a false hit from them. The
+under-declaration lint fires on them because the SOURCE PATTERN matches, but the consequence the
+lint exists to prevent cannot occur. **Do not retro-edit them.** It buys nothing, it contradicts
+the standing rule that a completed run's pre-registered emission is not rewritten, and touching a
+historical `v3_exq_*.py` blocks on the pre-existing `--strict` corpus backlog.
+
+### What a successor author must actually do
+
+The trigger is not "a sibling driver exists" -- it is **"I am about to mint a reusable arm from a
+scaffold-family lineage."** If that is you:
+
+- **Build on `experiments/_lib/baselines/stageh_strict_goal_isolation.py`.** It is the only
+  scaffold-family lineage module whose slice is correct; the 19 drivers above have no lineage
+  module at all, so copying one forward reproduces the defect in a context where it now BITES
+  (your arm is fingerprinted; theirs never were).
+- **Apply the Addendum 3 test to every threshold you carry**, not just this one: read in the
+  post-hoc ANALYSIS -> exclude; read INSIDE the cell with its verdict STAMPED INTO THE ROW ->
+  it is scheme, declare it. `STAGE0_ZGOAL_GATE` is the only constant in this lineage that crosses;
+  a new driver may well introduce another.
+- **Do not consume 833's banked ARM_LEGACY cells if you vary the gate.** They carry the
+  pre-declaration address (and are separately refused on substrate instability, so the practical
+  outcome is a cache MISS -- the cheap, correct direction).
+- **Run the lint before queueing**:
+  `validate_experiments.py --checks config_slice_declaration --paths <your driver>`.
+  A fire on a NEW script is a bug to fix, never a reason to re-pin.
