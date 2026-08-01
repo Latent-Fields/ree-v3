@@ -5999,6 +5999,59 @@ class REEAgent(nn.Module):
             self._last_action = action
             return action
 
+        # ARC-071/MECH-090 E3-TICK RESELECTION SHORT-CIRCUIT
+        # (diagnostic_arc071_e3_reselection_probe_2026-08-01.md;
+        # substrate_queue.json arc071_e3_reselection_on_committed_program).
+        # This IS an E3 tick (the branch above only handles non-E3 ticks), so
+        # without this block E3 unconditionally re-deliberates and installs a
+        # brand-new trajectory object below -- even when already committed to
+        # an unexpired arc071_chunk program. Confirmed via a real hazard-
+        # exposed rollout: 36.8% / 41.4% / 55.1% of chunk-committed E3 ticks
+        # cut a prior unexpired commitment short at chunk_max_size 5 / 8 / 15.
+        #
+        # Placed here -- AFTER every principled-release site above (MECH-091
+        # urgency interrupt, MECH-342 readiness release, the rung-6 duration
+        # release, the MECH-321 mid-execution decomposition hook, the VS /
+        # relief / conditioned-safety / contextual-safety releases, and the
+        # SD-084 reap-on-not-elevated at the top of this method) -- and BEFORE
+        # any of them runs again. Every one of those sites runs unconditionally
+        # on this same tick and, on firing, either clears
+        # e3._persistent_committed_trajectory directly or releases
+        # beta_gate (which the SD-084 reap then clears on the very next
+        # opportunity). So a genuine release this tick already leaves this
+        # check's own precondition unsatisfied by the time we reach it --
+        # MECH-091 in particular can never be swallowed by this short-circuit,
+        # not because of any special-case interaction code, but because its
+        # release already ran and already invalidated the state this reads.
+        #
+        # chunk_length comes from metadata['chunk_sequence'] (the actual
+        # committed program length), NOT traj.actions.shape[1] (the full CEM
+        # deliberation horizon, always >= chunk_sequence length since only the
+        # first len(chunk_sequence) action slots are populated by chunk
+        # injection -- see hippocampal/module.py's chunk-candidate builder).
+        # Using shape[1] here would silently defeat the check.
+        if (
+            ticks["e3_tick"]
+            and getattr(self.config, "use_e3_reselection_shortcircuit", False)
+            and self.beta_gate.is_elevated
+        ):
+            _sc_traj = self.e3._persistent_committed_trajectory
+            _sc_meta = _sc_traj.metadata if _sc_traj is not None else None
+            if _sc_meta is not None and _sc_meta.get("source") == "arc071_chunk":
+                _sc_seq = _sc_meta.get("chunk_sequence")
+                chunk_length = (
+                    len(_sc_seq) if _sc_seq else int(_sc_traj.actions.shape[1])
+                )
+                if self._committed_step_idx < chunk_length - 1:
+                    _sc_horizon = int(_sc_traj.actions.shape[1])
+                    _sc_step_idx = min(self._committed_step_idx, _sc_horizon - 1)
+                    action = _sc_traj.actions[:, _sc_step_idx, :]
+                    self._committed_step_idx += 1
+                    # MECH-165: mirror the between-tick branch's bookkeeping.
+                    self._record_exploration_action(action)
+                    self._last_action = action
+                    return action
+
         # SD-016 (MECH-152): pass cached terrain_weight so harm/goal scoring
         # precision reflects current z_world cue context.
         # MECH-108: pass BreathOscillator sweep reduction during sweep phase.

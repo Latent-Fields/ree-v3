@@ -675,6 +675,23 @@ PROBED = {
     # newly reach boundary.fired and its fire releases the commit latch,
     # aborting the remaining macro.
     "use_persistent_committed_program_handle",
+    # ARC-071/MECH-090 E3-tick reselection short-circuit (diagnostic_
+    # arc071_e3_reselection_probe_2026-08-01.md; substrate_queue.json
+    # arc071_e3_reselection_on_committed_program). Probed by
+    # test_arc071_e3_reselection_shortcircuit.py: ON, a real rollout committed
+    # to an unexpired arc071_chunk program keeps the SAME persistent
+    # trajectory object across forced E3 ticks and _committed_step_idx
+    # advances to chunk_length - 1 with zero premature reselections at
+    # chunk_max_size 5 and 15; OFF, the identical forced-tick schedule
+    # reproduces the diagnosed defect exactly (a distinct trajectory
+    # installed on effectively every forced tick, step_idx never advancing
+    # past its immediate post-commit value). A fifth test in that file pins
+    # that MECH-091's urgency-interrupt release is never swallowed by the
+    # short-circuit (via the _ncl_mech091_fired flag, since a fresh
+    # re-commit can legitimately re-elevate beta_gate later in the same
+    # tick). Requires use_persistent_committed_program_handle=True to have
+    # anything to check -- inert without it, by construction.
+    "use_e3_reselection_shortcircuit",
 } | set(FLAGS_WITH_DEFAULT_BEHAVIOURAL_DELTA) | set(FLAGS_WITH_LOUD_PRECONDITION)
 
 # Audit-confirmed inert / mis-wired flags (finding id -> reason). Documented here

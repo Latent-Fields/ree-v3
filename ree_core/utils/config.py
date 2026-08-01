@@ -4060,6 +4060,42 @@ class REEConfig:
     # Default False -> the union reduces to the legacy
     # `_committed_trajectory is not None` -> bit-identical.
     use_persistent_committed_program_handle: bool = False
+    # ARC-071/MECH-090 E3-TICK RESELECTION SHORT-CIRCUIT.
+    # diagnostic_arc071_e3_reselection_probe_2026-08-01.md confirmed (real
+    # 53,063-step hazard-exposed rollout) that select_action's E3-tick branch
+    # unconditionally re-deliberates and installs a BRAND-NEW trajectory
+    # object on every E3 tick, even when already committed to an unexpired
+    # arc071_chunk program -- premature_reselection rates of 36.8% / 41.4% /
+    # 55.1% at chunk_max_size 5 / 8 / 15 (0% at 2 / 3, the two sizes below the
+    # ~8-10-step steady-state E3 cadence). Dominant driver: MECH-091's
+    # unconditional clock.phase_reset() on every harm_signal<0 step, which
+    # forces an E3 tick independent of the periodic e3_steps_per_tick counter.
+    #
+    # With this flag ON, select_action's E3-tick branch checks -- AFTER every
+    # principled-release site above it (MECH-091 urgency interrupt, MECH-342
+    # readiness release, rung-6 duration release, MECH-321 mid-execution
+    # decomposition, VS/relief/safety releases, and the SD-084
+    # reap-on-not-elevated) -- whether e3._persistent_committed_trajectory is
+    # still arc071_chunk-sourced and short of its own chunk_sequence horizon,
+    # and if so steps it instead of falling through to full E3 deliberation.
+    # Because every one of those release sites runs unconditionally on this
+    # same tick and already clears the persistent handle when it fires, a
+    # genuine release (in particular MECH-091, which must NEVER be swallowed)
+    # is never masked by this check -- the check's own precondition simply
+    # fails and the tick falls through to full deliberation exactly as before.
+    #
+    # NOT A PURE DIAGNOSTIC -- this flag CHANGES BEHAVIOUR when on: E3 ticks
+    # that would otherwise re-deliberate and re-commit now continue stepping
+    # the existing program instead. Requires use_persistent_committed_program_
+    # handle to have any effect (this check reads the same SD-084 handle);
+    # harmless but inert without it.
+    #
+    # THREE wiring sites, same pattern and same reasoning as the flag above:
+    # the REEConfig field, the from_dims signature, and the from_dims
+    # assignment. No sub-config mirror -- the consumer is REEAgent.select_action,
+    # which reads the top-level REEConfig off self.config.
+    # Default False -> the new block is unreachable -> bit-identical.
+    use_e3_reselection_shortcircuit: bool = False
     # Safety cap on how many ticks the hold re-asserts a single natural-commit run
     # before disarming (guards a degenerate config from latching forever).
     # 0 -> unbounded (the hold persists until a principled release / the committed
@@ -5877,6 +5913,7 @@ class REEConfig:
         use_decomposition_scale_resolved_probe: bool = False,
         use_decomposition_scale_resolved_probe_midexec: bool = False,
         use_persistent_committed_program_handle: bool = False,
+        use_e3_reselection_shortcircuit: bool = False,
         # Post-603i E2 escape-affordance linker (readout over detached E2
         # action-consequence features; reuse, not a duplicate predictor).
         use_e2_escape_affordance_linker: bool = False,
@@ -7133,6 +7170,10 @@ class REEConfig:
         config.use_persistent_committed_program_handle = (
             use_persistent_committed_program_handle
         )
+        # ARC-071/MECH-090 E3-tick reselection short-circuit. Same three-site
+        # pattern and same no-mirror reasoning as the persistent handle flag
+        # above -- the consumer is REEAgent.select_action.
+        config.use_e3_reselection_shortcircuit = use_e3_reselection_shortcircuit
 
         # MECH-341 (ARC-065 Layer-B child): e3_scoring_preserves_trajectory_
         # class_diversity
