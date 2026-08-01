@@ -178,27 +178,6 @@
       "seeds": 6
     },
     {
-      "queue_id": "V3-EXQ-836a",
-      "title": "MECH-476 DOSE-axis consolidation falsifier REDESIGN: noise-scaled margin + n=10 (supersedes 836)",
-      "script": "experiments/v3_exq_836a_mech476_dose_dependent_consolidation_redesign.py",
-      "priority": 40,
-      "machine_affinity": "any",
-      "estimated_minutes": 600,
-      "supersedes": "V3-EXQ-836",
-      "claim_id": "MECH-476",
-      "note": "Redesign of V3-EXQ-836 per failure_autopsy_mech476-mech475-cluster_2026-07-29.md: 836's non_monotone_dose_response verdict rested on a FIXED 0.15 margin not scaled to observed per-arm noise (dose_bc300 SEM=0.150 at n=6, comparable to the between-arm deltas the verdict was read from) and did not survive a leave-one-out check (one seed at retained_fraction=1.274 drove the dose_bc300 mean). Fix (both applied): (1) RESISTANCE_DOSE_MARGIN replaced with a noise-scaled floor max(EFFECT_SIZE_K=1.5 * sd_delta, EFFECT_SIZE_ABS_FLOOR=0.05), sd_delta = SD of the per-seed paired (max_dose-min_dose) retained_fraction delta, mirroring v3_exq_824a's EFFECT_SIZE_K/ABS_FLOOR convention; (2) seeds 6->10 per arm; (3) median reported alongside mean per arm; (4) in-line leave-one-out robustness diagnostic on the load-bearing delta. User-confirmed routing via AskUserQuestion 2026-07-29 (\"Redesign re-run (noise-scaled margin + more seeds)\"). hypothesis_space_registry.v1.json qid=competence_floor hid=H-mech476-dose-response left alive (836 uninformative, not falsifying) and names this queue_id in its own basis text. GOV-REUSE-1: the noise-scaled dose-response verdict is not recorded in any prior manifest (836's own manifest computed it under the wrong rule and at n=6) -> must run. Re-derive brake: does not apply -- 836's epistemic_category is measurement_test_design_defect (not substrate_ceiling) with recommended_substrate_queue_entry.action=none. FLAG for V3-EXQ-836b's own eventual autopsy: 836b (still running as of this queueing, INTERVAL arm) uses the identical fixed RESISTANCE_INTERVAL_MARGIN=0.15 literal pattern (verified by direct grep of the script) -- same discrimination-rule defect is very likely present there too; check before trusting any SUPPORTED/WEAKENED/NON-MONOTONE verdict from it. 836b is out of scope for this redesign chip and was not modified. Smoke PASS (validate_experiments.py --strict: 2 OK / 0 warnings; --dry-run runs end-to-end, correctly self-routes substrate_not_ready_requeue on the tiny dry-run doses, no crash).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-07-31T20:59:53Z"
-      },
-      "architecture_epoch": "ree_hybrid_guardrails_v1",
-      "conditions": 3,
-      "episodes_per_run": 3000,
-      "experiment_type": "v3_exq_836a_mech476_dose_dependent_consolidation_redesign",
-      "seeds": 10
-    },
-    {
       "queue_id": "V3-EXQ-836d",
       "title": "MECH-476 NOVELTY falsifier REDESIGN: noise-scaled margin + n=10 (supersedes 836c)",
       "script": "experiments/v3_exq_836d_mech476_novelty_tagging_consolidation_redesign.py",
