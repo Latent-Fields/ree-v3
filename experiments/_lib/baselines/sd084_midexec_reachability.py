@@ -228,6 +228,124 @@ def env_kwargs(seed: int) -> Dict[str, Any]:
     return kwargs
 
 
+# --- HAZARD-TUNED + AFFECTIVE-STREAM overlay (V3-EXQ-867a, added 2026-08-02).
+#
+# V3-EXQ-867 (the first harm-aware-selection behavioural test on this baseline)
+# found decomp_n_harm_bias_nonzero=0 / decomp_n_harm_override_fires=0 on EVERY
+# seed, BOTH arms (failure_autopsy_V3-EXQ-867_2026-08-02). The autopsy's own
+# routing named ONE cause -- "no hazard-density env tuning, so z_harm_a_norm
+# never cleared decomposition_harm_threat_floor=0.1" -- and recommended
+# applying SD-029's scheduled_external_hazard overlay (as validated in
+# V3-EXQ-625c: interval=20, prob=0.7, adjacent_only=True, hazard_harm 0.2,
+# proximity_harm_scale 0.2).
+#
+# Direct measurement for the 867a redesign (this session, 2026-08-02) found
+# the autopsy's diagnosis was necessary but NOT SUFFICIENT -- THREE flags were
+# missing, not one, all defaulting False/off and none set anywhere in the
+# 844/867 lineage:
+#   1. `use_affective_harm_stream=True` PLUS wiring the env's `harm_obs_a`
+#      observation into `agent.sense(..., obs_harm_a=obs["harm_obs_a"])`.
+#      Without this, `new_latent.z_harm_a` is structurally None
+#      (ree_core/agent.py ~3633), so hippocampal/module.py's
+#      `z_harm_a_norm = float(...) if (harm_aware and z_harm_a is not None)
+#      else 0.0` (line ~983) reads 0.0 EVERY tick regardless of hazard
+#      density in the environment -- the SD-029 overlay alone cannot move
+#      this number at all.
+#   2. `use_harm_stream=True` (SD-010) PLUS wiring `obs_harm=obs["harm_obs"]`
+#      into `agent.sense(...)`. This is what makes `new_latent.z_harm`
+#      (the SEPARATE sensory-discriminative channel) non-None.
+#   3. `valence_harm_enabled=True`. `harm_bias()`'s per-leaf `harm_penalty`
+#      argument (`_decomposition_harm_penalty` in hippocampal/module.py) is
+#      NOT read from z_harm_a at all -- it queries the residue field's RBF
+#      VALENCE_HARM_DISCRIMINATIVE channel (SD-014), which is written ONLY
+#      by the `valence_harm_enabled` branch in agent.py (~4497-4509), gated
+#      on `z_harm` (not `z_harm_a`) being non-None. Without flags 2+3, every
+#      RBF center for this channel stays at its zero-init value forever, so
+#      `_decomposition_harm_penalty` returns EXACTLY 0.0 on every one of the
+#      96 calls measured in a full 12-episode/60-step probe with ONLY flag 1
+#      + the SD-029 env overlay applied (seed 29) -- `harm_bias()`'s
+#      `max(0.0, harm_penalty)` clamp then floors the graded Stage-1 bias to
+#      0 regardless of how engaged z_harm_a_norm (the THRESHOLD/gating
+#      variable, w=threat_scale(z_harm_a_norm)) is. Stage 2's categorical
+#      override (`select_harm_aware_leaves`) needs only w, not harm_penalty,
+#      so it DID fire in that 1-flag probe (28/run) while Stage 1 stayed at
+#      0 -- the two stages are NOT redundant checks of the same thing.
+#
+# CONFIRMED (this session, full 12-episode/60-step schedule, all three flags
+# + this overlay, seed 11): OFF arm decomp_n_harm_bias_nonzero=0 (correct --
+# bit-identical no-op, decomposition_use_harm_aware_selection=False); ON arm
+# decomp_n_harm_bias_nonzero=270, decomp_n_harm_override_fires=89,
+# max z_harm_a_norm=0.852 (floor=0.1, ref=0.5 -- comfortably saturating the
+# graded ramp for most of the run). BOTH arms independently decompose mid-
+# execution on this seed (OFF=46, ON=40 -- a genuine both_decompose seed).
+#
+# Adding these three flags changes the substrate stack (three new encoder
+# modules), which shifts the RNG draw sequence at agent construction and
+# therefore which seeds commit multi-action programs at all -- per the
+# "SEED-DEPENDENCE IS A PROPERTY OF THIS BASELINE" note above, the seed
+# tiers below are RE-MEASURED for this overlay, not inherited from
+# SEED_POOL_ATTRIBUTABLE/SEED_POOL_NEGATIVE_CONTROL above.
+HAZARD_TUNED_ENV_OVERLAY: Dict[str, Any] = {
+    "scheduled_external_hazard_enabled": True,
+    "scheduled_external_hazard_interval": 20,
+    "scheduled_external_hazard_prob": 0.7,
+    "scheduled_external_hazard_adjacent_only": True,
+    "hazard_harm": 0.2,
+    "proximity_harm_scale": 0.2,
+}
+
+HAZARD_TUNED_STREAM_FLAGS: Dict[str, Any] = {
+    "use_affective_harm_stream": True,
+    "use_harm_stream": True,
+    "valence_harm_enabled": True,
+}
+
+# Re-measured under the corrected config (HAZARD_TUNED_ENV_OVERLAY +
+# HAZARD_TUNED_STREAM_FLAGS + abort mechanism ON), darwin-arm64, 2026-08-02,
+# --seed-scan at a reduced 4-episode x 60-step schedule over the same
+# 10-seed candidate pool as SEED_POOL above, ON-arm flags (abort mechanism +
+# harm-aware selection). "multi"=multi_action_commits,
+# "midexec"=decomp_n_evaluated_midexec, "decomposed"=decomp_n_decomposed_midexec,
+# "harm_bias_nz"=decomp_n_harm_bias_nonzero, "override"=decomp_n_harm_override_fires:
+#
+#     seed   multi  midexec  decomposed  harm_bias_nz  override
+#      47      30      7          1          147          45
+#      71       3      0          0           99          31
+#       3       1      1          0           57          19
+#      89       0      0          0          159          48
+#      11      38     10          9           93          30
+#      23      94     10          1          309         102
+#      97       0      0          0          153          45
+#      17       0      0          0          114          35
+#      29       4      0          0           57          18
+#      53       0      0          0          102          32
+#
+# Every seed shows harm_bias_nz > 0 (precommit-phase decomposition evaluates
+# the seeded chunk regardless of whether it is ever committed multi-action --
+# so harm-aware selection engaging is orthogonal to SD-084 reachability).
+# seed=11 additionally FULL-SCHEDULE-VERIFIED both arms (see docstring block
+# above) as a genuine both_decompose seed with strong ON-arm engagement.
+# seed=23/47 are additional attributable-tier candidates from the reduced
+# scan only (not yet full-schedule-verified both arms); a miss at this
+# reduced schedule would cost a seed, never a false verdict, per the
+# module's existing --seed-scan discipline.
+HAZARD_TUNED_SEED_POOL_ATTRIBUTABLE: Tuple[int, ...] = (11, 23, 47)
+HAZARD_TUNED_SEED_POOL_NEGATIVE_CONTROL: Tuple[int, ...] = (89, 97)
+HAZARD_TUNED_SEED_POOL: Tuple[int, ...] = (
+    HAZARD_TUNED_SEED_POOL_ATTRIBUTABLE + HAZARD_TUNED_SEED_POOL_NEGATIVE_CONTROL
+)
+
+
+def env_kwargs_hazard_tuned(seed: int) -> Dict[str, Any]:
+    """SD-029 hazard-density overlay + per-cell env seeding, for V3-EXQ-867a
+    and successors. See HAZARD_TUNED_ENV_OVERLAY above for provenance."""
+    kwargs = dict(ENV_KWARGS)
+    kwargs.update(HAZARD_TUNED_ENV_OVERLAY)
+    if ENV_SEEDED_PER_CELL:
+        kwargs["seed"] = int(seed)
+    return kwargs
+
+
 def substrate_stack_flags() -> Dict[str, Any]:
     """The substrate stack shared by BOTH arms.
 

@@ -267,6 +267,22 @@
       "episodes_per_run": 180,
       "experiment_type": "v3_exq_878_mech332_efference_aic_dissociation",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-867a",
+      "title": "MECH-321 harm-aware selection, hazard-density + affective-stream redesign (supersedes V3-EXQ-867)",
+      "experiment_type": "v3_exq_867a_mech321_harm_aware_selection_hazard_tuned",
+      "script": "experiments/v3_exq_867a_mech321_harm_aware_selection_hazard_tuned.py",
+      "priority": 35,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 60,
+      "episodes_per_run": 12,
+      "seeds": 5,
+      "conditions": 2,
+      "claim_id": "MECH-321",
+      "supersedes": "V3-EXQ-867",
+      "note": "Same question as V3-EXQ-867 (does harm-aware selection improve MECH-321's task-outcome C1 stat over abort-mechanism-alone, matched abort rates), re-posed after 867's own P_HARM_BIAS_ENGAGES precondition FAILED (0/6 seeds, both arms). failure_autopsy_V3-EXQ-867_2026-08-02 (confirmed) diagnosed environment_adequacy_defect and recommended SD-029 scheduled_external_hazard overlay (per V3-EXQ-625c: interval=20 prob=0.7 adjacent_only=True, hazard_harm 0.2, proximity_harm_scale 0.2). Direct measurement this session found that overlay ALONE insufficient: z_harm_a was structurally None throughout 844/867 (use_affective_harm_stream unset, obs_harm_a never wired into agent.sense()); fixing that still left harm_penalty at a hard 0.0 on 96/96 probe calls because the residue field's VALENCE_HARM_DISCRIMINATIVE channel needs use_harm_stream=True + valence_harm_enabled=True too (neither set anywhere in the lineage). All three flags + the env overlay applied here; confirmed this session (seed 11, full 12ep/60-step schedule): ON arm decomp_n_harm_bias_nonzero=270, max z_harm_a_norm=0.852 (floor=0.1); OFF arm correctly 0 (bit-identical no-op). GOV-REUSE-1: no compatible prior mint exists for this env+substrate-stack combo (both changed vs 844/867) -- this run's OFF cells self-mint reuse-eligible for a future successor. Seed pool re-measured under the corrected config (RNG stream shifted by 3 new encoder modules) via --seed-scan-equivalent probing across the original 10-candidate pool; only seed 11 is full-schedule-verified both arms, 23/47 are reduced-schedule attributable-tier candidates, 89/97 are clean negative controls. validate_experiments.py --strict OK; dry-run smoke PASS (no crash; correctly self-routes manipulation_inert_or_unmatched at 2-episode toy scale since only 1 both_decompose seed appears at that reduced schedule, below MIN_DECOMPOSING_SEEDS=2 -- expected and correct, not a defect)."
     }
   ]
 }
