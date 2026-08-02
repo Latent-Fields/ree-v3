@@ -268,6 +268,25 @@
       "episodes_per_run": 250,
       "experiment_type": "v3_exq_866a_inv034_q021_goal_maintenance_agency_onboarded",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-884",
+      "title": "MECH-428 subgoal-bootstrapped goal seeding: NO_SUBGOAL / SUBGOAL_BOOTSTRAP / FORCED_SEED 3-arm parent_goal_norm bootstrap test",
+      "script": "experiments/v3_exq_884_mech428_subgoal_bootstrapped_goal_seeding.py",
+      "priority": 30,
+      "machine_affinity": "any",
+      "estimated_minutes": 8,
+      "backlog_id": "EXP-0390",
+      "claim_ids": [
+        "MECH-428"
+      ],
+      "status": "pending",
+      "architecture_epoch": "ree_hybrid_guardrails_v1",
+      "experiment_type": "v3_exq_884_mech428_subgoal_bootstrapped_goal_seeding",
+      "seeds": 3,
+      "conditions": 3,
+      "episodes_per_run": 1,
+      "note": "GOV-REUSE-1 (Step 2.4): decisive readout (parent_goal_norm() steady-state under repeated, realistic-cadence subgoal-attainment credit vs a forced-seed ceiling) cannot exist in any prior manifest -- SD-092 (GoalState.credit_subgoal_attainment / _z_goal_parent) was built same-day 2026-08-02 (ree-v3 500fd6739857) with the agent-loop call site (REEAgent.notify_subgoal_attainment, d9e05864a1) landing the same day; not recoverable, run. Substrate readiness (Step 2.5): confirmed IMPLEMENTED -- primitive + call site both live and contract-tested (tests/contracts/test_sd092_notify_subgoal_attainment.py C1-C6, test_sd092_cross_level_subgoal_credit.py R1-R11, all pass). Re-derive brake (Step 2.5b): 0 failure_autopsy_*.json artifacts tag MECH-428 -- brake does not fire (never tested before). DESIGN CHOICE (deliberate, documented in the script docstring): does NOT use experiments/scaffolded_sd054_onboarding.py (the heavier curriculum the registered proposal references) or any learned navigation policy. Reason: the scaffolded curriculum P2 benefit-contact leg requires the agent to autonomously forage/commit to a multi-step approach -- a sustained-multi-step-commitment behavioural DV, and the basal-ganglia/action-commitment layer is still under active construction (F-dominance conversion ceiling: ARC-107/MECH-448/MECH-449; see memory feedback_dont_queue_commitment_dependent_behavioural). A FAIL there would most likely re-derive that known ceiling, not a MECH-428 verdict. Instead extends V3-EXQ-883's scripted-deterministic-trajectory isolation (ground-truth greedy walk, no agent action selection) to a LONG multi-waypoint-sequence episode (env subgoal_mode loops the 3-waypoint sequence repeatedly within one episode) so MANY discrete credit events occur, spaced by real per-step parent_goal_decay -- this tests accumulation-vs-decay bootstrap dynamics under a realistic intermittent event rate, which 883's single-event contrast does not. The GAP-2 seeding-sparse condition is reproduced via the substrate fact that _z_goal_parent has exactly one write path (credit_subgoal_attainment), not by simulating foraging failure. DV-SYMMETRY DECLARATION: ARM NO_SUBGOAL's parent_goal_norm is arithmetically pinned near zero by construction (it never calls notify_subgoal_attainment) -- not a discriminating comparison on its own; it anchors the C1 fraction-of-ceiling calculation. The load-bearing gate is C1 (ARM_SUBGOAL_BOOTSTRAP steady-state parent norm >= 30% of the ARM_FORCED_SEED - ARM_NO_SUBGOAL range on >=2/3 seeds), which is NOT structurally guaranteed. Smoke test (--dry-run, 80 steps x 3 seeds x 3 arms) PASS: mechanically clean, G0 (attainment non-zero) and G1 (forced-seed structured, floor 0.05) both clear on every seed in the short dry run (FORCED steady-state 0.46-0.59, BOOTSTRAP 0.028-0.114); C1/C2 are the substantive gates evaluated on the real 400-step run, not required to pass in the dry run. validate_experiments.py --strict clean (0 warnings). No training loop (no backprop, mirrors 883) -- estimated_minutes is a scripted-rollout budget (dry-run 9 cells x 80 steps ~= 32s; real run 9 cells x 400 steps, ~5x steps, extrapolated)."
     }
   ]
 }
