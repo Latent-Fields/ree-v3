@@ -70,26 +70,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-873",
-      "title": "MECH-322 sleep-replay carve-out: AND-gate fires correctly and fails closed (first evidence)",
-      "script": "experiments/v3_exq_873_mech322_sleep_replay_carveout.py",
-      "priority": 35,
-      "machine_affinity": "any",
-      "estimated_minutes": 1250,
-      "claim_id": "MECH-322",
-      "backlog_id": "EVB-0489",
-      "note": "GOV-REUSE-1: checked reanalysis_query.py --readout chunk_acc_n_replay_formed --require-readout -> 9 manifests carry the key (v3_exq_810a/810b/834/815/816/820/...) but every one read the audit-null value (use_chunk_replay_origin_path was False in all of them); not recoverable -> run. Re-derive brake: 0 prior failure_autopsy targets tag MECH-322. Diagnostic/substrate-readiness purpose (first genuine evidence for a SAFETY-CRITICAL carve-out): 3 arms (ARM_OFF inertness control reusing the V3-EXQ-810a ARC-071 baseline lineage fingerprint-identically; ARM_STRICT_FLAG_OFF proving the master switch alone refuses regardless of phase/value; ARM_REPLAY_ON testing all three ANDed conditions independently -- wake refusal, genuine-SD-017-sleep+real-high-value success, below-bar value refusal -- plus the accelerated corroboration deadline). Pre-queue code review found and fixed two bugs: (1) SerotoninModule's own separate default-off flag (tonic_5ht_enabled) is a co-requisite -- without it .phase never leaves 'wake' via the real read-path; (2) the mint candidate must come from ChunkAccumulator._tally filtered to not-yet-registered keys, not formation_candidates(), which collides with an already-registered real chunk. Both confirmed fixed via a standalone direct-API verification plus the --dry-run smoke, which minted a replay_origin=True chunk and observed its corroboration-deadline dissolution end-to-end.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-4",
-        "claimed_at": "2026-08-02T20:33:12Z"
-      },
-      "conditions": 3,
-      "episodes_per_run": 120,
-      "experiment_type": "v3_exq_873_mech322_sleep_replay_carveout",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-874",
       "title": "MECH-467 distractor battery: sensory capture / rule drift / wrong-target selection dissociation (behavioural capture)",
       "script": "experiments/v3_exq_874_mech467_distractor_resistance.py",
@@ -98,7 +78,11 @@
       "estimated_minutes": 75,
       "claim_id": "MECH-467",
       "note": "EXP-0398. GOV-REUSE-1: scoped against existing telemetry first (per proposal instruction) -- only prior distractor manifest is V3-EXQ-484 (rule-drift only, synthetic harness, no env/action-selection); no 'capture' manifest exists; decisive readout (floor rule-drift + elevated conditioned wrong-target rate co-occurring in one arm) not recoverable, run needed. Reuses ONLY existing telemetry: resource_field_view_<type> (sensory capture), lateral_pfc.rule_state norm (rule drift, SD-033a), sd049_consumed_type_tag_this_tick (wrong-target selection) -- no new instrumentation. Distractor = second SD-049 resource type, benefit_amplitude=0.0, spawned via existing GAP-3 dual_cue primitive. Diagnostic over existing substrate per the proposal note -- explicitly NOT a new attention module; Q-082 (v4) is downstream, not a precondition. Timing arms limited to ARM_PRECOMMIT (internal_planning) and ARM_REPLAY (internal_replay) per proposal instruction; during-commitment arm excluded (substrate cannot sustain multi-step commitment). ARC-062 GAP-B monomodal-rule-state caveat noted in script docstring: leg-(c) conditioning uses V3-EXQ-484's norm-drift-at-floor methodology, not content differentiation, so it is GAP-B-independent; non-degeneracy check (c) self-routes substrate_not_ready_requeue if the conditioning is ever vacuous. Both arms' arm_fingerprints marked reuse-ineligible (extra_ineligible_reasons=shared_p0_warmup_across_seed_arms) since P0 training is shared across arms per seed -- no separate baseline mint applicable.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-4",
+        "claimed_at": "2026-08-02T21:33:21Z"
+      },
       "conditions": 2,
       "episodes_per_run": 100,
       "experiment_type": "v3_exq_874_mech467_distractor_resistance",
