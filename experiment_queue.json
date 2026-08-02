@@ -195,6 +195,25 @@
       "seeds": 3
     },
     {
+      "queue_id": "V3-EXQ-883",
+      "title": "MECH-427: cross-level subgoal credit, matched ATTAINED vs NO_ATTAINMENT contrast on the new SD-092 call-site wiring",
+      "script": "experiments/v3_exq_883_mech427_cross_level_subgoal_credit.py",
+      "priority": 30,
+      "machine_affinity": "any",
+      "estimated_minutes": 10,
+      "backlog_id": "EXP-0385",
+      "note": "GOV-REUSE-1 (Step 2.4): decisive readout (parent_goal_norm() post-subgoal-attainment vs a matched no-attainment control) cannot exist in any prior manifest -- the SD-092 primitive + its REEAgent.notify_subgoal_attainment call site were both built same-day (2026-08-02, ree-v3 commit d9e05864a1); not recoverable, run. Substrate readiness (Step 2.5): confirmed IMPLEMENTED in ree-v3/CLAUDE.md SD-092 section and claims.yaml MECH-427 implementation_note -- primitive (GoalState.credit_subgoal_attainment) + agent-loop call site both live and contract-tested (tests/contracts/test_sd092_cross_level_subgoal_credit.py, test_sd092_notify_subgoal_attainment.py). Re-derive brake (Step 2.5b): 0 failure_autopsy_*.json artifacts tag MECH-427 -- brake does not fire (never tested before). Design: BOTH arms use a scripted, deterministic action sequence (a ground-truth greedy walk to the env's own waypoint position for ARM ATTAINED; the true no-op STAY action for ARM NO_ATTAINMENT) rather than the agent's own action selection, on an identical seeded env (num_hazards=0, num_resources=0, subgoal_mode=True, num_waypoints=1) -- this isolates the credit-PROPAGATION mechanism from navigation competence entirely, structurally avoiding the goal_pipeline:GAP-2 foraging-ceiling trap (deferred to MECH-428/EXP-0390's own harness) while giving a literal matched-trajectory contrast (same env, same step count, only the attainment event differs). child_representation left at its default (current latent's z_world at the moment of attainment). Smoke test (--dry-run, 15 steps x 3 seeds x 2 arms) PASS: G0/C1/C2 all clear on every seed (ATTAINED n_subgoal_credits 1-4, parent_goal_norm 0.026-0.082; NO_ATTAINMENT stays exactly 0.0 as expected). validate_experiments.py --strict clean, validate_recording.py --strict clean. Full run uses N_STEPS=40 (vs 15 in the smoke) for a larger safety margin against worst-case Manhattan distance on the 10x10 grid; no training loop (no backprop), so estimated_minutes is a short scripted-rollout budget, not a training budget.",
+      "status": "pending",
+      "architecture_epoch": "ree_hybrid_guardrails_v1",
+      "claim_ids": [
+        "MECH-427"
+      ],
+      "conditions": 2,
+      "episodes_per_run": 1,
+      "experiment_type": "v3_exq_883_mech427_cross_level_subgoal_credit",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-149b",
       "title": "Q-004 tau_R calibration at larger training budget, selection-instrument fixed (supersedes V3-EXQ-149)",
       "script": "experiments/v3_exq_149b_q004_tau_r_calibration_largebudget.py",
@@ -265,23 +284,6 @@
       "episodes_per_run": 250,
       "experiment_type": "v3_exq_866a_inv034_q021_goal_maintenance_agency_onboarded",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-883",
-      "title": "MECH-427: cross-level subgoal credit, matched ATTAINED vs NO_ATTAINMENT contrast on the new SD-092 call-site wiring",
-      "script": "experiments/v3_exq_883_mech427_cross_level_subgoal_credit.py",
-      "priority": 30,
-      "machine_affinity": "any",
-      "estimated_minutes": 10,
-      "backlog_id": "EXP-0385",
-      "status": "pending",
-      "architecture_epoch": "ree_hybrid_guardrails_v1",
-      "claim_ids": ["MECH-427"],
-      "conditions": 2,
-      "episodes_per_run": 1,
-      "experiment_type": "v3_exq_883_mech427_cross_level_subgoal_credit",
-      "seeds": 3,
-      "note": "GOV-REUSE-1 (Step 2.4): decisive readout (parent_goal_norm() post-subgoal-attainment vs a matched no-attainment control) cannot exist in any prior manifest -- the SD-092 primitive + its REEAgent.notify_subgoal_attainment call site were both built same-day (2026-08-02, ree-v3 commit d9e05864a1); not recoverable, run. Substrate readiness (Step 2.5): confirmed IMPLEMENTED in ree-v3/CLAUDE.md SD-092 section and claims.yaml MECH-427 implementation_note -- primitive (GoalState.credit_subgoal_attainment) + agent-loop call site both live and contract-tested (tests/contracts/test_sd092_cross_level_subgoal_credit.py, test_sd092_notify_subgoal_attainment.py). Re-derive brake (Step 2.5b): 0 failure_autopsy_*.json artifacts tag MECH-427 -- brake does not fire (never tested before). Design: BOTH arms use a scripted, deterministic action sequence (a ground-truth greedy walk to the env's own waypoint position for ARM ATTAINED; the true no-op STAY action for ARM NO_ATTAINMENT) rather than the agent's own action selection, on an identical seeded env (num_hazards=0, num_resources=0, subgoal_mode=True, num_waypoints=1) -- this isolates the credit-PROPAGATION mechanism from navigation competence entirely, structurally avoiding the goal_pipeline:GAP-2 foraging-ceiling trap (deferred to MECH-428/EXP-0390's own harness) while giving a literal matched-trajectory contrast (same env, same step count, only the attainment event differs). child_representation left at its default (current latent's z_world at the moment of attainment). Smoke test (--dry-run, 15 steps x 3 seeds x 2 arms) PASS: G0/C1/C2 all clear on every seed (ATTAINED n_subgoal_credits 1-4, parent_goal_norm 0.026-0.082; NO_ATTAINMENT stays exactly 0.0 as expected). validate_experiments.py --strict clean, validate_recording.py --strict clean. Full run uses N_STEPS=40 (vs 15 in the smoke) for a larger safety margin against worst-case Manhattan distance on the 10x10 grid; no training loop (no backprop), so estimated_minutes is a short scripted-rollout budget, not a training budget."
     }
   ]
 }
