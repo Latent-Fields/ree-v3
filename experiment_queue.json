@@ -27,30 +27,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-876",
-      "title": "MECH-025: action-doing mode causal signal, CORRECTED commitment instrument (direct V3 confirmation)",
-      "script": "experiments/v3_exq_876_mech025_doing_mode_causal_signal.py",
-      "priority": 40,
-      "machine_affinity": "any",
-      "estimated_minutes": 330,
-      "supersedes": "V3-EXQ-199",
-      "backlog_id": "EVB-0286",
-      "note": "MECH-025 has evidence:None in claims.yaml (verified fresh) -- no V3 confirmation ever landed. Three prior attempts (V3-EXQ-050/050b/199) all invalidated: committed_step_count degenerate at 0 or ~100%, root-caused to two instrument defects -- is_committed sourced from a stale candidate cache (_committed_candidates) or a torn-down flag (_committed_trajectory, per e3_selector.py's own docs and ree-v3/CLAUDE.md SD-084), plus none of the three called agent.update_residue() in eval, leaving running_variance (what the commit decision is computed from) frozen. Fix mirrors V3-EXQ-671a/818: read SelectionResult.committed directly, call update_residue every eval tick, use BreathOscillator (sweep_threshold_reduction, V3-EXQ-199's own values) for genuine uncommitted windows. GOV-REUSE-1: reanalysis_query.py found 0 flat top-level manifests for claim=MECH-025. Re-derive brake (Step 2.5b): 0 failure_autopsy_*.json artifacts tag MECH-025 (only 671a tags MECH-025b) -- brake does not fire. Substrate readiness (Step 2.5): all 6 depends_on claims confirmed unblocked. Smoke test (30/8/200, single seed) PASS 6/6, committed=1552 uncommitted=48 -- validate_experiments.py --strict clean. Naming note: per EXQ lettering convention this would normally be V3-EXQ-199a (same design as 199, fixing only its instrument bugs); queue ID 876 was pre-assigned by the queuing session, supersedes field records the true lineage regardless of numbering.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-08-02T15:35:48Z"
-      },
-      "claim_ids": [
-        "MECH-025"
-      ],
-      "conditions": 1,
-      "episodes_per_run": 550,
-      "experiment_purpose": "evidence",
-      "experiment_type": "v3_exq_876_mech025_doing_mode_causal_signal",
-      "seeds": 5
-    },
-    {
       "queue_id": "V3-EXQ-861a",
       "title": "MECH-122 spindle content-selection validation of V3-EXQ-861 spindle_density DV (MECH-180)",
       "script": "experiments/v3_exq_861a_mech180_mech122_spindle_content_selection_validation.py",
@@ -98,7 +74,11 @@
       "claim_id": "MECH-072",
       "backlog_id": "EVB-0431",
       "note": "GOV-REUSE-1: reanalysis_query.py --readout false_attr_rate --claim MECH-072 -> only V3-EXQ-213 carries it (UNVERIFIABLE substrate_hash, pre-standard, world_forward proxy) -- not recoverable, new run required. Re-derive brake: 0 autopsy hits on MECH-072. Substrate readiness: SD-011 stable, ARC-033 provisional (V3-EXQ-525 PASS 2026-05-06), MECH-071/MECH-060 provisional -- all built. Gates ResidueField accumulation on the validated ARC-033 SD-003 counterfactual discriminator (causal_sig via E2HarmSForward + E3.harm_eval_z_harm), the 'full discriminator-gate design' MECH-072's own evidence_quality_note calls for -- never previously tested (V3-EXQ-431/525 validated the discriminator itself but neither gates residue on it).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-08-02T21:40:08Z"
+      },
       "conditions": 2,
       "episodes_per_run": 300,
       "experiment_type": "v3_exq_877_mech072_discriminator_gate_full",
