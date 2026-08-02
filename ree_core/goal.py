@@ -318,6 +318,39 @@ class GoalConfig:
     # from collapsing (or inflating) the effective commit threshold.
     progress_velocity_effort_max: float = 0.3
 
+    # SD-092: cross-level subgoal credit (MECH-427 maintenance-direction /
+    # MECH-428 formation-direction). Master switch -- default False,
+    # bit-identical OFF. When True, GoalState additionally owns a lazily
+    # allocated PARENT (superordinate) attractor `_z_goal_parent`, distinct
+    # from the existing `_z_goal` (read as the child/subgoal level under this
+    # scheme). A discrete subgoal-attainment event calls
+    # GoalState.credit_subgoal_attainment(...) to pull the parent attractor
+    # toward the attained subgoal's representation -- the cross-LEVEL
+    # complement to MECH-217's within-level backward_credit_sweep /
+    # spread_reverse_replay_wanting (HippocampalModule). MECH-427 (an
+    # already-seeded parent gets reinforced) and MECH-428 (a near-zero parent
+    # gets bootstrapped) are the SAME primitive applied to different starting
+    # states of _z_goal_parent -- no separate formation-mode code path.
+    # See docs/architecture/sd_092_cross_level_subgoal_credit.md.
+    use_hierarchical_goal_credit: bool = False
+
+    # SD-092: EMA pull rate applied to the parent attractor per credit event,
+    # scaled by the caller-supplied `credit` magnitude (mirrors alpha_goal,
+    # one hierarchy level up). effective_pull = min(1.0, parent_goal_alpha *
+    # credit).
+    parent_goal_alpha: float = 0.05
+
+    # SD-092: slow per-update() decay of the parent attractor between credit
+    # events (mirrors decay_goal). Applied only when use_hierarchical_goal_credit
+    # is True and the parent attractor has been allocated.
+    parent_goal_decay: float = 0.005
+
+    # SD-092: minimum credit magnitude required for credit_subgoal_attainment
+    # to apply a pull. 0.0 (default) = any positive credit applies (matches
+    # the "no-op guard defaults to a no-op" convention used elsewhere in this
+    # config; the caller decides what counts as a qualifying attainment).
+    subgoal_credit_min: float = 0.0
+
 
 class SuperOrdinalGoalMemory:
     """MECH-189: cross-episode-persistent, cue-indexed super-ordinal goal-anchor
@@ -791,6 +824,19 @@ class GoalState:
         _pv_window = max(2, int(getattr(config, "progress_velocity_window", 5)))
         self._progress_history: Deque[float] = deque(maxlen=_pv_window)
         self._progress_velocity: float = 0.0
+        # SD-092 (MECH-427/428): cross-level subgoal credit. The PARENT
+        # (superordinate) attractor -- distinct from the existing `_z_goal`,
+        # which is read as the child/subgoal level under this scheme. None
+        # (and bit-identical OFF, no extra tensor, no extra branch taken in
+        # update()) unless use_hierarchical_goal_credit is set, mirroring the
+        # IncentiveTokenBank None-unless-enabled pattern above.
+        self._z_goal_parent: Optional[torch.Tensor] = (
+            torch.zeros(1, config.goal_dim, device=device)
+            if getattr(config, "use_hierarchical_goal_credit", False)
+            else None
+        )
+        self._parent_goal_norm_peak: float = 0.0
+        self._n_subgoal_credits: int = 0
 
     @property
     def z_goal(self) -> torch.Tensor:
@@ -874,6 +920,126 @@ class GoalState:
             norm = self._z_goal.norm().item()
             if norm > self._goal_norm_peak:
                 self._goal_norm_peak = norm
+
+        # SD-092 (MECH-427/428): decay the PARENT attractor once per update()
+        # tick, mirroring the unconditional decay_goal applied to _z_goal
+        # above. No-op when the flag is off or the parent has not been
+        # allocated -- this branch is never entered in that case, so
+        # update()'s existing behaviour is untouched by construction.
+        if (
+            getattr(self.config, "use_hierarchical_goal_credit", False)
+            and self._z_goal_parent is not None
+        ):
+            self._z_goal_parent = self._z_goal_parent * (
+                1.0 - self.config.parent_goal_decay
+            )
+
+    def credit_subgoal_attainment(
+        self, child_representation: torch.Tensor, credit: float = 1.0
+    ) -> dict:
+        """SD-092 (MECH-427/428): cross-level subgoal credit.
+
+        Biological basis: Bandura & Schunk (1981) -- decomposing a distal
+        goal into attainable proximal subgoals sustained motivation and
+        mastery; the bare distal goal alone behaved indistinguishably from
+        no goal. This is the discrete-event, cross-LEVEL complement to
+        MECH-217's within-level, along-trajectory credit sweep
+        (HippocampalModule.backward_credit_sweep /
+        spread_reverse_replay_wanting): a subgoal-attainment event pulls the
+        PARENT (superordinate) attractor toward the attained subgoal's own
+        representation, exactly mirroring the alpha_goal EMA-pull already
+        used to seed `_z_goal` itself -- applied one hierarchy level up and
+        triggered by a discrete event rather than a continuous benefit
+        signal.
+
+        MECH-427 (maintenance: an already-seeded parent gets reinforced) and
+        MECH-428 (formation: a near-zero parent gets bootstrapped) are the
+        SAME call against different starting states of `_z_goal_parent` --
+        there is no separate "formation mode": repeated credit calls from a
+        near-zero parent ARE the MECH-428 bootstrap; credit calls against an
+        already-live parent ARE the MECH-427 maintenance case.
+
+        `child_representation` is caller-supplied (rather than implicitly
+        `self.z_goal`) so this primitive stays agnostic about which
+        representation counts as "the attained subgoal" -- that is an
+        experiment-design decision (the env's raw waypoint z_world? the
+        agent's own settled child-level z_goal at the moment of attainment?)
+        left to the call site, not baked into the substrate.
+
+        No-op (returns {}) when use_hierarchical_goal_credit is False.
+
+        Args:
+            child_representation: [1, goal_dim] or [goal_dim] (or [batch,
+                goal_dim], mean-pooled) tensor representing the attained
+                subgoal. Detached before use -- this is bookkeeping state,
+                not a differentiable path.
+            credit: scalar credit magnitude for this attainment event.
+                credit <= 0 or below subgoal_credit_min applies no pull (a
+                qualifying-attainment gate, not an error). >0 magnitudes
+                above 1.0 are accepted (a single very-high-salience
+                attainment may seed the parent in one shot -- the MECH-428
+                bootstrap framing explicitly wants a fast initial rise from
+                ~0); the EFFECTIVE pull fraction is clamped to 1.0 (a full
+                replacement, never an overshoot past the child
+                representation).
+
+        Returns:
+            dict: n_subgoal_credits (int, cumulative), parent_goal_norm
+                (float, post-update), credit_applied (float, the actual pull
+                fraction used -- 0.0 when the credit gate did not fire).
+                Empty dict when use_hierarchical_goal_credit is False.
+        """
+        if not getattr(self.config, "use_hierarchical_goal_credit", False):
+            return {}
+        # Lazily allocate if the flag was flipped on after construction.
+        if self._z_goal_parent is None:
+            self._z_goal_parent = torch.zeros_like(self._z_goal)
+        min_credit = float(getattr(self.config, "subgoal_credit_min", 0.0))
+        if credit <= 0.0 or credit < min_credit:
+            return {
+                "n_subgoal_credits": self._n_subgoal_credits,
+                "parent_goal_norm": self.parent_goal_norm(),
+                "credit_applied": 0.0,
+            }
+        z = child_representation.detach()
+        if z.dim() == 1:
+            z = z.unsqueeze(0)
+        elif z.dim() == 2 and z.shape[0] != 1:
+            z = z.mean(dim=0, keepdim=True)
+        a = min(1.0, float(self.config.parent_goal_alpha) * float(credit))
+        self._z_goal_parent = (1.0 - a) * self._z_goal_parent + a * z
+        self._n_subgoal_credits += 1
+        norm = self._z_goal_parent.norm().item()
+        if norm > self._parent_goal_norm_peak:
+            self._parent_goal_norm_peak = norm
+        return {
+            "n_subgoal_credits": self._n_subgoal_credits,
+            "parent_goal_norm": norm,
+            "credit_applied": a,
+        }
+
+    @property
+    def z_goal_parent(self) -> Optional[torch.Tensor]:
+        """SD-092: current PARENT (superordinate) goal latent, or None when
+        use_hierarchical_goal_credit is False / never credited. Shape when
+        present: [1, goal_dim]."""
+        return self._z_goal_parent
+
+    def parent_goal_norm(self) -> float:
+        """SD-092: L2 norm of the current parent attractor. 0.0 when
+        use_hierarchical_goal_credit is False or the parent has not been
+        allocated yet -- the metric EXP-0385/EXP-0390 both name
+        (parent-goal commitment / z_goal_norm at the parent level)."""
+        if self._z_goal_parent is None:
+            return 0.0
+        return float(self._z_goal_parent.norm().item())
+
+    def parent_is_active(self) -> bool:
+        """SD-092: True if the parent attractor has received at least one
+        credit event (mirrors GoalState.is_active() for the child level)."""
+        if self._z_goal_parent is None:
+            return False
+        return self._z_goal_parent.abs().sum().item() > 1e-6
 
     def goal_proximity(self, z_world: torch.Tensor) -> torch.Tensor:
         """
@@ -997,6 +1163,14 @@ class GoalState:
         # read-only scoring view for this tick only, never mutated here.
         injected._progress_history = self._progress_history
         injected._progress_velocity = self._progress_velocity
+        # SD-092: carry the parent-attractor state through to the injected
+        # view (a lightweight __new__ construct that bypasses __init__), so
+        # parent_goal_norm()/z_goal_parent/parent_is_active() remain callable
+        # on it rather than raising AttributeError. with_injection() does not
+        # modify the persistent attractor either way (docstring above).
+        injected._z_goal_parent = self._z_goal_parent
+        injected._parent_goal_norm_peak = self._parent_goal_norm_peak
+        injected._n_subgoal_credits = self._n_subgoal_credits
 
         current_norm = self._z_goal.norm().item()
         if current_norm >= inject_norm:
@@ -1070,13 +1244,37 @@ class GoalState:
         # episode must not leak into a fresh one's effort modulation).
         self._progress_history.clear()
         self._progress_velocity = 0.0
+        # SD-092: the parent (superordinate) attractor is per-episode state,
+        # matching the base _z_goal reset above (this is distinct from
+        # MECH-189's cross-episode-persistent SuperOrdinalGoalMemory, which
+        # is a separate mechanism and is NOT reset here). No-op when the
+        # flag is off / the parent was never allocated.
+        if self._z_goal_parent is not None:
+            self._z_goal_parent = torch.zeros_like(self._z_goal_parent)
+            self._parent_goal_norm_peak = 0.0
+            self._n_subgoal_credits = 0
 
     def state_dict(self) -> dict:
         return {
             "z_goal": self._z_goal.cpu(),
             "goal_norm_peak": self._goal_norm_peak,
+            # SD-092: None when use_hierarchical_goal_credit is False / the
+            # parent attractor was never allocated (matches the
+            # None-unless-enabled pattern used elsewhere in this file, e.g.
+            # SuperOrdinalGoalMemory.state_dict's baseline field).
+            "z_goal_parent": (
+                self._z_goal_parent.cpu() if self._z_goal_parent is not None else None
+            ),
+            "parent_goal_norm_peak": self._parent_goal_norm_peak,
+            "n_subgoal_credits": self._n_subgoal_credits,
         }
 
     def load_state_dict(self, d: dict) -> None:
         self._z_goal = d["z_goal"].to(self.device)
         self._goal_norm_peak = float(d.get("goal_norm_peak", 0.0))
+        # SD-092: absent from pre-SD-092 checkpoints -> stays unallocated
+        # (None) unless the checkpoint itself has a stored parent tensor.
+        zgp = d.get("z_goal_parent")
+        self._z_goal_parent = zgp.to(self.device) if zgp is not None else None
+        self._parent_goal_norm_peak = float(d.get("parent_goal_norm_peak", 0.0))
+        self._n_subgoal_credits = int(d.get("n_subgoal_credits", 0))
