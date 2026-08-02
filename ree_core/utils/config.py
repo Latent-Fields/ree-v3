@@ -2532,6 +2532,21 @@ class REEConfig:
     sws_enabled: bool = False          # master switch (default off for backward compat)
     sws_consolidation_steps: int = 5   # schema-installation write passes per SWS call
     sws_schema_weight: float = 0.1     # EMA weight for ContextMemory slot installation
+    # MECH-122 content-packaging half (V3 proxy): spindle-analog content
+    # selection during the SWS schema pass. Wires ThetaBuffer.set_consolidation_mode()
+    # / consolidation_summary() (ree_core/latent/theta_buffer.py) into
+    # run_sws_schema_pass() -- each sampled prototype is blended toward the
+    # recency-weighted theta-context summary in proportion to how MUCH it
+    # matches that context (habitual content is homogenised; novel content
+    # keeps its own direction), giving ContextMemory's touched-slot diversity
+    # a real channel to track novelty/MEL. Distinct from the V3-EXQ-246 proxy
+    # (a single undifferentiated post-hoc write, measured zero effect) --
+    # this modulates the schema-installation writes themselves.
+    # Master OFF (default) -> run_sws_schema_pass is bit-identical to today.
+    use_mech122_spindle_content_selection: bool = False
+    # Novelty->selection-weight gain (selection_weight = clamp(novelty*gain, 0, 1)).
+    # Inert unless the master switch above is True.
+    mech122_spindle_selection_gain: float = 1.0
     # REM-analog pass: causal attribution replay (slot-filling, MECH-166).
     # Replays recent trajectory experience through the hippocampal module.
     # Evaluates residue terrain per trajectory; hypothesis_tag=True (no new residue).
@@ -5570,6 +5585,8 @@ class REEConfig:
         sws_enabled: bool = False,
         sws_consolidation_steps: int = 5,
         sws_schema_weight: float = 0.1,
+        use_mech122_spindle_content_selection: bool = False,
+        mech122_spindle_selection_gain: float = 1.0,
         rem_enabled: bool = False,
         rem_attribution_steps: int = 10,
         # MECH-165: reverse replay diversity scheduler
@@ -6735,6 +6752,8 @@ class REEConfig:
         config.sws_enabled = sws_enabled
         config.sws_consolidation_steps = sws_consolidation_steps
         config.sws_schema_weight = sws_schema_weight
+        config.use_mech122_spindle_content_selection = use_mech122_spindle_content_selection
+        config.mech122_spindle_selection_gain = mech122_spindle_selection_gain
         config.rem_enabled = rem_enabled
         config.rem_attribution_steps = rem_attribution_steps
 

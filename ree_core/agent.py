@@ -10251,6 +10251,16 @@ class REEAgent(nn.Module):
            write directly to ContextMemory bypassing the offline gate.
            (The offline gate suppresses waking writes; this pass writes offline
            schema content, which is the intended action during SWS.)
+           MECH-122 content-packaging (V3 proxy, default off -- see
+           use_mech122_spindle_content_selection): when enabled, step 2 first
+           blends each prototype's z_world toward the ThetaBuffer's
+           consolidation_summary() (a recency-weighted theta-context reference)
+           in proportion to how closely it already matches that reference --
+           this is the spindle-analog "content selection" step MECH-122 names;
+           habitual content is homogenised, novel content keeps its own
+           direction, giving touched-slot diversity below a channel to track
+           novelty/MEL that a uniform anchor_weight scale cannot (cosine
+           similarity is scale-invariant to a uniform per-write multiplier).
         3. Compute slot diversity (mean pairwise cosine distance) as a metric
            for context differentiation quality.
 
@@ -10268,12 +10278,22 @@ class REEAgent(nn.Module):
                                   slots after pass (higher = more differentiated)
               sws_buffer_size: size of experience buffer used
               sws_anchor_weight_applied: the anchor_weight value used this pass
+              sws_spindle_selection_applied: 1.0 if MECH-122 content selection
+                                  ran this pass (master flag on AND a theta
+                                  consolidation reference was available), else 0.0
+              sws_spindle_selection_mean_weight: mean per-prototype selection
+                                  weight this pass (0.0 when not applied; higher
+                                  = more prototypes kept their own novel
+                                  direction rather than being pulled toward the
+                                  theta-context reference)
         """
         metrics: Dict[str, float] = {
             "sws_n_writes": 0.0,
             "sws_slot_diversity": 0.0,
             "sws_buffer_size": 0.0,
             "sws_anchor_weight_applied": float(anchor_weight),
+            "sws_spindle_selection_applied": 0.0,
+            "sws_spindle_selection_mean_weight": 0.0,
         }
 
         if not self.config.sws_enabled:
@@ -10304,36 +10324,101 @@ class REEAgent(nn.Module):
         n_writes = 0
         self_dim = self.config.latent.self_dim
 
-        for idx in indices:
-            z_world = wb[idx].detach()     # [1, world_dim] or [world_dim]
-            if z_world.dim() == 1:
-                z_world = z_world.unsqueeze(0)
+        # MECH-122 content-packaging half (V3 proxy, ree-v3 IGW-20260801-197):
+        # spindle-analog content selection. When enabled, each installed
+        # prototype is blended toward the theta-cycle consolidation reference
+        # in proportion to how CLOSELY it already matches that reference --
+        # habitual content (near the reference) is homogenised toward it;
+        # novel content (far from the reference) keeps its own direction.
+        # This gives ContextMemory's touched-slot diversity a channel to
+        # track waking novelty/MEL, which a uniform per-write scale (e.g.
+        # anchor_weight) structurally cannot: sws_slot_diversity below is
+        # computed on COSINE similarity of normalised rows, so a uniform
+        # magnitude scale of every write leaves it unchanged.
+        # set_consolidation_mode(True)/(False) bracket the pass per
+        # ThetaBuffer's own docstring contract (bidirectional theta-packaging
+        # proxy, cx->hip direction). Master OFF (default) -> this whole block
+        # is skipped and the pass is bit-identical to pre-MECH-122 behaviour.
+        use_spindle_selection = bool(
+            getattr(self.config, "use_mech122_spindle_content_selection", False)
+        )
+        consolidation_ref: Optional[torch.Tensor] = None
+        consolidation_ref_normed: Optional[torch.Tensor] = None
+        spindle_gain = float(
+            getattr(self.config, "mech122_spindle_selection_gain", 1.0)
+        )
+        if use_spindle_selection:
+            self.theta_buffer.set_consolidation_mode(True)
+            consolidation_ref = self.theta_buffer.consolidation_summary()
+            if consolidation_ref is not None:
+                consolidation_ref = consolidation_ref.detach()
+                ref_norm = consolidation_ref.norm(dim=-1, keepdim=True).clamp(min=1e-8)
+                consolidation_ref_normed = consolidation_ref / ref_norm
 
-            # Pair with corresponding z_self if available, else zeros
-            if idx < len(sb):
-                z_self = sb[idx].detach()
-                if z_self.dim() == 1:
-                    z_self = z_self.unsqueeze(0)
-            else:
-                z_self = torch.zeros(1, self_dim, device=self.device)
+        selection_weights_sum = 0.0
+        n_selected = 0
+        try:
+            for idx in indices:
+                z_world = wb[idx].detach()     # [1, world_dim] or [world_dim]
+                if z_world.dim() == 1:
+                    z_world = z_world.unsqueeze(0)
 
-            # Full E1 input: [z_self, z_world] concatenated
-            e1_input = torch.cat([z_self, z_world], dim=-1)  # [1, self_dim+world_dim]
+                # Pair with corresponding z_self if available, else zeros
+                if idx < len(sb):
+                    z_self = sb[idx].detach()
+                    if z_self.dim() == 1:
+                        z_self = z_self.unsqueeze(0)
+                else:
+                    z_self = torch.zeros(1, self_dim, device=self.device)
 
-            # GAP-8: scale by MECH-272 anchor_channel weight before writing.
-            # ContextMemory.write has no weight param; scaling the input is the
-            # correct approach -- it scales the magnitude of content being written.
-            if anchor_weight != 1.0:
-                e1_input = e1_input * anchor_weight
+                if (
+                    use_spindle_selection
+                    and consolidation_ref is not None
+                    and consolidation_ref_normed is not None
+                    and consolidation_ref.shape == z_world.shape
+                ):
+                    zw_norm = z_world.norm(dim=-1, keepdim=True).clamp(min=1e-8)
+                    zw_normed = z_world / zw_norm
+                    cos_sim = (zw_normed * consolidation_ref_normed).sum(
+                        dim=-1, keepdim=True
+                    ).clamp(min=-1.0, max=1.0)
+                    novelty = ((1.0 - cos_sim) * 0.5).clamp(min=0.0, max=1.0)
+                    selection_weight = (novelty * spindle_gain).clamp(
+                        min=0.0, max=1.0
+                    )
+                    z_world_selected = (
+                        selection_weight * z_world
+                        + (1.0 - selection_weight) * consolidation_ref
+                    )
+                    selection_weights_sum += float(selection_weight.mean().item())
+                    n_selected += 1
+                else:
+                    z_world_selected = z_world
 
-            # Write to ContextMemory (offline gate lifted for this block only)
-            self.e1.context_memory.write(e1_input)
-            n_writes += 1
+                # Full E1 input: [z_self, z_world] concatenated
+                e1_input = torch.cat([z_self, z_world_selected], dim=-1)  # [1, self_dim+world_dim]
 
-        # Restore gate
-        self.e1._offline_mode = was_offline
+                # GAP-8: scale by MECH-272 anchor_channel weight before writing.
+                # ContextMemory.write has no weight param; scaling the input is the
+                # correct approach -- it scales the magnitude of content being written.
+                if anchor_weight != 1.0:
+                    e1_input = e1_input * anchor_weight
+
+                # Write to ContextMemory (offline gate lifted for this block only)
+                self.e1.context_memory.write(e1_input)
+                n_writes += 1
+        finally:
+            # Restore gate
+            self.e1._offline_mode = was_offline
+            if use_spindle_selection:
+                self.theta_buffer.set_consolidation_mode(False)
 
         metrics["sws_n_writes"] = float(n_writes)
+        if n_selected > 0:
+            metrics["sws_spindle_selection_applied"] = 1.0
+            metrics["sws_spindle_selection_mean_weight"] = (
+                selection_weights_sum / n_selected
+            )
 
         # Compute slot diversity: mean pairwise cosine distance across memory slots
         with torch.no_grad():

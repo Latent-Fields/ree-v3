@@ -363,6 +363,7 @@ def _sleep_cycle_probe(seed: int = 0, steps: int = 12, **overrides) -> dict:
     return {
         "metrics": metrics,
         "context_memory_changed": not torch.equal(mem_before, mem_after),
+        "context_memory_after": mem_after,
         "n_hippocampal_replay": calls["n"],
         "world_buffer": len(agent._world_experience_buffer),
         "theta_recent_present": agent.theta_buffer.recent is not None,
@@ -487,6 +488,90 @@ def test_sd017_rem_enabled_fires_and_drives_hippocampal_replay():
     )
 
 
+def test_mech122_spindle_content_selection_fires_and_differentiates_writes():
+    """MECH-122 content-packaging (V3 proxy, IGW-20260801-197):
+    `use_mech122_spindle_content_selection` must (a) be OFF-inert -- report
+    zero selection weight and zero `sws_spindle_selection_applied` when the
+    master flag is off -- and (b) when ON, actually blend each schema-write
+    prototype toward the ThetaBuffer consolidation reference and thereby
+    change WHAT gets written to E1.ContextMemory, not just tick a counter.
+
+    Bar (b) is deliberately stronger than "fires". V3-EXQ-246 already probed
+    a naive MECH-122 Phase-3 proxy -- a single extra post-hoc write of
+    consolidation_summary() appended after SWS+REM -- and measured ZERO
+    effect on its downstream metric in both runs, all 3 seeds (see
+    claims.yaml MECH-122 evidence_quality_note). A flag that merely "ticks"
+    without changing the ContextMemory write target would repeat that null
+    silently. So this probe compares the ACTUAL post-pass ContextMemory
+    tensor between the ON and OFF arms (same seed, same waking episode, same
+    buffered z_world content going into the pass) and requires it to differ.
+    """
+    off = _sleep_cycle_probe(sws_enabled=True)
+    on = _sleep_cycle_probe(sws_enabled=True, use_mech122_spindle_content_selection=True)
+
+    # activating conditions really supplied (world buffer + theta buffer)
+    assert on["world_buffer"] >= 2, (
+        f"waking steps did not fill the world-experience buffer "
+        f"(size {on['world_buffer']}); the probe cannot distinguish an inert "
+        f"flag from an unmet precondition"
+    )
+    assert on["theta_recent_present"], (
+        "waking steps did not populate theta_buffer.recent; consolidation_summary() "
+        "has nothing to reference"
+    )
+
+    # OFF-inert: no selection reported, and behaves exactly like plain SWS.
+    assert off["metrics"].get("sws_spindle_selection_applied", 0.0) == 0.0, (
+        f"sws_spindle_selection_applied nonzero with the master flag OFF: "
+        f"metrics={off['metrics']}"
+    )
+    assert off["metrics"].get("sws_spindle_selection_mean_weight", 0.0) == 0.0, (
+        f"sws_spindle_selection_mean_weight nonzero with the master flag OFF: "
+        f"metrics={off['metrics']}"
+    )
+    assert off["context_memory_changed"], (
+        "plain sws_enabled=True (flag OFF) did not write ContextMemory -- "
+        "unrelated regression, not this flag"
+    )
+
+    # ON: selection actually ran, with an in-range, non-trivial weight.
+    applied = on["metrics"].get("sws_spindle_selection_applied", 0.0)
+    weight = on["metrics"].get("sws_spindle_selection_mean_weight", 0.0)
+    assert applied == 1.0, (
+        f"use_mech122_spindle_content_selection=True did not apply selection "
+        f"this pass despite a populated theta buffer; metrics={on['metrics']}"
+    )
+    assert 0.0 <= weight <= 1.0, (
+        f"sws_spindle_selection_mean_weight={weight} out of [0,1] range"
+    )
+
+    # ON actually changes the write target relative to OFF -- the bar V3-EXQ-246's
+    # naive proxy failed to clear.
+    assert not torch.equal(off["context_memory_after"], on["context_memory_after"]), (
+        "ON arm produced a byte-identical ContextMemory to OFF despite "
+        f"reporting mean selection weight {weight} -- the content-selection "
+        "blend does not change what gets written (inert wiring), the same "
+        "null V3-EXQ-246's naive post-hoc-write proxy measured"
+    )
+
+
+def test_mech122_spindle_content_selection_gain_zero_collapses_to_off():
+    """Sanity check on the gain lever: gain=0.0 forces selection_weight=0.0 for
+    every prototype (novelty*0 clamped to 0), which blends every write FULLY
+    toward the consolidation reference. This is a distinct code path from the
+    master flag being off (it still reports `sws_spindle_selection_applied=1.0`
+    and still calls set_consolidation_mode), so it is worth pinning separately
+    from the OFF-inert half of the probe above.
+    """
+    on_zero_gain = _sleep_cycle_probe(
+        sws_enabled=True,
+        use_mech122_spindle_content_selection=True,
+        mech122_spindle_selection_gain=0.0,
+    )
+    assert on_zero_gain["metrics"].get("sws_spindle_selection_applied", 0.0) == 1.0
+    assert on_zero_gain["metrics"].get("sws_spindle_selection_mean_weight", -1.0) == 0.0
+
+
 # --------------------------------------------------------------------------- #
 # Batch probes                                                                #
 # --------------------------------------------------------------------------- #
@@ -590,6 +675,14 @@ PROBED = {
     "use_phasic_burst",  # SD-069 fires-and-propagates probe (instantaneous_pe)
     "sws_enabled",  # SD-017 schema pass: writes -> E1 ContextMemory
     "rem_enabled",  # SD-017 attribution pass: rollouts -> HippocampalModule.replay
+    # MECH-122 content-packaging half (V3 proxy, IGW-20260801-197). Probed by
+    # test_mech122_spindle_content_selection_fires_and_differentiates_writes:
+    # OFF reports zero selection weight/applied and is unchanged from plain
+    # sws_enabled=True; ON reports an in-range weight AND produces a
+    # different post-pass ContextMemory tensor than OFF on the same buffered
+    # content -- stronger than "fires", since V3-EXQ-246's naive single
+    # post-hoc consolidation_summary() write measured zero effect.
+    "use_mech122_spindle_content_selection",
     # ARC-071 chunking. Probed by tests/contracts/test_arc071_policy_chunking.py
     # (C1 OFF-is-inert / C6 accumulator fires / C7 formation-only dissociation /
     # C9 proposer injection), not by a probe in this file.
