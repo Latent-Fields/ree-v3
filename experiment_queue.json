@@ -115,6 +115,21 @@
       "experiment_purpose": "diagnostic",
       "experiment_type": "v3_exq_863_arc062_lateral_pfc_route_mech448_449_full_replication",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-861a",
+      "title": "MECH-122 spindle content-selection validation of V3-EXQ-861 spindle_density DV (MECH-180)",
+      "experiment_type": "v3_exq_861a_mech180_mech122_spindle_content_selection_validation",
+      "script": "experiments/v3_exq_861a_mech180_mech122_spindle_content_selection_validation.py",
+      "priority": 35,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 150,
+      "episodes_per_run": 75,
+      "seeds": 3,
+      "conditions": 5,
+      "claim_id": "MECH-180",
+      "note": "Validates the MECH-122 content-packaging substrate build (ree-v3 a7d36429fd, IGW-20260801-197) against V3-EXQ-861 confirmed failure_autopsy_V3-EXQ-861_2026-08-01: spindle_density DV (mean_sws_new_slot_diversity) failed 0/3 seeds under 861s write-count-deconfounded statistic, traced to a missing content-selection channel (MECH-122 content-packaging half, ThetaBuffer.consolidation_summary()/set_consolidation_mode() unwired). Substrate now wires it into run_sws_schema_pass() behind use_mech122_spindle_content_selection (default False, bit-identical off) + mech122_spindle_selection_gain. THIS RUN: identical design/arms/seeds/thresholds/gates to V3-EXQ-861, flag set True uniformly across all 5 arms (orthogonal to mel_on) -- single-variable change. claim_ids=[MECH-180,MECH-122]; evidence_direction_per_claim computed separately (MECH-180 off the full C1a+C1b+C1c/C2 grid, unchanged from 861; MECH-122 off C1b spindle_density seed-pass-fraction alone, since that is the only sub-check this substrate change could plausibly move -- caveat: MECH-122 also depends_on MECH-030/089/121/SD-006, untested here, and its sensory-gating half is untouched). Does NOT supersede V3-EXQ-861 (861s flag-OFF result remains valid evidence for that condition; compares_against_run_id in manifest cites it). GOV-REUSE-1: decisive readout (mean_sws_new_slot_diversity under flag ON) did not exist before this session -- not recoverable, run. Re-derive brake (Step 2.5b): MECH-180 count=3 (677/718/718a) but brake already RELEASED for this lineage (SD-MEL-PRODUCER VALIDATED V3-EXQ-798a) and this run does not reopen the producer question -- tests a NEW substrate condition on the same validated producer, exactly the class a released brake permits; MECH-122 count=0, brake n/a. Smoke test (--dry-run, 3-arm subset) 2026-08-02: flag engages every cycle (sws_spindle_selection_applied=1.00), and mean_sws_new_slot_diversity differs measurably from an identical unmodified V3-EXQ-861 dry-run (ARM_0_NONE_ON 0.0321->0.0324, ARM_3_HIGH_ON 0.0325->0.0327, ARM_4_HIGH_OFF 0.0324->0.0323), confirming the flag is a real, isolated single-variable change at this scale. validate_experiments.py --strict: 0 findings. Readiness/C1/C2 fail at dry-run toy scale as expected (3-arm smoke subset < the 4-arm ON-ladder readiness requires) -- matches 861s own dry-run behavior identically. z_goal_stream WRITER DEFECT inherited unchanged from 718a/845/861 (DEAD_Z_GOAL_STREAM_EXEMPT), not a new defect. Concurrency: TASK_CLAIMS.json contention on ree-v3/experiment_queue.json arbitrated via --allow-overlap this session (owner: determined-ritchie-55a3a6, unrelated EXQ-proposals high-priority batch review) -- genuinely different task on the same shared file (different EXQ entry), not duplicate work."
     }
   ]
 }
