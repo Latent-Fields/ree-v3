@@ -47,27 +47,6 @@
       "episodes_per_run": 75,
       "experiment_type": "v3_exq_861a_mech180_mech122_spindle_content_selection_validation",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-872",
-      "title": "INV-087 proxy tethering constraint: untethered (non-potential) maintenance proxy diverts E3 selection from the true-goal optimum; potential-difference proxy (gamma*Phi(s')-Phi(s), Ng/Harada/Russell 1999) does not",
-      "script": "experiments/v3_exq_872_inv087_proxy_tethering_constraint.py",
-      "experiment_type": "v3_exq_872_inv087_proxy_tethering_constraint",
-      "priority": 20,
-      "machine_affinity": "any",
-      "estimated_minutes": 5,
-      "status": "pending",
-      "claim_id": "INV-087",
-      "claim_ids": [
-        "INV-087"
-      ],
-      "backlog_id": "EXP-0386",
-      "seeds": 3,
-      "conditions": 3,
-      "episodes_per_run": 30,
-      "experiment_purpose": "evidence",
-      "architecture_epoch": "ree_hybrid_guardrails_v1",
-      "note": "EXP-0386, V3-EXQ-674/775 family: controlled E3-selection probe (no env/training) over the REAL e3.select() score_bias path, identical z_world base. 3 arms sharing a matched q_true landscape per probe: CTRL=q_true (no proxy); NON_POTENTIAL=q_true-W_BIAS*(phi_entry+gain_obs) (raw/absolute proximity bonus, retains an irrelevant per-candidate entry-vantage nuisance phi_entry); POTENTIAL=q_true-W_BIAS*gain_obs (potential DIFFERENCE gamma*Phi(s')-Phi(s) at GAMMA=1.0, where phi_entry cancels exactly by construction -- the single-hop instantiation of the Ng/Harada/Russell telescoping argument). DV=TRUE(clean q_true)-quality of the E3-selected candidate. PASS=NON_POTENTIAL diverts (loses >=0.5 true-quality vs CTRL) AND POTENTIAL does not (one-sided: loses <=0.25, being BETTER than CTRL is not a violation -- gain_obs correlates with true gain and can legitimately sharpen the softmax landscape) AND the dissociation gap clears 0.25, on >=2/3 seeds. Non-degeneracy: _metrics.check_degeneracy over per-cell true-quality + P0 readiness gate self-routing to substrate_not_ready_requeue if any control is inert (clean landscape discriminative >=1.0 spread; entry-vantage nuisance alone can move the argmin >=30% of probes at the configured PHI_ENTRY_SCALE=24/W_BIAS=4; proxy correlates with true gain >=0.2; uncommitted/multinomial E3 regime active per the 674 finding). PHI_ENTRY_SCALE/W_BIAS calibrated via a pre-registration numpy-only simulation (argmin+softmax, same formulas, before any real run) at the actual N_PROBES=30/N_DRAWS=16/seeds=[42,43,44] scale, giving d_np~0.6-0.7, d_pot~-0.3 to -0.4, gap~1.0 robustly on all 3 seeds -- not tuned against a real outcome. GOV-REUSE-1: decisive readout (E3 score_bias selection dissociation between a potential-difference and a raw proxy) is not recorded in any existing manifest -- this substrate mechanism (proxy tethering) has not been probed before; not recoverable from prior runs. Substrate verified built and ready: E3TrajectorySelector.select() (ree_core/predictors/e3_selector.py:2358, score_bias kwarg at 2370) plus the identical-z_world/score_bias injection method already validated by V3-EXQ-674/775. claim_ids=[INV-087] only (INV-065/INV-086 substrates untouched by this probe). Smoke: --dry-run PASS (1 seed downscaled), validate_experiments.py --strict clean (0 warnings across all lint categories, arm_fingerprint present on all 9 cells), P0 readiness diag on the dry-run: clean_landscape_spread=3.25, entry_noise_argmin_shift_rate=0.67, proxy_true_gain_correlation=0.74, probe_uncommitted_rate=1.0 -- all controls active."
     }
   ]
 }
