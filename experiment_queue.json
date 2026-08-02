@@ -33,6 +33,27 @@
       "supersedes_note": "Bug-fix/calibration lettered iteration correcting 848's omitted dacc_goal_readout_weight (silently defaulted to 0.0, so the dACC goal-readout term never engaged in 848's run) and adding dacc_goal_readout_normalize=True (ree-v3 commit 4b79d18d44). Same design, same criterion as 848 otherwise."
     },
     {
+      "queue_id": "V3-EXQ-870",
+      "title": "MECH-480: dACC-analog execution-gain dissociation -- outcome-sensitivity vs logit-margin execution strength under dacc_weight OFF/ON ablation with mid-episode contingency switch (EXP-0413)",
+      "script": "experiments/v3_exq_870_mech480_dacc_execution_gain_dissociation.py",
+      "priority": 30,
+      "machine_affinity": "any",
+      "estimated_minutes": 120,
+      "supersedes": null,
+      "backlog_id": "EXP-0413",
+      "note": "Authored via /queue-experiment for claim MECH-480 (registered 2026-08-02) using fully-drafted proposal EXP-0413 in REE_assembly/evidence/planning/manual_proposals.v1.json. Claim: SD-032b's dACC-analog output may conflate strategy authority (already covered by SD-032b/MECH-258/MECH-260) with a separable LOFC-analog execution-gain channel (how strongly a persisting policy is expressed). Source paper found via targeted search (raw thought intake cited it only as 'a recent Nature Communications paper'): Asaoka N., Pagano D., Hayashi Y. 'Dissociable roles of prefrontal plasticity in decision making strategy and execution of habitual behavior.' Nature Communications (2026). DOI 10.1038/s41467-026-75706-1 (Kyoto University; bioRxiv 10.1101/2025.05.19.654900). Design: 2-arm ablation on the existing dacc_weight config flag (OFF: dacc_weight=0/use_dacc=False; ON: dacc_weight=3.0/use_dacc=True, gain carried from v3_exq_450's calibration) -- no new dACC/OFC substrate. Contingency-switch mechanism (the proposal's sanctioned 'smallest addition', no ree_core edits): each P2 episode confines resources to the grid's left quarter, then geometrically mirrors them to the right quarter mid-episode via direct env.resources relocation + the env's own _compute_proximity_fields() rebuild (reused, not reimplemented) -- the same 'mutate env attributes at a phase boundary' convention already used by v3_exq_655. DVs read off the existing, unmodified E3 selector: (i) outcome-sensitivity = fraction of post-switch ticks whose realized agent_x displacement moves toward the new resource region; (ii) execution strength = logit margin (second-lowest minus lowest of agent.e3.last_scores) at genuine E3 ticks only -- last_scores is explicitly cleared before every select_action() call and skipped (counted in n_latched_ticks) when still None afterward, per the sample-size-integrity convention (E3 cadence default 10 env-steps; a naive per-tick read would pseudo-replicate ~10x). NON-DEGENERACY precondition (EXP-0413 acceptance check 3, checked first): Arm-OFF execution-strength must show non-zero cross-seed spread (via _metrics.check_degeneracy, eps=MARGIN_VARIANCE_FLOOR=1e-4) or the run self-routes substrate_not_ready_requeue rather than any verdict. PASS/supports requires BOTH C1 (ON-OFF outcome-sensitivity delta >= 0.15 on >=2/3 seeds) AND C2 (|ON-OFF| execution-strength <= 0.05 on >=2/3 seeds); FAIL/weakens otherwise (folds back into SD-032b's single-channel account). claim_ids=['MECH-480'] only -- SD-032b/MECH-258/MECH-260 are the ablated substrate and prior lineage this claim reframes, cited as related_claims but not scored (a PASS/FAIL here is not new evidence for their own already-covered content). GOV-REUSE-1: no recorded manifest compares outcome-sensitivity against execution-strength under a dacc OFF/ON ablation with a mid-episode contingency switch -- not recoverable, proceeds to a fresh run. Re-derive brake (2.5b): 0 failure_autopsy artifacts tag MECH-480 (brand-new claim) -- not braked. Deliberately does NOT reuse a P0 encoder-warmup phase: the direct precedent for this lineage (v3_exq_450) runs its entire pre-eval budget as plain env-stepping + E2_harm_a training only, with no external E1/E2-world-forward optimizer; matching that (rather than importing an unvalidated extra phase from a different OFC-devaluation script) also fixed a real bug caught during authoring (a copied E1-training block that never called agent.record_transition, so its own buffer would never have filled). Code review (Step 3.5) + validate_experiments.py --strict: 0 findings (0 non-conforming, 0 warnings of any kind after adding an explicit direction:'lower' tag to the non-degeneracy precondition). Smoke test (--dry-run, 1 seed x 2 conditions, tiny P1=4/P2=2/steps=20/switch=10): both conditions ran cleanly, n_genuine_selections>0 asserted and confirmed in both arms (dACC OFF/ON config, harm_a stream gated correctly, resource relocation confirmed in both regions), z_goal_stream wired (writer_calls=12546, not a writer defect), manifest correctly written then relocated out of evidence/experiments/ by emit_outcome(dry_run=True). At this tiny scale the run legitimately self-routes substrate_not_ready_requeue (a single seed cannot show cross-seed variance) -- expected and correct, not a finding.",
+      "status": "pending",
+      "architecture_epoch": "ree_hybrid_guardrails_v1",
+      "claim_ids": [
+        "MECH-480"
+      ],
+      "conditions": 2,
+      "episodes_per_run": 90,
+      "experiment_purpose": "evidence",
+      "experiment_type": "v3_exq_870_mech480_dacc_execution_gain_dissociation",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-863",
       "title": "ARC-062/MECH-309 full-budget replication of V3-EXQ-859: lateral_pfc route_source vs none ablation, MECH-448/449 engagement (~7.7h)",
       "script": "experiments/v3_exq_863_arc062_lateral_pfc_route_mech448_449_full_replication.py",
@@ -53,27 +74,6 @@
       "experiment_purpose": "diagnostic",
       "experiment_type": "v3_exq_863_arc062_lateral_pfc_route_mech448_449_full_replication",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-870",
-      "title": "MECH-480: dACC-analog execution-gain dissociation -- outcome-sensitivity vs logit-margin execution strength under dacc_weight OFF/ON ablation with mid-episode contingency switch (EXP-0413)",
-      "script": "experiments/v3_exq_870_mech480_dacc_execution_gain_dissociation.py",
-      "priority": 30,
-      "machine_affinity": "any",
-      "estimated_minutes": 120,
-      "supersedes": null,
-      "note": "Authored via /queue-experiment for claim MECH-480 (registered 2026-08-02) using fully-drafted proposal EXP-0413 in REE_assembly/evidence/planning/manual_proposals.v1.json. Claim: SD-032b's dACC-analog output may conflate strategy authority (already covered by SD-032b/MECH-258/MECH-260) with a separable LOFC-analog execution-gain channel (how strongly a persisting policy is expressed). Source paper found via targeted search (raw thought intake cited it only as 'a recent Nature Communications paper'): Asaoka N., Pagano D., Hayashi Y. 'Dissociable roles of prefrontal plasticity in decision making strategy and execution of habitual behavior.' Nature Communications (2026). DOI 10.1038/s41467-026-75706-1 (Kyoto University; bioRxiv 10.1101/2025.05.19.654900). Design: 2-arm ablation on the existing dacc_weight config flag (OFF: dacc_weight=0/use_dacc=False; ON: dacc_weight=3.0/use_dacc=True, gain carried from v3_exq_450's calibration) -- no new dACC/OFC substrate. Contingency-switch mechanism (the proposal's sanctioned 'smallest addition', no ree_core edits): each P2 episode confines resources to the grid's left quarter, then geometrically mirrors them to the right quarter mid-episode via direct env.resources relocation + the env's own _compute_proximity_fields() rebuild (reused, not reimplemented) -- the same 'mutate env attributes at a phase boundary' convention already used by v3_exq_655. DVs read off the existing, unmodified E3 selector: (i) outcome-sensitivity = fraction of post-switch ticks whose realized agent_x displacement moves toward the new resource region; (ii) execution strength = logit margin (second-lowest minus lowest of agent.e3.last_scores) at genuine E3 ticks only -- last_scores is explicitly cleared before every select_action() call and skipped (counted in n_latched_ticks) when still None afterward, per the sample-size-integrity convention (E3 cadence default 10 env-steps; a naive per-tick read would pseudo-replicate ~10x). NON-DEGENERACY precondition (EXP-0413 acceptance check 3, checked first): Arm-OFF execution-strength must show non-zero cross-seed spread (via _metrics.check_degeneracy, eps=MARGIN_VARIANCE_FLOOR=1e-4) or the run self-routes substrate_not_ready_requeue rather than any verdict. PASS/supports requires BOTH C1 (ON-OFF outcome-sensitivity delta >= 0.15 on >=2/3 seeds) AND C2 (|ON-OFF| execution-strength <= 0.05 on >=2/3 seeds); FAIL/weakens otherwise (folds back into SD-032b's single-channel account). claim_ids=['MECH-480'] only -- SD-032b/MECH-258/MECH-260 are the ablated substrate and prior lineage this claim reframes, cited as related_claims but not scored (a PASS/FAIL here is not new evidence for their own already-covered content). GOV-REUSE-1: no recorded manifest compares outcome-sensitivity against execution-strength under a dacc OFF/ON ablation with a mid-episode contingency switch -- not recoverable, proceeds to a fresh run. Re-derive brake (2.5b): 0 failure_autopsy artifacts tag MECH-480 (brand-new claim) -- not braked. Deliberately does NOT reuse a P0 encoder-warmup phase: the direct precedent for this lineage (v3_exq_450) runs its entire pre-eval budget as plain env-stepping + E2_harm_a training only, with no external E1/E2-world-forward optimizer; matching that (rather than importing an unvalidated extra phase from a different OFC-devaluation script) also fixed a real bug caught during authoring (a copied E1-training block that never called agent.record_transition, so its own buffer would never have filled). Code review (Step 3.5) + validate_experiments.py --strict: 0 findings (0 non-conforming, 0 warnings of any kind after adding an explicit direction:'lower' tag to the non-degeneracy precondition). Smoke test (--dry-run, 1 seed x 2 conditions, tiny P1=4/P2=2/steps=20/switch=10): both conditions ran cleanly, n_genuine_selections>0 asserted and confirmed in both arms (dACC OFF/ON config, harm_a stream gated correctly, resource relocation confirmed in both regions), z_goal_stream wired (writer_calls=12546, not a writer defect), manifest correctly written then relocated out of evidence/experiments/ by emit_outcome(dry_run=True). At this tiny scale the run legitimately self-routes substrate_not_ready_requeue (a single seed cannot show cross-seed variance) -- expected and correct, not a finding.",
-      "status": "pending",
-      "architecture_epoch": "ree_hybrid_guardrails_v1",
-      "claim_ids": [
-        "MECH-480"
-      ],
-      "conditions": 2,
-      "episodes_per_run": 90,
-      "experiment_purpose": "evidence",
-      "experiment_type": "v3_exq_870_mech480_dacc_execution_gain_dissociation",
-      "seeds": 3,
-      "backlog_id": "EXP-0413"
     }
   ]
 }
