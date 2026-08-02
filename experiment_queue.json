@@ -8,6 +8,24 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-847a",
+      "title": "ARC-062 GOV-FANOUT-1 Leg P-D (H4 diagnostic, corrected denominator): context-conditioned (reef vs open) committed-class TV-divergence, ARM_ON vs ARM_OFF -- supersedes V3-EXQ-847",
+      "script": "experiments/v3_exq_847a_arc062_pd_context_modeswitch_committed_class_divergence.py",
+      "priority": 40,
+      "machine_affinity": "any",
+      "estimated_minutes": 600,
+      "supersedes": "V3-EXQ-847",
+      "note": "arc_062_conversion_fanout_2026-07-29.md Section 2 Leg P-D (H4: measurement aliasing) + the 2026-08-02 active_frac denominator sweep addendum. SUPERSEDES V3-EXQ-847: chip chip-20260802-v3exq847a-queue, redesign of V3-EXQ-847 per failure_autopsy_V3-EXQ-847_2026-08-01.md (confirmed, governance-ratified 2026-08-01T22:24:00Z). BUG FIXED: 847's mech448_demotion_lever_live_and_excluding_both_arms / mech449_active_nogo_live_and_suppressing_both_arms readiness preconditions computed active_frac = fresh-only-numerator / n_p2_ticks (ALL P2 ticks incl. held/replayed commitments) -- a basis mismatch that deflated active_frac by the held-tick fraction (40-86% across 847's 6 cells) and produced a FALSE substrate_not_ready_requeue self-route even though MECH-448/449 were actually 100% active on genuine fresh selections (847's own manifest recomputes to exactly 1.0 against n_p2_ticks - n_latched_ticks). FIX: both demotion_active_frac and nogo_active_frac now divide by n_p2_fresh_select = n_p2_ticks - n_latched_ticks, matching sibling script V3-EXQ-859's reference-correct pattern. Purely a post-hoc aggregation fix; training loop / RNG seeding / env dynamics / ARMS / hyperparameters unchanged from V3-EXQ-847. SEED SET UNCHANGED [42, 43, 44] (deliberate, investigated this build -- see script docstring PREMISE CORRECTION section): no third documented-good seed exists to substitute for degenerate seed 44 (a standalone env probe this session confirmed the seed-44 degeneracy is a TRAINED-POLICY property, not raw env geometry, so an untested seed cannot be cheaply pre-verified); seeds 42+43 alone satisfy C1g's majority-of-3 floor; extra seeds were not added since MIN_SEEDS_FOR_PASS/TV_MIN_LIFT_SEEDS are fixed absolute counts, not proportions, so adding seeds without rescaling would silently loosen every C1 subgate's majority semantics. EXPECTED OUTCOME (stated in advance): because the fix is aggregation-only and seeds/config are unchanged, this run is expected to reproduce 847's own already-known DVs (seed 43 bit-identical washout across arms, seed 44 zero reef ticks/self-excludes, seed 42 the only informative cell showing a lift OPPOSITE H4's hypothesis) -- verdict likely FAIL / non_contributory / context_divergence_not_greater_arm_on_measurement_aliasing_ruled_out. The point of this re-run is to let the readiness gate correctly recognize MECH-448/449 as live so the pipeline computes the C1/C2/C3 verdict end-to-end itself, rather than the correction living only as a hand-annotated autopsy note. Smoke (--dry-run, seed 42 only): confirmed the fix -- f_eligibility_demotion_active_frac / go_nogo_active_frac read 1.0 (28 fresh / 28 fresh, excluding 24 of 52 P2 ticks as latched) vs the old deflated ~0.538 that would have failed the 0.8 floor; demotion_non_vacuous / nogo_non_vacuous both True at toy scale. C1/C1g/C2 still read False at dry-run dose, as expected (1 seed of 3, toy episode budget -- same documented dry-run behaviour as V3-EXQ-847 itself). GOV-REUSE-1: the H4 primary DV was already reanalyzed by hand from 847's manifest in the autopsy (no re-run needed for THAT); this run exists so the corrected readiness gate + full C1-C3 pipeline runs natively, per the autopsy's own routing recommendation.",
+      "status": "pending",
+      "architecture_epoch": "ree_hybrid_guardrails_v1",
+      "claim_ids": [],
+      "conditions": 2,
+      "episodes_per_run": 350,
+      "experiment_purpose": "diagnostic",
+      "experiment_type": "v3_exq_847a_arc062_pd_context_modeswitch_committed_class_divergence",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-848a",
       "title": "ARC-005 precision-only decoupled ladder, CALIBRATED: does the dACC goal-readout channel route precision once dacc_goal_readout_weight/normalize are actually set? (successor to V3-EXQ-848)",
       "script": "experiments/v3_exq_848a_arc005_precision_only_decoupled_ladder_calibrated.py",
@@ -92,24 +110,6 @@
       "episodes_per_run": 350,
       "experiment_purpose": "diagnostic",
       "experiment_type": "v3_exq_863_arc062_lateral_pfc_route_mech448_449_full_replication",
-      "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-847a",
-      "title": "ARC-062 GOV-FANOUT-1 Leg P-D (H4 diagnostic, corrected denominator): context-conditioned (reef vs open) committed-class TV-divergence, ARM_ON vs ARM_OFF -- supersedes V3-EXQ-847",
-      "script": "experiments/v3_exq_847a_arc062_pd_context_modeswitch_committed_class_divergence.py",
-      "priority": 40,
-      "machine_affinity": "any",
-      "estimated_minutes": 600,
-      "experiment_purpose": "diagnostic",
-      "claim_ids": [],
-      "supersedes": "V3-EXQ-847",
-      "note": "arc_062_conversion_fanout_2026-07-29.md Section 2 Leg P-D (H4: measurement aliasing) + the 2026-08-02 active_frac denominator sweep addendum. SUPERSEDES V3-EXQ-847: chip chip-20260802-v3exq847a-queue, redesign of V3-EXQ-847 per failure_autopsy_V3-EXQ-847_2026-08-01.md (confirmed, governance-ratified 2026-08-01T22:24:00Z). BUG FIXED: 847's mech448_demotion_lever_live_and_excluding_both_arms / mech449_active_nogo_live_and_suppressing_both_arms readiness preconditions computed active_frac = fresh-only-numerator / n_p2_ticks (ALL P2 ticks incl. held/replayed commitments) -- a basis mismatch that deflated active_frac by the held-tick fraction (40-86% across 847's 6 cells) and produced a FALSE substrate_not_ready_requeue self-route even though MECH-448/449 were actually 100% active on genuine fresh selections (847's own manifest recomputes to exactly 1.0 against n_p2_ticks - n_latched_ticks). FIX: both demotion_active_frac and nogo_active_frac now divide by n_p2_fresh_select = n_p2_ticks - n_latched_ticks, matching sibling script V3-EXQ-859's reference-correct pattern. Purely a post-hoc aggregation fix; training loop / RNG seeding / env dynamics / ARMS / hyperparameters unchanged from V3-EXQ-847. SEED SET UNCHANGED [42, 43, 44] (deliberate, investigated this build -- see script docstring PREMISE CORRECTION section): no third documented-good seed exists to substitute for degenerate seed 44 (a standalone env probe this session confirmed the seed-44 degeneracy is a TRAINED-POLICY property, not raw env geometry, so an untested seed cannot be cheaply pre-verified); seeds 42+43 alone satisfy C1g's majority-of-3 floor; extra seeds were not added since MIN_SEEDS_FOR_PASS/TV_MIN_LIFT_SEEDS are fixed absolute counts, not proportions, so adding seeds without rescaling would silently loosen every C1 subgate's majority semantics. EXPECTED OUTCOME (stated in advance): because the fix is aggregation-only and seeds/config are unchanged, this run is expected to reproduce 847's own already-known DVs (seed 43 bit-identical washout across arms, seed 44 zero reef ticks/self-excludes, seed 42 the only informative cell showing a lift OPPOSITE H4's hypothesis) -- verdict likely FAIL / non_contributory / context_divergence_not_greater_arm_on_measurement_aliasing_ruled_out. The point of this re-run is to let the readiness gate correctly recognize MECH-448/449 as live so the pipeline computes the C1/C2/C3 verdict end-to-end itself, rather than the correction living only as a hand-annotated autopsy note. Smoke (--dry-run, seed 42 only): confirmed the fix -- f_eligibility_demotion_active_frac / go_nogo_active_frac read 1.0 (28 fresh / 28 fresh, excluding 24 of 52 P2 ticks as latched) vs the old deflated ~0.538 that would have failed the 0.8 floor; demotion_non_vacuous / nogo_non_vacuous both True at toy scale. C1/C1g/C2 still read False at dry-run dose, as expected (1 seed of 3, toy episode budget -- same documented dry-run behaviour as V3-EXQ-847 itself). GOV-REUSE-1: the H4 primary DV was already reanalyzed by hand from 847's manifest in the autopsy (no re-run needed for THAT); this run exists so the corrected readiness gate + full C1-C3 pipeline runs natively, per the autopsy's own routing recommendation.",
-      "status": "pending",
-      "architecture_epoch": "ree_hybrid_guardrails_v1",
-      "conditions": 2,
-      "episodes_per_run": 350,
-      "experiment_type": "v3_exq_847a_arc062_pd_context_modeswitch_committed_class_divergence",
       "seeds": 3
     }
   ]
