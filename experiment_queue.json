@@ -70,26 +70,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-867a",
-      "title": "MECH-321 harm-aware selection, hazard-density + affective-stream redesign (supersedes V3-EXQ-867)",
-      "script": "experiments/v3_exq_867a_mech321_harm_aware_selection_hazard_tuned.py",
-      "priority": 35,
-      "machine_affinity": "any",
-      "estimated_minutes": 60,
-      "supersedes": "V3-EXQ-867",
-      "claim_id": "MECH-321",
-      "note": "Same question as V3-EXQ-867 (does harm-aware selection improve MECH-321's task-outcome C1 stat over abort-mechanism-alone, matched abort rates), re-posed after 867's own P_HARM_BIAS_ENGAGES precondition FAILED (0/6 seeds, both arms). failure_autopsy_V3-EXQ-867_2026-08-02 (confirmed) diagnosed environment_adequacy_defect and recommended SD-029 scheduled_external_hazard overlay (per V3-EXQ-625c: interval=20 prob=0.7 adjacent_only=True, hazard_harm 0.2, proximity_harm_scale 0.2). Direct measurement this session found that overlay ALONE insufficient: z_harm_a was structurally None throughout 844/867 (use_affective_harm_stream unset, obs_harm_a never wired into agent.sense()); fixing that still left harm_penalty at a hard 0.0 on 96/96 probe calls because the residue field's VALENCE_HARM_DISCRIMINATIVE channel needs use_harm_stream=True + valence_harm_enabled=True too (neither set anywhere in the lineage). All three flags + the env overlay applied here; confirmed this session (seed 11, full 12ep/60-step schedule): ON arm decomp_n_harm_bias_nonzero=270, max z_harm_a_norm=0.852 (floor=0.1); OFF arm correctly 0 (bit-identical no-op). GOV-REUSE-1: no compatible prior mint exists for this env+substrate-stack combo (both changed vs 844/867) -- this run's OFF cells self-mint reuse-eligible for a future successor. Seed pool re-measured under the corrected config (RNG stream shifted by 3 new encoder modules) via --seed-scan-equivalent probing across the original 10-candidate pool; only seed 11 is full-schedule-verified both arms, 23/47 are reduced-schedule attributable-tier candidates, 89/97 are clean negative controls. validate_experiments.py --strict OK; dry-run smoke PASS (no crash; correctly self-routes manipulation_inert_or_unmatched at 2-episode toy scale since only 1 both_decompose seed appears at that reduced schedule, below MIN_DECOMPOSING_SEEDS=2 -- expected and correct, not a defect).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-4",
-        "claimed_at": "2026-08-02T19:59:44Z"
-      },
-      "conditions": 2,
-      "episodes_per_run": 12,
-      "experiment_type": "v3_exq_867a_mech321_harm_aware_selection_hazard_tuned",
-      "seeds": 5
-    },
-    {
       "queue_id": "V3-EXQ-873",
       "title": "MECH-322 sleep-replay carve-out: AND-gate fires correctly and fails closed (first evidence)",
       "script": "experiments/v3_exq_873_mech322_sleep_replay_carveout.py",
@@ -99,7 +79,11 @@
       "claim_id": "MECH-322",
       "backlog_id": "EVB-0489",
       "note": "GOV-REUSE-1: checked reanalysis_query.py --readout chunk_acc_n_replay_formed --require-readout -> 9 manifests carry the key (v3_exq_810a/810b/834/815/816/820/...) but every one read the audit-null value (use_chunk_replay_origin_path was False in all of them); not recoverable -> run. Re-derive brake: 0 prior failure_autopsy targets tag MECH-322. Diagnostic/substrate-readiness purpose (first genuine evidence for a SAFETY-CRITICAL carve-out): 3 arms (ARM_OFF inertness control reusing the V3-EXQ-810a ARC-071 baseline lineage fingerprint-identically; ARM_STRICT_FLAG_OFF proving the master switch alone refuses regardless of phase/value; ARM_REPLAY_ON testing all three ANDed conditions independently -- wake refusal, genuine-SD-017-sleep+real-high-value success, below-bar value refusal -- plus the accelerated corroboration deadline). Pre-queue code review found and fixed two bugs: (1) SerotoninModule's own separate default-off flag (tonic_5ht_enabled) is a co-requisite -- without it .phase never leaves 'wake' via the real read-path; (2) the mint candidate must come from ChunkAccumulator._tally filtered to not-yet-registered keys, not formation_candidates(), which collides with an already-registered real chunk. Both confirmed fixed via a standalone direct-API verification plus the --dry-run smoke, which minted a replay_origin=True chunk and observed its corroboration-deadline dissolution end-to-end.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-4",
+        "claimed_at": "2026-08-02T20:33:12Z"
+      },
       "conditions": 3,
       "episodes_per_run": 120,
       "experiment_type": "v3_exq_873_mech322_sleep_replay_carveout",
