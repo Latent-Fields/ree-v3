@@ -208,6 +208,21 @@
       "experiment_purpose": "diagnostic",
       "experiment_type": "v3_exq_863_arc062_lateral_pfc_route_mech448_449_full_replication",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-869",
+      "title": "MECH-267 mode-conditioning content-persistence confirmer (representational, GOV-CONFIRM-1)",
+      "script": "experiments/v3_exq_869_mech267_mode_conditioning_content_persistence.py",
+      "priority": 32,
+      "machine_affinity": "any",
+      "estimated_minutes": 5,
+      "claim_id": "MECH-267",
+      "note": "IGW-20260801-223 (GOV-CONFIRM-1, \"Confirm evidence: MECH-267, lit 0.87 exp ~0\"). claim_evidence.v1.json confirms genuine_exp_count=0/experimental_confidence=0.0 despite two landed diagnostic PASSes (V3-EXQ-462 EXP-0158 rule binding, V3-EXQ-465 EXP-0161 intrusive simulation filtering, both 2026-04-21, both experiment_purpose=diagnostic substrate-wiring checks -- correctly excluded from confidence scoring). This is the first experiment_purpose=evidence test of MECH-267's own scientific content. Read ree_core/hippocampal/module.py end to end: operating_mode is consumed in exactly one place (_compute_mode_noise_scale), a scalar multiplied into the CEM proposal ao_std; ao_mean (candidate centre) never varies by mode, so the implemented mechanism can only ever differentiate proposal SPREAD, not content-identity -- the claim's replay-past-successful and stability-check content predictions are out of scope (no memory/history lookup or distinct offline_consolidation code path exists; deferred to EXP-0155 cue_action_proj [still blocked, V3-EXQ-449 confirmed zero-gradient consumer collapse] and an unbuilt forced-replay injection hook -- neither exists in ree-v3/ or REE_assembly/ outside the 462/465 notes). 462/465's own UC3-5 read ao_std directly at num_cem_iterations=1; propose_trajectories() REFITS ao_std from the elite pool's own empirical spread every iteration thereafter, and HippocampalConfig's production default is num_cem_iterations=3 -- so whether the mode-conditioned wiring survives to the FINAL returned candidate set (what E3 actually receives) was untested. DV is representational/wall-independent (per the workset why_now): reads action_object_decoder_raw_output_stats.std_by_action_dim off HippocampalModule.get_last_propose_diagnostics() directly -- no env, no REEAgent, no cue_action_proj, no forced-replay hook needed, so no substrate_not_ready_requeue self-route was required. Design: 30 seeds x 4 modes (external_task/internal_planning/internal_replay/offline_consolidation, matching claims.yaml's own four modes) x 2 iteration-count conditions (iters=1 manipulation check replicating 462/465's setting; iters=3 production-default load-bearing test), same terrain-prior weights + z_world/z_self held fixed within a seed across all 8 cells. Primary DV picked over discrete first-action entropy after a 30-seed pilot showed entropy saturates near ceiling at the top of the predicted order (internal_planning vs external_task mean gap -0.009 nats, noise); the continuous decoder-output-spread DV does not saturate (30/30 seeds full predicted ordering at iters=1, gaps 0.055/0.092/0.031, each >3 stdev from zero). Local 30-seed run for calibration (manifest NOT committed -- this queue entry is the official run): C0 manipulation check PASS (wiring reproduces at content level, robust); C1 production load-bearing FAIL (mean gaps -0.0003/+0.0035/-0.0037, all within noise) -> outcome FAIL/weakens -- the mode-conditioning content effect is real but is washed out by CEM's own multi-iteration elite-refit before reaching the candidates E3 actually sees. This is expected to reproduce deterministically on the runner (all seeds fixed, no training). Re-derive brake: 0 prior autopsies tag MECH-267 -- brake does not apply. GOV-REUSE-1: no reusable manifest exists (462/465 are diagnostic-purpose num_cem_iterations=1 only; the iters=3 production-default readout was never recorded) -- fresh run needed. validate_experiments.py --strict: OK, 0 warnings.",
+      "status": "pending",
+      "conditions": 1,
+      "episodes_per_run": 1,
+      "experiment_type": "v3_exq_869_mech267_mode_conditioning_content_persistence",
+      "seeds": 30
     }
   ]
 }
