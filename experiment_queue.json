@@ -228,6 +228,23 @@
       "episodes_per_run": 180,
       "experiment_type": "v3_exq_878_mech332_efference_aic_dissociation",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-671b",
+      "title": "MECH-025b precision-responsibility: precision-variance positive-control gate + 4-seed pooling (corrects 671a's asymmetric gate)",
+      "script": "experiments/v3_exq_671b_mech025b_precision_responsibility.py",
+      "priority": 30,
+      "machine_affinity": "any",
+      "estimated_minutes": 150,
+      "supersedes": "V3-EXQ-671a",
+      "claim_ids": ["MECH-025b"],
+      "note": "Confirmed failure_autopsy_V3-EXQ-671a_2026-08-02 (user-confirmed 2026-08-02, routed measurement_gap/non_contributory, recommended /queue-experiment): 671a FAILed discrimination cleanly (C1 corr=0.0505, C2 ratio=0.9214, n=29, single seed) after genuinely fixing 671's degenerate defect (update_residue never called) and adding a residue-accumulation P0 gate that cleared (1.86 vs 1e-6 floor). Autopsy found an ASYMMETRIC GAP: no equivalent P0 gate on precision VARIANCE (the independent variable), despite this being the exact historical MECH-025 V2 failure signature ('E3 precision hardcoded, no dynamic channel'); plus underpowered single-seed n=29. FIX 1 (precision-variance P0 gate): added 'precision_shows_adequate_variance' (pooled max-min precision_samples spread > PRECISION_VARIANCE_FLOOR=1.0, mirroring the residue gate's floor-well-below-observed convention) PLUS a secondary check_degeneracy call in GROUPS mode over per-seed precision_samples (catches within-seed pinning masked by cross-seed mean differences -- the metric_groups_are_degenerate class, applied here to the correlation test's independent variable rather than a multi-arm comparison). Substrate check performed before writing (per autopsy instruction not to assume 'still hardcoded'): E3TrajectorySelector.current_precision = 1/(running_variance+1e-6) is genuinely dynamic (ARC-016, stable, V3-confirmed via V3-EXQ-018b); update_running_variance is called inside e3.select() on every e3_tick, so precision updates during eval too -- confirmed empirically via smoke (see below), not assumed. FIX 2 (underpowering): 4 seeds (0-3) instead of 671a's single seed=0, primary C1/C2 computed on samples pooled across all seeds (~4x n), per-seed correlation/ratio also reported as non-gating diagnostics for transparency. GOV-REUSE-1: this exact instrumentation (precision-variance gate) does not exist in any prior manifest for MECH-025b -- not recoverable, must run. Re-derive brake (Step 2.5b): only 1 prior autopsy tags MECH-025b as substrate_ceiling-adjacent-relevant (671a itself, category measurement_gap, not substrate_ceiling) plus batch9 (n/a degenerate) -- below the >=2 threshold, does not fire. Substrate readiness (Step 2.5): MECH-025/MECH-025b both `status: candidate`, no v3_pending/implementation_phase:v3 gate; claims.yaml's own evidence_quality_note says 'V3 gate cleared 2026-03-28'. Smoke (--dry-run, 2 seeds, warmup=5/eval=2/steps=50): both P0 gates fire correctly (mechanically verified: script runs, prints per-seed verdict lines + Seed/Condition boundaries, pooled stats aggregate); real precision-variance numbers even at this toy scale: seed 1 pooled_precision_spread=39.99 across 4 committed samples (seed 0 had only 1 committed sample, spread trivially 0) -- confirms precision genuinely varies within a single eval run, not near-constant, well above the 1.0 floor. A second, larger single-seed calibration run (warmup=100/eval=15/steps=200, seed=0, run to completion not just --dry-run) measured precision_spread=63300.34 across 8 committed samples (values ranging ~3 to ~63309 -- three orders of magnitude), corr=0.2103, ratio=1.2222, elapsed=381.8s -- confirms the gate floor (1.0) sits far below genuine substrate-level precision variance (not a knife-edge threshold), and gives the estimated_minutes scaling basis below (this calibration seed's step count is ~1/4.8th of one real full-scale seed). validate_experiments.py --strict: clean (0 findings). Also added always-core recording (stamp_recording_core via write_flat_manifest: config, explicit seeds list, started_at->elapsed_seconds, z_goal_stream_stats via ZGoalStreamAccumulator) which 671a itself omitted.",
+      "status": "pending",
+      "conditions": 1,
+      "episodes_per_run": 500,
+      "experiment_type": "v3_exq_671b_mech025b_precision_responsibility",
+      "experiment_purpose": "evidence",
+      "seeds": 4
     }
   ]
 }
