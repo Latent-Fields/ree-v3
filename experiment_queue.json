@@ -16,7 +16,11 @@
       "estimated_minutes": 200,
       "claim_id": "MECH-471",
       "note": "GOV-REUSE-1: no prior manifest carries this readout (cross-competence interference under a targeted REINFORCE update) on any compatible substrate_hash -- zero-evidence claim, nothing to reanalyze; proceeding to run. complicated (buildable) per the proposal's own note -- tests only whether the interference phenomenon exists on existing substrate, does not build/exercise any provenance/rollback machinery. Uses survival/avoidance competence (two reef-placement geometries, same obs dims) rather than foraging, deliberately, to avoid the MECH-457 foraging-competence ceiling documented across 719a/724/728/734/742/780/788. strength_0 arm minted reuse-eligible (mint-as-you-go).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-3",
+        "claimed_at": "2026-08-02T15:34:37Z"
+      },
       "conditions": 4,
       "episodes_per_run": 370,
       "experiment_type": "v3_exq_875_mech471_competence_provenance",
@@ -54,7 +58,11 @@
       "supersedes": "V3-EXQ-199",
       "backlog_id": "EVB-0286",
       "note": "MECH-025 has evidence:None in claims.yaml (verified fresh) -- no V3 confirmation ever landed. Three prior attempts (V3-EXQ-050/050b/199) all invalidated: committed_step_count degenerate at 0 or ~100%, root-caused to two instrument defects -- is_committed sourced from a stale candidate cache (_committed_candidates) or a torn-down flag (_committed_trajectory, per e3_selector.py's own docs and ree-v3/CLAUDE.md SD-084), plus none of the three called agent.update_residue() in eval, leaving running_variance (what the commit decision is computed from) frozen. Fix mirrors V3-EXQ-671a/818: read SelectionResult.committed directly, call update_residue every eval tick, use BreathOscillator (sweep_threshold_reduction, V3-EXQ-199's own values) for genuine uncommitted windows. GOV-REUSE-1: reanalysis_query.py found 0 flat top-level manifests for claim=MECH-025. Re-derive brake (Step 2.5b): 0 failure_autopsy_*.json artifacts tag MECH-025 (only 671a tags MECH-025b) -- brake does not fire. Substrate readiness (Step 2.5): all 6 depends_on claims confirmed unblocked. Smoke test (30/8/200, single seed) PASS 6/6, committed=1552 uncommitted=48 -- validate_experiments.py --strict clean. Naming note: per EXQ lettering convention this would normally be V3-EXQ-199a (same design as 199, fixing only its instrument bugs); queue ID 876 was pre-assigned by the queuing session, supersedes field records the true lineage regardless of numbering.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-08-02T15:35:48Z"
+      },
       "claim_ids": [
         "MECH-025"
       ],
@@ -168,6 +176,21 @@
       "seeds": 2
     },
     {
+      "queue_id": "V3-EXQ-882",
+      "title": "MECH-472 held-out context vs task memorisation, training-exposure sweep (EXP-0400)",
+      "script": "experiments/v3_exq_882_mech472_context_memorization_generalization.py",
+      "priority": 25,
+      "machine_affinity": "any",
+      "estimated_minutes": 180,
+      "claim_id": "MECH-472",
+      "note": "GOV-REUSE-1: zero prior evidence for MECH-472 (claim_evidence.v1.json has no entry) and no manifest anywhere carries a held-out-vs-in-context survival gap readout on this env family -- not recoverable, proceeding to run. Substrate readiness: CausalGridWorldV2's per-instance seeded RNG (causal_grid_world.py ~:1235, draws advance across reset() without re-seeding) already generates a distinct hazard/resource surface configuration per seed under fixed task structure -- confirmed sufficient context-set machinery, no new build required. Does NOT depend on V3-EXQ-875/EXP-0399 completing: reuses its 'corner' reef-geometry env kwargs verbatim but trains ONE competence (not the interference pair), so the proposal's conditional baseline-fingerprint-reuse note ('if the competence set matches') is confirmed NOT applicable here -- this experiment mints its own arms from scratch. complicated (buildable) per its own design.",
+      "status": "pending",
+      "conditions": 4,
+      "episodes_per_run": 560,
+      "experiment_type": "v3_exq_882_mech472_context_memorization_generalization",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-878",
       "title": "MECH-332: efference-copy comparator vs descending-modulation double dissociation",
       "script": "experiments/v3_exq_878_mech332_efference_aic_dissociation.py",
@@ -182,21 +205,6 @@
       "episodes_per_run": 180,
       "experiment_type": "v3_exq_878_mech332_efference_aic_dissociation",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-882",
-      "title": "MECH-472 held-out context vs task memorisation, training-exposure sweep (EXP-0400)",
-      "experiment_type": "v3_exq_882_mech472_context_memorization_generalization",
-      "script": "experiments/v3_exq_882_mech472_context_memorization_generalization.py",
-      "priority": 25,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 180,
-      "episodes_per_run": 560,
-      "seeds": 3,
-      "conditions": 4,
-      "claim_id": "MECH-472",
-      "note": "GOV-REUSE-1: zero prior evidence for MECH-472 (claim_evidence.v1.json has no entry) and no manifest anywhere carries a held-out-vs-in-context survival gap readout on this env family -- not recoverable, proceeding to run. Substrate readiness: CausalGridWorldV2's per-instance seeded RNG (causal_grid_world.py ~:1235, draws advance across reset() without re-seeding) already generates a distinct hazard/resource surface configuration per seed under fixed task structure -- confirmed sufficient context-set machinery, no new build required. Does NOT depend on V3-EXQ-875/EXP-0399 completing: reuses its 'corner' reef-geometry env kwargs verbatim but trains ONE competence (not the interference pair), so the proposal's conditional baseline-fingerprint-reuse note ('if the competence set matches') is confirmed NOT applicable here -- this experiment mints its own arms from scratch. complicated (buildable) per its own design."
     }
   ]
 }
