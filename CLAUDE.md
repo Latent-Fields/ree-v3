@@ -16878,3 +16878,72 @@ Form B recommendation: a two-stage threat-modulated selection rule.
   landing.
   See MECH-122, MECH-180, `REE_assembly/docs/architecture/sleep/offline_phases.md`,
   `failure_autopsy_V3-EXQ-861_2026-08-01`.
+
+## SD-091 / MECH-481: Coalition/Topology Control Substrate -- PARTIAL, steps 1-3 of 5 (2026-08-02)
+- SD-091: control_plane.coalition_topology_control -- steps 1-3 of the design doc's
+  "Minimum-viable V3 implementation path" IMPLEMENTED 2026-08-02. Steps 4-5 (wiring real consumer
+  read sites and `REEAgent.select_action` integration) and step 7 (`/queue-experiment` the
+  MECH-481 4-arm falsifier) are explicitly NOT done -- see "What remains" below. Do not read this
+  entry as "SD-091 implemented"; the module is new, self-contained, and inert (nothing in
+  `ree_core` imports it yet).
+  New module: `ree_core/claustrum/` (`control_demand.py` -- `ControlDemandType`, the 10-class
+  MECH-481 taxonomy, only `SENSORY_RESAMPLE`/`PROVENANCE_CHECK` templated;
+  `coalition_templates.py` -- `COALITION_TEMPLATES`, static recruit/suppress/channel_gain data for
+  those 2 MVP types; `coalition_controller.py` -- `CoalitionController` /
+  `CoalitionControllerConfig` / `CoalitionState`, the star-topology recruit/suppress/gain
+  primitive (G_t) with `request_coalition()` injection API, `write_gate(target)` /
+  `channel_gain(target)` consumer-facing accessors, and minimal Gamma_t persistence: a coalition
+  dissolves on `completion_condition(agent_state)` OR `tick - opened_tick >= max_duration_ticks`,
+  whichever fires first).
+  Config: `CoalitionControllerConfig.enabled` (default `False`, bit-identical off -- and the
+  module is additionally inert regardless, since nothing calls it yet). No `REEConfig` fields
+  added this pass -- the doc's Section 3 `use_coalition_controller`/`coalition_types_enabled`/
+  `coalition_max_duration_ticks`/`coalition_channel_gain_scale` REEConfig knobs are tied to the
+  agent-loop wiring in steps 4-5 and are deferred with them, not duplicated here ahead of a
+  consumer that doesn't exist yet.
+  Data flow (once steps 4-5 land, NOT yet wired): upstream confidence/coherence signal ->
+  `request_coalition(demand_type, tick)` -> `CoalitionState` -> named consumer sites (E1/E2
+  sensory path, hippocampal anchor/persistence, BetaGate/MECH-090) call
+  `coalition.write_gate(name)`, composed multiplicatively with the existing
+  `SalienceCoordinator.write_gate(name)` (MECH-261) at each site -- `effective_recruitment(target)
+  = mode_gate(target) * coalition_gate(target)`. This landing implements `coalition_gate` and its
+  composition arithmetic but does not call it from any consumer.
+  Backward compatible: no existing file was modified except this CLAUDE.md entry, `claims.yaml`,
+  and `substrate_queue.json` -- `ree_core/claustrum/` is a wholly new, unimported package, so
+  every existing experiment and contract is byte-for-byte unaffected by construction, not merely
+  by a flag default.
+  Guardrails from `sd_091_coalition_topology_control.md` Section 4 enforced structurally (not by
+  convention) and contract-tested: attenuation-only composition (`participating`/`suppressed`
+  weights clamped to [0, 1] at `CoalitionState.__post_init__`, so `coalition_gate(target) <= 1.0`
+  always -- the concrete BetaGate/MECH-090 "never force-open the commit boundary" guardrail is a
+  property of this clamping, not caller discipline); sparse-only templates (never a global-
+  broadcast default); one-directional mode isolation (`coalition_controller.py` never imports
+  `ree_core.cingulate`, verified by AST-parsing its imports in the contract test, not just a
+  textual grep); Gamma_t persistence is real/configurable, not a permanent no-op; provisional
+  biological-mapping language restated in every module docstring.
+  Not a learning module -- pure dataclasses and arithmetic, no `nn.Module`, no parameters, no
+  phased training, MECH-094 N/A (no memory write; `request_coalition()` writes only to the
+  controller's own in-memory `_active` list).
+  Contracts: `tests/contracts/test_claustrum_coalition_controller.py` (13 tests, all pass) --
+  enum-taxonomy surface + MVP-subset agreement (C1); bit-identical OFF (C2); the doc's own
+  step-6 smoke-test requirement that `SENSORY_RESAMPLE` and `PROVENANCE_CHECK` produce
+  measurably different `write_gate()` outputs at every named consumer-site target, standalone,
+  with no agent.py involved (C3); unregistered-type no-op-with-counter for the other 8 taxonomy
+  members (C4); both Gamma_t dissolution paths, including a misbehaving
+  `completion_condition` falling back to the timeout floor rather than crashing the agent loop
+  (C5/C6); the BetaGate-adjacent monotone-non-increasing guardrail under adversarial
+  out-of-range weights (C7); sparse-template / no-implicit-all-recruited (C8); weight clamping
+  at construction (C9); multi-coalition multiplicative composition (C10); AST-verified
+  cingulate-import isolation (C11).
+  What remains (deliberately not done this session -- see the design doc's own ordering,
+  "do not skip ahead"): step 4, wire `E1`/`E2`/hippocampal-anchor/hippocampal-persistence/
+  BetaGate consumer read sites to call `coalition.write_gate(name)`; step 5, integrate
+  `coalition.tick()` into `REEAgent.select_action` (after `coordinator.tick()`, one-directional
+  read of `operating_mode`); step 7, `/queue-experiment` the MECH-481 4-arm falsifier once 4-5
+  land and the doc's own step-6 smoke test (now satisfied standalone by contract test C3) also
+  holds through the live agent loop. Scope reduction was a deliberate choice (multi-file,
+  live-agent-loop change is materially higher-risk than a new, unimported, fully-tested
+  module) -- flagged via a follow-up chip rather than left silently undone.
+  See SD-091, MECH-481, `REE_assembly/docs/architecture/sd_091_coalition_topology_control.md`,
+  ARC-005, MECH-004, MECH-261 (`ree_core/cingulate/salience_coordinator.py`, the pattern this
+  wires alongside).
