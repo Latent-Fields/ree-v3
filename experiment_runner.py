@@ -107,6 +107,26 @@ _REE_ASSEMBLY_STATUS_DIRS = [
 
 STATUS_WRITE_INTERVAL = 5
 
+# Mid-run remote-command poll interval (chip-20260801-runner-mid-run-command-poll).
+# See `_command_poll` in run_experiment() and RUNNER_MIDRUN_COMMAND_POLL_ENABLED
+# below for the full rationale: process_pending_commands() is otherwise only
+# called at the top of the outer pass loop, never while a subprocess is live,
+# so a remote suspend/force_stop can sit unacknowledged for the entire duration
+# of a long single-script experiment (confirmed incident: 6+ hours, V3-EXQ-858).
+COMMAND_POLL_INTERVAL = 20
+
+# The ONLY command kinds the mid-run poll thread is allowed to execute early.
+# Every other kind (stop/pause/resume/resume_run/kick/release_claim/reclassify)
+# is intentionally left pending for the next unfiltered call (top of the outer
+# loop, once run_experiment() returns) -- their correct effect does not depend
+# on landing before the current experiment finishes, and for release_claim in
+# particular, executing it early against the CURRENTLY RUNNING item would be a
+# genuine hazard (a stale-claim window letting another machine start a
+# duplicate run), not merely a timing difference. suspend/force_stop are the
+# only two kinds whose entire purpose is to interrupt something happening
+# right now.
+_MIDRUN_COMMAND_POLL_KINDS = frozenset({"suspend", "force_stop"})
+
 # Live stdout readout surfaced on the explorer's running-experiment cards.
 # RECENT_LINES_BUFFER is the in-memory rolling buffer per run; RECENT_LINES_DISPLAY
 # is the tail written to runner_status.json / the heartbeat (the explorer's
@@ -2709,6 +2729,41 @@ def _phase3_gate(env_name: str) -> bool:
     return os.environ.get(env_name, "").strip().lower() in ("1", "true", "yes")
 
 
+_MIDRUN_COMMAND_POLL_GATE_LOGGED = False
+
+
+def _midrun_command_poll_gated() -> bool:
+    """True when run_experiment() should start the mid-run command-poll
+    thread (chip-20260801-runner-mid-run-command-poll).
+
+    Env: RUNNER_MIDRUN_COMMAND_POLL_ENABLED=1|true|yes. Default OFF, matching
+    this repo's no-op-default-off convention for a new mechanism that runs on
+    live cloud workers mid-experiment: with the flag unset, run_experiment()
+    never creates the thread at all (not merely an empty loop body), so a
+    normal run is bit-identical to before this chip landed -- same thread
+    count, same timing, same resource usage. Intended rollout: land the flag
+    OFF everywhere, flip it on ONE worker's systemd config as a deliberate
+    human step, confirm a real suspend/force_stop lands promptly against a
+    live long-running experiment, then widen. That rollout step is explicitly
+    NOT taken by this chip -- see the chip's completion note.
+
+    Also requires --remote-control (the caller's `remote_control` arg) and
+    the remote-control heartbeat/command module (`_rrc`) and
+    `ree_assembly_path`/`machine` to be available, exactly like the existing
+    `_push_remote_heartbeat` / `_background_sync` gates -- this function only
+    covers the NEW knob, not those pre-existing preconditions.
+    """
+    global _MIDRUN_COMMAND_POLL_GATE_LOGGED
+    enabled = _phase3_gate("RUNNER_MIDRUN_COMMAND_POLL_ENABLED")
+    if enabled and not _MIDRUN_COMMAND_POLL_GATE_LOGGED:
+        print("[runner] mid-run command-poll gate active: suspend/force_stop "
+              "commands will be drained every "
+              f"{COMMAND_POLL_INTERVAL}s while an experiment subprocess is "
+              "running (RUNNER_MIDRUN_COMMAND_POLL_ENABLED=1).", flush=True)
+        _MIDRUN_COMMAND_POLL_GATE_LOGGED = True
+    return enabled
+
+
 def _claim_push_gated() -> bool:
     """True when the legacy git-based claim mutex push should be suppressed.
 
@@ -3696,12 +3751,26 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
                    auto_sync: bool = False,
                    ree_assembly_path: Path | None = None,
                    remote_control: bool = False,
-                   machine: str | None = None) -> dict:
+                   machine: str | None = None,
+                   drain_flag: list | None = None,
+                   pause_flag: list | None = None,
+                   force_stop_flag: list | None = None,
+                   resume_run_target: list | None = None) -> dict:
     """Run a single experiment script as a subprocess.
 
     proc_ref: if provided, the active Popen object is stored as proc_ref[0] immediately
     after launch and cleared on completion.  The signal handler uses this to kill the
     subprocess on a forced stop.
+
+    drain_flag / pause_flag / force_stop_flag / resume_run_target: the SAME
+    mutable flag lists main() holds (_drain_flag / _pause_flag /
+    _force_stop_flag / _resume_run_target), threaded through only so the
+    mid-run command-poll thread (see `_command_poll` below,
+    RUNNER_MIDRUN_COMMAND_POLL_ENABLED) can call the real
+    process_pending_commands() without silently swallowing a command's
+    effect. All optional / default None: when the caller does not pass them
+    (or the poll thread is disabled), nothing new happens -- callers written
+    before this parameter existed behave identically.
     """
     script = REPO_ROOT / item["script"]
     raw_args = item.get("args", [])
@@ -4010,6 +4079,80 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
                               flush=True)
             _sync_thread = threading.Thread(target=_background_sync, daemon=True)
             _sync_thread.start()
+
+        if (remote_control and _rrc is not None and ree_assembly_path and machine
+                and _midrun_command_poll_gated()):
+            # Real flag lists when the caller (main()) threaded them through;
+            # fresh empty lists otherwise so process_pending_commands() always
+            # gets a real list to .append() to. Only suspend/force_stop are
+            # ever dispatched here (only_kinds below), and force_stop is the
+            # only one of the two that also touches drain_flag -- but keep
+            # all four real-when-available for defence in depth, so a future
+            # change to _execute_command's suspend/force_stop bodies cannot
+            # silently start mutating a throwaway list instead of the
+            # runner's actual state.
+            _cmdpoll_drain_flag = drain_flag if drain_flag is not None else []
+            _cmdpoll_pause_flag = pause_flag if pause_flag is not None else []
+            _cmdpoll_force_stop_flag = (
+                force_stop_flag if force_stop_flag is not None else [])
+            _cmdpoll_resume_run_target = (
+                resume_run_target if resume_run_target is not None else [])
+            _cmdpoll_suspend_flag = suspend_flag if suspend_flag is not None else []
+            _cmdpoll_proc_ref = proc_ref if proc_ref is not None else []
+
+            def _command_poll():
+                # Mid-run counterpart to the outer loop's top-of-pass
+                # process_pending_commands() call in main(): that call is
+                # never reached while this function is blocked in the
+                # `for line in proc.stdout:` loop below, so without this
+                # thread a remote suspend/force_stop cannot reach an
+                # already-running experiment until it finishes on its own
+                # (confirmed incident: a suspend sat unacknowledged 6+ hours
+                # against V3-EXQ-858). only_kinds restricts this thread to
+                # suspend/force_stop -- every other command kind is left
+                # pending for the unfiltered top-of-pass call, completely
+                # unchanged (see _MIDRUN_COMMAND_POLL_KINDS). Defence in
+                # depth, same shape as _heartbeat/_background_sync above: one
+                # escaped exception costs one skipped poll, not the rest of
+                # the run.
+                while not _hb_stop.wait(timeout=COMMAND_POLL_INTERVAL):
+                    try:
+                        _rrc.process_pending_commands(
+                            ree_assembly_path, machine, QUEUE_FILE,
+                            drain_flag=_cmdpoll_drain_flag,
+                            pause_flag=_cmdpoll_pause_flag,
+                            force_stop_flag=_cmdpoll_force_stop_flag,
+                            suspend_flag=_cmdpoll_suspend_flag,
+                            resume_run_target=_cmdpoll_resume_run_target,
+                            current_proc=_cmdpoll_proc_ref,
+                            auto_sync=auto_sync,
+                            status_ref=status,
+                            status_path=status_path,
+                            write_status_fn=write_status,
+                            only_kinds=_MIDRUN_COMMAND_POLL_KINDS,
+                        )
+                        # force_stop already kills the subprocess directly
+                        # inside _execute_command (proc.kill(), via
+                        # current_proc) -- nothing more to do for it here.
+                        # suspend only SETS suspend_flag; by design its
+                        # actual proc.terminate() is left to the reader of
+                        # proc.stdout (the for-loop below), so a checkpoint
+                        # message the subprocess prints on SIGTERM still has
+                        # a chance to be read -- but that reader is exactly
+                        # what may be blocked for a long time with no new
+                        # output. Mirror its 3-line check here so suspend
+                        # takes effect within one poll interval instead of
+                        # waiting indefinitely for the next stdout line.
+                        if _cmdpoll_suspend_flag and _cmdpoll_proc_ref:
+                            try:
+                                _cmdpoll_proc_ref[0].terminate()
+                            except Exception:
+                                pass
+                    except Exception as _exc:
+                        print(f"[runner] command poll tick warn: {_exc!r}",
+                              flush=True)
+            _cmdpoll_thread = threading.Thread(target=_command_poll, daemon=True)
+            _cmdpoll_thread.start()
 
         for line in proc.stdout:
             if suspend_flag:
@@ -4899,7 +5042,11 @@ def main():
                                         auto_sync=args.auto_sync,
                                         ree_assembly_path=ree_assembly_path,
                                         remote_control=args.remote_control,
-                                        machine=machine)
+                                        machine=machine,
+                                        drain_flag=_drain_flag,
+                                        pause_flag=_pause_flag,
+                                        force_stop_flag=_force_stop_flag,
+                                        resume_run_target=_resume_run_target)
             except Exception as _run_exc:
                 # Unexpected exception escaping run_experiment -- treat as ERROR and continue
                 print(f"[runner] UNEXPECTED ERROR in {queue_id}: {_run_exc}", flush=True)

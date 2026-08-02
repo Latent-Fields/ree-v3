@@ -1330,13 +1330,28 @@ def _process_git_command_file(
     *,
     auto_sync: bool,
     exec_kwargs: dict,
+    only_kinds: frozenset[str] | None = None,
 ) -> list[dict]:
     """Legacy git command-file channel: read pending commands, mark them
     acked, execute each, write the terminal state back, and (when auto_sync)
-    push. Bit-identical to the pre-migration process_pending_commands body."""
+    push. Bit-identical to the pre-migration process_pending_commands body
+    when only_kinds is None (the default).
+
+    only_kinds: when given, only commands whose `kind` is in this set are
+    acknowledged/executed this call -- every other pending command is left
+    completely untouched (still "status": "pending" in the file) for a
+    later unfiltered call to process normally. Used by the runner's mid-run
+    command-poll thread (experiment_runner.py `_command_poll`) so it can
+    react to suspend/force_stop while an experiment subprocess is running
+    without prematurely acting on commands (stop/pause/kick/release_claim/
+    reclassify) whose correct effect does not depend on being applied
+    before the current experiment finishes.
+    """
     data = read_commands_file(ree_assembly_path, machine)
     cmds = data.get("commands", [])
     pending = [c for c in cmds if c.get("status") == "pending"]
+    if only_kinds is not None:
+        pending = [c for c in pending if c.get("kind") in only_kinds]
     if not pending:
         return []
 
@@ -1372,13 +1387,23 @@ def _process_coordinator_commands(
     queue_file: Path,
     *,
     exec_kwargs: dict,
+    only_kinds: frozenset[str] | None = None,
 ) -> list[dict]:
     """Coordinator command channel: fetch pending commands via
     coordinator_client.fetch_commands, execute each, ack via
     coordinator_client.ack_command. A None fetch (coordinator unreachable)
     is a silent no-op -- the git fallback covers it during transition, and
     under commands-off-git the command simply re-delivers next tick (the
-    supported kinds are idempotent). Never raises into the runner loop."""
+    supported kinds are idempotent). Never raises into the runner loop.
+
+    only_kinds: when given, commands whose `kind` is not in this set are
+    left in the fetched-but-unacked response entirely -- never executed,
+    never acked. Since ack is a separate call from fetch, an un-acked
+    command simply re-delivers on the next (unfiltered) fetch, identically
+    to the existing "ack did not confirm" resilience path below. See
+    _process_git_command_file for the full rationale (used by
+    experiment_runner.py's mid-run command-poll thread).
+    """
     try:
         resp = coordinator_client.fetch_commands(machine)
     except Exception as exc:  # pragma: no cover -- shim swallows already
@@ -1388,6 +1413,8 @@ def _process_coordinator_commands(
     if not resp or not isinstance(resp, dict):
         return []
     cmds = resp.get("commands") or []
+    if only_kinds is not None:
+        cmds = [c for c in cmds if c.get("kind") in only_kinds]
     processed: list[dict] = []
     for cmd in cmds:
         cmd_id = cmd.get("id")
@@ -1438,6 +1465,7 @@ def process_pending_commands(
     status_ref: dict | None = None,
     status_path: Path | None = None,
     write_status_fn=None,
+    only_kinds: frozenset[str] | None = None,
 ) -> list[dict]:
     """Drain pending remote-control commands and execute them, returning the
     processed commands for logging. Mutates the runner's flag lists (used as
@@ -1460,6 +1488,19 @@ def process_pending_commands(
     `status_ref`, `status_path`, `write_status_fn` are optional context used
     only by the `reclassify` command kind; when omitted reclassify fails with
     a clear error and other kinds are unaffected.
+
+    `only_kinds`: when given (e.g. frozenset({"suspend", "force_stop"})),
+    only commands of those kinds are acknowledged/executed on this call --
+    every other pending command is left pending, on both channels, for a
+    later unfiltered call (None, the default) to process normally. This is
+    what lets a caller drain ONLY the commands that need to interrupt
+    something happening right now, without prematurely acting on commands
+    whose correct effect does not depend on early execution. See
+    experiment_runner.py's `_command_poll` for the concrete caller and full
+    safety rationale (mid-run polling while an experiment subprocess is
+    running, where e.g. a `release_claim` for the currently-running item
+    executing early would be a genuine hazard -- a stale claim window --
+    rather than merely a timing difference).
     """
     off_git = _phase3_commands_off_git_gated()
     via_coord = _phase3_commands_via_coordinator_gated()
@@ -1484,13 +1525,15 @@ def process_pending_commands(
     if not off_git:
         processed.extend(_process_git_command_file(
             ree_assembly_path, machine, queue_file,
-            auto_sync=auto_sync, exec_kwargs=exec_kwargs))
+            auto_sync=auto_sync, exec_kwargs=exec_kwargs,
+            only_kinds=only_kinds))
 
     # Coordinator channel -- active when explicitly enabled or when off-git
     # makes it the sole channel (off_git already guarantees the channel is
     # available via its self-guard).
     if via_coord or off_git:
         processed.extend(_process_coordinator_commands(
-            machine, queue_file, exec_kwargs=exec_kwargs))
+            machine, queue_file, exec_kwargs=exec_kwargs,
+            only_kinds=only_kinds))
 
     return processed

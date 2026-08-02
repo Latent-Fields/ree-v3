@@ -12,6 +12,12 @@ per-thread argument with a per-FILE invariant.
     recorded `_delayed_pulls` as the remaining one.
   * This file guards `_delayed_pulls` and stops the pattern of discovering
     the next instance by hand.
+  * chip-20260801-runner-mid-run-command-poll added a FOURTH target,
+    `_command_poll` (in `run_experiment`, gated off by default via
+    RUNNER_MIDRUN_COMMAND_POLL_ENABLED) -- exactly the case C16 exists for:
+    it failed this file's set-pin on the day it landed, was given the same
+    guarded shape as the other three, and was added to
+    KNOWN_DAEMON_TARGETS below rather than the enumerator being loosened.
 
 The defect class: `run_experiment()` and `align_after_coordinator_result()`
 spawn daemon threads whose target is a loop. Nothing restarts those threads
@@ -49,11 +55,11 @@ inside the try, the blast radius of each) that a generic enumerator cannot.
 Contracts:
   C16.  Every `threading.Thread(target=..., daemon=True)` in the module
         resolves to a function defined in the module, and the SET of such
-        targets is exactly the three known ones. A new daemon thread fails
-        here by construction.
+        targets is exactly the known ones (KNOWN_DAEMON_TARGETS). A new
+        daemon thread fails here by construction.
   C17.  Each enumerated target's loop body is exactly one `try/except
         Exception` -- handler not bare, not BaseException, and not a silent
-        `pass`. Structural, because all three are closures nested inside
+        `pass`. Structural, because all of these are closures nested inside
         their enclosing function and are not reachable for monkeypatching --
         the same constraint C9 and C11 work around.
   C18.  The extracted `_delayed_pulls` source, COMPILED AND EXECUTED against
@@ -117,6 +123,16 @@ KNOWN_DAEMON_TARGETS = {
         "the second post-result alignment pull is skipped, so a phase3: "
         "commit appears locally later than intended (BOUNDED at 2 iterations "
         "-- the least severe of the three, see the module docstring)",
+    ),
+    "_command_poll": (
+        "run_experiment",
+        "a remote suspend/force_stop cannot interrupt an already-running "
+        "experiment for the rest of its duration -- it only takes effect "
+        "once the current run finishes naturally (this is the exact "
+        "mechanism of the confirmed V3-EXQ-858 incident: a suspend sat "
+        "unacknowledged for 6+ hours). Gated off by default "
+        "(RUNNER_MIDRUN_COMMAND_POLL_ENABLED); see "
+        "chip-20260801-runner-mid-run-command-poll",
     ),
 }
 
