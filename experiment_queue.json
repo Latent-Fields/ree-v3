@@ -65,26 +65,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-877",
-      "title": "MECH-072 full discriminator-gate design: residue gating via ARC-033/E2_harm_s counterfactual causal_sig (replaces V3-EXQ-213 world_forward proxy)",
-      "script": "experiments/v3_exq_877_mech072_discriminator_gate_full.py",
-      "priority": 35,
-      "machine_affinity": "any",
-      "estimated_minutes": 150,
-      "claim_id": "MECH-072",
-      "backlog_id": "EVB-0431",
-      "note": "GOV-REUSE-1: reanalysis_query.py --readout false_attr_rate --claim MECH-072 -> only V3-EXQ-213 carries it (UNVERIFIABLE substrate_hash, pre-standard, world_forward proxy) -- not recoverable, new run required. Re-derive brake: 0 autopsy hits on MECH-072. Substrate readiness: SD-011 stable, ARC-033 provisional (V3-EXQ-525 PASS 2026-05-06), MECH-071/MECH-060 provisional -- all built. Gates ResidueField accumulation on the validated ARC-033 SD-003 counterfactual discriminator (causal_sig via E2HarmSForward + E3.harm_eval_z_harm), the 'full discriminator-gate design' MECH-072's own evidence_quality_note calls for -- never previously tested (V3-EXQ-431/525 validated the discriminator itself but neither gates residue on it).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-08-02T21:40:08Z"
-      },
-      "conditions": 2,
-      "episodes_per_run": 300,
-      "experiment_type": "v3_exq_877_mech072_discriminator_gate_full",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-436c",
       "title": "MECH-166 wall-independent representation confirmer (sleep-cycle write-counter recording fix)",
       "script": "experiments/v3_exq_436c_sd017_mech166_repr_confirmer.py",
@@ -125,22 +105,6 @@
       "experiment_purpose": "evidence",
       "experiment_type": "v3_exq_671b_mech025b_precision_responsibility",
       "seeds": 4
-    },
-    {
-      "queue_id": "V3-EXQ-880",
-      "title": "ARC-014 commitment-suppressed internal simulation mode (MECH-319 rule_state + MECH-094 residue channels)",
-      "script": "experiments/v3_exq_880_arc014_simulation_mode_commitment.py",
-      "priority": 30,
-      "machine_affinity": "any",
-      "estimated_minutes": 2,
-      "claim_id": "ARC-014",
-      "backlog_id": "EVB-0097",
-      "note": "GOV-REUSE-1: checked V3-EXQ-628 rule_state BLOCK-arm data (closest prior evidence); its manifest predates the 2026-07-12 Recording Standard and has no substrate_hash -> unverifiable -> not recoverable -> run. Re-derive brake (2.5b): 0 autopsies tag ARC-014, not applicable. First ARC-014-tagged claim probe; also first test of the MECH-094/residue world-state channel (628/546/668 tested MECH-319/rule_state only).",
-      "status": "pending",
-      "conditions": 1,
-      "episodes_per_run": 20,
-      "experiment_type": "v3_exq_880_arc014_simulation_mode_commitment",
-      "seeds": 3
     },
     {
       "queue_id": "V3-EXQ-883",
@@ -190,7 +154,11 @@
       "supersedes": "V3-EXQ-149",
       "backlog_id": "EVB-0179",
       "note": "Q-004 replication at a larger training budget, per claims.yaml what_would_answer. GOV-REUSE-1: decisive readout not recoverable from any existing manifest -- EXQ-149 is the only prior run and cannot answer this (see defect below). Re-derive brake (2.5b): 0 failure_autopsy artifacts exist for Q-004/EXQ-149. CRITICAL FINDING during Step 3.5 code review: EXQ-149's action selection was unconditionally random.randint(...) in both training and eval, in every condition -- agent.e3.harm_eval() was trained but never consulted for selection, and residue_field.evaluate_trajectory() was never called. mean_harm under an RNG-only policy cannot depend on tau_R at ANY budget -- EXQ-149's identical-mean_harm finding is close to an arithmetic identity (DV-symmetry defect), not evidence of behavioural inertness. FIX (instrument repair, same claim/conditions/thresholds): action selection now routes through agent.hippocampal.propose_trajectories + agent.select_action (adapted from the already-reviewed V3-EXQ-120a pattern), giving tau_R two real causal channels into behavior (CEM candidate scoring vs residue terrain; E3 compute_residue_cost). Budget: WARMUP_EPISODES 300->600 (2x), EVAL_EPISODES 100->150 (1.5x) -- sized against a REAL timed calibration (10 warmup + 5 eval eps measured 32.2 sec/episode). New non-gating readiness diagnostics (R1 candidate_action_diversity>=1.5, R2 hippo_fallback_rate<0.5) guard against the fix silently degrading back to random selection. Smoke (--dry-run): all 6 cells complete, hippo_fallback_rate=0.0 everywhere, candidate_diversity_min 2.0-3.0, validate_experiments.py --strict 0 findings. Estimated ~40 hr total across 6 cells; machine_affinity=any per project convention.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-08-02T21:41:00Z"
+      },
       "architecture_epoch": "ree_hybrid_guardrails_v1",
       "claim_ids": [
         "Q-004"
