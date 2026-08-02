@@ -127,6 +127,21 @@
       "seeds": 5
     },
     {
+      "queue_id": "V3-EXQ-868",
+      "title": "MECH-292 goal-relevance ranking confirmer (representational, GOV-CONFIRM-1)",
+      "script": "experiments/v3_exq_868_mech292_ghost_priority_relevance_confirmer.py",
+      "priority": 32,
+      "machine_affinity": "any",
+      "estimated_minutes": 20,
+      "claim_id": "MECH-292",
+      "note": "IGW-20260801-222 (GOV-CONFIRM-1, \"Confirm evidence: MECH-292, lit 0.87 exp ~0\"). claim_evidence.v1.json shows genuine_exp_count=0 despite a landed diagnostic PASS (V3-EXQ-496, 2026-04-27) because that run is experiment_purpose=diagnostic (module/wiring instrument check) and is correctly excluded from confidence scoring. This is the first experiment_purpose=evidence test of MECH-292's own scientific content: ghost_goal_bank.py module docstring pre-registers the exact falsifiable design (\"paired comparison of a goal-relevant inactive anchor vs a goal-irrelevant inactive anchor with matched staleness, relevant should win in >=4/7 seeds, gap dominated by goal_match\") -- this script implements that design directly. DV is representational/wall-independent (reads GhostGoalBankEntry.ghost_priority + .components off HippocampalModule.rank_ghost_goals() -- never touches action selection or reward), per the workset why_now; V3-EXQ-496 already proved this DV reachable, so no substrate_not_ready_requeue self-route was needed. Design: per seed, two agents built from the IDENTICAL torch.manual_seed (so cross-comparable z_goal embedding, the same trick V3-EXQ-496 UC4 already validates) but stepped through different env layouts under an identical goal-active schedule -- agent_B's own inactive anchors (ranked against its own final z_goal) are the goal-relevant candidates; agent_A's inactive anchors (ranked cross-agent against agent_B's z_goal) are the goal-irrelevant-but-real candidates. Identical schedules give matched AnchorSet tick/staleness progression without hand-rolled key merging. goal_cue_centering=True is a deliberate SD-079-motivated choice (verified wired end-to-end via AnchorSet.observe_goal_cue -> goal_cue_baseline -> Anchor.goal_match(baseline=...), reachable via REEConfig.from_dims -- not a silently-swallowed kwarg): the raw z_goal cone is too tight (min pairwise cosine ~0.988 per SD-079) for two genuinely different pursued directions to discriminate without it; the OFF-centering case is a known non-discriminating regime, not tested here as a second arm. NEW EXQ NUMBER not a letter of 496: 496 PASSED cleanly as a diagnostic/instrument check (not a bug fix target); this asks a different evidentiary question with a materially different single-mixed-relevance-pool design, matching the precedent already set by 496's own docstring (\"behavioural validation ... lands in V3-EXQ-495\", a new number, not a letter). GOV-REUSE-1: no reusable baseline fingerprint exists (496 is diagnostic-purpose, not baseline-purpose, not factored for reuse) -- fresh run needed. Re-derive brake: 0 prior autopsies tag MECH-292 -- brake does not apply. Non-degeneracy: self-routes non_contributory (never weakens) if fewer than 4/7 seeds produce a comparable pair. Dry-run smoke (2 seeds, 20 ticks) PASS: comparable=2/2, wins=2/2, goal_match_dominant=2/2, z_goal_stream active_frac=1.000 no writer defect.",
+      "status": "pending",
+      "conditions": 1,
+      "episodes_per_run": 2,
+      "experiment_type": "v3_exq_868_mech292_ghost_priority_relevance_confirmer",
+      "seeds": 7
+    },
+    {
       "queue_id": "V3-EXQ-108a",
       "title": "MECH-135 discriminative pair (E1_COE vs FROZEN z_world), StepHarness-invariant re-run of V3-EXQ-108",
       "script": "experiments/v3_exq_108a_mech135_discriminative_pair_stepharness.py",
@@ -193,21 +208,6 @@
       "experiment_purpose": "diagnostic",
       "experiment_type": "v3_exq_863_arc062_lateral_pfc_route_mech448_449_full_replication",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-868",
-      "title": "MECH-292 goal-relevance ranking confirmer (representational, GOV-CONFIRM-1)",
-      "experiment_type": "v3_exq_868_mech292_ghost_priority_relevance_confirmer",
-      "script": "experiments/v3_exq_868_mech292_ghost_priority_relevance_confirmer.py",
-      "priority": 32,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 20,
-      "episodes_per_run": 2,
-      "seeds": 7,
-      "conditions": 1,
-      "claim_id": "MECH-292",
-      "note": "IGW-20260801-222 (GOV-CONFIRM-1, \"Confirm evidence: MECH-292, lit 0.87 exp ~0\"). claim_evidence.v1.json shows genuine_exp_count=0 despite a landed diagnostic PASS (V3-EXQ-496, 2026-04-27) because that run is experiment_purpose=diagnostic (module/wiring instrument check) and is correctly excluded from confidence scoring. This is the first experiment_purpose=evidence test of MECH-292's own scientific content: ghost_goal_bank.py module docstring pre-registers the exact falsifiable design (\"paired comparison of a goal-relevant inactive anchor vs a goal-irrelevant inactive anchor with matched staleness, relevant should win in >=4/7 seeds, gap dominated by goal_match\") -- this script implements that design directly. DV is representational/wall-independent (reads GhostGoalBankEntry.ghost_priority + .components off HippocampalModule.rank_ghost_goals() -- never touches action selection or reward), per the workset why_now; V3-EXQ-496 already proved this DV reachable, so no substrate_not_ready_requeue self-route was needed. Design: per seed, two agents built from the IDENTICAL torch.manual_seed (so cross-comparable z_goal embedding, the same trick V3-EXQ-496 UC4 already validates) but stepped through different env layouts under an identical goal-active schedule -- agent_B's own inactive anchors (ranked against its own final z_goal) are the goal-relevant candidates; agent_A's inactive anchors (ranked cross-agent against agent_B's z_goal) are the goal-irrelevant-but-real candidates. Identical schedules give matched AnchorSet tick/staleness progression without hand-rolled key merging. goal_cue_centering=True is a deliberate SD-079-motivated choice (verified wired end-to-end via AnchorSet.observe_goal_cue -> goal_cue_baseline -> Anchor.goal_match(baseline=...), reachable via REEConfig.from_dims -- not a silently-swallowed kwarg): the raw z_goal cone is too tight (min pairwise cosine ~0.988 per SD-079) for two genuinely different pursued directions to discriminate without it; the OFF-centering case is a known non-discriminating regime, not tested here as a second arm. NEW EXQ NUMBER not a letter of 496: 496 PASSED cleanly as a diagnostic/instrument check (not a bug fix target); this asks a different evidentiary question with a materially different single-mixed-relevance-pool design, matching the precedent already set by 496's own docstring (\"behavioural validation ... lands in V3-EXQ-495\", a new number, not a letter). GOV-REUSE-1: no reusable baseline fingerprint exists (496 is diagnostic-purpose, not baseline-purpose, not factored for reuse) -- fresh run needed. Re-derive brake: 0 prior autopsies tag MECH-292 -- brake does not apply. Non-degeneracy: self-routes non_contributory (never weakens) if fewer than 4/7 seeds produce a comparable pair. Dry-run smoke (2 seeds, 20 ticks) PASS: comparable=2/2, wins=2/2, goal_match_dominant=2/2, z_goal_stream active_frac=1.000 no writer defect."
     }
   ]
 }
