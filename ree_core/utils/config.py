@@ -2003,6 +2003,29 @@ class HippocampalConfig:
         "internal_replay":       0.5,
         "offline_consolidation": 0.3,
     })
+    # SD-MECH267-HORIZON-DEPTH (2026-08-02): mode-conditioned horizon-depth
+    # modulation -- the SECOND mechanism MECH-267's own claim text and the
+    # 2026-04-27 lit-pull (Wikenheiser & Redish 2015) named, alongside
+    # mode_noise_scale above. Gated by the SAME mode_conditioning_enabled
+    # switch (both are facets of one mechanism). Value in (0, 1.0]: the
+    # fraction of config.horizon steps used as the CEM elite-selection
+    # SCORING WINDOW for that mode (see HippocampalModule._score_trajectory's
+    # max_horizon param) -- NOT a change to the physical rollout length,
+    # which stays fixed at config.horizon (terrain_prior's output width is a
+    # structural network dimension). 1.0 = full horizon (deepest available);
+    # a mode absent from this map defaults to 1.0, mirroring
+    # mode_noise_scale's missing-mode convention. Motivated by V3-EXQ-869:
+    # noise-scale-only modulation washes out under production CEM elite-refit
+    # (num_cem_iterations=3) despite being present at iters=1. Backward
+    # compatible: disabled by default; when mode_conditioning_enabled is
+    # False or operating_mode is not supplied, propose_trajectories() scores
+    # every candidate over its full trajectory exactly as before.
+    mode_horizon_scale: Dict[str, float] = field(default_factory=lambda: {
+        "external_task":         0.5,
+        "internal_planning":     1.0,
+        "internal_replay":       0.7,
+        "offline_consolidation": 1.0,
+    })
     # SD-055: differentiable CEM selection approximation. When enabled, replaces
     # the non-differentiable argsort elite-selection step with a softmax-weighted
     # candidate mean so gradient can flow back to cue_action_proj (SD-016).

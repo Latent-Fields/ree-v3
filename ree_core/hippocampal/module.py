@@ -173,6 +173,12 @@ class HippocampalModule(nn.Module):
         # or operating_mode is not supplied.
         self._last_operating_mode: Optional[Dict[str, float]] = None
         self._last_mode_noise_scale: Optional[float] = None
+        # SD-MECH267-HORIZON-DEPTH: last horizon-depth fraction and the
+        # effective_horizon (int number of steps) derived from it. Both None
+        # when mode conditioning is disabled or operating_mode is not
+        # supplied -- see _compute_mode_horizon_scale.
+        self._last_mode_horizon_scale: Optional[float] = None
+        self._last_effective_horizon: Optional[int] = None
 
         # MECH-269 base substrate (Phase 1, 2026-04-22): per-stream
         # verisimilitude V_s scores. Populated when config.use_per_stream_vs
@@ -1460,7 +1466,11 @@ class HippocampalModule(nn.Module):
         })
         return repaired, diag
 
-    def _score_trajectory(self, trajectory: Trajectory) -> torch.Tensor:
+    def _score_trajectory(
+        self,
+        trajectory: Trajectory,
+        max_horizon: Optional[int] = None,
+    ) -> torch.Tensor:
         """
         Score a trajectory for CEM elite selection.
 
@@ -1482,11 +1492,24 @@ class HippocampalModule(nn.Module):
         (see _curiosity_bonus). Subtracted for the same reason as wanting. When
         curiosity_weight = 0.0 (default) the score is untouched -> bit-identical.
 
+        SD-MECH267-HORIZON-DEPTH extension (max_horizon): when not None,
+        truncates the world-state sequence to its first `max_horizon` steps
+        (plus the initial state) BEFORE any of the above terms are computed,
+        so wanting/curiosity are also evaluated only over the windowed
+        portion. This is the mode-conditioned "look-ahead depth" used for CEM
+        elite-selection ranking -- it does not change the rollout itself
+        (trajectory keeps its full state sequence; only the scoring window is
+        narrowed). None (all pre-existing call sites) reproduces the exact
+        prior behaviour -- bit-identical.
+
         Returns a scalar score (lower = better).
         """
         if trajectory.world_states is not None:
             world_seq = trajectory.get_world_state_sequence()  # [batch, horizon, world_dim]
             if world_seq is not None:
+                if max_horizon is not None:
+                    # +1: keep the initial state plus max_horizon steps.
+                    world_seq = world_seq[:, : max_horizon + 1, :]
                 terrain_score = self.residue_field.evaluate_trajectory(world_seq).sum()
 
                 if self.config.wanting_weight > 0:
@@ -1506,6 +1529,8 @@ class HippocampalModule(nn.Module):
 
         # Fallback: residue over z_self states (pre-SD-005 wiring)
         states = trajectory.get_state_sequence()
+        if max_horizon is not None:
+            states = states[:, : max_horizon + 1, :]
         return self.residue_field.evaluate_trajectory(states).sum()
 
     def _curiosity_bonus(self, world_seq: torch.Tensor) -> torch.Tensor:
@@ -1577,6 +1602,32 @@ class HippocampalModule(nn.Module):
             scale += float(prob) * float(scale_map.get(mode_name, 1.0))
         return scale
 
+    def _compute_mode_horizon_scale(
+        self,
+        operating_mode: Optional[Dict[str, float]],
+    ) -> Optional[float]:
+        """SD-MECH267-HORIZON-DEPTH: weighted CEM scoring-window fraction
+        from a mode probability vector.
+
+        Mirrors _compute_mode_noise_scale exactly, reading
+        config.mode_horizon_scale instead of config.mode_noise_scale. Returns
+        None when conditioning is disabled or operating_mode is None (caller
+        leaves the CEM scoring window at the full trajectory). Otherwise
+        returns sum_{m} operating_mode[m] * config.mode_horizon_scale.get(m,
+        1.0) -- a mode present in operating_mode but absent from the
+        horizon-scale map contributes its probability with multiplier 1.0
+        (full horizon, no-op for that mode's share).
+        """
+        if not getattr(self.config, "mode_conditioning_enabled", False):
+            return None
+        if operating_mode is None or len(operating_mode) == 0:
+            return None
+        scale_map = getattr(self.config, "mode_horizon_scale", None) or {}
+        scale = 0.0
+        for mode_name, prob in operating_mode.items():
+            scale += float(prob) * float(scale_map.get(mode_name, 1.0))
+        return scale
+
     def propose_trajectories(
         self,
         z_world: torch.Tensor,
@@ -1615,6 +1666,19 @@ class HippocampalModule(nn.Module):
         by the per-mode weighted average from config.mode_noise_scale. When
         either condition is False, behaviour is unchanged (operating_mode is
         recorded for diagnostics but not applied).
+
+        SD-MECH267-HORIZON-DEPTH: under the SAME two conditions above, the
+        CEM elite-selection SCORING WINDOW (how many of the rolled-out steps
+        count toward each candidate's score -- see _score_trajectory's
+        max_horizon) is also scaled by the per-mode weighted average from
+        config.mode_horizon_scale, clamped to [1, config.horizon]. This is
+        the second MECH-267 mechanism (mode-conditioned look-ahead DEPTH,
+        Wikenheiser & Redish 2015), alongside the noise-scale mechanism
+        (mode-conditioned proposal BREADTH) above. Does not change the
+        physical rollout length (config.horizon stays fixed; terrain_prior's
+        output width is a structural network dimension). When either
+        condition is False, behaviour is unchanged (every candidate is
+        scored over its full trajectory, exactly as before).
 
         MECH-293: optional current_z_goal [batch, goal_dim]. When
         use_mech293_ghost_probes is True AND current_z_goal is not None AND
@@ -1688,6 +1752,23 @@ class HippocampalModule(nn.Module):
         self._last_mode_noise_scale = mode_scale
         if mode_scale is not None:
             ao_std = ao_std * mode_scale
+
+        # SD-MECH267-HORIZON-DEPTH: mode-conditioned CEM scoring-window
+        # depth. effective_horizon stays None (full trajectory, unchanged
+        # behaviour) unless mode conditioning is enabled AND operating_mode
+        # is supplied -- see _compute_mode_horizon_scale.
+        horizon_frac = self._compute_mode_horizon_scale(operating_mode)
+        self._last_mode_horizon_scale = horizon_frac
+        effective_horizon: Optional[int] = None
+        if horizon_frac is not None:
+            effective_horizon = max(
+                1,
+                min(
+                    int(self.config.horizon),
+                    int(round(self.config.horizon * horizon_frac)),
+                ),
+            )
+        self._last_effective_horizon = effective_horizon
 
         all_trajectories: List[Trajectory] = []
 
@@ -1772,7 +1853,12 @@ class HippocampalModule(nn.Module):
                     action_bias=action_bias,
                 )
                 trajectories.append(traj)
-                scores.append(self._score_trajectory(traj))
+                # SD-MECH267-HORIZON-DEPTH: mode-conditioned scoring window.
+                # effective_horizon is None (full trajectory, unchanged) unless
+                # mode conditioning is enabled and operating_mode was supplied.
+                scores.append(
+                    self._score_trajectory(traj, max_horizon=effective_horizon)
+                )
 
             scores_tensor = torch.stack(scores)
             elite_indices = torch.argsort(scores_tensor)[:num_elite]
