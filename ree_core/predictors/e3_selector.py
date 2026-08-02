@@ -3132,6 +3132,32 @@ class E3TrajectorySelector(nn.Module):
             )
             effective_threshold = effective_threshold * (1.0 - urgency_applied)
 
+        # SD-093 / MECH-426: progress-velocity effort/persistence modulation
+        # (Carver & Scheier 1990 second-order "velocity" control loop). Per
+        # this method's own commit rule (committed = variance < threshold),
+        # RAISING effective_threshold makes commitment MORE permissive (a
+        # given variance more readily counts as "confident enough to lock
+        # in"); LOWERING it makes commitment stricter (more readily kicked
+        # back into deliberation/re-evaluation). A POSITIVE modulation
+        # (progress has STALLED -- see GoalState.
+        # progress_velocity_effort_modulation for the full sign convention)
+        # therefore RAISES effective_threshold: lock in and push through
+        # rather than keep re-deliberating. A NEGATIVE modulation (progress
+        # is ABOVE the reference rate, i.e. coasting) LOWERS it: stricter
+        # bar, more willing to break commitment and reconsider/redeploy
+        # (Carver&Scheier coasting -- see the claim's explicit caveat that
+        # good progress must NOT be modelled as a same-goal-commitment
+        # bonus). This is an EFFORT/PERSISTENCE signal only -- it never
+        # touches goal VALUE / trajectory score (compute_goal_score is
+        # unmodified). goal_state absent/inactive or the flag off ->
+        # modulation is exactly 0.0 -> bit-identical OFF.
+        if goal_state is not None and goal_state.is_active():
+            velocity_effort = getattr(
+                goal_state, "progress_velocity_effort_modulation", 0.0
+            )
+            if velocity_effort != 0.0:
+                effective_threshold = effective_threshold * (1.0 + velocity_effort)
+
         if use_harm_variance_commit and harm_bridge is not None:
             harm_scores = torch.stack([
                 self.compute_harm_stream_cost(t, harm_bridge).mean()

@@ -5053,6 +5053,20 @@ class REEAgent(nn.Module):
         # MECH-089: E3 consumes theta-cycle summary
         z_world_for_e3 = self.theta_buffer.summary()  # theta-averaged z_world
 
+        # SD-093 / MECH-426 (progress_velocity_maintenance): record this
+        # tick's goal_proximity into GoalState's rolling window so a
+        # rate-of-progress (velocity) signal can be differentiated from it
+        # (Carver & Scheier 1990 second-order control loop). Uses the SAME
+        # one-shot z_world_for_e3 the tick's other non-per-candidate goal
+        # appraisals read (_compute_persistence_appraisal below), not the
+        # per-candidate trajectory rollouts scored by compute_goal_score().
+        # record_progress() itself no-ops (history untouched) when
+        # use_progress_velocity_effort_modulation is False, so this is
+        # bit-identical OFF; the is_active() guard here just avoids the
+        # (cheap) call entirely when there is no goal to track progress on.
+        if self.goal_state is not None and self.goal_state.is_active():
+            self.goal_state.record_progress(z_world_for_e3)
+
         # HippocampalModule proposes in action-object space (SD-004).
         # SD-016 (MECH-151): pass cached action_bias so each action_object()
         # call in the CEM loop is contextually biased by z_world cue retrieval.

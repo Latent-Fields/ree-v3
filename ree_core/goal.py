@@ -12,8 +12,9 @@ from __future__ import annotations
 
 import torch
 import torch.nn.functional as F
+from collections import deque
 from dataclasses import dataclass
-from typing import Optional
+from typing import Deque, Optional
 
 
 @dataclass
@@ -280,6 +281,42 @@ class GoalConfig:
     # there is no zero-init cold-start transient) and is advanced only on waking
     # contexts -- simulation_mode ticks do not move it (MECH-094).
     super_ordinal_cue_baseline_alpha: float = 0.02
+
+    # SD-093 / MECH-426 (progress_velocity_maintenance): rate-of-progress
+    # (velocity) effort/persistence modulator -- the temporal derivative of
+    # the on-path goal_proximity() estimate (Carver & Scheier 1990
+    # second-order "velocity" control loop). Master switch -- default False,
+    # bit-identical OFF: GoalState.record_progress() no-ops (history is never
+    # populated) and progress_velocity_effort_modulation always returns 0.0.
+    #
+    # CRITICAL MODELLING CAVEAT (Carver&Scheier coasting, per the claim's own
+    # notes): above-reference progress (positive velocity) produces positive
+    # affect that REDUCES effort on the current goal and licenses
+    # redeployment -- it must NOT be modelled as same-goal reinforcement. This
+    # substrate therefore modulates E3's commit-threshold EFFORT/PERSISTENCE
+    # pressure (mirroring the SD-011 urgency mechanism), never goal VALUE /
+    # trajectory score (that channel stays exactly compute_goal_score() /
+    # goal_proximity(), untouched by this flag).
+    use_progress_velocity_effort_modulation: bool = False
+
+    # SD-093 / MECH-426: rolling-window length (in E3-tick record_progress()
+    # calls) over which the goal_proximity derivative is taken. velocity =
+    # (proximity_now - proximity_{t-window}) / window. window=1 degenerates
+    # to a since-last-check derivative. Minimum enforced is 2 (need at least
+    # 2 samples for a derivative); values < 2 are clamped up at construction.
+    progress_velocity_window: int = 5
+
+    # SD-093 / MECH-426: gain applied to velocity before it becomes the
+    # effort-modulation signal read by E3.select() (see
+    # GoalState.progress_velocity_effort_modulation). 1.0 = no rescaling.
+    progress_velocity_effort_gain: float = 1.0
+
+    # SD-093 / MECH-426: saturation cap on the effort-modulation signal
+    # (symmetric, applies to both the stalling/boost and
+    # coasting/ease-off directions), mirroring E3Config.urgency_max's role
+    # for the SD-011 urgency mechanism. Prevents a runaway velocity reading
+    # from collapsing (or inflating) the effective commit threshold.
+    progress_velocity_effort_max: float = 0.3
 
 
 class SuperOrdinalGoalMemory:
@@ -745,6 +782,15 @@ class GoalState:
             if getattr(config, "use_incentive_token_bank", False)
             else None
         )
+        # SD-093 / MECH-426: rolling window of goal_proximity() readings and
+        # the resulting rate-of-progress (velocity) signal. Populated only by
+        # record_progress(), which itself no-ops when
+        # use_progress_velocity_effort_modulation is False -- the deque stays
+        # empty and _progress_velocity stays 0.0 for the whole episode in
+        # that (default) case, so this is bit-identical OFF.
+        _pv_window = max(2, int(getattr(config, "progress_velocity_window", 5)))
+        self._progress_history: Deque[float] = deque(maxlen=_pv_window)
+        self._progress_velocity: float = 0.0
 
     @property
     def z_goal(self) -> torch.Tensor:
@@ -843,6 +889,82 @@ class GoalState:
         z_goal_exp = self._z_goal.expand_as(z_world)
         return F.mse_loss(z_world, z_goal_exp, reduction="none").sum(dim=-1)
 
+    def record_progress(self, z_world: torch.Tensor) -> float:
+        """SD-093 / MECH-426 (progress_velocity_maintenance): record this
+        tick's goal_proximity(z_world) into a rolling window and
+        differentiate it into a rate-of-progress (velocity) signal -- the
+        Carver & Scheier (1990) second-order "velocity" control loop, in
+        which affect (here, the effort-modulation signal) is generated from
+        the RATE of discrepancy reduction rather than the discrepancy
+        itself.
+
+        No-op (history left untouched, returns 0.0) when
+        use_progress_velocity_effort_modulation is False -- bit-identical
+        OFF. Intended call site: once per E3 tick, on the SAME z_world used
+        for the tick's other one-shot (non-per-candidate) goal appraisals
+        (agent.py._e3_tick's z_world_for_e3), not the per-candidate
+        trajectory rollouts scored by compute_goal_score().
+
+        Returns the freshly-computed velocity (also cached; see
+        progress_velocity).
+        """
+        if not getattr(self.config, "use_progress_velocity_effort_modulation", False):
+            return 0.0
+        proximity = float(self.goal_proximity(z_world).mean().item())
+        self._progress_history.append(proximity)
+        if len(self._progress_history) < 2:
+            self._progress_velocity = 0.0
+        else:
+            span = len(self._progress_history) - 1
+            self._progress_velocity = (
+                self._progress_history[-1] - self._progress_history[0]
+            ) / span
+        return self._progress_velocity
+
+    @property
+    def progress_velocity(self) -> float:
+        """SD-093 / MECH-426: current rate-of-progress (temporal derivative
+        of goal_proximity over the rolling window). Positive = closing the
+        gap to goal (proximity increasing); negative = falling behind
+        (proximity decreasing). 0.0 until record_progress() has been called
+        at least twice, or whenever the master switch is off.
+        """
+        return self._progress_velocity
+
+    @property
+    def progress_velocity_effort_modulation(self) -> float:
+        """SD-093 / MECH-426: effort/persistence modulation derived from
+        progress_velocity (Carver & Scheier 1990 coasting model).
+
+        Sign convention (consumed by E3TrajectorySelector.select(), whose
+        commit rule is `committed = variance < effective_threshold`):
+          POSITIVE = increased effort/persistence pressure -- progress has
+            STALLED or reversed (velocity <= 0). The consumer RAISES its
+            effective commit threshold (more permissive -- a given variance
+            more readily counts as "confident enough"), i.e. lock in and
+            push through rather than keep re-deliberating.
+          NEGATIVE = decreased effort/persistence pressure -- progress is
+            ABOVE the reference rate (velocity > 0), i.e. coasting. The
+            consumer LOWERS its effective commit threshold (stricter -- more
+            readily kicked back into deliberation), licensing redeployment.
+
+        This is deliberately the OPPOSITE of "positive progress -> bonus":
+        the claim's own notes are explicit that treating positive
+        progress-affect as a same-goal-commitment bonus INVERTS the
+        Carver & Scheier theory. This modulator must only ever be consumed
+        as an EFFORT/PERSISTENCE signal (e.g. E3's commit threshold), never
+        added into goal VALUE / trajectory score
+        (compute_goal_score()/goal_proximity() are untouched by this flag).
+
+        0.0 (no modulation) when the master switch is off.
+        """
+        if not getattr(self.config, "use_progress_velocity_effort_modulation", False):
+            return 0.0
+        gain = float(getattr(self.config, "progress_velocity_effort_gain", 1.0))
+        cap = float(getattr(self.config, "progress_velocity_effort_max", 0.3))
+        raw = -gain * self._progress_velocity
+        return max(-cap, min(cap, raw))
+
     def with_injection(self, inject_norm: float) -> "GoalState":
         """
         MECH-188: Return a view of this GoalState with z_goal norm floored at inject_norm.
@@ -866,6 +988,15 @@ class GoalState:
         injected.config = self.config
         injected.device = self.device
         injected._goal_norm_peak = self._goal_norm_peak
+        # SD-093 / MECH-426: propagate the rolling-window velocity state so
+        # E3.select() (which receives THIS injected wrapper, not the
+        # original GoalState, whenever z_goal_inject > 0) still sees the
+        # real progress_velocity_effort_modulation rather than raising
+        # AttributeError / silently reading a fresh zero-initialised deque.
+        # Shares the SAME deque object (not a copy) -- injection is a
+        # read-only scoring view for this tick only, never mutated here.
+        injected._progress_history = self._progress_history
+        injected._progress_velocity = self._progress_velocity
 
         current_norm = self._z_goal.norm().item()
         if current_norm >= inject_norm:
@@ -934,6 +1065,11 @@ class GoalState:
         # wanting amplitudes reset alongside the z_goal attractor).
         if self.incentive_bank is not None:
             self.incentive_bank.reset()
+        # SD-093 / MECH-426: the progress-velocity rolling window is
+        # per-episode state (a stalled-vs-progressing read from a PRIOR
+        # episode must not leak into a fresh one's effort modulation).
+        self._progress_history.clear()
+        self._progress_velocity = 0.0
 
     def state_dict(self) -> dict:
         return {
