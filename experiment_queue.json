@@ -27,50 +27,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-862a",
-      "title": "Q-040c dACC PE-weight delta correlation, dacc_weight config fix (supersedes V3-EXQ-862)",
-      "script": "experiments/v3_exq_862a_q040c_dacc_pe_weight_delta_correlation.py",
-      "priority": 45,
-      "machine_affinity": "any",
-      "estimated_minutes": 550,
-      "supersedes": "V3-EXQ-862",
-      "note": "Successor to V3-EXQ-862 in the goal_pipeline:GAP-4 Tier-1 cohort. 862 fixed 475b's z_harm_a=None defect (enable_affective_harm_stream=True) and confirmed it works (n_dacc_fires=451 seed 42, up from 0; P1 PASSed 2/3 seeds), but hit a SECOND, INDEPENDENT config-omission bug: dacc_bias_nonzero_steps=0 in every one of 6 seed-x-arm cells (confirmed via REE_assembly/evidence/planning/failure_autopsy_V3-EXQ-862_2026-08-02.md). Root cause, code-verified at ree_core/cingulate/dacc.py:505-566 (DACCtoE3Adapter.forward): 'All multipliers default to 0, so with default config the bias is the zero vector regardless of bundle content' -- DACCConfig.dacc_weight defaults to 0.0 and 862's driver never set it (confirmed by grep, zero mentions). This is a stage entirely independent of and downstream from the z_harm_a wiring 862 fixed: dACC computing a PE each tick (n_dacc_fires>0) is necessary but not sufficient for a nonzero behavioural bias, since the bias consumer's own gain was structurally zero. 862's own preflight gate checked pe/bias definedness (not None), which a guaranteed-zero bias (bias_mag=0.0) still satisfies -- caught 475b's defect class, structurally blind to this one. FIX (only substantive change from 862): _build_arm_config now sets cfg.dacc_weight=0.5 and cfg.dacc_interaction_weight=0.5 directly on the REEConfig object returned by build_config (flat REEConfig attributes, not nested; build_config itself has no dacc_weight kwarg). 0.5 mirrors the established convention (v3_exq_637_sd057_phase2_cue_recall_consume.py and 445c/445f/445g/455/848 all use dacc_weight=0.5). NEW preflight gate: PreflightDaccBiasZero, raised if dACC fires but peak bias magnitude never exceeds the 1e-6 floor (extends the existing PreflightDaccNotFiring check per the autopsy's explicit routing: 'extending the preflight to assert bias MAGNITUDE nonzero, not just definedness'). Everything else -- P1 MECH-269b V_s-gating precondition, the Spearman-rho(|PE|, dACC bias-magnitude) correlation statistic, seeds 42/7/19, the 2-arm ARM_vs_off/ARM_vs_on structure, acceptance thresholds -- is unchanged from 862. Verified this session: preflight pilot (seed 42, ARM_vs_on) measured n_dacc_fires=20, peak_bias_magnitude=199.442 (previously structurally 0.0 under 862); a direct instrumented call to run_seed_arm (both arms, seed 42, dry-run scale) measured dacc_bias_nonzero_steps=25 of n_dacc_fires=25 (100%, was 0/25 under 862) in BOTH ARM_vs_on and ARM_vs_off, bias_magnitude_series ranging ~587-750 (non-degenerate spread), rho_pe_vs_bias_magnitude=0.277 (defined, not degenerate). GOV-REUSE-1 (Step 2.4): decisive readout is the dACC bias-magnitude vs precision-weighted-PE correlation WITH dACC actually emitting a nonzero bias. reanalysis_query.py query --readout rho_pe_vs_bias_magnitude --claim Q-040 returns only 475b and 862's manifests, both with dacc_bias_nonzero_steps=0 in every cell (862) or n_dacc_fires=0 (475b) -- nothing to reanalyze. Not recoverable -> proceed to author. Re-derive brake (Step 2.5b): 0 prior substrate_ceiling autopsies tag claim_ids=[\"Q-040\"] (grep-count method over REE_assembly/evidence/planning/failure_autopsy_*.json) -- does not fire; both 475b's and 862's autopsies are correctly-excluded measurement/instrumentation categories, not substrate_ceiling. validate_experiments.py --strict: OK, 0 findings. --dry-run: both cells complete, verdict PASS x2, correctly self-routes substrate_not_ready_requeue at the 1-seed smoke scale (P1/P2 both require >=2/3 seeds) -- expected, matching 862's own smoke-scale behaviour, not a defect.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-4",
-        "claimed_at": "2026-08-02T18:30:40Z"
-      },
-      "architecture_epoch": "ree_hybrid_guardrails_v1",
-      "claim_ids": [
-        "Q-040"
-      ],
-      "conditions": 2,
-      "episodes_per_run": 60,
-      "experiment_purpose": "evidence",
-      "experiment_type": "v3_exq_862a_q040c_dacc_pe_weight_delta_correlation",
-      "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-869a",
-      "title": "MECH-267 content-persistence retest with BOTH noise-scale + horizon-depth mechanisms active (supersedes V3-EXQ-869)",
-      "script": "experiments/v3_exq_869a_mech267_mode_conditioning_content_persistence_retest.py",
-      "priority": 40,
-      "machine_affinity": "any",
-      "estimated_minutes": 5,
-      "supersedes": "V3-EXQ-869",
-      "claim_id": "MECH-267",
-      "note": "Same-question retest of V3-EXQ-869 (superseded by this entry). V3-EXQ-869 (30 seeds, pre-registered, USER-CONFIRMED failure_autopsy_V3-EXQ-869_2026-08-02.json) found MECH-267 content-persistence PASSed the iters=1 manipulation check but FAILED at production num_cem_iterations=3 under noise-scale-only (mode_noise_scale). The autopsy's determination was competence_implementation_gap, not claim falsification: MECH-267's own registration names a second mechanism (horizon-depth) that was not yet built. That mechanism (SD-MECH267-HORIZON-DEPTH, ree-v3 e0117eea8b, 2026-08-02; design doc REE_assembly/docs/architecture/sd_mech267_horizon_depth_modulation.md) is now built, gated by the same mode_conditioning_enabled flag as mode_noise_scale, so this script's unchanged HippocampalModule construction now exercises BOTH mechanisms simultaneously. GOV-REUSE-1 (Step 2.4): decisive readout is mean_raw_std_by_dim pairwise gaps at num_cem_iterations=3 with BOTH mode_noise_scale and mode_horizon_scale active -- no prior manifest carries this combined-mechanism condition (mode_horizon_scale did not exist before e0117eea8b, 2026-08-02), so it is not recoverable from existing evidence -> proceed to run. Re-derive brake (Step 2.5b): grep-count of confirmed substrate_ceiling/non_contributory autopsies tagging MECH-267 = 1 (failure_autopsy_V3-EXQ-869_2026-08-02.json only), below the threshold of 2 -> brake does not fire. Same DV, modes-in-predicted-order, and pairwise-gap floors (FLOOR_DIAGNOSTIC=0.015, FLOOR_PRODUCTION=0.01) as V3-EXQ-869 -- a same-question re-queue, not a redesign; new claim_ids tag unchanged (['MECH-267'] only -- SD-MECH267-HORIZON-DEPTH is a substrate_queue entry, not a claim). Smoke test (validate_experiments.py --strict: OK, 0 findings; --dry-run: 3 seeds, verdict PASS x3) confirms via a new mechanism_activation diagnostic block that BOTH mechanisms fire together every cell (mode_noise_scale_used and mode_horizon_scale_used both non-None; effective_horizon varies by mode: external_task=2, internal_replay=3, internal_planning=offline_consolidation=4 out of HORIZON=4) -- not merely asserted from config inspection. A 10-seed toy-scale pilot (both conditions, run outside the committed script, not gating) found the iters=1 manipulation check clears FLOOR_DIAGNOSTIC cleanly and with the full predicted ordering in 10/10 seeds, but the iters=3 production gaps (mean 0.0050 / 0.0027 / -0.0025) remain near the FLOOR_PRODUCTION=0.01 threshold -- similar magnitude to V3-EXQ-869's original noise-scale-only result (-0.0003 / +0.0035 / -0.0037). This is reported honestly, not as a pre-judgment: it is not gating (the full 30-seed pre-registered run is what determines PASS/FAIL), and either outcome is informative -- a second FAIL would indicate the breadth-axis DV specifically does not benefit from adding horizon-depth truncation to elite selection (pointing toward the score-aggregation mechanism itself, not a missing-mechanism gap), while a PASS would confirm the implementation-gap hypothesis the autopsy proposed.",
-      "status": "pending",
-      "architecture_epoch": "ree_hybrid_guardrails_v1",
-      "claim_ids": [
-        "MECH-267"
-      ],
-      "conditions": 2,
-      "episodes_per_run": 1,
-      "experiment_type": "v3_exq_869a_mech267_mode_conditioning_content_persistence_retest",
-      "seeds": 30
-    },
-    {
       "queue_id": "V3-EXQ-876",
       "title": "MECH-025: action-doing mode causal signal, CORRECTED commitment instrument (direct V3 confirmation)",
       "script": "experiments/v3_exq_876_mech025_doing_mode_causal_signal.py",
@@ -123,7 +79,11 @@
       "supersedes": "V3-EXQ-867",
       "claim_id": "MECH-321",
       "note": "Same question as V3-EXQ-867 (does harm-aware selection improve MECH-321's task-outcome C1 stat over abort-mechanism-alone, matched abort rates), re-posed after 867's own P_HARM_BIAS_ENGAGES precondition FAILED (0/6 seeds, both arms). failure_autopsy_V3-EXQ-867_2026-08-02 (confirmed) diagnosed environment_adequacy_defect and recommended SD-029 scheduled_external_hazard overlay (per V3-EXQ-625c: interval=20 prob=0.7 adjacent_only=True, hazard_harm 0.2, proximity_harm_scale 0.2). Direct measurement this session found that overlay ALONE insufficient: z_harm_a was structurally None throughout 844/867 (use_affective_harm_stream unset, obs_harm_a never wired into agent.sense()); fixing that still left harm_penalty at a hard 0.0 on 96/96 probe calls because the residue field's VALENCE_HARM_DISCRIMINATIVE channel needs use_harm_stream=True + valence_harm_enabled=True too (neither set anywhere in the lineage). All three flags + the env overlay applied here; confirmed this session (seed 11, full 12ep/60-step schedule): ON arm decomp_n_harm_bias_nonzero=270, max z_harm_a_norm=0.852 (floor=0.1); OFF arm correctly 0 (bit-identical no-op). GOV-REUSE-1: no compatible prior mint exists for this env+substrate-stack combo (both changed vs 844/867) -- this run's OFF cells self-mint reuse-eligible for a future successor. Seed pool re-measured under the corrected config (RNG stream shifted by 3 new encoder modules) via --seed-scan-equivalent probing across the original 10-candidate pool; only seed 11 is full-schedule-verified both arms, 23/47 are reduced-schedule attributable-tier candidates, 89/97 are clean negative controls. validate_experiments.py --strict OK; dry-run smoke PASS (no crash; correctly self-routes manipulation_inert_or_unmatched at 2-episode toy scale since only 1 both_decompose seed appears at that reduced schedule, below MIN_DECOMPOSING_SEEDS=2 -- expected and correct, not a defect).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-4",
+        "claimed_at": "2026-08-02T19:59:44Z"
+      },
       "conditions": 2,
       "episodes_per_run": 12,
       "experiment_type": "v3_exq_867a_mech321_harm_aware_selection_hazard_tuned",
