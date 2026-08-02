@@ -419,6 +419,7 @@ def test_c7_mix_replace_lowest_preserves_count():
 
 def test_c7_mix_append_raises_count():
     """replace_lowest=False appends; total count grows by n_ghost."""
+    torch.manual_seed(42)
     module, cfg = _make_hippocampal_with_bank(
         use_mech293=True,
         mech293_replace_lowest_ranked=False,
