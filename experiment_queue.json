@@ -46,33 +46,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-436c",
-      "title": "MECH-166 wall-independent representation confirmer (sleep-cycle write-counter recording fix)",
-      "script": "experiments/v3_exq_436c_sd017_mech166_repr_confirmer.py",
-      "priority": 32,
-      "machine_affinity": "any",
-      "estimated_minutes": 20,
-      "supersedes": "V3-EXQ-436b",
-      "backlog_id": "EVB-0475",
-      "note": "Supersedes V3-EXQ-436b (FAIL on C1, recommended_evidence_direction non_contributory per failure_autopsy_V3-EXQ-436b_2026-08-02.json/.md, confirmed 2026-08-02, user-approved as recommended). FIX 1 (the requested fix): 436b discarded agent.run_sleep_cycle()'s entire return value with `_ = ...`, so sws_n_writes/rem_n_rollouts were never captured. 436c captures them and adds a P0 positive-control gate (p0_readiness_gate/P0NotReady, mirroring V3-EXQ-671b's MECH-025b residue-accumulation gate) requiring both counters, pooled across all 5 SWS_THEN_REM seeds, to clear >0 before C1 (slot_cosine_sim) is scored -- unmet routes to FAIL/non_contributory/sleep_cycle_recording_gap_still_present rather than a silent, uninterpretable readout. FIX 2 (found during this session's own smoke testing, not in the original autopsy): agent._e1_tick() -- the ONLY call site in ree_core/agent.py that appends to agent._world_experience_buffer/_self_experience_buffer (SWS write-path source) and pushes into agent.theta_buffer (REM read source) -- is invoked exclusively from agent.act()-style entry points; this driver's manual harm-based action-selection loop (unchanged from 436b) calls agent.sense() directly and never agent.act(), so both stores were PERMANENTLY EMPTY regardless of the Fix-1 capture, and run_sws_schema_pass()'s n_buf<2 / run_rem_attribution_pass()'s recent-is-None guards fired on every sleep pass unconditionally -- confirmed via a standalone 200-step repro before touching the driver. This also fully explains failure_autopsy_V3-EXQ-436b_2026-08-02's 'core anomaly' (slot_cosine_sim bit-identical between conditions to full float64 precision, every seed): ContextMemory.memory is an nn.Parameter randomly initialised via torch.randn(...)*0.01, and arm_cell(seed,...) reseeds torch's global RNG to the SAME seed for both conditions before each agent is constructed, so both conditions' memory started bit-identical and -- since .write() never fired in either -- never diverged. Fixed by directly feeding _world_experience_buffer/_self_experience_buffer/theta_buffer in _run_episode, mirroring _e1_tick's own append+trim+theta_buffer.update exactly, WITHOUT its other side effects (extra E1 forward pass, cue-bias/schema-salience/self-recurrence caching) which this driver's design does not otherwise exercise. Re-derive brake (Step 2.5b): SD-017 1 braking autopsy (V3-EXQ-538a), ARC-045 0, MECH-166 0 -- all below the >=2 threshold, brake does not fire. GOV-REUSE-1: decisive readout (slot_cosine_sim paired comparison, now with non-zero write counters) not recorded anywhere -- 436b's own manifest is the only prior run and is exactly the defect being fixed. Smoke test (--dry-run, 11 episodes to clear SLEEP_INTERVAL=10): SWS_THEN_REM sleep_passes=1, sws_n_writes_total=8.0, rem_n_rollouts_total=6.0 (both non-zero, matching sws_consolidation_steps=8/rem_attribution_steps=6 exactly); WAKING_ONLY correctly 0.0/0.0 (no sleep phase). slot_cosine_sim now differs between conditions in the smoke (0.2068 vs 0.2224) and slot_separation is no longer pinned at 0.0 for SWS_THEN_REM (1.013) -- both were previously bit-identical/0.0 under 436b's defect. validate_experiments.py --strict: 0 findings.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-08-02T21:52:20Z"
-      },
-      "architecture_epoch": "ree_hybrid_guardrails_v1",
-      "claim_ids": [
-        "SD-017",
-        "ARC-045",
-        "MECH-166"
-      ],
-      "conditions": 2,
-      "episodes_per_run": 200,
-      "experiment_purpose": "evidence",
-      "experiment_type": "v3_exq_436c_sd017_mech166_repr_confirmer",
-      "seeds": 5
-    },
-    {
       "queue_id": "V3-EXQ-671b",
       "title": "MECH-025b precision-responsibility: precision-variance positive-control gate + 4-seed pooling (corrects 671a's asymmetric gate)",
       "script": "experiments/v3_exq_671b_mech025b_precision_responsibility.py",
@@ -81,7 +54,11 @@
       "estimated_minutes": 150,
       "supersedes": "V3-EXQ-671a",
       "note": "Confirmed failure_autopsy_V3-EXQ-671a_2026-08-02 (user-confirmed 2026-08-02, routed measurement_gap/non_contributory, recommended /queue-experiment): 671a FAILed discrimination cleanly (C1 corr=0.0505, C2 ratio=0.9214, n=29, single seed) after genuinely fixing 671's degenerate defect (update_residue never called) and adding a residue-accumulation P0 gate that cleared (1.86 vs 1e-6 floor). Autopsy found an ASYMMETRIC GAP: no equivalent P0 gate on precision VARIANCE (the independent variable), despite this being the exact historical MECH-025 V2 failure signature ('E3 precision hardcoded, no dynamic channel'); plus underpowered single-seed n=29. FIX 1 (precision-variance P0 gate): added 'precision_shows_adequate_variance' (pooled max-min precision_samples spread > PRECISION_VARIANCE_FLOOR=1.0, mirroring the residue gate's floor-well-below-observed convention) PLUS a secondary check_degeneracy call in GROUPS mode over per-seed precision_samples (catches within-seed pinning masked by cross-seed mean differences -- the metric_groups_are_degenerate class, applied here to the correlation test's independent variable rather than a multi-arm comparison). Substrate check performed before writing (per autopsy instruction not to assume 'still hardcoded'): E3TrajectorySelector.current_precision = 1/(running_variance+1e-6) is genuinely dynamic (ARC-016, stable, V3-confirmed via V3-EXQ-018b); update_running_variance is called inside e3.select() on every e3_tick, so precision updates during eval too -- confirmed empirically via smoke (see below), not assumed. FIX 2 (underpowering): 4 seeds (0-3) instead of 671a's single seed=0, primary C1/C2 computed on samples pooled across all seeds (~4x n), per-seed correlation/ratio also reported as non-gating diagnostics for transparency. GOV-REUSE-1: this exact instrumentation (precision-variance gate) does not exist in any prior manifest for MECH-025b -- not recoverable, must run. Re-derive brake (Step 2.5b): only 1 prior autopsy tags MECH-025b as substrate_ceiling-adjacent-relevant (671a itself, category measurement_gap, not substrate_ceiling) plus batch9 (n/a degenerate) -- below the >=2 threshold, does not fire. Substrate readiness (Step 2.5): MECH-025/MECH-025b both `status: candidate`, no v3_pending/implementation_phase:v3 gate; claims.yaml's own evidence_quality_note says 'V3 gate cleared 2026-03-28'. Smoke (--dry-run, 2 seeds, warmup=5/eval=2/steps=50): both P0 gates fire correctly (mechanically verified: script runs, prints per-seed verdict lines + Seed/Condition boundaries, pooled stats aggregate); real precision-variance numbers even at this toy scale: seed 1 pooled_precision_spread=39.99 across 4 committed samples (seed 0 had only 1 committed sample, spread trivially 0) -- confirms precision genuinely varies within a single eval run, not near-constant, well above the 1.0 floor. A second, larger single-seed calibration run (warmup=100/eval=15/steps=200, seed=0, run to completion not just --dry-run) measured precision_spread=63300.34 across 8 committed samples (values ranging ~3 to ~63309 -- three orders of magnitude), corr=0.2103, ratio=1.2222, elapsed=381.8s -- confirms the gate floor (1.0) sits far below genuine substrate-level precision variance (not a knife-edge threshold), and gives the estimated_minutes scaling basis below (this calibration seed's step count is ~1/4.8th of one real full-scale seed). validate_experiments.py --strict: clean (0 findings). Also added always-core recording (stamp_recording_core via write_flat_manifest: config, explicit seeds list, started_at->elapsed_seconds, z_goal_stream_stats via ZGoalStreamAccumulator) which 671a itself omitted.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-08-02T22:16:24Z"
+      },
       "claim_ids": [
         "MECH-025b"
       ],
