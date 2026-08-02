@@ -74,6 +74,27 @@
       "experiment_purpose": "diagnostic",
       "experiment_type": "v3_exq_863_arc062_lateral_pfc_route_mech448_449_full_replication",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-864a",
+      "title": "SD-076 diagnostic REDESIGN: wci_symmetric_rv_ref/rv within-episode trajectory crossover, decoupled from CausalGridWorld's own episode termination (corrects V3-EXQ-864)",
+      "script": "experiments/v3_exq_864a_sd076_wci_rv_trajectory_crossover_diagnostic.py",
+      "priority": 35,
+      "machine_affinity": "any",
+      "machine_affinity_note": "prefer cloud (linux-x86_64-py3.10); no hardware requirement.",
+      "estimated_minutes": 45,
+      "episodes_per_run": 8,
+      "seeds": 2,
+      "conditions": 6,
+      "status": "pending",
+      "architecture_epoch": "ree_hybrid_guardrails_v1",
+      "claim_ids": [
+        "SD-076"
+      ],
+      "experiment_type": "v3_exq_864a_sd076_wci_rv_trajectory_crossover_diagnostic",
+      "experiment_purpose": "diagnostic",
+      "supersedes": "V3-EXQ-864",
+      "note": "REDESIGN of V3-EXQ-864, per its own confirmed autopsy (failure_autopsy_V3-EXQ-864_2026-08-01.md/.json). 864's sweep of STEPS_PER_EP in {200,500,1000} was inert: CausalGridWorld's own episode termination (agent_health<=0.0 or steps>=500, causal_grid_world.py:2892) fired at ~8-11 ticks/episode in this driver's env config, so diff_final and all end-of-episode readouts were bit-identical across all three swept values in both arms/seeds -- the sweep never varied real exposure. DESIGN FIX (full reasoning in the script's module docstring): the per-episode inner loop no longer breaks on env-reported done=True. Verified safe by direct source read: CausalGridWorld.step() computes done fresh every call with no special-casing of post-death ticks; harm_signal (the per-tick PE-generating signal both the inflated and counterfactual EMAs consume via update_residue->e3.post_action_update) is computed identically whether or not agent_health has already floored; neither REEAgent nor StepHarness gates on agent_health; agent_health recovers via ordinary resource contact same as pre-death; the internal steps>=500 cap's only other effect (body[9] observation feature saturating at 1.0) is bounded and harmless. This realizes both of the autopsy's own suggested repairs (disable agent-death termination + raise/ignore the internal step cap) through one mechanism, with the SAME hazard dynamics and SAME agent (no extra pretraining, no reduced-hazard env, no env-reset concatenation) -- three alternative repair strategies (train the agent to survive; reduce/remove hazards for this diagnostic; concatenate short env sub-episodes) were each considered and rejected in the docstring because each would confound the very EMA dynamics under measurement (either by changing the trained policy, changing the PE-stream's character, or by desynchronizing agent.reset()'s once-per-episode recalibration cadence from real exposure / injecting teleport-artifact PE spikes). New precondition real_exposure_achieved (floor 0.999) operationalizes the fix as a measured, falsifiable check per cell, plus an in-code regression assert that final_global_tick_reached varies across swept STEPS_PER_EP values (would catch a reintroduced early-break defect before a multi-hour run). Smoke test (--dry-run, reduced steps_sweep=(20,40), 8 cells) 2026-08-02: all 8 verdict:PASS, real_exposure_frac=1.0000 in every cell (final_global_tick=59 for steps20 cells = 20*3-1 exactly; =119 for steps40 cells = 40*3-1 exactly), env_done_ticks 34-102 of 60-120 confirming the environment's own termination DID fire repeatedly (consistent with 864's diagnosed ~8-11-tick early death) while the redesigned driver correctly ran through it. validate_experiments.py --strict: 0 non-conforming, 0 warnings of any kind. Real cost realizes 864's own originally-stated (but never actually paid) budget: (200+500+1000)*8*2*2=54400 train-only ticks, ~30% of 860's 180000, projected ~21min of pure step time from 860's measured 0.0233 s/step (860 elapsed_seconds=4200.6 for 180000 steps) plus init/optimizer overhead -- estimated_minutes=45 accordingly (864's own pre-registered 40min estimate, +5min buffer since this run now actually executes the full budget). Does NOT block EVB-0454 (SD-076 decision proceeds on V3-EXQ-860 Finding A, untouched by this diagnostic). Re-derive brake (Step 2.5b): 864's own autopsy category is measurement_test_design_defect/action:none (instrument repair, not a substrate gap) -- does not count toward SD-076's brake tally per the INSTRUMENT carve-out; 0 prior substrate_ceiling autopsies for SD-076. GOV-REUSE-1 (Step 2.4): checked via reanalysis_query.py query --readout rv_trajectory_within_episode --claim SD-076 (2026-08-02) against 794/794a/850-h1/850-h2/860/864 -- 0 carry a within-episode trajectory readout at verified-varying exposure (864's own trajectory data is defective, cannot answer the question). Not recoverable -> run. CONCURRENCY: TASK_CLAIMS.json contention on ree-v3/experiment_queue.json arbitrated via --allow-overlap this session (owner: infallible-villani-f280fa, unrelated EXP-0413 MECH-480 queue work) -- genuinely different task on the same shared file (different EXQ entries), not duplicate work."
     }
   ]
 }
