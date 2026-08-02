@@ -8576,6 +8576,47 @@ class REEAgent(nn.Module):
             self.e3._closure_committed_active = False
         return _env_closure_evt
 
+    def notify_subgoal_attainment(
+        self,
+        transition_type: str,
+        child_representation: Optional[torch.Tensor] = None,
+        credit: float = 1.0,
+    ) -> dict:
+        """SD-092 cross-level subgoal-credit harness hook (MECH-427/MECH-428).
+
+        Routes a subgoal-attainment event -- env info["transition_type"] in
+        {"waypoint", "sequence_complete"} (causal_grid_world.py subgoal_mode) --
+        into GoalState.credit_subgoal_attainment, the primitive SD-092 built but
+        left unwired (docs/architecture/sd_092_cross_level_subgoal_credit.md,
+        "What remains" item 1). Mirrors notify_env_completion's convention: the
+        caller (experiment harness) invokes this right after env.step() on a
+        waypoint/sequence-complete tick, passing info["transition_type"].
+
+        No-op (returns {}) when:
+          - self.goal_state is None (z_goal_enabled=False / goal substrate off),
+          - transition_type is not a subgoal-attainment event,
+          - use_hierarchical_goal_credit is False -- GoalState.credit_subgoal_attainment's
+            own gate (default -> bit-identical; not duplicated here so the flag
+            has one source of truth).
+
+        child_representation defaults to the current latent's z_world (the
+        agent's own settled world-representation at the moment of attainment)
+        when not supplied. Which representation to credit is deliberately left
+        an experiment-design decision (see the design doc's "What remains" item
+        2) -- this default is a convenience, not a substrate commitment; a
+        caller may pass the environment's own waypoint representation instead.
+        """
+        if self.goal_state is None:
+            return {}
+        if transition_type not in ("waypoint", "sequence_complete"):
+            return {}
+        rep = child_representation
+        if rep is None:
+            if self._current_latent is None:
+                return {}
+            rep = self._current_latent.z_world
+        return self.goal_state.credit_subgoal_attainment(rep, credit=credit)
+
     # ------------------------------------------------------------------
     # MECH-457: actor-critic action-learning substrate hooks.
     # These expose the first-class action pathway (dorsal-striatal analog),
