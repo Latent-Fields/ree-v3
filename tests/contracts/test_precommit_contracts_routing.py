@@ -69,6 +69,16 @@ def _run(repo, extra_env, decide_only=True):
     # Isolate git so the fake repo's toplevel is what the gate resolves.
     env.pop("GIT_INDEX_FILE", None)
     env.pop("GIT_DIR", None)
+    # Isolate the gate's own knobs: an ambient REE_PRECOMMIT_* in the outer
+    # (test-runner) shell must not leak into the subprocess under test -- each
+    # test's `extra_env` is the sole source of truth for what the gate sees.
+    # Without this, e.g. a developer/CI shell exporting
+    # REE_PRECOMMIT_CONTRACTS_TARGET=local to force a local run corrupts every
+    # test asserting "TARGET unset" auto-routing (R2/R3), since os.environ's
+    # ambient value silently substitutes for the unset precondition.
+    for key in list(env):
+        if key.startswith("REE_PRECOMMIT_"):
+            del env[key]
     if decide_only:
         env["REE_PRECOMMIT_CONTRACTS_DECIDE_ONLY"] = "1"
     env.update(extra_env)
