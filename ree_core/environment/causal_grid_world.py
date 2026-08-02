@@ -44,6 +44,14 @@ Proxy-gradient rationale (ARC-024 / INV-025-029):
 Ground truth transition_type (for V3-EXQ-002, SD-003) is preserved.
 New types (proxy mode only): "hazard_approach", "benefit_approach"
 
+MECH-203 note: by default, "hazard_approach" wins any tie against
+"benefit_approach" whenever both proximity fields are simultaneously above
+proximity_approach_threshold at the agent's cell -- and at default
+multi-source configs (num_hazards/num_resources >= 3) that co-activation is
+effectively universal across the grid, so "benefit_approach" is structurally
+unreachable unless proximity_approach_magnitude_tiebreak=True is passed (see
+its constructor comment). Off by default for bit-identical legacy behavior.
+
 Sub-goal mode preserved unchanged from V2.
 """
 
@@ -126,6 +134,25 @@ class CausalGridWorld:
         nociception_ema_alpha: float = 0.1,
         harm_obs_a_ema_alpha: float = 0.05,
         proximity_approach_threshold: float = 0.15,
+        # MECH-203: proximity-approach classification tie-break when BOTH
+        # hazard_field and resource_field are simultaneously >= threshold at
+        # the agent's cell. Confirmed 2026-08-02: at default multi-source
+        # configs (decay=0.5, num_hazards/num_resources>=3 on a 10x10 grid)
+        # the summed proximity field never drops below ~0.44 anywhere on the
+        # grid, so BOTH fields exceed threshold=0.15 at effectively 100% of
+        # cells -- the legacy fixed hazard-first if/elif then makes
+        # "benefit_approach" structurally unreachable (hazard always wins the
+        # tie), not merely rare. Default False preserves the legacy
+        # hazard-priority elif ordering bit-identically for every existing
+        # experiment script. Set True to instead classify by whichever RAW
+        # field value is locally larger (ties go to hazard, matching legacy
+        # priority on the boundary case) -- a locally-meaningful proximity
+        # read rather than a fixed priority order. Deliberately compares RAW
+        # field magnitude, not proximity_harm_scale/proximity_benefit_scale-
+        # weighted signal, so the classification tie-break is independent of
+        # the (intentional) asymmetry between how much hazards hurt vs how
+        # much resources help.
+        proximity_approach_magnitude_tiebreak: bool = False,
         # SD-011 second source: rolling window of past harm_exposure values.
         # 0 = disabled (backward compat). When > 0, obs_dict includes
         # "harm_history" [harm_history_len] and "accumulated_harm" scalar.
@@ -686,6 +713,7 @@ class CausalGridWorld:
         self.nociception_ema_alpha = nociception_ema_alpha
         self.harm_obs_a_ema_alpha = harm_obs_a_ema_alpha
         self.proximity_approach_threshold = proximity_approach_threshold
+        self.proximity_approach_magnitude_tiebreak = proximity_approach_magnitude_tiebreak
         self.harm_history_len = harm_history_len
 
         # SD-022: directional limb damage state
@@ -2288,12 +2316,28 @@ class CausalGridWorld:
                 # Proxy-gradient approach transitions (only when no contact event)
                 h_field_val = float(self.hazard_field[new_x, new_y])
                 r_field_val = float(self.resource_field[new_x, new_y])
-                if h_field_val >= self.proximity_approach_threshold:
+                h_active = h_field_val >= self.proximity_approach_threshold
+                r_active = r_field_val >= self.proximity_approach_threshold
+
+                # MECH-203: when both fields are simultaneously active (the
+                # common case at default multi-source configs -- see the
+                # constructor comment on proximity_approach_magnitude_tiebreak),
+                # the legacy path always resolves to hazard regardless of how
+                # much closer the agent actually is to a resource. Opt-in fix:
+                # classify by whichever RAW field is locally larger instead.
+                # Bit-identical to legacy when the flag is off, or when only
+                # one field is active (nothing to tie-break).
+                if self.proximity_approach_magnitude_tiebreak and h_active and r_active:
+                    hazard_wins = h_field_val >= r_field_val
+                else:
+                    hazard_wins = h_active
+
+                if hazard_wins:
                     harm_signal = -self.proximity_harm_scale * h_field_val
                     transition_type = "hazard_approach"
                     self.total_harm += abs(harm_signal)
                     self.agent_health = max(0.0, self.agent_health - abs(harm_signal))
-                elif r_field_val >= self.proximity_approach_threshold:
+                elif r_active:
                     harm_signal = self.proximity_benefit_scale * r_field_val
                     transition_type = "benefit_approach"
                     self.total_benefit += harm_signal
