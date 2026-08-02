@@ -8,32 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-866",
-      "title": "INV-034/Q-021: goal-maintenance-vs-avoidance-only ablation (FULL vs AVOIDANCE_ONLY vs RANDOM, post-SD-012/MECH-306/SD-057)",
-      "script": "experiments/v3_exq_866_inv034_q021_goal_maintenance_agency.py",
-      "priority": 20,
-      "machine_affinity": "any",
-      "estimated_minutes": 420,
-      "supersedes": null,
-      "backlog_id": "EVB-0242",
-      "note": "IGW-20260801-222 (claim INV-034, backlog EVB-0242, companion claim Q-021). Prior draft-only design pass (session frosty-satoshi-2e7cbc, DESIGN.md + STATUS_AND_OPEN_QUESTIONS.md) found three prior lineages tried this exact shape and all failed at the same prerequisite: v3_exq_085/085c/085d/085e (INV-034, 2026-03-23/24), v3_exq_072b_q021_behavioral_flatness (Q-021, self-marked evidence_direction=superseded), v3_exq_331_arc030_approach_avoidance_balance (ARC-030, non_contributory -- Go sub-channel made zero difference, not a crash). That prerequisite (z_goal never seeding / seeding collapsing at contact) is now resolved: SD-012 drive-scaled seeding + MECH-306 drive_floor fix (V3-EXQ-582a PASS) + SD-057 object-bound incentive salience (V3-EXQ-514o PASS) closed goal_pipeline GAP-1 through GAP-7 by 2026-06-15. Re-derive brake (Step 2.5b) checked live 2026-08-01: zero failure_autopsy_*.json targets tag INV-034/Q-021/ARC-030 -- brake does not fire. claims.yaml INV-034.evidence_quality_note 'hold pending architectural discussion of z_goal seeding' is stale relative to this. 3-arm ablation (FULL goal+avoidance vs AVOIDANCE_ONLY goal_weight=0.0 vs RANDOM baseline), current validated knobs (drive_floor=0.9, drive_ema_alpha=1.0 per MECH-306). Lightweight direct-REEConfig harness used (draft's 'Option A'), per default instruction -- nothing in current repo state showed it broken for a similar claim; the full scaffolded_sd054_onboarding curriculum ('Option B') is the documented fallback if a real run's G0 non-degeneracy gate fails, exactly as it was for goal_pipeline GAP-2 historically. G0 non-degeneracy precondition (Q-021's own pre-registered requirement) gates the whole run to non_contributory rather than a false weakens if FULL itself comes in flat; C1/C2 hold harm-avoidance and survival comparable between arms as the agency-vs-competence control (MECH-180 death-vs-quiescence guard); C3-C5 test the predicted quiescence/entropy signature; C6 is a mechanistic z_goal-engagement check. API re-verified 2026-08-01 against live ree_core/ source (skill Step 3) -- FOUND AND FIXED a real bug the draft had flagged as unconfirmed: the draft's z_goal read (getattr(agent,'z_goal',...) or getattr(agent._current_latent,'z_goal',...)) was wrong on both branches (REEAgent has no .z_goal; LatentState carries no z_goal field) and would have silently zeroed the C6 mechanistic check for both arms; fixed to read agent.goal_state.z_goal (GoalState.z_goal property), confirmed live in agent.py/goal.py. Also added arm_results/arm_cell fingerprinting (mint-as-you-go default, not requested for reuse), z_goal_stream wiring via ZGoalStreamAccumulator, and a fresh-selection-vs-hold-weighted entropy split (policy_entropy_fresh_select, diagnostic-only) after validate_experiments.py flagged the realized-action policy_entropy (load-bearing C5) as a hold-weighted-E3-readout advisory -- C5 stays gated on the realized/behavioural statistic (matches INV-034's own 'does nothing' language) with the fresh-select figure recorded alongside for triage. validate_experiments.py --strict: 0 findings (clean after the fixes above). Smoke test (--dry-run): all 9 seed x condition cells (3 seeds x FULL/AVOIDANCE_ONLY/RANDOM) ran to completion, verdict PASS x9, manifest written+relocated out of evidence/ correctly, z_goal_stream active_frac=0.087 writer_calls=287 writer_defect=False (confirms update_z_goal is live and correctly wired), G0 correctly self-routed FAIL/non_contributory on the tiny toy-scale dry run (3 episodes) as designed -- not a bug. GOV-REUSE-1 (Step 2.4): decisive readout (resource_visit_rate / z_goal_norm_at_contact under a FULL-vs-AVOIDANCE_ONLY-vs-RANDOM ablation on the post-SD-012/MECH-306/SD-057 substrate) is not recorded in any existing manifest -- the three prior lineages predate the substrate fix and carry no substrate_hash; not recoverable by reanalysis -> proceed to author. Does not supersede any single prior ID (085/072b/331 all pre-date the fix).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-08-02T01:54:03Z"
-      },
-      "architecture_epoch": "ree_hybrid_guardrails_v1",
-      "claim_ids": [
-        "INV-034",
-        "Q-021"
-      ],
-      "conditions": 3,
-      "episodes_per_run": 300,
-      "experiment_purpose": "evidence",
-      "experiment_type": "v3_exq_866_inv034_q021_goal_maintenance_agency",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-863",
       "title": "ARC-062/MECH-309 full-budget replication of V3-EXQ-859: lateral_pfc route_source vs none ablation, MECH-448/449 engagement (~7.7h)",
       "script": "experiments/v3_exq_863_arc062_lateral_pfc_route_mech448_449_full_replication.py",
