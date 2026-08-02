@@ -73,6 +73,24 @@ NON-DEGENERACY (readiness precondition -> substrate_not_ready_requeue if unmet):
   sensitive at this warmup scale (distinct from "just underpowered") -- flagged
   explicitly in degeneracy_reason rather than silently self-routing a second time.
 
+  STATISTIC FIX (2026-08-02, V3-EXQ-857b, low-priority, per confirmed
+  failure_autopsy_V3-EXQ-857a_2026-08-02.md): this actually happened on the very
+  run this docstring describes. The unpaired pooled-SD SNR above measured 0.388 on
+  the real 857a data (a FAIL) -- but both arms share `torch.manual_seed(seed)`
+  identically regardless of `env_overrides` (make_agent_and_env), so the design is
+  naturally PAIRED, and a paired-by-seed reanalysis of the SAME data gives SNR=2.20
+  (a PASS): 5 of 6 seeds show a consistent positive delta, with seed=1 a large,
+  bit-identically-reproducible (across 857 and 857a) per-seed outlier in ALL
+  arms -- a deterministic effect, not sampling noise, that the unpaired pooling
+  let dominate the denominator. Both preconditions now use `_paired_snr()`
+  (per-seed deltas, one-sample-t-style SNR = mean/standard-error) as the
+  load-bearing statistic; the old unpaired reading is retained under
+  `z_harm_s_snr_starkest_unpaired` for audit trail only. This is a measurement-
+  layer fix for the lineage's future reuse -- it does not change what question is
+  being asked, and Q-086 itself already reads `answered_pending_confirmatory_pass`
+  off the autopsy's hand reanalysis (claims.yaml, 2026-08-02) rather than off a
+  rerun of this corrected code.
+
 DV-SYMMETRY: the manipulation (env harshness / hazard count) changes the
 environment's harm dynamics and hence both z_harm_s, z_harm_a, and episode
 survival time; none of the CoV/level/survival DVs are invariant under any
@@ -188,6 +206,44 @@ def _pooled_mean(episodes, key) -> float:
     return float(np.mean(vals)) if vals else 0.0
 
 
+def _paired_snr(per_seed_a, per_seed_b):
+    """Paired-by-seed SNR (a one-sample-t-style statistic on the per-seed
+    deltas), NOT a pooled-unpaired SD comparison.
+
+    Fixed 2026-08-02 per failure_autopsy_V3-EXQ-857a_2026-08-02.md (confirmed):
+    both arms share `torch.manual_seed(seed)` identically regardless of
+    `env_overrides` (make_agent_and_env / affective_fishtank.py), so this is a
+    naturally PAIRED design. The original statistic pooled both arms' raw
+    per-seed values into one unpaired SD, which let a single deterministic
+    outlier seed (seed=1 -- reproducible bit-identically across V3-EXQ-857 and
+    857a, i.e. a fixed per-seed effect, not sampling noise) inflate the
+    denominator enough to mask a real, consistent, majority-of-seeds effect:
+    replaying the 857a data through this pairing gives paired SNR=2.20 (clears
+    Z_HARM_S_SNR_K=2.0) against the unpaired reading of 0.388 on the identical
+    six seeds. `per_seed_a`/`per_seed_b` must be same-length lists ordered by
+    the same seed sequence (true here: both arms are looped over the identical
+    `seeds` list in `run()`, in order, before rows are filtered by arm_id).
+
+    Returns (abs_mean_delta, sample_sd_of_deltas, snr) where
+    snr = abs_mean_delta / (sample_sd / sqrt(n)) -- mean over standard error,
+    matching the autopsy's reanalysis exactly (sample SD, ddof=1).
+    """
+    a = np.asarray(per_seed_a, dtype=float)
+    b = np.asarray(per_seed_b, dtype=float)
+    n = min(a.size, b.size)
+    if n == 0:
+        return 0.0, 0.0, 0.0
+    deltas = a[:n] - b[:n]
+    mean_delta = float(np.mean(deltas))
+    if n < 2:
+        # No within-seed spread to estimate a standard error from; report the
+        # raw delta and an SNR of 0.0 rather than dividing by zero.
+        return abs(mean_delta), 0.0, 0.0
+    sample_sd = float(np.std(deltas, ddof=1))
+    se = max(sample_sd / np.sqrt(n), 1e-6)
+    return abs(mean_delta), sample_sd, abs(mean_delta) / se
+
+
 def _episode_survival_steps(episodes) -> list:
     """Per-episode step count at termination (done OR the STEPS_PER_EPISODE cap).
     eval_collect breaks its inner loop on `done`, so len(ep["z_harm_a"]) is exactly
@@ -298,30 +354,45 @@ def run(seeds=None, dry_run=False):
 
     # --- readiness precondition 1: did the STARKEST gradient (harsh vs benign) --
     # actually change z_harm_s? This is the load-bearing gate for this redesign.
+    # PAIRED BY SEED (fixed 2026-08-02 per failure_autopsy_V3-EXQ-857a_2026-08-02,
+    # confirmed) -- see _paired_snr's docstring for why: both arms share
+    # torch.manual_seed(seed) identically, so this is a naturally paired design,
+    # and the previous unpaired pooled-SD statistic let one deterministic
+    # outlier seed (seed=1) swamp a real, consistent, majority-of-seeds effect
+    # (unpaired SNR 0.388 vs paired SNR 2.20 on the identical 857a data).
     s_harsh  = harsh["mean_level_z_harm_s"]
     s_benign = benign["mean_level_z_harm_s"]
-    delta_s_starkest  = abs(s_harsh - s_benign)
-    pooled_s_starkest = harsh["per_seed_z_harm_s"] + benign["per_seed_z_harm_s"]
-    seed_noise_sd_starkest = max(float(np.std(pooled_s_starkest)), 1e-6)
-    z_harm_s_snr_starkest = delta_s_starkest / seed_noise_sd_starkest
+    delta_s_starkest, seed_noise_sd_starkest, z_harm_s_snr_starkest = _paired_snr(
+        harsh["per_seed_z_harm_s"], benign["per_seed_z_harm_s"])
     manipulation_took = z_harm_s_snr_starkest > Z_HARM_S_SNR_K
+
+    # Unpaired figure, retained for audit-trail/comparability ONLY -- this is the
+    # pre-2026-08-02 statistic and is NOT load-bearing. Kept so a future reader
+    # can see directly how much the pairing fix moved the reading.
+    pooled_s_starkest_unpaired = harsh["per_seed_z_harm_s"] + benign["per_seed_z_harm_s"]
+    seed_noise_sd_starkest_unpaired = max(float(np.std(pooled_s_starkest_unpaired)), 1e-6)
+    z_harm_s_snr_starkest_unpaired = delta_s_starkest / seed_noise_sd_starkest_unpaired
 
     # --- comparability readout: 857's original pair (harsh vs gentle), reported ---
     # but NOT load-bearing -- the starkest pair is where the self-route is keyed.
+    # Left unpaired: this pair is informational only, never gates, and was not
+    # the statistic the autopsy found defective.
     s_gentle = gentle["mean_level_z_harm_s"]
     delta_s_original  = abs(s_harsh - s_gentle)
     pooled_s_original = harsh["per_seed_z_harm_s"] + gentle["per_seed_z_harm_s"]
     seed_noise_sd_original = max(float(np.std(pooled_s_original)), 1e-6)
     z_harm_s_snr_original = delta_s_original / seed_noise_sd_original
 
-    # --- readiness precondition 2 (NEW, non-gating): episode survival time -------
+    # --- readiness precondition 2 (non-gating): episode survival time ------------
+    # Same pairing fix applied for consistency -- it is subject to the identical
+    # pooled-SD flaw (confirmed by the autopsy's own note that this secondary
+    # check "individually missed its own unpaired SNR bar for the same pooling
+    # reason" despite being the strongest corroborating signal).
     surv_harsh  = harsh["mean_episode_survival_steps"]
     surv_benign = benign["mean_episode_survival_steps"]
-    delta_surv  = abs(surv_harsh - surv_benign)
-    pooled_surv = (harsh["per_seed_mean_episode_survival_steps"]
-                   + benign["per_seed_mean_episode_survival_steps"])
-    seed_noise_sd_surv = max(float(np.std(pooled_surv)), 1e-6)
-    survival_snr = delta_surv / seed_noise_sd_surv
+    delta_surv, _surv_sample_sd, survival_snr = _paired_snr(
+        harsh["per_seed_mean_episode_survival_steps"],
+        benign["per_seed_mean_episode_survival_steps"])
     survival_differs = survival_snr > Z_HARM_S_SNR_K
 
     steps_ok = (harsh["min_eval_steps"] >= (10 if dry_run else MIN_EVAL_STEPS)
@@ -385,9 +456,16 @@ def run(seeds=None, dry_run=False):
     preconditions = [
         {
             "name": "gentle_env_manipulation_took_z_harm_s_differs_starkest",
-            "description": ("cross-arm |delta mean z_harm_s| (ARM_HARSH vs ARM_BENIGN, "
-                            "the starkest num_hazards 4-vs-0 gradient) as an SNR against "
-                            "pooled cross-seed SD must exceed Z_HARM_S_SNR_K"),
+            "description": ("cross-arm |mean paired-by-seed delta z_harm_s| (ARM_HARSH vs "
+                            "ARM_BENIGN, the starkest num_hazards 4-vs-0 gradient), as a "
+                            "one-sample-t-style SNR (mean delta / standard error of the "
+                            "per-seed deltas), must exceed Z_HARM_S_SNR_K. PAIRED BY SEED "
+                            "since 2026-08-02 (failure_autopsy_V3-EXQ-857a_2026-08-02, "
+                            "confirmed) -- both arms share torch.manual_seed(seed) "
+                            "identically, so an unpaired pooled-SD statistic let one "
+                            "deterministic outlier seed mask a real majority-of-seeds "
+                            "effect; see _paired_snr() and "
+                            "z_harm_s_snr_starkest_unpaired for the pre-fix reading."),
             "measured": float(z_harm_s_snr_starkest),
             "threshold": float(Z_HARM_S_SNR_K),
             "direction": "lower",
@@ -398,9 +476,11 @@ def run(seeds=None, dry_run=False):
         },
         {
             "name": "episode_survival_time_differs_starkest",
-            "description": ("NON-GATING secondary check: cross-arm |delta mean "
-                            "episode_survival_steps| (ARM_HARSH vs ARM_BENIGN) as an SNR "
-                            "against pooled cross-seed SD, exceeding Z_HARM_S_SNR_K"),
+            "description": ("NON-GATING secondary check: cross-arm |mean paired-by-seed "
+                            "delta episode_survival_steps| (ARM_HARSH vs ARM_BENIGN) as a "
+                            "one-sample-t-style SNR, exceeding Z_HARM_S_SNR_K. Paired by "
+                            "seed since 2026-08-02 for the same reason as the primary "
+                            "precondition."),
             "measured": float(survival_snr),
             "threshold": float(Z_HARM_S_SNR_K),
             "direction": "lower",
@@ -430,6 +510,8 @@ def run(seeds=None, dry_run=False):
         "benign_mean_level_z_harm_s": s_benign,
         "z_harm_s_delta_starkest": delta_s_starkest,
         "z_harm_s_snr_starkest": z_harm_s_snr_starkest,
+        "z_harm_s_snr_starkest_method": "paired_by_seed",
+        "z_harm_s_snr_starkest_unpaired": z_harm_s_snr_starkest_unpaired,
         "z_harm_s_delta_original_pair": delta_s_original,
         "z_harm_s_snr_original_pair": z_harm_s_snr_original,
         "level_drop_frac": level_drop_frac,
