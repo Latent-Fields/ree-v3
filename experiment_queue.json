@@ -28,6 +28,27 @@
       "experiment_purpose": "diagnostic",
       "experiment_type": "v3_exq_863_arc062_lateral_pfc_route_mech448_449_full_replication",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-848a",
+      "title": "ARC-005 precision-only decoupled ladder, CALIBRATED: does the dACC goal-readout channel route precision once dacc_goal_readout_weight/normalize are actually set? (successor to V3-EXQ-848)",
+      "script": "experiments/v3_exq_848a_arc005_precision_only_decoupled_ladder_calibrated.py",
+      "priority": 40,
+      "machine_affinity": "any",
+      "estimated_minutes": 90,
+      "claim_ids": [
+        "ARC-005"
+      ],
+      "experiment_purpose": "evidence",
+      "status": "pending",
+      "architecture_epoch": "ree_hybrid_guardrails_v1",
+      "conditions": 6,
+      "episodes_per_run": 2000,
+      "seeds": 5,
+      "experiment_type": "v3_exq_848a_arc005_precision_only_decoupled_ladder_calibrated",
+      "supersedes": "V3-EXQ-848",
+      "supersedes_note": "Bug-fix/calibration lettered iteration correcting 848's omitted dacc_goal_readout_weight (silently defaulted to 0.0, so the dACC goal-readout term never engaged in 848's run) and adding dacc_goal_readout_normalize=True (ree-v3 commit 4b79d18d44). Same design, same criterion as 848 otherwise.",
+      "note": "Bug-fix/calibration lettered successor to V3-EXQ-848 (ARC-005 precision-only decoupled ladder, FAIL/mixed 4/10 units, rho up to 0.866). 848's _agent_kwargs() never set dacc_goal_readout_weight, so it silently defaulted to 0.0 and the SD-057 L7 dACC goal-readout term (ree_core/cingulate/dacc.py DACCtoE3Adapter.forward(), gated on grw!=0.0) contributed EXACTLY ZERO to score_bias throughout 848's run -- the channel-1 dACC-consume pathway 848 was designed to test was never engaged; 848's observed signal is attributable to channel 1's pre-existing serotonin pathway and channel 2, not the dACC-consume mechanism. A follow-up direct probe (session IGW-20260801-199 / arc005_dacc_adapter_goal_proximity_training, instrumenting REEAgent.select_action on 848's own driver config) found this gap plus a units/calibration mismatch in raw candidate_goal_proximity (small achieved cross-candidate spread ~0.003-0.03 vs full [0,1] nominal range, because GoalState.goal_proximity()'s MSE-sum distance is dominated by the larger e2_world_forward candidate-summary norm rather than genuine goal-relative displacement -- a calibration issue, not an untrained consumer; DACCtoE3Adapter has no nn.Parameter anywhere). Both fixed on ree-v3 main commit 4b79d18d44 (SD-057 L7 amend): DACCConfig.dacc_goal_readout_normalize (new, default False, bit-identical off) does a per-candidate-set min-max rescale before the existing dacc_goal_readout_weight multiply. This successor sets dacc_goal_readout_weight=0.5 (V3-EXQ-637 precedent value) and dacc_goal_readout_normalize=True; every other design element (channel-1/2-only ladder, channels 3/4 fixed at L0, content sets, arena, schedule, seeds, the pre-registered C_PRECISION_MONOTONICITY criterion and its thresholds) is UNCHANGED from 848. Adds a build-time guard (asserts cfg.dacc_goal_readout_weight/normalize threaded through REEConfig.from_dims correctly, and agent.dacc_adapter.config carries them) plus a whole-run engagement check (agent.dacc_adapter._n_bias_calls must increment at least once across the run) specifically to prevent a repeat of 848's silent-zero failure mode. Substrate readiness: SD-057 IMPLEMENTED (ree-v3/CLAUDE.md); the L7 wiring fix is on main. Re-derive brake checked: 0 substrate_ceiling autopsies tag ARC-005 -- not braked. GOV-REUSE-1: the decisive readout (precision monotonicity with the calibrated dACC goal-readout channel genuinely engaged) does not exist in any recorded manifest -- 848's manifest ran with the channel silently inert, not a compatible substrate_hash for this question; not recoverable by reanalysis. supersedes: V3-EXQ-848 per the EXQ lettering convention's bug-fix rule, though 848's manifest evidence is not discarded -- see the script's SUPERSEDES_NOTE for why governance review should read both results together rather than treat 848 as invalidated outright. Smoke --dry-run PASS (12 cells at dry scale): all verdicts PASS, z_goal_stream active_frac=0.130 writer_calls=600 -- no writer defect, build-time guards held, total_dacc_bias_calls=492 (engagement check passed), result at dry scale is a near-zero null (all_near_zero_null=true) -- not scored at dry scale, informative only that the pipeline runs end-to-end without error. validate_experiments.py --strict: 0 findings across all checks."
     }
   ]
 }
