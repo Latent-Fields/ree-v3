@@ -58,6 +58,21 @@
       "seeds": 2
     },
     {
+      "queue_id": "V3-EXQ-108b",
+      "title": "MECH-135/INV-088 z_world evaluator-degeneracy disambiguation (SD-070-trained encoder, real-vs-rollout contrast ratio)",
+      "script": "experiments/v3_exq_108b_mech135_inv088_zworld_disambiguation.py",
+      "priority": 30,
+      "machine_affinity": "any",
+      "estimated_minutes": 5,
+      "claim_id": "MECH-135",
+      "note": "Diagnostic disambiguating the a1(undertrained-instrument)/a2(dimension-ceiling) confound surfaced by failure_autopsy_V3-EXQ-108a_2026-08-02 (hypothesis_space_registry.v1.json qid inv088_evaluator_degeneracy_cause). GOV-REUSE-1: decisive readout (e1coe_score_var + contrast-ratio on a SD-070-trained z_world) not recorded in any prior manifest -- not recoverable, authored fresh. Re-derive brake (2.5b): 0 substrate_ceiling autopsies against MECH-135/INV-088 at this granularity, brake does not fire. Replaces 108a bespoke-only Phase 0 with SD-070 sanctioned zworld_p0 encoder warmup (the V3-EXQ-819/819a route) run BEFORE 108a's unchanged bespoke E1/E2 training; adds a within-run real-vs-rollout contrast-ratio comparison (no cross-run threshold borrowing). Diagnostic purpose, scoring-excluded; a PASS also constitutes fresh MECH-135 evidence.",
+      "status": "pending",
+      "conditions": 1,
+      "episodes_per_run": 100,
+      "experiment_type": "v3_exq_108b_mech135_inv088_zworld_disambiguation",
+      "seeds": 2
+    },
+    {
       "queue_id": "V3-EXQ-863",
       "title": "ARC-062/MECH-309 full-budget replication of V3-EXQ-859: lateral_pfc route_source vs none ablation, MECH-448/449 engagement (~7.7h)",
       "script": "experiments/v3_exq_863_arc062_lateral_pfc_route_mech448_449_full_replication.py",
@@ -78,21 +93,6 @@
       "experiment_purpose": "diagnostic",
       "experiment_type": "v3_exq_863_arc062_lateral_pfc_route_mech448_449_full_replication",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-108b",
-      "title": "MECH-135/INV-088 z_world evaluator-degeneracy disambiguation (SD-070-trained encoder, real-vs-rollout contrast ratio)",
-      "experiment_type": "v3_exq_108b_mech135_inv088_zworld_disambiguation",
-      "script": "experiments/v3_exq_108b_mech135_inv088_zworld_disambiguation.py",
-      "priority": 30,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 5,
-      "episodes_per_run": 100,
-      "seeds": 2,
-      "conditions": 1,
-      "claim_id": "MECH-135",
-      "note": "Diagnostic disambiguating the a1(undertrained-instrument)/a2(dimension-ceiling) confound surfaced by failure_autopsy_V3-EXQ-108a_2026-08-02 (hypothesis_space_registry.v1.json qid inv088_evaluator_degeneracy_cause). GOV-REUSE-1: decisive readout (e1coe_score_var + contrast-ratio on a SD-070-trained z_world) not recorded in any prior manifest -- not recoverable, authored fresh. Re-derive brake (2.5b): 0 substrate_ceiling autopsies against MECH-135/INV-088 at this granularity, brake does not fire. Replaces 108a bespoke-only Phase 0 with SD-070 sanctioned zworld_p0 encoder warmup (the V3-EXQ-819/819a route) run BEFORE 108a's unchanged bespoke E1/E2 training; adds a within-run real-vs-rollout contrast-ratio comparison (no cross-run threshold borrowing). Diagnostic purpose, scoring-excluded; a PASS also constitutes fresh MECH-135 evidence."
     }
   ]
 }
