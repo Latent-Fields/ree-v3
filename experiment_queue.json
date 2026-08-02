@@ -69,6 +69,26 @@
       "seeds": 3
     },
     {
+      "queue_id": "V3-EXQ-869a",
+      "title": "MECH-267 content-persistence retest with BOTH noise-scale + horizon-depth mechanisms active (supersedes V3-EXQ-869)",
+      "script": "experiments/v3_exq_869a_mech267_mode_conditioning_content_persistence_retest.py",
+      "priority": 40,
+      "machine_affinity": "any",
+      "estimated_minutes": 5,
+      "supersedes": "V3-EXQ-869",
+      "claim_id": "MECH-267",
+      "note": "Same-question retest of V3-EXQ-869 (superseded by this entry). V3-EXQ-869 (30 seeds, pre-registered, USER-CONFIRMED failure_autopsy_V3-EXQ-869_2026-08-02.json) found MECH-267 content-persistence PASSed the iters=1 manipulation check but FAILED at production num_cem_iterations=3 under noise-scale-only (mode_noise_scale). The autopsy's determination was competence_implementation_gap, not claim falsification: MECH-267's own registration names a second mechanism (horizon-depth) that was not yet built. That mechanism (SD-MECH267-HORIZON-DEPTH, ree-v3 e0117eea8b, 2026-08-02; design doc REE_assembly/docs/architecture/sd_mech267_horizon_depth_modulation.md) is now built, gated by the same mode_conditioning_enabled flag as mode_noise_scale, so this script's unchanged HippocampalModule construction now exercises BOTH mechanisms simultaneously. GOV-REUSE-1 (Step 2.4): decisive readout is mean_raw_std_by_dim pairwise gaps at num_cem_iterations=3 with BOTH mode_noise_scale and mode_horizon_scale active -- no prior manifest carries this combined-mechanism condition (mode_horizon_scale did not exist before e0117eea8b, 2026-08-02), so it is not recoverable from existing evidence -> proceed to run. Re-derive brake (Step 2.5b): grep-count of confirmed substrate_ceiling/non_contributory autopsies tagging MECH-267 = 1 (failure_autopsy_V3-EXQ-869_2026-08-02.json only), below the threshold of 2 -> brake does not fire. Same DV, modes-in-predicted-order, and pairwise-gap floors (FLOOR_DIAGNOSTIC=0.015, FLOOR_PRODUCTION=0.01) as V3-EXQ-869 -- a same-question re-queue, not a redesign; new claim_ids tag unchanged (['MECH-267'] only -- SD-MECH267-HORIZON-DEPTH is a substrate_queue entry, not a claim). Smoke test (validate_experiments.py --strict: OK, 0 findings; --dry-run: 3 seeds, verdict PASS x3) confirms via a new mechanism_activation diagnostic block that BOTH mechanisms fire together every cell (mode_noise_scale_used and mode_horizon_scale_used both non-None; effective_horizon varies by mode: external_task=2, internal_replay=3, internal_planning=offline_consolidation=4 out of HORIZON=4) -- not merely asserted from config inspection. A 10-seed toy-scale pilot (both conditions, run outside the committed script, not gating) found the iters=1 manipulation check clears FLOOR_DIAGNOSTIC cleanly and with the full predicted ordering in 10/10 seeds, but the iters=3 production gaps (mean 0.0050 / 0.0027 / -0.0025) remain near the FLOOR_PRODUCTION=0.01 threshold -- similar magnitude to V3-EXQ-869's original noise-scale-only result (-0.0003 / +0.0035 / -0.0037). This is reported honestly, not as a pre-judgment: it is not gating (the full 30-seed pre-registered run is what determines PASS/FAIL), and either outcome is informative -- a second FAIL would indicate the breadth-axis DV specifically does not benefit from adding horizon-depth truncation to elite selection (pointing toward the score-aggregation mechanism itself, not a missing-mechanism gap), while a PASS would confirm the implementation-gap hypothesis the autopsy proposed.",
+      "status": "pending",
+      "architecture_epoch": "ree_hybrid_guardrails_v1",
+      "claim_ids": [
+        "MECH-267"
+      ],
+      "conditions": 2,
+      "episodes_per_run": 1,
+      "experiment_type": "v3_exq_869a_mech267_mode_conditioning_content_persistence_retest",
+      "seeds": 30
+    },
+    {
       "queue_id": "V3-EXQ-876",
       "title": "MECH-025: action-doing mode causal signal, CORRECTED commitment instrument (direct V3 confirmation)",
       "script": "experiments/v3_exq_876_mech025_doing_mode_causal_signal.py",
@@ -303,26 +323,6 @@
       "episodes_per_run": 250,
       "experiment_type": "v3_exq_866a_inv034_q021_goal_maintenance_agency_onboarded",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-869a",
-      "title": "MECH-267 content-persistence retest with BOTH noise-scale + horizon-depth mechanisms active (supersedes V3-EXQ-869)",
-      "script": "experiments/v3_exq_869a_mech267_mode_conditioning_content_persistence_retest.py",
-      "priority": 40,
-      "machine_affinity": "any",
-      "estimated_minutes": 5,
-      "claim_id": "MECH-267",
-      "claim_ids": [
-        "MECH-267"
-      ],
-      "supersedes": "V3-EXQ-869",
-      "note": "Same-question retest of V3-EXQ-869 (superseded by this entry). V3-EXQ-869 (30 seeds, pre-registered, USER-CONFIRMED failure_autopsy_V3-EXQ-869_2026-08-02.json) found MECH-267 content-persistence PASSed the iters=1 manipulation check but FAILED at production num_cem_iterations=3 under noise-scale-only (mode_noise_scale). The autopsy's determination was competence_implementation_gap, not claim falsification: MECH-267's own registration names a second mechanism (horizon-depth) that was not yet built. That mechanism (SD-MECH267-HORIZON-DEPTH, ree-v3 e0117eea8b, 2026-08-02; design doc REE_assembly/docs/architecture/sd_mech267_horizon_depth_modulation.md) is now built, gated by the same mode_conditioning_enabled flag as mode_noise_scale, so this script's unchanged HippocampalModule construction now exercises BOTH mechanisms simultaneously. GOV-REUSE-1 (Step 2.4): decisive readout is mean_raw_std_by_dim pairwise gaps at num_cem_iterations=3 with BOTH mode_noise_scale and mode_horizon_scale active -- no prior manifest carries this combined-mechanism condition (mode_horizon_scale did not exist before e0117eea8b, 2026-08-02), so it is not recoverable from existing evidence -> proceed to run. Re-derive brake (Step 2.5b): grep-count of confirmed substrate_ceiling/non_contributory autopsies tagging MECH-267 = 1 (failure_autopsy_V3-EXQ-869_2026-08-02.json only), below the threshold of 2 -> brake does not fire. Same DV, modes-in-predicted-order, and pairwise-gap floors (FLOOR_DIAGNOSTIC=0.015, FLOOR_PRODUCTION=0.01) as V3-EXQ-869 -- a same-question re-queue, not a redesign; new claim_ids tag unchanged (['MECH-267'] only -- SD-MECH267-HORIZON-DEPTH is a substrate_queue entry, not a claim). Smoke test (validate_experiments.py --strict: OK, 0 findings; --dry-run: 3 seeds, verdict PASS x3) confirms via a new mechanism_activation diagnostic block that BOTH mechanisms fire together every cell (mode_noise_scale_used and mode_horizon_scale_used both non-None; effective_horizon varies by mode: external_task=2, internal_replay=3, internal_planning=offline_consolidation=4 out of HORIZON=4) -- not merely asserted from config inspection. A 10-seed toy-scale pilot (both conditions, run outside the committed script, not gating) found the iters=1 manipulation check clears FLOOR_DIAGNOSTIC cleanly and with the full predicted ordering in 10/10 seeds, but the iters=3 production gaps (mean 0.0050 / 0.0027 / -0.0025) remain near the FLOOR_PRODUCTION=0.01 threshold -- similar magnitude to V3-EXQ-869's original noise-scale-only result (-0.0003 / +0.0035 / -0.0037). This is reported honestly, not as a pre-judgment: it is not gating (the full 30-seed pre-registered run is what determines PASS/FAIL), and either outcome is informative -- a second FAIL would indicate the breadth-axis DV specifically does not benefit from adding horizon-depth truncation to elite selection (pointing toward the score-aggregation mechanism itself, not a missing-mechanism gap), while a PASS would confirm the implementation-gap hypothesis the autopsy proposed.",
-      "status": "pending",
-      "architecture_epoch": "ree_hybrid_guardrails_v1",
-      "conditions": 2,
-      "episodes_per_run": 1,
-      "experiment_type": "v3_exq_869a_mech267_mode_conditioning_content_persistence_retest",
-      "seeds": 30
     }
   ]
 }
