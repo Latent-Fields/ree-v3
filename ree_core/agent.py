@@ -9927,6 +9927,55 @@ class REEAgent(nn.Module):
                 hypothesis_tag=False,
             )
 
+    def update_harm_salience(self, harm_exposure: float) -> None:
+        """
+        MECH-203 (SR-2, harm-symmetric): Tag current residue field location
+        with harm salience.
+
+        Structural mirror of update_benefit_salience() -- writes into the
+        SAME shared RBF field via ResidueField.update_valence(), but into
+        VALENCE_HARM_DISCRIMINATIVE (index 2) instead of VALENCE_WANTING.
+        Uses SerotoninModule.harm_salience() for tonic-5HT-modulated,
+        EMA-scale-matched calibration.
+
+        This closes the MECH-203/SR-2 gap where no tonic-5HT-modulated
+        harm-salience write existed: update_residue()'s accumulate() path
+        only ever wrote the legacy scalar `weights` (residue density), never
+        touching valence_vecs; the separate SD-014 `valence_harm_enabled`
+        path (agent.py sense()) writes raw post-attenuation z_harm.norm()
+        every step and is not gated by (or symmetric with) tonic_5ht.
+        Both of those write paths are independent of this one and are left
+        unchanged -- this is an additive third write path, gated by the
+        SAME tonic_5ht_enabled master switch update_benefit_salience() uses
+        (no new config flag), so it is bit-identical OFF by construction.
+
+        `harm_exposure` must be the EMA'd nociceptive exposure convention
+        (e.g. CausalGridWorldV2.harm_exposure / body_obs[10]), the exact
+        counterpart of the benefit_exposure argument update_benefit_salience()
+        expects (body_obs[11]) -- see SerotoninModule.harm_salience()
+        docstring for why raw harm_signal must not be passed here (it
+        reproduces the harm/benefit RBF-capacity swamping this method exists
+        to avoid). Call at the same point in the step loop
+        update_benefit_salience() is called.
+
+        No-op when serotonin is disabled or no current latent state.
+        """
+        if not self.serotonin.enabled or self._current_latent is None:
+            return
+
+        salience = self.serotonin.harm_salience(harm_exposure)
+        if salience <= 0.0:
+            return
+
+        z_world = self._current_latent.z_world
+        if hasattr(self.residue_field, 'update_valence'):
+            self.residue_field.update_valence(
+                z_world,
+                component=VALENCE_HARM_DISCRIMINATIVE,
+                value=salience,
+                hypothesis_tag=False,
+            )
+
     def update_liking(self, benefit_exposure: float) -> None:
         """SD-014 l-component: write consummatory benefit signal to VALENCE_LIKING.
 

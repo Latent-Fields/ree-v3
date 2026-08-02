@@ -7,6 +7,9 @@ Design doc: REE_assembly/docs/architecture/sleep/serotonergic_cross_state_substr
 Substrate requirements implemented:
   SR-1: tonic_5ht slow-accumulating scalar [0, 1]
   SR-2: benefit_salience = tonic_5ht * benefit_exposure (tagging for replay)
+        harm_salience = (1 - tonic_5ht) * harm_exposure (harm-symmetric tag,
+        2026-08-02 -- see harm_salience() docstring for the calibration
+        rationale and the swamping failure mode it fixes)
   SR-3: REM zero-point hook (_precision_at_rem_entry captured on enter_rem)
 
 Waking dynamics:
@@ -197,6 +200,56 @@ class SerotoninModule:
         if not self.config.tonic_5ht_enabled:
             return 0.0
         return self._tonic_5ht * max(0.0, benefit_exposure)
+
+    def harm_salience(self, harm_exposure: float) -> float:
+        """
+        Compute harm salience tag for replay prioritisation (SR-2, harm-symmetric).
+
+        harm_salience = (1 - tonic_5ht) * harm_exposure
+
+        Biological/architectural grounding: the design doc (SR-2) describes
+        benefit_salience as "complementary to the existing harm salience from
+        the residue field" -- but no calibrated write into
+        VALENCE_HARM_DISCRIMINATIVE (the SD-014 valence-vector slot
+        benefit_salience's WANTING write shares RBF capacity with) actually
+        existed. update_residue()'s accumulate() path only ever wrote the
+        legacy scalar `weights` (residue density), never the valence vector;
+        the SD-014 `valence_harm_enabled` path (agent.py sense()) writes raw
+        post-attenuation z_harm.norm() and is a different, ungated-by-5HT
+        signal. Neither is tonic-5HT-modulated the way benefit_salience is.
+
+        The (1 - tonic_5ht) factor is not a new invention -- it is the SAME
+        complementary weight the substrate already uses for harm at replay
+        time: Agent._do_replay's drive_state vector is
+        [tonic_5ht, 0.5, 1 - tonic_5ht, surprise_weight], i.e. harm is already
+        defined as the (1 - tonic_5ht) counterpart of the wanting/benefit
+        weight when the substrate scores replay priority. This mirrors SR-1's
+        harm_suppress_rate coupling (elevated z_harm_a suppresses tonic_5ht)
+        applied symmetrically on the write side: low tonic 5-HT (the
+        depressive attractor, INV-053) amplifies harm salience; high tonic
+        5-HT suppresses it.
+
+        `harm_exposure` MUST be the same kind of signal as `benefit_exposure`
+        -- an EMA'd, already-normalised nociceptive exposure channel (e.g.
+        CausalGridWorldV2.harm_exposure / body_obs[10], the exact counterpart
+        of body_obs[11]'s benefit_exposure, updated by the same
+        nociception_ema_alpha and clipped to the same [0, 1] range) -- NOT
+        raw instantaneous harm_signal. Feeding raw |harm_signal| (env-scale,
+        ~0.05-0.13) instead of the EMA convention (~0.0037-0.0066, matching
+        benefit_exposure's own scale) was tried and reverted during the
+        MECH-203 gap investigation: it swamped the shared-capacity RBF field
+        (ResidueField.update_valence -> nearest ACTIVE center, the same
+        centers benefit_salience's WANTING write lands on) to the opposite
+        degenerate extreme -- 100% harm, 0% benefit -- because the two
+        components then accumulated at a ~13-20x scale mismatch. Using the
+        matched EMA convention keeps both channels on a comparable scale by
+        construction, without an invented calibration constant.
+
+        Returns 0.0 when disabled.
+        """
+        if not self.config.tonic_5ht_enabled:
+            return 0.0
+        return (1.0 - self._tonic_5ht) * max(0.0, harm_exposure)
 
     # -- GoalConfig dynamic modulation --
 

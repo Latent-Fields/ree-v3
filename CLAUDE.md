@@ -2262,11 +2262,39 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
       Call from experiment loop at resource contact (benefit_exposure >= liking_threshold).
       Berridge hedonic impact at consummation (opioid-mediated). Enabled by
       valence_liking_enabled=True in REEConfig.from_dims().
-    VALENCE_HARM_DISCRIMINATIVE (2): written automatically in sense() after SD-021
-      descending modulation -- NEW 2026-04-17. Post-attenuation z_harm.norm() written at
-      current z_world node. Committed-state nodes get stale (attenuated) h, creating the
-      analgesia-as-underestimated-h signature for SD-021/SD-014 cross-connection.
-      Enabled by valence_harm_enabled=True in REEConfig.from_dims().
+    VALENCE_HARM_DISCRIMINATIVE (2): TWO independent write paths, neither is a
+      replacement for the other:
+      (a) written automatically in sense() after SD-021 descending modulation --
+          NEW 2026-04-17. Post-attenuation z_harm.norm() written at current
+          z_world node, every step. Committed-state nodes get stale (attenuated)
+          h, creating the analgesia-as-underestimated-h signature for
+          SD-021/SD-014 cross-connection. Enabled by valence_harm_enabled=True
+          in REEConfig.from_dims(). NOT tonic-5HT-modulated, not symmetric with
+          benefit_salience's calibration.
+      (b) update_harm_salience(harm_exposure) -- NEW 2026-08-02 (MECH-203 SR-2
+          harm-symmetric gap fix). Mirrors update_benefit_salience() exactly:
+          writes SerotoninModule.harm_salience() = (1 - tonic_5ht) * harm_exposure
+          into VALENCE_HARM_DISCRIMINATIVE via the same
+          ResidueField.update_valence() nearest-active-center path
+          update_benefit_salience() uses. Fixes the gap where no calibrated,
+          tonic-5HT-modulated harm-salience write existed at all --
+          update_residue()'s accumulate() path only ever wrote the legacy
+          scalar `weights` (residue density), never valence_vecs. Gated by the
+          SAME tonic_5ht_enabled master switch as update_benefit_salience()
+          (no new config flag). `harm_exposure` must be the EMA'd nociceptive
+          exposure convention (CausalGridWorldV2.harm_exposure / body_obs[10],
+          symmetric to benefit_exposure / body_obs[11]) -- NOT raw
+          harm_signal. Feeding raw |harm_signal| (~0.05-0.13, a ~13-20x larger
+          scale than benefit_salience's own ~0.0037-0.0066 output) into the
+          shared-capacity RBF field via a naive direct update_valence() call
+          was tried and reverted: it swamped the field to a 100% harm / 0%
+          benefit degenerate split, because both channels write to the SAME
+          nearest-ACTIVE-center pool (see ResidueField.update_valence()).
+          The calibrated EMA-scale convention keeps both channels coexisting.
+          Contracts: tests/contracts/test_mech203_harm_salience_writepath.py
+          (6/6 PASS, including a swamping-regression fixture that pins the
+          naive-fix failure mode and a fixture proving the calibrated fix
+          avoids it).
     VALENCE_SURPRISE (3): written in update_residue() when MECH-205 surprise_gated_replay
       is active. PE-EMA delta written when magnitude exceeds pe_surprise_threshold.
   All four components now have active write paths. Config flags all default False (backward compat).
@@ -2282,6 +2310,13 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
   enter_sws_mode(), enter_rem_mode(), exit_sleep_mode(). HippocampalModule.replay() accepts
   optional drive_state for valence-weighted start selection. Master switch:
   tonic_5ht_enabled=False (default, fully backward compatible).
+  SR-2 harm-symmetric AMEND (2026-08-02, MECH-203 gap fix): harm_salience(harm_exposure)
+  = (1 - tonic_5ht) * harm_exposure and agent method update_harm_salience() added --
+  see SD-014 VALENCE_HARM_DISCRIMINATIVE write-path (b) above for the full rationale
+  (no calibrated harm-salience write existed prior to this; a naive raw-harm_signal
+  write was tried and swamped the shared RBF field to 100% harm / 0% benefit).
+  Gated by the same tonic_5ht_enabled switch, no new flag. Contracts:
+  tests/contracts/test_mech203_harm_salience_writepath.py 6/6 PASS.
   MECH-204 GAP-1 consumer (2026-05-08): SleepLoopManager WRITEBACK (phase_manager.py)
   calls SerotoninModule.compute_recalibration_target() and
   E3TrajectorySelector.recalibrate_precision_to(target, step). Config:
