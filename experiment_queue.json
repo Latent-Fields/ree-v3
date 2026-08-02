@@ -72,6 +72,27 @@
       "experiment_type": "v3_exq_864a_sd076_wci_rv_trajectory_crossover_diagnostic",
       "machine_affinity_note": "prefer cloud (linux-x86_64-py3.10); no hardware requirement.",
       "seeds": 2
+    },
+    {
+      "queue_id": "V3-EXQ-870a",
+      "title": "MECH-480: dACC-analog execution-gain dissociation -- outcome-sensitivity vs logit-margin execution strength under dacc_weight OFF/ON ablation with mid-episode contingency switch (EXP-0413, dacc_bias_max_abs clamp fix)",
+      "script": "experiments/v3_exq_870a_mech480_dacc_execution_gain_dissociation.py",
+      "priority": 30,
+      "machine_affinity": "any",
+      "estimated_minutes": 120,
+      "supersedes": "V3-EXQ-870",
+      "note": "Diagnosed via /diagnose-errors 2026-08-02. V3-EXQ-870 crashed ERROR (RuntimeError: probability tensor contains inf/nan/negative element, e3_selector.py:3498 torch.multinomial) during Seed 42 Condition ON, P1 ep 20/90, on ree-cloud-4 (traceback recovered from the ree-runner systemd journal -- crash predates any manifest write, no run pack exists). ROOT CAUSE: 870 carried DACC_WEIGHT=3.0/DACC_PRECISION_SCALE=500.0 from v3_exq_450's calibration but left dacc_bias_max_abs at its default (0.0 = unclamped). Traced through DACCtoE3Adapter.forward + e3_selector.py: with dacc_weight>=1.0 unclamped this is a POSITIVE FEEDBACK loop, not just a magnitude knob -- the dACC bias's mode_ev term is fed from payoffs=-e3.last_scores, and last_scores is the PREVIOUS tick's already-biased composed score (dacc_score_bias is added into scores before self.last_scores=scores.detach() is set). So bias_N ~= dacc_weight * bias_{N-1} in the dominant-term limit -- with dacc_weight=3.0 that is unconditionally divergent (gain>1). v3_exq_450 used the identical unclamped config and PASSED, which is NOT evidence the config is safe -- only that that run's seed/length combination did not surface the divergence before P1 ended. FIX: added DACC_BIAS_MAX_ABS=2.0 (the v3_exq_445g/445h/597/597b precedent value -- \"the range where E3 softmax can actually discriminate candidates\", per 445g's docstring) to the REEConfig.from_dims() call, which truncates the bias every tick and so cannot diverge regardless of dacc_weight. DACC_WEIGHT/DACC_PRECISION_SCALE and every other constant, phase, and threshold are UNCHANGED from 870, so the calibrated effect size (the magnitude v3_exq_450 found necessary to shift E3's argmax) is preserved -- only the runaway tail is cut. Added a preflight regression-guard assertion that the clamp actually reaches agent.dacc_adapter.config.dacc_bias_max_abs (from_dims has a known failure mode where an unwired kwarg is silently swallowed -- see ree-v3/CLAUDE.md from_dims memory note -- which would silently re-arm this exact divergence). Code review (Step 4d) + smoke test (--dry-run, 1 seed x 2 conditions, tiny P1=4/P2=2/steps=20/switch=10) 2026-08-02: preflight PASS including the new clamp-reached assertion, both conditions ran cleanly to completion with no crash, n_genuine_selections>0 asserted and confirmed in both arms. claim_ids unchanged from 870 (user-confirmed 2026-08-02): the fix is a numerical-stability clamp only and does not change what MECH-480 hypothesis is being tested. supersedes=V3-EXQ-870 (ERROR, crash-before-manifest, no manifest to mark superseded via governance -- the synthetic ERROR record v3_v3_exq_870_runner_error_20260802T105035Z_v3 is the only artifact; evidence_direction already non_contributory).",
+      "status": "pending",
+      "architecture_epoch": "ree_hybrid_guardrails_v1",
+      "claim_ids": [
+        "MECH-480"
+      ],
+      "conditions": 2,
+      "episodes_per_run": 90,
+      "experiment_purpose": "evidence",
+      "experiment_type": "v3_exq_870a_mech480_dacc_execution_gain_dissociation",
+      "seeds": 3,
+      "backlog_id": "EXP-0413"
     }
   ]
 }
