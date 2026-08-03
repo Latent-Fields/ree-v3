@@ -51,6 +51,28 @@ else
   echo "[$(ts)] autosync: FAILED (git pull --ff-only) -- continuing this cycle on existing code" >> "$LOG"
 fi
 
+# Coordination-plane dirt check -- report only, never touches anything.
+# Confirmed live 2026-08-03: THIS box's own REE_assembly checkout sat with
+# 1220 uncommitted files (a stale build_experiment_indexes.py regen, never
+# committed) for an unknown multi-hour window with zero signal anywhere --
+# the exact box this dispatcher runs on. See
+# scripts/audit_coordination_plane_dirt.py's own docstring for the full
+# incident and the documented ~1050-1190-file governance-regen shape this
+# detects (REE_assembly/evidence/planning/
+# ree_assembly_orphaned_autostash_triage.md). A flag here does NOT block or
+# fix anything -- same "detect and report, never auto-discard blindly"
+# stance as everywhere else in this codebase; a human/session verifies
+# against origin before touching anything.
+if [ -f "$REPO/scripts/audit_coordination_plane_dirt.py" ]; then
+  DIRT_OUT="$(/opt/local/bin/python3 "$REPO/scripts/audit_coordination_plane_dirt.py" --exit-nonzero 2>&1)"
+  DIRT_RC=$?
+  echo "[$(ts)] coordination-plane dirt check:" >> "$LOG"
+  echo "$DIRT_OUT" >> "$LOG"
+  if [ "$DIRT_RC" -ne 0 ]; then
+    echo "[$(ts)] WARNING: coordination-plane dirt flagged -- see log above" >> "$LOG"
+  fi
+fi
+
 CYCLE_FILE="$STATE_DIR/cycle_count"
 [ -f "$CYCLE_FILE" ] || echo 0 > "$CYCLE_FILE"
 CYCLE=$(( $(cat "$CYCLE_FILE") + 1 ))
