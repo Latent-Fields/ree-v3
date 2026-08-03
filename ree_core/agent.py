@@ -208,6 +208,26 @@ from ree_core.residue.field import (
 )
 
 
+# SD-modulatory-channel-route-decomp-gate-fix (2026-08-03). The
+# modulatory_channel_route_source values that identity-route an already-computed
+# per-candidate [K] channel bias captured into a _bdc_* tracker inside the E3
+# bias blocks. These four were the ones whose capture was gated on the unrelated
+# e3_score_decomp_enabled diagnostic flag, making the route silently inert
+# (confirmed V3-EXQ-863). Deliberately EXCLUDES "coherence" -- it routes a
+# _bdc_* tracker too, but was never decomp-gated, and its None is a DESIGNED
+# outcome (a shuffled MECH-294 packet has no co-bound streams, so the empty-tick
+# backstop below would fire as a false positive on correct behaviour). Also
+# excludes "cand_world_summary", which builds its own representation on demand
+# and so cannot be starved this way.
+_MODULATORY_ROUTE_CHANNEL_SOURCES = frozenset(
+    {"lateral_pfc", "gated_policy", "mech295", "curiosity"}
+)
+# Consecutive empty ticks before the backstop warns. A single empty tick is
+# legitimate (the channel's own block may not have run on a warmup tick), a
+# sustained run of them is the inert-route failure.
+_ROUTE_SOURCE_EMPTY_WARN_TICKS = 8
+
+
 def candidate_support_preflight(
     candidates: List[Trajectory],
     forced_score_bias_per_class: Optional[List[float]] = None,
@@ -6202,6 +6222,34 @@ class REEAgent(nn.Module):
         # tracker, stashed so the "coherence" route source is available at the
         # e3.select() site (parallel to the other _bdc_* per-candidate biases).
         _bdc_coherence: Optional[torch.Tensor] = None
+        # SD-modulatory-channel-route-decomp-gate-fix (2026-08-03): FOUR of the
+        # _bdc_* trackers above (lpfc / gp / m295 / curiosity) are read a second
+        # time, by the modulatory_channel_route_source dispatch at the e3.select()
+        # site below (~"channel_route_bias") -- a LOAD-BEARING SELECTION path, not
+        # diagnostics. Their capture was gated on e3.e3_score_decomp_enabled, an
+        # UNRELATED V3-EXQ-571 diagnostic flag that defaults False and that no
+        # confirmed driver sets, so four of six route sources were silently no-op:
+        # confirmed by V3-EXQ-863, where modulatory_channel_route_range_mean and
+        # _route_active_frac read exactly 0.0 on a correctly-configured
+        # lateral_pfc arm whose underlying bias was independently measured
+        # nonzero and differentiated. ("coherence" escaped the bug only because
+        # _bdc_coherence is assigned ungated; "cand_world_summary" builds its own
+        # representation.) Capture now fires when EITHER the diagnostic flag is on
+        # OR routing has selected that channel. The diagnostic EXPOSURE
+        # (last_score_decomp / the component trackers, V3-EXQ-571's actual
+        # purpose) stays gated on e3_score_decomp_enabled alone, so that payload
+        # is unchanged -- and the flag-OFF, routing-OFF default path is still
+        # zero-cost and bit-identical.
+        _bdc_decomp_on = bool(self.e3.e3_score_decomp_enabled)
+        _bdc_route_source = (
+            str(getattr(self.config, "modulatory_channel_route_source", "none"))
+            if getattr(self.config, "use_modulatory_channel_routing", False)
+            else "none"
+        )
+        _bdc_keep_lpfc = _bdc_decomp_on or _bdc_route_source == "lateral_pfc"
+        _bdc_keep_gp = _bdc_decomp_on or _bdc_route_source == "gated_policy"
+        _bdc_keep_m295 = _bdc_decomp_on or _bdc_route_source == "mech295"
+        _bdc_keep_curiosity = _bdc_decomp_on or _bdc_route_source == "curiosity"
         # ControlVector logging (rec-B): reset the cached MECH-320 split each
         # tick so a tonic-vigor-off / no-fire tick does not carry stale state.
         self._cv_vigor = None
@@ -6527,7 +6575,7 @@ class REEAgent(nn.Module):
                     simulation_mode=_gp_sim,
                 )
             gp_bias = _gp_output.gated_score_bias
-            if self.e3.e3_score_decomp_enabled:
+            if _bdc_keep_gp:  # decomp diagnostic OR "gated_policy" route source
                 _bdc_gp = gp_bias.detach().clone()
             if _fcg_channels is not None:  # MECH-451: gated_policy finer channel
                 _fcg_channels["gated_policy"] = gp_bias.detach().clone()
@@ -6715,7 +6763,7 @@ class REEAgent(nn.Module):
                 _fcg_channels["lpfc"] = lpfc_bias.detach().clone()
             if _fcg_channel_reps is not None:  # ARC-110 C2: per-candidate rep
                 _fcg_channel_reps["lpfc"] = cand_world_summaries.detach().clone()
-            if self.e3.e3_score_decomp_enabled:
+            if _bdc_keep_lpfc:  # decomp diagnostic OR "lateral_pfc" route source
                 _bdc_lpfc = lpfc_bias.detach().clone()
             # Compose additively with dACC score_bias (lower-is-better in E3).
             if dacc_score_bias is None:
@@ -6906,7 +6954,7 @@ class REEAgent(nn.Module):
                         dtype=m295_bias.dtype, device=m295_bias.device
                     )
 
-            if self.e3.e3_score_decomp_enabled:
+            if _bdc_keep_m295:  # decomp diagnostic OR "mech295" route source
                 _bdc_m295 = m295_bias.detach().clone()
             if _fcg_channels is not None:  # MECH-451: liking (MECH-295) channel
                 _fcg_channels["liking"] = m295_bias.detach().clone()
@@ -6994,7 +7042,7 @@ class REEAgent(nn.Module):
                     visitation_source=self._zworld_visitation_buffer,
                     first_action_onehots=cur_onehots,
                 )
-            if self.e3.e3_score_decomp_enabled:
+            if _bdc_keep_curiosity:  # decomp diagnostic OR "curiosity" route source
                 _bdc_curiosity = cur_bias.detach().clone()
             if dacc_score_bias is None:
                 dacc_score_bias = cur_bias
@@ -7631,6 +7679,38 @@ class REEAgent(nn.Module):
                 # GatedPolicy module; see arc_062_conversion_fanout_2026-07-29.md
                 # erratum).
                 _route_repr = _bdc_lpfc
+            # SD-modulatory-channel-route-decomp-gate-fix (2026-08-03) BACKSTOP.
+            # The failure this whole fix exists for was SILENT: a correctly
+            # configured route source produced channel_route_bias=None for a full
+            # experiment, and the only trace was a route_range of exactly 0.0 in
+            # the manifest -- indistinguishable from a genuinely undifferentiated
+            # channel. Warn (once per agent) if a configured channel source keeps
+            # yielding nothing, so any REMAINING coupling of this shape surfaces
+            # at runtime instead of in a post-hoc autopsy. Counted over
+            # consecutive ticks rather than fired on the first, because a single
+            # empty tick is legitimate (the channel's own block may not have run
+            # yet on a warmup tick).
+            if _route_source in _MODULATORY_ROUTE_CHANNEL_SOURCES:
+                if _route_repr is None:
+                    _n_none = getattr(self, "_route_source_empty_ticks", 0) + 1
+                    self._route_source_empty_ticks = _n_none
+                    if _n_none >= _ROUTE_SOURCE_EMPTY_WARN_TICKS and not getattr(
+                        self, "_route_source_empty_warned", False
+                    ):
+                        self._route_source_empty_warned = True
+                        warnings.warn(
+                            "modulatory_channel_route_source="
+                            f"'{_route_source}' has produced no per-candidate bias "
+                            f"for {_n_none} consecutive ticks, so the route is a "
+                            "no-op and modulatory_channel_route_range will read "
+                            "0.0. Check that the channel's own enable flag is set "
+                            "(this is the V3-EXQ-863 failure shape; see "
+                            "SD-modulatory-channel-route-decomp-gate-fix).",
+                            UserWarning,
+                            stacklevel=2,
+                        )
+                else:
+                    self._route_source_empty_ticks = 0
             if _route_repr is not None:
                 channel_route_bias = project_channel_range(_route_repr)
         # DR-12 (self_model_v4:SELF-4) VERSION-LAYERING GUARD (2026-06-17): the
