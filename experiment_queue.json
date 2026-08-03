@@ -50,25 +50,6 @@
       "experiment_purpose": "evidence",
       "experiment_type": "v3_exq_149b_q004_tau_r_calibration_largebudget",
       "seeds": 2
-    },
-    {
-      "queue_id": "V3-EXQ-882",
-      "title": "MECH-472 held-out context vs task memorisation, training-exposure sweep (EXP-0400)",
-      "script": "experiments/v3_exq_882_mech472_context_memorization_generalization.py",
-      "priority": 25,
-      "machine_affinity": "any",
-      "estimated_minutes": 180,
-      "claim_id": "MECH-472",
-      "note": "GOV-REUSE-1: zero prior evidence for MECH-472 (claim_evidence.v1.json has no entry) and no manifest anywhere carries a held-out-vs-in-context survival gap readout on this env family -- not recoverable, proceeding to run. Substrate readiness: CausalGridWorldV2's per-instance seeded RNG (causal_grid_world.py ~:1235, draws advance across reset() without re-seeding) already generates a distinct hazard/resource surface configuration per seed under fixed task structure -- confirmed sufficient context-set machinery, no new build required. Does NOT depend on V3-EXQ-875/EXP-0399 completing: reuses its 'corner' reef-geometry env kwargs verbatim but trains ONE competence (not the interference pair), so the proposal's conditional baseline-fingerprint-reuse note ('if the competence set matches') is confirmed NOT applicable here -- this experiment mints its own arms from scratch. complicated (buildable) per its own design.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-4",
-        "claimed_at": "2026-08-02T22:21:35Z"
-      },
-      "conditions": 4,
-      "episodes_per_run": 560,
-      "experiment_type": "v3_exq_882_mech472_context_memorization_generalization",
-      "seeds": 3
     }
   ]
 }
