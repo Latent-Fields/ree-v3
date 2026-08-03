@@ -2848,6 +2848,36 @@ class REEConfig:
     # gate engagement on goal_state.is_active() (no active goal -> engagement 0).
     external_task_drive_require_goal_active: bool = True
 
+    # SD-091/MECH-481: claustrum coalition-control substrate.
+    # Master switch -- when True, REEAgent instantiates a CoalitionController
+    # (ree_core/claustrum/) that composes a per-target write_gate()/
+    # channel_gain() multiplier into the E1/E2 sensory path, hippocampal
+    # anchor-set/persistence-appraisal, and BetaGate/MECH-090 commit-entry
+    # consumer sites. Attenuation-only by construction (CoalitionState
+    # clamps participating/suppressed to [0, 1], so coalition_gate(target)
+    # <= 1.0 always -- see coalition_controller.py's module docstring).
+    # False = disabled (default, backward compat); no coalition is ever
+    # requested unless something calls coalition.request_coalition(), so this
+    # flag alone does not change behaviour -- it only makes the wiring reachable.
+    use_coalition_controller: bool = False
+    # Which ControlDemandType members request_coalition() will actually
+    # instantiate (see control_demand.py). Default: both MVP-templated types
+    # (SENSORY_RESAMPLE, PROVENANCE_CHECK). A frozenset is not picklable-by-
+    # default across all serialisation paths in this codebase's config
+    # plumbing, so this is stored/passed as a tuple of the enum VALUE strings
+    # (e.g. ("sensory_resample", "provenance_check")) and converted at
+    # REEAgent construction time.
+    coalition_types_enabled: tuple = ("sensory_resample", "provenance_check")
+    # Gamma_t hard-timeout floor (doc Section 1/3). Placeholder magnitude --
+    # doc's own note: "default TBD by whoever builds this, informed by
+    # typical trial length in the MECH-481 battery" (no battery exists yet;
+    # that is the deferred /queue-experiment step).
+    coalition_max_duration_ticks: int = 50
+    # Scales every active coalition's channel_gain dict (e.g. the
+    # e3_candidate_count widening under SENSORY_RESAMPLE) at instantiation
+    # time. 1.0 = template magnitudes unchanged.
+    coalition_channel_gain_scale: float = 1.0
+
     # SD-032c: AIC-analog interoceptive-salience / urgency module.
     # Master switch -- when True, REEAgent instantiates an AICAnalog that
     # reads z_harm_a_norm + drive_level + beta_gate_elevated + operating_mode
@@ -5722,6 +5752,11 @@ class REEConfig:
         external_task_drive_commit_weight: float = 1.0,
         external_task_drive_proximity_weight: float = 1.0,
         external_task_drive_require_goal_active: bool = True,
+        # SD-091/MECH-481: claustrum coalition-control substrate (no-op default).
+        use_coalition_controller: bool = False,
+        coalition_types_enabled: tuple = ("sensory_resample", "provenance_check"),
+        coalition_max_duration_ticks: int = 50,
+        coalition_channel_gain_scale: float = 1.0,
         # SD-032c: AIC-analog interoceptive-salience / urgency
         use_aic_analog: bool = False,
         aic_baseline_alpha: float = 0.02,
@@ -6914,6 +6949,12 @@ class REEConfig:
         config.external_task_drive_commit_weight = external_task_drive_commit_weight
         config.external_task_drive_proximity_weight = external_task_drive_proximity_weight
         config.external_task_drive_require_goal_active = external_task_drive_require_goal_active
+
+        # SD-091/MECH-481: claustrum coalition-control substrate.
+        config.use_coalition_controller = use_coalition_controller
+        config.coalition_types_enabled = coalition_types_enabled
+        config.coalition_max_duration_ticks = coalition_max_duration_ticks
+        config.coalition_channel_gain_scale = coalition_channel_gain_scale
 
         # SD-032c: AIC-analog interoceptive-salience / urgency
         config.use_aic_analog = use_aic_analog

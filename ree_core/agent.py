@@ -68,6 +68,11 @@ from ree_core.hippocampal.persistence_appraisal_compute import (
 )
 from ree_core.heartbeat.clock import MultiRateClock
 from ree_core.heartbeat.beta_gate import BetaGate
+from ree_core.claustrum.control_demand import ControlDemandType
+from ree_core.claustrum.coalition_controller import (
+    CoalitionController,
+    CoalitionControllerConfig,
+)
 from ree_core.neuromodulation.serotonin import SerotoninModule
 from ree_core.predictors.e2_harm_a import E2HarmAConfig, E2HarmAForward
 from ree_core.predictors.e2_harm_s import E2HarmSConfig, E2HarmSForward
@@ -637,6 +642,36 @@ class REEAgent(nn.Module):
             self.salience = SalienceCoordinator(sal_cfg)
         # Cache of last coordinator tick output (for diagnostics / experiments).
         self._salience_last_tick: Optional[Dict[str, object]] = None
+
+        # SD-091/MECH-481: claustrum coalition-control substrate. Reads
+        # operating_mode one-directionally (never writes into self.salience --
+        # see sd_091_coalition_topology_control.md Section 3). Instantiated
+        # alongside, not inside, SalienceCoordinator. use_coalition_controller
+        # defaults False, and even when True nothing calls
+        # request_coalition() unless a caller does so explicitly, so this is
+        # inert by default regardless.
+        self.coalition: Optional[CoalitionController] = None
+        if getattr(config, "use_coalition_controller", False):
+            _coal_types_enabled = frozenset(
+                ControlDemandType(v)
+                for v in getattr(
+                    config,
+                    "coalition_types_enabled",
+                    ("sensory_resample", "provenance_check"),
+                )
+            )
+            self.coalition = CoalitionController(
+                CoalitionControllerConfig(
+                    enabled=True,
+                    types_enabled=_coal_types_enabled,
+                    default_max_duration_ticks=int(
+                        getattr(config, "coalition_max_duration_ticks", 50)
+                    ),
+                    channel_gain_scale=float(
+                        getattr(config, "coalition_channel_gain_scale", 1.0)
+                    ),
+                )
+            )
 
         # SD-032c: AIC-analog interoceptive-salience / urgency module.
         # Emits aic_salience -> salience coordinator and harm_s_gain ->
@@ -3022,6 +3057,10 @@ class REEAgent(nn.Module):
             self.salience.reset()
         self._salience_last_tick = None
 
+        # SD-091/MECH-481: reset coalition controller on episode boundary.
+        if self.coalition is not None:
+            self.coalition.reset()
+
         # SD-032c: reset AIC-analog interoceptive baseline.
         if self.aic is not None:
             self.aic.reset()
@@ -4550,6 +4589,18 @@ class REEAgent(nn.Module):
                 [new_latent.z_self.detach(), new_latent.z_world.detach()],
                 dim=-1,
             )
+            # SD-091/MECH-481: hippocampal_write_consolidation consumer site
+            # (suppressed axis, PROVENANCE_CHECK template) -- this is the
+            # concrete per-tick "write into persistent memory" call the
+            # coalition's write-consolidation gate attenuates. Scaling the
+            # written state's magnitude (rather than skipping the write
+            # outright) keeps the attenuation continuous and gradeable,
+            # matching write_gate()'s own [0, 1] semantics. No-op (identity)
+            # when self.coalition is None.
+            if self.coalition is not None:
+                obs_state = obs_state * float(
+                    self.coalition.write_gate("hippocampal_write_consolidation")
+                )
             self.e1.context_memory.write(obs_state)
 
         # Detach before storing: prevents EMA from linking computational graphs
@@ -4715,6 +4766,18 @@ class REEAgent(nn.Module):
                 current_step=int(self._step_count),
                 simulation_mode=False,
             )
+            # SD-091/MECH-481: hippocampal_anchor_set consumer site
+            # (participating axis, PROVENANCE_CHECK template). Attenuates
+            # the motivational payload's wanting_strength BEFORE it is
+            # carried into tick_anchor_set()'s install/remap below -- this
+            # scopes the coalition's effect to the payload strength this
+            # tick's anchor write carries, without touching AnchorSet's own
+            # hysteresis/dual-trace internals (hippocampal/anchor_set.py).
+            # No-op (identity) when self.coalition is None.
+            if self.coalition is not None and sd039_payload is not None:
+                sd039_payload.wanting_strength = float(
+                    sd039_payload.wanting_strength
+                ) * float(self.coalition.write_gate("hippocampal_anchor_set"))
 
         # MECH-269 Phase 2 (ii): scale-tagged anchor set. Installs / remaps
         # anchors for each BoundaryEvent emitted this tick (from the local
@@ -5007,7 +5070,19 @@ class REEAgent(nn.Module):
                 gated_for_e1.z_world.detach()
             )
             self._cue_action_bias    = action_bias.detach()
-            self._cue_terrain_weight = terrain_weight.detach()
+            terrain_weight = terrain_weight.detach()
+            # SD-091/MECH-481: e1_sensory_encoder consumer site. terrain_weight
+            # IS the "E1 -> E3 precision modulation" signal (MECH-152, see
+            # e1_deep.py:410) -- the concrete precision-routing target named
+            # in sd_091_coalition_topology_control.md Section 2's table.
+            # Attenuation-only: write_gate() <= 1.0 always, so this can only
+            # lower or leave unchanged E1's precision contribution, never
+            # raise it. No-op (identity) when self.coalition is None.
+            if self.coalition is not None:
+                terrain_weight = terrain_weight * float(
+                    self.coalition.write_gate("e1_sensory_encoder")
+                )
+            self._cue_terrain_weight = terrain_weight
         else:
             self._cue_action_bias    = None
             self._cue_terrain_weight = None
@@ -5100,6 +5175,18 @@ class REEAgent(nn.Module):
             else None
         )
         _persistence_appraisal = self._compute_persistence_appraisal(z_world_for_e3)
+        # SD-091/MECH-481: hippocampal_persistence_appraisal consumer site
+        # (participating axis, PROVENANCE_CHECK template). Attenuates
+        # control_efficacy (the "still worth persisting" signal MECH-340
+        # feeds to GhostGoalBank.rank() and the proposer below) -- lower
+        # gate -> lower perceived control/efficacy, consistent with
+        # "recruiting provenance scrutiny lowers confidence pending
+        # verification," never raises it (write_gate() <= 1.0 always).
+        # No-op (identity) when self.coalition is None.
+        if self.coalition is not None and _persistence_appraisal is not None:
+            _persistence_appraisal.control_efficacy = float(
+                _persistence_appraisal.control_efficacy
+            ) * float(self.coalition.write_gate("hippocampal_persistence_appraisal"))
         # SD-061: difficulty-gated proposal-entropy. When stuck (the previous
         # tick's stuck_score), transiently WIDEN the CEM candidate set and lift
         # the within-class CEM sampling temperature on the PROPOSAL layer
@@ -5130,6 +5217,26 @@ class REEAgent(nn.Module):
                 )
                 self.hippocampal.config.differentiable_cem_temperature = (
                     _dgpe_temp_restore * _dgpe_temp_gain
+                )
+        # SD-091/MECH-481: e3_candidate_count consumer site (channel_gain
+        # axis, SENSORY_RESAMPLE template). This is the literal precedent
+        # coalition_templates.py's own docstring names: "temporarily raise
+        # candidate_count ceiling is a parametric side-effect the coalition
+        # may request via its own channel_gain" -- applied on top of (not
+        # instead of) the SD-061 DGPE widening above, same idiom. gain=1.0
+        # (default / disabled / no active coalition names this target) is a
+        # no-op; unlike write_gate(), channel_gain() is NOT capped at 1.0,
+        # so this can genuinely widen the candidate set.
+        if self.coalition is not None:
+            _coal_cc_gain = float(self.coalition.channel_gain("e3_candidate_count"))
+            if _coal_cc_gain != 1.0:
+                _dgpe_base_cc = (
+                    _dgpe_num_candidates
+                    if _dgpe_num_candidates is not None
+                    else getattr(self.hippocampal.config, "num_candidates", 0)
+                )
+                _dgpe_num_candidates = max(
+                    1, int(round(int(_dgpe_base_cc) * _coal_cc_gain))
                 )
         try:
             candidates = self.hippocampal.propose_trajectories(
@@ -6494,6 +6601,18 @@ class REEAgent(nn.Module):
                 dacc_score_bias = dacc_score_bias * float(e3_gate)
                 self._dacc_last_bias = dacc_score_bias.detach().clone()
 
+        # SD-091/MECH-481: advance the coalition controller's clock and
+        # dissolve any coalition past its Gamma_t completion_condition /
+        # max_duration_ticks timeout. Runs after the salience coordinator's
+        # own tick (doc Section 3: "coalition.tick(current_tick) runs after
+        # coordinator.tick() ... before consumer sites resolve their
+        # effective recruitment weight"), independent of whether
+        # SalienceCoordinator itself is enabled. No-op when self.coalition
+        # is None or its own master switch is off (CoalitionController.tick
+        # itself no-ops when disabled).
+        if self.coalition is not None:
+            self.coalition.tick(int(self._step_count))
+
         # MECH-451: capture the dACC-conflict finer channel = the dACC contribution
         # to score_bias (post-e3_gate, before any other head adds). Captured here so
         # the gp / lpfc / ofc / mech295 / vigour contributions added below are NOT
@@ -6983,6 +7102,18 @@ class REEAgent(nn.Module):
             # Returns None for the default "proposer" source, in which case
             # the legacy reuse-chain below runs unchanged (bit-identical).
             cur_summaries = self._curiosity_candidate_summaries(candidates)
+            # SD-091/MECH-481: e2_fast_forward_model consumer site
+            # (participating axis, SENSORY_RESAMPLE template). cur_summaries
+            # here is specifically the SD-056-trained e2.world_forward(z0,
+            # a_i) per-candidate prediction (see
+            # _curiosity_candidate_summaries' own docstring) -- gated only
+            # on this branch, not the proposer-summary fallback chain below,
+            # since only this branch is actually E2's forward model output.
+            # No-op (identity) when self.coalition is None.
+            if cur_summaries is not None and self.coalition is not None:
+                cur_summaries = cur_summaries * float(
+                    self.coalition.write_gate("e2_fast_forward_model")
+                )
             if cur_summaries is None:
                 # Build per-candidate first-step z_world summaries. Reuse
                 # m295_summaries when the MECH-295 block ran; else
@@ -7993,6 +8124,26 @@ class REEAgent(nn.Module):
                 # and the permissive single-candidate path admits.
                 _readiness_margin = None
                 _n_candidates = 0
+        # SD-091/MECH-481: e3_commitment_monitor (recruited, "monitoring
+        # intensified") + motor_commitment (suppressed, "attenuate elevation
+        # eligibility") consumer sites -- both target this same MECH-090
+        # commit-entry readiness signal, per
+        # sd_091_coalition_topology_control.md Section 2's table. Composed
+        # as a product (matching CoalitionController.write_gate()'s own
+        # multi-coalition composition) and applied to _readiness_margin
+        # BEFORE should_admit_elevation()/is_above_floor() consume it below
+        # -- both gates are <= 1.0 always, so this can only lower or leave
+        # unchanged the effective margin, never raise it above the
+        # uncoalitioned baseline (the guardrail this module's own docstring
+        # requires a contract test for: "coalition suppression of the E3
+        # commitment monitor target can only lower commit-readiness, never
+        # force-open the commit boundary"). No-op (identity) when
+        # self.coalition is None or _readiness_margin is None (the gate
+        # this tick never ran / rv-only legacy path).
+        if _readiness_margin is not None and self.coalition is not None:
+            _readiness_margin = _readiness_margin * float(
+                self.coalition.write_gate("e3_commitment_monitor")
+            ) * float(self.coalition.write_gate("motor_commitment"))
         # MECH-090 R-c readiness-conjunction (nav_competence axis, 2026-05-28).
         # Composes WITH the score_margin gate via AND: both gates must admit
         # for elevation. score_margin is the within-tick decisiveness reading

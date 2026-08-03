@@ -189,6 +189,16 @@ class CoalitionController:
     def config(self) -> CoalitionControllerConfig:
         return self._config
 
+    def reset(self) -> None:
+        """Clear all active coalitions and the tick clock on episode boundary
+        (mirrors SalienceCoordinator.reset()/BetaGate.reset() -- added when
+        this module was wired into REEAgent.select_action; not needed while
+        the module was self-contained and unimported). Does not clear
+        unregistered_request_count (a lifetime diagnostic counter, matching
+        the convention of similar counters elsewhere in ree_core)."""
+        self._active = []
+        self._current_tick = 0
+
     @property
     def active_coalitions(self) -> List[CoalitionState]:
         return list(self._active)
