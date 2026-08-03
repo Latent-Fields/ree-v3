@@ -53,6 +53,32 @@ unreachable unless proximity_approach_magnitude_tiebreak=True is passed (see
 its constructor comment). Off by default for bit-identical legacy behavior.
 
 Sub-goal mode preserved unchanged from V2.
+
+SD-094 note (two traps for subgoal_mode / hazard-free probe authors; both
+confirmed live-reproduced against V3-EXQ-884, both fixed opt-in only):
+
+  1. Waypoint arrival is detected by the GRID CELL TYPE of the destination
+     (target_type == ENTITY_TYPES["waypoint"]), but the agent's own position
+     marker overwrites whatever cell it enters and the vacated cell reverts to
+     "empty", never back to "waypoint". So the FIRST time the agent transits a
+     waypoint cell -- including one that is merely passed through and is not
+     yet the pending target -- that waypoint's marker is destroyed for the rest
+     of the sequence, and the later legitimate arrival on it registers no
+     transition_type at all. Pass subgoal_arrival_position_check=True to detect
+     arrival by position against self.waypoints[self._next_waypoint_idx] and to
+     keep the grid marker consistent with self.waypoints.
+
+  2. contamination_spread defaults to 0.5 and applies to EVERY cell the agent
+     enters, regardless of num_hazards. A "hazard-free" probe (num_hazards=0)
+     therefore still kills its own agent: revisited cells cross
+     contamination_threshold, become ENTITY_TYPES["contaminated"], and drain
+     agent_health via contaminated_harm until the episode terminates far short
+     of its configured step budget. V3-EXQ-884 died at 32/19/90 of 400 steps
+     this way. The V3-EXQ-513 precedent is to pass contamination_spread=0.0
+     explicitly; pass hazard_free_contamination_gate=True to have num_hazards=0
+     configs do that for themselves.
+
+Both flags are off by default so every existing script is bit-identical.
 """
 
 from typing import Dict, List, Optional, Tuple
@@ -121,6 +147,49 @@ class CausalGridWorld:
         waypoint_visit_reward: float = 0.2,
         waypoint_completion_reward: float = 0.8,
         sequence_commitment_timeout: int = 20,
+        # SD-094: decouple waypoint-arrival detection from the grid cell type.
+        # The legacy arrival branch keys on target_type == ENTITY_TYPES
+        # ["waypoint"], but self.grid[new_x, new_y] = ENTITY_TYPES["agent"]
+        # overwrites the destination cell on every move and the vacated-cell
+        # logic reverts it to "empty" -- never back to "waypoint". So a single
+        # transit of a waypoint cell (very often a merely-passed-through one
+        # that is NOT yet the pending target) permanently erases that marker
+        # for the remainder of the sequence, and the agent can then stand
+        # exactly on self.waypoints[self._next_waypoint_idx] with no arrival
+        # registered and transition_type == "none". Confirmed 2026-08-03
+        # against V3-EXQ-884: the final waypoint of the sequence was missed in
+        # 2/3 seeds, so sequences that were behaviourally completed recorded
+        # zero "sequence_complete" transitions.
+        # Set True to (a) additionally recognise arrival by comparing the
+        # agent's post-move position directly against the pending waypoint --
+        # which is what the completion_tolerance_enabled path already does
+        # correctly, but that path is gated behind its own master switch and a
+        # non-zero tolerance band -- and (b) restore the "waypoint" marker on a
+        # vacated cell that is still a live entry of self.waypoints, mirroring
+        # the consummatory_act_enabled resource-marker restore, so the grid
+        # (and therefore the world observation) stays consistent with
+        # self.waypoints across departures.
+        # Default False: (b) changes the grid the agent observes and shifts the
+        # _respawn_waypoints RNG stream, so ~1150 existing scripts that
+        # construct this env stay bit-identical.
+        subgoal_arrival_position_check: bool = False,
+        # SD-094: hazard-free probes contaminate themselves to death.
+        # contamination_spread is applied to every cell the agent enters and is
+        # entirely independent of num_hazards, so num_hazards=0 does NOT give a
+        # harm-free world: revisited cells cross contamination_threshold, are
+        # re-typed ENTITY_TYPES["contaminated"], and then drain agent_health by
+        # contaminated_harm per contact until done = agent_health <= 0 fires.
+        # Confirmed 2026-08-03: V3-EXQ-884 (num_hazards=0, num_resources=0,
+        # subgoal_mode=True, 400 configured steps) terminated at 32/19/90 steps
+        # on seeds 42/43/44 with health exactly 0.0 -- entirely self-inflicted.
+        # The V3-EXQ-513 precedent is for the author to pass
+        # contamination_spread=0.0 explicitly. Set this True to make a
+        # num_hazards=0 config do that for itself (contamination_spread is
+        # forced to 0.0; see self._contamination_gate_applied). No effect
+        # whatsoever when num_hazards > 0.
+        # Default False so the ~64 existing num_hazards=0 scripts keep their
+        # current dynamics rather than silently changing under them.
+        hazard_free_contamination_gate: bool = False,
         # Proxy-gradient field mode (ARC-024, CausalGridWorldV2)
         use_proxy_fields: bool = False,
         # Toroidal wrapping: no walls, movement wraps at grid edges
@@ -659,6 +728,21 @@ class CausalGridWorld:
         self.num_hazards = num_hazards
         self.num_resources = num_resources
         self.contamination_spread = contamination_spread
+        # SD-094: opt-in self-contamination gate for hazard-free probes. Applied
+        # here, at the single point where contamination_spread is bound, so
+        # every downstream read (step(), the obs normalisation, the config
+        # snapshot) sees the gated value with no second code path to keep in
+        # sync. _contamination_gate_applied records whether it actually fired,
+        # so a probe author can assert the gate took effect rather than
+        # inferring it from a zero that may have been passed explicitly.
+        self.hazard_free_contamination_gate = bool(hazard_free_contamination_gate)
+        self._contamination_gate_applied = bool(
+            self.hazard_free_contamination_gate
+            and int(num_hazards) == 0
+            and float(contamination_spread) != 0.0
+        )
+        if self._contamination_gate_applied:
+            self.contamination_spread = 0.0
         self.contamination_threshold = contamination_threshold
         self.env_drift_interval = env_drift_interval
         self.env_drift_prob = env_drift_prob
@@ -701,6 +785,9 @@ class CausalGridWorld:
         self.waypoint_visit_reward = waypoint_visit_reward
         self.waypoint_completion_reward = waypoint_completion_reward
         self.sequence_commitment_timeout = sequence_commitment_timeout
+        # SD-094: see the constructor comment. Off -> the legacy grid-cell-type
+        # arrival branch is the only path, bit-identically.
+        self.subgoal_arrival_position_check = bool(subgoal_arrival_position_check)
 
         # Proxy-gradient parameters
         self.use_proxy_fields = use_proxy_fields
@@ -2218,10 +2305,51 @@ class CausalGridWorld:
                 # resource is still live, and a return visit would miss the
                 # resource_contact branch. Zero effect when the flag is off.
                 self.grid[old_x, old_y] = self.ENTITY_TYPES["resource"]
+            elif (
+                self.subgoal_arrival_position_check
+                and self.subgoal_mode
+                and any(
+                    int(w[0]) == old_x and int(w[1]) == old_y
+                    for w in self.waypoints
+                )
+            ):
+                # SD-094 (b): the agent is leaving a cell that is still a live
+                # entry of self.waypoints. Waypoints are never consumed on
+                # visit -- the arrival branch only advances _next_waypoint_idx,
+                # and the whole set persists until _respawn_waypoints() -- so
+                # reverting this cell to "empty" desynchronises the grid from
+                # self.waypoints permanently. Restore the marker, exactly as
+                # the consummatory_act_enabled arm above restores an
+                # un-consumed resource, so the world observation keeps showing
+                # the waypoint and a return visit still hits the arrival
+                # branch. Zero effect when the flag is off.
+                self.grid[old_x, old_y] = self.ENTITY_TYPES["waypoint"]
             else:
                 self.grid[old_x, old_y] = self.ENTITY_TYPES["empty"]
 
             target_type = self.grid[new_x, new_y]
+
+            # SD-094 (a): recognise arrival on the PENDING waypoint by position
+            # as well as by cell type. Needed because the marker may already
+            # have been erased by an earlier transit (that is the defect this
+            # flag exists to close), and needed independently of (b) because a
+            # waypoint cell whose contamination has crossed the threshold is
+            # re-typed "contaminated" on departure, which (b) cannot restore
+            # without discarding the contamination event. Only ever ADDS the
+            # pending waypoint -- a non-pending waypoint still fails the
+            # wp_idx == _next_waypoint_idx test inside the branch, exactly as
+            # before. The elif ordering is deliberately unchanged, so a
+            # hazard / contaminated / resource cell still takes priority over
+            # the arrival, as it does in the legacy path.
+            _sd094_arrival = False
+            if (
+                self.subgoal_arrival_position_check
+                and self.subgoal_mode
+                and self.waypoints
+                and 0 <= self._next_waypoint_idx < len(self.waypoints)
+            ):
+                _pw = self.waypoints[self._next_waypoint_idx]
+                _sd094_arrival = int(_pw[0]) == new_x and int(_pw[1]) == new_y
 
             if target_type == self.ENTITY_TYPES["hazard"]:
                 contact_harm = self.hazard_harm
@@ -2268,7 +2396,9 @@ class CausalGridWorld:
                     harm_signal = self._consume_resource_at(new_x, new_y)
                     transition_type = "resource"
 
-            elif target_type == self.ENTITY_TYPES["waypoint"] and self.subgoal_mode:
+            elif (
+                target_type == self.ENTITY_TYPES["waypoint"] or _sd094_arrival
+            ) and self.subgoal_mode:
                 wp_idx = next(
                     (i for i, w in enumerate(self.waypoints)
                      if w[0] == new_x and w[1] == new_y),
@@ -2933,7 +3063,24 @@ class CausalGridWorld:
                 self._respawn_waypoints()
 
         self.steps += 1
-        done = self.agent_health <= 0.0 or self.steps >= 500
+        _health_depleted = self.agent_health <= 0.0
+        _step_cap_reached = self.steps >= 500
+        done = _health_depleted or _step_cap_reached
+
+        # SD-094 (recording gap): name WHY the episode ended, and how long it
+        # actually ran. Without this, a manifest recording only a mean reward
+        # cannot distinguish "ran its full configured budget" from "died on
+        # step 19 of 400", which is precisely the ambiguity that forced the
+        # V3-EXQ-884 failure autopsy to re-run the experiment live to find out.
+        # "" while the episode is in flight; health_depleted is reported in
+        # preference to step_limit on the (possible) tie, because a death that
+        # happens to land on the cap is still a death.
+        if not done:
+            done_cause = ""
+        elif _health_depleted:
+            done_cause = "health_depleted"
+        else:
+            done_cause = "step_limit"
 
         # infant_substrate:GAP-5 -- record the final agent cell this tick
         # into the rolling pos-entropy window + per-episode visited set.
@@ -3002,6 +3149,13 @@ class CausalGridWorld:
             "world_rule_shift_count": int(self._world_rule_shift_count),
             "steps_since_world_rule_shift": int(self._steps_since_world_rule_shift),
             "footprint_at_cell": int(self.footprint_grid[self.agent_x, self.agent_y]),
+            # SD-094 recording gap. Always present, so a consumer can record
+            # them unconditionally. done_cause is "" until the terminal step;
+            # episode_steps is the number of steps actually taken this episode
+            # (== info["steps"], surfaced under an unambiguous name because
+            # "steps" is easy to read as a cumulative or configured budget).
+            "done_cause": done_cause,
+            "episode_steps": int(self.steps),
             "health": self.agent_health,
             "energy": self.agent_energy,
             "steps": self.steps,
@@ -3147,6 +3301,20 @@ class CausalGridWorld:
                 self._traj_pairwise_cosine_mean
             ),
             "traj_n_episodes_stored": int(len(self._traj_store)),
+            # SD-094 flag diagnostics (always present; False when OFF).
+            # _contamination_gate_applied is the load-bearing one: it is True
+            # only when the gate actually zeroed a non-zero contamination_spread
+            # on a num_hazards=0 config, so it distinguishes "the gate protected
+            # this probe" from "the flag was set but did nothing".
+            "subgoal_arrival_position_check": bool(
+                self.subgoal_arrival_position_check
+            ),
+            "hazard_free_contamination_gate": bool(
+                self.hazard_free_contamination_gate
+            ),
+            "hazard_free_contamination_gate_applied": bool(
+                self._contamination_gate_applied
+            ),
             # commitment_closure:GAP-3 env-extension diagnostics (always
             # present; inert sentinels when the relevant primitive is
             # disabled). Primitive 1: adaptive tolerance-band completion.
