@@ -1,0 +1,13 @@
+# Paces ree-metaworker.service every 5 minutes. Reference copy -- see
+# ree-metaworker.service's header for the sync convention and install steps.
+
+[Unit]
+Description=Run ree-metaworker every 5 minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

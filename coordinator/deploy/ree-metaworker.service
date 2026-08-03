@@ -1,0 +1,40 @@
+# REE metaworker-dispatch -- systemd unit template (Phase H cloud-metaworker box)
+#
+# Reference copy, synced by hand from the live file on ree-worker-5
+# (/etc/systemd/system/ree-metaworker.service) -- same convention as
+# ree-runner.service in this repo (see cloud_workers.md's note on that file).
+# This box is NOT an experiment runner: it runs one dispatch cycle of
+# .claude/skills/metaworker-dispatch/SKILL.md per invocation, paced externally
+# by ree-metaworker.timer (5-minute OnUnitActiveSec) rather than a persistent
+# `/loop` session -- see the Phase H runbook (WORKSPACE_STATE.md, 2026-08-02/03)
+# for why a stateless relaunch was chosen over a long-lived ScheduleWakeup loop.
+#
+# Installation (on the cloud VM, as the `ree` user with sudo):
+#   sudo cp ree-metaworker.service ree-metaworker.timer /etc/systemd/system/
+#   sudo cp ree-metaworker-dispatch.sh /usr/local/bin/ree_metaworker_dispatch.sh
+#   sudo chmod 755 /usr/local/bin/ree_metaworker_dispatch.sh
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now ree-metaworker.timer
+#
+# Logs: journalctl -u ree-metaworker -f   |   ~/ree_metaworker_dispatch.log
+
+[Unit]
+Description=REE metaworker-dispatch: one dispatch cycle
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ree
+WorkingDirectory=/home/ree/REE_Working
+ExecStart=/usr/local/bin/ree_metaworker_dispatch.sh
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ree-metaworker
+TimeoutStartSec=280
+# Dispatched workers are descendants of ExecStart. Under the default
+# KillMode=control-group systemd SIGTERMs the whole cgroup when this oneshot
+# deactivates, killing every worker ~1-2min after dispatch (100% mortality,
+# transcripts ending in "[Request interrupted by user]"). Kill only the
+# dispatcher; workers are reaped by metaworker_worktree_gc / the chip ledger.
+KillMode=process
