@@ -107,6 +107,26 @@
       "experiment_purpose": "evidence",
       "experiment_type": "v3_exq_149b_q004_tau_r_calibration_largebudget",
       "seeds": 2
+    },
+    {
+      "queue_id": "V3-EXQ-848b",
+      "title": "ARC-005 precision monotonicity, finer 7-level ladder (breaks 848a 3-point Spearman-rho ceiling)",
+      "script": "experiments/v3_exq_848b_arc005_precision_only_finer_ladder.py",
+      "experiment_type": "v3_exq_848b_arc005_precision_only_finer_ladder",
+      "priority": 40,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 440,
+      "episodes_per_run": 2000,
+      "seeds": 5,
+      "conditions": 14,
+      "architecture_epoch": "ree_hybrid_guardrails_v1",
+      "claim_ids": [
+        "ARC-005"
+      ],
+      "experiment_purpose": "evidence",
+      "supersedes": "V3-EXQ-848a",
+      "note": "Measurement/test-design successor of V3-EXQ-848a (same scientific question, same substrate, same calibration dacc_goal_readout_weight=0.5/normalize=True, SAME pre-registered acceptance rule |Spearman rho|>=0.60 in >=7/10 (content x seed) units, UNSIGNED). The ONLY design delta is measurement RESOLUTION: the channel-1+2 precision ladder goes 3-level [0,0.5,1.0] -> 7-level [0/6..6/6] (70 cells: 7 levels x 2 content x 5 seeds vs 30 in 848a). Routing output of confirmed failure_autopsy_V3-EXQ-848a_2026-08-03 (REE_assembly 2c2268afad): 848a CLOSED the wiring/calibration line (channel genuinely engaged, 25,289 dACC bias calls) but scored 1/10 units on the 3-level ladder with a per-unit rho distribution ({+0.5 x6,+1.0 x1,-0.5 x2,0.0 x1}, 7/10 positive-signed) that is the arithmetic signature of a 3-point Spearman resolution ceiling (rho can only take {-1,-0.5,0,+0.5,+1} at n=3), NOT a clean null (802's genuinely-null channels gave bit-identical rho=0.0). At n=7 the H0 SD of rho is ~0.408 so the same 0.60 bar is a genuine signal threshold and is achievable by a consistent weak monotone trend, while a true null scatters near 0 (cleanly separable from a weak-real trend). Mann-Kendall two-sided p + Theil-Sen slope + Kendall tau recorded per unit as resolution-independent SECONDARY diagnostics (task-brief's 'magnitude-based statistic', honoured as continuous trend readouts NOT an absolute-floor gate: 848a's raw readouts show the real effect is ~1e-3 log10-units, swamped ~180x by the ~0.18 cross-seed SD, so the signal is in ORDERING CONSISTENCY and any principled magnitude floor would wrongly REJECT it). Plus a manifest-level resolution diagnostic (n_distinct_rho_values) as direct evidence the 3-point ceiling is broken. GOV-REUSE-1: decisive readout = |rho of log10-precision vs level| over a 7-LEVEL ladder; no recorded manifest carries it (848a is 3-level, 802/846 are different manipulations) -> not recoverable, must run. Re-derive brake: 0 substrate_ceiling autopsies tag ARC-005 -> does not fire (this is a test-design redesign, not a re-test circling a ceiling). DV-symmetry per arm: channel-1 (5-HT/calibrated dACC goal-readout) is genuinely weighted+per-candidate-set-normalised -> NOT invariant under the log10-precision DV's additive-constant/argmax or monotone-rescale/rank symmetries (a measured trend is a real measurement); channel-2 (phasic gain) is a genuine E3 softmax temperature -> argmax-invariant under the deterministic committed selection this runs under (~97% commitment), so its contribution to rho is architecturally expected NULL (unchanged by the finer ladder); channels 3/4 held fixed at L0 (SCOPE), no DV-symmetry claim. MUST run on a cloud worker (machine_class linux-x86_64-py3.10 like 848a's ree-worker-1 run) so the multinomial-sampled selection path is machine-class-matched to 848a; machine_class recorded so a Mac-landed (darwin-arm64) run can be discarded. Governance should read 848a and 848b together (848b is the resolution-corrected measurement of the same effect); does NOT invalidate 848a. Follow-on OUT OF SCOPE (report only, not chipped here): a channel-1 sub-pathway isolation (ladder dACC-consume flags alone with serotonin fixed) to attribute a positive result to the goal-readout sub-pathway vs the pre-existing serotonin pathway. Smoke: --strict validate_experiments clean; dry-run PASS end-to-end (28 dry cells all ran, dACC engaged 1148 bias calls, build-time guards held, valid manifest emitted, no traceback; dry FAIL/clamp is the expected 40-measure-tick artifact, not scored on a smoke). Queued with --allow-overlap on experiment_queue.json: genuinely different task (different EXQ id + script) from the concurrent IGW ARC-045 queue-experiment session -- both only append to the shared queue file, not duplicated work."
     }
   ]
 }
