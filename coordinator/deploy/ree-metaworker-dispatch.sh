@@ -33,6 +33,24 @@ mkdir -p "$STATE_DIR"
 
 ts() { date -u "+%Y-%m-%dT%H:%M:%SZ"; }
 
+# Auto-sync: pull the umbrella repo before each cycle, so a landed script or
+# SKILL.md fix reaches this box within one 5-minute tick instead of needing a
+# human to SSH in and pull by hand. Confirmed gap 2026-08-03: this box ran 47
+# cycles (~4h) on a since-fixed heartbeat-commit bug before anyone noticed,
+# because there was no mechanism to pick the fix up short of a manual pull --
+# and every cycle in between silently ran stale code with no signal that it
+# was stale. --ff-only refuses rather than silently diverging if this box has
+# unpushed local commits of its own (should not normally happen -- every
+# ree_commit.py call below already passes --push); a refusal is logged and
+# the cycle proceeds anyway on whatever code is already on disk, since a
+# dispatcher running stale code is still better than one blocked entirely by
+# a sync hiccup.
+if git -C "$REPO" pull --ff-only origin master >> "$LOG" 2>&1; then
+  echo "[$(ts)] autosync: ok ($(git -C "$REPO" rev-parse --short HEAD))" >> "$LOG"
+else
+  echo "[$(ts)] autosync: FAILED (git pull --ff-only) -- continuing this cycle on existing code" >> "$LOG"
+fi
+
 CYCLE_FILE="$STATE_DIR/cycle_count"
 [ -f "$CYCLE_FILE" ] || echo 0 > "$CYCLE_FILE"
 CYCLE=$(( $(cat "$CYCLE_FILE") + 1 ))
