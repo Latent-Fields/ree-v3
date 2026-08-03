@@ -1,5 +1,51 @@
 """V3-EXQ-889 -- SD-039 confirming DV: post-failure goal-identity retrieval.
 
+=============================================================================
+STATUS: NOT QUEUED -- self-routed substrate_not_ready_requeue, 2026-08-03.
+The script is complete, passes validate_experiments.py --strict, and smoke-runs
+clean; it is retained ready-to-queue for when the gap below closes. It was NOT
+added to experiment_queue.json because its readiness gate is UNMEETABLE on the
+current substrate, measured rather than predicted (1 seed, dry-run scale):
+
+  cue_centered_max_pairwise_cosine = 0.99752  (ceiling 0.99; raw 0.99941)
+  n_distinct_top1_anchors          = 1.0      (top1_epoch_per_cue = [3,3,3,3])
+  goal_match_spread_mean           = 0.99361
+  n_inactive_with_payload          = 15 (ARM_ON) / 0 (ARM_OFF)
+
+Read those four together. The pool is healthy and the OFF control is exact, so
+this is NOT an instrumentation failure. The SD-079-centered cue restores
+goal_match SPREAD (0.9936 here, reproducing V3-EXQ-807's 0.9985) -- and that
+restored spread carries NO goal-identity information whatsoever: the SAME
+anchor wins for every one of the four epoch cues. Spread is not selectivity,
+which is the distinction this experiment exists to draw, and it turns out to
+be answerable at the readiness stage.
+
+ROOT CAUSE (substrate, not claim): the retrieval cue z_goal does not encode
+goal-context identity. z_goal is a single global EMA attractor, so cues drawn
+from four deliberately distinct env contexts sit 0.9975 apart after centering.
+Confirmed monotone and in the WRONG direction -- more re-exposure makes cues
+MORE alike, not less (max pairwise cosine 0.99925 -> 0.99981 -> 0.99996 at
+REPROBE_STEPS 16 -> 64 -> 160), because an integrator converges. So no
+tuning of this driver reaches the gate.
+
+WHY THIS IS NOT A FALSIFICATION OF SD-039. A chance-level identity accuracy
+here would be caused by the cues being indistinguishable, not by the preserved
+payload lacking information -- the exact verdict-aliasing the cue_goal_distinctness
+precondition was added to break. Routing this as does_not_support would
+mislabel a substrate gap as a claim refutation. SD-039's payload PRESERVATION
+is intact and was observed working (15 inactive anchors carrying payloads,
+survived the invalidation/remap path); what is missing is a cue with enough
+goal-context variance for the query side to be exercised at all.
+
+SECOND, INDEPENDENT SUBSTRATE FINDING (found while building this run):
+REEAgent.reset() calls HippocampalModule.reset_anchor_set(), which CLEARS the
+entire dual-trace pool -- active and inactive alike -- at every episode
+boundary. SD-039's preservation therefore holds only WITHIN a continuous agent
+stream; across an episode boundary every preserved ghost-goal trace is
+destroyed, and MECH-292's GhostGoalBank (which ranks over exactly this pool)
+gets an empty pool. See EPISODE-BOUNDARY POOL RESET below.
+=============================================================================
+
 PURPOSE (evidence). SD-039 claims: "Dual-trace anchors preserve a goal-state
 snapshot plus wanting/arousal payload at write or invalidation time, so
 unresolved goals remain QUERYABLE after the active plan fails." SD-039 is
