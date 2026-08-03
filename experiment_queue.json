@@ -17,7 +17,11 @@
       "supersedes": "V3-EXQ-875",
       "claim_id": "MECH-471",
       "note": "VERIFIED root cause (not guessed): V3-EXQ-875 never enabled the SD-070 P0a z_world-encoder warmup (zworld_p0_episodes defaulted to 0), the exact documented defect in ree-v3/CLAUDE.md (\"SD-070 ADOPTION in the _train_all_on_agent driver family\") -- z_world stayed a frozen random projection, so neither competence A nor B cleared the survival floor (readiness.acquisition_ok=False on the 20260803T120202Z manifest: a_baseline_worst_seed=19.67, b=15.5 vs floor=90.0; targeted_moved=False too). CLAUDE.md records the SAME defect on V3-EXQ-728 (\"seeds_failed=3/3\") fixed by the SAME remedy (\"seeds_failed=0\", outcome PASS) with zworld_p0_episodes=60. This iteration adds that fix to competence-A acquisition and aligns P0/P1/steps/eval to 728s validated post-fix recipe (200/90/200/20 vs 875s 120/50/150/12) rather than guessing a partial bump -- confirmed empirically this session via a throwaway probe (latent_stack_weight_delta: 4/4 world_encoder tensors moved, zworld_encoder_trained=True) before queuing. GOV-REUSE-1: 875s own manifest is the only prior run and it is a degenerate/non-ready result, not usable evidence to reanalyze -- proceeding to run. Design (seeds, strength levels, dose-response, acceptance criteria) UNCHANGED from 875 -- only training-readiness instrumentation was broken. COST FLAG: the aligned budget is materially larger than 875s (roughly 2.7x total training env-steps); 875 itself took ~20.5h wall-clock on ree-cloud-3 for its smaller (and degenerate) budget, so this run is estimated at ~55h -- a genuine multi-day single-worker commitment for a claim explicitly NOT on the V3 critical path. Flagged to the user at queue time; machine_affinity=any so any idle worker can pick it up, and it can be paused/killed via the machines dashboard if the cost is not wanted.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-4",
+        "claimed_at": "2026-08-03T16:50:33Z"
+      },
       "conditions": 4,
       "episodes_per_run": 590,
       "experiment_type": "v3_exq_875a_mech471_competence_provenance",
