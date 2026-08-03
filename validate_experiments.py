@@ -46,7 +46,7 @@ CHECK_NAMES = ("conformance", "readiness", "arm_fingerprint", "degeneracy", "man
                "dead_z_goal_stream", "hardcoded_dry_run", "emit_outcome_dry_run",
                "write_pack_dry_run", "dry_run_unreachable_criterion",
                "config_slice_declaration", "inert_salience_dacc_bias",
-               "dacc_last_bundle", "agent_seed_order")
+               "dacc_last_bundle", "agent_seed_order", "zworld_p0_warmup")
 
 # Readiness-gate static lint (proposal_trivial_prediction_readiness_gate_2026-06-06).
 # A diagnostic/baseline script whose interpretation grid self-routes to one of
@@ -5007,6 +5007,157 @@ def inert_salience_dacc_bias_lint(path: Path) -> Optional[str]:
     )
 
 
+# ---- inert zworld_p0_episodes warmup (SD-070, confirmed twice) -----------------------
+# experiments/_lib/allon_training._train_all_on_agent trains the shared 724-A0/734/742
+# REINFORCE recipe. Its P0a stage -- the SD-070 z_world-encoder warmup -- is OPT-IN via
+# `zworld_p0_episodes: int = 0`: with the default, `run_zworld_p0` never runs,
+# `split_encoder.world_encoder` is never stepped, and z_world stays a frozen random
+# projection for the whole run. No error, no warning -- the agent trains and every
+# downstream competence/survival/foraging metric is computed exactly as if the encoder
+# had been trained, just against noise.
+#
+# CONFIRMED TWICE, independently, on two different drivers:
+#   V3-EXQ-728 (original run) -- "3/3 seeds failed"; fixed by adding zworld_p0_episodes=60.
+#   V3-EXQ-875 (MECH-471, 2026-08-03) -- all three _train_all_on_agent call sites (lines
+#     270/279/288) omitted the kwarg; the driver's own non-degeneracy guard correctly
+#     caught the floor-pinned acquisition and self-routed substrate_not_ready_requeue
+#     after a ~20.5h wall-clock run, rather than reporting a false discrimination verdict.
+#     REE_assembly/evidence/planning/failure_autopsy_V3-EXQ-875_2026-08-03.md, "Root cause".
+#     The corrected re-run (V3-EXQ-875a) adds zworld_p0_episodes=60 to its acquisition call.
+#
+# SCOPE, and why file-wide rather than per-call-site or per-training-arm. The precise rule
+# (allon_training.py's own docstring) is "the FIRST (acquisition) call per shared agent
+# needs the warmup; a later call training the SAME agent on a SECOND competence, or a
+# targeted-update call reusing an already-trained encoder, correctly passes
+# zworld_p0_episodes=0". Distinguishing "first call for this agent" from "later call for
+# the same agent" statically would need data-flow tracking of the `agent` receiver across
+# calls, which this scan does not attempt. Instead: fire only when NO call site in the
+# file passes zworld_p0_episodes with a plausibly nonzero value ANYWHERE -- mirroring
+# `_dacc_weight_set_positively_anywhere`'s file-wide escape. This is deliberately
+# UNDER-firing (a driver that only wires the kwarg into a non-first call -- an authoring
+# mistake in its own right -- would incorrectly escape here), which is the same accepted
+# bias as every other WARN-only gate in this family: a false WARN costs a reader a minute;
+# a driver that never wires the kwarg AT ALL (both confirmed incidents) is caught either
+# way.
+#
+# SCOPE, second axis: only drivers whose acceptance criteria plausibly READ a
+# z_world-dependent metric. Not every `_train_all_on_agent` caller needs this warmup -- a
+# call whose downstream readout never depends on trained z_world would correctly leave the
+# encoder frozen. Restricting to files that mention a competence/survival/foraging metric
+# name (capability_eval's own DV vocabulary: foraging_competence, survival_horizon,
+# death_rate, or the broader "competence"/"survival"/"foraging" word stems the two
+# confirmed carriers' criteria are built from) keeps this from firing on a hypothetical
+# caller that trains the agent for a purpose the encoder state does not affect.
+#
+# ADVISORY, never blocking, like every sibling in this file: a static name/keyword scan
+# cannot see a kwarg threaded through a dict, a partial, or a helper wrapper (728/728b/734
+# all define their OWN `zworld_p0_episodes` parameter and forward it BY NAME -- a Name
+# kwarg value is treated as "assume positive", the false-negative-safe direction, exactly
+# as `_dacc_weight_is_positive` does for the analogous case), and landed carriers' runs are
+# complete -- do NOT retro-edit one; the remedy for a landed run is a superseding EXQ
+# letter (V3-EXQ-875 -> 875a is the canonical shape) plus adjudicating the affected result
+# via /failure-autopsy.
+_ZWORLD_P0_WARMUP_EXEMPT_MARKER = "ZWORLD_P0_WARMUP_EXEMPT"
+
+_ZWORLD_COMPETENCE_METRIC_TOKENS = ("survival", "foraging", "competence")
+
+
+def _zworld_kwarg_is_positive(value: ast.AST) -> bool:
+    """True if a `zworld_p0_episodes=<value>` expression plausibly enables the P0a warmup.
+
+    Same shape as `_dacc_weight_is_positive`: a numeric literal is positive iff nonzero
+    (an explicit `zworld_p0_episodes=0` is exactly the inert default, spelled out).
+    Anything non-literal -- a module constant, a parameter forwarded by name (the
+    728/728b/734 wrapper shape), an attribute, a call -- is treated as set-and-positive,
+    since its runtime value is not statically known and assuming it activates the warmup
+    is the false-negative-safe choice.
+    """
+    if isinstance(value, ast.Constant):
+        if isinstance(value.value, bool):
+            return False
+        if isinstance(value.value, (int, float)):
+            return value.value != 0
+        return False  # None, str, etc.
+    return True  # Name / Attribute / Call / BinOp / ... -- value unknown, assume live
+
+
+def zworld_p0_warmup_lint(path: Path) -> Optional[str]:
+    """Silent SD-070 z_world-encoder warmup omission. Return an issue string, or None.
+
+    Fires when ALL of:
+      (1) the driver calls `_train_all_on_agent` (bare or `<module>._train_all_on_agent`)
+          at least once;
+      (2) NO call site anywhere in the file passes `zworld_p0_episodes` with a plausibly
+          nonzero value (see `_zworld_kwarg_is_positive`) -- the file-wide escape mirrors
+          `_dacc_weight_set_positively_anywhere`'s "set positively somewhere" rule, and is
+          deliberately coarser than "the FIRST call per training arm" -- see the block
+          comment above for why;
+      (3) the file plausibly reports a z_world-dependent competence/survival/foraging
+          metric -- a case-insensitive source-text match on "survival", "foraging", or
+          "competence" (capability_eval's own DV vocabulary plus the word stems the two
+          confirmed carriers' criteria are built from).
+
+    Confirmed twice: V3-EXQ-728 ("3/3 seeds failed", fixed by zworld_p0_episodes=60) and
+    V3-EXQ-875 (MECH-471, all three call sites omitted it, ~20.5h wall-clock run
+    self-routed substrate_not_ready_requeue with zero usable evidence -- see
+    REE_assembly/evidence/planning/failure_autopsy_V3-EXQ-875_2026-08-03.md).
+
+    Opt-out: ZWORLD_P0_WARMUP_EXEMPT = "<reason>" -- use when the driver deliberately
+    trains against a frozen random z_world projection (e.g. an ablation whose whole point
+    is comparing trained vs untrained encoder), or when its criteria genuinely do not
+    depend on z_world-derived competence despite the token match.
+
+    WARN-only in BOTH modes -- never hardens under --paths, like every sibling here. A
+    fire is a SUSPECTED omission (the kwarg could be threaded through a dict or a helper
+    this scan cannot follow), and a landed carrier's run is complete, so hardening would
+    block commits on history.
+    """
+    try:
+        src = path.read_text(encoding="utf-8")
+        tree = ast.parse(src, filename=str(path))
+    except (OSError, SyntaxError, UnicodeDecodeError):
+        return None
+
+    if _ZWORLD_P0_WARMUP_EXEMPT_MARKER in src:
+        return None
+
+    call_sites = [n for n in ast.walk(tree)
+                 if isinstance(n, ast.Call) and _call_name(n) == "_train_all_on_agent"]
+    if not call_sites:
+        return None
+
+    for n in call_sites:
+        for kw in n.keywords:
+            if kw.arg == "zworld_p0_episodes" and _zworld_kwarg_is_positive(kw.value):
+                return None  # escape -- set positively somewhere in the file
+
+    lowered = src.lower()
+    matched_tokens = [t for t in _ZWORLD_COMPETENCE_METRIC_TOKENS if t in lowered]
+    if not matched_tokens:
+        return None
+
+    where = ", ".join(f"line {n.lineno}" for n in call_sites)
+    return (
+        f"calls _train_all_on_agent at {where} but never passes zworld_p0_episodes with "
+        f"a nonzero value anywhere in the file (it defaults to 0). With no P0a SD-070 "
+        f"z_world-encoder warmup, split_encoder.world_encoder is never stepped and "
+        f"z_world stays a frozen random projection for the whole run -- no error, no "
+        f"warning -- and the driver's own reported competence/survival/foraging metrics "
+        f"(this file references '{'/'.join(matched_tokens)}') are computed exactly as if "
+        f"the encoder had been trained, just against noise. Confirmed twice: V3-EXQ-728 "
+        f"('3/3 seeds failed') and V3-EXQ-875 (MECH-471, ~20.5h wall-clock self-routed "
+        f"substrate_not_ready_requeue with zero usable evidence -- "
+        f"REE_assembly/evidence/planning/failure_autopsy_V3-EXQ-875_2026-08-03.md). Fix "
+        f"by passing zworld_p0_episodes=<n> (60 is the validated V3-EXQ-728/875a "
+        f"operating point) on at least the first (acquisition) call per shared agent, "
+        f"plus a zworld_p0_env built from a FRESH env with the same seed/kwargs (reusing "
+        f"train_env shifts the P0b/P1 layout sequence). Exempt with "
+        f"{_ZWORLD_P0_WARMUP_EXEMPT_MARKER} = \"<reason>\" when the frozen encoder is "
+        f"deliberate. Do NOT retro-edit a LANDED driver whose run is complete -- queue a "
+        f"superseding EXQ letter instead (V3-EXQ-875 -> 875a is the canonical shape)."
+    )
+
+
 _DACC_LAST_BUNDLE_EXEMPT_MARKER = "DACC_LAST_BUNDLE_EXEMPT"
 
 
@@ -5615,6 +5766,7 @@ def main() -> int:
     inert_dacc_bias_warnings: List[Tuple[Path, str]] = []
     dacc_last_bundle_warnings: List[Tuple[Path, str]] = []
     agent_seed_order_warnings: List[Tuple[Path, str]] = []
+    zworld_p0_warmup_warnings: List[Tuple[Path, str]] = []
     for p in paths:
         rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
         if "conformance" in selected:
@@ -5788,6 +5940,14 @@ def main() -> int:
                 # reproducibility is out of scope by design, and the landed carriers'
                 # runs are complete).
                 agent_seed_order_warnings.append((p, aso))
+        if "zworld_p0_warmup" in selected:
+            zpw = zworld_p0_warmup_lint(p)
+            if zpw:
+                # WARN-only in BOTH modes -- see zworld_p0_warmup_lint() for why this one
+                # never hardens under --paths (a kwarg threaded through a dict or a helper
+                # this scan cannot follow is invisible, and a landed carrier's run is
+                # complete, so hardening would block commits on history).
+                zworld_p0_warmup_warnings.append((p, zpw))
 
     print("", flush=True)
     print(f"[validate_experiments] checked {len(paths)} scripts: "
@@ -5812,7 +5972,23 @@ def main() -> int:
           f"{len(config_slice_warnings)} config_slice-declaration-warning(s), "
           f"{len(inert_dacc_bias_warnings)} inert-salience-dacc_bias-warning(s), "
           f"{len(dacc_last_bundle_warnings)} dacc-_last_bundle-warning(s), "
-          f"{len(agent_seed_order_warnings)} agent-seed-order-warning(s)", flush=True)
+          f"{len(agent_seed_order_warnings)} agent-seed-order-warning(s), "
+          f"{len(zworld_p0_warmup_warnings)} zworld_p0-warmup-warning(s)", flush=True)
+    if zworld_p0_warmup_warnings:
+        # Advisory in BOTH modes (never hardens). A fire here means the driver calls
+        # _train_all_on_agent but never passes zworld_p0_episodes anywhere in the file, so
+        # the SD-070 z_world-encoder warmup never runs and z_world stays a frozen random
+        # projection for the whole run -- confirmed twice (V3-EXQ-728, V3-EXQ-875) to
+        # silently produce a floor-pinned, non-degenerate-looking-until-checked result.
+        # Triage each: pass zworld_p0_episodes=<n> (60 is the validated operating point) on
+        # at least the first (acquisition) call per shared agent, or carry
+        # ZWORLD_P0_WARMUP_EXEMPT when the frozen encoder is deliberate. Do NOT retro-edit a
+        # LANDED driver whose run is complete -- queue a superseding EXQ letter instead.
+        print("", flush=True)
+        print("[validate_experiments] ZWORLD_P0-WARMUP WARNINGS (advisory, non-blocking):", flush=True)
+        for p, warn in zworld_p0_warmup_warnings:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
+            print(f"  - {rel}: {warn}", flush=True)
     if agent_seed_order_warnings:
         # Advisory in BOTH modes (never hardens). A fire here means the flagged
         # function constructs REEAgent before ever seeding torch's global RNG in its

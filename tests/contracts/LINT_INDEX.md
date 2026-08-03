@@ -6,7 +6,7 @@ described in `REE_assembly/evidence/planning/experiment_verification_harness_pla
 (Gap 2). Check this table before recommending a new lint: the bug class you
 found may already be covered.
 
-**Count as of 2026-08-04: 19 files.** (A prior plan-doc draft said 47 — that
+**Count as of 2026-08-04: 20 files.** (A prior plan-doc draft said 47 — that
 figure counted `.pyc` cache variants and nested `.claude/worktrees/` copies
 alongside the source files; corrected here. Recount with:
 `find . -iname "test_*_lint.py" -not -path "*__pycache__*" -not -path "*/.claude/worktrees/*" | wc -l`
@@ -40,6 +40,7 @@ fails `validate_experiments.py --strict --paths <script>` and therefore blocks
 | `test_precondition_recomputability_lint.py` | `precondition_recomputability` | A precondition's `met` is not recomputable from its reported measured/threshold/direction — missing `direction`, or `met` computed from a different statistic than `measured`. | Warn | V3-EXQ-648a/649 (2026-06-07 directionality bug); V3-EXQ-726 (median-across-seeds `measured` vs seed-count `met`). |
 | `test_spearman_guard_shape_lint.py` | `spearman_guard_shape` | Hand-rolled rank correlation guards degeneracy on the variance of the RANK vector (double-argsort) rather than the input — the guard never fires on a genuinely constant input. | Warn | 18 pre-SD-081 experiment scripts; `|rho|` up to 0.74 measured on constant vectors. `failure_autopsy_sd081-spearman-degenerate-dv_2026-07-27.md`. |
 | `test_write_pack_dry_run_lint.py` | `write_pack_dry_run` | Driver threads `dry_run` into the flat manifest / `emit_outcome` but not into `pack_writer.write_pack` — the RUN PACK, which is what the indexer actually scores, doesn't carry the flag. | Warn | Third sibling of the dry-run family; the pack (not the flat manifest) is on `build_experiment_indexes._scan_runs`'s scoring path (MECH-245). |
+| `test_zworld_p0_warmup_lint.py` | `zworld_p0_warmup` | Driver calls `allon_training._train_all_on_agent` but never passes `zworld_p0_episodes` (the SD-070 z_world-encoder warmup) with a nonzero value anywhere in the file, while its criteria read a survival/foraging/competence metric — `split_encoder.world_encoder` never trains and z_world stays a frozen random projection, silently. | Warn | Confirmed twice: V3-EXQ-728 ("3/3 seeds failed") and V3-EXQ-875 (MECH-471, 2026-08-03, ~20.5h wall-clock self-routed `substrate_not_ready_requeue`). `failure_autopsy_V3-EXQ-875_2026-08-03.md`. Corpus scan also found an independent carrier, V3-EXQ-882, at authoring time. |
 
 ## Not in this table
 
