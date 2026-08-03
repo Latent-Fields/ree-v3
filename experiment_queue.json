@@ -47,6 +47,21 @@
       "experiment_purpose": "evidence",
       "experiment_type": "v3_exq_149b_q004_tau_r_calibration_largebudget",
       "seeds": 2
+    },
+    {
+      "queue_id": "V3-EXQ-866b",
+      "title": "603q ARM_BASE_IA_ONLY substrate-regression diagnostic (per failure_autopsy_V3-EXQ-866a routing)",
+      "experiment_type": "v3_exq_866b_603q_substrate_regression_check",
+      "script": "experiments/v3_exq_866b_603q_substrate_regression_check.py",
+      "priority": 40,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 90,
+      "episodes_per_run": 235,
+      "seeds": 3,
+      "conditions": 1,
+      "claim_id": "SD-059",
+      "note": "DIAGNOSTIC (excluded from scoring). Fresh exact re-run of V3-EXQ-603q's ARM_BASE_IA_ONLY cell (_make_scaffold_cfg/_make_config copied byte-identical; seeds 42/43/44) on the CURRENT substrate, WITH substrate_hash+substrate_commit present, so 603q's 47-day-old base_mean_survival=37.725 reference is finally commit-verifiable. Routing output of confirmed failure_autopsy_V3-EXQ-866a_2026-08-03 (G0 failed AGAIN on the prescribed scaffolded curriculum despite line-by-line config parity with 603q; Stage-H survival ~7x below 603q; 603q reference commit-unverifiable). PRIMARY DV: base survival vs 37.725 (>=0.5*ref -> reproduces, 866a shortfall harness-specific; <floor -> substrate regression confirmed). SECONDARY DV: per-stage z_goal decay trajectory (localize 866a's Stage-0 ~0.5 -> P2 ~0.12 decay). Does NOT supersede 603q. GOV-REUSE-1: decisive readout (ARM_BASE_IA_ONLY survival under 603q's OWN harness on current substrate) is not recoverable -- 866a used a different goal-maintenance harness the autopsy flagged as possibly-differing, and 603q predates substrate_commit -> must run. MUST run on a cloud worker (machine_class linux-x86_64-py3.10) to match 603q's machine class -- Stage-H survival depends on multinomial sampling which diverges cross-machine-class; a darwin-arm64 (Mac) run is NOT comparable (machine_class recorded so a mis-routed run can be discarded). Seeds 42/43/44 retained deliberately (exact 603q reproduction; overrides the general seed-44-instability guidance -- seed 44's variance is part of what is being reproduced). Queued with --allow-overlap on experiment_queue.json: genuinely different task from concurrent V3-EXQ-873a / V3-EXQ-848b sessions (different EXQ id + script)."
     }
   ]
 }
