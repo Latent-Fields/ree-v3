@@ -56,6 +56,24 @@ Always-core fields it stamps (standard 3b)
                      always means the run measured it. See experiments/_lib/z_goal_stream.py.
                      Also NOT in ALWAYS_CORE_KEYS -- the legacy corpus cannot carry it, and
                      it is unavailable to any manifest built outside the stepping process.
+  enabled_default_off_flags : {dotted_field_name: value} for every REEConfig field
+                     (recursing into nested sub-configs -- latent, hippocampal, goal,
+                     ...) whose CODED DEFAULT is False/0/0.0 and whose value on the
+                     agent's actual config differs from that default for this run --
+                     i.e. was genuinely enabled. Requires the caller to pass `agent=`
+                     (one agent or an iterable, same normalisation as z_goal_stream
+                     above). UNLIKE z_goal_stream, an empty result IS recorded as {}
+                     rather than omitted -- "agent given, nothing enabled" is a common,
+                     legitimate outcome a consumer must be able to tell apart from
+                     "never measured," which a bare omission cannot distinguish; the
+                     field is omitted only when no config-bearing agent was supplied at
+                     all. PROSPECTIVE ONLY: a manifest already on disk without this
+                     field cannot gain it retroactively (the agent/config is long gone
+                     by then) -- see REE_assembly/evidence/planning/
+                     substrate_stability_and_drift_detection_plan.md section 6 for the
+                     motivating gap (a textual proxy over driver SOURCE is the only
+                     fallback for a manifest lacking this field). Also NOT in
+                     ALWAYS_CORE_KEYS, for the same reason z_goal_stream is not.
   machine          : socket.gethostname() (or a caller override -- the hub records
                      "ree-cloud-1" although its hostname is "ree-worker-1").
   machine_class    : arm_fingerprint.machine_class() -- fingerprint equality is
@@ -185,6 +203,74 @@ def _is_empty(value: Any) -> bool:
     if isinstance(value, (str, bytes, list, tuple, dict, set)) and len(value) == 0:
         return True
     return False
+
+
+def enabled_default_off_flags(config: Any, _stock: Any = None, _prefix: str = "") -> Dict[str, Any]:
+    """{dotted_field_name: value} for every field of `config` whose CODED DEFAULT is
+    False/0/0.0 and whose actual value differs from that default -- i.e. was genuinely
+    enabled for this run. Recurses into nested dataclass fields (config.latent,
+    config.hippocampal, config.goal, ...) with a dotted path, e.g.
+    "goal.use_hierarchical_goal_credit".
+
+    The False/0/0.0 "default-off" rule deliberately mirrors
+    REE_assembly/scripts/default_off_drift_guard.py's `_default_off` (same definition,
+    stated twice because that one is a static AST parse of config.py's SOURCE and this
+    one is a runtime introspection of a LIVE instance -- different domains, not
+    reusable across the repo boundary, but must agree on what "default-off" means).
+
+    Non-dataclass input (a plain object, or None) returns {} rather than raising --
+    this is a best-effort recording helper, never a hard requirement.
+    """
+    import dataclasses
+    if not dataclasses.is_dataclass(config) or isinstance(config, type):
+        return {}
+    stock = _stock if _stock is not None else type(config)()
+    out: Dict[str, Any] = {}
+    for f in dataclasses.fields(config):
+        try:
+            val = getattr(config, f.name)
+            stock_val = getattr(stock, f.name)
+        except AttributeError:
+            continue
+        dotted = f"{_prefix}{f.name}"
+        if dataclasses.is_dataclass(val):
+            out.update(enabled_default_off_flags(val, stock_val, dotted + "."))
+            continue
+        is_default_off = (
+            stock_val is False
+            or (isinstance(stock_val, int) and not isinstance(stock_val, bool) and stock_val == 0)
+            or (isinstance(stock_val, float) and stock_val == 0.0)
+        )
+        if is_default_off and val != stock_val:
+            out[dotted] = val
+    return out
+
+
+def enabled_default_off_flags_for_agents(agent: Any) -> Optional[Dict[str, Any]]:
+    """enabled_default_off_flags() pooled across one agent or an iterable of them (the
+    same "one or many" shape z_goal_stream_stats takes for a multi-arm run). Later
+    agents in iteration order win on a disagreement -- a known, stated simplification
+    for a first cut of this feature, not a guarantee of per-arm attribution.
+
+    Returns None -- deliberately distinct from {} -- when no config-bearing agent was
+    found at all (nothing to record; the caller should OMIT the manifest field, exactly
+    z_goal_stream's convention). Returns {} when at least one agent WAS found but none
+    of its config differed from stock defaults -- a common, entirely legitimate result
+    that must still be RECORDED (not omitted), because a downstream consumer needs to
+    tell "measured: nothing enabled" apart from "never measured" to treat every other
+    known default-off knob as confirmed-disabled with certainty. Collapsing these two
+    into one omission (as an earlier draft of this function did) would silently make
+    the all-defaults case indistinguishable from never having recorded anything.
+    """
+    agents = _z_goal_stream._iter_agents(agent)
+    configs = [getattr(one, "config", None) for one in agents]
+    configs = [c for c in configs if c is not None]
+    if not configs:
+        return None
+    merged: Dict[str, Any] = {}
+    for cfg in configs:
+        merged.update(enabled_default_off_flags(cfg))
+    return merged
 
 
 def _coerce_seed_list(seeds: Any) -> Optional[List[int]]:
@@ -472,8 +558,9 @@ def stamp_recording_core(
         Passed through to the single-arm substrate-hash computation.
     agent
         The stepped REEAgent, or an iterable of them (a multi-arm run builds one per
-        arm x seed). Read for the `z_goal_stream` liveness block. Omitting it simply
-        omits the block -- it is never fabricated from zeros.
+        arm x seed). Read for the `z_goal_stream` liveness block AND the
+        `enabled_default_off_flags` block (via each agent's own `.config`). Omitting it
+        simply omits both blocks -- neither is ever fabricated from zeros/empty.
     z_goal_stream_stats
         A precomputed liveness block (from `z_goal_stream.stats_from_counts`) for a
         caller that keeps its own counters, e.g. a StepHarness accumulating across
@@ -610,6 +697,24 @@ def stamp_recording_core(
                 stats=dict(z_goal_stream_stats) if z_goal_stream_stats else None,
                 overwrite=overwrite,
             )
+        except Exception:
+            pass
+
+    # enabled_default_off_flags -- which REEConfig knobs were genuinely enabled for this
+    # run, read off the agent's own live config. PROSPECTIVE ONLY (see docstring): a
+    # manifest already on disk cannot gain this after the fact, since the agent/config is
+    # long gone by then. Omitted entirely when no config-bearing agent was supplied at
+    # all (never measured) -- but RECORDED AS {} (not omitted) when an agent was given
+    # and simply had nothing enabled, a common and legitimate result a consumer must be
+    # able to tell apart from "never measured" (see
+    # enabled_default_off_flags_for_agents' own docstring for why this distinction is
+    # load-bearing). Uses `is None`, not falsiness, on purpose -- `if flags:` would
+    # silently collapse the "measured, empty" case back into an omission.
+    if overwrite or manifest.get("enabled_default_off_flags") is None:
+        try:
+            flags = enabled_default_off_flags_for_agents(agent)
+            if flags is not None:
+                manifest["enabled_default_off_flags"] = flags
         except Exception:
             pass
 

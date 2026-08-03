@@ -128,6 +128,158 @@ def test_stamp_never_crashes_on_bad_repo_root(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
+# enabled_default_off_flags (2026-08-03, substrate_stability_and_drift_detection_plan
+# section 6 -- prospective-only recording of REEConfig's actual default-off values,
+# consumed by REE_assembly/scripts/check_substrate_staleness_candidates.py)
+# --------------------------------------------------------------------------- #
+
+def _make_fake_dataclass():
+    """Minimal nested-dataclass fixtures -- avoids a torch/ree_core REEConfig import
+    in a test file that otherwise stays scalar-only, matching this module's own
+    stdlib-only posture."""
+    import dataclasses
+
+    @dataclasses.dataclass
+    class FakeSub:
+        use_thing: bool = False
+        level: int = 0
+
+    @dataclasses.dataclass
+    class FakeConfig:
+        use_top: bool = False
+        threshold: float = 0.0
+        default_on: bool = True
+        sub: FakeSub = dataclasses.field(default_factory=FakeSub)
+
+    return FakeConfig, FakeSub
+
+
+def test_enabled_default_off_flags_no_changes_is_empty():
+    FakeConfig, _ = _make_fake_dataclass()
+    assert mc.enabled_default_off_flags(FakeConfig()) == {}
+
+
+def test_enabled_default_off_flags_top_level_change():
+    FakeConfig, _ = _make_fake_dataclass()
+    cfg = FakeConfig(use_top=True)
+    assert mc.enabled_default_off_flags(cfg) == {"use_top": True}
+
+
+def test_enabled_default_off_flags_ignores_default_on_field_changing():
+    # default_on's coded default is True -- flipping it to False is a real change but
+    # NOT a "default-off knob was enabled" event, so it must not appear here.
+    FakeConfig, _ = _make_fake_dataclass()
+    cfg = FakeConfig(default_on=False)
+    assert mc.enabled_default_off_flags(cfg) == {}
+
+
+def test_enabled_default_off_flags_recurses_into_nested_dataclass_with_dotted_name():
+    FakeConfig, FakeSub = _make_fake_dataclass()
+    cfg = FakeConfig(sub=FakeSub(use_thing=True))
+    assert mc.enabled_default_off_flags(cfg) == {"sub.use_thing": True}
+
+
+def test_enabled_default_off_flags_float_zero_default():
+    FakeConfig, _ = _make_fake_dataclass()
+    cfg = FakeConfig(threshold=0.5)
+    assert mc.enabled_default_off_flags(cfg) == {"threshold": 0.5}
+
+
+def test_enabled_default_off_flags_non_dataclass_input_is_empty():
+    assert mc.enabled_default_off_flags(None) == {}
+    assert mc.enabled_default_off_flags("not a dataclass") == {}
+    assert mc.enabled_default_off_flags(object()) == {}
+
+
+def test_enabled_default_off_flags_for_agents_single_and_none():
+    FakeConfig, _ = _make_fake_dataclass()
+
+    class A:
+        def __init__(self, cfg):
+            self.config = cfg
+
+    # None -- deliberately, not {} -- distinguishing "never measured" from "measured,
+    # nothing enabled" is the whole point of this function; see its own docstring.
+    assert mc.enabled_default_off_flags_for_agents(None) is None
+    assert mc.enabled_default_off_flags_for_agents(A(FakeConfig(use_top=True))) == {"use_top": True}
+
+
+def test_enabled_default_off_flags_for_agents_measured_but_empty_is_not_none():
+    FakeConfig, _ = _make_fake_dataclass()
+
+    class A:
+        def __init__(self, cfg):
+            self.config = cfg
+
+    result = mc.enabled_default_off_flags_for_agents(A(FakeConfig()))
+    assert result == {}
+    assert result is not None
+
+
+def test_enabled_default_off_flags_for_agents_pools_multiple():
+    FakeConfig, FakeSub = _make_fake_dataclass()
+
+    class A:
+        def __init__(self, cfg):
+            self.config = cfg
+
+    agents = [A(FakeConfig(use_top=True)), A(FakeConfig(sub=FakeSub(use_thing=True)))]
+    pooled = mc.enabled_default_off_flags_for_agents(agents)
+    assert pooled == {"use_top": True, "sub.use_thing": True}
+
+
+def test_stamp_recording_core_records_enabled_flags_when_agent_given():
+    FakeConfig, _ = _make_fake_dataclass()
+
+    class A:
+        def __init__(self, cfg):
+            self.config = cfg
+
+    m = {}
+    mc.stamp_recording_core(m, config={"a": 1}, agent=A(FakeConfig(use_top=True)))
+    assert m["enabled_default_off_flags"] == {"use_top": True}
+
+
+def test_stamp_recording_core_omits_enabled_flags_without_agent():
+    # Omitted, not {} -- presence must always mean "measured" (same convention as
+    # z_goal_stream), so a caller that never passed an agent must see the key absent.
+    m = {}
+    mc.stamp_recording_core(m, config={"a": 1})
+    assert "enabled_default_off_flags" not in m
+
+
+def test_stamp_recording_core_records_empty_dict_when_agent_given_but_nothing_differs():
+    # This is the case the earlier "omit on empty" draft got wrong: an agent WAS given,
+    # so this must be recorded as {} (measured, nothing enabled), not omitted (which
+    # would be indistinguishable from never having passed an agent at all).
+    FakeConfig, _ = _make_fake_dataclass()
+
+    class A:
+        def __init__(self, cfg):
+            self.config = cfg
+
+    m = {}
+    mc.stamp_recording_core(m, config={"a": 1}, agent=A(FakeConfig()))
+    assert m["enabled_default_off_flags"] == {}
+
+
+def test_stamp_recording_core_enabled_flags_no_op_safe_fill_only():
+    FakeConfig, _ = _make_fake_dataclass()
+
+    class A:
+        def __init__(self, cfg):
+            self.config = cfg
+
+    m = {"enabled_default_off_flags": {"author_set": True}}
+    mc.stamp_recording_core(m, config={"a": 1}, agent=A(FakeConfig(use_top=True)))
+    assert m["enabled_default_off_flags"] == {"author_set": True}  # not clobbered
+
+    mc.stamp_recording_core(
+        m, config={"a": 1}, agent=A(FakeConfig(use_top=True)), overwrite=True)
+    assert m["enabled_default_off_flags"] == {"use_top": True}  # overwrite=True wins
+
+
+# --------------------------------------------------------------------------- #
 # pack_writer structured sections
 # --------------------------------------------------------------------------- #
 
