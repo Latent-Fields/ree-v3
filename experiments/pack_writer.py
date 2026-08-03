@@ -376,6 +376,7 @@ def write_flat_manifest(
     started_at: Optional[float] = None,
     agent: Any = None,
     z_goal_stream_stats: Optional[Mapping[str, Any]] = None,
+    episode_termination: Any = None,
     stamp: bool = True,
     overwrite_core: bool = False,
     require_v3: bool = True,
@@ -434,6 +435,11 @@ def write_flat_manifest(
     zero-filled, so forgetting it leaves the run unmeasured -- exactly the gap that let
     V3-EXQ-626 report five criteria keyed on a z_goal that never left zero.
 
+    ``episode_termination`` (an EpisodeTerminationAccumulator, a precomputed block, or a
+    sequence of (steps, cause) pairs) is passed through the same way for the
+    ``episode_termination`` block -- how episodes ENDED (full budget vs early death, and
+    by what cause); omitted rather than zero-filled when not supplied.
+
     ASCII-only output (repo rule); stdlib + a lazy manifest_core import so a
     scalar-only caller needs no torch/ree_core.
     """
@@ -491,6 +497,12 @@ def write_flat_manifest(
                 zg_kwargs["agent"] = agent
             if z_goal_stream_stats is not None:
                 zg_kwargs["z_goal_stream_stats"] = z_goal_stream_stats
+            # episode_termination is NEWER still than the z_goal_stream args, so it rides
+            # the same defensive path: sent only when supplied, and the TypeError fallback
+            # below drops back to a core-only stamp if stamp_fn resolves to an older
+            # manifest_core that lacks the parameter (see the z_goal_stream note above).
+            if episode_termination is not None:
+                zg_kwargs["episode_termination"] = episode_termination
             try:
                 stamp_fn(manifest, **core_kwargs, **zg_kwargs)
             except TypeError:

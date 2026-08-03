@@ -56,6 +56,16 @@ Always-core fields it stamps (standard 3b)
                      always means the run measured it. See experiments/_lib/z_goal_stream.py.
                      Also NOT in ALWAYS_CORE_KEYS -- the legacy corpus cannot carry it, and
                      it is unavailable to any manifest built outside the stepping process.
+  episode_termination : {steps_configured, frac_of_budget, causes, ...} -- how episodes
+                     ENDED across the run: did they run the configured step budget, or die
+                     early (health_depleted, hazard, waypoint-arrival), and in what
+                     proportion. The V3-EXQ-884 defect motivated it -- a run whose episodes
+                     truncated far short of their budget silently understated the behaviour
+                     the criteria keyed on. Requires the caller to pass `episode_termination=`
+                     (an accumulator, a precomputed block, or (steps, cause) pairs); the block
+                     is OMITTED rather than zero-filled when they don't, so its presence always
+                     means the run measured it. See experiments/_lib/episode_termination.py.
+                     Also NOT in ALWAYS_CORE_KEYS, for the same legacy-corpus reason as above.
   enabled_default_off_flags : {dotted_field_name: value} for every REEConfig field
                      (recursing into nested sub-configs -- latent, hippocampal, goal,
                      ...) whose CODED DEFAULT is False/0/0.0 and whose value on the
@@ -144,6 +154,16 @@ except Exception:  # pragma: no cover - path-dependent fallbacks
         from . import z_goal_stream as _z_goal_stream  # type: ignore
     except Exception:
         import z_goal_stream as _z_goal_stream  # type: ignore
+
+# Same triple-fallback import shape -- episode_termination is a sibling module in this
+# package and stdlib-only.
+try:  # normal package import
+    from experiments._lib import episode_termination as _episode_termination  # type: ignore
+except Exception:  # pragma: no cover - path-dependent fallbacks
+    try:
+        from . import episode_termination as _episode_termination  # type: ignore
+    except Exception:
+        import episode_termination as _episode_termination  # type: ignore
 
 RECORDING_SCHEMA = "rec/v1"
 
@@ -526,6 +546,7 @@ def stamp_recording_core(
     repo_root: Optional[Union[str, Path]] = None,
     agent: Any = None,
     z_goal_stream_stats: Optional[Mapping[str, Any]] = None,
+    episode_termination: Any = None,
     overwrite: bool = False,
 ) -> Dict[str, Any]:
     """Merge the always-record core onto `manifest` in place and return it.
@@ -565,6 +586,11 @@ def stamp_recording_core(
         A precomputed liveness block (from `z_goal_stream.stats_from_counts`) for a
         caller that keeps its own counters, e.g. a StepHarness accumulating across
         agent swaps. Takes precedence over `agent`.
+    episode_termination
+        The run's episode-termination source -- an EpisodeTerminationAccumulator, a
+        precomputed block, or a sequence of (steps, cause) pairs -- for the
+        `episode_termination` block (see experiments/_lib/episode_termination.py).
+        Omitting it simply omits the block; it is never fabricated.
     overwrite
         Force-overwrite already-present fields (default False -> fill-only).
 
@@ -696,6 +722,23 @@ def stamp_recording_core(
                 agent,
                 stats=dict(z_goal_stream_stats) if z_goal_stream_stats else None,
                 overwrite=overwrite,
+            )
+        except Exception:
+            pass
+
+    # episode_termination -- how episodes ENDED across the run (full budget vs early
+    # death, and by what cause). Complements z_goal_stream above: that measures whether
+    # a stream was live, this measures whether episodes reached their configured budget
+    # or truncated early (the V3-EXQ-884 defect, where episodes died far short of the
+    # step budget and silently understated the behaviour the criteria keyed on). Omitted
+    # rather than zero-filled when no source was supplied, so its presence always means
+    # the run measured it. Same _fill posture as everything else: an explicit author
+    # value wins unless overwrite=True. Internally exception-safe; the guard here covers
+    # the import itself.
+    if overwrite or _is_empty(manifest.get(_episode_termination.MANIFEST_KEY)):
+        try:
+            _episode_termination.stamp_episode_termination(
+                manifest, episode_termination, overwrite=overwrite
             )
         except Exception:
             pass
