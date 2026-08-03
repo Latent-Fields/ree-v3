@@ -110,6 +110,16 @@ DEFAULTS = {
 # AND cloud-3 are saturated AND claimable >= SURGE_QUEUE_THRESHOLD.
 # IMPORTANT: ordering matters -- cloud-2 and cloud-3 must iterate before
 # cloud-4 so cloud-4's surge branch can read sister-worker state.
+#
+# ree-worker-5 (ree-cloud-5, Phase H metaworker-dispatch box, provisioned
+# 2026-08-02/03) is DELIBERATELY ABSENT from this list, not "full"/"shutdown-only"/
+# excluded-by-HUB_NAME-style guard. This loop is the scaler's ENTIRE scope --
+# nothing else queries hcloud for other server names -- so a box that never
+# appears here is invisible to the scaler by construction, which is stronger
+# than a guard clause (no per-tick skip-and-log, nothing to keep in sync if the
+# guard logic changes). It runs no ree-runner and has no machine_affinity role
+# in the experiment queue at all, so it never needed a WORKERS entry to begin
+# with. See cloud_workers.md for the full box description.
 WORKERS = [
     ("ree-worker-1", "ree-cloud-1", "full"),
     ("ree-worker-2", "ree-cloud-2", "full"),
