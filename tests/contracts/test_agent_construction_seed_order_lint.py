@@ -620,6 +620,7 @@ def test_real_inv091_family_fires():
         "v3_exq_827a_inv091_cross_stream_similarity_band_phase_sync.py",
         "v3_exq_828_inv091_cross_stream_similarity_band_remaining_ablations.py",
         "v3_exq_828a_inv091_cross_stream_similarity_band_null_validated.py",
+        "v3_exq_828b_inv091_cross_stream_similarity_band_dynamic_budget.py",
     ):
         p = EXPERIMENTS_DIR / name
         assert p.exists(), name
@@ -772,7 +773,18 @@ def test_selector_runs_only_this_check():
 # fed the separately-correct arm comparison. This is a BACKLOG SIZE, not a
 # target -- all 11 have run and are deliberately NOT retro-edited (a completed
 # run's pre-registered emission is not rewritten).
-_PINNED_CORPUS_FIRE_COUNT = 11
+#
+# RE-PINNED 11 -> 12 on 2026-08-03 for v3_exq_828b
+# (inv091_cross_stream_similarity_band_dynamic_budget.py), a later sibling in
+# the INV-091 family landed after the 2026-08-01 audit above. Same shape as
+# 828/828a: builds ONE shared P0 agent template per seed via `make_agent(...)`
+# before any `with arm_cell(seed, ...)` in `_run_seed`. Immaterial for the same
+# reason as its siblings -- every arm within a seed shares that one template
+# via `copy.deepcopy`, so the reported comparisons are arm-matched regardless
+# of the shared (seed-uncontrolled) weights; only exact seed-to-seed
+# reproducibility across separate runs is affected. Not retro-edited -- the
+# run's pre-registered emission stands.
+_PINNED_CORPUS_FIRE_COUNT = 12
 
 
 def test_corpus_fire_rate_is_pinned(corpus_scan):
