@@ -8,25 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-875",
-      "title": "MECH-471 local-update interference test (EXP-0399): does a targeted REINFORCE update on one competence degrade an unrelated, previously-acquired competence?",
-      "script": "experiments/v3_exq_875_mech471_competence_provenance.py",
-      "priority": 50,
-      "machine_affinity": "any",
-      "estimated_minutes": 200,
-      "claim_id": "MECH-471",
-      "note": "GOV-REUSE-1: no prior manifest carries this readout (cross-competence interference under a targeted REINFORCE update) on any compatible substrate_hash -- zero-evidence claim, nothing to reanalyze; proceeding to run. complicated (buildable) per the proposal's own note -- tests only whether the interference phenomenon exists on existing substrate, does not build/exercise any provenance/rollback machinery. Uses survival/avoidance competence (two reef-placement geometries, same obs dims) rather than foraging, deliberately, to avoid the MECH-457 foraging-competence ceiling documented across 719a/724/728/734/742/780/788. strength_0 arm minted reuse-eligible (mint-as-you-go).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-08-02T15:34:37Z"
-      },
-      "conditions": 4,
-      "episodes_per_run": 370,
-      "experiment_type": "v3_exq_875_mech471_competence_provenance",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-149b",
       "title": "Q-004 tau_R calibration at larger training budget, selection-instrument fixed (supersedes V3-EXQ-149)",
       "script": "experiments/v3_exq_149b_q004_tau_r_calibration_largebudget.py",
