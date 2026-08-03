@@ -149,6 +149,52 @@ if [ -n "$STAGED_V3" ] && [ -f "$REPO/validate_experiments.py" ]; then
     fi
 fi
 
+# Block 1c: staged experiments/*.py outside _lib/ -> corpus-lint subset
+# (REE_assembly/evidence/planning/experiment_verification_harness_plan.md, Gap 1).
+#
+# Block 2 below runs the full ~1873-test contracts suite (all 47
+# tests/contracts/test_*_lint.py corpus lints included) but ONLY when
+# ree_core/ or experiments/_lib/ is staged. A brand-new experiments/v3_exq_*.py
+# -- the single most common artifact /queue-experiment produces -- touches
+# neither, so it got only Block 1 (conformance) and Block 1b (manifest-writer
+# only): it could introduce a fresh instance of an already-known bad pattern
+# (a new test_dead_z_goal_stream_lint-shaped bug, a new degenerate contract)
+# undetected until some UNRELATED later commit happened to touch ree_core/ or
+# _lib/ and a corpus-count pin broke elsewhere, misattributed to whatever was
+# staged then. Same root cause, same shape, as the two incidents Block 2's own
+# header documents for ITS trigger scope (mech457_retention_trajectory_probe,
+# the coordinator/-not-collected pytest-default-args incident) -- this closes
+# the analogous gap for experiment scripts specifically.
+#
+# Deliberately NOT the full suite: just the test_*_lint.py files (still using
+# the shared tests/contracts/conftest.py::corpus_scan fixture, so coverage of
+# the corpus lints is identical to what Block 2 would run) -- dominated by the
+# ~100s corpus-scan setup rather than the full suite's ~13min, since it
+# excludes the slow non-lint contracts (test_sd081_dualsystem_arbitration,
+# test_graceful_timeout_lockfile, etc). Cheap enough to always run locally;
+# unlike Block 2 there is no OOM-routing decision at this size. Skipped
+# entirely when Block 2 will already run (that already covers every lint), so
+# a commit touching both ree_core/ and an experiment script never double-runs.
+#
+# See tests/contracts/test_precommit_contracts_experiment_lint_scope.py.
+STAGED_EXPERIMENT_PY=$(echo "$STAGED" | grep -E '^experiments/.*\.py$' | grep -v '^experiments/_lib/' || true)
+if [ -n "$STAGED_EXPERIMENT_PY" ] && ! echo "$STAGED" | grep -qE '^(ree_core/|experiments/_lib/)'; then
+    LINT_FILES=$(cd "$REPO" && ls tests/contracts/test_*_lint.py 2>/dev/null || true)
+    if [ -n "$LINT_FILES" ]; then
+        echo "[precommit_contracts] staged experiment script(s) outside _lib/ -- running corpus-lint subset" >&2
+        # shellcheck disable=SC2086
+        if ! (cd "$REPO" && "$PY" -m pytest -q --tb=line $LINT_FILES) >&2; then
+            echo "[precommit_contracts] corpus-lint subset failed -- blocking commit" >&2
+            echo "[precommit_contracts] fix the failing lint(s) or run with --no-verify to bypass" >&2
+            if [ "$NO_BLOCK" = "1" ]; then
+                :
+            else
+                exit 2
+            fi
+        fi
+    fi
+fi
+
 # Block 2: ree_core/** OR experiments/_lib/** -> contracts test suite.
 #
 # experiments/_lib/ was added to this trigger 2026-07-19. It holds the SHARED
