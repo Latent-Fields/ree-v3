@@ -152,8 +152,26 @@ elif [ "$LIVE_CLAUDE" -ge "$MAX_CLAUDE_SESSIONS" ] || [ "$AVAIL_MB" -lt "$MIN_AV
 else
   STATE="dispatching"
   cd "$REPO"
+  # --permission-mode auto, not a full permission bypass -- changed 2026-08-03,
+  # REE_Working commit d39de60 (see metaworker-dispatch/SKILL.md Step 4's own
+  # note). This box is a bare systemd-timer target with no live, classifier-
+  # gated Claude Code session wrapping this launch, so the hard-deny that
+  # motivated the original fix (a sandboxed session's own Bash/Edit tool call
+  # getting blocked purely for containing the flag's text) does not apply to
+  # THIS invocation -- it's applied anyway because it is strictly safer on its
+  # own merits: this outer cycle-runner session stays classifier-checked on
+  # its own actions (including the nested `nohup ... &` launches it performs
+  # for Step 4 sub-dispatches) rather than unconditionally trusted, which
+  # matters most precisely because this box runs fully unattended. Verified
+  # empirically on this box (ree-cloud-5, 2026-08-03) before this change: a
+  # `claude -p ... --permission-mode auto` session with NO
+  # `.claude/settings.json` present at all (confirmed absent on this box --
+  # it is gitignored and not distributed cross-machine) still completed a
+  # nested `nohup /bin/bash -lc "..." &` launch cleanly, matching exactly
+  # what Step 4 sub-dispatch needs. See REE_Working WORKSPACE_STATE.md
+  # 2026-08-03 for the full cross-repo audit this was part of.
   claude -p "Run exactly ONE cycle of the metaworker-dispatch skill (see $REPO/.claude/skills/metaworker-dispatch/SKILL.md), then exit. This is cycle $CYCLE on machine $MACHINE. Do not call ScheduleWakeup or otherwise self-pace via /loop -- an external systemd timer re-invokes this script every 5 minutes, so pacing is handled outside this session." \
-    --dangerously-skip-permissions >> "$LOG" 2>&1
+    --permission-mode auto >> "$LOG" 2>&1
   echo "[$(ts)] cycle $CYCLE: claude -p exited $?" >> "$LOG"
 fi
 

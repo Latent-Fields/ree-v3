@@ -166,7 +166,21 @@ A bare `claude -p` may **stall on a permission prompt** in headless mode. Set
 
 - `--permission-mode acceptEdits` — auto-accept edits, still gated on risky ops.
 - `--allowedTools "Edit Bash(git*)"` — allowlist specific tools.
-- `--dangerously-skip-permissions` — fully autonomous. **Highest risk**; only for
+- `--permission-mode auto` — fully autonomous but still classifier-checked on
+  its own actions, rather than unconditionally trusted. **Recommended over the
+  full bypass below** if you want dispatched jobs to run unattended: confirmed
+  2026-08-03 (REE_Working commit `d39de60`) that a fully-permission-skipping
+  launch flag can trip a hard-deny in a sandboxed Claude Code session's own
+  auto-mode classifier -- blocking the launch itself, or even an unrelated
+  edit that merely mentions the flag's name in text -- while `--permission-mode
+  auto` avoids that and was verified end-to-end (including a nested `nohup`
+  child launch with no `.claude/settings.json` present at all) during the
+  cross-repo audit that fixed the other headless-spawn sites in this assembly.
+  This executor runs on the Mac via launchd, outside any such sandboxed
+  session, so the hard-deny itself doesn't apply here -- this is the safety
+  upgrade, not a bug fix, for this specific site.
+- `--dangerously-skip-permissions` — fully autonomous, no classifier check on
+  the dispatched session's own actions at all. **Highest risk**; only for
   prompts you trust, in the isolated worktree. Your call.
 
 Each job runs in a throwaway `dispatch/<id>` branch + worktree under
