@@ -36,11 +36,13 @@ from ree_core.latent.stack import LatentState
 class ContextMemory(nn.Module):
     """Context memory for E1's long-horizon predictions (unchanged from V2)."""
 
-    def __init__(self, latent_dim: int, memory_dim: int = 128, num_slots: int = 16):
+    def __init__(self, latent_dim: int, memory_dim: int = 128, num_slots: int = 16,
+                 gated_content_write: bool = False):
         super().__init__()
         self.latent_dim = latent_dim
         self.memory_dim = memory_dim
         self.num_slots = num_slots
+        self.gated_content_write = bool(gated_content_write)
 
         self.memory = nn.Parameter(torch.randn(num_slots, memory_dim) * 0.01)
         self.query_proj = nn.Linear(latent_dim, memory_dim)
@@ -62,6 +64,62 @@ class ContextMemory(nn.Module):
             nn.Linear(latent_dim, memory_dim),
             nn.Sigmoid()
         )
+        # V3-EXQ-436c / V3-EXQ-861a follow-up (2026-08-03): gated content write.
+        #
+        # The legacy write path uses write_gate's POST-SIGMOID output as the
+        # write PAYLOAD (`self.memory[i] = 0.9*self.memory[i] + 0.1*write_signal`).
+        # A sigmoid output is confined to (0,1) and, at this module's operating
+        # point, sits within +-0.02 of 0.5 on every channel -- so every write
+        # blends the slot toward the SAME vector 0.5*ones(memory_dim). Measured
+        # live on a 436c-configured agent (state rms 0.078, ||x|| 0.63):
+        #   ||mean write_signal||        = 5.6604  (= ||0.5*ones(128)|| = 5.6569)
+        #   mean ||write_signal - mean|| = 0.0293
+        #   const_over_varying_ratio     = 193.2
+        #   pairwise cos sim of the vectors actually written = 0.999961
+        # Replaying 436c's 800-write SWS load drives whole-bank slot cosine
+        # similarity 0.007 -> 0.9999, reproducing 436c's reported homogenization
+        # (~0.9999-1.0 in 4/5 seeds) exactly.
+        #
+        # NOTE FOR ANYONE RE-DERIVING THIS: the failure_autopsy hypothesis was
+        # that write_gate carries key_proj's bias-over-content collapse
+        # (SD-016 Part A / EXQ-477). The bias ratio IS elevated
+        # (bias_over_content_ratio = 1.60 at the operating point, i.e. ||b||
+        # exceeds ||W x||), but removing the bias DOES NOT FIX THIS and must not
+        # be mistaken for a fix: measured A/B, `sigmoid(Wx+b)` -> `sigmoid(Wx)`
+        # moves const_over_varying 44.87 -> 44.78 and post-load slot cosine
+        # similarity 0.999910 -> 0.999914. The constant is sigmoid's own midpoint
+        # (||0.5*ones(128)|| = 5.6569, matching the measured ||const|| to 4 s.f.),
+        # which no change to the bias can move. key_proj's fix does not transfer.
+        #
+        # The actual defect is semantic: a *gate* should MODULATE content, not BE
+        # content. When gated_content_write=True, write_gate is restored to its
+        # namesake role and a separate linear projection carries the payload:
+        #     write_signal = sigmoid(write_gate_pre(x)) * write_content(x)
+        # which is zero-centred and content-bearing. Measured at the same
+        # operating point: const_over_varying 44.9 -> 0.07, written-vector
+        # pairwise cos sim 0.99950 -> 0.00023, and post-800-write slot cosine
+        # similarity {0.9999, 0.9999, 1.0000, -0.0120, 0.2776} (seeds 0-4;
+        # 3/5 fully collapsed, matching 436c's reported 4/5) ->
+        # {0.0062, 0.0491, 0.0434, 0.0288, 0.0319} -- differentiation, the
+        # direction SD-017/ARC-045/MECH-166 predict.
+        #
+        # Default False: bit-identical to the legacy path (the parameter is not
+        # even constructed), so no in-flight experiment changes semantics until
+        # it opts in via REEConfig.from_dims(contextmemory_gated_content_write=True).
+        # Validation: re-run the 436-family under a new letter (e.g. V3-EXQ-436d).
+        # bias=False is load-bearing, and is where SD-016 Part A's insight DOES
+        # apply. With a default-init bias on write_content, ||b_c|| = 0.803 vs
+        # mean ||W_c x|| = 0.513 at the operating point (bias_over_content_ratio
+        # 1.56) -- so the payload collapses back onto a constant (sigmoid(.)*b_c)
+        # and the repair only half-works: written-vector pairwise cos sim 0.707
+        # and post-800-write slot cosine similarity still 0.968. With bias=False
+        # the payload is a pure linear map of slot content: pairwise cos sim
+        # 0.0002 and slot cosine similarity 0.16. Same reasoning, and same
+        # structural (not zero-init) remedy, as key_proj above.
+        if self.gated_content_write:
+            self.write_content = nn.Linear(latent_dim, memory_dim, bias=False)
+        else:
+            self.write_content = None
 
     def read(self, query: torch.Tensor) -> torch.Tensor:
         batch_size = query.shape[0]
@@ -76,6 +134,10 @@ class ContextMemory(nn.Module):
 
     def write(self, state: torch.Tensor) -> None:
         write_signal = self.write_gate(state)
+        if self.gated_content_write:
+            # Gate modulates content rather than serving as the content itself.
+            # See the __init__ note for the measured pathology this repairs.
+            write_signal = write_signal * self.write_content(state)
         with torch.no_grad():
             query = self.query_proj(state)
             scores = torch.mm(query, self.memory.t())
@@ -118,6 +180,9 @@ class E1DeepPredictor(nn.Module):
             latent_dim=total_dim,
             memory_dim=self.config.hidden_dim,
             num_slots=16,
+            gated_content_write=getattr(
+                self.config, "contextmemory_gated_content_write", False
+            ),
         )
 
         self.transition_rnn = nn.LSTM(

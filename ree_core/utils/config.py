@@ -400,6 +400,19 @@ class E1Config:
     # See REE_assembly/docs/architecture/context_memory_writepath_fix.md.
     sd016_writepath_mode: str = "off"
 
+    # V3-EXQ-436c / V3-EXQ-861a follow-up (2026-08-03): ContextMemory gated
+    # content write. The legacy write path uses write_gate's post-sigmoid output
+    # as the write PAYLOAD, which is confined to (0,1) and sits within +-0.02 of
+    # 0.5 on every channel at the operating point -- so every write blends the
+    # slot toward the same vector 0.5*ones(memory_dim) and the bank homogenizes
+    # (measured: whole-bank slot cosine similarity 0.007 -> 0.9999 over 436c's
+    # 800-write SWS load). When True, write_gate modulates a separate content
+    # projection instead of being the content. Default False = bit-identical to
+    # the legacy path (the extra parameter is not constructed).
+    # See ContextMemory.__init__ in ree_core/predictors/e1_deep.py for the full
+    # measurement, including why removing write_gate's bias is NOT the fix.
+    contextmemory_gated_content_write: bool = False
+
     # SD-016 Path 4 (V3-EXQ-418g): learnable attention temperature on the
     # z_world-only ContextMemory query inside extract_cue_context().
     # When True, exp(log_tau) replaces the fixed sqrt(memory_dim) divisor and
@@ -5529,6 +5542,10 @@ class REEConfig:
         # SD-016 ContextMemory write-path mode (EXQ-477 follow-up):
         # "off" | "train_only" | "sense_only" | "both"
         sd016_writepath_mode: str = "off",
+        # V3-EXQ-436c / V3-EXQ-861a follow-up: ContextMemory gated content write.
+        # False (default) = legacy path, bit-identical. See E1Config for the
+        # measured homogenization pathology this repairs.
+        contextmemory_gated_content_write: bool = False,
         # SD-016 Path 1 (V3-EXQ-418e): auxiliary diversification loss weight
         # on ContextMemory slots. 0.0 = no-op (legacy substrate). Recommended
         # 0.5 when sd016_enabled=True (mirrors LAMBDA_CUE_ACTION).
@@ -6632,6 +6649,7 @@ class REEConfig:
         config.e1.latent_dim = self_dim + world_dim
         config.e1.sd016_enabled = sd016_enabled
         config.e1.sd016_writepath_mode = sd016_writepath_mode
+        config.e1.contextmemory_gated_content_write = contextmemory_gated_content_write
         config.e1.sd016_temperature_learnable = sd016_temperature_learnable
         config.e1.sd016_cue_slot_tagger = sd016_cue_slot_tagger
         config.e1.sd016_cue_slot_tagger_hidden = sd016_cue_slot_tagger_hidden
