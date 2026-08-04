@@ -52,26 +52,40 @@ reading docs:
   (3) "APPROACH-BEHAVIOUR HALF BLOCKED" -- STILL TRUE, and this design does not
       go near it. No behavioural DV is measured.
 
-KNOWN LIVE SUBSTRATE DEFECT (recorded here, NOT worked around silently)
-----------------------------------------------------------------------
-ree_core/agent.py::_do_replay builds a FOUR-element drive_state
+SUBSTRATE DEFECT FOUND BY THIS EXPERIMENT'S PROBE -- FIXED BEFORE IT RAN
+-----------------------------------------------------------------------
+The 2026-08-03 Step 2.5a probe for this experiment found that
+ree_core/agent.py::_do_replay built a FOUR-element drive_state
     [t5ht, 0.5, 1.0 - t5ht, surprise_weight]
-and passes it to HippocampalModule._select_valence_weighted_start ->
+and passed it to HippocampalModule._select_valence_weighted_start ->
 ResidueField.get_valence_priority. Since MECH-307 (2026-05-11) widened the
-valence vector to VALENCE_DIM=6, that call raises
+valence vector to VALENCE_DIM=6, that call raised
     RuntimeError: The size of tensor a (6) must match the size of tensor b (4)
-There is no try/except on that path. Verified by direct probe on 2026-08-03.
+with no try/except anywhere on the path, so the AGENT-LEVEL valence-weighted
+replay entry point could not run at all whenever serotonin or
+surprise_gated_replay was enabled.
 
-So the AGENT-LEVEL replay entry point is currently broken, while the SD-014
-prioritisation FUNCTION itself is correct. SD-014's claim is about the per-node
-vector and priority(node) = dot(V_node, d_current) -- not about _do_replay's
-argument width -- so this experiment exercises the function with a correctly
-sized 6-element drive vector whose MECH-307 slots (4,5) are zero, i.e. exactly
-SD-014's 4-component prioritisation embedded in the widened field. The defect is
-NOT papered over: P4 below re-runs the substrate's own drive_state construction
-verbatim and records the resulting exception as a non-gating diagnostic, so the
-wiring gap is part of the evidence record. It is separately routed to
-/implement-substrate.
+FIXED in ree-v3 32edd553 (2026-08-04), before this experiment ran:
+  * _do_replay now builds the vector BY INDEX at VALENCE_DIM, with the MECH-307
+    split-surprise slots (4, 5) deliberately zero-weighted in BOTH flag states
+    (weighting them would double-count surprise -- the write site already
+    mirrors the magnitude into the legacy VALENCE_SURPRISE slot);
+  * ResidueField.get_valence_priority zero-PADS a genuinely legacy narrow
+    drive_state and RECORDS having done so (valence_priority_pad_count /
+    last_valence_priority_pad_width + a one-shot RuntimeWarning), while still
+    refusing longer-than-VALENCE_DIM and non-1-D vectors.
+  * Pinned by tests/contracts/test_do_replay_drive_state_width.py.
+
+This changes nothing about the design below. SD-014's claim is about the
+per-node vector and priority(node) = dot(V_node, d_current) -- not about
+_do_replay's argument width -- so this experiment exercises the function with a
+correctly sized 6-element drive vector whose MECH-307 slots (4,5) are zero, i.e.
+exactly SD-014's 4-component prioritisation embedded in the widened field, as it
+always did. P4 below is retained as a non-gating REGRESSION WITNESS: it now
+MEASURES what _do_replay hands to replay (spying on the replay entry points and
+on get_valence_priority) instead of restating the old 4-element literal, and it
+records the pad counter -- which matters precisely because the pad means a
+future re-narrowing would no longer raise.
 
 DESIGN (single-arm, measurement-only, commitment-free)
 ------------------------------------------------------
@@ -98,7 +112,8 @@ Per seed:
         COMPOSITE   : priority_i = c_i * sum(d), c_i = sum_j V_ij
                       (the "single composite value signal" SD-014 says is
                       insufficient)
-  P4  Non-gating diagnostics, incl. the _do_replay width probe above.
+  P4  Non-gating diagnostics, incl. the _do_replay drive-state width witness
+      described above (measured off the live path, never restated).
 
 DVs (all read off substrate state; none behavioural)
 ----------------------------------------------------
@@ -525,31 +540,116 @@ def _run_waking_rollout(agent, env, n_episodes, n_steps, seed) -> Dict:
 # --------------------------------------------------------------------------- #
 
 def _do_replay_width_diagnostic(agent) -> Dict:
-    """P4 (NON-GATING): run the substrate's OWN drive_state construction verbatim.
+    """P4 (NON-GATING): MEASURE the drive_state the substrate itself builds.
 
-    ree_core/agent.py::_do_replay builds a 4-element drive_state while the field
-    is VALENCE_DIM=6 since MECH-307. This records what actually happens on that
-    live path rather than leaving the defect as prose.
+    This probe does NOT restate _do_replay's construction. It spies on both
+    hippocampal replay entry points (plain and the MECH-165 diverse one) and on
+    ResidueField.get_valence_priority, then calls the agent's OWN _do_replay --
+    so what is recorded is whatever the live substrate actually hands over, and
+    the record cannot drift out of step with the substrate the way a restated
+    literal can. Same capture technique as
+    tests/contracts/test_do_replay_drive_state_width.py.
+
+    HISTORY (why this probe exists, and why it was rewritten). Until ree-v3
+    32edd553 (2026-08-04), _do_replay built a FOUR-element drive_state against a
+    VALENCE_DIM=6 valence store -- MECH-307 widened the store 4 -> 6 on
+    2026-05-11 and this construction was not widened with it -- so
+    ResidueField.get_valence_priority raised RuntimeError, uncaught, on every
+    agent-level valence-weighted replay. That defect is FIXED: the vector is now
+    built BY INDEX at VALENCE_DIM with the MECH-307 split-surprise slots (4, 5)
+    deliberately zero-weighted in both flag states, and get_valence_priority
+    zero-PADS a genuinely legacy narrow vector (recording the pad) rather than
+    raising. The first version of this probe rebuilt the 4-element literal
+    itself, so post-fix it would have reported a defect that no longer exists
+    while its own ok/error flags flipped for the wrong reason.
+
+    It is kept, rather than deleted, as a live regression witness: precisely
+    BECAUSE get_valence_priority now pads, a future re-narrowing of _do_replay
+    would no longer raise, and the pad counter is the only thing that would
+    notice. Non-gating either way -- SD-014's claim is about the per-node vector
+    and priority(node) = dot(V_node, d), not about _do_replay's argument width.
     """
-    t5ht = agent.serotonin.tonic_5ht if agent.serotonin.enabled else 0.0
-    surprise_weight = 0.3
-    if agent.config.surprise_gated_replay and getattr(agent, "_pe_ema", 0.0) > 0:
-        surprise_weight = min(1.0, agent._pe_ema * 5.0)
-    substrate_drive_state = torch.tensor(
-        [t5ht, 0.5, 1.0 - t5ht, surprise_weight], dtype=torch.float32)
-    buf = torch.randn(4, 1, agent.config.latent.world_dim) * 0.1
+    captured: Dict = {}
+
+    def _spy_replay(name):
+        orig = getattr(agent.hippocampal, name)
+
+        def wrapper(*args, **kwargs):
+            captured.setdefault("replay_entry_point", name)
+            captured.setdefault("drive_state", kwargs.get("drive_state"))
+            return orig(*args, **kwargs)
+
+        return wrapper
+
+    orig_priority = agent.residue_field.get_valence_priority
+    priority_widths: List[int] = []
+
+    def _spy_priority(z_world, drive_state, *a, **kw):
+        priority_widths.append(int(drive_state.numel()))
+        return orig_priority(z_world, drive_state, *a, **kw)
+
+    recent = agent.theta_buffer.recent
+    pad_before = int(getattr(agent.residue_field, "valence_priority_pad_count", 0))
     out = {
-        "substrate_drive_state_width": int(substrate_drive_state.numel()),
         "valence_dim": int(VALENCE_DIM),
-        "widths_match": bool(substrate_drive_state.numel() == VALENCE_DIM),
+        "probe_measures_substrate": True,
+        "theta_buffer_rows": int(recent.shape[0]) if recent is not None else 0,
+        "pad_count_before": pad_before,
+        "defect_fixed_in_commit": "ree-v3 32edd553",
+        "defect_contract": "tests/contracts/test_do_replay_drive_state_width.py",
     }
+
+    agent.hippocampal.replay = _spy_replay("replay")
+    agent.hippocampal.diverse_replay = _spy_replay("diverse_replay")
+    agent.residue_field.get_valence_priority = _spy_priority
     try:
-        agent.hippocampal._select_valence_weighted_start(buf, substrate_drive_state)
-        out["select_valence_weighted_start_ok"] = True
+        agent._do_replay(agent._current_latent)
+        out["do_replay_ok"] = True
         out["error"] = ""
     except Exception as exc:  # recorded, never swallowed silently
-        out["select_valence_weighted_start_ok"] = False
+        out["do_replay_ok"] = False
         out["error"] = f"{type(exc).__name__}: {str(exc)[:200]}"
+    finally:
+        # Drop the instance attributes shadowing the bound methods, so the agent
+        # is left exactly as it was found.
+        agent.hippocampal.__dict__.pop("replay", None)
+        agent.hippocampal.__dict__.pop("diverse_replay", None)
+        agent.residue_field.__dict__.pop("get_valence_priority", None)
+
+    ds = captured.get("drive_state")
+    out["replay_entry_point"] = str(captured.get("replay_entry_point", ""))
+    out["reached_replay_entry_point"] = bool("replay_entry_point" in captured)
+    if ds is None:
+        # Either _do_replay returned early (no theta-buffer window) or neither
+        # switch that builds a drive_state was on. Nothing was measured -- say so
+        # rather than reporting a width of 0 as if it were a reading.
+        out["drive_state_built"] = False
+        out["substrate_drive_state_width"] = None
+        out["substrate_drive_state"] = []
+        out["widths_match"] = None
+    else:
+        width = int(ds.numel())
+        out["drive_state_built"] = True
+        out["substrate_drive_state_width"] = width
+        out["substrate_drive_state"] = [float(x) for x in ds.flatten().tolist()]
+        out["widths_match"] = bool(width == VALENCE_DIM)
+
+    pad_after = int(getattr(agent.residue_field, "valence_priority_pad_count", 0))
+    out["n_get_valence_priority_calls"] = len(priority_widths)
+    out["get_valence_priority_drive_state_widths"] = sorted(set(priority_widths))
+    out["pad_count_after"] = pad_after
+    out["pad_count_delta"] = pad_after - pad_before
+    out["last_pad_width"] = getattr(
+        agent.residue_field, "last_valence_priority_pad_width", None)
+    # The consumer-side reading: the valence-weighted start selection actually
+    # ran AND reached get_valence_priority at full width without needing the
+    # legacy pad. A pad_count_delta > 0 here means _do_replay has re-narrowed.
+    out["valence_weighted_start_reached_priority"] = bool(priority_widths)
+    out["reached_priority_at_full_width"] = bool(
+        priority_widths
+        and all(w == VALENCE_DIM for w in priority_widths)
+        and pad_after == pad_before
+    )
     return out
 
 
@@ -964,8 +1064,15 @@ def _run(dry_run: bool):
         "drive_vector_note": (
             "drive vectors are width VALENCE_DIM=6 with the MECH-307 split-surprise "
             "slots (4,5) held at zero -- i.e. SD-014's 4-component prioritisation "
-            "embedded in the widened field. A 4-element vector raises RuntimeError "
-            "against the 6-wide store; see do_replay_drive_state_width_probe."
+            "embedded in the widened field. A 4-element vector no longer raises "
+            "against the 6-wide store: as of ree-v3 32edd553 (2026-08-04) "
+            "ResidueField.get_valence_priority zero-PADS a legacy narrow vector and "
+            "records having done so (valence_priority_pad_count / "
+            "last_valence_priority_pad_width + a one-shot RuntimeWarning), while "
+            "still refusing longer-than-VALENCE_DIM and non-1-D vectors. The vectors "
+            "built here are full width, so they never take that path; "
+            "do_replay_drive_state_width_probe records the pad counter per seed as "
+            "the regression witness."
         ),
     }
 
@@ -1027,12 +1134,24 @@ def _run(dry_run: bool):
             "and prioritisation function."
         ),
         "known_substrate_defect_note": (
-            "ree_core/agent.py::_do_replay builds a 4-element drive_state against a "
-            "VALENCE_DIM=6 field (widened by MECH-307, 2026-05-11), so the agent-level "
-            "valence-weighted replay entry point raises RuntimeError with no try/except. "
-            "Recorded per seed under do_replay_drive_state_width_probe. Routed to "
-            "/implement-substrate separately; SD-014's own claim (the node vector and "
-            "priority(node)=dot(V,d)) is exercised here with a correctly sized vector."
+            "FIXED before this run -- recorded so the defect's history is legible, NOT "
+            "as a live finding. ree_core/agent.py::_do_replay used to build a 4-element "
+            "drive_state against a VALENCE_DIM=6 field (widened by MECH-307, "
+            "2026-05-11), so the agent-level valence-weighted replay entry point raised "
+            "RuntimeError with no try/except; the defect was found by this "
+            "experiment's own Step 2.5a substrate probe on 2026-08-03. As of ree-v3 "
+            "32edd553 (2026-08-04) _do_replay builds the vector BY INDEX at "
+            "VALENCE_DIM with the MECH-307 split-surprise slots (4,5) deliberately "
+            "zero-weighted in both flag states, and ResidueField.get_valence_priority "
+            "zero-pads-and-records a legacy narrow vector instead of raising. Pinned by "
+            "tests/contracts/test_do_replay_drive_state_width.py. "
+            "do_replay_drive_state_width_probe now MEASURES the live path per seed "
+            "(spying on the hippocampal replay entry points and on "
+            "get_valence_priority) rather than restating the old construction, so it "
+            "stands as a regression witness: because the pad means a re-narrowing "
+            "would no longer raise, pad_count_delta is the only thing that would "
+            "notice. SD-014's own claim (the node vector and priority(node)=dot(V,d)) "
+            "is exercised here with a correctly sized vector either way."
         ),
         "custom_information": {
             "probe_2026_08_03": (
