@@ -30,31 +30,6 @@
       "experiment_purpose": "evidence",
       "experiment_type": "v3_exq_882a_mech472_context_memorization_generalization",
       "seeds": 8
-    },
-    {
-      "queue_id": "V3-EXQ-149b",
-      "title": "Q-004 tau_R calibration at larger training budget, selection-instrument fixed (supersedes V3-EXQ-149)",
-      "script": "experiments/v3_exq_149b_q004_tau_r_calibration_largebudget.py",
-      "priority": 25,
-      "machine_affinity": "any",
-      "estimated_minutes": 2415,
-      "supersedes": "V3-EXQ-149",
-      "backlog_id": "EVB-0179",
-      "note": "Q-004 replication at a larger training budget, per claims.yaml what_would_answer. GOV-REUSE-1: decisive readout not recoverable from any existing manifest -- EXQ-149 is the only prior run and cannot answer this (see defect below). Re-derive brake (2.5b): 0 failure_autopsy artifacts exist for Q-004/EXQ-149. CRITICAL FINDING during Step 3.5 code review: EXQ-149's action selection was unconditionally random.randint(...) in both training and eval, in every condition -- agent.e3.harm_eval() was trained but never consulted for selection, and residue_field.evaluate_trajectory() was never called. mean_harm under an RNG-only policy cannot depend on tau_R at ANY budget -- EXQ-149's identical-mean_harm finding is close to an arithmetic identity (DV-symmetry defect), not evidence of behavioural inertness. FIX (instrument repair, same claim/conditions/thresholds): action selection now routes through agent.hippocampal.propose_trajectories + agent.select_action (adapted from the already-reviewed V3-EXQ-120a pattern), giving tau_R two real causal channels into behavior (CEM candidate scoring vs residue terrain; E3 compute_residue_cost). Budget: WARMUP_EPISODES 300->600 (2x), EVAL_EPISODES 100->150 (1.5x) -- sized against a REAL timed calibration (10 warmup + 5 eval eps measured 32.2 sec/episode). New non-gating readiness diagnostics (R1 candidate_action_diversity>=1.5, R2 hippo_fallback_rate<0.5) guard against the fix silently degrading back to random selection. Smoke (--dry-run): all 6 cells complete, hippo_fallback_rate=0.0 everywhere, candidate_diversity_min 2.0-3.0, validate_experiments.py --strict 0 findings. Estimated ~40 hr total across 6 cells; machine_affinity=any per project convention.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-08-02T21:41:00Z"
-      },
-      "architecture_epoch": "ree_hybrid_guardrails_v1",
-      "claim_ids": [
-        "Q-004"
-      ],
-      "conditions": 3,
-      "episodes_per_run": 600,
-      "experiment_purpose": "evidence",
-      "experiment_type": "v3_exq_149b_q004_tau_r_calibration_largebudget",
-      "seeds": 2
     }
   ]
 }
