@@ -2292,10 +2292,13 @@ class HippocampalModule(nn.Module):
             theta_buffer_recent: Recent theta-cycle buffer content
                 [T, batch, world_dim]
             num_replay_steps: Number of replay trajectories to generate
-            drive_state: Optional [4] drive weights for valence-weighted start
-                point selection. When provided, each buffer entry is scored
-                by dot(valence, drive_state) and the highest-priority entry
-                is used as replay start. When None, uses most recent entry.
+            drive_state: Optional [VALENCE_DIM] drive weights for valence-
+                weighted start point selection. When provided, each buffer
+                entry is scored by dot(valence, drive_state) and the
+                highest-priority entry is used as replay start. When None,
+                uses most recent entry. A shorter (pre-MECH-307, 4-element)
+                vector is zero-padded by get_valence_priority, which records
+                the padding.
 
         Returns:
             List of Trajectory objects (all hypothesis_tag=True on caller side)
@@ -2344,7 +2347,8 @@ class HippocampalModule(nn.Module):
 
         Args:
             theta_buffer_recent: [T, batch, world_dim]
-            drive_state: [4] drive weights
+            drive_state: [VALENCE_DIM] drive weights (a shorter legacy vector
+                is zero-padded by get_valence_priority)
 
         Returns:
             z_world_replay: [batch, world_dim]

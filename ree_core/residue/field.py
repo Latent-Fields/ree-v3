@@ -33,6 +33,7 @@ The ResidueField is an input to multiple modules (not just E3's Φ_R cost):
   - (future) Sensorium gate: residue as attentional prior
 """
 
+import warnings
 from typing import Optional, List, Dict, Tuple
 
 import torch
@@ -391,6 +392,13 @@ class ResidueField(nn.Module):
         self.register_buffer("total_residue", torch.tensor(0.0))
         self.register_buffer("num_harm_events", torch.tensor(0))
         self._harm_history: List[torch.Tensor] = []
+
+        # get_valence_priority legacy-narrow-drive_state instrumentation
+        # (2026-08-03). Plain python attrs, NOT buffers -- they must not enter
+        # state_dict and change checkpoint compatibility.
+        self.valence_priority_pad_count: int = 0
+        self.last_valence_priority_pad_width: Optional[int] = None
+        self._valence_priority_pad_warned: bool = False
 
         # ARC-030 / MECH-117: benefit terrain (liking -- where benefit was received)
         # Separate from z_goal (wanting -- frontal goal attractor).
@@ -823,25 +831,73 @@ class ResidueField(nn.Module):
         Compute drive-weighted replay priority (SD-014).
 
         priority(node) = dot(V_node, d_current) + epsilon
-        where V_node = evaluate_valence(z_world) [batch, 4]
-        and   d_current = drive_state [4] current drive weights.
+        where V_node = evaluate_valence(z_world) [batch, VALENCE_DIM]
+        and   d_current = drive_state [VALENCE_DIM] current drive weights.
 
         A high priority means the node is strongly relevant to current drive.
         All priorities are strictly positive (epsilon floor) so they can be
         used directly as sampling weights.
 
+        LEGACY NARROW drive_state (added 2026-08-03): callers written before
+        MECH-307 widened VALENCE_DIM from 4 to 6 pass a 4-element vector, which
+        previously raised a bare RuntimeError out of the broadcast. Such a
+        vector is now ZERO-PADDED to VALENCE_DIM, which is exactly the intended
+        semantics -- the unspecified channels get no weight -- and the event is
+        RECORDED (`valence_priority_pad_count` / `last_valence_priority_pad_width`,
+        plus a one-shot warning per field instance) so the padding cannot pass
+        silently. This is deliberately NOT a general size coercion: a
+        drive_state LONGER than VALENCE_DIM, or not 1-D, is a genuinely
+        mis-sized vector and still raises.
+
         Args:
             z_world:     [batch, world_dim] query points
-            drive_state: [4] current drive weight vector
-                         [w_drive, l_drive, h_drive, s_drive]
+            drive_state: [VALENCE_DIM] current drive weight vector
+                         [w_drive, l_drive, h_drive, s_drive,
+                          pos_surprise_drive, neg_surprise_drive]
+                         A shorter 1-D vector is zero-padded (see above).
             epsilon:     small constant for numerical stability (default 1e-6)
 
         Returns:
             priority: [batch] scalar priority per query point
         """
-        valence = self.evaluate_valence(z_world)           # [batch, 4]
+        valence = self.evaluate_valence(z_world)           # [batch, VALENCE_DIM]
         # drive_state may be on a different device; move to match
-        d = drive_state.to(valence.device).to(valence.dtype)  # [4]
+        d = drive_state.to(valence.device).to(valence.dtype)  # [VALENCE_DIM]
+        if d.dim() != 1:
+            raise ValueError(
+                "get_valence_priority: drive_state must be 1-D of length "
+                f"{VALENCE_DIM}, got shape {tuple(drive_state.shape)}"
+            )
+        n_drive = int(d.shape[0])
+        if n_drive > VALENCE_DIM:
+            raise ValueError(
+                "get_valence_priority: drive_state is longer than the valence "
+                f"vector ({n_drive} > VALENCE_DIM={VALENCE_DIM}); refusing to "
+                "truncate -- this is a mis-sized drive vector, not a legacy one"
+            )
+        if n_drive < VALENCE_DIM:
+            # Legacy pre-MECH-307 caller: pad, but record it. getattr-guarded
+            # so a field instance restored by whole-module unpickling (which
+            # never re-runs __init__) still records rather than AttributeError-ing.
+            self.valence_priority_pad_count = int(
+                getattr(self, "valence_priority_pad_count", 0)
+            ) + 1
+            self.last_valence_priority_pad_width = n_drive
+            if not getattr(self, "_valence_priority_pad_warned", False):
+                self._valence_priority_pad_warned = True
+                warnings.warn(
+                    "get_valence_priority: zero-padding a legacy "
+                    f"{n_drive}-element drive_state to VALENCE_DIM="
+                    f"{VALENCE_DIM}. The padded channels get zero weight, so "
+                    "prioritisation matches the caller's intent, but the "
+                    "caller predates MECH-307 and should be widened.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+            d = torch.cat(
+                [d, torch.zeros(VALENCE_DIM - n_drive,
+                                device=d.device, dtype=d.dtype)]
+            )
         priority = (valence * d.unsqueeze(0)).sum(dim=-1) + epsilon  # [batch]
         return priority
 

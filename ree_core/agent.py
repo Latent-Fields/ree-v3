@@ -204,6 +204,7 @@ from ree_core.pag import (
 )
 from ree_core.sleep import SleepLoopManager
 from ree_core.residue.field import (
+    VALENCE_DIM,
     VALENCE_WANTING,
     VALENCE_LIKING,
     VALENCE_HARM_DISCRIMINATIVE,
@@ -9078,19 +9079,55 @@ class REEAgent(nn.Module):
         recent = self.theta_buffer.recent
         if recent is None:
             return
-        # MECH-203 + MECH-205: build drive_state for valence-weighted replay
+        # MECH-203 + MECH-205: build drive_state for valence-weighted replay.
+        #
+        # WIDTH CONTRACT (fixed 2026-08-03, SD-014 GOV-CONFIRM-1 probe): this
+        # vector is dotted against evaluate_valence(), which returns
+        # [batch, VALENCE_DIM]. MECH-307 (2026-05-11) widened VALENCE_DIM from
+        # 4 to 6 by adding VALENCE_POSITIVE_SURPRISE / VALENCE_NEGATIVE_SURPRISE,
+        # and this construction was not widened with it -- so the broadcast in
+        # ResidueField.get_valence_priority raised
+        #   RuntimeError: The size of tensor a (6) must match the size of
+        #                 tensor b (4) at non-singleton dimension 1
+        # on every call, with no try/except anywhere on the path. The agent-level
+        # valence-weighted replay entry point therefore could not run at all
+        # whenever serotonin or surprise_gated_replay was enabled.
+        #
+        # It is now built at width VALENCE_DIM by index, so a future widening of
+        # the valence vector leaves the new channels explicitly zero-weighted
+        # rather than silently changing shape. Pinned by
+        # tests/contracts/test_do_replay_drive_state_width.py.
         drive_state = None
         if self.serotonin.enabled or self.config.surprise_gated_replay:
-            # Drive state = [wanting_weight, liking_weight, harm_weight, surprise_weight]
             t5ht = self.serotonin.tonic_5ht if self.serotonin.enabled else 0.0
             # MECH-205: surprise weight scales with recent PE magnitude
             surprise_weight = 0.3
             if self.config.surprise_gated_replay and self._pe_ema > 0:
                 surprise_weight = min(1.0, self._pe_ema * 5.0)
-            drive_state = torch.tensor(
-                [t5ht, 0.5, 1.0 - t5ht, surprise_weight],
-                device=self.device,
-            )
+            drive_state = torch.zeros(VALENCE_DIM, device=self.device)
+            drive_state[VALENCE_WANTING] = t5ht
+            drive_state[VALENCE_LIKING] = 0.5
+            drive_state[VALENCE_HARM_DISCRIMINATIVE] = 1.0 - t5ht
+            drive_state[VALENCE_SURPRISE] = surprise_weight
+            # MECH-307 split-surprise channels (4, 5) are supplied DELIBERATELY
+            # at weight 0.0, in both flag states -- this is not an oversight:
+            #   * use_mech307_split_surprise=False -> those channels are never
+            #     written (see the Gap 1 write-site dispatch in update_residue),
+            #     so any weight on them is a no-op; zero keeps the prioritisation
+            #     bit-identical to the intended 4-component SD-014 formula.
+            #   * use_mech307_split_surprise=True  -> the write site routes the
+            #     surprise magnitude to POSITIVE/NEGATIVE_SURPRISE *and* writes
+            #     the same magnitude to the legacy VALENCE_SURPRISE slot
+            #     explicitly "so MECH-205 / SD-014 consumers reading the
+            #     magnitude slot stay bit-identical". The split channels are a
+            #     signed DECOMPOSITION of a magnitude this vector already
+            #     weights at surprise_weight, so giving them non-zero weight
+            #     here would DOUBLE-COUNT surprise in replay prioritisation and
+            #     silently change MECH-203 semantics under a MECH-307 flag that
+            #     specifies nothing about replay drive weighting.
+            # Changing this is a claims-level decision, not a substrate tidy-up.
+            drive_state[VALENCE_POSITIVE_SURPRISE] = 0.0
+            drive_state[VALENCE_NEGATIVE_SURPRISE] = 0.0
         # MECH-165: use diverse replay scheduler when enabled
         if self.config.replay_diversity_enabled:
             retrieval_bias = (
