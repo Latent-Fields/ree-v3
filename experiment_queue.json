@@ -68,32 +68,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-436d",
-      "title": "ARC-045/SD-017/MECH-166 slot-differentiation retest on repaired ContextMemory write path (gated_content_write=True); supersedes V3-EXQ-436c",
-      "script": "experiments/v3_exq_436d_sd017_mech166_writepath_retest.py",
-      "priority": 28,
-      "machine_affinity": "any",
-      "estimated_minutes": 180,
-      "supersedes": "V3-EXQ-436c",
-      "note": "ARC-045/SD-017/MECH-166 slot-differentiation retest on the REPAIRED ContextMemory write path. Discharges IGW-20260803-212 (ARC-045 pending_retest_after_substrate=true). Successor to V3-EXQ-436c: 436c was a fair, non-degenerate test whose primary DV (slot_cosine_sim differentiation, C1) FAILED 0/5 seeds and ran OPPOSITE the prediction -- SWS_THEN_REM homogenized whole-bank cosine to ~0.9999-1.0 (4/5 seeds). failure_autopsy_V3-EXQ-436c_2026-08-03 (confirmed) root-caused this to ContextMemory.write()'s write_gate acting as constant content (sigmoid-midpoint 0.5*ones) not a modulator, and its Sec.8 explicitly names THIS run: 're-run the 436-family under a new letter (e.g. V3-EXQ-436d) against the repaired write path ... once the substrate build lands -- not before.' Substrate build HAS LANDED: ree-v3 5f331fe adds ContextMemory.gated_content_write (default-OFF, bit-identical until opted in; wired through REEConfig.from_dims at 3 sites; contract test test_contextmemory_gated_content_write.py). The ONLY change vs 436c is the flag contextmemory_gated_content_write=True, held CONSTANT across both conditions (a substrate property like the noise floor); the manipulation is still sleep (SWS_THEN_REM vs WAKING_ONLY). One-variable retest: conditions, DVs, thresholds (C1>=3/5, P0 write-counter gate), seeds, action-selection all UNCHANGED from 436c. With the homogenization confound removed, a C1 FAIL (P0 met) is now a genuine weakens and a C1 PASS genuine support -- real adjudicable signal either way. Substrate readiness EMPIRICALLY confirmed (Step 2.5a): 200-write probe at 436c operating point drives legacy off-diagonal cosine to 0.99993 (seed 2) vs 0.02487 with the flag on -- differentiation, predicted direction. GOV-REUSE-1 (Step 2.4): decisive readout (slot_cosine_sim under gated_content_write=True) is present in NO recorded manifest (flag landed 2026-08-03) -> not recoverable, must run. Re-derive brake (Step 2.5b): SD-017 count 1 (538a), ARC-045 0, MECH-166 0 -- none trip threshold 2; required substrate landed regardless. Smoke (--dry-run): both conditions wire, SWS_THEN_REM writes fire (sws_n_writes=8/rem_n_rollouts=6), slot_sim SWS 0.104 < WAKING 0.136 (no homogenization); validate_experiments.py --strict 0 findings. Ethics preflight: all-false / allow (V3 pre-ethical).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-08-04T06:48:01Z"
-      },
-      "architecture_epoch": "ree_hybrid_guardrails_v1",
-      "claim_ids": [
-        "SD-017",
-        "ARC-045",
-        "MECH-166"
-      ],
-      "conditions": 2,
-      "episodes_per_run": 200,
-      "experiment_purpose": "evidence",
-      "experiment_type": "v3_exq_436d_sd017_mech166_writepath_retest",
-      "seeds": 5
-    },
-    {
       "queue_id": "V3-EXQ-149b",
       "title": "Q-004 tau_R calibration at larger training budget, selection-instrument fixed (supersedes V3-EXQ-149)",
       "script": "experiments/v3_exq_149b_q004_tau_r_calibration_largebudget.py",
