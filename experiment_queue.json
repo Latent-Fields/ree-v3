@@ -6,5 +6,25 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-890",
+      "title": "MECH-471 cheap many-seed acquisition-reliability diagnostic probe (mints hypothesis-space registry qid mech471_competence_acquisition_reliability; chip-20260805-mech471-acquisition-reliability-probe)",
+      "script": "experiments/v3_exq_890_mech471_acquisition_reliability_probe.py",
+      "experiment_type": "v3_exq_890_mech471_acquisition_reliability_probe",
+      "priority": 45,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 780,
+      "episodes_per_run": 280,
+      "seeds": 16,
+      "conditions": 1,
+      "architecture_epoch": "ree_hybrid_guardrails_v1",
+      "claim_ids": [
+        "MECH-471"
+      ],
+      "experiment_purpose": "diagnostic",
+      "note": "Diagnostic probe for hypothesis-space registry qid mech471_competence_acquisition_reliability (registered 2026-08-05T06:20:43Z; 3 live hypotheses H-exploration-init-variance / H-hazard-layout-difficulty-variance / H-bias-head-ofc-interaction; live_gate recommended exactly this instrument; priority raised same day per failure_autopsy_V3-EXQ-882a_2026-08-05.md Section 7/8 after V3-EXQ-882a independently reproduced the same split at n=8 on a different claim's experiment sharing the identical acquisition recipe). Does NOT test MECH-471's own registered falsifier (the local-update interference test, V3-EXQ-875/875a) -- experiment_purpose=diagnostic, excluded from claim confidence scoring. GOV-REUSE-1 (Step 2.4): checked V3-EXQ-875a (3 seeds, no fine trajectory) and V3-EXQ-882a (8 seeds, coarse 4-point 50/100/250/500-episode dose-response + random_walk_anchors per seed, already used informatively in failure_autopsy_V3-EXQ-882a_2026-08-05.md Section 5) -- decisive readouts here (episode-resolution trajectory fine enough to test EARLY divergence timing, plus bias_head/OFC-devaluation-head weight-norm introspection for H3) absent from both -> not recoverable, must run. Re-derive brake (Step 2.5b): does not fire (0 substrate_ceiling-category autopsies on MECH-471; 875=precondition_unmet, 875a=competence_implementation_gap). GOV-FANOUT-1: does not apply (brake not fired, no formal fanout_recommendation; the registry's own live_gate names one instrument, not a portfolio). Reuses the V3-EXQ-875/882a 'corner' env variant A and acquisition recipe verbatim; single continuous P1 run per seed (no chunked restart, no Phase-2, no held-out eval) via a vendored, computation-identical copy of experiments._lib.allon_training._train_all_on_agent with read-only per-episode trajectory + weight-norm bookkeeping added (see script docstring 'WHY VENDORED'). 16 seeds: 8 overlapping V3-EXQ-882a's (42,43,45-50) for direct per-seed comparison, 8 new (51-58) for unbiased distributional coverage. Cheap: ~4480 total training-episode-units across all 16 seeds vs 875a's ~5955 for 3 seeds alone. Smoke: --strict validate_experiments clean (0 warnings across all lints, incl. an ANCHOR_REACHABILITY_EXEMPT for the two diagnostic-adjudication preconditions, neither of which routes to a substrate-verdict label); --dry-run PASS end-to-end; the PASS/bimodal-split/hypothesis_signal aggregation branch (not naturally reachable at tiny dry-run budgets) additionally unit-verified via fabricated-row injection covering early-divergence, late-divergence, and substrate_not_ready_requeue shapes. Chip: chip-20260805-mech471-acquisition-reliability-probe."
+    }
+  ]
 }
