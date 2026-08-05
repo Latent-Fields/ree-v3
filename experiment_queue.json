@@ -6,30 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-882a",
-      "title": "MECH-472 held-out-context vs task-memorisation: z_world P0a warmup wired + fraction-basis acquisition gate (supersedes V3-EXQ-882)",
-      "script": "experiments/v3_exq_882a_mech472_context_memorization_generalization.py",
-      "priority": 40,
-      "machine_affinity": "any",
-      "estimated_minutes": 200,
-      "supersedes": "V3-EXQ-882",
-      "note": "Corrected re-run of V3-EXQ-882 (FIRST test of MECH-472), routed by confirmed failure_autopsy_V3-EXQ-882_2026-08-03 Sections 7/9/10. Fixes TWO independent 882 defects. DEFECT 1 (CONFIRMED, Section 9/10, load-bearing): 882's single _train_all_on_agent acquisition call (line 256) never passed zworld_p0_episodes, so the SD-070 z_world encoder P0a warmup never ran and z_world stayed a FROZEN RANDOM PROJECTION all run (identical to the V3-EXQ-728 original and V3-EXQ-875/MECH-471 defects). 882a wires zworld_p0_episodes=60 (the V3-EXQ-728/875a validated operating point) on a DEDICATED warmup env per cell -- a hard precondition on any 882 successor per autopsy Section 10, and a strict improvement either way (clears the per-seed split, or rules the confound out and strengthens the genuine-difficulty reading). DEFECT 2 (Section 5/7): 882's worst-of-3-seed acquisition-floor veto was too fragile; 882a raises seed count 3->8 and adjudicates the acquisition floor on a FRACTION BASIS (majority of seeds must clear at the lowest exposure; non-clearing seeds informational and EXCLUDED from the load-bearing gap cohort), mirroring the V3-EXQ-873a fix. DEFECT 3 (Section 7 point 3): emits an explicit per_seed_acquisition_difficulty block so the per-seed split need not be reconstructed from arm_results by hand. Same env/recipe otherwise (survival/avoidance under the V3-EXQ-875 EXP-0399 'corner' reef geometry, hazard_food_attraction=0.0, e2 frozen throughout per the 724-A0 recipe); mints own arms. GOV-REUSE-1 (Step 2.4): decisive readout = in-context vs held-out survival gap under a TRAINED z_world; 882 ran with a frozen z_world and failed at readiness, so no recorded manifest carries it -> not recoverable, must run. Re-derive brake (Step 2.5b): MECH-472 is first-ever tested; 0 prior substrate_ceiling autopsies -> does not fire (per autopsy Section 7). DV-symmetry: single-arm competence acquisition, no cross-arm manipulation to be DV-invariant under. Ethics preflight: all-false / allow (V3 pre-ethical). Smoke (--dry-run): PASS end-to-end, z_world P0a warmup fires (phase=P0a), progress instrumentation + 4 verdicts/seed correct, fraction gate works, no writer defect; validate_experiments.py --strict --paths 0 findings. NOTE: committed with ree_commit --no-verify because the pre-commit corpus-lint gate was red on an UNRELATED pre-existing drift (v3_exq_828b bumped test_agent_construction_seed_order_lint fire count 11->12, landed on origin as 8c02437 and never re-pinned); this script is independently verified clean (agent_construction_before_seed_lint returns None; 882a not in the fired set). Landed via a throwaway origin/main worktree to avoid a foreign phase3-writer reorder sitting dirty in the shared ree-v3 checkout (read-modify-write contamination avoidance).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-08-04T06:23:12Z"
-      },
-      "architecture_epoch": "ree_hybrid_guardrails_v1",
-      "claim_ids": [
-        "MECH-472"
-      ],
-      "conditions": 4,
-      "episodes_per_run": 310,
-      "experiment_purpose": "evidence",
-      "experiment_type": "v3_exq_882a_mech472_context_memorization_generalization",
-      "seeds": 8
-    }
-  ]
+  "items": []
 }
