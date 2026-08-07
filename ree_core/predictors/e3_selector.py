@@ -246,8 +246,11 @@ class E3TrajectorySelector(nn.Module):
             nn.Linear(self.config.hidden_dim, 1),
         )
 
-        # Ethical cost scorer M(ζ): operates on z_world
-        self.ethical_scorer = nn.Sequential(
+        # Harm cost scorer M(ζ), fallback path: operates on z_world.
+        # Superseded whenever available by compute_harm_forward_cost()
+        # (harm_forward_model) or compute_harm_stream_cost() (harm_bridge) --
+        # this is the last-resort head used when neither is provided.
+        self.harm_cost_fallback_scorer = nn.Sequential(
             nn.Linear(world_dim, self.config.hidden_dim),
             nn.ReLU(),
             nn.Linear(self.config.hidden_dim, 1),
@@ -941,9 +944,11 @@ class E3TrajectorySelector(nn.Module):
         viability = self.reality_scorer(final_world).squeeze(-1)
         return coherence_cost - viability
 
-    def compute_ethical_cost(self, trajectory: Trajectory) -> torch.Tensor:
+    def compute_harm_cost_fallback(self, trajectory: Trajectory) -> torch.Tensor:
         """
-        Ethical cost M(ζ) via harm_eval over z_world trajectory.
+        Harm cost M(ζ) via harm_eval over z_world trajectory (fallback path,
+        used only when neither harm_forward_model nor harm_bridge is
+        available -- see compute_harm_forward_cost() / compute_harm_stream_cost()).
 
         V3 change: uses harm_eval_head on z_world states rather than
         E2.harm_predictions (which belonged to E2 in V2, incorrectly).
@@ -959,9 +964,9 @@ class E3TrajectorySelector(nn.Module):
 
         # Additional scoring from final z_world state
         final_world = world_seq[:, -1, :]
-        ethical_score = self.ethical_scorer(final_world).squeeze(-1)
+        harm_cost_fallback_score = self.harm_cost_fallback_scorer(final_world).squeeze(-1)
 
-        return harm_cost - ethical_score
+        return harm_cost - harm_cost_fallback_score
 
     def compute_residue_cost(self, trajectory: Trajectory) -> torch.Tensor:
         """Residue field cost Φ_R(ζ) — evaluated over z_world (SD-005)."""
@@ -1012,8 +1017,8 @@ class E3TrajectorySelector(nn.Module):
 
         Applies HarmBridge to each z_world state in the trajectory to get z_harm
         approximations, then evaluates via harm_eval_z_harm_head. This is the
-        SD-010 replacement for compute_ethical_cost() when the nociceptive stream
-        is available.
+        SD-010 replacement for compute_harm_cost_fallback() when the nociceptive
+        stream is available.
 
         Used in select() when harm_bridge is provided.
 
@@ -1160,7 +1165,7 @@ class E3TrajectorySelector(nn.Module):
         elif harm_bridge is not None:
             m = self.compute_harm_stream_cost(trajectory, harm_bridge)
         else:
-            m = self.compute_ethical_cost(trajectory)
+            m = self.compute_harm_cost_fallback(trajectory)
         phi = self.compute_residue_cost(trajectory)
 
         # V3-EXQ-571: component trackers (used only when e3_score_decomp_enabled).
