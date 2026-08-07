@@ -6,22 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-891",
-      "title": "MECH-286 sleep-onset three-term conjunction signature (GOV-CONFIRM-1)",
-      "script": "experiments/v3_exq_891_mech286_sleep_onset_conjunction_signature.py",
-      "priority": 55,
-      "machine_affinity": "any",
-      "estimated_minutes": 3,
-      "claim_id": "MECH-286",
-      "backlog_id": "EVB-0280",
-      "note": "GOV-CONFIRM-1 confirmer (IGW-20260804-234, stable_hash 318044a8a934). First SCORING experimental evidence for MECH-286: prior v3_exq_599a was experiment_purpose=diagnostic (substrate smoke, no evidence_class) and scored 0. Wall-independent representational-signature DV = the gate's own three-term conjunction read directly via evaluate_sleep_onset_permit (NOT a behavioural/reward proxy). 2x2x2 factorial over override / MECH-284 staleness / z_harm_a-tonic-threat, all three independently manipulated; the z_harm_a threat conjunct is NOVEL (599a never exercised it, threat_ok defaulted True). Tests necessity of each term (override-block cell = the claim's pre-registered hyperarousal-lesion falsifier), sufficiency, and single-term insufficiency; C5 load-bearing = full 8-cell permitted vector == predicted AND across all seeds. Anti-tautology non-degeneracy guard: each factor's two levels must straddle its threshold (override driven through the REAL SD-037 regulator dynamics, not pinned). DV-symmetry: each manipulation moves a term across its own gate threshold, flipping its _ok flag -> the delta is NOT invariant under the DV (designed to flip the gate), so no arm is an arithmetic identity. GOV-REUSE-1: decisive readout absent from all scoring manifests, not post-hoc derivable -> run required. New number, not a lettered fix to 599/599a (new question). Substrate built (ree_core/sleep/sleep_onset_gate.py, flag use_mech286_sleep_onset_gate). Smoke PASS on Mac (all criteria + non_degenerate).",
-      "status": "pending",
-      "conditions": 1,
-      "episodes_per_run": 1,
-      "experiment_type": "v3_exq_891_mech286_sleep_onset_conjunction_signature",
-      "seeds": 1
-    }
-  ]
+  "items": []
 }
