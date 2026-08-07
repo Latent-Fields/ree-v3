@@ -369,6 +369,32 @@ def resolve_substrate_identity(
     return dict(snap)
 
 
+def substrate_identity_pinned(
+    extra_paths: Optional[Iterable[Path]] = None,
+    repo_root: Optional[Path] = None,
+    scope: Optional[Sequence[str]] = None,
+) -> bool:
+    """Has this process ALREADY frozen a substrate identity for this exact key?
+
+    Read-only -- never resolves, never hashes, so it is safe to ask before deciding
+    whether a subsequent `resolve_substrate_identity` will serve a snapshot taken
+    at the first cell or will read disk for the first time RIGHT NOW.
+
+    That distinction is the whole point: the two are indistinguishable in the
+    returned dict (both carry a `resolved_at_utc`, and on a short run they are the
+    same instant), yet only the first is the EXECUTED substrate. manifest_core uses
+    this to record which of the two a manifest's top-level `substrate_hash` is,
+    instead of presenting a manifest-write-time disk read as the run's identity --
+    the V3-EXQ-866b recording gap, where the recorded hash was taken 2h26m after
+    the cells that produced the numbers.
+
+    The key is (repo_root, scope, extra_paths) exactly as `resolve_substrate_identity`
+    computes it, so a caller asking about a driver-inclusive hash is not answered
+    about the driver-exclusive one.
+    """
+    return _snapshot_key(extra_paths, repo_root, scope) in _SUBSTRATE_SNAPSHOT
+
+
 def _utc_now() -> str:
     # ASCII, UTC, second resolution -- matches the repo timestamp convention.
     from datetime import datetime, timezone
@@ -854,6 +880,7 @@ __all__ = [
     "machine_class",
     "compute_substrate_hash",
     "resolve_substrate_identity",
+    "substrate_identity_pinned",
     "substrate_stability_report",
     "SUBSTRATE_IDENTITY_SOURCE",
     "reset_all_rng",

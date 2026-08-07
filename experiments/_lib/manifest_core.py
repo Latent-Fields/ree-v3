@@ -25,6 +25,21 @@ Always-core fields it stamps (standard 3b)
                      the arm-fingerprint machinery) so the top-level value matches the
                      per-cell fingerprints by construction; for a single-arm run it is
                      computed fresh via experiments/_lib/arm_fingerprint.py.
+  substrate_identity : {source, resolved_at_utc, stamped_at_utc, lag_seconds,
+                     drifted_since_resolved, stability_snapshots,
+                     hash_on_disk_at_stamp?, commit_source, commit_resolved_at_utc,
+                     commit_describes_recorded_hash?} -- WHEN
+                     the two fields above were taken, not only what they were.
+                     `source` is process_snapshot (frozen at the first arm cell or by
+                     pin_recording_substrate -- the EXECUTED substrate),
+                     per_cell_fingerprint_hoist, or manifest_write_disk_read (this
+                     stamp was the first look, so the value describes the checkout as
+                     it is NOW). The V3-EXQ-866b gap: a diagnostic whose whole purpose
+                     was certifying substrate stability recorded a hash read 2h26m
+                     after its seed cells, disagreeing with the cells' own snapshot,
+                     with nothing in the manifest saying the two were taken at
+                     different moments. Deliberately NOT in ALWAYS_CORE_KEYS, for the
+                     same legacy-corpus reason as the fields below.
   substrate_stable_across_run : bool -- False iff the substrate provably moved during
                      the run (per-cell hashes disagree, or the process snapshot no
                      longer matches disk at stamp time). Deliberately NOT in
@@ -56,34 +71,20 @@ Always-core fields it stamps (standard 3b)
                      always means the run measured it. See experiments/_lib/z_goal_stream.py.
                      Also NOT in ALWAYS_CORE_KEYS -- the legacy corpus cannot carry it, and
                      it is unavailable to any manifest built outside the stepping process.
-  episode_termination : {steps_configured, frac_of_budget, causes, ...} -- how episodes
-                     ENDED across the run: did they run the configured step budget, or die
-                     early (health_depleted, hazard, waypoint-arrival), and in what
-                     proportion. The V3-EXQ-884 defect motivated it -- a run whose episodes
-                     truncated far short of their budget silently understated the behaviour
-                     the criteria keyed on. Requires the caller to pass `episode_termination=`
-                     (an accumulator, a precomputed block, or (steps, cause) pairs); the block
-                     is OMITTED rather than zero-filled when they don't, so its presence always
-                     means the run measured it. See experiments/_lib/episode_termination.py.
-                     Also NOT in ALWAYS_CORE_KEYS, for the same legacy-corpus reason as above.
-  enabled_default_off_flags : {dotted_field_name: value} for every REEConfig field
-                     (recursing into nested sub-configs -- latent, hippocampal, goal,
-                     ...) whose CODED DEFAULT is False/0/0.0 and whose value on the
-                     agent's actual config differs from that default for this run --
-                     i.e. was genuinely enabled. Requires the caller to pass `agent=`
-                     (one agent or an iterable, same normalisation as z_goal_stream
-                     above). UNLIKE z_goal_stream, an empty result IS recorded as {}
-                     rather than omitted -- "agent given, nothing enabled" is a common,
-                     legitimate outcome a consumer must be able to tell apart from
-                     "never measured," which a bare omission cannot distinguish; the
-                     field is omitted only when no config-bearing agent was supplied at
-                     all. PROSPECTIVE ONLY: a manifest already on disk without this
-                     field cannot gain it retroactively (the agent/config is long gone
-                     by then) -- see REE_assembly/evidence/planning/
-                     substrate_stability_and_drift_detection_plan.md section 6 for the
-                     motivating gap (a textual proxy over driver SOURCE is the only
-                     fallback for a manifest lacking this field). Also NOT in
-                     ALWAYS_CORE_KEYS, for the same reason z_goal_stream is not.
+  episode_termination : {n_episodes, steps_configured, steps_mean/min/max,
+                     full_budget_frac, truncated_frac, causes} -- did the episodes
+                     actually SPEND the configured step budget, and if not, why did they
+                     stop? A manifest records a configured n_steps and an aggregate
+                     outcome and nothing in between, so a run whose episodes died on step
+                     19 of a configured 400 reads exactly like one that ran the full
+                     budget with worse numbers (the V3-EXQ-884 / SD-094 defect: 32/19/90
+                     of 400 steps, all self-inflicted contamination death, established
+                     only by re-running the experiment inside a failure autopsy).
+                     Requires the caller to pass `episode_termination=` (an
+                     EpisodeTerminationAccumulator or its stats); OMITTED rather than
+                     zero-filled when they don't, so its presence always means the run
+                     measured it. See experiments/_lib/episode_termination.py. Also NOT
+                     in ALWAYS_CORE_KEYS, for the same legacy-corpus reason as above.
   machine          : socket.gethostname() (or a caller override -- the hub records
                      "ree-cloud-1" although its hostname is "ree-worker-1").
   machine_class    : arm_fingerprint.machine_class() -- fingerprint equality is
@@ -109,7 +110,9 @@ from __future__ import annotations
 import os
 import socket
 import subprocess
+import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Union
 
@@ -155,8 +158,8 @@ except Exception:  # pragma: no cover - path-dependent fallbacks
     except Exception:
         import z_goal_stream as _z_goal_stream  # type: ignore
 
-# Same triple-fallback import shape -- episode_termination is a sibling module in this
-# package and stdlib-only.
+# Same triple-fallback import shape -- episode_termination is a sibling module in
+# this package and stdlib-only.
 try:  # normal package import
     from experiments._lib import episode_termination as _episode_termination  # type: ignore
 except Exception:  # pragma: no cover - path-dependent fallbacks
@@ -225,74 +228,6 @@ def _is_empty(value: Any) -> bool:
     return False
 
 
-def enabled_default_off_flags(config: Any, _stock: Any = None, _prefix: str = "") -> Dict[str, Any]:
-    """{dotted_field_name: value} for every field of `config` whose CODED DEFAULT is
-    False/0/0.0 and whose actual value differs from that default -- i.e. was genuinely
-    enabled for this run. Recurses into nested dataclass fields (config.latent,
-    config.hippocampal, config.goal, ...) with a dotted path, e.g.
-    "goal.use_hierarchical_goal_credit".
-
-    The False/0/0.0 "default-off" rule deliberately mirrors
-    REE_assembly/scripts/default_off_drift_guard.py's `_default_off` (same definition,
-    stated twice because that one is a static AST parse of config.py's SOURCE and this
-    one is a runtime introspection of a LIVE instance -- different domains, not
-    reusable across the repo boundary, but must agree on what "default-off" means).
-
-    Non-dataclass input (a plain object, or None) returns {} rather than raising --
-    this is a best-effort recording helper, never a hard requirement.
-    """
-    import dataclasses
-    if not dataclasses.is_dataclass(config) or isinstance(config, type):
-        return {}
-    stock = _stock if _stock is not None else type(config)()
-    out: Dict[str, Any] = {}
-    for f in dataclasses.fields(config):
-        try:
-            val = getattr(config, f.name)
-            stock_val = getattr(stock, f.name)
-        except AttributeError:
-            continue
-        dotted = f"{_prefix}{f.name}"
-        if dataclasses.is_dataclass(val):
-            out.update(enabled_default_off_flags(val, stock_val, dotted + "."))
-            continue
-        is_default_off = (
-            stock_val is False
-            or (isinstance(stock_val, int) and not isinstance(stock_val, bool) and stock_val == 0)
-            or (isinstance(stock_val, float) and stock_val == 0.0)
-        )
-        if is_default_off and val != stock_val:
-            out[dotted] = val
-    return out
-
-
-def enabled_default_off_flags_for_agents(agent: Any) -> Optional[Dict[str, Any]]:
-    """enabled_default_off_flags() pooled across one agent or an iterable of them (the
-    same "one or many" shape z_goal_stream_stats takes for a multi-arm run). Later
-    agents in iteration order win on a disagreement -- a known, stated simplification
-    for a first cut of this feature, not a guarantee of per-arm attribution.
-
-    Returns None -- deliberately distinct from {} -- when no config-bearing agent was
-    found at all (nothing to record; the caller should OMIT the manifest field, exactly
-    z_goal_stream's convention). Returns {} when at least one agent WAS found but none
-    of its config differed from stock defaults -- a common, entirely legitimate result
-    that must still be RECORDED (not omitted), because a downstream consumer needs to
-    tell "measured: nothing enabled" apart from "never measured" to treat every other
-    known default-off knob as confirmed-disabled with certainty. Collapsing these two
-    into one omission (as an earlier draft of this function did) would silently make
-    the all-defaults case indistinguishable from never having recorded anything.
-    """
-    agents = _z_goal_stream._iter_agents(agent)
-    configs = [getattr(one, "config", None) for one in agents]
-    configs = [c for c in configs if c is not None]
-    if not configs:
-        return None
-    merged: Dict[str, Any] = {}
-    for cfg in configs:
-        merged.update(enabled_default_off_flags(cfg))
-    return merged
-
-
 def _coerce_seed_list(seeds: Any) -> Optional[List[int]]:
     """Normalise seeds to an explicit list of ints, or None if not derivable.
 
@@ -339,6 +274,28 @@ def multi_arm_substrate_hashes(manifest: Mapping[str, Any]) -> List[str]:
     return out
 
 
+def _first_cell_identity_resolved_at(manifest: Mapping[str, Any]) -> Optional[str]:
+    """`substrate_identity_resolved_at` off the first arm cell that recorded one.
+
+    A hoisted top-level hash inherits the CELL's provenance, so it inherits the
+    cell's resolution time too -- which is the first cell of the run, not the
+    manifest write. Absent on pre-2026-07-20 cells, and absent is reported as
+    absent rather than back-filled with the stamp time.
+    """
+    arm_results = manifest.get("arm_results")
+    if not isinstance(arm_results, list):
+        return None
+    for cell in arm_results:
+        if not isinstance(cell, dict):
+            continue
+        fp = cell.get("arm_fingerprint")
+        if isinstance(fp, dict):
+            at = fp.get("substrate_identity_resolved_at")
+            if isinstance(at, str) and at:
+                return at
+    return None
+
+
 def _hoist_multi_arm_substrate_hash(manifest: Mapping[str, Any]) -> Optional[str]:
     """Return the first arm's substrate_hash, or None if there is none to hoist.
 
@@ -361,27 +318,95 @@ def _hoist_multi_arm_substrate_hash(manifest: Mapping[str, Any]) -> Optional[str
     return hashes[0] if hashes else None
 
 
-def compute_single_arm_substrate_hash(
+def _single_arm_extra_paths(
     script_path: Optional[Union[str, Path]] = None,
     extra_substrate_paths: Optional[Iterable[Union[str, Path]]] = None,
-    repo_root: Optional[Union[str, Path]] = None,
-) -> str:
-    """Compute a top-level substrate_hash for a single-arm run.
+) -> Optional[List[Path]]:
+    """The `extra_paths` half of the single-arm substrate-identity key.
 
-    Hashes ree_core/** + env + _lib/** (the arm-fingerprint substrate glob) plus the
-    driver script (so a driver edit correctly flips the hash), matching the
-    include_driver_script_in_hash=True default of the arm-fingerprint machinery.
+    Factored out because THREE call sites must agree on it byte-for-byte or they
+    address different process snapshots: the resolve below, the pin helper, and the
+    pinned-vs-not probe. A key that disagrees by one path silently resolves a second
+    snapshot at manifest-write time, which is the exact defect this module now
+    records against.
     """
     extra: List[Path] = []
     if script_path:
         extra.append(Path(script_path))
     if extra_substrate_paths:
         extra.extend(Path(p) for p in extra_substrate_paths)
-    sub = _afp.compute_substrate_hash(
-        extra_paths=extra or None,
-        repo_root=Path(repo_root) if repo_root else None,
+    return extra or None
+
+
+def resolve_single_arm_substrate_identity(
+    script_path: Optional[Union[str, Path]] = None,
+    extra_substrate_paths: Optional[Iterable[Union[str, Path]]] = None,
+    repo_root: Optional[Union[str, Path]] = None,
+) -> Dict[str, Any]:
+    """The top-level substrate identity for a single-arm run, with its provenance.
+
+    Returns the `resolve_substrate_identity` dict plus `pinned_before_call`: True
+    when this process had ALREADY frozen this identity (at its first arm cell, or
+    via `pin_recording_substrate`), False when this call is the first disk read.
+
+    THE PROCESS SNAPSHOT, NOT A FRESH DISK READ -- this is the fix, and the
+    one-word difference is the whole bug. This helper previously called
+    `compute_substrate_hash` directly, so on a single-arm run the top-level
+    `substrate_hash` was a disk read taken at MANIFEST-WRITE time, hours after the
+    seed cells it purports to describe, while the cells' own fingerprints were
+    served from the process snapshot frozen at the first cell (the 2026-07-20
+    executed-substrate fix, arm_fingerprint's "THE FIX, in two parts"). The two
+    paths therefore disagreed by construction whenever the shared checkout moved
+    mid-run -- routine on the hub, where sync_daemon writers and other sessions
+    commit continuously.
+
+    Confirmed on V3-EXQ-866b, a diagnostic whose entire purpose was certifying
+    substrate stability: cells pinned `bb755658...` at 16:58:16Z, the manifest
+    stamped `8e275408...` read at 19:24:05Z. Reproduced exactly by re-hashing the
+    tree at the recorded `substrate_commit` (c4247794) -- the driver-INCLUSIVE hash
+    there is `8e275408...`, i.e. the same key the cells had already pinned, read
+    again 2h26m later. Corpus scan of `evidence/experiments/`: 10 of 249 manifests
+    carrying a substrate_hash are in this state, with lags up to two days.
+
+    Routing through the snapshot makes the recorded value the EXECUTED one for
+    every driver that stamps at least one arm cell before writing its manifest --
+    no driver change, since `arm_cell(script_path=Path(__file__))` pins exactly this
+    key. A driver that builds no cells still resolves here for the first time; that
+    case is unchanged in value and is now labelled honestly rather than silently
+    (see `stamp_recording_core`'s `substrate_identity` block).
+    """
+    extra = _single_arm_extra_paths(script_path, extra_substrate_paths)
+    root = Path(repo_root) if repo_root else None
+    try:
+        pinned = bool(_afp.substrate_identity_pinned(extra_paths=extra, repo_root=root))
+    except Exception:  # pragma: no cover - older arm_fingerprint without the probe
+        pinned = False
+    sub = dict(_afp.resolve_substrate_identity(extra_paths=extra, repo_root=root))
+    sub["pinned_before_call"] = pinned
+    return sub
+
+
+def compute_single_arm_substrate_hash(
+    script_path: Optional[Union[str, Path]] = None,
+    extra_substrate_paths: Optional[Iterable[Union[str, Path]]] = None,
+    repo_root: Optional[Union[str, Path]] = None,
+) -> str:
+    """The top-level substrate_hash for a single-arm run.
+
+    Covers ree_core/** + env + _lib/** (the arm-fingerprint substrate glob) plus the
+    driver script (so a driver edit correctly flips the hash), matching the
+    include_driver_script_in_hash=True default of the arm-fingerprint machinery.
+
+    Served from the process snapshot -- see resolve_single_arm_substrate_identity
+    for why that matters and what it fixes.
+    """
+    return str(
+        resolve_single_arm_substrate_identity(
+            script_path=script_path,
+            extra_substrate_paths=extra_substrate_paths,
+            repo_root=repo_root,
+        )["substrate_hash"]
     )
-    return str(sub["substrate_hash"])
 
 
 def _git_value(
@@ -533,6 +558,103 @@ def substrate_commit(repo_root: Optional[Union[str, Path]] = None) -> Optional[D
     return out
 
 
+# Pinned substrate COMMITs, keyed by resolved repo root. Anchored on `sys` rather
+# than on this module's globals for exactly the reason arm_fingerprint's snapshot
+# state is (see its _STATE_ATTR block): this file is imported under at least two
+# distinct names in a normal experiment process, and two module dicts would give
+# two disagreeing pins.
+_COMMIT_STATE_ATTR = "_ree_manifest_core_pinned_substrate_commit"
+_PINNED_COMMITS: Dict[str, Dict[str, Any]] = getattr(sys, _COMMIT_STATE_ATTR, None) or {}
+setattr(sys, _COMMIT_STATE_ATTR, _PINNED_COMMITS)
+
+
+def _commit_pin_key(repo_root: Optional[Union[str, Path]]) -> str:
+    root = repo_root or getattr(_afp, "_REPO_ROOT", Path(__file__).resolve().parents[2])
+    return str(Path(root).resolve())
+
+
+def _reset_recording_substrate_pins() -> None:
+    """Clear the pinned commits. TEST-ONLY -- an experiment must never call this."""
+    _PINNED_COMMITS.clear()
+
+
+def pin_recording_substrate(
+    script_path: Optional[Union[str, Path]] = None,
+    extra_substrate_paths: Optional[Iterable[Union[str, Path]]] = None,
+    repo_root: Optional[Union[str, Path]] = None,
+) -> Dict[str, Any]:
+    """Freeze the substrate identity + commit NOW, for a manifest written later.
+
+    Call ONCE at run start (before the first seed's work) from a driver that
+    stamps NO arm cells. A driver using `arm_cell(script_path=Path(__file__))`
+    already pins the hash half at its first cell and does not need this for the
+    hash -- but calling it also pins the COMMIT, which nothing else does.
+
+    WHY A COMMIT PIN IS NOT REDUNDANT WITH THE HASH PIN. The hash is recoverable
+    late-but-correct (the snapshot survives in-process); the commit is not
+    recoverable at all -- `git rev-parse HEAD` at manifest-write time answers about
+    the checkout as it is THEN, and on V3-EXQ-866b that answer (c4247794) was the
+    commit of the tree that had replaced the executed one, presented beside a hash
+    the run never executed. Once the checkout has moved, no amount of care at write
+    time can recover which commit the run actually ran; it has to be read while it
+    is still true.
+
+    Returns the pinned record ({substrate_hash, resolved_at_utc, substrate_commit}).
+    Never raises: a failure to pin leaves the write-time behaviour in place, which
+    is exactly the pre-fix behaviour, and provenance stamping must never be able to
+    fail an experiment that has not yet spent its compute.
+    """
+    out: Dict[str, Any] = {}
+    try:
+        sub = resolve_single_arm_substrate_identity(
+            script_path=script_path,
+            extra_substrate_paths=extra_substrate_paths,
+            repo_root=repo_root,
+        )
+        out["substrate_hash"] = sub.get("substrate_hash")
+        out["resolved_at_utc"] = sub.get("resolved_at_utc")
+    except Exception:
+        pass
+    try:
+        key = _commit_pin_key(repo_root)
+        if key not in _PINNED_COMMITS:
+            commit = substrate_commit(repo_root=repo_root)
+            if commit:
+                record = dict(commit)
+                record["resolved_at_utc"] = _utc_now()
+                _PINNED_COMMITS[key] = record
+        out["substrate_commit"] = _PINNED_COMMITS.get(key)
+    except Exception:
+        pass
+    return out
+
+
+def _utc_now() -> str:
+    # ASCII, UTC, second resolution -- matches arm_fingerprint._utc_now and the repo
+    # timestamp convention. Local rather than imported to keep this module's
+    # stdlib-only guarantee independent of arm_fingerprint's private surface.
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _utc_delta_seconds(earlier: Optional[str], later: Optional[str]) -> Optional[int]:
+    """Whole seconds between two "%Y-%m-%dT%H:%M:%SZ" stamps, or None if unparseable.
+
+    Never raises and never guesses: an unparseable stamp yields None, so a missing
+    lag is visibly missing rather than silently 0 (which would read as "stamped at
+    the instant it was resolved" -- the exact claim this block exists to stop
+    manifests making without evidence).
+    """
+    if not earlier or not later:
+        return None
+    fmt = "%Y-%m-%dT%H:%M:%SZ"
+    try:
+        t0 = datetime.strptime(str(earlier), fmt)
+        t1 = datetime.strptime(str(later), fmt)
+    except (ValueError, TypeError):
+        return None
+    return int((t1 - t0).total_seconds())
+
+
 def stamp_recording_core(
     manifest: Dict[str, Any],
     config: Optional[Mapping[str, Any]] = None,
@@ -579,18 +701,18 @@ def stamp_recording_core(
         Passed through to the single-arm substrate-hash computation.
     agent
         The stepped REEAgent, or an iterable of them (a multi-arm run builds one per
-        arm x seed). Read for the `z_goal_stream` liveness block AND the
-        `enabled_default_off_flags` block (via each agent's own `.config`). Omitting it
-        simply omits both blocks -- neither is ever fabricated from zeros/empty.
+        arm x seed). Read for the `z_goal_stream` liveness block. Omitting it simply
+        omits the block -- it is never fabricated from zeros.
     z_goal_stream_stats
         A precomputed liveness block (from `z_goal_stream.stats_from_counts`) for a
         caller that keeps its own counters, e.g. a StepHarness accumulating across
         agent swaps. Takes precedence over `agent`.
     episode_termination
-        The run's episode-termination source -- an EpisodeTerminationAccumulator, a
-        precomputed block, or a sequence of (steps, cause) pairs -- for the
-        `episode_termination` block (see experiments/_lib/episode_termination.py).
-        Omitting it simply omits the block; it is never fabricated.
+        Per-episode length + termination cause for the `episode_termination` block:
+        an `episode_termination.EpisodeTerminationAccumulator`, a precomputed block,
+        or a sequence of (steps, cause) pairs. Omitting it omits the block -- it is
+        never fabricated, since "unmeasured" and "ran the full budget" must not look
+        alike (that is the defect it exists to close).
     overwrite
         Force-overwrite already-present fields (default False -> fill-only).
 
@@ -606,23 +728,44 @@ def stamp_recording_core(
     # recording_schema -- the self-declaring version primitive.
     _fill("recording_schema", RECORDING_SCHEMA)
 
+    # WHEN the recorded substrate identity was taken, not just WHAT it was. Filled
+    # by the branches below and stamped as `substrate_identity` at the end, once the
+    # stability report (which is what knows the on-disk value at stamp time) has run.
+    identity: Optional[Dict[str, Any]] = None
+
     # substrate_hash -- hoist from the per-arm fingerprints for a multi-arm run,
-    # else compute fresh for a single-arm run. Only compute if we would actually
+    # else resolve the single-arm process snapshot. Only resolve if we would actually
     # fill (avoid the file-hashing cost when the field is already present).
     if overwrite or _is_empty(manifest.get("substrate_hash")):
         hoisted = _hoist_multi_arm_substrate_hash(manifest)
         if hoisted:
             _fill("substrate_hash", hoisted)
+            identity = {
+                "source": "per_cell_fingerprint_hoist",
+                "resolved_at_utc": _first_cell_identity_resolved_at(manifest),
+            }
         else:
             try:
-                _fill(
-                    "substrate_hash",
-                    compute_single_arm_substrate_hash(
-                        script_path=script_path,
-                        extra_substrate_paths=extra_substrate_paths,
-                        repo_root=repo_root,
-                    ),
+                sub = resolve_single_arm_substrate_identity(
+                    script_path=script_path,
+                    extra_substrate_paths=extra_substrate_paths,
+                    repo_root=repo_root,
                 )
+                _fill("substrate_hash", str(sub["substrate_hash"]))
+                identity = {
+                    # The distinction the V3-EXQ-866b gap turned on. process_snapshot
+                    # = frozen at the first arm cell (or by pin_recording_substrate),
+                    # so it IS what executed. manifest_write_disk_read = this stamp is
+                    # the first time the process looked, so the value describes the
+                    # checkout as it is NOW and only coincides with what executed if
+                    # nothing moved. Recorded either way: a reader must never have to
+                    # assume which one a manifest is carrying.
+                    "source": (
+                        "process_snapshot" if sub.get("pinned_before_call")
+                        else "manifest_write_disk_read"
+                    ),
+                    "resolved_at_utc": sub.get("resolved_at_utc"),
+                }
             except Exception:
                 # Never let provenance stamping crash an experiment. A missing
                 # substrate_hash is a soft-validate WARN, not a run failure.
@@ -634,9 +777,26 @@ def stamp_recording_core(
     # DIAGNOSE it with a git diff. See substrate_commit() for the V3-EXQ-614/614a
     # case that motivated it. Same never-crash posture as the hash branch above --
     # absent is a soft-validate WARN, and absent always beats a wrong SHA.
+    #
+    # A PIN WINS OVER A FRESH READ. If the driver called pin_recording_substrate at
+    # run start, that record is the commit the run actually executed; re-reading HEAD
+    # here would answer about the checkout as it is at manifest-write time, which on
+    # a multi-hour run on the shared hub is a different tree (V3-EXQ-866b recorded
+    # c4247794 for a run whose cells executed something else).
     if overwrite or _is_empty(manifest.get("substrate_commit")):
         try:
-            _fill("substrate_commit", substrate_commit(repo_root=repo_root))
+            pinned_commit = _PINNED_COMMITS.get(_commit_pin_key(repo_root))
+            if pinned_commit:
+                value = {k: v for k, v in pinned_commit.items() if k != "resolved_at_utc"}
+                _fill("substrate_commit", value)
+                if identity is not None:
+                    identity["commit_source"] = "process_pin"
+                    identity["commit_resolved_at_utc"] = pinned_commit.get("resolved_at_utc")
+            else:
+                _fill("substrate_commit", substrate_commit(repo_root=repo_root))
+                if identity is not None:
+                    identity["commit_source"] = "manifest_write_disk_read"
+                    identity["commit_resolved_at_utc"] = _utc_now()
         except Exception:
             pass
 
@@ -653,10 +813,12 @@ def stamp_recording_core(
     # event it is, and arm_reuse refuses to serve a cell out of such a run. Stamped
     # unconditionally (not only when empty) is WRONG -- an author who explicitly set it
     # must win, so it goes through _fill like everything else.
+    stability_report: Optional[Dict[str, Any]] = None
     if overwrite or _is_empty(manifest.get("substrate_stable_across_run")):
         try:
             cells_disagree = len(multi_arm_substrate_hashes(manifest)) > 1
             report = _afp.substrate_stability_report()
+            stability_report = report
             stable = bool(report.get("substrate_stable_across_run", True)) and not cells_disagree
             # _fill() skips a meaningful False? No -- _is_empty treats False as present,
             # so assign directly rather than via _fill, which would refuse to write it.
@@ -674,6 +836,50 @@ def stamp_recording_core(
             # reuse path treats "absent" as unproven-but-not-disproven, falling back to
             # the per-cell cardinality test it can compute for itself.
             pass
+
+    # substrate_identity -- WHEN the recorded hash/commit were taken, and what the
+    # tree looked like at stamp time if it had since moved. This is the readable half
+    # of the V3-EXQ-866b fix: routing the hash through the process snapshot makes the
+    # VALUE right, and this block makes the value's provenance CHECKABLE instead of
+    # something a reader has to infer from a stability flag whose drift entries do not
+    # say which snapshot key they belong to.
+    #
+    # `hash_on_disk_at_stamp` is lifted from the stability report already computed
+    # above rather than re-hashing the tree -- same numbers, no second full scan, and
+    # it is present ONLY when the disk really did move, so its presence alone is the
+    # signal. Matched on the recorded hash, which is exact: the drift entries carry
+    # repo_root and scope but not extra_paths, so matching on those would confuse a
+    # driver-inclusive snapshot with a driver-exclusive one.
+    if identity is not None:
+        identity["stamped_at_utc"] = _utc_now()
+        identity["lag_seconds"] = _utc_delta_seconds(
+            identity.get("resolved_at_utc"), identity.get("stamped_at_utc")
+        )
+        recorded = manifest.get("substrate_hash")
+        if isinstance(stability_report, dict) and isinstance(recorded, str):
+            # HOW MANY snapshots the stability verdict beside this block was computed
+            # over. 0 means `substrate_stable_across_run: true` is VACUOUS -- the
+            # process never froze an identity to re-check, which is the state of every
+            # driver that stamps no arm cell (560 of the 915 manifest-writing drivers
+            # at the time of writing). A vacuous true and an earned true are identical
+            # on the page otherwise, and a diagnostic that certifies substrate
+            # stability must not be able to cite one for the other.
+            identity["stability_snapshots"] = stability_report.get("n_snapshots")
+            drifted = None
+            for entry in stability_report.get("drift") or ():
+                if isinstance(entry, dict) and entry.get("recorded") == recorded:
+                    drifted = entry
+                    break
+            identity["drifted_since_resolved"] = drifted is not None
+            if drifted is not None:
+                identity["hash_on_disk_at_stamp"] = drifted.get("on_disk_now")
+                # The commit was read from that MOVED tree, so it names a substrate
+                # this run did not execute. Saying so explicitly is the point: on
+                # V3-EXQ-866b the commit looked authoritative precisely because it
+                # agreed with the (wrong) hash beside it.
+                if identity.get("commit_source") == "manifest_write_disk_read":
+                    identity["commit_describes_recorded_hash"] = False
+        _fill("substrate_identity", identity)
 
     # arm_knobs_effective -- did every declared-distinct arm pair actually run differently?
     # Purely manifest-local (no substrate dependency): it compares recorded per-cell fields
@@ -726,38 +932,25 @@ def stamp_recording_core(
         except Exception:
             pass
 
-    # episode_termination -- how episodes ENDED across the run (full budget vs early
-    # death, and by what cause). Complements z_goal_stream above: that measures whether
-    # a stream was live, this measures whether episodes reached their configured budget
-    # or truncated early (the V3-EXQ-884 defect, where episodes died far short of the
-    # step budget and silently understated the behaviour the criteria keyed on). Omitted
-    # rather than zero-filled when no source was supplied, so its presence always means
-    # the run measured it. Same _fill posture as everything else: an explicit author
-    # value wins unless overwrite=True. Internally exception-safe; the guard here covers
-    # the import itself.
+    # episode_termination -- did the episodes actually SPEND their step budget?
+    # SD-094. A manifest records a configured n_steps and an aggregate outcome, and
+    # nothing in between, so a run whose episodes died on step 19 of a configured 400
+    # is indistinguishable on the page from one that ran the full budget: same config
+    # block, same metric shape, merely worse numbers -- which every downstream reader
+    # then interprets as a measurement of the mechanism rather than of an episode that
+    # ended before the mechanism could express itself. Confirmed against V3-EXQ-884
+    # (32/19/90 of 400 steps on seeds 42/43/44, all self-inflicted contamination
+    # death); establishing that needed a live re-run inside a failure autopsy, for a
+    # fact the run knew at every step and never wrote down.
+    # RECORD-ONLY, same posture as z_goal_stream above: early termination is often the
+    # legitimate measurement (a survival experiment, a deliberate lethal arm), so this
+    # is a field to read against the run's design, not a gate. Omitted entirely when
+    # the driver collected nothing -- absence means unmeasured, never "ran full".
     if overwrite or _is_empty(manifest.get(_episode_termination.MANIFEST_KEY)):
         try:
             _episode_termination.stamp_episode_termination(
                 manifest, episode_termination, overwrite=overwrite
             )
-        except Exception:
-            pass
-
-    # enabled_default_off_flags -- which REEConfig knobs were genuinely enabled for this
-    # run, read off the agent's own live config. PROSPECTIVE ONLY (see docstring): a
-    # manifest already on disk cannot gain this after the fact, since the agent/config is
-    # long gone by then. Omitted entirely when no config-bearing agent was supplied at
-    # all (never measured) -- but RECORDED AS {} (not omitted) when an agent was given
-    # and simply had nothing enabled, a common and legitimate result a consumer must be
-    # able to tell apart from "never measured" (see
-    # enabled_default_off_flags_for_agents' own docstring for why this distinction is
-    # load-bearing). Uses `is None`, not falsiness, on purpose -- `if flags:` would
-    # silently collapse the "measured, empty" case back into an omission.
-    if overwrite or manifest.get("enabled_default_off_flags") is None:
-        try:
-            flags = enabled_default_off_flags_for_agents(agent)
-            if flags is not None:
-                manifest["enabled_default_off_flags"] = flags
         except Exception:
             pass
 
@@ -800,6 +993,8 @@ __all__ = [
     "RECORDING_SCHEMA",
     "ALWAYS_CORE_KEYS",
     "compute_single_arm_substrate_hash",
+    "resolve_single_arm_substrate_identity",
+    "pin_recording_substrate",
     "multi_arm_substrate_hashes",
     "substrate_commit",
     "stamp_recording_core",
