@@ -10224,12 +10224,21 @@ class REEAgent(nn.Module):
             self.goal_state.config.z_goal_seeding_gain = self.serotonin.current_seeding_gain()
             self.goal_state.config.valence_wanting_floor = self.serotonin.current_wanting_floor()
 
-    def update_benefit_salience(self, benefit_exposure: float) -> None:
+    def update_benefit_salience(self, benefit_exposure: float, drive_level: float = 0.0) -> None:
         """
         MECH-203 (SR-2): Tag current residue field location with benefit salience.
 
         Uses SD-014 VALENCE_WANTING infrastructure: writes benefit_salience into
         the residue field's valence vector at the current z_world position.
+
+        SD-014 incentive-sensitization (V3-EXQ-887 decouple fix, 2026-08-07): when
+        config.incentive_sensitization_enabled is set, the WANTING write is routed
+        through ResidueField.update_wanting_sensitized(), which amplifies it by a
+        per-node, drive-coupled, saturating sensitization gain so wanting diverges
+        from the raw benefit_exposure that VALENCE_LIKING reads (Smith/Berridge/
+        Aldridge 2011). drive_level is the homeostatic depletion signal
+        (agent.compute_drive_level(body_obs)); it is IGNORED when the feature is
+        disabled, so existing callers passing only benefit_exposure are bit-identical.
 
         No-op when serotonin is disabled or no current latent state.
         """
@@ -10241,7 +10250,21 @@ class REEAgent(nn.Module):
             return
 
         z_world = self._current_latent.z_world
-        if hasattr(self.residue_field, 'update_valence'):
+        if not hasattr(self.residue_field, 'update_valence'):
+            return
+        if getattr(self.config, "incentive_sensitization_enabled", False) and \
+                hasattr(self.residue_field, "update_wanting_sensitized"):
+            # SD-014 decouple: per-node drive-coupled sensitization gain on WANTING.
+            self.residue_field.update_wanting_sensitized(
+                z_world,
+                salience=salience,
+                drive_level=drive_level,
+                rate=getattr(self.config, "sensitization_rate", 0.05),
+                gmax=getattr(self.config, "sensitization_max", 4.0),
+                coupling=getattr(self.config, "sensitization_coupling", 1.0),
+                hypothesis_tag=False,
+            )
+        else:
             # Write benefit_salience into VALENCE_WANTING (index 0) at current z_world
             self.residue_field.update_valence(
                 z_world,

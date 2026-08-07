@@ -2677,6 +2677,26 @@ class REEConfig:
     valence_liking_enabled: bool = False
     liking_threshold: float = 0.1
 
+    # SD-014 incentive-sensitization write path (V3-EXQ-887 decouple fix, 2026-08-07).
+    # V3-EXQ-887 refuted SD-014 AS IMPLEMENTED: VALENCE_WANTING was written as
+    # serotonin.benefit_salience(benefit_exposure) = tonic_5ht * benefit_exposure while
+    # VALENCE_LIKING is written as raw benefit_exposure -- both monotone transforms of the
+    # SAME input, so |Spearman(wanting, liking)| = 0.93-0.97 (C2 requires <= 0.90). The
+    # biology (Berridge & Robinson 1998; Smith/Berridge/Aldridge 2011) grounds these in the
+    # genuinely independent mesolimbic-dopamine (wanting) and opioid (liking) pathways.
+    # When enabled, the WANTING write is amplified by a per-node, drive-coupled, saturating
+    # incentive-sensitization gain g_i so wanting diverges from raw hedonic magnitude over
+    # repeated exposure: wanting_write = benefit_salience * (1 + sensitization_coupling * g_i),
+    # with g_i <- min(sensitization_max, g_i + sensitization_rate * drive_level) accumulated
+    # per qualifying exposure. drive_level (homeostatic depletion, SD-012) is orthogonal to
+    # the benefit magnitude VALENCE_LIKING reads, which is what decouples the two channels.
+    # All default no-op: update_benefit_salience() is bit-identical when disabled, and the
+    # gain also stays inert if the caller never supplies a non-zero drive_level.
+    incentive_sensitization_enabled: bool = False
+    sensitization_rate: float = 0.05
+    sensitization_max: float = 4.0
+    sensitization_coupling: float = 1.0
+
     # MECH-258: E2_harm_a affective-pain forward model (prerequisite for SD-032b).
     # When True, REEAgent instantiates an E2HarmAForward module predicting
     # z_harm_a_{t+1} = f(z_harm_a_t, a_t). Enables runtime z_harm_a_PE signal
@@ -5709,6 +5729,11 @@ class REEConfig:
         valence_harm_enabled: bool = False,
         valence_liking_enabled: bool = False,
         liking_threshold: float = 0.1,
+        # SD-014 incentive-sensitization write path (V3-EXQ-887 decouple fix)
+        incentive_sensitization_enabled: bool = False,
+        sensitization_rate: float = 0.05,
+        sensitization_max: float = 4.0,
+        sensitization_coupling: float = 1.0,
         # MECH-258: E2_harm_a affective-pain forward model (SD-032b prerequisite)
         use_e2_harm_a: bool = False,
         e2_harm_a_lr: float = 5e-4,
@@ -6899,6 +6924,12 @@ class REEConfig:
         config.valence_harm_enabled = valence_harm_enabled
         config.valence_liking_enabled = valence_liking_enabled
         config.liking_threshold = liking_threshold
+
+        # SD-014 incentive-sensitization write path (V3-EXQ-887 decouple fix)
+        config.incentive_sensitization_enabled = incentive_sensitization_enabled
+        config.sensitization_rate = sensitization_rate
+        config.sensitization_max = sensitization_max
+        config.sensitization_coupling = sensitization_coupling
 
         # MECH-258: E2_harm_a forward model (SD-032b prerequisite)
         config.use_e2_harm_a = use_e2_harm_a

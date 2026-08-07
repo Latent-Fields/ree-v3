@@ -110,6 +110,14 @@ class RBFLayer(nn.Module):
         # unless MECH-307 Gap 1 Option-b is enabled (use_mech307_split_surprise=True).
         # Sparse by design -- most centers start at zeros and are updated incrementally.
         self.register_buffer("valence_vecs", torch.zeros(num_centers, VALENCE_DIM))
+        # SD-014 incentive-sensitization gain per center (V3-EXQ-887 decouple fix,
+        # 2026-08-07). A slowly-accumulating, drive-coupled, saturating per-node gain
+        # that amplifies ONLY the VALENCE_WANTING write, so wanting can diverge from raw
+        # benefit_exposure (which VALENCE_LIKING reads) over repeated exposure -- the
+        # mesolimbic-dopamine sensitization dissociation (Smith/Berridge/Aldridge 2011).
+        # Zero by default and only ever read/written when incentive_sensitization_enabled;
+        # backward compatible (existing wanting write path never touches it).
+        self.register_buffer("sensitization_gain", torch.zeros(num_centers))
 
     def forward(self, z: torch.Tensor) -> torch.Tensor:
         """
@@ -300,6 +308,27 @@ class RBFLayer(nn.Module):
         """
         with torch.no_grad():
             self.valence_vecs[center_idx, valence_component] += value
+
+    def update_sensitization_gain(
+        self, center_idx: int, increment: float, gmax: float
+    ) -> float:
+        """SD-014 incentive-sensitization: accumulate the per-center wanting gain.
+
+        Adds `increment` to the center's sensitization gain, saturating at `gmax`,
+        and returns the post-update gain so the caller can amplify the WANTING write
+        by (1 + coupling * gain). Non-negative increments only are meaningful
+        (sensitization is monotone); a negative increment would de-sensitize, which
+        is clamped at 0. See RBFLayer.sensitization_gain and
+        ResidueField.update_wanting_sensitized().
+        """
+        with torch.no_grad():
+            g = float(self.sensitization_gain[center_idx].item()) + float(increment)
+            if g > float(gmax):
+                g = float(gmax)
+            if g < 0.0:
+                g = 0.0
+            self.sensitization_gain[center_idx] = g
+        return g
 
     def evaluate_valence(self, z: torch.Tensor) -> torch.Tensor:
         """
@@ -787,24 +816,79 @@ class ResidueField(nn.Module):
             return
         if not getattr(self.config, "valence_enabled", True):
             return
-        if not self.rbf_field.active_mask.any():
+        nearest_global = self._nearest_active_center(z_world)
+        if nearest_global is None:
             return
+        self.rbf_field.update_valence(nearest_global, component, value)
 
-        # Reduce batch to a single representative point
+    def _nearest_active_center(self, z_world: torch.Tensor):
+        """Index of the nearest ACTIVE RBF center to z_world, or None if none active.
+
+        Shared by update_valence() and update_wanting_sensitized() (SD-014). Reduces a
+        batched z_world to a single representative point (mean) exactly as update_valence
+        always has, so the sensitized wanting write lands at the same center a plain
+        wanting write would.
+        """
+        if not self.rbf_field.active_mask.any():
+            return None
         if z_world.dim() == 2:
             z_point = z_world.mean(dim=0, keepdim=True)   # [1, world_dim]
         else:
             z_point = z_world.unsqueeze(0)                 # [1, world_dim]
-
-        # Find nearest active center
         active_idxs = self.rbf_field.active_mask.nonzero(as_tuple=True)[0]  # [n_active]
         active_centers = self.rbf_field.centers[active_idxs]                  # [n_active, world_dim]
-        diffs = z_point - active_centers                                       # [n_active, world_dim]
-        dists_sq = (diffs ** 2).sum(dim=-1)                                   # [n_active]
+        dists_sq = ((z_point - active_centers) ** 2).sum(dim=-1)              # [n_active]
         nearest_local = dists_sq.argmin().item()
-        nearest_global = active_idxs[nearest_local].item()
+        return int(active_idxs[nearest_local].item())
 
-        self.rbf_field.update_valence(nearest_global, component, value)
+    def update_wanting_sensitized(
+        self,
+        z_world: torch.Tensor,
+        salience: float,
+        drive_level: float,
+        rate: float,
+        gmax: float,
+        coupling: float,
+        hypothesis_tag: bool = False,
+    ) -> None:
+        """SD-014 incentive-sensitization WANTING write (V3-EXQ-887 decouple fix).
+
+        Writes VALENCE_WANTING at the nearest active center as
+
+            salience * (1 + coupling * g)
+
+        where g is a per-node incentive-sensitization gain accumulated -- BEFORE this
+        write -- by
+
+            g <- min(gmax, g + rate * drive_level).
+
+        Because g is driven by the agent's homeostatic drive_level (SD-012), a signal
+        orthogonal to the node's benefit magnitude that VALENCE_LIKING reads, the stored
+        wanting diverges from raw benefit_exposure over repeated exposure. This is the
+        SD-014 dissociation the claim notes specify (w scaled by approach drive, l by
+        outcome hedonics) expressed as the mesolimbic-dopamine sensitization phenomenon
+        (Smith/Berridge/Aldridge 2011; Berridge & Robinson 1998): repeated DA activation
+        progressively amplifies incentive salience (wanting) without amplifying hedonic
+        impact (liking). Nodes visited often under high drive develop amplified wanting
+        relative to their hedonic magnitude (the incentive-trap signature); nodes with
+        high hedonic contact but low drive-coupled exposure keep high liking and low
+        wanting boost -- breaking the rank collinearity V3-EXQ-887 measured.
+
+        No-op when no active centers exist yet or valence is disabled. MECH-094: this is
+        a WAKING write (hypothesis_tag defaults False); simulated/replay content must
+        pass hypothesis_tag=True and is skipped, exactly as update_valence().
+        """
+        if hypothesis_tag:
+            return
+        if not getattr(self.config, "valence_enabled", True):
+            return
+        nearest_global = self._nearest_active_center(z_world)
+        if nearest_global is None:
+            return
+        increment = float(rate) * max(0.0, float(drive_level))
+        g = self.rbf_field.update_sensitization_gain(nearest_global, increment, float(gmax))
+        amplified = float(salience) * (1.0 + float(coupling) * g)
+        self.rbf_field.update_valence(nearest_global, VALENCE_WANTING, amplified)
 
     def evaluate_valence(self, z_world: torch.Tensor) -> torch.Tensor:
         """

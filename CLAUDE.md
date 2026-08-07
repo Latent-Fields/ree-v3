@@ -2298,6 +2298,37 @@ MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequ
     VALENCE_SURPRISE (3): written in update_residue() when MECH-205 surprise_gated_replay
       is active. PE-EMA delta written when magnitude exceeds pe_surprise_threshold.
   All four components now have active write paths. Config flags all default False (backward compat).
+  VALENCE_WANTING incentive-sensitization DECOUPLE -- IMPLEMENTED 2026-08-07 (V3-EXQ-887 fix).
+    V3-EXQ-887 (2026-08-04) gave SD-014 its first genuine FAIL: |Spearman(wanting, liking)|
+    = 0.93-0.97 (C2 requires <= 0.90). Root cause (read from source, autopsied
+    failure_autopsy_2026-08-05 #3): VALENCE_WANTING was written as
+    serotonin.benefit_salience(benefit_exposure) = tonic_5ht * benefit_exposure while
+    VALENCE_LIKING is written as raw benefit_exposure -- both monotone transforms of ONE
+    shared input, so rank collinearity is near-guaranteed. That is not the independent
+    dopamine(wanting)/opioid(liking) architecture the claim is grounded in.
+    Fix: a per-node, drive-coupled, saturating incentive-sensitization gain g_i amplifies
+    ONLY the wanting write (Smith/Berridge/Aldridge 2011: DA sensitization raises wanting,
+    not liking). On each qualifying write at nearest active center i:
+      g_i  <- min(sensitization_max, g_i + sensitization_rate * drive_level)
+      w_i  += benefit_salience * (1 + sensitization_coupling * g_i)
+    drive_level = REEAgent.compute_drive_level(body_obs) (SD-012, = 1 - energy), a signal
+    ORTHOGONAL to the benefit magnitude VALENCE_LIKING reads -- so wanting diverges from
+    raw hedonic magnitude over repeated exposure (the incentive-trap w >> l signature).
+    New RBFLayer buffer sensitization_gain [num_centers] + RBFLayer.update_sensitization_gain();
+    ResidueField._nearest_active_center() (shared helper) + ResidueField.update_wanting_sensitized();
+    REEAgent.update_benefit_salience() gains an optional drive_level=0.0 arg and routes
+    through the sensitized path when incentive_sensitization_enabled.
+    Config (REEConfig / from_dims): incentive_sensitization_enabled (default False -> no-op),
+      sensitization_rate (0.05), sensitization_max (4.0), sensitization_coupling (1.0).
+    Backward compatible: disabled by default -- update_benefit_salience() is bit-identical,
+      the gain buffer stays zero and is never consulted, and drive_level is ignored (smoke
+      test: OFF-path wanting == benefit_salience exactly, gain sum 0.0). Also inert if
+      enabled but drive_level never supplied (legacy drivers).
+    Phased training: NOT required (gain is a no_grad buffer accumulator, not a trained head).
+    MECH-094: honours hypothesis_tag exactly as update_valence (waking-only write).
+    Validation experiment: V3-EXQ-887a queued (SD-014 representational-separability retest
+      with the feature enabled; reuses V3-EXQ-887's validated wall-independent instrument).
+    See REE_assembly/docs/architecture/sd_014_wanting_liking_decouple.md, claims.yaml SD-014.
 
 - MECH-203 + MECH-204: neuromodulation.serotonergic_sleep_substrate — IMPLEMENTED 2026-04-07.
   SerotoninModule (ree_core/neuromodulation/serotonin.py) with SerotoninConfig.
