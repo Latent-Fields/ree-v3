@@ -6,26 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-887a",
-      "title": "SD-014 wanting/liking representational-separability RETEST (incentive-sensitization decouple)",
-      "script": "experiments/v3_exq_887a_sd014_node_valence_repfunc_sensitized.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "estimated_minutes": 60,
-      "supersedes": "V3-EXQ-887",
-      "backlog_id": "EVB-0245",
-      "note": "Post-fix retest of V3-EXQ-887 (FAILED C2 |Spearman(w,l)|=0.93-0.97 because VALENCE_WANTING and VALENCE_LIKING were both monotone transforms of one shared benefit_exposure). SD-014 incentive-sensitization write-path decouple IMPLEMENTED ree-v3 2026-08-07: per-node, drive-coupled, saturating gain on VALENCE_WANTING (Smith/Berridge/Aldridge 2011: DA sensitization raises wanting not liking). This driver is the V3-EXQ-887 instrument unchanged (same P0 control, R1-R4 readiness, C1/C2/C3 acceptance) plus incentive_sensitization_enabled=True and drive_level threaded into update_benefit_salience. Smoke PASS (mechanism unit test: |Spearman| 1.0->0.85 on independent drive axis, OFF path bit-identical); dry-run runs end-to-end. Runs the full 40-episode x 3-seed rollout for the pre-registered verdict.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-08-07T21:17:42Z"
-      },
-      "claim_ids": [
-        "SD-014"
-      ],
-      "experiment_type": "v3_exq_887a_sd014_node_valence_repfunc_sensitized"
-    }
-  ]
+  "items": []
 }
