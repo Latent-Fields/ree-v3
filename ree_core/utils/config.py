@@ -6655,6 +6655,28 @@ class REEConfig:
         # Goal-stream convenience bundle. Kept near **kwargs to preserve the
         # long-standing positional order of from_dims() arguments.
         goal_stream_enabled: bool = False,
+        # MECH-307 Anticipatory Affect Conjunction (added to this signature
+        # 2026-08-07). These twelve were dataclass fields with NO from_dims
+        # entry, so every one of them fell into **kwargs and was silently
+        # dropped -- 84 experiment drivers passed use_mech307_conjunction=True
+        # into this factory and ran with all four gaps OFF and no error. This
+        # is the [memory] reference-reeconfig-from-dims-silent-kwargs failure
+        # mode; see REE_assembly/evidence/planning/
+        # mech307_from_dims_unreachable_2026-08-07.md. Placed AFTER
+        # goal_stream_enabled and immediately before **kwargs so no existing
+        # positional argument index moves.
+        use_mech307_conjunction: bool = False,
+        use_mech307_split_surprise: bool = False,
+        use_mech307_schema_multichannel: bool = False,
+        use_mech307_predicted_location_write: bool = False,
+        use_mech307_signed_pe: bool = False,
+        use_mech307_consumer_conjunction_read: bool = False,
+        mech307_anticipatory_liking_gain: float = 0.5,
+        mech307_z_beta_schema_gain: float = 0.3,
+        mech307_conjunction_gain: float = 1.0,
+        mech307_conjunction_wanting_threshold: float = 0.6,
+        mech307_conjunction_liking_threshold: float = 0.3,
+        mech307_conjunction_z_beta_threshold: float = 0.3,
         **kwargs,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
@@ -7932,6 +7954,47 @@ class REEConfig:
         config.mech295_liking_to_approach_cue_gain = mech295_liking_to_approach_cue_gain
         config.mech295_min_drive_to_fire = mech295_min_drive_to_fire
         config.mech295_min_z_goal_norm_to_fire = mech295_min_z_goal_norm_to_fire
+
+        # MECH-307: anticipatory affect conjunction (four-gap substrate + the
+        # consumer-side bridge read). Assigned BEFORE the goal_stream_enabled
+        # block below so enable_goal_stream() keeps its existing precedence as
+        # a bundle preset (it forces the three sub-flags plus the consumer read
+        # True and pins the gains/thresholds) -- same ordering the MECH-295
+        # block above relies on.
+        config.use_mech307_signed_pe = use_mech307_signed_pe
+        config.use_mech307_split_surprise = use_mech307_split_surprise
+        config.use_mech307_schema_multichannel = use_mech307_schema_multichannel
+        config.use_mech307_predicted_location_write = (
+            use_mech307_predicted_location_write
+        )
+        config.use_mech307_consumer_conjunction_read = (
+            use_mech307_consumer_conjunction_read
+        )
+        config.mech307_anticipatory_liking_gain = mech307_anticipatory_liking_gain
+        config.mech307_z_beta_schema_gain = mech307_z_beta_schema_gain
+        config.mech307_conjunction_gain = mech307_conjunction_gain
+        config.mech307_conjunction_wanting_threshold = (
+            mech307_conjunction_wanting_threshold
+        )
+        config.mech307_conjunction_liking_threshold = (
+            mech307_conjunction_liking_threshold
+        )
+        config.mech307_conjunction_z_beta_threshold = (
+            mech307_conjunction_z_beta_threshold
+        )
+        config.use_mech307_conjunction = use_mech307_conjunction
+        # __post_init__ master-flag resolver re-applied here. from_dims sets
+        # fields AFTER cls(), so __post_init__ already ran (against the default
+        # False) before the assignments above -- without this the three
+        # substrate-side sub-flags are never forced True and the master flag is
+        # inert through the factory. Same shape as the MECH-090 re-apply above
+        # and the GAP-3 sleep-cluster re-apply below. OR-only: it can only flip
+        # False -> True, so an explicit sub-flag True without the master keeps
+        # working exactly as before.
+        if use_mech307_conjunction:
+            config.use_mech307_split_surprise = True
+            config.use_mech307_schema_multichannel = True
+            config.use_mech307_predicted_location_write = True
 
         # MECH-302: suffering-derivative comparator substrate
         config.use_suffering_derivative_comparator = use_suffering_derivative_comparator
