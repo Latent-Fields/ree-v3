@@ -262,6 +262,12 @@ def install_bc_prior(rep_agent: Any, seed: int, env_kwargs: Dict[str, Any], *,
         "bc_warmstart_action_match_recent": round(
             float(wguard.get("bc_warmstart_action_match_accuracy_recent", 0.0)), 6
         ),
+        # FULL post-BC evaluate_seed row (all 8 capability metrics + context), not just the
+        # projected foraging_competence scalar (competence_floor instrument audit 2026-08-07): the
+        # install measurement discarded 7 of 8 sub-skills too. ADDITIVE -- the scalar keys above are
+        # unchanged, so every existing caller (post_bc_foraging_competence / install_took routing)
+        # is byte-identical. Drivers plumb this into arm_results[].post_bc_capability_row.
+        "post_bc_capability_row": dict(postbc_row),
     }
 
 
@@ -280,7 +286,16 @@ def make_probe_fn(rep_agent: Any, seed: int, env_kwargs: Dict[str, Any], *,
             rep_agent.eval_policy(f"{arm_label}_probe_ep{int(ep)}"),
             probe_env, int(eval_eps), int(steps),
         )
-        return {"foraging_competence": round(float(row["foraging_competence"]), 6)}
+        # Return the FULL evaluate_seed row (all 8 capability metrics + context), not just the
+        # projected foraging_competence scalar (competence_floor instrument audit 2026-08-07).
+        # evaluate_seed already discarded 7 of 8 metrics at every probe -- across the five MECH-457
+        # retention runs (788/789/792/792a/821) that dropped sub-skill data at 684 probe readings.
+        # This is ADDITIVE: foraging_competence keeps its existing round(,6) value (evaluate_seed
+        # already rounds it, so the double-round the old projection did was a no-op), so
+        # retained_fraction / competence_half_life / trajectory peak+terminal stay byte-identical.
+        # train_a2c stamps {"episode": ep} and row.update()s this dict into competence_trajectory,
+        # so the extra keys flow into arm_results[].competence_trajectory[] with no driver change.
+        return dict(row)
 
     return _probe
 
