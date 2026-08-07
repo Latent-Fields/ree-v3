@@ -71,20 +71,34 @@ Always-core fields it stamps (standard 3b)
                      always means the run measured it. See experiments/_lib/z_goal_stream.py.
                      Also NOT in ALWAYS_CORE_KEYS -- the legacy corpus cannot carry it, and
                      it is unavailable to any manifest built outside the stepping process.
-  episode_termination : {n_episodes, steps_configured, steps_mean/min/max,
-                     full_budget_frac, truncated_frac, causes} -- did the episodes
-                     actually SPEND the configured step budget, and if not, why did they
-                     stop? A manifest records a configured n_steps and an aggregate
-                     outcome and nothing in between, so a run whose episodes died on step
-                     19 of a configured 400 reads exactly like one that ran the full
-                     budget with worse numbers (the V3-EXQ-884 / SD-094 defect: 32/19/90
-                     of 400 steps, all self-inflicted contamination death, established
-                     only by re-running the experiment inside a failure autopsy).
-                     Requires the caller to pass `episode_termination=` (an
-                     EpisodeTerminationAccumulator or its stats); OMITTED rather than
-                     zero-filled when they don't, so its presence always means the run
-                     measured it. See experiments/_lib/episode_termination.py. Also NOT
-                     in ALWAYS_CORE_KEYS, for the same legacy-corpus reason as above.
+  episode_termination : {steps_configured, frac_of_budget, causes, ...} -- how episodes
+                     ENDED across the run: did they run the configured step budget, or die
+                     early (health_depleted, hazard, waypoint-arrival), and in what
+                     proportion. The V3-EXQ-884 defect motivated it -- a run whose episodes
+                     truncated far short of their budget silently understated the behaviour
+                     the criteria keyed on. Requires the caller to pass `episode_termination=`
+                     (an accumulator, a precomputed block, or (steps, cause) pairs); the block
+                     is OMITTED rather than zero-filled when they don't, so its presence always
+                     means the run measured it. See experiments/_lib/episode_termination.py.
+                     Also NOT in ALWAYS_CORE_KEYS, for the same legacy-corpus reason as above.
+  enabled_default_off_flags : {dotted_field_name: value} for every REEConfig field
+                     (recursing into nested sub-configs -- latent, hippocampal, goal,
+                     ...) whose CODED DEFAULT is False/0/0.0 and whose value on the
+                     agent's actual config differs from that default for this run --
+                     i.e. was genuinely enabled. Requires the caller to pass `agent=`
+                     (one agent or an iterable, same normalisation as z_goal_stream
+                     above). UNLIKE z_goal_stream, an empty result IS recorded as {}
+                     rather than omitted -- "agent given, nothing enabled" is a common,
+                     legitimate outcome a consumer must be able to tell apart from
+                     "never measured," which a bare omission cannot distinguish; the
+                     field is omitted only when no config-bearing agent was supplied at
+                     all. PROSPECTIVE ONLY: a manifest already on disk without this
+                     field cannot gain it retroactively (the agent/config is long gone
+                     by then) -- see REE_assembly/evidence/planning/
+                     substrate_stability_and_drift_detection_plan.md section 6 for the
+                     motivating gap (a textual proxy over driver SOURCE is the only
+                     fallback for a manifest lacking this field). Also NOT in
+                     ALWAYS_CORE_KEYS, for the same reason z_goal_stream is not.
   machine          : socket.gethostname() (or a caller override -- the hub records
                      "ree-cloud-1" although its hostname is "ree-worker-1").
   machine_class    : arm_fingerprint.machine_class() -- fingerprint equality is
@@ -158,8 +172,8 @@ except Exception:  # pragma: no cover - path-dependent fallbacks
     except Exception:
         import z_goal_stream as _z_goal_stream  # type: ignore
 
-# Same triple-fallback import shape -- episode_termination is a sibling module in
-# this package and stdlib-only.
+# Same triple-fallback import shape -- episode_termination is a sibling module in this
+# package and stdlib-only.
 try:  # normal package import
     from experiments._lib import episode_termination as _episode_termination  # type: ignore
 except Exception:  # pragma: no cover - path-dependent fallbacks
@@ -226,6 +240,74 @@ def _is_empty(value: Any) -> bool:
     if isinstance(value, (str, bytes, list, tuple, dict, set)) and len(value) == 0:
         return True
     return False
+
+
+def enabled_default_off_flags(config: Any, _stock: Any = None, _prefix: str = "") -> Dict[str, Any]:
+    """{dotted_field_name: value} for every field of `config` whose CODED DEFAULT is
+    False/0/0.0 and whose actual value differs from that default -- i.e. was genuinely
+    enabled for this run. Recurses into nested dataclass fields (config.latent,
+    config.hippocampal, config.goal, ...) with a dotted path, e.g.
+    "goal.use_hierarchical_goal_credit".
+
+    The False/0/0.0 "default-off" rule deliberately mirrors
+    REE_assembly/scripts/default_off_drift_guard.py's `_default_off` (same definition,
+    stated twice because that one is a static AST parse of config.py's SOURCE and this
+    one is a runtime introspection of a LIVE instance -- different domains, not
+    reusable across the repo boundary, but must agree on what "default-off" means).
+
+    Non-dataclass input (a plain object, or None) returns {} rather than raising --
+    this is a best-effort recording helper, never a hard requirement.
+    """
+    import dataclasses
+    if not dataclasses.is_dataclass(config) or isinstance(config, type):
+        return {}
+    stock = _stock if _stock is not None else type(config)()
+    out: Dict[str, Any] = {}
+    for f in dataclasses.fields(config):
+        try:
+            val = getattr(config, f.name)
+            stock_val = getattr(stock, f.name)
+        except AttributeError:
+            continue
+        dotted = f"{_prefix}{f.name}"
+        if dataclasses.is_dataclass(val):
+            out.update(enabled_default_off_flags(val, stock_val, dotted + "."))
+            continue
+        is_default_off = (
+            stock_val is False
+            or (isinstance(stock_val, int) and not isinstance(stock_val, bool) and stock_val == 0)
+            or (isinstance(stock_val, float) and stock_val == 0.0)
+        )
+        if is_default_off and val != stock_val:
+            out[dotted] = val
+    return out
+
+
+def enabled_default_off_flags_for_agents(agent: Any) -> Optional[Dict[str, Any]]:
+    """enabled_default_off_flags() pooled across one agent or an iterable of them (the
+    same "one or many" shape z_goal_stream_stats takes for a multi-arm run). Later
+    agents in iteration order win on a disagreement -- a known, stated simplification
+    for a first cut of this feature, not a guarantee of per-arm attribution.
+
+    Returns None -- deliberately distinct from {} -- when no config-bearing agent was
+    found at all (nothing to record; the caller should OMIT the manifest field, exactly
+    z_goal_stream's convention). Returns {} when at least one agent WAS found but none
+    of its config differed from stock defaults -- a common, entirely legitimate result
+    that must still be RECORDED (not omitted), because a downstream consumer needs to
+    tell "measured: nothing enabled" apart from "never measured" to treat every other
+    known default-off knob as confirmed-disabled with certainty. Collapsing these two
+    into one omission (as an earlier draft of this function did) would silently make
+    the all-defaults case indistinguishable from never having recorded anything.
+    """
+    agents = _z_goal_stream._iter_agents(agent)
+    configs = [getattr(one, "config", None) for one in agents]
+    configs = [c for c in configs if c is not None]
+    if not configs:
+        return None
+    merged: Dict[str, Any] = {}
+    for cfg in configs:
+        merged.update(enabled_default_off_flags(cfg))
+    return merged
 
 
 def _coerce_seed_list(seeds: Any) -> Optional[List[int]]:
@@ -701,18 +783,18 @@ def stamp_recording_core(
         Passed through to the single-arm substrate-hash computation.
     agent
         The stepped REEAgent, or an iterable of them (a multi-arm run builds one per
-        arm x seed). Read for the `z_goal_stream` liveness block. Omitting it simply
-        omits the block -- it is never fabricated from zeros.
+        arm x seed). Read for the `z_goal_stream` liveness block AND the
+        `enabled_default_off_flags` block (via each agent's own `.config`). Omitting it
+        simply omits both blocks -- neither is ever fabricated from zeros/empty.
     z_goal_stream_stats
         A precomputed liveness block (from `z_goal_stream.stats_from_counts`) for a
         caller that keeps its own counters, e.g. a StepHarness accumulating across
         agent swaps. Takes precedence over `agent`.
     episode_termination
-        Per-episode length + termination cause for the `episode_termination` block:
-        an `episode_termination.EpisodeTerminationAccumulator`, a precomputed block,
-        or a sequence of (steps, cause) pairs. Omitting it omits the block -- it is
-        never fabricated, since "unmeasured" and "ran the full budget" must not look
-        alike (that is the defect it exists to close).
+        The run's episode-termination source -- an EpisodeTerminationAccumulator, a
+        precomputed block, or a sequence of (steps, cause) pairs -- for the
+        `episode_termination` block (see experiments/_lib/episode_termination.py).
+        Omitting it simply omits the block; it is never fabricated.
     overwrite
         Force-overwrite already-present fields (default False -> fill-only).
 
@@ -932,25 +1014,38 @@ def stamp_recording_core(
         except Exception:
             pass
 
-    # episode_termination -- did the episodes actually SPEND their step budget?
-    # SD-094. A manifest records a configured n_steps and an aggregate outcome, and
-    # nothing in between, so a run whose episodes died on step 19 of a configured 400
-    # is indistinguishable on the page from one that ran the full budget: same config
-    # block, same metric shape, merely worse numbers -- which every downstream reader
-    # then interprets as a measurement of the mechanism rather than of an episode that
-    # ended before the mechanism could express itself. Confirmed against V3-EXQ-884
-    # (32/19/90 of 400 steps on seeds 42/43/44, all self-inflicted contamination
-    # death); establishing that needed a live re-run inside a failure autopsy, for a
-    # fact the run knew at every step and never wrote down.
-    # RECORD-ONLY, same posture as z_goal_stream above: early termination is often the
-    # legitimate measurement (a survival experiment, a deliberate lethal arm), so this
-    # is a field to read against the run's design, not a gate. Omitted entirely when
-    # the driver collected nothing -- absence means unmeasured, never "ran full".
+    # episode_termination -- how episodes ENDED across the run (full budget vs early
+    # death, and by what cause). Complements z_goal_stream above: that measures whether
+    # a stream was live, this measures whether episodes reached their configured budget
+    # or truncated early (the V3-EXQ-884 defect, where episodes died far short of the
+    # step budget and silently understated the behaviour the criteria keyed on). Omitted
+    # rather than zero-filled when no source was supplied, so its presence always means
+    # the run measured it. Same _fill posture as everything else: an explicit author
+    # value wins unless overwrite=True. Internally exception-safe; the guard here covers
+    # the import itself.
     if overwrite or _is_empty(manifest.get(_episode_termination.MANIFEST_KEY)):
         try:
             _episode_termination.stamp_episode_termination(
                 manifest, episode_termination, overwrite=overwrite
             )
+        except Exception:
+            pass
+
+    # enabled_default_off_flags -- which REEConfig knobs were genuinely enabled for this
+    # run, read off the agent's own live config. PROSPECTIVE ONLY (see docstring): a
+    # manifest already on disk cannot gain this after the fact, since the agent/config is
+    # long gone by then. Omitted entirely when no config-bearing agent was supplied at
+    # all (never measured) -- but RECORDED AS {} (not omitted) when an agent was given
+    # and simply had nothing enabled, a common and legitimate result a consumer must be
+    # able to tell apart from "never measured" (see
+    # enabled_default_off_flags_for_agents' own docstring for why this distinction is
+    # load-bearing). Uses `is None`, not falsiness, on purpose -- `if flags:` would
+    # silently collapse the "measured, empty" case back into an omission.
+    if overwrite or manifest.get("enabled_default_off_flags") is None:
+        try:
+            flags = enabled_default_off_flags_for_agents(agent)
+            if flags is not None:
+                manifest["enabled_default_off_flags"] = flags
         except Exception:
             pass
 
