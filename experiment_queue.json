@@ -169,6 +169,22 @@
       "episodes_per_run": 140,
       "experiment_type": "v3_exq_902_sd048_default_scale_calibration_sweep",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-228b",
+      "title": "ARC-032 theta-bypass ablation re-run on scaffolded_sd054_onboarding curriculum",
+      "experiment_type": "v3_exq_228b_arc032_theta_bypass_onboarded",
+      "script": "experiments/v3_exq_228b_arc032_theta_bypass_onboarded.py",
+      "priority": 5,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 90,
+      "episodes_per_run": 250,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_id": "ARC-032",
+      "supersedes": "V3-EXQ-228a",
+      "note": "GOV-REUSE-1: checked 228/228a manifests + all scripts referencing THETA_ZEROED/THETA_ACTIVE/theta_bypass -- no existing run tests the theta-bypass ablation on the scaffolded_sd054_onboarding curriculum (only 228/228a exist, both on the old causal_grid_world substrate, both precondition-failed) -- decisive readout not recoverable, run. Re-derive brake: 0 substrate_ceiling autopsies for ARC-032, not braked. Substrate-path overlap: no open corrupting substrate_queue entries touch theta_buffer.py/agent.py/e3_selector.py/hippocampal/scaffolded_sd054_onboarding.py. Design: ONE agent trained per seed through the full onboarding curriculum (866a's validated FULL config + budgets, empirically clears z_goal_norm >> 0.05 -- goal_norm_post_p1 0.45-0.52 across all 3 dry-run seeds), then deep-copied post-P1 into THETA_ACTIVE/THETA_ZEROED clones so the theta patch is the ONLY difference at measurement time (avoids confounding training-time policy quality with theta's decision-time value, which naive pre-training patching would do on this curriculum since its training loop -- unlike 228a's simplified warmup -- calls generate_trajectories() throughout). Seeds 42/43/45 (not 44: known reef-config instability, EXQ-539-540/538a). Smoke (--dry-run) ran clean end-to-end, precondition would clear on all seeds, harm_rate differs measurably between conditions (patch is live, not inert)."
     }
   ]
 }
