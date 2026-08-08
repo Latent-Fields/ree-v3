@@ -1,6 +1,6 @@
 #!/opt/local/bin/python3
 """
-V3-EXQ-893 -- MECH-074d BLA PE-remap attribution selectivity (WALL-INDEPENDENT,
+V3-EXQ-894 -- MECH-074d BLA PE-remap attribution selectivity (WALL-INDEPENDENT,
               representation-level confirming DV).
 
 Routed from IGW workset item IGW-20260807-235 (GOV-CONFIRM-1). MECH-074d has a BUILT
@@ -215,8 +215,8 @@ from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E4
 from ree_core.utils.config import REEConfig  # noqa: E402
 from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
-EXPERIMENT_TYPE = "v3_exq_893_mech074d_bla_remap_attribution_selectivity"
-QUEUE_ID = "V3-EXQ-893"
+EXPERIMENT_TYPE = "v3_exq_894_mech074d_bla_remap_attribution_selectivity"
+QUEUE_ID = "V3-EXQ-894"
 CLAIM_IDS: List[str] = ["MECH-074d"]
 EXPERIMENT_PURPOSE = "evidence"
 
