@@ -8,26 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-894a",
-      "title": "MECH-074d BLA PE-remap attribution: PE-sigma recalibration SWEEP (retest of 894 over-firing)",
-      "script": "experiments/v3_exq_894a_mech074d_bla_remap_attribution_selectivity.py",
-      "priority": 55,
-      "machine_affinity": "any",
-      "estimated_minutes": 60,
-      "supersedes": "V3-EXQ-894",
-      "claim_id": "MECH-074d",
-      "note": "RECALIBRATED-THRESHOLD RETEST of MECH-074d; SUPERSEDES V3-EXQ-894 (v3_exq_894_mech074d_bla_remap_attribution_selectivity_20260808T005219Z_v3, FAIL/weakens). Routed from the confirmed autopsy failure_autopsy_V3-EXQ-894_2026-08-08 (/failure-autopsy -> /queue-experiment, same-claim retest; MECH-074d is HELD at provisional pending this run rather than demoted). This driver is 894 with ONE change: the single ON arm at the SD-035 default sigma=1.0 becomes a SWEEP of bla_remap_pe_sigma_threshold over [1.0, 1.5, 2.0, 2.5]; all other machinery (representation DV, matched-baseline per-episode restore, OFF drift control, readiness gate, DV-symmetry scoping) is preserved so the runs are directly comparable and the sigma=1.0 arm internally REPLICATES 894's over-firing FAIL. HYPOTHESIS (from the 894 autopsy): across 894's three seeds fire-fraction and attribution-selectivity are INVERSELY correlated (seed 45 fire 0.41 -> C1/C2 PASS; seeds 42/43 fire 0.59/0.91 -> C1/C2 FAIL; C4 fire<=0.25 fails ALL three), the signature of a gate firing far too often and diluting a genuine signal to chance, NOT an absent attribution mechanism. ROOT CAUSE (reconstructed from 894's recorded PE data): the gate's EMA z-score normaliser (bla.py:483-497, alpha=0.02) is reset to mean=0/std=0.1 every episode by bla.reset(), but the env's harm-PE magnitude is ~0.25-0.32, so at the slow alpha the running mean never catches up within a 60-step episode and pe_z stays > 1.0 for most ticks -> over-firing. Seeds need DIFFERENT sigmas to reach the same fire fraction (different bla-tick counts warm the EMA differently), which is why a single higher sigma cannot land all seeds and a SWEEP is the correct instrument. FAITHFUL TO THE CLAIM: MECH-074d specifies firing at ~1 SD of the RUNNING PE distribution; the per-episode-reset EMA mis-estimates that SD, so a nominal 2.0-2.5 may correspond to a true ~1-SD excursion -- the sweep tests the mechanism at its intended sparsity, not a departure. The deeper EMA/reset fix is a bla.py SUBSTRATE change, OUT OF SCOPE here, recorded as follow-on if the sweep confirms over-firing. DESIGN: 5 arms x 3 seeds [42,43,45] (44 excluded per the standing reef-config early-death instability; same seeds as 894). ARMS: ARM_REMAP_OFF sigma=1e9 (C3 drift control, one per seed) + ARM_SIGMA_10/15/20/25. A high-sigma cell that sparsifies below the readiness floor goes gate-RED and is scoped out for that (seed,arm) without vacating others (V3-EXQ-785 rule, via precondition_gate). COMBINATION_RULE (OR over arms, recorded explicitly per V3-EXQ-846): each ON arm passes iff C1 AND C2 AND C3 AND C4 on >=2/3 green seeds; RUN PASS iff ANY ON sigma arm passes. DIRECTION: supports = some sigma passes; mixed = attribution gate RECOVERS with sparsification (C1 AND C2 met at some sigma, or mean selectivity rises monotonically across the sweep with the top sigma clearing C1) without a full pass; weakens = attribution never recovers (894's FAIL stands). GOV-REUSE-1: decisive readout is C1-C4 as a function of RAISED sigma; the only run tagging MECH-074d with this DV is 894, which tested sigma=1.0 ONLY -- the recalibrated readout is absent from every manifest -> run (not recoverable). RE-DERIVE BRAKE: 0 counted substrate_ceiling autopsies on MECH-074d (the single 894 autopsy is category 'standard', action 'none') -> not braked. SUBSTRATE-PATH OVERLAP GATE: no open substrate_queue entry declares substrate_paths overlapping bla.py/agent.py/e1_deep.py -> clear. ETHICS PREFLIGHT: all-false/allow (V3 harm streams are pre-ethical instrumentation, SENT-0). SMOKE (1 seed, seed 42) PASS: all tier-1 engagement checks green; the sweep is non-degenerate even at smoke scale -- fire fraction falls 0.93/0.83/0.48/0.12 across sigma 1.0/1.5/2.0/2.5 (fire_fraction_varies_across_sweep true, ruling out a saturation fingerprint) and slot differentiation recovers to 0.454 (>OFF baseline 0.089) at sigma 2.5, confirming the predicted partiality recovery; validate_experiments --strict OK, 0 warnings. STEP 8.6: queued from a Mac dev box WITH coordinator.env, so this entry is POSTed to /queue/add (authoritative Phase-3 ingress) after the push lands -- the git commit alone is NOT durable (phase3-queue snapshot writer erased the first 894/895 git-only adds; that is why the POST is mandatory).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-08-08T09:41:05Z"
-      },
-      "conditions": 5,
-      "episodes_per_run": 36,
-      "experiment_type": "v3_exq_894a_mech074d_bla_remap_attribution_selectivity",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-896",
       "title": "MECH-322 sleep-replay carve-out: confirmatory evidence-purpose safety + survival confirmer",
       "script": "experiments/v3_exq_896_mech322_replay_confirmatory_evidence.py",
@@ -47,40 +27,25 @@
       "seeds": 12
     },
     {
-      "queue_id": "V3-EXQ-898",
-      "title": "SD-016 leg-A retest: Path 3 tagger under the SD-070 encoder fix (world_dim=128)",
-      "experiment_type": "v3_exq_898_sd016_lega_encoder_fix_retest",
-      "script": "experiments/v3_exq_898_sd016_lega_encoder_fix_retest.py",
-      "priority": 20,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 75,
-      "episodes_per_run": 100,
-      "seeds": 3,
-      "conditions": 2,
-      "claim_id": "SD-016",
-      "note": "Re-runs the 418g/418m-shaped SD-016 leg-A acceptance test (C1 sel_entropy<2.5, C1b context-div>0.1, both >=2/3 seeds; C2 OFF-arm ln(16) saddle control) with one upstream change: z_world is now trained via the validated SD-070 recipe (world_dim=128, matching V3-EXQ-783 D128_TRAINED) instead of left untrained. GOV-REUSE-1: checked V3-EXQ-783 (PASS, Q-002/SD-031) for this exact readout -- not recorded there (scoped to encoder contrast only, never read back onto SD-016 own criteria, per claims.yaml). Diagnostic purpose, claim_ids=[] pending /failure-autopsy adjudication per the 418g/418m precedent; a PASS/FAIL still requires autopsy confirmation before any claims.yaml action on SD-016. Self-routes substrate_not_ready_requeue if fewer than a seed-majority clear the per-cell encoder-readiness preconditions (weights moved + z_world spread lift on a matched positive control) rather than mis-scoring an under-trained encoder as a substrate_ceiling finding. Chip chip-20260808-sd016-leg-a-retest."
-    },
-    {
       "queue_id": "V3-EXQ-899",
       "title": "ARC-030/MECH-307 G0 readiness: re-run 866a scaffolded config with MECH-307 genuinely ON (A/B), confirm G0 before discriminative retest",
-      "experiment_type": "v3_exq_899_arc030_mech307_g0_readiness",
       "script": "experiments/v3_exq_899_arc030_mech307_g0_readiness.py",
       "priority": 55,
       "machine_affinity": "any",
-      "status": "pending",
       "estimated_minutes": 330,
-      "episodes_per_run": 250,
-      "seeds": 3,
+      "note": "DIAGNOSTIC READINESS GATE for ARC-030's COMBINED-vs-NOGO_ONLY discriminative retest (claim_ids=[] -- tags NO claim as evidence; GATES ARC-030[primary]/Q-021/INV-034, named in gates_claims). Re-runs V3-EXQ-866a's FULL scaffolded_sd054_onboarding config as a MECH-307 A/B: FULL_M307_ON vs FULL_M307_OFF vs RANDOM, seeds 42/43/44. WHY: MECH-307 was UNREACHABLE via REEConfig.from_dims() until d63f13b7 (all 12 params dropped into **kwargs), so 603q/866a/866b -- ARC-030's whole scaffolded lineage -- ran with MECH-307 entirely OFF (evidence/planning/mech307_from_dims_unreachable_2026-08-07.md). That from_dims fix is now landed; MECH-307 is genuinely reachable for the FIRST time. Before ARC-030's retest can be queued, the shared G0 non-degeneracy precondition must be shown to clear on the substrate MECH-307 is actually on -- NOT a formality: 866a already FAILED G0 with MECH-307 off (FULL rvr 0.0033 < RANDOM 0.0103) and z_goal decayed to a P2 mean 0.12 (< 0.4 C6 floor); 866b (PASS) confirmed the substrate is sound, localising the gap to the hazard-only curriculum stages. LOAD-BEARING GATE G0_ON: rvr_FULL_M307_ON >= rvr_RANDOM + 0.05 on >=2/3 seeds. ROUTING (diagnostic, weights no governance score): preconditions-unmet -> substrate_not_ready_requeue; G0_ON pass -> readiness_pass_arc030_retest_unblocked (then queue ARC-030's COMBINED-vs-NOGO_ONLY per its what_would_answer); G0_ON fail -> readiness_fail_curriculum_gate_blocks_retest (route to substrate_queue stub 'scaffolded-curriculum-hazard-rebalance' FIRST, then re-run this gate; do NOT force the retest). The FULL_M307_OFF arm reproduces 866a in-harness so the G0 delta is attributable to MECH-307; if OFF would clear G0 while ON fails, mech307_perturbs_baseline is flagged (MECH-307-on, though mechanically correct, degrades this baseline). INTERACTION: shares the G0 gate with the hazard-rebalance stub (Q-021/INV-034/ARC-030). If that curriculum fix lands first, re-evaluate what 'G0 clears' means here before the retest. GOV-REUSE-1 (Step 2.4): decisive readout = FULL_M307_ON transition-type resource_visit_rate vs RANDOM WITH MECH-307 genuinely on -- recorded in NO existing manifest (every scaffolded run to date had MECH-307 silently off); not recoverable -> run. SUBSTRATE READINESS (2.5a): MECH-307 from_dims reachability confirmed by in-session probe on origin/main (use_mech307_conjunction=True flips all 4 conjunction sub-flags True; goal flags route to cfg.goal.*). RE-DERIVE BRAKE (2.5b): N/A -- claim_ids=[]; a readiness diagnostic, not a same-granularity claim retest. DV-SYMMETRY: FULL_M307_ON vs FULL_M307_OFF -- MECH-307 is a goal-conditioned per-candidate incentive-salience modulation (NOT a broadcast scalar), not invariant under the argmax that produces resource_visit_rate, and modulates zgoal_norm directly; RANDOM is the uniform reference. ID NOTE: authored as 897, bumped to 899 -- 897/898 taken by concurrent sessions (SD-009 / sd016) during this session. Smoke PASS (dry-run, current substrate origin/main: 9/9 cells ran, z_goal 'no writer defect', preconditions met + G0_ON=0 on tiny budget correctly routed readiness_fail). Step 8.6 POST /queue/add performed from the queueing box (coordinator.env present).",
+      "status": "pending",
+      "claim_ids": [],
       "conditions": 3,
-      "readiness_check_of": "V3-EXQ-866a",
+      "episodes_per_run": 250,
+      "experiment_type": "v3_exq_899_arc030_mech307_g0_readiness",
       "gates_claims": [
         "ARC-030",
         "Q-021",
         "INV-034"
       ],
-      "note": "DIAGNOSTIC READINESS GATE for ARC-030's COMBINED-vs-NOGO_ONLY discriminative retest (claim_ids=[] -- tags NO claim as evidence; GATES ARC-030[primary]/Q-021/INV-034, named in gates_claims). Re-runs V3-EXQ-866a's FULL scaffolded_sd054_onboarding config as a MECH-307 A/B: FULL_M307_ON vs FULL_M307_OFF vs RANDOM, seeds 42/43/44. WHY: MECH-307 was UNREACHABLE via REEConfig.from_dims() until d63f13b7 (all 12 params dropped into **kwargs), so 603q/866a/866b -- ARC-030's whole scaffolded lineage -- ran with MECH-307 entirely OFF (evidence/planning/mech307_from_dims_unreachable_2026-08-07.md). That from_dims fix is now landed; MECH-307 is genuinely reachable for the FIRST time. Before ARC-030's retest can be queued, the shared G0 non-degeneracy precondition must be shown to clear on the substrate MECH-307 is actually on -- NOT a formality: 866a already FAILED G0 with MECH-307 off (FULL rvr 0.0033 < RANDOM 0.0103) and z_goal decayed to a P2 mean 0.12 (< 0.4 C6 floor); 866b (PASS) confirmed the substrate is sound, localising the gap to the hazard-only curriculum stages. LOAD-BEARING GATE G0_ON: rvr_FULL_M307_ON >= rvr_RANDOM + 0.05 on >=2/3 seeds. ROUTING (diagnostic, weights no governance score): preconditions-unmet -> substrate_not_ready_requeue; G0_ON pass -> readiness_pass_arc030_retest_unblocked (then queue ARC-030's COMBINED-vs-NOGO_ONLY per its what_would_answer); G0_ON fail -> readiness_fail_curriculum_gate_blocks_retest (route to substrate_queue stub 'scaffolded-curriculum-hazard-rebalance' FIRST, then re-run this gate; do NOT force the retest). The FULL_M307_OFF arm reproduces 866a in-harness so the G0 delta is attributable to MECH-307; if OFF would clear G0 while ON fails, mech307_perturbs_baseline is flagged (MECH-307-on, though mechanically correct, degrades this baseline). INTERACTION: shares the G0 gate with the hazard-rebalance stub (Q-021/INV-034/ARC-030). If that curriculum fix lands first, re-evaluate what 'G0 clears' means here before the retest. GOV-REUSE-1 (Step 2.4): decisive readout = FULL_M307_ON transition-type resource_visit_rate vs RANDOM WITH MECH-307 genuinely on -- recorded in NO existing manifest (every scaffolded run to date had MECH-307 silently off); not recoverable -> run. SUBSTRATE READINESS (2.5a): MECH-307 from_dims reachability confirmed by in-session probe on origin/main (use_mech307_conjunction=True flips all 4 conjunction sub-flags True; goal flags route to cfg.goal.*). RE-DERIVE BRAKE (2.5b): N/A -- claim_ids=[]; a readiness diagnostic, not a same-granularity claim retest. DV-SYMMETRY: FULL_M307_ON vs FULL_M307_OFF -- MECH-307 is a goal-conditioned per-candidate incentive-salience modulation (NOT a broadcast scalar), not invariant under the argmax that produces resource_visit_rate, and modulates zgoal_norm directly; RANDOM is the uniform reference. ID NOTE: authored as 897, bumped to 899 -- 897/898 taken by concurrent sessions (SD-009 / sd016) during this session. Smoke PASS (dry-run, current substrate origin/main: 9/9 cells ran, z_goal 'no writer defect', preconditions met + G0_ON=0 on tiny budget correctly routed readiness_fail). Step 8.6 POST /queue/add performed from the queueing box (coordinator.env present).",
-      "claim_ids": []
+      "readiness_check_of": "V3-EXQ-866a",
+      "seeds": 3
     }
   ]
 }
