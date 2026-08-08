@@ -139,6 +139,23 @@
       "seeds": 3
     },
     {
+      "queue_id": "V3-EXQ-190a",
+      "title": "MECH-022 hypothesis injection probe -- well-powered successor to V3-EXQ-190",
+      "script": "experiments/v3_exq_190a_mech022_hypothesis_injection_probe_wellpowered.py",
+      "priority": 45,
+      "machine_affinity": "any",
+      "estimated_minutes": 270,
+      "supersedes": "V3-EXQ-190",
+      "claim_id": "MECH-022",
+      "backlog_id": "EVB-0042",
+      "note": "Well-powered successor to V3-EXQ-190 (2026-04-01, FAIL/inconclusive, C4 data-quality FAILed at n_harm_min=0). Fixes: nav_bias 0.25->0.40, eval_episodes 50->100, warmup_episodes 150->220, seeds 2->3 (42,123,7) so C1-C3 all-seeds criteria get a well-powered read on the load-bearing C3 test (does E3 rate hippocampal proposals better than random). Calibration (random-policy env probe, see script docstring) ruled out hazard density as the bottleneck -- num_hazards left at 5 (original value); the original near-zero harm counts came from the trained policy avoiding hazards, not an insufficiently hazardous env, so nav_bias/eval_episodes are the correct levers. GOV-REUSE-1 checked: decisive readout (well-powered C3 traj_gap) not recoverable from V3-EXQ-190 (n_harm_min=0 there) -> run. Re-derive brake (2.5b): 0 counted autopsies on MECH-022 -> N/A. Substrate-path overlap (2.5c): one open substrate_queue.json entry (mech203-valence-pool-admissibility) touches ree_core/agent.py/hippocampal/module.py but severity is unset (not corrupting) -> proceed. Smoke-tested (--dry-run, 6 cells, clean pass, no crash); validate_experiments.py --strict clean. Did NOT add a third control-plane-state axis per the originating chip guidance (clean C3 retest is a sufficient first redesign; a control-plane axis is the natural V3-EXQ-190b follow-up if this run passes or produces a well-powered FAIL).",
+      "status": "pending",
+      "conditions": 2,
+      "episodes_per_run": 220,
+      "experiment_type": "v3_exq_190a_mech022_hypothesis_injection_probe_wellpowered",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-876a",
       "title": "MECH-025: action-doing mode DV redesign (C1 sign reversed per Thura & Cisek 2014 convergence; precision-ratio demoted to non-gating descriptive metric)",
       "script": "experiments/v3_exq_876a_mech025_doing_mode_convergence_redesign.py",
@@ -203,23 +220,6 @@
       "episodes_per_run": 140,
       "experiment_type": "v3_exq_902_sd048_default_scale_calibration_sweep",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-190a",
-      "title": "MECH-022 hypothesis injection probe -- well-powered successor to V3-EXQ-190",
-      "experiment_type": "v3_exq_190a_mech022_hypothesis_injection_probe_wellpowered",
-      "script": "experiments/v3_exq_190a_mech022_hypothesis_injection_probe_wellpowered.py",
-      "priority": 45,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 270,
-      "episodes_per_run": 220,
-      "seeds": 3,
-      "conditions": 2,
-      "backlog_id": "EVB-0042",
-      "claim_id": "MECH-022",
-      "supersedes": "V3-EXQ-190",
-      "note": "Well-powered successor to V3-EXQ-190 (2026-04-01, FAIL/inconclusive, C4 data-quality FAILed at n_harm_min=0). Fixes: nav_bias 0.25->0.40, eval_episodes 50->100, warmup_episodes 150->220, seeds 2->3 (42,123,7) so C1-C3 all-seeds criteria get a well-powered read on the load-bearing C3 test (does E3 rate hippocampal proposals better than random). Calibration (random-policy env probe, see script docstring) ruled out hazard density as the bottleneck -- num_hazards left at 5 (original value); the original near-zero harm counts came from the trained policy avoiding hazards, not an insufficiently hazardous env, so nav_bias/eval_episodes are the correct levers. GOV-REUSE-1 checked: decisive readout (well-powered C3 traj_gap) not recoverable from V3-EXQ-190 (n_harm_min=0 there) -> run. Re-derive brake (2.5b): 0 counted autopsies on MECH-022 -> N/A. Substrate-path overlap (2.5c): one open substrate_queue.json entry (mech203-valence-pool-admissibility) touches ree_core/agent.py/hippocampal/module.py but severity is unset (not corrupting) -> proceed. Smoke-tested (--dry-run, 6 cells, clean pass, no crash); validate_experiments.py --strict clean. Did NOT add a third control-plane-state axis per the originating chip guidance (clean C3 retest is a sufficient first redesign; a control-plane axis is the natural V3-EXQ-190b follow-up if this run passes or produces a well-powered FAIL)."
     }
   ]
 }
