@@ -122,6 +122,22 @@
       "seeds": 3
     },
     {
+      "queue_id": "V3-EXQ-906",
+      "title": "Full-stack observational Fishtank showcase (today's substrate, rich telemetry)",
+      "script": "experiments/v3_exq_906_full_stack_observational_fishtank.py",
+      "priority": 50,
+      "machine_affinity": "ree-cloud-4",
+      "estimated_minutes": 300,
+      "note": "Diagnostic showcase, claim_ids=[] -- does not weight governance. Current-substrate successor to V3-EXQ-665 (2026-06-10, the last full-stack fishtank run); reuses v3_exq_724's proven all-on selection/valuation bundle + 664/665's affective stack + ScaffoldedSD054OnboardingScheduler curriculum, adding SD-035 amygdala, SD-036 GABAergic decay+recurrence, MECH-358 escape/relief bridge, MECH-288/ARC-071 event-segmenter+chunk memory, SD-014 incentive-sensitization fix, SD-024/SD-025 DA-modulated RBF + curiosity, and SD-017 sleep loop (SWS/REM/SHY, K=10) on top. Eval env adds scheduled limb-damage / external-hazard / world-rule-shift injections over the scaffold curriculum's own p2 env for behavioural variety across 30 x 600-step eval episodes. GOV-REUSE-1: no prior manifest carries this combined-flag readout to reanalyze -- this is a new full-integration combination, not a re-test of an existing one. Full readiness / code-review / smoke-test trail: driver docstring + this session's task_claim.py completion_note.",
+      "status": "pending",
+      "claim_ids": [],
+      "conditions": 1,
+      "episodes_per_run": 220,
+      "experiment_type": "v3_exq_906_full_stack_observational_fishtank",
+      "machine_affinity_note": "User request 2026-08-08: pin to ree-cloud-4 (dedicated-vCPU CPX22) rather than any. Timed local probe (6 real eval episodes, this exact all-on config) measured ~9.6 steps/sec on the Mac; the one same-script cross-machine data point found in this substrate's recent history (V3-EXQ-873 family) puts cloud-4 ~1.5x faster than the coordinator hub. Projected total wall-clock at that combined estimate is roughly 1.5-3 hours for the full curriculum (44000 steps) + observational eval (up to 18000 steps) -- nowhere near the 4-day threshold that would justify investing in a bigger machine; estimated_minutes below is set conservatively above the point estimate to cover curriculum backprop overhead (the timing probe measured eval-only forward-pass cost) and sleep-cycle consolidation (fires ~every 10 episodes, not exercised by the probe).",
+      "seeds": 1
+    },
+    {
       "queue_id": "V3-EXQ-190a",
       "title": "MECH-022 hypothesis injection probe -- well-powered successor to V3-EXQ-190",
       "script": "experiments/v3_exq_190a_mech022_hypothesis_injection_probe_wellpowered.py",
@@ -203,22 +219,6 @@
       "episodes_per_run": 140,
       "experiment_type": "v3_exq_902_sd048_default_scale_calibration_sweep",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-906",
-      "title": "Full-stack observational Fishtank showcase (today's substrate, rich telemetry)",
-      "experiment_type": "v3_exq_906_full_stack_observational_fishtank",
-      "script": "experiments/v3_exq_906_full_stack_observational_fishtank.py",
-      "priority": 50,
-      "machine_affinity": "ree-cloud-4",
-      "machine_affinity_note": "User request 2026-08-08: pin to ree-cloud-4 (dedicated-vCPU CPX22) rather than any. Timed local probe (6 real eval episodes, this exact all-on config) measured ~9.6 steps/sec on the Mac; the one same-script cross-machine data point found in this substrate's recent history (V3-EXQ-873 family) puts cloud-4 ~1.5x faster than the coordinator hub. Projected total wall-clock at that combined estimate is roughly 1.5-3 hours for the full curriculum (44000 steps) + observational eval (up to 18000 steps) -- nowhere near the 4-day threshold that would justify investing in a bigger machine; estimated_minutes below is set conservatively above the point estimate to cover curriculum backprop overhead (the timing probe measured eval-only forward-pass cost) and sleep-cycle consolidation (fires ~every 10 episodes, not exercised by the probe).",
-      "status": "pending",
-      "estimated_minutes": 300,
-      "episodes_per_run": 220,
-      "seeds": 1,
-      "conditions": 1,
-      "note": "Diagnostic showcase, claim_ids=[] -- does not weight governance. Current-substrate successor to V3-EXQ-665 (2026-06-10, the last full-stack fishtank run); reuses v3_exq_724's proven all-on selection/valuation bundle + 664/665's affective stack + ScaffoldedSD054OnboardingScheduler curriculum, adding SD-035 amygdala, SD-036 GABAergic decay+recurrence, MECH-358 escape/relief bridge, MECH-288/ARC-071 event-segmenter+chunk memory, SD-014 incentive-sensitization fix, SD-024/SD-025 DA-modulated RBF + curiosity, and SD-017 sleep loop (SWS/REM/SHY, K=10) on top. Eval env adds scheduled limb-damage / external-hazard / world-rule-shift injections over the scaffold curriculum's own p2 env for behavioural variety across 30 x 600-step eval episodes. GOV-REUSE-1: no prior manifest carries this combined-flag readout to reanalyze -- this is a new full-integration combination, not a re-test of an existing one. Full readiness / code-review / smoke-test trail: driver docstring + this session's task_claim.py completion_note.",
-      "claim_ids": []
     }
   ]
 }
