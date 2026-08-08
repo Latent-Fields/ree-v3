@@ -70,14 +70,34 @@ V3-EXQ-538a. 45 substituted.)
   ARM_REMAP_ON   bla_remap_pe_sigma_threshold = 1.0   (the SD-035 default)
   ARM_REMAP_OFF  bla_remap_pe_sigma_threshold = 1e9   (gate can never open)
 
-  REMAP IS DISABLED IN BOTH ARMS DURING P0. This is the load-bearing design decision.
-  The remap writes IN PLACE to the very store the DV reads, so if it ran during warmup
-  the ON arm would ENTER the measurement window with an already-degraded ContextMemory
-  and its readiness precondition (R1, slot differentiation) would fail -- burying the
-  real finding as "substrate not ready". Holding the gate shut through P0 means both
-  arms start the measurement window from a matched, differentiated store, so every
-  difference measured afterwards is attributable to the remap and to nothing else.
-  The per-arm threshold is installed on ``agent.bla.config`` at the P0/P1 boundary.
+  REMAP IS DISABLED IN BOTH ARMS DURING P0, AND THE MEASUREMENT WINDOW IS A MATCHED-
+  BASELINE REPEATED-MEASURES DESIGN. These are the two load-bearing design decisions,
+  and the second was forced by what the first revealed in the smoke.
+
+  (a) The remap writes IN PLACE to the very store the DV reads, so if it ran during
+      warmup the ON arm would ENTER the measurement window with an already-degraded
+      ContextMemory and its readiness precondition (slot differentiation) would fail --
+      burying the real finding as "substrate not ready". The per-arm PE threshold is
+      therefore installed on ``agent.bla.config`` only at the P0/P1 boundary, so both
+      arms leave P0 from a matched, differentiated store.
+
+  (b) That alone is NOT enough, and the 2026-08-08 smoke is why. With the gate open the
+      remap fires on ~93% of ticks and drives the store's slot differentiation from
+      0.0892 to 2.7e-06 -- total homogenisation -- WITHIN THE FIRST MEASUREMENT EPISODE.
+      Every fire after that point is drawn from a store whose slots are identical, on
+      which the attention softmax is uniform BY CONSTRUCTION. Pooling those fires into
+      C1/C2 would measure a degeneracy the remap inflicted on itself and report it as a
+      property of the attribution gate -- a verdict-aliasing defect: "the gate is
+      vacuous" and "the gate destroyed the store it reads" would produce the same
+      number. So the measurement window RESTORES the ContextMemory to its end-of-P0
+      snapshot at the start of every measurement episode, in BOTH arms identically.
+      Each episode is then an independent replicate measured from the same
+      differentiated baseline: C1/C2 are always evaluated on a non-degenerate store,
+      and C3 becomes a clean within-episode start-to-end contrast of ON against its
+      matched OFF control rather than a one-shot end-of-window reading.
+      The restore touches ONLY ContextMemory content -- encoder, E2 and BLA state carry
+      through -- and is applied to both arms, so ordinary-write drift stays matched and
+      C3's ON/OFF ratio still divides it out.
 
   ARM_REMAP_OFF is NOT decoration: ordinary ContextMemory writes move slots on their
   own, and the write_gate the remap blends toward is the same one the ordinary write
@@ -126,8 +146,9 @@ CRITERIA (all thresholds are constants below, pre-registered, never derived post
       produced BOTH by perfect addressing AND by a constant degenerate target set, so
       it aliases two opposite verdicts. The within-minus-cross gap does not: a
       constant target set gives 1.0 - 1.0 = 0 and fails.
-  C3 partial_not_wholesale    [LOAD-BEARING] ON-arm end-of-window slot differentiation
-      >= SLOT_DIFF_RATIO_FLOOR x the matched OFF-arm value at the same seed.
+  C3 partial_not_wholesale    [LOAD-BEARING] ON-arm mean end-of-EPISODE slot
+      differentiation >= SLOT_DIFF_RATIO_FLOOR x the matched OFF-arm mean at the same
+      seed, both measured from the same restored baseline store.
       Falsifier: homogenisation of the store = wholesale replacement, the explicit
       negative half of the claim ("Not wholesale replacement").
   C4 pe_spike_sparsity        fraction of BLA ticks carrying a fire <= FIRE_FRAC_CEIL.
@@ -164,7 +185,7 @@ import json
 import math
 import sys
 import time
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence
 
 from pathlib import Path
 
@@ -306,10 +327,11 @@ PRECONDITION_SPECS: List[PreconditionSpec] = [
         name="slot_differentiation_at_window_start",
         description=(
             "Std of the off-diagonal pairwise cosine similarity of "
-            "ContextMemory.memory at the START of the measurement window. If the "
-            "slots are identical the attention softmax is uniform BY CONSTRUCTION, so "
-            "C1 would be starved rather than falsified. Measured after P0 with the "
-            "remap gate held shut in BOTH arms, so both enter matched."
+            "ContextMemory.memory in the BASELINE store every measurement episode is "
+            "restored to. If the slots were identical the attention softmax would be "
+            "uniform BY CONSTRUCTION, so C1 would be starved rather than falsified. "
+            "Measured after P0 with the remap gate held shut in BOTH arms, so both "
+            "arms measure from the same differentiated baseline."
         ),
         control="post-P0 agent in the threat context, remap disabled throughout P0",
         threshold=SLOT_DIFF_STD_FLOOR,
@@ -335,7 +357,10 @@ PRECONDITION_SPECS: List[PreconditionSpec] = [
         ),
         control="bla_remap_pe_sigma_threshold=1.0 with use_e2_harm_a=True supplying "
                 "z_harm_a_pred (verified in the 2026-08-08 probe: 72 fires / 137 ticks)",
-        threshold=float(MIN_REMAP_EVENTS),
+        # A floor in this module is STRICT (met iff measured > threshold), so the
+        # threshold is stated as N-1 to make "at least MIN_REMAP_EVENTS" mean exactly
+        # that. Same idiom as V3-EXQ-888's n_traces_sufficient.
+        threshold=float(MIN_REMAP_EVENTS - 1),
         direction="lower",
         kind="readiness",
         applies_to=lambda ctx: bool(ctx["remap_live"]),
@@ -353,7 +378,9 @@ PRECONDITION_SPECS: List[PreconditionSpec] = [
             "one context contributed no target sets."
         ),
         control="episodes alternate threat/neutral through the measurement window",
-        threshold=float(MIN_WINDOWS_PER_CONTEXT),
+        # Strict floor -- see remap_events_sufficient. N-1 makes "at least
+        # MIN_WINDOWS_PER_CONTEXT fire-bearing episodes in EACH context" mean that.
+        threshold=float(MIN_WINDOWS_PER_CONTEXT - 1),
         direction="lower",
         kind="readiness",
         applies_to=lambda ctx: bool(ctx["remap_live"]),
@@ -483,8 +510,15 @@ def _run_phase(
     train_mode: bool,
     record: bool,
     label: str,
+    restore_base: Optional[torch.Tensor] = None,
 ) -> Dict[str, Any]:
     """Run alternating threat/neutral episodes.
+
+    When ``restore_base`` is supplied, ContextMemory is restored to that snapshot at the
+    START of every episode -- identically in both arms. That makes each episode an
+    independent replicate measured from the same differentiated baseline, which is what
+    keeps C1/C2 evaluable on a non-degenerate store even though the ON arm's own remap
+    homogenises the store within a single episode (see the module docstring, (b)).
 
     When record=True, captures per-tick: the exact attribution-contribution vector the
     BLA gate consumed that tick, the remap target set it produced, the harm-PE
@@ -534,6 +568,10 @@ def _run_phase(
             if agent.bla is not None:
                 agent.bla.reset()
             harness.reset()
+
+            if restore_base is not None:
+                with torch.no_grad():
+                    cm.memory.data.copy_(restore_base)
 
             mem_before = cm.memory.data.detach().clone() if record else None
             ep_fires = 0
@@ -610,6 +648,7 @@ def _run_phase(
                     "episode": int(ep),
                     "context": ctx,
                     "n_fires": int(ep_fires),
+                    "slot_diff_std_start": _slot_diff_std(mem_before),
                     "slot_diff_std_end": _slot_diff_std(mem_after),
                     "slot_retention_cos": _slot_mean_cos(mem_before, mem_after),
                     "mean_disp_targeted": (
@@ -642,13 +681,21 @@ def _summarise(
     meas: Dict[str, Any],
     *,
     n_slots: int,
-    slot_diff_start: float,
-    slot_diff_end: float,
-    retention_window: float,
+    slot_diff_baseline: float,
 ) -> Dict[str, Any]:
     fires = meas["fire_ticks"]
     pes = meas["pe_magnitudes"]
     n_bla = int(meas["n_bla_ticks"])
+    eps = meas["per_episode"]
+
+    # C3 routes on the MEAN end-of-EPISODE differentiation, because every episode is
+    # restored to the same baseline store -- so this is a per-replicate statistic, not
+    # a single end-of-window reading contaminated by the previous episodes' damage.
+    diff_end_mean = float(np.mean([e["slot_diff_std_end"] for e in eps])) if eps else 0.0
+    diff_start_mean = (
+        float(np.mean([e["slot_diff_std_start"] for e in eps])) if eps else 0.0)
+    retention_mean = (
+        float(np.mean([e["slot_retention_cos"] for e in eps])) if eps else 0.0)
 
     out: Dict[str, Any] = {
         "n_bla_ticks": n_bla,
@@ -657,9 +704,11 @@ def _summarise(
         "fire_fraction": (len(fires) / n_bla) if n_bla else 0.0,
         "pe_magnitude_mean": float(np.mean(pes)) if pes else 0.0,
         "pe_magnitude_std": float(np.std(pes)) if pes else 0.0,
-        "slot_diff_std_window_start": float(slot_diff_start),
-        "slot_diff_std_window_end": float(slot_diff_end),
-        "slot_retention_cos_window": float(retention_window),
+        "slot_diff_std_baseline": float(slot_diff_baseline),
+        "slot_diff_std_episode_start_mean": diff_start_mean,
+        "slot_diff_std_episode_end_mean": diff_end_mean,
+        "slot_retention_cos_episode_mean": retention_mean,
+        "n_measure_episodes": len(eps),
         "n_slots": int(n_slots),
         "episodes_with_fire_threat": int(meas["episodes_with_fire"][CTX_THREAT]),
         "episodes_with_fire_neutral": int(meas["episodes_with_fire"][CTX_NEUTRAL]),
@@ -724,9 +773,13 @@ def _run_cell(seed: int, arm: Dict[str, Any], *, dry: bool) -> Dict[str, Any]:
     arm_id = arm["arm_id"]
     print(f"Seed {seed} Condition {arm_id}", flush=True)
 
-    p0_eps = 4 if dry else P0_EPISODES
-    meas_eps = 4 if dry else MEASURE_EPISODES
-    steps = 20 if dry else STEPS_PER_EPISODE
+    # Dry-run sizing: measure_episodes must stay >= 2 * MIN_WINDOWS_PER_CONTEXT so the
+    # readiness gate is REACHABLE on the smoke. A smaller smoke would self-route
+    # substrate_not_ready_requeue for a reason that is purely an artifact of the smoke's
+    # own episode count, which proves nothing about the full grid.
+    p0_eps = 3 if dry else P0_EPISODES
+    meas_eps = (2 * MIN_WINDOWS_PER_CONTEXT) if dry else MEASURE_EPISODES
+    steps = 15 if dry else STEPS_PER_EPISODE
     total_eps = p0_eps + meas_eps
 
     config_slice = {
@@ -779,8 +832,10 @@ def _run_cell(seed: int, arm: Dict[str, Any], *, dry: bool) -> Dict[str, Any]:
         )
 
         # ---- Install the arm's gate, then measure with the encoder frozen. ----
-        slot_diff_start = _slot_diff_std(cm.memory.data)
-        mem_window_start = cm.memory.data.detach().clone()
+        # The end-of-P0 store is the BASELINE every measurement episode is restored to,
+        # in both arms identically (module docstring (b)).
+        mem_baseline = cm.memory.data.detach().clone()
+        slot_diff_baseline = _slot_diff_std(mem_baseline)
         if agent.bla is not None:
             agent.bla.config.remap_pe_sigma_threshold = float(arm["remap_sigma"])
 
@@ -789,16 +844,12 @@ def _run_cell(seed: int, arm: Dict[str, Any], *, dry: bool) -> Dict[str, Any]:
             num_episodes=meas_eps, steps_per_episode=steps, seed=seed,
             episode_offset=p0_eps, total_episodes=total_eps,
             train_mode=False, record=True, label=label,
+            restore_base=mem_baseline,
         )
         _ZG.observe(agent)   # AFTER stepping -- reads the counters at call time
 
-        slot_diff_end = _slot_diff_std(cm.memory.data)
-        retention = _slot_mean_cos(mem_window_start, cm.memory.data)
-
         summ = _summarise(
-            meas, n_slots=n_slots,
-            slot_diff_start=slot_diff_start, slot_diff_end=slot_diff_end,
-            retention_window=retention,
+            meas, n_slots=n_slots, slot_diff_baseline=slot_diff_baseline,
         )
 
         row: Dict[str, Any] = {
@@ -824,7 +875,7 @@ def _run_cell(seed: int, arm: Dict[str, Any], *, dry: bool) -> Dict[str, Any]:
         PRECONDITION_SPECS,
         measured={
             "slot_differentiation_at_window_start": float(
-                row["slot_diff_std_window_start"]),
+                row["slot_diff_std_baseline"]),
             "pe_distribution_spread": float(row["pe_magnitude_std"]),
             "remap_events_sufficient": float(row["n_remap_events"]),
             "both_contexts_fired": float(min(
@@ -863,8 +914,8 @@ def _evaluate(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
 
         mass_excess = float(on["attr_mass_excess_mean"])
         jac_gap = float(on["jaccard_context_gap"])
-        diff_on = float(on["slot_diff_std_window_end"])
-        diff_off = float(off["slot_diff_std_window_end"])
+        diff_on = float(on["slot_diff_std_episode_end_mean"])
+        diff_off = float(off["slot_diff_std_episode_end_mean"])
         ratio = (diff_on / diff_off) if diff_off > 1e-12 else 0.0
         fire_frac = float(on["fire_fraction"])
 
@@ -887,13 +938,15 @@ def _evaluate(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
             "jaccard_cross_on": float(on["jaccard_cross_context_mean"]),
             "jaccard_gap_on": jac_gap,
             "jaccard_chance_on": float(on["jaccard_chance"]),
-            "slot_diff_std_end_on": diff_on,
-            "slot_diff_std_end_off": diff_off,
+            "slot_diff_std_episode_end_mean_on": diff_on,
+            "slot_diff_std_episode_end_mean_off": diff_off,
             "slot_diff_ratio_on_over_off": ratio,
-            "slot_diff_std_start_on": float(on["slot_diff_std_window_start"]),
-            "slot_diff_std_start_off": float(off["slot_diff_std_window_start"]),
-            "slot_retention_cos_on": float(on["slot_retention_cos_window"]),
-            "slot_retention_cos_off": float(off["slot_retention_cos_window"]),
+            "slot_diff_std_baseline_on": float(on["slot_diff_std_baseline"]),
+            "slot_diff_std_baseline_off": float(off["slot_diff_std_baseline"]),
+            "slot_retention_cos_episode_mean_on": float(
+                on["slot_retention_cos_episode_mean"]),
+            "slot_retention_cos_episode_mean_off": float(
+                off["slot_retention_cos_episode_mean"]),
             "fire_fraction_on": fire_frac,
             "n_remap_events_on": int(on["n_remap_events"]),
             "n_remap_events_off": int(off["n_remap_events"]),
@@ -997,14 +1050,22 @@ def main() -> Dict[str, Any]:
     # saturation fingerprint). Reported always; enforced on the smoke.
     on_rows = [r for r in rows if r["remap_live"]]
     off_rows = [r for r in rows if not r["remap_live"]]
-    diff_end_by_arm = {r["arm"]: float(r["slot_diff_std_window_end"]) for r in rows}
+    diff_end_by_arm = {
+        r["arm"]: float(r["slot_diff_std_episode_end_mean"]) for r in rows}
     engagement = {
         "remap_fires_in_live_arm": all(
             int(r["n_remap_events"]) >= 1 for r in on_rows) if on_rows else False,
         "remap_silent_in_control_arm": all(
             int(r["n_remap_events"]) == 0 for r in off_rows) if off_rows else False,
         "store_differentiated_at_window_start": all(
-            float(r["slot_diff_std_window_start"]) > SLOT_DIFF_STD_FLOOR
+            float(r["slot_diff_std_baseline"]) > SLOT_DIFF_STD_FLOOR
+            for r in rows),
+        # The per-episode restore must actually put every episode back at the baseline;
+        # if it silently failed, C1/C2 would drift back to being measured on a store the
+        # remap had already flattened -- the exact defect the restore exists to remove.
+        "episode_restore_effective": all(
+            abs(float(r["slot_diff_std_episode_start_mean"])
+                - float(r["slot_diff_std_baseline"])) < 1e-6
             for r in rows),
         "pe_varies": all(float(r["pe_magnitude_std"]) > PE_SPREAD_FLOOR for r in rows),
         "bla_ticked": all(int(r["n_bla_ticks"]) > 0 for r in rows),
@@ -1057,10 +1118,16 @@ def main() -> Dict[str, Any]:
         "threat_env_kwargs": THREAT_ENV_KWARGS,
         "neutral_env_kwargs": NEUTRAL_ENV_KWARGS,
         "arms": ARMS,
-        "p0_episodes": P0_EPISODES if not args.dry_run else 4,
-        "measure_episodes": MEASURE_EPISODES if not args.dry_run else 4,
-        "steps_per_episode": STEPS_PER_EPISODE if not args.dry_run else 20,
-        "episodes_per_run": TOTAL_EPISODES if not args.dry_run else 8,
+        "p0_episodes": P0_EPISODES if not args.dry_run else 3,
+        "measure_episodes": (
+            MEASURE_EPISODES if not args.dry_run else 2 * MIN_WINDOWS_PER_CONTEXT),
+        "steps_per_episode": STEPS_PER_EPISODE if not args.dry_run else 15,
+        "episodes_per_run": (
+            TOTAL_EPISODES if not args.dry_run else 3 + 2 * MIN_WINDOWS_PER_CONTEXT),
+        "measurement_baseline_restore": (
+            "ContextMemory restored to the end-of-P0 snapshot at the start of EVERY "
+            "measurement episode, identically in both arms"
+        ),
         "world_dim": WORLD_DIM,
         "self_dim": SELF_DIM,
         "harm_dim": HARM_DIM,
