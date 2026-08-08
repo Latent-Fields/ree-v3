@@ -6,26 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-892",
-      "title": "MECH-322 replay-origin corroboration survival under realistic conditions",
-      "script": "experiments/v3_exq_892_mech322_replay_corroboration_survival.py",
-      "priority": 2,
-      "machine_affinity": "any",
-      "estimated_minutes": 240,
-      "claim_id": "MECH-322",
-      "backlog_id": "EVB-0489",
-      "note": "DIAGNOSTIC (excluded from confidence scoring). Follow-on to the CONFIRMED failure_autopsy_V3-EXQ-873a_2026-08-07 (routed onward, NEW EXQ number, NOT a lettered 873b -- 873a's AND-gate question is answered). Question: does a replay-origin-tagged chunk, minted under valid conditions, ever get CORROBORATED by real waking execution before its dissolution deadline expires under REALISTIC (not artificially accelerated) conditions? 873a measured only the accelerated regime (N=15, checkpoint ep 90/120) and saw 7/7 dissolve. Design: 3 arms differ ONLY in the corroboration deadline N (chunk_replay_corroboration_episodes) -- ARM_DEADLINE_15 (873a accelerated replication), ARM_DEADLINE_75 (substrate DEFAULT = realistic), ARM_DEADLINE_200 (deadline beyond the 120-ep run -> deadline-independent recurrence/exposure measure); all mint identically at an EARLY checkpoint (ep 20 -> 100 post-mint waking episodes). Corroboration is emergent (FORMING replay chunk is not selectable) via trailing-match re-execution. GOV-REUSE-1: decisive readout (corroboration/survival fraction under realistic N + early checkpoint) recorded in NO manifest -- only 873/873a flipped the flag, both accelerated-regime; not derivable from an accelerated manifest -> run. Re-derive brake: 0 MECH-322 substrate_ceiling autopsies -> not braked. DV-SYMMETRY: each arm's survival DV is a deadline-gated step function of N (not invariant under any additive/monotone/permutation symmetry); corroboration TIMING is N-independent per seed, which is what isolates the deadline. Both directions valid: a positive reading strengthens the MECH-322 lifecycle characterisation; a null reading shows the accelerated-dissolution safety valve firing as designed and does NOT weaken MECH-322. Smoke PASS (dry-run: mint fired all arms, deadline responded to N -- N=15/75 arms dissolved-by-deadline in the toy window, N>=100 arm survived). validate_experiments --strict OK.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-08-07T22:02:30Z"
-      },
-      "conditions": 3,
-      "episodes_per_run": 120,
-      "experiment_type": "v3_exq_892_mech322_replay_corroboration_survival",
-      "seeds": 8
-    }
-  ]
+  "items": []
 }
