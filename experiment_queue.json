@@ -167,6 +167,24 @@
       "conditions": 4,
       "claim_id": "SD-048",
       "note": "Originally pre-registered SD-048 validation sweep (REE_assembly/docs/architecture/sd_048_interoceptive_noise_dynamics.md), never queued until now. V3-EXQ-512a (2026-05-04) PASSED at noise_scale=3.0 but explicitly left v3_pending TRUE pending this default-scale (ARM_0 OFF / ARM_1 0.25x / ARM_2 1.0x-default / ARM_3 4.0x) sweep. GOV-REUSE-1 check: V3-EXQ-511/512/512a checked, all pre-date the 2026-07-12 recording standard (no substrate_hash) and none ran this full 4-arm comparator-gap grid under one consistent methodology -- decisive readout (selectivity_gap/quiet_gap at ARM_1 0.25x and ARM_3 4.0x) absent from every prior manifest -> run. FALLBACK: if ARM_1/2/3 all fail C1+C2, route ARC-058 Level 2 comparator from V3-tractable to substrate_conditional per claims.yaml SD-048 what_would_answer falsifying branch. Relevant, not tagged: ARC-058 (primary target), ARC-033 (competing claim, same substrate benefits both)."
+    },
+    {
+      "queue_id": "V3-EXQ-244b",
+      "title": "MECH-165 replay diversity validation (corrected: production replay path, no theta-buffer clear)",
+      "experiment_type": "v3_exq_244b_mech165_replay_diversity_validation",
+      "script": "experiments/v3_exq_244b_mech165_replay_diversity_validation.py",
+      "priority": 5,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 130,
+      "episodes_per_run": 50,
+      "seeds": 5,
+      "conditions": 3,
+      "claim_ids": [
+        "MECH-165"
+      ],
+      "supersedes": "V3-EXQ-244a",
+      "note": "GOV-REUSE-1: not recoverable from existing manifests -- V3-EXQ-244a (2026-04-09) is the only prior run and it never actually invoked replay in any condition (driver bug: agent.reset() cleared theta_buffer before the hand-rolled SWS loop, see REE_assembly/evidence/planning/mech165_reverse_replay_nonfiring_diagnosis_2026-08-08.md), so no recorded manifest carries a genuine reverse-replay-fired reading; must run. Corrected driver: (1) drops EXQ-244a's 'final flush' agent.reset() so theta_buffer/_current_latent survive into consolidation; (2) routes replay through the PRODUCTION path (agent._do_replay on real e3_quiescent clock ticks, not a direct hippocampal.replay()/diverse_replay() call), reading reverse-firing from agent.hippocampal._diverse_replay_mode_counts['reverse'] (substrate observability landed ree-v3 origin/main f534772, same day); (3) asserts non-degeneracy in-run (interpretation.preconditions[], self-routes to FAIL if reverse_replayed==0 in every BALANCED seed or FORWARD==NO_REPLAY byte-identical -- EXQ-244a's two silent failure modes); (4) doubled consolidation volume (10 quiescent fires / 100 ticks vs EXQ-244a's 5/~50) for more replay opportunity to move Phase-2 behavior. Smoke-tested (--dry-run): all 4 preconditions met, reverse_replayed > 0 observed in BALANCED across repeated smoke runs (1-4 fires on tiny 1-seed/20-tick smoke config) -- the exact failure EXQ-244a exhibited (0 in every run) does not reproduce. validate_experiments.py --strict: 0 warnings across all categories."
     }
   ]
 }
