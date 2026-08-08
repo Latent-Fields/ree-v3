@@ -72,27 +72,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-878a",
-      "title": "MECH-332 E3 commitment-gate calibration pilot (Pathway-2 readiness; autopsy V3-EXQ-878)",
-      "script": "experiments/v3_exq_878a_mech332_commitment_calibration.py",
-      "priority": 50,
-      "machine_affinity": "any",
-      "estimated_minutes": 45,
-      "claim_id": "MECH-332",
-      "backlog_id": "EVB-0268",
-      "note": "Governance-ratified calibration pilot (autopsy failure_autopsy_V3-EXQ-878_2026-08-03, routing user-confirmed 2026-08-03 and applied to MECH-332's evidence_quality_note in claims.yaml). The 878 run left MECH-332 Pathway 2 (commitment-gated PAG/RVM descending suppression -- SD-021, now subsumed by SD-032c; AICAnalog) UNTESTED: n_committed_steps=0 vs floor=8 across all 3 seeds in both AIC-active arms because E3's commitment gate (MECH-090 BetaGate) never elevated during eval. Diagnosis: environment/schedule calibration gap (test-design), NOT substrate_ceiling. This diagnostic finds the training schedule that reliably clears N_COMMITTED_FLOOR=8, before the 878b full-dissociation re-run. Work-graph class: complex (probe-gated) / puzzle (known rules). DESIGN: single-axis TRAINING-BUDGET sweep (S0=180 baseline / S1=360 / S2=540 eps) x 2 AIC-active arms (ARM_AIC_ONLY, ARM_BOTH) x 3 seeds (42,7,13); n_committed_steps as its own pass/fail gate; records running_variance vs commit_threshold (0.40) as the direct predictor. DEVIATION from the autopsy's three named axes (with stated reason): sweep is training-budget ONLY (eval length + arena fixed) because the 878 manifest's own n_fresh_select_ticks (76-331 per cell) proves eval EXPOSURE was not the limiter -- the variance gate was (rv inits 0.5 > 0.40 and converges below the bar only when the world model is trained). If even 3x fails, that informative negative reopens the other axes and points at world-model convergence / the gate itself (label commitment_gate_not_budget_limited), NOT another budget bump. Second deviation: eval uses the agent's own policy throughout (no scripted hazard-forcing) since Pathway 1's efference trials are not measured here (autopsy spec #3: Pathway 1's D2 result is already valid, not re-tested). MEASUREMENT HARDENING (autopsy spec #2): z_harm_s_ratio's empty-committed-sample fallback is None (null), NOT the legacy 1.0 -- so a zero-commitment run fails loudly. This makes SD-021's own historical FAILs V3-EXQ-325b and V3-EXQ-325f (bit-identical s_ratio_D=1.0000 / s_ratio_C=1.0000) SUSPECT: both are indistinguishable from a pure zero-commitment artifact and should be re-checked against their n_committed on review. GOV-REUSE-1: decisive readout is n_committed_steps under a HIGHER training budget than any recorded run (878 ran only 180 eps, got 0); not recoverable post-hoc -> run needed. DV-SYMMETRY: the DV (n_committed_steps = count of E3 ticks with running_variance < commit_threshold) is not invariant under any additive-constant/monotone-rescale/permutation symmetry of the training-budget manipulation -- more training genuinely lowers running_variance, which the count reads directly; not a fixed arithmetic identity. RE-DERIVE BRAKE: MECH-332 is a fresh claim with one prior autopsy (the 878 instrument/test-design category, owes no build) -> below threshold, no brake. SCOPE: clears ONLY the commitment-gate calibration blocker (a cheaper, independent blocker that binds first); does NOT resolve the deeper MECH-309/MECH-439 monostrategy precondition on the drive-regime-divergence half of the test (see evidence/planning/sd021_sd032c_mech439_blocker_crossref_staged_2026-08-08.md). diagnostic purpose -> excluded from confidence scoring; claim tags are context. Queued via /queue-experiment from a throwaway worktree at origin/main (shared ree-v3 checkout was ahead 8 / behind 76 and dirty with other sessions' WIP + a stale 0-item local queue file). smoke PASS (dry-run self-route -> substrate_not_ready_requeue as expected for the tiny budget; z_harm_s_ratio=None confirmed; recording validator OK). Chip chip-20260808-exq878a-calibration-queue.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-4",
-        "claimed_at": "2026-08-08T19:15:27Z"
-      },
-      "conditions": 6,
-      "episodes_per_run": 360,
-      "experiment_purpose": "diagnostic",
-      "experiment_type": "v3_exq_878a_mech332_commitment_calibration",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-903",
       "title": "MECH-075 VENTRAL LEG: VTA-RPE attractor-basin-narrowing probe (first attempt -- leg never tested)",
       "script": "experiments/v3_exq_903_mech075_ventral_vta_rpe_probe.py",
@@ -101,7 +80,11 @@
       "estimated_minutes": 90,
       "claim_id": "MECH-075",
       "note": "First-ever experimental attempt at MECH-075's VENTRAL leg (all three prior runs -- 192/192a/209/230 -- tested dorsal terrain only). Uses the genuine, already-built ARC-108 signed-RPE substrate (e3_selector.py delta_t = benefit_eval_head - harm_eval_head - value_baseline, surfaced via config.use_habenula_decommit=True and agent.update_residue()'s e3_habenula_delta_t metric) -- explicitly NOT the unsigned MECH-043/ARC-016 precision channel, which the claim's own what_would_answer excludes. Ventral/motivational terrain operationalized via the SAME benefit_eval_head/harm_eval_head valence-geometry machinery MECH-073's own validated probe (V3-EXQ-375) uses, applied to each candidate trajectory's predicted z_world (e2.world_forward per-candidate). Direction is OPPOSITE the dorsal sibling: predicts basin NARROWING (reinforcement sharpens commitment) not widening. Required two real fixes to the original design, found and fixed during authoring: benefit_eval_head/harm_eval_head are NOT pre-trained (random-init behind an ARC-030 warmup gate) -- added phased training (encoder-warmup then head-grounding, avoiding the joint-training moving-target-collapse failure mode) plus SD-018/SD-009 auxiliary losses (compute_resource_proximity_loss, compute_event_contrastive_loss) already used by MECH-073's own probe; this moved grounding correlation from -0.15/-0.28 to +0.43. Smoke preview (--dry-run, 5+5 episodes, steps=20): P0 (|delta_t| clears 0.001 floor: 0.00382, grounding_corr=0.43 clears 0.15 floor) and C1 both PASS; C2 (load-bearing, basin narrowing >=15% relative) FAILS at this tiny budget -- basin_width GATED 0.00001 vs ABLATED 0.00001, self-routes evidence_direction=weakens, label=ventral_rpe_no_basin_narrowing. Genuinely open/undetermined until the real seed grid runs -- this is the first-ever test of this leg so there is no prior falsifying/confirming precedent either way. Sibling: V3-EXQ-905 (dorsal leg, same claim). [chip_ref: chip-20260808-mech075-dorsal-ventral-probes]",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-4",
+        "claimed_at": "2026-08-08T19:32:25Z"
+      },
       "conditions": 2,
       "episodes_per_run": 150,
       "experiment_type": "v3_exq_903_mech075_ventral_vta_rpe_probe",
