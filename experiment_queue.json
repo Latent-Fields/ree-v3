@@ -52,25 +52,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-703a",
-      "title": "MECH-276 scientist-attribution feedstock readiness re-queue (reconstruction-primary P0 + per-seed R2 gate + cf_margin 0.15; supersedes 703)",
-      "script": "experiments/v3_exq_703a_mech276_scientist_attribution_readiness.py",
-      "priority": 50,
-      "machine_affinity": "any",
-      "estimated_minutes": 120,
-      "supersedes": "V3-EXQ-703",
-      "note": "DIAGNOSTIC re-queue of the V3-EXQ-703 FAIL (autopsy failure_autopsy_V3-EXQ-703_2026-06-23.{md,json}, user-confirmed). claim_ids=[] -> scoring-excluded; PROMOTES NOTHING (MECH-275 stays substrate_conditional). 703 FAILed on its two READINESS preconditions (R1 world_forward_r2 -0.055 mean, 1/3 seeds converged; R2 cf_margin=0.30 above the achievable ~0.117-0.200 cf_contrast band -> 0/3 straddle) while its LOAD-BEARING posterior-discrimination criterion PASSED non-degenerately on all 3 seeds -- an upstream P0-world-forward confound (the V3-EXQ-701/701a family), NOT a MECH-276 falsification. 703a applies the autopsy's exact re-queue spec: (1) reconstruction-primary P0 (forward MSE decisive; SD-013 interventional margin down-weighted to W_CONTRAST_AUX=0.1 auxiliary; N_P0_TRAIN_STEPS 300->2000, N_P0_TRANSITIONS 600->1000); (2) PER-SEED R2 readiness gate (straddle + discrimination interpreted ONLY on R1-passing seeds; R1 measured = need-th-largest per-seed R2 so the recompute matches the >=2/3 gate that 703's mean-report masked); (3) cf_margin recalibrated 0.30->0.15 within the trained-comparator cf_contrast band. Readiness-unmet self-routes substrate_not_ready_requeue (never a substrate verdict). GOV-REUSE-1: decisive readout is posterior-discrimination on a TRAINED comparator -- never obtained (703 FAILed readiness before reaching it), no compatible recorded manifest, so a run is required. ON PASS (mech276_feedstock_readiness_confirmed): unblocks the SEPARATE MECH-275 sleep-aggregation promotion run AND should trigger RE-ADDING MECH-275 to sleep_substrate:GAP-3b unblocks_claims (V3-EXQ-702 dropped MECH-275 from that set on 2026-06-23 because MECH-276 was not ready; see MECH-275 claims.yaml what_would_answer). If R1+R2 clear but discrimination COLLAPSES on the trained comparator, THAT is the genuine MECH-275-aggregator-insensitivity ceiling -> substrate enrichment + re-derive brake. Smoke PASS (dry-run exercises every code path). Queued via /queue-experiment from DLAPTOP-5 (Mac, has coordinator.env; POST /queue/add performed at Step 8.6).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-4",
-        "claimed_at": "2026-08-08T19:01:16Z"
-      },
-      "conditions": 3,
-      "episodes_per_run": 2000,
-      "experiment_type": "v3_exq_703a_mech276_scientist_attribution_readiness",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-866c",
       "title": "INV-034/Q-021 goal-maintenance-agency (onboarded): C6 z_goal measurement-harness fix (run_p2 contact-gated peak)",
       "script": "experiments/v3_exq_866c_inv034_q021_goal_maintenance_agency_onboarded.py",
@@ -100,7 +81,11 @@
       "claim_id": "MECH-332",
       "backlog_id": "EVB-0268",
       "note": "Governance-ratified calibration pilot (autopsy failure_autopsy_V3-EXQ-878_2026-08-03, routing user-confirmed 2026-08-03 and applied to MECH-332's evidence_quality_note in claims.yaml). The 878 run left MECH-332 Pathway 2 (commitment-gated PAG/RVM descending suppression -- SD-021, now subsumed by SD-032c; AICAnalog) UNTESTED: n_committed_steps=0 vs floor=8 across all 3 seeds in both AIC-active arms because E3's commitment gate (MECH-090 BetaGate) never elevated during eval. Diagnosis: environment/schedule calibration gap (test-design), NOT substrate_ceiling. This diagnostic finds the training schedule that reliably clears N_COMMITTED_FLOOR=8, before the 878b full-dissociation re-run. Work-graph class: complex (probe-gated) / puzzle (known rules). DESIGN: single-axis TRAINING-BUDGET sweep (S0=180 baseline / S1=360 / S2=540 eps) x 2 AIC-active arms (ARM_AIC_ONLY, ARM_BOTH) x 3 seeds (42,7,13); n_committed_steps as its own pass/fail gate; records running_variance vs commit_threshold (0.40) as the direct predictor. DEVIATION from the autopsy's three named axes (with stated reason): sweep is training-budget ONLY (eval length + arena fixed) because the 878 manifest's own n_fresh_select_ticks (76-331 per cell) proves eval EXPOSURE was not the limiter -- the variance gate was (rv inits 0.5 > 0.40 and converges below the bar only when the world model is trained). If even 3x fails, that informative negative reopens the other axes and points at world-model convergence / the gate itself (label commitment_gate_not_budget_limited), NOT another budget bump. Second deviation: eval uses the agent's own policy throughout (no scripted hazard-forcing) since Pathway 1's efference trials are not measured here (autopsy spec #3: Pathway 1's D2 result is already valid, not re-tested). MEASUREMENT HARDENING (autopsy spec #2): z_harm_s_ratio's empty-committed-sample fallback is None (null), NOT the legacy 1.0 -- so a zero-commitment run fails loudly. This makes SD-021's own historical FAILs V3-EXQ-325b and V3-EXQ-325f (bit-identical s_ratio_D=1.0000 / s_ratio_C=1.0000) SUSPECT: both are indistinguishable from a pure zero-commitment artifact and should be re-checked against their n_committed on review. GOV-REUSE-1: decisive readout is n_committed_steps under a HIGHER training budget than any recorded run (878 ran only 180 eps, got 0); not recoverable post-hoc -> run needed. DV-SYMMETRY: the DV (n_committed_steps = count of E3 ticks with running_variance < commit_threshold) is not invariant under any additive-constant/monotone-rescale/permutation symmetry of the training-budget manipulation -- more training genuinely lowers running_variance, which the count reads directly; not a fixed arithmetic identity. RE-DERIVE BRAKE: MECH-332 is a fresh claim with one prior autopsy (the 878 instrument/test-design category, owes no build) -> below threshold, no brake. SCOPE: clears ONLY the commitment-gate calibration blocker (a cheaper, independent blocker that binds first); does NOT resolve the deeper MECH-309/MECH-439 monostrategy precondition on the drive-regime-divergence half of the test (see evidence/planning/sd021_sd032c_mech439_blocker_crossref_staged_2026-08-08.md). diagnostic purpose -> excluded from confidence scoring; claim tags are context. Queued via /queue-experiment from a throwaway worktree at origin/main (shared ree-v3 checkout was ahead 8 / behind 76 and dirty with other sessions' WIP + a stale 0-item local queue file). smoke PASS (dry-run self-route -> substrate_not_ready_requeue as expected for the tiny budget; z_harm_s_ratio=None confirmed; recording validator OK). Chip chip-20260808-exq878a-calibration-queue.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-4",
+        "claimed_at": "2026-08-08T19:15:27Z"
+      },
       "conditions": 6,
       "episodes_per_run": 360,
       "experiment_purpose": "diagnostic",
