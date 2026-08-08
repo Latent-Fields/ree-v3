@@ -88,6 +88,21 @@
       "seeds": 3
     },
     {
+      "queue_id": "V3-EXQ-703a",
+      "title": "MECH-276 scientist-attribution feedstock readiness re-queue (reconstruction-primary P0 + per-seed R2 gate + cf_margin 0.15; supersedes 703)",
+      "script": "experiments/v3_exq_703a_mech276_scientist_attribution_readiness.py",
+      "priority": 50,
+      "machine_affinity": "any",
+      "estimated_minutes": 120,
+      "supersedes": "V3-EXQ-703",
+      "note": "DIAGNOSTIC re-queue of the V3-EXQ-703 FAIL (autopsy failure_autopsy_V3-EXQ-703_2026-06-23.{md,json}, user-confirmed). claim_ids=[] -> scoring-excluded; PROMOTES NOTHING (MECH-275 stays substrate_conditional). 703 FAILed on its two READINESS preconditions (R1 world_forward_r2 -0.055 mean, 1/3 seeds converged; R2 cf_margin=0.30 above the achievable ~0.117-0.200 cf_contrast band -> 0/3 straddle) while its LOAD-BEARING posterior-discrimination criterion PASSED non-degenerately on all 3 seeds -- an upstream P0-world-forward confound (the V3-EXQ-701/701a family), NOT a MECH-276 falsification. 703a applies the autopsy's exact re-queue spec: (1) reconstruction-primary P0 (forward MSE decisive; SD-013 interventional margin down-weighted to W_CONTRAST_AUX=0.1 auxiliary; N_P0_TRAIN_STEPS 300->2000, N_P0_TRANSITIONS 600->1000); (2) PER-SEED R2 readiness gate (straddle + discrimination interpreted ONLY on R1-passing seeds; R1 measured = need-th-largest per-seed R2 so the recompute matches the >=2/3 gate that 703's mean-report masked); (3) cf_margin recalibrated 0.30->0.15 within the trained-comparator cf_contrast band. Readiness-unmet self-routes substrate_not_ready_requeue (never a substrate verdict). GOV-REUSE-1: decisive readout is posterior-discrimination on a TRAINED comparator -- never obtained (703 FAILed readiness before reaching it), no compatible recorded manifest, so a run is required. ON PASS (mech276_feedstock_readiness_confirmed): unblocks the SEPARATE MECH-275 sleep-aggregation promotion run AND should trigger RE-ADDING MECH-275 to sleep_substrate:GAP-3b unblocks_claims (V3-EXQ-702 dropped MECH-275 from that set on 2026-06-23 because MECH-276 was not ready; see MECH-275 claims.yaml what_would_answer). If R1+R2 clear but discrimination COLLAPSES on the trained comparator, THAT is the genuine MECH-275-aggregator-insensitivity ceiling -> substrate enrichment + re-derive brake. Smoke PASS (dry-run exercises every code path). Queued via /queue-experiment from DLAPTOP-5 (Mac, has coordinator.env; POST /queue/add performed at Step 8.6).",
+      "status": "pending",
+      "conditions": 3,
+      "episodes_per_run": 2000,
+      "experiment_type": "v3_exq_703a_mech276_scientist_attribution_readiness",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-812a",
       "title": "MECH-295 Layer-C cue-authority harness repair (candidate_summary_source=e2_world_forward), successor to V3-EXQ-812 (INVALID_HARNESS)",
       "script": "experiments/v3_exq_812a_mech295_cue_authority_sd054.py",
@@ -122,21 +137,6 @@
       "episodes_per_run": 250,
       "experiment_type": "v3_exq_866c_inv034_q021_goal_maintenance_agency_onboarded",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-703a",
-      "title": "MECH-276 scientist-attribution feedstock readiness re-queue (reconstruction-primary P0 + per-seed R2 gate + cf_margin 0.15; supersedes 703)",
-      "script": "experiments/v3_exq_703a_mech276_scientist_attribution_readiness.py",
-      "experiment_type": "v3_exq_703a_mech276_scientist_attribution_readiness",
-      "priority": 50,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 120,
-      "episodes_per_run": 2000,
-      "seeds": 3,
-      "conditions": 3,
-      "supersedes": "V3-EXQ-703",
-      "note": "DIAGNOSTIC re-queue of the V3-EXQ-703 FAIL (autopsy failure_autopsy_V3-EXQ-703_2026-06-23.{md,json}, user-confirmed). claim_ids=[] -> scoring-excluded; PROMOTES NOTHING (MECH-275 stays substrate_conditional). 703 FAILed on its two READINESS preconditions (R1 world_forward_r2 -0.055 mean, 1/3 seeds converged; R2 cf_margin=0.30 above the achievable ~0.117-0.200 cf_contrast band -> 0/3 straddle) while its LOAD-BEARING posterior-discrimination criterion PASSED non-degenerately on all 3 seeds -- an upstream P0-world-forward confound (the V3-EXQ-701/701a family), NOT a MECH-276 falsification. 703a applies the autopsy's exact re-queue spec: (1) reconstruction-primary P0 (forward MSE decisive; SD-013 interventional margin down-weighted to W_CONTRAST_AUX=0.1 auxiliary; N_P0_TRAIN_STEPS 300->2000, N_P0_TRANSITIONS 600->1000); (2) PER-SEED R2 readiness gate (straddle + discrimination interpreted ONLY on R1-passing seeds; R1 measured = need-th-largest per-seed R2 so the recompute matches the >=2/3 gate that 703's mean-report masked); (3) cf_margin recalibrated 0.30->0.15 within the trained-comparator cf_contrast band. Readiness-unmet self-routes substrate_not_ready_requeue (never a substrate verdict). GOV-REUSE-1: decisive readout is posterior-discrimination on a TRAINED comparator -- never obtained (703 FAILed readiness before reaching it), no compatible recorded manifest, so a run is required. ON PASS (mech276_feedstock_readiness_confirmed): unblocks the SEPARATE MECH-275 sleep-aggregation promotion run AND should trigger RE-ADDING MECH-275 to sleep_substrate:GAP-3b unblocks_claims (V3-EXQ-702 dropped MECH-275 from that set on 2026-06-23 because MECH-276 was not ready; see MECH-275 claims.yaml what_would_answer). If R1+R2 clear but discrimination COLLAPSES on the trained comparator, THAT is the genuine MECH-275-aggregator-insensitivity ceiling -> substrate enrichment + re-derive brake. Smoke PASS (dry-run exercises every code path). Queued via /queue-experiment from DLAPTOP-5 (Mac, has coordinator.env; POST /queue/add performed at Step 8.6)."
     }
   ]
 }
