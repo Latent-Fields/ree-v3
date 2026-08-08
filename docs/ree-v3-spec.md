@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-08-04
+**Last updated:** 2026-08-08
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-08-04)
+## 0. Current V3 State (2026-08-08)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -217,6 +217,32 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 `REE_assembly/docs/architecture/self_attribution_per_stream.md`.
 
 ### Experiment Status
+
+- **2026-08-08T01:10Z nightly read (scheduled `/update-docs`, bot identity).**
+  4-day window since the 2026-08-04 nightly. Manifest count on disk: **821 `v3_exq_*` + 3
+  `v4_exq_*` flat** (+14 v3 vs the 2026-08-04 nightly's 807); nested per-run manifests
+  under `evidence/experiments/*/runs/`: **2751**. **Currently queued
+  (`experiment_queue.json` items[]): 0 items** -- the coordinator-authoritative queue is
+  **drained** (sharp drop from the 2026-08-04 9-item board; the recent PASS wave --
+  V3-EXQ-149b (Q-004) 2026-08-04, V3-EXQ-873a (MECH-322) 2026-08-04, V3-EXQ-888
+  (MECH-074 GOV-CONFIRM-1) 2026-08-04, V3-EXQ-890 (MECH-471) 2026-08-06, V3-EXQ-891
+  (MECH-286 sleep-onset conjunction) 2026-08-07, V3-EXQ-893 (chip-igw-238) 2026-08-08 +
+  V3-EXQ-882a/887 FAILs -- consumed the tail with no successor cohort queued yet).
+  **Pending review (`pending_review.md`, regenerated 2026-08-07T21:32:42Z): 1 item** --
+  1 PASS + 0 FAIL + 0 unclaimed + 0 ERROR (V3-EXQ-891 MECH-286 sleep-onset conjunction
+  signature awaiting normal governance close). **Bottleneck: the experimental pipeline is
+  idle, not a substrate wall** -- with the queue at 0 and 1 clean-PASS item pending review,
+  the next scientific movement is (a) governance close of V3-EXQ-891 and (b) queuing the
+  next chip / autopsy-routed cohort (V3-EXQ-866b harness-provenance gap + Q-089/MECH-457
+  cross-reference from the 2026-08-07 autopsies remain open follow-on threads, plus
+  ARC-017 EXQ-129/135 routed to /queue-experiment). Substrate side: SD-091 (coalition
+  topology control, steps 1-6 landed 2026-08-03 -- step 7 = MECH-481 4-arm falsifier
+  chip is the natural next queue), SD-092 (cross-level subgoal credit, primitive +
+  agent-loop landed 2026-08-02 -- EXP-0385/0390 both flipped `blocked_substrate` ->
+  `proposed`), SD-093 (progress-velocity effort modulation, complete 2026-08-02 --
+  EXP-0384 unblocked), SD-MECH267-HORIZON-DEPTH (2026-08-02) and
+  MECH122-CONTENT-PACKAGING-SPINDLE-SELECTION (2026-08-02) all await their first
+  validation queueing.
 
 - **2026-08-04T01:10Z nightly read (scheduled `/update-docs`, bot identity).**
   1-day window since the 2026-08-03 nightly. Manifest count on disk: **807 `v3_exq_*` + 3 `v4_exq_*` flat** (+27 v3 vs the 2026-08-03 nightly's 780). **Currently queued (`experiment_queue.json` items[]): 9 items** (up from 8 on 2026-08-03) -- 4 CLAIMED (V3-EXQ-875a MECH-471 corrected requeue on `ree-cloud-4` prio 50; V3-EXQ-848b ARC-005 precision monotonicity finer 7-level ladder on `ree-cloud-3` prio 40; V3-EXQ-867b MECH-321 harm-aware selection screened matched-abort seed pool on `ree-cloud-1` prio 35; V3-EXQ-149b Q-004 on `ree-cloud-2` prio 25) + 5 PENDING (V3-EXQ-887 prio 42; V3-EXQ-873a MECH-322 sleep-replay carve-out fraction-gate retest prio 40; V3-EXQ-882a MECH-472 held-out context retest prio 40; V3-EXQ-888 MECH-074 GOV-CONFIRM-1 wall-independent DV prio 40; V3-EXQ-436d ARC-045/SD-017/MECH-166 slot-differentiation writepath retest prio 28). **Pending review (`pending_review.md`, regenerated 2026-08-03T15:50:33Z): 1 item** -- 0 PASS + 0 FAIL + 1 unclaimed manifest (V3-EXQ-875 `mech471_competence_provenance` FAIL, requeued as V3-EXQ-875a per `failure_autopsy_V3-EXQ-875` SD-070 zworld_p0 omission). **Sharp drop from the 2026-08-03 19-item board** -- the `governance 2026-08-03: apply 19 FAIL + 5 PASS confirmed-autopsy dispositions` cycle (REE_assembly master `04068b925b`) drained the pending-review queue to 1 item.
