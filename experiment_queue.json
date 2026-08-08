@@ -71,26 +71,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-904",
-      "title": "ARC-070 decomposition trigger-selectivity + zoom-in confirming DV (GOV-CONFIRM-1 first exp evidence)",
-      "script": "experiments/v3_exq_904_arc070_decomposition_trigger_selectivity.py",
-      "priority": 50,
-      "machine_affinity": "any",
-      "estimated_minutes": 15,
-      "claim_id": "ARC-070",
-      "backlog_id": "EVB-0236",
-      "note": "GOV-CONFIRM-1 (IGW-20260808-226): ARC-070 FIRST experimental evidence (genuine_exp_count=0, lit_conf 0.855). WALL-INDEPENDENT functional-signature confirming DV. region_vs is caller-supplied to PolicyDecomposition.evaluate() (module.py:830), injected as a controlled IV via _region_vs override -- sidesteps the V_s-saturation env wall that self-routed 816/820/830 substrate_not_ready. Confirms ARC-070's OPERATION half (given a trigger, the proposer re-segments into finer primitives, selectively). Headline load-bearing criterion = ARM_ON_HIGHVS: the real MECH-288 detector drives decomposition over genuine rollout latents with the V_s path arithmetically silenced (genuine, NOT injection-forced). vs_trigger conditionality is a MANIPULATION CHECK, not claim weight (DV-symmetry, 604c). Does NOT confirm trigger-fires-under-natural-PE (env-blocked; separate behavioural MECH-321 line). GOV-REUSE-1: decisive readout recorded in no prior manifest (815 readiness / 839 reachability measured only under natural saturated region_vs) -> run. ARM_ON_DEPTHCAP uses decomposition_depth_cap=1 which emits an EXPECTED 'DEGENERATE' UserWarning -- that IS the R3 mark-unreliable behaviour under test, not a bug. Re-derive brake ARC-070 count 0. Smoke PASS (all 5 criteria, direction supports). backlog_id EVB-0236 / proposal EXP-0082.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-08-08T19:56:03Z"
-      },
-      "conditions": 4,
-      "episodes_per_run": 20,
-      "experiment_type": "v3_exq_904_arc070_decomposition_trigger_selectivity",
-      "seeds": 4
-    },
-    {
       "queue_id": "V3-EXQ-905",
       "title": "MECH-075 DORSAL LEG: LC-arousal attractor-basin-width probe (Kempadoo et al. 2016)",
       "script": "experiments/v3_exq_905_mech075_dorsal_lc_arousal_probe.py",
@@ -99,7 +79,11 @@
       "estimated_minutes": 90,
       "claim_id": "MECH-075",
       "note": "First DORSAL-leg MECH-075 probe to use a genuinely LC-labeled arousal signal (not the VTA/RPE-shaped E1-MSE channel V3-EXQ-192/192a/209/230 all reused) and a real behavioral basin-width metric (e2.cand_world_pairwise_dist candidate-trajectory diversity, not grid-exploration coverage -- the confound the claim's own text names). ID NOTE: authored as V3-EXQ-902, bumped to 905 -- 902 was claimed by an unrelated concurrent experiment (SD-048 interoceptive-noise sweep) that landed on origin/main first; script/docstring/EXPERIMENT_TYPE updated throughout, re-validated clean after rename (validate_experiments.py --strict: OK) and re-smoke-tested (identical numeric output to pre-rename). Smoke preview (--dry-run, 5 warmup + 3 eval eps, steps=20, NOT the real 150/50/200 budget): P0 readiness (arousal signal clears 0.001 floor: 0.0192) and C1 (manipulation check) both PASS; C2 (load-bearing, basin_width_gap >= 15% relative in >=2/3 seeds) FAILS -- gap ~1e-7 across all 3 seeds, i.e. GATED and ABLATED basin widths are numerically indistinguishable at this tiny budget. Self-routes evidence_direction=weakens with label dorsal_lc_arousal_no_attractor_widening -- if this holds at the real budget it would be the FIRST genuinely informative falsification of the dorsal leg (all three priors failed on the precondition itself, per the claim's own evidence_quality_note). Needs the real seed grid to confirm; a 20-step/5-episode smoke is not powered to detect a real effect. Sibling: V3-EXQ-903 (ventral leg, same claim, opposite predicted direction -- basin NARROWING under VTA-RPE gain vs this leg's tested WIDENING under LC-arousal gain). [chip_ref: chip-20260808-mech075-dorsal-ventral-probes]",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-3",
+        "claimed_at": "2026-08-08T20:11:52Z"
+      },
       "conditions": 2,
       "episodes_per_run": 150,
       "experiment_type": "v3_exq_905_mech075_dorsal_lc_arousal_probe",
