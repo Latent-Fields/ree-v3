@@ -3532,6 +3532,33 @@ class REEConfig:
         "proposer", "e2_world_forward"
     ] = "proposer"
 
+    # ARC-065 GAP-A Phase-2 per-candidate extension (MECH-314b / MECH-314c).
+    # Source of the genuine per-candidate uncertainty (314b) / learning-progress
+    # (314c) vector fed to StructuredCuriosity.compute_score_bias. Both default
+    # to "broadcast" (Phase-1 uniform e3._running_variance / lp_ema scalar --
+    # pure argmin-inert offset, BIT-IDENTICAL OFF). Set to a per-candidate source
+    # and the sub-flavour's mean flows to the offset while its deviation becomes
+    # argmin-relevant -- the same Phase-2 treatment MECH-314a already received.
+    #
+    # curiosity_uncertainty_source:
+    #   "broadcast" (default, bit-identical) -- e3._running_variance scalar.
+    #   "e2_predictive_variance" -- SD-063 E2WorldUncertaintyHead.predictive_variance
+    #       per candidate (z0, a_i). REQUIRES a TRAINED head wired on the agent
+    #       (self.e2_world_uncertainty via use_e2_world_uncertainty); the agent
+    #       falls back to broadcast when the head is absent. An untrained head
+    #       yields a near-uniform vector -- gate on last_uncertainty_dev_range > 0
+    #       at readiness before scoring any 314b-dependent DV.
+    # curiosity_learning_progress_source:
+    #   "broadcast" (default, bit-identical) -- lp_ema scalar.
+    #   "epistemic_deficit" -- reserved for MECH-482 (epistemic-deficit
+    #       accumulator, not yet built in V3); currently falls back to broadcast.
+    curiosity_uncertainty_source: Literal[
+        "broadcast", "e2_predictive_variance"
+    ] = "broadcast"
+    curiosity_learning_progress_source: Literal[
+        "broadcast", "epistemic_deficit"
+    ] = "broadcast"
+
     # ARC-065 GAP-A (behavioral_diversity_isolation): source of the SHARED
     # per-candidate cand_world_summaries consumed by the E3-side bias channels
     # (lateral_pfc / ofc / mech295 / gated_policy / tonic_vigor). "proposer"
@@ -5939,6 +5966,14 @@ class REEConfig:
         curiosity_candidate_source: Literal[
             "proposer", "e2_world_forward"
         ] = "proposer",
+        # ARC-065 GAP-A Phase-2 per-candidate extension (MECH-314b/c). Both
+        # default "broadcast" (bit-identical Phase-1). See the dataclass fields.
+        curiosity_uncertainty_source: Literal[
+            "broadcast", "e2_predictive_variance"
+        ] = "broadcast",
+        curiosity_learning_progress_source: Literal[
+            "broadcast", "epistemic_deficit"
+        ] = "broadcast",
         # ARC-065 GAP-A: shared cand_world_summaries source for the E3-side
         # bias channels (lateral_pfc / ofc / mech295 / gated_policy / vigor).
         candidate_summary_source: Literal[
@@ -7193,6 +7228,10 @@ class REEConfig:
             curiosity_min_spread_consecutive_ticks
         )
         config.curiosity_candidate_source = curiosity_candidate_source
+        config.curiosity_uncertainty_source = curiosity_uncertainty_source
+        config.curiosity_learning_progress_source = (
+            curiosity_learning_progress_source
+        )
         config.candidate_summary_source = candidate_summary_source
 
         # MECH-320 (ARC-066 child): tonic_vigor_coupling_score_bias

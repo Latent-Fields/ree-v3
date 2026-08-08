@@ -240,6 +240,12 @@ class StructuredCuriosity:
             behaviourally vacuous this tick)
         _last_bias_range                   : float (surviving
             argmin-relevant span of the returned bias)
+        _last_novelty_dev_range            : float (314a per-candidate
+            deviation span; ARC-065 GAP-A extension)
+        _last_uncertainty_dev_range        : float (314b per-candidate
+            deviation span; 0 under the Phase-1 uniform broadcast)
+        _last_lp_dev_range                 : float (314c per-candidate
+            deviation span; 0 under the Phase-1 uniform broadcast)
     """
 
     def __init__(
@@ -327,6 +333,16 @@ class StructuredCuriosity:
         # vacuous; _last_bias_range is the surviving argmin-relevant span.
         self._last_clamp_saturated_frac: float = 0.0
         self._last_bias_range: float = 0.0
+        # Per-sub-flavour argmin-relevant deviation span (ARC-065 GAP-A
+        # per-candidate extension). Each is the range of that flavour's
+        # contribution to the raw (pre-clamp) deviation -- 0 for a uniform
+        # broadcast (314b/314c Phase-1), non-zero for a genuine per-candidate
+        # vector. Surfaced so the budget-split readiness gate can see WHICH
+        # flavour carries the selection-relevant span and catch a flavour
+        # railing the ranking one layer down (the 604a/624a/614d/640a class).
+        self._last_novelty_dev_range: float = 0.0
+        self._last_uncertainty_dev_range: float = 0.0
+        self._last_lp_dev_range: float = 0.0
         # MECH-314a Phase 2 diagnostics.
         self._last_novelty_source_used: str = "none"
         self._last_candidate_spread: float = 0.0
@@ -345,6 +361,8 @@ class StructuredCuriosity:
         simulation_mode: bool = False,
         visitation_source: Any = None,
         first_action_onehots: Optional[torch.Tensor] = None,
+        per_candidate_uncertainty: Optional[torch.Tensor] = None,
+        per_candidate_learning_progress: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Return per-candidate curiosity score-bias [K].
 
@@ -379,6 +397,30 @@ class StructuredCuriosity:
                 (substrate-robustness bypass). Ignored when the
                 augmentation policy is "never" or
                 use_first_action_onehot is False.
+            per_candidate_uncertainty : MECH-314b Phase 2 (ARC-065
+                GAP-A per-candidate extension). Optional [K] genuine
+                per-candidate epistemic-value vector (e.g. the SD-063
+                E2WorldUncertaintyHead.predictive_variance evaluated on
+                each candidate's (z0, a_i) transition). When provided AND
+                use_curiosity_uncertainty is True, 314b contributes
+                -weight * this_vector instead of the Phase-1 uniform
+                e3._running_variance broadcast: its MEAN flows to the
+                argmin-inert offset (magnitude "more total uncertainty ->
+                more total bonus", preserved) and its DEVIATION flows to
+                the argmin-relevant per-candidate term -- exactly as 314a
+                novelty does. When None, the Phase-1 uniform broadcast is
+                used unchanged (bit-identical). The caller is responsible
+                for supplying only a TRAINED/READY per-candidate source
+                (an untrained SD-063 head yields a near-uniform vector --
+                the readiness gate on last_uncertainty_dev_range catches
+                that).
+            per_candidate_learning_progress : MECH-314c Phase 2 (ARC-065
+                GAP-A per-candidate extension). Optional [K] genuine
+                per-candidate learning-progress vector. Same offset /
+                deviation semantics as per_candidate_uncertainty. No live
+                per-candidate LP source exists yet in V3 (it is MECH-482,
+                the epistemic-deficit accumulator); until then callers pass
+                None and 314c stays the Phase-1 uniform lp_ema broadcast.
 
         Returns:
             [K] tensor on the same device/dtype as
@@ -416,13 +458,25 @@ class StructuredCuriosity:
                 # Curiosity bonus is NEGATIVE in the lower-is-better
                 # convention (high novelty -> more attractive ->
                 # smaller score).
-                total = total - cfg.curiosity_novelty_weight * novelty
+                nov_contrib = cfg.curiosity_novelty_weight * novelty
+                total = total - nov_contrib
                 n_fired += 1
                 self._last_novelty_norm = float(novelty.mean().item())
+                # Per-flavour argmin-relevant span this flavour contributes
+                # to the raw (pre-clamp) deviation. range(contrib) ==
+                # range(contrib - mean), so this is exactly 314a's deviation
+                # span. Observability for the budget-split readiness gate.
+                self._last_novelty_dev_range = (
+                    float((nov_contrib.max() - nov_contrib.min()).item())
+                    if K > 0
+                    else 0.0
+                )
             else:
                 self._last_novelty_norm = 0.0
+                self._last_novelty_dev_range = 0.0
         else:
             self._last_novelty_norm = 0.0
+            self._last_novelty_dev_range = 0.0
             self._last_novelty_source_used = "none"
             self._last_candidate_spread = 0.0
             self._last_augmentation_engaged = False
@@ -433,17 +487,43 @@ class StructuredCuriosity:
         # a Phase 2 follow-on requiring an E1 forward-variance head).
         # --------------------------------------------------------------
         if cfg.use_curiosity_uncertainty:
-            unc = self._compute_uncertainty(e3)
-            if unc is not None:
-                total = total - cfg.curiosity_uncertainty_weight * unc * torch.ones(
-                    K, device=device, dtype=dtype
+            if per_candidate_uncertainty is not None:
+                # MECH-314b Phase 2: genuine per-candidate epistemic value.
+                # Contribute -weight * vector, exactly as 314a novelty does,
+                # so the mean auto-flows to the argmin-inert offset and the
+                # deviation auto-flows to the argmin-relevant per-candidate
+                # term (no hand-split needed -- the offset/deviation
+                # decomposition below handles it).
+                unc_vec = per_candidate_uncertainty.reshape(-1).to(
+                    device=device, dtype=dtype
                 )
+                unc_contrib = cfg.curiosity_uncertainty_weight * unc_vec
+                total = total - unc_contrib
                 n_fired += 1
-                self._last_uncertainty_signal = float(unc)
+                self._last_uncertainty_signal = (
+                    float(unc_vec.mean().item()) if K > 0 else 0.0
+                )
+                self._last_uncertainty_dev_range = (
+                    float((unc_contrib.max() - unc_contrib.min()).item())
+                    if K > 0
+                    else 0.0
+                )
             else:
-                self._last_uncertainty_signal = 0.0
+                # Phase-1 uniform e3._running_variance broadcast (pure
+                # offset, argmin-inert -- no per-candidate span).
+                unc = self._compute_uncertainty(e3)
+                if unc is not None:
+                    total = total - cfg.curiosity_uncertainty_weight * unc * torch.ones(
+                        K, device=device, dtype=dtype
+                    )
+                    n_fired += 1
+                    self._last_uncertainty_signal = float(unc)
+                else:
+                    self._last_uncertainty_signal = 0.0
+                self._last_uncertainty_dev_range = 0.0
         else:
             self._last_uncertainty_signal = 0.0
+            self._last_uncertainty_dev_range = 0.0
 
         # --------------------------------------------------------------
         # 314c learning progress: EMA of |PE_t - PE_{t-K}| broadcast
@@ -451,15 +531,38 @@ class StructuredCuriosity:
         # follow-on).
         # --------------------------------------------------------------
         if cfg.use_curiosity_learning_progress:
-            lp = float(self._lp_ema)
-            if lp != 0.0:
-                total = total - cfg.curiosity_learning_progress_weight * lp * torch.ones(
-                    K, device=device, dtype=dtype
+            if per_candidate_learning_progress is not None:
+                # MECH-314c Phase 2: genuine per-candidate learning progress.
+                # Same offset/deviation semantics as 314b above. (No live
+                # source yet in V3 -- MECH-482; wired here so the slot is
+                # complete and testable.)
+                lp_vec = per_candidate_learning_progress.reshape(-1).to(
+                    device=device, dtype=dtype
                 )
+                lp_contrib = cfg.curiosity_learning_progress_weight * lp_vec
+                total = total - lp_contrib
                 n_fired += 1
-            self._last_learning_progress_signal = lp
+                self._last_learning_progress_signal = (
+                    float(lp_vec.mean().item()) if K > 0 else 0.0
+                )
+                self._last_lp_dev_range = (
+                    float((lp_contrib.max() - lp_contrib.min()).item())
+                    if K > 0
+                    else 0.0
+                )
+            else:
+                # Phase-1 uniform lp_ema broadcast (pure offset).
+                lp = float(self._lp_ema)
+                if lp != 0.0:
+                    total = total - cfg.curiosity_learning_progress_weight * lp * torch.ones(
+                        K, device=device, dtype=dtype
+                    )
+                    n_fired += 1
+                self._last_learning_progress_signal = lp
+                self._last_lp_dev_range = 0.0
         else:
             self._last_learning_progress_signal = 0.0
+            self._last_lp_dev_range = 0.0
 
         # --------------------------------------------------------------
         # Clamp so curiosity cannot dominate the existing dACC /
@@ -876,6 +979,9 @@ class StructuredCuriosity:
         self._last_bias_max_abs = 0.0
         self._last_clamp_saturated_frac = 0.0
         self._last_bias_range = 0.0
+        self._last_novelty_dev_range = 0.0
+        self._last_uncertainty_dev_range = 0.0
+        self._last_lp_dev_range = 0.0
         # MECH-314a Phase 2 auto-augmentation state + diagnostics (per-episode).
         self._below_threshold_streak = 0
         self._augmentation_engaged = False
@@ -902,6 +1008,14 @@ class StructuredCuriosity:
             # saturated tick makes the channel argmin-invariant.
             "last_clamp_saturated_frac": self._last_clamp_saturated_frac,
             "last_bias_range": self._last_bias_range,
+            # ARC-065 GAP-A per-candidate extension: per-sub-flavour
+            # argmin-relevant deviation span. Assert the relevant one is > 0
+            # before scoring a 314b/314c-dependent DV (a non-vacuous
+            # per-candidate channel), alongside last_bias_range > 0 and
+            # last_clamp_saturated_frac below its (K-1)/K ceiling.
+            "last_novelty_dev_range": self._last_novelty_dev_range,
+            "last_uncertainty_dev_range": self._last_uncertainty_dev_range,
+            "last_lp_dev_range": self._last_lp_dev_range,
             "lp_seeded": self._lp_seeded,
             "lp_ring_size": len(self._pe_ring),
             # MECH-314a Phase 2 diagnostics.

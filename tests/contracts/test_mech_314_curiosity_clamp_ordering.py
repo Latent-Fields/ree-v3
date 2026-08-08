@@ -350,3 +350,182 @@ def test_simulation_gate_still_zeroes_and_leaves_diagnostics_alone():
     assert (bias == 0).all()
     assert mod._last_clamp_saturated_frac == 0.0
     assert mod._last_bias_range == 0.0
+
+
+# ======================================================================
+# ARC-065 GAP-A Phase-2 per-candidate extension (MECH-314b / MECH-314c)
+#
+# These pin the per-candidate SLOT: a genuine per-candidate uncertainty
+# (314b) or learning-progress (314c) vector must land in the
+# argmin-RELEVANT deviation term (its mean in the argmin-inert offset),
+# exactly as 314a novelty does, while None inputs stay bit-identical to the
+# Phase-1 uniform broadcast. Assertions are on ranges / orderings /
+# diagnostics, never an exact committed action (torch.multinomial diverges
+# across machine classes).
+# ======================================================================
+def test_p2_none_inputs_are_bit_identical_to_phase1_broadcast():
+    """The default call path (both per-candidate vectors None) must be
+    byte-for-byte the Phase-1 broadcast -- the bit-identical-OFF guarantee."""
+    world_dim = 8
+    summaries = _spread_summaries(world_dim=world_dim)
+    res = _MockResidue(world_dim=world_dim)
+    e3 = _MockE3(running_variance=1.3)
+    common = dict(
+        use_curiosity_novelty=True,
+        use_curiosity_uncertainty=True,
+        use_curiosity_learning_progress=True,
+        curiosity_novelty_weight=0.05,
+        curiosity_uncertainty_weight=0.05,
+        curiosity_learning_progress_weight=0.05,
+        curiosity_bias_scale=0.1,
+    )
+    m_legacy = _module(**common)
+    m_legacy.update_prediction_error(1.0)
+    for _ in range(10):
+        m_legacy.update_prediction_error(2.0)
+    b_legacy = m_legacy.compute_score_bias(summaries, residue_field=res, e3=e3)
+
+    m_new = _module(**common)
+    m_new.update_prediction_error(1.0)
+    for _ in range(10):
+        m_new.update_prediction_error(2.0)
+    b_new = m_new.compute_score_bias(
+        summaries,
+        residue_field=res,
+        e3=e3,
+        per_candidate_uncertainty=None,
+        per_candidate_learning_progress=None,
+    )
+    assert torch.equal(b_legacy, b_new), (
+        f"None-input path diverged from Phase-1: {b_legacy} vs {b_new}"
+    )
+    # Uniform broadcasts contribute no per-candidate span; only 314a does.
+    assert m_new._last_uncertainty_dev_range == 0.0
+    assert m_new._last_lp_dev_range == 0.0
+    assert m_new._last_novelty_dev_range > 0.0
+
+
+def test_p2_per_candidate_uncertainty_lands_in_deviation_not_offset():
+    """A genuine per-candidate 314b vector: its MEAN shifts the offset, its
+    DEVIATION becomes the (previously absent) argmin-relevant span."""
+    world_dim = 8
+    K = 5
+    summaries = _spread_summaries(K=K, world_dim=world_dim)
+    # 314b ONLY, generous clamp so nothing is compressed.
+    mod = _module(
+        use_curiosity_novelty=False,
+        use_curiosity_uncertainty=True,
+        use_curiosity_learning_progress=False,
+        curiosity_uncertainty_weight=0.02,
+        curiosity_bias_scale=10.0,
+    )
+    pcu = torch.arange(K, dtype=torch.float32)  # [0,1,2,3,4] -- strong per-candidate spread
+    bias = mod.compute_score_bias(
+        summaries, residue_field=None, e3=_MockE3(running_variance=2.0),
+        per_candidate_uncertainty=pcu,
+    )
+    # Contribution is -weight*pcu; range = weight*(max-min) = 0.02*4 = 0.08.
+    assert abs(float(bias.max() - bias.min()) - 0.08) < 1e-6, bias
+    # e3._running_variance must NOT be consulted when a per-candidate vector
+    # is supplied (the vector replaces the broadcast).
+    assert _rank(bias) == _rank(-pcu), (
+        f"per-candidate 314b ordering wrong: bias={bias}, pcu={pcu}"
+    )
+    assert abs(mod._last_uncertainty_dev_range - 0.08) < 1e-6
+    st = mod.get_state()
+    assert abs(st["last_uncertainty_dev_range"] - 0.08) < 1e-6
+    assert st["last_bias_range"] > 0.0
+
+
+def test_p2_per_candidate_learning_progress_lands_in_deviation():
+    """Symmetric to 314b: a genuine per-candidate 314c vector carries span."""
+    world_dim = 8
+    K = 5
+    summaries = _spread_summaries(K=K, world_dim=world_dim)
+    mod = _module(
+        use_curiosity_novelty=False,
+        use_curiosity_uncertainty=False,
+        use_curiosity_learning_progress=True,
+        curiosity_learning_progress_weight=0.02,
+        curiosity_bias_scale=10.0,
+    )
+    pclp = torch.tensor([4.0, 3.0, 2.0, 1.0, 0.0])
+    bias = mod.compute_score_bias(
+        summaries, residue_field=None, e3=None,
+        per_candidate_learning_progress=pclp,
+    )
+    assert abs(float(bias.max() - bias.min()) - 0.08) < 1e-6, bias
+    assert _rank(bias) == _rank(-pclp), f"314c ordering wrong: {bias}"
+    assert abs(mod._last_lp_dev_range - 0.08) < 1e-6
+
+
+def test_p2_all_three_per_candidate_share_the_deviation_budget():
+    """BUDGET-SPLIT DECISION (resolved): all three sub-flavours compete for the
+    SAME shared +/-bias_scale deviation clamp; total selection-relevant influence
+    stays bounded at bias_scale regardless of how many flavours contribute.
+    This pins the rejected alternative (per-sub-flavour clamps summing to N*rail)
+    OUT."""
+    world_dim = 8
+    K = 5
+    summaries = _spread_summaries(K=K, world_dim=world_dim)
+    res = _MockResidue(world_dim=world_dim)
+    scale = 0.1
+    # Each flavour independently wants a huge per-candidate span.
+    pcu = torch.tensor([0.0, 5.0, 10.0, 15.0, 20.0])
+    pclp = torch.tensor([20.0, 15.0, 10.0, 5.0, 0.0])
+    mod = _module(
+        use_curiosity_novelty=True,
+        use_curiosity_uncertainty=True,
+        use_curiosity_learning_progress=True,
+        curiosity_novelty_weight=50.0,
+        curiosity_uncertainty_weight=50.0,
+        curiosity_learning_progress_weight=50.0,
+        curiosity_bias_scale=scale,
+    )
+    bias = mod.compute_score_bias(
+        summaries, residue_field=res, e3=_MockE3(running_variance=2.0),
+        per_candidate_uncertainty=pcu,
+        per_candidate_learning_progress=pclp,
+    )
+    dev = bias - bias.mean()
+    # Shared clamp: the SUMMED deviation is bounded at bias_scale, NOT 3*scale.
+    assert float(dev.abs().max()) <= scale + 1e-6, (
+        f"shared deviation budget exceeded bias_scale (per-flavour clamp leak?): {dev}"
+    )
+    assert float(bias.abs().max()) <= 2.0 * scale + 1e-6
+    # Each flavour's own contribution is reported (observability for the gate),
+    # even though the SHARED clamp bounds the total.
+    st = mod.get_state()
+    assert st["last_novelty_dev_range"] > 0.0
+    assert st["last_uncertainty_dev_range"] > 0.0
+    assert st["last_lp_dev_range"] > 0.0
+
+
+def test_p2_per_candidate_uncertainty_survives_saturating_novelty():
+    """The one-layer-down annihilation guard: a genuine per-candidate 314b span
+    is not flattened to zero by a saturating 314a, and the readiness diagnostics
+    reveal the compression instead of hiding it."""
+    world_dim = 8
+    K = 5
+    summaries = _spread_summaries(K=K, world_dim=world_dim)
+    res = _MockResidue(world_dim=world_dim)
+    # Saturating 314a + a genuine 314b vector.
+    mod = _module(
+        use_curiosity_novelty=True,
+        use_curiosity_uncertainty=True,
+        use_curiosity_learning_progress=False,
+        curiosity_novelty_weight=50.0,     # saturates the deviation
+        curiosity_uncertainty_weight=0.02,
+        curiosity_bias_scale=0.01,
+    )
+    pcu = torch.tensor([0.0, 1.0, 2.0, 3.0, 4.0])
+    bias = mod.compute_score_bias(
+        summaries, residue_field=res, e3=_MockE3(running_variance=1.0),
+        per_candidate_uncertainty=pcu,
+    )
+    # SOME ordering always survives (zero-mean deviation, (K-1)/K ceiling).
+    assert float(bias.max() - bias.min()) > 0.0
+    # The compression is REPORTED, not silent.
+    assert mod._last_clamp_saturated_frac > 0.0
+    # And the per-flavour diagnostic shows 314b carried genuine pre-clamp span.
+    assert mod._last_uncertainty_dev_range > 0.0

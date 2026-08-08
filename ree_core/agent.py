@@ -77,6 +77,10 @@ from ree_core.neuromodulation.serotonin import SerotoninModule
 from ree_core.predictors.e2_harm_a import E2HarmAConfig, E2HarmAForward
 from ree_core.predictors.e2_harm_s import E2HarmSConfig, E2HarmSForward
 from ree_core.predictors.e2_world import E2WorldConfig, E2WorldForward
+from ree_core.predictors.e2_world_uncertainty import (
+    E2WorldUncertaintyConfig,
+    E2WorldUncertaintyHead,
+)
 from ree_core.policy.model_disagreement import (
     ModelDisagreementConfig,
     ModelDisagreementEnsemble,
@@ -519,6 +523,32 @@ class REEAgent(nn.Module):
                 action_dim=config.e2.action_dim,
             )
             self.e2_world = E2WorldForward(world_cfg)
+
+        # SD-063 (ARC-065 GAP-A Phase-2 314b source): E2 conditional
+        # predictive-uncertainty head. Instantiated at the agent level per the
+        # LatentStackConfig.use_e2_world_uncertainty comment (LatentStack.encode()
+        # stays byte-identical when off). Standalone module, shares no params
+        # with E2WorldForward / the encoder (SD-031 agency-residual guard). z_world
+        # / action dims from config (NEVER literals). None when the flag is off ->
+        # bit-identical, and the MECH-314b per-candidate read below falls back to
+        # the Phase-1 broadcast. Phased training (P0 encoder warmup -> P1 head on
+        # detached z_world -> P2 eval) is the experiment driver's responsibility;
+        # an untrained head's predictive_variance is near-uniform, which the
+        # last_uncertainty_dev_range readiness gate refuses.
+        self.e2_world_uncertainty: Optional[E2WorldUncertaintyHead] = None
+        if getattr(config.latent, "use_e2_world_uncertainty", False):
+            unc_cfg = E2WorldUncertaintyConfig(
+                use_e2_world_uncertainty=True,
+                z_world_dim=config.latent.world_dim,
+                action_dim=config.e2.action_dim,
+                hidden_dim=int(
+                    getattr(config.latent, "e2_world_uncertainty_hidden_dim", 128)
+                ),
+                learning_rate=float(
+                    getattr(config.latent, "e2_world_uncertainty_lr", 1e-3)
+                ),
+            )
+            self.e2_world_uncertainty = E2WorldUncertaintyHead(unc_cfg)
 
         # MECH-441: model-disagreement directed curiosity ensemble (RND / Plan2Explore
         # analog). A standalone K-head forward-model ensemble over (z_world, action);
@@ -5384,6 +5414,51 @@ class REEAgent(nn.Module):
             preds = e2.world_forward(z0_K, actions_K)  # [K, world_dim]
         return preds.detach()
 
+    def _curiosity_per_candidate_uncertainty(
+        self, candidates: List[Trajectory]
+    ) -> Optional[torch.Tensor]:
+        """ARC-065 GAP-A Phase-2 (MECH-314b): genuine per-candidate epistemic
+        value for the structured-curiosity uncertainty sub-flavour.
+
+        Returns None (-> StructuredCuriosity falls back to the Phase-1 uniform
+        e3._running_variance broadcast, bit-identical) unless
+        curiosity_uncertainty_source == "e2_predictive_variance" AND a trained
+        SD-063 E2WorldUncertaintyHead is wired on this agent. Otherwise returns
+        a [K] tensor of the head's per-candidate predictive variance evaluated
+        on each candidate's (z0, a_i) transition -- the same (z0, a_i) pairs the
+        314a e2_world_forward summaries use, so 314a and 314b read a consistent
+        per-candidate frame.
+
+        The head read is no_grad on the waking select_action path (a gating
+        read, never a training path; MECH-094 not implicated -- the SD-063 head
+        is a waking online read per its own docstring). An UNTRAINED head yields
+        a near-uniform vector; that is not filtered here -- the readiness gate on
+        last_uncertainty_dev_range is where a vacuous channel is refused.
+        """
+        if (
+            getattr(self.config, "curiosity_uncertainty_source", "broadcast")
+            != "e2_predictive_variance"
+        ):
+            return None
+        head = getattr(self, "e2_world_uncertainty", None)
+        if head is None or self._current_latent is None or len(candidates) == 0:
+            return None
+        z0 = self._current_latent.z_world.detach()
+        if z0.dim() == 1:
+            z0 = z0.unsqueeze(0)
+        z0 = z0[:1]  # [1, world_dim]
+        adim = int(candidates[0].actions.shape[-1])
+        act_rows: List[torch.Tensor] = []
+        for c in candidates:
+            act_rows.append(c.actions[:, 0, :].detach().reshape(adim))
+        actions_K = torch.stack(act_rows, dim=0).to(
+            device=z0.device, dtype=z0.dtype
+        )  # [K, action_dim]
+        z0_K = z0.expand(actions_K.shape[0], -1)  # [K, world_dim]
+        with torch.no_grad():
+            pvar = head.predictive_variance(z0_K, actions_K)  # [K]
+        return pvar.detach().reshape(-1)
+
     def _candidate_world_summaries(
         self, candidates: List[Trajectory]
     ) -> Optional[torch.Tensor]:
@@ -7165,6 +7240,13 @@ class REEAgent(nn.Module):
                     )
                     _oh[_i, _cls] = 1.0
                 cur_onehots = _oh
+            # ARC-065 GAP-A Phase-2 (MECH-314b): genuine per-candidate epistemic
+            # value from the SD-063 head. None (-> Phase-1 uniform broadcast,
+            # bit-identical) unless curiosity_uncertainty_source is
+            # "e2_predictive_variance" and a trained head is wired. 314c's
+            # per-candidate source (MECH-482) is not built yet, so its vector
+            # stays None (Phase-1 broadcast).
+            cur_uncertainty = self._curiosity_per_candidate_uncertainty(candidates)
             with torch.no_grad():
                 cur_bias = self.curiosity.compute_score_bias(
                     candidate_world_summaries=cur_summaries.detach(),
@@ -7173,6 +7255,8 @@ class REEAgent(nn.Module):
                     simulation_mode=False,
                     visitation_source=self._zworld_visitation_buffer,
                     first_action_onehots=cur_onehots,
+                    per_candidate_uncertainty=cur_uncertainty,
+                    per_candidate_learning_progress=None,
                 )
             if _bdc_keep_curiosity:  # decomp diagnostic OR "curiosity" route source
                 _bdc_curiosity = cur_bias.detach().clone()
@@ -9079,24 +9163,7 @@ class REEAgent(nn.Module):
         recent = self.theta_buffer.recent
         if recent is None:
             return
-        # MECH-203 + MECH-205: build drive_state for valence-weighted replay.
-        #
-        # WIDTH CONTRACT (fixed 2026-08-03, SD-014 GOV-CONFIRM-1 probe): this
-        # vector is dotted against evaluate_valence(), which returns
-        # [batch, VALENCE_DIM]. MECH-307 (2026-05-11) widened VALENCE_DIM from
-        # 4 to 6 by adding VALENCE_POSITIVE_SURPRISE / VALENCE_NEGATIVE_SURPRISE,
-        # and this construction was not widened with it -- so the broadcast in
-        # ResidueField.get_valence_priority raised
-        #   RuntimeError: The size of tensor a (6) must match the size of
-        #                 tensor b (4) at non-singleton dimension 1
-        # on every call, with no try/except anywhere on the path. The agent-level
-        # valence-weighted replay entry point therefore could not run at all
-        # whenever serotonin or surprise_gated_replay was enabled.
-        #
-        # It is now built at width VALENCE_DIM by index, so a future widening of
-        # the valence vector leaves the new channels explicitly zero-weighted
-        # rather than silently changing shape. Pinned by
-        # tests/contracts/test_do_replay_drive_state_width.py.
+        # MECH-203 + MECH-205: build drive_state for valence-weighted replay
         drive_state = None
         if self.serotonin.enabled or self.config.surprise_gated_replay:
             t5ht = self.serotonin.tonic_5ht if self.serotonin.enabled else 0.0
@@ -9104,30 +9171,32 @@ class REEAgent(nn.Module):
             surprise_weight = 0.3
             if self.config.surprise_gated_replay and self._pe_ema > 0:
                 surprise_weight = min(1.0, self._pe_ema * 5.0)
+            # MECH-307 (2026-05-11): VALENCE_DIM was widened 4 -> 6 (positive/
+            # negative split-surprise channels appended). Build drive_state at
+            # the FULL VALENCE_DIM width -- a 4-wide vector broadcast against the
+            # 6-wide valence tensor in ResidueField.get_valence_priority raises
+            # (size 6 vs 4 at dim 1) and killed this replay path whenever
+            # serotonin or surprise_gated_replay was enabled.
+            #
+            # Slots 0-3 carry the original SD-014 drive weights. Slots 4/5
+            # (POSITIVE/NEGATIVE_SURPRISE) are set to 0.0 DELIBERATELY: MECH-307's
+            # split-surprise write path ALSO writes the surprise magnitude to the
+            # legacy VALENCE_SURPRISE (slot 3) precisely so SD-014 consumers
+            # reading the magnitude slot stay bit-identical, and this
+            # drive-weighted priority is exactly such a consumer. Weighting slots
+            # 4/5 here would double-count surprise against slot 3. Keeping them at
+            # 0.0 makes prioritisation bit-identical in BOTH split states while
+            # leaving the split channels available to consumers that discriminate
+            # excitement (positive) from dread (negative). Assigning by named
+            # index (not a positional literal) means a future VALENCE_DIM widening
+            # leaves new slots explicitly zeroed rather than silently truncating.
             drive_state = torch.zeros(VALENCE_DIM, device=self.device)
             drive_state[VALENCE_WANTING] = t5ht
             drive_state[VALENCE_LIKING] = 0.5
             drive_state[VALENCE_HARM_DISCRIMINATIVE] = 1.0 - t5ht
             drive_state[VALENCE_SURPRISE] = surprise_weight
-            # MECH-307 split-surprise channels (4, 5) are supplied DELIBERATELY
-            # at weight 0.0, in both flag states -- this is not an oversight:
-            #   * use_mech307_split_surprise=False -> those channels are never
-            #     written (see the Gap 1 write-site dispatch in update_residue),
-            #     so any weight on them is a no-op; zero keeps the prioritisation
-            #     bit-identical to the intended 4-component SD-014 formula.
-            #   * use_mech307_split_surprise=True  -> the write site routes the
-            #     surprise magnitude to POSITIVE/NEGATIVE_SURPRISE *and* writes
-            #     the same magnitude to the legacy VALENCE_SURPRISE slot
-            #     explicitly "so MECH-205 / SD-014 consumers reading the
-            #     magnitude slot stay bit-identical". The split channels are a
-            #     signed DECOMPOSITION of a magnitude this vector already
-            #     weights at surprise_weight, so giving them non-zero weight
-            #     here would DOUBLE-COUNT surprise in replay prioritisation and
-            #     silently change MECH-203 semantics under a MECH-307 flag that
-            #     specifies nothing about replay drive weighting.
-            # Changing this is a claims-level decision, not a substrate tidy-up.
-            drive_state[VALENCE_POSITIVE_SURPRISE] = 0.0
-            drive_state[VALENCE_NEGATIVE_SURPRISE] = 0.0
+            # drive_state[VALENCE_POSITIVE_SURPRISE] / [VALENCE_NEGATIVE_SURPRISE]
+            # stay 0.0 (see rationale above).
         # MECH-165: use diverse replay scheduler when enabled
         if self.config.replay_diversity_enabled:
             retrieval_bias = (
