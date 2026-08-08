@@ -1,0 +1,43 @@
+# ree-git-wedge-watchdog -- systemd unit template (self-healing git repair
+# daemon, deployed alongside ree-metaworker.service on the same box).
+#
+# Reference copy, synced by hand from the live file on the box it runs on
+# (/etc/systemd/system/ree-git-wedge-watchdog.service) -- same convention as
+# ree-metaworker.service in this directory.
+#
+# WHY THIS EXISTS: confirmed live 2026-08-08 on ree-cloud-5, the shared
+# umbrella checkout (/home/ree/REE_Working) was found mid-`git rebase -i`,
+# detached HEAD, conflicted, blocking every write path for the resident
+# metaworker-dispatch cycle. Root cause: a headless `claude -p` session ran
+# manual git rebase surgery directly in the shared checkout, hit a conflict,
+# and ended its turn -- which for a headless process IS exit -- without
+# resolving or aborting. See scripts/ree_git_wedge_watchdog.py's own
+# docstring in the REE_Working umbrella repo for the full diagnosis and the
+# safety argument for what it does and does not auto-repair.
+#
+# Deliberately NOT another `claude -p` agent: that would reintroduce the
+# identical hazard (the medic getting stuck the same way the patient did).
+# This is a small, deterministic, bounded-runtime script -- it cannot "end
+# its turn" mid-repair because it has no turns.
+#
+# Installation (on the cloud VM, as the `ree` user with sudo):
+#   sudo cp ree-git-wedge-watchdog.service ree-git-wedge-watchdog.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now ree-git-wedge-watchdog.timer
+#
+# Logs: journalctl -u ree-git-wedge-watchdog -f   |   ~/.ree_git_wedge_watchdog/watchdog.log
+
+[Unit]
+Description=REE git-wedge watchdog: detect and safely repair stuck rebases/merges/locks
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ree
+WorkingDirectory=/home/ree/REE_Working
+Environment=REE_WORKING_ROOT=/home/ree/REE_Working
+ExecStart=/opt/local/bin/python3 /home/ree/REE_Working/scripts/ree_git_wedge_watchdog.py
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ree-git-wedge-watchdog
+TimeoutStartSec=90

@@ -1,0 +1,16 @@
+# Paces ree-git-wedge-watchdog.service every 3 minutes -- deliberately tighter
+# than ree-metaworker.timer's 5-minute cadence, so a wedge is cleared before
+# the NEXT metaworker-dispatch cycle needs the checkout, not after it.
+# Reference copy -- see ree-git-wedge-watchdog.service's header for the sync
+# convention and install steps.
+
+[Unit]
+Description=Run ree-git-wedge-watchdog every 3 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=3min
+AccuracySec=15s
+
+[Install]
+WantedBy=timers.target
