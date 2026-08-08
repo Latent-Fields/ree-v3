@@ -124,6 +124,21 @@
       "seeds": 3
     },
     {
+      "queue_id": "V3-EXQ-903",
+      "title": "MECH-075 VENTRAL LEG: VTA-RPE attractor-basin-narrowing probe (first attempt -- leg never tested)",
+      "script": "experiments/v3_exq_903_mech075_ventral_vta_rpe_probe.py",
+      "priority": 50,
+      "machine_affinity": "any",
+      "estimated_minutes": 90,
+      "claim_id": "MECH-075",
+      "note": "First-ever experimental attempt at MECH-075's VENTRAL leg (all three prior runs -- 192/192a/209/230 -- tested dorsal terrain only). Uses the genuine, already-built ARC-108 signed-RPE substrate (e3_selector.py delta_t = benefit_eval_head - harm_eval_head - value_baseline, surfaced via config.use_habenula_decommit=True and agent.update_residue()'s e3_habenula_delta_t metric) -- explicitly NOT the unsigned MECH-043/ARC-016 precision channel, which the claim's own what_would_answer excludes. Ventral/motivational terrain operationalized via the SAME benefit_eval_head/harm_eval_head valence-geometry machinery MECH-073's own validated probe (V3-EXQ-375) uses, applied to each candidate trajectory's predicted z_world (e2.world_forward per-candidate). Direction is OPPOSITE the dorsal sibling: predicts basin NARROWING (reinforcement sharpens commitment) not widening. Required two real fixes to the original design, found and fixed during authoring: benefit_eval_head/harm_eval_head are NOT pre-trained (random-init behind an ARC-030 warmup gate) -- added phased training (encoder-warmup then head-grounding, avoiding the joint-training moving-target-collapse failure mode) plus SD-018/SD-009 auxiliary losses (compute_resource_proximity_loss, compute_event_contrastive_loss) already used by MECH-073's own probe; this moved grounding correlation from -0.15/-0.28 to +0.43. Smoke preview (--dry-run, 5+5 episodes, steps=20): P0 (|delta_t| clears 0.001 floor: 0.00382, grounding_corr=0.43 clears 0.15 floor) and C1 both PASS; C2 (load-bearing, basin narrowing >=15% relative) FAILS at this tiny budget -- basin_width GATED 0.00001 vs ABLATED 0.00001, self-routes evidence_direction=weakens, label=ventral_rpe_no_basin_narrowing. Genuinely open/undetermined until the real seed grid runs -- this is the first-ever test of this leg so there is no prior falsifying/confirming precedent either way. Sibling: V3-EXQ-905 (dorsal leg, same claim). [chip_ref: chip-20260808-mech075-dorsal-ventral-probes]",
+      "status": "pending",
+      "conditions": 2,
+      "episodes_per_run": 150,
+      "experiment_type": "v3_exq_903_mech075_ventral_vta_rpe_probe",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-904",
       "title": "ARC-070 decomposition trigger-selectivity + zoom-in confirming DV (GOV-CONFIRM-1 first exp evidence)",
       "script": "experiments/v3_exq_904_arc070_decomposition_trigger_selectivity.py",
@@ -138,6 +153,21 @@
       "episodes_per_run": 20,
       "experiment_type": "v3_exq_904_arc070_decomposition_trigger_selectivity",
       "seeds": 4
+    },
+    {
+      "queue_id": "V3-EXQ-905",
+      "title": "MECH-075 DORSAL LEG: LC-arousal attractor-basin-width probe (Kempadoo et al. 2016)",
+      "script": "experiments/v3_exq_905_mech075_dorsal_lc_arousal_probe.py",
+      "priority": 50,
+      "machine_affinity": "any",
+      "estimated_minutes": 90,
+      "claim_id": "MECH-075",
+      "note": "First DORSAL-leg MECH-075 probe to use a genuinely LC-labeled arousal signal (not the VTA/RPE-shaped E1-MSE channel V3-EXQ-192/192a/209/230 all reused) and a real behavioral basin-width metric (e2.cand_world_pairwise_dist candidate-trajectory diversity, not grid-exploration coverage -- the confound the claim's own text names). ID NOTE: authored as V3-EXQ-902, bumped to 905 -- 902 was claimed by an unrelated concurrent experiment (SD-048 interoceptive-noise sweep) that landed on origin/main first; script/docstring/EXPERIMENT_TYPE updated throughout, re-validated clean after rename (validate_experiments.py --strict: OK) and re-smoke-tested (identical numeric output to pre-rename). Smoke preview (--dry-run, 5 warmup + 3 eval eps, steps=20, NOT the real 150/50/200 budget): P0 readiness (arousal signal clears 0.001 floor: 0.0192) and C1 (manipulation check) both PASS; C2 (load-bearing, basin_width_gap >= 15% relative in >=2/3 seeds) FAILS -- gap ~1e-7 across all 3 seeds, i.e. GATED and ABLATED basin widths are numerically indistinguishable at this tiny budget. Self-routes evidence_direction=weakens with label dorsal_lc_arousal_no_attractor_widening -- if this holds at the real budget it would be the FIRST genuinely informative falsification of the dorsal leg (all three priors failed on the precondition itself, per the claim's own evidence_quality_note). Needs the real seed grid to confirm; a 20-step/5-episode smoke is not powered to detect a real effect. Sibling: V3-EXQ-903 (ventral leg, same claim, opposite predicted direction -- basin NARROWING under VTA-RPE gain vs this leg's tested WIDENING under LC-arousal gain). [chip_ref: chip-20260808-mech075-dorsal-ventral-probes]",
+      "status": "pending",
+      "conditions": 2,
+      "episodes_per_run": 150,
+      "experiment_type": "v3_exq_905_mech075_dorsal_lc_arousal_probe",
+      "seeds": 3
     },
     {
       "queue_id": "V3-EXQ-190a",
@@ -221,36 +251,6 @@
       "episodes_per_run": 140,
       "experiment_type": "v3_exq_902_sd048_default_scale_calibration_sweep",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-905",
-      "title": "MECH-075 DORSAL LEG: LC-arousal attractor-basin-width probe (Kempadoo et al. 2016)",
-      "script": "experiments/v3_exq_905_mech075_dorsal_lc_arousal_probe.py",
-      "experiment_type": "v3_exq_905_mech075_dorsal_lc_arousal_probe",
-      "priority": 50,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 90,
-      "episodes_per_run": 150,
-      "seeds": 3,
-      "conditions": 2,
-      "claim_id": "MECH-075",
-      "note": "First DORSAL-leg MECH-075 probe to use a genuinely LC-labeled arousal signal (not the VTA/RPE-shaped E1-MSE channel V3-EXQ-192/192a/209/230 all reused) and a real behavioral basin-width metric (e2.cand_world_pairwise_dist candidate-trajectory diversity, not grid-exploration coverage -- the confound the claim's own text names). ID NOTE: authored as V3-EXQ-902, bumped to 905 -- 902 was claimed by an unrelated concurrent experiment (SD-048 interoceptive-noise sweep) that landed on origin/main first; script/docstring/EXPERIMENT_TYPE updated throughout, re-validated clean after rename (validate_experiments.py --strict: OK) and re-smoke-tested (identical numeric output to pre-rename). Smoke preview (--dry-run, 5 warmup + 3 eval eps, steps=20, NOT the real 150/50/200 budget): P0 readiness (arousal signal clears 0.001 floor: 0.0192) and C1 (manipulation check) both PASS; C2 (load-bearing, basin_width_gap >= 15% relative in >=2/3 seeds) FAILS -- gap ~1e-7 across all 3 seeds, i.e. GATED and ABLATED basin widths are numerically indistinguishable at this tiny budget. Self-routes evidence_direction=weakens with label dorsal_lc_arousal_no_attractor_widening -- if this holds at the real budget it would be the FIRST genuinely informative falsification of the dorsal leg (all three priors failed on the precondition itself, per the claim's own evidence_quality_note). Needs the real seed grid to confirm; a 20-step/5-episode smoke is not powered to detect a real effect. Sibling: V3-EXQ-903 (ventral leg, same claim, opposite predicted direction -- basin NARROWING under VTA-RPE gain vs this leg's tested WIDENING under LC-arousal gain). [chip_ref: chip-20260808-mech075-dorsal-ventral-probes]"
-    },
-    {
-      "queue_id": "V3-EXQ-903",
-      "title": "MECH-075 VENTRAL LEG: VTA-RPE attractor-basin-narrowing probe (first attempt -- leg never tested)",
-      "script": "experiments/v3_exq_903_mech075_ventral_vta_rpe_probe.py",
-      "experiment_type": "v3_exq_903_mech075_ventral_vta_rpe_probe",
-      "priority": 50,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 90,
-      "episodes_per_run": 150,
-      "seeds": 3,
-      "conditions": 2,
-      "claim_id": "MECH-075",
-      "note": "First-ever experimental attempt at MECH-075's VENTRAL leg (all three prior runs -- 192/192a/209/230 -- tested dorsal terrain only). Uses the genuine, already-built ARC-108 signed-RPE substrate (e3_selector.py delta_t = benefit_eval_head - harm_eval_head - value_baseline, surfaced via config.use_habenula_decommit=True and agent.update_residue()'s e3_habenula_delta_t metric) -- explicitly NOT the unsigned MECH-043/ARC-016 precision channel, which the claim's own what_would_answer excludes. Ventral/motivational terrain operationalized via the SAME benefit_eval_head/harm_eval_head valence-geometry machinery MECH-073's own validated probe (V3-EXQ-375) uses, applied to each candidate trajectory's predicted z_world (e2.world_forward per-candidate). Direction is OPPOSITE the dorsal sibling: predicts basin NARROWING (reinforcement sharpens commitment) not widening. Required two real fixes to the original design, found and fixed during authoring: benefit_eval_head/harm_eval_head are NOT pre-trained (random-init behind an ARC-030 warmup gate) -- added phased training (encoder-warmup then head-grounding, avoiding the joint-training moving-target-collapse failure mode) plus SD-018/SD-009 auxiliary losses (compute_resource_proximity_loss, compute_event_contrastive_loss) already used by MECH-073's own probe; this moved grounding correlation from -0.15/-0.28 to +0.43. Smoke preview (--dry-run, 5+5 episodes, steps=20): P0 (|delta_t| clears 0.001 floor: 0.00382, grounding_corr=0.43 clears 0.15 floor) and C1 both PASS; C2 (load-bearing, basin narrowing >=15% relative) FAILS at this tiny budget -- basin_width GATED 0.00001 vs ABLATED 0.00001, self-routes evidence_direction=weakens, label=ventral_rpe_no_basin_narrowing. Genuinely open/undetermined until the real seed grid runs -- this is the first-ever test of this leg so there is no prior falsifying/confirming precedent either way. Sibling: V3-EXQ-905 (dorsal leg, same claim). [chip_ref: chip-20260808-mech075-dorsal-ventral-probes]"
     }
   ]
 }
