@@ -45,21 +45,6 @@
       "episodes_per_run": 120,
       "experiment_type": "v3_exq_896_mech322_replay_confirmatory_evidence",
       "seeds": 12
-    },
-    {
-      "queue_id": "V3-EXQ-897",
-      "title": "SD-009 event-CE ablation: held-out z_world decodability with/without auxiliary CE loss, held constant under SD-070 anti-collapse recipe",
-      "experiment_type": "v3_exq_897_sd009_event_ce_ablation_decodability",
-      "script": "experiments/v3_exq_897_sd009_event_ce_ablation_decodability.py",
-      "priority": 40,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 150,
-      "episodes_per_run": 100,
-      "seeds": 3,
-      "conditions": 2,
-      "claim_id": "SD-009",
-      "note": "IGW-20260808-229. First direct experimental evidence for SD-009 (genuine_exp_count=0 in claim_evidence.v1.json despite lit_confidence 0.724; the prior EXQ-020/023 PASS evidence never counted for SD-009 -- old manifest keys claim_ids_tested not claim_ids, and carries no substrate_hash). Registered ablation + validated positive-control probe designed to resolve the open governance question in REE_assembly/evidence/planning/sd009_event_contrastive_channel_mismatch_2026-07-18.md (AWAITING GOVERNANCE ADJUDICATION): does the event-CE auxiliary loss make event-type genuinely DECODABLE from z_world (not just cosine-separable), held on top of SD-070s anti-collapse recipe so the pre-SD-070 collapse confound documented there cannot contaminate the result. 2 arms (event-CE ON/OFF) x 3 seeds (44 excluded, documented reef-config instability). GOV-REUSE-1: reanalysis_query.py found 0 manifests carrying the decisive readout for claim SD-009 across 832 scanned; the one candidate (EXQ-020) carries no substrate_hash and trained under the pre-SD-070 collapse-confounded P0 -- not recoverable, run. Deliberately does NOT adjudicate MECH-100 or SD-070 (both held constant / untouched, single-claim tagged SD-009 only). Smoke PASS (--dry-run, 2 episodes/arm); validate_experiments.py --strict clean, 0 warnings."
     }
   ]
 }
