@@ -45,6 +45,21 @@
       "episodes_per_run": 120,
       "experiment_type": "v3_exq_896_mech322_replay_confirmatory_evidence",
       "seeds": 12
+    },
+    {
+      "queue_id": "V3-EXQ-898",
+      "title": "SD-016 leg-A retest: Path 3 tagger under the SD-070 encoder fix (world_dim=128)",
+      "experiment_type": "v3_exq_898_sd016_lega_encoder_fix_retest",
+      "script": "experiments/v3_exq_898_sd016_lega_encoder_fix_retest.py",
+      "priority": 20,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 75,
+      "episodes_per_run": 100,
+      "seeds": 3,
+      "conditions": 2,
+      "claim_id": "SD-016",
+      "note": "Re-runs the 418g/418m-shaped SD-016 leg-A acceptance test (C1 sel_entropy<2.5, C1b context-div>0.1, both >=2/3 seeds; C2 OFF-arm ln(16) saddle control) with one upstream change: z_world is now trained via the validated SD-070 recipe (world_dim=128, matching V3-EXQ-783 D128_TRAINED) instead of left untrained. GOV-REUSE-1: checked V3-EXQ-783 (PASS, Q-002/SD-031) for this exact readout -- not recorded there (scoped to encoder contrast only, never read back onto SD-016 own criteria, per claims.yaml). Diagnostic purpose, claim_ids=[] pending /failure-autopsy adjudication per the 418g/418m precedent; a PASS/FAIL still requires autopsy confirmation before any claims.yaml action on SD-016. Self-routes substrate_not_ready_requeue if fewer than a seed-majority clear the per-cell encoder-readiness preconditions (weights moved + z_world spread lift on a matched positive control) rather than mis-scoring an under-trained encoder as a substrate_ceiling finding. Chip chip-20260808-sd016-leg-a-retest."
     }
   ]
 }
