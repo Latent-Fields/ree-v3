@@ -8,6 +8,22 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-821b",
+      "title": "MECH-457 H-consummation-binding calibrated re-run (crash-fix: anchor-reachability threshold was a raw floor, not a fraction)",
+      "script": "experiments/v3_exq_821b_mech457_consummation_binding.py",
+      "priority": 55,
+      "machine_affinity": "any",
+      "estimated_minutes": 150,
+      "supersedes": "V3-EXQ-821a",
+      "claim_id": "MECH-457",
+      "note": "CRASH-FIX successor to V3-EXQ-821a (ERROR, exit 1, no manifest, 2026-08-08T11:17:11Z on ree-cloud-3), diagnosed via /diagnose-errors. Root cause: assert_anchor_reachable() was called with threshold=float(POST_BC_INSTALL_FLOOR) (=10.0, a raw competence-floor value) where the function requires a FRACTION of reference cells (0.0-1.0) -- no fraction can ever clear 10.0, so the guard was structurally unmeetable regardless of anchor quality and crashed at setup (AnchorUnreachable) despite both live anchors (local_view_greedy=34.167, greedy_oracle=42.8) clearing the real floor with wide margin. Fixed via a dedicated POST_BC_ANCHOR_REACHABILITY_THRESHOLD=1.0 constant, matching sibling MECH-457 scripts 788/789/792/792a. Everything else unchanged from 821a: DIAGNOSTIC re-test of the currently-ALIVE competence_floor leg H-consummation-binding (821 eliminated reading VOIDED as an instrument artefact, competence_floor_instrument_audit_2026-08-07 sec 3d; leg reset to alive 2026-08-07). Calibrated re-run per competence_floor_recurrence_repose_2026-08-08 sec 4. FIX vs 821 (carried from 821a): BC install dose 300->1200; USABLE install readiness floor 10.0 not the trivial 1.0; foraging RATE (resources/tick) reported alongside composite resources/episode. Verified: reproduced the exact crash + confirmed the fix resolves it against the real recorded anchor values; --dry-run smoke test passes (dry-run skips the fixed code path by design, so the direct repro is load-bearing, not the smoke test alone).",
+      "status": "pending",
+      "conditions": 5,
+      "episodes_per_run": 3000,
+      "experiment_type": "v3_exq_821b_mech457_consummation_binding",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-896",
       "title": "MECH-322 sleep-replay carve-out: confirmatory evidence-purpose safety + survival confirmer",
       "script": "experiments/v3_exq_896_mech322_replay_confirmatory_evidence.py",
@@ -106,22 +122,6 @@
       "episodes_per_run": 250,
       "experiment_type": "v3_exq_866c_inv034_q021_goal_maintenance_agency_onboarded",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-821b",
-      "title": "MECH-457 H-consummation-binding calibrated re-run (crash-fix: anchor-reachability threshold was a raw floor, not a fraction)",
-      "experiment_type": "v3_exq_821b_mech457_consummation_binding",
-      "script": "experiments/v3_exq_821b_mech457_consummation_binding.py",
-      "priority": 55,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 150,
-      "episodes_per_run": 3000,
-      "seeds": 3,
-      "conditions": 5,
-      "claim_id": "MECH-457",
-      "supersedes": "V3-EXQ-821a",
-      "note": "CRASH-FIX successor to V3-EXQ-821a (ERROR, exit 1, no manifest, 2026-08-08T11:17:11Z on ree-cloud-3), diagnosed via /diagnose-errors. Root cause: assert_anchor_reachable() was called with threshold=float(POST_BC_INSTALL_FLOOR) (=10.0, a raw competence-floor value) where the function requires a FRACTION of reference cells (0.0-1.0) -- no fraction can ever clear 10.0, so the guard was structurally unmeetable regardless of anchor quality and crashed at setup (AnchorUnreachable) despite both live anchors (local_view_greedy=34.167, greedy_oracle=42.8) clearing the real floor with wide margin. Fixed via a dedicated POST_BC_ANCHOR_REACHABILITY_THRESHOLD=1.0 constant, matching sibling MECH-457 scripts 788/789/792/792a. Everything else unchanged from 821a: DIAGNOSTIC re-test of the currently-ALIVE competence_floor leg H-consummation-binding (821 eliminated reading VOIDED as an instrument artefact, competence_floor_instrument_audit_2026-08-07 sec 3d; leg reset to alive 2026-08-07). Calibrated re-run per competence_floor_recurrence_repose_2026-08-08 sec 4. FIX vs 821 (carried from 821a): BC install dose 300->1200; USABLE install readiness floor 10.0 not the trivial 1.0; foraging RATE (resources/tick) reported alongside composite resources/episode. Verified: reproduced the exact crash + confirmed the fix resolves it against the real recorded anchor values; --dry-run smoke test passes (dry-run skips the fixed code path by design, so the direct repro is load-bearing, not the smoke test alone)."
     }
   ]
 }
