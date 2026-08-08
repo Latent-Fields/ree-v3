@@ -8,26 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-821b",
-      "title": "MECH-457 H-consummation-binding calibrated re-run (crash-fix: anchor-reachability threshold was a raw floor, not a fraction)",
-      "script": "experiments/v3_exq_821b_mech457_consummation_binding.py",
-      "priority": 55,
-      "machine_affinity": "any",
-      "estimated_minutes": 150,
-      "supersedes": "V3-EXQ-821a",
-      "claim_id": "MECH-457",
-      "note": "CRASH-FIX successor to V3-EXQ-821a (ERROR, exit 1, no manifest, 2026-08-08T11:17:11Z on ree-cloud-3), diagnosed via /diagnose-errors. Root cause: assert_anchor_reachable() was called with threshold=float(POST_BC_INSTALL_FLOOR) (=10.0, a raw competence-floor value) where the function requires a FRACTION of reference cells (0.0-1.0) -- no fraction can ever clear 10.0, so the guard was structurally unmeetable regardless of anchor quality and crashed at setup (AnchorUnreachable) despite both live anchors (local_view_greedy=34.167, greedy_oracle=42.8) clearing the real floor with wide margin. Fixed via a dedicated POST_BC_ANCHOR_REACHABILITY_THRESHOLD=1.0 constant, matching sibling MECH-457 scripts 788/789/792/792a. Everything else unchanged from 821a: DIAGNOSTIC re-test of the currently-ALIVE competence_floor leg H-consummation-binding (821 eliminated reading VOIDED as an instrument artefact, competence_floor_instrument_audit_2026-08-07 sec 3d; leg reset to alive 2026-08-07). Calibrated re-run per competence_floor_recurrence_repose_2026-08-08 sec 4. FIX vs 821 (carried from 821a): BC install dose 300->1200; USABLE install readiness floor 10.0 not the trivial 1.0; foraging RATE (resources/tick) reported alongside composite resources/episode. Verified: reproduced the exact crash + confirmed the fix resolves it against the real recorded anchor values; --dry-run smoke test passes (dry-run skips the fixed code path by design, so the direct repro is load-bearing, not the smoke test alone).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-08-08T15:34:01Z"
-      },
-      "conditions": 5,
-      "episodes_per_run": 3000,
-      "experiment_type": "v3_exq_821b_mech457_consummation_binding",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-896",
       "title": "MECH-322 sleep-replay carve-out: confirmatory evidence-purpose safety + survival confirmer",
       "script": "experiments/v3_exq_896_mech322_replay_confirmatory_evidence.py",
@@ -54,7 +34,11 @@
       "machine_affinity": "any",
       "estimated_minutes": 330,
       "note": "DIAGNOSTIC READINESS GATE for ARC-030's COMBINED-vs-NOGO_ONLY discriminative retest (claim_ids=[] -- tags NO claim as evidence; GATES ARC-030[primary]/Q-021/INV-034, named in gates_claims). Re-runs V3-EXQ-866a's FULL scaffolded_sd054_onboarding config as a MECH-307 A/B: FULL_M307_ON vs FULL_M307_OFF vs RANDOM, seeds 42/43/44. WHY: MECH-307 was UNREACHABLE via REEConfig.from_dims() until d63f13b7 (all 12 params dropped into **kwargs), so 603q/866a/866b -- ARC-030's whole scaffolded lineage -- ran with MECH-307 entirely OFF (evidence/planning/mech307_from_dims_unreachable_2026-08-07.md). That from_dims fix is now landed; MECH-307 is genuinely reachable for the FIRST time. Before ARC-030's retest can be queued, the shared G0 non-degeneracy precondition must be shown to clear on the substrate MECH-307 is actually on -- NOT a formality: 866a already FAILED G0 with MECH-307 off (FULL rvr 0.0033 < RANDOM 0.0103) and z_goal decayed to a P2 mean 0.12 (< 0.4 C6 floor); 866b (PASS) confirmed the substrate is sound, localising the gap to the hazard-only curriculum stages. LOAD-BEARING GATE G0_ON: rvr_FULL_M307_ON >= rvr_RANDOM + 0.05 on >=2/3 seeds. ROUTING (diagnostic, weights no governance score): preconditions-unmet -> substrate_not_ready_requeue; G0_ON pass -> readiness_pass_arc030_retest_unblocked (then queue ARC-030's COMBINED-vs-NOGO_ONLY per its what_would_answer); G0_ON fail -> readiness_fail_curriculum_gate_blocks_retest (route to substrate_queue stub 'scaffolded-curriculum-hazard-rebalance' FIRST, then re-run this gate; do NOT force the retest). The FULL_M307_OFF arm reproduces 866a in-harness so the G0 delta is attributable to MECH-307; if OFF would clear G0 while ON fails, mech307_perturbs_baseline is flagged (MECH-307-on, though mechanically correct, degrades this baseline). INTERACTION: shares the G0 gate with the hazard-rebalance stub (Q-021/INV-034/ARC-030). If that curriculum fix lands first, re-evaluate what 'G0 clears' means here before the retest. GOV-REUSE-1 (Step 2.4): decisive readout = FULL_M307_ON transition-type resource_visit_rate vs RANDOM WITH MECH-307 genuinely on -- recorded in NO existing manifest (every scaffolded run to date had MECH-307 silently off); not recoverable -> run. SUBSTRATE READINESS (2.5a): MECH-307 from_dims reachability confirmed by in-session probe on origin/main (use_mech307_conjunction=True flips all 4 conjunction sub-flags True; goal flags route to cfg.goal.*). RE-DERIVE BRAKE (2.5b): N/A -- claim_ids=[]; a readiness diagnostic, not a same-granularity claim retest. DV-SYMMETRY: FULL_M307_ON vs FULL_M307_OFF -- MECH-307 is a goal-conditioned per-candidate incentive-salience modulation (NOT a broadcast scalar), not invariant under the argmax that produces resource_visit_rate, and modulates zgoal_norm directly; RANDOM is the uniform reference. ID NOTE: authored as 897, bumped to 899 -- 897/898 taken by concurrent sessions (SD-009 / sd016) during this session. Smoke PASS (dry-run, current substrate origin/main: 9/9 cells ran, z_goal 'no writer defect', preconditions met + G0_ON=0 on tiny budget correctly routed readiness_fail). Step 8.6 POST /queue/add performed from the queueing box (coordinator.env present).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-08-08T16:17:20Z"
+      },
       "claim_ids": [],
       "conditions": 3,
       "episodes_per_run": 250,
@@ -155,6 +139,23 @@
       "seeds": 3
     },
     {
+      "queue_id": "V3-EXQ-876a",
+      "title": "MECH-025: action-doing mode DV redesign (C1 sign reversed per Thura & Cisek 2014 convergence; precision-ratio demoted to non-gating descriptive metric)",
+      "script": "experiments/v3_exq_876a_mech025_doing_mode_convergence_redesign.py",
+      "priority": 40,
+      "machine_affinity": "any",
+      "estimated_minutes": 330,
+      "supersedes": "V3-EXQ-876",
+      "claim_id": "MECH-025",
+      "note": "Finishes the routing from the confirmed failure_autopsy_mech025-cluster-876-671b_2026-08-03 (chip-20260808-mech025-doing-mode-dv-redesign; 5+ days unqueued). V3-EXQ-876 was the first fair V3 test of MECH-025 (all 3 prior instrument defects fixed, both regimes well-sampled/non-degenerate in every seed) but its C1 criterion (doing_mode_delta > 0.002) FAILed with the OPPOSITE sign in 4/5 seeds; autopsy classified this measurement_test_design_defect/non_contributory because the claim's own cited literature disputes C1's sign convention (Friston 2013: precision is continuous, not a discrete mode switch -- flags C1's whole discrete-split framing as a formal-import mismatch; Thura & Cisek 2014, Neuron, the closer biological reference: PMd/M1 representations CONVERGE, not diverge, during commitment -- predicting a SMALLER causal-signature contrast under commitment, i.e. the negative delta V3-EXQ-876 actually observed). claims.yaml's what_would_answer (2026-08-08 digestion) offered two redesign directions: (1) flip C1's sign per Thura-Cisek, or (2) gate on precision_committed_mean vs precision_uncommitted_mean directly (already recorded in 876, separating 4-5 orders of magnitude every seed, never scored). THIS SCRIPT TAKES (1) AS THE LOAD-BEARING CRITERION AND DEMOTES (2) TO NON-GATING: E3's commit rule is LITERALLY committed=running_variance<threshold, precision=1/variance, so 'committed steps have higher precision' is a near-tautological consequence of the substrate's OWN definition of commitment (ARC-016, already independently stable/validated), not an independently falsifiable prediction of MECH-025 -- gating on it risks a structurally-guaranteed vacuous_pass. Direction (1)'s causal_sig, by contrast, is computed from two genuinely independent E2.world_forward rollouts (actual vs a distinct randomly-sampled counterfactual action) through E3.harm_eval and is not wired to the commit rule's own variance computation at all (DV-symmetry: not a broadcast constant, not a monotone rescale of a shared upstream quantity -- see module docstring for the full declaration). GOV-REUSE-1 (Step 2.4): reanalysis_query.py --readout precision_committed_mean --claim MECH-025 found exactly ONE compatible manifest (v3_exq_876_..._20260802T214005Z_v3, substrate_hash 5bba8a67...) and its doing_mode_delta values are ALREADY KNOWN to this authoring session (negative in 4/5 seeds) -- reusing/reanalyzing that same data under a reversed-sign criterion would be circular (HARKing) regardless of whether done via a formal reanalysis or a relabeled rerun. NOT reused: this script runs FRESH SEEDS (11,17,29,53,71 -- disjoint from 876's [42,123,7,99,256]; none is 44, the documented reef-config instability seed) through the UNCHANGED, already-validated instrument (same SelectionResult.committed read, same agent.update_residue()-every-tick call, same BreathOscillator config) so the reversed criterion is tested against genuinely new data. C1's magnitude (0.002) is carried over UNCHANGED from 876's own pre-registered bar (only the sign flips) -- not fit to the observed effect sizes (-0.03 to -0.09, ~10-40x larger), leaving real room for the fresh run to fail too. RECORDING FIX: 876's write_flat_manifest(...,config=None,...) gap (flagged in the autopsy) is fixed here (full REEConfig passed via dataclasses.asdict, started_at wired for elapsed_seconds, z_goal_stream_stats via ZGoalStreamAccumulator). Re-derive brake (2.5b): 0 substrate_ceiling autopsies tag MECH-025 (the one confirmed autopsy is measurement_test_design_defect, action=none) -- not braked. Substrate readiness (2.5): ARC-016 stable/V3-confirmed (dynamic E3 precision), all 6 depends_on claims unblocked, confirmed via claims.yaml + ree-v3/CLAUDE.md ARC-016 sections. Substrate-path overlap gate (2.5c): no open corrupting substrate_queue.json entries with substrate_paths set at all. validate_experiments.py --strict: 0 warnings across every category. Smoke PASS (--dry-run, seed 11, 5/3/30 toy schedule): ran clean, no crash, correct P0-unready self-route at toy scale (expected, not load-bearing), progress lines (ep N/M) + verdict line + precision_ratio all emit correctly. Landed via a throwaway worktree at origin/main (shared ree-v3 checkout dirty with other sessions' live WIP + concurrent phase3-queue snapshot writers -- first rebase attempt hit a merge conflict against an intervening snapshot commit, resolved by re-forking a fresh worktree off the newer origin/main tip rather than hand-resolving JSON conflict markers). Step 8.6 (POST /queue/add) to be performed immediately after this push from this same box (coordinator.env present).",
+      "status": "pending",
+      "conditions": 1,
+      "episodes_per_run": 500,
+      "experiment_purpose": "evidence",
+      "experiment_type": "v3_exq_876a_mech025_doing_mode_convergence_redesign",
+      "seeds": 5
+    },
+    {
       "queue_id": "V3-EXQ-228b",
       "title": "ARC-032 theta-bypass ablation re-run on scaffolded_sd054_onboarding curriculum",
       "script": "experiments/v3_exq_228b_arc032_theta_bypass_onboarded.py",
@@ -202,23 +203,6 @@
       "episodes_per_run": 140,
       "experiment_type": "v3_exq_902_sd048_default_scale_calibration_sweep",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-876a",
-      "title": "MECH-025: action-doing mode DV redesign (C1 sign reversed per Thura & Cisek 2014 convergence; precision-ratio demoted to non-gating descriptive metric)",
-      "script": "experiments/v3_exq_876a_mech025_doing_mode_convergence_redesign.py",
-      "priority": 40,
-      "machine_affinity": "any",
-      "estimated_minutes": 330,
-      "supersedes": "V3-EXQ-876",
-      "claim_id": "MECH-025",
-      "status": "pending",
-      "conditions": 1,
-      "episodes_per_run": 500,
-      "experiment_type": "v3_exq_876a_mech025_doing_mode_convergence_redesign",
-      "experiment_purpose": "evidence",
-      "seeds": 5,
-      "note": "Finishes the routing from the confirmed failure_autopsy_mech025-cluster-876-671b_2026-08-03 (chip-20260808-mech025-doing-mode-dv-redesign; 5+ days unqueued). V3-EXQ-876 was the first fair V3 test of MECH-025 (all 3 prior instrument defects fixed, both regimes well-sampled/non-degenerate in every seed) but its C1 criterion (doing_mode_delta > 0.002) FAILed with the OPPOSITE sign in 4/5 seeds; autopsy classified this measurement_test_design_defect/non_contributory because the claim's own cited literature disputes C1's sign convention (Friston 2013: precision is continuous, not a discrete mode switch -- flags C1's whole discrete-split framing as a formal-import mismatch; Thura & Cisek 2014, Neuron, the closer biological reference: PMd/M1 representations CONVERGE, not diverge, during commitment -- predicting a SMALLER causal-signature contrast under commitment, i.e. the negative delta V3-EXQ-876 actually observed). claims.yaml's what_would_answer (2026-08-08 digestion) offered two redesign directions: (1) flip C1's sign per Thura-Cisek, or (2) gate on precision_committed_mean vs precision_uncommitted_mean directly (already recorded in 876, separating 4-5 orders of magnitude every seed, never scored). THIS SCRIPT TAKES (1) AS THE LOAD-BEARING CRITERION AND DEMOTES (2) TO NON-GATING: E3's commit rule is LITERALLY committed=running_variance<threshold, precision=1/variance, so 'committed steps have higher precision' is a near-tautological consequence of the substrate's OWN definition of commitment (ARC-016, already independently stable/validated), not an independently falsifiable prediction of MECH-025 -- gating on it risks a structurally-guaranteed vacuous_pass. Direction (1)'s causal_sig, by contrast, is computed from two genuinely independent E2.world_forward rollouts (actual vs a distinct randomly-sampled counterfactual action) through E3.harm_eval and is not wired to the commit rule's own variance computation at all (DV-symmetry: not a broadcast constant, not a monotone rescale of a shared upstream quantity -- see module docstring for the full declaration). GOV-REUSE-1 (Step 2.4): reanalysis_query.py --readout precision_committed_mean --claim MECH-025 found exactly ONE compatible manifest (v3_exq_876_..._20260802T214005Z_v3, substrate_hash 5bba8a67...) and its doing_mode_delta values are ALREADY KNOWN to this authoring session (negative in 4/5 seeds) -- reusing/reanalyzing that same data under a reversed-sign criterion would be circular (HARKing) regardless of whether done via a formal reanalysis or a relabeled rerun. NOT reused: this script runs FRESH SEEDS (11,17,29,53,71 -- disjoint from 876's [42,123,7,99,256]; none is 44, the documented reef-config instability seed) through the UNCHANGED, already-validated instrument (same SelectionResult.committed read, same agent.update_residue()-every-tick call, same BreathOscillator config) so the reversed criterion is tested against genuinely new data. C1's magnitude (0.002) is carried over UNCHANGED from 876's own pre-registered bar (only the sign flips) -- not fit to the observed effect sizes (-0.03 to -0.09, ~10-40x larger), leaving real room for the fresh run to fail too. RECORDING FIX: 876's write_flat_manifest(...,config=None,...) gap (flagged in the autopsy) is fixed here (full REEConfig passed via dataclasses.asdict, started_at wired for elapsed_seconds, z_goal_stream_stats via ZGoalStreamAccumulator). Re-derive brake (2.5b): 0 substrate_ceiling autopsies tag MECH-025 (the one confirmed autopsy is measurement_test_design_defect, action=none) -- not braked. Substrate readiness (2.5): ARC-016 stable/V3-confirmed (dynamic E3 precision), all 6 depends_on claims unblocked, confirmed via claims.yaml + ree-v3/CLAUDE.md ARC-016 sections. Substrate-path overlap gate (2.5c): no open corrupting substrate_queue.json entries with substrate_paths set at all. validate_experiments.py --strict: 0 warnings across every category. Smoke PASS (--dry-run, seed 11, 5/3/30 toy schedule): ran clean, no crash, correct P0-unready self-route at toy scale (expected, not load-bearing), progress lines (ep N/M) + verdict line + precision_ratio all emit correctly. Landed via a throwaway worktree at origin/main (shared ree-v3 checkout dirty with other sessions' live WIP + concurrent phase3-queue snapshot writers -- first rebase attempt hit a merge conflict against an intervening snapshot commit, resolved by re-forking a fresh worktree off the newer origin/main tip rather than hand-resolving JSON conflict markers). Step 8.6 (POST /queue/add) to be performed immediately after this push from this same box (coordinator.env present)."
     }
   ]
 }
