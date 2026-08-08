@@ -8,26 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-821a",
-      "title": "MECH-457 H-consummation-binding calibrated re-run (fixes 821 degenerate 14%-of-ceiling install)",
-      "script": "experiments/v3_exq_821a_mech457_consummation_binding.py",
-      "priority": 55,
-      "machine_affinity": "any",
-      "estimated_minutes": 150,
-      "supersedes": "V3-EXQ-821",
-      "claim_id": "MECH-457",
-      "note": "DIAGNOSTIC re-test of the currently-ALIVE competence_floor leg H-consummation-binding (821 eliminated reading VOIDED as an instrument artefact, competence_floor_instrument_audit_2026-08-07 sec 3d; leg reset to alive 2026-08-07). Calibrated re-run per competence_floor_recurrence_repose_2026-08-08 sec 4 (the sanctioned exception to the qid growth_restriction: a re-run of the one alive leg, not a new fan-out). FIX vs 821: BC install dose 300->1200 (empirical calibration 2026-08-08 seed42: 300->post_bc 3.1, 1200->25.05, 2400->21.05 saturated -- rare CONSUME action under-cloned at low dose in the 6-action consummatory env, an install class-imbalance defect NOT a new mechanism); USABLE install readiness floor 10.0 not the trivial 1.0; foraging RATE (resources/tick) reported alongside composite resources/episode (instrument fix ree-v3 0550a2f). RE-DERIVE BRAKE released: diagnostic re-test of an alive leg; upstream substrate mech457_consummatory_act + mech457_approach_extinction + consummatory_aware_reference_policies BUILT+VALIDATED 2026-07-25. GOV-REUSE-1: retained_fraction of a USABLE-install consummatory approach-driven refinement with rate/tick is recorded in NO manifest (821 install degenerate; consummatory action space new 2026-07-25) -> must run.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-08-08T11:16:48Z"
-      },
-      "conditions": 5,
-      "episodes_per_run": 3000,
-      "experiment_type": "v3_exq_821a_mech457_consummation_binding",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-896",
       "title": "MECH-322 sleep-replay carve-out: confirmatory evidence-purpose safety + survival confirmer",
       "script": "experiments/v3_exq_896_mech322_replay_confirmatory_evidence.py",
