@@ -8,6 +8,22 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-893",
+      "title": "MECH-232 DA representational-expansion confirmer (scoring-eligible, GOV-CONFIRM-1)",
+      "script": "experiments/v3_exq_893_mech232_da_representational_expansion_confirmer.py",
+      "priority": 55,
+      "machine_affinity": "any",
+      "estimated_minutes": 5,
+      "claim_id": "MECH-232",
+      "note": "GOV-CONFIRM-1 scoring-eligible confirmer for MECH-232 (provisional, lit_conf 0.779, genuine_exp_count=0). Reads the SAME wall-independent representation signature as the SD-024 diagnostic V3-EXQ-766a -- density expansion ratio (DA-ON/DA-OFF) + weight-independent density-follower approach with the value gradient zeroed -- but experiment_purpose=evidence so it contributes genuine experimental confidence (766a was diagnostic -> scoring_excluded). GOV-REUSE-1 check: decisive readout (median_expansion_ratio, approach_density_zeroed) IS recorded in 766a on substrate_hash f92a600c..., but only as a scoring-excluded diagnostic; a reanalysis artifact would NOT move claim_evidence scoring (indexer does not ingest reanalysis/), so a scoring-eligible run is required. Seeds 8-15 are INDEPENDENT of 766s 0-7 -> genuine replication, readout recorded nowhere. Substrate readiness: 2.5a probe OK (4 centers/DA, density weight-independent live); 2.5b re-derive brake count 0; 2.5c no corrupting path overlap. Smoke PASS (median_expansion 2.37, approach_on 0.96, dens_zeroed 0.88, val_zeroed 0.00).",
+      "status": "pending",
+      "conditions": 2,
+      "confirms": "V3-EXQ-766a",
+      "episodes_per_run": 48,
+      "experiment_type": "v3_exq_893_mech232_da_representational_expansion_confirmer",
+      "seeds": 8
+    },
+    {
       "queue_id": "V3-EXQ-892",
       "title": "MECH-322 replay-origin corroboration survival under realistic conditions",
       "script": "experiments/v3_exq_892_mech322_replay_corroboration_survival.py",
@@ -26,22 +42,6 @@
       "episodes_per_run": 120,
       "experiment_type": "v3_exq_892_mech322_replay_corroboration_survival",
       "seeds": 8
-    },
-    {
-      "queue_id": "V3-EXQ-893",
-      "title": "MECH-232 DA representational-expansion confirmer (scoring-eligible, GOV-CONFIRM-1)",
-      "experiment_type": "v3_exq_893_mech232_da_representational_expansion_confirmer",
-      "script": "experiments/v3_exq_893_mech232_da_representational_expansion_confirmer.py",
-      "priority": 55,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 5,
-      "episodes_per_run": 48,
-      "seeds": 8,
-      "conditions": 2,
-      "claim_id": "MECH-232",
-      "confirms": "V3-EXQ-766a",
-      "note": "GOV-CONFIRM-1 scoring-eligible confirmer for MECH-232 (provisional, lit_conf 0.779, genuine_exp_count=0). Reads the SAME wall-independent representation signature as the SD-024 diagnostic V3-EXQ-766a -- density expansion ratio (DA-ON/DA-OFF) + weight-independent density-follower approach with the value gradient zeroed -- but experiment_purpose=evidence so it contributes genuine experimental confidence (766a was diagnostic -> scoring_excluded). GOV-REUSE-1 check: decisive readout (median_expansion_ratio, approach_density_zeroed) IS recorded in 766a on substrate_hash f92a600c..., but only as a scoring-excluded diagnostic; a reanalysis artifact would NOT move claim_evidence scoring (indexer does not ingest reanalysis/), so a scoring-eligible run is required. Seeds 8-15 are INDEPENDENT of 766s 0-7 -> genuine replication, readout recorded nowhere. Substrate readiness: 2.5a probe OK (4 centers/DA, density weight-independent live); 2.5b re-derive brake count 0; 2.5c no corrupting path overlap. Smoke PASS (median_expansion 2.37, approach_on 0.96, dens_zeroed 0.88, val_zeroed 0.00)."
     }
   ]
 }
