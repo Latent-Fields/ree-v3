@@ -8,25 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-905",
-      "title": "MECH-075 DORSAL LEG: LC-arousal attractor-basin-width probe (Kempadoo et al. 2016)",
-      "script": "experiments/v3_exq_905_mech075_dorsal_lc_arousal_probe.py",
-      "priority": 50,
-      "machine_affinity": "any",
-      "estimated_minutes": 90,
-      "claim_id": "MECH-075",
-      "note": "First DORSAL-leg MECH-075 probe to use a genuinely LC-labeled arousal signal (not the VTA/RPE-shaped E1-MSE channel V3-EXQ-192/192a/209/230 all reused) and a real behavioral basin-width metric (e2.cand_world_pairwise_dist candidate-trajectory diversity, not grid-exploration coverage -- the confound the claim's own text names). ID NOTE: authored as V3-EXQ-902, bumped to 905 -- 902 was claimed by an unrelated concurrent experiment (SD-048 interoceptive-noise sweep) that landed on origin/main first; script/docstring/EXPERIMENT_TYPE updated throughout, re-validated clean after rename (validate_experiments.py --strict: OK) and re-smoke-tested (identical numeric output to pre-rename). Smoke preview (--dry-run, 5 warmup + 3 eval eps, steps=20, NOT the real 150/50/200 budget): P0 readiness (arousal signal clears 0.001 floor: 0.0192) and C1 (manipulation check) both PASS; C2 (load-bearing, basin_width_gap >= 15% relative in >=2/3 seeds) FAILS -- gap ~1e-7 across all 3 seeds, i.e. GATED and ABLATED basin widths are numerically indistinguishable at this tiny budget. Self-routes evidence_direction=weakens with label dorsal_lc_arousal_no_attractor_widening -- if this holds at the real budget it would be the FIRST genuinely informative falsification of the dorsal leg (all three priors failed on the precondition itself, per the claim's own evidence_quality_note). Needs the real seed grid to confirm; a 20-step/5-episode smoke is not powered to detect a real effect. Sibling: V3-EXQ-903 (ventral leg, same claim, opposite predicted direction -- basin NARROWING under VTA-RPE gain vs this leg's tested WIDENING under LC-arousal gain). [chip_ref: chip-20260808-mech075-dorsal-ventral-probes]",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-08-08T20:11:52Z"
-      },
-      "conditions": 2,
-      "episodes_per_run": 150,
-      "experiment_type": "v3_exq_905_mech075_dorsal_lc_arousal_probe",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-906",
       "title": "Full-stack observational Fishtank showcase (today's substrate, rich telemetry)",
       "script": "experiments/v3_exq_906_full_stack_observational_fishtank.py",
@@ -94,7 +75,11 @@
       "supersedes": "V3-EXQ-228a",
       "claim_id": "ARC-032",
       "note": "GOV-REUSE-1: checked 228/228a manifests + all scripts referencing THETA_ZEROED/THETA_ACTIVE/theta_bypass -- no existing run tests the theta-bypass ablation on the scaffolded_sd054_onboarding curriculum (only 228/228a exist, both on the old causal_grid_world substrate, both precondition-failed) -- decisive readout not recoverable, run. Re-derive brake: 0 substrate_ceiling autopsies for ARC-032, not braked. Substrate-path overlap: no open corrupting substrate_queue entries touch theta_buffer.py/agent.py/e3_selector.py/hippocampal/scaffolded_sd054_onboarding.py. Design: ONE agent trained per seed through the full onboarding curriculum (866a's validated FULL config + budgets, empirically clears z_goal_norm >> 0.05 -- goal_norm_post_p1 0.45-0.52 across all 3 dry-run seeds), then deep-copied post-P1 into THETA_ACTIVE/THETA_ZEROED clones so the theta patch is the ONLY difference at measurement time (avoids confounding training-time policy quality with theta's decision-time value, which naive pre-training patching would do on this curriculum since its training loop -- unlike 228a's simplified warmup -- calls generate_trajectories() throughout). Seeds 42/43/45 (not 44: known reef-config instability, EXQ-539-540/538a). Smoke (--dry-run) ran clean end-to-end, precondition would clear on all seeds, harm_rate differs measurably between conditions (patch is live, not inert).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-3",
+        "claimed_at": "2026-08-08T23:24:08Z"
+      },
       "conditions": 2,
       "episodes_per_run": 250,
       "experiment_type": "v3_exq_228b_arc032_theta_bypass_onboarded",
