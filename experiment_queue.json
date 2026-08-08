@@ -28,27 +28,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-887b",
-      "title": "SD-014 node-valence stronger-gain retest (incentive-sensitization rate 0.10 / max 8.0 / coupling 2.5)",
-      "script": "experiments/v3_exq_887b_sd014_node_valence_repfunc_sensitized.py",
-      "priority": 6,
-      "machine_affinity": "any",
-      "estimated_minutes": 40,
-      "supersedes": "V3-EXQ-887a",
-      "claim_id": "SD-014",
-      "backlog_id": "EVB-0245",
-      "note": "Retest of SD-014 incentive-sensitization decouple (ree-v3 d8a94bd) at a STRONGER gain: rate 0.05->0.10, max 4.0->8.0, coupling 1.0->2.5. Byte-identical instrument to 887/887a. 887a (default gain) was FAIL/weakens but a genuine partial improvement -- seed 2026 cleared both load-bearing criteria (tau 0.835, |Spearman(w,l)| 0.896), seeds 42/137 missed narrowly (tau 0.852-0.863, |Spearman| 0.919-0.925). Autopsy (failure_autopsy_V3-EXQ-887a_2026-08-08, confirmed) found the clearing seed had the LOWEST raw exposure -> mechanism is drive-level-gated not exposure-count-gated -> stronger gain, not more episodes. Strengthening weighted toward coupling (saturation-safe post-accumulation multiplier); rate/max only 2x to lift the 4.0 ceiling that likely clipped 887a's inter-node g-spread without collapsing into uniform saturation (which C2 would catch as a fresh failure). GOV-REUSE-1: new manipulation (no run carries these gain values), decisive C1/C2/C3 readout not recorded/derivable -> run. Substrate verified on origin/main (update_wanting_sensitized + config knobs; d8a94bd, 32edd553 ancestors). Landed via throwaway worktree off origin/main (shared ree-v3 checkout was 30-behind + dirty).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-08-08T09:25:58Z"
-      },
-      "conditions": 1,
-      "episodes_per_run": 40,
-      "experiment_type": "v3_exq_887b_sd014_node_valence_repfunc_sensitized",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-896",
       "title": "MECH-322 sleep-replay carve-out: confirmatory evidence-purpose safety + survival confirmer",
       "script": "experiments/v3_exq_896_mech322_replay_confirmatory_evidence.py",
