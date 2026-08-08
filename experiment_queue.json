@@ -152,6 +152,21 @@
       "episodes_per_run": 250,
       "experiment_type": "v3_exq_866c_inv034_q021_goal_maintenance_agency_onboarded",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-902",
+      "title": "SD-048 default-scale interoceptive-noise 4-arm calibration sweep",
+      "experiment_type": "v3_exq_902_sd048_default_scale_calibration_sweep",
+      "script": "experiments/v3_exq_902_sd048_default_scale_calibration_sweep.py",
+      "priority": 5,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 5,
+      "episodes_per_run": 140,
+      "seeds": 3,
+      "conditions": 4,
+      "claim_id": "SD-048",
+      "note": "Originally pre-registered SD-048 validation sweep (REE_assembly/docs/architecture/sd_048_interoceptive_noise_dynamics.md), never queued until now. V3-EXQ-512a (2026-05-04) PASSED at noise_scale=3.0 but explicitly left v3_pending TRUE pending this default-scale (ARM_0 OFF / ARM_1 0.25x / ARM_2 1.0x-default / ARM_3 4.0x) sweep. GOV-REUSE-1 check: V3-EXQ-511/512/512a checked, all pre-date the 2026-07-12 recording standard (no substrate_hash) and none ran this full 4-arm comparator-gap grid under one consistent methodology -- decisive readout (selectivity_gap/quiet_gap at ARM_1 0.25x and ARM_3 4.0x) absent from every prior manifest -> run. FALLBACK: if ARM_1/2/3 all fail C1+C2, route ARC-058 Level 2 comparator from V3-tractable to substrate_conditional per claims.yaml SD-048 what_would_answer falsifying branch. Relevant, not tagged: ARC-058 (primary target), ARC-033 (competing claim, same substrate benefits both)."
     }
   ]
 }
