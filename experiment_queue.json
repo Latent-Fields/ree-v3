@@ -70,6 +70,22 @@
       "episodes_per_run": 250,
       "experiment_type": "v3_exq_866c_inv034_q021_goal_maintenance_agency_onboarded",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-812a",
+      "title": "MECH-295 Layer-C cue-authority harness repair (candidate_summary_source=e2_world_forward), successor to V3-EXQ-812 (INVALID_HARNESS)",
+      "experiment_type": "v3_exq_812a_mech295_cue_authority_sd054",
+      "script": "experiments/v3_exq_812a_mech295_cue_authority_sd054.py",
+      "priority": 50,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 210,
+      "episodes_per_run": 250,
+      "seeds": 3,
+      "conditions": 1,
+      "supersedes": "V3-EXQ-812",
+      "claim_ids": [],
+      "note": "Harness-repair successor to V3-EXQ-812 (confirmed autopsy 2026-07-24, failure_autopsy_backlog_2026-07-24.json: INVALID_HARNESS -- C1_cue_fires PASS but C0/C2/C3 FAIL, candidate_proximity_evaluable precondition measured 0.0 vs 0.667, mean_proximity_range exactly 0.0 every seed/arm, c3_diff_in_diff ~1e-9 = numerically zero). Root cause: 812's REEConfig trains SD-056 (e2_action_contrastive_enabled=True) but never sets candidate_summary_source='e2_world_forward', so REEAgent._candidate_world_summaries returns None and MECH-295's per-candidate proximity read falls back to the collapsed proposer path (~0 cross-candidate spread under monostrategy by construction; ARC-065 GAP-A, landed 2026-06-07, a month before 812's run). Fix (ONLY substantive change vs 812): candidate_summary_source='e2_world_forward' added to _make_config(); no other pre-registered gate/threshold/curriculum/seed changed. GOV-REUSE-1: decisive readout (selection-authority diff-in-diff on this exact scaffolded_sd054_onboarding substrate + curriculum) is not recorded elsewhere -- V3-EXQ-649/682 validated the same config fix but on a different, harm-free harness -- not recoverable, run queued. Re-derive brake checked: no >=2 substrate_ceiling autopsies tag MECH-295 at this granularity -- not braked. Smoke PASS (--dry-run, exit 0); validate_experiments --strict OK. Dry-run confirms the fix directly: proximity_range now 0.0052/0.0053 (was exactly 0.0 in 812), C0=True (was False in 812); C2/C3 not reached in the smoke run only because the tiny dry-run budget undertrains the harm pathway (unrelated to this fix, inherited unchanged from the 812 driver). Precedent: V3-EXQ-649 (original GAP-A validation) and V3-EXQ-682 (PASS, no_collapse_reproduced, summary_pairwise_dist_mean=0.065). This is the standing readiness gate named in drives_motivation_v4_plan.md DRV-4 and the last gate on MECH-395. chip: chip-20260808-v3exq812-cue-authority-harness-repair."
     }
   ]
 }
