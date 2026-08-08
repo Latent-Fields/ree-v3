@@ -47,6 +47,21 @@
       "episodes_per_run": 40,
       "experiment_type": "v3_exq_887b_sd014_node_valence_repfunc_sensitized",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-896",
+      "title": "MECH-322 sleep-replay carve-out: confirmatory evidence-purpose safety + survival confirmer",
+      "script": "experiments/v3_exq_896_mech322_replay_confirmatory_evidence.py",
+      "priority": 55,
+      "machine_affinity": "any",
+      "estimated_minutes": 420,
+      "claim_id": "MECH-322",
+      "note": "GOV-CONFIRM-1 confirming run for MECH-322, IGW-20260808-226. lit_conf=0.76 but genuine_exp_count=0 in claim_evidence.v1.json: MECH-322's three prior touchpoints (V3-EXQ-873 mixed/FAIL, 873a PASS/supports, 892 PASS/supports) are ALL experiment_purpose=diagnostic and structurally excluded from governance confidence scoring; this is the first EXPERIMENT_PURPOSE=evidence confirmer for the claim. WALL-INDEPENDENT representation/functional-signature design (not the claim's own overnight-behavioural-latency prediction, which is competence-wall-bound and out of scope for this lane): 2 arms (ARM_STRICT_FLAG_OFF MECH-094-strict safety comparator vs ARM_REPLAY_ON MECH-322 carve-out), 12 seeds, identical matched candidate per seed across arms (manipulation never touches pre-checkpoint policy). Pre-registered confirmatory criteria: C1 (safety, load-bearing) ARM_STRICT_FLAG_OFF mints ZERO replay-origin chunks among cleared seeds; C2 (mechanism fires, load-bearing) ARM_REPLAY_ON mint fraction >= 1.0 among cleared seeds (replicates 873a/892's validated 7/7); C3 (HEADLINE, load-bearing, NOVEL) ARM_REPLAY_ON minted-chunk survival-to-end-of-run rate under the realistic N=75 corroboration deadline >= 0.30 (pre-registered floor, conservative relative to 892's diagnostic prior of 0.571 on n=7). GOV-REUSE-1: decisive readout is the OFF-vs-ON contrast under the realistic deadline; no existing manifest carries both (873a measured OFF-vs-ON mint rate only at the accelerated N=15 deadline; 892 measured realistic-deadline survival only, with no OFF arm) -> not recoverable -> run. RE-DERIVE BRAKE: 0 counted substrate_ceiling autopsies on MECH-322 (873: measurement_test_design_defect action=none; 873a: standard/supports action=none; 892: descriptive closure action=none) -> not braked. SUBSTRATE-PATH OVERLAP GATE: no open corrupting substrate_queue entry touches policy_chunking.py or the chunk_* config surface -> clear. Substrate BUILT+VALIDATED (ree-v3/CLAUDE.md ARC-071/MECH-322 entries, IMPLEMENTED 2026-07-22); empirically re-confirmed by direct source read of record_replay_sequence's AND-chain order (flag checked first, unconditional refusal) and ChunkLibrary's per-episode deadline/corroboration bookkeeping (892's own empirical confirmation, unchanged substrate). ETHICS PREFLIGHT: all-false/allow (V3 harm streams are pre-ethical instrumentation, SENT-0). SMOKE (1 seed, 8-episode/4-episode-deadline dry-run) PASS mechanically on both the shared checkout and a fresh origin/main throwaway worktree (identical output, confirming no API drift): C1/C2 hold trivially at smoke scale, C3 correctly reads FAIL (window too short for corroboration to occur, as expected -- not a load-bearing smoke result); validate_experiments --strict OK, 0 warnings. Landed via throwaway worktree off origin/main (shared ree-v3 checkout was 35-behind + dirty with other sessions' live WIP).",
+      "status": "pending",
+      "conditions": 2,
+      "episodes_per_run": 120,
+      "experiment_type": "v3_exq_896_mech322_replay_confirmatory_evidence",
+      "seeds": 12
     }
   ]
 }
