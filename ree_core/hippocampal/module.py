@@ -168,6 +168,24 @@ class HippocampalModule(nn.Module):
         self._reverse_fraction: float = getattr(config, "reverse_replay_fraction", 0.3)
         self._random_fraction: float = getattr(config, "random_replay_fraction", 0.2)
 
+        # MECH-165 observability (2026-08-08). diverse_replay() records which
+        # modes actually fired, so a validation re-run routed through the
+        # PRODUCTION path (agent._do_replay -> diverse_replay, which DISCARDS the
+        # returned trajectories and records nothing) can still observe that
+        # reverse replay fired -- the EXQ-244a re-run's non-degeneracy
+        # precondition #1 (reverse_replayed > 0 must be observable). Purely
+        # additive accounting: consumes no RNG and does not alter control flow,
+        # so diverse_replay stays bit-identical to every landed run.
+        # _last_diverse_replay_diagnostics: counts from the MOST RECENT call.
+        # _diverse_replay_mode_counts: cumulative across all calls on this module.
+        self._last_diverse_replay_diagnostics: Dict[str, int] = {}
+        self._diverse_replay_mode_counts: Dict[str, int] = {
+            "reverse": 0,
+            "forward": 0,
+            "random": 0,
+            "calls": 0,
+        }
+
         # MECH-267 diagnostics: last operating_mode passed in and the noise
         # scale that was applied. Both None when mode conditioning is disabled
         # or operating_mode is not supplied.
@@ -2517,6 +2535,10 @@ class HippocampalModule(nn.Module):
             List of Trajectory objects
         """
         trajectories: List[Trajectory] = []
+        # MECH-165 observability: tally which modes fired this call (see __init__).
+        diagnostics: Dict[str, int] = {
+            "reverse": 0, "forward": 0, "random": 0, "total": 0
+        }
         for _ in range(num_replay_steps):
             step_mode = mode
             if step_mode == "auto":
@@ -2535,6 +2557,7 @@ class HippocampalModule(nn.Module):
                 )
                 if source is not None:
                     trajectories.append(self.reverse_replay(source))
+                    diagnostics["reverse"] += 1
             else:
                 # forward or random: delegate to existing replay()
                 step_trajs = self.replay(
@@ -2542,6 +2565,18 @@ class HippocampalModule(nn.Module):
                     drive_state=drive_state,
                 )
                 trajectories.extend(step_trajs)
+                # Attribute the delegated step to its resolved mode. "random" and
+                # "forward" both delegate to replay() in the current impl; the
+                # resolved step_mode still distinguishes them for observability.
+                diagnostics["random" if step_mode == "random" else "forward"] += len(
+                    step_trajs
+                )
+        diagnostics["total"] = len(trajectories)
+        self._last_diverse_replay_diagnostics = diagnostics
+        self._diverse_replay_mode_counts["reverse"] += diagnostics["reverse"]
+        self._diverse_replay_mode_counts["forward"] += diagnostics["forward"]
+        self._diverse_replay_mode_counts["random"] += diagnostics["random"]
+        self._diverse_replay_mode_counts["calls"] += 1
         return trajectories
 
     def compute_completion_signal(self, trajectories: List[Trajectory]) -> float:
