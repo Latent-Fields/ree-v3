@@ -124,6 +124,22 @@
       "seeds": 3
     },
     {
+      "queue_id": "V3-EXQ-904",
+      "title": "ARC-070 decomposition trigger-selectivity + zoom-in confirming DV (GOV-CONFIRM-1 first exp evidence)",
+      "script": "experiments/v3_exq_904_arc070_decomposition_trigger_selectivity.py",
+      "priority": 50,
+      "machine_affinity": "any",
+      "estimated_minutes": 15,
+      "claim_id": "ARC-070",
+      "backlog_id": "EVB-0236",
+      "note": "GOV-CONFIRM-1 (IGW-20260808-226): ARC-070 FIRST experimental evidence (genuine_exp_count=0, lit_conf 0.855). WALL-INDEPENDENT functional-signature confirming DV. region_vs is caller-supplied to PolicyDecomposition.evaluate() (module.py:830), injected as a controlled IV via _region_vs override -- sidesteps the V_s-saturation env wall that self-routed 816/820/830 substrate_not_ready. Confirms ARC-070's OPERATION half (given a trigger, the proposer re-segments into finer primitives, selectively). Headline load-bearing criterion = ARM_ON_HIGHVS: the real MECH-288 detector drives decomposition over genuine rollout latents with the V_s path arithmetically silenced (genuine, NOT injection-forced). vs_trigger conditionality is a MANIPULATION CHECK, not claim weight (DV-symmetry, 604c). Does NOT confirm trigger-fires-under-natural-PE (env-blocked; separate behavioural MECH-321 line). GOV-REUSE-1: decisive readout recorded in no prior manifest (815 readiness / 839 reachability measured only under natural saturated region_vs) -> run. ARM_ON_DEPTHCAP uses decomposition_depth_cap=1 which emits an EXPECTED 'DEGENERATE' UserWarning -- that IS the R3 mark-unreliable behaviour under test, not a bug. Re-derive brake ARC-070 count 0. Smoke PASS (all 5 criteria, direction supports). backlog_id EVB-0236 / proposal EXP-0082.",
+      "status": "pending",
+      "conditions": 4,
+      "episodes_per_run": 20,
+      "experiment_type": "v3_exq_904_arc070_decomposition_trigger_selectivity",
+      "seeds": 4
+    },
+    {
       "queue_id": "V3-EXQ-190a",
       "title": "MECH-022 hypothesis injection probe -- well-powered successor to V3-EXQ-190",
       "script": "experiments/v3_exq_190a_mech022_hypothesis_injection_probe_wellpowered.py",
