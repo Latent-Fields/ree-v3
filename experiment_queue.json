@@ -83,6 +83,38 @@
       "experiment_purpose": "evidence",
       "experiment_type": "v3_exq_876a_mech025_doing_mode_convergence_redesign",
       "seeds": 5
+    },
+    {
+      "queue_id": "V3-EXQ-903a",
+      "title": "MECH-075 ventral VTA-RPE probe -- instrumented re-run (903a): per-seed episode-length/termination recording + 5 seeds",
+      "script": "experiments/v3_exq_903a_mech075_ventral_vta_rpe_probe.py",
+      "experiment_type": "v3_exq_903a_mech075_ventral_vta_rpe_probe",
+      "priority": 40,
+      "machine_affinity": "any",
+      "estimated_minutes": 330,
+      "supersedes": "V3-EXQ-903",
+      "claim_id": "MECH-075",
+      "seeds": 5,
+      "conditions": 1,
+      "episodes_per_run": 150,
+      "status": "pending",
+      "note": "Instrumented re-run of V3-EXQ-903 per failure_autopsy_mech075-vta-lc-cluster_2026-08-09 (ventral/VTA-RPE leg). 903 self-routed substrate_not_ready_requeue, confirmed correct: P0 readiness passed in only 1/3 seeds (seed 7), the seed-majority gate (n_p0a_pass=1) correctly FAILED despite the top-level seed-mean preconditions[].met reading true. THE CONFOUND: seed 7's apparent pass coincided with ~25x fewer eval samples (n_dt_samples 292 vs 6774-7956), consistent with near-immediate episode termination -- but 903 recorded no episode-length/termination-cause, so the confound could only be inferred. 903a records per-seed/per-condition/positive-control episode LENGTH + TERMINATION CAUSE (info[done_cause]: health_depleted vs step_budget_exhausted; condition_stats[*].mean_episode_length/.termination_causes, seed_records[*].posctrl_episode_stats, .n_posctrl_valence_samples), so a future P0 read is trustable against the actual per-seed sampling regime. Also raises seed count 3->5 (majority 2/3->3/5) and POSCTRL 5->10 to cut small-sample P0a correlation volatility. Mechanism/signal/terrain/phased-training/criteria UNCHANGED. GOV-REUSE-1: the per-seed episode-length/termination readout is absent from 903's manifest and not derivable by reanalysis (903 ran at the old instrumentation) -> genuine new run. Re-derive brake does NOT fire (autopsy re_derive_brake.fired=false; zero prior substrate_ceiling autopsies for MECH-075). Prefer cloud (903 ran on ree-cloud-4, ~175 min for 3 seeds)."
+    },
+    {
+      "queue_id": "V3-EXQ-905a",
+      "title": "MECH-075 dorsal LC-arousal probe -- LC_GAIN recalibration (905a): re-derived gain 2.0 -> 80.0 for a decisive mode_scale",
+      "script": "experiments/v3_exq_905a_mech075_dorsal_lc_arousal_probe.py",
+      "experiment_type": "v3_exq_905a_mech075_dorsal_lc_arousal_probe",
+      "priority": 40,
+      "machine_affinity": "any",
+      "estimated_minutes": 210,
+      "supersedes": "V3-EXQ-905",
+      "claim_id": "MECH-075",
+      "seeds": 3,
+      "conditions": 2,
+      "episodes_per_run": 150,
+      "status": "pending",
+      "note": "LC_GAIN recalibration of V3-EXQ-905 per failure_autopsy_mech075-vta-lc-cluster_2026-08-09 (dorsal/LC-arousal leg). 905 was the FIRST non-degenerate manipulation test of this leg: P0 (signal magnitude) and C1 (manipulation check) both cleanly PASSED, correcting the signal-magnitude defect of all 3 prior attempts (EXQ-192a/209/230). But load-bearing C2 (basin-width widening >=15%) failed 0/3 with near-zero sign-inconsistent gaps (~1e-6). Autopsy traced this to the manipulation gain LC_GAIN=2.0 -- inherited UNCHANGED from the already-FAILED EXQ-192a's novelty_gain=2.0, never re-derived: at the observed eval-phase arousal_ema (0.0022-0.0029), mode_scale = 1 + LC_GAIN*arousal_ema = 1.004-1.006 (0.4-0.6% CEM-noise lift), an order of magnitude too small to move a 15%-scale basin width. Reclassified from filed 'weakens' to measurement_test_design_defect / non_contributory (underpowered manipulation, NOT a falsification). 905a re-derives LC_GAIN=80.0 from the observed 905 eval arousal_ema [0.002196,0.002726,0.002851] (mean ~0.00259; target mode_scale ~1.2 => 0.2/0.00259 ~= 77 -> 80), landing mode_scale ~1.18-1.23 (decisive ~1.1-1.3 band, by analogy with sibling 903's RPE_GAIN=50 derivation). arousal_ema is downstream-independent of LC_GAIN so the derivation is valid; 905a additionally records the realized per-seed cem_noise_scale (seed{i}_gated_cem_noise_scale) to audit the applied mode_scale. Channel/terrain/criteria/thresholds UNCHANGED; only the gain constant. GOV-REUSE-1: no recorded run applies LC_GAIN=80, and the C2 readout under a decisive manipulation is not derivable from 905's underpowered manifest -> genuine new run. Re-derive brake does NOT fire (autopsy re_derive_brake.fired=false; zero prior substrate_ceiling autopsies for MECH-075). substrate_paths defect is script-local (this gain constant), not a shared substrate gap. Prefer cloud (905 ran on ree-worker-3, ~192 min for 3 seeds x 2 conditions)."
     }
   ]
 }
