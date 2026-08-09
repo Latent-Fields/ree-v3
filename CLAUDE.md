@@ -5745,6 +5745,75 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
   See SD-035, MECH-046, MECH-074, MECH-074a, MECH-074b, MECH-074c,
   MECH-074d, SD-011, SD-032a, SD-032c, Q-036.
 
+- SD-035 second pass / MECH-074d: amygdala.bla_trainable_attribution_head
+  -- IMPLEMENTED 2026-08-09.
+  Module: ree_core/amygdala/attribution_head.py (BLAAttributionHead,
+  BLAAttributionHeadConfig). The learnable attribution head MECH-074d's
+  own 2026-04-21 registration text deferred as "a deliberate second pass".
+  Config: REEConfig.bla_attribution_head (default
+  "contribution_threshold" = the legacy fixed non-trainable proxy, so the
+  head is NOT constructed and behaviour is bit-identical to
+  pre-2026-08-09; set "trainable" to enable). Twelve tuning params
+  bla_attr_head_* (key_dim 16, lr 1e-3, temperature_init 0.5,
+  entropy_weight 0.02, warmup_steps 200, train True, ...).
+  Data flow: cat(z_self, z_world) + ContextMemory.memory (BOTH DETACHED)
+  -> cosine query/key attribution a = softmax(q.k / tau) -> BLAAnalog
+  candidate_code_contributions -> unchanged PE-sigma gate + Moita-2004
+  top-k -> _apply_bla_context_remap. Supervised by
+  MSE(W_p (sum_i a_i m_i), z_harm_a) / Var_ema(z_harm_a)
+  + entropy_weight * H_norm(a), stepped in agent.sense() AFTER the gate
+  consumed this tick's attribution.
+  Single entry point on purpose: both implementations dispatch through
+  REEAgent._get_context_memory_code_contributions, which is what the
+  V3-EXQ-894/894a instrument wraps to record the attribution the gate
+  actually saw.
+  Backward compatible: disabled by default; existing experiments
+  unaffected. Below warmup_steps the head returns None and the caller
+  falls back to the legacy proxy, so a random-init head never drives real
+  ContextMemory writes.
+  Motivation: V3-EXQ-894 + V3-EXQ-894a (both FAIL/weakens) showed the
+  fixed rule's context-selectivity does not respond to PE-threshold
+  recalibration -- mass-excess falls monotonically with sigma
+  (Spearman -1.0) across a 4-point sweep, refuting the over-firing /
+  dilution alternative. Autopsy: competence_implementation_gap
+  (failure_autopsy_V3-EXQ-894a_2026-08-08, confirmed).
+  Biological basis: Moita et al 2004 -- the contextual-vs-auditory
+  remapping dissociation DEVELOPS OVER TRAINING, i.e. real BLA
+  attribution is a learned cue-outcome association. That is the property
+  a fixed threshold rule structurally cannot have.
+  Four measured design constraints, all recorded in the module docstring
+  (do not "simplify" any of them):
+    (a) the predictor sees ONLY the attended read, never the raw state
+        (attention-shortcut failure);
+    (b) W_p is LINEAR, so z_hat = sum_i a_i (W_p m_i) and a_i is
+        interpretable as slot i's own harm prediction being trusted;
+    (c) bias=False throughout + COSINE scoring -- with a raw scaled dot
+        product over ContextMemory's 0.01-scale slot init, attention is
+        EXACTLY uniform (measured: max weight 0.0625 = 1/16, unmoved
+        after 259 steps), the SD-016 Part A pathology by a second route;
+    (d) the MSE is divided by a running target variance -- z_harm_a is
+        small enough that a raw MSE (1.9e-4) was ~100x below the entropy
+        term (0.02), silently making the sparsity penalty the objective.
+  Known instrument precondition, NOT a property of the head: under the
+  legacy ContextMemory write path the slot bank homogenises to
+  off-diagonal cosine 1.0000 within ~24 episodes (the V3-EXQ-436c
+  sigmoid-midpoint payload collapse). No attribution rule can
+  differentiate identical slots. Validation MUST restore a differentiated
+  store per episode (the 894a harness already does, via restore_base) or
+  set contextmemory_gated_content_write=True.
+  MECH-094: not applicable -- the head never trains or attributes on
+  simulation/replay ticks; weights are waking-stream only.
+  Phased training: YES for the head, and it is enforced structurally --
+  every input is detached (no gradient reaches E1 / ContextMemory / the
+  latent stack) and training is skipped whenever the agent is in eval()
+  mode, so a frozen-head P2 measures frozen weights.
+  Design doc: REE_assembly/docs/architecture/sd_035_amygdala_analog.md
+    ("Second pass: trainable attribution head").
+  Validation experiment: V3-EXQ-894b (queued 2026-08-09) -- same C1/C2
+    instrument as 894/894a; acceptance attribution_mass_excess > 0.05 AND
+    context_jaccard_gap > 0.05 on >= 2/3 seeds at some operating point.
+  See MECH-074d, SD-035, SD-016, MECH-073, ARC-033.
+
 ## SD-036 + MECH-279: GABAergic Cross-Stream Decay + PAG Freeze-Gate (2026-04-22)
 - SD-036: regulators.gabaergic_cross_stream_decay -- IMPLEMENTED 2026-04-22.
   Module: ree_core/regulators/gabaergic_decay.py (GABAergicDecayRegulator,
