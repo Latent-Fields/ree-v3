@@ -44,6 +44,22 @@
       "episodes_per_run": 220,
       "experiment_type": "v3_exq_909_sleep_dv_fishtank_multifiring",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-910",
+      "title": "MECH-489 (SD-099) defensive-orienting response: ablation validation vs 906b ground-truth events",
+      "script": "experiments/v3_exq_910_mech489_defensive_orienting_validation.py",
+      "priority": 60,
+      "machine_affinity": "any",
+      "estimated_minutes": 70,
+      "claim_id": "MECH-489",
+      "note": "Validation experiment for the SD-099/MECH-489 defensive-orienting response chain implemented this session via /implement-substrate (see ree_core/pag/defensive_orienting.py, REE_assembly/docs/architecture/sd_099_defensive_orienting_response.md). Two-arm ablation (orienting_off baseline vs orienting_on at shipped config defaults) on the IDENTICAL 906b full-stack substrate/curriculum/env, reused via import (not copy-paste) from v3_exq_906b_full_stack_observational_fishtank.py. Pre-registered pass criteria from observational_review_V3-EXQ-906b_2026-08-09.md Section 13-A/12h/12b: (a) does orienting_trigger_fired align (within 3 steps) with each of the three ground-truth injected event types (limb_damage_injected/external_hazard_injected/world_rule_shift_occurred) at >=0.5 alignment rate -- the specific event set Section 12h found the naive single-channel residue_surprise>p90 design under-fires on; (b) does the ON-arm's P(moved@t+1|trigger) and P(mode-change@t+1|trigger) clear the pre-build incidental baselines (44.3%/15.4%, Section 12b, single-seed all-ON with no purpose-built mechanism) by >=10 percentage points. Diagnostic purpose (first test of a freshly-built mechanism); readiness precondition self-routes substrate_not_ready_requeue if pooled ground-truth event counts are too sparse to measure (matches 906b's own single-seed counts of 15-31 per field over 3909 steps as the expectation). GOV-REUSE-1 checked: the decisive readouts (trigger-vs-ground-truth-event alignment; ON-arm coupling deltas) do not exist in any prior manifest -- the mechanism did not exist before this session; not recoverable, ran fresh. Smoke: validate_experiments.py --strict OK; dry-run confirms wiring (no crash, progress instrumentation, z_goal_stream active_frac=0.998 no writer defect) and correctly self-routes substrate_not_ready_requeue at toy dry-run scale (0 injected events in 2x30-step segments) -- same expected pattern as 906b's own dry-run.",
+      "status": "pending",
+      "claim_ids": ["MECH-489"],
+      "conditions": 2,
+      "episodes_per_run": 220,
+      "experiment_type": "v3_exq_910_mech489_defensive_orienting_validation",
+      "seeds": 2
     }
   ]
 }
