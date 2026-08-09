@@ -77,13 +77,23 @@ USAGE
 
 Exit status: 0 = no findings, 1 = findings, 2 = usage/environment error.
 
-DISPOSITION. Every finding carries `evidence_recovered`: true when some
-LATER queue entry declared `supersedes: <this id>` AND that successor's
-script produced a manifest. Those are burns whose science was eventually
-done under a different id -- real defects, lower urgency. `--require-lost`
-drops them. See KNOWN DIVERGENCE in the module tests for the two cases
-(V3-EXQ-592c, V3-EXQ-610a) where the 2026-07-21 audit called this benign
-and this detector still reports it, demoted.
+DISPOSITION. Every finding carries `evidence_recovered`: true when the
+science was eventually produced anyway, by ANY of three routes, all still
+real defects at lower urgency:
+  (1) a LATER queue entry declared `supersedes: <this id>` AND that
+      successor's script produced a manifest;
+  (2) the SAME script stem produced a manifest strictly after the stint;
+  (3) RENUMBER -- an id collision was resolved by copying the driver to a
+      fresh exq number, so the SAME descriptive slug (stem minus the
+      "v[34]_exq_<number>_" prefix) ran under a DIFFERENT number after the
+      stint. Routes (1) and (2) both miss this: no `supersedes` is declared
+      and the stem differs. It is the most common collision-recovery shape
+      here -- e.g. V3-EXQ-893 -> v3_exq_894_..., V3-EXQ-673 -> v3_exq_677_...,
+      V3-EXQ-728a -> v3_exq_728b_...
+`--require-lost` drops the recovered ones. See KNOWN DIVERGENCE in the
+module tests for the two cases (V3-EXQ-592c, V3-EXQ-610a) where the
+2026-07-21 audit called this benign and this detector still reports it,
+demoted.
 """
 
 import argparse
@@ -196,6 +206,59 @@ def script_stem(script):
     return base[:-3] if base.endswith(".py") else base
 
 
+# A stem is "v[34]_exq_<number><letters>_<descriptive slug>". The RENUMBER
+# recovery route keys on the descriptive slug: an id COLLISION is resolved by
+# copying the driver to a fresh exq number (v3_exq_893_foo -> v3_exq_894_foo),
+# which declares no `supersedes` and has a DIFFERENT stem -- so neither the
+# same-stem "re-ran" route nor the `supersedes` route ever sees the recovery.
+STEM_SPLIT_RE = re.compile(r"^(v[34])_exq_(\d+[a-z]*)_(.+)$")
+
+
+def split_stem(stem):
+    """v3_exq_728b_trained_allon -> ('v3', '728b', 'trained_allon').
+
+    The number token KEEPS its letter suffix, so a renumber that differs only
+    by the letter (728 -> 728b, the V3-EXQ-728a case) still reads as a
+    DIFFERENT number. Returns (None, None, None) for a non-conforming stem.
+    """
+    if not stem:
+        return None, None, None
+    match = STEM_SPLIT_RE.match(stem)
+    if not match:
+        return None, None, None
+    return match.group(1), match.group(2), match.group(3)
+
+
+def renumber_recovery(by_stem, stem, when_after):
+    """RENUMBER recovery: did a DIFFERENT-numbered entry with the SAME
+    descriptive slug produce a manifest strictly after the stint?
+
+    Returns the recovering entry's EXQ id (e.g. "V3-EXQ-894") for the
+    disposition label, or None. `by_stem` maps stem -> iterable of manifest
+    datetimes -- both EvidenceIndex.by_stem and the module tests' fake share
+    that shape, so the slug logic has exactly one home.
+
+    Disposition ONLY, like the other two recovery routes: it demotes a
+    finding to RECOVERED, it never suppresses one. The `when_after` bound is
+    the same removed+grace the same-stem route uses, so a same-slug run that
+    predates the burn (e.g. V3-EXQ-569c/d, which ran BEFORE V3-EXQ-569a was
+    burned) does NOT count as recovery.
+    """
+    _, number, slug = split_stem(stem)
+    if not slug:
+        return None
+    matches = []
+    for other, stamps in by_stem.items():
+        ogen, onum, oslug = split_stem(other)
+        if oslug != slug or onum is None or onum == number:
+            continue
+        if any(when > when_after for when in stamps):
+            matches.append((onum, "%s-EXQ-%s" % (ogen.upper(), onum)))
+    if not matches:
+        return None
+    return sorted(matches)[0][1]
+
+
 class EvidenceIndex:
     """stem -> sorted list of manifest timestamps.
 
@@ -253,6 +316,14 @@ class EvidenceIndex:
         if not stem or stem in self.unparsed:
             return False
         return any(when > when_after for when in self.by_stem.get(stem, ()))
+
+    def renumbered_run_after(self, stem, when_after):
+        """RENUMBER recovery route -- see module-level renumber_recovery.
+
+        Disposition only. Catches the collision-renumber recovery that the
+        same-stem and `supersedes` routes both miss.
+        """
+        return renumber_recovery(self.by_stem, stem, when_after)
 
 
 # --------------------------------------------------------------------------
@@ -360,13 +431,20 @@ def find_burns(stints, successors, evidence, window_minutes, grace_minutes,
             continue
 
         # Disposition. A burn is "recovered" when the science it was meant
-        # to produce eventually got produced anyway -- either because the
-        # SAME script ran later (typically re-queued under a fresh letter),
-        # or because a declared `supersedes` successor ran. Still a real
-        # defect; lower urgency. Note the "same script ran later" arm must
-        # look strictly AFTER the stint: V4-EXQ-001 and V3-EXQ-669b both
-        # have manifests from BEFORE their burned re-add, and those runs are
-        # exactly what the re-add was trying to supersede.
+        # to produce eventually got produced anyway -- by any of THREE routes,
+        # all still a real defect at lower urgency:
+        #   (1) a declared `supersedes` successor ran;
+        #   (2) the SAME script ran later (typically re-queued under a fresh
+        #       letter that reuses the driver);
+        #   (3) RENUMBER: the same descriptive slug ran under a DIFFERENT exq
+        #       number after an id collision (v3_exq_893_foo -> v3_exq_894_foo),
+        #       which declares no `supersedes` and has a different stem, so
+        #       routes (1) and (2) both miss it. This is the route this
+        #       codebase uses most often for collisions.
+        # All three must look strictly AFTER the stint: V4-EXQ-001 and
+        # V3-EXQ-669b have manifests from BEFORE their burned re-add (exactly
+        # what the re-add was superseding), and V3-EXQ-569c/d ran BEFORE
+        # V3-EXQ-569a was burned -- none of those are recovery.
         heirs = successors.get(stint["queue_id"], [])
         recovered = [
             qid for qid, _ in heirs
@@ -375,6 +453,16 @@ def find_burns(stints, successors, evidence, window_minutes, grace_minutes,
         rerun_later = evidence.ran_after(stem, removed + grace)
         if rerun_later:
             recovered.append("(same script re-ran)")
+        # The renumber route uses plain `removed`, NOT removed+grace: the
+        # recovering run has a different stem/number, so it can never be the
+        # stint's OWN late-finishing run (the thing grace exists to exclude in
+        # the same-stem route). A collision-renumber commonly lands minutes
+        # after the burn -- V3-EXQ-893 was renumbered to 894 only 19 min
+        # after removal, inside the 120 min grace -- so removed+grace would
+        # miss the actual renumber and mis-attribute recovery to a later run.
+        renumbered = evidence.renumbered_run_after(stem, removed)
+        if renumbered:
+            recovered.append("(renumbered: %s)" % renumbered)
         findings.append({
             "queue_id": stint["queue_id"],
             "script": stint["item"].get("script"),

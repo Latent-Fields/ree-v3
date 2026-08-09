@@ -129,6 +129,10 @@ class _FakeEvidence:
     def ran_after(self, stem, when_after):
         return any(w > when_after for w in self.by_stem.get(stem, ()))
 
+    def renumbered_run_after(self, stem, when_after):
+        # Delegates to the real slug logic so the fake cannot drift from it.
+        return audit.renumber_recovery(self.by_stem, stem, when_after)
+
 
 def _utc(text):
     return dt.datetime.fromisoformat(text)
@@ -192,6 +196,18 @@ class BurnDetectorLogicTest(unittest.TestCase):
         from earlier stints. An all-time "has this stem ever run" test
         clears the burn; a stint-scoped one does not. If this reverts, the
         detector reports OK on the exact case it was built for.
+
+        This tests the FOUND/scoping property -- that the manifest leg (L3)
+        does not let a months-old same-stem run suppress the finding. It is
+        NOT a claim about the real V3-EXQ-728a's ultimate disposition. The
+        fixture here has ONLY same-stem manifests from before the stint, so
+        `evidence_recovered` is correctly False FOR THIS FIXTURE. The REAL
+        V3-EXQ-728a WAS recovered -- its science re-ran under the renumbered
+        v3_exq_728b_... (PASS, 2026-07-21), which the renumber route (C3c)
+        now demotes to RECOVERED in C7. So the earlier reading "science was
+        lost" was wrong at the corpus level; here it means only "nothing in
+        this synthetic fixture ran after the burn". 728a stays FOUND either
+        way; only its real-corpus disposition changed.
         """
         stem = "v3_exq_728_trained_allon_capability_point"
         script = "experiments/%s.py" % stem
@@ -213,7 +229,8 @@ class BurnDetectorLogicTest(unittest.TestCase):
         self.assertEqual([f["queue_id"] for f in findings], ["V3-EXQ-728a"])
         self.assertAlmostEqual(findings[0]["minutes_alive"], 1.8, places=1)
         self.assertFalse(findings[0]["evidence_recovered"],
-                         "nothing ran after the burn -- science was lost")
+                         "no later run in THIS fixture -- disposition is LOST "
+                         "here; the real 728a is recovered via 728b (C7)")
 
     # C3 -- FP3 ----------------------------------------------------------
     def test_c3_pre_cutover_is_out_of_scope_but_still_seeds_prior_life(self):
@@ -255,6 +272,64 @@ class BurnDetectorLogicTest(unittest.TestCase):
         finding = _find([stint, heir], heir_ran, successors)[0]
         self.assertTrue(finding["evidence_recovered"])
         self.assertIn("V3-EXQ-999a", finding["recovered_by"])
+
+    # C3c ----------------------------------------------------------------
+    def test_c3c_renumber_route_demotes_only_same_slug_after_stint(self):
+        """The RENUMBER recovery route -- the third disposition route.
+
+        An id collision is resolved by copying the driver to a fresh exq
+        number: the SAME descriptive slug runs under a DIFFERENT number, with
+        no `supersedes` declared and a different stem, so neither the
+        `supersedes` route nor the same-stem "re-ran" route sees it. This is
+        the shape of the three real cases demoted 2026-08-09 -- V3-EXQ-893 ->
+        v3_exq_894_..., V3-EXQ-673 -> v3_exq_677_..., V3-EXQ-728a ->
+        v3_exq_728b_... (the last differing from its recovery by only a
+        letter suffix, 728 vs 728b).
+
+        Four arms, three of them controls:
+          POSITIVE  same slug, different number, ran AFTER the stint  -> demote
+          NEG-slug  DIFFERENT slug, different number, after           -> LOST
+          NEG-time  same slug, different number, ran BEFORE the stint -> LOST
+                    (the real V3-EXQ-569a shape: 569c/d ran before it burned)
+          NEG-num   same slug, SAME number (the burn's own stem)      -> LOST
+                    (that is the same-stem route's job, not this one)
+        """
+        stint = _stint(queue_id="V3-EXQ-728a",
+                       script="experiments/v3_exq_728_capability_point.py",
+                       added="2026-07-20T19:00:11+00:00",
+                       removed="2026-07-20T19:01:59+00:00")
+
+        # POSITIVE: 728b (differs by only a letter) ran the next day.
+        pos = _FakeEvidence({"v3_exq_728b_capability_point": [
+            _utc("2026-07-21T11:38:45+00:00")]})
+        finding = _find([stint], pos)[0]
+        self.assertTrue(finding["evidence_recovered"],
+                        "a same-slug run under a different number after the "
+                        "stint is a renumber recovery")
+        self.assertIn("(renumbered: V3-EXQ-728b)", finding["recovered_by"])
+
+        # NEG-slug: a different descriptive slug must NOT clear it.
+        neg_slug = _FakeEvidence({"v3_exq_729_unrelated_probe": [
+            _utc("2026-07-21T11:38:45+00:00")]})
+        self.assertFalse(_find([stint], neg_slug)[0]["evidence_recovered"],
+                         "a different-slug run under a different number is not "
+                         "recovery")
+
+        # NEG-time: same slug, different number, but BEFORE the burn.
+        neg_time = _FakeEvidence({"v3_exq_727_capability_point": [
+            _utc("2026-07-19T00:00:00+00:00")]})
+        self.assertFalse(_find([stint], neg_time)[0]["evidence_recovered"],
+                         "a same-slug run that PREDATES the burn is not "
+                         "recovery (the V3-EXQ-569a shape)")
+
+        # NEG-num: the burn's OWN stem/number is the same-stem route's job.
+        neg_num = _FakeEvidence({"v3_exq_728_capability_point": [
+            _utc("2026-07-21T11:38:45+00:00")]})
+        finding = _find([stint], neg_num)[0]
+        self.assertNotIn("(renumbered: V3-EXQ-728)",
+                         finding["recovered_by"],
+                         "same-number is not a renumber; it is the same-stem "
+                         "route (which does fire here)")
 
 
 @unittest.skipUnless(
@@ -323,10 +398,10 @@ class BurnDetectorKnownTruthTest(unittest.TestCase):
         stint is still FOUND (669b stays in self.ids as RECOVERED); only its
         disposition changed.
 
-        PIN UPDATE 2026-08-09: V3-EXQ-893 and V3-EXQ-895 joined the LOST set
-        from the 2026-08-08 queue churn. Both are MECHANICALLY GENUINE burns
-        -- all four legs hold -- but NEITHER lost any science, so do not act
-        on them. Investigated in full; what each one is:
+        PIN UPDATE 2026-08-09 (a): V3-EXQ-893 and V3-EXQ-895 joined the LOST
+        set from the 2026-08-08 queue churn. Both are MECHANICALLY GENUINE
+        burns -- all four legs hold -- but NEITHER lost any science. What each
+        one is (893's disposition is superseded by update (b) below):
 
           V3-EXQ-893 is the V3-EXQ-673 shape exactly: the id's FIRST life ran
           a DIFFERENT script (v3_exq_893_mech232_da_representational_expansion
@@ -349,26 +424,37 @@ class BurnDetectorKnownTruthTest(unittest.TestCase):
           38 minutes earlier, so the re-add was itself blind and there was
           never a second run to lose. V4-EXQ-001's re-add wanted a real rerun.
           That is a human reading of intent, not a machine-visible property,
-          which is why both are pinned the same way.
+          which is why both are pinned the same way. 895 stays LOST: its own
+          number ran, but nothing under a DIFFERENT number did, so the
+          renumber route (below) correctly does not fire.
 
-        DETECTOR GAP THIS SURFACED (not fixed here; deliberately out of scope
-        for a pin update, and it would reclassify two of the 2026-07-21
-        audit's own answers). `evidence_recovered` sees two recovery routes:
-        the SAME script stem running later, and a declared `supersedes`
-        successor. It does not see the third route this codebase actually uses
-        most often -- RENUMBERING after an id collision, which produces the
-        same descriptive slug under a different exq number and therefore a
-        different stem. Measured over the current LOST set, a "same slug,
-        different exq number, ran after the stint" rule would demote three:
-        V3-EXQ-893 (-> v3_exq_894_mech074d..., 00:52:19Z), V3-EXQ-673 (->
-        v3_exq_677_mech180_novelty_sleep_upregulation_probe, 2026-06-13) and
-        V3-EXQ-728a (-> v3_exq_728b_trained_allon_capability_point,
-        2026-07-21) -- the last being this module's own canonical FP4 case,
-        whose C2 docstring asserts "nothing ran after the burn -- science was
-        lost". Adopting it would make the LOST set mean what the docstring
-        above claims it means; it would also rewrite that reading of 728a, so
-        it wants a human decision rather than a drive-by. The other five LOST
-        entries have no such run and are unaffected.
+        PIN UPDATE 2026-08-09 (b): THE RENUMBER ROUTE WAS IMPLEMENTED, and
+        it demotes THREE entries out of the LOST set -- V3-EXQ-893 (-> 894),
+        V3-EXQ-673 (-> 677) and V3-EXQ-728a (-> 728b). This closes the
+        "DETECTOR GAP" the previous pin surfaced: `evidence_recovered` now
+        sees a third recovery route beyond same-stem-re-ran and a declared
+        `supersedes` successor -- an id collision resolved by RENUMBERING,
+        which copies the driver to a fresh exq number so the same descriptive
+        slug runs under a different number with no `supersedes` and a
+        different stem. All three were verified independently against the real
+        manifests, claim_ids and the renumber commits:
+          893  -> v3_exq_894_mech074d_bla_remap_attribution_selectivity
+                  (FAIL, MECH-074d, 00:52:19Z; ree-v3 82688d01 "renumbered
+                  from 893 (collision)")
+          673  -> v3_exq_677_mech180_novelty_sleep_upregulation_probe
+                  (FAIL, MECH-180, 2026-06-13T16:12:41Z; re-queued as 677)
+          728a -> v3_exq_728b_trained_allon_capability_point
+                  (PASS, 2026-07-21T11:38:45Z; ree-v3 0e7d334 "728a burned")
+        The 728a demotion deliberately REWRITES this module's own canonical
+        FP4 reading -- see the reconciled C2 docstring. The route is
+        disposition-only: all three stints are STILL FOUND (in self.ids), only
+        their disposition moved LOST -> RECOVERED. The five remaining LOST
+        entries have no same-slug run under a different number after their
+        burn: V3-EXQ-569a's 569c/569d ran BEFORE it burned (2026-05-30/31 vs
+        removal 2026-05-31T13:41Z); V3-EXQ-895 and V4-EXQ-001 only ran under
+        their OWN number; V3-EXQ-683 and V3-EXQ-686 never produced a manifest
+        under any number. C3c pins the route on synthetic stints with three
+        negative controls (different-slug, before-the-burn, same-number).
         """
         self.assertLessEqual(len(self.ids), 20,
                              "detector has started producing noise")
@@ -377,14 +463,32 @@ class BurnDetectorKnownTruthTest(unittest.TestCase):
                        if not f["evidence_recovered"]})
         self.assertEqual(lost, [
             "V3-EXQ-569a",
-            "V3-EXQ-673",
             "V3-EXQ-683",
             "V3-EXQ-686",
-            "V3-EXQ-728a",
-            "V3-EXQ-893",   # burned for real; recovered as 894 (renumber)
-            "V3-EXQ-895",   # burned for real; had already run PASS
+            "V3-EXQ-895",   # burned for real; own number ran PASS, none renumbered
             "V4-EXQ-001",
         ])
+
+        # The three renumber demotions are still FOUND, now RECOVERED, and
+        # carry the renumber label -- pinned so a regression in the route
+        # (which would push them back to LOST) fails here loudly.
+        renum_recovered = {
+            "V3-EXQ-673": "V3-EXQ-677",
+            "V3-EXQ-728a": "V3-EXQ-728b",
+            "V3-EXQ-893": "V3-EXQ-894",
+        }
+        for queue_id, heir in renum_recovered.items():
+            with self.subTest(queue_id=queue_id):
+                matches = [f for f in self.findings
+                           if f["queue_id"] == queue_id]
+                self.assertTrue(matches, "%s must still be FOUND" % queue_id)
+                self.assertTrue(
+                    all(f["evidence_recovered"] for f in matches),
+                    "%s must be RECOVERED, not LOST" % queue_id)
+                self.assertTrue(
+                    any("renumbered" in r for f in matches
+                        for r in f["recovered_by"]),
+                    "%s must carry a renumber label" % queue_id)
 
         recovered = {f["queue_id"] for f in self.findings
                      if f["evidence_recovered"]}
