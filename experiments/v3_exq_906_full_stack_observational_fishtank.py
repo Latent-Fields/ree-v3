@@ -484,6 +484,7 @@ def _observational_run(agent: REEAgent, env: CausalGridWorldV2, num_episodes: in
                 "vigor": affect["vigor"], "override": affect["override"],
                 "z_block": affect["z_block"], "freeze": affect["freeze"],
                 "excite": affect["excite"], "dread": affect["dread"],
+                "surprise": affect["surprise"],
                 "mode": mode, "transition_type": step_transition,
                 "health": float(info.get("health", 1.0)),
                 "energy": float(info.get("energy", 1.0)),

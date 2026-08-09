@@ -69,7 +69,7 @@ import numpy as np
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
-from ree_core.residue.field import VALENCE_POSITIVE_SURPRISE, VALENCE_NEGATIVE_SURPRISE
+from ree_core.residue.field import VALENCE_SURPRISE, VALENCE_POSITIVE_SURPRISE, VALENCE_NEGATIVE_SURPRISE
 from experiment_protocol import emit_outcome
 from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
@@ -289,15 +289,18 @@ def _read_affect(agent: REEAgent, latent, obs_body) -> Dict:
     elif getattr(latent, "z_block", None) is not None:
         z_block = float(latent.z_block.abs().mean().item())
 
-    # MECH-307 anticipatory valence (excitement / dread) from residue
-    excite, dread = None, None
+    # MECH-307 anticipatory valence (excitement / dread) from residue, plus the
+    # unsigned prediction-error magnitude (VALENCE_SURPRISE, index 3) that both are
+    # split from -- computed every step but previously read no further than 4/5.
+    excite, dread, surprise = None, None, None
     try:
         val = agent.residue_field.evaluate_valence(z_world)
         if val is not None and val.shape[-1] > VALENCE_NEGATIVE_SURPRISE:
-            excite = float(val[0, VALENCE_POSITIVE_SURPRISE].item())
-            dread  = float(val[0, VALENCE_NEGATIVE_SURPRISE].item())
+            excite   = float(val[0, VALENCE_POSITIVE_SURPRISE].item())
+            dread    = float(val[0, VALENCE_NEGATIVE_SURPRISE].item())
+            surprise = float(val[0, VALENCE_SURPRISE].item())
     except Exception:
-        excite, dread = None, None
+        excite, dread, surprise = None, None, None
 
     return {
         "z_harm_s":  z_harm_s,
@@ -311,6 +314,7 @@ def _read_affect(agent: REEAgent, latent, obs_body) -> Dict:
         "z_block":   z_block,
         "excite":    excite,
         "dread":     dread,
+        "surprise":  surprise,
     }
 
 
@@ -669,6 +673,7 @@ def _eval_agent(
                 "freeze":            affect["freeze"],
                 "excite":            affect["excite"],
                 "dread":             affect["dread"],
+                "surprise":          affect["surprise"],
                 # behaviour
                 "mode":              mode,
                 "transition_type":   step_transition,
