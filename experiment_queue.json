@@ -27,26 +27,6 @@
       "experiment_purpose": "evidence",
       "experiment_type": "v3_exq_876a_mech025_doing_mode_convergence_redesign",
       "seeds": 5
-    },
-    {
-      "queue_id": "V3-EXQ-228b",
-      "title": "ARC-032 theta-bypass ablation re-run on scaffolded_sd054_onboarding curriculum",
-      "script": "experiments/v3_exq_228b_arc032_theta_bypass_onboarded.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "estimated_minutes": 90,
-      "supersedes": "V3-EXQ-228a",
-      "claim_id": "ARC-032",
-      "note": "GOV-REUSE-1: checked 228/228a manifests + all scripts referencing THETA_ZEROED/THETA_ACTIVE/theta_bypass -- no existing run tests the theta-bypass ablation on the scaffolded_sd054_onboarding curriculum (only 228/228a exist, both on the old causal_grid_world substrate, both precondition-failed) -- decisive readout not recoverable, run. Re-derive brake: 0 substrate_ceiling autopsies for ARC-032, not braked. Substrate-path overlap: no open corrupting substrate_queue entries touch theta_buffer.py/agent.py/e3_selector.py/hippocampal/scaffolded_sd054_onboarding.py. Design: ONE agent trained per seed through the full onboarding curriculum (866a's validated FULL config + budgets, empirically clears z_goal_norm >> 0.05 -- goal_norm_post_p1 0.45-0.52 across all 3 dry-run seeds), then deep-copied post-P1 into THETA_ACTIVE/THETA_ZEROED clones so the theta patch is the ONLY difference at measurement time (avoids confounding training-time policy quality with theta's decision-time value, which naive pre-training patching would do on this curriculum since its training loop -- unlike 228a's simplified warmup -- calls generate_trajectories() throughout). Seeds 42/43/45 (not 44: known reef-config instability, EXQ-539-540/538a). Smoke (--dry-run) ran clean end-to-end, precondition would clear on all seeds, harm_rate differs measurably between conditions (patch is live, not inert).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-08-08T23:24:08Z"
-      },
-      "conditions": 2,
-      "episodes_per_run": 250,
-      "experiment_type": "v3_exq_228b_arc032_theta_bypass_onboarded",
-      "seeds": 3
     }
   ]
 }
