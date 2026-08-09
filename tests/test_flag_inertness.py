@@ -573,6 +573,247 @@ def test_mech122_spindle_content_selection_gain_zero_collapses_to_off():
 
 
 # --------------------------------------------------------------------------- #
+# SD-091/MECH-481 coalition controller                                        #
+# --------------------------------------------------------------------------- #
+
+
+def _coalition_agent(use_coalition: bool = True, seed: int = 0, **overrides):
+    """Tiny-fixture agent + a fixed (body, world) observation pair.
+
+    Returns (agent, body_obs, world_obs). The env is reset once and the SAME
+    observation is re-fed every step, so any action difference between two arms
+    is attributable to the config, not to divergent environment state.
+    """
+    from tests.fixtures.tiny_configs import make_tiny_config
+    from tests.fixtures.tiny_env import make_tiny_env
+
+    from ree_core.agent import REEAgent
+
+    torch.manual_seed(seed)
+    env = make_tiny_env(seed=seed)
+    cfg = make_tiny_config(
+        env, use_coalition_controller=use_coalition, **overrides
+    )
+    torch.manual_seed(123)
+    agent = REEAgent(cfg)
+    agent.reset()
+    _flat, obs_dict = env.reset()
+    body = obs_dict["body_state"]
+    world = obs_dict["world_state"]
+    if body.dim() == 1:
+        body = body.unsqueeze(0)
+    if world.dim() == 1:
+        world = world.unsqueeze(0)
+    return agent, body, world
+
+
+def _coalition_actions(agent, body, world, steps: int = 8) -> list:
+    acts = []
+    for i in range(steps):
+        torch.manual_seed(1000 + i)
+        with torch.no_grad():
+            acts.append(agent.act_with_split_obs(body, world).clone())
+    return acts
+
+
+def test_use_coalition_controller_is_inert_until_requested_then_moves_actions():
+    """SD-091/MECH-481: the flag must be inert alone and live once driven.
+
+    This flag is a deliberate two-stage gate -- `use_coalition_controller=True`
+    only CONSTRUCTS the controller; nothing calls `request_coalition()` unless a
+    caller does so explicitly (agent.py's own comment says so). So the ordinary
+    "flip the flag, watch the action stream move" probe would report NO delta and
+    be indistinguishable from a dead flag. Both halves are asserted here:
+
+      * inert half: ON with no coalition requested is bit-identical to OFF.
+        (Also pinned as W2 in tests/contracts/test_sd091_coalition_controller_wiring.py;
+        restated here because it is what makes the second half meaningful rather
+        than an accident of a noisy substrate.)
+      * live half: with a SENSORY_RESAMPLE coalition open, the same seeds and the
+        same observation produce a DIFFERENT action stream -- so the gates
+        (e1_sensory_encoder write_gate 0.9, e3_candidate_count channel_gain 1.5)
+        actually reach the live decision path rather than being read nowhere.
+    """
+    from ree_core.claustrum.control_demand import ControlDemandType
+
+    agent_off, b_off, w_off = _coalition_agent(use_coalition=False)
+    assert agent_off.coalition is None
+
+    agent_idle, b_idle, w_idle = _coalition_agent(use_coalition=True)
+    assert agent_idle.coalition is not None
+
+    acts_off = _coalition_actions(agent_off, b_off, w_off)
+    acts_idle = _coalition_actions(agent_idle, b_idle, w_idle)
+    for i, (a, b) in enumerate(zip(acts_off, acts_idle)):
+        assert torch.equal(a, b), (
+            f"enabled-but-unrequested coalition changed the action stream at "
+            f"step {i}; the flag alone is supposed to be a no-op"
+        )
+
+    agent_on, b_on, w_on = _coalition_agent(use_coalition=True)
+    state = agent_on.coalition.request_coalition(
+        ControlDemandType.SENSORY_RESAMPLE, tick=0, max_duration_ticks=10_000
+    )
+    assert state is not None, "SENSORY_RESAMPLE template refused"
+    assert float(agent_on.coalition.write_gate("e1_sensory_encoder")) < 1.0
+    assert float(agent_on.coalition.channel_gain("e3_candidate_count")) > 1.0
+
+    acts_on = _coalition_actions(agent_on, b_on, w_on)
+    assert any(
+        not torch.equal(a, b) for a, b in zip(acts_off, acts_on)
+    ), (
+        "an OPEN SENSORY_RESAMPLE coalition left the action stream byte-identical "
+        "to the uncoalitioned baseline -- the coalition gates are inert at the "
+        "consumer sites"
+    )
+
+
+def test_coalition_types_enabled_gates_which_templates_can_open():
+    """`coalition_types_enabled` must actually reach CoalitionControllerConfig.
+
+    Not a boolean master switch -- it is the tuple of ControlDemandType names the
+    controller will honour, and it is the one knob that could silently widen or
+    narrow the coalition surface without any other symptom. Two agents identical
+    except for this tuple: the one that lists provenance_check opens the template
+    and pulls its write gates off 1.0; the one that does not refuses the request
+    (returns None, increments unregistered_request_count) and leaves every gate at
+    the no-op baseline.
+    """
+    from ree_core.claustrum.control_demand import ControlDemandType
+
+    agent_full, _b, _w = _coalition_agent(
+        use_coalition=True,
+        coalition_types_enabled=("sensory_resample", "provenance_check"),
+    )
+    agent_narrow, _b2, _w2 = _coalition_agent(
+        use_coalition=True, coalition_types_enabled=("sensory_resample",)
+    )
+
+    opened = agent_full.coalition.request_coalition(
+        ControlDemandType.PROVENANCE_CHECK, tick=0
+    )
+    refused = agent_narrow.coalition.request_coalition(
+        ControlDemandType.PROVENANCE_CHECK, tick=0
+    )
+
+    assert opened is not None, (
+        "provenance_check listed in coalition_types_enabled but the request was "
+        "refused -- the REEConfig tuple is not reaching types_enabled"
+    )
+    assert refused is None, (
+        "provenance_check NOT listed in coalition_types_enabled but the request "
+        "was honoured -- the tuple is being ignored (default frozenset of every "
+        "template leaking through)"
+    )
+    assert agent_narrow.coalition.unregistered_request_count == 1
+    assert agent_full.coalition.unregistered_request_count == 0
+
+    assert float(agent_full.coalition.write_gate("hippocampal_anchor_set")) < 1.0
+    assert float(agent_narrow.coalition.write_gate("hippocampal_anchor_set")) == 1.0
+
+    # The still-listed type stays openable on the narrowed agent -- the tuple
+    # narrows the surface, it does not disable the controller wholesale.
+    assert (
+        agent_narrow.coalition.request_coalition(
+            ControlDemandType.SENSORY_RESAMPLE, tick=0
+        )
+        is not None
+    )
+
+
+# --------------------------------------------------------------------------- #
+# SD-014 incentive sensitization                                              #
+# --------------------------------------------------------------------------- #
+
+
+def test_incentive_sensitization_amplifies_the_wanting_write():
+    """SD-014 decouple fix (V3-EXQ-887): WANTING must diverge from raw salience.
+
+    OFF, `update_benefit_salience()` writes `salience` straight into
+    VALENCE_WANTING via `update_valence()` and the per-node sensitization gain is
+    never touched. ON, the write is routed through
+    `ResidueField.update_wanting_sensitized()`, which first accumulates a
+    drive-coupled per-node gain and then writes `salience * (1 + coupling * g)`.
+
+    The activating condition has three parts, all of which the probe drives: the
+    tonic-5HT master switch (salience is 0.0 otherwise, and the method returns
+    early), at least one ACTIVE RBF center (there is no nearest center to write to
+    before any residue has accumulated), and a non-zero drive_level (the gain
+    increment is `rate * drive_level`, so a zero-drive arm is legitimately
+    bit-identical to OFF and would make this look like a dead flag).
+
+    Two observables, not one: the accumulated gain (exactly 0.0 OFF, since that
+    code path is not entered at all) and the resulting WANTING readout.
+    """
+    from ree_core.residue.field import VALENCE_WANTING
+
+    def wanting_and_gain(sensitized: bool, steps: int = 20, seed: int = 0):
+        from tests.fixtures.tiny_configs import make_tiny_config
+        from tests.fixtures.tiny_env import make_tiny_env
+
+        from ree_core.agent import REEAgent
+
+        torch.manual_seed(seed)
+        env = make_tiny_env(seed=seed)
+        cfg = make_tiny_config(
+            env,
+            tonic_5ht_enabled=True,
+            incentive_sensitization_enabled=sensitized,
+            sensitization_rate=0.5,
+            sensitization_max=4.0,
+            sensitization_coupling=1.0,
+        )
+        torch.manual_seed(123)
+        agent = REEAgent(cfg)
+        agent.reset()
+        _flat, obs_dict = env.reset()
+        body = obs_dict["body_state"]
+        world = obs_dict["world_state"]
+        if body.dim() == 1:
+            body = body.unsqueeze(0)
+        if world.dim() == 1:
+            world = world.unsqueeze(0)
+
+        for i in range(steps):
+            torch.manual_seed(1000 + i)
+            with torch.no_grad():
+                latent = agent.sense(body, world)
+                agent.act_with_split_obs(body, world)
+                agent.update_residue(-1.0)  # activate RBF centers
+                agent.serotonin_step(1.0)
+                agent.update_benefit_salience(1.0, drive_level=1.0)
+
+        with torch.no_grad():
+            z = agent._current_latent.z_world
+            wanting = float(
+                agent.residue_field.evaluate_valence(z)[0, VALENCE_WANTING]
+            )
+            gain = float(agent.residue_field.rbf_field.sensitization_gain.max())
+        assert agent.residue_field.rbf_field.active_mask.any(), (
+            "no active RBF center -- the probe never drove the activating "
+            "condition, so a null here would be meaningless"
+        )
+        return wanting, gain
+
+    off_wanting, off_gain = wanting_and_gain(False)
+    on_wanting, on_gain = wanting_and_gain(True)
+
+    assert off_gain == 0.0, (
+        f"sensitization gain moved to {off_gain} with the flag OFF -- the "
+        "sensitized write path is running unconditionally"
+    )
+    assert on_gain > 0.0, (
+        "sensitization gain stayed at 0.0 with the flag ON despite a non-zero "
+        "drive_level -- update_wanting_sensitized() is not being reached"
+    )
+    assert on_wanting > off_wanting + 1e-6, (
+        f"WANTING readout unchanged by incentive sensitization "
+        f"(ON={on_wanting}, OFF={off_wanting}); the amplification is inert and "
+        "wanting has not decoupled from raw benefit_exposure"
+    )
+
+
+# --------------------------------------------------------------------------- #
 # Batch probes                                                                #
 # --------------------------------------------------------------------------- #
 
@@ -785,6 +1026,36 @@ PROBED = {
     # tick). Requires use_persistent_committed_program_handle=True to have
     # anything to check -- inert without it, by construction.
     "use_e3_reselection_shortcircuit",
+    # SD-091/MECH-481 claustrum coalition controller. Probed by
+    # test_use_coalition_controller_is_inert_until_requested_then_moves_actions
+    # above: the flag alone is bit-identical to OFF *by design* (it only
+    # constructs the controller; nothing calls request_coalition()), so the probe
+    # asserts BOTH halves -- inert-when-unrequested, and a different action stream
+    # once a SENSORY_RESAMPLE coalition is actually open. Wiring-level coverage
+    # (W1-W8: default-OFF, reset(), per-template target tables, the BetaGate
+    # monotonicity guardrail) lives in
+    # tests/contracts/test_sd091_coalition_controller_wiring.py.
+    "use_coalition_controller",
+    # The types tuple on the same controller -- NOT a boolean switch, it is which
+    # ControlDemandType templates may open. Probed by
+    # test_coalition_types_enabled_gates_which_templates_can_open: a listed type
+    # opens and pulls its write gates off 1.0, an unlisted one is refused
+    # (unregistered_request_count increments) with every gate left at baseline.
+    # Registered separately from the master flag because it is the knob that
+    # could silently WIDEN the coalition surface -- if the tuple were dropped on
+    # the floor, CoalitionControllerConfig's default is every template, so the
+    # failure mode is permissive, not inert, and the master flag's probe would
+    # still pass.
+    "coalition_types_enabled",
+    # SD-014 incentive sensitization (V3-EXQ-887 decouple fix, 2026-08-07).
+    # Probed by test_incentive_sensitization_amplifies_the_wanting_write: OFF
+    # pins the per-node gain at exactly 0.0 (path not entered), ON accumulates a
+    # drive-coupled gain and lifts the VALENCE_WANTING readout above the raw
+    # salience an OFF arm writes. Its activating condition is three-part
+    # (tonic_5ht_enabled, >=1 active RBF center, drive_level > 0) -- a zero-drive
+    # arm is legitimately bit-identical, which is exactly the shape that would
+    # otherwise get mis-read as a dead flag.
+    "incentive_sensitization_enabled",
 } | set(FLAGS_WITH_DEFAULT_BEHAVIOURAL_DELTA) | set(FLAGS_WITH_LOUD_PRECONDITION)
 
 # Audit-confirmed inert / mis-wired flags (finding id -> reason). Documented here
