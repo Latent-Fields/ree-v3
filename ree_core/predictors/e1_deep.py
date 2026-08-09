@@ -295,6 +295,30 @@ class E1DeepPredictor(nn.Module):
             self._sd016_cue_slot_tagger_temperature = float(
                 getattr(config, 'sd016_cue_slot_tagger_temperature', 1.0)
             )
+            # SD-016 H3 (V3-EXQ-898 autopsy follow-up): hard/competitive
+            # selection operator swap on the tagger's slot-selection scores.
+            # "soft" default is bit-identical to the softmax path above.
+            self._sd016_cue_slot_tagger_selection = str(
+                getattr(config, 'sd016_cue_slot_tagger_selection', 'soft')
+            )
+            if self._sd016_cue_slot_tagger_selection not in ('soft', 'gumbel', 'topk'):
+                raise ValueError(
+                    "sd016_cue_slot_tagger_selection must be 'soft', 'gumbel' or "
+                    f"'topk', got {self._sd016_cue_slot_tagger_selection!r}"
+                )
+            self._sd016_cue_slot_tagger_topk_k = int(
+                getattr(config, 'sd016_cue_slot_tagger_topk_k', 1)
+            )
+            self._sd016_cue_slot_tagger_gumbel_tau_init = float(
+                getattr(config, 'sd016_cue_slot_tagger_gumbel_tau_init', 1.0)
+            )
+            self._sd016_cue_slot_tagger_gumbel_tau_min = float(
+                getattr(config, 'sd016_cue_slot_tagger_gumbel_tau_min', 0.1)
+            )
+            self._sd016_cue_slot_tagger_gumbel_anneal_steps = int(
+                getattr(config, 'sd016_cue_slot_tagger_gumbel_anneal_steps', 2000)
+            )
+            self._sd016_gumbel_step = 0  # forward-call counter for the annealed schedule
             if self._sd016_cue_slot_tagger:
                 tagger_hidden = int(getattr(config, 'sd016_cue_slot_tagger_hidden', 32))
                 self.cue_slot_tagger = nn.Sequential(
@@ -309,6 +333,12 @@ class E1DeepPredictor(nn.Module):
             self.sd016_log_temperature = None
             self._sd016_cue_slot_tagger = False
             self._sd016_cue_slot_tagger_temperature = 1.0
+            self._sd016_cue_slot_tagger_selection = 'soft'
+            self._sd016_cue_slot_tagger_topk_k = 1
+            self._sd016_cue_slot_tagger_gumbel_tau_init = 1.0
+            self._sd016_cue_slot_tagger_gumbel_tau_min = 0.1
+            self._sd016_cue_slot_tagger_gumbel_anneal_steps = 2000
+            self._sd016_gumbel_step = 0
             self.cue_slot_tagger = None
 
     def reset_hidden_state(self) -> None:
@@ -434,7 +464,13 @@ class E1DeepPredictor(nn.Module):
             # trains cue_terrain_proj) flows back into it and shapes selectivity.
             slot_logits = self.cue_slot_tagger(z_world)                    # [batch, num_slots]
             temp = max(self._sd016_cue_slot_tagger_temperature, 1e-3)
-            weights = F.softmax(slot_logits / temp, dim=-1).unsqueeze(1)   # [batch, 1, num_slots]
+            selection_mode = getattr(self, '_sd016_cue_slot_tagger_selection', 'soft')
+            if selection_mode == 'gumbel':
+                weights = self._sd016_gumbel_select(slot_logits, temp).unsqueeze(1)
+            elif selection_mode == 'topk':
+                weights = self._sd016_topk_select(slot_logits, temp).unsqueeze(1)
+            else:
+                weights = F.softmax(slot_logits / temp, dim=-1).unsqueeze(1)   # [batch, 1, num_slots]
         else:
             # Legacy path: world_query_proj maps z_world -> memory_dim (bypasses
             # query_proj), then q.k attention over the slot keys.
@@ -458,6 +494,57 @@ class E1DeepPredictor(nn.Module):
         action_bias    = self.cue_action_proj(torch.cat([cue_context, z_world], dim=-1))
         terrain_weight = torch.sigmoid(self.cue_terrain_proj(cue_context))    # [batch, 2] in (0,1)
         return action_bias, terrain_weight
+
+    def _sd016_gumbel_select(self, slot_logits: torch.Tensor, temp: float) -> torch.Tensor:
+        """SD-016 H3: annealed straight-through Gumbel-softmax selection.
+
+        Forward pass is a one-hot argmax over Gumbel-perturbed logits --
+        structurally sparse regardless of what terrain_loss demands.
+        Backward pass flows through the soft relaxation at the current
+        annealed temperature (straight-through estimator). Temperature
+        anneals linearly from sd016_cue_slot_tagger_gumbel_tau_init down to
+        sd016_cue_slot_tagger_gumbel_tau_min over
+        sd016_cue_slot_tagger_gumbel_anneal_steps TRAINING-mode forward
+        calls; eval-mode calls neither advance the schedule nor sample
+        Gumbel noise, so inference is deterministic and reproducible.
+        """
+        anneal_steps = max(self._sd016_cue_slot_tagger_gumbel_anneal_steps, 1)
+        frac = min(self._sd016_gumbel_step / anneal_steps, 1.0)
+        tau_init = self._sd016_cue_slot_tagger_gumbel_tau_init
+        tau_min = self._sd016_cue_slot_tagger_gumbel_tau_min
+        tau = max(tau_init + frac * (tau_min - tau_init), 1e-3)
+
+        logits = slot_logits / max(temp, 1e-3)
+        if self.training:
+            eps = 1e-10
+            u = torch.rand_like(logits).clamp(min=eps, max=1.0 - eps)
+            gumbel_noise = -torch.log(-torch.log(u))
+            y = logits + gumbel_noise
+            self._sd016_gumbel_step += 1
+        else:
+            y = logits  # deterministic at eval: no sampling noise
+
+        soft = F.softmax(y / tau, dim=-1)
+        index = soft.argmax(dim=-1, keepdim=True)
+        hard = torch.zeros_like(soft).scatter_(-1, index, 1.0)
+        return hard + soft - soft.detach()  # straight-through estimator
+
+    def _sd016_topk_select(self, slot_logits: torch.Tensor, temp: float) -> torch.Tensor:
+        """SD-016 H3: straight-through top-k selection.
+
+        Forward pass keeps only the top-k softmax-weighted slots
+        (renormalised to sum to 1) -- structurally sparse regardless of
+        what terrain_loss demands. Backward pass flows through the full
+        softmax gradient, mirroring the gumbel path's ST mechanics.
+        k = sd016_cue_slot_tagger_topk_k, clamped to [1, num_slots].
+        """
+        soft = F.softmax(slot_logits / max(temp, 1e-3), dim=-1)
+        num_slots = soft.shape[-1]
+        k = max(1, min(self._sd016_cue_slot_tagger_topk_k, num_slots))
+        topk_vals, topk_idx = soft.topk(k, dim=-1)
+        hard = torch.zeros_like(soft).scatter_(-1, topk_idx, topk_vals)
+        hard = hard / hard.sum(dim=-1, keepdim=True).clamp_min(1e-12)
+        return hard + soft - soft.detach()  # straight-through estimator
 
     def _sd016_attention_scale(self, memory_dim: int):
         """Resolve the divisor used inside the SD-016 z_world-only attention.

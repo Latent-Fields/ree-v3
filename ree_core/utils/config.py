@@ -443,6 +443,38 @@ class E1Config:
     sd016_cue_slot_tagger_hidden: int = 32       # tagger MLP hidden width
     sd016_cue_slot_tagger_temperature: float = 1.0  # softmax temp on tagger logits
 
+    # SD-016 H3 (GOV-FANOUT-1, V3-EXQ-898 failure autopsy 2026-08-08): hard /
+    # competitive selection operator. V3-EXQ-898's C2 control reproduced the
+    # exact uniform ln(16) attractor even under a correctly-rewarded soft
+    # tagger, suggesting the soft end-to-end differentiable softmax gate may
+    # not be able to HOLD a sparse, context-selective optimum regardless of
+    # what terrain_loss demands. This knob swaps the tagger's slot-SELECTION
+    # operator (only -- the slot-content value_proj/output_proj path is
+    # untouched, same as Path 3) for a structurally competitive one. Requires
+    # sd016_cue_slot_tagger=True; no effect otherwise. Default "soft" = the
+    # existing Path 3 softmax gate, bit-identical.
+    #   "soft"   -- legacy Path 3 softmax(logits/temperature) (default).
+    #   "gumbel" -- straight-through Gumbel-softmax: forward pass is a
+    #               one-hot argmax over Gumbel-perturbed logits (structural
+    #               sparsity independent of the loss); backward gradient
+    #               flows through the soft relaxation at the current
+    #               annealed temperature. Anneals linearly from
+    #               sd016_cue_slot_tagger_gumbel_tau_init down to
+    #               sd016_cue_slot_tagger_gumbel_tau_min over
+    #               sd016_cue_slot_tagger_gumbel_anneal_steps TRAINING-mode
+    #               forward calls (eval-mode calls neither advance the
+    #               schedule nor sample noise, so inference is deterministic).
+    #   "topk"   -- straight-through top-k: forward pass keeps only the
+    #               top-sd016_cue_slot_tagger_topk_k softmax-weighted slots
+    #               (renormalised to sum to 1); backward gradient flows
+    #               through the full softmax, mirroring the gumbel path's ST
+    #               mechanics.
+    sd016_cue_slot_tagger_selection: str = "soft"        # "soft" | "gumbel" | "topk"
+    sd016_cue_slot_tagger_topk_k: int = 1                # topk: slots kept active
+    sd016_cue_slot_tagger_gumbel_tau_init: float = 1.0   # gumbel: starting temperature
+    sd016_cue_slot_tagger_gumbel_tau_min: float = 0.1    # gumbel: floor temperature
+    sd016_cue_slot_tagger_gumbel_anneal_steps: int = 2000  # gumbel: linear anneal horizon
+
     # MECH-216: E1 predictive wanting (schema readout head).
     # When enabled, a Linear(hidden_dim, 1)+Sigmoid head reads E1's LSTM hidden state
     # and produces a scalar schema_salience in [0, 1]. High salience at positions where
@@ -5710,6 +5742,14 @@ class REEConfig:
         sd016_cue_slot_tagger: bool = False,
         sd016_cue_slot_tagger_hidden: int = 32,
         sd016_cue_slot_tagger_temperature: float = 1.0,
+        # SD-016 H3 (V3-EXQ-898 autopsy follow-up): hard/competitive
+        # selection operator swap. "soft" (default) = bit-identical to the
+        # Path 3 softmax gate above. See E1Config for full description.
+        sd016_cue_slot_tagger_selection: str = "soft",
+        sd016_cue_slot_tagger_topk_k: int = 1,
+        sd016_cue_slot_tagger_gumbel_tau_init: float = 1.0,
+        sd016_cue_slot_tagger_gumbel_tau_min: float = 0.1,
+        sd016_cue_slot_tagger_gumbel_anneal_steps: int = 2000,
         # ARC-030 / MECH-111 / MECH-112 / MECH-113
         benefit_eval_enabled: bool = False,
         benefit_weight: float = 1.0,
@@ -6854,6 +6894,11 @@ class REEConfig:
         config.e1.sd016_cue_slot_tagger = sd016_cue_slot_tagger
         config.e1.sd016_cue_slot_tagger_hidden = sd016_cue_slot_tagger_hidden
         config.e1.sd016_cue_slot_tagger_temperature = sd016_cue_slot_tagger_temperature
+        config.e1.sd016_cue_slot_tagger_selection = sd016_cue_slot_tagger_selection
+        config.e1.sd016_cue_slot_tagger_topk_k = sd016_cue_slot_tagger_topk_k
+        config.e1.sd016_cue_slot_tagger_gumbel_tau_init = sd016_cue_slot_tagger_gumbel_tau_init
+        config.e1.sd016_cue_slot_tagger_gumbel_tau_min = sd016_cue_slot_tagger_gumbel_tau_min
+        config.e1.sd016_cue_slot_tagger_gumbel_anneal_steps = sd016_cue_slot_tagger_gumbel_anneal_steps
         config.e1.action_object_dim = action_object_dim
         config.e1.schema_wanting_enabled = schema_wanting_enabled
 
