@@ -8,24 +8,23 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-894b",
-      "title": "MECH-074d trainable BLA attribution head vs fixed rule (post-substrate retest; sigma held at 1.0; does NOT supersede 894/894a)",
-      "script": "experiments/v3_exq_894b_mech074d_bla_trainable_attribution_head.py",
-      "priority": 45,
+      "queue_id": "V3-EXQ-228c",
+      "title": "ARC-032 theta-bypass DIRECT readout: z_goal persistence + goal-proximity-score noise at E3-tick granularity (redesign of 228b)",
+      "script": "experiments/v3_exq_228c_arc032_theta_bypass_readout.py",
+      "priority": 40,
       "machine_affinity": "any",
-      "estimated_minutes": 45,
-      "note": "POST-SUBSTRATE retest of MECH-074d, routed from the confirmed autopsy failure_autopsy_V3-EXQ-894a_2026-08-08 via /implement-substrate. NOT a supersession: V3-EXQ-894 and V3-EXQ-894a stay valid evidence about the non-trainable rule and are what motivated the substrate change; supersedes=None and nothing is de-weighted. WHAT IS ALREADY CLOSED: 894a swept bla_remap_pe_sigma_threshold over [1.0,1.5,2.0,2.5] and REFUTED the over-firing/dilution alternative -- mass-excess falls monotonically with sigma (Spearman -1.0) tracking fire-fraction rather than diverging as dilution predicts, with the per-seed ranking (45 selective / 43 context-blind-deterministic, jaccard gap exactly 0.0 / 42 null) stable at all four thresholds. So sigma is held FIXED at the SD-035 default 1.0 here and the ATTRIBUTION IMPLEMENTATION becomes the arm axis. SUBSTRATE UNDER TEST: ree_core/amygdala/attribution_head.BLAAttributionHead, landed 2026-08-09 (ree-v3 25e04cf5f5 + d2c8d6f2f0) -- the learnable head MECH-074d's own 2026-04-21 registration text deferred as 'a deliberate second pass'. Off by default (bla_attribution_head='contribution_threshold'), so trunk behaviour is bit-identical and only this experiment opts in. ARMS (4x3): ARM_REMAP_OFF (sigma 1e9 drift control / C3 denominator), ARM_HEAD_FIXED (legacy proxy -- a WITHIN-RUN replication of 894a's ARM_SIGMA_10 and the matched control; if it PASSES the attribution half the comparison is void, reported as fixed_unexpectedly_passed), ARM_HEAD_TRAINED (head trained during P0, ~1200 ticks), ARM_HEAD_TRAINED_LONG (+20 gate-shut P1 episodes, ~2400 ticks) -- two budgets so 'the head needs more experience' is TESTED rather than available as an excuse after a null. CRITERIA UNCHANGED from 894/894a (the autopsy judged that instrument unusually careful and already proven informative): C1 attribution_mass_excess > 0.05 AND C2 context_jaccard_gap > 0.05 on >= 2/3 green seeds, with C3 partiality >= 0.5 of the matched control and C4 fire fraction <= 0.25. RUN PASS requires a TRAINABLE arm to pass. GOV-REUSE-1: the decisive readout is C1/C2 under a trainable attribution head, which exists in NO recorded manifest -- the substrate did not exist until 2026-08-09, so every prior run is on an incompatible substrate_hash by construction; a run is required. PRE-CHECK (a 300-tick smoke during the substrate build, NOT evidence -- no precondition gate, no drift control, no pre-registration): legacy -> trainable moved seed 42 mass_excess 0.034 -> 0.115, seed 43 jaccard_gap 0.010 -> 0.059, seed 45 jaccard_gap 0.005 -> 0.227; C2 0/3 -> 2/3 seeds over margin, C1 0/3 -> 1/3, at ~1/20 of this run's training budget. KNOWN INSTRUMENT PRECONDITION: under the legacy ContextMemory write path the slot bank homogenises to off-diagonal cosine 1.0000 within ~24 episodes (V3-EXQ-436c sigmoid-midpoint payload collapse), and no attribution rule can differentiate identical slots -- the per-episode matched-baseline restore inherited from 894a is what keeps C1/C2 measurable, enforced by slot_differentiation_at_window_start and proven by the episode_restore_effective engagement check. NEW ENGAGEMENT CHECKS beyond 894a, all enforced on the full run: trainable_heads_trained_past_warmup (a head still inside its 200-step warmup silently falls back to the LEGACY proxy, which would make the trained arms duplicates of ARM_HEAD_FIXED -- the most likely quiet failure of this design), baseline_store_matched_across_arms (the head's optimiser must not perturb the encoder; its inputs are detached, and this asserts it), attr_mass_excess_varies_across_head_arms (anti-saturation). Self-routes substrate_not_ready_requeue if no ON arm has a green cell -- never a substrate verdict. Smoke PASS: --dry-run exercises every code path, all 9 tier-1 engagement checks green, head_n_updates FIXED 0 / TRAINED 36 / LONG 66 confirming the P1 phase adds training and the fixed arm builds no head, and baseline_store_matched_across_arms true confirming the detached-input guarantee. Queued from a headless metaworker chip (chip-20260809-sd035-attribution-head).",
+      "estimated_minutes": 240,
+      "supersedes": "V3-EXQ-228b",
+      "claim_id": "ARC-032",
+      "note": "Redesign of V3-EXQ-228b per failure_autopsy_V3-EXQ-228b_2026-08-09. 228b was the FIRST run in the 076/228/247/228a/228b lineage to clear ARC-032's non-degeneracy precondition (goal_norm 1.00 frac seeds), theta-patch confirmed non-inert, but its resource-lift readout FAILED with two measurement-adequacy defects the autopsy would not accept as falsifying: (a) E3-tick cache-gating dilutes any theta-specific signal ~9x in a full-episode aggregate; (b) the driver measured a downstream behavioral proxy, never claims.yaml's own CONFIRMING DVs (z_goal persistence, goal-proximity-score noise). 228c keeps 228b's proven shared-training/deepcopy-split THETA_ACTIVE-vs-THETA_ZEROED architecture BYTE-IDENTICAL and changes ONLY the measurement: scores z_goal persistence (lag-1 cosine of z_goal) and goal-proximity-score noise (temporal std of the lead candidate's goal_proximity) DIRECTLY, restricted to E3-tick steps where the ablation acts. Behavioral resource-lift kept informational. GOV-REUSE-1: the E3-tick-restricted persistence/noise readouts are NOT recorded in 228b's manifest (which recorded only full-episode resource_visit_rate/harm_rate/zgoal_norm_mean) and are not derivable by reanalysis -> genuine new run. Re-derive brake: does NOT fire (ARC-032 counted-ceiling count=1 < 2; and this is a measurement_test_design_defect redesign, action:none, not a substrate-ceiling power-bump). DV-symmetry: both DVs are genuinely sensitive to zeroing theta (not arithmetic invariants) -- persistence via the behavioral->benefit->z_goal loop, proximity-noise via the proposer's z_world_for_e3 input (smoke confirms C2 differs between arms: 0.0216 vs 0.0342). Reversed direction (theta ACTIVE worse) is registered as a finding (converges with MECH-089 EXQ-066/EXQ-122 that static theta-averaging harms E3 discrimination), NOT dismissed. Runs under known substrate_queue defect SD-E3-SCORER-COMPLETION (severity: degrading, e3_selector.py). Prefer cloud (228b ran on ree-worker-3, ~221 min).",
       "status": "claimed",
       "claimed_by": {
         "machine": "ree-cloud-2",
-        "claimed_at": "2026-08-09T07:45:53Z"
+        "claimed_at": "2026-08-09T08:18:27Z"
       },
-      "claim_ids": [
-        "MECH-074d"
-      ],
-      "conditions": 4,
-      "episodes_per_run": 56,
-      "experiment_type": "v3_exq_894b_mech074d_bla_trainable_attribution_head",
+      "conditions": 2,
+      "episodes_per_run": 250,
+      "experiment_type": "v3_exq_228c_arc032_theta_bypass_readout",
       "seeds": 3
     },
     {
@@ -48,22 +47,6 @@
       "experiment_purpose": "evidence",
       "experiment_type": "v3_exq_876a_mech025_doing_mode_convergence_redesign",
       "seeds": 5
-    },
-    {
-      "queue_id": "V3-EXQ-228c",
-      "title": "ARC-032 theta-bypass DIRECT readout: z_goal persistence + goal-proximity-score noise at E3-tick granularity (redesign of 228b)",
-      "experiment_type": "v3_exq_228c_arc032_theta_bypass_readout",
-      "script": "experiments/v3_exq_228c_arc032_theta_bypass_readout.py",
-      "priority": 40,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 240,
-      "episodes_per_run": 250,
-      "seeds": 3,
-      "conditions": 2,
-      "supersedes": "V3-EXQ-228b",
-      "claim_id": "ARC-032",
-      "note": "Redesign of V3-EXQ-228b per failure_autopsy_V3-EXQ-228b_2026-08-09. 228b was the FIRST run in the 076/228/247/228a/228b lineage to clear ARC-032's non-degeneracy precondition (goal_norm 1.00 frac seeds), theta-patch confirmed non-inert, but its resource-lift readout FAILED with two measurement-adequacy defects the autopsy would not accept as falsifying: (a) E3-tick cache-gating dilutes any theta-specific signal ~9x in a full-episode aggregate; (b) the driver measured a downstream behavioral proxy, never claims.yaml's own CONFIRMING DVs (z_goal persistence, goal-proximity-score noise). 228c keeps 228b's proven shared-training/deepcopy-split THETA_ACTIVE-vs-THETA_ZEROED architecture BYTE-IDENTICAL and changes ONLY the measurement: scores z_goal persistence (lag-1 cosine of z_goal) and goal-proximity-score noise (temporal std of the lead candidate's goal_proximity) DIRECTLY, restricted to E3-tick steps where the ablation acts. Behavioral resource-lift kept informational. GOV-REUSE-1: the E3-tick-restricted persistence/noise readouts are NOT recorded in 228b's manifest (which recorded only full-episode resource_visit_rate/harm_rate/zgoal_norm_mean) and are not derivable by reanalysis -> genuine new run. Re-derive brake: does NOT fire (ARC-032 counted-ceiling count=1 < 2; and this is a measurement_test_design_defect redesign, action:none, not a substrate-ceiling power-bump). DV-symmetry: both DVs are genuinely sensitive to zeroing theta (not arithmetic invariants) -- persistence via the behavioral->benefit->z_goal loop, proximity-noise via the proposer's z_world_for_e3 input (smoke confirms C2 differs between arms: 0.0216 vs 0.0342). Reversed direction (theta ACTIVE worse) is registered as a finding (converges with MECH-089 EXQ-066/EXQ-122 that static theta-averaging harms E3 discrimination), NOT dismissed. Runs under known substrate_queue defect SD-E3-SCORER-COMPLETION (severity: degrading, e3_selector.py). Prefer cloud (228b ran on ree-worker-3, ~221 min)."
     }
   ]
 }
