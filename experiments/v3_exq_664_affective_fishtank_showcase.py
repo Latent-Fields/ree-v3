@@ -69,7 +69,10 @@ import numpy as np
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
-from ree_core.residue.field import VALENCE_SURPRISE, VALENCE_POSITIVE_SURPRISE, VALENCE_NEGATIVE_SURPRISE
+from ree_core.residue.field import (
+    VALENCE_WANTING, VALENCE_LIKING, VALENCE_SURPRISE,
+    VALENCE_POSITIVE_SURPRISE, VALENCE_NEGATIVE_SURPRISE,
+)
 from experiment_protocol import emit_outcome
 from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
@@ -290,17 +293,23 @@ def _read_affect(agent: REEAgent, latent, obs_body) -> Dict:
         z_block = float(latent.z_block.abs().mean().item())
 
     # MECH-307 anticipatory valence (excitement / dread) from residue, plus the
-    # unsigned prediction-error magnitude (VALENCE_SURPRISE, index 3) that both are
-    # split from -- computed every step but previously read no further than 4/5.
-    excite, dread, surprise = None, None, None
+    # unsigned prediction-error magnitude (VALENCE_SURPRISE, index 3) both are split
+    # from, and the residue-map wanting/liking channels (indices 0/1) -- all six
+    # components are computed every step but were previously read no further than 4/5.
+    # NOTE: `residue_wanting` (VALENCE_WANTING) is distinct from `z_goal` above --
+    # z_goal is the frontal goal-attractor's own wanting signal (goal_state.goal_norm()),
+    # not the hippocampal-map residue channel read here.
+    excite, dread, surprise, residue_wanting, liking = None, None, None, None, None
     try:
         val = agent.residue_field.evaluate_valence(z_world)
         if val is not None and val.shape[-1] > VALENCE_NEGATIVE_SURPRISE:
-            excite   = float(val[0, VALENCE_POSITIVE_SURPRISE].item())
-            dread    = float(val[0, VALENCE_NEGATIVE_SURPRISE].item())
-            surprise = float(val[0, VALENCE_SURPRISE].item())
+            excite          = float(val[0, VALENCE_POSITIVE_SURPRISE].item())
+            dread           = float(val[0, VALENCE_NEGATIVE_SURPRISE].item())
+            surprise        = float(val[0, VALENCE_SURPRISE].item())
+            residue_wanting = float(val[0, VALENCE_WANTING].item())
+            liking          = float(val[0, VALENCE_LIKING].item())
     except Exception:
-        excite, dread, surprise = None, None, None
+        excite, dread, surprise, residue_wanting, liking = None, None, None, None, None
 
     return {
         "z_harm_s":  z_harm_s,
@@ -314,6 +323,8 @@ def _read_affect(agent: REEAgent, latent, obs_body) -> Dict:
         "z_block":   z_block,
         "excite":    excite,
         "dread":     dread,
+        "residue_wanting": residue_wanting,
+        "liking":    liking,
         "surprise":  surprise,
     }
 
@@ -674,6 +685,8 @@ def _eval_agent(
                 "excite":            affect["excite"],
                 "dread":             affect["dread"],
                 "surprise":          affect["surprise"],
+                "residue_wanting":   affect["residue_wanting"],
+                "liking":            affect["liking"],
                 # behaviour
                 "mode":              mode,
                 "transition_type":   step_transition,
