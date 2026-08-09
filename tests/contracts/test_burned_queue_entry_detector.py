@@ -322,6 +322,53 @@ class BurnDetectorKnownTruthTest(unittest.TestCase):
         silence: a burned id becomes recovered once a successor runs. The
         stint is still FOUND (669b stays in self.ids as RECOVERED); only its
         disposition changed.
+
+        PIN UPDATE 2026-08-09: V3-EXQ-893 and V3-EXQ-895 joined the LOST set
+        from the 2026-08-08 queue churn. Both are MECHANICALLY GENUINE burns
+        -- all four legs hold -- but NEITHER lost any science, so do not act
+        on them. Investigated in full; what each one is:
+
+          V3-EXQ-893 is the V3-EXQ-673 shape exactly: the id's FIRST life ran
+          a DIFFERENT script (v3_exq_893_mech232_da_representational_expansion
+          _confirmer, PASS at 00:20:50Z), which is what made the DB row
+          terminal; a session then re-used id 893 for an unrelated MECH-074d
+          script at 00:31:59Z and the snapshot ate it 99 seconds later.
+          v3_exq_893_mech074d_bla_remap_attribution_selectivity has no
+          manifest and never will. The science was NOT lost: the same session
+          spotted the collision within 5 minutes (ree-v3 82688d01, "renumbered
+          from 893 (collision)") and it ran as V3-EXQ-894 at 00:52:19Z, then
+          894a and 894b.
+
+          V3-EXQ-895 is the V4-EXQ-001 shape, and is INDISTINGUISHABLE from it
+          at the git layer -- a prior stint that ran to a manifest, then an
+          operator re-add of the now-terminal id, burned 2.4 min later. What
+          separates them is only readable in the commit subject: 895's re-add
+          (ree-v3 7786d705) says "re-add queue entries erased by the
+          phase3-queue snapshot writer", i.e. a session repairing what it
+          believed was a drop -- but 895 had already RUN TO PASS at 01:24:22Z
+          38 minutes earlier, so the re-add was itself blind and there was
+          never a second run to lose. V4-EXQ-001's re-add wanted a real rerun.
+          That is a human reading of intent, not a machine-visible property,
+          which is why both are pinned the same way.
+
+        DETECTOR GAP THIS SURFACED (not fixed here; deliberately out of scope
+        for a pin update, and it would reclassify two of the 2026-07-21
+        audit's own answers). `evidence_recovered` sees two recovery routes:
+        the SAME script stem running later, and a declared `supersedes`
+        successor. It does not see the third route this codebase actually uses
+        most often -- RENUMBERING after an id collision, which produces the
+        same descriptive slug under a different exq number and therefore a
+        different stem. Measured over the current LOST set, a "same slug,
+        different exq number, ran after the stint" rule would demote three:
+        V3-EXQ-893 (-> v3_exq_894_mech074d..., 00:52:19Z), V3-EXQ-673 (->
+        v3_exq_677_mech180_novelty_sleep_upregulation_probe, 2026-06-13) and
+        V3-EXQ-728a (-> v3_exq_728b_trained_allon_capability_point,
+        2026-07-21) -- the last being this module's own canonical FP4 case,
+        whose C2 docstring asserts "nothing ran after the burn -- science was
+        lost". Adopting it would make the LOST set mean what the docstring
+        above claims it means; it would also rewrite that reading of 728a, so
+        it wants a human decision rather than a drive-by. The other five LOST
+        entries have no such run and are unaffected.
         """
         self.assertLessEqual(len(self.ids), 20,
                              "detector has started producing noise")
@@ -334,6 +381,8 @@ class BurnDetectorKnownTruthTest(unittest.TestCase):
             "V3-EXQ-683",
             "V3-EXQ-686",
             "V3-EXQ-728a",
+            "V3-EXQ-893",   # burned for real; recovered as 894 (renumber)
+            "V3-EXQ-895",   # burned for real; had already run PASS
             "V4-EXQ-001",
         ])
 
