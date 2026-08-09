@@ -48,6 +48,22 @@
       "experiment_purpose": "evidence",
       "experiment_type": "v3_exq_876a_mech025_doing_mode_convergence_redesign",
       "seeds": 5
+    },
+    {
+      "queue_id": "V3-EXQ-228c",
+      "title": "ARC-032 theta-bypass DIRECT readout: z_goal persistence + goal-proximity-score noise at E3-tick granularity (redesign of 228b)",
+      "experiment_type": "v3_exq_228c_arc032_theta_bypass_readout",
+      "script": "experiments/v3_exq_228c_arc032_theta_bypass_readout.py",
+      "priority": 40,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 240,
+      "episodes_per_run": 250,
+      "seeds": 3,
+      "conditions": 2,
+      "supersedes": "V3-EXQ-228b",
+      "claim_id": "ARC-032",
+      "note": "Redesign of V3-EXQ-228b per failure_autopsy_V3-EXQ-228b_2026-08-09. 228b was the FIRST run in the 076/228/247/228a/228b lineage to clear ARC-032's non-degeneracy precondition (goal_norm 1.00 frac seeds), theta-patch confirmed non-inert, but its resource-lift readout FAILED with two measurement-adequacy defects the autopsy would not accept as falsifying: (a) E3-tick cache-gating dilutes any theta-specific signal ~9x in a full-episode aggregate; (b) the driver measured a downstream behavioral proxy, never claims.yaml's own CONFIRMING DVs (z_goal persistence, goal-proximity-score noise). 228c keeps 228b's proven shared-training/deepcopy-split THETA_ACTIVE-vs-THETA_ZEROED architecture BYTE-IDENTICAL and changes ONLY the measurement: scores z_goal persistence (lag-1 cosine of z_goal) and goal-proximity-score noise (temporal std of the lead candidate's goal_proximity) DIRECTLY, restricted to E3-tick steps where the ablation acts. Behavioral resource-lift kept informational. GOV-REUSE-1: the E3-tick-restricted persistence/noise readouts are NOT recorded in 228b's manifest (which recorded only full-episode resource_visit_rate/harm_rate/zgoal_norm_mean) and are not derivable by reanalysis -> genuine new run. Re-derive brake: does NOT fire (ARC-032 counted-ceiling count=1 < 2; and this is a measurement_test_design_defect redesign, action:none, not a substrate-ceiling power-bump). DV-symmetry: both DVs are genuinely sensitive to zeroing theta (not arithmetic invariants) -- persistence via the behavioral->benefit->z_goal loop, proximity-noise via the proposer's z_world_for_e3 input (smoke confirms C2 differs between arms: 0.0216 vs 0.0342). Reversed direction (theta ACTIVE worse) is registered as a finding (converges with MECH-089 EXQ-066/EXQ-122 that static theta-averaging harms E3 discrimination), NOT dismissed. Runs under known substrate_queue defect SD-E3-SCORER-COMPLETION (severity: degrading, e3_selector.py). Prefer cloud (228b ran on ree-worker-3, ~221 min)."
     }
   ]
 }
