@@ -132,27 +132,26 @@ substrate API correctness even if copied" discipline 906a itself documents):
      reaches the stamper; (c) `write_flat_manifest(..., seeds=None, ...)` hardcoded `None`
      regardless of `--seeds` -- now passes `args.seeds` through.
 
-  6. EPISODE-LOG DELIVERY -- OPS GAP, NOT A DRIVER BUG (autopsy: "the driver's own promised
-     `_episode_log.json` companion file was never written to disk despite the module
-     docstring instructing a future reader to consult it"). Verified this claim is only half
-     right: the driver DOES write the file correctly to local disk on every run (the
-     `__main__` block's `log_path.write_text(...)` is unconditional whenever `episode_log` is
-     non-None) -- the file just never reached `origin/master` because Phase 3's
-     companion-file transport (`experiment_runner.py` `_report_result_sidefiles` /
-     `_collect_companion_files`; `coordinator/sync_daemon.py` `PHASE3_SPOOL_SIDEFILES`,
-     default OFF) is gated by an env var that is only a `.example` template in
-     `coordinator/deploy/shadow.conf.{hub,worker}.example` in this repo -- whether it is
-     actually set on the live hub (`ree-sync-daemon`) and the pinned worker (`ree-cloud-4`)
-     systemd units cannot be confirmed or fixed from a driver script or this worktree.
-     Belt-and-suspenders driver-side change only: `result["companion_files"]` is now set
-     explicitly to the episode_log's own filename (source 1 in `_collect_companion_files`,
-     more robust than relying purely on its `*_episode_log.json` glob auto-discovery, which
-     was already sufficient but undocumented in the manifest itself). **This does not fix the
-     OFF-by-default gate.** OPERATOR ACTION ITEM: verify `PHASE3_SPOOL_SIDEFILES=1` is set on
-     both `ree-sync-daemon` (hub) and `ree-cloud-4` (the worker this queue entry pins to)
-     before assuming this run's episode_log will land on origin -- see
-     `coordinator/OPERATOR_GUIDE.md` "Side-file sync". If it is not set, this run will repeat
-     the identical gap regardless of anything above.
+  6. EPISODE-LOG DELIVERY -- WAS A REAL DRIVER-SIDE BUG, NOT JUST AN OPS GAP (corrected
+     2026-08-09 by chip-20260809-sidefile-collection-glob-bug; the analysis below at 906b's
+     original authoring time was itself wrong on this point and is kept, struck through in
+     spirit, so a future reader does not "fix" it back). The flag IS live on both the hub and
+     `ree-cloud-4` (re-verified 2026-08-09) -- that was never the actual blocker. The real bug:
+     `experiment_runner._collect_companion_files()` resolves a relative
+     `companion_files` entry against the MANIFEST's directory
+     (`evidence/experiments/`, from `write_flat_manifest(result, out_dir.parent, ...)` below),
+     not against `out_dir` (`evidence/experiments/{EXPERIMENT_TYPE}/`) where the episode_log
+     actually gets written a few lines above. The prior fix here --
+     `result["companion_files"] = [log_path.name]` -- declared just the bare filename, which
+     still resolved to the WRONG directory (one level too high) and was silently dropped by
+     `_collect_companion_files`'s `not rp.is_file()` check. Its claim that the
+     `*_episode_log.json` glob auto-discovery "was already sufficient" was also wrong for the
+     same reason: the glob scans the manifest's own directory, never the `{EXPERIMENT_TYPE}/`
+     subdirectory. Fixed by prefixing the declared path with `{EXPERIMENT_TYPE}/` below, so it
+     resolves to exactly where the file lives. See
+     `coordinator/test_phase3_sidefile_sync.py` for the regression test (its own
+     `RunnerHelperTest` fixture put the manifest and the episode_log in the same directory --
+     unrealistic, and how this shipped broken with a green suite; fixed alongside).
 
   7. SECONDARY FINDING NOT ACTED ON HERE (autopsy `recommended_substrate_queue_entry`,
      SD-RESIDUE-VALENCE-BOUND -- `RBFLayer.update_valence()` in `ree_core/residue/field.py`
@@ -1041,12 +1040,12 @@ if __name__ == "__main__":
         log_path = out_dir / f"{EXPERIMENT_TYPE}_{ts}_episode_log.json"
         log_path.write_text(json.dumps(episode_log, indent=2) + "\n", encoding="utf-8")
         print(f"Episode log written to: {log_path}", flush=True)
-        # V3-EXQ-906b recording-core fix (module docstring point 6): declare the
-        # companion explicitly (source 1 in experiment_runner._collect_companion_files)
-        # rather than relying purely on its *_episode_log.json glob auto-discovery.
-        # Still gated by PHASE3_SPOOL_SIDEFILES (default OFF) -- this does not, by
-        # itself, guarantee delivery to origin/master.
-        result["companion_files"] = [log_path.name]
+        # V3-EXQ-906b recording-core fix (module docstring point 6, corrected
+        # 2026-08-09): declared path must be relative to write_flat_manifest's
+        # out_dir (out_dir.parent below, i.e. evidence/experiments/), NOT to
+        # out_dir itself -- a bare log_path.name resolves one directory too
+        # high and _collect_companion_files silently finds nothing there.
+        result["companion_files"] = [f"{EXPERIMENT_TYPE}/{log_path.name}"]
 
     out_path = write_flat_manifest(
         result,

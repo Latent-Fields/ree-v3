@@ -17,7 +17,13 @@ Covers:
   - coordinator_client.report_result_sidefile envelope round-trips through the
     /result/sidefile spool contract.
   - runner-side enumeration helpers (declared + auto-discovered companions,
-    evidence-prefix boundary, default-OFF gate).
+    evidence-prefix boundary, default-OFF gate). The declared-companion
+    fixture mirrors the real fishtank-driver on-disk layout -- manifest in
+    evidence/experiments/, companions one level down in
+    evidence/experiments/{EXPERIMENT_TYPE}/ -- not the same directory; a
+    same-directory fixture previously masked the exact
+    chip-20260809-sidefile-collection-glob-bug regression these tests now
+    cover.
 
 All printed text is ASCII-only.
 """
@@ -354,26 +360,46 @@ class ClientEnvelopeTest(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class RunnerHelperTest(unittest.TestCase):
+    """Fixture mirrors the REAL fishtank-driver on-disk layout: the flat
+    manifest lands in evidence/experiments/ (write_flat_manifest's out_dir
+    argument is out_dir.parent in every affected driver), while the
+    episode_log and any other companions land one level down in
+    evidence/experiments/{EXPERIMENT_TYPE}/ (out_dir itself) -- NOT the same
+    directory as the manifest. A same-directory fixture here previously
+    masked the exact bug this class regression-tests
+    (chip-20260809-sidefile-collection-glob-bug, 2026-08-09): a declared
+    companion_files entry without the "{EXPERIMENT_TYPE}/" prefix resolves
+    against the manifest's own directory and silently finds nothing."""
+
     def setUp(self):
         import experiment_runner
         self._r = experiment_runner
         self._tmp = tempfile.mkdtemp(prefix="sf_runner_")
-        self._dir = (pathlib.Path(self._tmp) / "REE_assembly" / "evidence"
-                     / "experiments" / "v3_exq_664_x")
-        self._dir.mkdir(parents=True)
         self._asm = pathlib.Path(self._tmp) / "REE_assembly"
-        self._mp = self._dir / "v3_exq_664_x_20260610T000000Z.json"
+        self._manifest_dir = self._asm / "evidence" / "experiments"
+        self._companion_dir = self._manifest_dir / "v3_exq_664_x"
+        self._companion_dir.mkdir(parents=True)
+        self._mp = self._manifest_dir / "v3_exq_664_x_20260610T000000Z.json"
 
     def tearDown(self):
         shutil.rmtree(self._tmp, ignore_errors=True)
 
-    def test_collect_declared_and_autodiscovered(self):
-        self._mp.write_text(json.dumps(
-            {"run_id": "rid", "companion_files": ["extra_companion.json"]}))
-        (self._dir / "v3_exq_664_x_20260610T000000Z_episode_log.json"
-         ).write_text("{}")
-        (self._dir / "extra_companion.json").write_text("{}")
-        (self._dir / "unrelated.txt").write_text("no")
+    def test_collect_declared_resolves_into_subdirectory(self):
+        """Regression test for the real fishtank-driver layout: a declared
+        companion_files entry of the form "{EXPERIMENT_TYPE}/{filename}"
+        must resolve, relative to the manifest's directory, into the
+        EXPERIMENT_TYPE subdirectory where the episode_log actually lives."""
+        self._mp.write_text(json.dumps({
+            "run_id": "rid",
+            "companion_files": [
+                "v3_exq_664_x/v3_exq_664_x_20260610T000000Z_episode_log.json",
+                "v3_exq_664_x/extra_companion.json",
+            ],
+        }))
+        (self._companion_dir
+         / "v3_exq_664_x_20260610T000000Z_episode_log.json").write_text("{}")
+        (self._companion_dir / "extra_companion.json").write_text("{}")
+        (self._companion_dir / "unrelated.txt").write_text("no")
         doc = json.loads(self._mp.read_text())
         names = sorted(p.name for p in self._r._collect_companion_files(
             self._mp, doc))
@@ -381,13 +407,60 @@ class RunnerHelperTest(unittest.TestCase):
             "extra_companion.json",
             "v3_exq_664_x_20260610T000000Z_episode_log.json"])
 
+    def test_collect_declared_without_prefix_finds_nothing(self):
+        """The exact bug: a declared entry naming only the bare filename
+        (no "{EXPERIMENT_TYPE}/" prefix) resolves against the manifest's own
+        directory, where the file does not exist -- so it is silently
+        dropped, never raised. This is what shipped in the 906b driver
+        before the 2026-08-09 fix, and in 664/665/906/906a without any
+        companion_files declaration at all."""
+        self._mp.write_text(json.dumps({
+            "run_id": "rid",
+            "companion_files": [
+                "v3_exq_664_x_20260610T000000Z_episode_log.json"],
+        }))
+        (self._companion_dir
+         / "v3_exq_664_x_20260610T000000Z_episode_log.json").write_text("{}")
+        doc = json.loads(self._mp.read_text())
+        comp = self._r._collect_companion_files(self._mp, doc)
+        self.assertEqual(comp, [], "bare filename must NOT resolve across "
+                          "the manifest/companion directory boundary")
+
+    def test_collect_autodiscovery_does_not_recurse_into_subdirectory(self):
+        """The *_episode_log.json glob auto-discovery scans the MANIFEST's
+        own directory only -- it does not recurse into an EXPERIMENT_TYPE
+        subdirectory, so it cannot rescue an undeclared companion that lives
+        one level down (the real fishtank layout). This is why every
+        fishtank driver must declare companion_files explicitly."""
+        self._mp.write_text(json.dumps({"run_id": "rid"}))
+        (self._companion_dir
+         / "v3_exq_664_x_20260610T000000Z_episode_log.json").write_text("{}")
+        doc = json.loads(self._mp.read_text())
+        comp = self._r._collect_companion_files(self._mp, doc)
+        self.assertEqual(comp, [])
+
+    def test_collect_autodiscovery_same_directory_layout(self):
+        """A driver that writes both the manifest and the episode_log into
+        the SAME directory (e.g. v3_exq_495's out_dir passed directly to
+        write_flat_manifest, not out_dir.parent) is still covered by
+        auto-discovery with no companion_files declaration needed."""
+        flat_mp = self._companion_dir / "v3_exq_664_x_20260610T010101Z.json"
+        flat_mp.write_text(json.dumps({"run_id": "rid"}))
+        (self._companion_dir
+         / "v3_exq_664_x_20260610T010101Z_episode_log.json").write_text("{}")
+        comp = self._r._collect_companion_files(
+            flat_mp, json.loads(flat_mp.read_text()))
+        self.assertEqual(
+            [p.name for p in comp],
+            ["v3_exq_664_x_20260610T010101Z_episode_log.json"])
+
     def test_collect_excludes_manifest_itself(self):
         self._mp.write_text("{}")
         comp = self._r._collect_companion_files(self._mp, {})
         self.assertNotIn(self._mp.resolve(), [p.resolve() for p in comp])
 
     def test_evidence_relpath_boundary(self):
-        cpath = self._dir / "x_episode_log.json"
+        cpath = self._companion_dir / "x_episode_log.json"
         cpath.write_text("{}")
         rel = self._r._evidence_relpath(self._asm, cpath)
         self.assertEqual(

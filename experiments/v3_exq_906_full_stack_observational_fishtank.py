@@ -726,6 +726,14 @@ if __name__ == "__main__":
         log_path = out_dir / f"{EXPERIMENT_TYPE}_{ts}_episode_log.json"
         log_path.write_text(json.dumps(episode_log, indent=2) + "\n", encoding="utf-8")
         print(f"Episode log written to: {log_path}", flush=True)
+        # Declared companion path, relative to write_flat_manifest's out_dir
+        # (out_dir.parent below) -- NOT out_dir itself. experiment_runner.py
+        # _collect_companion_files resolves a declared relative entry against
+        # the MANIFEST's directory (evidence/experiments/), one level above
+        # where the episode_log actually lands (evidence/experiments/
+        # {EXPERIMENT_TYPE}/), so the prefix is required or the runner's
+        # Phase-3 sidefile sync silently finds nothing.
+        result["companion_files"] = [f"{EXPERIMENT_TYPE}/{log_path.name}"]
 
     out_path = write_flat_manifest(
         result,
