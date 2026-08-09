@@ -121,6 +121,24 @@
       "seeds": 3
     },
     {
+      "queue_id": "V3-EXQ-324d",
+      "title": "SD-020 real flag-path retest: harm_surprise_pe OFF vs ON via agent.compute_harm_accum_loss (SD-022 substrate)",
+      "script": "experiments/v3_exq_324d_sd020_harm_surprise_pe_real_flagpath.py",
+      "priority": 35,
+      "machine_affinity": "any",
+      "estimated_minutes": 120,
+      "supersedes": "V3-EXQ-324b",
+      "note": "Governance-commissioned (2026-08-09 GFLAG-0005) real flag-path retest of SD-020, demoted stable->candidate because the promoting run 324b was a STANDALONE BENCH (zero REEAgent/harm_surprise_pe_enabled/compute_harm_accum_loss refs) and even 324 reimplements the PE target manually against a standalone head. (Note: queue_id 324c was already burned by an empty April-2026 completion with no manifest; this is 324d.) This run trains z_harm_a through the SHIPPED loss agent.compute_harm_accum_loss(accum, latent) under harm_surprise_pe_enabled, via the proven affective_fishtank.warmup_train harness. PE-branch differentiation gate (ARM_OFF _harm_obs_ema==0, ARM_ON>1e-4) PROVES the shipped branch fired -- confirmed in design probes (OFF 0.0, ON 0.0187 at 20ep). SUBSTRATE SD-022 (limb_damage_enabled=True) re-sources harm_obs_a from 7-dim damage state, fixing 324's harm_obs_a_variance~3e-4 + underpowering (probes: 367/400 harm events vs 324's 10-20). Primary DV: harm_accum_pred surprise-vs-magnitude preference (head readout, not saturation-masked z_harm_a norm); PASS=ARM_ON shifts toward surprise in >=3/5 seeds. NON-DEGENERACY self-routes non_contributory (NOT weakens) if the flag path didn't differentiate, run is underpowered, DV unmeasurable, or the manipulation produced no measurable representational change -- design probes show a SMALL OFF-vs-ON delta (~0.02 at 20ep), so a non_contributory outcome is a plausible, honest result that keeps SD-020 at candidate rather than a false verdict. DV-SYMMETRY: the manipulation changes z_harm_a's learned weights, and corr(head, PE/accum) is not invariant under any broadcast/rescale/permutation of the latent -- a nonzero ON-vs-OFF delta is a real measurement. GOV-REUSE-1: decisive readout (surprise-vs-magnitude preference under the REAL flag path) is recorded in NO manifest -- 324/324a/324b are benches, 856 drives the real path but on a different DV (CoV+mode inversion) and non-limb_damage substrate -> run. 2.5c: only open substrate_paths overlap is mech203-valence-pool-admissibility (update_harm_salience/HarmEncoder), unset severity + different code path than compute_harm_accum_loss/z_harm_a -> no gating. Directly addresses Q-036. Prefer cloud (linux-x86_64 machine-class) for reproducibility.",
+      "status": "pending",
+      "claim_ids": [
+        "SD-020"
+      ],
+      "conditions": 2,
+      "episodes_per_run": 50,
+      "experiment_type": "v3_exq_324d_sd020_harm_surprise_pe_real_flagpath",
+      "seeds": 5
+    },
+    {
       "queue_id": "V3-EXQ-907",
       "title": "SD-016 GOV-FANOUT-1 leg H1 (DRIVE): explicit context-divergence objective on the Path-3 cue-slot tagger -- does rewarding context-conditioned divergence break the uniform-selection saddle?",
       "script": "experiments/v3_exq_907_sd016_h1_ctxdiv.py",
@@ -134,24 +152,6 @@
       "episodes_per_run": 100,
       "experiment_type": "v3_exq_907_sd016_h1_ctxdiv",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-324d",
-      "title": "SD-020 real flag-path retest: harm_surprise_pe OFF vs ON via agent.compute_harm_accum_loss (SD-022 substrate)",
-      "experiment_type": "v3_exq_324d_sd020_harm_surprise_pe_real_flagpath",
-      "script": "experiments/v3_exq_324d_sd020_harm_surprise_pe_real_flagpath.py",
-      "priority": 35,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 120,
-      "episodes_per_run": 50,
-      "seeds": 5,
-      "conditions": 2,
-      "claim_ids": [
-        "SD-020"
-      ],
-      "supersedes": "V3-EXQ-324b",
-      "note": "Governance-commissioned (2026-08-09 GFLAG-0005) real flag-path retest of SD-020, demoted stable->candidate because the promoting run 324b was a STANDALONE BENCH (zero REEAgent/harm_surprise_pe_enabled/compute_harm_accum_loss refs) and even 324 reimplements the PE target manually against a standalone head. (Note: queue_id 324c was already burned by an empty April-2026 completion with no manifest; this is 324d.) This run trains z_harm_a through the SHIPPED loss agent.compute_harm_accum_loss(accum, latent) under harm_surprise_pe_enabled, via the proven affective_fishtank.warmup_train harness. PE-branch differentiation gate (ARM_OFF _harm_obs_ema==0, ARM_ON>1e-4) PROVES the shipped branch fired -- confirmed in design probes (OFF 0.0, ON 0.0187 at 20ep). SUBSTRATE SD-022 (limb_damage_enabled=True) re-sources harm_obs_a from 7-dim damage state, fixing 324's harm_obs_a_variance~3e-4 + underpowering (probes: 367/400 harm events vs 324's 10-20). Primary DV: harm_accum_pred surprise-vs-magnitude preference (head readout, not saturation-masked z_harm_a norm); PASS=ARM_ON shifts toward surprise in >=3/5 seeds. NON-DEGENERACY self-routes non_contributory (NOT weakens) if the flag path didn't differentiate, run is underpowered, DV unmeasurable, or the manipulation produced no measurable representational change -- design probes show a SMALL OFF-vs-ON delta (~0.02 at 20ep), so a non_contributory outcome is a plausible, honest result that keeps SD-020 at candidate rather than a false verdict. DV-SYMMETRY: the manipulation changes z_harm_a's learned weights, and corr(head, PE/accum) is not invariant under any broadcast/rescale/permutation of the latent -- a nonzero ON-vs-OFF delta is a real measurement. GOV-REUSE-1: decisive readout (surprise-vs-magnitude preference under the REAL flag path) is recorded in NO manifest -- 324/324a/324b are benches, 856 drives the real path but on a different DV (CoV+mode inversion) and non-limb_damage substrate -> run. 2.5c: only open substrate_paths overlap is mech203-valence-pool-admissibility (update_harm_salience/HarmEncoder), unset severity + different code path than compute_harm_accum_loss/z_harm_a -> no gating. Directly addresses Q-036. Prefer cloud (linux-x86_64 machine-class) for reproducibility."
     }
   ]
 }
