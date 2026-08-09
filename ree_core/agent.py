@@ -164,6 +164,8 @@ from ree_core.governance import (
 )
 from ree_core.amygdala import (
     BLAAnalog,
+    BLAAttributionHead,
+    BLAAttributionHeadConfig,
     BLAConfig,
     BLAOutput,
     CeAAnalog,
@@ -2097,6 +2099,7 @@ class REEAgent(nn.Module):
         #                (MECH-046 / MECH-074c; injected into
         #                SalienceCoordinator via update_signal below).
         self.bla: Optional[BLAAnalog] = None
+        self.bla_attribution_head: Optional[BLAAttributionHead] = None
         self.cea: Optional[CeAAnalog] = None
         if getattr(config, "use_amygdala_analog", False):
             if getattr(config, "use_bla_analog", True):
@@ -2117,6 +2120,42 @@ class REEAgent(nn.Module):
                     remap_requires_attribution=config.bla_remap_requires_attribution,
                 )
                 self.bla = BLAAnalog(bla_cfg)
+                # MECH-074d second pass (2026-08-09): the deferred trainable
+                # attribution head. Only constructed when explicitly selected
+                # -- with the default "contribution_threshold" the legacy
+                # non-trainable proxy runs and nothing here is instantiated,
+                # so behaviour is bit-identical to pre-2026-08-09.
+                if (
+                    str(getattr(config, "bla_attribution_head",
+                                "contribution_threshold"))
+                    == "trainable"
+                ):
+                    self.bla_attribution_head = BLAAttributionHead(
+                        BLAAttributionHeadConfig(
+                            key_dim=int(getattr(config, "bla_attr_head_key_dim", 16)),
+                            learning_rate=float(
+                                getattr(config, "bla_attr_head_lr", 1e-3)),
+                            weight_decay=float(
+                                getattr(config, "bla_attr_head_weight_decay", 0.0)),
+                            temperature_init=float(
+                                getattr(config, "bla_attr_head_temperature_init", 0.5)),
+                            learn_temperature=bool(
+                                getattr(config, "bla_attr_head_learn_temperature",
+                                        True)),
+                            temperature_min=float(
+                                getattr(config, "bla_attr_head_temperature_min", 0.05)),
+                            entropy_weight=float(
+                                getattr(config, "bla_attr_head_entropy_weight", 0.02)),
+                            grad_clip=float(
+                                getattr(config, "bla_attr_head_grad_clip", 1.0)),
+                            warmup_steps=int(
+                                getattr(config, "bla_attr_head_warmup_steps", 200)),
+                            train=bool(getattr(config, "bla_attr_head_train", True)),
+                            min_candidate_weight=float(
+                                getattr(config,
+                                        "bla_attr_head_min_candidate_weight", 0.0)),
+                        )
+                    )
             if getattr(config, "use_cea_analog", True):
                 cea_cfg = CeAConfig(
                     fast_route_threshold=config.cea_fast_route_threshold,
@@ -3298,6 +3337,12 @@ class REEAgent(nn.Module):
         # episode; cross-episode state not retained.
         if self.bla is not None:
             self.bla.reset()
+        if self.bla_attribution_head is not None:
+            # Clears diagnostic latches only. Learned weights PERSIST across
+            # episodes on purpose: Moita 2004's dissociation develops over
+            # training, so wiping them per episode would reproduce the
+            # non-trainable rule's defect with extra steps.
+            self.bla_attribution_head.reset()
         if self.cea is not None:
             self.cea.reset()
         self._bla_last_output = None
@@ -3899,11 +3944,41 @@ class REEAgent(nn.Module):
         z_self: torch.Tensor,
         z_world: torch.Tensor,
     ) -> Optional[Dict[int, float]]:
-        """Approximate active code contributions from ContextMemory slot attention."""
+        """Per-code attribution scores handed to the MECH-074d remap gate.
+
+        Two implementations, selected by REEConfig.bla_attribution_head:
+
+          "contribution_threshold" (DEFAULT) -- the original non-trainable
+              proxy: a softmax of ContextMemory's own query projection
+              against raw slot content. Nothing here is learned FOR
+              attribution, which is the defect V3-EXQ-894/894a diagnosed
+              (context-selectivity invariant to PE-threshold recalibration,
+              Spearman -1.0 across a 4-point sigma sweep).
+
+          "trainable" -- BLAAttributionHead, a learned context-conditioned
+              attribution supervised by whether attending to a slot helps
+              predict z_harm_a. Falls back to the proxy below while the
+              head is still in warmup, so a randomly-initialised head never
+              drives real ContextMemory remap writes.
+
+        Deliberately kept as ONE entry point for both: the V3-EXQ-894/894a
+        instrument records the attribution the gate actually consumed by
+        wrapping THIS method, so routing the trainable head through a
+        separate function would silently make that recording measure the
+        wrong vector.
+        """
         if not hasattr(self.e1, "context_memory"):
             return None
 
         cm = self.e1.context_memory
+
+        if self.bla_attribution_head is not None:
+            with torch.no_grad():
+                state = torch.cat([z_self.detach(), z_world.detach()], dim=-1)
+            learned = self.bla_attribution_head.attribute(state, cm.memory.detach())
+            if learned is not None:
+                return learned
+
         with torch.no_grad():
             state = torch.cat([z_self.detach(), z_world.detach()], dim=-1)
             query = cm.query_proj(state)
@@ -3915,6 +3990,36 @@ class REEAgent(nn.Module):
             for idx in range(weights.numel())
             if float(weights[idx].item()) > 0.0
         }
+
+    def _train_bla_attribution_head(
+        self,
+        z_self: Optional[torch.Tensor],
+        z_world: Optional[torch.Tensor],
+        z_harm_a: Optional[torch.Tensor],
+    ) -> None:
+        """One supervised step for the MECH-074d trainable attribution head.
+
+        No-op unless the head is enabled. Skipped in eval mode (nn.Module
+        `self.training` False) so a frozen-head measurement phase measures
+        frozen weights -- the P1-train / P2-eval split the phased-training
+        rule requires for any head trained on latent signals.
+        """
+        head = self.bla_attribution_head
+        if head is None:
+            return
+        if not self.training:
+            return
+        if z_self is None or z_world is None or z_harm_a is None:
+            return
+        if not hasattr(self.e1, "context_memory"):
+            return
+        state = torch.cat([z_self.detach(), z_world.detach()], dim=-1)
+        head.train_step(
+            state=state,
+            memory=self.e1.context_memory.memory.detach(),
+            harm_target=z_harm_a.detach(),
+            simulation_mode=False,
+        )
 
     def _apply_bla_context_remap(
         self,
@@ -4521,6 +4626,16 @@ class REEAgent(nn.Module):
                             new_latent.z_self,
                             new_latent.z_world,
                         )
+                    # MECH-074d second pass: train the attribution head AFTER
+                    # the gate has consumed this tick's attribution, so the
+                    # gate never sees a head updated on the very target it is
+                    # about to be evaluated against. Detached inputs only --
+                    # no gradient reaches E1 or the latent stack.
+                    self._train_bla_attribution_head(
+                        new_latent.z_self,
+                        new_latent.z_world,
+                        z_harm_a_cur,
+                    )
                 if self.cea is not None:
                     # cortical_confirmation is reserved for a future cortical
                     # gate wired off the AIC / dACC fast-signal path.

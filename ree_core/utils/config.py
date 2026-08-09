@@ -4826,6 +4826,45 @@ class REEConfig:
     # 0.5 = keep half the old slot code, half current observation-conditioned code.
     bla_context_remap_blend: float = 0.5
 
+    # -- BLAAnalog trainable attribution head (MECH-074d second pass) --
+    # Selects HOW candidate_code_contributions is computed before the PE
+    # gate's Moita-2004 top-k selection (which is unchanged either way):
+    #   "contribution_threshold" (DEFAULT) -- the legacy fixed, non-trainable
+    #       slot-attention proxy in REEAgent._get_context_memory_code_contributions.
+    #       Bit-identical to pre-2026-08-09 behaviour.
+    #   "trainable" -- ree_core/amygdala/attribution_head.BLAAttributionHead,
+    #       a learned context-conditioned attribution supervised by whether
+    #       attending to a slot helps predict z_harm_a. Built after
+    #       V3-EXQ-894/894a showed the fixed rule's selectivity does not
+    #       respond to PE-threshold recalibration (Spearman -1.0 across a
+    #       4-point sigma sweep) -- see failure_autopsy_V3-EXQ-894a_2026-08-08.
+    bla_attribution_head: str = "contribution_threshold"
+    # Query/key projection width for the trainable head.
+    bla_attr_head_key_dim: int = 16
+    bla_attr_head_lr: float = 1e-3
+    bla_attr_head_weight_decay: float = 0.0
+    # Softmax temperature (< 1 sharpens); learned as log-temperature by the
+    # head's own optimiser unless learn_temperature is False. temperature_min
+    # stops the entropy term driving a saturated (zero-gradient) argmax.
+    bla_attr_head_temperature_init: float = 0.5
+    bla_attr_head_learn_temperature: bool = True
+    bla_attr_head_temperature_min: float = 0.05
+    # Normalised-entropy penalty weight. Small ON PURPOSE: it buys peakedness
+    # (C1 mass-excess) but a large value buys it at the cost of context
+    # sensitivity (C2 jaccard gap) -- i.e. it reproduces V3-EXQ-894a's
+    # context-blind seed-43 signature. See the module docstring.
+    bla_attr_head_entropy_weight: float = 0.02
+    bla_attr_head_grad_clip: float = 1.0
+    # Training steps before the head's attribution is used at all. Below this
+    # the caller falls back to the legacy proxy, so a randomly-initialised
+    # head never drives real ContextMemory remap writes.
+    bla_attr_head_warmup_steps: int = 200
+    # Set False for a frozen-head evaluation phase (P2) on trained weights.
+    bla_attr_head_train: bool = True
+    # Attribution weights at or below this are dropped from the candidate
+    # dict, so the downstream top-k is taken over genuinely-scored codes.
+    bla_attr_head_min_candidate_weight: float = 0.0
+
     # -- CeAAnalog (SD-035 / MECH-046 / MECH-074c) --
     # Fast-route threshold on the low-frequency magnitude projection of
     # z_harm_a. Below this, no fast-route fire (mode_prior=0, fast_prime
@@ -6298,6 +6337,19 @@ class REEConfig:
         bla_remap_code_fraction: float = 0.33,
         bla_remap_requires_attribution: bool = True,
         bla_context_remap_blend: float = 0.5,
+        # BLAAnalog trainable attribution head (MECH-074d second pass)
+        bla_attribution_head: str = "contribution_threshold",
+        bla_attr_head_key_dim: int = 16,
+        bla_attr_head_lr: float = 1e-3,
+        bla_attr_head_weight_decay: float = 0.0,
+        bla_attr_head_temperature_init: float = 0.5,
+        bla_attr_head_learn_temperature: bool = True,
+        bla_attr_head_temperature_min: float = 0.05,
+        bla_attr_head_entropy_weight: float = 0.02,
+        bla_attr_head_grad_clip: float = 1.0,
+        bla_attr_head_warmup_steps: int = 200,
+        bla_attr_head_train: bool = True,
+        bla_attr_head_min_candidate_weight: float = 0.0,
         # CeAAnalog (MECH-046 / MECH-074c)
         cea_fast_route_threshold: float = 0.5,
         cea_fast_route_input_is_lowfreq: bool = True,
@@ -7637,6 +7689,20 @@ class REEConfig:
         config.bla_remap_code_fraction = bla_remap_code_fraction
         config.bla_remap_requires_attribution = bla_remap_requires_attribution
         config.bla_context_remap_blend = bla_context_remap_blend
+        config.bla_attribution_head = bla_attribution_head
+        config.bla_attr_head_key_dim = bla_attr_head_key_dim
+        config.bla_attr_head_lr = bla_attr_head_lr
+        config.bla_attr_head_weight_decay = bla_attr_head_weight_decay
+        config.bla_attr_head_temperature_init = bla_attr_head_temperature_init
+        config.bla_attr_head_learn_temperature = bla_attr_head_learn_temperature
+        config.bla_attr_head_temperature_min = bla_attr_head_temperature_min
+        config.bla_attr_head_entropy_weight = bla_attr_head_entropy_weight
+        config.bla_attr_head_grad_clip = bla_attr_head_grad_clip
+        config.bla_attr_head_warmup_steps = bla_attr_head_warmup_steps
+        config.bla_attr_head_train = bla_attr_head_train
+        config.bla_attr_head_min_candidate_weight = (
+            bla_attr_head_min_candidate_weight
+        )
         config.cea_fast_route_threshold = cea_fast_route_threshold
         config.cea_fast_route_input_is_lowfreq = cea_fast_route_input_is_lowfreq
         config.cea_mode_prior_log_odds_max = cea_mode_prior_log_odds_max
