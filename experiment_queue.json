@@ -10,17 +10,21 @@
     {
       "queue_id": "V3-EXQ-909",
       "title": "Sleep-refinement DV probe on fishtank substrate (multi-firing, multi-seed)",
-      "experiment_type": "v3_exq_909_sleep_dv_fishtank_multifiring",
       "script": "experiments/v3_exq_909_sleep_dv_fishtank_multifiring.py",
       "priority": 30,
       "machine_affinity": "any",
-      "status": "pending",
       "estimated_minutes": 180,
-      "episodes_per_run": 220,
-      "seeds": 3,
-      "conditions": 1,
+      "note": "Diagnostic discrimination probe, successor to V3-EXQ-906b (observational_review_V3-EXQ-906b_2026-08-09.md Section 13-C track C / 11a / 12d). Tests whether the sleep-refinement DV (sws_slot_diversity / replay_diversity_index) registers a non-null waking->sleep difference on the repertoire-diverse-but-non-converting fishtank substrate, across 16 segments x 3 seeds (up to 45 forced sleep-cycle firings via SleepLoopManager.force_cycle() at every eval boundary, bypassing the K=10 cadence). GOV-REUSE-1 checked: reanalysis_query.py scanned 867 manifests for the sws_slot_diversity readout on 2026-08-09 -- no manifest carries multi-firing/multi-seed data on this substrate; not recoverable, ran fresh. claim_ids=[] (does not weight governance; re-derive brake N/A). CONFIG DELTA vs 906b (see script docstring for full empirical verification): adds use_anchor_sets=True + use_mech285_sampler=True + use_mech272_routing=True on top of 906b's unmodified config -- these three independently-gated flags are hard structural preconditions for replay_diversity_index to ever be anything other than the -1.0 zero-draws sentinel (confirmed empirically: draws_per_cycle=0 and sleep_replay_sampler=None on 906b's exact config, deterministically, regardless of waking diversity). Confirmed no waking-side behavioural effect (GhostGoalBank/MECH-293 stay ungated; sleep_routing_gate/sleep_replay_sampler are referenced only inside phase_manager._run_cycle). Either outcome (null or non-null) is informative; does not itself unblock GAP-2. Smoke: validate_experiments.py --strict OK, dry-run PASS mechanically (self-routes substrate_not_ready_requeue at dry-run scale only because sufficient_firing_sample=6<10 -- the pre-registered floor the real run's 45 firings clears easily; all four mechanism-engagement preconditions met True on every seed, sws_slot_diversity_mean=0.045 and replay_diversity_index_mean=0.02 both genuine non-sentinel readings).",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-1",
+        "claimed_at": "2026-08-09T19:05:56Z"
+      },
       "claim_ids": [],
-      "note": "Diagnostic discrimination probe, successor to V3-EXQ-906b (observational_review_V3-EXQ-906b_2026-08-09.md Section 13-C track C / 11a / 12d). Tests whether the sleep-refinement DV (sws_slot_diversity / replay_diversity_index) registers a non-null waking->sleep difference on the repertoire-diverse-but-non-converting fishtank substrate, across 16 segments x 3 seeds (up to 45 forced sleep-cycle firings via SleepLoopManager.force_cycle() at every eval boundary, bypassing the K=10 cadence). GOV-REUSE-1 checked: reanalysis_query.py scanned 867 manifests for the sws_slot_diversity readout on 2026-08-09 -- no manifest carries multi-firing/multi-seed data on this substrate; not recoverable, ran fresh. claim_ids=[] (does not weight governance; re-derive brake N/A). CONFIG DELTA vs 906b (see script docstring for full empirical verification): adds use_anchor_sets=True + use_mech285_sampler=True + use_mech272_routing=True on top of 906b's unmodified config -- these three independently-gated flags are hard structural preconditions for replay_diversity_index to ever be anything other than the -1.0 zero-draws sentinel (confirmed empirically: draws_per_cycle=0 and sleep_replay_sampler=None on 906b's exact config, deterministically, regardless of waking diversity). Confirmed no waking-side behavioural effect (GhostGoalBank/MECH-293 stay ungated; sleep_routing_gate/sleep_replay_sampler are referenced only inside phase_manager._run_cycle). Either outcome (null or non-null) is informative; does not itself unblock GAP-2. Smoke: validate_experiments.py --strict OK, dry-run PASS mechanically (self-routes substrate_not_ready_requeue at dry-run scale only because sufficient_firing_sample=6<10 -- the pre-registered floor the real run's 45 firings clears easily; all four mechanism-engagement preconditions met True on every seed, sws_slot_diversity_mean=0.045 and replay_diversity_index_mean=0.02 both genuine non-sentinel readings)."
+      "conditions": 1,
+      "episodes_per_run": 220,
+      "experiment_type": "v3_exq_909_sleep_dv_fishtank_multifiring",
+      "seeds": 3
     }
   ]
 }
