@@ -24,26 +24,6 @@
       "seeds": 1
     },
     {
-      "queue_id": "V3-EXQ-228c",
-      "title": "ARC-032 theta-bypass DIRECT readout: z_goal persistence + goal-proximity-score noise at E3-tick granularity (redesign of 228b)",
-      "script": "experiments/v3_exq_228c_arc032_theta_bypass_readout.py",
-      "priority": 40,
-      "machine_affinity": "any",
-      "estimated_minutes": 240,
-      "supersedes": "V3-EXQ-228b",
-      "claim_id": "ARC-032",
-      "note": "Redesign of V3-EXQ-228b per failure_autopsy_V3-EXQ-228b_2026-08-09. 228b was the FIRST run in the 076/228/247/228a/228b lineage to clear ARC-032's non-degeneracy precondition (goal_norm 1.00 frac seeds), theta-patch confirmed non-inert, but its resource-lift readout FAILED with two measurement-adequacy defects the autopsy would not accept as falsifying: (a) E3-tick cache-gating dilutes any theta-specific signal ~9x in a full-episode aggregate; (b) the driver measured a downstream behavioral proxy, never claims.yaml's own CONFIRMING DVs (z_goal persistence, goal-proximity-score noise). 228c keeps 228b's proven shared-training/deepcopy-split THETA_ACTIVE-vs-THETA_ZEROED architecture BYTE-IDENTICAL and changes ONLY the measurement: scores z_goal persistence (lag-1 cosine of z_goal) and goal-proximity-score noise (temporal std of the lead candidate's goal_proximity) DIRECTLY, restricted to E3-tick steps where the ablation acts. Behavioral resource-lift kept informational. GOV-REUSE-1: the E3-tick-restricted persistence/noise readouts are NOT recorded in 228b's manifest (which recorded only full-episode resource_visit_rate/harm_rate/zgoal_norm_mean) and are not derivable by reanalysis -> genuine new run. Re-derive brake: does NOT fire (ARC-032 counted-ceiling count=1 < 2; and this is a measurement_test_design_defect redesign, action:none, not a substrate-ceiling power-bump). DV-symmetry: both DVs are genuinely sensitive to zeroing theta (not arithmetic invariants) -- persistence via the behavioral->benefit->z_goal loop, proximity-noise via the proposer's z_world_for_e3 input (smoke confirms C2 differs between arms: 0.0216 vs 0.0342). Reversed direction (theta ACTIVE worse) is registered as a finding (converges with MECH-089 EXQ-066/EXQ-122 that static theta-averaging harms E3 discrimination), NOT dismissed. Runs under known substrate_queue defect SD-E3-SCORER-COMPLETION (severity: degrading, e3_selector.py). Prefer cloud (228b ran on ree-worker-3, ~221 min).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-08-09T08:18:27Z"
-      },
-      "conditions": 2,
-      "episodes_per_run": 250,
-      "experiment_type": "v3_exq_228c_arc032_theta_bypass_readout",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-603s",
       "title": "MECH-357 freeze-incompatible Stage-H: mobile predators reintroduce the Pavlovian-instrumental conflict; 3-arm two-sided headroom guard (successor of 603r)",
       "script": "experiments/v3_exq_603s_instrumental_avoidance_freeze_incompatible_hazard.py",
@@ -114,7 +94,11 @@
       "supersedes": "V3-EXQ-905",
       "claim_id": "MECH-075",
       "note": "LC_GAIN recalibration of V3-EXQ-905 per failure_autopsy_mech075-vta-lc-cluster_2026-08-09 (dorsal/LC-arousal leg). 905 was the FIRST non-degenerate manipulation test of this leg: P0 (signal magnitude) and C1 (manipulation check) both cleanly PASSED, correcting the signal-magnitude defect of all 3 prior attempts (EXQ-192a/209/230). But load-bearing C2 (basin-width widening >=15%) failed 0/3 with near-zero sign-inconsistent gaps (~1e-6). Autopsy traced this to the manipulation gain LC_GAIN=2.0 -- inherited UNCHANGED from the already-FAILED EXQ-192a's novelty_gain=2.0, never re-derived: at the observed eval-phase arousal_ema (0.0022-0.0029), mode_scale = 1 + LC_GAIN*arousal_ema = 1.004-1.006 (0.4-0.6% CEM-noise lift), an order of magnitude too small to move a 15%-scale basin width. Reclassified from filed 'weakens' to measurement_test_design_defect / non_contributory (underpowered manipulation, NOT a falsification). 905a re-derives LC_GAIN=80.0 from the observed 905 eval arousal_ema [0.002196,0.002726,0.002851] (mean ~0.00259; target mode_scale ~1.2 => 0.2/0.00259 ~= 77 -> 80), landing mode_scale ~1.18-1.23 (decisive ~1.1-1.3 band, by analogy with sibling 903's RPE_GAIN=50 derivation). arousal_ema is downstream-independent of LC_GAIN so the derivation is valid; 905a additionally records the realized per-seed cem_noise_scale (seed{i}_gated_cem_noise_scale) to audit the applied mode_scale. Channel/terrain/criteria/thresholds UNCHANGED; only the gain constant. GOV-REUSE-1: no recorded run applies LC_GAIN=80, and the C2 readout under a decisive manipulation is not derivable from 905's underpowered manifest -> genuine new run. Re-derive brake does NOT fire (autopsy re_derive_brake.fired=false; zero prior substrate_ceiling autopsies for MECH-075). substrate_paths defect is script-local (this gain constant), not a shared substrate gap. Prefer cloud (905 ran on ree-worker-3, ~192 min for 3 seeds x 2 conditions).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-08-09T11:04:29Z"
+      },
       "conditions": 2,
       "episodes_per_run": 150,
       "experiment_type": "v3_exq_905a_mech075_dorsal_lc_arousal_probe",
