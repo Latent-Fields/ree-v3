@@ -5006,6 +5006,38 @@ class REEConfig:
     pag_freeze_noop_action_class: int = 0
 
     # ----------------------------------------------------------------
+    # SD-099 (MECH-489): defensive-orienting response
+    # ----------------------------------------------------------------
+    # Master switch. When True, REEAgent instantiates a DefensiveOrientingGate
+    # that ticks each select_action() from residue_surprise (MECH-205) and the
+    # SD-010 z_harm_s norm, constrains the action selector to a no-op while
+    # orienting_active (same no-op mechanism as MECH-279, OR'd together), and
+    # on override biases E3 selection toward/away from the trigger location
+    # via the existing score_bias hook. A phasic sibling of use_pag_freeze_gate
+    # -- separate gate, separate trigger, composed at the action-constraint
+    # site so MECH-279's own behaviour is unchanged. False = disabled
+    # (default, backward compat).
+    use_defensive_orienting: bool = False
+    # Slow EMA rates for the two rolling onset-detector baselines.
+    orienting_surprise_ema_alpha: float = 0.02
+    orienting_harm_s_ema_alpha: float = 0.02
+    # Onset thresholds (channel value minus its own baseline). Seeded from
+    # observational_review_V3-EXQ-906b Section 12g/12h event-triggered
+    # numbers -- see sd_094_defensive_orienting_response.md.
+    orienting_surprise_onset_delta: float = 0.010
+    orienting_harm_s_onset_delta: float = 0.010
+    # Identification-confidence dynamics (decay-driven, not a fixed timer).
+    orienting_confidence_rise_rate: float = 0.15
+    orienting_confidence_floor_rise: float = 0.0
+    orienting_sufficiency_threshold: float = 0.8
+    # Optional safety-valve cap on orienting duration (ticks). 0 = no cap.
+    orienting_max_duration: int = 0
+    # Action-decision (approach/withdraw/resume) resolution + score_bias.
+    orienting_decision_epsilon: float = 0.01
+    orienting_decision_bias_scale: float = 1.0
+    orienting_post_override_bias_ticks: int = 5
+
+    # ----------------------------------------------------------------
     # SD-037: Broadcast Override Regulator (orexin-analog)
     # ----------------------------------------------------------------
     # Master switch. When True, REEAgent instantiates a BroadcastOverrideRegulator
@@ -6456,6 +6488,19 @@ class REEConfig:
         pag_min_freeze_duration: int = 0,
         pag_max_freeze_duration: int = 0,
         pag_freeze_noop_action_class: int = 0,
+        # SD-099 (MECH-489): defensive-orienting response
+        use_defensive_orienting: bool = False,
+        orienting_surprise_ema_alpha: float = 0.02,
+        orienting_harm_s_ema_alpha: float = 0.02,
+        orienting_surprise_onset_delta: float = 0.010,
+        orienting_harm_s_onset_delta: float = 0.010,
+        orienting_confidence_rise_rate: float = 0.15,
+        orienting_confidence_floor_rise: float = 0.0,
+        orienting_sufficiency_threshold: float = 0.8,
+        orienting_max_duration: int = 0,
+        orienting_decision_epsilon: float = 0.01,
+        orienting_decision_bias_scale: float = 1.0,
+        orienting_post_override_bias_ticks: int = 5,
         # SD-037: Broadcast Override Regulator (orexin-analog)
         use_broadcast_override: bool = False,
         override_recruitment_threshold: float = 0.5,
@@ -7819,6 +7864,20 @@ class REEConfig:
         config.pag_min_freeze_duration = pag_min_freeze_duration
         config.pag_max_freeze_duration = pag_max_freeze_duration
         config.pag_freeze_noop_action_class = pag_freeze_noop_action_class
+
+        # SD-099 (MECH-489): defensive-orienting response
+        config.use_defensive_orienting = use_defensive_orienting
+        config.orienting_surprise_ema_alpha = orienting_surprise_ema_alpha
+        config.orienting_harm_s_ema_alpha = orienting_harm_s_ema_alpha
+        config.orienting_surprise_onset_delta = orienting_surprise_onset_delta
+        config.orienting_harm_s_onset_delta = orienting_harm_s_onset_delta
+        config.orienting_confidence_rise_rate = orienting_confidence_rise_rate
+        config.orienting_confidence_floor_rise = orienting_confidence_floor_rise
+        config.orienting_sufficiency_threshold = orienting_sufficiency_threshold
+        config.orienting_max_duration = orienting_max_duration
+        config.orienting_decision_epsilon = orienting_decision_epsilon
+        config.orienting_decision_bias_scale = orienting_decision_bias_scale
+        config.orienting_post_override_bias_ticks = orienting_post_override_bias_ticks
 
         # SD-037: Broadcast Override Regulator (orexin-analog)
         config.use_broadcast_override = use_broadcast_override

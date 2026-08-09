@@ -683,6 +683,29 @@ def _observational_run(agent: REEAgent, env: CausalGridWorldV2, num_episodes: in
                 "residue_surprise": (residue_metrics.get("mech205_surprise")
                                      if isinstance(residue_metrics, dict) else None),
                 "residue_write_fired": bool(residue_surprise_write_fired),
+                # SD-099/MECH-489 telemetry addition (V3-EXQ-940 validation): the
+                # defensive-orienting gate's per-tick output, read from the cache
+                # select_action() populates. Safe when use_defensive_orienting=False
+                # (agent._orienting_last_output stays None -> all fields below read
+                # False/0.0, additive/backward-compatible with pre-existing 906b/906a
+                # manifests, which simply never had this gate to report on).
+                "orienting_trigger_fired": bool(
+                    getattr(getattr(agent, "_orienting_last_output", None),
+                            "trigger_fired", False)
+                ),
+                "orienting_override_fired": bool(
+                    getattr(getattr(agent, "_orienting_last_output", None),
+                            "override_fired", False)
+                ),
+                "orienting_active": bool(
+                    getattr(getattr(agent, "_orienting_last_output", None),
+                            "orienting_active", False)
+                ),
+                "orienting_identification_confidence": float(
+                    getattr(getattr(agent, "_orienting_last_output", None),
+                            "identification_confidence", 0.0)
+                ),
+                "orienting_decision": getattr(agent, "_orienting_decision", None),
             })
 
             prev_in_reef = in_reef

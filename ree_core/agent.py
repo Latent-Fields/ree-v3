@@ -207,6 +207,9 @@ from ree_core.pag import (
     PAGFreezeGate,
     PAGFreezeGateConfig,
     PAGFreezeGateOutput,
+    DefensiveOrientingGate,
+    DefensiveOrientingConfig,
+    DefensiveOrientingOutput,
 )
 from ree_core.sleep import SleepLoopManager
 from ree_core.residue.field import (
@@ -2261,6 +2264,58 @@ class REEAgent(nn.Module):
         # Cache of last PAG freeze-gate output (diagnostics).
         self._pag_last_output: Optional[PAGFreezeGateOutput] = None
 
+        # MECH-489 (SD-099): defensive-orienting response. Phasic sibling of
+        # MECH-279 -- separate gate, separate (onset-detector) trigger,
+        # composed via OR with pag_freeze_gate at the action-constraint site
+        # so MECH-279's own behaviour is unchanged bit-for-bit. Backward-
+        # compatible no-op when use_defensive_orienting=False.
+        self.defensive_orienting: Optional[DefensiveOrientingGate] = None
+        if getattr(config, "use_defensive_orienting", False):
+            orienting_cfg = DefensiveOrientingConfig(
+                enabled=True,
+                surprise_ema_alpha=float(
+                    getattr(config, "orienting_surprise_ema_alpha", 0.02)
+                ),
+                harm_s_ema_alpha=float(
+                    getattr(config, "orienting_harm_s_ema_alpha", 0.02)
+                ),
+                surprise_onset_delta=float(
+                    getattr(config, "orienting_surprise_onset_delta", 0.010)
+                ),
+                harm_s_onset_delta=float(
+                    getattr(config, "orienting_harm_s_onset_delta", 0.010)
+                ),
+                confidence_rise_rate=float(
+                    getattr(config, "orienting_confidence_rise_rate", 0.15)
+                ),
+                confidence_floor_rise=float(
+                    getattr(config, "orienting_confidence_floor_rise", 0.0)
+                ),
+                sufficiency_threshold=float(
+                    getattr(config, "orienting_sufficiency_threshold", 0.8)
+                ),
+                max_orienting_duration=int(
+                    getattr(config, "orienting_max_duration", 0)
+                ),
+            )
+            self.defensive_orienting = DefensiveOrientingGate(orienting_cfg)
+        # Cache of last defensive-orienting gate output (diagnostics).
+        self._orienting_last_output: Optional[DefensiveOrientingOutput] = None
+        # Freshest MECH-205 "surprise" scalar, cached from the previous
+        # tick's update_residue() call (residue_surprise is computed
+        # post-action, one tick behind select_action() -- see
+        # sd_094_defensive_orienting_response.md data-flow notes).
+        self._last_residue_surprise: float = 0.0
+        # z_world location where the current/most-recent orienting trigger
+        # fired -- the target for the post-override approach/withdraw
+        # score_bias. None until the first trigger.
+        self._orienting_trigger_z_world: Optional[torch.Tensor] = None
+        # Resolved action decision ("approach" | "withdraw" | "resume" |
+        # None) from the most recent override, and how many more ticks its
+        # score_bias should stay active.
+        self._orienting_decision: Optional[str] = None
+        self._orienting_decision_ticks_remaining: int = 0
+
         # SD-037: Broadcast Override Regulator (orexin-analog). Drives a scalar
         # override_signal in [0, 1] from drive_level + sustained-threat magnitude
         # over z_harm. Consumed by PAG freeze-gate (theta_freeze scaling),
@@ -3358,6 +3413,15 @@ class REEAgent(nn.Module):
         if self.pag_freeze_gate is not None:
             self.pag_freeze_gate.reset()
         self._pag_last_output = None
+
+        # MECH-489 (SD-099): reset defensive-orienting gate per-episode state.
+        if self.defensive_orienting is not None:
+            self.defensive_orienting.reset()
+        self._orienting_last_output = None
+        self._last_residue_surprise = 0.0
+        self._orienting_trigger_z_world = None
+        self._orienting_decision = None
+        self._orienting_decision_ticks_remaining = 0
 
         # SD-037: reset broadcast override regulator per-episode state (threat
         # window, EMA, diagnostics). Master flag is preserved across reset.
@@ -7900,6 +7964,106 @@ class REEAgent(nn.Module):
             phasic_temp_delta = 0.0
             effective_temperature = tonic_effective_temperature
 
+        # MECH-489 (SD-099): defensive-orienting gate tick. Composed LAST in
+        # the additive score-bias chain (after SD-069 phasic burst above),
+        # mirroring the instrumental-avoidance convention of letting the
+        # most acutely-relevant directed signal have the final word. Trigger
+        # inputs: residue_surprise (cached from the previous update_residue()
+        # tick -- see _last_residue_surprise) and the current SD-010 z_harm_s
+        # norm. Zero (bit-identical) when the gate is disabled.
+        if self.defensive_orienting is not None:
+            _do_zharm = (
+                self._current_latent.z_harm
+                if self._current_latent is not None
+                else None
+            )
+            _do_harm_s_norm = (
+                float(_do_zharm.detach().norm().item())
+                if _do_zharm is not None
+                else 0.0
+            )
+            self._orienting_last_output = self.defensive_orienting.tick(
+                residue_surprise_now=self._last_residue_surprise,
+                z_harm_s_norm_now=_do_harm_s_norm,
+                simulation_mode=False,
+            )
+            _do_out = self._orienting_last_output
+
+            # Component 3 (orienting reflex target): remember WHERE the
+            # unexpected stimulus was noticed, so the post-override
+            # approach/withdraw decision has a location to steer toward or
+            # away from.
+            if _do_out.trigger_fired and self._current_latent is not None:
+                self._orienting_trigger_z_world = (
+                    self._current_latent.z_world.detach().clone()
+                )
+
+            # Component 4/5 (override -> resolved-valence action decision).
+            # Reads benefit terrain (ARC-030, always available regardless of
+            # the MECH-307 split-surprise flag) against z_harm norm (SD-010,
+            # always available) at the CURRENT z_world -- "did the now-
+            # identified thing turn out good or bad" -- rather than the
+            # MECH-307 POSITIVE/NEGATIVE_SURPRISE split, which is off by
+            # default and would leave this step inert in most configs.
+            if _do_out.override_fired and self._current_latent is not None:
+                _do_zw = self._current_latent.z_world
+                _do_benefit = float(
+                    self.residue_field.evaluate_benefit(_do_zw).mean().item()
+                )
+                _do_harm_val = _do_harm_s_norm
+                _do_eps = float(
+                    getattr(self.config, "orienting_decision_epsilon", 0.01)
+                )
+                if _do_benefit > _do_harm_val + _do_eps:
+                    self._orienting_decision = "approach"
+                elif _do_harm_val > _do_benefit + _do_eps:
+                    self._orienting_decision = "withdraw"
+                else:
+                    self._orienting_decision = "resume"
+                self._orienting_decision_ticks_remaining = (
+                    int(getattr(self.config, "orienting_post_override_bias_ticks", 5))
+                    if self._orienting_decision != "resume"
+                    else 0
+                )
+
+            # Express the resolved decision as a per-candidate score_bias
+            # (E3Selector.select()'s existing directed-bias hook -- "lower is
+            # better") toward/away from the trigger location, using each
+            # candidate's predicted world-state trajectory. Degrades
+            # gracefully (no bias applied) when world_states are not tracked
+            # (SD-003 attribution not wired) -- the mechanism stays inert
+            # rather than raising in that configuration.
+            if (
+                self._orienting_decision_ticks_remaining > 0
+                and self._orienting_decision in ("approach", "withdraw")
+                and self._orienting_trigger_z_world is not None
+                and len(candidates) > 0
+                and all(c.world_states for c in candidates)
+            ):
+                _do_sign = -1.0 if self._orienting_decision == "withdraw" else 1.0
+                _do_scale = float(
+                    getattr(self.config, "orienting_decision_bias_scale", 1.0)
+                )
+                _do_target = self._orienting_trigger_z_world
+                _do_dists = torch.stack(
+                    [
+                        (c.world_states[-1].detach() - _do_target)
+                        .reshape(-1)
+                        .norm()
+                        for c in candidates
+                    ]
+                )
+                _do_bias = _do_sign * _do_scale * _do_dists
+                if dacc_score_bias is None:
+                    dacc_score_bias = _do_bias
+                else:
+                    dacc_score_bias = dacc_score_bias + _do_bias.to(
+                        dtype=dacc_score_bias.dtype, device=dacc_score_bias.device
+                    )
+                self._orienting_decision_ticks_remaining -= 1
+                if self._orienting_decision_ticks_remaining <= 0:
+                    self._orienting_decision = None
+
         self._last_e3_score_bias = (
             dacc_score_bias.detach().clone()
             if dacc_score_bias is not None
@@ -8749,6 +8913,31 @@ class REEAgent(nn.Module):
                     noop[noop_class] = 1.0
                 action = noop
 
+        # MECH-489 (SD-099): defensive-orienting motor arrest. Independent of
+        # pag_freeze_gate (may be active even when the chronic gate is
+        # disabled or not currently committed) -- composed via OR at this
+        # same action-constraint site, using the SAME no-op mechanism
+        # (pag_freeze_noop_action_class) so both freeze causes produce the
+        # same "hold still" action. Deliberately NOT suppressible by
+        # SD-058/MECH-357 ilPFC learned-avoidance-efficacy: release is tied
+        # to identification confidence (component 4), not to an unrelated
+        # learned-escape override (11b step 4).
+        if (
+            self.defensive_orienting is not None
+            and self._orienting_last_output is not None
+            and self._orienting_last_output.orienting_active
+            and action is not None
+        ):
+            noop_class = int(getattr(self.config, "pag_freeze_noop_action_class", 0))
+            noop = torch.zeros_like(action)
+            if noop.dim() == 2:
+                noop_class = max(0, min(noop_class, noop.shape[1] - 1))
+                noop[0, noop_class] = 1.0
+            else:
+                noop_class = max(0, min(noop_class, noop.shape[0] - 1))
+                noop[noop_class] = 1.0
+            action = noop
+
         self._cache_tpj_prediction_for_action(action)
         self._last_action = action
         # SD-058 / MECH-357: cache whether the emitted action is directed
@@ -9482,6 +9671,12 @@ class REEAgent(nn.Module):
                     metrics["mech205_pe_ema"] = self._pe_ema
                     metrics["mech205_surprise"] = surprise
                     metrics["mech205_write_count"] = self._surprise_write_count
+                    # MECH-489 (SD-099): cache the raw scalar for the
+                    # defensive-orienting gate's next select_action() tick.
+                    # MECH-094: only a genuine waking observation may feed
+                    # the orienting trigger.
+                    if self.defensive_orienting is not None and not hypothesis_tag:
+                        self._last_residue_surprise = float(surprise)
 
         if harm_signal < 0:
             harm_magnitude = abs(harm_signal)
