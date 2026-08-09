@@ -59,7 +59,14 @@ attribution".
     a       = softmax( q . k_i / (sqrt(key_dim) * tau) )      <- ATTRIBUTION
     read    = sum_i a_i memory_i
     z_hat   = W_p read
-    loss    = MSE(z_hat, z_harm_a) + entropy_weight * H_norm(a)
+    loss    = MSE(z_hat, z_harm_a) / Var_ema(z_harm_a)
+                                 + entropy_weight * H_norm(a)
+
+The division by the running target variance is load-bearing: z_harm_a's
+magnitude is regime-dependent, and a raw MSE against a small-magnitude
+target is numerically dominated by the entropy term (measured on this
+substrate: pred_loss 1.9e-4 vs entropy_weight 0.02 -- a ~100x imbalance
+that left attribution exactly uniform). See `target_var_ema_alpha`.
 
 `a` is the attribution vector handed to BLAAnalog.tick() as
 `candidate_code_contributions`; the PE gate and the Moita-2004
@@ -85,6 +92,51 @@ Four design decisions that are load-bearing (do not "simplify" these)
    REE_assembly/docs/architecture/context_memory_writepath_fix.md. Same
    reasoning applies to the predictor: with a bias it can emit the mean
    harm vector without consulting the read at all.
+
+2c. **Scoring is COSINE (`q` and `k` L2-normalised before the dot product),
+   not a raw scaled dot product.** Same pathology as (2), reached by a
+   different route: ContextMemory initialises its slots at scale 0.01
+   (`torch.randn(num_slots, memory_dim) * 0.01`), so `W_k m_i` lands around
+   1e-3, the logits land around 1e-4, and softmax returns EXACTLY uniform
+   attention -- measured on this substrate 2026-08-09 with a scaled-dot-
+   product head: normalised entropy 1.000, max weight 0.0625 = 1/16 to four
+   decimals, mass excess 0.0000, unmoved after 259 training steps. Note
+   this is not slow learning that more steps would fix: the gradient into
+   `W_q`/`W_k` is itself scaled by those tiny activations. Cosine scoring
+   makes the logit range depend on the ANGLE between query and slot
+   content and not on slot magnitude, which is also the semantically right
+   choice -- a slot should not out-compete its neighbours for attribution
+   merely by having a larger norm. `sqrt(key_dim)` scaling is dropped as
+   redundant once the vectors are unit-norm; the learned temperature is
+   what sets the sharpness.
+
+2b. **The predictor `W_p` is LINEAR, and that is what makes `a` an
+   attribution rather than a generic gate.** Because `W_p` is linear it
+   commutes with the weighted sum:
+
+       z_hat = W_p (sum_i a_i m_i) = sum_i a_i (W_p m_i)
+
+   so the head is exactly an attribution-weighted MIXTURE OF PER-SLOT HARM
+   PREDICTIONS: `W_p m_i` is slot i's own prediction of the affective
+   stream, and `a_i` is how much that slot's prediction is trusted in this
+   context. A slot scores high precisely when its stored content maps onto
+   the observed harm. Replacing `W_p` with an MLP would destroy this
+   reading -- the weights would become an opaque gate over an entangled
+   read, and `a_i` would no longer be interpretable as slot i's
+   contribution. Do not "upgrade" the predictor.
+
+   Honest limit, stated so nobody over-reads the metric: this is a LEARNED
+   ASSOCIATIVE attribution, not a causal-contribution measure. `a_i` is
+   identified only up to the equivalence class of slot subsets that support
+   the same prediction -- when two slots are equally decodable into the same
+   target, which one is selected is arbitrary. That is a weaker claim than
+   "code i causally drives the harm PE", and MECH-074d's C1/C2 instrument
+   measures the weaker property (mass concentration + context
+   differentiation), which is what Moita 2004's dissociation actually
+   operationalises. A causal variant (per-slot occlusion: re-predict with
+   slot i's contribution removed and score by the loss increase) is the
+   natural next pass if C1/C2 pass here but the selectivity turns out not
+   to transfer.
 
 3. **The MSE and entropy terms are in DELIBERATE tension, and that tension
    is what earns C2.** The entropy penalty pushes `a` toward peaked
@@ -168,6 +220,22 @@ class BLAAttributionHeadConfig:
     # sparsity pressure entirely (pure prediction-driven attribution).
     entropy_weight: float = 0.02
 
+    # EMA rate for the running target mean/variance used to NORMALISE the
+    # prediction loss. Load-bearing, not cosmetic: z_harm_a's magnitude is
+    # regime-dependent and can be tiny, and a raw MSE against a tiny target
+    # is numerically dwarfed by the entropy term -- measured on this
+    # substrate 2026-08-09, pred_loss 1.9e-4 against entropy_weight 0.02,
+    # i.e. the sparsity penalty outweighed the actual objective ~100x and
+    # attribution stayed exactly uniform (normalised entropy 1.0). Dividing
+    # by the running target variance makes the prediction term
+    # scale-invariant (~1.0 when uninformative, -> 0 when perfect), so
+    # entropy_weight means the same thing across harm regimes.
+    target_var_ema_alpha: float = 0.02
+
+    # Floor on the running target variance, so a near-constant target
+    # cannot blow the normalised loss up to a huge value.
+    target_var_floor: float = 1e-4
+
     # Gradient-norm clip on the head's parameters. The read-then-predict
     # path multiplies attention by raw slot content, so an outlier slot
     # magnitude can produce a large step; clipping is cheap insurance.
@@ -238,9 +306,11 @@ class _AttributionScorer(nn.Module):
             state = state.unsqueeze(0)
         q = self.query_proj(state)                       # [B, key_dim]
         k = self.key_proj(memory)                        # [n_slots, key_dim]
+        # COSINE scoring, not a raw dot product -- see design decision (2c).
+        q = q / q.norm(dim=-1, keepdim=True).clamp(min=1e-8)
+        k = k / k.norm(dim=-1, keepdim=True).clamp(min=1e-8)
         tau = torch.exp(self.log_temperature).clamp(min=float(temperature_min))
-        scale = math.sqrt(max(1.0, float(self.key_dim)))
-        scores = torch.matmul(q, k.t()) / (scale * tau)  # [B, n_slots]
+        scores = torch.matmul(q, k.t()) / tau            # [B, n_slots], in [-1/tau, 1/tau]
         attn = torch.softmax(scores, dim=-1)
         read = torch.matmul(attn, memory)                # [B, slot_dim]
         pred = self.predictor(read)                      # [B, target_dim]
@@ -268,6 +338,11 @@ class BLAAttributionHead:
         self._n_updates: int = 0
         self._n_attribute_calls: int = 0
         self._n_warmup_fallbacks: int = 0
+        # Running target statistics for the scale-invariant prediction loss.
+        # Persist across reset() alongside the weights -- they describe the
+        # harm regime, not one episode.
+        self._target_mean: Optional[torch.Tensor] = None
+        self._target_var: float = float(self.config.target_var_floor)
         self._last_loss: float = 0.0
         self._last_pred_loss: float = 0.0
         self._last_entropy: float = 0.0
@@ -421,8 +496,24 @@ class BLAAttributionHead:
         if self._optimizer is None:
             return None
 
+        # Running target mean/variance -> scale-invariant prediction loss.
+        # Updated BEFORE the loss so a first-ever step still has a sane
+        # divisor; statistics are pure bookkeeping and carry no gradient.
+        with torch.no_grad():
+            tgt_mean_now = tgt.mean(dim=0)
+            a_t = float(self.config.target_var_ema_alpha)
+            if self._target_mean is None:
+                self._target_mean = tgt_mean_now.clone()
+            else:
+                self._target_mean = (
+                    (1.0 - a_t) * self._target_mean + a_t * tgt_mean_now
+                )
+            dev = float(((tgt - self._target_mean) ** 2).mean().item())
+            self._target_var = (1.0 - a_t) * self._target_var + a_t * dev
+        var_div = max(float(self.config.target_var_floor), float(self._target_var))
+
         attn, pred = model(st, mem, float(self.config.temperature_min))
-        pred_loss = torch.nn.functional.mse_loss(pred, tgt)
+        pred_loss = torch.nn.functional.mse_loss(pred, tgt) / var_div
 
         n_slots = int(attn.shape[-1])
         if n_slots > 1:
@@ -472,6 +563,7 @@ class BLAAttributionHead:
             "last_loss": float(self._last_loss),
             "last_pred_loss": float(self._last_pred_loss),
             "last_norm_entropy": float(self._last_entropy),
+            "target_var_ema": float(self._target_var),
             "last_max_weight": float(self._last_max_weight),
             "temperature": float(self.temperature),
         }
