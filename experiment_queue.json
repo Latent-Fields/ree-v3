@@ -25,6 +25,21 @@
       "episodes_per_run": 220,
       "experiment_type": "v3_exq_909_sleep_dv_fishtank_multifiring",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-906c",
+      "title": "Full-stack observational fishtank: appetitive-sequence + affect->behaviour coupling instrumentation (Section 9 item 1 of 906b review)",
+      "script": "experiments/v3_exq_906c_full_stack_observational_fishtank.py",
+      "priority": 50,
+      "machine_affinity": "any",
+      "estimated_minutes": 300,
+      "note": "Section 9 item 1 of observational_review_V3-EXQ-906b_2026-08-09.md (REE_assembly/evidence/planning/) -- appetitive-sequence + affect->behaviour coupling instrumentation on the SAME ecology as V3-EXQ-906b (no config/curriculum change; no supersedes -- purely additive). GOV-REUSE-1 checked: grepped evidence/experiments/ for the six new coupling-metric field names (coupling_dread_t_to_harm_t1t3_*, coupling_surprise_spike_*, etc.) -- zero hits, not recorded anywhere, so this run is not recoverable from existing manifests; ran fresh. PART (a) of the Section 9 design (surface liking/residue-wanting per step) was ALREADY LANDED by a sibling chip (chip-20260809-906b-surprise-telemetry, 2026-08-09T19:00:45Z, REE_assembly master befb35db27 + ree-v3 main 730281cd4b+bd90e8ddbe) before this script was authored -- _read_affect now surfaces VALENCE_WANTING/LIKING/SURPRISE alongside excite/dread, and 906b's own _observational_run (imported unchanged here) already threads them through per-step. This driver adds only the missing manifest-level aggregation for those three channels (mean/std, previously only per-step) plus PART (b): six affect->behaviour coupling metrics as first-class metrics fields, computed in-run, pooled across all episodes/seeds, within-episode only (no cross-boundary lag, matching the review's own Section 4/12b methodology) -- dread(t)->harm[t+1..t+3], z_goal(t)->approach[t+1], z_goal(t)->benefit[t+1..t+3], dread<->z_harm_a (contemporaneous), excite<->benefit (contemporaneous), and surprise-spike->mode-change/movement at p90/p95/p99 thresholds (0.040/0.084/0.233, empirical anchors from the review's Section 12b residue_surprise distribution). PART (c) judgement call: SD-RESIDUE-VALENCE-BOUND (906a-autopsy-routed, unclamped RBFLayer.update_valence accumulator fix) had NOT landed in claims.yaml as of authoring (grepped empty) -- queued now rather than held on an unrelated /governance dependency with unknown ETA, since excite-coupling is only one of six new metrics; it is computed for continuity with the review's own Section 4 figure but explicitly flagged unreliable via metrics.coupling_excite_channel_reliable=0.0 plus prose in interpretation.preconditions and summary_markdown. Re-run this driver once the fix lands if a trustworthy excite reading is needed. PASS/FAIL gates are byte-identical to 906b's (core_channels_non_degenerate, harm_pathway_trained, ecology_survivable, all load-bearing, thresholds unchanged) since the ecology/config is unchanged; added one new non-load-bearing coupling_metrics_computed criterion (n>0 smoke check on the new fields). Diagnostic showcase (claim_ids=[], evidence_direction=non_contributory) -- does not weight governance; re-derive brake N/A (no claim tagged). Smoke: validate_experiments.py --strict OK; dry-run FAIL mechanically (expected at toy scale -- 19 curriculum episodes / 30-step segments vs the real run's 220/500 -- ecology_survivable and freeze/wanting-activation gates need full scale to read meaningfully); [smoke] z_goal_stream: active_frac=0.998, no writer defect; all six coupling metrics + three channel aggregates populated with sane n (58-60 at dry-run scale) and coupling_metrics_computed=True.",
+      "status": "pending",
+      "claim_ids": [],
+      "conditions": 1,
+      "episodes_per_run": 220,
+      "experiment_type": "v3_exq_906c_full_stack_observational_fishtank",
+      "seeds": 1
     }
   ]
 }
