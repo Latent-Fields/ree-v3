@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-08-08
+**Last updated:** 2026-08-09
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-08-08)
+## 0. Current V3 State (2026-08-09)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -217,6 +217,56 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 `REE_assembly/docs/architecture/self_attribution_per_stream.md`.
 
 ### Experiment Status
+
+- **2026-08-09T01:10Z nightly read (scheduled `/update-docs`, bot identity).**
+  1-day window since the 2026-08-08 nightly. Manifest count on disk: **844 `v3_exq_*` + 3
+  `v4_exq_*` flat** (+23 v3 vs the 2026-08-08 nightly's 821); nested per-run manifests
+  under `evidence/experiments/*/runs/`: **2775** (+24 vs 2751). **Currently queued
+  (`experiment_queue.json` items[]): 2 items** -- both CLAIMED on cloud workers:
+  V3-EXQ-876a (MECH-025 doing-mode DV redesign after the V3-EXQ-876 confirmed autopsy
+  flipped C1 sign per Thura & Cisek 2014 convergence + demoted precision-ratio to
+  non-gating descriptive metric; claim_id `MECH-025`, prio 40, `ree-cloud-1`,
+  claimed 2026-08-08T23:09Z) + V3-EXQ-228b (ARC-032 theta-bypass ablation re-run on
+  scaffolded_sd054_onboarding curriculum; claim_id `ARC-032`, prio 5, `ree-cloud-3`,
+  claimed 2026-08-08T23:24Z). **Pending review (`pending_review.md`, regenerated
+  2026-08-08T20:44:03Z): 14 item(s)** -- 5 PASS + 8 FAIL + 1 ERROR manifest
+  (V3-EXQ-821a `mech457_consummation_binding` runner-synthesized ERROR record on
+  `ree-cloud-3`) + 1 diagnostic self-route flagged for adjudication (V3-EXQ-812a
+  `mech295_cue_authority_sd054` FAIL with `INVALID_HARNESS` self-route flagged
+  `precondition_unmet`) + 7 legacy reviewed-FAIL(s) grandfathered (awaiting autopsy) +
+  1 run with a DEAD z_goal stream (V3-EXQ-901 `inv051_mel_dose_rigidity_sweep` FAIL --
+  `writer_defect: true`, 48576 ticks with 0 writer_calls). **Sharp rebuild of the
+  pending_review backlog** from yesterday's 1 item -- V3-EXQ-887b (SD-014 wanting-liking
+  representational-separability retest with `incentive_sensitization_enabled` fix
+  landed 2026-08-07 in `ree-v3` `1c8e64ff`) PASS 2026-08-08 09:51, V3-EXQ-900
+  (SD-024 DA-cluster allocation representational-functional) PASS 2026-08-08 10:38,
+  V3-EXQ-896 (MECH-322 replay confirmatory evidence) PASS 2026-08-08 17:09,
+  V3-EXQ-703a (MECH-276 scientist attribution readiness) PASS 2026-08-08 19:15,
+  V3-EXQ-904 (ARC-070 decomposition trigger selectivity) PASS 2026-08-08 20:11, and
+  eight FAILs spanning SD-009 event-CE ablation decodability, MECH-074d BLA remap
+  attribution selectivity, SD-016 encoder retest, INV-051 MEL dose rigidity sweep,
+  MECH-457 consummation binding retest, MECH-295 cue authority scaffolded retest,
+  MECH-332 commitment calibration, INV-034/Q-021 goal-maintenance agency onboarded.
+  **Bottleneck: the pending-review backlog rebuild is autopsy work, not a substrate
+  wall** -- the 2 in-flight queue items are both autopsy-driven corrected re-runs
+  (MECH-025 sign flip + ARC-032 substrate migration to scaffolded_sd054_onboarding);
+  the 14-item review backlog is the incoming wave a next-cycle `/governance` will
+  adjudicate. **Substrate + governance landings in the window** (from
+  `WORKSPACE_STATE.md` Recent Work): (a) **failure autopsies confirmed in the window**
+  include V3-EXQ-866c (INV-034/Q-021 goal-maintenance-vs-avoidance third confirmed
+  failure of the harness-provenance cluster, adjudicated `non_contributory` with
+  autopsy queued but full write-up still in-flight in session
+  `v3-exq-812-harness-repair-1f9438-autopsy866c`) alongside the eight
+  pending-review FAILs above awaiting their next-cycle autopsies. (b) **SD-091 /
+  MECH-481 step-7** (`/queue-experiment` the coalition-controller 4-arm falsifier)
+  remains the natural next V3-EXQ-886-authored-but-not-queued item, still blocked at
+  Step-2.5a on the competence/adaptation harness prerequisite premise probe. (c)
+  V3-EXQ-906 (full-stack observational Fishtank showcase pinned `ree-cloud-4`,
+  queued 2026-08-08 19:41Z but NOT in the coordinator queue snapshot at nightly read
+  time -- to be tracked in the next window). **ETHICS-PERIMETER Phase 0 datum**
+  stays on the record (Phases 1-3 deferred; NON-BLOCKING).
+
+---
 
 - **2026-08-08T01:10Z nightly read (scheduled `/update-docs`, bot identity).**
   4-day window since the 2026-08-04 nightly. Manifest count on disk: **821 `v3_exq_*` + 3
