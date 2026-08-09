@@ -219,7 +219,9 @@ class E3TrajectorySelector(nn.Module):
     # The scoring function as a whole requires calibration experiments.
     #
     # In V3:
-    # - F(ζ): proxy (smoothness + final-state viability). Not settled.
+    # - F(ζ): proxy (z_world transition smoothness). The former "final-state
+    #   viability" term read an UNTRAINED head and is gated out by default
+    #   (SD-E3-SCORER-COMPLETION, 2026-08-09). Not settled.
     # - M(ζ): uses harm_eval() on z_world trajectory states. This is
     #   categorically distinct from V2's E2.predict_harm (which belonged
     #   to E2, not E3). harm_eval() is the correct locus per spec §5.4.
@@ -931,7 +933,18 @@ class E3TrajectorySelector(nn.Module):
         return ss if self._score_depth_limit is None else ss[:, : self._score_depth_limit, :]
 
     def compute_reality_cost(self, trajectory: Trajectory) -> torch.Tensor:
-        """Reality constraint F(ζ) — proxy: smoothness + viability of z_world final state."""
+        """Reality constraint F(ζ) — z_world transition smoothness (coherence).
+
+        SD-E3-SCORER-COMPLETION (2026-08-09): the "viability" term
+        (``- self.reality_scorer(final_world)``) reads an UNTRAINED nn.Sequential
+        head -- verified by exhaustive grep to be touched by no loss anywhere in
+        ree_core -- so it added random-init noise to every trajectory score, in
+        both conditions, on the live selection path. It is gated out by default
+        (config.e3_include_untrained_fallback_scorers is False), leaving the
+        parameter-free coherence (smoothness) proxy. Set the flag True only to
+        reproduce a pre-fix run bit-identically. See config.py for the full
+        rationale and failure_autopsy_V3-EXQ-190a_2026-08-09.
+        """
         world_seq = self._get_world_states(trajectory)  # [batch, horizon, world_dim]
 
         if world_seq.shape[1] > 1:
@@ -940,9 +953,11 @@ class E3TrajectorySelector(nn.Module):
         else:
             coherence_cost = torch.zeros(world_seq.shape[0], device=world_seq.device)
 
-        final_world = world_seq[:, -1, :]  # [batch, world_dim]
-        viability = self.reality_scorer(final_world).squeeze(-1)
-        return coherence_cost - viability
+        if getattr(self.config, "e3_include_untrained_fallback_scorers", False):
+            final_world = world_seq[:, -1, :]  # [batch, world_dim]
+            viability = self.reality_scorer(final_world).squeeze(-1)
+            return coherence_cost - viability
+        return coherence_cost
 
     def compute_harm_cost_fallback(self, trajectory: Trajectory) -> torch.Tensor:
         """
@@ -952,21 +967,32 @@ class E3TrajectorySelector(nn.Module):
 
         V3 change: uses harm_eval_head on z_world states rather than
         E2.harm_predictions (which belonged to E2 in V2, incorrectly).
+
+        SD-E3-SCORER-COMPLETION (2026-08-09): the subtracted
+        ``harm_cost_fallback_scorer(final_world)`` term reads a SECOND UNTRAINED
+        nn.Sequential head (verified touched by no loss anywhere in ree_core),
+        adding random-init noise on top of the TRAINED harm_eval_head sum. It is
+        gated out by default (config.e3_include_untrained_fallback_scorers is
+        False), leaving only the trained harm_eval_head contribution. Set the
+        flag True only to reproduce a pre-fix run bit-identically. See config.py
+        and failure_autopsy_V3-EXQ-190a_2026-08-09.
         """
         world_seq = self._get_world_states(trajectory)  # [batch, horizon+1, world_dim]
         batch, horizon_p1, _ = world_seq.shape
 
-        # Evaluate harm at each step
+        # Evaluate harm at each step (TRAINED harm_eval_head).
         flat = world_seq.reshape(batch * horizon_p1, -1)
         harm_flat = self.harm_eval_head(flat)              # [batch*horizon, 1]
         harm = harm_flat.reshape(batch, horizon_p1)        # [batch, horizon+1]
         harm_cost = harm.sum(dim=-1)                       # [batch]
 
-        # Additional scoring from final z_world state
-        final_world = world_seq[:, -1, :]
-        harm_cost_fallback_score = self.harm_cost_fallback_scorer(final_world).squeeze(-1)
+        if getattr(self.config, "e3_include_untrained_fallback_scorers", False):
+            # Legacy path: additional (UNTRAINED) scoring from final z_world state.
+            final_world = world_seq[:, -1, :]
+            harm_cost_fallback_score = self.harm_cost_fallback_scorer(final_world).squeeze(-1)
+            return harm_cost - harm_cost_fallback_score
 
-        return harm_cost - harm_cost_fallback_score
+        return harm_cost
 
     def compute_residue_cost(self, trajectory: Trajectory) -> torch.Tensor:
         """Residue field cost Φ_R(ζ) — evaluated over z_world (SD-005)."""

@@ -289,6 +289,16 @@ def test_modulatory_authority_survives_large_primary_scores():
     EXACTLY 0.0, so the gate never fired (active_frac=0.0 on every arm). With the
     explicit accumulator the gate keys on the small bias tensor directly and fires
     regardless of primary-score magnitude. The pre-fix code FAILS this test.
+
+    SD-E3-SCORER-COMPLETION (2026-08-09): this test's score-explosion SETUP depends on the
+    (now-default-gated) untrained linear scorers -- _candidate_big_world uses CONSTANT world
+    states, so coherence_cost is 0 and the ~1e15 primary-score magnitude comes ENTIRELY from
+    reality_scorer/harm_cost_fallback_scorer being linear in the 1e15 world state. With those
+    heads gated out by default the raw scores collapse to ~0 and the explosion condition this
+    test needs never arises, so it explicitly opts INTO the legacy scoring path
+    (e3_include_untrained_fallback_scorers=True) purely to manufacture the huge-primary-score
+    stress condition. The mechanism under test (the explicit-accumulator authority gate's
+    float32 robustness) is unrelated to that fix.
     """
     from ree_core.utils.config import E3Config as FullE3Config
 
@@ -297,6 +307,7 @@ def test_modulatory_authority_survives_large_primary_scores():
         hidden_dim=8,
         use_modulatory_selection_authority=True,
         modulatory_authority_gain=0.5,
+        e3_include_untrained_fallback_scorers=True,  # linear scorers manufacture the ~1e15 explosion
     )
     selector = E3TrajectorySelector(cfg)
     selector._running_variance = 0.0

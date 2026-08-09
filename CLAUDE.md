@@ -1505,6 +1505,36 @@ MECH-073 reframed as consequence of ARC-013 applied to z_world.
 MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequisite.
 
 ## SD Design Decisions Implemented
+- SD-E3-SCORER-COMPLETION: e3_selector.untrained_fallback_scorers -- IMPLEMENTED 2026-08-09.
+  Two of E3TrajectorySelector.score_trajectory's cost sub-components read UNTRAINED
+  nn.Sequential heads -- reality_scorer (the "viability" term in compute_reality_cost / F,
+  present on EVERY scoring path) and harm_cost_fallback_scorer (the subtracted term in
+  compute_harm_cost_fallback / the default fallback M path). Exhaustive grep confirmed NEITHER
+  head is touched by any loss anywhere in ree_core, so they added random-init noise to every
+  trajectory score, in both conditions, on the LIVE selection path (select() -> score_trajectory
+  -> REEAgent.select_action) -- contaminating MECH-022's V3-EXQ-190a test (C3 collapsed, sign
+  flip on repeated seed 123). Diagnosis: REE_assembly
+  evidence/planning/failure_autopsy_V3-EXQ-190a_2026-08-09.md; design:
+  REE_assembly/docs/architecture/sd_e3_scorer_completion.md.
+  Module: E3TrajectorySelector.compute_reality_cost / compute_harm_cost_fallback (e3_selector.py).
+  Config: E3Config.e3_include_untrained_fallback_scorers.
+  DEFAULT IS THE FIX (False), NOT A NO-OP -- deliberately inverted from the usual E3Config
+  "False = bit-identical legacy" convention, because the legacy behaviour IS the defect. With
+  False, compute_reality_cost returns the parameter-free coherence (smoothness) proxy alone and
+  compute_harm_cost_fallback returns the TRAINED harm_eval_head sum alone; the nn.Sequential
+  heads stay instantiated so state_dict/checkpoint keys are unchanged (only their CONTRIBUTION
+  is gated -- the same idiom benefit_eval_head already uses). Set True per-arm
+  (cfg.e3.e3_include_untrained_fallback_scorers = True) ONLY to reproduce a pre-fix run
+  bit-identically; NOT wired through REEConfig.from_dims() (follows f_weight's precedent).
+  Data flow: score_trajectory -> compute_reality_cost (coherence only) + compute_harm_cost_fallback
+  (harm_eval_head sum only) -> J -> select() committed argmin.
+  Backward compatible: NO (default changes scoring on the fallback path) -- this is the intended
+  contamination fix, not an additive feature. Legacy behaviour available behind the flag.
+  Phased training required: no (nothing new is trained). MECH-094: N/A (no simulation/replay).
+  Validation: tests/contracts/test_e3_scorer_completion.py (5 tests; deterministic property, no
+  stochastic experiment). MECH-022 full retest is governance-gated (pending_retest_after_substrate)
+  and must preserve eval condition-dependence (raise eval_episodes, NO nav_bias in the eval loop).
+  See MECH-022, ARC-007, ARC-016.
 - SD-084: e3.persistent_committed_program_handle -- IMPLEMENTED 2026-07-29.
   Makes MECH-321's R4 MID-EXECUTION hook REACHABLE. That hook (agent.py select_action)
   gates on a committed trajectory surviving from a PREVIOUS tick, but the LAST statement of

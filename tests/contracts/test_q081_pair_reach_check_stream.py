@@ -340,6 +340,21 @@ def test_live_probe_z_harm_a_runs_end_to_end_non_degenerate():
     real substrate and both non-degeneracy guards clear, not a specific
     scientific reading -- see this script's own v3_exq_865 driver for the
     actual multi-seed adjudication).
+
+    SD-E3-SCORER-COMPLETION (2026-08-09): the exact navigation-dependent
+    counts (n_boundaries_true_total, n_active_ticks_intact, n_ticks_compared)
+    were authoring-time observations of a full 150-tick survival under the
+    OLD (untrained-scorer-contaminated) E3 scoring path. Gating those two
+    untrained heads out of the default score (the fix) legitimately changes
+    the agent's committed selection, so at this seed the episode now reaches
+    a terminal state at tick 97 (n_boundaries 6 -> 3, active ticks 150 -> 97;
+    HEAD-vs-fix A/B confirmed this is the scoring fix, not a flake). Those
+    exact counts also reflect the specific terminal tick, which -- unlike the
+    former full-survival 150 -- is navigation-sensitive and not a robust
+    cross-machine pin. Per this test's own stated intent, the assertions are
+    the NON-DEGENERACY guards (is_degenerate False, has_behavioural_reach
+    True) held exact, with the navigation-dependent counts relaxed to
+    non-degeneracy floors. The exact scientific reading lives in v3_exq_865.
     """
     report = run_pair_specific_stream_reach_probe(
         target="z_harm_a", n_episodes=1, steps_per_episode=150,
@@ -348,14 +363,19 @@ def test_live_probe_z_harm_a_runs_end_to_end_non_degenerate():
     assert report["target"] == "z_harm_a"
     assert report["n_episodes"] == 1
     assert report["steps_per_episode"] == 150
+    # Non-degeneracy guards -- the actual point of this test -- held exact.
     assert report["is_degenerate"] is False
     assert report["degeneracy_reason"] is None
-    assert report["n_boundaries_true_total"] == 6
-    assert report["n_active_ticks_intact"] == 150
-    assert report["n_ticks_compared"] == 150
+    assert report["behavioural_reach_precondition"]["has_behavioural_reach"] is True
+    # Navigation-dependent counts: relaxed to non-degeneracy floors (see docstring).
+    # At least one real boundary event occurred; the comparison window is a
+    # non-empty prefix of the episode and the active-intact and compared windows
+    # agree (the stream was live for every tick it was compared over).
+    assert report["n_boundaries_true_total"] >= 1
+    assert 1 <= report["n_ticks_compared"] <= report["steps_per_episode"]
+    assert report["n_active_ticks_intact"] == report["n_ticks_compared"]
     assert isinstance(report["has_pair_specific_reach"], bool)
     assert isinstance(report["divergent_signals"], dict)
-    assert report["behavioural_reach_precondition"]["has_behavioural_reach"] is True
 
 
 def test_live_probe_z_goal_degenerate_at_small_scale_names_activity_reason():

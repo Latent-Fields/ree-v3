@@ -576,6 +576,37 @@ class E3Config:
     # docs/architecture/sd_085_e3_reality_cost_weight.md.
     f_weight: float = 1.0
 
+    # SD-E3-SCORER-COMPLETION (2026-08-09, routed by the confirmed
+    # failure_autopsy_V3-EXQ-190a_2026-08-09): two of score_trajectory's cost
+    # sub-components read UNTRAINED nn.Sequential heads -- reality_scorer (the
+    # "viability" term in compute_reality_cost / F, present on EVERY scoring
+    # path) and harm_cost_fallback_scorer (the subtracted term in
+    # compute_harm_cost_fallback / M, present only on the default fallback M
+    # path). Exhaustive grep confirmed NEITHER head appears in any loss anywhere
+    # in ree_core: they are random-initialisation noise added to every trajectory
+    # score, in both conditions, for the whole run -- and because select() ->
+    # score_trajectory is on the live agent action path, this perturbs the policy
+    # itself, not merely a diagnostic readout. This contaminated MECH-022's
+    # V3-EXQ-190a test (C3 collapsed, including a sign flip on a repeated seed).
+    #
+    # THE DEFAULT (False) IS THE FIX, NOT A NO-OP -- deliberately inverted from
+    # the usual "False = bit-identical legacy" E3Config convention, because the
+    # legacy behaviour is the bug: leaving the untrained heads in the score by
+    # default is exactly the silent random-init contamination the autopsy
+    # diagnosed. With False, compute_reality_cost returns coherence_cost alone
+    # (parameter-free smoothness -- a well-defined reality proxy) and
+    # compute_harm_cost_fallback returns the TRAINED harm_eval_head sum alone.
+    # The nn.Sequential heads are still instantiated (state_dict / checkpoint
+    # keys unchanged); only their CONTRIBUTION to the score is gated -- the same
+    # "gate an untrained head out of selection until it is trained" idiom already
+    # used for benefit_eval_head. Set True ONLY to reproduce a pre-2026-08-09 run
+    # bit-identically. Follows f_weight's precedent of not being wired through
+    # REEConfig.from_dims(); set directly per-arm (cfg.e3.<field> = True) if the
+    # legacy path is ever needed. If a genuine training signal is later designed
+    # for these heads, re-enable their contribution behind that training, not
+    # this flag. See docs/architecture/sd_e3_scorer_completion.md.
+    e3_include_untrained_fallback_scorers: bool = False
+
     # Dynamic precision (ARC-016): precision derived from prediction error variance
     # commit_threshold is in VARIANCE SPACE: committed when running_variance < threshold.
     # Recalibrated 2026-03-20: EXQ-038 shows running_variance converges to ~0.33 in
