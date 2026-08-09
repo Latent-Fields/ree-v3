@@ -402,6 +402,24 @@ class ScaffoldedSD054OnboardingConfig:
     # isolated stage achieved avoidance before P1.
     scaffold_hazard_stage_survival_gate_steps: int = 75
     scaffold_hazard_stage_stability_window: int = 10
+    # Hazard MOBILITY (V3-EXQ-603s, 2026-08-09): how fast the env-caused hazards
+    # drift. env_drift_interval N -> hazards attempt a drift every N env steps;
+    # env_drift_prob P -> per-eligible-hazard probability of drifting on such a
+    # tick. Defaults (5, 0.3) are the CausalGridWorldV2 constructor defaults, so a
+    # caller that does not set these gets the exact pre-2026-08-09 Stage-H
+    # dynamics -- bit-identical OFF for 603g/603h/603r and every other consumer.
+    # V3-EXQ-603s sets interval=1 + a high prob to make the hazards MOBILE
+    # PREDATORS that sweep the accessible (non-reef) grid, so a passive
+    # freeze/release policy is no longer survival-adequate (it gets overrun in
+    # place) while a directed escape-to-reef policy is -- reintroducing the
+    # Pavlovian-instrumental conflict Moscarello & LeDoux's active-avoidance
+    # paradigm requires (failure_autopsy_V3-EXQ-603r_2026-08-09: the harm-pathway
+    # fix alone made static-hazard freeze/release survivable, collapsing the
+    # LESION-vs-INTACT contrast). Reef cells remain a hazard-exclusion refuge
+    # (_drift_hazards / _step_background_drift both exclude _reef_cells), so a
+    # reachable safe zone still exists -- the shuttle-box destination.
+    scaffold_hazard_stage_env_drift_interval: int = 5
+    scaffold_hazard_stage_env_drift_prob: float = 0.3
 
     # SD-058 / MECH-357 avoidance-learning driver (the PRIMARY structural fix
     # for the 603g G_H 0/3 survival-leg gap; budget escalation is SECONDARY).
@@ -713,6 +731,13 @@ class HazardAvoidanceResult:
     # rather than the agent merely surviving by chance.
     avoidance_driver_enabled: bool = False
     avoidance_gate_state: Dict[str, Any] = field(default_factory=dict)
+    # Per-episode MECH-357 avoidance-efficacy trajectory (V3-EXQ-603s, 2026-08-09).
+    # One compact snapshot per Stage-H episode of the gate's efficacy + credit /
+    # decay / freeze-suppression counters, so the eligibility-trace credit event
+    # (found "essentially inert", n_credit ~1-2% of n_decay, in the 603h/603r
+    # autopsies) can be inspected as it evolves ACROSS the stage rather than only
+    # at the end. Empty list when the agent carries no InstrumentalAvoidanceGate.
+    avoidance_efficacy_trajectory: List[Dict[str, Any]] = field(default_factory=list)
     # SD-059 / MECH-358 escape-affordance bridge diagnostics (empty dict when the
     # bridge is absent). Lets the 603i-successor manifest confirm the bridge fired
     # non-vacuously (relief / safety credit incremented) before scoring G_H.
@@ -1736,6 +1761,11 @@ def _build_env(cfg: ScaffoldedSD054OnboardingConfig, phase: str, anneal_t: float
             **_sd049_kwargs(cfg),  # SD-057 cue-recall bridge (no-op when off)
             hazard_food_attraction=cfg.scaffold_hazard_stage_hazard_food_attraction,
             proximity_harm_scale=cfg.scaffold_hazard_stage_proximity_harm_scale,
+            # Hazard mobility (V3-EXQ-603s): defaults 5/0.3 == the CausalGridWorldV2
+            # constructor defaults, so every caller that does not set the new
+            # scaffold knobs is bit-identical to the pre-2026-08-09 Stage-H.
+            env_drift_interval=cfg.scaffold_hazard_stage_env_drift_interval,
+            env_drift_prob=cfg.scaffold_hazard_stage_env_drift_prob,
             limb_damage_enabled=True,
             reef_enabled=True,
             reef_bipartite_layout=True,
@@ -2544,6 +2574,11 @@ class ScaffoldedSD054OnboardingScheduler:
         )
         floor_start = float(self.cfg.scaffold_avoidance_scaffold_floor_start)
         floor_end = float(self.cfg.scaffold_avoidance_scaffold_floor_end)
+        # V3-EXQ-603s: per-episode MECH-357 efficacy/credit trajectory (empty when
+        # the agent carries no gate). Pure read appended per episode -- additive,
+        # does not change training.
+        _eff_traj: List[Dict[str, Any]] = []
+        _gate = getattr(agent, "instrumental_avoidance", None)
         for _ep in range(n_eps):
             if _ia_driver:
                 # Linear anneal of the protective floor across the Stage-H window.
@@ -2560,6 +2595,16 @@ class ScaffoldedSD054OnboardingScheduler:
             ep_lengths.append(ep_len)
             recent_lengths.append(ep_len)
             rv_final = float(getattr(agent.e3, "_running_variance", rv_final))
+            if _gate is not None:
+                _gs = _gate.get_state() or {}
+                _eff_traj.append({
+                    "episode": _ep,
+                    "episode_length": int(ep_len),
+                    "avoidance_efficacy": float(_gs.get("mech357_avoidance_efficacy", 0.0)),
+                    "n_credit": int(_gs.get("mech357_n_credit", 0)),
+                    "n_decay": int(_gs.get("mech357_n_decay", 0)),
+                    "n_freeze_suppressed": int(_gs.get("mech357_n_freeze_suppressed", 0)),
+                })
 
         # Post-training non-vacuity readout: did the harm landscape become
         # discriminative? (The 603k validation gates G_H scoring on this.)
@@ -2595,6 +2640,7 @@ class ScaffoldedSD054OnboardingScheduler:
             episode_lengths=ep_lengths,
             avoidance_driver_enabled=bool(_ia_driver),
             avoidance_gate_state=_ia_state,
+            avoidance_efficacy_trajectory=_eff_traj,
             escape_bridge_state=_eab_state,
             harm_pathway_enabled=train_harm,
             harm_pathway_diag=dict(harm_diag) if harm_diag is not None else {},
