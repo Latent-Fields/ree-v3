@@ -47,6 +47,22 @@
       "experiment_purpose": "evidence",
       "experiment_type": "v3_exq_876a_mech025_doing_mode_convergence_redesign",
       "seeds": 5
+    },
+    {
+      "queue_id": "V3-EXQ-603s",
+      "title": "MECH-357 freeze-incompatible Stage-H: mobile predators reintroduce the Pavlovian-instrumental conflict; 3-arm two-sided headroom guard (successor of 603r)",
+      "experiment_type": "v3_exq_603s_instrumental_avoidance_freeze_incompatible_hazard",
+      "script": "experiments/v3_exq_603s_instrumental_avoidance_freeze_incompatible_hazard.py",
+      "priority": 40,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 360,
+      "episodes_per_run": 235,
+      "seeds": 3,
+      "conditions": 3,
+      "claim_id": "MECH-357",
+      "predecessor": "V3-EXQ-603r",
+      "note": "Freeze-incompatible successor of V3-EXQ-603r per failure_autopsy_V3-EXQ-603r_2026-08-09. 603r's combined-fix rerun FAILED discrimination because the harm-pathway fix alone made passive PAG freeze/release survival-adequate in the STATIC Stage-H field, eliminating the Pavlovian-instrumental conflict Moscarello & LeDoux's active-avoidance paradigm needs (reclassified measurement_test_design_defect / non_contributory; NOT a MECH-357 weakens). 603s adds the autopsy-recommended freeze-incompatible pressure via MOBILE PREDATORS: exposes new scaffold knobs scaffold_hazard_stage_env_drift_interval/_prob (defaults 5/0.3 == env defaults, bit-identical for all prior consumers) and sets interval=1/prob=0.6 so fast-drifting hazards sweep the non-reef grid -- an undirected freeze/release policy is overrun in place while a directed escape-to-reef policy survives (reef stays a hazard-exclusion refuge under drift; verified 0 violations this session). Env-mechanics audit ruled OUT starvation (no energy->health death) and agent-directed pursuit (not in env; would be /implement-substrate) as config-buildable, leaving mobile-predators as the buildable freeze-incompatible lever. 3 arms x 3 seeds [42,43,44] with a TWO-SIDED discriminative-headroom guard (the check the 603h-floor/603r-ceiling history showed no existing flag tests): ARM_LESION (negative control) must now FAIL the gate (headroom below); ARM_POSCTRL (gated + reef spawn, positive control) must CLEAR it (survivability above). Mis-calibrated mobility self-routes to pressure_insufficient_requeue (LESION ceilinged) or pressure_impossible_requeue (POSCTRL floored), NOT a false verdict. GOV-REUSE-1: decisive readout (G_H_LESION + INTACT-beats-LESION under a MOBILE-PREDATOR field) is a NEW manipulation absent from every recorded run (603r/603h ran env_drift 5/0.3) -> not reanalysis-recoverable, ran fresh. Re-derive brake: does NOT fire (0 prior substrate_ceiling autopsies tag MECH-357; 603r is measurement_test_design_defect/non_contributory). Substrate-overlap gate: no open corrupting substrate_queue entry overlaps scaffolded_sd054_onboarding.py or causal_grid_world.py. Also re-instruments MECH-357's avoidance_efficacy credit event per-episode (avoidance_efficacy_trajectory), still 'essentially inert' since 603h. Smoke PASS; full contract suite run on cloud. Prefer cloud (linux-x86_64)."
     }
   ]
 }
