@@ -85,26 +85,6 @@
       "seeds": 5
     },
     {
-      "queue_id": "V3-EXQ-905a",
-      "title": "MECH-075 dorsal LC-arousal probe -- LC_GAIN recalibration (905a): re-derived gain 2.0 -> 80.0 for a decisive mode_scale",
-      "script": "experiments/v3_exq_905a_mech075_dorsal_lc_arousal_probe.py",
-      "priority": 40,
-      "machine_affinity": "any",
-      "estimated_minutes": 210,
-      "supersedes": "V3-EXQ-905",
-      "claim_id": "MECH-075",
-      "note": "LC_GAIN recalibration of V3-EXQ-905 per failure_autopsy_mech075-vta-lc-cluster_2026-08-09 (dorsal/LC-arousal leg). 905 was the FIRST non-degenerate manipulation test of this leg: P0 (signal magnitude) and C1 (manipulation check) both cleanly PASSED, correcting the signal-magnitude defect of all 3 prior attempts (EXQ-192a/209/230). But load-bearing C2 (basin-width widening >=15%) failed 0/3 with near-zero sign-inconsistent gaps (~1e-6). Autopsy traced this to the manipulation gain LC_GAIN=2.0 -- inherited UNCHANGED from the already-FAILED EXQ-192a's novelty_gain=2.0, never re-derived: at the observed eval-phase arousal_ema (0.0022-0.0029), mode_scale = 1 + LC_GAIN*arousal_ema = 1.004-1.006 (0.4-0.6% CEM-noise lift), an order of magnitude too small to move a 15%-scale basin width. Reclassified from filed 'weakens' to measurement_test_design_defect / non_contributory (underpowered manipulation, NOT a falsification). 905a re-derives LC_GAIN=80.0 from the observed 905 eval arousal_ema [0.002196,0.002726,0.002851] (mean ~0.00259; target mode_scale ~1.2 => 0.2/0.00259 ~= 77 -> 80), landing mode_scale ~1.18-1.23 (decisive ~1.1-1.3 band, by analogy with sibling 903's RPE_GAIN=50 derivation). arousal_ema is downstream-independent of LC_GAIN so the derivation is valid; 905a additionally records the realized per-seed cem_noise_scale (seed{i}_gated_cem_noise_scale) to audit the applied mode_scale. Channel/terrain/criteria/thresholds UNCHANGED; only the gain constant. GOV-REUSE-1: no recorded run applies LC_GAIN=80, and the C2 readout under a decisive manipulation is not derivable from 905's underpowered manifest -> genuine new run. Re-derive brake does NOT fire (autopsy re_derive_brake.fired=false; zero prior substrate_ceiling autopsies for MECH-075). substrate_paths defect is script-local (this gain constant), not a shared substrate gap. Prefer cloud (905 ran on ree-worker-3, ~192 min for 3 seeds x 2 conditions).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-08-09T11:04:29Z"
-      },
-      "conditions": 2,
-      "episodes_per_run": 150,
-      "experiment_type": "v3_exq_905a_mech075_dorsal_lc_arousal_probe",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-324d",
       "title": "SD-020 real flag-path retest: harm_surprise_pe OFF vs ON via agent.compute_harm_accum_loss (SD-022 substrate)",
       "script": "experiments/v3_exq_324d_sd020_harm_surprise_pe_real_flagpath.py",
@@ -113,7 +93,11 @@
       "estimated_minutes": 120,
       "supersedes": "V3-EXQ-324b",
       "note": "Governance-commissioned (2026-08-09 GFLAG-0005) real flag-path retest of SD-020, demoted stable->candidate because the promoting run 324b was a STANDALONE BENCH (zero REEAgent/harm_surprise_pe_enabled/compute_harm_accum_loss refs) and even 324 reimplements the PE target manually against a standalone head. (Note: queue_id 324c was already burned by an empty April-2026 completion with no manifest; this is 324d.) This run trains z_harm_a through the SHIPPED loss agent.compute_harm_accum_loss(accum, latent) under harm_surprise_pe_enabled, via the proven affective_fishtank.warmup_train harness. PE-branch differentiation gate (ARM_OFF _harm_obs_ema==0, ARM_ON>1e-4) PROVES the shipped branch fired -- confirmed in design probes (OFF 0.0, ON 0.0187 at 20ep). SUBSTRATE SD-022 (limb_damage_enabled=True) re-sources harm_obs_a from 7-dim damage state, fixing 324's harm_obs_a_variance~3e-4 + underpowering (probes: 367/400 harm events vs 324's 10-20). Primary DV: harm_accum_pred surprise-vs-magnitude preference (head readout, not saturation-masked z_harm_a norm); PASS=ARM_ON shifts toward surprise in >=3/5 seeds. NON-DEGENERACY self-routes non_contributory (NOT weakens) if the flag path didn't differentiate, run is underpowered, DV unmeasurable, or the manipulation produced no measurable representational change -- design probes show a SMALL OFF-vs-ON delta (~0.02 at 20ep), so a non_contributory outcome is a plausible, honest result that keeps SD-020 at candidate rather than a false verdict. DV-SYMMETRY: the manipulation changes z_harm_a's learned weights, and corr(head, PE/accum) is not invariant under any broadcast/rescale/permutation of the latent -- a nonzero ON-vs-OFF delta is a real measurement. GOV-REUSE-1: decisive readout (surprise-vs-magnitude preference under the REAL flag path) is recorded in NO manifest -- 324/324a/324b are benches, 856 drives the real path but on a different DV (CoV+mode inversion) and non-limb_damage substrate -> run. 2.5c: only open substrate_paths overlap is mech203-valence-pool-admissibility (update_harm_salience/HarmEncoder), unset severity + different code path than compute_harm_accum_loss/z_harm_a -> no gating. Directly addresses Q-036. Prefer cloud (linux-x86_64 machine-class) for reproducibility.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "DLAPTOP-4.local",
+        "claimed_at": "2026-08-09T13:05:47Z"
+      },
       "claim_ids": [
         "SD-020"
       ],
@@ -121,21 +105,6 @@
       "episodes_per_run": 50,
       "experiment_type": "v3_exq_324d_sd020_harm_surprise_pe_real_flagpath",
       "seeds": 5
-    },
-    {
-      "queue_id": "V3-EXQ-907",
-      "title": "SD-016 GOV-FANOUT-1 leg H1 (DRIVE): explicit context-divergence objective on the Path-3 cue-slot tagger -- does rewarding context-conditioned divergence break the uniform-selection saddle?",
-      "script": "experiments/v3_exq_907_sd016_h1_ctxdiv.py",
-      "priority": 20,
-      "machine_affinity": "any",
-      "estimated_minutes": 6,
-      "claim_id": "SD-016",
-      "note": "SD-016 GOV-FANOUT-1 leg H1 (DRIVE axis) of the selection-mechanism discrimination portfolio designed in sd016_selection_fanout_portfolio_scope_staged_20260809.md section 3, routed by failure_autopsy_V3-EXQ-898_2026-08-08 (user-ratified). QUESTION: three independently-designed SD-016 selection mechanisms (418 q.k, 418m tagger, 898 tagger under the SD-070-trained encoder) all hit the uniform-selection saddle (sel_entropy -> ln(16)=2.7726). The unifying gap: no mechanism was ever given a training signal rewarding context-CONDITIONED divergence. H1 adds exactly that as an auxiliary loss -lambda*|mean_w_safe - mean_w_dang|_1 in P1 and asks whether the tagger leaves the saddle. DRIVER-ONLY probe, NO /implement-substrate: the _last_cue_slot_weights hook is detached (e1_deep.py:450) so the driver calls the PUBLIC agent.e1.cue_slot_tagger nn.Sequential directly (Step-2.5a probe 2026-08-09 confirmed reachable + differentiable, grad flows to all 4 tagger tensors). 5 arms x 3 seeds [42,43,44]: A0_OFF (legacy q.k, C2 control), A1_tagger (matched-budget baseline = 898 ON arm, attribution), A2_ctxdiv at lambda {0.1,0.5,2.0}. LAMBDA CHOICE: a Step-2.5a foreground probe showed the objective SATURATES by lambda=0.5 (0.5 and 2.0 gave near-identical eval_div 0.2687; both left entropy at the saddle 2.737) with lambda=0 baseline at 0.0159 -- so {0.1,0.5,2.0} spans the informative pre-saturation region instead of the scope's three-saturated {0.5,1,2}; the flat top is confirmed saturation (manipulation is LIVE), not a clamp. C1 (entropy<2.5) is the FREE load-bearing scientific readout (does the drive induce SPARSE selection?); C1b (ctxdiv>0.1) is the DIRECTLY-OPTIMISED manipulation check measured held-out (did the drive take, generalising?). Full PASS = any A2 arm C1 AND C1b on majority ready seeds AND C2 control on saddle. FAIL is sub-typed into four discriminating regions (context_conditioned_not_sparse [probe-predicted -> implicates H3 / entropy floor], sparse_not_context_conditioned [constant-peaky], objective_insufficient [true null], substrate_inconsistent). NULL DECLARATION (scope 3 H1): a FAIL does NOT rule out H2/H3; a non-insufficient FAIL rules OUT 'the tagger merely lacked the right gradient'. Mandatory 898 readiness gate retained (world_encoder_weights_moved>=1, z_world_spread_lift>=1.3) so a null attributes to selection, not the encoder; full per-context selection histograms (mean_w_safe[16]/mean_w_dang[16]) recorded per cell (verdict-aliasing guard). claim_ids=[] (diagnostic; /failure-autopsy adjudication before any claims.yaml action, 418g/418m/898 precedent). GATES: 2.5b re-derive brake does NOT fire (SD-016 braking count 1 < 2, and this is a NEW-number diagnostic testing a DIFFERENT mechanism, not a lettered re-pose). 2.5c substrate-path gate CLEAR (only open overlap is mech203-valence-pool, severity unset -> no action; its harm/benefit-salience functions are not on this terrain-loss driver path). GOV-REUSE-1: the decisive readout (sel_context_divergence under an explicit context-divergence auxiliary objective) exists in NO recorded manifest -- this manipulation has never been run -> genuine new run. Prefer cloud (machine_affinity any; 898 ran 6 cells in 27s on ree-cloud-2, this is 15 cells + modest A2 divergence overhead). Chip chip-20260809-sd016-h1-ctxdiv.",
-      "status": "pending",
-      "conditions": 5,
-      "episodes_per_run": 100,
-      "experiment_type": "v3_exq_907_sd016_h1_ctxdiv",
-      "seeds": 3
     },
     {
       "queue_id": "V3-EXQ-908",
