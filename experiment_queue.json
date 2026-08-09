@@ -15,7 +15,11 @@
       "machine_affinity": "ree-cloud-4",
       "estimated_minutes": 300,
       "note": "Diagnostic showcase, claim_ids=[] -- does not weight governance. Current-substrate successor to V3-EXQ-665 (2026-06-10, the last full-stack fishtank run); reuses v3_exq_724's proven all-on selection/valuation bundle + 664/665's affective stack + ScaffoldedSD054OnboardingScheduler curriculum, adding SD-035 amygdala, SD-036 GABAergic decay+recurrence, MECH-358 escape/relief bridge, MECH-288/ARC-071 event-segmenter+chunk memory, SD-014 incentive-sensitization fix, SD-024/SD-025 DA-modulated RBF + curiosity, and SD-017 sleep loop (SWS/REM/SHY, K=10) on top. Eval env adds scheduled limb-damage / external-hazard / world-rule-shift injections over the scaffold curriculum's own p2 env for behavioural variety across 30 x 600-step eval episodes. GOV-REUSE-1: no prior manifest carries this combined-flag readout to reanalyze -- this is a new full-integration combination, not a re-test of an existing one. Full readiness / code-review / smoke-test trail: driver docstring + this session's task_claim.py completion_note.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-4",
+        "claimed_at": "2026-08-09T00:26:55Z"
+      },
       "claim_ids": [],
       "conditions": 1,
       "episodes_per_run": 220,
