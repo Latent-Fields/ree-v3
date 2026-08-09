@@ -136,6 +136,21 @@
       "episodes_per_run": 100,
       "experiment_type": "v3_exq_907_sd016_h1_ctxdiv",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-908",
+      "title": "SD-016 GOV-FANOUT-1 leg H3 (ALGORITHM): hard/competitive selection operator (gumbel/topk straight-through) on the Path-3 cue-slot tagger -- does structural sparsification break the uniform-selection saddle where the soft gate could not?",
+      "script": "experiments/v3_exq_908_sd016_h3_hard_selection.py",
+      "priority": 20,
+      "machine_affinity": "any",
+      "estimated_minutes": 7,
+      "claim_id": "SD-016",
+      "note": "SD-016 GOV-FANOUT-1 leg H3 (ALGORITHM axis) of the selection-mechanism discrimination portfolio designed in sd016_selection_fanout_portfolio_scope_staged_20260809.md section 3, routed by failure_autopsy_V3-EXQ-898_2026-08-08 (user-ratified). QUESTION: V3-EXQ-898's soft Path-3 tagger reproduced the exact uniform ln(16)=2.7726 attractor under C2's control even on a SD-070-fixed, genuinely-varying z_world encoder -- ruling out 'z_world doesn't vary' and raising H3: a soft, end-to-end differentiable softmax gate may not HOLD a sparse context-selective optimum even when correctly rewarded. TWO-STEP ROUTING (per scope doc): /implement-substrate FIRST (COMPLETE -- ree-v3 commit eeb999a added sd016_cue_slot_tagger_selection: soft|gumbel|topk to E1Config/REEConfig.from_dims and its implementation in E1DeepPredictor.extract_cue_context, both straight-through estimators (sparse forward, soft backward gradient); 8 new contracts in tests/contracts/test_sd016_h3_hard_selection.py, default soft path verified bit-identical by construction), THEN this /queue-experiment leg. 5 arms x 3 seeds [42,43,44]: A0_OFF (legacy q.k, C2 control), A1_tagger_soft (matched-budget baseline = 898 ON arm, selection=soft), A2_tagger_gumbel (annealed straight-through Gumbel-softmax), A3a_topk_k1 / A3b_topk_k2 (straight-through top-1/top-2 sub-sweep) -- only the selection OPERATOR differs across arms, identical SD-070 encoder recipe + P0a(60)/P1(40) budgets + mandatory 898 readiness gate (world_encoder_weights_moved>=1, z_world_spread_lift>=1.3), extended to all 5 arms per seed. C1 (entropy<2.5) AND C1b (ctxdiv>0.1) both load-bearing per ON arm; C2 (OFF>2.65) load-bearing control. DV-SYMMETRY CAVEAT (module docstring): C1 is expected to pass near-trivially BY CONSTRUCTION for the 3 hard arms (the ST estimator structurally compresses forward entropy toward its floor regardless of learning) -- C1b is the true discriminator for those arms, so a C1-pass/C1b-fail arm is labelled constant_peaky_degenerate (sparsifies but blind to context), not a plain FAIL -- this is the scope doc's own named degeneracy, not a new finding. Overall PASS iff C2 passes AND >=1 ON arm achieves C1 AND C1b (any mechanism, hard or soft, breaking the saddle). Full per-context selection histograms (mean_w_safe[16]/mean_w_dang[16]) recorded per cell (verdict-aliasing guard, scope doc section 5(ii)). NULL DECLARATION (scope 3 H3, verbatim): a FAIL (readiness met, C1/C1b unmet on all ON arms) means hard selection alone does not context-condition -- implicates the drive (H1, tested in parallel by V3-EXQ-907) or the representation (H2, deferred), not softness of the gate. GATES: 2.5b re-derive brake does NOT fire (SD-016 braking count 1 < 2, re-verified 2026-08-09, same as V3-EXQ-907's check the same day) -- this is a NEW-number diagnostic testing a DIFFERENT mechanism axis, not a lettered re-pose. 2.5c substrate-path gate CLEAR (re-verified 2026-08-09; only open overlap is mech203-valence-pool-admissibility, severity unset -> no action; its harm/benefit-salience functions are not on this terrain-loss driver's call path). GOV-REUSE-1: the decisive readouts (selection entropy AND context-divergence under a hard/competitive selection operator) exist in NO recorded manifest -- this manipulation (the selection OPERATOR itself) has never been run -> genuine new run. H1 (V3-EXQ-907) and H3 (this entry) run in parallel; neither depends on the other or on the pending lit-pull. Chip chip-20260809-sd016-h3-hardselect.",
+      "status": "pending",
+      "conditions": 5,
+      "episodes_per_run": 100,
+      "experiment_type": "v3_exq_908_sd016_h3_hard_selection",
+      "seeds": 3
     }
   ]
 }
