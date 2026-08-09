@@ -31,7 +31,19 @@ ExecStart=/usr/local/bin/ree_metaworker_dispatch.sh
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=ree-metaworker
-TimeoutStartSec=280
+# TimeoutStartSec raised 280 -> 1800 on 2026-08-09
+# (chip-20260809-metaworker-cycles-overlap). At 280s any cycle running longer than
+# 4m40s had its bash wrapper SIGTERMed while the `claude -p` child survived
+# (KillMode=process, below), so the next timer tick started a fresh instance that
+# overlapped the surviving orphan -- confirmed live 2026-08-09T11:32Z with THREE
+# dispatchers alive at once. Real dispatch cycles legitimately run ~12min when they
+# do coordination-data repair, so 280s was below the normal ceiling. 1800s keeps a
+# normal long cycle inside the service lifetime, so the unit stays active for its
+# whole run and systemd's own one-instance-per-oneshot-unit guarantee prevents the
+# overlap. The wrapper's `flock`+`timeout` (in ree_metaworker_dispatch.sh) is the
+# duration-independent backstop and the hard bound on a genuinely hung claude
+# (REE_DISPATCH_MAX_SEC, default 1500s); this 1800s > that bound + wrapper overhead.
+TimeoutStartSec=1800
 # Dispatched workers are descendants of ExecStart. Under the default
 # KillMode=control-group systemd SIGTERMs the whole cgroup when this oneshot
 # deactivates, killing every worker ~1-2min after dispatch (100% mortality,

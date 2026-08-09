@@ -33,6 +33,32 @@ mkdir -p "$STATE_DIR"
 
 ts() { date -u "+%Y-%m-%dT%H:%M:%SZ"; }
 
+# --- Per-box non-reentrancy lock (chip-20260809-metaworker-cycles-overlap) ---
+# The systemd unit is Type=oneshot + KillMode=process + TimeoutStartSec. A cycle
+# running longer than the start timeout has ITS BASH WRAPPER SIGTERMed while the
+# `claude -p` child SURVIVES -- KillMode=process signals only the unit's main pid,
+# not descendants (that is deliberate: it stops systemd killing live dispatched
+# workers, see the .service header). The timer then starts a fresh instance, so the
+# surviving orphan of cycle N overlaps cycle N+1. That breaks the skill's per-box
+# "cap 2 in-flight" invariant: each overlapping dispatcher computes Step 4a's
+# available_slots independently against the same 2-core box, so N dispatchers can
+# each launch up to 2 workers. Confirmed live 2026-08-09T11:32Z: THREE dispatcher
+# sessions alive at once (cycles 1830/1831/1832) on this box.
+#
+# Fix: hold an flock across the claude launch so a second cycle refuses to dispatch.
+# CRITICAL -- the lock is held by the `flock` PROCESS wrapping the launch below
+# (flock -> timeout -> claude), NOT by this script. A script-held lock (e.g.
+# `exec 200>lock; flock 200`) would RELEASE the instant systemd SIGTERMs the
+# wrapper at TimeoutStartSec, while the claude child lives on -- re-opening the
+# exact overlap window. flock as a child of the wrapper survives that SIGTERM and
+# holds the lock for claude's whole lifetime; `timeout` bounds a hung/orphaned
+# claude so a wedged cycle can never hold the lock forever (TimeoutStartSec's
+# SIGTERM never reaches claude under KillMode=process). Both properties verified
+# empirically on THIS box 2026-08-09 (PROBE2 lock-held-across-parent-SIGTERM,
+# PROBE3 timeout-self-release). See chip resolution note for the full test.
+LOCKFILE="$STATE_DIR/dispatch.lock"
+DISPATCH_MAX_SEC="${REE_DISPATCH_MAX_SEC:-1500}"
+
 # Auto-sync: pull the umbrella repo before each cycle, so a landed script or
 # SKILL.md fix reaches this box within one 5-minute tick instead of needing a
 # human to SSH in and pull by hand. Confirmed gap 2026-08-03: this box ran 47
@@ -170,9 +196,28 @@ else
   # nested `nohup /bin/bash -lc "..." &` launch cleanly, matching exactly
   # what Step 4 sub-dispatch needs. See REE_Working WORKSPACE_STATE.md
   # 2026-08-03 for the full cross-repo audit this was part of.
-  claude -p "Run exactly ONE cycle of the metaworker-dispatch skill (see $REPO/.claude/skills/metaworker-dispatch/SKILL.md), then exit. This is cycle $CYCLE on machine $MACHINE. Do not call ScheduleWakeup or otherwise self-pace via /loop -- an external systemd timer re-invokes this script every 5 minutes, so pacing is handled outside this session." \
-    --permission-mode auto >> "$LOG" 2>&1
-  echo "[$(ts)] cycle $CYCLE: claude -p exited $?" >> "$LOG"
+  # Hold the per-box lock across the ENTIRE claude lifetime via flock -> timeout ->
+  # claude (see the LOCKFILE note near the top of this file for why the lock must be
+  # process-held, not script-held). `-E 99` makes an flock lock-conflict return a
+  # code distinct from any claude/timeout exit, so a lost race is unambiguous.
+  # `timeout` bounds a hung or orphaned claude (SIGTERM at DISPATCH_MAX_SEC, then
+  # SIGKILL 60s later) so a wedged cycle releases the lock instead of pinning the
+  # box forever. Under normal operation the lock is uncontended and this is a
+  # transparent wrapper around the same claude invocation as before.
+  flock -n -E 99 "$LOCKFILE" \
+    timeout --signal=TERM --kill-after=60 "$DISPATCH_MAX_SEC" \
+    claude -p "Run exactly ONE cycle of the metaworker-dispatch skill (see $REPO/.claude/skills/metaworker-dispatch/SKILL.md), then exit. This is cycle $CYCLE on machine $MACHINE. Do not call ScheduleWakeup or otherwise self-pace via /loop -- an external systemd timer re-invokes this script every 5 minutes, so pacing is handled outside this session." \
+      --permission-mode auto >> "$LOG" 2>&1
+  DISPATCH_RC=$?
+  if [ "$DISPATCH_RC" -eq 99 ]; then
+    echo "[$(ts)] cycle $CYCLE: LOCKED OUT -- a sibling dispatch cycle already holds $LOCKFILE; not dispatching (reentrancy guard working as intended)" >> "$LOG"
+    STATE="locked-out"
+  elif [ "$DISPATCH_RC" -eq 124 ]; then
+    echo "[$(ts)] cycle $CYCLE: claude -p TIMED OUT after ${DISPATCH_MAX_SEC}s (SIGTERM+SIGKILL); lock released" >> "$LOG"
+    STATE="timed-out"
+  else
+    echo "[$(ts)] cycle $CYCLE: claude -p exited $DISPATCH_RC" >> "$LOG"
+  fi
 fi
 
 # Best-effort telemetry: recomputed deterministically from the ledger/worktree
