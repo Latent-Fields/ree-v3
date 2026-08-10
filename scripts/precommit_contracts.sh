@@ -221,6 +221,58 @@ if ! echo "$STAGED" | grep -qE '^(ree_core/|experiments/_lib/)'; then
 fi
 
 # ---------------------------------------------------------------------------
+# Block 2 VALIDATION CACHE (2026-08-10): a HIT means this exact ree_core/ +
+# experiments/_lib/ content was already validated on this machine class /
+# toolchain within a bounded TTL -- skip re-paying the ~13min suite. See
+# REE_assembly/docs/architecture/landing_integration_worker_investigation.md
+# sec 6 for the design and scripts/validation_cache.py for the implementation.
+#
+# COVERAGE IS THE INVARIANT HERE, NOT SPEED: this is validation REUSE, never
+# BYPASS -- a HIT only ever stands in for a full green run that provably
+# already happened against equivalent content. FAIL-SAFE in every direction:
+# a missing/unexecutable validation_cache.py, a corrupt or missing cache
+# file, or ANY unexpected error inside it, is unconditionally a MISS -- the
+# gate falls straight through to routing/running the suite exactly as if
+# this whole block did not exist. A MISS never blocks; only a HIT ever skips
+# the suite, and every HIT is loudly logged.
+#
+# Env:
+#   REE_PRECOMMIT_VALIDATION_CACHE_DISABLE  1 -> skip this block entirely
+#   REE_PRECOMMIT_VALIDATION_CACHE_PY       override path (tests only)
+#   REE_PRECOMMIT_VALIDATION_CACHE_PATH     override cache file (tests only)
+#   REE_PRECOMMIT_VALIDATION_CACHE_TTL_MIN  TTL in minutes (default 45)
+# ---------------------------------------------------------------------------
+VALIDATION_CACHE_TIER="ree-v3-contracts-full-suite"
+VALIDATION_CACHE_PY="${REE_PRECOMMIT_VALIDATION_CACHE_PY:-$REPO/scripts/validation_cache.py}"
+VALIDATION_CACHE_TTL_MIN="${REE_PRECOMMIT_VALIDATION_CACHE_TTL_MIN:-45}"
+
+# Shared --repo-root/--tier/[--cache-path]/--ttl-minutes, an indexed array
+# (bash 3.2+, no bash-4 associative-array/mapfile builtins -- CLAUDE.md Shell
+# Portability) so the check and record call sites can never drift apart on
+# the key, and paths with spaces survive intact (unlike a printf+word-split).
+VALIDATION_CACHE_ARGS=(--repo-root "$REPO" --tier "$VALIDATION_CACHE_TIER"
+                       --ttl-minutes "$VALIDATION_CACHE_TTL_MIN")
+if [ -n "${REE_PRECOMMIT_VALIDATION_CACHE_PATH:-}" ]; then
+    VALIDATION_CACHE_ARGS+=(--cache-path "$REE_PRECOMMIT_VALIDATION_CACHE_PATH")
+fi
+
+record_validation_cache_result() {
+    # Called unconditionally after the suite (or a cache hit's stand-in for
+    # it) resolves -- validation_cache.py record itself no-ops (logged, not
+    # silent) on --result fail, so the caller never has to branch on outcome.
+    [ "${REE_PRECOMMIT_VALIDATION_CACHE_DISABLE:-0}" = "1" ] && return 0
+    [ -f "$VALIDATION_CACHE_PY" ] || return 0
+    "$PY" "$VALIDATION_CACHE_PY" record "${VALIDATION_CACHE_ARGS[@]}" --result "$1" --push >&2 || true
+}
+
+if [ "${REE_PRECOMMIT_VALIDATION_CACHE_DISABLE:-0}" != "1" ] && [ -f "$VALIDATION_CACHE_PY" ]; then
+    if "$PY" "$VALIDATION_CACHE_PY" check "${VALIDATION_CACHE_ARGS[@]}" >&2; then
+        echo "[precommit_contracts] validation cache HIT -- reusing a prior green run (see above), skipping the full suite" >&2
+        exit 0
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # Block 2 ROUTING (2026-07-29): the full contract suite must not run on the
 # 8GB Mac. Several Claude sessions share this laptop; the suite peaks
 # hundreds of MB and the box regularly sits at tens of MB free, so a local
@@ -452,12 +504,16 @@ if [ "$TARGET" = "remote" ]; then
     fi
     echo "[precommit_contracts] race winner: $WINNER (rc=$WINNER_RC)" >&2
     if [ "$WINNER_RC" = "0" ]; then
+        record_validation_cache_result pass
         exit 0
     fi
+    record_validation_cache_result fail
 else
     if run_local_pytest >&2; then
+        record_validation_cache_result pass
         exit 0
     fi
+    record_validation_cache_result fail
 fi
 
 echo "[precommit_contracts] contract tests failed ($TARGET) -- blocking commit" >&2
