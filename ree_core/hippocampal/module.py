@@ -38,6 +38,7 @@ import torch.nn as nn
 
 from ree_core.utils.config import HippocampalConfig
 from ree_core.hippocampal.curiosity import FamiliarityTracker
+from ree_core.hippocampal.visitation import VisitationCounter
 from ree_core.predictors.e2_fast import E2FastPredictor, Trajectory
 from ree_core.residue.field import (
     ResidueField,
@@ -140,6 +141,24 @@ class HippocampalModule(nn.Module):
         # drive is disabled (familiarity_tracker is None) or before the first
         # waking tick. Read-only observability -- never consulted by scoring.
         self.last_novelty_score: Optional[float] = None
+
+        # chip-20260810-fishtank-visitation-count-telemetry: unconditional
+        # per-region visit-count tracker (ree_core/hippocampal/visitation.py).
+        # Unlike familiarity_tracker above, this is ALWAYS instantiated -- no
+        # curiosity_weight (SD-025) or use_structured_curiosity (MECH-314)
+        # gate -- so it is available in every fishtank-family driver
+        # regardless of which of those flags is on. last_visitation_count is
+        # the PRE-increment count at the current REAL (waking) z_world (0 =
+        # never visited before this tick), cached by agent.py's
+        # familiarity-update call site alongside last_novelty_score. See
+        # VisitationCounter's module docstring for why this is a distinct
+        # substrate from both familiarity_tracker and
+        # REEAgent._zworld_visitation_buffer. Read-only observability --
+        # never consulted by scoring.
+        self.visitation_counter = VisitationCounter(
+            world_dim=int(config.world_dim)
+        )
+        self.last_visitation_count: Optional[int] = None
 
         # MECH-290: backward trajectory credit sweep (Foster & Wilson 2006).
         # Stores the most recently committed trajectory for backward_credit_sweep().
@@ -1639,6 +1658,34 @@ class HippocampalModule(nn.Module):
         if self.familiarity_tracker is None or not is_waking:
             return
         self.familiarity_tracker.update(z_world.detach())
+
+    def record_visitation(
+        self, z_world: torch.Tensor, is_waking: bool = True
+    ) -> Optional[int]:
+        """chip-20260810-fishtank-visitation-count-telemetry: increment the
+        unconditional per-region visit count at a REAL z_world, returning the
+        PRE-increment count for telemetry caching (0 = first-ever visit to
+        that region).
+
+        Call once per WAKING step with the current real z_world -- same
+        MECH-094 gate as update_familiarity (a replay/DMN reading is not a
+        genuine per-tick observation and must not raise the count). Unlike
+        update_familiarity, this is NEVER a no-op on curiosity_weight
+        (visitation_counter is unconditional -- see __init__): the only gate
+        is is_waking.
+
+        Args:
+            z_world:   [world_dim] or [batch, world_dim] current real z_world.
+            is_waking: MECH-094 gate; when False this is a no-op and returns
+                None (mirrors update_familiarity's None-when-gated shape).
+
+        Returns:
+            The visit count at z_world BEFORE this update, or None when
+            is_waking is False.
+        """
+        if not is_waking:
+            return None
+        return self.visitation_counter.update(z_world.detach())
 
     def _compute_mode_noise_scale(
         self,

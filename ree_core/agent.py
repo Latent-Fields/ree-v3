@@ -4992,6 +4992,27 @@ class REEAgent(nn.Module):
                 new_latent.z_world, is_waking=is_waking
             )
 
+        # chip-20260810-fishtank-visitation-count-telemetry: unconditional
+        # per-region visit-count update at the current WAKING z_world. Unlike
+        # the SD-025 block above, this carries NO curiosity_weight (or
+        # MECH-314 use_structured_curiosity) gate -- hippocampal.
+        # visitation_counter is always instantiated (HippocampalModule.
+        # __init__), so this runs in every fishtank-family experiment
+        # regardless of which curiosity substrate is enabled. Same MECH-094
+        # waking gate as above: replay / DMN ticks must not raise the count.
+        # record_visitation() returns the PRE-increment count (0 = first-ever
+        # visit to this region); cached here BEFORE the count advances, same
+        # pre-visit-vs-post-visit ordering as last_novelty_score above.
+        # Read-only from scoring's perspective: last_visitation_count is
+        # never consulted by CEM trajectory scoring or action selection.
+        if self.hippocampal is not None and new_latent.z_world is not None:
+            is_waking = not bool(getattr(new_latent, "hypothesis_tag", False))
+            _visit_count = self.hippocampal.record_visitation(
+                new_latent.z_world, is_waking=is_waking
+            )
+            if is_waking:
+                self.hippocampal.last_visitation_count = _visit_count
+
         # SD-039 population layer (2026-04-27): build the AnchorGoalPayload
         # once per tick from the current waking-stream signals (z_goal from
         # GoalState, VALENCE_WANTING readout from ResidueField at z_world,
