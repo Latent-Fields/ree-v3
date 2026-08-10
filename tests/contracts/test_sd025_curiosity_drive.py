@@ -36,6 +36,13 @@ Contracts:
       use_curiosity_familiarity=False removes the discount (novelty = density).
   C6  MECH-094 gate -- update_familiarity(is_waking=False) does not change
       familiarity; the density read during scoring writes no memory.
+  C7  compute_novelty_score (chip-20260810-fishtank-sd025-novelty-telemetry) --
+      the single-point, UNWEIGHTED read exposed for fishtank-family per-tick
+      telemetry (agent.hippocampal.last_novelty_score /
+      experiments/_lib/hippocampal_telemetry.read_sd025_novelty). None when
+      curiosity_weight=0.0; matches density*(1-familiarity) exactly when on;
+      read-only (no familiarity write, repeat calls stable); familiarity
+      discount and the ablation both apply identically to C5.
 """
 
 import torch
@@ -238,3 +245,83 @@ def test_c6_mech094_replay_does_not_write_familiarity():
         hip.update_familiarity(z, is_waking=False)   # replay / simulation
     after = float(hip.familiarity_tracker.query(z)[0])
     assert after == before                           # MECH-094: no real memory write
+
+
+# ---------------------------------------------------------------------------
+# C7: compute_novelty_score -- single-point telemetry read
+# ---------------------------------------------------------------------------
+
+def test_c7_off_by_default_returns_none():
+    residue = _residue(da=True)
+    hip = _hip(residue, curiosity_weight=0.0)
+    assert hip.familiarity_tracker is None
+    assert hip.compute_novelty_score(_loc(2.0)) is None
+
+
+def test_c7_matches_density_times_one_minus_familiarity():
+    residue = _residue(da=True)
+    _populate_dense(residue, _loc(2.0))
+    hip = _hip(residue, curiosity_weight=0.5, ema_alpha=0.3)
+
+    z = _loc(2.0)
+    density = float(hip.compute_representational_density(z)[0])
+    familiarity = float(hip.familiarity_tracker.query(z)[0])
+    expected = density * (1.0 - familiarity)
+    got = hip.compute_novelty_score(z)
+    assert got is not None
+    # UNWEIGHTED: matches density*(1-familiarity) directly, with no curiosity_weight
+    # factor -- unlike _curiosity_bonus, which multiplies this same term by cw=0.5.
+    assert abs(got - expected) < 1e-6
+
+
+def test_c7_read_only_does_not_advance_familiarity():
+    residue = _residue(da=True)
+    _populate_dense(residue, _loc(2.0))
+    hip = _hip(residue, curiosity_weight=0.5, ema_alpha=0.3)
+
+    z = _loc(2.0)
+    before = float(hip.familiarity_tracker.query(z)[0])
+    first = hip.compute_novelty_score(z)
+    second = hip.compute_novelty_score(z)
+    after = float(hip.familiarity_tracker.query(z)[0])
+    assert after == before                           # no memory write
+    assert first == second                           # repeat calls are stable
+
+
+def test_c7_familiarity_discount_and_ablation():
+    residue = _residue(da=True)
+    _populate_dense(residue, _loc(2.0))
+    z = _loc(2.0)
+
+    hip = _hip(residue, curiosity_weight=0.5, ema_alpha=0.3, use_familiarity=True)
+    fresh = hip.compute_novelty_score(z)
+    for _ in range(40):
+        hip.update_familiarity(z, is_waking=True)
+    familiar = hip.compute_novelty_score(z)
+    assert familiar < fresh                          # anti-perseveration, same as C5
+    assert familiar >= 0.0
+
+    hip_noabl = _hip(residue, curiosity_weight=0.5, ema_alpha=0.3, use_familiarity=False)
+    ablated_fresh = hip_noabl.compute_novelty_score(z)
+    for _ in range(40):
+        hip_noabl.update_familiarity(z, is_waking=True)
+    ablated_after = hip_noabl.compute_novelty_score(z)
+    # No familiarity discount -> pure density, unchanged by visits (mirrors C5 ablation).
+    assert abs(ablated_after - ablated_fresh) < 1e-6
+
+
+def test_c7_pre_visit_vs_post_visit_ordering():
+    """Documents the ordering the agent.py call site relies on: a caller wanting
+    the novelty of THIS visit must read compute_novelty_score() BEFORE calling
+    update_familiarity() at the same z -- reading after already reflects this
+    visit's own EMA bump (see agent.py's familiarity-update call site comment).
+    """
+    residue = _residue(da=True)
+    _populate_dense(residue, _loc(2.0))
+    hip = _hip(residue, curiosity_weight=0.5, ema_alpha=0.3)
+    z = _loc(2.0)
+
+    pre_visit = hip.compute_novelty_score(z)
+    hip.update_familiarity(z, is_waking=True)
+    post_visit = hip.compute_novelty_score(z)
+    assert post_visit < pre_visit                    # this visit's own EMA bump lowers it

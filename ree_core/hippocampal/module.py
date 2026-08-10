@@ -134,6 +134,13 @@ class HippocampalModule(nn.Module):
                 bandwidth=float(getattr(config, "familiarity_bandwidth", 1.0)),
             )
 
+        # chip-20260810-fishtank-sd025-novelty-telemetry: last-computed SD-025
+        # novelty(z) term at a REAL (waking) z_world, cached for telemetry by
+        # agent.py's familiarity-update call site. None when the curiosity
+        # drive is disabled (familiarity_tracker is None) or before the first
+        # waking tick. Read-only observability -- never consulted by scoring.
+        self.last_novelty_score: Optional[float] = None
+
         # MECH-290: backward trajectory credit sweep (Foster & Wilson 2006).
         # Stores the most recently committed trajectory for backward_credit_sweep().
         # Set by record_committed_trajectory() at BetaGate elevation (commit entry)
@@ -1578,6 +1585,41 @@ class HippocampalModule(nn.Module):
             else:
                 novelty = density
         return cw * novelty.mean()
+
+    @torch.no_grad()
+    def compute_novelty_score(self, z_world: torch.Tensor) -> Optional[float]:
+        """chip-20260810-fishtank-sd025-novelty-telemetry: raw SD-025 novelty
+        term at a SINGLE real z_world point, for telemetry.
+
+        novelty(z) = density(z) * (1 - familiarity(z)) -- the same quantity
+        _curiosity_bonus averages (and multiplies by curiosity_weight) over a
+        BATCH of hypothetical CEM candidate trajectories for scoring. This
+        method instead evaluates it once at one real (waking) position,
+        UNWEIGHTED by curiosity_weight (that scaling only matters for CEM
+        scoring bias; the raw term is what makes curiosity-driven discovery
+        distinguishable from diffuse-gradient exploitation in a trace -- see
+        REE_assembly/evidence/planning/developmental_ecology_curiosity_foraging_correction_2026-08-10.md
+        Section 6).
+
+        Read-only (@torch.no_grad, no memory write): does not advance the
+        FamiliarityTracker and has no effect on trajectory scoring or action
+        selection. Caller is responsible for calling this BEFORE
+        update_familiarity() at the same z_world if a pre-visit reading is
+        wanted (post-visit would already reflect this visit's own EMA bump).
+
+        Returns None when curiosity_weight <= 0.0 (familiarity_tracker is
+        None -- see __init__), since novelty is not tracked in that regime.
+        """
+        if self.familiarity_tracker is None:
+            return None
+        z = z_world if z_world.dim() > 1 else z_world.unsqueeze(0)
+        density = self.compute_representational_density(z)
+        if bool(getattr(self.config, "use_curiosity_familiarity", True)):
+            familiarity = self.familiarity_tracker.query(z)
+            novelty = density * (1.0 - familiarity)
+        else:
+            novelty = density
+        return float(novelty.mean().item())
 
     def update_familiarity(
         self, z_world: torch.Tensor, is_waking: bool = True
