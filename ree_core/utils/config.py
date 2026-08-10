@@ -2462,6 +2462,21 @@ class HeartbeatConfig:
     e3_steps_per_tick: int = 10    # E3 updates every 10 env steps (deliberation rate)
     theta_buffer_size: int = 10    # E1 steps per theta-cycle summary
 
+    # SD-100 (ARC-032 / MECH-089): phase-aware ThetaBuffer.summary().
+    # Master switch. When True, ThetaBuffer.summary() replaces its flat
+    # (permutation-invariant) mean with a fixed forward-sweep phase-weighted
+    # sum (see sd_100_theta_buffer_phase_aware_summary.md) so that two theta
+    # windows holding the same z_world values in a different order summarize
+    # differently, per Dragoi 2006 / Colgin 2016 phase-coding. False = disabled
+    # (default, backward compat) -- summary() runs the original .mean(dim=0)
+    # path bit-identically.
+    use_theta_phase_weighted_summary: bool = False
+    # von-Mises concentration (kappa) of the phase-readout kernel. Only read
+    # when use_theta_phase_weighted_summary is True. kappa=0 would reduce the
+    # kernel to uniform weights (mathematically the flat mean); larger kappa
+    # concentrates weight toward the most recent (highest-phase) entries.
+    theta_phase_concentration: float = 4.0
+
     # MECH-093: z_beta magnitude → E3 rate scaling
     beta_rate_min_steps: int = 5   # Fastest E3 rate (high arousal)
     beta_rate_max_steps: int = 20  # Slowest E3 rate (low arousal)
@@ -6865,6 +6880,11 @@ class REEConfig:
         breath_period: int = 50,
         breath_sweep_amplitude: float = 0.25,
         breath_sweep_duration: int = 5,
+        # SD-100 (ARC-032 / MECH-089): phase-aware ThetaBuffer.summary().
+        # use_theta_phase_weighted_summary=False disables (bit-identical flat
+        # mean, legacy default). See HeartbeatConfig field comment.
+        use_theta_phase_weighted_summary: bool = False,
+        theta_phase_concentration: float = 4.0,
         # SD-049 Phase 3: SD-032 consumer cascade reading per_axis_drive.
         # Master flag + 7 per-consumer combiner knobs. All default to no-op
         # (bit-identical OFF). See REEConfig.use_sd049_per_axis_consumer_cascade
@@ -8293,6 +8313,10 @@ class REEConfig:
         config.heartbeat.breath_period = breath_period
         config.heartbeat.breath_sweep_amplitude = breath_sweep_amplitude
         config.heartbeat.breath_sweep_duration = breath_sweep_duration
+
+        # SD-100 (ARC-032 / MECH-089): phase-aware ThetaBuffer.summary().
+        config.heartbeat.use_theta_phase_weighted_summary = use_theta_phase_weighted_summary
+        config.heartbeat.theta_phase_concentration = theta_phase_concentration
 
         if goal_stream_enabled:
             config.enable_goal_stream(
