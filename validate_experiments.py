@@ -41,7 +41,7 @@ PROTOCOL_MODULE = "experiment_protocol"
 CHECK_NAMES = ("conformance", "readiness", "arm_fingerprint", "degeneracy", "manifest_writer",
                "anchor_reachability", "precondition_recomputability",
                "ceiling_route_anchor_floor",
-               "e3_diagnostics_staleness", "e3_hold_weighted_readout",
+               "e3_diagnostics_staleness", "e3_hold_weighted_readout", "e3_exemption_backlog",
                "action_object_selection", "spearman_guard_shape",
                "dead_z_goal_stream", "hardcoded_dry_run", "emit_outcome_dry_run",
                "write_pack_dry_run", "dry_run_unreachable_criterion",
@@ -4463,6 +4463,53 @@ def e3_hold_weighted_readout_lint(path: Path) -> Optional[str]:
             "Exempt with E3_HOLD_WEIGHTED_READOUT_EXEMPT = \"<reason>\".")
 
 
+def e3_exemption_backlog_lint(path: Path) -> Optional[str]:
+    """E3 exemption-backlog counter. Return a warning string, or None.
+
+    Both E3 lints above (`e3_diagnostics_staleness_lint`, `e3_hold_weighted_readout_lint`)
+    treat their marker as a BLANKET, substring-matched opt-out: `_E3_STALENESS_EXEMPT_MARKER
+    in src` / `_E3_HOLD_WEIGHTED_EXEMPT_MARKER in src` returns None unconditionally, before
+    ever checking whether the read pattern the marker opts out of would even have fired for
+    that script. So a script that no longer needs the marker -- already migrated onto a
+    discharge path (the shared `fresh_select` helper, a clear-before-select, a tick guard),
+    or one that never had the driver-loop shape either lint's rule targets -- reports the
+    same "OK, 0 exempt" as a script that genuinely still needs it. The exemption goes
+    INERT-BUT-PRESENT and nothing in this file's own output says so; the only record was a
+    planning doc (`REE_assembly/evidence/planning/e3_fresh_select_migration_plan.md` sec 4).
+
+    Mirrors the three sibling backlog counters already in this file --
+    `arm-fingerprint-backlog`, `degeneracy-self-report-backlog`, `manifest-writer-backlog`
+    -- which exist for exactly this purpose: making a known-outstanding migration visible
+    on every run instead of living only in a doc that has to be remembered.
+
+    Deliberately a PLAIN SUBSTRING MATCH over the raw source, not an AST check -- mirroring
+    exactly how both lints themselves test for the marker. This is a feature here, not a
+    shortcut: the migration plan's own caution is that naming a marker string ANYWHERE in a
+    migrated script (even a comment) silently re-arms the blanket exemption for both lints,
+    so this counter has to be sensitive to the identical thing to stay honest with them --
+    an AST-only check could clear a script this counter should still flag.
+
+    WARN-ONLY, never hardens under `--paths` -- this is a visibility counter over EXISTING
+    exemption markers, not a new gate on new code, so there is nothing here for `--paths`
+    hard-mode to enforce.
+    """
+    try:
+        src = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    markers = [m for m in (_E3_STALENESS_EXEMPT_MARKER, _E3_HOLD_WEIGHTED_EXEMPT_MARKER)
+               if m in src]
+    if not markers:
+        return None
+    return (f"E3 EXEMPTION BACKLOG: still carries {', '.join(markers)}. Migrate onto the "
+            "shared sentinel-key helper (experiments/_lib/fresh_select.py) or another "
+            "discharge path (clear-before-select / a ticks[\"e3_tick\"] guard / a direct "
+            "e3.select() call site) and remove the marker(s) -- do not just leave them if "
+            "the underlying lint no longer fires; an unremoved marker is invisible to both "
+            "E3 lints regardless of whether it is still doing any work. See "
+            "REE_assembly/evidence/planning/e3_fresh_select_migration_plan.md sec 3-4.")
+
+
 _AO_SELECTION_EXEMPT_MARKER = "ACTION_OBJECT_SELECTION_EXEMPT"
 
 
@@ -5755,6 +5802,7 @@ def main() -> int:
     ceiling_floor_warnings: List[Tuple[Path, str]] = []
     e3_stale_warnings: List[Tuple[Path, str]] = []
     e3_hold_warnings: List[Tuple[Path, str]] = []
+    e3_exemption_backlog_warnings: List[Tuple[Path, str]] = []
     ao_selection_warnings: List[Tuple[Path, str]] = []
     spearman_warnings: List[Tuple[Path, str]] = []
     dead_zgoal_warnings: List[Tuple[Path, str]] = []
@@ -5854,6 +5902,12 @@ def main() -> int:
                 # WARN-only in BOTH modes -- see e3_hold_weighted_readout_lint() for why
                 # this one never hardens under --paths.
                 e3_hold_warnings.append((p, e3h))
+        if "e3_exemption_backlog" in selected:
+            e3eb = e3_exemption_backlog_lint(p)
+            if e3eb:
+                # WARN-only in BOTH modes -- see e3_exemption_backlog_lint() for why this
+                # is a visibility counter, not a new gate.
+                e3_exemption_backlog_warnings.append((p, e3eb))
         if "action_object_selection" in selected:
             aos = action_object_selection_lint(p)
             if aos:
@@ -5962,6 +6016,7 @@ def main() -> int:
           f"{len(ceiling_floor_warnings)} ceiling-route-anchor-floor-warning(s), "
           f"{len(e3_stale_warnings)} stale-e3-diagnostics-warning(s), "
           f"{len(e3_hold_warnings)} hold-weighted-readout-warning(s), "
+          f"{len(e3_exemption_backlog_warnings)} e3-exemption-backlog, "
           f"{len(ao_selection_warnings)} action-object-selection-warning(s), "
           f"{len(spearman_warnings)} spearman-guard-shape-warning(s), "
           f"{len(dead_zgoal_warnings)} dead-z_goal-stream-warning(s), "
@@ -6157,6 +6212,17 @@ def main() -> int:
         print("", flush=True)
         print("[validate_experiments] STALE-E3-DIAGNOSTICS WARNINGS (advisory, non-blocking):", flush=True)
         for p, warn in e3_stale_warnings:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
+            print(f"  - {rel}: {warn}", flush=True)
+    if e3_exemption_backlog_warnings:
+        # Advisory in BOTH modes (never hardens -- this is a visibility counter over
+        # EXISTING exemption markers, not a new gate). Migration backlog: scripts still
+        # carrying E3_DIAGNOSTICS_STALENESS_EXEMPT / E3_HOLD_WEIGHTED_READOUT_EXEMPT,
+        # whether or not either lint would still fire without it. See
+        # e3_fresh_select_migration_plan.md sec 4.
+        print("", flush=True)
+        print("[validate_experiments] E3-exemption BACKLOG (advisory, non-blocking):", flush=True)
+        for p, warn in e3_exemption_backlog_warnings:
             rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
             print(f"  - {rel}: {warn}", flush=True)
     if recomput_warnings:

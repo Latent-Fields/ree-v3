@@ -368,6 +368,7 @@ def scan_corpus() -> CorpusScan:
     path_lints = (
         ("e3_hold_weighted_readout_lint", V.e3_hold_weighted_readout_lint),
         ("e3_diagnostics_staleness_lint", V.e3_diagnostics_staleness_lint),
+        ("e3_exemption_backlog_lint", V.e3_exemption_backlog_lint),
         ("dead_z_goal_stream_lint", V.dead_z_goal_stream_lint),
         ("spearman_guard_shape_lint", V.spearman_guard_shape_lint),
         ("hardcoded_dry_run_lint", V.hardcoded_dry_run_lint),
