@@ -8,6 +8,25 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-910a",
+      "title": "MECH-489 (SD-099) defensive-orienting decision retest after SD-ORIENTING-DECISION-SCALE fix",
+      "script": "experiments/v3_exq_910a_mech489_defensive_orienting_decision_retest.py",
+      "priority": 60,
+      "machine_affinity": "any",
+      "estimated_minutes": 70,
+      "supersedes": "V3-EXQ-910",
+      "claim_id": "MECH-489",
+      "note": "Re-queue of V3-EXQ-910 (script copied, not edited in place -- v3_exq_910_mech489_defensive_orienting_validation.py is preserved unchanged as the exact historical record of that run) after implementing SD-ORIENTING-DECISION-SCALE via /implement-substrate this session (docs/architecture/sd_orienting_decision_scale.md, ree_core/agent.py select_action() Component 4/5). failure_autopsy_V3-EXQ-910_2026-08-10.md found MECH-489's Component 4/5 (approach/withdraw/resume decision) confounded by a norm-vs-value scale mismatch (structurally non-negative z_harm_s L2 norm compared directly against a near-zero-unless-close benefit RBF value), which biased every override toward withdraw regardless of actual event valence (206/206 logged overrides in V3-EXQ-910). Fix: both channels now z-scored against their own running mean/mean-absolute-deviation (EMA, frozen while orienting is active) before comparison. SCOPE: this re-queue tests ONLY the valence-gating sub-component (Components 4/5) -- MECH-489's trigger-alignment sub-claim (Components 1-3, pass criteria (a)/(b), unchanged by this fix) already stands as fairly falsified per its own pre-registered signature in the autopsy and is NOT being re-litigated; those criteria are still computed (script reuses the identical 906b substrate/curriculum unmodified) and reported for context, but the run's decisive test is a NEW criterion (c) added for this re-queue: C_decision_alignment_non_degenerate, which requires the resolved decision NOT be unconditionally one class (V3-EXQ-910's bug signature was 0 approach / 0 resume / 206 withdraw). New readiness precondition pooled_overrides_count_sufficient (>=5 pooled Component-4/5 overrides across ON-arm seeds) gates criterion (c)'s meaningfulness, mirroring the existing per-event-field readiness preconditions. GOV-REUSE-1: the decisive readout (decision_alignment as a function of the FIXED comparison logic) does not exist in any prior manifest -- the fix did not exist before this session; not recoverable by reanalysis, a run is required. Re-derive brake (2.5b): MECH-489 autopsy count against substrate_ceiling = 0 (the one prior autopsy read a code-bug confound, not a ceiling) -- brake does not fire. Substrate-path overlap gate (2.5c): no open corrupting substrate_queue.json entry other than this one (now implemented_pending_validation) touches ree_core/agent.py or this driver's other imports. Smoke: validate_experiments.py --strict OK (0 warnings after adding an explicit \"direction\": \"lower\" to the new precondition). --dry-run confirms wiring (no crash, progress instrumentation correct, z_goal_stream active_frac=0.998 no writer defect, new precondition correctly reports measured=0/threshold=5/met=False at toy dry-run scale) and correctly self-routes substrate_not_ready_requeue at toy scale (0 injected events in 2x30-step segments, same expected pattern as V3-EXQ-910's own dry-run and 906b's). Queued via /implement-substrate's mandatory Step 8 -> /queue-experiment handoff, IGW-20260810-210, chip chip-igw-20260810-210.",
+      "status": "pending",
+      "claim_ids": [
+        "MECH-489"
+      ],
+      "conditions": 2,
+      "episodes_per_run": 220,
+      "experiment_type": "v3_exq_910a_mech489_defensive_orienting_decision_retest",
+      "seeds": 2
+    },
+    {
       "queue_id": "V3-EXQ-894c",
       "title": "MECH-074d BLA attribution head entropy_weight/MSE balance retune (sweep [0.02,0.01,0.005,0.001]; does NOT supersede 894/894a/894b)",
       "script": "experiments/v3_exq_894c_mech074d_bla_entropy_weight_sweep.py",
@@ -43,25 +62,6 @@
       "conditions": 1,
       "episodes_per_run": 220,
       "experiment_type": "v3_exq_912_uncensored_survival_fishtank",
-      "seeds": 2
-    },
-    {
-      "queue_id": "V3-EXQ-910a",
-      "title": "MECH-489 (SD-099) defensive-orienting decision retest after SD-ORIENTING-DECISION-SCALE fix",
-      "script": "experiments/v3_exq_910a_mech489_defensive_orienting_decision_retest.py",
-      "priority": 60,
-      "machine_affinity": "any",
-      "estimated_minutes": 70,
-      "claim_id": "MECH-489",
-      "supersedes": "V3-EXQ-910",
-      "note": "Re-queue of V3-EXQ-910 (script copied, not edited in place -- v3_exq_910_mech489_defensive_orienting_validation.py is preserved unchanged as the exact historical record of that run) after implementing SD-ORIENTING-DECISION-SCALE via /implement-substrate this session (docs/architecture/sd_orienting_decision_scale.md, ree_core/agent.py select_action() Component 4/5). failure_autopsy_V3-EXQ-910_2026-08-10.md found MECH-489's Component 4/5 (approach/withdraw/resume decision) confounded by a norm-vs-value scale mismatch (structurally non-negative z_harm_s L2 norm compared directly against a near-zero-unless-close benefit RBF value), which biased every override toward withdraw regardless of actual event valence (206/206 logged overrides in V3-EXQ-910). Fix: both channels now z-scored against their own running mean/mean-absolute-deviation (EMA, frozen while orienting is active) before comparison. SCOPE: this re-queue tests ONLY the valence-gating sub-component (Components 4/5) -- MECH-489's trigger-alignment sub-claim (Components 1-3, pass criteria (a)/(b), unchanged by this fix) already stands as fairly falsified per its own pre-registered signature in the autopsy and is NOT being re-litigated; those criteria are still computed (script reuses the identical 906b substrate/curriculum unmodified) and reported for context, but the run's decisive test is a NEW criterion (c) added for this re-queue: C_decision_alignment_non_degenerate, which requires the resolved decision NOT be unconditionally one class (V3-EXQ-910's bug signature was 0 approach / 0 resume / 206 withdraw). New readiness precondition pooled_overrides_count_sufficient (>=5 pooled Component-4/5 overrides across ON-arm seeds) gates criterion (c)'s meaningfulness, mirroring the existing per-event-field readiness preconditions. GOV-REUSE-1: the decisive readout (decision_alignment as a function of the FIXED comparison logic) does not exist in any prior manifest -- the fix did not exist before this session; not recoverable by reanalysis, a run is required. Re-derive brake (2.5b): MECH-489 autopsy count against substrate_ceiling = 0 (the one prior autopsy read a code-bug confound, not a ceiling) -- brake does not fire. Substrate-path overlap gate (2.5c): no open corrupting substrate_queue.json entry other than this one (now implemented_pending_validation) touches ree_core/agent.py or this driver's other imports. Smoke: validate_experiments.py --strict OK (0 warnings after adding an explicit \"direction\": \"lower\" to the new precondition). --dry-run confirms wiring (no crash, progress instrumentation correct, z_goal_stream active_frac=0.998 no writer defect, new precondition correctly reports measured=0/threshold=5/met=False at toy dry-run scale) and correctly self-routes substrate_not_ready_requeue at toy scale (0 injected events in 2x30-step segments, same expected pattern as V3-EXQ-910's own dry-run and 906b's). Queued via /implement-substrate's mandatory Step 8 -> /queue-experiment handoff, IGW-20260810-210, chip chip-igw-20260810-210.",
-      "status": "pending",
-      "claim_ids": [
-        "MECH-489"
-      ],
-      "conditions": 2,
-      "episodes_per_run": 220,
-      "experiment_type": "v3_exq_910a_mech489_defensive_orienting_decision_retest",
       "seeds": 2
     }
   ]
