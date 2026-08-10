@@ -241,6 +241,7 @@ from experiments._lib.arm_fingerprint import (  # noqa: E402
     compute_arm_fingerprint,
     reset_all_rng,
 )
+from experiments._lib.fresh_select import FreshSelectCounter, FreshSelectProbe  # noqa: E402
 from experiments._lib.manifest_core import stamp_recording_core  # noqa: E402
 from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E402
@@ -255,44 +256,40 @@ SUPERSEDES: Optional[str] = "v3_exq_689d_mech448_f_eligibility_demotion_falsifie
 CLAIM_IDS: List[str] = ["MECH-448"]
 EXPERIMENT_PURPOSE = "evidence"
 
-# --- validate_experiments lint exemptions -------------------------------------
-# Both lints detect the EXACT defect this experiment exists to repair, and both
-# fire here as FALSE POSITIVES: they pattern-match on a literal
-# `agent.e3.<attr> = None` clear immediately preceding select_action(), and this
-# script deliberately uses a substrate-inert SENTINEL KEY instead (docstring item
-# 1, following 699b). The remedy each lint prescribes is implemented in full --
-# accumulation is fresh-gated, n_fresh_select / n_latched / fresh_select_yield /
+# --- validate_experiments lint discharge ---------------------------------------
+# NO EXEMPTION MARKER IS NEEDED. Both e3_diagnostics_staleness and
+# e3_hold_weighted_readout RECOGNISE the shared sentinel-key helper directly
+# (discharge (e), validate_experiments.py) because this driver imports
+# experiments/_lib/fresh_select.py and constructs its probe below. That is the
+# point of the shared helper: the discharge is narrow -- it requires the import
+# AND the probe construction -- so the gate stays live on everything the helper
+# does not cover.
+#
+# DO NOT write either opt-out marker's literal name anywhere in this file, even
+# in a comment: both lints test for the marker with a plain SUBSTRING search over
+# the source, so merely naming one silently restores the blanket exemption.
+#
+# The freshness MECHANISM is unchanged -- a sentinel key rather than an
+# `agent.e3.<attr> = None` clear, deliberately: nulling `_last_selected_trajectory`
+# would change substrate behaviour (post_action_update at e3_selector.py:3224
+# falls back to it for running-variance updates on every step via
+# agent.py:8006), which is unacceptable in a falsifier repair. Full rationale in
+# the helper's module docstring and in this file's own docstring item 1; the
+# substrate assumption is pinned by
+# tests/contracts/test_fresh_select_wholesale_reassign.py.
+#
+# The remedy both lints prescribe is implemented in full: accumulation is
+# fresh-gated, n_fresh_select / n_latched / fresh_select_yield /
 # replication_factor are emitted per cell, and the hold-weighted quantity is
 # emitted TOO and kept distinct (occupancy_class_entropy vs
-# selected_action_class_entropy). These markers must NOT be read as "689i still
-# carries the 689d defect" -- the opposite is true. Re-audit if the freshness
-# mechanism ever changes.
-_FRESH_SELECT_EXEMPT_REASON = (
-    "Freshness is enforced via a substrate-inert SENTINEL KEY stamped into "
-    "agent.e3.last_score_diagnostics before every select_action(), not via a "
-    "`= None` clear: e3_selector.select() reassigns that dict wholesale at :2452, "
-    "so the key survives iff select() did not run. A `= None` clear of "
-    "_last_selected_trajectory would suppress running-variance updates on non-E3 "
-    "ticks (e3_selector.py:3224 via agent.py:8006) and perturb the selection "
-    "dynamics under test. All per-selection accumulation is fresh-gated; "
-    "n_fresh_select / n_latched / fresh_select_yield / replication_factor are "
-    "emitted per cell; both the per-commitment and the hold-weighted occupancy "
-    "entropies are emitted and kept distinct. Realized harm (C_SAFETY) is "
-    "deliberately NOT fresh-gated -- the env step is the correct denominator for "
-    "a harm RATE. See failure_autopsy_V3-EXQ-689d_2026-07-20.json."
-)
-E3_DIAGNOSTICS_STALENESS_EXEMPT = _FRESH_SELECT_EXEMPT_REASON
-E3_HOLD_WEIGHTED_READOUT_EXEMPT = _FRESH_SELECT_EXEMPT_REASON
-
-# Private key stamped into agent.e3.last_score_diagnostics before every
-# select_action(). e3_selector.select() reassigns that dict wholesale
-# (e3_selector.py:2452 -- verified on this branch as the ONLY assignment site, a
-# dict literal, with no early return before it), so the key survives IFF select()
-# did not run -- an exact, substrate-inert per-tick freshness signal. Nothing in
-# ree_core iterates the dict (its sole reader, agent.py:9660, uses .get() with
-# defaults), so the extra key is inert. Namespaced to this experiment so two
-# concurrently-instrumented drivers can never collide. Never emitted.
-_STALE_MARKER_KEY = "_exq689i_stale_marker"
+# selected_action_class_entropy). Realized harm (C_SAFETY) is deliberately NOT
+# fresh-gated -- the env step is the correct denominator for a harm RATE.
+# See failure_autopsy_V3-EXQ-689d_2026-07-20.json.
+#
+# Namespaced to this experiment so two concurrently-instrumented drivers can
+# never collide on the same dict. The full rationale for a sentinel key rather
+# than an `agent.e3.<attr> = None` clear lives in the helper's module docstring.
+_FRESH_SELECT = FreshSelectProbe("exq689i")
 
 SEEDS = [42, 43, 44, 45]          # 4 seeds (689d had 3) -- power repair
 P0_WARMUP_EPISODES = 60           # SD-056 contrastive warmup (569i/689a/689d proven budget)
@@ -693,12 +690,13 @@ def _run_seed_arm(
     # step at :535 off CACHED candidates -- the same defect).
     pool_class_counts: Counter = Counter()
 
-    n_fresh_select = 0
-    n_latched = 0
     n_p1_ticks = 0
     n_contrastive_steps = 0
-    hold_durations: List[int] = []
-    _cur_hold = 0
+    # Freshness telemetry -- counting, hold bookkeeping and the derived
+    # yield/replication figures now come from the SHARED helper
+    # (experiments/_lib/fresh_select.py); the bookkeeping is bit-identical to
+    # the hand-rolled version this replaces.
+    fs = FreshSelectCounter()
     p1_episodes_run = 0
     error_note: Optional[str] = None
     target_met = False
@@ -786,20 +784,15 @@ def _run_seed_arm(
             # See the module docstring item 1 for why a sentinel key rather than a
             # `= None` clear: nulling _last_selected_trajectory changes substrate
             # behaviour via post_action_update, which would make this a different
-            # experiment rather than a repaired instrument.
-            _diag_prev = agent.e3.last_score_diagnostics
-            if isinstance(_diag_prev, dict):
-                _diag_prev[_STALE_MARKER_KEY] = True
-
-            action = agent.select_action(
-                candidates, ticks, temperature=arm_temperature
-            )
+            # experiment rather than a repaired instrument. Mark/check now come
+            # from the SHARED helper (experiments/_lib/fresh_select.py).
+            with _FRESH_SELECT.watch(agent) as _sel:
+                action = agent.select_action(
+                    candidates, ticks, temperature=arm_temperature
+                )
+            fresh_select = _sel.fresh
 
             _diag_now = agent.e3.last_score_diagnostics
-            fresh_select = (
-                isinstance(_diag_now, dict)
-                and _STALE_MARKER_KEY not in _diag_now
-            )
 
             # MECH-448 readouts -- read ONLY on a genuine selection. The `else {}`
             # makes every downstream diag.get(...) fresh-gated without an `if`
@@ -857,22 +850,18 @@ def _run_seed_arm(
                 # 689d's DV, retained verbatim as a NAMED SECONDARY (hold-weighted).
                 occupancy_class_counts[committed_class] += 1
 
-                # PRIMARY DV: per-COMMITMENT, fresh-gated.
+                # PRIMARY DV: per-COMMITMENT, fresh-gated. Counting and hold
+                # bookkeeping now come from the SHARED helper
+                # (experiments/_lib/fresh_select.py); bit-identical to the
+                # hand-rolled version this replaces.
+                fs.record(fresh_select)
                 if fresh_select:
-                    n_fresh_select += 1
                     selected_class_counts[committed_class] += 1
                     if pending_pool_classes is not None:
                         for cls in pending_pool_classes:
                             pool_class_counts[cls] += 1
                     if pending_pdist is not None:
                         pairwise_dists.append(pending_pdist)
-                    if _cur_hold > 0:
-                        hold_durations.append(_cur_hold)
-                    _cur_hold = 1
-                else:
-                    n_latched += 1
-                    if _cur_hold > 0:
-                        _cur_hold += 1
 
             if (
                 torch.isfinite(latent.z_world).all()
@@ -914,17 +903,17 @@ def _run_seed_arm(
                 break
 
         # Flush any hold open at the episode boundary -- agent.reset() clears the
-        # commitment latch, so a hold cannot span episodes.
-        if _cur_hold > 0:
-            hold_durations.append(_cur_hold)
-            _cur_hold = 0
+        # commitment latch, so a hold cannot span episodes. 689i flushes at
+        # episode END (not start, unlike 699b/699c) -- this placement is
+        # preserved verbatim from the pre-migration driver.
+        fs.flush()
 
         # ep == 0 is included so the runner establishes episodes_per_run from the
         # FIRST episode (and so a short --dry-run still exercises this parse).
         if ep == 0 or (ep + 1) % 10 == 0 or (ep + 1) == total_train_eps:
             print(
                 f"  [train] arm={arm['arm_id']} seed={seed} phase={phase_label} "
-                f"ep {ep + 1}/{total_train_eps} fresh={n_fresh_select}/{fresh_target}",
+                f"ep {ep + 1}/{total_train_eps} fresh={fs.n_fresh_select}/{fresh_target}",
                 flush=True,
             )
 
@@ -935,7 +924,7 @@ def _run_seed_arm(
         # fresh-selection budget. This equalises the histogram N across arms BY
         # CONSTRUCTION rather than modelling the 689d 7.0x exposure asymmetry
         # after the fact.
-        if is_p1 and n_fresh_select >= fresh_target:
+        if is_p1 and fs.n_fresh_select >= fresh_target:
             target_met = True
             print(
                 f"  [p1-done] arm={arm['arm_id']} seed={seed} "
@@ -943,6 +932,15 @@ def _run_seed_arm(
                 flush=True,
             )
             break
+
+    # Rebind the freshness locals from the shared counter so every downstream
+    # aggregation below reads exactly as it did before the migration. No
+    # trailing fs.flush() is needed here (unlike 699c): 689i flushes at
+    # episode END, so every episode -- including the last -- already closed
+    # its own open hold above.
+    n_fresh_select = fs.n_fresh_select
+    n_latched = fs.n_latched
+    hold_durations = fs.hold_durations
 
     def _mean(xs: List[float], default: float = 0.0) -> float:
         return float(sum(xs) / len(xs)) if xs else default
