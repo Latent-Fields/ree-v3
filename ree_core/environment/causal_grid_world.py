@@ -141,6 +141,10 @@ class CausalGridWorld:
         resource_benefit: float = 0.3,
         energy_decay: float = 0.01,
         seed: Optional[int] = None,
+        # Per-segment step cap: step() forces done_cause="step_limit" once
+        # self.steps reaches this value. Default 500 matches the literal this
+        # replaces -- bit-identical for every existing caller that omits it.
+        max_episode_steps: int = 500,
         # Sub-goal mode (preserved from V2 for MECH-057a)
         subgoal_mode: bool = False,
         num_waypoints: int = 3,
@@ -779,6 +783,7 @@ class CausalGridWorld:
         self.contaminated_harm = contaminated_harm
         self.resource_benefit = resource_benefit
         self.energy_decay = energy_decay
+        self.max_episode_steps = max_episode_steps
 
         self.subgoal_mode = subgoal_mode
         self.num_waypoints = num_waypoints
@@ -3064,7 +3069,7 @@ class CausalGridWorld:
 
         self.steps += 1
         _health_depleted = self.agent_health <= 0.0
-        _step_cap_reached = self.steps >= 500
+        _step_cap_reached = self.steps >= self.max_episode_steps
         done = _health_depleted or _step_cap_reached
 
         # SD-094 (recording gap): name WHY the episode ended, and how long it
@@ -3572,7 +3577,7 @@ class CausalGridWorld:
           [3]: agent_energy
           [4]: footprint_density at current cell
           [5-8]: last action one-hot (4 actions: up/down/left/right)
-          [9]: steps / 500 (normalised episode progress)
+          [9]: steps / max_episode_steps (normalised episode progress)
 
         Additional body_state channels (use_proxy_fields=True):
           [10]: harm_exposure (nociceptive EMA)
@@ -3598,7 +3603,7 @@ class CausalGridWorld:
         body[4] = float(self.footprint_grid[ax, ay]) / max_vis
         action_enc = self._last_action if self._last_action < 4 else 0
         body[5 + action_enc] = 1.0  # one-hot last action (indices 5,6,7,8)
-        body[9] = min(1.0, self.steps / 500.0)
+        body[9] = min(1.0, self.steps / float(self.max_episode_steps))
         if self.use_proxy_fields:
             body[10] = float(np.clip(self.harm_exposure, 0.0, 1.0))
             body[11] = float(np.clip(self.benefit_exposure, 0.0, 1.0))
