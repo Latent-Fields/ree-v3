@@ -17539,3 +17539,106 @@ Form B recommendation: a two-stage threat-modulated selection rule.
   SD-011 (the two trigger/decision channels), SD-014 / ARC-036, ARC-030 / MECH-117 (resolution-read
   channels), SD-037 (explicitly distinct override channel), SD-069 (sibling non-trainable phasic
   regulator pattern, different consumer).
+
+## SD-ORIENTING-DECISION-SCALE / MECH-489: Defensive-Orienting Decision Normalization -- IMPLEMENTED (2026-08-10)
+- SD-ORIENTING-DECISION-SCALE: pag.defensive_orienting_response.decision_normalization --
+  IMPLEMENTED 2026-08-10. Full design: `REE_assembly/docs/architecture/sd_orienting_decision_scale.md`.
+  Built from `failure_autopsy_V3-EXQ-910_2026-08-10.md`, routed via `substrate_queue.json`
+  (`sd_id: SD-ORIENTING-DECISION-SCALE`, `severity: corrupting`, `node_class: complicated
+  (buildable)`). Fixes a bug WITHIN SD-099's already-implemented Component 4/5 block (SD-099
+  itself, `ree_core/pag/defensive_orienting.py`, is UNCHANGED by this fix) -- `agent.py`
+  `select_action()` was comparing `_do_harm_val` (SD-010 `z_harm_s` L2 norm -- structurally
+  non-negative, persistent nonzero ambient floor) directly against `_do_benefit` (ARC-030
+  `residue_field.evaluate_benefit()` RBF value -- near-zero everywhere except very close to a
+  benefit center) as if the two raw magnitudes were commensurable. This structurally biased every
+  override toward `withdraw` independent of actual event valence: V3-EXQ-910 logged 206 overrides,
+  0 approach / 0 resume / 206 withdraw.
+  Fix: both channels are z-scored against their own running distribution
+  (`(value - EMA_mean) / (EMA_mean_absolute_deviation + scale_floor)`) before comparison, instead
+  of comparing raw magnitudes. The two EMA baselines (`_orienting_decision_harm_mean/_mad`,
+  `_orienting_decision_benefit_mean/_mad`) live at the AGENT level (`agent.py`, not
+  `defensive_orienting.py`) since SD-099 deliberately keeps the gate itself free of residue-field
+  reads; they update every waking tick and FREEZE while orienting is active, mirroring
+  `DefensiveOrientingGate`'s own onset-baseline freeze (same rationale: prevents the triggering
+  elevation from pulling its own baseline toward itself over the episode, which would blunt the
+  z-score exactly when the override decision needs it). `residue_field.evaluate_benefit(z_world)`
+  is now called every waking tick while the gate is enabled (previously only at override time) so
+  the benefit baseline is well-formed by the time an override actually happens.
+  Config: `REEConfig.orienting_decision_baseline_ema_alpha` (default `0.02`, matches the existing
+  onset-baseline alphas) + `orienting_decision_scale_floor` (default `0.01`) -- both NEW, present
+  at all three sites (dataclass field, `from_dims()` parameter, `from_dims()` assignment). The
+  existing `orienting_decision_epsilon` default changed `0.01` -> `0.25`: it is now a z-score
+  margin, not a raw-magnitude margin, and the old numeral had no valid meaning post-fix. Safe:
+  the whole mechanism is `use_defensive_orienting=False` by default, and the only run that ever
+  exercised the old semantics (V3-EXQ-910) is exactly what this fix corrects -- no passing
+  experiment or test depended on it.
+  Not a learning module: no `nn.Module`, no trainable parameters -- pure scalar EMA arithmetic,
+  same category as SD-099/MECH-279/SD-069. Phased training and MECH-094 do not apply beyond
+  SD-099's own existing treatment (the new code sits inside the same
+  `if self.defensive_orienting is not None:` guard).
+  Backward compatible: confirmed via a direct `REEAgent` construction smoke test
+  (`use_defensive_orienting=False` -> `agent.defensive_orienting is None`, all new
+  `_orienting_decision_*` attributes stay at their init values) and via
+  `experiments/v3_exq_910_mech489_defensive_orienting_validation.py --dry-run` (both
+  `orienting_off`/`orienting_on` arms complete with per-seed PASS; aggregate FAIL is the
+  pre-existing short-run artifact already noted under SD-099, unrelated to this fix).
+  New-feature smoke test: a synthetic `REEAgent` run with varying `obs_harm` and periodic
+  `accumulate_benefit()` calls confirmed (a) the new baselines update over ticks and (b) decisions
+  are no longer unconditionally `withdraw`; a direct regression case reproducing the bug's exact
+  shape (harm_val=0.30 only ~1 MAD above its baseline, benefit_val=0.05 numerically smaller but
+  ~8-10 MADs above ITS baseline) flips from `withdraw` (old raw-magnitude comparison) to
+  `approach` (new z-scored comparison).
+  Validation experiment: V3-EXQ-910a queued (script copied to
+  `v3_exq_910a_mech489_defensive_orienting_decision_retest.py`, 910's own script untouched; adds
+  a NEW pre-registered criterion (c) `C_decision_alignment_non_degenerate` -- the actual
+  acceptance test for this fix; criteria (a)/(b) still computed for context but already stand as
+  fairly falsified per the autopsy and are not re-litigated), `supersedes: V3-EXQ-910`.
+  See MECH-489, SD-099 (parent gate, unchanged), `failure_autopsy_V3-EXQ-910_2026-08-10.md`.
+
+## CausalGridWorldV2: max_episode_steps constructor kwarg -- IMPLEMENTED (2026-08-10)
+- environment.max_episode_steps -- IMPLEMENTED 2026-08-10 (chip-20260810-fishtank-max-episode-steps).
+  Module: `ree_core/environment/causal_grid_world.py` (`CausalGridWorld`, aka CausalGridWorldV2
+  when `use_proxy_fields=True`). Not a numbered SD -- this is a pure parameterization of an
+  existing termination condition, no new latent field, encoder, or observable; follows the
+  SD-022/023/029/047/048/049 precedent of a flat, env-only constructor kwarg not surfaced through
+  `REEConfig.from_dims`.
+  Origin: `REE_assembly/evidence/planning/organism_lifespan_development_review_906_lineage_2026-08-10.md`
+  Section 10 item 1 (uncensored survival-to-death Fishtank successor design) assumed the
+  per-segment step cap was already driver-configurable; verified false against source before
+  V3-EXQ-912 was designed around a segment-count workaround instead (see that experiment's
+  module docstring "SUBSTRATE READINESS FINDING"). This closes the gap for a future TRUE
+  single-life uncensored design.
+  Problem: `step()` computed `_step_cap_reached = self.steps >= 500` -- a bare literal, no
+  constructor parameter anywhere in the class. No driver, regardless of its own
+  `steps_per_episode` argument to its eval loop, could make a single continuous segment exceed
+  500 steps: `env.step()` forced `done_cause="step_limit"` at `self.steps==500` every time.
+  Fix: `max_episode_steps: int = 500` constructor kwarg, stored as `self.max_episode_steps`.
+  `_step_cap_reached` now reads `self.steps >= self.max_episode_steps`. The `body_state[9]`
+  "episode_progress" proprioceptive observable (previously `self.steps / 500.0`) was also
+  changed to `self.steps / float(self.max_episode_steps)` -- left as the literal, it would have
+  silently saturated to 1.0 at step 500 of a longer-capped episode, corrupting the observable's
+  "fraction of episode elapsed" semantics for any caller that actually uses a raised cap. No
+  other reference to the literal 500 exists in `ree_core/` or `tests/` tied to this cap (grepped).
+  Backward compatible: default `500` is bit-identical to the pre-existing hardcoded literal --
+  no existing caller passes this kwarg. Confirmed via inline smoke test: (a) default-omitted
+  construction still caps at exactly step 500 with `done_cause="step_limit"`; (b)
+  `max_episode_steps=1500` honored end-to-end (cap fires at step 1500, `episode_steps==1500`);
+  (c) `body_state[9]` reads `0.5` at step 500 of a `max_episode_steps=1000` run (tracks the
+  configured cap, not the old literal); (d) `max_episode_steps=10` (small-cap sanity). The two
+  existing contract tests that exercise the default cap
+  (`tests/contracts/test_episode_termination_recording.py`,
+  `tests/contracts/test_sd094_subgoal_arrival_and_hazard_free_contamination.py::test_done_cause_reports_step_limit_at_the_cap`)
+  construct the env with no `max_episode_steps` override, so they are unaffected by construction.
+  Also verified against the full `tests/contracts` corpus (3516 passed, 11 skipped, 43 subtests)
+  via `remote_pytest.sh` on `ree-worker-4`, twice, with this change staged.
+  Phased training: not applicable (env-only constructor param; no new trainable parameters, no
+  new observable channel -- `body_state[9]` already existed). MECH-094: not applicable (env
+  observation stream, not replay/simulation content).
+  Validation experiment: none queued by this session -- writing the actual uncensored-single-life
+  survival experiment that consumes this kwarg is separate `/queue-experiment` follow-on work,
+  chipped rather than done here per chip instruction (this change's own scope is substrate
+  parameterization only). Readiness tracked in `substrate_queue.json` (sd_id
+  SD-FISHTANK-MAX-EPISODE-STEPS).
+  See MECH-489/SD-099/SD-100 (unrelated, adjacent entries -- no dependency), V3-EXQ-912 (the
+  segment-count workaround this change supersedes as the correct future lever), organism-lifespan
+  review Section 10 item 1 (origin).

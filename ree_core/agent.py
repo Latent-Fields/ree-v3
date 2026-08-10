@@ -413,10 +413,18 @@ class REEAgent(nn.Module):
         )
 
         # MECH-089: ThetaBuffer for cross-rate integration
+        # SD-100 (ARC-032): phase-aware summary() mode, default off (bit-
+        # identical flat mean). See theta_buffer.py module docstring.
         self.theta_buffer = ThetaBuffer(
             self_dim=config.latent.self_dim,
             world_dim=config.latent.world_dim,
             buffer_size=config.heartbeat.theta_buffer_size,
+            use_phase_weighted_summary=getattr(
+                config.heartbeat, "use_theta_phase_weighted_summary", False
+            ),
+            phase_concentration=getattr(
+                config.heartbeat, "theta_phase_concentration", 4.0
+            ),
         )
 
         # MECH-294: multi-content theta-burst packet (sibling to MECH-089).
@@ -2315,6 +2323,19 @@ class REEAgent(nn.Module):
         # score_bias should stay active.
         self._orienting_decision: Optional[str] = None
         self._orienting_decision_ticks_remaining: int = 0
+        # SD-ORIENTING-DECISION-SCALE: Component 4/5 decision-normalization
+        # baselines. Running mean + mean-absolute-deviation (EMA) of the
+        # benefit RBF value and the z_harm_s norm, updated every waking
+        # tick while NOT orienting (frozen during an active episode -- see
+        # select_action() wiring notes). Used to z-score both channels
+        # before the approach/withdraw/resume comparison, fixing the
+        # norm-vs-value scale mismatch found in
+        # failure_autopsy_V3-EXQ-910_2026-08-10.md.
+        self._orienting_decision_baseline_initialized: bool = False
+        self._orienting_decision_harm_mean: float = 0.0
+        self._orienting_decision_harm_mad: float = 0.0
+        self._orienting_decision_benefit_mean: float = 0.0
+        self._orienting_decision_benefit_mad: float = 0.0
 
         # SD-037: Broadcast Override Regulator (orexin-analog). Drives a scalar
         # override_signal in [0, 1] from drive_level + sustained-threat magnitude
@@ -3422,6 +3443,11 @@ class REEAgent(nn.Module):
         self._orienting_trigger_z_world = None
         self._orienting_decision = None
         self._orienting_decision_ticks_remaining = 0
+        self._orienting_decision_baseline_initialized = False
+        self._orienting_decision_harm_mean = 0.0
+        self._orienting_decision_harm_mad = 0.0
+        self._orienting_decision_benefit_mean = 0.0
+        self._orienting_decision_benefit_mad = 0.0
 
         # SD-037: reset broadcast override regulator per-episode state (threat
         # window, EMA, diagnostics). Master flag is preserved across reset.
@@ -4950,6 +4976,18 @@ class REEAgent(nn.Module):
             and new_latent.z_world is not None
         ):
             is_waking = not bool(getattr(new_latent, "hypothesis_tag", False))
+            # chip-20260810-fishtank-sd025-novelty-telemetry: cache the raw
+            # novelty(z) term at this REAL pre-visit z_world for telemetry,
+            # BEFORE update_familiarity() below advances the tracker at this
+            # same point (a post-update read would already reflect this
+            # visit's own EMA bump). Gated identically to update_familiarity
+            # (waking only, MECH-094) since a replay/DMN reading is not a
+            # genuine per-tick observation. Read-only: no effect on
+            # selection or memory.
+            if is_waking:
+                self.hippocampal.last_novelty_score = (
+                    self.hippocampal.compute_novelty_score(new_latent.z_world)
+                )
             self.hippocampal.update_familiarity(
                 new_latent.z_world, is_waking=is_waking
             )
@@ -7982,6 +8020,56 @@ class REEAgent(nn.Module):
                 if _do_zharm is not None
                 else 0.0
             )
+            _do_benefit_now = (
+                float(
+                    self.residue_field.evaluate_benefit(
+                        self._current_latent.z_world
+                    )
+                    .mean()
+                    .item()
+                )
+                if self._current_latent is not None
+                else 0.0
+            )
+
+            # SD-ORIENTING-DECISION-SCALE: update the Component 4/5
+            # decision-normalization baselines BEFORE ticking the gate,
+            # using the PRE-tick active state -- mirrors
+            # DefensiveOrientingGate.tick()'s own sequencing, where its
+            # onset baselines update at the top of tick() before the entry
+            # check can flip _orienting_active this same tick. Frozen while
+            # already orienting, for the same reason the gate freezes its
+            # own baselines: otherwise the triggering elevation would pull
+            # its own baseline toward itself over the episode, blunting the
+            # z-score exactly when the override decision needs it.
+            if not self.defensive_orienting.is_active:
+                _do_dec_alpha = float(
+                    getattr(
+                        self.config, "orienting_decision_baseline_ema_alpha", 0.02
+                    )
+                )
+                if not self._orienting_decision_baseline_initialized:
+                    self._orienting_decision_harm_mean = _do_harm_s_norm
+                    self._orienting_decision_benefit_mean = _do_benefit_now
+                    self._orienting_decision_baseline_initialized = True
+                else:
+                    self._orienting_decision_harm_mad = (
+                        1.0 - _do_dec_alpha
+                    ) * self._orienting_decision_harm_mad + _do_dec_alpha * abs(
+                        _do_harm_s_norm - self._orienting_decision_harm_mean
+                    )
+                    self._orienting_decision_harm_mean = (
+                        1.0 - _do_dec_alpha
+                    ) * self._orienting_decision_harm_mean + _do_dec_alpha * _do_harm_s_norm
+                    self._orienting_decision_benefit_mad = (
+                        1.0 - _do_dec_alpha
+                    ) * self._orienting_decision_benefit_mad + _do_dec_alpha * abs(
+                        _do_benefit_now - self._orienting_decision_benefit_mean
+                    )
+                    self._orienting_decision_benefit_mean = (
+                        1.0 - _do_dec_alpha
+                    ) * self._orienting_decision_benefit_mean + _do_dec_alpha * _do_benefit_now
+
             self._orienting_last_output = self.defensive_orienting.tick(
                 residue_surprise_now=self._last_residue_surprise,
                 z_harm_s_norm_now=_do_harm_s_norm,
@@ -8006,17 +8094,32 @@ class REEAgent(nn.Module):
             # MECH-307 POSITIVE/NEGATIVE_SURPRISE split, which is off by
             # default and would leave this step inert in most configs.
             if _do_out.override_fired and self._current_latent is not None:
-                _do_zw = self._current_latent.z_world
-                _do_benefit = float(
-                    self.residue_field.evaluate_benefit(_do_zw).mean().item()
-                )
+                # SD-ORIENTING-DECISION-SCALE fix: compare each channel's
+                # z-score against its OWN running distribution (mean/MAD
+                # baselines updated above), not raw magnitudes. Previously
+                # this compared a structurally non-negative harm NORM
+                # directly against a near-zero-unless-close-to-a-benefit-
+                # center RBF VALUE, which structurally biased every
+                # override toward withdraw regardless of actual event
+                # valence (failure_autopsy_V3-EXQ-910_2026-08-10.md: 206/206
+                # overrides -> withdraw, 0 approach, 0 resume).
+                _do_benefit = _do_benefit_now
                 _do_harm_val = _do_harm_s_norm
-                _do_eps = float(
-                    getattr(self.config, "orienting_decision_epsilon", 0.01)
+                _do_scale_floor = float(
+                    getattr(self.config, "orienting_decision_scale_floor", 0.01)
                 )
-                if _do_benefit > _do_harm_val + _do_eps:
+                _do_harm_z = (_do_harm_val - self._orienting_decision_harm_mean) / (
+                    self._orienting_decision_harm_mad + _do_scale_floor
+                )
+                _do_benefit_z = (
+                    _do_benefit - self._orienting_decision_benefit_mean
+                ) / (self._orienting_decision_benefit_mad + _do_scale_floor)
+                _do_eps = float(
+                    getattr(self.config, "orienting_decision_epsilon", 0.25)
+                )
+                if _do_benefit_z > _do_harm_z + _do_eps:
                     self._orienting_decision = "approach"
-                elif _do_harm_val > _do_benefit + _do_eps:
+                elif _do_harm_z > _do_benefit_z + _do_eps:
                     self._orienting_decision = "withdraw"
                 else:
                     self._orienting_decision = "resume"

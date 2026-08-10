@@ -5033,9 +5033,29 @@ class REEConfig:
     # Optional safety-valve cap on orienting duration (ticks). 0 = no cap.
     orienting_max_duration: int = 0
     # Action-decision (approach/withdraw/resume) resolution + score_bias.
-    orienting_decision_epsilon: float = 0.01
+    # SD-ORIENTING-DECISION-SCALE (2026-08-10): the decision compares
+    # z-scored channels (mean/mean-absolute-deviation EMA, see agent.py),
+    # not raw magnitudes -- see the two new params below. epsilon is
+    # therefore a z-score margin now, not a raw-magnitude margin; its
+    # default changed 0.01 -> 0.25 (quarter-sigma) accordingly. This is
+    # safe: use_defensive_orienting is False by default (epsilon is inert
+    # unless the whole gate is on), and no passing experiment or test
+    # depended on the old raw-magnitude semantics -- the only run that
+    # exercised it (V3-EXQ-910) is exactly what this fix corrects.
+    orienting_decision_epsilon: float = 0.25
     orienting_decision_bias_scale: float = 1.0
     orienting_post_override_bias_ticks: int = 5
+    # EMA rate for the Component 4/5 decision-normalization baselines
+    # (running mean + mean-absolute-deviation of the benefit RBF value and
+    # the z_harm_s norm, frozen while orienting is active -- mirrors the
+    # onset-detector baseline freeze above, for the same reason: prevents
+    # the very elevation that triggered orienting from pulling its own
+    # baseline toward itself over the episode).
+    orienting_decision_baseline_ema_alpha: float = 0.02
+    # Floor added to the MAD denominator before z-scoring, to avoid
+    # blow-up when a channel (typically benefit, near-zero absent nearby
+    # accumulated centers) has had almost no observed variance yet.
+    orienting_decision_scale_floor: float = 0.01
 
     # ----------------------------------------------------------------
     # SD-037: Broadcast Override Regulator (orexin-analog)
@@ -6498,9 +6518,11 @@ class REEConfig:
         orienting_confidence_floor_rise: float = 0.0,
         orienting_sufficiency_threshold: float = 0.8,
         orienting_max_duration: int = 0,
-        orienting_decision_epsilon: float = 0.01,
+        orienting_decision_epsilon: float = 0.25,
         orienting_decision_bias_scale: float = 1.0,
         orienting_post_override_bias_ticks: int = 5,
+        orienting_decision_baseline_ema_alpha: float = 0.02,
+        orienting_decision_scale_floor: float = 0.01,
         # SD-037: Broadcast Override Regulator (orexin-analog)
         use_broadcast_override: bool = False,
         override_recruitment_threshold: float = 0.5,
@@ -7878,6 +7900,8 @@ class REEConfig:
         config.orienting_decision_epsilon = orienting_decision_epsilon
         config.orienting_decision_bias_scale = orienting_decision_bias_scale
         config.orienting_post_override_bias_ticks = orienting_post_override_bias_ticks
+        config.orienting_decision_baseline_ema_alpha = orienting_decision_baseline_ema_alpha
+        config.orienting_decision_scale_floor = orienting_decision_scale_floor
 
         # SD-037: Broadcast Override Regulator (orexin-analog)
         config.use_broadcast_override = use_broadcast_override
