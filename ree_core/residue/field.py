@@ -292,7 +292,12 @@ class RBFLayer(nn.Module):
         return active_rbf.sum(dim=-1)                          # [batch]
 
     def update_valence(
-        self, center_idx: int, valence_component: int, value: float
+        self,
+        center_idx: int,
+        valence_component: int,
+        value: float,
+        decay_rate: float = 0.0,
+        clamp_abs: Optional[float] = None,
     ) -> None:
         """
         Incrementally update a single valence component at a center (SD-014).
@@ -300,14 +305,31 @@ class RBFLayer(nn.Module):
         Does NOT replace the existing value -- adds to it so the vector accumulates
         across visits. Callers are responsible for scaling (e.g. EMA step size).
 
+        SD-RESIDUE-VALENCE-BOUND: with the defaults below this is the exact
+        pre-fix `+=` (bit-identical) -- decay_rate=0.0 applies no decay,
+        clamp_abs=None applies no clamp. Callers (ResidueField) pass
+        non-default values only when ResidueConfig.valence_bounding_enabled is
+        True, so an unconfigured caller sees no behaviour change.
+
         Args:
             center_idx:        Index of the RBF center to update (0-based).
             valence_component: One of VALENCE_WANTING / LIKING / HARM_DISCRIMINATIVE /
                                SURPRISE / POSITIVE_SURPRISE / NEGATIVE_SURPRISE.
             value:             Signed scalar to add to the component.
+            decay_rate:        Leaky-integrator decay applied to the existing value
+                               before adding `value`: v <- v*(1-decay_rate) + value.
+                               0.0 = no decay (no-op).
+            clamp_abs:         Hard symmetric bound applied after the add. None =
+                               unclamped (no-op).
         """
         with torch.no_grad():
-            self.valence_vecs[center_idx, valence_component] += value
+            current = self.valence_vecs[center_idx, valence_component]
+            if decay_rate:
+                current = current * (1.0 - decay_rate)
+            updated = current + value
+            if clamp_abs is not None:
+                updated = torch.clamp(updated, -clamp_abs, clamp_abs)
+            self.valence_vecs[center_idx, valence_component] = updated
 
     def update_sensitization_gain(
         self, center_idx: int, increment: float, gmax: float
@@ -819,7 +841,25 @@ class ResidueField(nn.Module):
         nearest_global = self._nearest_active_center(z_world)
         if nearest_global is None:
             return
-        self.rbf_field.update_valence(nearest_global, component, value)
+        decay_rate, clamp_abs = self._valence_bound_params()
+        self.rbf_field.update_valence(
+            nearest_global, component, value,
+            decay_rate=decay_rate, clamp_abs=clamp_abs,
+        )
+
+    def _valence_bound_params(self):
+        """SD-RESIDUE-VALENCE-BOUND: (decay_rate, clamp_abs) for the current config.
+
+        Returns the no-op pair (0.0, None) unless valence_bounding_enabled=True,
+        so every update_valence()/update_wanting_sensitized() call site gets the
+        fix from this single point without duplicating the gate.
+        """
+        if not getattr(self.config, "valence_bounding_enabled", False):
+            return 0.0, None
+        return (
+            getattr(self.config, "valence_decay_rate", 0.0),
+            getattr(self.config, "valence_clamp_abs", None),
+        )
 
     def _nearest_active_center(self, z_world: torch.Tensor):
         """Index of the nearest ACTIVE RBF center to z_world, or None if none active.
@@ -888,7 +928,11 @@ class ResidueField(nn.Module):
         increment = float(rate) * max(0.0, float(drive_level))
         g = self.rbf_field.update_sensitization_gain(nearest_global, increment, float(gmax))
         amplified = float(salience) * (1.0 + float(coupling) * g)
-        self.rbf_field.update_valence(nearest_global, VALENCE_WANTING, amplified)
+        decay_rate, clamp_abs = self._valence_bound_params()
+        self.rbf_field.update_valence(
+            nearest_global, VALENCE_WANTING, amplified,
+            decay_rate=decay_rate, clamp_abs=clamp_abs,
+        )
 
     def evaluate_valence(self, z_world: torch.Tensor) -> torch.Tensor:
         """

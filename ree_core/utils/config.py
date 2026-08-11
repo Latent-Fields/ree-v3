@@ -475,6 +475,36 @@ class E1Config:
     sd016_cue_slot_tagger_gumbel_tau_min: float = 0.1    # gumbel: floor temperature
     sd016_cue_slot_tagger_gumbel_anneal_steps: int = 2000  # gumbel: linear anneal horizon
 
+    # SD-016 H1 (GOV-FANOUT-1, V3-EXQ-907 CONFIRMED 2026-08-10): context-
+    # divergence auxiliary loss. Three prior SD-016 selection mechanisms all
+    # hit the uniform-softmax saddle because nothing ever rewarded the
+    # tagger for producing DIFFERENT slot-selection distributions for a
+    # safe-context batch vs a dangerous-context batch (as distinct from
+    # population-level slot diversity, which V3-EXQ-418e/i showed does not
+    # help). V3-EXQ-907 confirmed a direct auxiliary term
+    # -weight*|mean_w_safe - mean_w_dang|_1 (computed by
+    # E1.compute_context_divergence_loss on a fixed safe/dangerous z_world
+    # batch pair) breaks the saddle at every lambda in {0.1, 0.5, 2.0}
+    # tested; 0.5 sits mid-sweep, pre-saturation (2.0 was bit-near-identical
+    # to 0.5 -- the objective saturates by 0.5). Requires
+    # sd016_cue_slot_tagger=True; no effect otherwise. Default 0.0 = no-op
+    # (compute_context_divergence_loss returns a zero tensor, no graph
+    # built) -- bit-identical to every SD-016 loss term's off-state.
+    #
+    # PRODUCTION COMBINATION (V3-EXQ-907 H1 + V3-EXQ-908 H3, both CONFIRMED
+    # 2026-08-10 -- see failure_autopsy_V3-EXQ-907/908_2026-08-10.json): the
+    # validated SD-016 ContextMemory query path is
+    #   sd016_cue_slot_tagger=True,
+    #   sd016_cue_slot_tagger_selection="gumbel",   # NOT "topk" -- ELIMINATED,
+    #                                                # collapses to a constant,
+    #                                                # context-independent slot
+    #                                                # (constant_peaky_degenerate)
+    #   sd016_context_divergence_weight=0.5,
+    # None of the three knobs changes another's default, so each remains
+    # independently no-op; this combination is the one V3-EXQ-907/908
+    # evidence actually supports.
+    sd016_context_divergence_weight: float = 0.0
+
     # MECH-216: E1 predictive wanting (schema readout head).
     # When enabled, a Linear(hidden_dim, 1)+Sigmoid head reads E1's LSTM hidden state
     # and produces a scalar schema_salience in [0, 1]. High salience at positions where
@@ -2430,6 +2460,35 @@ class ResidueConfig:
     # Used to ablate valence tracking in experiments that do not need replay prioritisation.
     # Prerequisite for ARC-036 (multidimensional valence map).
     valence_enabled: bool = True
+    # SD-RESIDUE-VALENCE-BOUND: bound the SD-014 valence accumulator.
+    # RBFLayer.update_valence() (all 6 components: wanting/liking/
+    # harm_discriminative/surprise/positive_surprise/negative_surprise) was an
+    # unclamped `+=` with no decay -- a long-lived agent revisiting the same RBF
+    # centers drives the stored value unboundedly (confirmed: z_world_norm
+    # ~150-320 vs ~0.5-0.7 at smoke scale under sustained exposure; liking
+    # mean=19.88 vs a 0.39 smoke-observed per-step ceiling; dread rising
+    # 40-110x across episodes -- see failure_autopsy_V3-EXQ-906a_894b_2026-08-09
+    # and failure_autopsy_906b-906c-911-cluster_2026-08-10).
+    # Master switch, default OFF: when False, update_valence() is the exact
+    # pre-fix `+=` (bit-identical) regardless of the two knobs below -- every
+    # existing experiment's evidence is unaffected. valence_enabled=True is the
+    # on-by-default path this gates; a huge body of historical experiments
+    # exercises it, so the fix is opt-in rather than a default-changing repair
+    # (contrast SD-ORIENTING-DECISION-SCALE, whose gated path had one exerciser).
+    valence_bounding_enabled: bool = False
+    # Leaky-integrator decay applied to the existing value BEFORE adding the new
+    # increment: v <- v*(1 - decay_rate) + value. Only read when
+    # valence_bounding_enabled=True. 0.02 mirrors the existing integration_rate
+    # (0.01) timescale convention on this same config class, doubled because the
+    # valence write cadence (per-threshold-crossing) is sparser than
+    # integration_rate's per-step cadence.
+    valence_decay_rate: float = 0.02
+    # Hard symmetric bound applied AFTER the decayed add. Only read when
+    # valence_bounding_enabled=True. 5.0 gives headroom above the smoke-scale
+    # ceiling (~0.39-0.7) while staying far below the observed unbounded
+    # contamination (150-320 / 19.88) -- bounded and interpretable, not tuned to
+    # a specific claim's acceptance threshold.
+    valence_clamp_abs: float = 5.0
     # MECH-334 (INV-074): critical-period closure / crystallization EWC
     # penalty. When ewc_enabled=True, snapshot_ewc_anchor() captures the
     # Phase-3 checkpoint (rbf_field centers/weights + an established-basin
@@ -5832,6 +5891,11 @@ class REEConfig:
         sd016_cue_slot_tagger_gumbel_tau_init: float = 1.0,
         sd016_cue_slot_tagger_gumbel_tau_min: float = 0.1,
         sd016_cue_slot_tagger_gumbel_anneal_steps: int = 2000,
+        # SD-016 H1 (V3-EXQ-907 CONFIRMED): context-divergence auxiliary loss
+        # weight. 0.0 = no-op. Recommended 0.5 when sd016_cue_slot_tagger=True
+        # (mirrors sd016_diversification_weight's convention above). See
+        # E1Config for the full production-combination recommendation.
+        sd016_context_divergence_weight: float = 0.0,
         # ARC-030 / MECH-111 / MECH-112 / MECH-113
         benefit_eval_enabled: bool = False,
         benefit_weight: float = 1.0,
@@ -7001,6 +7065,7 @@ class REEConfig:
         config.e1.sd016_cue_slot_tagger_gumbel_tau_init = sd016_cue_slot_tagger_gumbel_tau_init
         config.e1.sd016_cue_slot_tagger_gumbel_tau_min = sd016_cue_slot_tagger_gumbel_tau_min
         config.e1.sd016_cue_slot_tagger_gumbel_anneal_steps = sd016_cue_slot_tagger_gumbel_anneal_steps
+        config.e1.sd016_context_divergence_weight = sd016_context_divergence_weight
         config.e1.action_object_dim = action_object_dim
         config.e1.schema_wanting_enabled = schema_wanting_enabled
 
