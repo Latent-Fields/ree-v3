@@ -904,12 +904,58 @@ def test_flag_precondition_is_loud_not_silent(flag, required):
     )
 
 
+def test_sd_residue_valence_bound_bounds_the_accumulator():
+    """SD-RESIDUE-VALENCE-BOUND: valence_bounding_enabled must actually bound
+    RBFLayer.update_valence()'s accumulator, and OFF (default) must be
+    bit-identical to the pre-fix unclamped `+=`.
+
+    Direct ResidueField probe (not the REEAgent tiny harness) -- the fix is a
+    single write-path change on ResidueField/RBFLayer, so this is the right
+    level, matching V3-EXQ-918's own validation design.
+    """
+    from ree_core.residue.field import ResidueField, VALENCE_POSITIVE_SURPRISE
+    from ree_core.utils.config import ResidueConfig
+
+    z = torch.zeros(4)
+    n_writes = 100
+
+    off = ResidueField(ResidueConfig(world_dim=4, num_basis_functions=4))
+    off.accumulate(z, harm_magnitude=0.1)
+    for _ in range(n_writes):
+        off.update_valence(z, VALENCE_POSITIVE_SURPRISE, 1.0)
+    off_value = off.evaluate_valence(z.unsqueeze(0))[0, VALENCE_POSITIVE_SURPRISE].item()
+    assert off_value == pytest.approx(float(n_writes)), (
+        f"valence_bounding_enabled=False (default) must be bit-identical to the "
+        f"pre-fix `+=` -- expected exactly {n_writes}.0, got {off_value}"
+    )
+
+    on = ResidueField(ResidueConfig(
+        world_dim=4, num_basis_functions=4,
+        valence_bounding_enabled=True, valence_decay_rate=0.02, valence_clamp_abs=5.0,
+    ))
+    on.accumulate(z, harm_magnitude=0.1)
+    for _ in range(n_writes):
+        on.update_valence(z, VALENCE_POSITIVE_SURPRISE, 1.0)
+    on_value = on.evaluate_valence(z.unsqueeze(0))[0, VALENCE_POSITIVE_SURPRISE].item()
+    assert on_value < 10.0, (
+        f"valence_bounding_enabled=True must bound the accumulator well below "
+        f"the unbounded {n_writes}.0 -- got {on_value}, expected near clamp_abs=5.0"
+    )
+    assert on_value != off_value
+
+
 # --------------------------------------------------------------------------- #
 # Flag registry-drift guard                                                   #
 # --------------------------------------------------------------------------- #
 
 # Flags with a behavioural probe in this file (asserting ON changes an observable).
 PROBED = {
+    # SD-RESIDUE-VALENCE-BOUND (ResidueConfig, not REEConfig top-level -- covered by
+    # the nested-config scan below). Probed by
+    # test_sd_residue_valence_bound_bounds_the_accumulator: OFF is bit-identical to
+    # the pre-fix unclamped `+=` (exactly n_writes after n_writes unit increments),
+    # ON bounds the same accumulator near valence_clamp_abs.
+    "valence_bounding_enabled",
     "use_amygdala_analog",  # F-P1 probe drives BLAAnalog encoding_gain
     "use_bla_analog",       #   (gated by use_amygdala_analog; default True)
     "dacc_saturation_enabled",  # F-C3 wiring spy
@@ -1056,6 +1102,16 @@ PROBED = {
     # arm is legitimately bit-identical, which is exactly the shape that would
     # otherwise get mis-read as a dead flag.
     "incentive_sensitization_enabled",
+    # F-C4 (LatentStackConfig, not REEConfig top-level -- covered by the
+    # nested-config scan). Probed by
+    # test_fc4_iterative_inference_settles_and_refuses_the_inert_config above:
+    # settle_iters<2 with the flag ON refuses to build (naming both knobs),
+    # settle_iters>=2 produces a non-empty, non-NaN convergence readout. Was
+    # bulk-seeded into KNOWN_UNPROBED_NESTED by the 2026-08-11 scanner
+    # widening despite already being probed in this same file -- moved here
+    # during the follow-on audit of that bulk seed (chip
+    # chip-20260811-flaginertness-nested-audit).
+    "use_iterative_inference",
 } | set(FLAGS_WITH_DEFAULT_BEHAVIOURAL_DELTA) | set(FLAGS_WITH_LOUD_PRECONDITION)
 
 # Audit-confirmed inert / mis-wired flags (finding id -> reason). Documented here
@@ -1185,7 +1241,99 @@ KNOWN_UNPROBED = {
     "use_suffering_derivative_comparator", "use_tonic_vigor", "use_tpj_comparator",
     "use_trainable_relief_critic", "use_trainable_safety_predictor",
     "valence_harm_enabled", "valence_liking_enabled",
+    # SD-ORIENTING-DECISION-SCALE / SD-099 defensive-orienting master switch
+    # (REEConfig top-level, landed 2026-08-08/2026-08-10 -- genuinely predates
+    # this session and was ALREADY missing from this registry before the
+    # 2026-08-11 nested-scan widening surfaced it, i.e. a pre-existing
+    # top-level gap, not a nested-scan artifact). Off by default; only
+    # V3-EXQ-910 has ever exercised it (per
+    # REE_assembly/docs/architecture/sd_orienting_decision_scale.md), which
+    # found and fixed the SD-ORIENTING-DECISION-SCALE scale-mismatch bug
+    # inside its Component 4/5 consumer. A dedicated behavioural probe belongs
+    # to that cluster's own validation, not this session's SD-RESIDUE-
+    # VALENCE-BOUND work; recorded here so the registry-drift guard is green
+    # again rather than left red for an unrelated task to trip over.
+    "use_defensive_orienting",
 }
+
+# --------------------------------------------------------------------------- #
+# Nested-config flag registry (widened 2026-08-11, SD-RESIDUE-VALENCE-BOUND    #
+# session). `_current_toplevel_flags` below only ever scanned REEConfig's OWN  #
+# fields -- it silently missed every `use_*`/`*_enabled` flag living on one of #
+# REEConfig's 13 nested config classes (GoalConfig, LatentStackConfig, E1/E2/  #
+# E3Config, HippocampalConfig, ResidueConfig, HeartbeatConfig, plus classes    #
+# nested a level deeper still, e.g. AnchorSetConfig/GhostGoalBankConfig under  #
+# HippocampalConfig). `valence_bounding_enabled` (ResidueConfig, added this    #
+# session) would itself have landed uncategorized under the old scan -- which #
+# is what surfaced the gap. `_current_nested_flags()` below scans EVERY        #
+# dataclass defined in this module (not a REEConfig-field-tree walk -- every   #
+# nested config in this codebase happens to also be its own top-level module  #
+# dataclass, so a flat per-class scan finds classes at any nesting depth       #
+# without needing to unwrap Optional/List/dataclass-typed fields).             #
+#                                                                              #
+# SCOPE OF THIS WIDENING (user-directed, 2026-08-11): land the scanner now so  #
+# no new nested flag can slip in uncategorized ever again, but do NOT hand-    #
+# categorize the 85 flags this widening newly discovers today -- that is a    #
+# real, separate ~85-flag audit (write a probe or a specific KNOWN_UNPROBED    #
+# reason for each, the way every entry above this block was earned). Bulk-    #
+# seeding them here with a GENERIC reason is a deliberate, honest placeholder, #
+# not a claim that they have been individually assessed. Tracked as a         #
+# follow-on chip (see WORKSPACE_STATE.md / TASK_CHIPS.json for this session's  #
+# chip_ref) -- one of the 85, `valence_bounding_enabled`, IS individually      #
+# assessed (PROBED, above), since it was built this session.                  #
+#                                                                              #
+# KNOWN_NAME-COLLISION CAVEAT: this registry is keyed by FLAG NAME, not        #
+# (class, name) -- pre-existing design, not something this widening changes.  #
+# 5 names exist on BOTH REEConfig top-level AND a nested class with (as far as #
+# this audit went) unrelated semantics: use_chunk_proposal_injection,          #
+# use_decomposition_scale_resolved_probe, use_habenula_decommit,               #
+# use_modulatory_channel_routing, use_modulatory_selection_authority. Each is  #
+# categorized once above (top-level) and is not re-listed below; a reader     #
+# auditing one of these five should confirm which CLASS's field is meant.     #
+KNOWN_UNPROBED_NESTED = {
+    "benefit_eval_enabled", "benefit_terrain_enabled",
+    "cross_stream_binding_enabled",
+    "e2_action_contrastive_enabled", "e2_action_contrastive_multistep_enabled",
+    "e2_rollout_output_norm_clamp_enabled",
+    "ewc_enabled", "mode_conditioning_enabled",
+    "safety_terrain_enabled", "schema_wanting_enabled", "sd016_enabled",
+    "tonic_5ht_enabled",
+    "use_action_class_scaffold_candidates", "use_affective_harm_stream",
+    "use_anchor_sets", "use_ascending_parity_controller", "use_ascending_spiral_gain",
+    "use_backward_credit_sweep", "use_commit_readiness_gate",
+    "use_composite_cue_outshining", "use_conditional_precision_gate",
+    "use_cue_recall", "use_curiosity_familiarity", "use_d1_d2_population_split",
+    "use_da_modulated_rbf_density", "use_differentiable_cem",
+    "use_dualsystem_arbitration", "use_e2_harm_s_forward", "use_e2_world_forward",
+    "use_e2_world_uncertainty", "use_event_classifier", "use_event_segmenter",
+    "use_f_eligibility_adaptive_floor", "use_f_eligibility_demotion",
+    "use_finer_channel_gating", "use_gap_scaled_commit_temperature",
+    "use_go_nogo_constitution", "use_harm_stream", "use_harm_un",
+    "use_hierarchical_goal_credit", "use_identity_classifier",
+    "use_incentive_token_bank", "use_invalidation_trigger",
+    "use_learned_channel_gating", "use_learned_cross_loop_arbitration",
+    "use_learned_settling_step", "use_loop_local_eligibility_traces",
+    "use_loop_segregation", "use_mech284_hysteresis", "use_mech292_ghost_bank",
+    "use_mech293_ghost_probes", "use_model_disagreement_curiosity",
+    "use_modulatory_shortlist_then_modulate", "use_named_channel_routing",
+    "use_noisy_selection_head", "use_offline_wanting_spread",
+    "use_orthogonal_cem_seeding", "use_pe_confidence_weighting",
+    "use_per_region_vs", "use_per_stream_vs", "use_persistence_efficacy_gate",
+    "use_progress_velocity_effort_modulation", "use_resource_encoder",
+    "use_resource_proximity_head", "use_sd039_anchor_payload",
+    "use_self_recurrence", "use_self_viability_weighting",
+    "use_soft_competitive_settling", "use_staleness_accumulator",
+    "use_super_ordinal_goal_anchors", "use_support_preserving_cem",
+    "use_theta_phase_weighted_summary", "use_vs_commit_release",
+    "use_vs_gate_staleness_lookup", "use_vs_rollout_gating",
+    "use_waking_confidence_inflation", "valence_enabled", "z_goal_enabled",
+}
+_NESTED_UNPROBED_REASON = (
+    "pre-existing nested-config flag, discovered by the 2026-08-11 scanner "
+    "widening (SD-RESIDUE-VALENCE-BOUND session) -- not yet individually "
+    "assessed (probe or specific reason); see the block comment above "
+    "KNOWN_UNPROBED_NESTED and this session's follow-on audit chip"
+)
 
 
 def _current_toplevel_flags() -> set:
@@ -1197,27 +1345,54 @@ def _current_toplevel_flags() -> set:
     }
 
 
+def _current_nested_flags() -> set:
+    """Every `use_*`/`*_enabled` field on any OTHER dataclass in this module.
+
+    Deliberately a flat per-class scan, not a REEConfig field-tree walk: every
+    nested config in this codebase is also its own top-level module dataclass
+    (GoalConfig, LatentStackConfig, ..., AnchorSetConfig two levels deep under
+    HippocampalConfig), so `vars(config_mod)` finds all of them regardless of
+    nesting depth without needing to unwrap Optional/List/dataclass field
+    types. REEConfig itself is excluded (covered by `_current_toplevel_flags`).
+    """
+    found = set()
+    for _name, obj in vars(config_mod).items():
+        if not (dataclasses.is_dataclass(obj) and isinstance(obj, type)):
+            continue
+        if obj is config_mod.REEConfig:
+            continue
+        for f in dataclasses.fields(obj):
+            if f.name.startswith("use_") or f.name.endswith("_enabled"):
+                found.add(f.name)
+    return found
+
+
 def test_flag_registry_is_current():
-    """Fail when a top-level `use_*`/`*_enabled` flag is not categorized.
+    """Fail when a top-level OR nested `use_*`/`*_enabled` flag is not categorized.
 
     Adding a flag forces a decision: write a probe (PROBED) or record it in
-    KNOWN_UNPROBED with a reason. This is the recurrence guard -- a new dead
-    flag cannot slip in un-noticed the way F-C2..F-P6 did.
+    KNOWN_UNPROBED / KNOWN_UNPROBED_NESTED with a reason. This is the
+    recurrence guard -- a new dead flag cannot slip in un-noticed the way
+    F-C2..F-P6 did, and (as of 2026-08-11) neither can one living on a nested
+    config class, which the original REEConfig-only scan could not see.
     """
-    covered = PROBED | set(KNOWN_INERT) | KNOWN_UNPROBED
-    current = _current_toplevel_flags()
+    covered = PROBED | set(KNOWN_INERT) | KNOWN_UNPROBED | KNOWN_UNPROBED_NESTED
+    current = _current_toplevel_flags() | _current_nested_flags()
 
     uncategorized = sorted(current - covered)
     assert not uncategorized, (
-        "New/uncategorized top-level config flag(s): "
+        "New/uncategorized top-level or nested config flag(s): "
         f"{uncategorized}. Add a behavioural probe to test_flag_inertness.py "
-        "(PROBED) or record the flag in KNOWN_UNPROBED with a reason."
+        "(PROBED) or record the flag in KNOWN_UNPROBED / KNOWN_UNPROBED_NESTED "
+        "with a reason."
     )
 
     # Keep the snapshot honest: a flag that was renamed/removed should be pruned
     # from the registry rather than lingering as a phantom entry.
-    stale = sorted((PROBED | KNOWN_UNPROBED) - current - set(KNOWN_INERT))
+    stale = sorted(
+        (PROBED | KNOWN_UNPROBED | KNOWN_UNPROBED_NESTED) - current - set(KNOWN_INERT)
+    )
     assert not stale, (
-        f"Registry lists flag(s) no longer on REEConfig: {stale}. "
-        "Remove them from PROBED / KNOWN_UNPROBED."
+        f"Registry lists flag(s) no longer on REEConfig (or a nested config): "
+        f"{stale}. Remove them from PROBED / KNOWN_UNPROBED / KNOWN_UNPROBED_NESTED."
     )
