@@ -715,7 +715,11 @@ always on. SD-036 baseline arm = ON_OFF. SD-037 effect arms = OFF_ON, ON_ON.
         "env_config":      ENV_KWARGS,
         "phase":           "eval_4arm",
         "toroidal":        ENV_KWARGS.get("toroidal", False),
-        "arms": [
+        # NOTE: key MUST be "seeds", not "arms" -- fishtank_viz.html's loadData()
+        # requires data.seeds (a flat list, each entry read as {seed, episodes,
+        # ...}) and shows "Episode log has no seed data." otherwise. See the
+        # V3-EXQ-913 precedent (ree-v3 828bd8b8c9) for the same defect class.
+        "seeds": [
             {
                 "arm_id": r["arm"],
                 "seed": r["seed"],
