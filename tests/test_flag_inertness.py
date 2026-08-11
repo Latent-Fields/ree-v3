@@ -945,6 +945,98 @@ def test_sd_residue_valence_bound_bounds_the_accumulator():
 
 
 # --------------------------------------------------------------------------- #
+# E3Config candidate-scoring levers (2026-08-11 nested-scan individual audit) #
+# --------------------------------------------------------------------------- #
+
+def _e3_selector(**cfg_kw):
+    """Direct E3TrajectorySelector construction (no REEAgent harness needed).
+
+    Mirrors tests/contracts/test_dr12_pe_confidence.py's `_selector` helper.
+    """
+    from ree_core.predictors.e3_selector import E3Config, E3TrajectorySelector
+
+    sel = E3TrajectorySelector(E3Config(world_dim=6, hidden_dim=8, **cfg_kw))
+    sel._running_variance = 0.0  # deterministic committed argmin path
+    return sel
+
+
+def _e3_candidate(action_class: int, action_dim: int = 5):
+    """One candidate Trajectory with a one-hot first action (distinguishable
+    per-candidate action features -- what MECH-440/441 read)."""
+    import torch as _torch
+
+    from ree_core.predictors.e2_fast import Trajectory
+
+    world_dim = 6
+    horizon = 3
+    states = [_torch.zeros(1, world_dim) for _ in range(horizon + 1)]
+    world_states = [_torch.zeros(1, world_dim) for _ in range(horizon + 1)]
+    actions = _torch.zeros(1, horizon, action_dim)
+    actions[:, 0, action_class] = 1.0
+    return Trajectory(states=states, actions=actions, world_states=world_states)
+
+
+def test_use_noisy_selection_head_bias_is_nonzero_only_when_enabled():
+    """MECH-440: the head's per-candidate additive bias must actually reach
+    last_score_diagnostics, and must be exactly zero unless BOTH the flag is
+    on and sigma_init > 0 (the documented no-op-default contract).
+    """
+    cands = [_e3_candidate(0), _e3_candidate(1), _e3_candidate(2)]
+
+    sel_off = _e3_selector()  # use_noisy_selection_head defaults False
+    sel_off.select(cands, temperature=1.0)
+    assert sel_off.last_score_diagnostics["noisy_selection_active"] is False
+    assert sel_off.last_score_diagnostics["noisy_selection_bias_range"] == 0.0
+
+    sel_on_zero_sigma = _e3_selector(
+        use_noisy_selection_head=True, noisy_selection_sigma_init=0.0
+    )
+    sel_on_zero_sigma.select(cands, temperature=1.0)
+    assert sel_on_zero_sigma.last_score_diagnostics["noisy_selection_active"] is True
+    assert sel_on_zero_sigma.last_score_diagnostics["noisy_selection_bias_range"] == 0.0, (
+        "sigma_init=0.0 must still produce exactly zero bias (bit-identical "
+        "no-op contract), even with the master flag ON"
+    )
+
+    torch.manual_seed(0)
+    sel_on = _e3_selector(use_noisy_selection_head=True, noisy_selection_sigma_init=1.0)
+    sel_on.select(cands, temperature=1.0)
+    assert sel_on.last_score_diagnostics["noisy_selection_active"] is True
+    assert sel_on.last_score_diagnostics["noisy_selection_bias_range"] > 0.0, (
+        "use_noisy_selection_head=True with a nonzero sigma_init produced zero "
+        "bias range; the NoisyNet head is not reaching the modulatory "
+        "accumulator (inert flag)"
+    )
+
+
+def test_use_model_disagreement_curiosity_bonus_flips_selection():
+    """MECH-441: a per-candidate model-disagreement bonus must propagate all
+    the way to the committed argmin, not just tick a diagnostic counter.
+    """
+    cands = [_e3_candidate(0), _e3_candidate(1), _e3_candidate(2)]
+    bias = torch.tensor([-1.0, 0.0, 0.0])  # candidate 0 favoured by the primary
+
+    sel_off = _e3_selector()
+    off = sel_off.select(cands, temperature=1.0, score_bias=bias)
+    assert off.selected_index == 0  # unconditional-trust baseline picks the primary-best
+    assert sel_off.last_score_diagnostics["model_disagreement_active"] is False
+
+    sel_on = _e3_selector(
+        use_model_disagreement_curiosity=True, model_disagreement_weight=5.0
+    )
+    on = sel_on.select(
+        cands, temperature=1.0, score_bias=bias,
+        model_disagreement_per_candidate=torch.tensor([0.0, 10.0, 0.0]),  # bonus on cand 1
+    )
+    assert on.selected_index != 0, (
+        "use_model_disagreement_curiosity=True with a decisive bonus on a "
+        "non-primary candidate did not change the committed argmin (inert flag)"
+    )
+    assert sel_on.last_score_diagnostics["model_disagreement_active"] is True
+    assert sel_on.last_score_diagnostics["model_disagreement_bonus_range"] > 0.0
+
+
+# --------------------------------------------------------------------------- #
 # Flag registry-drift guard                                                   #
 # --------------------------------------------------------------------------- #
 
@@ -1283,6 +1375,17 @@ PROBED = {
     # test_incentive_sensitization_amplifies_the_wanting_write, which only
     # uses this flag as one of three co-required activating conditions.
     "tonic_5ht_enabled",
+    # MECH-440 NoisyNet propagating selection-head weight noise. Probed by
+    # test_use_noisy_selection_head_bias_is_nonzero_only_when_enabled above:
+    # OFF and ON-with-sigma_init=0.0 both produce exactly zero bias range
+    # (bit-identical no-op contract); ON with sigma_init>0.0 produces a
+    # nonzero bias range reaching last_score_diagnostics.
+    "use_noisy_selection_head",
+    # MECH-441 E2-forward-model-disagreement curiosity bonus. Probed by
+    # test_use_model_disagreement_curiosity_bonus_flips_selection above: a
+    # decisive per-candidate disagreement bonus on a non-primary candidate
+    # flips the committed argmin away from the primary-favoured winner.
+    "use_model_disagreement_curiosity",
     # --- batch: HippocampalConfig ---------------------------------------------#
     # V3-EXQ-553 orthogonal CEM seeding. Probed by test_orthogonal_cem_seeding.py
     # C4: same-seed ARM_ORTHO min pairwise-L2 among CEM candidates exceeds
@@ -1589,16 +1692,18 @@ KNOWN_UNPROBED = {
 # dataclass, so a flat per-class scan finds classes at any nesting depth       #
 # without needing to unwrap Optional/List/dataclass-typed fields).             #
 #                                                                              #
-# SCOPE OF THIS WIDENING (user-directed, 2026-08-11): land the scanner now so  #
-# no new nested flag can slip in uncategorized ever again, but do NOT hand-    #
-# categorize the 85 flags this widening newly discovers today -- that is a    #
-# real, separate ~85-flag audit (write a probe or a specific KNOWN_UNPROBED    #
-# reason for each, the way every entry above this block was earned). Bulk-    #
-# seeding them here with a GENERIC reason is a deliberate, honest placeholder, #
-# not a claim that they have been individually assessed. Tracked as a         #
-# follow-on chip (see WORKSPACE_STATE.md / TASK_CHIPS.json for this session's  #
-# chip_ref) -- one of the 85, `valence_bounding_enabled`, IS individually      #
-# assessed (PROBED, above), since it was built this session.                  #
+# SCOPE OF THIS WIDENING (user-directed, 2026-08-11): landed the scanner so no #
+# new nested flag can slip in uncategorized ever again. The 85 flags it newly #
+# discovered that day were initially bulk-seeded here with one GENERIC        #
+# placeholder reason -- a deliberate, honest "not yet individually assessed"  #
+# marker, not a claim of real audit coverage. The follow-on chip
+# (chip-20260811-flaginertness-nested-audit) then worked through them one at  #
+# a time: 46 moved to PROBED (real existing behavioural probes the bulk-seed  #
+# didn't cross-reference, or new direct probes written for this audit), 2     #
+# moved to KNOWN_INERT (F-N1/F-N2, confirmed genuinely dead -- never read     #
+# anywhere in ree_core/), and the flags remaining below each now carry an     #
+# INDIVIDUAL, SPECIFIC reason (not the generic placeholder) naming the real   #
+# consumer and exactly why no existing test isolates its own ON/OFF effect.   #
 #                                                                              #
 # KNOWN_NAME-COLLISION CAVEAT: this registry is keyed by FLAG NAME, not        #
 # (class, name) -- pre-existing design, not something this widening changes.  #
@@ -1609,28 +1714,236 @@ KNOWN_UNPROBED = {
 # categorized once above (top-level) and is not re-listed below; a reader     #
 # auditing one of these five should confirm which CLASS's field is meant.     #
 KNOWN_UNPROBED_NESTED = {
-    "benefit_eval_enabled", "benefit_terrain_enabled",
-    "cross_stream_binding_enabled", "ewc_enabled",
-    "mode_conditioning_enabled", "safety_terrain_enabled",
-    "use_affective_harm_stream", "use_backward_credit_sweep",
-    "use_commit_readiness_gate", "use_composite_cue_outshining",
-    "use_cue_recall", "use_d1_d2_population_split", "use_differentiable_cem",
-    "use_e2_harm_s_forward", "use_e2_world_uncertainty",
-    "use_event_classifier", "use_harm_stream", "use_harm_un",
-    "use_identity_classifier", "use_loop_local_eligibility_traces",
-    "use_loop_segregation", "use_mech284_hysteresis",
-    "use_model_disagreement_curiosity", "use_named_channel_routing",
-    "use_noisy_selection_head", "use_offline_wanting_spread",
-    "use_resource_encoder", "use_resource_proximity_head",
-    "use_sd039_anchor_payload", "use_staleness_accumulator",
-    "use_vs_commit_release", "valence_enabled",
+    # --- E3Config (loop-segregation cluster; wired downstream, never itself  #
+    #     toggled against its own OFF baseline in any existing test) --------#
+    # ARC-110 master switch: single-arena within-eligible argmin -> N=3
+    # parallel loops (motor=F, associative, limbic) combined via Haber's
+    # ascending-spiral arithmetic. Every existing test (test_arc110_loop_
+    # segregation.py and its siblings: test_soft_competitive_settling.py,
+    # test_ascending_spiral_gain.py, test_ascending_parity_controller.py,
+    # test_learned_cross_loop_arbitration.py) holds this constant True and
+    # varies a DIFFERENT downstream flag; none compares against False. The one
+    # piece of live-run evidence on this exact question (V3-EXQ-707b) found
+    # committed-class entropy nearly unchanged (0.838 vs 0.914) at default
+    # combine weights, so a naive toy-fixture probe risks a false-confident
+    # pass rather than a safe default assumption of success.
+    "use_loop_segregation",
+    # Routes a named channel's range-preserving representation into loop
+    # arbitration instead of its flattened bias-head scalar (fixes V3-EXQ-707's
+    # "flat named channel inert under per-loop zscore" defect). The real gate
+    # is at the select() call site and fires only when score_bias_channel_
+    # routed is ALSO supplied. test_arc110_loop_segregation.py's
+    # TestNamedChannelRoutingC2Release calls _segregated_loop_arbitrate
+    # directly with an explicit override, bypassing that gate entirely; the
+    # one test that does vary the top-level flag (test_routing_off_is_byte_
+    # identical) supplies no override in either arm (a no-effect confirmation,
+    # not a divergence proof). The tiny/untrained harness this suite uses is
+    # documented elsewhere in the same file as unable to produce the real
+    # activating condition (project_channel_range returns zeros untrained).
+    "use_named_channel_routing",
+    # ARC-109 opponent D1(Go)/D2(NoGo) population split with asymmetric
+    # dopamine gain (da, tanh-squashed _lcg_value_baseline). At da==0 --
+    # exactly the value at construction, and every tick until a realised
+    # benefit/harm asymmetry has been driven through several post_action_
+    # update calls -- relu(accum) - relu(-accum) == accum exactly, so the
+    # split is PROVABLY bit-identical to the plain additive accumulator
+    # regardless of the flag until that activating condition is met. The only
+    # test-suite use (test_arc110_loop_segregation.py:61) sets it constant
+    # True, never False.
+    "use_d1_d2_population_split",
+    # MECH-452: credits the shared eligibility trace per-channel ONLY if that
+    # channel's loop actually won the committed candidate (vs crediting every
+    # channel that spoke), keeping DA credit assignment loop-local. Genuinely
+    # wired (a real read site gates which channels get credited into
+    # _lcg_elig_trace/_fcg_elig_trace inside _segregated_loop_arbitrate), so
+    # not dead -- but its effect shows only in the LEARNED WEIGHT trajectory,
+    # not the immediate committed action, and it composes on top of THREE
+    # other flags simultaneously (use_loop_segregation + a channel-gating
+    # flag), none of which is itself cleanly probed against OFF in this suite
+    # (see use_loop_segregation above). Zero test references anywhere.
+    "use_loop_local_eligibility_traces",
+    # In score_trajectory, subtracts benefit_weight * compute_benefit_score
+    # (the benefit_eval_head's Go-channel output) from trajectory cost, gated
+    # on a 50-sample warmup (_BENEFIT_WARMUP_SAMPLES) cleared via
+    # record_benefit_sample(). Real and heavily used by ~35 experiment
+    # scripts, but this file's own tiny batch harness never calls
+    # record_benefit_sample(), so the warmup gate is never cleared here --
+    # exactly why it reads as inert in THIS harness specifically, not evidence
+    # the mechanism is broken.
+    "benefit_eval_enabled",
+    # --- HippocampalConfig ----------------------------------------------------#
+    # Scales CEM proposal noise (mode_noise_scale) and elite-scoring window
+    # depth (mode_horizon_scale) by a mode-weighted average when an
+    # operating_mode dict is supplied to propose_trajectories. Zero test
+    # coverage anywhere in tests/; the two computation methods are pure and
+    # cache their result (_last_mode_noise_scale/_last_effective_horizon), so
+    # a direct probe is straightforward but not yet written.
+    "mode_conditioning_enabled",
+    # SD-055: replaces the legacy argsort-elite CEM refit with a
+    # softmax-weighted mean over ALL candidates so gradient can flow to
+    # cue_action_proj. Zero test coverage; the branch is inline inside the
+    # multi-iteration propose_trajectories loop (not factored out), and
+    # proving the actual SD-055 claim (differentiability, not just a numeric
+    # path difference) needs a requires_grad/backward() probe, not merely an
+    # ON!=OFF candidate diff.
+    "use_differentiable_cem",
+    # Reads per-anchor staleness from the StalenessAccumulator instead of the
+    # internal (tick - last_accessed) * staleness_rate proxy (requires
+    # use_staleness_accumulator). Zero test coverage; the mechanism is a clean
+    # class-level dissociation (proxy vs accumulator lookup on AnchorSet.
+    # tick_hysteresis) but needs a synthetic staleness-vs-tick-delta
+    # divergence scenario not yet built.
+    "use_mech284_hysteresis",
+    # MECH-290: at BetaGate release, sweeps the committed trajectory backward
+    # writing decayed VALENCE_WANTING credit at each state. The one existing
+    # reference (test_mech_293_ghost_probes.py) uses this flag only to make
+    # record_committed_trajectory store its buffer as a precondition for an
+    # unrelated MECH-293 assertion -- it never calls backward_credit_sweep()
+    # itself or checks the valence write.
+    "use_backward_credit_sweep",
+    # MECH-217: the offline (SWS/REM) complement to MECH-290 -- during the REM
+    # pass, spreads a decayed fraction of the terminus's VALENCE_WANTING to
+    # earlier waypoints of a reverse-replayed trajectory. Zero test coverage
+    # anywhere.
+    "use_offline_wanting_spread",
+    # MECH-269/MECH-090: when an E3 commitment is active (beta_gate.
+    # is_elevated), releases it if any snapshotted active-anchor key drops out
+    # of the current active anchor set. The activating condition is genuinely
+    # multi-tick and stateful -- a real commitment in flight, a non-empty
+    # snapshotted _committed_anchor_keys, and the live anchor set actually
+    # changing membership mid-commitment -- none of which is reachable via a
+    # direct class-level call the way the anchor-set/staleness-accumulator
+    # flags above are. A confident probe needs the full REEAgent tiny-fixture
+    # harness driving a commit-then-invalidate sequence over several ticks,
+    # comparable in scope to this file's own MECH-321 mid-execution probes.
+    "use_vs_commit_release",
+    # MECH-284 Phase 3 region-indexed staleness accumulator, feeding
+    # MECH-284/MECH-269 hysteresis. Real, substantial consumer code exists
+    # (HippocampalModule.integrate_staleness / tick_anchor_set), but every
+    # existing test (test_mech_269b_vs_rollout_gate_staleness.py, several
+    # sleep-phase tests, test_mech286_sleep_onset_gate.py) treats it only as a
+    # PRECONDITION for a sibling flag's own probe (e.g. use_mech284_
+    # hysteresis) -- no test isolates this flag's own ON/OFF gating effect on
+    # the accumulator's construction or on integrate_staleness being called.
+    "use_staleness_accumulator",
+    # --- LatentStackConfig -----------------------------------------------------#
+    # Gates construction of HarmEncoder in LatentStack.__init__; encode
+    # (harm_obs=...) populates state.z_harm. 10 test files reference this
+    # flag but every one holds it constant True as scaffolding for a
+    # DIFFERENT flag under test (use_dacc, use_aic_analog, etc.) -- none
+    # compares True vs False itself.
+    "use_harm_stream",
+    # Gates construction of AffectiveHarmEncoder; encode(harm_obs_a=...)
+    # populates state.z_harm_a. Same situation as use_harm_stream -- 14 test
+    # files hold it constant True alongside use_harm_stream as a precondition
+    # for DACC/AIC/PCC/tonic-vigor/gated-policy mechanisms, never itself the
+    # manipulated variable.
+    "use_affective_harm_stream",
+    # EMAs z_harm into new_latent.z_harm_un inside REEAgent's waking tick,
+    # feeding MECH-219's suffering accumulator. The one dedicated test
+    # (test_mech_219_harm_suffering_accumulator.py) always sets it True and
+    # asserts z_harm_un is not None -- no test constructs an otherwise-
+    # identical agent with it False to confirm z_harm_un stays None.
+    "use_harm_un",
+    # Gates SplitEncoder.event_classifier; forward() returns event_logits or
+    # None. Zero test coverage anywhere outside this file; agent.
+    # compute_event_contrastive_loss's flag-gated zero-vs-real-CE-loss branch
+    # is also untested.
+    "use_event_classifier",
+    # Gates SplitEncoder.resource_proximity_head; forward() returns
+    # resource_prox_pred or None. Two tests construct it True as a fixed
+    # setting for unrelated P0-trainer/boot-matrix contracts, but neither
+    # reads resource_prox_pred nor compares to an OFF arm.
+    "use_resource_proximity_head",
+    # Gates construction of agent.e2_harm_s (E2HarmSForward) at agent build
+    # time. The CLASS itself is thoroughly unit-tested (training genuinely
+    # moves weights) and one test asserts agent.e2_harm_s is not None when
+    # True -- but no test asserts it IS None with the flag False; only the ON
+    # half of the top-level construction gate is covered.
+    "use_e2_harm_s_forward",
+    # Gates construction of agent.e2_world_uncertainty (E2WorldUncertaintyHead)
+    # at agent build time; its output is read only when REEConfig.
+    # curiosity_uncertainty_source == "e2_predictive_variance", which is
+    # itself completely untested. The rich test_sd063_conditional_uncertainty_
+    # head.py suite constructs E2WorldUncertaintyHead DIRECTLY by hand,
+    # bypassing this LatentStackConfig gate entirely.
+    "use_e2_world_uncertainty",
+    # Gates construction of LatentStack.resource_encoder (ResourceEncoder),
+    # producing z_resource independent of z_world for goal-directed seeding.
+    # One test checks config wiring after a preset is applied (not
+    # behavioural); several others hold it constant True as a precondition
+    # for use_cue_recall/token-bank tests, never compared to an OFF arm.
+    "use_resource_encoder",
+    # Gates construction of ResourceEncoder.identity_head; forward() returns
+    # identity_logits or None. Zero test coverage anywhere outside this file.
+    "use_identity_classifier",
+    # --- AnchorSetConfig / GhostGoalBankConfig ---------------------------------#
+    # Does NOT gate AnchorSet.write_anchor (which accepts goal_payload
+    # unconditionally regardless of config). It actually gates (a) whether
+    # HippocampalModule.build_goal_payload() returns a real payload vs None,
+    # and (b) a loud precondition raised when use_mech292_ghost_bank is on
+    # while this is off. The existing "S2 default backward-compat" test
+    # hand-constructs payloads and passes them directly to write_anchor,
+    # never consulting the flag -- it proves nothing about the real gate.
+    # build_goal_payload has zero test references anywhere.
+    "use_sd039_anchor_payload",
+    # GhostGoalBank.rank() adds a gated context_term (the outshining gate
+    # opens when direct goal_match is weak, scaled by arousal_tag-derived
+    # salience) to ghost_priority. Zero test coverage anywhere outside this
+    # file; the sibling flag use_persistence_efficacy_gate on the same class
+    # has a dedicated test file (test_mech340_persistence_efficacy_gate.py)
+    # whose helpers are directly reusable for this one.
+    "use_composite_cue_outshining",
+    # --- E2Config / HeartbeatConfig / ResidueConfig ----------------------------#
+    # Constructs a CrossStreamBinder in E2FastPredictor.__init__;
+    # rollout_with_world injects a shared theta-gated perturbation into both
+    # z_self/z_world streams' first shared dims. Zero test coverage anywhere.
+    # A probe needs care to isolate the flag as the only variable: two
+    # E2FastPredictor instances differing only in this flag also differ in
+    # construction-time RNG consumption (the binder's own Linear layers), so
+    # a naive same-seed OFF-vs-ON model comparison would confound the flag
+    # with unrelated weight-init drift.
+    "cross_stream_binding_enabled",
+    # Passed into BetaGate(use_commit_readiness_gate=...); gates BetaGate.
+    # should_admit_elevation -- OFF always admits (legacy rv-only elevation),
+    # ON blocks elevation when score_margin < commit_readiness_floor. The one
+    # existing test holds it constant True as a precondition for a different
+    # MECH-342 probe, never compared against OFF.
+    "use_commit_readiness_gate",
+    # Gates whether ResidueField.__init__ constructs benefit_rbf_field at all;
+    # accumulate_benefit/evaluate_benefit/compute_benefit_density all
+    # early-return no-ops when False. No existing test toggles this flag
+    # itself -- test_sd024_benefit_terrain_live_producer.py and siblings hold
+    # it True constant and instead compare separate sub-flags.
+    "benefit_terrain_enabled",
+    # Gates construction of safety_terrain_rbf_field; evaluate_safety/
+    # accumulate_safety early-return no-ops when False. Same situation as
+    # benefit_terrain_enabled -- the one existing test (test_sd067_safety_
+    # terrain_bandwidth.py) holds it True constant and probes only the
+    # bandwidth sub-knob.
+    "safety_terrain_enabled",
+    # Gates ResidueField.update_valence/update_wanting_sensitized/
+    # evaluate_valence -- all three early-return (no write / zeros) when
+    # False. No test toggles this flag; the one occurrence in tests/ holds it
+    # True constant as a precondition for an unrelated MECH-307 probe.
+    "valence_enabled",
+    # Gates ResidueField.ewc_penalty() (MECH-334 critical-period
+    # write-protect) -- returns 0.0 unless True (and ewc_lambda>0 and an
+    # anchor was snapshotted); ON computes a Fisher-weighted quadratic pull
+    # toward the snapshot_ewc_anchor()-captured checkpoint. Zero test
+    # coverage anywhere; only ever called by an external experiment harness,
+    # same pattern as snapshot_ewc_anchor.
+    "ewc_enabled",
+    # --- GoalConfig -------------------------------------------------------------#
+    # Gates REEAgent.cue_recall_wanting(), a cue-triggered pre-consummatory
+    # z_goal pull; has a loud precondition requiring use_incentive_token_bank
+    # that is NOT currently registered in FLAGS_WITH_LOUD_PRECONDITION. Zero
+    # callers inside ree_core/ itself -- only experiment scaffolds call it
+    # explicitly, it is not on the autonomous per-tick path. Existing coverage
+    # only drives the ON half (held constant True); no test confirms it
+    # returns exactly 0.0 with a matching token but the flag False.
+    "use_cue_recall",
 }
-_NESTED_UNPROBED_REASON = (
-    "pre-existing nested-config flag, discovered by the 2026-08-11 scanner "
-    "widening (SD-RESIDUE-VALENCE-BOUND session) -- not yet individually "
-    "assessed (probe or specific reason); see the block comment above "
-    "KNOWN_UNPROBED_NESTED and this session's follow-on audit chip"
-)
 
 
 def _current_toplevel_flags() -> set:
