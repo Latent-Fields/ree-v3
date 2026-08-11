@@ -514,6 +514,25 @@ class CausalGridWorld:
         reef_patch_radius: int = 2,
         reef_scent_sigma: float = 2.5,
         hazard_food_attraction: float = 0.0,
+        # hazard_agent_pursuit (MECH-357 pressure fallback, mech357_freeze_
+        # incompatible_pressure_scoping_2026-08-10.md SS3): per-drift-tick
+        # probability that a hazard biases its random walk toward the AGENT's
+        # current cell instead of pure random shuffle -- the agent-directed
+        # sibling of hazard_food_attraction, same reef_enabled gate, same
+        # sort-by-Manhattan-distance mechanism, just a different target cell.
+        # Where hazard_food_attraction makes foraging dangerous, this makes
+        # a hazard a sustained, behaviour-contingent threat rather than a
+        # one-shot spawn-position lottery (undirected _drift_hazards never
+        # references the agent's position at all). Checked AFTER the
+        # food-attraction roll each tick: if a hazard is eligible for both
+        # biases (reef_enabled, both probabilities > 0) and the independent
+        # food-attraction roll doesn't trigger, it gets its own independent
+        # roll for pursuit before falling back to a random shuffle --
+        # food-attraction keeps precedence because it was the existing
+        # behaviour and this keeps every prior config (which necessarily has
+        # hazard_agent_pursuit=0.0) bit-identical. Default 0.0 draws no RNG
+        # and adds no branch cost for any existing caller.
+        hazard_agent_pursuit: float = 0.0,
         # SD-054 bipartite layout extension (2026-05-11).
         # When reef_bipartite_layout=True, reef cells are clustered in one half of
         # the grid (along reef_bipartite_axis) and food / hazards spawn ONLY in the
@@ -1086,6 +1105,7 @@ class CausalGridWorld:
         self.reef_patch_radius = int(max(1, reef_patch_radius))
         self.reef_scent_sigma = float(max(0.1, reef_scent_sigma))
         self.hazard_food_attraction = float(np.clip(hazard_food_attraction, 0.0, 1.0))
+        self.hazard_agent_pursuit = float(np.clip(hazard_agent_pursuit, 0.0, 1.0))
         # SD-054 bipartite layout extension (2026-05-11). See __init__ docstring
         # above the kwargs and the SD-054 doc for the rationale.
         self.reef_bipartite_layout = bool(reef_bipartite_layout)
@@ -4950,16 +4970,22 @@ class CausalGridWorld:
           - Food attraction: with probability hazard_food_attraction, a drifting
             hazard sorts candidate directions toward the nearest food cell instead
             of a pure random shuffle, making foraging inherently more dangerous.
+          - Agent pursuit (MECH-357 pressure fallback): with probability
+            hazard_agent_pursuit, a drifting hazard instead sorts candidate
+            directions toward the agent's CURRENT cell. Checked after the
+            food-attraction roll each tick -- food-attraction keeps precedence
+            when both are configured nonzero (see hazard_agent_pursuit's
+            constructor comment for why).
         """
         available_dirs = [(-1, 0), (1, 0), (0, -1), (0, 1)]
         drifted = False
         for hazard in self.hazards:
             if self._rng.random() < self.env_drift_prob:
+                hx, hy = hazard[0], hazard[1]
                 # Food-attraction bias (reef substrate): sort dirs toward nearest food.
                 if (self.reef_enabled and self.hazard_food_attraction > 0.0
                         and self.resources
                         and self._rng.random() < self.hazard_food_attraction):
-                    hx, hy = hazard[0], hazard[1]
                     nearest = min(
                         self.resources,
                         key=lambda r: abs(r[0] - hx) + abs(r[1] - hy)
@@ -4968,6 +4994,15 @@ class CausalGridWorld:
                     dirs_ordered = sorted(
                         available_dirs,
                         key=lambda d: abs(hx + d[0] - fx) + abs(hy + d[1] - fy)
+                    )
+                # Agent-pursuit bias (reef substrate, MECH-357 fallback): sort
+                # dirs toward the agent's current cell instead of nearest food.
+                elif (self.reef_enabled and self.hazard_agent_pursuit > 0.0
+                        and self._rng.random() < self.hazard_agent_pursuit):
+                    ax, ay = self.agent_x, self.agent_y
+                    dirs_ordered = sorted(
+                        available_dirs,
+                        key=lambda d: abs(hx + d[0] - ax) + abs(hy + d[1] - ay)
                     )
                 else:
                     dirs_ordered = list(available_dirs)
