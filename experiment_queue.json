@@ -79,6 +79,23 @@
       "episodes_per_run": 150,
       "experiment_type": "v3_exq_917_mech303_harm_threshold_calibration_battery",
       "seeds": 10
+    },
+    {
+      "queue_id": "V3-EXQ-921",
+      "title": "MECH-490 sleep commit-gate persistence: spawn-matched + commit-variance instrumented sleep-vs-no-sleep ablation (V3-EXQ-913 successor, 6 seeds)",
+      "script": "experiments/v3_exq_921_mech490_sleep_commitgate_spawn_matched.py",
+      "priority": 40,
+      "machine_affinity": "any",
+      "estimated_minutes": 450,
+      "claim_ids": [
+        "MECH-490"
+      ],
+      "note": "MECH-490 (registered 2026-08-11, sleep_transition_investigation_906_lineage_2026-08-10.md Section 13) V3-EXQ-913 successor implementing its own non-degeneracy precondition (what_would_answer). V3-EXQ-913's sleep_ablation_comparison block (claim_ids=[] at run time, non_contributory, never scored against a claim) was reanalyzed and found weakly suggestive but underpowered (n=4 usable matched windows, 2 seeds, best sign-test p=0.25) AND carrying a genuine unflagged confound: agent spawn position differed between WITH_SLEEP/NO_SLEEP arms at every one of its 5 matched segment-index comparisons (5-11 cell Manhattan distance), because env.reset_to() only guarantees hazard/resource layout continuity, not spawn point, and 913's own _continuity_reset() drew spawn from each arm's own env._rng, whose state diverges between arms from segment 1 onward. This script fixes that: _spawn_order_for_segment(seed, segment_index, board_size) draws a shared, arm-independent candidate order keyed only on (seed, segment_index), so both arms are offered the identical order (each still safety-filters against its own live hazard-drift state, so not forcibly identical -- every comparison logs spawn_position_matched + spawn_manhattan_distance). Second fix: agent.e3.get_commitment_state() (existing public API, e3_selector.py:3990) read once per env step, aggregated per matched window into commit_gate_engagement_rate / mean_running_variance -- the direct mechanistic instrumentation MECH-490 names. Third: seeds 2 -> 6 (SEEDS_DEFAULT=[0..5]), addressing 913's own sample-size ceiling. Pre-registered thresholds: SPAWN_MATCH_RATE_FLOOR=0.8, SIGN_TEST_ALPHA=0.05, MIN_SEEDS_FOR_CONFIRM=5, COVARY_R_FLOOR=0.3 (all in-script, not inferred post-hoc). evidence_direction computed per MECH-490's own confirming/falsifying signature: non_contributory if the non-degeneracy precondition (spawn_match_rate>=0.8 AND commit-gate instrumented) is unmet or the coherence lift (mean_run_length sign-test) is not significant across >=5 seeds; supports if significant AND covaries with commit-gate-engagement-rate delta (Pearson r>=+0.3); weakens if significant but does NOT covary (mechanism-wrong-even-if-behaviour-real, MECH-490's falsifying signature part 1). The \"matched no-sleep control\" falsifying alternative is already inherent in this two-arm design's NO_SLEEP arm (same elapsed time/segment index, never fires sleep) -- no separate arm needed. OUT OF SCOPE (Section 13d items 4-5, deferred to a later successor gated on this run's result): transfer test to a different ecology, blinded-umpire classifier. GOV-REUSE-1: decisive readout (spawn-matched + commit-instrumented WITH_SLEEP-vs-NO_SLEEP delta covarying with commit-gate engagement) recorded in no existing manifest -- 913 carries neither fix; not recoverable, run required. Re-derive brake (2.5b): MECH-490 registered today, zero prior /failure-autopsy targets -- does not fire. Substrate-path overlap gate (2.5c): checked substrate_queue.json for open corrupting/degrading entries touching e3_selector.py/causal_grid_world.py/the 906b-664-665-913-scaffolded_sd054 driver family -- none found. Smoke PASS (--dry-run --seeds 0 1, all 4 cells verdict PASS; seed 1's with_sleep/no_sleep spawn positions matched exactly at all 3 compared segments, confirming the fix engages; z_goal_stream active_frac=0.998, no writer defect; dry-run manifest + episode-log companion correctly relocated by emit_outcome's dry_run handling). validate_experiments.py --strict clean, 0 warnings across all lint categories including stale-e3-diagnostics (the per-env-step get_commitment_state() read is a STATE read, not a select()-latch re-read -- see module docstring). Does NOT supersede V3-EXQ-913's other findings (layout continuity, microhabitat probabilistic-habitat-cue) -- those are inherited unchanged, not this run's test target.",
+      "status": "pending",
+      "conditions": 2,
+      "episodes_per_run": 220,
+      "experiment_type": "v3_exq_921_mech490_sleep_commitgate_spawn_matched",
+      "seeds": 6
     }
   ]
 }
