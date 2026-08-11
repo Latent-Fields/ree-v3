@@ -1837,6 +1837,299 @@ def test_use_cue_recall_gates_cue_recall_wanting():
 
 
 # --------------------------------------------------------------------------- #
+# ARC-110 loop-segregation cluster (2026-08-11 nested-scan individual audit,  #
+# batch: E3Config loop-segregation). Each probe below was found by a          #
+# computational search (not hand-derived), then pinned as literal tensors --  #
+# a hand-derived "one outlier vs identical others" vector pair almost always  #
+# lands on an exact zscore-symmetric tie (verified while building these),     #
+# which is a worse test than a searched, robustly-margined divergence.       #
+# --------------------------------------------------------------------------- #
+
+def test_use_loop_segregation_changes_the_committed_index():
+    """ARC-110 master switch: _segregated_loop_arbitrate (per-loop zscore-
+    normalize then Haber-spiral-combine) REPLACES the flat single-arena
+    within-eligible argmin when ON. A loop whose RAW magnitude dominates the
+    flat OFF sum need not dominate once each loop is normalized to unit
+    variance before combining (the "F's raw magnitude carries no cross-loop
+    advantage" conversion mechanism _loop_normalize's own docstring names) --
+    so the two arbitration algorithms can commit to DIFFERENT candidates.
+
+    The prior KNOWN_UNPROBED_NESTED reason for this flag noted a real risk:
+    V3-EXQ-707b's live-run entropy comparison was nearly flat, so a naively
+    constructed toy fixture could pass by accident without exercising real
+    divergence. These exact vectors were found by search (trial 0 of a
+    dacc~N(0,50)/ofc~N(0,3) sweep) specifically because they produce a clean,
+    non-tied flip via the real select() call (not a hand-picked toy).
+    """
+    from ree_core.utils.config import REEConfig
+    from ree_core.predictors.e2_fast import Trajectory
+    from ree_core.predictors.e3_selector import E3TrajectorySelector
+
+    n = 6
+    world_dim = 6
+
+    def _candidate(action_class, action_dim=8):
+        horizon = 3
+        states = [torch.zeros(1, world_dim) for _ in range(horizon + 1)]
+        world_states = [torch.zeros(1, world_dim) for _ in range(horizon + 1)]
+        actions = torch.zeros(1, horizon, action_dim)
+        actions[:, 0, action_class % action_dim] = 1.0
+        return Trajectory(states=states, actions=actions, world_states=world_states)
+
+    def _patch_raw(selector, candidates, raw_costs):
+        raw_map = {id(c): torch.tensor([float(v)]) for c, v in zip(candidates, raw_costs)}
+        selector.score_trajectory = lambda cand, **kw: raw_map[id(cand)]
+
+    def _selector(use_loop_segregation):
+        cfg = REEConfig.from_dims(
+            body_obs_dim=8, world_obs_dim=8, action_dim=8, self_dim=16, world_dim=16,
+            use_loop_segregation=use_loop_segregation,
+            use_finer_channel_gating=True,
+            use_modulatory_shortlist_then_modulate=True,
+        )
+        sel = E3TrajectorySelector(cfg.e3, None)
+        sel._running_variance = 0.0  # force the committed (deterministic) path
+        return sel
+
+    cands = [_candidate(i) for i in range(n)]
+    raw = [0.0] * n  # flat motor F -> the modulatory channels decide
+
+    dacc = torch.tensor([
+        33.06760787963867, 13.346205711364746, 3.0838630199432373,
+        31.065866470336914, -22.595298767089844, -8.306511878967285,
+    ])  # associative-default channel
+    ofc = torch.tensor([
+        -4.568305492401123, 1.1450517177581787, -3.0828258991241455,
+        -1.689158320426941, -2.6768715381622314, -0.17475053668022156,
+    ])  # limbic-default channel
+
+    results = {}
+    for flag in (False, True):
+        sel = _selector(flag)
+        _patch_raw(sel, cands, raw)
+        r = sel.select(
+            cands,
+            score_bias=torch.zeros(n),
+            score_bias_channels={"dacc": dacc, "ofc": ofc},
+        )
+        results[flag] = r.selected_index
+
+    assert results[False] != results[True], (
+        "use_loop_segregation=True's per-loop-normalized arbitration must be "
+        "able to pick a DIFFERENT committed candidate than the flat "
+        "single-arena OFF sum (inert flag / not a genuine mechanism)"
+    )
+
+
+def test_use_named_channel_routing_substitutes_the_routed_representation():
+    """ARC-110 C2 release: the real select()-level gate for the loop-
+    arbitration override requires use_finer_channel_gating AND
+    use_named_channel_routing AND a real score_bias_channel_routed entry --
+    all three, exactly as select()'s own composition site requires. The
+    prior KNOWN_UNPROBED_NESTED reason noted the one existing test
+    (TestNamedChannelRoutingC2Release) calls _segregated_loop_arbitrate
+    DIRECTLY with an explicit override, bypassing this three-way gate
+    entirely -- so this probe instead drives the real select() call, with an
+    intentionally FLAT unrouted "ofc" representation (score_bias_channels)
+    standing in for the untrained project_channel_range zeros the prior note
+    described, and a real-range routed representation
+    (score_bias_channel_routed) supplied unconditionally by the caller in
+    BOTH arms -- only the flag differs.
+    """
+    from ree_core.utils.config import REEConfig
+    from ree_core.predictors.e2_fast import Trajectory
+    from ree_core.predictors.e3_selector import E3TrajectorySelector
+
+    n = 6
+    world_dim = 6
+
+    def _candidate(action_class, action_dim=8):
+        horizon = 3
+        states = [torch.zeros(1, world_dim) for _ in range(horizon + 1)]
+        world_states = [torch.zeros(1, world_dim) for _ in range(horizon + 1)]
+        actions = torch.zeros(1, horizon, action_dim)
+        actions[:, 0, action_class % action_dim] = 1.0
+        return Trajectory(states=states, actions=actions, world_states=world_states)
+
+    def _patch_raw(selector, candidates, raw_costs):
+        raw_map = {id(c): torch.tensor([float(v)]) for c, v in zip(candidates, raw_costs)}
+        selector.score_trajectory = lambda cand, **kw: raw_map[id(cand)]
+
+    def _selector(use_named_channel_routing):
+        cfg = REEConfig.from_dims(
+            body_obs_dim=8, world_obs_dim=8, action_dim=8, self_dim=16, world_dim=16,
+            use_loop_segregation=True,
+            use_finer_channel_gating=True,
+            use_named_channel_routing=use_named_channel_routing,
+            use_modulatory_shortlist_then_modulate=True,
+        )
+        sel = E3TrajectorySelector(cfg.e3, None)
+        sel._running_variance = 0.0
+        return sel
+
+    cands = [_candidate(i) for i in range(n)]
+    raw = [0.0] * n
+    routed_ofc = torch.tensor([5.0, 5.0, 5.0, 5.0, 5.0, -20.0])  # strong preference for cand 5
+
+    results = {}
+    for flag in (False, True):
+        sel = _selector(flag)
+        _patch_raw(sel, cands, raw)
+        r = sel.select(
+            cands,
+            score_bias=torch.zeros(n),
+            score_bias_channels={"ofc": torch.zeros(n)},  # flat unrouted representation
+            score_bias_channel_routed={"ofc": routed_ofc},  # real range, supplied regardless
+        )
+        results[flag] = r.selected_index
+
+    assert results[False] != results[True], (
+        "use_named_channel_routing=True did not substitute the routed "
+        "representation for the flat unrouted one in loop arbitration "
+        "(inert flag)"
+    )
+    assert results[True] == 5, (
+        "use_named_channel_routing=True should commit to the routed "
+        "channel's strongly-preferred candidate"
+    )
+
+
+def test_use_d1_d2_population_split_is_bit_identical_at_da_zero_then_diverges():
+    """ARC-109: at da==0 (tanh of the freshly-constructed value baseline),
+    _d1_d2_split's relu(accum)-relu(-accum) == accum exactly, so
+    use_d1_d2_population_split=True must be bit-identical (same committed
+    local index) to OFF. Once da moves away from 0 -- set directly on
+    _lcg_value_baseline, bypassing the ARC-108 multi-tick learning loop this
+    probe does not need -- the asymmetric D1/D2 gain must be able to change
+    the committed index relative to that same da==0 baseline.
+    """
+    from ree_core.utils.config import REEConfig
+    from ree_core.predictors.e3_selector import E3TrajectorySelector, _FCG_CHANNEL_INDEX
+
+    def _selector(d1d2_flag):
+        cfg = REEConfig.from_dims(
+            body_obs_dim=8, world_obs_dim=8, action_dim=5, self_dim=32, world_dim=32,
+            use_loop_segregation=True,
+            use_d1_d2_population_split=d1d2_flag,
+        )
+        return E3TrajectorySelector(cfg.e3, None)
+
+    n = 4
+    elig = torch.arange(n)
+    raw = torch.zeros(n)
+    ofc = torch.tensor([-6.264134407043457, -1.78110933303833, 3.355997085571289, 0.849435031414032])
+    dacc = torch.tensor([7.372593879699707, 3.526642322540283, -3.452648162841797, -2.195103645324707])
+    terms = [(_FCG_CHANNEL_INDEX["ofc"], ofc), (_FCG_CHANNEL_INDEX["dacc"], dacc)]
+
+    sel_off = _selector(False)
+    loc_off = sel_off._segregated_loop_arbitrate(
+        elig, raw, terms, True, [None] * n, True, 1.0, True
+    )
+
+    sel_on_da0 = _selector(True)
+    assert sel_on_da0._lcg_value_baseline == 0.0
+    loc_on_da0 = sel_on_da0._segregated_loop_arbitrate(
+        elig, raw, terms, True, [None] * n, True, 1.0, True
+    )
+    assert loc_off == loc_on_da0, (
+        "use_d1_d2_population_split=True at da==0 must be bit-identical to "
+        "OFF (relu(accum)-relu(-accum) == accum exactly)"
+    )
+
+    sel_on_da = _selector(True)
+    sel_on_da._lcg_value_baseline = 3.0  # da = tanh(3.0) ~= 0.995
+    loc_on_da = sel_on_da._segregated_loop_arbitrate(
+        elig, raw, terms, True, [None] * n, True, 1.0, True
+    )
+    assert loc_on_da != loc_on_da0, (
+        "use_d1_d2_population_split=True with da moved away from 0 did not "
+        "change the committed index relative to the da==0 baseline (inert "
+        "flag / never earns its dissociation)"
+    )
+
+
+def test_use_loop_local_eligibility_traces_excludes_the_losing_loops_channel():
+    """MECH-452: the eligibility trace recorded inside select() (feeding the
+    next post_action_update's three-factor credit) normally credits EVERY
+    channel that spoke, regardless of whether its loop's within-loop winner
+    matched the committed action. With use_loop_local_eligibility_traces=True,
+    a channel whose loop did NOT win gets EXCLUDED (zero credit) -- keeping
+    DA credit assignment loop-local. Probed at the eligibility-trace level
+    (immediately after select()) rather than the full multi-tick learned-
+    weight trajectory the mechanism ultimately feeds, per the flag's own
+    KNOWN_UNPROBED_NESTED reason that its effect "shows only in the learned
+    weight trajectory" -- the eligibility trace IS the credit-assignment
+    step that trajectory is built from, so a divergence there is direct
+    evidence of the mechanism, not an indirect proxy for it.
+    """
+    from ree_core.utils.config import REEConfig
+    from ree_core.predictors.e2_fast import Trajectory
+    from ree_core.predictors.e3_selector import E3TrajectorySelector, _FCG_CHANNEL_INDEX
+
+    n = 6
+    world_dim = 6
+
+    def _candidate(action_class, action_dim=8):
+        horizon = 3
+        states = [torch.zeros(1, world_dim) for _ in range(horizon + 1)]
+        world_states = [torch.zeros(1, world_dim) for _ in range(horizon + 1)]
+        actions = torch.zeros(1, horizon, action_dim)
+        actions[:, 0, action_class % action_dim] = 1.0
+        return Trajectory(states=states, actions=actions, world_states=world_states)
+
+    def _patch_raw(selector, candidates, raw_costs):
+        raw_map = {id(c): torch.tensor([float(v)]) for c, v in zip(candidates, raw_costs)}
+        selector.score_trajectory = lambda cand, **kw: raw_map[id(cand)]
+
+    def _selector(loop_local_flag):
+        cfg = REEConfig.from_dims(
+            body_obs_dim=8, world_obs_dim=8, action_dim=8, self_dim=16, world_dim=16,
+            use_loop_segregation=True,
+            use_finer_channel_gating=True,
+            use_modulatory_shortlist_then_modulate=True,
+            use_loop_local_eligibility_traces=loop_local_flag,
+        )
+        sel = E3TrajectorySelector(cfg.e3, None)
+        sel._running_variance = 0.0
+        return sel
+
+    cands = [_candidate(i) for i in range(n)]
+    raw = [0.0] * n
+    # Associative ("dacc") wins the committed candidate; limbic ("ofc") speaks
+    # (real pref range) but its own within-loop winner differs -- the
+    # search-found scenario where _loop_voted == {associative: True, limbic: False}.
+    dacc = torch.tensor([
+        100.53577423095703, 26.137012481689453, 14.004121780395508,
+        -48.0182991027832, -73.77421569824219, -30.43423080444336,
+    ])
+    ofc = torch.tensor([
+        -4.7723002433776855, 0.09279485046863556, -10.92197322845459,
+        1.0217534303665161, -2.833395481109619, 0.7296481132507324,
+    ])
+    ofc_idx = _FCG_CHANNEL_INDEX["ofc"]
+
+    sel_off = _selector(False)
+    _patch_raw(sel_off, cands, raw)
+    sel_off.select(cands, score_bias=torch.zeros(n), score_bias_channels={"dacc": dacc, "ofc": ofc})
+    assert not sel_off._loop_voted["limbic"], "fixture assumption: limbic must lose this round"
+    off_ofc_credit = float(sel_off._fcg_elig_trace[ofc_idx].item())
+
+    sel_on = _selector(True)
+    _patch_raw(sel_on, cands, raw)
+    sel_on.select(cands, score_bias=torch.zeros(n), score_bias_channels={"dacc": dacc, "ofc": ofc})
+    on_ofc_credit = float(sel_on._fcg_elig_trace[ofc_idx].item())
+
+    assert off_ofc_credit > 0.0, (
+        "fixture assumption: the OFF arm must credit the losing loop's "
+        "channel (that is the ARC-108/MECH-451 baseline this flag changes)"
+    )
+    assert on_ofc_credit == 0.0, (
+        "use_loop_local_eligibility_traces=True did not exclude the losing "
+        "loop's channel from the eligibility trace (inert flag)"
+    )
+
+
+# --------------------------------------------------------------------------- #
 # Flag registry-drift guard                                                   #
 # --------------------------------------------------------------------------- #
 
@@ -2335,6 +2628,13 @@ PROBED = {
     "use_sd039_anchor_payload",      # test_use_sd039_anchor_payload_gates_build_goal_payload
     "use_composite_cue_outshining",  # test_use_composite_cue_outshining_gates_the_context_term
     "use_cue_recall",                # test_use_cue_recall_gates_cue_recall_wanting
+    # ARC-110 loop-segregation cluster (same 2026-08-11 audit, batch:
+    # E3Config loop-segregation). Each probed above by a computationally-
+    # searched, non-tied divergence (not a hand-derived toy fixture).
+    "use_loop_segregation",             # test_use_loop_segregation_changes_the_committed_index
+    "use_named_channel_routing",        # test_use_named_channel_routing_substitutes_the_routed_representation
+    "use_d1_d2_population_split",       # test_use_d1_d2_population_split_is_bit_identical_at_da_zero_then_diverges
+    "use_loop_local_eligibility_traces",  # test_use_loop_local_eligibility_traces_excludes_the_losing_loops_channel
 } | set(FLAGS_WITH_DEFAULT_BEHAVIOURAL_DELTA) | set(FLAGS_WITH_LOUD_PRECONDITION)
 
 # Audit-confirmed inert / mis-wired flags (finding id -> reason). Documented here
@@ -2547,54 +2847,6 @@ KNOWN_UNPROBED = {
 # categorized once above (top-level) and is not re-listed below; a reader     #
 # auditing one of these five should confirm which CLASS's field is meant.     #
 KNOWN_UNPROBED_NESTED = {
-    # --- E3Config (loop-segregation cluster; wired downstream, never itself  #
-    #     toggled against its own OFF baseline in any existing test) --------#
-    # ARC-110 master switch: single-arena within-eligible argmin -> N=3
-    # parallel loops (motor=F, associative, limbic) combined via Haber's
-    # ascending-spiral arithmetic. Every existing test (test_arc110_loop_
-    # segregation.py and its siblings: test_soft_competitive_settling.py,
-    # test_ascending_spiral_gain.py, test_ascending_parity_controller.py,
-    # test_learned_cross_loop_arbitration.py) holds this constant True and
-    # varies a DIFFERENT downstream flag; none compares against False. The one
-    # piece of live-run evidence on this exact question (V3-EXQ-707b) found
-    # committed-class entropy nearly unchanged (0.838 vs 0.914) at default
-    # combine weights, so a naive toy-fixture probe risks a false-confident
-    # pass rather than a safe default assumption of success.
-    "use_loop_segregation",
-    # Routes a named channel's range-preserving representation into loop
-    # arbitration instead of its flattened bias-head scalar (fixes V3-EXQ-707's
-    # "flat named channel inert under per-loop zscore" defect). The real gate
-    # is at the select() call site and fires only when score_bias_channel_
-    # routed is ALSO supplied. test_arc110_loop_segregation.py's
-    # TestNamedChannelRoutingC2Release calls _segregated_loop_arbitrate
-    # directly with an explicit override, bypassing that gate entirely; the
-    # one test that does vary the top-level flag (test_routing_off_is_byte_
-    # identical) supplies no override in either arm (a no-effect confirmation,
-    # not a divergence proof). The tiny/untrained harness this suite uses is
-    # documented elsewhere in the same file as unable to produce the real
-    # activating condition (project_channel_range returns zeros untrained).
-    "use_named_channel_routing",
-    # ARC-109 opponent D1(Go)/D2(NoGo) population split with asymmetric
-    # dopamine gain (da, tanh-squashed _lcg_value_baseline). At da==0 --
-    # exactly the value at construction, and every tick until a realised
-    # benefit/harm asymmetry has been driven through several post_action_
-    # update calls -- relu(accum) - relu(-accum) == accum exactly, so the
-    # split is PROVABLY bit-identical to the plain additive accumulator
-    # regardless of the flag until that activating condition is met. The only
-    # test-suite use (test_arc110_loop_segregation.py:61) sets it constant
-    # True, never False.
-    "use_d1_d2_population_split",
-    # MECH-452: credits the shared eligibility trace per-channel ONLY if that
-    # channel's loop actually won the committed candidate (vs crediting every
-    # channel that spoke), keeping DA credit assignment loop-local. Genuinely
-    # wired (a real read site gates which channels get credited into
-    # _lcg_elig_trace/_fcg_elig_trace inside _segregated_loop_arbitrate), so
-    # not dead -- but its effect shows only in the LEARNED WEIGHT trajectory,
-    # not the immediate committed action, and it composes on top of THREE
-    # other flags simultaneously (use_loop_segregation + a channel-gating
-    # flag), none of which is itself cleanly probed against OFF in this suite
-    # (see use_loop_segregation above). Zero test references anywhere.
-    "use_loop_local_eligibility_traces",
     # --- HippocampalConfig ----------------------------------------------------#
     # SD-055: replaces the legacy argsort-elite CEM refit with a
     # softmax-weighted mean over ALL candidates so gradient can flow to
