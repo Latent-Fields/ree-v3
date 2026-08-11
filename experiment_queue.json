@@ -26,27 +26,6 @@
       "experiment_type": "v3_exq_603t_instrumental_avoidance_scheduled_external_hazard",
       "predecessor": "V3-EXQ-603s",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-914a",
-      "title": "MECH-236 hippocampal z_goal-injection channel ablation (first behavioural test, re-queue of burned V3-EXQ-914)",
-      "script": "experiments/v3_exq_914_mech236_hippocampal_zgoal_channel_ablation.py",
-      "priority": 40,
-      "machine_affinity": "any",
-      "estimated_minutes": 15,
-      "supersedes": "V3-EXQ-914",
-      "claim_id": "MECH-236",
-      "backlog_id": "EVB-0607",
-      "note": "V3-EXQ-914 (script + queue entry identical to this one) was found BURNED in the coordinator DB shortly after this session pushed the corrected script (commit 1388f40): existing_status=completed, results.outcome=FAIL, but length(manifest_bytes)=5 -- far too small to be a real manifest for this design (per_seed_rows/arm_results/interpretation would be many KB), no manifest file exists anywhere under REE_assembly/evidence/experiments/, and the DB experiments row shows claimed_by_machine=NULL/claimed_at=NULL -- meaning NO worker ever actually claimed and ran it. This reads as a phantom/corrupted completion (a bogus or test result reached the coordinator /result endpoint for this queue_id, not a genuine run), the same failure class as the reference-phantom-completion-crash-before-manifest hazard: no manifest means no real run, regardless of what the DB row says. No governance-visible evidence was affected (nothing was ever written to REE_assembly/evidence/ or claim_evidence.v1.json for this queue_id). Per EXQ versioning policy (CLAUDE.md: never silently re-run under the same ID; new letter for a re-queue), re-queued here as V3-EXQ-914a with the SAME unchanged, already-verified script and design -- this is a re-queue of a burned ID, not a design change, so no new letter-worthy edit was made to the script itself. The V3-EXQ-914 anomaly itself (how a FAIL-with-5-byte-manifest reached the coordinator with no matching claim) is flagged as unresolved follow-on -- worth a /diagnose-errors pass if it recurs, but not chased further here since it produced no evidence-registry contamination and the actual fix (a correctly queued, runnable script) is what this entry restores. IGW-20260811-231 inline retry (original auto-session reaped NO_OP with no landing evidence). This SCRIPT ALREADY EXISTED, untracked, in the shared ree-v3 checkout -- clearly substantial legitimate work product from that original session, orphaned by the NO_OP outcome rather than lost. GOV-REUSE-1: genuine_exp_count=0 for MECH-236 (claim_evidence.v1.json, 2026-08-09 lit-only), and no existing MECH-292/293 manifest (V3-EXQ-496/497/868/881) records a navigation/goal-terrain readout -- checked, not recoverable. Substrate readiness (2.5/2.5a): confirmed by direct source read (ree_core/hippocampal/module.py propose_trajectories, ree_core/agent.py _e3_tick) that use_mech293_ghost_probes is the ONLY code path through which current_z_goal reaches hippocampal trajectory proposals on this substrate; MECH-292/293 IMPLEMENTED 2026-04-27 per ree-v3/CLAUDE.md. No re-derive brake applies (MECH-236 has zero prior autopsies). DV-SYMMETRY: mean_resource_proximity is a per-step magnitude (continuous field reading), not a CEM-internal score and not a rank/argmax DV, so monotone-rescaling symmetry does not apply; use_mech293_ghost_probes changes WHICH candidate CEM/E3 select (a discrete selection-path change), so broadcast-additive-constant invariance does not apply either; per-seed mean aggregated via a pre-registered majority seed-fraction guards against a single-seed-layout permutation risk. Design finalised across two Step-2.5a empirical-probe iterations (both documented in the script docstring): GRID_SIZE 8->16 (size 8 saturates the local resource_field_view near-constant, no discriminating power) and anchor writes switched from a periodic cadence to a resource-proximity-gated trigger (a periodic version was measured producing a NEGATIVE proximity gap -- pulling the agent toward stale, goal-irrelevant locations). Post-fix 3-seed calibration probe: mean_resource_proximity gaps of -0.011/-0.054/+0.071 (seeds 42/43/45) -- mixed/noisy, reported honestly. Verified: validate_experiments.py --strict OK; --dry-run smoke PASS; queue-file/coordinator-DB round trip re-confirmed after the burned-ID re-queue below.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-08-11T05:57:04Z"
-      },
-      "conditions": 3,
-      "episodes_per_run": 10,
-      "experiment_type": "v3_exq_914_mech236_hippocampal_zgoal_channel_ablation",
-      "seeds": 5
     }
   ]
 }
