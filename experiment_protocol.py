@@ -90,6 +90,71 @@ def _resolve_signal_dir() -> Path:
 DRY_RUN_SCRATCH_DIRNAME = "ree_dry_run_manifests"
 
 
+def _iter_companion_files(manifest_path: Path) -> list[Path]:
+    """Enumerate a manifest's companion side-files (e.g. fishtank episode logs).
+
+    Mirrors experiment_runner._collect_companion_files's two sources -- kept as
+    an independent, stdlib-only copy rather than an import, because that
+    module drags in the full (torch-importing) runner stack this one is
+    deliberately kept free of:
+      1. A `companion_files` list declared in the manifest body, each entry
+         resolved relative to the MANIFEST's own directory (absolute paths
+         taken as-is). This is the write_flat_manifest case: the manifest
+         lands flat in evidence/experiments/ while the declared entry points
+         back into the per-experiment-type subdirectory, e.g.
+         "v3_exq_913_.../v3_exq_913..._episode_log.json".
+      2. Auto-discovery of THIS manifest's own `<stem>_episode_log.json` next
+         to it -- the direct-write drivers (no write_flat_manifest) name the
+         sidecar as exactly the manifest's stem plus that suffix and declare
+         no companion_files. Deliberately scoped to this one expected name,
+         NOT a directory-wide `*_episode_log.json` glob: a per-experiment-type
+         directory accumulates one manifest + sidecar per historical run, and
+         a wildcard would sweep in a PRIOR REAL run's sidecar and relocate
+         (i.e. delete from evidence/) evidence that has nothing to do with the
+         manifest being processed. Confirmed live 2026-08-11: an early version
+         of this function using `manifest_dir.glob("*_episode_log.json")`
+         moved a real, already-committed 2026-04-25 episode_log out of
+         evidence/experiments/v3_exq_483_sd037_broadcast_override_4arm/ while
+         relocating an unrelated --dry-run smoke's manifest from the same
+         directory; recovered via `git checkout HEAD --` before landing.
+
+    Best-effort: a missing/unparseable manifest yields an empty list rather
+    than raising, so a malformed manifest never blocks its own relocation.
+    """
+    companions: list[Path] = []
+    seen: set[Path] = set()
+    manifest_dir = manifest_path.parent
+    try:
+        manifest_resolved = manifest_path.resolve()
+    except OSError:
+        return companions
+
+    def _add(p: Path) -> None:
+        try:
+            rp = p.resolve()
+        except OSError:
+            return
+        if rp == manifest_resolved or rp in seen or not rp.is_file():
+            return
+        seen.add(rp)
+        companions.append(rp)
+
+    try:
+        doc = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        doc = None
+    declared = doc.get("companion_files") if isinstance(doc, dict) else None
+    if isinstance(declared, (list, tuple)):
+        for entry in declared:
+            if isinstance(entry, str) and entry:
+                p = Path(entry)
+                _add(p if p.is_absolute() else manifest_dir / entry)
+
+    _add(manifest_dir / f"{manifest_path.stem}_episode_log.json")
+
+    return companions
+
+
 def _relocate_dry_run_manifest(manifest_path: Path) -> Path:
     """Move a --dry-run smoke manifest out of the evidence/experiments tree.
 
@@ -101,16 +166,39 @@ def _relocate_dry_run_manifest(manifest_path: Path) -> Path:
     throwaway scratch dir under the system tempdir means it never reaches the
     indexer or the review queue at all.
 
-    Best-effort: on any error (e.g. missing file, permission) the original path
-    is returned unchanged. generate_pending_review.py independently excludes
-    dry_run-flagged manifests, so this relocation is the going-forward
-    belt-and-suspenders, not the sole guard.
+    Also relocates the manifest's companion side-files (see
+    _iter_companion_files), e.g. the `*_episode_log.json` several fishtank-feed
+    drivers write directly to evidence/experiments/ alongside (or, for
+    write_flat_manifest callers, in a different subdirectory than) the
+    manifest, before calling this. Left behind, that sidecar is a permanent
+    orphan in the real evidence tree with no manifest to explain it -- twice
+    mistaken for a crashed run with a missing manifest rather than an ordinary
+    --dry-run leftover (see this fix's changelog entry). Companions are moved
+    BEFORE the manifest itself, since manifest-relative companion_files entries
+    are resolved against the manifest's pre-move directory.
+
+    Best-effort throughout: on any error (e.g. missing file, permission) the
+    original manifest path is returned unchanged, and a single companion
+    failing to move never blocks the manifest's own relocation.
+    generate_pending_review.py independently excludes dry_run-flagged
+    manifests, so this relocation is the going-forward belt-and-suspenders,
+    not the sole guard.
     """
     try:
         if not manifest_path.exists():
             return manifest_path
         scratch = Path(tempfile.gettempdir()) / DRY_RUN_SCRATCH_DIRNAME
         scratch.mkdir(parents=True, exist_ok=True)
+
+        for companion in _iter_companion_files(manifest_path):
+            try:
+                cdest = scratch / companion.name
+                if cdest.exists():
+                    cdest.unlink()
+                shutil.move(str(companion), str(cdest))
+            except Exception:
+                pass
+
         dest = scratch / manifest_path.name
         # shutil.move handles the cross-filesystem case (tempdir vs evidence on
         # a different mount) that os.replace would reject.
