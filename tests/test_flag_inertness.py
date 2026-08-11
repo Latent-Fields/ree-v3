@@ -1470,6 +1470,216 @@ def test_use_commit_readiness_gate_blocks_elevation_below_the_floor():
 
 
 # --------------------------------------------------------------------------- #
+# HippocampalConfig flags (2026-08-11 nested-scan individual audit, batch:    #
+# HippocampalConfig)                                                          #
+# --------------------------------------------------------------------------- #
+
+def _hippo_module(use_anchor_sets: bool = False, **kw):
+    """Direct HippocampalModule construction -- mirrors
+    test_mech_269_anchor_set.py's `_make_module` helper.
+    """
+    from ree_core.utils.config import HippocampalConfig, E2Config, ResidueConfig
+    from ree_core.predictors.e2_fast import E2FastPredictor
+    from ree_core.residue.field import ResidueField
+    from ree_core.hippocampal.module import HippocampalModule
+
+    hcfg = HippocampalConfig(
+        world_dim=8, action_dim=4, action_object_dim=4,
+        hidden_dim=16, horizon=3, num_candidates=4,
+        num_cem_iterations=1, elite_fraction=0.5,
+        use_anchor_sets=use_anchor_sets,
+        **kw,
+    )
+    e2cfg = E2Config(self_dim=8, world_dim=8, action_dim=4, action_object_dim=4)
+    rcfg = ResidueConfig(world_dim=8, num_basis_functions=4)
+    return HippocampalModule(hcfg, E2FastPredictor(e2cfg), ResidueField(rcfg))
+
+
+def test_mode_conditioning_enabled_gates_mode_weighted_cem_scales():
+    """MECH-267 / SD-MECH267-HORIZON-DEPTH: _compute_mode_noise_scale and
+    _compute_mode_horizon_scale are pure functions of an operating_mode dict.
+    Both return None when mode_conditioning_enabled=False (caller leaves the
+    CEM proposal std/scoring window untouched); ON, they return the real
+    probability-weighted average from config.mode_noise_scale /
+    mode_horizon_scale.
+    """
+    operating_mode = {"explore": 1.0}
+
+    mod_off = _hippo_module(
+        mode_conditioning_enabled=False, mode_noise_scale={"explore": 2.0}
+    )
+    assert mod_off._compute_mode_noise_scale(operating_mode) is None
+    assert mod_off._compute_mode_horizon_scale(operating_mode) is None
+
+    mod_on = _hippo_module(
+        mode_conditioning_enabled=True, mode_noise_scale={"explore": 2.0}
+    )
+    on_noise = mod_on._compute_mode_noise_scale(operating_mode)
+    assert on_noise == 2.0, (
+        "mode_conditioning_enabled=True did not apply the configured "
+        "mode_noise_scale weighting (inert flag)"
+    )
+    on_horizon = mod_on._compute_mode_horizon_scale(operating_mode)
+    assert on_horizon is not None
+
+
+def test_use_staleness_accumulator_gates_construction_and_integration():
+    """MECH-284 Phase 3: HippocampalModule.staleness_accumulator is
+    constructed, and integrate_staleness() stops being a no-op, only when
+    use_staleness_accumulator=True.
+    """
+    from ree_core.regulators.invalidation_trigger import BroadcastEvent
+
+    mod_off = _hippo_module(use_anchor_sets=True, use_staleness_accumulator=False)
+    mod_on = _hippo_module(use_anchor_sets=True, use_staleness_accumulator=True)
+    assert mod_off.staleness_accumulator is None
+    assert mod_on.staleness_accumulator is not None
+
+    z = torch.randn(8)
+    mod_off.anchor_set.write_anchor("fast", "0.1", ("z_world",), z)
+    mod_on.anchor_set.write_anchor("fast", "0.1", ("z_world",), z)
+
+    bcast = BroadcastEvent(
+        t=0, strength=1.0, posterior=1.0, targets=["fast"],
+        source_scale="fast", source_segment_id_old="0.0",
+        source_segment_id_new="0.1", source_sources=["z_world"],
+    )
+
+    mod_off.integrate_staleness([bcast])  # no accumulator -> no-op
+    mod_on.integrate_staleness([bcast])
+
+    assert mod_off.staleness_accumulator is None
+    assert mod_on.staleness_accumulator.get(("fast", "0.1")) > 0.0, (
+        "use_staleness_accumulator=True with a real broadcast + active "
+        "anchor did not credit any staleness (inert flag)"
+    )
+
+
+def test_use_mech284_hysteresis_swaps_the_staleness_lookup_source():
+    """MECH-284/MECH-269: with use_mech284_hysteresis=False, tick_anchor_set
+    drives AnchorSet.tick_hysteresis off the internal tick-delta proxy
+    (near-zero immediately after a fresh write). With it True, the SAME
+    per-tick inputs instead read a pre-populated StalenessAccumulator entry,
+    so an anchor whose region has accumulated high staleness is released
+    where the proxy-driven OFF arm would not release it -- the synthetic
+    staleness-vs-tick-delta divergence scenario the prior audit's
+    KNOWN_UNPROBED_NESTED reason said was needed but not yet built.
+    """
+    from types import SimpleNamespace
+    from ree_core.utils.config import AnchorSetConfig
+
+    def _mod(hysteresis_flag: bool):
+        return _hippo_module(
+            use_anchor_sets=True,
+            use_staleness_accumulator=True,
+            use_mech284_hysteresis=hysteresis_flag,
+            anchor_set=AnchorSetConfig(
+                hysteresis_k=1, reset_threshold=0.3, staleness_rate=0.005
+            ),
+        )
+
+    for flag, expect_fire in [(False, False), (True, True)]:
+        mod = _mod(flag)
+        z = torch.randn(8)
+        mod.anchor_set.write_anchor("fast", "0.1", ("z_world",), z)
+        if flag:
+            # Pre-populate the accumulator with near-max staleness for this
+            # region -- the internal tick-delta proxy would read ~0.005 at
+            # this point (one tick after write), which would NOT cross
+            # reset_threshold=0.3 given per_stream_vs=0.5 below.
+            mod.staleness_accumulator._staleness[("fast", "0.1")] = 1.0
+        mod.per_stream_vs = {"z_world": 0.5}
+        mod.tick_anchor_set(SimpleNamespace(z_world=z.unsqueeze(0)), events=[])
+        active_keys = [a.key for a in mod.anchor_set.active_anchors()]
+        fired = ("fast", "0.1", ("z_world",)) not in active_keys
+        assert fired == expect_fire, (
+            f"use_mech284_hysteresis={flag}: expected fired={expect_fire}, "
+            f"got {fired} (flag did not swap the staleness_lookup source)"
+        )
+
+
+def test_use_backward_credit_sweep_writes_retroactive_valence_credit():
+    """MECH-290: record_committed_trajectory/backward_credit_sweep are no-ops
+    (empty dict, no valence write) unless use_backward_credit_sweep=True; ON,
+    a real committed trajectory's z_world states get decayed VALENCE_WANTING
+    credit written backward from the endpoint.
+    """
+    from ree_core.predictors.e2_fast import Trajectory
+    from ree_core.residue.field import VALENCE_WANTING
+
+    world_states = [torch.zeros(1, 8) for _ in range(4)]
+    actions = torch.zeros(1, 3, 4)
+
+    def _traj():
+        return Trajectory(
+            states=[torch.zeros(1, 8) for _ in range(4)],
+            actions=actions,
+            world_states=[s.clone() for s in world_states],
+        )
+
+    mod_off = _hippo_module(use_backward_credit_sweep=False)
+    mod_off.residue_field.accumulate(torch.zeros(8), harm_magnitude=0.1)
+    mod_off.record_committed_trajectory(_traj())
+    result_off = mod_off.backward_credit_sweep(outcome_quality=0.9)
+    assert result_off == {}
+    off_val = mod_off.residue_field.evaluate_valence(torch.zeros(1, 8))[0, VALENCE_WANTING].item()
+    assert off_val == 0.0
+
+    mod_on = _hippo_module(use_backward_credit_sweep=True)
+    mod_on.residue_field.accumulate(torch.zeros(8), harm_magnitude=0.1)
+    mod_on.record_committed_trajectory(_traj())
+    result_on = mod_on.backward_credit_sweep(outcome_quality=0.9)
+    assert result_on["n_steps_swept"] == 4, (
+        "use_backward_credit_sweep=True did not sweep the recorded committed "
+        "trajectory (inert flag)"
+    )
+    assert result_on["mean_credit"] > 0.0
+    on_val = mod_on.residue_field.evaluate_valence(torch.zeros(1, 8))[0, VALENCE_WANTING].item()
+    assert on_val > 0.0, (
+        "use_backward_credit_sweep=True did not actually write VALENCE_WANTING "
+        "credit into the residue field (inert flag)"
+    )
+
+
+def test_use_offline_wanting_spread_writes_decayed_credit_to_earlier_waypoints():
+    """MECH-217: spread_reverse_replay_wanting is a no-op (empty dict) unless
+    use_offline_wanting_spread=True; ON, a decayed fraction of the terminus's
+    VALENCE_WANTING is written to earlier waypoints of a reverse-replayed
+    trajectory.
+    """
+    from ree_core.predictors.e2_fast import Trajectory
+    from ree_core.residue.field import VALENCE_WANTING
+
+    z = torch.zeros(1, 8)
+
+    def _traj():
+        return Trajectory(
+            states=[z.clone() for _ in range(4)],
+            actions=torch.zeros(1, 3, 4),
+            world_states=[z.clone() for _ in range(4)],
+        )
+
+    mod_off = _hippo_module(use_offline_wanting_spread=False)
+    mod_off.residue_field.accumulate(z.squeeze(0), harm_magnitude=0.1)
+    mod_off.residue_field.update_valence(z, VALENCE_WANTING, 1.0)
+    result_off = mod_off.spread_reverse_replay_wanting(_traj())
+    assert result_off == {}
+
+    mod_on = _hippo_module(use_offline_wanting_spread=True)
+    mod_on.residue_field.accumulate(z.squeeze(0), harm_magnitude=0.1)
+    mod_on.residue_field.update_valence(z, VALENCE_WANTING, 1.0)
+    before = mod_on.residue_field.evaluate_valence(z)[0, VALENCE_WANTING].item()
+    result_on = mod_on.spread_reverse_replay_wanting(_traj())
+    assert result_on["n_steps_spread"] == 3
+    assert result_on["wanting_at_terminus"] > 0.0
+    after = mod_on.residue_field.evaluate_valence(z)[0, VALENCE_WANTING].item()
+    assert after > before, (
+        "use_offline_wanting_spread=True did not increase VALENCE_WANTING at "
+        "an earlier waypoint (inert flag)"
+    )
+
+
+# --------------------------------------------------------------------------- #
 # Flag registry-drift guard                                                   #
 # --------------------------------------------------------------------------- #
 
@@ -1956,6 +2166,12 @@ PROBED = {
     "ewc_enabled",                   # test_ewc_enabled_gates_ewc_penalty
     "cross_stream_binding_enabled",  # test_cross_stream_binding_enabled_couples_the_rollout_streams
     "use_commit_readiness_gate",     # test_use_commit_readiness_gate_blocks_elevation_below_the_floor
+    # HippocampalConfig cluster (same 2026-08-11 audit, batch: HippocampalConfig).
+    "mode_conditioning_enabled",     # test_mode_conditioning_enabled_gates_mode_weighted_cem_scales
+    "use_staleness_accumulator",     # test_use_staleness_accumulator_gates_construction_and_integration
+    "use_mech284_hysteresis",        # test_use_mech284_hysteresis_swaps_the_staleness_lookup_source
+    "use_backward_credit_sweep",     # test_use_backward_credit_sweep_writes_retroactive_valence_credit
+    "use_offline_wanting_spread",    # test_use_offline_wanting_spread_writes_decayed_credit_to_earlier_waypoints
 } | set(FLAGS_WITH_DEFAULT_BEHAVIOURAL_DELTA) | set(FLAGS_WITH_LOUD_PRECONDITION)
 
 # Audit-confirmed inert / mis-wired flags (finding id -> reason). Documented here
@@ -2226,40 +2442,29 @@ KNOWN_UNPROBED_NESTED = {
     # the mechanism is broken.
     "benefit_eval_enabled",
     # --- HippocampalConfig ----------------------------------------------------#
-    # Scales CEM proposal noise (mode_noise_scale) and elite-scoring window
-    # depth (mode_horizon_scale) by a mode-weighted average when an
-    # operating_mode dict is supplied to propose_trajectories. Zero test
-    # coverage anywhere in tests/; the two computation methods are pure and
-    # cache their result (_last_mode_noise_scale/_last_effective_horizon), so
-    # a direct probe is straightforward but not yet written.
-    "mode_conditioning_enabled",
     # SD-055: replaces the legacy argsort-elite CEM refit with a
     # softmax-weighted mean over ALL candidates so gradient can flow to
-    # cue_action_proj. Zero test coverage; the branch is inline inside the
-    # multi-iteration propose_trajectories loop (not factored out), and
-    # proving the actual SD-055 claim (differentiability, not just a numeric
-    # path difference) needs a requires_grad/backward() probe, not merely an
-    # ON!=OFF candidate diff.
+    # cue_action_proj. Investigated 2026-08-11 (flaginertness-probe-writing
+    # follow-on): the refit `ao_mean`/`ao_std` this branch produces are LOCAL
+    # to propose_trajectories's CEM loop and only feed the NEXT iteration's
+    # sampling -- with the common num_cem_iterations=1 they are dead output
+    # entirely (computed, never consumed). Even at num_cem_iterations>=2, the
+    # SD-055 claim is specifically that ao_mean gains a gradient edge back
+    # through the per-candidate SCORES tensor (softmax(-scores/T) weighting)
+    # that the legacy argsort+index selection structurally cannot have
+    # (selection-by-index has no autograd path from the selected values back
+    # to the scores that chose them) -- an ON!=OFF numeric diff on the
+    # sampled candidates is NOT evidence of this (the KNOWN_UNPROBED_NESTED
+    # reason this flag already carried, confirmed correct by this
+    # investigation). Neither `ao_mean` nor the per-iteration `scores` tensor
+    # is exposed outside the method (not on self, not in
+    # get_last_propose_diagnostics()), so isolating the scores-mediated
+    # gradient edge from the (present in BOTH branches) direct
+    # trajectory-content-to-z_world gradient edge would need either new
+    # production instrumentation or monkeypatching private loop-local
+    # variables (_score_trajectory / _stack_std) to intercept them -- a
+    # larger surgical change than a test file should make unilaterally.
     "use_differentiable_cem",
-    # Reads per-anchor staleness from the StalenessAccumulator instead of the
-    # internal (tick - last_accessed) * staleness_rate proxy (requires
-    # use_staleness_accumulator). Zero test coverage; the mechanism is a clean
-    # class-level dissociation (proxy vs accumulator lookup on AnchorSet.
-    # tick_hysteresis) but needs a synthetic staleness-vs-tick-delta
-    # divergence scenario not yet built.
-    "use_mech284_hysteresis",
-    # MECH-290: at BetaGate release, sweeps the committed trajectory backward
-    # writing decayed VALENCE_WANTING credit at each state. The one existing
-    # reference (test_mech_293_ghost_probes.py) uses this flag only to make
-    # record_committed_trajectory store its buffer as a precondition for an
-    # unrelated MECH-293 assertion -- it never calls backward_credit_sweep()
-    # itself or checks the valence write.
-    "use_backward_credit_sweep",
-    # MECH-217: the offline (SWS/REM) complement to MECH-290 -- during the REM
-    # pass, spreads a decayed fraction of the terminus's VALENCE_WANTING to
-    # earlier waypoints of a reverse-replayed trajectory. Zero test coverage
-    # anywhere.
-    "use_offline_wanting_spread",
     # MECH-269/MECH-090: when an E3 commitment is active (beta_gate.
     # is_elevated), releases it if any snapshotted active-anchor key drops out
     # of the current active anchor set. The activating condition is genuinely
@@ -2271,15 +2476,6 @@ KNOWN_UNPROBED_NESTED = {
     # harness driving a commit-then-invalidate sequence over several ticks,
     # comparable in scope to this file's own MECH-321 mid-execution probes.
     "use_vs_commit_release",
-    # MECH-284 Phase 3 region-indexed staleness accumulator, feeding
-    # MECH-284/MECH-269 hysteresis. Real, substantial consumer code exists
-    # (HippocampalModule.integrate_staleness / tick_anchor_set), but every
-    # existing test (test_mech_269b_vs_rollout_gate_staleness.py, several
-    # sleep-phase tests, test_mech286_sleep_onset_gate.py) treats it only as a
-    # PRECONDITION for a sibling flag's own probe (e.g. use_mech284_
-    # hysteresis) -- no test isolates this flag's own ON/OFF gating effect on
-    # the accumulator's construction or on integrate_staleness being called.
-    "use_staleness_accumulator",
     # --- AnchorSetConfig / GhostGoalBankConfig ---------------------------------#
     # Does NOT gate AnchorSet.write_anchor (which accepts goal_payload
     # unconditionally regardless of config). It actually gates (a) whether
