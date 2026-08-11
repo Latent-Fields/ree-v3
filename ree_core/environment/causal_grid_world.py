@@ -4543,8 +4543,9 @@ class CausalGridWorld:
         Poisson appear / disappear of transient hazard cells.
 
         Each cell independently has p_appear * intensity_scale chance per tick of
-        spawning a transient hazard (only on currently empty cells; never on the
-        agent). Each existing transient has p_disappear chance per tick of removing.
+        spawning a transient hazard (only on currently empty, non-reef cells; never
+        on the agent). Each existing transient has p_disappear chance per tick of
+        removing.
 
         Returns (n_appeared, n_disappeared) counts for this tick.
         """
@@ -4566,7 +4567,10 @@ class CausalGridWorld:
             else:
                 survivors.append([tx, ty, age + 1])
         self._transient_hazards = survivors
-        # Appearances: independent per-cell Bernoulli on empty cells (excluding agent).
+        # Appearances: independent per-cell Bernoulli on empty cells (excluding
+        # agent, and excluding reef cells -- same exclusion _drift_hazards
+        # applies; _reef_cells is the empty set when reef_enabled=False, so
+        # this is a no-op for every non-reef experiment).
         if p_appear > 0.0:
             if self.toroidal:
                 cells = [
@@ -4574,6 +4578,7 @@ class CausalGridWorld:
                     for i in range(self.size)
                     for j in range(self.size)
                     if self.grid[i, j] == self.ENTITY_TYPES["empty"]
+                    and (i, j) not in self._reef_cells
                 ]
             else:
                 cells = [
@@ -4581,6 +4586,7 @@ class CausalGridWorld:
                     for i in range(1, self.size - 1)
                     for j in range(1, self.size - 1)
                     if self.grid[i, j] == self.ENTITY_TYPES["empty"]
+                    and (i, j) not in self._reef_cells
                 ]
             for (i, j) in cells:
                 if self._rng.random() < p_appear:
