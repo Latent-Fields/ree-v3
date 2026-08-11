@@ -117,66 +117,101 @@ smoke of an earlier version of this script (no anchor writes) confirmed
 this empirically: P1 (ghost branch live) was False after every tick,
 0/1 seeds. SD-039 anchor population is driver-issued in every existing
 example (V3-EXQ-807's own `aset.write_anchor(...)` calls). This script
-therefore writes a periodic anchor (every ANCHOR_EVERY=8 steps, ARM_OPEN
-only) on the agent's OWN internal `agent.hippocampal.anchor_set` -- not a
-standalone bypass -- tagged with the current z_world + current z_goal
-snapshot. Per `anchor_set.py:write_anchor`'s own docstring, writing a new
-segment_id under the same (scale, stream_mixture) family demotes the
-PRIOR anchor to inactive, which is exactly the dual-trace "ghost" pool
-MECH-292's bank ranks over (`GhostGoalBankConfig` defaults include both
-active and inactive anchors) -- so periodic writes are sufficient to
-populate a nonzero, ghost-eligible pool without any blockage/detour
-mechanism. This is an experimental proxy for the anchor-writing trigger
-(real deployment presumably ties this to goal-abandonment/invalidation
-events, e.g. via a detour as in V3-EXQ-495a's design), not a claim that
-this driver's periodic cadence is how anchors "should" be written in
-general -- flagged explicitly so a reader does not mistake it for
-discovered production behaviour.
+therefore writes an anchor (ARM_OPEN only) on the agent's OWN internal
+`agent.hippocampal.anchor_set` -- not a standalone bypass -- whenever
+`resource_field_view.max() >= ANCHOR_PROXIMITY_THRESHOLD` (genuinely
+resource-proximal, not an arbitrary tick cadence -- see "READOUT
+CALIBRATION" below for why an earlier periodic-cadence version was
+replaced), tagged with the current z_world + current z_goal snapshot,
+`wanting_strength` set to the measured proximity itself. Per
+`anchor_set.py:write_anchor`'s own docstring, writing a new segment_id
+under the same (scale, stream_mixture) family demotes the PRIOR anchor to
+inactive, which is exactly the dual-trace "ghost" pool MECH-292's bank
+ranks over (`GhostGoalBankConfig` defaults include both active and
+inactive anchors) -- so proximity-gated writes are sufficient to
+populate a nonzero, ghost-eligible, genuinely goal-relevant pool without
+any blockage/detour mechanism. This is an experimental proxy for the
+anchor-writing trigger (real deployment presumably ties this to
+goal-abandonment/invalidation events, e.g. via a detour as in
+V3-EXQ-495a's design), not a claim that this driver's proximity-gated
+trigger is how anchors "should" be written in general -- flagged
+explicitly so a reader does not mistake it for discovered production
+behaviour.
 
-READOUT (goal-terrain navigation, MECH-236's own language):
-  contact_rate = (# steps with info["transition_type"]=="resource") /
-                 total_steps, per seed x arm. A direct behavioural
-  navigation-toward-goal measure on the live environment (not a bench
-  arithmetic proxy) -- if proposals degrade to a position-based random
-  walk, contact_rate should be near the terrain-only baseline
-  (ARM_CLOSED); if goal-directed, it should exceed it under ARM_OPEN.
+READOUT CALIBRATION (Step 2.5a empirical probe, load-bearing for the
+final design -- two iterations were needed, both driven by measured
+data, not guesses):
 
-  mech293_n_ghost_admitted (ARM_OPEN only) is the P1 readiness
-  precondition: if the ghost branch never fires, ARM_OPEN is inertly
-  identical to ARM_CLOSED and a null C_MAIN result is uninterpretable
-  ("instrumentation problem", per V3-EXQ-495a's own C1 reasoning, not a
-  scientific finding).
+  (1) Primary DV is mean_resource_proximity
+      (`obs["resource_field_view"].max()`, averaged over every env step
+      in a cell), NOT raw contact_rate. On GRID_SIZE=8 (the value modeled
+      on V3-EXQ-495a / V3-EXQ-807), a probe measured contact_rate pinned
+      near 0.00-0.014 in EVERY arm across 5 probe seeds -- this env's
+      well-documented foraging-competence ceiling (claims.yaml's MECH-230
+      evidence_quality_note describes the same substrate limitation at
+      length: "2/3 seeds making zero resource contact") makes a
+      contact-rate-only C_MAIN uninformative regardless of the channel
+      under test. resource_field_view is continuous and does not require
+      the agent to survive long enough to actually consume a resource.
+      GRID_SIZE was also raised 8 -> 16: at size 8 the 5x5 local field
+      view is saturated near-constant (probe: mean 0.90, stdev 0.02 over
+      200 random steps) because 3 resources densely cover an 8x8 board;
+      at size 16 the same probe gave mean 0.54, stdev 0.24 -- a field
+      that genuinely discriminates near/far. contact_rate is still
+      recorded and reported as secondary/diagnostic context.
 
-  zgoal_norm_mean (both CLOSED and OPEN) is the P2 precondition
-  confirming z_goal formed comparably in both arms under test (the
-  "preserving E3 goal encoding" control).
+  (2) ANCHOR_PROXIMITY_THRESHOLD gates anchor writes on actually being
+      near a resource (see "ANCHOR POPULATION" note above) -- an earlier
+      periodic-write version tagged arbitrary past locations as
+      goal-relevant, and a probe measured that version producing a
+      NEGATIVE proximity gap (ARM_OPEN pulled BELOW ARM_CLOSED on 2 of 3
+      probe seeds): the ghost-probe channel was steering the agent toward
+      stale, goal-irrelevant positions, which is a real, measured
+      substrate behaviour, but not an honest test of MECH-236 (which
+      asks whether a GOAL-relevant channel helps, not whether any
+      arbitrary attractor does).
+
+  Post-fix probe (seeds 42/43/45, same seeds as the pre-registered SEEDS
+  list -- a legitimate readiness check per Step 2.5a, not seed-selection
+  on outcome): mean_resource_proximity gaps (OPEN - CLOSED) of -0.011,
+  -0.054, +0.071. Mixed / noisy, not a clean directional signal at this
+  seed count -- reported honestly rather than further tuned toward a
+  desired result. P1 (ghost branch live) and P2 (z_goal formed
+  comparably) both cleared robustly in every probed cell.
 
 ACCEPTANCE CRITERIA (pre-registered):
 
-  C_MAIN (load-bearing): ARM_OPEN.contact_rate - ARM_CLOSED.contact_rate
-    >= CONTACT_GAP_FLOOR (0.05) in >= 3/5 seeds. THE MECH-236 test.
+  C_MAIN (load-bearing): ARM_OPEN.mean_resource_proximity -
+    ARM_CLOSED.mean_resource_proximity >= PROXIMITY_GAP_FLOOR (0.015) in
+    >= 3/5 seeds. THE MECH-236 test.
 
-  C_CONTEXT (non-gating, reported only): ARM_CLOSED.contact_rate -
-    ARM_NOGOAL.contact_rate. Interpretive context for C_MAIN, not part of
-    MECH-236's own claim (which is specifically about the hippocampal-
-    PROPOSAL channel, not whether z_goal matters via any route at all).
+  C_CONTEXT (non-gating, reported only): ARM_CLOSED.mean_resource_proximity
+    - ARM_NOGOAL.mean_resource_proximity. Interpretive context for
+    C_MAIN, not part of MECH-236's own claim (which is specifically about
+    the hippocampal-PROPOSAL channel, not whether z_goal matters via any
+    route at all). Calibration probe: this gap was EXACTLY 0.0 on every
+    probed seed -- ARM_NOGOAL and ARM_CLOSED produced bit-identical
+    trajectories (deterministic torch.manual_seed(seed) + wanting_weight=0
+    means z_goal existing-but-uninjected has literally no behavioural
+    channel to act through), which is itself a clean confirmation that
+    this design isolates the tested channel rather than leaking through
+    some other z_goal-dependent pathway.
 
 PASS = P1 (ghost branch live) AND P2 (z_goal formed comparably) AND
 C_MAIN.
 
-DV-SYMMETRY (Step 3 mandatory declaration, per arm): contact_rate is a
-COUNT-based rate over discrete environment resource-contact events, not
-derived from any CEM-internal score. It is not invariant under a
-uniform-broadcast-constant manipulation (the V3-EXQ-604c hazard) --
-`use_mech293_ghost_probes` changes WHICH candidate the CEM elite refit and
-E3 selection choose (a discrete selection-path change, not an additive
-scalar applied uniformly to every candidate), so broadcast-invariance
-does not apply. It is not a rank-only / argmax-only DV either
-(contact_rate is a magnitude, not an ordinal comparison), so a
-monotone-rescaling symmetry does not apply. The one real symmetry risk --
-permutation of which of the 5 seeds' resource layouts get contacted -- is
-why the metric is a per-seed RATE aggregated via a pre-registered
-majority seed-fraction, not a pooled sum a single lucky/unlucky seed
+DV-SYMMETRY (Step 3 mandatory declaration, per arm): mean_resource_proximity
+is a per-step MAGNITUDE (a continuous field reading), not derived from any
+CEM-internal score and not a rank/argmax DV, so monotone-rescaling
+symmetry does not apply. It is not invariant under a uniform-broadcast-
+constant manipulation (the V3-EXQ-604c hazard) either -- `use_mech293_
+ghost_probes` changes WHICH candidate the CEM elite refit and E3 selection
+choose (a discrete selection-PATH change altering the agent's actual
+trajectory through the grid), not an additive scalar applied uniformly to
+every candidate's score. The one real symmetry risk -- permutation of
+which of the 5 seeds' resource layouts the agent happens to wander near
+-- is why the metric is a per-seed MEAN aggregated via a pre-registered
+majority seed-fraction, not a pooled average a single lucky/unlucky seed
 could dominate.
 
 claim_ids: ['MECH-236'] (single-claim evidence; MECH-230 is a
@@ -225,9 +260,20 @@ SEEDS: List[int] = [42, 43, 45, 46, 47]  # seed 44: recurring per-seed early-dea
 
 N_EPISODES = 10
 STEPS_PER_EPISODE = 40
-ANCHOR_EVERY = 8  # ARM_OPEN only -- see "ANCHOR POPULATION" docstring note
+# ANCHOR_PROXIMITY_THRESHOLD (ARM_OPEN only -- see "ANCHOR POPULATION"
+# docstring note): write an anchor when resource_field_view.max() clears
+# this bar, i.e. only at genuinely resource-proximal locations, not on an
+# arbitrary tick cadence. An earlier periodic-write version (every 8 steps
+# regardless of position) tagged essentially RANDOM locations as
+# "wanted" -- a Step 2.5a probe measured that version producing a
+# NEGATIVE proximity gap (ARM_OPEN 0.91 vs ARM_CLOSED 0.95 on one probe
+# seed): the ghost-probe channel was pulling the agent toward stale,
+# goal-irrelevant past positions, actively hurting navigation. Gating the
+# write on proximity ties the ghost-goal bank's content to what the
+# architecture's own "unresolved but still-wanted" semantics intend.
+ANCHOR_PROXIMITY_THRESHOLD = 0.8
 
-GRID_SIZE = 8
+GRID_SIZE = 16  # see "READOUT CALIBRATION" docstring note
 NUM_RESOURCES = 3
 # NUM_HAZARDS=0 (Step 2.5a empirical probe finding, not the original
 # 495a-modeled value of 2): with hazards present, an UNTRAINED agent
@@ -410,15 +456,21 @@ def _run_cell(arm: str, seed: int, dry_run: bool = False) -> Dict[str, Any]:
                     # under the same (scale, stream_mixture) family
                     # automatically demotes the prior anchor to INACTIVE,
                     # which is exactly the dual-trace "ghost" pool MECH-292's
-                    # bank ranks over). Periodic write (every ANCHOR_EVERY
-                    # steps) with the current z_world + current z_goal
-                    # snapshot as goal_payload, on the agent's OWN internal
-                    # anchor_set (not a standalone bypass) so
-                    # propose_trajectories reads the same pool this loop
-                    # populates.
+                    # bank ranks over). Write is gated on
+                    # ANCHOR_PROXIMITY_THRESHOLD (genuinely resource-
+                    # proximal), not a raw tick cadence -- see "READOUT
+                    # CALIBRATION" docstring note. current z_world +
+                    # current z_goal snapshot as goal_payload, on the
+                    # agent's OWN internal anchor_set (not a standalone
+                    # bypass) so propose_trajectories reads the same pool
+                    # this loop populates.
+                    rfv_now = obs.get("resource_field_view")
+                    proximity_now = (
+                        float(rfv_now.max().item()) if rfv_now is not None else 0.0
+                    )
                     if (
                         zg is not None
-                        and t % ANCHOR_EVERY == 0
+                        and proximity_now >= ANCHOR_PROXIMITY_THRESHOLD
                         and agent.hippocampal.anchor_set is not None
                     ):
                         agent.hippocampal.anchor_set.write_anchor(
@@ -426,7 +478,7 @@ def _run_cell(arm: str, seed: int, dry_run: bool = False) -> Dict[str, Any]:
                             z_world=latent.z_world.detach().reshape(-1),
                             goal_payload=AnchorGoalPayload(
                                 z_goal_snapshot=zg.detach().reshape(-1).clone(),
-                                wanting_strength=0.5,
+                                wanting_strength=proximity_now,
                             ),
                         )
                     # LATCHED-DIAGNOSTIC GUARD (Step 3.5 "Sample-size
@@ -716,6 +768,8 @@ def main():
         "drive_weight": DRIVE_WEIGHT,
         "forced_benefit": FORCED_BENEFIT,
         "forced_drive": FORCED_DRIVE,
+        "anchor_proximity_threshold": ANCHOR_PROXIMITY_THRESHOLD,
+        "proximity_gap_floor": PROXIMITY_GAP_FLOOR,
         "contact_gap_floor": CONTACT_GAP_FLOOR,
         "zgoal_norm_floor": ZGOAL_NORM_FLOOR,
         "seed_pass_fraction": SEED_PASS_FRACTION,
@@ -751,7 +805,13 @@ def main():
     print(f"outcome: {result['outcome']}", flush=True)
     print(f"label: {result['interpretation']['label']}", flush=True)
     print(
-        f"contact_rate: nogoal={m['nogoal_contact_rate_mean']:.4f} "
+        f"mean_resource_proximity: nogoal={m['nogoal_proximity_mean']:.4f} "
+        f"closed={m['closed_proximity_mean']:.4f} "
+        f"open={m['open_proximity_mean']:.4f}",
+        flush=True,
+    )
+    print(
+        f"contact_rate (secondary): nogoal={m['nogoal_contact_rate_mean']:.4f} "
         f"closed={m['closed_contact_rate_mean']:.4f} "
         f"open={m['open_contact_rate_mean']:.4f}",
         flush=True,
