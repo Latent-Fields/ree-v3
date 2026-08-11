@@ -1680,6 +1680,163 @@ def test_use_offline_wanting_spread_writes_decayed_credit_to_earlier_waypoints()
 
 
 # --------------------------------------------------------------------------- #
+# E3Config benefit-eval warmup gate + AnchorSet/GhostGoalBank/GoalConfig       #
+# flags (2026-08-11 nested-scan individual audit, batch: AnchorSetConfig /    #
+# GhostGoalBankConfig / GoalConfig / benefit_eval_enabled)                    #
+# --------------------------------------------------------------------------- #
+
+def test_benefit_eval_enabled_gates_score_trajectory_after_warmup():
+    """ARC-030/MECH-112: score_trajectory subtracts benefit_weight *
+    compute_benefit_score from cost only once BOTH benefit_eval_enabled=True
+    AND the warmup gate (_BENEFIT_WARMUP_SAMPLES) has been cleared via
+    record_benefit_sample(). Before warmup (even with the flag on) it must
+    be bit-identical to OFF.
+
+    Compared WITHIN one selector instance (toggle config.benefit_eval_enabled
+    after construction) rather than two separately-constructed selectors, so
+    unrelated weight-init RNG divergence between instances cannot be mistaken
+    for the flag's effect.
+    """
+    sel = _e3_selector()  # benefit_eval_enabled=False by default
+    traj = _e3_candidate(0)
+
+    off_score = sel.score_trajectory(traj)
+
+    sel.config.benefit_eval_enabled = True
+    sel.config.benefit_weight = 5.0
+    on_before_warmup = sel.score_trajectory(traj)
+    assert torch.allclose(off_score, on_before_warmup), (
+        "benefit_eval_enabled=True before record_benefit_sample() warmup "
+        "must be bit-identical to OFF"
+    )
+
+    sel.record_benefit_sample(sel._BENEFIT_WARMUP_SAMPLES)
+    on_after_warmup = sel.score_trajectory(traj)
+    assert not torch.allclose(on_after_warmup, off_score), (
+        "benefit_eval_enabled=True with the warmup gate cleared did not "
+        "change score_trajectory's output (inert flag)"
+    )
+
+
+def test_use_sd039_anchor_payload_gates_build_goal_payload():
+    """SD-039: HippocampalModule.build_goal_payload() returns None unless
+    AnchorSetConfig.use_sd039_anchor_payload=True (in addition to
+    use_anchor_sets=True on the module itself).
+    """
+    from types import SimpleNamespace
+    from ree_core.utils.config import AnchorSetConfig
+
+    mod_off = _hippo_module(
+        use_anchor_sets=True, anchor_set=AnchorSetConfig(use_sd039_anchor_payload=False)
+    )
+    mod_on = _hippo_module(
+        use_anchor_sets=True, anchor_set=AnchorSetConfig(use_sd039_anchor_payload=True)
+    )
+    latent_state = SimpleNamespace(z_world=torch.randn(1, 8))
+
+    assert mod_off.build_goal_payload(latent_state) is None
+    payload_on = mod_on.build_goal_payload(latent_state)
+    assert payload_on is not None, (
+        "use_sd039_anchor_payload=True with use_anchor_sets=True did not "
+        "build a payload (inert flag)"
+    )
+
+
+def test_use_composite_cue_outshining_gates_the_context_term():
+    """MECH-339 Constraint 1: GhostGoalBank.rank() adds a fifth "context"
+    component (gated open on a weak direct goal_match, scaled by
+    arousal_tag) only when use_composite_cue_outshining=True. Master OFF
+    carries no "context" key at all; master ON with the context_weight=0.0
+    default carries the key but pinned at exactly 0.0 (the documented
+    no-op-default contract); master ON with a real context_weight and a
+    weak-match anchor produces a nonzero term that changes ghost_priority.
+    Direct AnchorSet/GhostGoalBank construction mirrors
+    test_mech340_persistence_efficacy_gate.py's `_anchor`/`_bank` helpers.
+    """
+    from ree_core.hippocampal.anchor_set import Anchor, AnchorGoalPayload, AnchorSet
+    from ree_core.hippocampal.ghost_goal_bank import GhostGoalBank, GhostGoalBankConfig
+    from ree_core.utils.config import AnchorSetConfig
+
+    def _anchor(zsnap, arousal_tag):
+        a = Anchor(key=("fast", "A", ("s",)), z_world=torch.zeros(4), active=False)
+        a.goal_payload = AnchorGoalPayload(
+            z_goal_snapshot=torch.tensor(zsnap, dtype=torch.float32).unsqueeze(0),
+            wanting_strength=0.3,
+            arousal_tag=arousal_tag,
+            last_vs=0.6,
+        )
+        return a
+
+    def _bank(anchor, cfg):
+        s = AnchorSet(AnchorSetConfig())
+        s._all = {anchor.key: anchor}
+        return GhostGoalBank(cfg, s)
+
+    z_goal = torch.tensor([1.0, 0.0, 0.0, 0.0])
+    anchor_weak_match = _anchor([0.2, 1.0, 0.0, 0.0], arousal_tag=0.9)  # clears goal_match_floor, well below outshine_pivot
+
+    off = _bank(anchor_weak_match, GhostGoalBankConfig()).rank(z_goal)
+    assert len(off) == 1
+    assert "context" not in off[0].components
+
+    on_zero_weight = _bank(
+        anchor_weak_match, GhostGoalBankConfig(use_composite_cue_outshining=True)
+    ).rank(z_goal)
+    assert on_zero_weight[0].components.get("context") == 0.0, (
+        "context_weight defaults to 0.0; a bare master-flag-on must still "
+        "carry an exactly-zero context term (no-op-default contract)"
+    )
+
+    on = _bank(
+        anchor_weak_match,
+        GhostGoalBankConfig(use_composite_cue_outshining=True, context_weight=1.0),
+    ).rank(z_goal)
+    assert on[0].components.get("context", 0.0) > 0.0, (
+        "use_composite_cue_outshining=True with context_weight>0 and a weak "
+        "direct goal_match did not add a nonzero context term (inert flag)"
+    )
+    assert on[0].ghost_priority != off[0].ghost_priority
+
+
+def test_use_cue_recall_gates_cue_recall_wanting():
+    """SD-057 L6 (MECH-347): REEAgent.cue_recall_wanting() returns exactly
+    0.0 unless GoalConfig.use_cue_recall=True -- even with an active
+    IncentiveTokenBank carrying a real, matching, positive-value token
+    (use_incentive_token_bank=True on BOTH arms, isolating use_cue_recall as
+    the only variable).
+    """
+    from ree_core.utils.config import REEConfig
+    from ree_core.agent import REEAgent
+
+    def _agent(use_cue_recall: bool) -> REEAgent:
+        cfg = REEConfig.from_dims(body_obs_dim=10, world_obs_dim=54, action_dim=4)
+        cfg.goal.z_goal_enabled = True
+        cfg.goal.use_incentive_token_bank = True
+        cfg.goal.use_cue_recall = use_cue_recall
+        return REEAgent(cfg)
+
+    ag_off = _agent(use_cue_recall=False)
+    ag_on = _agent(use_cue_recall=True)
+
+    for ag in (ag_off, ag_on):
+        gs = ag.goal_state
+        assert gs.incentive_bank is not None
+        z_obj = torch.randn(1, gs.config.goal_dim)
+        gs.incentive_bank.update(resource_type=1, benefit=1.0, z_object=z_obj)
+
+    off_strength = ag_off.cue_recall_wanting(cue_type=1, drive_level=1.0)
+    on_strength = ag_on.cue_recall_wanting(cue_type=1, drive_level=1.0)
+    assert off_strength == 0.0, (
+        "use_cue_recall=False must return exactly 0.0 even with a matching "
+        "token in an active incentive bank"
+    )
+    assert on_strength > 0.0, (
+        "use_cue_recall=True with a matching token did not return a "
+        "positive pull strength (inert flag)"
+    )
+
+
+# --------------------------------------------------------------------------- #
 # Flag registry-drift guard                                                   #
 # --------------------------------------------------------------------------- #
 
@@ -2172,6 +2329,12 @@ PROBED = {
     "use_mech284_hysteresis",        # test_use_mech284_hysteresis_swaps_the_staleness_lookup_source
     "use_backward_credit_sweep",     # test_use_backward_credit_sweep_writes_retroactive_valence_credit
     "use_offline_wanting_spread",    # test_use_offline_wanting_spread_writes_decayed_credit_to_earlier_waypoints
+    # AnchorSetConfig/GhostGoalBankConfig/GoalConfig + benefit_eval_enabled
+    # cluster (same 2026-08-11 audit).
+    "benefit_eval_enabled",          # test_benefit_eval_enabled_gates_score_trajectory_after_warmup
+    "use_sd039_anchor_payload",      # test_use_sd039_anchor_payload_gates_build_goal_payload
+    "use_composite_cue_outshining",  # test_use_composite_cue_outshining_gates_the_context_term
+    "use_cue_recall",                # test_use_cue_recall_gates_cue_recall_wanting
 } | set(FLAGS_WITH_DEFAULT_BEHAVIOURAL_DELTA) | set(FLAGS_WITH_LOUD_PRECONDITION)
 
 # Audit-confirmed inert / mis-wired flags (finding id -> reason). Documented here
@@ -2432,15 +2595,6 @@ KNOWN_UNPROBED_NESTED = {
     # flag), none of which is itself cleanly probed against OFF in this suite
     # (see use_loop_segregation above). Zero test references anywhere.
     "use_loop_local_eligibility_traces",
-    # In score_trajectory, subtracts benefit_weight * compute_benefit_score
-    # (the benefit_eval_head's Go-channel output) from trajectory cost, gated
-    # on a 50-sample warmup (_BENEFIT_WARMUP_SAMPLES) cleared via
-    # record_benefit_sample(). Real and heavily used by ~35 experiment
-    # scripts, but this file's own tiny batch harness never calls
-    # record_benefit_sample(), so the warmup gate is never cleared here --
-    # exactly why it reads as inert in THIS harness specifically, not evidence
-    # the mechanism is broken.
-    "benefit_eval_enabled",
     # --- HippocampalConfig ----------------------------------------------------#
     # SD-055: replaces the legacy argsort-elite CEM refit with a
     # softmax-weighted mean over ALL candidates so gradient can flow to
@@ -2476,32 +2630,6 @@ KNOWN_UNPROBED_NESTED = {
     # harness driving a commit-then-invalidate sequence over several ticks,
     # comparable in scope to this file's own MECH-321 mid-execution probes.
     "use_vs_commit_release",
-    # --- AnchorSetConfig / GhostGoalBankConfig ---------------------------------#
-    # Does NOT gate AnchorSet.write_anchor (which accepts goal_payload
-    # unconditionally regardless of config). It actually gates (a) whether
-    # HippocampalModule.build_goal_payload() returns a real payload vs None,
-    # and (b) a loud precondition raised when use_mech292_ghost_bank is on
-    # while this is off. The existing "S2 default backward-compat" test
-    # hand-constructs payloads and passes them directly to write_anchor,
-    # never consulting the flag -- it proves nothing about the real gate.
-    # build_goal_payload has zero test references anywhere.
-    "use_sd039_anchor_payload",
-    # GhostGoalBank.rank() adds a gated context_term (the outshining gate
-    # opens when direct goal_match is weak, scaled by arousal_tag-derived
-    # salience) to ghost_priority. Zero test coverage anywhere outside this
-    # file; the sibling flag use_persistence_efficacy_gate on the same class
-    # has a dedicated test file (test_mech340_persistence_efficacy_gate.py)
-    # whose helpers are directly reusable for this one.
-    "use_composite_cue_outshining",
-    # --- GoalConfig -------------------------------------------------------------#
-    # Gates REEAgent.cue_recall_wanting(), a cue-triggered pre-consummatory
-    # z_goal pull; has a loud precondition requiring use_incentive_token_bank
-    # that is NOT currently registered in FLAGS_WITH_LOUD_PRECONDITION. Zero
-    # callers inside ree_core/ itself -- only experiment scaffolds call it
-    # explicitly, it is not on the autonomous per-tick path. Existing coverage
-    # only drives the ON half (held constant True); no test confirms it
-    # returns exactly 0.0 with a matching token but the flag False.
-    "use_cue_recall",
 }
 
 
