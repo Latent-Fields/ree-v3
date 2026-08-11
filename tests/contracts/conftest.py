@@ -380,6 +380,7 @@ def scan_corpus() -> CorpusScan:
         ("dacc_last_bundle_lint", V.dacc_last_bundle_lint),
         ("agent_construction_before_seed_lint", V.agent_construction_before_seed_lint),
         ("zworld_p0_warmup_lint", V.zworld_p0_warmup_lint),
+        ("fishtank_episode_log_seeds_lint", V.fishtank_episode_log_seeds_lint),
     )
 
     scan = CorpusScan()

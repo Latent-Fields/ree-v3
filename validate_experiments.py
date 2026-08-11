@@ -46,7 +46,8 @@ CHECK_NAMES = ("conformance", "readiness", "arm_fingerprint", "degeneracy", "man
                "dead_z_goal_stream", "hardcoded_dry_run", "emit_outcome_dry_run",
                "write_pack_dry_run", "dry_run_unreachable_criterion",
                "config_slice_declaration", "inert_salience_dacc_bias",
-               "dacc_last_bundle", "agent_seed_order", "zworld_p0_warmup")
+               "dacc_last_bundle", "agent_seed_order", "zworld_p0_warmup",
+               "fishtank_episode_log_seeds")
 
 # Readiness-gate static lint (proposal_trivial_prediction_readiness_gate_2026-06-06).
 # A diagnostic/baseline script whose interpretation grid self-routes to one of
@@ -5741,6 +5742,85 @@ def agent_construction_before_seed_lint(path: Path) -> Optional[str]:
     )
 
 
+_FISHTANK_EPISODE_LOG_SEEDS_EXEMPT_MARKER = "FISHTANK_EPISODE_LOG_SEEDS_EXEMPT"
+
+
+def fishtank_episode_log_seeds_lint(path: Path) -> Optional[str]:
+    """Wrong top-level key on a fishtank-feed `episode_log` dict. Return an issue
+    string, or None.
+
+    Fires when the driver assigns a dict LITERAL to a variable named `episode_log`
+    (the sibling `*_episode_log.json` companion file `serve.py`'s
+    `/api/fishtank/logs` auto-discovers next to the manifest) whose top-level keys
+    do not include `"seeds"`. `REE_assembly/fishtank_viz.html`'s `loadData()`
+    hard-requires `data.seeds` (a non-empty list, each entry read as at least
+    `{seed, episodes}`, with an optional `arm` string used for seed-button
+    labelling) and shows "Episode log has no seed data." for anything else --
+    silently, with no error in the writer.
+
+    Confirmed live: V3-EXQ-913 wrote `"runs"` instead of `"seeds"`, breaking the
+    picker for all 3 of that driver's logged runs undetected by
+    `validate_experiments.py --strict` or the driver's own `--dry-run` smoke,
+    because neither checks this specific driver-JSON-vs-viewer-JS contract (fixed
+    ree-v3 828bd8b8c9). Writing this lint found a SECOND, independent instance the
+    same day: the V3-EXQ-483 lineage (483/483a/483b) writes `"arms"` instead of
+    `"seeds"` -- see `test_landed_carrier_drivers_still_fire` in this lint's
+    contract test for the pinned set.
+
+    Only the top-level key is checked, deliberately -- NOT the shape of the
+    container's entries. A driver can build its seed list through a helper
+    (`v3_exq_495` assigns a bare `Name` built earlier in the function), which a
+    static per-key scan cannot follow without false negatives on the very
+    construction it is trying to verify; the key name is the load-bearing,
+    reliably-static half of the contract, and it is the half that has actually
+    broken twice.
+
+    WARN-only in BOTH modes -- never hardens under --paths. Do NOT retro-edit a
+    LANDED driver whose run is complete (the 483 lineage): a completed run's
+    pre-registered emission is not rewritten; queue a superseding EXQ letter, or
+    regenerate the sibling `*_episode_log.json` file alone if the manifest itself
+    is unaffected. Exempt with FISHTANK_EPISODE_LOG_SEEDS_EXEMPT = "<reason>" when
+    a script legitimately names a local dict `episode_log` for something other
+    than the fishtank-viz feed.
+    """
+    try:
+        src = path.read_text(encoding="utf-8")
+        tree = ast.parse(src, filename=str(path))
+    except (OSError, SyntaxError, UnicodeDecodeError):
+        return None
+
+    if _FISHTANK_EPISODE_LOG_SEEDS_EXEMPT_MARKER in src:
+        return None
+
+    findings: List[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Dict):
+            continue
+        if not any(isinstance(t, ast.Name) and t.id == "episode_log" for t in node.targets):
+            continue
+        keys = _dict_str_keys(node.value)
+        if "seeds" in keys:
+            continue
+        found = ", ".join(repr(k) for k in keys) if keys else "(no string-literal keys)"
+        findings.append(f"line {node.lineno}: top-level keys are {{{found}}}")
+
+    if not findings:
+        return None
+
+    return (
+        "episode_log dict has no top-level 'seeds' key (" + "; ".join(findings) + "). "
+        "fishtank_viz.html's loadData() hard-requires data.seeds and shows "
+        "'Episode log has no seed data.' for anything else -- confirmed live twice "
+        "(V3-EXQ-913 wrote 'runs'; the V3-EXQ-483 lineage writes 'arms'). Rename the "
+        "key to 'seeds'; each entry should be a dict with at least {seed, episodes} "
+        "(an optional 'arm' string is fine and used for seed-button labelling). "
+        "Do NOT retro-edit a LANDED driver whose run is complete -- queue a "
+        "superseding EXQ letter instead. Exempt with "
+        f"{_FISHTANK_EPISODE_LOG_SEEDS_EXEMPT_MARKER} = \"<reason>\" when this "
+        "episode_log dict is not meant to feed the fishtank viewer."
+    )
+
+
 def _candidate_paths(paths: Sequence[str]) -> List[Path]:
     if paths:
         return [Path(p).resolve() for p in paths]
@@ -5815,6 +5895,7 @@ def main() -> int:
     dacc_last_bundle_warnings: List[Tuple[Path, str]] = []
     agent_seed_order_warnings: List[Tuple[Path, str]] = []
     zworld_p0_warmup_warnings: List[Tuple[Path, str]] = []
+    fishtank_episode_log_seeds_warnings: List[Tuple[Path, str]] = []
     for p in paths:
         rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
         if "conformance" in selected:
@@ -6002,6 +6083,13 @@ def main() -> int:
                 # this scan cannot follow is invisible, and a landed carrier's run is
                 # complete, so hardening would block commits on history).
                 zworld_p0_warmup_warnings.append((p, zpw))
+        if "fishtank_episode_log_seeds" in selected:
+            fels = fishtank_episode_log_seeds_lint(p)
+            if fels:
+                # WARN-only in BOTH modes -- see fishtank_episode_log_seeds_lint() for why
+                # this one never hardens under --paths (the landed V3-EXQ-483 lineage's
+                # runs are complete, so hardening would block commits on history).
+                fishtank_episode_log_seeds_warnings.append((p, fels))
 
     print("", flush=True)
     print(f"[validate_experiments] checked {len(paths)} scripts: "
@@ -6028,7 +6116,9 @@ def main() -> int:
           f"{len(inert_dacc_bias_warnings)} inert-salience-dacc_bias-warning(s), "
           f"{len(dacc_last_bundle_warnings)} dacc-_last_bundle-warning(s), "
           f"{len(agent_seed_order_warnings)} agent-seed-order-warning(s), "
-          f"{len(zworld_p0_warmup_warnings)} zworld_p0-warmup-warning(s)", flush=True)
+          f"{len(zworld_p0_warmup_warnings)} zworld_p0-warmup-warning(s), "
+          f"{len(fishtank_episode_log_seeds_warnings)} fishtank-episode_log-seeds-warning(s)",
+          flush=True)
     if zworld_p0_warmup_warnings:
         # Advisory in BOTH modes (never hardens). A fire here means the driver calls
         # _train_all_on_agent but never passes zworld_p0_episodes anywhere in the file, so
@@ -6042,6 +6132,20 @@ def main() -> int:
         print("", flush=True)
         print("[validate_experiments] ZWORLD_P0-WARMUP WARNINGS (advisory, non-blocking):", flush=True)
         for p, warn in zworld_p0_warmup_warnings:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
+            print(f"  - {rel}: {warn}", flush=True)
+    if fishtank_episode_log_seeds_warnings:
+        # Advisory in BOTH modes (never hardens). A fire here means the driver's
+        # `episode_log` dict literal has no top-level 'seeds' key, so
+        # fishtank_viz.html's loadData() shows "Episode log has no seed data." for
+        # every logged run -- confirmed twice (V3-EXQ-913 wrote 'runs'; the
+        # V3-EXQ-483 lineage writes 'arms'). Triage each: rename the key to
+        # 'seeds' (each entry needs at least {seed, episodes}). Do NOT retro-edit
+        # a LANDED driver whose run is complete -- queue a superseding EXQ letter
+        # instead.
+        print("", flush=True)
+        print("[validate_experiments] FISHTANK-EPISODE_LOG-SEEDS WARNINGS (advisory, non-blocking):", flush=True)
+        for p, warn in fishtank_episode_log_seeds_warnings:
             rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
             print(f"  - {rel}: {warn}", flush=True)
     if agent_seed_order_warnings:
