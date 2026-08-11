@@ -2141,9 +2141,18 @@ def _collect_companion_files(manifest_path: Path, manifest_doc: dict) -> list[Pa
          generalises beyond episode logs). Each entry is a basename or a path
          resolved relative to the manifest's directory (absolute paths are
          taken as-is).
-      2. Auto-discovery of `*_episode_log.json` in the manifest's directory
-         (convenience for the fishtank showcase pattern, which does not yet
-         declare companion_files).
+      2. Auto-discovery of THIS manifest's own `<stem>_episode_log.json` next
+         to it (convenience for the fishtank showcase pattern, which does not
+         yet declare companion_files). Deliberately scoped to this one
+         expected name, NOT a directory-wide `*_episode_log.json` glob: a
+         per-experiment-type directory accumulates one manifest + sidecar per
+         historical run, and a wildcard would sweep in a PRIOR REAL run's
+         sidecar alongside this manifest. See
+         experiment_protocol._iter_companion_files (the same fix, applied
+         there first after it hit exactly this bug live 2026-08-11 in the
+         destructive --dry-run relocation path -- this call site is
+         non-destructive (read/upload only) but would otherwise mis-attribute
+         an unrelated run's sidecar to this manifest's coordinator spool).
     """
     manifest_dir = manifest_path.parent
     manifest_resolved = manifest_path.resolve()
@@ -2170,8 +2179,7 @@ def _collect_companion_files(manifest_path: Path, manifest_doc: dict) -> list[Pa
                 p = manifest_dir / entry
             _add(p)
 
-    for p in sorted(manifest_dir.glob("*_episode_log.json")):
-        _add(p)
+    _add(manifest_dir / f"{manifest_path.stem}_episode_log.json")
 
     return out
 

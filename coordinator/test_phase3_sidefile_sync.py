@@ -454,6 +454,30 @@ class RunnerHelperTest(unittest.TestCase):
             [p.name for p in comp],
             ["v3_exq_664_x_20260610T010101Z_episode_log.json"])
 
+    def test_collect_autodiscovery_ignores_unrelated_sibling_episode_log(self):
+        """Regression for the shape of bug caught live 2026-08-11 in the
+        sibling _relocate_dry_run_manifest path (experiment_protocol.py,
+        _iter_companion_files): a directory-wide `*_episode_log.json` glob
+        would sweep up a PRIOR REAL run's episode_log sitting in the same
+        per-experiment-type directory alongside the manifest being processed.
+        This call site is non-destructive (read/upload only, not delete), but
+        the same over-collection would mis-attribute an unrelated run's
+        sidecar to this manifest's coordinator spool. Auto-discovery must
+        match only THIS manifest's own expected sidecar name."""
+        flat_mp = self._companion_dir / "v3_exq_664_x_20260610T020202Z.json"
+        flat_mp.write_text(json.dumps({"run_id": "rid"}))
+        own_log = (self._companion_dir
+                   / "v3_exq_664_x_20260610T020202Z_episode_log.json")
+        own_log.write_text(json.dumps({"episodes": ["mine"]}))
+        # Unrelated prior real run's sidecar in the SAME directory.
+        (self._companion_dir
+         / "v3_exq_664_x_20260425T204829Z_episode_log.json").write_text(
+             json.dumps({"episodes": ["real evidence, not mine"]}))
+        comp = self._r._collect_companion_files(
+            flat_mp, json.loads(flat_mp.read_text()))
+        self.assertEqual([p.name for p in comp], [own_log.name],
+                          "only the manifest's own sidecar may be collected")
+
     def test_collect_excludes_manifest_itself(self):
         self._mp.write_text("{}")
         comp = self._r._collect_companion_files(self._mp, {})
