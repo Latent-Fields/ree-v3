@@ -1142,8 +1142,13 @@ the concrete next step for testing whether REE exploits it, not merely whether i
         "phase": "developmental_ecology_layout_continuous_zoned_sleep_ablation",
         "toroidal": bool(first_env_config.get("toroidal", False)),
         "env_config": first_env_config,
-        "runs": [{"seed": r["seed"], "arm": r["arm"], "episodes": r.get("episodes_full", [])}
-                 for r in results],
+        # NOTE: key MUST be "seeds", not "runs" -- fishtank_viz.html's loadData()
+        # requires data.seeds (a flat list, each entry read as {seed, episodes,
+        # ...}) and shows "Episode log has no seed data." otherwise. The extra
+        # "arm" field per entry is harmless -- the viewer ignores unknown keys
+        # and labels each seed button using it when present (see fishtank_viz.html).
+        "seeds": [{"seed": r["seed"], "arm": r["arm"], "episodes": r.get("episodes_full", [])}
+                  for r in results],
     }
 
     return {
