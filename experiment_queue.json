@@ -43,6 +43,22 @@
       "episodes_per_run": 50,
       "experiment_type": "v3_exq_916_relief_safety_fishtank_showcase",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-603t",
+      "title": "MECH-357 SD-029 scheduled-external-hazard Stage-H: agent-relative discrete threat replaces 603s's undirected mobile-predator drift (successor of 603s)",
+      "experiment_type": "v3_exq_603t_instrumental_avoidance_scheduled_external_hazard",
+      "script": "experiments/v3_exq_603t_instrumental_avoidance_scheduled_external_hazard.py",
+      "priority": 40,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 360,
+      "episodes_per_run": 235,
+      "seeds": 3,
+      "conditions": 3,
+      "claim_id": "MECH-357",
+      "predecessor": "V3-EXQ-603s",
+      "note": "SD-029 scheduled-external-hazard successor of V3-EXQ-603s per mech357_freeze_incompatible_pressure_scoping_2026-08-10.md. 603s's mobile-predator field (env_drift interval=1/prob=0.6) FAILED discrimination on an EXACT TIE (G_H_LESION_frac == G_H_INTACT_frac == 0.6667). The scoping spike traced this to env_drift being UNDIRECTED (_drift_hazards never targets the agent), which on a 10x10 grid with 4 fast hazards produces a spawn-position lottery rather than a graded conflict (603s's own per-seed data is strictly bimodal: 200-step ceiling or ~5.5-6-step self-contamination death). 603t replaces it with SD-029 scheduled_external_hazard (interval=20, prob=0.9, adjacent_only=True), an already-built, previously-unused CausalGridWorldV2 mechanism (causal_grid_world.py:260-270/4774-4843) that deterministically places a hazard adjacent to the agent's CURRENT position on a schedule -- agent-relative and discrete, removing the spawn-lottery confound. Threaded through scaffolded_sd054_onboarding.py's Stage-H _build_env (new scaffold_hazard_stage_scheduled_external_hazard_* knobs, default-off/bit-identical -- empirically probed: 2 injections in 33 steps at interval=15, matches expected floor(33/15)). Ambient env_drift reverted to defaults (5, 0.3) so the discrete injection is the isolated new pressure variable. Same 3 arms x 3 seeds [42,43,44] + two-sided discriminative-headroom guard as 603s (unchanged -- it worked as designed there). GOV-REUSE-1: decisive readout (G_H_LESION + INTACT-beats-LESION under SD-029 scheduled hazard) is a NEW manipulation absent from every recorded run -> not reanalysis-recoverable, ran fresh. Re-derive brake: count=1 for MECH-357 (603s only), below threshold=2 -> does not fire. Substrate-path overlap gate: no open corrupting substrate_queue entry overlaps scaffolded_sd054_onboarding.py or causal_grid_world.py. Smoke PASS (--dry-run, single seed, no crash); validate_experiments.py --strict clean (0 warnings, all 24 checks). Config commit: ree-v3 242fd7e74a. Prefer cloud (linux-x86_64)."
     }
   ]
 }
