@@ -47,25 +47,6 @@
       "episodes_per_run": 220,
       "experiment_type": "v3_exq_921_mech490_sleep_commitgate_spawn_matched",
       "seeds": 6
-    },
-    {
-      "queue_id": "V3-EXQ-919",
-      "title": "MECH-321 harm-aware selection, unconditional whole-episode harm rate (n=40 seeds, no screen/tiering, redesigned DV + A-A null control)",
-      "script": "experiments/v3_exq_919_mech321_harm_aware_selection_unconditional_wholeepisode.py",
-      "priority": 35,
-      "machine_affinity": "any",
-      "estimated_minutes": 1260,
-      "claim_id": "MECH-321",
-      "note": "Redesigned MECH-321 harm-aware-selection measurement (chip-20260810-mech321-repose-measurement-queue), ratified by the 2026-08-10 /governance cycle's GOV-DIAG-1 recurrence routing. Design work done in evidence/planning/mech321_harm_aware_selection_measurement_redesign_staged_2026-08-08.md; this entry is the build/queue step only. NEW EXQ NUMBER, not 867c: three design axes changed at once vs 867b -- unit of comparison (every measured seed, no screen/tiering), DV (unconditional whole-episode mean_harm_signal delta, no divergence-tick windowing), sampling (n=40 pre-registered seeds, no exclusion, plus a 4-seed A-A null control). 867b's own manifest shows its screen-soundness falsification was an RNG-reset INSTRUMENTATION ARTIFACT (screen cells bypassed arm_cell's reset; measurement cells did not -- the two phases measured different agents), NOT evidence the manipulation perturbs decomposition; the violation appeared in the OFF arm, which is provably inert (GFLAG-0014/0015/0021, corrected 2026-08-09). Every cell in this driver -- 40 measurement seeds x 2 arms + 4 A-A control seeds x 2 replicates = 88 cells, 1056 episodes -- enters through arm_cell (full RNG reset); there is no bare _run_cell call anywhere. The A-A control discharges the matching-validity precondition BY CONSTRUCTION: any nonzero OFF-vs-OFF delta voids the run (non_degenerate:false, no C1 reading). Readiness (harm_bias_engages) asserted PER-CELL, not per-run aggregate as 867b did. GOV-REUSE-1 checked via reanalysis_query.py (--readout mean_harm_signal --claim MECH-321): all 6 prior MECH-321 manifests carrying this readout have distinct substrate_hash values, none compatible -- not recoverable, run fresh. ree_core/** moved 18 commits since 867b (2026-08-04), so try_reuse_cell is omitted (would refuse on every cell); this run's own ARM_SELECTION_OFF cells are minted reuse-eligible (include_driver_script_in_hash=False) as the current canonical baseline for this lineage. Re-derive brake (2.5b): does not apply -- all four prior autopsies scored non_contributory/measurement_test_design_defect or environment_adequacy_defect (instrument-defect categories the brake's carve-out excludes), never substrate_ceiling. Bar unchanged (EFFECT_SIZE_K_SIGMA=1.0, REL_IMPROVEMENT_FLOOR=0.0); hard n>=40 floor, never softened. `supersedes` deliberately omitted -- 867b is not superseded, it is a different measurement of the same question. Smoke PASS (--dry-run, 3 measurement seeds + 1 A-A control seed x reduced 2-episode schedule): harm_bias engages on every ON cell (min=6>0) and inert on every OFF cell (max=0); A-A control bit-identical (delta=0.0, action sequences equal). validate_experiments.py --strict clean, 0 warnings. Estimated ~21h at 867b's measured 71.7 s/episode -- routed to a cloud worker (any), not the Mac.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-08-11T18:20:45Z"
-      },
-      "conditions": 2,
-      "episodes_per_run": 12,
-      "experiment_type": "v3_exq_919_mech321_harm_aware_selection_unconditional_wholeepisode",
-      "seeds": 44
     }
   ]
 }
