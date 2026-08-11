@@ -3147,6 +3147,21 @@ class REEConfig:
     # contextual safety builds slowly over repeated exposure (diffuse/passive update).
     contextual_safety_accum_weight: float = 0.01
     # z_harm_a norm below this threshold counts as "harm absent" for accumulation.
+    # CAUTION -- this default is NOT calibrated against the real affective-harm
+    # encoder and is unreachable in every V3 experiment that has exercised the
+    # live agent-path gate to date: V3-EXQ-764 measured the z_harm_a norm SAFE
+    # baseline at ~0.547 (SD-011: the encoder does not discriminate hazard
+    # density -- unsafe measured ~0.542, nearly identical), 11x above this 0.05
+    # floor, so it never fires. V3-EXQ-520 (the substrate-readiness diagnostic)
+    # had to override to 999 just to force accumulation through sense() at all.
+    # V3-EXQ-916 left this at default and got num_safety_steps=0 for its entire
+    # run (see mech303_contextual_safety_threshold_reachability.md). Any driver
+    # enabling use_contextual_safety_terrain=True MUST explicitly override this
+    # to a value calibrated against that run's own z_harm_a distribution --
+    # never rely on the default reaching. Note also that a threshold high enough
+    # to be reachable (~0.55) is, per 764, too close to the unsafe-context value
+    # to reliably discriminate -- this is a known SD-011 encoder limitation, not
+    # just a threshold-tuning problem.
     contextual_safety_harm_threshold: float = 0.05
     # Safety terrain scalar at current z_world must exceed this threshold
     # (with beta_gate elevated) to trigger commitment release.

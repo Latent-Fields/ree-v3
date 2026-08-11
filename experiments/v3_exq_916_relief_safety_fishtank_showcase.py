@@ -69,6 +69,28 @@ load-bearing on `liking`'s absolute magnitude) -- noted here so a future reader
 of `liking` growth in this run's episode_log does not mistake it for a novel
 finding specific to relief/safety.
 
+KNOWN LIMITATION (MECH-303 default threshold unreachable, not a bug): this driver
+leaves `contextual_safety_harm_threshold` at its REEConfig default (0.05) and, in
+a 4000-step diagnostic run of this driver, `agent.residue_field.total_safety` and
+`num_safety_steps` were 0.0 / 0 for the ENTIRE run -- `accumulate_safety()` was
+never invoked. This is expected, not a wiring defect: the default 0.05 sits ~11x
+below the affective-harm encoder's actual z_harm_a norm baseline (~0.547 safe /
+~0.542 unsafe per V3-EXQ-764's calibration measurement, itself an SD-011
+limitation -- the encoder barely discriminates hazard density at all), so
+`z_harm_a.norm() < 0.05` essentially never holds. Every other experiment that has
+exercised this live gate has had to override the threshold explicitly
+(V3-EXQ-520's readiness diagnostic used 999 to force accumulation; V3-EXQ-764
+calibrated per-seed to 0.55, and even then noted that value barely discriminates
+safe from unsafe). MECH-303 itself is real and separately validated at the
+representation level by V3-EXQ-760 (which bypasses this gate entirely, calling
+`accumulate_safety` directly against ground-truth hazard proximity rather than
+the live agent's z_harm_a norm) -- this limitation is about the DEFAULT config
+value's reachability in a live agent-path driver, not about the substrate. See
+`REE_assembly/evidence/planning/mech303_contextual_safety_threshold_reachability.md`
+for the full investigation. A future reader of a flat `safety_terrain_read`
+channel in this run's episode_log should not mistake it for a bug in this driver
+or in the MECH-303 wiring.
+
 Substrates active (664's affective stack + the new relief/safety register):
   SD-007  reafference                            (perspective correction)
   SD-008  alpha_world=0.9                        (encoder correction)
