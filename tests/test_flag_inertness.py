@@ -1408,6 +1408,37 @@ PROBED = {
 KNOWN_INERT = {
     "use_trainable_escape_affordance_learner": "F-C1: truncates its own state "
     "vector; zero live exposure -- guard before first use",
+    # F-N1 (2026-08-11 nested-scan individual audit, E2Config -- not top-level).
+    # `world_forward_contrastive_loss()` (e2_fast.py:279-402) computes the
+    # SD-056 InfoNCE loss unconditionally on every call -- it reads
+    # simulation_mode/K/min_batch_classes but NEVER
+    # `self.config.e2_action_contrastive_enabled`. Confirmed by direct read of
+    # the method body and a repo-wide grep of ree_core/: the flag's only
+    # occurrences are its dataclass declaration, from_dims() plumbing, and the
+    # config.e2.<flag> = <flag> assignment -- zero conditional reads anywhere.
+    # The loss method itself has zero callers inside ree_core/ (only
+    # individual experiment driver scripts call it directly by hand). So the
+    # flag does not gate anything: whether it is True or False, the method
+    # behaves identically, and nothing on the live agent path calls the
+    # method at all regardless. tests/contracts/test_sd_056_e2_action_contrastive.py
+    # only asserts the flag round-trips through config, never that it changes
+    # world_forward_contrastive_loss's behaviour.
+    "e2_action_contrastive_enabled": "F-N1: never read anywhere in ree_core/ "
+    "(world_forward_contrastive_loss computes unconditionally); the method "
+    "has zero callers on the live agent path -- config-only, not wired to a "
+    "gate. See the F-N1 block comment above for the full evidence trail.",
+    # F-N2, same class of finding as F-N1 and same E2Config sibling pair.
+    # `world_forward_contrastive_loss_multistep()` (e2_fast.py:404+) never
+    # reads `self.config.e2_action_contrastive_multistep_enabled` either, and
+    # has zero callers anywhere in ree_core/ (only
+    # experiments/v3_exq_617_sd056_multistep_substrate_readiness.py calls it
+    # directly). tests/contracts/test_sd_056_multistep_amend.py's A1/A2 tests
+    # only check config round-trip, per their own docstrings, never a
+    # behavioural gate.
+    "e2_action_contrastive_multistep_enabled": "F-N2: never read anywhere in "
+    "ree_core/ (world_forward_contrastive_loss_multistep computes "
+    "unconditionally); zero callers on the live agent path -- config-only, "
+    "not wired to a gate. See the F-N2 block comment above.",
     # F-C3 FIXED 2026-07-09: dacc_saturation_enabled now fed from the live path
     # (agent.py select_action tail calls DACC.record_outcome each waking tick +
     # the DACCConfig saturation knobs are propagated from REEConfig). Moved to
@@ -1579,8 +1610,7 @@ KNOWN_UNPROBED = {
 # auditing one of these five should confirm which CLASS's field is meant.     #
 KNOWN_UNPROBED_NESTED = {
     "benefit_eval_enabled", "benefit_terrain_enabled",
-    "cross_stream_binding_enabled", "e2_action_contrastive_enabled",
-    "e2_action_contrastive_multistep_enabled", "ewc_enabled",
+    "cross_stream_binding_enabled", "ewc_enabled",
     "mode_conditioning_enabled", "safety_terrain_enabled",
     "use_affective_harm_stream", "use_backward_credit_sweep",
     "use_commit_readiness_gate", "use_composite_cue_outshining",
