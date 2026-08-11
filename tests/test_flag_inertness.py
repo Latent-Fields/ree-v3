@@ -1269,6 +1269,207 @@ def test_use_e2_world_uncertainty_constructs_agent_head_only_when_enabled():
 
 
 # --------------------------------------------------------------------------- #
+# E2Config / HeartbeatConfig / ResidueConfig flags (2026-08-11 nested-scan     #
+# individual audit, batch: E2Config/HeartbeatConfig/ResidueConfig)            #
+# --------------------------------------------------------------------------- #
+
+def test_benefit_terrain_enabled_gates_accumulate_and_evaluate_benefit():
+    """ARC-030/MECH-117: benefit_rbf_field is constructed, and
+    accumulate_benefit/evaluate_benefit stop being no-ops, only when
+    benefit_terrain_enabled=True.
+    """
+    from ree_core.residue.field import ResidueField
+    from ree_core.utils.config import ResidueConfig
+
+    field_off = ResidueField(ResidueConfig(world_dim=8, num_basis_functions=8))
+    field_on = ResidueField(
+        ResidueConfig(world_dim=8, num_basis_functions=8, benefit_terrain_enabled=True)
+    )
+    assert not hasattr(field_off, "benefit_rbf_field")
+    assert hasattr(field_on, "benefit_rbf_field")
+
+    z = torch.randn(1, 8)
+    field_off.accumulate_benefit(z, benefit_magnitude=5.0)
+    field_on.accumulate_benefit(z, benefit_magnitude=5.0)
+
+    off_val = field_off.evaluate_benefit(z)
+    on_val = field_on.evaluate_benefit(z)
+    assert torch.all(off_val == 0.0), (
+        "benefit_terrain_enabled=False must keep evaluate_benefit at zeros"
+    )
+    assert torch.any(on_val != 0.0), (
+        "benefit_terrain_enabled=True with a real accumulate_benefit call did "
+        "not produce a nonzero evaluate_benefit read (inert flag)"
+    )
+
+
+def test_safety_terrain_enabled_gates_accumulate_and_evaluate_safety():
+    """MECH-303: safety_terrain_rbf_field is constructed, and
+    accumulate_safety/evaluate_safety stop being no-ops, only when
+    safety_terrain_enabled=True.
+    """
+    from ree_core.residue.field import ResidueField
+    from ree_core.utils.config import ResidueConfig
+
+    field_off = ResidueField(ResidueConfig(world_dim=8, num_basis_functions=8))
+    field_on = ResidueField(
+        ResidueConfig(world_dim=8, num_basis_functions=8, safety_terrain_enabled=True)
+    )
+    assert not hasattr(field_off, "safety_terrain_rbf_field")
+    assert hasattr(field_on, "safety_terrain_rbf_field")
+
+    z = torch.randn(1, 8)
+    for _ in range(10):
+        field_off.accumulate_safety(z, safety_magnitude=0.5)
+        field_on.accumulate_safety(z, safety_magnitude=0.5)
+
+    off_val = field_off.evaluate_safety(z)
+    on_val = field_on.evaluate_safety(z)
+    assert torch.all(off_val == 0.0), (
+        "safety_terrain_enabled=False must keep evaluate_safety at zeros"
+    )
+    assert torch.any(on_val != 0.0), (
+        "safety_terrain_enabled=True with real accumulate_safety calls did "
+        "not produce a nonzero evaluate_safety read (inert flag)"
+    )
+
+
+def test_valence_enabled_gates_update_and_evaluate_valence():
+    """ResidueField.update_valence/evaluate_valence early-return (skip write /
+    zeros) when valence_enabled=False. Default is True (unlike its terrain
+    siblings), so the ON arm here is the bare default config.
+    """
+    from ree_core.residue.field import ResidueField, VALENCE_WANTING
+    from ree_core.utils.config import ResidueConfig
+
+    z = torch.zeros(4)
+
+    off = ResidueField(ResidueConfig(world_dim=4, num_basis_functions=4, valence_enabled=False))
+    off.accumulate(z, harm_magnitude=0.1)  # seeds an active center
+    off.update_valence(z, VALENCE_WANTING, 5.0)
+    off_val = off.evaluate_valence(z.unsqueeze(0))
+    assert torch.all(off_val == 0.0), (
+        "valence_enabled=False must keep evaluate_valence at zeros even after "
+        "a real update_valence call"
+    )
+
+    on = ResidueField(ResidueConfig(world_dim=4, num_basis_functions=4))  # valence_enabled=True default
+    on.accumulate(z, harm_magnitude=0.1)
+    on.update_valence(z, VALENCE_WANTING, 5.0)
+    on_val = on.evaluate_valence(z.unsqueeze(0))
+    assert on_val[0, VALENCE_WANTING].item() != 0.0, (
+        "valence_enabled=True (default) with a real update_valence call did "
+        "not populate evaluate_valence (inert flag)"
+    )
+
+
+def test_ewc_enabled_gates_ewc_penalty():
+    """MECH-334: ewc_penalty() returns a hard 0.0 scalar unless ewc_enabled=True
+    (and lambda>0 and an anchor was snapshotted); ON it must produce a nonzero
+    Fisher-weighted pull once weights drift away from the snapshotted anchor.
+    """
+    from ree_core.residue.field import ResidueField
+    from ree_core.utils.config import ResidueConfig
+
+    def _field(ewc_enabled: bool) -> ResidueField:
+        return ResidueField(ResidueConfig(
+            world_dim=4, num_basis_functions=4,
+            ewc_enabled=ewc_enabled, ewc_lambda=1.0,
+        ))
+
+    z = torch.zeros(4)
+
+    off = _field(False)
+    off.accumulate(z, harm_magnitude=1.0)
+    off.snapshot_ewc_anchor()
+    with torch.no_grad():
+        off.rbf_field.weights += 10.0
+    assert off.ewc_penalty().item() == 0.0, (
+        "ewc_enabled=False must return exactly 0.0 regardless of weight drift"
+    )
+
+    on = _field(True)
+    on.accumulate(z, harm_magnitude=1.0)
+    on.snapshot_ewc_anchor()
+    with torch.no_grad():
+        on.rbf_field.weights += 10.0
+    penalty = on.ewc_penalty()
+    assert penalty.item() > 0.0, (
+        "ewc_enabled=True with a captured anchor and drifted weights produced "
+        "a zero penalty (inert flag)"
+    )
+
+
+def test_cross_stream_binding_enabled_couples_the_rollout_streams():
+    """cross_stream_binding_substrate: the binder is constructed only when
+    cross_stream_binding_enabled=True, and when constructed it must actually
+    perturb rollout_with_world's per-step z_self/z_world beyond the two
+    independent forward models.
+
+    Compared WITHIN one ON predictor instance (coupled rollout vs a manual
+    replay of predict_next_self/world_forward alone on the SAME weights) --
+    the KNOWN_UNPROBED_NESTED reason this flag carried flagged the obvious
+    two-instance comparison as confounded by construction-time RNG (the
+    binder's own Linear layers consume extra random draws), so this probe
+    deliberately never constructs a second ON-vs-OFF pair to compare rollouts.
+    """
+    from ree_core.predictors.e2_fast import E2FastPredictor
+    from ree_core.utils.config import E2Config
+
+    torch.manual_seed(0)
+    pred_off = E2FastPredictor(E2Config(self_dim=8, world_dim=8, action_dim=4))
+    assert pred_off.cross_stream_binder is None
+
+    torch.manual_seed(0)
+    pred_on = E2FastPredictor(
+        E2Config(self_dim=8, world_dim=8, action_dim=4, cross_stream_binding_enabled=True)
+    )
+    assert pred_on.cross_stream_binder is not None
+
+    torch.manual_seed(1)
+    z_self = torch.randn(1, 8)
+    z_world = torch.randn(1, 8)
+    actions = torch.randn(1, 3, 4)
+
+    coupled = pred_on.rollout_with_world(z_self, z_world, actions, compute_action_objects=False)
+
+    # Manual uncoupled replay using pred_on's OWN weights -- isolates the
+    # binder's couple() step as the only variable.
+    zs, zw = z_self, z_world
+    for t in range(3):
+        a = actions[:, t, :]
+        zs = pred_on.predict_next_self(zs, a)
+        zw = pred_on.world_forward(zw, a)
+
+    assert not torch.allclose(coupled.states[-1], zs), (
+        "cross_stream_binding_enabled=True did not perturb the rollout's "
+        "z_self stream relative to the uncoupled prediction (inert flag)"
+    )
+    assert not torch.allclose(coupled.world_states[-1], zw), (
+        "cross_stream_binding_enabled=True did not perturb the rollout's "
+        "z_world stream relative to the uncoupled prediction (inert flag)"
+    )
+
+
+def test_use_commit_readiness_gate_blocks_elevation_below_the_floor():
+    """MECH-090 R-c: should_admit_elevation is unconditionally True with the
+    gate OFF (legacy rv-only elevation), and blocks a below-floor score_margin
+    only when use_commit_readiness_gate=True.
+    """
+    from ree_core.heartbeat.beta_gate import BetaGate
+
+    gate_off = BetaGate(use_commit_readiness_gate=False, commit_readiness_floor=0.05)
+    assert gate_off.should_admit_elevation(score_margin=0.0, n_candidates=5) is True
+
+    gate_on = BetaGate(use_commit_readiness_gate=True, commit_readiness_floor=0.05)
+    assert gate_on.should_admit_elevation(score_margin=0.0, n_candidates=5) is False, (
+        "use_commit_readiness_gate=True with score_margin below the floor did "
+        "not block elevation (inert flag)"
+    )
+    assert gate_on.should_admit_elevation(score_margin=0.5, n_candidates=5) is True
+
+
+# --------------------------------------------------------------------------- #
 # Flag registry-drift guard                                                   #
 # --------------------------------------------------------------------------- #
 
@@ -1747,6 +1948,14 @@ PROBED = {
     "use_e2_world_uncertainty",     # test_use_e2_world_uncertainty_constructs_agent_head_only_when_enabled
     "use_resource_encoder",         # test_use_resource_encoder_populates_z_resource_only_when_enabled
     "use_identity_classifier",      # test_use_identity_classifier_populates_identity_logits_only_when_enabled
+    # E2Config/HeartbeatConfig/ResidueConfig cluster (same 2026-08-11 audit,
+    # batch: E2Config/HeartbeatConfig/ResidueConfig). Each probed above.
+    "benefit_terrain_enabled",       # test_benefit_terrain_enabled_gates_accumulate_and_evaluate_benefit
+    "safety_terrain_enabled",        # test_safety_terrain_enabled_gates_accumulate_and_evaluate_safety
+    "valence_enabled",               # test_valence_enabled_gates_update_and_evaluate_valence
+    "ewc_enabled",                   # test_ewc_enabled_gates_ewc_penalty
+    "cross_stream_binding_enabled",  # test_cross_stream_binding_enabled_couples_the_rollout_streams
+    "use_commit_readiness_gate",     # test_use_commit_readiness_gate_blocks_elevation_below_the_floor
 } | set(FLAGS_WITH_DEFAULT_BEHAVIOURAL_DELTA) | set(FLAGS_WITH_LOUD_PRECONDITION)
 
 # Audit-confirmed inert / mis-wired flags (finding id -> reason). Documented here
@@ -2088,46 +2297,6 @@ KNOWN_UNPROBED_NESTED = {
     # has a dedicated test file (test_mech340_persistence_efficacy_gate.py)
     # whose helpers are directly reusable for this one.
     "use_composite_cue_outshining",
-    # --- E2Config / HeartbeatConfig / ResidueConfig ----------------------------#
-    # Constructs a CrossStreamBinder in E2FastPredictor.__init__;
-    # rollout_with_world injects a shared theta-gated perturbation into both
-    # z_self/z_world streams' first shared dims. Zero test coverage anywhere.
-    # A probe needs care to isolate the flag as the only variable: two
-    # E2FastPredictor instances differing only in this flag also differ in
-    # construction-time RNG consumption (the binder's own Linear layers), so
-    # a naive same-seed OFF-vs-ON model comparison would confound the flag
-    # with unrelated weight-init drift.
-    "cross_stream_binding_enabled",
-    # Passed into BetaGate(use_commit_readiness_gate=...); gates BetaGate.
-    # should_admit_elevation -- OFF always admits (legacy rv-only elevation),
-    # ON blocks elevation when score_margin < commit_readiness_floor. The one
-    # existing test holds it constant True as a precondition for a different
-    # MECH-342 probe, never compared against OFF.
-    "use_commit_readiness_gate",
-    # Gates whether ResidueField.__init__ constructs benefit_rbf_field at all;
-    # accumulate_benefit/evaluate_benefit/compute_benefit_density all
-    # early-return no-ops when False. No existing test toggles this flag
-    # itself -- test_sd024_benefit_terrain_live_producer.py and siblings hold
-    # it True constant and instead compare separate sub-flags.
-    "benefit_terrain_enabled",
-    # Gates construction of safety_terrain_rbf_field; evaluate_safety/
-    # accumulate_safety early-return no-ops when False. Same situation as
-    # benefit_terrain_enabled -- the one existing test (test_sd067_safety_
-    # terrain_bandwidth.py) holds it True constant and probes only the
-    # bandwidth sub-knob.
-    "safety_terrain_enabled",
-    # Gates ResidueField.update_valence/update_wanting_sensitized/
-    # evaluate_valence -- all three early-return (no write / zeros) when
-    # False. No test toggles this flag; the one occurrence in tests/ holds it
-    # True constant as a precondition for an unrelated MECH-307 probe.
-    "valence_enabled",
-    # Gates ResidueField.ewc_penalty() (MECH-334 critical-period
-    # write-protect) -- returns 0.0 unless True (and ewc_lambda>0 and an
-    # anchor was snapshotted); ON computes a Fisher-weighted quadratic pull
-    # toward the snapshot_ewc_anchor()-captured checkpoint. Zero test
-    # coverage anywhere; only ever called by an external experiment harness,
-    # same pattern as snapshot_ewc_anchor.
-    "ewc_enabled",
     # --- GoalConfig -------------------------------------------------------------#
     # Gates REEAgent.cue_recall_wanting(), a cue-triggered pre-consummatory
     # z_goal pull; has a loud precondition requiring use_incentive_token_bank
