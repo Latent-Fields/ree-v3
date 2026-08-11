@@ -23,14 +23,41 @@ real pytest suite -- runs; only the gate script and validation_cache.py are real
   V6 the tier string this file seeds with matches the one the gate actually
      uses -- guards the seeding helper against silently drifting out of sync
      with precommit_contracts.sh's own VALIDATION_CACHE_TIER.
+
+Skipped entirely wherever REE_Working/scripts/ (the umbrella sibling) is not
+present -- e.g. a remote pytest worker, which stages ree-v3/ only. See
+`needs_umbrella_scripts` below.
 """
 import os
 import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 GATE = Path(__file__).resolve().parents[2] / "scripts" / "precommit_contracts.sh"
 REAL_VALIDATION_CACHE = GATE.parent / "validation_cache.py"
+# validation_cache.py's own module docstring states it "only ever runs on the
+# Mac (a git hook)... it is never shipped to a cloud worker" -- its cross-repo
+# `from task_claim import ...` resolves REE_Working/scripts/ at a fixed
+# relative path from its own location, which is present on the Mac but not on
+# a remote pytest worker (scripts/remote_pytest.sh stages ree-v3/ plus a
+# REE_assembly/evidence/experiments/scripts/ sibling only -- never the
+# umbrella REE_Working/scripts/ itself). EVERY test below drives the real
+# validation_cache.py as a subprocess (directly via _seed_cache_hit/check, or
+# indirectly through the gate's own VALIDATION_CACHE_PY call sites), so all of
+# them are unrunable, not just slow, wherever that import cannot resolve --
+# confirmed live 2026-08-11 on a remote worker: 4 failures, all
+# `ModuleNotFoundError: No module named 'task_claim'`. Skip rather than fail;
+# this mirrors test_p0_readiness_gate_recomputability.py's `needs_indexer`
+# guard for the same class of sibling-checkout dependency.
+_UMBRELLA_TASK_CLAIM_PY = GATE.parent.parent.parent / "scripts" / "task_claim.py"
+needs_umbrella_scripts = pytest.mark.skipif(
+    not _UMBRELLA_TASK_CLAIM_PY.exists(),
+    reason="REE_Working/scripts/task_claim.py not present -- validation_cache.py's "
+           "cross-repo import cannot resolve here (e.g. a remote pytest worker, "
+           "which stages only ree-v3/, not the sibling umbrella scripts/)")
+pytestmark = needs_umbrella_scripts
 # Matches precommit_contracts.sh's own VALIDATION_CACHE_TIER -- pinned by
 # test_v6_tier_constant_matches_the_gate below so this cannot silently drift.
 TIER = "ree-v3-contracts-full-suite"
