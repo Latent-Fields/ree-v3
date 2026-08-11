@@ -1037,6 +1037,238 @@ def test_use_model_disagreement_curiosity_bonus_flips_selection():
 
 
 # --------------------------------------------------------------------------- #
+# LatentStackConfig construction-gate flags (2026-08-11 nested-scan individual #
+# audit, batch: LatentStackConfig)                                            #
+# --------------------------------------------------------------------------- #
+
+def _latent_stack(seed: int = 0, **kw):
+    """Direct LatentStack construction -- mirrors test_dr13_self_recurrence.py's
+    `_stack` helper. No REEAgent harness needed for a construction-gate probe.
+    """
+    from ree_core.latent.stack import LatentStack
+    from ree_core.utils.config import LatentStackConfig
+
+    torch.manual_seed(seed)
+    return LatentStack(LatentStackConfig(**kw))
+
+
+def test_use_harm_stream_populates_z_harm_only_when_enabled():
+    """SD-010: z_harm is produced by the dedicated HarmEncoder only when
+    use_harm_stream=True AND harm_obs is supplied. The MECH-099 lateral head
+    (the only other z_harm source) is off by default (harm_dim=0), so an
+    OFF-arm z_harm can only come from a leak past this gate.
+    """
+    stack_off = _latent_stack()
+    stack_on = _latent_stack(use_harm_stream=True)
+    assert stack_off.harm_encoder is None
+    assert stack_on.harm_encoder is not None
+
+    obs = torch.randn(1, stack_off.config.body_obs_dim + stack_off.config.world_obs_dim)
+    harm_obs = torch.randn(1, stack_off.config.harm_obs_dim)
+
+    off_state = stack_off.encode(obs, harm_obs=harm_obs)
+    on_state = stack_on.encode(obs, harm_obs=harm_obs)
+
+    assert off_state.z_harm is None, (
+        "z_harm populated with use_harm_stream=False; harm_obs is reaching "
+        "z_harm through a path other than the dedicated HarmEncoder"
+    )
+    assert on_state.z_harm is not None, (
+        "use_harm_stream=True with harm_obs supplied did not populate "
+        "z_harm (inert flag)"
+    )
+    assert on_state.z_harm.shape == (1, stack_on.config.z_harm_dim)
+
+
+def test_use_affective_harm_stream_populates_z_harm_a_only_when_enabled():
+    """SD-011: z_harm_a is produced by AffectiveHarmEncoder only when
+    use_affective_harm_stream=True AND harm_obs_a is supplied.
+    """
+    stack_off = _latent_stack()
+    stack_on = _latent_stack(use_affective_harm_stream=True)
+    assert stack_off.affective_harm_encoder is None
+    assert stack_on.affective_harm_encoder is not None
+
+    obs = torch.randn(1, stack_off.config.body_obs_dim + stack_off.config.world_obs_dim)
+    harm_obs_a = torch.randn(1, stack_off.config.harm_obs_a_dim)
+
+    off_state = stack_off.encode(obs, harm_obs_a=harm_obs_a)
+    on_state = stack_on.encode(obs, harm_obs_a=harm_obs_a)
+
+    assert off_state.z_harm_a is None
+    assert on_state.z_harm_a is not None, (
+        "use_affective_harm_stream=True with harm_obs_a supplied did not "
+        "populate z_harm_a (inert flag)"
+    )
+    assert on_state.z_harm_a.shape == (1, stack_on.config.z_harm_a_dim)
+
+
+def test_use_event_classifier_populates_event_logits_only_when_enabled():
+    """SD-009: SplitEncoder.event_classifier gates event_logits -- None when
+    use_event_classifier=False, [batch, 3] logits when True.
+    """
+    stack_off = _latent_stack()
+    stack_on = _latent_stack(use_event_classifier=True)
+    assert stack_off.split_encoder.event_classifier is None
+    assert stack_on.split_encoder.event_classifier is not None
+
+    obs = torch.randn(1, stack_off.config.body_obs_dim + stack_off.config.world_obs_dim)
+    off_state = stack_off.encode(obs)
+    on_state = stack_on.encode(obs)
+
+    assert off_state.event_logits is None
+    assert on_state.event_logits is not None, (
+        "use_event_classifier=True did not populate event_logits (inert flag)"
+    )
+    assert on_state.event_logits.shape == (1, 3)
+
+
+def test_use_resource_proximity_head_populates_resource_prox_pred_only_when_enabled():
+    """SD-018: SplitEncoder.resource_proximity_head gates resource_prox_pred --
+    None when use_resource_proximity_head=False, [batch, 1] when True.
+    """
+    stack_off = _latent_stack()
+    stack_on = _latent_stack(use_resource_proximity_head=True)
+    assert stack_off.split_encoder.resource_proximity_head is None
+    assert stack_on.split_encoder.resource_proximity_head is not None
+
+    obs = torch.randn(1, stack_off.config.body_obs_dim + stack_off.config.world_obs_dim)
+    off_state = stack_off.encode(obs)
+    on_state = stack_on.encode(obs)
+
+    assert off_state.resource_prox_pred is None
+    assert on_state.resource_prox_pred is not None, (
+        "use_resource_proximity_head=True did not populate resource_prox_pred "
+        "(inert flag)"
+    )
+    assert on_state.resource_prox_pred.shape == (1, 1)
+
+
+def test_use_resource_encoder_populates_z_resource_only_when_enabled():
+    """SD-015/MECH-112: ResourceEncoder produces z_resource independently of
+    z_world only when use_resource_encoder=True. Also pins that the sibling
+    identity-classifier head stays off by its own default even with the
+    resource encoder itself enabled (see the paired test below).
+    """
+    stack_off = _latent_stack()
+    stack_on = _latent_stack(use_resource_encoder=True)
+    assert stack_off.resource_encoder is None
+    assert stack_on.resource_encoder is not None
+
+    obs = torch.randn(1, stack_off.config.body_obs_dim + stack_off.config.world_obs_dim)
+    off_state = stack_off.encode(obs)
+    on_state = stack_on.encode(obs)
+
+    assert off_state.z_resource is None
+    assert on_state.z_resource is not None, (
+        "use_resource_encoder=True did not populate z_resource (inert flag)"
+    )
+    assert on_state.z_resource.shape == (1, stack_on.config.z_resource_dim)
+    assert on_state.identity_logits is None, (
+        "use_identity_classifier defaults False; identity_logits must stay "
+        "None even with the resource encoder itself on"
+    )
+
+
+def test_use_identity_classifier_populates_identity_logits_only_when_enabled():
+    """SD-049 Phase 2: the identity-classifier head rides on ResourceEncoder's
+    trunk and requires BOTH use_resource_encoder AND use_identity_classifier
+    -- the resource encoder alone (previous test) leaves identity_logits None.
+    """
+    stack_resource_only = _latent_stack(use_resource_encoder=True)
+    stack_both = _latent_stack(use_resource_encoder=True, use_identity_classifier=True)
+    assert stack_resource_only.resource_encoder.identity_head is None
+    assert stack_both.resource_encoder.identity_head is not None
+
+    obs = torch.randn(
+        1, stack_resource_only.config.body_obs_dim + stack_resource_only.config.world_obs_dim
+    )
+    resource_only_state = stack_resource_only.encode(obs)
+    both_state = stack_both.encode(obs)
+
+    assert resource_only_state.identity_logits is None
+    assert both_state.identity_logits is not None, (
+        "use_resource_encoder=True + use_identity_classifier=True did not "
+        "populate identity_logits (inert flag)"
+    )
+    assert both_state.identity_logits.shape == (
+        1, stack_both.config.identity_classifier_n_types
+    )
+
+
+def test_use_harm_un_populates_z_harm_un_only_when_enabled():
+    """SD-019a: the harm_unpleasantness_channel EMA (z_harm_un) is written on
+    a waking sense() only when use_harm_un=True and a live z_harm exists
+    (use_harm_stream=True + harm_obs supplied). Mirrors
+    test_mech_219_harm_suffering_accumulator.py's `_harm_cfg` harness.
+    """
+    from ree_core.agent import REEAgent
+    from ree_core.utils.config import REEConfig
+
+    def _agent(use_harm_un: bool) -> REEAgent:
+        cfg = REEConfig.from_dims(
+            body_obs_dim=10, world_obs_dim=54, action_dim=4,
+            use_harm_stream=True,
+        )
+        cfg.latent.use_harm_un = use_harm_un
+        return REEAgent(cfg)
+
+    obs_body = torch.randn(1, 10)
+    obs_world = torch.randn(1, 54)
+    harm_obs = torch.randn(1, 51)
+
+    off_latent = _agent(False).sense(obs_body, obs_world, obs_harm=harm_obs)
+    on_latent = _agent(True).sense(obs_body, obs_world, obs_harm=harm_obs)
+
+    assert off_latent.z_harm_un is None, (
+        "z_harm_un populated with use_harm_un=False (inert-flag guard)"
+    )
+    assert on_latent.z_harm_un is not None, (
+        "use_harm_un=True with a live z_harm did not populate z_harm_un "
+        "(inert flag)"
+    )
+
+
+def test_use_e2_harm_s_forward_constructs_agent_e2_harm_s_only_when_enabled():
+    """ARC-033: agent.e2_harm_s (E2HarmSForward) is constructed at agent build
+    time iff use_e2_harm_s_forward=True -- a pure construction gate.
+    """
+    from ree_core.agent import REEAgent
+    from ree_core.utils.config import REEConfig
+
+    def _agent(flag: bool) -> REEAgent:
+        cfg = REEConfig.from_dims(body_obs_dim=10, world_obs_dim=54, action_dim=4)
+        cfg.latent.use_e2_harm_s_forward = flag
+        return REEAgent(cfg)
+
+    assert _agent(False).e2_harm_s is None
+    assert _agent(True).e2_harm_s is not None, (
+        "use_e2_harm_s_forward=True did not construct agent.e2_harm_s "
+        "(inert flag)"
+    )
+
+
+def test_use_e2_world_uncertainty_constructs_agent_head_only_when_enabled():
+    """SD-063: agent.e2_world_uncertainty (E2WorldUncertaintyHead) is
+    constructed at agent build time iff use_e2_world_uncertainty=True -- a
+    pure construction gate, standalone module sharing no params with E2World.
+    """
+    from ree_core.agent import REEAgent
+    from ree_core.utils.config import REEConfig
+
+    def _agent(flag: bool) -> REEAgent:
+        cfg = REEConfig.from_dims(body_obs_dim=10, world_obs_dim=54, action_dim=4)
+        cfg.latent.use_e2_world_uncertainty = flag
+        return REEAgent(cfg)
+
+    assert _agent(False).e2_world_uncertainty is None
+    assert _agent(True).e2_world_uncertainty is not None, (
+        "use_e2_world_uncertainty=True did not construct "
+        "agent.e2_world_uncertainty (inert flag)"
+    )
+
+
+# --------------------------------------------------------------------------- #
 # Flag registry-drift guard                                                   #
 # --------------------------------------------------------------------------- #
 
@@ -1502,6 +1734,19 @@ PROBED = {
     # identical summary OFF (order-invariant flat mean) but a different
     # summary ON (order-sensitive phase kernel).
     "use_theta_phase_weighted_summary",
+    # LatentStackConfig construction-gate cluster (2026-08-11 nested-scan
+    # individual audit, batch: LatentStackConfig). Each probed by a direct
+    # LatentStack (or REEAgent) construction-gate test above: OFF leaves the
+    # gated module/output None, ON constructs it and populates the field.
+    "use_harm_stream",              # test_use_harm_stream_populates_z_harm_only_when_enabled
+    "use_affective_harm_stream",    # test_use_affective_harm_stream_populates_z_harm_a_only_when_enabled
+    "use_harm_un",                  # test_use_harm_un_populates_z_harm_un_only_when_enabled
+    "use_event_classifier",         # test_use_event_classifier_populates_event_logits_only_when_enabled
+    "use_resource_proximity_head",  # test_use_resource_proximity_head_populates_resource_prox_pred_only_when_enabled
+    "use_e2_harm_s_forward",        # test_use_e2_harm_s_forward_constructs_agent_e2_harm_s_only_when_enabled
+    "use_e2_world_uncertainty",     # test_use_e2_world_uncertainty_constructs_agent_head_only_when_enabled
+    "use_resource_encoder",         # test_use_resource_encoder_populates_z_resource_only_when_enabled
+    "use_identity_classifier",      # test_use_identity_classifier_populates_identity_logits_only_when_enabled
 } | set(FLAGS_WITH_DEFAULT_BEHAVIOURAL_DELTA) | set(FLAGS_WITH_LOUD_PRECONDITION)
 
 # Audit-confirmed inert / mis-wired flags (finding id -> reason). Documented here
@@ -1826,57 +2071,6 @@ KNOWN_UNPROBED_NESTED = {
     # hysteresis) -- no test isolates this flag's own ON/OFF gating effect on
     # the accumulator's construction or on integrate_staleness being called.
     "use_staleness_accumulator",
-    # --- LatentStackConfig -----------------------------------------------------#
-    # Gates construction of HarmEncoder in LatentStack.__init__; encode
-    # (harm_obs=...) populates state.z_harm. 10 test files reference this
-    # flag but every one holds it constant True as scaffolding for a
-    # DIFFERENT flag under test (use_dacc, use_aic_analog, etc.) -- none
-    # compares True vs False itself.
-    "use_harm_stream",
-    # Gates construction of AffectiveHarmEncoder; encode(harm_obs_a=...)
-    # populates state.z_harm_a. Same situation as use_harm_stream -- 14 test
-    # files hold it constant True alongside use_harm_stream as a precondition
-    # for DACC/AIC/PCC/tonic-vigor/gated-policy mechanisms, never itself the
-    # manipulated variable.
-    "use_affective_harm_stream",
-    # EMAs z_harm into new_latent.z_harm_un inside REEAgent's waking tick,
-    # feeding MECH-219's suffering accumulator. The one dedicated test
-    # (test_mech_219_harm_suffering_accumulator.py) always sets it True and
-    # asserts z_harm_un is not None -- no test constructs an otherwise-
-    # identical agent with it False to confirm z_harm_un stays None.
-    "use_harm_un",
-    # Gates SplitEncoder.event_classifier; forward() returns event_logits or
-    # None. Zero test coverage anywhere outside this file; agent.
-    # compute_event_contrastive_loss's flag-gated zero-vs-real-CE-loss branch
-    # is also untested.
-    "use_event_classifier",
-    # Gates SplitEncoder.resource_proximity_head; forward() returns
-    # resource_prox_pred or None. Two tests construct it True as a fixed
-    # setting for unrelated P0-trainer/boot-matrix contracts, but neither
-    # reads resource_prox_pred nor compares to an OFF arm.
-    "use_resource_proximity_head",
-    # Gates construction of agent.e2_harm_s (E2HarmSForward) at agent build
-    # time. The CLASS itself is thoroughly unit-tested (training genuinely
-    # moves weights) and one test asserts agent.e2_harm_s is not None when
-    # True -- but no test asserts it IS None with the flag False; only the ON
-    # half of the top-level construction gate is covered.
-    "use_e2_harm_s_forward",
-    # Gates construction of agent.e2_world_uncertainty (E2WorldUncertaintyHead)
-    # at agent build time; its output is read only when REEConfig.
-    # curiosity_uncertainty_source == "e2_predictive_variance", which is
-    # itself completely untested. The rich test_sd063_conditional_uncertainty_
-    # head.py suite constructs E2WorldUncertaintyHead DIRECTLY by hand,
-    # bypassing this LatentStackConfig gate entirely.
-    "use_e2_world_uncertainty",
-    # Gates construction of LatentStack.resource_encoder (ResourceEncoder),
-    # producing z_resource independent of z_world for goal-directed seeding.
-    # One test checks config wiring after a preset is applied (not
-    # behavioural); several others hold it constant True as a precondition
-    # for use_cue_recall/token-bank tests, never compared to an OFF arm.
-    "use_resource_encoder",
-    # Gates construction of ResourceEncoder.identity_head; forward() returns
-    # identity_logits or None. Zero test coverage anywhere outside this file.
-    "use_identity_classifier",
     # --- AnchorSetConfig / GhostGoalBankConfig ---------------------------------#
     # Does NOT gate AnchorSet.write_anchor (which accepts goal_payload
     # unconditionally regardless of config). It actually gates (a) whether
