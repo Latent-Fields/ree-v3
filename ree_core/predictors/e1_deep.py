@@ -581,6 +581,57 @@ class E1DeepPredictor(nn.Module):
         probs = weights.clamp(min=1e-12)
         return -(probs * probs.log()).sum(dim=-1).mean()
 
+    def compute_context_divergence_loss(
+        self,
+        z_world_safe: torch.Tensor,
+        z_world_dangerous: torch.Tensor,
+    ) -> torch.Tensor:
+        """SD-016 H1 (V3-EXQ-907 CONFIRMED 2026-08-10): context-divergence
+        auxiliary loss, promoted verbatim from the V3-EXQ-907 driver's
+        _context_divergence probe into substrate (per that script's own
+        "SUBSTRATE REQUIREMENT" note: "If H1 confirms the mechanism helps,
+        THEN promote it to a real substrate knob").
+
+        Rewards cue_slot_tagger for producing DIFFERENT mean slot-selection
+        distributions on a safe-context batch vs a dangerous-context batch --
+        the one signal no prior SD-016 selection mechanism was ever given,
+        and the drive V3-EXQ-907 found breaks the uniform-softmax saddle
+        (confirmed at every lambda in {0.1, 0.5, 2.0} tested). Calls
+        cue_slot_tagger DIRECTLY (the _last_cue_slot_weights diagnostic
+        cache is .detach()ed and carries no gradient), exactly as the
+        driver did.
+
+        Already weighted by sd016_context_divergence_weight and already
+        negated -- this term REWARDS divergence, so it is ready to ADD
+        directly to a total loss (mirrors LAMBDA_TERRAIN * terrain_loss's
+        additive convention; the sign flip needed to turn "maximise
+        divergence" into "minimise this loss" is applied here, not by
+        the caller). Returns a zero tensor with no graph -- no-op,
+        bit-identical to every other SD-016 loss term's off-state -- when
+        the weight is 0.0 (default) or the tagger is disabled.
+
+        Args:
+            z_world_safe:      [batch, world_dim] safe-context z_world batch
+                                (typically detached and fixed for the P1
+                                training window, matching V3-EXQ-907).
+            z_world_dangerous: [batch, world_dim] dangerous-context z_world
+                                batch, same convention.
+
+        Returns:
+            Scalar loss contribution, already weighted -- ADD to total_loss.
+        """
+        weight = float(getattr(self.config, 'sd016_context_divergence_weight', 0.0))
+        if weight <= 0.0 or self.cue_slot_tagger is None:
+            return torch.zeros((), device=z_world_safe.device, dtype=z_world_safe.dtype)
+
+        temp = max(self._sd016_cue_slot_tagger_temperature, 1e-3)
+        logits_safe = self.cue_slot_tagger(z_world_safe)   # [batch, num_slots]
+        logits_dang = self.cue_slot_tagger(z_world_dangerous)
+        w_safe = F.softmax(logits_safe / temp, dim=-1).mean(dim=0)   # [num_slots]
+        w_dang = F.softmax(logits_dang / temp, dim=-1).mean(dim=0)
+        divergence = (w_safe - w_dang).abs().sum()
+        return -weight * divergence
+
     def get_schema_salience(self) -> Optional[torch.Tensor]:
         """MECH-216: return last schema salience [batch, 1] or None."""
         return self._last_schema_salience
