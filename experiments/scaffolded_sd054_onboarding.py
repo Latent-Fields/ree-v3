@@ -421,6 +421,22 @@ class ScaffoldedSD054OnboardingConfig:
     scaffold_hazard_stage_env_drift_interval: int = 5
     scaffold_hazard_stage_env_drift_prob: float = 0.3
 
+    # SD-029 scheduled external-hazard injection (V3-EXQ-603t, 2026-08-11):
+    # deterministically places a hazard adjacent to the agent's CURRENT
+    # position on a schedule -- agent-relative and discrete, unlike the
+    # ambient/undirected env_drift above. Defaults (False, 50, 0.5, True) are
+    # the CausalGridWorldV2 constructor defaults (enabled=False), so a caller
+    # that does not set these gets bit-identical pre-603t Stage-H dynamics.
+    # Recommended by mech357_freeze_incompatible_pressure_scoping_2026-08-10.md
+    # as a cheaper, config-only alternative to 603s's mobile-predator drift:
+    # 603s's own mobility increase is undirected (never targets the agent),
+    # which the scoping note traced to a spawn-position lottery producing the
+    # 603s exact tie. SD-029's agent-relative injection removes that confound.
+    scaffold_hazard_stage_scheduled_external_hazard_enabled: bool = False
+    scaffold_hazard_stage_scheduled_external_hazard_interval: int = 50
+    scaffold_hazard_stage_scheduled_external_hazard_prob: float = 0.5
+    scaffold_hazard_stage_scheduled_external_hazard_adjacent_only: bool = True
+
     # SD-058 / MECH-357 avoidance-learning driver (the PRIMARY structural fix
     # for the 603g G_H 0/3 survival-leg gap; budget escalation is SECONDARY).
     # When enabled AND the agent carries an InstrumentalAvoidanceGate
@@ -1766,6 +1782,22 @@ def _build_env(cfg: ScaffoldedSD054OnboardingConfig, phase: str, anneal_t: float
             # scaffold knobs is bit-identical to the pre-2026-08-09 Stage-H.
             env_drift_interval=cfg.scaffold_hazard_stage_env_drift_interval,
             env_drift_prob=cfg.scaffold_hazard_stage_env_drift_prob,
+            # SD-029 scheduled external hazard (V3-EXQ-603t): defaults
+            # (False, 50, 0.5, True) == the CausalGridWorldV2 constructor
+            # defaults (enabled=False), so every caller that does not set
+            # these new scaffold knobs is bit-identical to pre-603t Stage-H.
+            scheduled_external_hazard_enabled=(
+                cfg.scaffold_hazard_stage_scheduled_external_hazard_enabled
+            ),
+            scheduled_external_hazard_interval=(
+                cfg.scaffold_hazard_stage_scheduled_external_hazard_interval
+            ),
+            scheduled_external_hazard_prob=(
+                cfg.scaffold_hazard_stage_scheduled_external_hazard_prob
+            ),
+            scheduled_external_hazard_adjacent_only=(
+                cfg.scaffold_hazard_stage_scheduled_external_hazard_adjacent_only
+            ),
             limb_damage_enabled=True,
             reef_enabled=True,
             reef_bipartite_layout=True,
