@@ -1112,6 +1112,293 @@ PROBED = {
     # during the follow-on audit of that bulk seed (chip
     # chip-20260811-flaginertness-nested-audit).
     "use_iterative_inference",
+    # --- Nested-config individual audit (chip chip-20260811-flaginertness-      #
+    # nested-audit), batch: E3Config -----------------------------------------#
+    # SD-076 waking-confidence inflation. Probed by
+    # test_sd076_rv_floor_headroom.py: OFF is bit-identical to the pre-repair
+    # symmetric EMA; ON drives `_running_variance` measurably below both true
+    # error and the OFF-equivalent `_wci_symmetric_rv_ref` counterfactual,
+    # with a genuine LO/HI asymmetry dose-response.
+    "use_waking_confidence_inflation",
+    # SD-063 conditional predictive-precision commit gate. Probed by
+    # test_sd063_conditional_uncertainty_head.py: OFF ignores
+    # `conditional_predictive_variance` entirely (EMA-only commit decision);
+    # ON lets it override the EMA in BOTH directions (veto a low-EMA commit,
+    # rescue a high-EMA non-commit) on the same `_running_variance` state.
+    "use_conditional_precision_gate",
+    # ARC-108 learned channel gating. Probed by
+    # test_arc108_learned_channel_gating.py C2/C3: ON-at-init is bit-identical
+    # to OFF (exact score/selected_index equality); under a non-flat
+    # realised-outcome delta_t sequence `w_chan` moves off its softplus-unity
+    # init only when ON, never when OFF.
+    "use_learned_channel_gating",
+    # MECH-451 finer-channel gating. Probed by
+    # test_mech451_finer_channel_gating.py C2/C3: ON-at-init reproduces the
+    # legacy compressed blend exactly; under a non-flat delta_t sequence
+    # `w_chan_finer` moves off init only when ON (ARC-108's global `w_chan`
+    # buffer never moves under this path), stays frozen when OFF.
+    "use_finer_channel_gating",
+    # ARC-108/MECH-450 learned settling step. Probed by
+    # test_mech450_learned_settling_step.py C3: over an alternating good/bad
+    # realised-outcome sequence, `W_lat` accrues nonzero entries only when ON;
+    # stays exactly zero when OFF.
+    "use_learned_settling_step",
+    # MECH-140/450 soft-competitive settling. Probed by
+    # test_soft_competitive_settling.py test_settling_flips_the_committed_winner:
+    # with identical raw F costs, OFF picks the argmin-best-bias candidate in
+    # a crowded action class; ON (gain>0) suppresses the crowded cluster and
+    # FLIPS the committed selected_index to an isolated, worse-biased
+    # candidate -- the committed action itself differs, not just an internal
+    # metric.
+    "use_soft_competitive_settling",
+    # ARC-108xARC-110 learned cross-loop arbitration. Probed by
+    # test_learned_cross_loop_arbitration.py: OFF is bit-identical to
+    # ON-at-init across seeds (W_cross==I); with the same flag ON but a
+    # limbic-boosted M_cross, the committed index flips from the motor(F)
+    # winner to the limbic winner on an input where OFF/ON-at-init both
+    # commit to the motor candidate -- a genuine, chained ON!=OFF divergence.
+    "use_learned_cross_loop_arbitration",
+    # ARC-110 ascending-spiral gain. Probed by test_ascending_spiral_gain.py
+    # TestLimbicCanNowWin: a fixed 709-signature M_cross does not let limbic
+    # override motor at gain 1.0 but does at gain 30.0 (commit flips), while
+    # TestByteIdenticalOff pins the flag OFF as bit-identical to the plain
+    # learned combine.
+    "use_ascending_spiral_gain",
+    # V3-EXQ-711 bounded parity controller. Probed by
+    # test_ascending_parity_controller.py: TestByteIdenticalOff/TestInertOn
+    # pin OFF and no-op sub-knobs bit-identical; TestParityCeilingBounds shows
+    # the controller holds w_eff[limbic]/w_eff[motor] at/under the ceiling
+    # where the raw scalar (use_ascending_spiral_gain) runs away;
+    # TestParityWinNotMonopoly shows limbic actually reaches parity.
+    "use_ascending_parity_controller",
+    # 569f/661/654a shortlist-then-modulate conversion lever. Probed by
+    # test_e3_score_bias_candidate_support.py: OFF is bit-identical to the
+    # pre-amend authority path; ON restricts the eligible set to an
+    # F-near-tie/top-k shortlist so a clearly-worse-by-F candidate is refused
+    # even under an overwhelming modulatory pull, and among F-tied candidates
+    # the modulatory argmin alone decides the winner.
+    "use_modulatory_shortlist_then_modulate",
+    # MECH-439 Factor B gap-scaled commit temperature. Probed by
+    # test_e3_conflict_graded_conversion.py: OFF is the legacy hard argmin;
+    # ON softens the committed pick near ties (spreads across candidates over
+    # seeds) and recovers a decisive argmin at a large F-gap, with T_eff shown
+    # load-bearing on the (1-gap_norm) scaling.
+    "use_gap_scaled_commit_temperature",
+    # MECH-448/ARC-107 F-eligibility demotion. Probed by
+    # test_mech_448_f_eligibility_demotion.py: OFF is the legacy
+    # argmin(F+bias); ON excludes a clearly-harmful-by-F candidate from the
+    # eligible set even under an overwhelming modulatory pull, and the
+    # within-eligible winner is the modulatory argmin with F removed.
+    "use_f_eligibility_demotion",
+    # MECH-448 channel-adaptive envelope amend. Probed by
+    # test_mech_448_f_eligibility_demotion.py
+    # test_adaptive_excludes_across_two_differing_scale_distributions: on the
+    # SAME near-uniform F-share distribution, the fixed 0.30 floor (flag OFF)
+    # all-admits (excluded_count==0), while the adaptive floor (flag ON)
+    # productively excludes on that distribution and a second,
+    # differently-scaled one.
+    "use_f_eligibility_adaptive_floor",
+    # MECH-449/ARC-107 Go/No-Go eligibility constitution. Probed by
+    # test_mech_449_go_nogo_constitution.py: OFF ignores go_nogo_signals
+    # entirely; ON a No-Go signal drops the modulatory-favoured candidate from
+    # eligibility (holds under an overwhelming modulatory pull).
+    "use_go_nogo_constitution",
+    # DR-12 (self_model_v4:SELF-4) E2-forward-PE confidence down-weight.
+    # Probed by test_dr12_pe_confidence.py
+    # test_c2_high_pe_on_primary_best_flips_selection: OFF picks the
+    # primary-favoured candidate; ON with a high per-candidate PE on that same
+    # candidate flips the committed argmin away from it.
+    "use_pe_confidence_weighting",
+    # DR-10 (self_model_v4:SELF-3) z_self-derived viability cost. Probed by
+    # test_dr10_z_self_viability.py
+    # test_c2_differential_self_viability_flips_selection: a decisive
+    # per-candidate viability penalty placed on the OFF arm's own winner flips
+    # the committed argmin away from it.
+    "use_self_viability_weighting",
+    # SD-081/MECH-477 dual-system uncertainty arbitration. Probed by
+    # test_sd081_dualsystem_arbitration.py: OFF reproduces a deterministic
+    # action stream and never writes last_arbitration; ON changes the
+    # committed action stream with a live, non-degenerate arbitration weight
+    # that is monotone in relative uncertainty, fixing the V3-EXQ-786a flat-
+    # recruitment signature.
+    "use_dualsystem_arbitration",
+    # --- batch: GoalConfig / SerotoninConfig ---------------------------------#
+    # SD-092 cross-level subgoal credit. OFF pins _z_goal_parent at None and
+    # every credit call at a true {} no-op; ON bootstraps a material,
+    # direction-aligned parent attractor from repeated credit events against a
+    # decay-only control that stays at exactly 0.0. See
+    # tests/contracts/test_sd092_cross_level_subgoal_credit.py (R1/R3/R4).
+    "use_hierarchical_goal_credit",
+    # SD-057 object-bound incentive-salience bank. OFF: gs.incentive_bank is
+    # None, legacy single-attractor seeding runs unchanged
+    # (test_sd_057_incentive_token_bank.py test_c1_default_off_...). The
+    # bank's most_wanted()/wanting() arithmetic that the live agent-level
+    # z_goal-seed redirect (agent.py update_z_goal, unconditional once the
+    # bank is non-None) reads is itself probed by test_c3_l3_per_axis_wanting_
+    # is_drive_specific and test_sd049_phase2_drive_coupling.py; a real live
+    # agent forming Stage-0 bank entries is covered by
+    # test_scaffolded_sd054_onboarding.py test_c9_stage0_binding_populates_bank.
+    # No test isolates a full-agent ON-vs-OFF z_goal-seed-source A/B directly.
+    "use_incentive_token_bank",
+    # SD-093/MECH-426 progress-velocity effort modulation. Probed by
+    # test_mech426_progress_velocity.py: OFF (test_c2_flag_off_is_true_noop)
+    # is a true no-op -- record_progress always returns 0.0, history stays
+    # empty; ON reaches the real E3TrajectorySelector.select() committed
+    # boolean and flips it relative to OFF at an identical _running_variance
+    # (test_c8_stalling_raises_threshold_commits_more_readily /
+    # test_c8_coasting_lowers_threshold_commits_less_readily /
+    # test_c8_flag_off_leaves_threshold_at_baseline).
+    "use_progress_velocity_effort_modulation",
+    # MECH-189 super-ordinal goal anchors. Probed by
+    # test_mech_189_super_ordinal_goal_anchors.py: OFF pins
+    # agent.super_ordinal_goal_memory at None (test_c1_default_off); ON forms
+    # a real anchor from a live update_z_goal() call in a high-salience novel
+    # context (test_c7_agent_write_forms_anchor) and, strongest of all, a
+    # later zero-benefit tick in the same context pulls z_goal toward the
+    # stored anchor after writes are frozen and z_goal reset sub-floor
+    # (test_c8_agent_read_seeds_zgoal, cosine > 0.5) -- a full write+read
+    # round trip reaching z_goal itself.
+    "use_super_ordinal_goal_anchors",
+    # GoalConfig's own master construction gate -- REEAgent.goal_state is None
+    # unless this is set (agent.py). Probed in isolation by
+    # test_z_goal_stream_counter.py
+    # test_z3_goal_disabled_counts_nothing_and_frac_is_none (OFF:
+    # goal_state is None, z_goal_active_frac is None, not 0.0); ON is
+    # evidenced by the entire SD-092/093/189/057 contract-test family, all of
+    # which construct z_goal_enabled=True and show real divergence downstream
+    # of a non-None goal_state. (The already-PROBED top-level
+    # goal_stream_enabled sets this as the first line of its own
+    # enable_goal_stream() helper, so that flag's own probe exercises this
+    # switch too, as a bundle rather than in isolation.)
+    "z_goal_enabled",
+    # SR-1/SR-2 tonic-5HT master switch (SerotoninModule). Probed by
+    # test_mech203_harm_salience_writepath.py: OFF pins a live agent's
+    # update_harm_salience() call at exactly 0.0 on VALENCE_HARM_DISCRIMINATIVE
+    # before and after (test_c4_default_off_is_bit_identical); ON writes a
+    # non-trivial value on the identical call
+    # (test_c2_live_path_populates_harm_discriminative), and
+    # test_c1_module_surface_and_arithmetic pins the module-level
+    # harm_salience() arithmetic itself (0.0 OFF, computed from
+    # tonic_5ht_baseline ON). Cleaner isolation than this file's own
+    # test_incentive_sensitization_amplifies_the_wanting_write, which only
+    # uses this flag as one of three co-required activating conditions.
+    "tonic_5ht_enabled",
+    # --- batch: HippocampalConfig ---------------------------------------------#
+    # V3-EXQ-553 orthogonal CEM seeding. Probed by test_orthogonal_cem_seeding.py
+    # C4: same-seed ARM_ORTHO min pairwise-L2 among CEM candidates exceeds
+    # ARM_IID baseline (variance reduction in worst-case distinguishability).
+    "use_orthogonal_cem_seeding",
+    # Diagnostic candidate-support scaffold. Probed by
+    # test_hippocampal_candidate_support.py: ON guarantees every action class
+    # appears among first-step candidates; OFF has no such guarantee.
+    "use_action_class_scaffold_candidates",
+    # SP-CEM support-preserving repair. Probed by
+    # test_hippocampal_candidate_support.py: under an artificially collapsed
+    # decoder, ON repairs first-action class diversity (>=2 classes); OFF
+    # leaves it collapsed to exactly 1 class.
+    "use_support_preserving_cem",
+    # SD-025 familiarity discount on curiosity novelty. Probed by
+    # test_sd025_curiosity_drive.py C5: ON, repeat waking visits decay the
+    # curiosity bonus (anti-perseveration); OFF, the bonus is pure density and
+    # is bit-identical across visits.
+    "use_curiosity_familiarity",
+    # MECH-269 Phase 1 per-stream V_s. Probed by test_mech_269_per_stream_vs.py
+    # C2/C3: OFF leaves per_stream_vs empty (no-op); ON seeds V_s=1.0 on first
+    # observation and a perturbed z_world measurably drops it.
+    "use_per_stream_vs",
+    # MECH-288 hierarchical event segmenter. Probed by
+    # test_mech_288_event_segmenter.py: C1 pins OFF -> module.event_segmenter
+    # is None; C2/C3 drive the same EventSegmenter class ON, proving it fires
+    # BoundaryEvents on a synthetic PE-spike/BOCPD changepoint and stays
+    # silent on a constant baseline.
+    "use_event_segmenter",
+    # MECH-287 broadcast invalidation trigger. Probed by
+    # test_mech_287_invalidation_trigger.py: C1 pins OFF ->
+    # module.invalidation_trigger is None; C2 drives the same
+    # InvalidationTrigger class ON, proving a BoundaryEvent produces a
+    # BroadcastEvent with strength = posterior * gain.
+    "use_invalidation_trigger",
+    # MECH-269 Phase 2 anchor sets. Probed by test_mech_269_anchor_set.py: OFF,
+    # tick_anchor_set is a pure no-op (anchor_set is None); ON, a queued
+    # BoundaryEvent installs exactly one active anchor with the correct
+    # (scale, segment_id, stream_mixture) key.
+    "use_anchor_sets",
+    # MECH-269 Phase 2(iii) per-region V_s. Probed by
+    # test_mech_269_per_region_vs.py C1/C2: OFF, update_per_region_vs is a
+    # no-op even with an active anchor and populated per_stream_vs
+    # (per_region_vs stays {}); ON, the same setup populates a region-keyed
+    # V_s entry.
+    "use_per_region_vs",
+    # MECH-269b symmetric V_s rollout gating. The VsRolloutGate class the
+    # agent constructs when ON is probed by
+    # test_mech_269b_vs_rollout_gate_staleness.py C2/C4 (gate() substitutes a
+    # held snapshot only when effective V_s crosses threshold) and C8
+    # (agent-level precondition raises, proving construction is really
+    # reached, not silently skipped).
+    "use_vs_rollout_gating",
+    # MECH-269b + MECH-284 staleness-aware V_s gating. Probed by
+    # test_mech_269b_vs_rollout_gate_staleness.py C2/C4: identical scenario
+    # (raw V_s 0.9, staleness 0.7), OFF leaves the gate output unmodified (0
+    # holds); ON substitutes the held snapshot (1 hold) because
+    # effective_vs = raw_vs - staleness crosses threshold.
+    "use_vs_gate_staleness_lookup",
+    # MECH-292 ranked ghost-goal bank. Probed by test_mech_293_ghost_probes.py:
+    # C3 proves construction is loud-gated (ValueError naming the flag when a
+    # MECH-293 consumer needs it but it's off); C4 proves the bank ON produces
+    # a real observable effect (>=1 ghost-tagged CEM candidate reaching
+    # propose_trajectories' return value) via a seeded anchor payload.
+    "use_mech292_ghost_bank",
+    # MECH-293 waking ghost-goal probe search. Probed by
+    # test_mech_293_ghost_probes.py C2/C4: OFF, zero ghost-tagged trajectories
+    # and no mech293_* diagnostics; ON, >=1 CEM candidate is seeded from the
+    # ranked bank, carrying hypothesis_tag=True and provenance metadata.
+    "use_mech293_ghost_probes",
+    # --- batch: LatentStackConfig / GhostGoalBankConfig -----------------------#
+    # DR-13 self-recurrence. Probed by test_dr13_self_recurrence.py: OFF is
+    # bit-identical (no module, no readout); ON, a varying observation
+    # sequence produces nonzero state_departure in self_recurrence_diag,
+    # proving the recurrence carries state the instantaneous encode does not.
+    "use_self_recurrence",
+    # SD-031 E2WorldForward. Probed by test_e2_world_forward.py: C1 pins
+    # bit-identical OFF (agent.e2_world is None, action stream unchanged from
+    # explicit-False); C4 pins the ON module is not an identity map and is
+    # action-conditional; C6 pins the agent-level construction gate at
+    # world_dim=128.
+    "use_e2_world_forward",
+    # MECH-340 persistence/efficacy gate. Probed by
+    # test_mech340_persistence_efficacy_gate.py: OFF ignores any supplied
+    # persistence_appraisal (ranks bit-identical to none-supplied); ON, the
+    # identical low-control/high-unattainability appraisal that was ignored
+    # OFF now excludes the anchor from the ranked bank entirely (rank()==[]).
+    "use_persistence_efficacy_gate",
+    # --- batch: E1Config / E2Config / HeartbeatConfig / ResidueConfig --------#
+    # SD-016 frontal cue-indexed integration. Probed by tests/test_sd016.py
+    # TestAgentSD016Wiring: a live e1_tick populates
+    # agent._cue_action_bias/_cue_terrain_weight with the expected shapes when
+    # ON, and both stay None when OFF.
+    "sd016_enabled",
+    # MECH-216 schema readout. Probed by
+    # tests/contracts/test_step_harness_contract.py H6/H7:
+    # update_schema_wanting is never called through StepHarness with the flag
+    # OFF (default), and is called (before select_action) with it ON.
+    "schema_wanting_enabled",
+    # SD-056 rollout stability (V3-EXQ-569e amend). Probed by
+    # test_sd_056_multistep_amend.py A9/A10: with a deliberately unstable
+    # world_transition scale that would otherwise blow up the rollout, ON
+    # enforces the B2 per-step norm bound end-to-end (A9) and prevents
+    # NaN/Inf under stress (A10).
+    "e2_rollout_output_norm_clamp_enabled",
+    # SD-024/MECH-232 DA-modulated RBF density. Probed by
+    # test_sd024_da_modulated_rbf_density.py C1 (OFF: no per-center bandwidth
+    # buffer) / C3 (same reward events, ON produces strictly higher
+    # compute_benefit_density than OFF).
+    "use_da_modulated_rbf_density",
+    # SD-100 (ARC-032/MECH-089) theta-phase-weighted ThetaBuffer.summary().
+    # Probed by test_theta_buffer_phase_aware_summary.py: pushing the same
+    # multiset of z_world vectors in original vs reversed order gives an
+    # identical summary OFF (order-invariant flat mean) but a different
+    # summary ON (order-sensitive phase kernel).
+    "use_theta_phase_weighted_summary",
 } | set(FLAGS_WITH_DEFAULT_BEHAVIOURAL_DELTA) | set(FLAGS_WITH_LOUD_PRECONDITION)
 
 # Audit-confirmed inert / mis-wired flags (finding id -> reason). Documented here
@@ -1292,41 +1579,21 @@ KNOWN_UNPROBED = {
 # auditing one of these five should confirm which CLASS's field is meant.     #
 KNOWN_UNPROBED_NESTED = {
     "benefit_eval_enabled", "benefit_terrain_enabled",
-    "cross_stream_binding_enabled",
-    "e2_action_contrastive_enabled", "e2_action_contrastive_multistep_enabled",
-    "e2_rollout_output_norm_clamp_enabled",
-    "ewc_enabled", "mode_conditioning_enabled",
-    "safety_terrain_enabled", "schema_wanting_enabled", "sd016_enabled",
-    "tonic_5ht_enabled",
-    "use_action_class_scaffold_candidates", "use_affective_harm_stream",
-    "use_anchor_sets", "use_ascending_parity_controller", "use_ascending_spiral_gain",
-    "use_backward_credit_sweep", "use_commit_readiness_gate",
-    "use_composite_cue_outshining", "use_conditional_precision_gate",
-    "use_cue_recall", "use_curiosity_familiarity", "use_d1_d2_population_split",
-    "use_da_modulated_rbf_density", "use_differentiable_cem",
-    "use_dualsystem_arbitration", "use_e2_harm_s_forward", "use_e2_world_forward",
-    "use_e2_world_uncertainty", "use_event_classifier", "use_event_segmenter",
-    "use_f_eligibility_adaptive_floor", "use_f_eligibility_demotion",
-    "use_finer_channel_gating", "use_gap_scaled_commit_temperature",
-    "use_go_nogo_constitution", "use_harm_stream", "use_harm_un",
-    "use_hierarchical_goal_credit", "use_identity_classifier",
-    "use_incentive_token_bank", "use_invalidation_trigger",
-    "use_learned_channel_gating", "use_learned_cross_loop_arbitration",
-    "use_learned_settling_step", "use_loop_local_eligibility_traces",
-    "use_loop_segregation", "use_mech284_hysteresis", "use_mech292_ghost_bank",
-    "use_mech293_ghost_probes", "use_model_disagreement_curiosity",
-    "use_modulatory_shortlist_then_modulate", "use_named_channel_routing",
+    "cross_stream_binding_enabled", "e2_action_contrastive_enabled",
+    "e2_action_contrastive_multistep_enabled", "ewc_enabled",
+    "mode_conditioning_enabled", "safety_terrain_enabled",
+    "use_affective_harm_stream", "use_backward_credit_sweep",
+    "use_commit_readiness_gate", "use_composite_cue_outshining",
+    "use_cue_recall", "use_d1_d2_population_split", "use_differentiable_cem",
+    "use_e2_harm_s_forward", "use_e2_world_uncertainty",
+    "use_event_classifier", "use_harm_stream", "use_harm_un",
+    "use_identity_classifier", "use_loop_local_eligibility_traces",
+    "use_loop_segregation", "use_mech284_hysteresis",
+    "use_model_disagreement_curiosity", "use_named_channel_routing",
     "use_noisy_selection_head", "use_offline_wanting_spread",
-    "use_orthogonal_cem_seeding", "use_pe_confidence_weighting",
-    "use_per_region_vs", "use_per_stream_vs", "use_persistence_efficacy_gate",
-    "use_progress_velocity_effort_modulation", "use_resource_encoder",
-    "use_resource_proximity_head", "use_sd039_anchor_payload",
-    "use_self_recurrence", "use_self_viability_weighting",
-    "use_soft_competitive_settling", "use_staleness_accumulator",
-    "use_super_ordinal_goal_anchors", "use_support_preserving_cem",
-    "use_theta_phase_weighted_summary", "use_vs_commit_release",
-    "use_vs_gate_staleness_lookup", "use_vs_rollout_gating",
-    "use_waking_confidence_inflation", "valence_enabled", "z_goal_enabled",
+    "use_resource_encoder", "use_resource_proximity_head",
+    "use_sd039_anchor_payload", "use_staleness_accumulator",
+    "use_vs_commit_release", "valence_enabled",
 }
 _NESTED_UNPROBED_REASON = (
     "pre-existing nested-config flag, discovered by the 2026-08-11 scanner "
