@@ -28,6 +28,7 @@ import argparse
 import datetime
 import json
 import os
+import socket
 import subprocess
 import sys
 import threading
@@ -360,6 +361,25 @@ def _validate_float(raw, env_name, default):
     return v
 
 
+def _validate_positive_int(raw, env_name, default):
+    """Positive-int env knobs (PHASE3_SIDEFILE_MAX_BYTES): same shape as
+    _validate_float but for ints. Zero/negative rejected -- a non-positive
+    byte threshold would quarantine every companion, including empty ones."""
+    try:
+        v = int(raw)
+    except (TypeError, ValueError):
+        sys.stderr.write(
+            "[phase3] %s=%r is not an integer; using default %d\n"
+            % (env_name, raw, default))
+        return default
+    if v <= 0:
+        sys.stderr.write(
+            "[phase3] %s=%d is not > 0; using default %d\n"
+            % (env_name, v, default))
+        return default
+    return v
+
+
 # Truthy vocabulary shared with the legacy PHASE3_AUTO_RESET_ON_REBASE_CONFLICT
 # env check (see _sync_to_origin). Keep the two in sync so a value that turns
 # on one path turns on the other.
@@ -452,6 +472,28 @@ PHASE3_MATERIALIZE_RUNPACK = _validate_bool(
 PHASE3_SPOOL_SIDEFILES = _validate_bool(
     os.environ.get("PHASE3_SPOOL_SIDEFILES", "0"),
     "PHASE3_SPOOL_SIDEFILES", False)
+
+# Oversized-companion quarantine threshold (2026-08-12). GitHub hard-rejects
+# any pushed git blob over 100MB (104857600 bytes); a companion side-file can
+# legitimately exceed that under this project's "record generously, never
+# prune" telemetry maximalism -- a genuinely large, genuinely useful run is
+# not a bug to truncate. _materialize_sidefiles checks a spooled companion's
+# size against this BEFORE ever attempting `git add`; anything over gets a
+# small placemarker JSON committed in its place instead (see
+# manifest_spool.build_oversized_sidefile_placemarker). Default leaves ~5MiB
+# margin under GitHub's hard limit. Motivating incident: the hub's writer
+# crash-looped roughly 4000 times over about 90 minutes on 2026-08-12 when a
+# 184.6MB episode_log hit this exact wall on every push attempt (every push
+# rejected, the writer correctly refused to advance, systemd's
+# Restart=always/RestartSec=5 kept relaunching it) -- see WORKSPACE_STATE.md
+# 2026-08-12T16:58:08Z "Hub phase3 writers wedged". A human had to SSH in,
+# stop the daemon, rewrite the offending commit, and manually clear the
+# spool entry. Module-load validated -- set it in the systemd unit env
+# BEFORE the process starts (same constraint as the other PHASE3_* env
+# knobs).
+PHASE3_SIDEFILE_MAX_BYTES = _validate_positive_int(
+    os.environ.get("PHASE3_SIDEFILE_MAX_BYTES", str(95 * 1024 * 1024)),
+    "PHASE3_SIDEFILE_MAX_BYTES", 95 * 1024 * 1024)
 
 # Hub paths for the queue writer. ree-v3 checkout is separate from the
 # REE_assembly checkout used by the result writer.
@@ -1544,18 +1586,124 @@ def _materialize_runpacks(asm, staged, log_prefix="[phase3]"):
     return n_files
 
 
+def _quarantine_oversized_sidefile(asm, run_id, relpath, bin_path,
+                                   size_bytes, log_prefix):
+    """Substitute a small placemarker JSON for a companion too large for
+    GitHub's blob limit, instead of writing the raw bytes + `git add` (which
+    would fail this push, and every push after it -- see
+    PHASE3_SIDEFILE_MAX_BYTES). The real bytes are left untouched in the
+    spool; the caller must exclude this run_id from any delete_sidefiles()
+    cleanup so they stay recoverable. Returns True iff the placemarker was
+    newly staged this tick.
+
+    Idempotency without repeated full-file hashing: if a placemarker for
+    this relpath already sits in the working tree recording the SAME
+    size_bytes, this companion was already quarantined on a prior tick (the
+    spool entry sits here until an operator clears it by hand -- see the
+    PHASE3_SIDEFILE_MAX_BYTES comment), so re-hashing a possibly 100+MB file
+    on every single tick forever is skipped."""
+    placemarker_rel = manifest_spool.placemarker_relpath_for(relpath)
+    target = os.path.join(asm, placemarker_rel)
+    if os.path.exists(target):
+        try:
+            with open(target, "r", encoding="utf-8") as fh:
+                existing = json.load(fh)
+            if isinstance(existing, dict) and existing.get(
+                    "size_bytes") == size_bytes:
+                return False
+        except (OSError, ValueError):
+            pass  # unreadable/corrupt placemarker -- fall through, rewrite it
+
+    try:
+        digest = manifest_spool.sha256_of_file(bin_path)
+    except OSError as exc:
+        sys.stderr.write(
+            "%s sidefile quarantine: hash failed %s -> %s: %r\n" % (
+                log_prefix, run_id, relpath, exc))
+        return False
+
+    host = socket.gethostname()
+    payload = manifest_spool.build_oversized_sidefile_placemarker(
+        run_id=run_id,
+        relpath=relpath,
+        size_bytes=size_bytes,
+        sha256_hex=digest,
+        max_bytes=PHASE3_SIDEFILE_MAX_BYTES,
+        full_copy_locations=[{"where": host, "path": str(bin_path)}],
+        created_utc=_utc_iso_now(),
+        note=("Auto-quarantined by phase3_git_writer: exceeds "
+              "PHASE3_SIDEFILE_MAX_BYTES. Real bytes remain in the "
+              "coordinator spool (pending_sidefiles/%s/) on %s -- not "
+              "deleted by this writer. See "
+              "scripts/quarantine_oversized_evidence_artifact.py for the "
+              "manual equivalent used before this automated quarantine "
+              "existed." % (run_id, host)))
+
+    target_dir = os.path.dirname(target)
+    tmp_target = target + ".phase3sf.tmp"
+    target_replaced = False
+    try:
+        os.makedirs(target_dir, exist_ok=True)
+        with open(tmp_target, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, indent=2, sort_keys=True)
+            fh.write("\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp_target, target)
+        target_replaced = True
+        _fsync_dir(target_dir)
+    except OSError as exc:
+        sys.stderr.write(
+            "%s sidefile quarantine: placemarker write failed %s -> %s: "
+            "%r\n" % (log_prefix, run_id, placemarker_rel, exc))
+        try:
+            os.unlink(tmp_target)
+        except OSError:
+            pass
+        return False
+
+    try:
+        _git(asm, "add", placemarker_rel, timeout=15, check=True)
+    except (subprocess.CalledProcessError,
+            subprocess.TimeoutExpired) as exc:
+        sys.stderr.write(
+            "%s sidefile quarantine: git add failed %s -> %s: %r. "
+            "Reverting working-tree write.\n" % (
+                log_prefix, run_id, placemarker_rel, exc))
+        if target_replaced:
+            _revert_target_to_head(asm, placemarker_rel, target)
+        return False
+
+    sys.stdout.write(
+        "%s sidefile %s -> %s exceeds PHASE3_SIDEFILE_MAX_BYTES "
+        "(%d > %d); quarantined with placemarker\n" % (
+            log_prefix, run_id, relpath, size_bytes,
+            PHASE3_SIDEFILE_MAX_BYTES))
+    return True
+
+
 def _materialize_sidefiles(asm, run_ids, log_prefix="[phase3]"):
     """For each run_id, write + git-add its spooled COMPANION side-files under
     REE_assembly/<relpath>, so they land in the same commit as the run's
-    manifest. Returns (n_files_staged, processed_run_ids) where processed
-    run_ids are those that had at least one companion successfully staged (and
-    whose companion spool dir should be dropped after the batch commits).
+    manifest. Returns (n_files_staged, processed_run_ids, wipeable_run_ids).
+
+    processed_run_ids are those that had at least one companion successfully
+    staged this tick (manifest/placemarker alike) -- used for the commit
+    message and log line. wipeable_run_ids is the subset of processed_run_ids
+    safe to fully drop from the spool (manifest_spool.delete_sidefiles): it
+    EXCLUDES any run_id with an oversized companion, quarantined or not,
+    because that companion's real bytes must stay in the spool even after its
+    placemarker lands on origin (see PHASE3_SIDEFILE_MAX_BYTES).
 
     SAFETY / reversibility mirrors _materialize_runpacks:
       - Best-effort: any per-file failure logs a WARN and is skipped; the
         manifest commit (already staged by the caller) is never blocked.
       - Each destination relpath was validated under evidence/experiments/ at
         spool time AND is re-validated by list_sidefiles_for_run.
+      - A companion's size is checked BEFORE `git add` is ever attempted on
+        it: an oversized file is never written into the working tree in
+        full, avoiding the guaranteed-failure git call and the wasted
+        write/revert cycle that would otherwise repeat every tick.
       - Atomic write (tmp + os.replace); a git-add failure reverts the
         working-tree write so the next tick's clean-tree check still passes.
       - Idempotent: re-committing a companion already on origin is a no-diff
@@ -1563,12 +1711,32 @@ def _materialize_sidefiles(asm, run_ids, log_prefix="[phase3]"):
     """
     n_files = 0
     processed = []
+    wipeable = []
     for run_id in run_ids:
         entries = manifest_spool.list_sidefiles_for_run(run_id)
         if not entries:
             continue
         any_staged = False
+        any_oversized = False
         for relpath, bin_path in entries:
+            try:
+                size_bytes = os.path.getsize(bin_path)
+            except OSError as exc:
+                sys.stderr.write(
+                    "%s sidefile materialise: stat failed %s: %r\n" % (
+                        log_prefix, bin_path, exc))
+                continue
+            if size_bytes > PHASE3_SIDEFILE_MAX_BYTES:
+                # This run's spool dir must never be wiped while this
+                # companion sits in it, regardless of whether the placemarker
+                # was newly staged this tick or already staged on a prior one.
+                any_oversized = True
+                if _quarantine_oversized_sidefile(
+                        asm, run_id, relpath, bin_path, size_bytes,
+                        log_prefix):
+                    n_files += 1
+                    any_staged = True
+                continue
             try:
                 with open(bin_path, "rb") as fh:
                     raw = fh.read()
@@ -1613,7 +1781,9 @@ def _materialize_sidefiles(asm, run_ids, log_prefix="[phase3]"):
                     _revert_target_to_head(asm, relpath, target)
         if any_staged:
             processed.append(run_id)
-    return n_files, processed
+            if not any_oversized:
+                wipeable.append(run_id)
+    return n_files, processed, wipeable
 
 
 def phase3_git_writer(
@@ -1836,9 +2006,10 @@ def phase3_git_writer(
     # to the manifest-only writer.
     n_sidefile = 0
     staged_sidefiles = []
+    wipeable_sidefiles = []
     if PHASE3_SPOOL_SIDEFILES:
-        n_sidefile, staged_sidefiles = _materialize_sidefiles(
-            asm, sidefile_batch, "[phase3]")
+        n_sidefile, staged_sidefiles, wipeable_sidefiles = (
+            _materialize_sidefiles(asm, sidefile_batch, "[phase3]"))
         if n_sidefile:
             sys.stdout.write(
                 "[phase3] materialised %d side-file(s) for %d run(s)\n" % (
@@ -2054,9 +2225,11 @@ def phase3_git_writer(
         manifest_spool.delete_manifest(run_id)
 
     # Drop the companion spool dirs for every run whose side-files were
-    # committed this tick (bytes are now on origin). Manifest-only ticks have
-    # no staged_sidefiles -> no-op.
-    for run_id in staged_sidefiles:
+    # committed this tick AND had no oversized (quarantined) companion --
+    # an oversized companion's real bytes stay in the spool even after its
+    # placemarker lands on origin (see PHASE3_SIDEFILE_MAX_BYTES). Manifest-
+    # only ticks have no wipeable_sidefiles -> no-op.
+    for run_id in wipeable_sidefiles:
         manifest_spool.delete_sidefiles(run_id)
 
     sys.stdout.write(

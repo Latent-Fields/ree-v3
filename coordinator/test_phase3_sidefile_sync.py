@@ -30,6 +30,7 @@ All printed text is ASCII-only.
 
 import base64
 import gzip
+import hashlib
 import json
 import os
 import pathlib
@@ -197,11 +198,13 @@ class WriterSidefileE2ETest(unittest.TestCase):
         with open(self._queue, "w", encoding="utf-8") as fh:
             json.dump({"items": []}, fh)
         self._saved_sf = sync_daemon.PHASE3_SPOOL_SIDEFILES
+        self._saved_max_bytes = sync_daemon.PHASE3_SIDEFILE_MAX_BYTES
         sync_daemon.PHASE3_GIT_WRITER_READY = False
 
     def tearDown(self):
         sync_daemon.PHASE3_GIT_WRITER_READY = False
         sync_daemon.PHASE3_SPOOL_SIDEFILES = self._saved_sf
+        sync_daemon.PHASE3_SIDEFILE_MAX_BYTES = self._saved_max_bytes
         self._conn.close()
         if self._saved_spool is not None:
             os.environ["COORDINATOR_SPOOL_DIR"] = self._saved_spool
@@ -291,6 +294,161 @@ class WriterSidefileE2ETest(unittest.TestCase):
                       "late companion must reach origin on a follow-up tick")
         self.assertEqual(
             list(manifest_spool.list_pending_sidefile_run_ids()), [])
+
+    # -----------------------------------------------------------------
+    # Oversized-companion quarantine (2026-08-12, PHASE3_SIDEFILE_MAX_BYTES)
+    # -----------------------------------------------------------------
+
+    def test_sidefile_under_threshold_materialises_normally(self):
+        """A companion at/under PHASE3_SIDEFILE_MAX_BYTES is written and
+        committed byte-for-byte, exactly as before this size check existed --
+        no placemarker, no different code path."""
+        sync_daemon.PHASE3_SPOOL_SIDEFILES = True
+        sync_daemon.PHASE3_SIDEFILE_MAX_BYTES = 1000
+        run_id = "v3_exq_920_small_20260812T000000Z_v3"
+        mrel = "evidence/experiments/v3_exq_920_small/small_20260812T000000Z.json"
+        crel = ("evidence/experiments/v3_exq_920_small/"
+                "small_20260812T000000Z_episode_log.json")
+        self._spool_manifest(run_id, mrel)
+        comp_bytes = b"x" * 999  # under the 1000-byte test threshold
+        manifest_spool.write_sidefile(run_id, crel, comp_bytes)
+
+        self.assertTrue(self._run_writer())
+
+        origin = self._origin_files()
+        self.assertIn(crel, origin)
+        self.assertNotIn(
+            crel + manifest_spool.PLACEMARKER_SUFFIX, origin,
+            "under-threshold companion must not be quarantined")
+        blob = _git(self._repo, "show", "master:" + crel).stdout
+        self.assertEqual(blob.encode("utf-8"), comp_bytes)
+        # spool fully drained, same as the pre-existing behaviour
+        self.assertEqual(
+            list(manifest_spool.list_pending_sidefile_run_ids()), [])
+
+    def test_sidefile_over_threshold_quarantined_with_placemarker(self):
+        """A companion over PHASE3_SIDEFILE_MAX_BYTES is NOT written into the
+        working tree in full and NOT git-added -- a small placemarker JSON is
+        committed in its place, and the writer completes without error (the
+        2026-08-12 incident: every push of the raw 184.6MB bytes was
+        rejected by GitHub's 100MB blob limit and the daemon crash-looped)."""
+        sync_daemon.PHASE3_SPOOL_SIDEFILES = True
+        sync_daemon.PHASE3_SIDEFILE_MAX_BYTES = 1000
+        run_id = "v3_exq_920_big_20260812T010101Z_v3"
+        mrel = "evidence/experiments/v3_exq_920_big/big_20260812T010101Z.json"
+        crel = ("evidence/experiments/v3_exq_920_big/"
+                "big_20260812T010101Z_episode_log.json")
+        self._spool_manifest(run_id, mrel)
+        comp_bytes = b"y" * 2000  # over the 1000-byte test threshold
+        manifest_spool.write_sidefile(run_id, crel, comp_bytes)
+
+        self.assertTrue(
+            self._run_writer(),
+            "writer must not crash-exit on an oversized companion")
+
+        origin = self._origin_files()
+        self.assertIn(mrel, origin, "manifest still lands")
+        self.assertNotIn(
+            crel, origin, "oversized companion's raw bytes must not land")
+        placemarker_rel = crel + manifest_spool.PLACEMARKER_SUFFIX
+        self.assertIn(placemarker_rel, origin,
+                      "placemarker must be committed in its place")
+        payload = json.loads(
+            _git(self._repo, "show", "master:" + placemarker_rel).stdout)
+        self.assertEqual(payload["artifact_type"],
+                         "oversized_evidence_artifact_placemarker")
+        self.assertEqual(payload["run_id"], run_id)
+        self.assertEqual(payload["size_bytes"], len(comp_bytes))
+        self.assertEqual(payload["sha256"],
+                         hashlib.sha256(comp_bytes).hexdigest())
+
+    def test_oversized_companion_bytes_remain_in_spool(self):
+        """Quarantining a companion commits a placemarker but must NOT
+        delete the real bytes from the spool -- they stay recoverable, the
+        same way the manual 2026-08-12 incident fix recovered the file from
+        the spool by hand."""
+        sync_daemon.PHASE3_SPOOL_SIDEFILES = True
+        sync_daemon.PHASE3_SIDEFILE_MAX_BYTES = 1000
+        run_id = "v3_exq_920_retain_20260812T020202Z_v3"
+        mrel = ("evidence/experiments/v3_exq_920_retain/"
+                "retain_20260812T020202Z.json")
+        crel = ("evidence/experiments/v3_exq_920_retain/"
+                "retain_20260812T020202Z_episode_log.json")
+        self._spool_manifest(run_id, mrel)
+        comp_bytes = b"z" * 5000
+        manifest_spool.write_sidefile(run_id, crel, comp_bytes)
+
+        self.assertTrue(self._run_writer())
+
+        entries = manifest_spool.list_sidefiles_for_run(run_id)
+        self.assertEqual(
+            len(entries), 1,
+            "oversized companion's spool entry must be RETAINED")
+        got_rel, bin_path = entries[0]
+        self.assertEqual(got_rel, crel)
+        with open(bin_path, "rb") as fh:
+            self.assertEqual(fh.read(), comp_bytes)
+        self.assertIn(run_id, list(
+            manifest_spool.list_pending_sidefile_run_ids()))
+
+    def test_mixed_run_oversized_companion_blocks_spool_wipe(self):
+        """A run with BOTH a normal-size and an oversized companion: the
+        normal one still lands on origin, but the run's whole spool dir is
+        NOT wiped afterward (delete_sidefiles operates per-run_id, not
+        per-file) -- so the oversized companion's bytes are never
+        collaterally dropped alongside its already-committed sibling."""
+        sync_daemon.PHASE3_SPOOL_SIDEFILES = True
+        sync_daemon.PHASE3_SIDEFILE_MAX_BYTES = 1000
+        run_id = "v3_exq_920_mixed_20260812T030303Z_v3"
+        mrel = ("evidence/experiments/v3_exq_920_mixed/"
+                "mixed_20260812T030303Z.json")
+        crel_small = ("evidence/experiments/v3_exq_920_mixed/"
+                     "mixed_20260812T030303Z_episode_log.json")
+        crel_big = ("evidence/experiments/v3_exq_920_mixed/"
+                    "mixed_20260812T030303Z_extra_episode_log.json")
+        self._spool_manifest(run_id, mrel)
+        manifest_spool.write_sidefile(run_id, crel_small, b"s" * 10)
+        manifest_spool.write_sidefile(run_id, crel_big, b"b" * 5000)
+
+        self.assertTrue(self._run_writer())
+
+        origin = self._origin_files()
+        self.assertIn(crel_small, origin)
+        self.assertIn(crel_big + manifest_spool.PLACEMARKER_SUFFIX, origin)
+        self.assertNotIn(crel_big, origin)
+        # spool dir NOT wiped -- both entries still present
+        self.assertEqual(
+            len(manifest_spool.list_sidefiles_for_run(run_id)), 2)
+
+    def test_oversized_quarantine_idempotent_across_ticks(self):
+        """A second tick over an unchanged oversized companion must not
+        crash and must not re-hash/re-commit -- the placemarker is already
+        on origin, so the tick has nothing new to stage."""
+        sync_daemon.PHASE3_SPOOL_SIDEFILES = True
+        sync_daemon.PHASE3_SIDEFILE_MAX_BYTES = 1000
+        run_id = "v3_exq_920_repeat_20260812T040404Z_v3"
+        mrel = ("evidence/experiments/v3_exq_920_repeat/"
+                "repeat_20260812T040404Z.json")
+        crel = ("evidence/experiments/v3_exq_920_repeat/"
+                "repeat_20260812T040404Z_episode_log.json")
+        self._spool_manifest(run_id, mrel)
+        manifest_spool.write_sidefile(run_id, crel, b"q" * 3000)
+        self.assertTrue(self._run_writer())
+
+        placemarker_rel = crel + manifest_spool.PLACEMARKER_SUFFIX
+        before = _git(self._repo, "show", "master:" + placemarker_rel).stdout
+        head_before = _git(self._repo, "rev-parse", "master").stdout.strip()
+
+        # Second tick: manifest spool already drained, oversized companion
+        # still sits in the spool by design -> nothing new to stage.
+        self.assertFalse(self._run_writer())
+
+        head_after = _git(self._repo, "rev-parse", "master").stdout.strip()
+        self.assertEqual(
+            head_before, head_after,
+            "idempotent tick must not create an empty/duplicate commit")
+        after = _git(self._repo, "show", "master:" + placemarker_rel).stdout
+        self.assertEqual(before, after)
 
 
 # ---------------------------------------------------------------------------

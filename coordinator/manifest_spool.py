@@ -445,3 +445,78 @@ def delete_sidefiles(run_id: str) -> bool:
                 run_dir, exc))
         ok = False
     return ok
+
+
+# ---------------------------------------------------------------------------
+# Oversized companion quarantine (2026-08-12)
+#
+# GitHub hard-rejects any pushed git blob over 100MB. A companion side-file
+# (most commonly *_episode_log.json) can legitimately exceed that under this
+# project's "record generously, never prune" telemetry maximalism -- a
+# genuinely large, genuinely useful run is not a bug to truncate. The writer
+# (sync_daemon._materialize_sidefiles) checks the SPOOLED file's size against
+# PHASE3_SIDEFILE_MAX_BYTES before ever attempting `git add`; anything over
+# gets a small placemarker JSON committed in its place instead of the raw
+# bytes. These two helpers are pure computation (hash + payload dict) with no
+# git dependency, matching this module's existing role as the I/O layer for
+# the writer's git-facing logic in sync_daemon.py.
+#
+# Schema mirrors scripts/quarantine_oversized_evidence_artifact.py (the
+# human-run tool used to hand-fix the motivating incident) so a placemarker
+# written by either is recognisable as the same kind of artifact. The two are
+# independent implementations, not a shared import -- the umbrella repo's
+# scripts/ tree is not reliably checked out on the hub or cloud workers (see
+# CLAUDE.md's vendored-copy convention, e.g. graceful_timeout.py, for why a
+# cross-repo import here would be unsafe).
+# ---------------------------------------------------------------------------
+
+PLACEMARKER_SUFFIX = ".placemarker.json"
+
+
+def placemarker_relpath_for(relpath: str) -> str:
+    """The companion relpath a quarantined artifact's placemarker is
+    committed at: the original relpath with PLACEMARKER_SUFFIX appended, so
+    it can never collide with -- or be matched by a companion-discovery glob
+    for -- the real artifact name."""
+    return relpath + PLACEMARKER_SUFFIX
+
+
+def sha256_of_file(path) -> str:
+    """Chunked sha256 -- never loads the whole (possibly 100+MB) file into
+    memory just to hash it."""
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def build_oversized_sidefile_placemarker(
+    *,
+    run_id: str,
+    relpath: str,
+    size_bytes: int,
+    sha256_hex: str,
+    max_bytes: int,
+    full_copy_locations: list,
+    created_utc: str,
+    note: str = "",
+) -> dict:
+    """Payload for a quarantined companion's placemarker JSON. Same shape as
+    scripts/quarantine_oversized_evidence_artifact.py's payload
+    (artifact_type/schema_version/original_filename/...) so a human reading
+    either format recognises it as the same kind of record."""
+    return {
+        "artifact_type": "oversized_evidence_artifact_placemarker",
+        "schema_version": "1",
+        "original_filename": relpath.rsplit("/", 1)[-1],
+        "run_id": run_id,
+        "size_bytes": size_bytes,
+        "sha256": sha256_hex,
+        "reason_excluded_from_git": (
+            "exceeds PHASE3_SIDEFILE_MAX_BYTES (%d bytes > %d byte limit)"
+            % (size_bytes, max_bytes)),
+        "full_copy_locations": full_copy_locations,
+        "created_utc": created_utc,
+        "note": note,
+    }
