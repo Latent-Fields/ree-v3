@@ -27,6 +27,21 @@
       "episodes_per_run": 220,
       "experiment_type": "v3_exq_921_mech490_sleep_commitgate_spawn_matched",
       "seeds": 6
+    },
+    {
+      "queue_id": "V3-EXQ-925",
+      "title": "E3 F-dominance frozen-state causal-replay harness (H1/H2/H3/H4 discrimination, SD-056-trained substrate)",
+      "experiment_type": "v3_exq_925_e3_fdominance_frozen_replay_causal_harness",
+      "script": "experiments/v3_exq_925_e3_fdominance_frozen_replay_causal_harness.py",
+      "claim_ids": [],
+      "priority": 45,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 75,
+      "episodes_per_run": 600,
+      "seeds": 3,
+      "conditions": 1,
+      "note": "DIAGNOSTIC (claim_ids=[]) -- discriminates among four CAUSAL hypotheses about MECH-439 F-dominance (H1 literal-F / H2 primary-field-constitutional / H3 upstream competitor insufficiency / H4 appropriate conditional specialisation). Does NOT adjudicate MECH-439/ARC-062/ARC-107/108/110 -- those are untouched by this run's evidence_direction. Session mech357-pressure-scoping-11e9c9, 2026-08-12, user-requested. P0 trains SD-056 (E2 action-conditional divergence, verbatim V3-EXQ-643a recipe incl. the rollout-norm clamp) so candidates genuinely differentiate; verified to clear readiness at the real budget (cand_world_pairwise_dist 0.0165 -> 0.1531 over 60 eps, vs the ~0.1147 reference ree-v3/CLAUDE.md documents). P1 captures GENUINE FRESH E3 selections only (latch-cleared per V3-EXQ-924's fix) and replays C0-C5 counterfactuals inline by perturbing the REAL captured score vector -- factual-distribution reconstruction is exact to ~6e-9 against the selector's own recorded probs. Independent criterion is ENV-NATIVE ground-truth hazard distance (never a network output). PRIMARY DVs are DISTRIBUTIONAL (delta selection-probability / rank / expected hazard distance on the independently-preferred candidate) because the selector runs UNCOMMITTED (committed=False on every observed tick -- it samples softmax(-scores/T) rather than taking argmin), making argmin-flip ill-posed against the factual draw; argmin flips are recorded alongside as the deterministic-selector counterpart. ALSO records two SCALE readouts that are the ones to read first: normalised selection entropy, and f_contribution_range vs gated_policy_contribution_range -- because V3-EXQ-924's 96% figure is TEMPORAL variance share, while only CROSS-CANDIDATE spread can steer a choice, and the smoke suggests these diverge sharply. Scope: gated_policy is the ONLY competitor channel exercised (ofc/lateral_pfc need separate head training; dacc's input is documented as downstream of F itself; curiosity/tonic_vigor are structurally broadcast); MECH-449 Go/No-Go is not exercised. Three authoring defects were caught by the harness's own checks on smoke runs and are documented in the module docstring (wrong readiness statistic, missing candidate_summary_source flag, score-reconstruction replay) -- each would have produced a confident wrong answer. GOV-REUSE-1: no existing manifest carries a fresh-selection counterfactual replay for this pathway (V3-EXQ-858 is a live behavioural retrain, not a replay); not recoverable, run required. Re-derive brake: claim_ids=[] so no claim is re-tested. Substrate-path overlap gate (2.5c) clear."
     }
   ]
 }
