@@ -2971,6 +2971,33 @@ class REEConfig:
     # SD-032c, no-op until landed).
     salience_dacc_pe_weight: float = 1.0
     salience_dacc_foraging_weight: float = 0.5
+    # mode-governance-engagement occupancy-gap fix (2026-08-12, MECH-266 /
+    # chip-20260812-mech266-external-task-occupancy): dacc_pe (and the
+    # foraging_value derived from it) are UNCAPPED by default (dacc_pe_cap is
+    # None) and enter the mode-AFFINITY logits at raw magnitude, weight 1.0 --
+    # directly commensurate-looking with external_task's [0,1]-bounded
+    # external_task_drive engagement signal, but not actually bounded the same
+    # way. Diagnostic replay of V3-EXQ-464d/467d's own substrate (dry-run
+    # curriculum, seed 42) measured dacc_pe ~16-17 throughout eval -- two
+    # orders of magnitude above external_task's max affinity contribution
+    # (bias 1.0 + engagement 1.0 * affinity_weight, typically <= 5) -- so
+    # internal_planning's argmax NEVER yields to external_task regardless of
+    # engagement, and the coordinator's "soft-weighted, NOT one-hot" mode
+    # vector (module docstring) collapses to one-hot internal_planning
+    # whenever dacc_pe is nonzero (i.e. on this substrate, always). This is
+    # architecturally distinct from the SALIENCE aggregate (urgency
+    # magnitude, "how loud is the alarm" -- deliberately unbounded, e.g.
+    # aic_salience) vs the AFFINITY logits (mode preference, "which mode does
+    # this argue for" -- signals here should be commensurate with each
+    # other). None (default) = bit-identical to the pre-2026-08-12 substrate
+    # (no clamp; matches every landed V3-EXQ-464/467 manifest). When set,
+    # clamps each affinity-input signal's raw value to
+    # [-affinity_input_cap, +affinity_input_cap] BEFORE it is multiplied by
+    # its per-mode weight and summed into the logits -- applies uniformly to
+    # every affinity_weights entry (not just dacc_pe), so any other unbounded
+    # signal added later inherits the same protection. Does NOT touch
+    # salience_weights / salience_aggregate.
+    salience_affinity_input_cap: Optional[float] = None
     # When True, the e3_policy write-gate value scales the dACC score_bias
     # before E3.select() (so that during internal_replay, dACC influence on
     # action selection is suppressed near zero). Default False = backward
@@ -6052,6 +6079,7 @@ class REEConfig:
         salience_external_task_bias: float = 1.0,
         salience_dacc_pe_weight: float = 1.0,
         salience_dacc_foraging_weight: float = 0.5,
+        salience_affinity_input_cap: Optional[float] = None,
         salience_apply_to_dacc_bias: bool = False,
         # mode-governance-engagement: external_task salience source (no-op default).
         use_external_task_drive: bool = False,
@@ -7324,6 +7352,7 @@ class REEConfig:
         config.salience_external_task_bias = salience_external_task_bias
         config.salience_dacc_pe_weight = salience_dacc_pe_weight
         config.salience_dacc_foraging_weight = salience_dacc_foraging_weight
+        config.salience_affinity_input_cap = salience_affinity_input_cap
         config.salience_apply_to_dacc_bias = salience_apply_to_dacc_bias
         # mode-governance-engagement: external_task salience source.
         config.use_external_task_drive = use_external_task_drive

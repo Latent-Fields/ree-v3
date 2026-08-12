@@ -272,6 +272,25 @@ class SalienceCoordinatorConfig:
         "aic_salience": 1.0,
     })
 
+    # mode-governance-engagement occupancy-gap fix (2026-08-12, MECH-266 /
+    # chip-20260812-mech266-external-task-occupancy): dacc_pe (and the
+    # foraging_value derived from it) are unbounded and enter the AFFINITY
+    # logits at raw magnitude -- diagnostic replay of the V3-EXQ-464d/467d
+    # substrate measured dacc_pe ~16-17 through eval, two orders of magnitude
+    # above the [0,1]-bounded external_task_drive engagement signal's max
+    # affinity contribution, so internal_planning's argmax never yields
+    # regardless of engagement and operating_mode collapses to one-hot
+    # internal_planning instead of the soft-weighted vector this class's own
+    # docstring specifies. None (default) = bit-identical to the
+    # pre-2026-08-12 substrate (no clamp). When set, every affinity_weights
+    # input signal's raw value is clamped to [-cap, +cap] in tick() BEFORE
+    # its per-mode weight is applied -- uniform across signals, not
+    # dacc_pe-specific, so a future unbounded signal inherits the same
+    # protection. Deliberately does NOT touch salience_weights /
+    # salience_aggregate (urgency magnitude is meant to stay unbounded --
+    # "how loud is the alarm" vs "which mode does this argue for").
+    affinity_input_cap: Optional[float] = None
+
 
 class SalienceCoordinator:
     """SD-032a salience-network coordinator.
@@ -433,10 +452,17 @@ class SalienceCoordinator:
         # sum over signals of (signal_value * affinity_weights[signal][mode]).
         logits: Dict[str, float] = {m: 0.0 for m in self.mode_names}
         logits["external_task"] += self.config.external_task_bias
+        affinity_cap = self.config.affinity_input_cap
         for signal_name, mode_map in self.config.affinity_weights.items():
             value = self._input_signals.get(signal_name, 0.0)
             if value == 0.0:
                 continue
+            # mode-governance-engagement occupancy-gap fix: bound only the
+            # AFFINITY contribution of an unbounded signal (e.g. dacc_pe), not
+            # the signal itself or its salience_aggregate contribution below.
+            # No-op when affinity_input_cap is None (bit-identical default).
+            if affinity_cap is not None:
+                value = max(-affinity_cap, min(affinity_cap, value))
             for mode, weight in mode_map.items():
                 if mode in logits:
                     logits[mode] += value * weight

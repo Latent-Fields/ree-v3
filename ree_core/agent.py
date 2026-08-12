@@ -677,6 +677,13 @@ class REEAgent(nn.Module):
                 temperature_exponent_clip=getattr(
                     config, "salience_temperature_exponent_clip", 4.0
                 ),
+                # mode-governance-engagement occupancy-gap fix (2026-08-12):
+                # bounds dacc_pe/dacc_foraging's AFFINITY-logit contribution
+                # so external_task_drive can contest internal_planning. None
+                # (default) -> bit-identical (no clamp).
+                affinity_input_cap=getattr(
+                    config, "salience_affinity_input_cap", None
+                ),
             )
             sal_cfg.salience_weights = {
                 "dacc_pe": config.salience_dacc_pe_weight,
