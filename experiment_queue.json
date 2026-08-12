@@ -8,6 +8,25 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-924",
+      "title": "E3 score-variance decomposition, remeasured post-SD-E3-SCORER-COMPLETION scorer fix (fixed vs legacy A/B)",
+      "script": "experiments/v3_exq_924_e3_score_variance_decomp_scorer_fix_remeasure.py",
+      "priority": 50,
+      "machine_affinity": "any",
+      "estimated_minutes": 10,
+      "note": "DIAGNOSTIC (claim_ids=[], no re-derive brake applies -- see script docstring). Gate for a larger MECH-439/ARC-062 F-dominance causal-localisation investigation (session mech357-pressure-scoping-11e9c9, 2026-08-12): every prior F-dominance measurement in that lineage (V3-EXQ-571 [the historical ~88-89% figure], 689d, 689i, 699/699b, 705b, 707-lineage, 709/711/713, 719a, 852, 858) ran BEFORE commit 193bbec (SD-E3-SCORER-COMPLETION, 2026-08-09), which removed an UNCONDITIONAL untrained-scorer-head noise contamination from literal F (verified directly against the commit diff). This run measures whether F's temporal-variance share changes materially on the current (coherence-only) substrate, in the SAME run as the pre-fix (legacy) behaviour for direct A/B comparison -- before any larger frozen-state/frozen-candidate causal-replay diagnostic is built. GOV-REUSE-1 checked (reanalysis_query.py): no recoverable prior measurement exists (571's own manifests have no substrate_hash). Substrate-path overlap gate (2.5c) clear. No training -- frozen-weight architectural instrumentation, cheap by construction (~10 min for 12 cells). Fixes a latched-diagnostics defect found during authoring (E3 fires only every ~10 env steps; a naive per-step read re-records one selection ~10x) -- see n_fresh_ticks/n_latched_ticks in the manifest for the true sample size.",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-08-12T05:05:22Z"
+      },
+      "claim_ids": [],
+      "conditions": 4,
+      "episodes_per_run": 600,
+      "experiment_type": "v3_exq_924_e3_score_variance_decomp_scorer_fix_remeasure",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-921",
       "title": "MECH-490 sleep commit-gate persistence: spawn-matched + commit-variance instrumented sleep-vs-no-sleep ablation (V3-EXQ-913 successor, 6 seeds)",
       "script": "experiments/v3_exq_921_mech490_sleep_commitgate_spawn_matched.py",
@@ -27,21 +46,6 @@
       "episodes_per_run": 220,
       "experiment_type": "v3_exq_921_mech490_sleep_commitgate_spawn_matched",
       "seeds": 6
-    },
-    {
-      "queue_id": "V3-EXQ-924",
-      "title": "E3 score-variance decomposition, remeasured post-SD-E3-SCORER-COMPLETION scorer fix (fixed vs legacy A/B)",
-      "experiment_type": "v3_exq_924_e3_score_variance_decomp_scorer_fix_remeasure",
-      "script": "experiments/v3_exq_924_e3_score_variance_decomp_scorer_fix_remeasure.py",
-      "priority": 50,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 10,
-      "episodes_per_run": 600,
-      "seeds": 3,
-      "conditions": 4,
-      "note": "DIAGNOSTIC (claim_ids=[], no re-derive brake applies -- see script docstring). Gate for a larger MECH-439/ARC-062 F-dominance causal-localisation investigation (session mech357-pressure-scoping-11e9c9, 2026-08-12): every prior F-dominance measurement in that lineage (V3-EXQ-571 [the historical ~88-89% figure], 689d, 689i, 699/699b, 705b, 707-lineage, 709/711/713, 719a, 852, 858) ran BEFORE commit 193bbec (SD-E3-SCORER-COMPLETION, 2026-08-09), which removed an UNCONDITIONAL untrained-scorer-head noise contamination from literal F (verified directly against the commit diff). This run measures whether F's temporal-variance share changes materially on the current (coherence-only) substrate, in the SAME run as the pre-fix (legacy) behaviour for direct A/B comparison -- before any larger frozen-state/frozen-candidate causal-replay diagnostic is built. GOV-REUSE-1 checked (reanalysis_query.py): no recoverable prior measurement exists (571's own manifests have no substrate_hash). Substrate-path overlap gate (2.5c) clear. No training -- frozen-weight architectural instrumentation, cheap by construction (~10 min for 12 cells). Fixes a latched-diagnostics defect found during authoring (E3 fires only every ~10 env steps; a naive per-step read re-records one selection ~10x) -- see n_fresh_ticks/n_latched_ticks in the manifest for the true sample size.",
-      "claim_ids": []
     }
   ]
 }
