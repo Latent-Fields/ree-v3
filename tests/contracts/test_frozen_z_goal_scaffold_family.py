@@ -1,6 +1,6 @@
 """Contracts for the FROZEN (not dead) z_goal condition in the scaffold-warmed family.
 
-WHAT THE CONDITION IS. ~28 experiment scripts drive their warmup through
+WHAT THE CONDITION IS. ~30 experiment scripts drive their warmup through
 `experiments/scaffolded_sd054_onboarding.py`'s `ScaffoldedSD054OnboardingScheduler`,
 which calls `agent.update_z_goal(...)` on Stage-0 / P1 / P2 steps, and then hand the
 warmed agent to a HAND-ROLLED measurement loop that never calls it again. Two substrate
@@ -57,10 +57,27 @@ fix: the call is ALSO the SD-024 benefit-attractor producer (it calls
 `ResidueField.accumulate_benefit` ahead of the `goal_state` guard), so it populates
 `benefit_rbf_field` and un-zeroes the SD-025 curiosity bonus in
 `HippocampalModule._curiosity_bonus`. For THIS family that specific path is gated off --
-`residue.benefit_terrain_live_producer` defaults False and none of the 28 (nor the
+`residue.benefit_terrain_live_producer` defaults False and none of the 30 (nor the
 scheduler) sets it -- but the retrofit still swaps a constant goal for 0.5%/step decay
 plus contact reseeding, which moves the E3 goal term on every tick. Either way a patched
 script is not comparable to the runs that came before it.
+
+FAMILY GROWTH (2026-08-12). Two new members: V3-EXQ-464e and V3-EXQ-467e (ree-v3
+`ed98d7b`), lettered bug-fix iterations of 464d/467d fixing a `_clone_for_arm()`
+goal_state-drop bug plus a `salience_affinity_input_cap` substrate calibration -- neither
+change touches how the measurement phase handles z_goal. Checked directly rather than
+assumed: both build the curriculum ONCE per seed and evaluate every arm via
+`_clone_for_arm` (exactly the structural property the 2026-07-27 triage above rests on,
+and precisely the function the 464e/467e bug fix targets); neither sets `goal_weight` or
+`residue.benefit_terrain_live_producer`; neither calls `update_z_goal` or
+`_set_goal_pipeline_frozen`. So the frozen-goal condition applies unchanged and the
+TRIAGE OUTCOME's reasoning (arm-symmetric, cannot produce a between-arm difference)
+extends to them without re-deriving it -- a fixed goal is the deliberate, inherited state,
+consistent with every other member of the family, and per the family's own convention
+(no member documents this per-script; it is a family-wide property recorded once here)
+neither script carries its own comment about it. `_FROZEN_FAMILY_SIZE` -> 30; the
+28-landed-manifest evidence-direction breakdown above is unchanged since neither has a
+manifest yet (both `claimed` in the queue, no run landed as of this note).
 """
 import ast
 import sys
@@ -148,7 +165,7 @@ def test_z_goal_does_not_decay_without_update_z_goal():
 def test_frozen_goal_still_drives_e3_for_the_family_config():
     """`goal_weight` resolves LIVE for this family, so a stale goal biases selection.
 
-    None of the 28 sets `goal_weight`, and `E3Config.goal_weight`'s dataclass default is
+    None of the 30 sets `goal_weight`, and `E3Config.goal_weight`'s dataclass default is
     0.0 -- which reads as "the goal term is off, so who cares if z_goal is stale". That
     reading is wrong: `REEConfig.from_dims` carries its OWN default of 1.0 and assigns
     `config.e3.goal_weight`, so the E3 goal term (gated on `goal_weight > 0` AND
@@ -478,7 +495,12 @@ def test_scaffold_hands_off_with_the_goal_consumers_unfrozen():
 # scheduler). The 22 other scaffold importers that enable z_goal do NOT hand-roll a loop
 # -- the scheduler drives every step for them, so it keeps calling update_z_goal and
 # they never freeze.
-_FROZEN_FAMILY_SIZE = 28
+#
+# 28 -> 30 (2026-08-12): V3-EXQ-464e and V3-EXQ-467e landed as lettered bug-fix
+# iterations of already-family members 464d/467d (see the FAMILY GROWTH addendum in
+# this file's module docstring for the confirmation that both inherit the same frozen,
+# arm-symmetric goal state -- neither needed a retrofit).
+_FROZEN_FAMILY_SIZE = 30
 
 
 def test_frozen_z_goal_family_size_is_pinned():
