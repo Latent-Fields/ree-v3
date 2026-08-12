@@ -1,4 +1,4 @@
-"""V3-EXQ-922: MECH-267 mode-conditioning content-persistence, GOV-FANOUT-1
+"""V3-EXQ-923: MECH-267 mode-conditioning content-persistence, GOV-FANOUT-1
 H1 leg (iteration-count discrimination) (DIAGNOSTIC).
 
 WHY THIS RUN EXISTS: V3-EXQ-869 (noise-scale mechanism only) and V3-EXQ-869a
@@ -137,7 +137,7 @@ adjudication is required before governance acts on this run's
 self-routed interpretation.label).
 
 Run with:
-  /opt/local/bin/python3 experiments/v3_exq_922_mech267_gov_fanout1_h1_iteration_count.py [--dry-run]
+  /opt/local/bin/python3 experiments/v3_exq_923_mech267_gov_fanout1_h1_iteration_count.py [--dry-run]
 
 Writes a flat JSON manifest to REE_assembly/evidence/experiments/.
 """
@@ -342,7 +342,7 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
     t0 = time.perf_counter()
     seeds = SEEDS[:3] if dry_run else SEEDS
     print(
-        f"[v3_exq_922] MECH-267 GOV-FANOUT-1 H1 (iteration-count) leg, "
+        f"[v3_exq_923] MECH-267 GOV-FANOUT-1 H1 (iteration-count) leg, "
         f"{len(seeds)} seed(s) ({'dry-run' if dry_run else 'full'})...",
         flush=True,
     )
@@ -370,7 +370,7 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
     )
 
     mechanism_activation = _mechanism_activation(per_seed_results)
-    print(f"[v3_exq_922] mechanism_activation: {mechanism_activation}", flush=True)
+    print(f"[v3_exq_923] mechanism_activation: {mechanism_activation}", flush=True)
 
     mean_gaps: Dict[str, Dict[str, float]] = {}
     entropy_gaps: Dict[str, Dict[str, float]] = {}
@@ -492,7 +492,7 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
 
     elapsed = time.perf_counter() - t0
     print(
-        f"[v3_exq_922] overall: {outcome} label={interpretation_label} "
+        f"[v3_exq_923] overall: {outcome} label={interpretation_label} "
         f"(non_degenerate={non_degenerate}, C0={c0_diagnostic_manipulation_check}, "
         f"C_H1(iters=2)={c_h1_load_bearing}, C1_context(iters=3)={c1_context_iters3}, "
         f"both_mechanisms_active={mechanism_activation['both_mechanisms_active']}, "
@@ -504,7 +504,7 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
     )
 
     ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-    run_id = f"v3_exq_922_mech267_gov_fanout1_h1_iteration_count_{ts}_v3"
+    run_id = f"v3_exq_923_mech267_gov_fanout1_h1_iteration_count_{ts}_v3"
 
     persistence_fractions: Dict[str, Any] = {}
     if not dry_run:
@@ -545,7 +545,7 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
     manifest: Dict[str, Any] = {
         "schema_version": "v1",
         "run_id": run_id,
-        "experiment_type": "v3_exq_922_mech267_gov_fanout1_h1_iteration_count",
+        "experiment_type": "v3_exq_923_mech267_gov_fanout1_h1_iteration_count",
         "architecture_epoch": "ree_hybrid_guardrails_v1",
         "timestamp_utc": datetime.utcnow().isoformat() + "Z",
         "experiment_purpose": EXPERIMENT_PURPOSE,
@@ -665,7 +665,7 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
         "dry_run": bool(dry_run),
     }
 
-    out_dir = EVIDENCE_ROOT / "v3_exq_922_mech267_gov_fanout1_h1_iteration_count"
+    out_dir = EVIDENCE_ROOT / "v3_exq_923_mech267_gov_fanout1_h1_iteration_count"
     out_file = write_flat_manifest(
         manifest,
         out_dir,

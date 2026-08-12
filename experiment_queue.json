@@ -27,6 +27,25 @@
       "episodes_per_run": 220,
       "experiment_type": "v3_exq_921_mech490_sleep_commitgate_spawn_matched",
       "seeds": 6
+    },
+    {
+      "queue_id": "V3-EXQ-923",
+      "title": "MECH-267 GOV-FANOUT-1 H1 leg: mode-conditioning content-persistence at num_cem_iterations=2 (iteration-count discrimination, diagnostic)",
+      "script": "experiments/v3_exq_923_mech267_gov_fanout1_h1_iteration_count.py",
+      "priority": 35,
+      "machine_affinity": "any",
+      "estimated_minutes": 8,
+      "claim_id": "MECH-267",
+      "claim_ids": [
+        "MECH-267"
+      ],
+      "note": "GOV-FANOUT-1 H1 leg (iteration-count) of the 3-leg discrimination portfolio routed by confirmed failure_autopsy_V3-EXQ-869a_2026-08-03 (targets[0].fanout_recommendation): does MECH-267's mode-conditioning content-persistence wash-out (869: clean at iters=1, FAIL at production iters=3, noise-scale only; 869a: same FAIL with both noise-scale + horizon-depth mechanisms active) depend on iteration count? Adds the never-measured num_cem_iterations=2 point between the two existing measurements. H1's own pre-registered null: gaps at iters=2 as flat as iters=3. H2 (mode-aware CEM value-function term) and H3 (hard-partitioned candidate pools), the portfolio's other two legs, both need a substrate build not performed here -- out of scope for this queue entry, to be routed via /implement-substrate. experiment_purpose=diagnostic (root-cause discrimination, not a direct test of MECH-267's core prediction) -- excluded from governance confidence/conflict scoring; requires a confirmed /failure-autopsy adjudication before governance acts on the self-routed interpretation.label. Same DV (mean_raw_std_by_dim pairwise gaps), modes-in-predicted-order, floors (FLOOR_DIAGNOSTIC=0.015, FLOOR_PRODUCTION=0.01), and seed set as 869/869a. [Renumbered V3-EXQ-922 -> V3-EXQ-923: V3-EXQ-922 was already burned by an unrelated, already-completed SD-016 experiment (v3_exq_922_sd016_mech151_152_arc041_production_combo, 2026-08-12T03:51:19Z) that this session's initial ID check missed by only consulting the active queue file, not the full evidence/git history -- corrected before the coordinator POST, which caught the collision (existing_status: completed, HTTP-level refusal).] Re-derive brake (Step 2.5b): MECH-267 same-granularity autopsy count = 2 (869, 869a), at threshold -- released by 869a's own confirmed autopsy, whose routing is explicitly this GOV-FANOUT-1 portfolio rather than a same-question re-letter, and this leg attacks a different design axis (iteration-count) than either braked run tested alone. GOV-REUSE-1 (Step 2.4): decisive readout (pairwise raw_std gaps at num_cem_iterations=2, both mechanisms active) never measured in any prior manifest -- not recoverable, proceed to run. Smoke test (validate_experiments.py --strict: OK, 0 findings; --dry-run: 3 seeds, both_mechanisms_active=True, C0 manipulation check PASS) confirms wiring; the H1_probe smoke gaps were near-zero (consistent with the expected h1_refuted pattern at 3 seeds, non-gating -- the full 30-seed run is what determines the outcome).",
+      "status": "pending",
+      "architecture_epoch": "ree_hybrid_guardrails_v1",
+      "conditions": 3,
+      "episodes_per_run": 1,
+      "experiment_type": "v3_exq_923_mech267_gov_fanout1_h1_iteration_count",
+      "seeds": 30
     }
   ]
 }
