@@ -99,6 +99,20 @@ Always-core fields it stamps (standard 3b)
                      motivating gap (a textual proxy over driver SOURCE is the only
                      fallback for a manifest lacking this field). Also NOT in
                      ALWAYS_CORE_KEYS, for the same reason z_goal_stream is not.
+  canonical_profile, canonical_profile_hash : which curated canonical-organism profile
+                     (if any) this run's config was built from -- "<name>@<version>" and
+                     its frozen content hash. See ree_core/utils/canonical_profile.py and
+                     experiments/_lib/canonical_profile_fingerprint.py
+                     (architecture_epoch_investigation.md 2026-08-12, Option B+C).
+                     Caller-supplied only; this module never derives either value.
+                     Absent (never fabricated) for a hand-assembled config -- the honest
+                     signal for every pre-2026-08-12 manifest and any run not built from
+                     a declared profile. Also NOT in ALWAYS_CORE_KEYS, for the same
+                     legacy-corpus reason as the fields above. Deliberately orthogonal to
+                     `architecture_epoch` (a separate, coarser generation-family tag
+                     copy-pasted per script) rather than overloading it -- see the
+                     investigation doc section 8 for why the two fields answer different
+                     questions and neither should absorb the other's job.
   machine          : socket.gethostname() (or a caller override -- the hub records
                      "ree-cloud-1" although its hostname is "ree-worker-1").
   machine_class    : arm_fingerprint.machine_class() -- fingerprint equality is
@@ -751,6 +765,8 @@ def stamp_recording_core(
     agent: Any = None,
     z_goal_stream_stats: Optional[Mapping[str, Any]] = None,
     episode_termination: Any = None,
+    canonical_profile: Optional[str] = None,
+    canonical_profile_hash: Optional[str] = None,
     overwrite: bool = False,
 ) -> Dict[str, Any]:
     """Merge the always-record core onto `manifest` in place and return it.
@@ -795,6 +811,19 @@ def stamp_recording_core(
         precomputed block, or a sequence of (steps, cause) pairs -- for the
         `episode_termination` block (see experiments/_lib/episode_termination.py).
         Omitting it simply omits the block; it is never fabricated.
+    canonical_profile, canonical_profile_hash
+        Which curated canonical-organism profile (if any) this run's config was built
+        from -- see ree_core/utils/canonical_profile.py (CanonicalProfileSpec,
+        build_config) and experiments/_lib/canonical_profile_fingerprint.py (freeze +
+        persist). `canonical_profile` is the "<name>@<version>" qualified name;
+        `canonical_profile_hash` is the frozen artifact's content hash. This module
+        stays stdlib-only and never computes either value itself -- both are the
+        CALLER's responsibility to pass, exactly like `config` above. Both are
+        genuinely optional and are left absent (never fabricated) for a run whose
+        config was hand-assembled rather than built from a declared profile -- that
+        absence is the honest signal per architecture_epoch_investigation.md section
+        10, not a gap to fill. Deliberately NOT in ALWAYS_CORE_KEYS: the entire
+        pre-2026-08-12 corpus predates the mechanism and must not read as under-recorded.
     overwrite
         Force-overwrite already-present fields (default False -> fill-only).
 
@@ -1070,6 +1099,17 @@ def stamp_recording_core(
     seed_list = _coerce_seed_list(seeds)
     if seed_list is not None:
         _fill("seeds", seed_list)
+
+    # canonical_profile / canonical_profile_hash -- which curated organism profile
+    # (if any) built this run's config. See ree_core/utils/canonical_profile.py and
+    # experiments/_lib/canonical_profile_fingerprint.py. Caller-supplied only (this
+    # module never derives either value); both stay absent for a hand-assembled
+    # config, which is the honest, expected state for the entire pre-2026-08-12
+    # corpus and for any run not built from a declared profile.
+    if canonical_profile is not None:
+        _fill("canonical_profile", str(canonical_profile))
+    if canonical_profile_hash is not None:
+        _fill("canonical_profile_hash", str(canonical_profile_hash))
 
     return manifest
 
