@@ -27,22 +27,6 @@
       "episodes_per_run": 220,
       "experiment_type": "v3_exq_921_mech490_sleep_commitgate_spawn_matched",
       "seeds": 6
-    },
-    {
-      "queue_id": "V3-EXQ-918a",
-      "title": "SD-RESIDUE-VALENCE-BOUND validation: clamp/decay bounds the SD-014 valence accumulator (ON vs OFF) [re-run, supersedes V3-EXQ-918]",
-      "script": "experiments/v3_exq_918a_sd_residue_valence_bound_validation.py",
-      "priority": 25,
-      "machine_affinity": "any",
-      "estimated_minutes": 1,
-      "supersedes": "V3-EXQ-918",
-      "note": "V3-EXQ-918 crashed (ERROR, exit code 1, ~1.4s, ree-cloud-3) via a queue-before-fix race, not a script bug: the V3-EXQ-918 script (ree-v3 ba2a60e334, pushed 17:23:16Z) referenced ResidueConfig.valence_bounding_enabled/valence_decay_rate/valence_clamp_abs, which the SD-RESIDUE-VALENCE-BOUND substrate fix (ree-v3 00449c7d0e) did not add until 17:49:46Z -- a 26-minute window. ree-cloud-3 pulled main and started the run at 17:39:41Z, inside that window, so ResidueConfig(**bounding_kwargs) raised an unexpected-keyword-argument TypeError in the first _make_field() call before any manifest could be written (root-caused by /diagnose-errors 2026-08-12). No code change: v3_exq_918a is byte-identical logic to v3_exq_918's script (renamed identifiers only), re-run now that the substrate fix is safely on main. Smoke PASS (--dry-run against current main, all 4 criteria C1-C4 met: OFF arm reproduces unbounded growth, ON arm stays bounded at clamp_abs=5.0, OFF arm bit-identical to pre-fix +=, MECH-094 hypothesis_tag gate unaffected). claim_ids=[] confirmed unchanged -- substrate-readiness diagnostic, no claims.yaml claim gates on this SD.",
-      "status": "pending",
-      "claim_ids": [],
-      "conditions": 6,
-      "episodes_per_run": 200,
-      "experiment_type": "v3_exq_918a_sd_residue_valence_bound_validation",
-      "seeds": 3
     }
   ]
 }
