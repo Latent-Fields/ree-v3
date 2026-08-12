@@ -16,6 +16,16 @@ skeleton (standard principle 1: small mandatory identity+provenance core). It is
 NO-OP-SAFE additive merge: by default it fills only fields that are absent/empty, never
 clobbering a value the script already set (pass `overwrite=True` to force).
 
+Mandatory subset (2026-08-12 hardening, chip-20260812-recording-standard-mandatory-
+provenance): `recording_schema`, `substrate_hash`, `machine`, `machine_class` -- the
+fields this module computes with zero caller effort AND zero environmental
+dependency -- are HARD-ENFORCED by `pack_writer.write_flat_manifest` (raises if
+still missing after a stamp attempt), not merely soft-WARNed by
+validate_recording.py as the rest of ALWAYS_CORE_KEYS still is. See
+MANDATORY_CORE_KEYS below for why elapsed_seconds/config/seeds (need a caller
+kwarg) and substrate_commit (needs a real git checkout) are NOT in that
+hard-enforced subset yet.
+
 Always-core fields it stamps (standard 3b)
 ------------------------------------------
   recording_schema : "rec/v1"  -- the self-declaring manifest-shape version.
@@ -210,6 +220,49 @@ ALWAYS_CORE_KEYS: Sequence[str] = (
     "elapsed_seconds",
     "config",
     "seeds",
+)
+
+# The subset of ALWAYS_CORE_KEYS this module computes with ZERO caller effort AND
+# zero environmental dependency -- no config=/seeds=/elapsed_seconds=/started_at=
+# kwarg required, and (unlike substrate_commit) no real git checkout required
+# either, just calling stamp_recording_core(manifest, ...) (which write_flat_manifest
+# already does by default). pack_writer.write_flat_manifest HARD-ENFORCES this
+# subset (raises if still missing after the stamp attempt) -- see its docstring and
+# missing_mandatory_core_fields() below.
+#
+# elapsed_seconds/config/seeds are deliberately NOT in this tier: they require the
+# calling experiment script to pass a kwarg (or set the manifest key directly), and
+# an AST census of experiments/v3_exq_*.py on 2026-08-12
+# (chip-20260812-recording-standard-mandatory-provenance) found config=/seeds=
+# present at 98.4% of write_flat_manifest call sites but elapsed_seconds=/
+# started_at= present at only 37.2% (47.7% of call sites truly missing it even
+# after crediting scripts that set manifest["elapsed_seconds"] directly). Hard-
+# enforcing those three today would raise on roughly half of the active experiment
+# fleet's NEXT run -- config/seeds/elapsed_seconds stay validate_recording.py
+# soft-WARN-only until that corpus gap closes (tracked, not a silent drop: see
+# REE_assembly/evidence/planning/architecture_epoch_investigation.md sections 2/10).
+#
+# substrate_commit is ALSO deliberately NOT in this tier, despite needing no
+# caller kwarg, because -- unlike substrate_hash (a pure file-content hash, see
+# arm_fingerprint.py's "Content hash, NOT git SHA") -- it needs a real git
+# checkout (`git rev-parse HEAD`, in substrate_commit() above) and is therefore
+# LEGITIMATELY absent in an environment without one. Every production run has a
+# real checkout (the runner pulls before executing), but scripts/remote_pytest.sh
+# deliberately rsyncs its staged tree WITHOUT `.git/` (CLAUDE.md "Running the test
+# suite" -- the tree a pre-commit gate must test uncommitted work in), so
+# hard-enforcing substrate_commit broke 10/84 tests in tests/contracts/
+# test_z_goal_stream_counter.py the first time this was tried (2026-08-12) --
+# every one of them calling write_flat_manifest(stamp=True) with no repo_root
+# override, on that git-less staged tree. Confirmed via test_stamp_fills_
+# always_core_single_arm's own pre-existing branch above, which already treated
+# a git-less substrate_commit gap as the ONE expected exception before this
+# constant existed. Stays soft-WARN via validate_recording.py's full
+# ALWAYS_CORE_KEYS list.
+MANDATORY_CORE_KEYS: Sequence[str] = (
+    "recording_schema",
+    "substrate_hash",
+    "machine",
+    "machine_class",
 )
 
 # Git repo-location env vars that a PARENT git process (a pre-commit hook shelling
@@ -1124,9 +1177,21 @@ def missing_core_fields(manifest: Mapping[str, Any]) -> List[str]:
     return [k for k in ALWAYS_CORE_KEYS if _is_empty(manifest.get(k, None))]
 
 
+def missing_mandatory_core_fields(manifest: Mapping[str, Any]) -> List[str]:
+    """Return the MANDATORY_CORE_KEYS absent/empty on `manifest` (hard-gate helper).
+
+    Used by pack_writer.write_flat_manifest to raise when the auto-computed always-
+    core subset is still missing after a stamp attempt. Same emptiness rule as
+    missing_core_fields (a meaningful 0/False is not missing; not relevant here since
+    every MANDATORY_CORE_KEYS value is a non-empty string or dict when present).
+    """
+    return [k for k in MANDATORY_CORE_KEYS if _is_empty(manifest.get(k, None))]
+
+
 __all__ = [
     "RECORDING_SCHEMA",
     "ALWAYS_CORE_KEYS",
+    "MANDATORY_CORE_KEYS",
     "compute_single_arm_substrate_hash",
     "resolve_single_arm_substrate_identity",
     "pin_recording_substrate",
@@ -1134,4 +1199,5 @@ __all__ = [
     "substrate_commit",
     "stamp_recording_core",
     "missing_core_fields",
+    "missing_mandatory_core_fields",
 ]

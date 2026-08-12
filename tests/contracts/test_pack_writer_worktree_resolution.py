@@ -173,6 +173,16 @@ def test_write_flat_manifest_out_dir_none_uses_resolver(fake_worktree):
     manifest = {
         "run_id": "some_experiment_20260724T000000_v3",
         "outcome": "PASS",
+        # This test's concern is out_dir resolution, not provenance -- stamp=False
+        # to avoid a real git/subprocess dependency here, so the mandatory-core
+        # fields (write_flat_manifest's 2026-08-12 hard-enforcement) are set
+        # directly, exactly as a legitimate stamp=False caller that already
+        # stamped upstream would leave them.
+        "recording_schema": "rec/v1",
+        "substrate_hash": "0" * 64,
+        "substrate_commit": {"commit": "0" * 40, "dirty": False},
+        "machine": "test-host",
+        "machine_class": "test-class",
     }
     out_path = pw.write_flat_manifest(
         manifest, None, script_path=script_path, stamp=False,

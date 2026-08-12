@@ -473,7 +473,15 @@ def test_z8_older_stamp_signature_does_not_lose_the_whole_core():
                        machine=None, elapsed_seconds=None, started_at=None,
                        overwrite=False):
         calls.append("core")
+        # A "properly stamped, just an older signature" core call still fills the
+        # mandatory always-core subset (write_flat_manifest's 2026-08-12
+        # hard-enforcement) -- only the z_goal kwargs are the thing this stub is
+        # simulating as absent, not the fields it stamps regardless of signature.
         manifest["machine"] = "stamped"
+        manifest["recording_schema"] = "rec/v1"
+        manifest["substrate_hash"] = "0" * 64
+        manifest["substrate_commit"] = {"commit": "0" * 40, "dirty": False}
+        manifest["machine_class"] = "test-class"
         return manifest
 
     original = PW._import_stamp_recording_core

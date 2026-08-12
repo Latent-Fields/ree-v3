@@ -117,6 +117,40 @@ def test_missing_core_fields_reports_gaps():
     assert "elapsed_seconds" not in gaps
 
 
+# --------------------------------------------------------------------------- #
+# MANDATORY_CORE_KEYS / missing_mandatory_core_fields (2026-08-12 hardening,
+# chip-20260812-recording-standard-mandatory-provenance)
+# --------------------------------------------------------------------------- #
+
+def test_mandatory_core_keys_is_a_subset_of_always_core_keys():
+    assert set(mc.MANDATORY_CORE_KEYS) <= set(mc.ALWAYS_CORE_KEYS)
+    # the caller-supplied tier (needs a kwarg from the experiment script) is
+    # deliberately NOT hard-enforced yet -- see MANDATORY_CORE_KEYS' docstring.
+    assert "elapsed_seconds" not in mc.MANDATORY_CORE_KEYS
+    assert "config" not in mc.MANDATORY_CORE_KEYS
+    assert "seeds" not in mc.MANDATORY_CORE_KEYS
+    # substrate_commit needs a real git checkout (unlike substrate_hash, a pure
+    # file-content hash) and is legitimately absent on scripts/remote_pytest.sh's
+    # staged tree, which deliberately excludes .git/ -- confirmed live 2026-08-12
+    # when this WAS in MANDATORY_CORE_KEYS and broke 10 tests on exactly that tree.
+    assert "substrate_commit" not in mc.MANDATORY_CORE_KEYS
+
+
+def test_missing_mandatory_core_fields_reports_gaps():
+    assert set(mc.missing_mandatory_core_fields({})) == set(mc.MANDATORY_CORE_KEYS)
+
+
+def test_missing_mandatory_core_fields_empty_when_stamped():
+    # Unlike missing_core_fields (the full ALWAYS_CORE_KEYS list, which includes
+    # substrate_commit and so needs the git-presence guard seen above),
+    # MANDATORY_CORE_KEYS excludes substrate_commit precisely so this holds
+    # unconditionally -- no git-checkout guard needed, including on
+    # scripts/remote_pytest.sh's staged tree which deliberately has none.
+    m = {"run_id": "v3_exq_x_v3"}
+    mc.stamp_recording_core(m, config={"a": 1}, seeds=[0], elapsed_seconds=1.0)
+    assert mc.missing_mandatory_core_fields(m) == []
+
+
 def test_stamp_never_crashes_on_bad_repo_root(tmp_path):
     # An unresolvable substrate glob must not raise -- provenance stamping is
     # best-effort (a missing substrate_hash is a soft-validate WARN, not a failure).
@@ -277,6 +311,72 @@ def test_stamp_recording_core_enabled_flags_no_op_safe_fill_only():
     mc.stamp_recording_core(
         m, config={"a": 1}, agent=A(FakeConfig(use_top=True)), overwrite=True)
     assert m["enabled_default_off_flags"] == {"use_top": True}  # overwrite=True wins
+
+
+# --------------------------------------------------------------------------- #
+# write_flat_manifest MANDATORY-core hard enforcement (2026-08-12 hardening,
+# chip-20260812-recording-standard-mandatory-provenance)
+# --------------------------------------------------------------------------- #
+
+def test_write_flat_manifest_raises_when_mandatory_core_missing():
+    # stamp=False with nothing pre-stamped is the one way a caller can legitimately
+    # (if mistakenly) reach write_flat_manifest with the mandatory subset absent.
+    tmp = Path(tempfile.mkdtemp())
+    manifest = {"run_id": "wfm_missing_core_v3", "outcome": "PASS"}
+    with pytest.raises(ValueError, match="mandatory always-core"):
+        pw.write_flat_manifest(manifest, tmp, stamp=False)
+
+
+def test_write_flat_manifest_still_writes_the_file_before_raising():
+    """The whole point of checking AFTER the write: a run's already-spent compute
+    must survive even when its provenance is incomplete (manifest_core.py's
+    stated posture for every OTHER sub-stamper, now honoured here too)."""
+    tmp = Path(tempfile.mkdtemp())
+    manifest = {"run_id": "wfm_missing_core_survives_v3", "outcome": "PASS",
+                "precious_result": 42}
+    with pytest.raises(ValueError):
+        pw.write_flat_manifest(manifest, tmp, stamp=False)
+    out_path = tmp / "wfm_missing_core_survives_v3.json"
+    assert out_path.is_file()
+    assert json.loads(out_path.read_text())["precious_result"] == 42
+
+
+def test_write_flat_manifest_passes_when_core_present():
+    tmp = Path(tempfile.mkdtemp())
+    manifest = {
+        "run_id": "wfm_has_core_v3", "outcome": "PASS",
+        "recording_schema": "rec/v1",
+        "substrate_hash": "0" * 64,
+        "machine": "test-host",
+        "machine_class": "test-class",
+        # substrate_commit deliberately absent -- it is NOT in MANDATORY_CORE_KEYS
+        # (needs a real git checkout; see that constant's docstring), so this must
+        # still pass without it.
+    }
+    out_path = pw.write_flat_manifest(manifest, tmp, stamp=False)
+    assert out_path.is_file()
+
+
+def test_write_flat_manifest_passes_when_stamped_from_real_repo():
+    # The realistic path: stamp=True (the default) against this real checkout.
+    if not (_REE_V3_ROOT / ".git").exists():
+        pytest.skip("no real git checkout available (see staged-tree note above)")
+    tmp = Path(tempfile.mkdtemp())
+    manifest = {"run_id": "wfm_real_stamp_v3", "outcome": "PASS"}
+    out_path = pw.write_flat_manifest(
+        manifest, tmp, config={"a": 1}, seeds=[0], elapsed_seconds=1.0,
+        script_path=_REE_V3_ROOT / "experiments" / "pack_writer.py",
+    )
+    assert out_path.is_file()
+
+
+def test_write_flat_manifest_escape_hatch_downgrades_to_warning(monkeypatch, capsys):
+    monkeypatch.setenv("REE_ALLOW_INCOMPLETE_PROVENANCE", "1")
+    tmp = Path(tempfile.mkdtemp())
+    manifest = {"run_id": "wfm_override_v3", "outcome": "PASS"}
+    out_path = pw.write_flat_manifest(manifest, tmp, stamp=False)
+    assert out_path.is_file()
+    assert "WARNING (override)" in capsys.readouterr().out
 
 
 # --------------------------------------------------------------------------- #

@@ -418,7 +418,16 @@ def write_flat_manifest(
       * ``architecture_epoch`` present -- defaulted to ``ree_hybrid_guardrails_v1``
         if the caller omitted it (both gate ``_is_flat_v3``);
       * a resolvable status (one of ``status`` | ``overall_outcome`` | ``outcome``);
-      * the filename does not collide with a reserved plumbing name.
+      * the filename does not collide with a reserved plumbing name;
+      * (2026-08-12) ``manifest_core.MANDATORY_CORE_KEYS`` (``recording_schema``,
+        ``substrate_hash``, ``machine``, ``machine_class``) present after the
+        stamp attempt -- checked AFTER the file is written, so a gap here fails
+        the CALL (raises ``ValueError``) never the CAPTURE (the manifest is
+        already on disk). ``elapsed_seconds`` / ``config`` / ``seeds`` (need a
+        caller kwarg) and ``substrate_commit`` (needs a real git checkout -- see
+        MANDATORY_CORE_KEYS' docstring) are NOT yet in this hard-enforced subset.
+        Escape hatch: ``REE_ALLOW_INCOMPLETE_PROVENANCE=1`` downgrades to a
+        printed warning.
 
     Parameters mirror stamp_recording_core for the always-core (config / seeds /
     script_path / machine / elapsed_seconds / started_at). ``stamp=False`` skips the
@@ -538,11 +547,88 @@ def write_flat_manifest(
     out_path.write_text(
         json.dumps(manifest, indent=2, default=json_default) + "\n", encoding="utf-8"
     )
+
+    # MANDATORY-CORE ENFORCEMENT (2026-08-12, chip-20260812-recording-standard-
+    # mandatory-provenance). Checked AFTER the write, deliberately: the data this
+    # run already spent compute to produce must never be lost because provenance
+    # stamping came up short (the posture manifest_core.py's docstrings state
+    # repeatedly for the individual sub-stampers) -- so the file lands on disk
+    # first, exactly as before, and this can only fail the CALL, never the CAPTURE.
+    # A raise here still surfaces loudly: the driver script exits non-zero, which
+    # experiment_runner classifies as ERROR (queue completion behaviour) rather
+    # than the always-core gap staying invisible until someone manually runs
+    # validate_recording.py, as it did for 0% of the flat corpus pre-hardening.
+    _enforce_mandatory_core(manifest, out_path)
+
     if dry_run:
         _print_z_goal_stream_smoke(
             manifest, wired=(agent is not None or z_goal_stream_stats is not None)
         )
     return out_path
+
+
+def _import_missing_mandatory_core_fields():
+    """Lazily import missing_mandatory_core_fields, same fallback shape as
+    _import_stamp_recording_core (kept as a SEPARATE function so patching one in a
+    test -- see test_z8_older_stamp_signature_does_not_lose_the_whole_core -- cannot
+    accidentally disable the other). Returns the callable or None."""
+    try:
+        from experiments._lib.manifest_core import missing_mandatory_core_fields  # type: ignore
+        return missing_mandatory_core_fields
+    except Exception:
+        pass
+    try:
+        from _lib.manifest_core import missing_mandatory_core_fields  # type: ignore
+        return missing_mandatory_core_fields
+    except Exception:
+        pass
+    try:
+        from experiments._lib import manifest_core  # type: ignore
+        return manifest_core.missing_mandatory_core_fields
+    except Exception:
+        return None
+
+
+def _enforce_mandatory_core(manifest: Mapping[str, Any], out_path: Path) -> None:
+    """Raise if manifest still lacks a MANDATORY_CORE_KEYS field after stamping.
+
+    REE_ALLOW_INCOMPLETE_PROVENANCE=1 downgrades this to a printed warning -- the
+    same explicit, loud-opt-out convention as REE_OFFDUTY / REE_SKIP_PUSH_CHECK /
+    REE_ALLOW_REF_DISCARD elsewhere in this repo (CLAUDE.md Concurrency Rules /
+    Clinical-hours provenance guard) -- for the one legitimate case this module
+    cannot rule out from here: an execution environment where the auto-computed
+    fields' git/subprocess dependency genuinely cannot resolve (see
+    manifest_core.substrate_commit's docstring; test_stamp_fills_always_core_single_arm
+    documents the one confirmed instance, scripts/remote_pytest.sh's staged tree,
+    which deliberately excludes .git/). Never silent: both paths print.
+
+    Missing helper (manifest_core unresolvable at all) fails OPEN -- same posture as
+    a missing stamp_fn above: this hardening must not become a NEW way to lose a
+    manifest that the pre-hardening code path would have written successfully.
+    """
+    missing_fn = _import_missing_mandatory_core_fields()
+    if missing_fn is None:
+        return
+    try:
+        missing = missing_fn(manifest)
+    except Exception:
+        return
+    if not missing:
+        return
+    msg = (
+        f"write_flat_manifest: {out_path.name} is missing mandatory always-core "
+        f"field(s) {', '.join(missing)} after stamping (Experimental Recording "
+        f"Standard, MANDATORY_CORE_KEYS). The manifest IS written to {out_path} -- "
+        f"this run's data is not lost -- but its provenance is incomplete and it "
+        f"must not be treated as reproducible until fixed. Common cause: the run "
+        f"did not go through stamp_recording_core (stamp=False without stamping "
+        f"upstream first) or git could not resolve in this environment. Set "
+        f"REE_ALLOW_INCOMPLETE_PROVENANCE=1 to downgrade this to a warning."
+    )
+    if os.environ.get("REE_ALLOW_INCOMPLETE_PROVENANCE"):
+        print(f"[write_flat_manifest] WARNING (override): {msg}", flush=True)
+        return
+    raise ValueError(msg)
 
 
 def _print_z_goal_stream_smoke(manifest: Mapping[str, Any], *, wired: bool) -> None:
