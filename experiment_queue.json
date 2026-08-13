@@ -8,21 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-926",
-      "title": "MECH-449/ARC-107 perseveration-axis conversion falsifier (untested leg of 689g; live MECH-260 dACC vector)",
-      "script": "experiments/v3_exq_926_mech449_perseveration_nogo_falsifier.py",
-      "priority": 430,
-      "machine_affinity": "any",
-      "estimated_minutes": 5,
-      "claim_id": "MECH-449",
-      "note": "Closes the ONE untested axis of the BUILT MECH-449 Go/No-Go constitution. V3-EXQ-689g PASSed exercising only safety+staleness (both injected as constructed tensors); its own source states the perseveration axis was left to the live agent loop, so that axis -- the one consuming MECH-260's dACC recency vector -- has never been exercised by any run. Here the vector comes from a real DACCAdaptiveControl history via record_action() + _suppression_penalty(). MECH-260 DELIBERATELY NOT TAGGED: its falsifier is behavioural (monostrategy resolution), blocked on the MECH-457 competence floor and vacuous at that floor (V3-EXQ-445h: action_class_entropy=0 in BOTH arms; 2026-06-19 autopsy excluded it as degenerate). Re-derive brake at authoring: MECH-449=0, ARC-107=0, MECH-260=16. GOV-REUSE-1 (step 2.4): decisive readout = perseveration-driven conversion rate; checked all 3 go_nogo manifests in evidence/ (689g, plus v3_exq_086/138a_arc030 which are a different claim) -- 689g records safety/staleness only and no perseveration readout; the ARC-030 pair carry no perseveration readout and no substrate_hash (pre-standard, so substrate compatibility is unverifiable). Not recoverable -> run. Step 2.5c: degrading-severity overlap with SD-MECH303-THRESHOLD-SOURCING (ree_core/utils/config.py); does not block, recorded per the gate. Ethics preflight: all involvement flags false, decision allow (V3, no self-model, no negative-valence manipulation, synthetic selection banks, no env).",
-      "status": "pending",
-      "conditions": 3,
-      "episodes_per_run": 32,
-      "experiment_type": "v3_exq_926_mech449_perseveration_nogo_falsifier",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-861b",
       "title": "INV-050/MECH-180 independent-seed replication of the MEL third-drive coupling",
       "script": "experiments/v3_exq_861b_inv050_mech180_independent_seed_replication.py",
