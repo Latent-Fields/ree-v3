@@ -6,5 +6,22 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-861b",
+      "title": "INV-050/MECH-180 independent-seed replication of the MEL third-drive coupling",
+      "experiment_type": "v3_exq_861b_inv050_mech180_independent_seed_replication",
+      "script": "experiments/v3_exq_861b_inv050_mech180_independent_seed_replication.py",
+      "priority": 55,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 300,
+      "episodes_per_run": 75,
+      "seeds": 3,
+      "conditions": 5,
+      "backlog_id": "EVB-0583",
+      "claim_id": "INV-050",
+      "note": "Independent-seed replication executing proposal EVB-0583/EXP-0581. Satisfies INV-050's what_would_answer NON-DEGENERACY precondition via lever (a) NEW SEEDS [7,271,883] -- disjoint from the {42,123,456} set that ALL of V3-EXQ-718/718a/845/861/861a/901 used -- plus lever (c) the retained consumer-absent ARM_4_HIGH_OFF control. Lever (b) held-out environment is NOT satisfied (no such env exists; SD-MEL-PRODUCER was validated against this CausalGridWorldV2 instance), so a PASS establishes SEED-independence only; recorded as an explicit limitation in the manifest. Motivated by /governance 2026-08-07 GFLAG-0002 (user-confirmed HOLD at candidate): 845/861/861a are one configuration confirmed three times, not three replications. | SINGLE-VARIABLE vs V3-EXQ-861: identical env/arms/thresholds/readout code/agent config (use_mech122_spindle_content_selection=False, 861's own value); ONLY the seed set differs. Thresholds deliberately NOT re-tuned. | DV3 DESCOPED, PRE-REGISTERED: spindle_density (mean_sws_new_slot_diversity) is recorded but excluded from BOTH the C1 conjunction and C2's on_gt_off leg, because its enabling substrate is unbuilt -- substrate_queue MECH122-CONTENT-PACKAGING-SPINDLE-SELECTION reads status=implemented_validation_failed_needs_followup_fix and its named follow-up (re-source consolidation_ref from an MEL-correlated signal) is not built. Gating it would repeat the 845/861a defect where a 3-DV conjunctive gate vetoed two clean positives and forced non_contributory (failure_autopsy_V3-EXQ-845_2026-08-01). Verified synthetically pre-queue: DV1+DV2 pass with DV3 inverted now yields PASS. | GOV-REUSE-1 (Step 2.4): decisive readout = C1a/C1c monotone in measured mean_mel ON SEEDS 7/271/883; audited all 10 recorded manifests tagging INV-050/MECH-180 -- every one carries seeds [42,123,456] or none, so the readout is not recorded and not derivable under any substrate_hash -> run. | RE-DERIVE BRAKE (Step 2.5b): counts are INV-050=5 (701/701a/701b/718/718a), MECH-180=3 (677/718/718a), both >= threshold 2, CHECKED and RELEASED -- the named upstream substrate SD-MEL-PRODUCER is IMPLEMENTED (ree-v3 CLAUDE.md) and VALIDATED (sd_mel_producer.md, V3-EXQ-798a); additionally the brake's refusal is scoped to a same-environment novelty->MEL re-GRADE, which this run does not re-pose. | SUBSTRATE OVERLAP (Step 2.5c): no open corrupting entry overlaps. Three open DEGRADING entries do and are recorded per the gate: SD-MECH267-CEM-SELECTION-FIX (ree_core/hippocampal/module.py, backs the C1c replay DV), SD-MECH303-THRESHOLD-SOURCING (config/env/agent), both arm-symmetric so they cannot bias the cross-arm dose-response; and SD-QUEUE-SEED-ENFORCEMENT (runner infra) -- directly relevant since this run's content IS its seed set, so declared seeds=3 matches len(SEEDS)=3 exactly and every seed prints a 'Seed S Condition C' boundary line. | claim_ids=[INV-050, MECH-180]: INV-050's two named DVs are both fully under test (direction follows the C1a+C1c grid, including a genuine 'weakens' branch per its FALSIFYING clause (a)); MECH-180 is tagged because sws_power and replay_rate are 2 of its own 3 DVs, but its per-claim direction is CAPPED at 'mixed' since DV3 is not under test -- this run cannot clear MECH-180's v3_pending. | Smoke PASS (dry-run: 3 cells, ep N/75 progress, 3 verdict lines, independence check reports overlap=[], flag OFF-inert confirmed at spindle_sel_applied=0.00 vs 861a's 1.0, manifest relocated out of evidence/). validate_experiments --strict OK, 0 warnings. PROMOTES NOTHING until /governance applies the verdict."
+    }
+  ]
 }
