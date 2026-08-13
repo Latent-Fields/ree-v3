@@ -29,29 +29,6 @@
       "episodes_per_run": 265,
       "experiment_type": "v3_exq_464e_mech266_competing_goals_behavioural",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-467e",
-      "title": "MECH-266 mode-stickiness / Hold-decay dose-response on mode-governance-engagement substrate: goal_state clone fix + salience_affinity_input_cap; successor to 467d which still self-routed non_contributory (occupancy gate)",
-      "script": "experiments/v3_exq_467e_mech266_mode_stickiness_behavioural.py",
-      "priority": 60,
-      "machine_affinity": "any",
-      "estimated_minutes": 200,
-      "claim_id": "MECH-266",
-      "note": "Successor to V3-EXQ-467d (NOT a supersede). 467d re-enabled use_external_task_drive but still FAILed non_contributory (fraction_in_external_task=0.0 on every seed/ratio), diagnosed 2026-08-12 (chip-20260812-mech266-external-task-occupancy; substrate_queue.json mode-governance-engagement entry) to the SAME two compounding bugs as 464d (shared foraging/salience substrate): (1) _clone_for_arm() dropped GoalState's z_goal attractor on clone; fixed with an explicit goal_state.state_dict()/load_state_dict() clone. (2) dacc_pe uncapped dominated external_task_drive's [0,1]-bounded contribution; fixed substrate-side via the new no-op-default salience_affinity_input_cap knob (ree-v3 9bcde4cb63, landed 2026-08-12), opted in here at the same AFFINITY_INPUT_CAP=2.0 calibration starting point as 464e (NOT yet re-derived against the full curriculum -- this run IS that calibration check). RE-DERIVE BRAKE (MECH-266, count=4, same autopsy set as 464e) -- RELEASED: the substrate_queue.json mode-governance-engagement entry names exactly this corrected_validation_run (464e+467e) as its own unblocking condition, and the required substrate is now landed. GOV-REUSE-1: decisive readout fraction_in_external_task is not recoverable from existing manifests -- every prior 467b/c/d manifest recorded it as a hard 0.0 under the unfixed substrate; a fresh run is required. Gate structure (contact guard + occupancy non-vacuity gate) UNCHANGED from 467d. Dry-run: end-to-end, self-routes substrate_not_ready at dry (toy-budget) scale as designed (occupancy non-zero on 3 of 5 ratio arms vs predecessor's uniform 0.0, confirming the fix engages; min still below floor at toy episode-length, expected and not evidence against the fix). validate_experiments --strict clean, 0 warnings.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-08-12T16:40:45Z"
-      },
-      "claim_ids": [
-        "MECH-266",
-        "SD-032a"
-      ],
-      "conditions": 1,
-      "episodes_per_run": 295,
-      "experiment_type": "v3_exq_467e_mech266_mode_stickiness_behavioural",
-      "seeds": 3
     }
   ]
 }
