@@ -15,6 +15,7 @@ Exit codes:
 import ast
 import json
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -141,6 +142,197 @@ def _module_numeric_constants(tree) -> "dict[str, float]":
             if isinstance(tgt, ast.Name):
                 out[tgt.id] = float(val.value)
     return out
+
+
+def _module_list_constants(tree) -> "dict[str, int]":
+    """Module-level NAME = [<literal numbers>] (or tuple) bindings -> element count.
+
+    Companion to `_module_numeric_constants` for the seed-enforcement lint below:
+    many drivers factor their seed list into a module constant (`SEEDS = [42, 123]`,
+    `SEEDS = (42, 43, 44)`) and pass `default=SEEDS` or `default=list(SEEDS)` to
+    `add_argument("--seeds", ...)` rather than inlining the list. Only a fully
+    literal list/tuple of numeric constants is resolved; anything computed
+    (list comprehension, function call, non-numeric element) is left unresolved
+    so the caller never guesses at a count it cannot verify.
+    """
+    out: "dict[str, int]" = {}
+    for node in getattr(tree, "body", []):
+        if not isinstance(node, ast.Assign):
+            continue
+        val = node.value
+        if not isinstance(val, (ast.List, ast.Tuple)):
+            continue
+        elts = val.elts
+        if not elts:
+            continue
+        if not all(
+            isinstance(e, ast.Constant)
+            and isinstance(e.value, (int, float))
+            and not isinstance(e.value, bool)
+            for e in elts
+        ):
+            continue
+        for tgt in node.targets:
+            if isinstance(tgt, ast.Name):
+                out[tgt.id] = len(elts)
+    return out
+
+
+def _script_seeds_default_count(source: str, filename: str = "<unknown>") -> "int | None":
+    """How many seed values the script's OWN `--seeds` argparse default would
+    produce when the runner invokes it with no `--seeds` override on the CLI.
+
+    Returns the element count of a statically-resolvable literal default, or
+    None when it cannot be confidently determined -- `default=None` (the
+    ~44-script majority pattern, where the script has its own internal
+    fallback we cannot see from here), a non-literal expression, a name that
+    doesn't resolve to a module-level numeric list, a `type=str` comma-string
+    contract, or no `--seeds` argument at all. Fail-soft by design: an
+    unresolvable default means "no mismatch can be asserted", never "assume 1".
+    Multiple `--seeds` add_argument calls (unusual) return the first match.
+    """
+    try:
+        tree = ast.parse(source, filename)
+    except (SyntaxError, ValueError):
+        return None
+
+    list_consts = _module_list_constants(tree)
+
+    for node in ast.walk(tree):
+        if not (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "add_argument"
+        ):
+            continue
+        if not (
+            node.args
+            and isinstance(node.args[0], ast.Constant)
+            and node.args[0].value == "--seeds"
+        ):
+            continue
+
+        default_node = None
+        for kw in node.keywords:
+            if kw.arg == "default":
+                default_node = kw.value
+                break
+        if default_node is None:
+            return None
+
+        # Inline literal list/tuple: default=[42, 123] or default=(0, 1, 2)
+        if isinstance(default_node, (ast.List, ast.Tuple)):
+            elts = default_node.elts
+            if elts and all(
+                isinstance(e, ast.Constant)
+                and isinstance(e.value, (int, float))
+                and not isinstance(e.value, bool)
+                for e in elts
+            ):
+                return len(elts)
+            return None
+
+        # Bare module-level name: default=SEEDS
+        if isinstance(default_node, ast.Name) and default_node.id in list_consts:
+            return list_consts[default_node.id]
+
+        # list(SEEDS) / tuple(SEEDS)
+        if (
+            isinstance(default_node, ast.Call)
+            and isinstance(default_node.func, ast.Name)
+            and default_node.func.id in ("list", "tuple")
+            and len(default_node.args) == 1
+            and isinstance(default_node.args[0], ast.Name)
+            and default_node.args[0].id in list_consts
+        ):
+            return list_consts[default_node.args[0].id]
+
+        # default=None, default=N_SEEDS (a scalar count, different CLI contract),
+        # default="42,123" (comma-string contract), or anything else computed --
+        # cannot be confidently resolved as a list-of-seed-values count.
+        return None
+
+    return None  # no --seeds argument in this script at all
+
+
+def _args_list(raw_args) -> list:
+    """Mirror experiment_runner.run_experiment's own args parsing (a string is
+    shlex-split, a list is used as-is) so this lint sees exactly what will be
+    appended to the actual subprocess command line."""
+    if isinstance(raw_args, str):
+        try:
+            return shlex.split(raw_args)
+        except ValueError:
+            return []
+    if isinstance(raw_args, list):
+        return raw_args
+    return []
+
+
+def _declared_seed_count(value) -> "int | None":
+    """Mirror experiment_runner._run_axis_count for the subset this lint needs:
+    the seed count an int-or-list 'seeds' field implies, or None if it isn't a
+    shape a count can be derived from (already flagged elsewhere in validate())."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, (list, tuple)):
+        return len(value)
+    return None
+
+
+def seed_enforcement_lint(source: str, item: dict, filename: str = "<unknown>") -> "str | None":
+    """Flag a queue entry whose declared seed count cannot actually be reached.
+
+    experiment_queue.json's "seeds": N field is consumed ONLY by
+    experiment_runner.py's _run_axis_count, for progress-bar/ETA denominators --
+    it is NEVER translated into a --seeds CLI argument. So a driver's own
+    argparse default is the sole source of truth for how many seeds actually
+    run. Confirmed twice within two days on different drivers (SD-QUEUE-SEED-
+    ENFORCEMENT, source_autopsy failure_autopsy_V3-EXQ-912-913-fishtank-cluster_
+    2026-08-11.json): V3-EXQ-912 declared seeds=2, ran seeds=[0] (1 seed) --
+    n_segments_total=60 not the designed 120, driving a FAIL on an
+    under-powered run. V3-EXQ-920 declared seeds=8, ran 1 seed, and its
+    manifest self-routed a flatly incorrect censoring label on top of that.
+    This silently converts an under-powered run into a scientific FAIL/mislabel
+    that then enters governance as if it were adequately-powered evidence.
+
+    Fires ONLY on the fully-conjunctive, statically-verified case (never a
+    guess, to keep this precise enough for a PreToolUse commit-blocking hook
+    per CLAUDE.md's over-eager-hook warning):
+      1. declared seeds count N > 1 (from _declared_seed_count)
+      2. no explicit "--seeds" token in the item's own 'args' (an explicit
+         override is trusted -- V3-EXQ-913 avoided this defect exactly this way)
+      3. the script's OWN --seeds argparse default is statically resolvable
+         (_script_seeds_default_count) to M seed values, with M < N
+
+    Returns the error message body, or None when no mismatch can be asserted.
+    """
+    declared_n = _declared_seed_count(item.get("seeds"))
+    if declared_n is None or declared_n <= 1:
+        return None
+
+    if any(str(a) == "--seeds" for a in _args_list(item.get("args", []))):
+        return None  # explicit override present -- trusted
+
+    script_default_n = _script_seeds_default_count(source, filename)
+    if script_default_n is None or script_default_n >= declared_n:
+        return None
+
+    return (
+        f"declares \"seeds\": {declared_n} but the script's own --seeds argparse "
+        f"default only provides {script_default_n} seed value(s), and no explicit "
+        f"--seeds is set in this item's 'args' -- only {script_default_n} seed(s) "
+        f"will actually execute. experiment_queue.json's 'seeds' count is never "
+        f"translated into a --seeds CLI argument (SD-QUEUE-SEED-ENFORCEMENT), so "
+        f"this silently converts an under-powered run into a scientific FAIL or a "
+        f"mislabeled manifest (confirmed twice: V3-EXQ-912 queued seeds=2 ran "
+        f"seeds=[0]; V3-EXQ-920 queued seeds=8 ran 1 seed and also self-routed an "
+        f"incorrect censoring label on top of it). Fix: add an explicit 'args' "
+        f"entry with \"--seeds\" followed by {declared_n} seed value(s), or lower "
+        f"'seeds' to {script_default_n} to match what will actually run."
+    )
 
 
 def _share_nontriviality_gate(tree) -> "tuple[float, int] | None":
@@ -987,6 +1179,13 @@ def validate(queue_path: Path = QUEUE_FILE) -> list[str]:
                 # sum-to-one decomposition (V3-EXQ-785, 2026-07-19).
                 for finding in prereg_share_feasibility_lint(source, str(script_path)):
                     errors.append(f"{prefix}: script {script_val} {finding}")
+
+                # Queue-declared seed count must be reachable (SD-QUEUE-SEED-
+                # ENFORCEMENT): a driver's own argparse default silently wins
+                # when the queue entry sets no explicit --seeds override.
+                _seed_finding = seed_enforcement_lint(source, item, str(script_path))
+                if _seed_finding:
+                    errors.append(f"{prefix}: script {script_val} {_seed_finding}")
 
         # Silent re-queue guard: queue_id must not already have a completion
         # record in any per-machine runner_status file, unless force_rerun=true.

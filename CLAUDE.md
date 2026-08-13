@@ -1505,6 +1505,42 @@ MECH-073 reframed as consequence of ARC-013 applied to z_world.
 MECH-074 (amygdala write interface) is valid but not a HippocampalModule prerequisite.
 
 ## SD Design Decisions Implemented
+- SD-QUEUE-SEED-ENFORCEMENT: validate_queue.seed_enforcement_lint -- IMPLEMENTED 2026-08-13.
+  experiment_queue.json's "seeds": N field was consumed ONLY by experiment_runner.py's
+  _run_axis_count for progress-bar/ETA denominators -- NEVER translated into a --seeds CLI
+  arg, so a driver's own argparse default was the sole source of truth for how many seeds
+  actually ran. Confirmed twice within two days on different drivers: V3-EXQ-912 (queued
+  seeds=2, ran seeds=[0] -- n_segments_total=60 not the designed 120, driving a FAIL on an
+  under-powered run) and V3-EXQ-920 (queued seeds=8, ran 1 seed, manifest ALSO self-routed a
+  flatly incorrect censoring label on top of it). Design:
+  REE_assembly/docs/architecture/sd_queue_seed_enforcement.md; source autopsy:
+  REE_assembly/evidence/planning/failure_autopsy_V3-EXQ-912-913-fishtank-cluster_2026-08-11.json.
+  Module: validate_queue.py -- seed_enforcement_lint / _script_seeds_default_count /
+  _module_list_constants / _args_list / _declared_seed_count (validate_queue.py).
+  Fires as a blocking ERROR only on the fully-conjunctive, statically-verified case: declared
+  seeds > 1, no explicit --seeds override in the item's 'args' (shlex-split the same way
+  experiment_runner.run_experiment parses it), AND the script's own --seeds argparse default
+  is AST-resolvable to fewer seed values than declared. Resolves inline list/tuple literals,
+  module-level NAME references, and list(NAME)/tuple(NAME) wrapping a module-level literal.
+  Everything else (default=None -- the largest single corpus pattern; a type=str comma-string
+  contract; a computed expression; no --seeds arg at all) is left unresolved and silent --
+  fail-soft by design, never a guess.
+  Data flow: validate() (already called from BOTH main(), the PreToolUse commit-blocking
+  hook, AND experiment_runner.load_queue() at every runner's startup on every machine,
+  sys.exit(1) on any error) -> seed_enforcement_lint per item -> blocking error. One check
+  therefore gives both commit-time AND runner-startup (fleet-wide, including cloud workers
+  that pull main directly and never see the commit hook) enforcement for free.
+  Deliberately does NOT synthesize --seeds on the runner side (the task's other proposed
+  option): the corpus's --seeds contracts are heterogeneous (literal seed-value lists vs a
+  single int count vs a comma-string), so a synthesized 0..N-1 list would risk silently
+  overwriting an author's deliberately-chosen seed values (breaking arm-reuse fingerprint
+  matching) or guessing values the author never specified -- a loud refusal is safer.
+  Backward compatible: fires only on the narrow conjunctive case; every ambiguous shape is
+  silent (swept the resolver over the full 1351-script experiments/ corpus with zero crashes,
+  ~11% confidently resolved, rest deferred).
+  Phased training required: no. MECH-094: N/A (no simulation/replay).
+  Validation: tests/contracts/test_validate_queue_seed_enforcement.py (17 tests, retroactively
+  confirmed against the real V3-EXQ-912/920 scripts on disk).
 - SD-E3-SCORER-COMPLETION: e3_selector.untrained_fallback_scorers -- IMPLEMENTED 2026-08-09.
   Two of E3TrajectorySelector.score_trajectory's cost sub-components read UNTRAINED
   nn.Sequential heads -- reality_scorer (the "viability" term in compute_reality_cost / F,
