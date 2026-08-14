@@ -17966,5 +17966,5 @@ Form B recommendation: a two-stage threat-modulated selection rule.
   0.00 vs unsafe(nh=8) 0.87; end-to-end proximity gate fires 150/150 safe vs 6/150 unsafe.
   Not a learning module -- no encoder, no phased training. MECH-094 N/A (accumulate retains its
   existing hypothesis_tag waking-path guard; signal is a waking env observable).
-  Validation experiment: V3-EXQ-929 queued (917-style AUC sweep; acceptance AUC >=~0.84 >> chance
+  Validation experiment: V3-EXQ-930 queued (917-style AUC sweep; acceptance AUC >=~0.84 >> chance
   0.52). See docs/architecture/sd_mech303_threshold_sourcing.md, MECH-303, SD-052, SD-011, SD-022.
