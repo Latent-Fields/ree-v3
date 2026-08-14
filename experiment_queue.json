@@ -57,6 +57,22 @@
       "episodes_per_run": 220,
       "experiment_type": "v3_exq_920_uncensored_survival_single_life_fishtank",
       "seeds": 8
+    },
+    {
+      "queue_id": "V3-EXQ-926a",
+      "title": "MECH-449/ARC-107 perseveration-axis conversion falsifier (untested leg of 689g; live MECH-260 dACC vector) [supersedes 926: EVIDENCE_DIR path fix]",
+      "experiment_type": "v3_exq_926a_mech449_perseveration_nogo_falsifier",
+      "script": "experiments/v3_exq_926a_mech449_perseveration_nogo_falsifier.py",
+      "priority": 430,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 5,
+      "episodes_per_run": 32,
+      "seeds": 3,
+      "conditions": 3,
+      "supersedes": "V3-EXQ-926",
+      "claim_id": "MECH-449",
+      "note": "V3-EXQ-926a supersedes V3-EXQ-926, which ERRORed on ree-cloud-2 (exit 1, crash-before-manifest, wall clock 2.32s): EVIDENCE_DIR was a hardcoded Mac-only absolute path (/Users/dgolden/...) absent on the cloud workers (/home/ree/...), so write_flat_manifest() failed at the final step. The science ran correctly to completion (~2.25s real compute, matching the 2.32s runner wall clock); one-line fix derives EVIDENCE_DIR relative to __file__ (parents[2]/REE_assembly/...), matching 689g and every other driver. Nothing else changed. Closes the ONE untested axis of the BUILT MECH-449 Go/No-Go constitution. V3-EXQ-689g PASSed exercising only safety+staleness (both injected as constructed tensors); its own source states the perseveration axis was left to the live agent loop, so that axis -- the one consuming MECH-260's dACC recency vector -- has never been exercised by any run. Here the vector comes from a real DACCAdaptiveControl history via record_action() + _suppression_penalty(). MECH-260 DELIBERATELY NOT TAGGED: its falsifier is behavioural (monostrategy resolution), blocked on the MECH-457 competence floor and vacuous at that floor (V3-EXQ-445h: action_class_entropy=0 in BOTH arms; 2026-06-19 autopsy excluded it as degenerate). Re-derive brake at authoring: MECH-449=0, ARC-107=0, MECH-260=16. GOV-REUSE-1 (step 2.4): decisive readout = perseveration-driven conversion rate; checked all 3 go_nogo manifests in evidence/ (689g, plus v3_exq_086/138a_arc030 which are a different claim) -- 689g records safety/staleness only and no perseveration readout; the ARC-030 pair carry no perseveration readout and no substrate_hash (pre-standard, so substrate compatibility is unverifiable). Not recoverable -> run. Step 2.5c: degrading-severity overlap with SD-MECH303-THRESHOLD-SOURCING (ree_core/utils/config.py); does not block, recorded per the gate. Ethics preflight: all involvement flags false, decision allow (V3, no self-model, no negative-valence manipulation, synthetic selection banks, no env)."
     }
   ]
 }
