@@ -31,8 +31,18 @@ from ree_core.preservation.reconstruction_record import (
     IntegrityError,
     RecordExistsError,
 )
+from ree_core.preservation.archive import (
+    NoEncryption,
+    AesGcmEncryptor,
+    LocalArchive,
+    S3Archive,
+)
 
 __all__ = [
+    "NoEncryption",
+    "AesGcmEncryptor",
+    "LocalArchive",
+    "S3Archive",
     "SCHEMA_VERSION",
     "ReconstructionRecord",
     "config_to_dict",

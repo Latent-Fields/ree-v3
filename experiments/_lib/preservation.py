@@ -102,13 +102,30 @@ def capture_life(
     )
 
 
-def preserve_life(*, archive_dir: Union[str, Path], **capture_kwargs: Any) -> str:
-    """`capture_life(...)` then write the record immutably under `archive_dir`.
+def preserve_life(
+    *,
+    archive: Optional[Any] = None,
+    archive_dir: Optional[Union[str, Path]] = None,
+    **capture_kwargs: Any,
+) -> str:
+    """`capture_life(...)` then store the record immutably; return its key/path.
 
-    `archive_dir` is required and explicit -- there is intentionally no fleet-wide
-    default path, so preservation never silently writes into a coordinator-managed
-    tree. Returns the written record path. Raises RecordExistsError if a record with
-    this `record_id` already exists (records are append-only).
+    Provide exactly one destination:
+      * `archive=` -- an archive backend (ree_core.preservation.LocalArchive /
+        S3Archive; the S3 target is Hetzner Object Storage). Content-addressed and
+        optionally client-side encrypted; returns the object key.
+      * `archive_dir=` -- a plain local directory (the simple primitive); returns the
+        written path.
+
+    Either way the write is append-only (RecordExistsError if the record already
+    exists). There is intentionally no fleet-wide default destination, so
+    preservation never silently writes into a coordinator-managed tree.
     """
     record = capture_life(**capture_kwargs)
-    return write_record(record, str(archive_dir))
+    if archive is not None:
+        if archive_dir is not None:
+            raise ValueError("provide either archive= or archive_dir=, not both")
+        return archive.put(record)
+    if archive_dir is not None:
+        return write_record(record, str(archive_dir))
+    raise ValueError("provide a destination: archive= (a backend) or archive_dir= (a local dir)")
