@@ -66,6 +66,10 @@ class SleepCycleState:
     cycle_index: int = 0
     phase: SleepPhase = SleepPhase.WAKING
     episodes_since_sleep: int = 0
+    # sleep_substrate:GAP-9 within-life trigger: waking steps elapsed since the
+    # last cycle. Incremented per waking step by notify_waking_step, reset to 0
+    # whenever a cycle fires. Inert unless the within-life trigger is enabled.
+    steps_since_sleep: int = 0
     last_metrics: Dict[str, float] = field(default_factory=dict)
 
     def reset_for_new_cycle(self, cycle_index: int) -> None:
@@ -120,6 +124,8 @@ class SleepLoopManager:
         cross_module_consolidation_lr: float = 1e-3,
         cross_module_consolidation_batch: int = 16,
         mel_consumer: Optional["MELConsumer"] = None,
+        within_life_trigger: bool = False,
+        within_life_step_ceiling: int = 1000,
     ) -> None:
         if cycle_every_k_episodes < 1:
             raise ValueError(
@@ -167,6 +173,25 @@ class SleepLoopManager:
         # the K-episode-deterministic scheduler + fixed-duration cycle are
         # bit-identical to the pre-SD substrate.
         self.mel_consumer = mel_consumer
+        # sleep_substrate:GAP-9 within-life sleep trigger (v1: step-count ceiling
+        # arm). When within_life_trigger is True, notify_waking_step() fires a
+        # cycle once within_life_step_ceiling waking steps have elapsed since the
+        # last cycle -- so a TRUE single-continuous life (num_episodes=1, never
+        # crosses an episode boundary) can still sleep. notify_episode_end() is
+        # untouched -> multi-episode drivers are bit-identical. v1 wires the
+        # step-ceiling backstop (design (a)) only; the MEL/need-crossing arm
+        # (design (b), the primary trigger) is a planned follow-up.
+        if int(within_life_step_ceiling) < 1:
+            raise ValueError(
+                "within_life_step_ceiling must be >= 1; "
+                f"got {within_life_step_ceiling}"
+            )
+        self.within_life_trigger = bool(within_life_trigger)
+        self.within_life_step_ceiling = int(within_life_step_ceiling)
+        # Re-entrancy guard: a fired cycle must never recursively re-trigger the
+        # within-life path. Belt-and-braces (sleep passes are hypothesis-tagged
+        # and never call the waking update_residue path).
+        self._within_life_cycle_active = False
         self.state = SleepCycleState()
         self._cycle_history: List[Dict[str, float]] = []
 
@@ -205,10 +230,67 @@ class SleepLoopManager:
         """
         return self._run_cycle(agent)
 
+    def notify_waking_step(self, agent: "REEAgent") -> Optional[Dict[str, float]]:
+        """
+        sleep_substrate:GAP-9 within-life sleep trigger.
+
+        Called once per WAKING step (hypothesis_tag=False) from
+        REEAgent.update_residue, so ANY driver -- including a TRUE
+        single-continuous-life driver (num_episodes=1) that never crosses an
+        episode boundary -- can reach the sleep cycle. Increments a waking-step
+        counter and fires a sleep cycle once within_life_step_ceiling steps have
+        elapsed since the last cycle.
+
+        v1 wires the step-count ceiling arm (design (a), the anti-starvation
+        backstop) only. The MEL/learning-demand need-crossing arm (design (b),
+        the PRIMARY trigger per the 2026-08-14 lit synthesis) is a planned
+        follow-up; when it lands it becomes the primary arm and the step ceiling
+        stays the backstop, matching MELConsumer.entry_permitted()'s
+        `crossed or at_ceiling`. The arm-attribution diagnostics
+        (within_life_trigger_arm_need / _arm_ceiling) are emitted now so the
+        need arm is a drop-in extension and a ceiling-only run is never mistaken
+        for a demand-sensitive one.
+
+        Returns the fired cycle's merged metrics (with within_life_* keys), or
+        None when the trigger is off or did not fire this step. notify_episode_end()
+        is unaffected -> multi-episode drivers are bit-identical.
+        """
+        if not self.within_life_trigger:
+            return None
+        if self._within_life_cycle_active:
+            return None
+        self.state.steps_since_sleep += 1
+        at_ceiling = self.state.steps_since_sleep >= self.within_life_step_ceiling
+        # v1: step-ceiling arm only. The need arm (accumulated-MEL crossing) is a
+        # follow-up; leaving need_crossed=False keeps it the sole arm for now.
+        need_crossed = False
+        if not (need_crossed or at_ceiling):
+            return None
+        steps_at_fire = self.state.steps_since_sleep
+        within_life_meta = {
+            "within_life_trigger_fired": 1.0,
+            "within_life_trigger_arm_need": 1.0 if need_crossed else 0.0,
+            "within_life_trigger_arm_ceiling": (
+                1.0 if (at_ceiling and not need_crossed) else 0.0
+            ),
+            "within_life_steps_at_fire": float(steps_at_fire),
+        }
+        self._within_life_cycle_active = True
+        try:
+            metrics = self._run_cycle(agent, within_life_meta=within_life_meta)
+        finally:
+            self._within_life_cycle_active = False
+        # _run_cycle resets steps_since_sleep on every reset point; clear it here
+        # too so an early-return-None cycle (no SD-017 passes) still starts the
+        # next window fresh.
+        self.state.steps_since_sleep = 0
+        return metrics
+
     def reset(self) -> None:
         """Hard reset (e.g. between training stages)."""
         self.state = SleepCycleState()
         self._cycle_history = []
+        self._within_life_cycle_active = False
         if self.mel_consumer is not None:
             self.mel_consumer.reset()
 
@@ -218,13 +300,22 @@ class SleepLoopManager:
 
     # -- internal --
 
-    def _run_cycle(self, agent: "REEAgent") -> Optional[Dict[str, float]]:
+    def _run_cycle(
+        self,
+        agent: "REEAgent",
+        within_life_meta: Optional[Dict[str, float]] = None,
+    ) -> Optional[Dict[str, float]]:
+        # within_life_meta: sleep_substrate:GAP-9 within-life-trigger arm
+        # attribution, merged into the fired cycle's metrics + history on the
+        # success path. None for the boundary path (notify_episode_end /
+        # force_cycle) -> no keys added -> bit-identical.
         if self.require_sleep_passes_enabled and not (
             getattr(agent.config, "sws_enabled", False)
             or getattr(agent.config, "rem_enabled", False)
         ):
-            # No SD-017 substrate to drive; reset counter and stay quiet.
+            # No SD-017 substrate to drive; reset counters and stay quiet.
             self.state.episodes_since_sleep = 0
+            self.state.steps_since_sleep = 0
             return None
 
         # MECH-286: override-gated sleep recruitment (orexin wake-stability axis).
@@ -234,6 +325,7 @@ class SleepLoopManager:
             permitted, gate_metrics = evaluate_sleep_onset_permit(agent)
             if not permitted:
                 self.state.episodes_since_sleep = 0
+                self.state.steps_since_sleep = 0
                 blocked = dict(gate_metrics)
                 self.state.last_metrics = blocked
                 return blocked
@@ -547,8 +639,16 @@ class SleepLoopManager:
             )
             self.mel_consumer.on_cycle_complete()
 
+        # sleep_substrate:GAP-9: attach within-life-trigger arm attribution when
+        # this cycle was fired by notify_waking_step. None (boundary path) adds
+        # nothing -> bit-identical. Merged BEFORE the history append so
+        # cycle_history is the authoritative record of which arm fired.
+        if within_life_meta:
+            merged.update(within_life_meta)
+
         self.state.phase = SleepPhase.WAKING
         self.state.episodes_since_sleep = 0
+        self.state.steps_since_sleep = 0
         self.state.last_metrics = merged
         self._cycle_history.append(dict(merged))
         return merged

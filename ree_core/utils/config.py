@@ -5397,6 +5397,27 @@ class REEConfig:
     use_mel_entry: bool = False
     mel_entry_threshold: float = 0.0
 
+    # sleep_substrate:GAP-9 within-life sleep trigger (v1: step-count ceiling
+    # arm only). The K-episode and MEL-entry triggers above are BOUNDARY-only:
+    # SleepLoopManager.notify_episode_end() is reachable only across an
+    # inter-episode boundary (REEAgent.reset()), so a TRUE single-continuous
+    # life (num_episodes=1) can never sleep, independent of any cadence config.
+    # When True (and use_sleep_loop is True), the agent additionally evaluates a
+    # within-life trigger per WAKING step in update_residue: a sleep cycle fires
+    # once within_life_sleep_step_ceiling waking steps have elapsed since the
+    # last cycle. v1 wires the step-count backstop arm (design (a)) only; the
+    # MEL/learning-demand need-crossing arm (design (b), the primary trigger) is
+    # a planned follow-up. notify_episode_end() is left untouched, so
+    # multi-episode drivers are bit-identical. Master OFF -> update_residue makes
+    # no new call -> byte-identical. See sleep_substrate_plan.md GAP-9 + the
+    # 2026-08-14 lit synthesis (targeted_review_sleep_onset_multiinput_gap9).
+    use_within_life_sleep_trigger: bool = False
+    # Waking-step backstop ceiling for the within-life trigger: fire a cycle once
+    # this many waking steps have elapsed since the last cycle. Anti-starvation
+    # backstop (Borbely two-process Process-C analog). Only consulted when
+    # use_within_life_sleep_trigger is True.
+    within_life_sleep_step_ceiling: int = 1000
+
     # Phase B (MECH-285): SleepReplaySampler offline arm. When True (and
     # use_sleep_loop is True), the SleepLoopManager freezes a
     # StalenessAccumulator snapshot at SLEEP_ENTRY and instantiates a
@@ -6985,6 +7006,9 @@ class REEConfig:
         mel_scale_rem: bool = True,
         use_mel_entry: bool = False,
         mel_entry_threshold: float = 0.0,
+        # sleep_substrate:GAP-9 within-life sleep trigger (v1: step-ceiling arm)
+        use_within_life_sleep_trigger: bool = False,
+        within_life_sleep_step_ceiling: int = 1000,
         # Phase B: MECH-285 SleepReplaySampler
         use_mech285_sampler: bool = False,
         mech285_draws_per_cycle: int = 50,
@@ -8374,6 +8398,10 @@ class REEConfig:
         config.mel_scale_rem = mel_scale_rem
         config.use_mel_entry = use_mel_entry
         config.mel_entry_threshold = mel_entry_threshold
+
+        # sleep_substrate:GAP-9 within-life sleep trigger (v1: step-ceiling arm)
+        config.use_within_life_sleep_trigger = use_within_life_sleep_trigger
+        config.within_life_sleep_step_ceiling = within_life_sleep_step_ceiling
 
         # Sleep-aggregation cluster Phase B (MECH-285)
         config.use_mech285_sampler = use_mech285_sampler

@@ -2821,6 +2821,17 @@ class REEAgent(nn.Module):
                 ),
                 # SD-MEL-CONSUMER (GAP-5b): adaptive sleep-cadence MEL consumer.
                 mel_consumer=self.mel_consumer,
+                # sleep_substrate:GAP-9 within-life sleep trigger (v1:
+                # step-count ceiling arm). When on, update_residue fires a
+                # within-life cycle every within_life_sleep_step_ceiling waking
+                # steps, so a TRUE single-continuous life can sleep. Default off
+                # -> bit-identical (no within-life call made in update_residue).
+                within_life_trigger=bool(
+                    getattr(config, "use_within_life_sleep_trigger", False)
+                ),
+                within_life_step_ceiling=int(
+                    getattr(config, "within_life_sleep_step_ceiling", 1000)
+                ),
             )
 
         # Observation encoders (maps raw body/world obs to latent input)
@@ -9748,6 +9759,24 @@ class REEAgent(nn.Module):
                         else float(_mel_pe)
                     )
                     self.mel_consumer.note_step_pe(_mel_pe_val)
+
+            # sleep_substrate:GAP-9 within-life sleep trigger (v1: step-count
+            # ceiling arm). notify_waking_step fires a sleep cycle once the
+            # configured number of WAKING steps has elapsed since the last cycle,
+            # so a TRUE single-continuous-life driver (num_episodes=1, which never
+            # crosses an episode boundary and thus never reaches
+            # notify_episode_end) can still sleep. Waking-only (not hypothesis_tag)
+            # -> replay / simulation steps never trigger it (MECH-094). It reuses
+            # the existing _run_cycle path and adds NO new memory writes. No new
+            # call is made when use_within_life_sleep_trigger is off -> byte-
+            # identical. notify_episode_end() is untouched, so multi-episode
+            # drivers are unaffected.
+            if (
+                self.sleep_loop is not None
+                and not hypothesis_tag
+                and getattr(self.config, "use_within_life_sleep_trigger", False)
+            ):
+                self.sleep_loop.notify_waking_step(self)
 
             # ARC-108 JOB-2 (d): HABENULA negative-RPE de-commit. post_action_update
             # surfaced the signed RPE delta_t (= R_t - V-hat_t, the SAME signal JOB-1
