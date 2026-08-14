@@ -88,8 +88,23 @@ DESIGN -- 4 ARMS x 5 SEEDS, dose-response ladder
                                    (HippocampalConfig.wanting_weight docstring:
                                    "Set ~0.3-0.5 for goal-directed navigation").
   ARM_W50    wanting_weight=50.0   Supra-operating. Probe: flips begin here.
-  ARM_W500   wanting_weight=500.0  POSITIVE CONTROL. The instrument must detect
-                                   authority somewhere or the run says nothing.
+  ARM_W500   wanting_weight=500.0  Supra-operating. Probe: flips in 5/5 seeds.
+  ARM_W5000  wanting_weight=5000.0 POSITIVE CONTROL (P3). The instrument must
+                                   detect authority SOMEWHERE or the run says
+                                   nothing about the operating weight. Set at the
+                                   top probed rung rather than 500 deliberately:
+                                   the probe measured flips on an env-step
+                                   denominator, but this driver scores only
+                                   GENUINE E3 refits (~1/10 as many, see E3
+                                   CADENCE above), so a control calibrated on the
+                                   inflated denominator could fail on the honest
+                                   one and self-route the whole run
+                                   substrate_not_ready_requeue. w=5000 flipped in
+                                   every probed cell (27-189 evaluations), which
+                                   is the headroom a positive control should have.
+                                   Decided at Step-4 smoke time, before any real
+                                   run; it strengthens a control and does not
+                                   touch the load-bearing C_AUTH criterion.
 
 Everything else is IDENTICAL across arms. The MECH-293 ghost-probe stack is OFF
 in every arm (that is what makes this a different test from 914/914b).
@@ -244,17 +259,43 @@ EXPERIMENT_TYPE = "v3_exq_929_cem_wanting_weight_selection_authority"
 EXPERIMENT_PURPOSE = "diagnostic"
 CLAIM_IDS: List[str] = []
 
+# The readiness-anchor reachability guard exists for a hand-written predicate that
+# claims a known-positive control reproduces a signature -- a predicate narrower
+# than the state it anchors to is unmeetable by construction and mislabels an
+# instrument gap as a substrate verdict (V3-EXQ-778d). None of this script's four
+# preconditions has that shape, and one of them IS the reachability proof:
+#   ablated_arm_flip_rate_is_zero  -- arithmetic identity (w=0 makes the
+#       counterfactual re-score the identity map). Reachable by construction; it
+#       IS the degeneracy definition.
+#   instrument_can_detect_authority -- an EMPIRICAL positive-control ARM
+#       (wanting_weight=500, 3 orders of magnitude above the documented range)
+#       measured with THE SHIPPED predicate on live candidate pools inside this
+#       very run. That is a stronger reachability demonstration than a frozen
+#       reference-cell assertion, and it gates the load-bearing criterion: if it
+#       fails, C_AUTH is marked degenerate and the run self-routes
+#       substrate_not_ready_requeue rather than a substrate verdict.
+#   wanting_field_live / formation_matched_episode1 -- direct measurements of
+#       substrate state (field magnitude, cross-arm agreement), not
+#       signature-reproduction predicates; nothing is narrowed by hand.
+ANCHOR_REACHABILITY_EXEMPT = (
+    "P0 is an arithmetic identity and P3 is an in-run empirical positive-control "
+    "arm measured with the shipped predicate; P1/P2 are direct substrate-state "
+    "measurements, not signature-reproduction predicates. No hand-written "
+    "narrowed anchor exists in this script."
+)
+
 # --- arms: the wanting_weight dose-response ladder ------------------------
 ARM_WEIGHTS: Dict[str, float] = {
     "ARM_W0": 0.0,
     "ARM_W05": 0.5,
     "ARM_W50": 50.0,
     "ARM_W500": 500.0,
+    "ARM_W5000": 5000.0,
 }
 ARMS: List[str] = list(ARM_WEIGHTS)
 BASELINE_ARM = "ARM_W0"
 OPERATING_ARM = "ARM_W05"
-POSITIVE_CONTROL_ARM = "ARM_W500"
+POSITIVE_CONTROL_ARM = "ARM_W5000"
 
 SEEDS: List[int] = [42, 43, 45, 46, 47]  # seed 44: recurring per-seed early-death
                                           # instability on this env config family
@@ -281,6 +322,14 @@ C_AUTH_SEED_PASS_FRACTION = 3.0 / 5.0
 
 # z_goal-stream liveness, pooled across arm x seed cells for the manifest block.
 _ZG = ZGoalStreamAccumulator()
+
+# One representative agent per ARM, retained so write_flat_manifest can record
+# `enabled_default_off_flags` off each arm's own .config (the flags differ by arm
+# -- wanting_weight is the manipulation). Deliberately NOT one per cell: holding
+# every arm x seed agent alive would keep 20 nets + optimiser state resident until
+# the last cell finishes, which is the hazard the ZGoalStreamAccumulator pattern
+# exists to avoid. Four is negligible.
+_ARM_AGENTS: Dict[str, Any] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -516,6 +565,7 @@ def _run_cell(arm: str, seed: int, dry_run: bool = False) -> Dict[str, Any]:
             )
 
         _ZG.observe(agent)
+        _ARM_AGENTS.setdefault(arm, agent)
 
         def _mean(vals: List[float]) -> float:
             return float(statistics.fmean(vals)) if vals else 0.0
@@ -805,6 +855,22 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         "c_auth_seed_fraction": analysis["c_auth_seed_fraction"],
         "c_auth_pass": analysis["c_auth_pass"],
         "c_behav_proximity_gap_vs_ablated": analysis["c_behav_proximity_gap_vs_ablated"],
+        "c_behav_note": (
+            "READ C_BEHAV ONLY VIA C_AUTH. A Step-4 engagement check (2026-08-14, "
+            "full-length cells, seeds 42/43) measured ARM_W5000 flipping the CEM "
+            "elite-selection argmin on 43/104 and 96/98 GENUINE refits while its "
+            "mean_resource_proximity stayed BIT-IDENTICAL to ARM_W0 (0.6480 / "
+            "0.6839). So on this substrate a flipped CEM argmin does not, by "
+            "itself, change behaviour -- E3's own downstream action selection "
+            "(agent.py:11415/11432/11449) re-scores, and the flipped candidate "
+            "evidently yields the same executed action class. A null C_BEHAV is "
+            "therefore the EXPECTED reading even in an arm with full selection "
+            "authority, and must NOT be reported as evidence that the wanting "
+            "pathway is behaviourally inert -- that would confound two separate "
+            "links in the chain. A NONZERO C_BEHAV gap in an arm whose flip rate "
+            "is 0 is the genuinely anomalous case and indicates a leak through "
+            "some other pathway."
+        ),
         "interpretation": analysis["interpretation"],
         "pre_registered_thresholds": {
             "P1_WANTING_NONZERO_FRAC_FLOOR": P1_WANTING_NONZERO_FRAC_FLOOR,
@@ -875,6 +941,7 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         script_path=Path(__file__),
         started_at=t0,
         z_goal_stream_stats=_ZG.stats(),
+        agent=list(_ARM_AGENTS.values()),
     )
     return {"outcome": analysis["outcome"], "manifest_path": out_path,
             "analysis": analysis}
