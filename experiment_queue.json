@@ -17,7 +17,11 @@
       "supersedes": "V3-EXQ-436e",
       "claim_id": "SD-017",
       "note": "SD-016-armed retest per confirmed failure_autopsy_V3-EXQ-436e_2026-08-13 (user-adjudicated Step 8). 436e's occupied-slots DV was found SOUND but non_contributory at P0: only 2/5 seeds carried >=2 occupied ContextMemory slots (need 3) because write() argmin-locks to one slot under the near-constant z_world query stream (SD-016 z_world bottleneck, cosine 0.998). 436e left the SD-016 selection fix (ree-v3 110a2785b6, in its own substrate commit) switched OFF. 436f arms the V3-EXQ-922 production combo (sd016_enabled + cue_slot_tagger + selection='gumbel' + context_divergence_weight=0.5) held constant across all 3 conditions, PLUS 922's ctxdiv training-loop wiring (config alone is inert -- compute_context_divergence_loss is never auto-called). Sleep remains the sole manipulation; 436e DV machinery/gates/seeds/C1 shape inherited unchanged; adds a 6th P0 gate sd016_arming_engaged. RE-DERIVE BRAKE RELEASED: upstream SD-016 substrate now BUILT+VALIDATED (922 CONFIRMED MECH-150) -- the Step 2.5b release condition; braked by failure_autopsy_V3-EXQ-538a_2026-07-10 + grandfathered-sleep-cluster/r5-batch23 2026-08-08. GOV-REUSE-1: decisive readout slot_cosine_sim_occupied_only under SD-016-armed is a NEW manipulation (436e recorded it UNARMED; 922 recorded selection entropy, not the sleep C1) -> not recoverable, run. CAVEAT (see governance flag raised alongside): the cue-tagger+ctxdiv act on the READ path (z_world via a separate tagger MLP, trained on DETACHED z_world) while the occupancy collapse is on the WRITE path (query_proj on 64-dim [z_self,z_world]); arming is NOT mechanically guaranteed to lift write occupancy, so 436f may re-fail at insufficient_occupancy_for_c1. The joint P0 reading sd016_arming_engaged=MET + insufficient_occupancy_for_c1=UNMET is the designed signal to route to a WRITE-path successor rather than another read-path letter. Smoke PASS; validate_experiments --strict OK.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-4",
+        "claimed_at": "2026-08-14T19:21:03Z"
+      },
       "conditions": 3,
       "episodes_per_run": 200,
       "experiment_type": "v3_exq_436f_sd017_mech166_sd016_armed_retest",
