@@ -82,8 +82,10 @@ API.
 ACTION-SEQUENCE METRICS (reimplemented, not previously committed). `_action_sequence_stats`
 computes reversal rate and action-run length directly from the per-step ACTION LABEL
 (canonical inverse pairing 0<->1, 2<->3; action 4=stay has no inverse) -- distinct from
-V3-EXQ-913's existing `_trajectory_organization_stats`, which measures SPATIAL turning angle
-and tortuosity (conflates a 90-degree turn with a full reversal). Reimplemented from
+the shared `experiments/_lib/trajectory_metrics.spatial_trajectory_stats`, which measures
+SPATIAL turning angle and tortuosity (conflates a 90-degree turn with a full reversal) and is
+called directly here (V3-EXQ-913 reaches the same function through a thin private wrapper).
+Reimplemented from
 sleep_transition_investigation_906_lineage_2026-08-10.md Section 13b's method description
 (that document's own script was not committed). NOTE: `world_rule_shift_enabled=True`
 (250-tick interval, inherited unchanged from V3-EXQ-913/906b) periodically permutes the
@@ -181,15 +183,24 @@ from experiments.v3_exq_913_developmental_ecology_fishtank import (
     ARM_NO_SLEEP,
     ARMS,
     DEV_NUM_RESOURCES,
+    HAZARD_NEAR_RADIUS,
     LOCAL_WINDOW_STEPS,
     SAFE_SPAWN_ATTEMPTS,
     _build_dev_eval_env,
     _make_config_for_arm,
-    _trajectory_organization_stats,
     _within_life_development,
     _lifetime_affective_occupancy,
     _zone_habitat_stats,
 )
+# Spatial trajectory geometry comes from the SHARED library, not from V3-EXQ-913's private
+# `_trajectory_organization_stats` wrapper (which is a thin delegation to exactly this
+# function). Calling the library directly is what the library exists for -- see
+# REE_assembly/evidence/planning/behavioural_trajectory_metrics_library_scoping_2026-08-11.md
+# (three independent reinventions of this measure set, one already definitionally drifted).
+# `hazard_near_radius` is passed EXPLICITLY as V3-EXQ-913's `HAZARD_NEAR_RADIUS` at both call
+# sites -- the same value the wrapper supplied -- so this run stays bit-identical to the
+# wrapper form AND stays pinned to 913's radius convention even if the library default moves.
+from experiments._lib.trajectory_metrics import spatial_trajectory_stats
 from experiment_protocol import emit_outcome
 from experiments.pack_writer import write_flat_manifest  # noqa: E402
 from experiments._metrics import check_degeneracy
@@ -280,7 +291,7 @@ _ACTION_INVERSE = {0: 1, 1: 0, 2: 3, 3: 2}
 
 def _action_sequence_stats(steps: List[Dict[str, Any]], window: Optional[int] = None) -> Dict[str, Any]:
     """Action-LABEL-level reversal rate / run length -- distinct from
-    _trajectory_organization_stats's SPATIAL turning-angle/tortuosity measures (module
+    spatial_trajectory_stats's SPATIAL turning-angle/tortuosity measures (module
     docstring "ACTION-SEQUENCE METRICS"). Reimplemented from
     sleep_transition_investigation_906_lineage_2026-08-10.md Section 13b's method
     description; that document's own script was not committed."""
@@ -532,8 +543,10 @@ def _continuous_life_run(
             if done:
                 break
 
-        traj_local = _trajectory_organization_stats(ep_steps, current_hazards, window=LOCAL_WINDOW_STEPS)
-        traj_full  = _trajectory_organization_stats(ep_steps, current_hazards, window=None)
+        traj_local = spatial_trajectory_stats(ep_steps, current_hazards, window=LOCAL_WINDOW_STEPS,
+                                              hazard_near_radius=HAZARD_NEAR_RADIUS)
+        traj_full  = spatial_trajectory_stats(ep_steps, current_hazards, window=None,
+                                              hazard_near_radius=HAZARD_NEAR_RADIUS)
         act_local  = _action_sequence_stats(ep_steps, window=LOCAL_WINDOW_STEPS)
         act_full   = _action_sequence_stats(ep_steps, window=None)
         cg_local   = _commit_gate_stats(commit_states_this_segment[:LOCAL_WINDOW_STEPS])
