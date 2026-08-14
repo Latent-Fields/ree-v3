@@ -30,17 +30,17 @@
     {
       "queue_id": "V3-EXQ-931",
       "title": "CEM wanting_weight selection-authority dose-response (diagnostic)",
-      "experiment_type": "v3_exq_931_cem_wanting_weight_selection_authority",
       "script": "experiments/v3_exq_931_cem_wanting_weight_selection_authority.py",
       "priority": 40,
       "machine_affinity": "any",
-      "status": "pending",
       "estimated_minutes": 90,
-      "episodes_per_run": 10,
-      "seeds": 5,
-      "conditions": 5,
       "note": "OPERATOR ACTION REQUIRED -- STEP 8.6 NOT PERFORMED: queued from ree-cloud-5, which has no REE_assembly/coordinator.env, so POST /queue/add could not be issued. Under Phase 3 the runners read the coordinator DB, not this file, and a git-only add from a headless cloud box is documented to be deleted by the next phase3-queue snapshot without ever running (4 losses in 4 attempts, 2026-08-08, this same box). A coordinator-capable box must POST this item; the script is durably on origin/main regardless. || DIAGNOSTIC, claim_ids=[] deliberately: the primary DV (selection_flip_rate) measures whether the hippocampal CEM scoring term wanting_weight*mean(VALENCE_WANTING) has authority over the elite-selection argmin -- an instrument/admissibility fact, not a hypothesis about the organism. Findings route to MECH-236's evidence_quality_note and to the modulatory-bias-selection-authority substrate_queue entry as a SECOND confirmed call site (the first, E3.select, is already implemented; this one is upstream of it, in the CEM refit, which that fix does not reach). || NOT a retest of V3-EXQ-914/914a and NOT the routed 914b: those manipulate use_mech293_ghost_probes (which candidates are PROPOSED); this holds that stack OFF in every arm and manipulates config.hippocampal.wanting_weight (how they are SCORED). || GOV-REUSE-1: decisive readout is selection_flip_rate; no manifest in the 905-file evidence corpus carries it or wanting_authority_ratio (it is a counterfactual re-score that no prior driver computes), and it is not derivable post-hoc from recorded fields -> not recoverable -> run. || Step 2.5c: open substrate_queue entry mech203-valence-pool-admissibility (severity UNSET -> non-blocking) names agent.py::update_benefit_salience, this run's writer; its own text asks for a cheap admissibility PROBE first, and this run is that probe for the WANTING half on an UNTRAINED substrate -- it does not discharge the trained-substrate half. || DV-SYMMETRY: selection_flip_rate is a rank/argmin DV, so monotone-rescaling symmetry applies and is the point (it detects the uniform-broadcast hazard rather than being fooled by it); no arm's manipulation is a uniform additive constant, since wanting_weight scales a per-candidate quantity whose non-constancy P1 certifies. mean_resource_proximity is a per-step continuous magnitude (V3-EXQ-914's declaration carries over). || Readiness (2026-08-14 probes + a full-length Step-4 engagement check, seeds 42/43): P1 clears (ticks_wanting_nonzero_frac 0.75/0.98, |VALENCE_WANTING|max 0.018/0.530); ~100 GENUINE E3 refits per cell; P3 positive control ARM_W5000 flips 43/104 and 96/98; ARM_W0 and ARM_W05 are BIT-IDENTICAL on every readout (0 flips in 202 refits) -- the pre-registered load-bearing C_AUTH criterion is predicted to FAIL and is registered anyway. || Two findings this driver is built around, both empirical: (A) the V3-EXQ-914 driver family never calls agent.update_residue(), so the residue field has ZERO active centers and VALENCE_WANTING is identically 0 at ANY wanting_weight (confirmed at NUM_HAZARDS=2 with 48 harm events) -- strictly deeper than the 2026-08-13 autopsy's NUM_HAZARDS=0 diagnosis, and it means 914b's routed fix (wanting_weight>0 + ghost probes) is NECESSARY BUT NOT SUFFICIENT; raised as GFLAG-0033. (B) generate_trajectories returns CACHED candidates between E3 ticks (cadence 10), so a per-env-step re-score inflates the denominator ~10x; this driver gates on ticks['e3_tick'] and reports n_latched_ticks. || Design + all probe numbers: REE_assembly/evidence/planning/cem_wanting_weight_causal_ablation_design_2026-08-14.md",
-      "claim_ids": []
+      "status": "pending",
+      "claim_ids": [],
+      "conditions": 5,
+      "episodes_per_run": 10,
+      "experiment_type": "v3_exq_931_cem_wanting_weight_selection_authority",
+      "seeds": 5
     }
   ]
 }
