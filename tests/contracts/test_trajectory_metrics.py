@@ -1,16 +1,33 @@
 """Contracts for experiments/_lib/trajectory_metrics.py.
 
-Two things this pins:
-  (a) `spatial_trajectory_stats` reproduces `_trajectory_organization_stats`
-      (v3_exq_913_developmental_ecology_fishtank.py) bit-for-bit on a range
-      of fixtures, including its degenerate branches -- the "verbatim port"
+Three things this pins:
+  (a) `spatial_trajectory_stats` reproduces the ORIGINAL
+      `_trajectory_organization_stats` body bit-for-bit on a range of
+      fixtures, including its degenerate branches -- the "verbatim port"
       promise from
       behavioural_trajectory_metrics_library_scoping_2026-08-11.md Section 5
-      item 1 is a claim this test enforces, not just states.
-  (b) the new `action_sequence_stats` / `degeneracy_flags` functions behave
+      item 1 is a claim this test enforces, not just states. It is pinned
+      against GOLDEN literals rather than against the driver, because the
+      driver no longer holds a second copy to compare to (see below).
+  (b) `v3_exq_913_developmental_ecology_fishtank._trajectory_organization_stats`
+      DELEGATES to this module faithfully -- forwarding `hazard_positions`,
+      `window`, and its own `HAZARD_NEAR_RADIUS`.
+  (c) the new `action_sequence_stats` / `degeneracy_flags` functions behave
       per their own docstrings on hand-worked fixtures, including the
       world-rule-shift `spans_rule_shift` True/False/None distinction that
       is the whole point of that function existing.
+
+WHY (a) IS A GOLDEN PIN AND NOT A TWO-IMPLEMENTATION COMPARISON. When this
+file landed (ree-v3 3200863ba5) the driver still carried the original body,
+so asserting `spatial_trajectory_stats(...) == _trajectory_organization_stats(...)`
+compared two independent implementations and was a real regression test. The
+driver was then refactored to delegate to this module, which would have
+silently reduced that assertion to a self-comparison -- structurally unable
+to fail, and leaving NOTHING pinning either side's absolute behaviour. The
+GOLDEN values below were captured from the pre-delegation driver body
+(v3_exq_913 at ree-v3 b2454447, lines 387-472) and verified bit-identical
+across those fixtures plus 400 randomized walks, so the port promise stays
+enforced against real prior-art numbers after the second copy is gone.
 """
 
 from __future__ import annotations
@@ -42,25 +59,187 @@ FIXTURES = [STRAIGHT_LINE, L_TURN, ZIGZAG, RETURN_TO_ORIGIN, SINGLE_STEP,
 
 HAZARD_POSITIONS = [(2, 1), (5, 5)]
 
+# Captured from the PRE-delegation `_trajectory_organization_stats` body
+# (v3_exq_913_developmental_ecology_fishtank.py:387-472 at ree-v3 b2454447),
+# evaluated with `hazard_positions=HAZARD_POSITIONS` and no window. Full
+# repr precision on purpose: `turning_angle_entropy_bits` is a
+# -1.44e-12 near-zero that a rounded literal would silently mask, and it is
+# exactly the kind of arithmetic detail a "verbatim port" claim is about.
+# Every branch of the function is represented -- degenerate n<2 early return
+# (DEGENERATE_ONE_STEP), all-null headings (STATIC), zero net displacement so
+# tortuosity is None (RETURN_TO_ORIGIN), n==2 so no turning-angle sample is
+# possible (SINGLE_STEP), and three ordinary paths.
+GOLDEN_WITH_HAZARDS = {
+    "STRAIGHT_LINE": {
+        'n_steps': 5,
+        'turning_angle_mean': 0.0,
+        'turning_angle_entropy_bits': -1.4428232973175175e-12,
+        'mean_straight_run_length': 4.0,
+        'max_straight_run_length': 4,
+        'tortuosity': 1.0,
+        'path_length': 4,
+        'net_displacement': 4,
+        'turning_near_hazard_mean': 0.0,
+        'turning_far_hazard_mean': None,
+        'n_turning_near_hazard': 3,
+        'n_turning_far_hazard': 0,
+    },
+    "L_TURN": {
+        'n_steps': 5,
+        'turning_angle_mean': 0.5235987755982988,
+        'turning_angle_entropy_bits': 0.9182958340516041,
+        'mean_straight_run_length': 2.0,
+        'max_straight_run_length': 2,
+        'tortuosity': 1.0,
+        'path_length': 4,
+        'net_displacement': 4,
+        'turning_near_hazard_mean': 0.5235987755982988,
+        'turning_far_hazard_mean': None,
+        'n_turning_near_hazard': 3,
+        'n_turning_far_hazard': 0,
+    },
+    "ZIGZAG": {
+        'n_steps': 6,
+        'turning_angle_mean': 1.5707963267948966,
+        'turning_angle_entropy_bits': -1.4428232973175175e-12,
+        'mean_straight_run_length': 1.0,
+        'max_straight_run_length': 1,
+        'tortuosity': 1.0,
+        'path_length': 5,
+        'net_displacement': 5,
+        'turning_near_hazard_mean': 1.5707963267948966,
+        'turning_far_hazard_mean': None,
+        'n_turning_near_hazard': 4,
+        'n_turning_far_hazard': 0,
+    },
+    "RETURN_TO_ORIGIN": {
+        'n_steps': 5,
+        'turning_angle_mean': 1.0471975511965976,
+        'turning_angle_entropy_bits': 0.9182958340516041,
+        'mean_straight_run_length': 2.0,
+        'max_straight_run_length': 2,
+        'tortuosity': None,
+        'path_length': 4,
+        'net_displacement': 0,
+        'turning_near_hazard_mean': 1.0471975511965976,
+        'turning_far_hazard_mean': None,
+        'n_turning_near_hazard': 3,
+        'n_turning_far_hazard': 0,
+    },
+    "SINGLE_STEP": {
+        'n_steps': 2,
+        'turning_angle_mean': None,
+        'turning_angle_entropy_bits': None,
+        'mean_straight_run_length': 1.0,
+        'max_straight_run_length': 1,
+        'tortuosity': 1.0,
+        'path_length': 1,
+        'net_displacement': 1,
+        'turning_near_hazard_mean': None,
+        'turning_far_hazard_mean': None,
+        'n_turning_near_hazard': 0,
+        'n_turning_far_hazard': 0,
+    },
+    "DEGENERATE_ONE_STEP": {
+        'n_steps': 1,
+    },
+    "STATIC": {
+        'n_steps': 4,
+        'turning_angle_mean': None,
+        'turning_angle_entropy_bits': None,
+        'mean_straight_run_length': None,
+        'max_straight_run_length': None,
+        'tortuosity': None,
+        'path_length': 0,
+        'net_displacement': 0,
+        'turning_near_hazard_mean': None,
+        'turning_far_hazard_mean': None,
+        'n_turning_near_hazard': 0,
+        'n_turning_far_hazard': 0,
+    },
+}
+
+NAMED_FIXTURES = {
+    "STRAIGHT_LINE": STRAIGHT_LINE,
+    "L_TURN": L_TURN,
+    "ZIGZAG": ZIGZAG,
+    "RETURN_TO_ORIGIN": RETURN_TO_ORIGIN,
+    "SINGLE_STEP": SINGLE_STEP,
+    "DEGENERATE_ONE_STEP": DEGENERATE_ONE_STEP,
+    "STATIC": STATIC,
+}
+
 
 # --- spatial_trajectory_stats: bit-identical regression against the source ---
 
+@pytest.mark.parametrize("name", sorted(GOLDEN_WITH_HAZARDS))
+def test_spatial_trajectory_stats_matches_source_golden_values(name):
+    """The port-verbatim promise, pinned against the ORIGINAL body's numbers.
+
+    Exact `==` on purpose, not `pytest.approx`: "verbatim port" is a claim
+    about bit-identity, and an approx comparison would accept a
+    reimplementation that merely agrees to a tolerance.
+    """
+    actual = tm.spatial_trajectory_stats(
+        _steps(NAMED_FIXTURES[name]), hazard_positions=HAZARD_POSITIONS,
+    )
+    assert actual == GOLDEN_WITH_HAZARDS[name]
+
+
+def test_golden_fixture_set_covers_every_fixture():
+    # Guards against a fixture being added to FIXTURES for the delegation
+    # tests below while quietly acquiring no golden pin of its own.
+    assert [list(p) for p in NAMED_FIXTURES.values()] == [list(p) for p in FIXTURES]
+    assert set(GOLDEN_WITH_HAZARDS) == set(NAMED_FIXTURES)
+
+
+# --- the driver's wrapper delegates faithfully --------------------------------
+#
+# These used to compare two independent implementations. Post-refactor the
+# driver delegates to this module, so what they now pin is the FORWARDING:
+# that the wrapper passes `hazard_positions` and `window` through, and that
+# its own HAZARD_NEAR_RADIUS reaches the library's `hazard_near_radius`
+# parameter rather than being dropped in favour of the library default. A
+# wrapper that silently swallowed `window`, or hardcoded a different radius,
+# fails here.
+
 @pytest.mark.parametrize("hazard_positions", [None, HAZARD_POSITIONS])
 @pytest.mark.parametrize("positions", FIXTURES)
-def test_spatial_trajectory_stats_matches_source_bit_for_bit(positions, hazard_positions):
+def test_driver_wrapper_delegates_bit_for_bit(positions, hazard_positions):
     steps = _steps(positions)
-    expected = _trajectory_organization_stats(steps, hazard_positions)
-    actual = tm.spatial_trajectory_stats(steps, hazard_positions=hazard_positions)
+    expected = tm.spatial_trajectory_stats(
+        steps, hazard_positions=hazard_positions,
+        hazard_near_radius=SOURCE_HAZARD_NEAR_RADIUS,
+    )
+    actual = _trajectory_organization_stats(steps, hazard_positions)
     assert actual == expected
 
 
 @pytest.mark.parametrize("positions", FIXTURES)
-def test_spatial_trajectory_stats_matches_source_with_window(positions):
+def test_driver_wrapper_forwards_window(positions):
     steps = _steps(positions)
     window = max(1, len(positions) - 1)
-    expected = _trajectory_organization_stats(steps, HAZARD_POSITIONS, window=window)
-    actual = tm.spatial_trajectory_stats(steps, hazard_positions=HAZARD_POSITIONS, window=window)
+    expected = tm.spatial_trajectory_stats(
+        steps, hazard_positions=HAZARD_POSITIONS, window=window,
+        hazard_near_radius=SOURCE_HAZARD_NEAR_RADIUS,
+    )
+    actual = _trajectory_organization_stats(steps, HAZARD_POSITIONS, window=window)
     assert actual == expected
+
+
+def test_driver_wrapper_forwards_its_own_hazard_near_radius():
+    # A wrapper that dropped `hazard_near_radius` would be indistinguishable
+    # from a correct one while the two constants agree. Compare against a
+    # DELIBERATELY WRONG radius to prove the driver is not merely inheriting
+    # the library default by coincidence.
+    steps = _steps([(20, 20), (21, 20), (21, 21), (22, 21)])
+    out = _trajectory_organization_stats(steps, HAZARD_POSITIONS)
+    wide = tm.spatial_trajectory_stats(
+        steps, hazard_positions=HAZARD_POSITIONS, hazard_near_radius=100,
+    )
+    assert out["n_turning_near_hazard"] == 0
+    assert wide["n_turning_near_hazard"] == 2
+    assert out != wide
 
 
 def test_spatial_trajectory_stats_default_hazard_near_radius_matches_source_constant():

@@ -264,6 +264,7 @@ from experiments.v3_exq_906b_full_stack_observational_fishtank import (
     CORE_CHANNELS,
     STD_FLOOR,
 )
+from experiments._lib.trajectory_metrics import spatial_trajectory_stats
 from experiment_protocol import emit_outcome
 from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
@@ -391,85 +392,30 @@ def _trajectory_organization_stats(
 ) -> Dict[str, Any]:
     """Turning-angle distribution, straight-run length, tortuosity, hazard-conditioned
     turning -- the sleep_transition_investigation_906_lineage_2026-08-10.md Section 3
-    measure set (module docstring item 3), computed here directly from logged positions
-    (that document's own script was not committed and is reimplemented from its Section 3
-    method description, not copied). `steps` is the ALREADY-completed per-step log for one
-    segment (or a slice of it); `window` (if given) uses only the first `window` entries."""
-    seq = steps[:window] if window is not None else steps
-    n = len(seq)
-    out: Dict[str, Any] = {"n_steps": n}
-    if n < 2:
-        return out
-    positions = [tuple(s["pos"]) for s in seq]
-    deltas = [(positions[i + 1][0] - positions[i][0], positions[i + 1][1] - positions[i][1])
-              for i in range(n - 1)]
-    headings = []
-    for dx, dy in deltas:
-        if dx == 0 and dy == 0:
-            headings.append(None)
-        else:
-            headings.append(float(np.arctan2(dy, dx)))
+    measure set (module docstring item 3), computed from logged positions (that document's
+    own script was not committed and was reimplemented from its Section 3 method
+    description, not copied). `steps` is the ALREADY-completed per-step log for one
+    segment (or a slice of it); `window` (if given) uses only the first `window` entries.
 
-    # Turning angle: absolute angular change between consecutive non-null headings.
-    turning_angles: List[float] = []
-    turning_near_hazard: List[float] = []
-    turning_far_hazard: List[float] = []
-    prev_heading = None
-    for i, h in enumerate(headings):
-        if h is not None and prev_heading is not None:
-            diff = abs(h - prev_heading)
-            if diff > np.pi:
-                diff = 2 * np.pi - diff
-            turning_angles.append(float(diff))
-            if hazard_positions:
-                px, py = positions[i]
-                nearest = min(abs(px - hx) + abs(py - hy) for hx, hy in hazard_positions)
-                if nearest <= HAZARD_NEAR_RADIUS:
-                    turning_near_hazard.append(float(diff))
-                else:
-                    turning_far_hazard.append(float(diff))
-        if h is not None:
-            prev_heading = h
-
-    # Straight-run length: consecutive steps sharing the same non-null heading.
-    straight_runs: List[int] = []
-    run_len = 0
-    run_heading = None
-    for h in headings:
-        if h is None:
-            continue
-        if run_heading is not None and abs(h - run_heading) < 1e-6:
-            run_len += 1
-        else:
-            if run_len > 0:
-                straight_runs.append(run_len)
-            run_len = 1
-            run_heading = h
-    if run_len > 0:
-        straight_runs.append(run_len)
-
-    path_length = sum(abs(dx) + abs(dy) for dx, dy in deltas)
-    net_displacement = abs(positions[-1][0] - positions[0][0]) + abs(positions[-1][1] - positions[0][1])
-    tortuosity = (float(path_length) / net_displacement) if net_displacement > 0 else None
-
-    out.update({
-        "turning_angle_mean": float(np.mean(turning_angles)) if turning_angles else None,
-        "turning_angle_entropy_bits": (
-            float(-np.sum((h := np.histogram(turning_angles, bins=8, range=(0, np.pi))[0]
-                           / len(turning_angles)) * np.log2(h + 1e-12)))
-            if turning_angles else None
-        ),
-        "mean_straight_run_length": float(np.mean(straight_runs)) if straight_runs else None,
-        "max_straight_run_length": int(max(straight_runs)) if straight_runs else None,
-        "tortuosity": tortuosity,
-        "path_length": int(path_length),
-        "net_displacement": int(net_displacement),
-        "turning_near_hazard_mean": float(np.mean(turning_near_hazard)) if turning_near_hazard else None,
-        "turning_far_hazard_mean": float(np.mean(turning_far_hazard)) if turning_far_hazard else None,
-        "n_turning_near_hazard": len(turning_near_hazard),
-        "n_turning_far_hazard": len(turning_far_hazard),
-    })
-    return out
+    THIN DELEGATION -- the implementation now lives in the shared
+    `experiments/_lib/trajectory_metrics.py`, which was extracted VERBATIM from the body
+    that used to sit here (per
+    `REE_assembly/evidence/planning/behavioural_trajectory_metrics_library_scoping_2026-08-11.md`
+    Section 5 item 1: three independent reinventions of this same measure set, one already
+    definitionally drifted because it was rebuilt from prose rather than shared code).
+    This wrapper is kept rather than rewriting the two call sites so the driver's own
+    naming and hazard-radius convention stay put: `hazard_near_radius` is passed
+    explicitly as this module's `HAZARD_NEAR_RADIUS`, which is what makes the delegation
+    behaviour-preserving even if the library's default ever moves.
+    `tests/contracts/test_trajectory_metrics.py` pins both halves -- absolute golden
+    values captured from the pre-delegation body, and that this wrapper forwards
+    `window` / `hazard_positions` / the radius faithfully."""
+    return spatial_trajectory_stats(
+        steps,
+        hazard_positions=hazard_positions,
+        window=window,
+        hazard_near_radius=HAZARD_NEAR_RADIUS,
+    )
 
 
 def _continuous_life_run(
