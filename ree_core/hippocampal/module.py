@@ -223,6 +223,11 @@ class HippocampalModule(nn.Module):
         # supplied -- see _compute_mode_horizon_scale.
         self._last_mode_horizon_scale: Optional[float] = None
         self._last_effective_horizon: Optional[int] = None
+        # SD-MECH267-CEM-SELECTION-FIX: whether the H3 persistent-mode-scale
+        # and H2 mode-value-weight facets engaged on the last proposer call.
+        # Both False under default config.
+        self._last_mode_partitioned_cem: bool = False
+        self._last_mode_value_weight_active: bool = False
 
         # MECH-269 base substrate (Phase 1, 2026-04-22): per-stream
         # verisimilitude V_s scores. Populated when config.use_per_stream_vs
@@ -1514,6 +1519,7 @@ class HippocampalModule(nn.Module):
         self,
         trajectory: Trajectory,
         max_horizon: Optional[int] = None,
+        operating_mode: Optional[Dict[str, float]] = None,
     ) -> torch.Tensor:
         """
         Score a trajectory for CEM elite selection.
@@ -1546,6 +1552,14 @@ class HippocampalModule(nn.Module):
         narrowed). None (all pre-existing call sites) reproduces the exact
         prior behaviour -- bit-identical.
 
+        SD-MECH267-CEM-SELECTION-FIX H2 extension (operating_mode): when
+        mode_conditioning is enabled, operating_mode is supplied, and
+        config.mode_value_weight is non-empty, a mode-dependent term is
+        subtracted from the terrain score so the elite-selection RANKING stays
+        mode-differentiated on every CEM refit iteration. operating_mode=None
+        (all pre-existing call sites) or an empty mode_value_weight map leaves
+        the score untouched -- bit-identical.
+
         Returns a scalar score (lower = better).
         """
         if trajectory.world_states is not None:
@@ -1568,6 +1582,46 @@ class HippocampalModule(nn.Module):
 
                 if float(getattr(self.config, "curiosity_weight", 0.0)) > 0.0:
                     terrain_score = terrain_score - self._curiosity_bonus(world_seq)
+
+                # SD-MECH267-CEM-SELECTION-FIX H2: mode-dependent value term.
+                # Keeps the CEM elite-selection RANKING mode-differentiated on
+                # every refit iteration (not just the horizon window), so
+                # mode-specific proposal content does not wash out. Keys on the
+                # trajectory's mean z_world (always non-trivial; the residue
+                # valence head is identically zero in the fresh-field
+                # V3-EXQ-869/923 regime, so a valence-keyed term would be
+                # inert there). Active independently of wanting_weight/
+                # curiosity_weight. No-op when mode_conditioning is off,
+                # operating_mode is None, or mode_value_weight is empty ->
+                # bit-identical.
+                mode_value_weight = getattr(self.config, "mode_value_weight", None)
+                if (
+                    getattr(self.config, "mode_conditioning_enabled", False)
+                    and operating_mode
+                    and mode_value_weight
+                ):
+                    batch, horizon, world_dim = world_seq.shape
+                    mean_world = world_seq.reshape(
+                        batch * horizon, world_dim
+                    ).mean(dim=0)  # [world_dim]
+                    n_w = int(mean_world.shape[0])
+                    w = torch.zeros(
+                        n_w, device=mean_world.device, dtype=mean_world.dtype
+                    )
+                    for _mode, _mode_wt in operating_mode.items():
+                        _vec = mode_value_weight.get(_mode)
+                        if not _vec:
+                            continue
+                        _vect = torch.as_tensor(
+                            list(_vec)[:n_w], device=w.device, dtype=w.dtype
+                        )
+                        if int(_vect.shape[0]) < n_w:
+                            _vect = torch.nn.functional.pad(
+                                _vect, (0, n_w - int(_vect.shape[0]))
+                            )
+                        w = w + float(_mode_wt) * _vect
+                    # Subtract (lower score = better), same sign as wanting.
+                    terrain_score = terrain_score - torch.dot(w, mean_world)
 
                 return terrain_score
 
@@ -1860,6 +1914,20 @@ class HippocampalModule(nn.Module):
         if mode_scale is not None:
             ao_std = ao_std * mode_scale
 
+        # SD-MECH267-CEM-SELECTION-FIX diagnostics: record whether the H2
+        # (mode-value ranking term) and H3 (persistent mode noise scale)
+        # facets are engaged on this proposer call, for validation
+        # observability. Both are False under default config.
+        self._last_mode_partitioned_cem = bool(
+            getattr(self.config, "mode_partitioned_cem", False)
+            and mode_scale is not None
+        )
+        self._last_mode_value_weight_active = bool(
+            getattr(self.config, "mode_conditioning_enabled", False)
+            and operating_mode
+            and getattr(self.config, "mode_value_weight", None)
+        )
+
         # SD-MECH267-HORIZON-DEPTH: mode-conditioned CEM scoring-window
         # depth. effective_horizon stays None (full trajectory, unchanged
         # behaviour) unless mode conditioning is enabled AND operating_mode
@@ -1964,7 +2032,11 @@ class HippocampalModule(nn.Module):
                 # effective_horizon is None (full trajectory, unchanged) unless
                 # mode conditioning is enabled and operating_mode was supplied.
                 scores.append(
-                    self._score_trajectory(traj, max_horizon=effective_horizon)
+                    self._score_trajectory(
+                        traj,
+                        max_horizon=effective_horizon,
+                        operating_mode=operating_mode,
+                    )
                 )
 
             scores_tensor = torch.stack(scores)
@@ -2044,6 +2116,19 @@ class HippocampalModule(nn.Module):
                         and _std_floor > 0.0
                     ):
                         ao_std = torch.clamp(ao_std, min=_std_floor)
+                    # SD-MECH267-CEM-SELECTION-FIX H3: re-apply the
+                    # mode-conditioned noise scale to the freshly-refit ao_std
+                    # so mode-conditioned proposal breadth persists across CEM
+                    # iterations instead of washing out to the mode-blind elite
+                    # spread. ao_std is recomputed from elites each iteration,
+                    # so this scales once per iteration (no compounding).
+                    # mode_scale is None unless mode_conditioning is enabled and
+                    # operating_mode was supplied -> no-op otherwise.
+                    if (
+                        getattr(self.config, "mode_partitioned_cem", False)
+                        and mode_scale is not None
+                    ):
+                        ao_std = ao_std * mode_scale
                 # else: keep previous distribution
             else:
                 # Legacy: argsort elite selection + indexed mean.
@@ -2064,6 +2149,19 @@ class HippocampalModule(nn.Module):
                         and _std_floor > 0.0
                     ):
                         ao_std = torch.clamp(ao_std, min=_std_floor)
+                    # SD-MECH267-CEM-SELECTION-FIX H3: re-apply the
+                    # mode-conditioned noise scale to the freshly-refit ao_std
+                    # so mode-conditioned proposal breadth persists across CEM
+                    # iterations instead of washing out to the mode-blind elite
+                    # spread. ao_std is recomputed from elites each iteration,
+                    # so this scales once per iteration (no compounding).
+                    # mode_scale is None unless mode_conditioning is enabled and
+                    # operating_mode was supplied -> no-op otherwise.
+                    if (
+                        getattr(self.config, "mode_partitioned_cem", False)
+                        and mode_scale is not None
+                    ):
+                        ao_std = ao_std * mode_scale
                 # else: keep previous distribution
 
             all_trajectories = trajectories

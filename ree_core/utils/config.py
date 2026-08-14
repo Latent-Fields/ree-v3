@@ -2132,6 +2132,49 @@ class HippocampalConfig:
         "internal_replay":       0.7,
         "offline_consolidation": 1.0,
     })
+    # SD-MECH267-CEM-SELECTION-FIX (2026-08-14): the THIRD and FOURTH facets
+    # addressing MECH-267 mode-content wash-out under production CEM elite-refit
+    # (num_cem_iterations=3). V3-EXQ-869/869a/923 established that neither the
+    # noise-scale (mode_noise_scale) nor the horizon-depth (mode_horizon_scale)
+    # facet -- alone or together -- keeps the per-mode raw_std gap above
+    # FLOOR_PRODUCTION=0.01 past iters=1, because the CEM refit (a) re-derives
+    # ao_std purely from the mode-BLIND elite set every iteration and (b) ranks
+    # elites with a mode-INDEPENDENT value function. Two independent,
+    # deliberately-orthogonal fixes, each gated by the SAME
+    # mode_conditioning_enabled switch, each no-op at its default:
+    #
+    # H2 -- mode_value_weight: a mode-dependent term in the CEM elite-selection
+    # value function (HippocampalModule._score_trajectory) so the RANKING stays
+    # mode-differentiated on every refit iteration, not just the horizon window
+    # it currently gets. Maps operating_mode -> a per-mode weight vector over
+    # the WORLD-STATE dimensions (z_world, length = world_dim). The blended
+    # weight w = sum_m operating_mode[m] * mode_value_weight[m] is dotted with
+    # the trajectory's mean z_world and SUBTRACTED from the terrain score
+    # (lower = better; same sign convention as wanting_weight). z_world is
+    # keyed rather than the residue valence components on purpose: the
+    # V3-EXQ-869/923 wash-out regime builds a FRESH ResidueField whose valence
+    # head is identically zero, so a valence-keyed term would be inert in the
+    # exact test -- z_world is always non-trivial and is the same space the
+    # terrain score already ranks over. Vectors shorter/longer than world_dim
+    # are padded/truncated. Active INDEPENDENTLY of wanting_weight/
+    # curiosity_weight (both 0.0 in the wash-out experiments), so it bites in
+    # the exact C1 test. Empty map ({}, default) -> no term added ->
+    # bit-identical.
+    mode_value_weight: Dict[str, List[float]] = field(default_factory=dict)
+    # H3 -- mode_partitioned_cem: keep the mode-conditioned proposal BREADTH
+    # from washing out of the CEM pool. The refit recomputes ao_std fresh from
+    # the elites each iteration (module.py propose_trajectories), discarding the
+    # one-time mode_noise_scale seed applied before the loop; when this flag is
+    # True (and mode_conditioning_enabled and operating_mode is supplied) the
+    # mode-conditioned noise scale is RE-APPLIED to that freshly-refit ao_std
+    # once per iteration, so each mode-conditioned proposal keeps its own
+    # persistent breadth instead of converging to the mode-blind elite spread.
+    # Because ao_std is recomputed from scratch every iteration, the re-scale is
+    # applied once per iteration and does NOT compound. For a single
+    # mode-conditioned proposer call (the C1 measurement setup) this is
+    # equivalent to a per-mode candidate pool whose elites never mix across
+    # modes. False (default) -> refit unchanged -> bit-identical.
+    mode_partitioned_cem: bool = False
     # SD-055: differentiable CEM selection approximation. When enabled, replaces
     # the non-differentiable argsort elite-selection step with a softmax-weighted
     # candidate mean so gradient can flow back to cue_action_proj (SD-016).
