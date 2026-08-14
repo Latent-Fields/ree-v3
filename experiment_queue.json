@@ -8,22 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-929",
-      "title": "sleep_substrate:GAP-9 within-life sleep-trigger validation (v1 ceiling arm; diagnostic)",
-      "script": "experiments/v3_exq_929_sleep_gap9_within_life_trigger.py",
-      "priority": 45,
-      "machine_affinity": "any",
-      "estimated_minutes": 8,
-      "supersedes": null,
-      "note": "Validation for sleep_substrate:GAP-9 within-life sleep trigger (v1 ceiling arm). Diagnostic (claim_ids=[]; promotes nothing). OFF vs ON x 3 seeds, single continuous life (agent never reset), UNTRAINED by design (DV is structural sleep-cycle reachability). C1 OFF fires 0 (GAP-9 wall), C2 ON fires>=1, C3 ON all ceiling-arm. Smoke PASS OFF=0/ON=4/ceiling=1.0. use_mech286_sleep_onset_gate OFF (lit brief). Substrate landed ree-v3 5f14036a06. FOLLOW-UP chip: MEL/need-crossing primary arm.",
-      "status": "pending",
-      "claim_ids": [],
-      "conditions": 2,
-      "episodes_per_run": 120,
-      "experiment_type": "v3_exq_929_sleep_gap9_within_life_trigger",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-603u",
       "title": "MECH-357 agent-directed hazard pursuit Stage-H retest (6th pressure candidate; 603s+directedness)",
       "script": "experiments/v3_exq_603u_instrumental_avoidance_agent_pursuit.py",
