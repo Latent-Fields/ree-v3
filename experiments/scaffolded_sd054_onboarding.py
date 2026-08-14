@@ -437,6 +437,27 @@ class ScaffoldedSD054OnboardingConfig:
     scaffold_hazard_stage_scheduled_external_hazard_prob: float = 0.5
     scaffold_hazard_stage_scheduled_external_hazard_adjacent_only: bool = True
 
+    # Agent-directed hazard pursuit (V3-EXQ-603u, 2026-08-14): per-drift-
+    # tick probability that a drifting hazard biases its random walk toward the
+    # AGENT's CURRENT cell instead of a pure random shuffle -- the agent-directed
+    # sibling of hazard_food_attraction, built into CausalGridWorldV2 by ree-v3
+    # 39b5ca8 and gated on reef_enabled (True in Stage-H) + env_drift (0.3
+    # above). Default 0.0 == the CausalGridWorldV2 constructor default, so a
+    # caller that does not set this gets bit-identical pre-2026-08-14 Stage-H
+    # dynamics (the elif hazard_agent_pursuit > 0.0 branch in _drift_hazards is
+    # never entered). The 6th and final pressure-mechanism candidate for the
+    # MECH-357 readiness test: config-only levers (static field, 603s mobile-
+    # predator drift, 603t scheduled discrete adjacency) are exhausted across
+    # 3 distinct designs, all of which left hazard motion agent-INDEPENDENT and
+    # produced the 603s exact tie / 603t LESION-ceiling. Agent-directed pursuit
+    # is the one lever that makes the threat continuous and behaviour-contingent
+    # (a passive freeze/release cycle stays reachable indefinitely under
+    # undirected drift, but a pursuing hazard closes distance unless the agent
+    # actively escapes to reef), which is the sustained Pavlovian-instrumental
+    # conflict Moscarello & LeDoux's active-avoidance paradigm requires. See
+    # mech357_freeze_incompatible_pressure_scoping_2026-08-10.md SS3.
+    scaffold_hazard_stage_hazard_agent_pursuit: float = 0.0
+
     # SD-058 / MECH-357 avoidance-learning driver (the PRIMARY structural fix
     # for the 603g G_H 0/3 survival-leg gap; budget escalation is SECONDARY).
     # When enabled AND the agent carries an InstrumentalAvoidanceGate
@@ -1798,6 +1819,13 @@ def _build_env(cfg: ScaffoldedSD054OnboardingConfig, phase: str, anneal_t: float
             scheduled_external_hazard_adjacent_only=(
                 cfg.scaffold_hazard_stage_scheduled_external_hazard_adjacent_only
             ),
+            # Agent-directed pursuit (V3-EXQ-603u): default 0.0 == the
+            # CausalGridWorldV2 constructor default, so a caller that does not
+            # set this scaffold knob is bit-identical to the pre-2026-08-14
+            # Stage-H. reef_enabled=True and env_drift (0.3) below are the two
+            # gates the pursuit branch in _drift_hazards needs to fire; both are
+            # already on for this phase.
+            hazard_agent_pursuit=cfg.scaffold_hazard_stage_hazard_agent_pursuit,
             limb_damage_enabled=True,
             reef_enabled=True,
             reef_bipartite_layout=True,
