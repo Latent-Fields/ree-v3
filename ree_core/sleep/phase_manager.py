@@ -173,14 +173,16 @@ class SleepLoopManager:
         # the K-episode-deterministic scheduler + fixed-duration cycle are
         # bit-identical to the pre-SD substrate.
         self.mel_consumer = mel_consumer
-        # sleep_substrate:GAP-9 within-life sleep trigger (v1: step-count ceiling
-        # arm). When within_life_trigger is True, notify_waking_step() fires a
-        # cycle once within_life_step_ceiling waking steps have elapsed since the
-        # last cycle -- so a TRUE single-continuous life (num_episodes=1, never
-        # crosses an episode boundary) can still sleep. notify_episode_end() is
-        # untouched -> multi-episode drivers are bit-identical. v1 wires the
-        # step-ceiling backstop (design (a)) only; the MEL/need-crossing arm
-        # (design (b), the primary trigger) is a planned follow-up.
+        # sleep_substrate:GAP-9 within-life sleep trigger, (a)+(b) composed. When
+        # within_life_trigger is True, notify_waking_step() fires a cycle when
+        # accumulated waking MEL crosses the entry threshold (design (b), the
+        # PRIMARY arm -- via the injected mel_consumer's need_crossed()) OR once
+        # within_life_step_ceiling waking steps have elapsed since the last cycle
+        # (design (a), the anti-starvation BACKSTOP) -- so a TRUE single-continuous
+        # life (num_episodes=1, never crosses an episode boundary) can still sleep.
+        # notify_episode_end() is untouched -> multi-episode drivers are
+        # bit-identical. The need arm requires a mel_consumer with use_mel_entry
+        # on; absent that it degrades to the ceiling arm alone (v1 behaviour).
         if int(within_life_step_ceiling) < 1:
             raise ValueError(
                 "within_life_step_ceiling must be >= 1; "
@@ -238,18 +240,19 @@ class SleepLoopManager:
         REEAgent.update_residue, so ANY driver -- including a TRUE
         single-continuous-life driver (num_episodes=1) that never crosses an
         episode boundary -- can reach the sleep cycle. Increments a waking-step
-        counter and fires a sleep cycle once within_life_step_ceiling steps have
-        elapsed since the last cycle.
+        counter and fires a sleep cycle when accumulated waking MEL crosses the
+        entry threshold (design (b), PRIMARY) OR once within_life_step_ceiling
+        steps have elapsed since the last cycle (design (a), BACKSTOP) --
+        i.e. `need_crossed or at_ceiling`, matching MELConsumer.entry_permitted().
 
-        v1 wires the step-count ceiling arm (design (a), the anti-starvation
-        backstop) only. The MEL/learning-demand need-crossing arm (design (b),
-        the PRIMARY trigger per the 2026-08-14 lit synthesis) is a planned
-        follow-up; when it lands it becomes the primary arm and the step ceiling
-        stays the backstop, matching MELConsumer.entry_permitted()'s
-        `crossed or at_ceiling`. The arm-attribution diagnostics
-        (within_life_trigger_arm_need / _arm_ceiling) are emitted now so the
-        need arm is a drop-in extension and a ceiling-only run is never mistaken
-        for a demand-sensitive one.
+        The need arm reads the injected MEL consumer's need_crossed() (reuse of
+        GAP-5b's accumulator); it requires use_mel_entry on and some accumulated
+        waking PE, so absent a consumer / with the entry lever off the trigger
+        degrades to the ceiling arm alone (the v1 behaviour, and the intended
+        CausalGridWorldV2 path -- measured MEL there is noise-level per GAP-5b).
+        The arm-attribution diagnostics (within_life_trigger_arm_need /
+        _arm_ceiling / _mel_at_fire / _need_threshold) are emitted so a
+        ceiling-carried run is never mistaken for a demand-sensitive one.
 
         Returns the fired cycle's merged metrics (with within_life_* keys), or
         None when the trigger is off or did not fire this step. notify_episode_end()
@@ -261,12 +264,32 @@ class SleepLoopManager:
             return None
         self.state.steps_since_sleep += 1
         at_ceiling = self.state.steps_since_sleep >= self.within_life_step_ceiling
-        # v1: step-ceiling arm only. The need arm (accumulated-MEL crossing) is a
-        # follow-up; leaving need_crossed=False keeps it the sole arm for now.
-        need_crossed = False
+        # design (b), the PRIMARY arm: fire when accumulated waking MEL has
+        # crossed the entry threshold, reusing GAP-5b's SD-MEL-CONSUMER
+        # accumulator + the exact crossing predicate entry_permitted() uses
+        # (MELConsumer.need_crossed()). need_crossed is False when there is no
+        # consumer, the entry lever is off (use_mel_entry), or no waking PE has
+        # accumulated -> the trigger degrades gracefully to the design (a) step
+        # ceiling (v1 behaviour), which is the intended CausalGridWorldV2 path
+        # (measured MEL there is noise-level per GAP-5b, so the ceiling carries
+        # firing). note_step_pe() runs earlier in the same update_residue tick,
+        # so the accumulator already reflects the current waking step here.
+        need_crossed = self.mel_consumer is not None and self.mel_consumer.need_crossed()
         if not (need_crossed or at_ceiling):
             return None
         steps_at_fire = self.state.steps_since_sleep
+        # Capture the demand-side decision inputs at fire time (BEFORE _run_cycle
+        # -> mel_consumer.on_cycle_complete() resets the accumulator), so a
+        # ceiling-carried run is never mistaken for a demand-sensitive one -- the
+        # V3-EXQ-718a failure mode one level up. -1.0 sentinels when no consumer.
+        mel_at_fire = (
+            self.mel_consumer.current_mel() if self.mel_consumer is not None else -1.0
+        )
+        need_threshold = (
+            float(self.mel_consumer.config.mel_entry_threshold)
+            if self.mel_consumer is not None
+            else -1.0
+        )
         within_life_meta = {
             "within_life_trigger_fired": 1.0,
             "within_life_trigger_arm_need": 1.0 if need_crossed else 0.0,
@@ -274,6 +297,8 @@ class SleepLoopManager:
                 1.0 if (at_ceiling and not need_crossed) else 0.0
             ),
             "within_life_steps_at_fire": float(steps_at_fire),
+            "within_life_mel_at_fire": float(mel_at_fire),
+            "within_life_need_threshold": float(need_threshold),
         }
         self._within_life_cycle_active = True
         try:

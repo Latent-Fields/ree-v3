@@ -3813,8 +3813,9 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
   See REE_assembly/docs/architecture/sd_mel_consumer.md; SD-017; INV-050; MECH-180;
   plan-of-record REE_assembly/evidence/planning/sleep_substrate_plan.md (GAP-5b).
 
-- sleep_substrate:GAP-9: sleep.within_life_sleep_trigger -- IMPLEMENTED 2026-08-14 (v1:
-  step-count ceiling arm). Adds a WITHIN-LIFE sleep trigger so a TRUE single-continuous life
+- sleep_substrate:GAP-9: sleep.within_life_sleep_trigger -- IMPLEMENTED 2026-08-14 ((a)+(b)
+  composed: v1 ceiling arm + the MEL/need-crossing PRIMARY arm, both landed 2026-08-14).
+  Adds a WITHIN-LIFE sleep trigger so a TRUE single-continuous life
   (num_episodes=1) can sleep. Before this, the sleep trigger was BOUNDARY-only:
   SleepLoopManager.notify_episode_end() (the sole K-episode-cadence entry) is reachable only
   across an inter-episode boundary (REEAgent.reset()), so a continuous-life driver never
@@ -3829,19 +3830,26 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
   Config (REEConfig, ree_core/utils/config.py): use_within_life_sleep_trigger (bool, default
   False; set True to enable), within_life_sleep_step_ceiling (int, default 1000). Both wired
   through REEConfig.from_dims() (3 sites).
-  Data flow: waking step -> agent.update_residue(hypothesis_tag=False) ->
-  sleep_loop.notify_waking_step() -> increments state.steps_since_sleep -> fires _run_cycle
-  once steps_since_sleep >= within_life_sleep_step_ceiling (the ceiling arm) -> reuses the
-  existing SD-017 run_sleep_cycle path, then resets the counter. Emits
-  within_life_trigger_fired / within_life_trigger_arm_ceiling / within_life_trigger_arm_need
-  / within_life_steps_at_fire into the fired cycle's metrics + cycle_history.
+  Data flow: waking step -> agent.update_residue(hypothesis_tag=False) [MEL note_step_pe runs
+  FIRST, so the accumulator reflects this step] -> sleep_loop.notify_waking_step() ->
+  increments state.steps_since_sleep -> fires _run_cycle when EITHER
+  need_crossed (mel_consumer.need_crossed(): accumulated waking MEL >= mel_entry_threshold,
+  the PRIMARY arm) OR steps_since_sleep >= within_life_sleep_step_ceiling (the BACKSTOP
+  ceiling arm) -> reuses the existing SD-017 run_sleep_cycle path, then resets the counter.
+  Emits within_life_trigger_fired / within_life_trigger_arm_ceiling / within_life_trigger_arm_need
+  / within_life_steps_at_fire / within_life_mel_at_fire / within_life_need_threshold into the
+  fired cycle's metrics + cycle_history.
   DESIGN: (a)+(b) composed per the 2026-08-14 lit synthesis
   (targeted_review_sleep_onset_multiinput_gap9): MEL/need-crossing (design (b)) as PRIMARY
-  with a step-count ceiling (design (a)) as anti-starvation backstop. v1 wires the CEILING
-  ARM ONLY; the MEL/need-crossing arm is a planned follow-up (the arm-attribution
-  diagnostics ship now so it is a drop-in and a ceiling-only fire is never mistaken for a
-  demand-sensitive one). Design (c) (experimenter virtual boundary) is instrumentation
-  (force_cycle()), NOT counted as closing GAP-9.
+  with a step-count ceiling (design (a)) as anti-starvation backstop, i.e.
+  `need_crossed or at_ceiling`. The need arm REUSES GAP-5b's SD-MEL-CONSUMER accumulator via
+  the new MELConsumer.need_crossed() (the demand-side term of entry_permitted()'s
+  `crossed or at_ceiling`, factored out; entry_permitted() now delegates to it, bit-identical).
+  The need arm requires a mel_consumer with use_mel_entry on + some accumulated waking PE;
+  absent that it degrades gracefully to the ceiling arm alone (the intended CausalGridWorldV2
+  path -- measured MEL there is noise-level per GAP-5b, so the ceiling carries firing). Design
+  (c) (experimenter virtual boundary) is instrumentation (force_cycle()), NOT counted as
+  closing GAP-9.
   Backward compatible: use_within_life_sleep_trigger default False -> update_residue makes NO
   new call (short-circuits) -> byte-identical; notify_episode_end() is untouched, so
   multi-episode drivers are bit-identical. No trainable parameters / no new encoder head / no
@@ -3852,15 +3860,21 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
   as belt-and-braces (sleep passes never call the waking update_residue path).
   use_mech286_sleep_onset_gate deliberately NOT part of this build (its threat term reads a
   signal V3-EXQ-917 measured at chance-level place-safety discrimination).
-  Contracts: tests/contracts/test_sleep_within_life_trigger_gap9.py (10 tests: OFF
+  Contracts: tests/contracts/test_sleep_within_life_trigger_gap9.py (14 tests: OFF
   bit-identical, ceiling-arm fires on the ceiling step, periodic re-fire, boundary path
   untouched/no within_life keys, reset clears counter+guard, no-substrate declines,
-  end-to-end continuous life fires ON / never OFF, re-entrancy guard, ceiling validation).
-  Validation experiment: V3-EXQ-929 queued 2026-08-14
-  (v3_exq_929_sleep_gap9_within_life_trigger; diagnostic; OFF vs ON x 3 seeds, single
-  continuous life; C1 OFF fires 0, C2 ON fires >=1, C3 ON all ceiling-arm; PROMOTES NOTHING).
+  end-to-end continuous life fires ON / never OFF, re-entrancy guard, ceiling validation,
+  and the need arm: G11 fires before the ceiling, G12 through update_residue's real call
+  site, G13 entry-lever-off is ceiling-only even with a consumer, G14 need_crossed /
+  entry_permitted delegation). use_within_life_sleep_trigger registered in
+  tests/test_flag_inertness.py KNOWN_UNPROBED (v1 landed the flag without its entry, which
+  had left test_flag_registry_is_current red on main).
+  Validation experiments: V3-EXQ-929 (v1 ceiling arm; OFF vs ON x 3 seeds, single continuous
+  life; C1 OFF fires 0, C2 ON fires >=1, C3 ON all ceiling-arm) + V3-EXQ-931 (need arm;
+  diagnostic consumer-validation with a controlled MEL stimulus -- demand-sensitivity,
+  threshold gating, graceful ceiling-degradation; PROMOTES NOTHING).
   See REE_assembly/evidence/planning/sleep_substrate_plan.md (GAP-9); SD-017; SD-MEL-CONSUMER
-  (GAP-5b, the follow-up need arm reuses its accumulator).
+  (GAP-5b, whose accumulator the need arm reuses).
 
 - SD-MEL-PRODUCER: environment.non_converging_world_rule_shift -- IMPLEMENTED 2026-07-21.
   The PRODUCER half of the MECH-180 pair -- link (i) novelty -> graded above-reference

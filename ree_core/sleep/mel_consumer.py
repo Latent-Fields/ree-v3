@@ -178,22 +178,39 @@ class MELConsumer:
 
     # -- entry-timing lever --
 
+    def need_crossed(self) -> bool:
+        """Whether accumulated waking MEL has crossed the entry threshold.
+
+        The demand-side term of entry_permitted()'s `crossed or at_ceiling`,
+        factored out so the sleep_substrate:GAP-9 within-life STEP trigger
+        (phase_manager.notify_waking_step) can reuse the exact same crossing
+        predicate while supplying its own step-based ceiling. entry_permitted()
+        delegates to it, so the two callers share one definition of "the model
+        has accumulated enough learning demand to warrant a cycle".
+
+        Returns False when the entry lever is OFF (use_mel_entry) or no waking
+        PE has accumulated -- so the GAP-9 trigger degrades gracefully to its
+        design (a) step ceiling in that case.
+        """
+        if not self.config.use_mel_entry:
+            return False
+        return (
+            self.accumulator.count > 0
+            and self.current_mel() >= float(self.config.mel_entry_threshold)
+        )
+
     def entry_permitted(self, episodes_since_sleep: int, k_ceiling: int) -> bool:
         """Whether a cycle should fire this episode boundary.
 
         With the entry lever OFF: strict K-episode schedule (>= ceiling).
         With it ON: fire when accumulated MEL >= threshold OR the K ceiling is
         hit (safety backstop so sleep is never starved indefinitely).
+
+        Bit-identical to the pre-need_crossed() form: use_mel_entry off ->
+        `False or at_ceiling` == at_ceiling; on -> `crossed or at_ceiling`.
         """
         at_ceiling = episodes_since_sleep >= int(k_ceiling)
-        if not self.config.use_mel_entry:
-            return at_ceiling
-        mel = self.current_mel()
-        crossed = (
-            self.accumulator.count > 0
-            and mel >= float(self.config.mel_entry_threshold)
-        )
-        return crossed or at_ceiling
+        return self.need_crossed() or at_ceiling
 
     # -- lifecycle --
 

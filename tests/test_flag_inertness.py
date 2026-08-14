@@ -2794,6 +2794,19 @@ KNOWN_UNPROBED = {
     "use_sleep_aggregation_cluster", "use_sleep_loop", "use_structured_curiosity",
     "use_suffering_derivative_comparator", "use_tonic_vigor", "use_tpj_comparator",
     "use_trainable_relief_critic", "use_trainable_safety_predictor",
+    # sleep_substrate:GAP-9 within-life sleep trigger master switch (REEConfig
+    # top-level). Registered here rather than probed, consistent with its sibling
+    # sleep-cadence flags already in this set (use_sleep_loop, use_mel_entry,
+    # use_mel_consumer, use_sleep_aggregation_cluster): the cluster's behavioural
+    # validation runs through the V3-EXQ experiments, not flag-inertness probes.
+    # Behavioural inertness OFF and effect ON are already pinned by dedicated
+    # contracts in tests/contracts/test_sleep_within_life_trigger_gap9.py (G2 OFF
+    # byte-identical; G3/G8/G11/G12 ON fires), and validated by V3-EXQ-929 (v1
+    # ceiling arm) plus its need-arm successor.
+    # Added to unbreak trunk: v1 (5f14036, ceiling arm) landed the flag without
+    # its registry entry, so test_flag_registry_is_current was red on main --
+    # same situation as use_mel/use_rem_precision_broadcast above.
+    "use_within_life_sleep_trigger",
     "valence_harm_enabled", "valence_liking_enabled",
     # SD-ORIENTING-DECISION-SCALE / SD-099 defensive-orienting master switch
     # (REEConfig top-level, landed 2026-08-08/2026-08-10 -- genuinely predates
