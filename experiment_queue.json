@@ -8,6 +8,22 @@
   },
   "items": [
     {
+      "queue_id": "V3-EXQ-436f",
+      "title": "SD-017/ARC-045/MECH-166 slot-differentiation retest -- 436e occupied-slot DV, SD-016 cue-conditioning ARMED",
+      "script": "experiments/v3_exq_436f_sd017_mech166_sd016_armed_retest.py",
+      "priority": 40,
+      "machine_affinity": "any",
+      "estimated_minutes": 40,
+      "supersedes": "V3-EXQ-436e",
+      "claim_id": "SD-017",
+      "note": "SD-016-armed retest per confirmed failure_autopsy_V3-EXQ-436e_2026-08-13 (user-adjudicated Step 8). 436e's occupied-slots DV was found SOUND but non_contributory at P0: only 2/5 seeds carried >=2 occupied ContextMemory slots (need 3) because write() argmin-locks to one slot under the near-constant z_world query stream (SD-016 z_world bottleneck, cosine 0.998). 436e left the SD-016 selection fix (ree-v3 110a2785b6, in its own substrate commit) switched OFF. 436f arms the V3-EXQ-922 production combo (sd016_enabled + cue_slot_tagger + selection='gumbel' + context_divergence_weight=0.5) held constant across all 3 conditions, PLUS 922's ctxdiv training-loop wiring (config alone is inert -- compute_context_divergence_loss is never auto-called). Sleep remains the sole manipulation; 436e DV machinery/gates/seeds/C1 shape inherited unchanged; adds a 6th P0 gate sd016_arming_engaged. RE-DERIVE BRAKE RELEASED: upstream SD-016 substrate now BUILT+VALIDATED (922 CONFIRMED MECH-150) -- the Step 2.5b release condition; braked by failure_autopsy_V3-EXQ-538a_2026-07-10 + grandfathered-sleep-cluster/r5-batch23 2026-08-08. GOV-REUSE-1: decisive readout slot_cosine_sim_occupied_only under SD-016-armed is a NEW manipulation (436e recorded it UNARMED; 922 recorded selection entropy, not the sleep C1) -> not recoverable, run. CAVEAT (see governance flag raised alongside): the cue-tagger+ctxdiv act on the READ path (z_world via a separate tagger MLP, trained on DETACHED z_world) while the occupancy collapse is on the WRITE path (query_proj on 64-dim [z_self,z_world]); arming is NOT mechanically guaranteed to lift write occupancy, so 436f may re-fail at insufficient_occupancy_for_c1. The joint P0 reading sd016_arming_engaged=MET + insufficient_occupancy_for_c1=UNMET is the designed signal to route to a WRITE-path successor rather than another read-path letter. Smoke PASS; validate_experiments --strict OK.",
+      "status": "pending",
+      "conditions": 3,
+      "episodes_per_run": 200,
+      "experiment_type": "v3_exq_436f_sd017_mech166_sd016_armed_retest",
+      "seeds": 5
+    },
+    {
       "queue_id": "V3-EXQ-603u",
       "title": "MECH-357 agent-directed hazard pursuit Stage-H retest (6th pressure candidate; 603s+directedness)",
       "script": "experiments/v3_exq_603u_instrumental_avoidance_agent_pursuit.py",
@@ -37,7 +53,11 @@
       "claim_id": "MECH-266",
       "backlog_id": null,
       "note": "GOV-FANOUT-1 leg H1 of pre-registered frozen-ledger question mech266_mode_arbitration_saturation (failure_autopsy_mech266-464e-467e-cluster_2026-08-13). DIAGNOSTIC (excluded from confidence scoring). Sweeps affinity_input_cap in [0.75,1.0,1.25,1.5,1.75] at EVAL time on clones of one trained curriculum agent per seed (cap read live at SalienceCoordinator.tick(); train cap held at 2.0 for comparability with the banked 464e/467e reference). DV = per-cap/per-arm fraction_in_external_task reported per-arm (NEVER min-across-the-sweep) via experiments/_lib/regime_occupancy_gate.py, PLUS the continuous pre-argmax operating_mode['external_task'] margin (probe/H2 recommendation) and mode-conditioned external_task dwell. Null: no cap yields per-arm occupancy in (0.1,0.9) on >=2/3 seeds. GOV-REUSE-1: decisive readout = per-cap occupancy across the [0.75,1.75] band; absent from all banked manifests (464e/467e ran only cap=2.0) -> run needed, not reanalyzable. RE-DERIVE BRAKE: MECH-266/SD-032a count=4 but NOT braked -- this is a diagnostic discriminating WHY the ceiling holds (H1 vs H2), which Step 2.5b exempts, and the cluster autopsy's own re-derive brake explicitly PERMITS this H1 leg (refusing only a naked 464f/467f same-question same-gate re-queue). STEP 2.5c: mode-governance-engagement substrate_queue entry is severity=corrupting / implemented_pending_validation and overlaps salience_coordinator.py, but its corrupting defect was the min()-measurement gate, RESOLVED by (b) regime_occupancy_gate.py (which this run CONSUMES); the cap_calibration probe found the substrate code sound ('no defect in either file'). This run IS that entry's sanctioned validation follow-on, so it is not blocked; governance should downgrade the entry severity once this + H2 land. Empirically confirmed pre-authoring: one-tick probe against the real SalienceCoordinator showed operating_mode['external_task'] = 0.0 at cap=None/dacc_pe=16 and 0.76-0.86 across the swept band, and that the live cap override lands at tick(). Successor-in-spirit to 464e/467e, NOT a supersede.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-3",
+        "claimed_at": "2026-08-14T19:15:34Z"
+      },
       "conditions": 1,
       "episodes_per_run": 385,
       "experiment_type": "v3_exq_934_mech266_cap_sweep_mode_occupancy",
