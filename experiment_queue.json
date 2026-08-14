@@ -26,6 +26,33 @@
       "episodes_per_run": 235,
       "experiment_type": "v3_exq_603u_instrumental_avoidance_agent_pursuit",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-920a",
+      "title": "Uncensored survival-to-death fishtank, TRUE single-life design -- MULTI-SEED re-run of V3-EXQ-920 (explicit --seeds 0..7; supersedes 920's 1-of-8-seeds execution defect)",
+      "script": "experiments/v3_exq_920_uncensored_survival_single_life_fishtank.py",
+      "args": [
+        "--seeds",
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7"
+      ],
+      "priority": 5,
+      "machine_affinity": "any",
+      "estimated_minutes": 270,
+      "claim_ids": [],
+      "supersedes": "V3-EXQ-920",
+      "note": "Re-run of V3-EXQ-920 with the SEED-COUNT WORKAROUND applied. V3-EXQ-920 FAILed for an execution/wiring reason only: its queue entry correctly declared \"seeds\": 8 but carried no \"args\", and experiment_runner.py's run_experiment() builds subprocess CLI args ONLY from the item's \"args\" field (raw_args = item.get('args', []))  -- the declarative \"seeds\" count feeds only the progress-bar denominator (_run_axis_count), never a --seeds CLI arg  -- so the driver's own argparse default (--seeds default=[0]) silently ran a SINGLE seed. n_uncensored_deaths_total=1 < MIN_UNCENSORED_DEATHS_TOTAL=4 -> load-bearing sufficient_uncensored_deaths FAIL. The one seed that ran behaved exactly as pre-registered (genuine health_depleted death at 1475 steps, pct_right_censored_pooled=0.0 -- literally zero censoring; the self-route label '...still_censoring_dominated' is a hardcoded else-branch string, NOT a measurement finding). Governance-ratified routing: failure_autopsy_V3-EXQ-916-916a-917-920-fishtank-cluster_2026-08-12.md Target 4 (status confirmed, interactive AskUserQuestion gate 2026-08-12) recommends exactly this re-queue as V3-EXQ-920a with explicit \"args\":[\"--seeds\",...]. THE ONLY CHANGE from 920 is the added \"args\" field; the driver script is byte-identical and unchanged. Workaround CONFIRMED by dry-run smoke (--dry-run --seeds 0 1 -> two 'Seed N Condition' boundaries and two 'verdict: PASS' lines, rc=0, z_goal_stream active_frac=0.998 no writer defect); the runner passes args verbatim so --seeds 0 1 2 3 4 5 6 7 executes all 8. This is the exact infra defect the autopsy identified; the general fix (enforce queue-declared seed count into --seeds, or fix the driver default) is governance's / a separate infra chip's to apply and is NOT re-proposed here. GOV-REUSE-1 (2.4): the decisive readout (a TRUE single-continuous-life uncensored survival-time distribution at n>=4) is recorded in NO existing manifest -- 920 produced n=1, every prior 906-lineage segment was capped at 500 steps -- not recoverable, run required. Re-derive brake (2.5b): claim_ids=[], N/A. Downstream: the multi-seed within-life descriptive trend analysis (chip-20260812-exq920-multiseed-degradation-retrospective) runs once this lands, and feeds the DV set + sleep cadence for the matched-arm causal follow-up (chip-20260814-queue-causal-sleep-matched-arm). Diagnostic; excluded from governance confidence/conflict scoring. Ethics preflight (2.6): all-false / allow -- pre-ethical V3 instrumentation, SENT-0 boundary, same design as 920/912 already adjudicated.",
+      "status": "pending",
+      "conditions": 1,
+      "episodes_per_run": 220,
+      "experiment_type": "v3_exq_920_uncensored_survival_single_life_fishtank",
+      "seeds": 8
     }
   ]
 }
