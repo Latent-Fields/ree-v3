@@ -38,7 +38,11 @@
       "supersedes": "V3-EXQ-861a",
       "claim_id": "MECH-180",
       "note": "DV3 (mean_sws_new_slot_diversity) revalidation of MECH-122 spindle content-selection. Same 5-arm/3-seed design + C1b monotone+spread and C2 ON-HIGH>OFF-HIGH criteria as V3-EXQ-861a; the ONLY change is mech122_novelty_reference_mode=mel_pe (pinned; ree-v3 6aa97ca) re-sourcing the spindle selection novelty reference from the SD-MEL PE channel so DV3 selection couples to the graded MEL axis, per the 861a autopsy. Validates substrate_queue MECH122-CONTENT-PACKAGING-SPINDLE-SELECTION (implemented_pending_validation). RE-DERIVE BRAKE (MECH-180 count 3: 677/718/718a) RELEASED per queue-experiment 2.5b.1: the upstream substrate the 861a DV3 null was waiting on (mel-coupled novelty reference) is now built. GOV-REUSE-1: decisive readout mean_sws_new_slot_diversity under mel_pe reference exists in no prior manifest (flag new 2026-08-14) -> run required.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-08-14T22:36:52Z"
+      },
       "conditions": 5,
       "episodes_per_run": 75,
       "experiment_type": "v3_exq_861d_mech180_mech122_spindle_content_selection_dv3_revalidation",
