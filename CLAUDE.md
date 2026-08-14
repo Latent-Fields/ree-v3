@@ -3870,7 +3870,7 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
   tests/test_flag_inertness.py KNOWN_UNPROBED (v1 landed the flag without its entry, which
   had left test_flag_registry_is_current red on main).
   Validation experiments: V3-EXQ-929 (v1 ceiling arm; OFF vs ON x 3 seeds, single continuous
-  life; C1 OFF fires 0, C2 ON fires >=1, C3 ON all ceiling-arm) + V3-EXQ-931 (need arm;
+  life; C1 OFF fires 0, C2 ON fires >=1, C3 ON all ceiling-arm) + V3-EXQ-933 (need arm;
   diagnostic consumer-validation with a controlled MEL stimulus -- demand-sensitivity,
   threshold gating, graceful ceiling-degradation; PROMOTES NOTHING).
   See REE_assembly/evidence/planning/sleep_substrate_plan.md (GAP-9); SD-017; SD-MEL-CONSUMER

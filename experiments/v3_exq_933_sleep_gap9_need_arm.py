@@ -1,5 +1,6 @@
 """
-V3-EXQ-931 -- sleep_substrate:GAP-9 MEL/need-crossing PRIMARY arm (design (b)) validation
+V3-EXQ-933 -- sleep_substrate:GAP-9 MEL/need-crossing PRIMARY arm (design (b)) validation
+(minted 933: 931 was taken by an unrelated CEM run during this session's contract-suite wait)
 
 Claims: None (diagnostic substrate-readiness validation; does not weight governance)
 
@@ -63,8 +64,8 @@ Pre-registered acceptance (NOT derived from this run's statistics):
   substrate_not_ready_requeue rather than as a need-arm defect).
 
 Output:
-  evidence/experiments/v3_exq_931_sleep_gap9_need_arm/
-    v3_exq_931_sleep_gap9_need_arm_<ts>.json   (manifest)
+  evidence/experiments/v3_exq_933_sleep_gap9_need_arm/
+    v3_exq_933_sleep_gap9_need_arm_<ts>.json   (manifest)
 """
 
 import random
@@ -90,7 +91,7 @@ from experiments._lib.z_goal_stream import ZGoalStreamAccumulator
 _ZG = ZGoalStreamAccumulator()
 
 
-EXPERIMENT_TYPE    = "v3_exq_931_sleep_gap9_need_arm"
+EXPERIMENT_TYPE    = "v3_exq_933_sleep_gap9_need_arm"
 EXPERIMENT_PURPOSE = "diagnostic"
 CLAIM_IDS: List[str] = []
 SLEEP_DRIVER_PATTERN = (
@@ -257,7 +258,7 @@ def run(seeds=None, dry_run: bool = False) -> dict:
         seeds = DEFAULT_SEEDS
     if dry_run:
         seeds = seeds[:1]
-    print(f"[V3-EXQ-931] GAP-9 MEL/need-crossing PRIMARY arm validation\n"
+    print(f"[V3-EXQ-933] GAP-9 MEL/need-crossing PRIMARY arm validation\n"
           f"  Seeds: {seeds}  Life: {LIFE_STEPS} waking steps\n"
           f"  Threshold: {MEL_THRESHOLD}  inject high/sub: {MEL_INJECT_HIGH}/{MEL_INJECT_SUB}\n"
           f"  Output: REE_assembly/evidence/experiments/{EXPERIMENT_TYPE}/", flush=True)
@@ -412,7 +413,7 @@ def run(seeds=None, dry_run: bool = False) -> dict:
         ),
     }
 
-    summary_markdown = f"""# V3-EXQ-931 -- GAP-9 MEL/need-crossing PRIMARY arm validation
+    summary_markdown = f"""# V3-EXQ-933 -- GAP-9 MEL/need-crossing PRIMARY arm validation
 
 **Status:** {outcome} -- label: `{label}`
 **Purpose:** diagnostic CONSUMER validation (sleep_substrate:GAP-9 design (b), the need arm).
