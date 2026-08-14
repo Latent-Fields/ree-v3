@@ -30,17 +30,17 @@
     {
       "queue_id": "V3-EXQ-930",
       "title": "SD-MECH303-THRESHOLD-SOURCING validation: dedicated proximity signal safe-vs-unsafe AUC vs damage-sourced z_harm_a",
-      "experiment_type": "v3_exq_930_mech303_dedicated_proximity_signal_validation",
       "script": "experiments/v3_exq_930_mech303_dedicated_proximity_signal_validation.py",
       "priority": 2,
       "machine_affinity": "any",
-      "status": "pending",
       "estimated_minutes": 30,
-      "episodes_per_run": 150,
-      "seeds": 10,
-      "conditions": 5,
       "claim_id": "MECH-303",
-      "note": "Diagnostic validation of SD-MECH303-THRESHOLD-SOURCING (landed ree-v3 b257e7ad14). Measures BOTH candidate MECH-303 gate signals per tick under the production scenario (limb_damage_enabled=True) that V3-EXQ-917 showed defeats z_harm_a: the DEDICATED proximity signal obs_dict['safety_proximity_harm'] (C1, load-bearing) vs damage-sourced z_harm_a.norm() (C2, control). Acceptance: dedicated signal clears a reachable+discriminating threshold (AUC>=0.75 bar; ~0.84 target) the damage-sourced signal cannot. Smoke PASS: dedicated_best_auc=1.0 on 2seed/20tick, mean signal safe(h0)=0.00 vs unsafe(h8)=0.36, z_harm_a flat ~0.54 across density. GOV-REUSE-1: dedicated signal did not exist before b257e7ad14 -> no prior manifest carries this readout, ran fresh. ID note: originally drafted as V3-EXQ-929 but that id was taken concurrently by the sleep GAP-9 session (coordinator DB race); moved to 930."
+      "note": "Diagnostic validation of SD-MECH303-THRESHOLD-SOURCING (landed ree-v3 b257e7ad14). Measures BOTH candidate MECH-303 gate signals per tick under the production scenario (limb_damage_enabled=True) that V3-EXQ-917 showed defeats z_harm_a: the DEDICATED proximity signal obs_dict['safety_proximity_harm'] (C1, load-bearing) vs damage-sourced z_harm_a.norm() (C2, control). Acceptance: dedicated signal clears a reachable+discriminating threshold (AUC>=0.75 bar; ~0.84 target) the damage-sourced signal cannot. Smoke PASS: dedicated_best_auc=1.0 on 2seed/20tick, mean signal safe(h0)=0.00 vs unsafe(h8)=0.36, z_harm_a flat ~0.54 across density. GOV-REUSE-1: dedicated signal did not exist before b257e7ad14 -> no prior manifest carries this readout, ran fresh. ID note: originally drafted as V3-EXQ-929 but that id was taken concurrently by the sleep GAP-9 session (coordinator DB race); moved to 930.",
+      "status": "pending",
+      "conditions": 5,
+      "episodes_per_run": 150,
+      "experiment_type": "v3_exq_930_mech303_dedicated_proximity_signal_validation",
+      "seeds": 10
     }
   ]
 }
