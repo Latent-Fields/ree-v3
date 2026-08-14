@@ -2763,6 +2763,18 @@ class REEConfig:
     # Novelty->selection-weight gain (selection_weight = clamp(novelty*gain, 0, 1)).
     # Inert unless the master switch above is True.
     mech122_spindle_selection_gain: float = 1.0
+    # V3-EXQ-861a autopsy repair: WHICH signal supplies the novelty the spindle
+    # selection gate reads. Inert unless the master switch above is True.
+    #   "mel_pe"  (default when enabled): additively lift the per-prototype
+    #             selection_weight by the SD-MEL-CONSUMER relative-novelty gate
+    #             (clamp(mel/ref-1,0,1); the "signal that already drives MEL",
+    #             calibrated against the driver's stable base). Requires
+    #             use_mel_consumer to have a signal; gate is 0 when the consumer
+    #             is absent, degrading gracefully to the "recency" floor.
+    #   "recency" (legacy): the original 861a behaviour -- per-prototype cosine
+    #             novelty against the 10-tick ThetaBuffer recency buffer only
+    #             (bit-identical to the pre-repair build; kept for A/B / replay).
+    mech122_novelty_reference_mode: str = "mel_pe"
     # REM-analog pass: causal attribution replay (slot-filling, MECH-166).
     # Replays recent trajectory experience through the hippocampal module.
     # Evaluates residue terrain per trajectory; hypothesis_tag=True (no new residue).
@@ -6082,6 +6094,7 @@ class REEConfig:
         sws_schema_weight: float = 0.1,
         use_mech122_spindle_content_selection: bool = False,
         mech122_spindle_selection_gain: float = 1.0,
+        mech122_novelty_reference_mode: str = "mel_pe",
         rem_enabled: bool = False,
         rem_attribution_steps: int = 10,
         # MECH-165: reverse replay diversity scheduler
@@ -7335,6 +7348,7 @@ class REEConfig:
         config.sws_schema_weight = sws_schema_weight
         config.use_mech122_spindle_content_selection = use_mech122_spindle_content_selection
         config.mech122_spindle_selection_gain = mech122_spindle_selection_gain
+        config.mech122_novelty_reference_mode = mech122_novelty_reference_mode
         config.rem_enabled = rem_enabled
         config.rem_attribution_steps = rem_attribution_steps
 

@@ -572,6 +572,147 @@ def test_mech122_spindle_content_selection_gain_zero_collapses_to_off():
     assert on_zero_gain["metrics"].get("sws_spindle_selection_mean_weight", -1.0) == 0.0
 
 
+def test_mech122_mel_relative_novelty_gate_semantics():
+    """MELConsumer.relative_novelty() must be a clamped, calibrated novelty
+    scalar -- the re-sourced signal the spindle selection gate reads.
+
+        relative_novelty = clamp(mel/ref - 1, 0, cap)
+
+    Pins the four boundary cases that make it a *relative* novelty (not the raw
+    MEL magnitude): 0 with no accumulated PE, 0 at the calibrated baseline
+    (mel == ref, the NONE-arm case), a graded value between, and the top clamp.
+    This is the unit the V3-EXQ-861a autopsy asked for -- a signal that tracks
+    the world_rule_shift/MEL axis rather than the self-referential recency
+    buffer whose novelty collapsed to ~0 regardless of arm.
+    """
+    from ree_core.sleep.mel_consumer import MELConsumer, MELConsumerConfig
+
+    mc = MELConsumer(MELConsumerConfig(mel_reference=0.01, mel_reference_mode="fixed"))
+    assert mc.relative_novelty() == 0.0, "no accumulated PE must read zero novelty"
+
+    mc.note_step_pe(0.01)  # mel == calibrated base -> NONE-arm case
+    assert mc.relative_novelty() == 0.0, "baseline MEL (mel==ref) must read zero novelty"
+
+    mc.reset()
+    mc.config.mel_reference = 0.01
+    mc.note_step_pe(0.013)  # mel = 1.3 * ref
+    assert mc.relative_novelty() == pytest.approx(0.3), "graded novelty must pass through"
+
+    mc.reset()
+    mc.config.mel_reference = 0.01
+    mc.note_step_pe(0.05)  # mel = 5 * ref -> saturates the [0,1] blend range
+    assert mc.relative_novelty() == 1.0, "novelty must clamp to cap for the convex blend"
+
+
+def _spindle_pass_under_mel(rel_multiple: float, mode: str = "mel_pe",
+                            seed: int = 0, steps: int = 12) -> dict:
+    """One SWS schema pass with the MEL state pinned to `rel_multiple` x the
+    calibrated stable-base reference.
+
+    Both arms build a FRESH agent at the SAME seed, so the waking-filled
+    world/theta buffers (and hence the per-prototype recency novelty) are
+    byte-identical between calls -- the ONLY thing that differs is the injected
+    MEL, exactly as the driver's arms differ only in world_rule_shift-driven
+    MEL. So any change in the returned selection weight is attributable to the
+    re-sourced gate, not to divergent buffered content.
+    """
+    from ree_core.agent import REEAgent
+    from tests.fixtures.seed_utils import set_all_seeds
+    from tests.fixtures.tiny_configs import make_tiny_config
+    from tests.fixtures.tiny_env import make_tiny_env
+    from tests.fixtures.tiny_loop import run_episode
+
+    set_all_seeds(seed)
+    env = make_tiny_env(seed=seed)
+    agent = REEAgent(make_tiny_config(
+        env,
+        sws_enabled=True,
+        use_mech122_spindle_content_selection=True,
+        mech122_novelty_reference_mode=mode,
+        use_mel_consumer=True,
+        mel_reference=0.0,
+        mel_reference_mode="fixed",
+    ))
+    run_episode(agent, env, steps=steps)  # fill world+theta buffers (+ some PE)
+    assert agent.mel_consumer is not None, "use_mel_consumer did not build a consumer"
+
+    # Pin the MEL state deterministically: fix the stable-base reference, then
+    # inject one waking PE step at rel_multiple x that reference.
+    ref = 0.01
+    agent.config.mel_reference = ref
+    agent.mel_consumer.config.mel_reference = ref
+    agent.mel_consumer.reset()
+    agent.mel_consumer.note_step_pe(rel_multiple * ref)
+
+    return agent.run_sws_schema_pass()
+
+
+def test_mech122_novelty_reference_mel_pe_tracks_mel_not_flat():
+    """V3-EXQ-861a repair: with mech122_novelty_reference_mode='mel_pe' the mean
+    selection_weight must MEASURABLY DIFFER across two contrasting novelty
+    conditions -- the exact property 861a lacked (its weight was ~0.004-0.01 and
+    flat across every arm/seed, because the novelty reference was a 10-tick
+    self-referential recency buffer decoupled from the MEL axis).
+
+    Asserting a DIFFERENCE across novelty conditions is the point -- 'fires but
+    stays flat' reproduces 861a exactly and is the failure this fix exists to
+    remove. The second half pins that the difference comes from the RE-SOURCING:
+    the legacy 'recency' mode, on the identical buffers, is invariant to MEL.
+    """
+    low = _spindle_pass_under_mel(1.0)   # mel == calibrated base -> gate 0
+    high = _spindle_pass_under_mel(3.0)  # mel = 3x base -> gate saturates toward 1
+
+    # mechanism fired in both conditions (not silently inert)
+    assert low["sws_spindle_selection_applied"] == 1.0
+    assert high["sws_spindle_selection_applied"] == 1.0
+
+    w_low = low["sws_spindle_selection_mean_weight"]
+    w_high = high["sws_spindle_selection_mean_weight"]
+    # low condition is non-degenerate (keeps the per-prototype recency floor,
+    # so low-MEL writes are not collapsed onto a single reference vector)
+    assert 0.0 <= w_low <= 1.0
+    # the whole point: weight tracks the MEL/novelty axis, does not stay flat
+    assert w_high > w_low + 0.1, (
+        f"mel_pe selection weight did not track MEL: low(mel==ref)={w_low}, "
+        f"high(mel=3ref)={w_high}. A weight that fires but stays flat reproduces "
+        f"the V3-EXQ-861a failure this re-sourcing exists to fix."
+    )
+
+    # Re-sourcing is real: the legacy recency mode reads the same buffers and is
+    # invariant to the injected MEL (bit-identical to the pre-repair 861a build).
+    r_low = _spindle_pass_under_mel(1.0, mode="recency")["sws_spindle_selection_mean_weight"]
+    r_high = _spindle_pass_under_mel(3.0, mode="recency")["sws_spindle_selection_mean_weight"]
+    assert r_low == pytest.approx(r_high), (
+        f"legacy 'recency' mode changed with MEL (low={r_low}, high={r_high}); "
+        f"it must be invariant -- otherwise the mel_pe delta above is not "
+        f"attributable to the re-sourced gate"
+    )
+
+
+def test_mech122_novelty_reference_mode_is_wired_through_from_dims():
+    """Guard the reference-reeconfig-from-dims-silent-kwargs hazard for the new
+    knob: the value passed to from_dims must be the value the agent actually
+    holds at runtime (a knob dropped at any of the 3 wiring sites would be
+    silently unreachable, making the fix inert while the manifest records it as
+    set).
+    """
+    from ree_core.agent import REEAgent
+    from tests.fixtures.tiny_configs import make_tiny_config
+    from tests.fixtures.tiny_env import make_tiny_env
+
+    env = make_tiny_env(seed=0)
+    for mode in ("mel_pe", "recency"):
+        cfg = make_tiny_config(env, mech122_novelty_reference_mode=mode)
+        assert cfg.mech122_novelty_reference_mode == mode, (
+            f"from_dims swallowed mech122_novelty_reference_mode={mode!r} "
+            f"(config sees {cfg.mech122_novelty_reference_mode!r})"
+        )
+        agent = REEAgent(cfg)
+        assert agent.config.mech122_novelty_reference_mode == mode
+    # neutral default when unspecified
+    assert make_tiny_config(env).mech122_novelty_reference_mode == "mel_pe"
+
+
 # --------------------------------------------------------------------------- #
 # SD-091/MECH-481 coalition controller                                        #
 # --------------------------------------------------------------------------- #

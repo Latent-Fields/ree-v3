@@ -120,6 +120,44 @@ class MELConsumer:
         """Mean per-step waking PE accumulated since the last cycle."""
         return self.accumulator.mean()
 
+    def relative_novelty(self, cap: float = 1.0) -> float:
+        """Relative waking novelty in [0, cap]: how far above the calibrated
+        stable-base reference the accumulated per-step MEL currently sits.
+
+            relative_novelty = clamp(mel/ref - 1, 0, cap)
+
+        0 at (or below) the homeostatic baseline, rising toward ``cap`` as
+        world_rule_shift-driven prediction error pushes MEL above it. Resolves
+        the reference through the SAME path as duration_factor()
+        (_effective_reference): in "fixed" mode this is the driver's stable-base
+        mel_reference calibration (V3-EXQ-861a _run_cell calibrates it on a
+        no-shift env), in "ema" mode the slow per-cycle set-point. So a consumer
+        whose reference was calibrated on a no-novelty base returns a positive
+        novelty exactly when the current wake period carried more model error
+        than that base -- the arm-discriminating axis MECH-180's dose-response
+        experiment varies (V3-EXQ-701c showed this signal is measurable and
+        monotone in graded novelty).
+
+        Returns 0.0 when no waking PE has accumulated this cycle (no signal to
+        read) or when the reference is non-positive.
+
+        Introduced for the MECH-122 spindle content-selection re-sourcing
+        (V3-EXQ-861a autopsy, option (a)): run_sws_schema_pass()'s selection
+        gate reads THIS instead of the self-referential 10-tick ThetaBuffer
+        recency buffer, whose novelty collapsed to ~0 regardless of arm.
+        """
+        if self.accumulator.count == 0:
+            return 0.0
+        mel = self.current_mel()
+        ref = self._effective_reference(mel)
+        if ref <= 0.0:
+            return 0.0
+        rel = (mel / ref) - 1.0
+        if rel <= 0.0:
+            return 0.0
+        cap = float(cap)
+        return cap if rel > cap else float(rel)
+
     # -- reference set-point --
 
     def _effective_reference(self, mel: float) -> float:

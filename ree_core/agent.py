@@ -11235,13 +11235,20 @@ class REEAgent(nn.Module):
            MECH-122 content-packaging (V3 proxy, default off -- see
            use_mech122_spindle_content_selection): when enabled, step 2 first
            blends each prototype's z_world toward the ThetaBuffer's
-           consolidation_summary() (a recency-weighted theta-context reference)
-           in proportion to how closely it already matches that reference --
-           this is the spindle-analog "content selection" step MECH-122 names;
-           habitual content is homogenised, novel content keeps its own
-           direction, giving touched-slot diversity below a channel to track
-           novelty/MEL that a uniform anchor_weight scale cannot (cosine
-           similarity is scale-invariant to a uniform per-write multiplier).
+           consolidation_summary() (the homogenisation target) in proportion to
+           a novelty-derived selection_weight -- this is the spindle-analog
+           "content selection" step MECH-122 names; habitual content is
+           homogenised, novel content keeps its own direction, giving
+           touched-slot diversity below a channel to track novelty/MEL that a
+           uniform anchor_weight scale cannot (cosine similarity is
+           scale-invariant to a uniform per-write multiplier). The novelty
+           SOURCE is set by mech122_novelty_reference_mode: "mel_pe" (default
+           when enabled) additively lifts the per-prototype cosine novelty by
+           the SD-MEL-CONSUMER relative-novelty gate (clamp(mel/ref-1,0,1)),
+           re-sourcing it from the same prediction-error signal that drives MEL
+           after V3-EXQ-861a found the bare recency-buffer reference structurally
+           decoupled from the world_rule_shift axis it was meant to track;
+           "recency" is the legacy 861a path (per-prototype cosine only).
         3. Compute slot diversity (mean pairwise cosine distance) as a metric
            for context differentiation quality.
 
@@ -11323,11 +11330,32 @@ class REEAgent(nn.Module):
         use_spindle_selection = bool(
             getattr(self.config, "use_mech122_spindle_content_selection", False)
         )
+        # V3-EXQ-861a autopsy repair: WHICH signal supplies the "novelty" the
+        # selection gate reads. The original build compared each prototype only
+        # against ThetaBuffer.consolidation_summary() -- a 10-tick recency
+        # average of the SAME short window the prototypes are drawn from -- so
+        # cosine novelty collapsed to ~0 regardless of arm and selection_weight
+        # was uniformly tiny/flat with no MEL tracking (confirmed live in 861a).
+        # "mel_pe" (default when enabled) additively lifts that per-prototype
+        # novelty by the validated SD-MEL-CONSUMER relative-novelty gate
+        # (clamp(mel/ref-1, 0, 1) -- the "signal that already drives MEL",
+        # calibrated against the driver's stable base), so the mean weight now
+        # rises with the world_rule_shift-driven novelty axis MECH-180's DV3
+        # dose-response varies. "recency" reproduces the legacy 861a path.
+        novelty_ref_mode = str(
+            getattr(self.config, "mech122_novelty_reference_mode", "mel_pe")
+        )
         consolidation_ref: Optional[torch.Tensor] = None
         consolidation_ref_normed: Optional[torch.Tensor] = None
         spindle_gain = float(
             getattr(self.config, "mech122_spindle_selection_gain", 1.0)
         )
+        # Global per-cycle MEL-derived novelty lift, resolved ONCE per pass. 0.0
+        # when the consumer is absent (mel_on=False arm) or at habitual baseline
+        # -> the mel_pe path degrades to the per-prototype recency floor, which
+        # keeps low-MEL writes non-degenerate rather than collapsing every write
+        # onto a single reference vector.
+        mel_novelty_gate = 0.0
         if use_spindle_selection:
             self.theta_buffer.set_consolidation_mode(True)
             consolidation_ref = self.theta_buffer.consolidation_summary()
@@ -11335,6 +11363,8 @@ class REEAgent(nn.Module):
                 consolidation_ref = consolidation_ref.detach()
                 ref_norm = consolidation_ref.norm(dim=-1, keepdim=True).clamp(min=1e-8)
                 consolidation_ref_normed = consolidation_ref / ref_norm
+            if novelty_ref_mode == "mel_pe" and self.mel_consumer is not None:
+                mel_novelty_gate = float(self.mel_consumer.relative_novelty(cap=1.0))
 
         selection_weights_sum = 0.0
         n_selected = 0
@@ -11364,6 +11394,15 @@ class REEAgent(nn.Module):
                         dim=-1, keepdim=True
                     ).clamp(min=-1.0, max=1.0)
                     novelty = ((1.0 - cos_sim) * 0.5).clamp(min=0.0, max=1.0)
+                    if novelty_ref_mode == "mel_pe":
+                        # Re-sourced novelty: additive global MEL lift on top of
+                        # the per-prototype recency floor. mel_novelty_gate rises
+                        # with world_rule_shift-driven prediction error, so the
+                        # mean selection_weight tracks the MEL axis this run
+                        # varies -- the exact decoupling the 861a autopsy named.
+                        novelty = (novelty + mel_novelty_gate).clamp(
+                            min=0.0, max=1.0
+                        )
                     selection_weight = (novelty * spindle_gain).clamp(
                         min=0.0, max=1.0
                     )
