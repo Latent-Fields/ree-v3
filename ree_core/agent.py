@@ -4190,6 +4190,7 @@ class REEAgent(nn.Module):
         obs_harm_history: Optional[torch.Tensor] = None,
         obs_per_axis_drive: Optional[torch.Tensor] = None,
         mech090_readiness_outcome: Optional[float] = None,
+        obs_safety_proximity: Optional[float] = None,
     ) -> LatentState:
         """
         SENSE + UPDATE step: encode split observation -> update latent state.
@@ -4223,6 +4224,19 @@ class REEAgent(nn.Module):
                         key absent) leaves the EMA un-advanced (bit-identical
                         fail-open). MECH-094: simulation/replay ticks
                         (hypothesis_tag) do not advance the EMA.
+            obs_safety_proximity: SD-MECH303-THRESHOLD-SOURCING dedicated
+                        anticipatory hazard-proximity scalar in [0, 1] or None.
+                        The caller forwards the env-emitted
+                        obs_dict["safety_proximity_harm"] (CausalGridWorldV2 with
+                        safety_proximity_signal_enabled=True). Consumed by the
+                        MECH-303 contextual-safety accumulate gate ONLY when
+                        config.contextual_safety_gate_source == "proximity_signal":
+                        the gate then reads this value against
+                        contextual_safety_proximity_threshold instead of
+                        z_harm_a.norm(), decoupling MECH-303's spatial-context
+                        safety gate from SD-022's body-damage re-sourcing of
+                        z_harm_a. None (default / key absent) leaves the gate on
+                        its default z_harm_a source (bit-identical).
 
         Returns:
             Updated LatentState
@@ -5133,18 +5147,51 @@ class REEAgent(nn.Module):
             )
 
         # MECH-303: contextual passive safety terrain accumulation.
-        # Each waking step where z_harm_a norm is below the quiescent threshold,
-        # write a small increment to the safety terrain at current z_world.
+        # Each waking step where harm is "absent" in the current context, write a
+        # small increment to the safety terrain at current z_world.
         # Hypothesis_tag=True blocks accumulation (MECH-094: waking path only).
+        #
+        # SD-MECH303-THRESHOLD-SOURCING (2026-08-14): which signal decides "harm
+        # absent" is now selectable via config.contextual_safety_gate_source.
+        #   "z_harm_a" (default)  -- z_harm_a.norm() < contextual_safety_harm_threshold,
+        #                            the original behaviour (bit-identical).
+        #   "proximity_signal"    -- a DEDICATED anticipatory hazard-proximity
+        #                            scalar (obs_safety_proximity, forwarded from
+        #                            the env) < contextual_safety_proximity_threshold.
+        # The proximity path exists because under SD-022 z_harm_a is re-sourced
+        # from body damage and cannot discriminate current spatial context
+        # (V3-EXQ-917: AUC <= 0.52 vs 0.84-0.97 for the proximity signal).
         if (
             getattr(self.config, "use_contextual_safety_terrain", False)
-            and new_latent.z_harm_a is not None
             and new_latent.z_world is not None
             and hasattr(self.residue_field, "accumulate_safety")
         ):
-            harm_norm = float(new_latent.z_harm_a.norm().item())
-            harm_thresh = float(getattr(self.config, "contextual_safety_harm_threshold", 0.05))
-            if harm_norm < harm_thresh:
+            gate_source = str(
+                getattr(self.config, "contextual_safety_gate_source", "z_harm_a")
+            )
+            harm_absent = False
+            if gate_source == "proximity_signal":
+                # Dedicated signal decoupled from z_harm_a. If the env did not
+                # surface it (obs_safety_proximity is None), the gate simply does
+                # not fire -- NO silent fallback to z_harm_a, which would
+                # reintroduce the damage-sourcing mismatch this option exists to
+                # avoid.
+                if obs_safety_proximity is not None:
+                    prox_thresh = float(
+                        getattr(
+                            self.config,
+                            "contextual_safety_proximity_threshold",
+                            0.25,
+                        )
+                    )
+                    harm_absent = float(obs_safety_proximity) < prox_thresh
+            elif new_latent.z_harm_a is not None:
+                harm_norm = float(new_latent.z_harm_a.norm().item())
+                harm_thresh = float(
+                    getattr(self.config, "contextual_safety_harm_threshold", 0.05)
+                )
+                harm_absent = harm_norm < harm_thresh
+            if harm_absent:
                 accum_w = float(getattr(self.config, "contextual_safety_accum_weight", 0.01))
                 hyp_tag = bool(getattr(new_latent, "hypothesis_tag", False))
                 self.residue_field.accumulate_safety(

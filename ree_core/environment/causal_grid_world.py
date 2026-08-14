@@ -206,6 +206,11 @@ class CausalGridWorld:
         proximity_benefit_scale: float = 0.03,
         nociception_ema_alpha: float = 0.1,
         harm_obs_a_ema_alpha: float = 0.05,
+        # SD-MECH303-THRESHOLD-SOURCING (2026-08-14): dedicated anticipatory
+        # hazard-proximity EMA for MECH-303's contextual-safety gate. Off by
+        # default (absent-when-disabled, mech090 precedent; bit-identical OFF).
+        safety_proximity_signal_enabled: bool = False,
+        safety_proximity_ema_alpha: float = 0.05,
         proximity_approach_threshold: float = 0.15,
         # MECH-203: proximity-approach classification tie-break when BOTH
         # hazard_field and resource_field are simultaneously >= threshold at
@@ -823,6 +828,9 @@ class CausalGridWorld:
         self.proximity_benefit_scale = proximity_benefit_scale
         self.nociception_ema_alpha = nociception_ema_alpha
         self.harm_obs_a_ema_alpha = harm_obs_a_ema_alpha
+        # SD-MECH303-THRESHOLD-SOURCING
+        self.safety_proximity_signal_enabled = safety_proximity_signal_enabled
+        self.safety_proximity_ema_alpha = safety_proximity_ema_alpha
         self.proximity_approach_threshold = proximity_approach_threshold
         self.proximity_approach_magnitude_tiebreak = proximity_approach_magnitude_tiebreak
         self.harm_history_len = harm_history_len
@@ -1377,6 +1385,13 @@ class CausalGridWorld:
         # Initialized here, NOT in reset(), so accumulated threat state carries over.
         # Resetting per-episode destroys autocorrelation (EXQ-106 C4 FAIL root cause).
         self.harm_obs_a_ema: np.ndarray = np.zeros(50, dtype=np.float32)
+        # SD-MECH303-THRESHOLD-SOURCING: dedicated anticipatory hazard-proximity
+        # EMA (scalar) for MECH-303's contextual-safety gate. Persists across
+        # episodes like harm_obs_a_ema (contextual threat state is homeostatic,
+        # not per-episode). Updated from hazard_at_agent BEFORE any Q-080 effort
+        # injection, so it is a clean hazard-proximity signal no driver config can
+        # perturb -- decoupled from both SD-022 (limb_damage) and Q-080 (effort).
+        self._safety_proximity_ema: float = 0.0
         # SD-011 second source: rolling harm history buffer (FIFO of harm_exposure).
         # Persists across episodes like harm_obs_a_ema (same rationale).
         if self.harm_history_len > 0:
@@ -2789,6 +2804,21 @@ class CausalGridWorld:
             self.harm_obs_a_ema[:25] = (1.0 - alpha_a) * self.harm_obs_a_ema[:25] + alpha_a * hazard_at_agent
             self.harm_obs_a_ema[25:] = (1.0 - alpha_a) * self.harm_obs_a_ema[25:] + alpha_a * resource_at_agent
 
+            # SD-MECH303-THRESHOLD-SOURCING: dedicated anticipatory hazard-
+            # proximity EMA for MECH-303's contextual-safety gate. Uses the SAME
+            # hazard_at_agent proximity-field readout as harm_obs_a_ema but a
+            # SEPARATE scalar accumulator, updated HERE (before the Q-080 effort
+            # injection below) so it stays a pure hazard-proximity signal
+            # decoupled from SD-022 body-damage sourcing AND from Q-080 effort
+            # coupling. Runs unconditionally (cheap; one scalar) so the signal is
+            # always fresh when a driver enables its emission; only the obs_dict
+            # channel is gated (below), keeping the OFF path bit-identical.
+            alpha_sp = self.safety_proximity_ema_alpha
+            self._safety_proximity_ema = (
+                (1.0 - alpha_sp) * self._safety_proximity_ema
+                + alpha_sp * hazard_at_agent
+            )
+
             # Q-080.a ON factor: route effort into the z_harm_a / harm_obs_a
             # stream so the EXISTING harm/allostatic machinery treats effort with
             # harm's irreversibility-aware handling -- SD-032e pACC integrates it
@@ -3849,6 +3879,20 @@ class CausalGridWorld:
                 # Accumulated harm target for auxiliary loss (running average, clipped [0,1]).
                 accum = self._accumulated_harm_exposure / max(self._accumulated_harm_steps, 1)
                 result["accumulated_harm"] = float(np.clip(accum, 0.0, 1.0))
+        # SD-MECH303-THRESHOLD-SOURCING: emit the dedicated anticipatory hazard-
+        # proximity scalar for MECH-303's contextual-safety gate. Absent-when-
+        # disabled (mech090 precedent) so the OFF path is bit-identical; emitted
+        # independent of the SD-010/SD-011 harm-obs block above so a driver can
+        # source MECH-303's gate from it without also enabling those streams. The
+        # agent forwards obs_dict["safety_proximity_harm"] into sense() and gates
+        # accumulate_safety on it when contextual_safety_gate_source ==
+        # "proximity_signal". Scalar in [0, 1]: ~0 in safe contexts, higher near
+        # hazards; decoupled from SD-022 z_harm_a damage-sourcing by construction.
+        if self.safety_proximity_signal_enabled:
+            result["safety_proximity_harm"] = torch.tensor(
+                [float(np.clip(self._safety_proximity_ema, 0.0, 1.0))],
+                dtype=torch.float32,
+            )  # [1]
         # Q-080 effort-dissociating env observables. Present ONLY when enabled
         # (absent-when-disabled, mech090 precedent) so backward compat is
         # bit-identical and the flat body/world dims are unchanged. These ride

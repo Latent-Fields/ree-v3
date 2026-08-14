@@ -3295,6 +3295,37 @@ class REEConfig:
     # Safety terrain scalar at current z_world must exceed this threshold
     # (with beta_gate elevated) to trigger commitment release.
     contextual_safety_release_threshold: float = 1.0
+    # SD-MECH303-THRESHOLD-SOURCING (2026-08-14): which signal the MECH-303
+    # accumulate-safety gate in sense() reads to decide "harm absent".
+    #   "z_harm_a"        -- default, backward-compatible: gate on
+    #                        z_harm_a.norm() < contextual_safety_harm_threshold
+    #                        (the pre-existing behaviour, unchanged).
+    #   "proximity_signal"-- gate on a DEDICATED anticipatory hazard-proximity
+    #                        EMA forwarded from the environment
+    #                        (obs_dict["safety_proximity_harm"], enabled by
+    #                        CausalGridWorldV2(safety_proximity_signal_enabled=True))
+    #                        against contextual_safety_proximity_threshold below.
+    # WHY: under SD-022 (limb_damage_enabled) z_harm_a is re-sourced from body
+    # damage, deliberately DECOUPLED from current spatial context -- the opposite
+    # of what MECH-303 (a current-spatial-context safety mechanism) needs.
+    # V3-EXQ-917 measured safe-vs-unsafe AUC pinned at chance (<=0.52) across 18
+    # thresholds under damage-sourcing, vs AUC 0.84-0.97 under proximity sourcing.
+    # A single z_harm_a cannot serve both SD-022 (wants body/context decoupled)
+    # and MECH-303 (wants body/context coupled), so this selects a second,
+    # dedicated signal for MECH-303's gate alone -- every other z_harm_a consumer
+    # is untouched. See mech303_contextual_safety_threshold_reachability.md and
+    # docs/architecture/sd_mech303_threshold_sourcing.md.
+    contextual_safety_gate_source: str = "z_harm_a"
+    # "Harm absent" gate for the dedicated proximity signal (used only when
+    # contextual_safety_gate_source == "proximity_signal"). The dedicated signal
+    # is a scalar EMA (tau~20) of the hazard proximity field at the agent's cell,
+    # in [0, 1]: ~0.0 in safe (hazard-free) contexts, ~0.8 in dense-hazard
+    # contexts. Default 0.25 sits between the two so safe contexts accumulate and
+    # unsafe contexts do not. AUC is scale-invariant so it holds regardless, but a
+    # driver in an unusual hazard regime should still calibrate this against its
+    # own observed distribution (per the precedent in the harm_threshold comment
+    # above). Inert at the default gate source; no existing experiment reads it.
+    contextual_safety_proximity_threshold: float = 0.25
 
     # MECH-095: TPJ agency comparator (self/other attribution on z_self).
     # When True, REEAgent stores an E2 efference-copy prediction at action
@@ -7022,6 +7053,8 @@ class REEConfig:
         contextual_safety_accum_weight: float = 0.01,
         contextual_safety_harm_threshold: float = 0.05,
         contextual_safety_release_threshold: float = 1.0,
+        contextual_safety_gate_source: str = "z_harm_a",  # SD-MECH303-THRESHOLD-SOURCING; "proximity_signal" opts in
+        contextual_safety_proximity_threshold: float = 0.25,  # SD-MECH303-THRESHOLD-SOURCING; gate for the dedicated signal
         safety_terrain_bandwidth: Optional[float] = None,   # SD-067; None -> kernel_bandwidth (bit-identical)
         # MECH-108: BreathOscillator -- periodic uncommitted windows.
         # breath_period=0 disables (legacy default). Set 50 to enable.
@@ -8454,6 +8487,8 @@ class REEConfig:
         config.contextual_safety_accum_weight = contextual_safety_accum_weight
         config.contextual_safety_harm_threshold = contextual_safety_harm_threshold
         config.contextual_safety_release_threshold = contextual_safety_release_threshold
+        config.contextual_safety_gate_source = contextual_safety_gate_source
+        config.contextual_safety_proximity_threshold = contextual_safety_proximity_threshold
         if use_contextual_safety_terrain:
             config.residue.safety_terrain_enabled = True
             # SD-067: dedicated (tighter) bandwidth for the safety-terrain RBF read.
