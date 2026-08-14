@@ -1,6 +1,6 @@
 """Contracts for the FROZEN (not dead) z_goal condition in the scaffold-warmed family.
 
-WHAT THE CONDITION IS. ~30 experiment scripts drive their warmup through
+WHAT THE CONDITION IS. ~31 experiment scripts drive their warmup through
 `experiments/scaffolded_sd054_onboarding.py`'s `ScaffoldedSD054OnboardingScheduler`,
 which calls `agent.update_z_goal(...)` on Stage-0 / P1 / P2 steps, and then hand the
 warmed agent to a HAND-ROLLED measurement loop that never calls it again. Two substrate
@@ -57,7 +57,7 @@ fix: the call is ALSO the SD-024 benefit-attractor producer (it calls
 `ResidueField.accumulate_benefit` ahead of the `goal_state` guard), so it populates
 `benefit_rbf_field` and un-zeroes the SD-025 curiosity bonus in
 `HippocampalModule._curiosity_bonus`. For THIS family that specific path is gated off --
-`residue.benefit_terrain_live_producer` defaults False and none of the 30 (nor the
+`residue.benefit_terrain_live_producer` defaults False and none of the 31 (nor the
 scheduler) sets it -- but the retrofit still swaps a constant goal for 0.5%/step decay
 plus contact reseeding, which moves the E3 goal term on every tick. Either way a patched
 script is not comparable to the runs that came before it.
@@ -78,6 +78,48 @@ consistent with every other member of the family, and per the family's own conve
 neither script carries its own comment about it. `_FROZEN_FAMILY_SIZE` -> 30; the
 28-landed-manifest evidence-direction breakdown above is unchanged since neither has a
 manifest yet (both `claimed` in the queue, no run landed as of this note).
+
+FAMILY GROWTH (2026-08-14). One new member: V3-EXQ-934
+(`v3_exq_934_mech266_cap_sweep_mode_occupancy.py`, ree-v3 `c0998a6`), the GOV-FANOUT-1
+leg-H1 `affinity_input_cap` sweep spun out of the 464e/467e cluster autopsy. It arrived
+with `_FROZEN_FAMILY_SIZE` still at 30, so trunk's contract gate was red from `c0998a6`
+until this note. VERDICT: a fixed goal is INTENDED -- no retrofit, pin 30 -> 31.
+
+Checked directly rather than assumed, same four questions as the 464e/467e note above.
+934 builds the curriculum ONCE per seed (one `agent` through
+run_stage0_nursery / run_stage0b_consolidation / run_p0 / run_hazard_avoidance / run_p1 /
+run_p2) and evaluates every one of its 10 CAP x ARM cells from a `_clone_for_arm()` copy
+of that single trained agent -- and that clone explicitly carries `goal_state` across
+(`agent.goal_state.load_state_dict(trained_agent.goal_state.state_dict())`, the 464e
+fix), so all ten cells enter measurement with a BIT-IDENTICAL frozen z_goal. It sets
+neither `goal_weight` nor `residue.benefit_terrain_live_producer`, and calls neither
+`update_z_goal` nor `_set_goal_pipeline_frozen`. So the freeze is the deliberate
+inherited state, and per the family's own convention (recorded once here, never
+per-script) 934 carries no comment of its own about it.
+
+ONE RESPECT IN WHICH 934 IS STRONGER THAN THE REST OF THE FAMILY, stated so it is not
+rediscovered as a defect. For 464e/467e the frozen goal reaches behaviour only through
+the two generic read paths (the E3 `goal_weight * goal_proximity` term and E1
+goal-conditioning). 934 sets `use_external_task_drive=True`, and that injection
+(`agent.py:6933-6960`) is gated on `goal_state.is_active()` and adds
+`external_task_drive_proximity_weight * goal_proximity(z_world)` -- so the frozen goal
+sits directly on the causal path of 934's PRIMARY DV, external_task mode occupancy. Two
+things keep that from threatening the H1 read. (i) It is a fixed TARGET, not a frozen
+SIGNAL: `goal_proximity` is recomputed per tick against the live `z_world`, so the
+engagement scalar still varies within an episode -- the freeze does not flatten the
+signal 934 is measuring. (ii) The H1 verdict is a WITHIN-seed comparison across caps
+(`sym_graded` = is symmetric-arm occupancy graded rather than saturated across
+CAP_SWEEP), and the goal state is identical across all cells of a seed, so it cannot
+produce a between-cell difference -- the same arm-symmetry argument the TRIAGE OUTCOME
+above rests on, extended over the cap axis. The one absolute-threshold criterion
+(`margin_engaged`, max continuous external_task margin > MARGIN_FLOOR) does read a level
+rather than a contrast, and the frozen post-curriculum goal is exactly the state the
+banked cap=2.0 464e/467e reference was measured in -- which is what makes 934 comparable
+to it, so driving or re-freezing the goal here would BREAK the comparison this run
+exists to make, not repair it.
+
+The 28-landed-manifest evidence-direction breakdown above is again unchanged: 934 is a
+DIAGNOSTIC with no manifest yet (`claimed` by ree-cloud-3 as of this note).
 """
 import ast
 import sys
@@ -165,7 +207,7 @@ def test_z_goal_does_not_decay_without_update_z_goal():
 def test_frozen_goal_still_drives_e3_for_the_family_config():
     """`goal_weight` resolves LIVE for this family, so a stale goal biases selection.
 
-    None of the 30 sets `goal_weight`, and `E3Config.goal_weight`'s dataclass default is
+    None of the 31 sets `goal_weight`, and `E3Config.goal_weight`'s dataclass default is
     0.0 -- which reads as "the goal term is off, so who cares if z_goal is stale". That
     reading is wrong: `REEConfig.from_dims` carries its OWN default of 1.0 and assigns
     `config.e3.goal_weight`, so the E3 goal term (gated on `goal_weight > 0` AND
@@ -500,7 +542,14 @@ def test_scaffold_hands_off_with_the_goal_consumers_unfrozen():
 # iterations of already-family members 464d/467d (see the FAMILY GROWTH addendum in
 # this file's module docstring for the confirmation that both inherit the same frozen,
 # arm-symmetric goal state -- neither needed a retrofit).
-_FROZEN_FAMILY_SIZE = 30
+#
+# 30 -> 31 (2026-08-14): V3-EXQ-934, the GOV-FANOUT-1 leg-H1 affinity_input_cap sweep.
+# A new NUMBER rather than a lettered iteration, but structurally the same member shape
+# (train once per seed, evaluate every CAP x ARM cell from a goal_state-carrying
+# _clone_for_arm copy). A fixed goal is INTENDED -- including for the external_task_drive
+# path, which unlike the rest of the family reads the goal directly into 934's primary
+# DV. Full derivation in the second FAMILY GROWTH addendum in this file's docstring.
+_FROZEN_FAMILY_SIZE = 31
 
 
 def test_frozen_z_goal_family_size_is_pinned():
