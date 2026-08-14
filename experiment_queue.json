@@ -26,20 +26,6 @@
       "episodes_per_run": 235,
       "experiment_type": "v3_exq_603u_instrumental_avoidance_agent_pursuit",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-933",
-      "title": "GAP-9 MEL/need-crossing PRIMARY arm validation (design (b) consumer-validation)",
-      "script": "experiments/v3_exq_933_sleep_gap9_need_arm.py",
-      "priority": 3,
-      "machine_affinity": "any",
-      "estimated_minutes": 10,
-      "note": "Diagnostic CONSUMER validation of sleep_substrate:GAP-9 design (b), the MEL/need-crossing PRIMARY arm (follow-up to V3-EXQ-929 v1 ceiling-only). GOV-REUSE-1: decisive readout (need-arm firing + arm attribution) is recorded nowhere -- 929 recorded ceiling-only (arm_need=0 always) -- so not recoverable; run. Controlled MEL stimulus injected via note_step_pe (ecological producer parked, measured env MEL noise-level per GAP-5b/718a), exactly how 718a validated the MEL consumer. 3 arms (CEILING/NEED_HIGH/NEED_SUB) x 3 seeds; C1 need fires+carries, C2 need sooner than ceiling, C3 threshold-gates, C4 ceiling reproduces v1. claim_ids=[] (GAP-9 is a plan node); promotes nothing. use_mech286_sleep_onset_gate OFF (lit-synthesis brief). Smoke PASS (all 4 criteria). (minted 933; 931 taken by an unrelated CEM run mid-session).",
-      "status": "pending",
-      "conditions": 3,
-      "episodes_per_run": 120,
-      "experiment_type": "v3_exq_933_sleep_gap9_need_arm",
-      "seeds": 3
     }
   ]
 }
