@@ -1,4 +1,4 @@
-"""V3-EXQ-927: SD-MECH267-CEM-SELECTION-FIX validation -- four-arm re-measure of
+"""V3-EXQ-928: SD-MECH267-CEM-SELECTION-FIX validation -- four-arm re-measure of
 V3-EXQ-869's C1 (production num_cem_iterations=3) mode-content wash-out with the
 two new no-op-default facets (H2 mode_value_weight, H3 mode_partitioned_cem)
 (DIAGNOSTIC).
@@ -154,7 +154,7 @@ excludes this run from governance confidence/conflict scoring; a confirmed
 self-routed interpretation.label).
 
 Run with:
-  /opt/local/bin/python3 experiments/v3_exq_927_mech267_cem_selection_fix_validation.py [--dry-run]
+  /opt/local/bin/python3 experiments/v3_exq_928_mech267_cem_selection_fix_validation.py [--dry-run]
 
 Writes a flat JSON manifest to REE_assembly/evidence/experiments/.
 """
@@ -365,7 +365,7 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
     t0 = time.perf_counter()
     seeds = SEEDS[:3] if dry_run else SEEDS
     print(
-        f"[v3_exq_927] SD-MECH267-CEM-SELECTION-FIX validation "
+        f"[v3_exq_928] SD-MECH267-CEM-SELECTION-FIX validation "
         f"(4 arms x 4 modes x {len(seeds)} seed(s), num_cem_iterations="
         f"{NUM_CEM_ITERATIONS}) ({'dry-run' if dry_run else 'full'})...",
         flush=True,
@@ -459,7 +459,7 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
 
     elapsed = time.perf_counter() - t0
     print(
-        f"[v3_exq_927] overall: {outcome} label={interpretation_label} "
+        f"[v3_exq_928] overall: {outcome} label={interpretation_label} "
         f"(manipulation_ok={manipulation_ok} [{n_engaged}/{n_cells}], "
         f"readout_ok={readout_ok}, off_clears={off_clears}, "
         f"fix_clearing={fix_clearing}, "
@@ -469,7 +469,7 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
     )
 
     ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-    run_id = f"v3_exq_927_mech267_cem_selection_fix_validation_{ts}_v3"
+    run_id = f"v3_exq_928_mech267_cem_selection_fix_validation_{ts}_v3"
 
     # Readiness-kind preconditions (the manipulation check IS the positive
     # control that the facets fire). Below-floor on a fix arm whose facet
@@ -585,7 +585,7 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
     manifest: Dict[str, Any] = {
         "schema_version": "v1",
         "run_id": run_id,
-        "experiment_type": "v3_exq_927_mech267_cem_selection_fix_validation",
+        "experiment_type": "v3_exq_928_mech267_cem_selection_fix_validation",
         "architecture_epoch": "ree_hybrid_guardrails_v1",
         "timestamp_utc": datetime.utcnow().isoformat() + "Z",
         "experiment_purpose": EXPERIMENT_PURPOSE,
@@ -657,7 +657,7 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
         "dry_run": bool(dry_run),
     }
 
-    out_dir = EVIDENCE_ROOT / "v3_exq_927_mech267_cem_selection_fix_validation"
+    out_dir = EVIDENCE_ROOT / "v3_exq_928_mech267_cem_selection_fix_validation"
     out_file = write_flat_manifest(
         manifest,
         out_dir,

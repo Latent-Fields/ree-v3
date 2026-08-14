@@ -6,5 +6,25 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-928",
+      "title": "SD-MECH267-CEM-SELECTION-FIX validation: four-arm re-measure of MECH-267 mode-content wash-out at num_cem_iterations=3 (H2 mode_value_weight / H3 mode_partitioned_cem, diagnostic)",
+      "script": "experiments/v3_exq_928_mech267_cem_selection_fix_validation.py",
+      "priority": 35,
+      "machine_affinity": "any",
+      "estimated_minutes": 12,
+      "claim_id": "MECH-267",
+      "note": "Validation of the just-landed SD-MECH267-CEM-SELECTION-FIX substrate (2026-08-14): does either new no-op-default facet rescue MECH-267 mode-conditioned proposal content at the production num_cem_iterations=3 that V3-EXQ-869/869a/923 showed washes out? Re-measures 869's C1 condition (iters=3) under FOUR arms, same 30 seeds across arms, differing ONLY by the two facets (all arms keep mode_conditioning_enabled=True + default mode_noise_scale/mode_horizon_scale): ARM OFF (both facets off = the 869/869a/923 wash-out control), ARM H2-only (mode_value_weight set: distinct per-mode world_dim z_world weight vectors, adds a mode-dependent CEM elite-selection value term so the RANKING stays mode-differentiated every refit iteration), ARM H3-only (mode_partitioned_cem=True: re-applies the mode-conditioned noise scale to the freshly-refit ao_std once per iteration so proposal BREADTH persists), ARM BOTH. PRIMARY DV: mean_raw_std_by_dim per mode (the exact 869/923 metric/key, action_object_decoder_raw_output_stats.std_by_action_dim); per-arm acceptance quantity is the across-seed mean tight-vs-broad pairwise gap raw_std[internal_planning]-raw_std[offline_consolidation] (broadest predicted mode minus tightest) vs FLOOR_PRODUCTION=0.01 -- the quantity the parent smoke measured (OFF ~2.1e-6, H3-ON ~0.0172). BOTH evidence directions pre-registered: an arm clearing 0.01 localises the wash-out to that facet (H2 -> the mode-independent value function was the missing locus; H3 -> the mode-blind refit breadth was; BOTH -> compose / >=1 suffices); NO arm clearing = the fix is insufficient at iters=3, wash-out has a locus neither facet addresses. ARM OFF expected to FAIL (washed-out control ~0). MANIPULATION / non-degeneracy check (per cell): H2 arms assert _last_mode_value_weight_active=True, H3 arms _last_mode_partitioned_cem=True, OFF both False -- a facet not engaging as configured routes the run non_contributory (manipulation never fired); raw_std must be a non-empty finite vector (measurement integrity). Below-floor on a fix arm whose facet engaged and whose readout is populated is a genuine fix_insufficient FINDING, not starvation. DV-SYMMETRY INVARIANCE (per arm; DV = across-mode raw_std spread): OFF is the control (no new manipulation; the existing facets' known wash-out is the result under test, not an invariance artefact). H2 subtracts a PER-TRAJECTORY term (w.mean_z_world, each candidate's own world state) from the elite score -- not a broadcast constant, so it CAN move the argsort elite selection and hence raw_std; not invariant under candidate rank/permutation. H3 multiplicatively rescales the refit ao_std by the per-mode noise scale -- raw_std IS the breadth this sets, so the manipulation acts directly on the DV's generating quantity; not invariant. BOTH = union of the two; not invariant. experiment_purpose=diagnostic (root-cause locus discrimination, not a direct test of MECH-267's core prediction) -- excluded from governance confidence/conflict scoring; the self-routed interpretation.label (fix_effective::<arms> / fix_insufficient / control_leak / manipulation_failed / measurement_degenerate) is a HYPOTHESIS requiring a confirmed /failure-autopsy adjudication before governance acts. Re-derive brake (Step 2.5b): MECH-267 same-granularity autopsy count = 2 (869, 869a) at threshold, RELEASED -- this tests the newly-BUILT SD-MECH267-CEM-SELECTION-FIX substrate (the upstream build the GOV-FANOUT-1 H2/H3 legs named, now IMPLEMENTED), not a same-design re-letter, and attacks a different axis (elite-selection value function + refit breadth). GOV-REUSE-1 (Step 2.4): decisive readout (per-mode raw_std at iters=3 WITH mode_value_weight/mode_partitioned_cem active) never measured in any prior manifest -- the facets did not exist until 2026-08-14; checked 869/869a/923 (old facets only); not recoverable -> run. Smoke: validate_experiments.py --strict OK (0 findings); --dry-run (3 seeds, OFF+H3) PASS -- manipulation 24/24 cells engaged as configured, readout populated, OFF broad-minus-tight gap ~-0.0004 (washed), H3 ~0.0246 (clears 0.01), label fix_effective::H3; the full 30-seed 4-arm run determines the outcome.",
+      "status": "pending",
+      "architecture_epoch": "ree_hybrid_guardrails_v1",
+      "claim_ids": [
+        "MECH-267"
+      ],
+      "conditions": 4,
+      "episodes_per_run": 1,
+      "experiment_type": "v3_exq_928_mech267_cem_selection_fix_validation",
+      "seeds": 30
+    }
+  ]
 }

@@ -17332,7 +17332,7 @@ Form B recommendation: a two-stage threat-modulated selection rule.
   Not a learning module -- no new nn.Module, no parameters, no phased training. MECH-094 N/A
   (only the CEM ranking criterion / proposal breadth for an already-computed rollout changes; no
   new simulation/replay content is written to memory).
-  Validation experiment: V3-EXQ-927 queued (OFF control / H2-only / H3-only / BOTH arms,
+  Validation experiment: V3-EXQ-928 queued (OFF control / H2-only / H3-only / BOTH arms,
   re-measuring V3-EXQ-869 C1 at num_cem_iterations=3; acceptance = mean pairwise raw_std mode gap
   >= 0.01 per arm; ARM OFF expected to FAIL as the washed-out control). Dry-run (3 seeds,
   OFF+H3): OFF gap ~-0.0004 (washed), H3 ~0.0246 (clears floor).
