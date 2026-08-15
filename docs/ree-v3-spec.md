@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-08-09
+**Last updated:** 2026-08-15
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -9,7 +9,7 @@
 
 ---
 
-## 0. Current V3 State (2026-08-09)
+## 0. Current V3 State (2026-08-15)
 
 This section supersedes the original launch snapshot. Sections 7 (initial experiment queue),
 10 (CLAUDE.md content), and 11 (Build Order) are historical — they document what was planned
@@ -217,6 +217,67 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 `REE_assembly/docs/architecture/self_attribution_per_stream.md`.
 
 ### Experiment Status
+
+- **2026-08-15T04:36Z nightly read (scheduled `/update-docs`, bot identity).**
+  6-day window since the 2026-08-09 nightly. Manifest count on disk: **886 `v3_exq_*`
+  + 3 `v4_exq_*` flat** (+42 v3 vs the 2026-08-09 nightly's 844); nested per-run
+  manifests under `evidence/experiments/*/runs/`: **2819** (+44 vs 2775). **Currently
+  queued (`experiment_queue.json` items[]): 4 items** -- 2 CLAIMED (V3-EXQ-603u
+  `MECH-357 agent-directed hazard pursuit Stage-H retest -- 6th pressure candidate`,
+  claim `MECH-357`, prio 40; V3-EXQ-920a `uncensored survival-to-death fishtank, TRUE
+  single-life design -- MULTI-SEED re-run`, prio 5) + 2 PENDING (V3-EXQ-861c
+  `INV-050/MECH-180 calibration-fixed replication of the MEL third-drive coupling`,
+  claim `INV-050`, prio 55, redesign after V3-EXQ-861b `non_contributory` autopsy;
+  V3-EXQ-934 `MECH-266/SD-032a GOV-FANOUT-1 H1 affinity_input_cap sweep for
+  external_task mode`, claim `MECH-266`, prio 30). **Pending review
+  (`pending_review.md`, regenerated 2026-08-13T20:32:15Z): 1 item** -- 0 PASS + 0
+  FAIL + 1 ERROR manifest (V3-EXQ-926 `runner-synthesized ERROR record on
+  ree-cloud-2`, non-zero exit code 1 with no runner sentinel -- awaits
+  `/diagnose-errors`). **Current-window ERROR rate: 1.3%** (4/299) over
+  2026-07-16 → 2026-08-15, upper bound 2.6% including unexplained-phantom manifests
+  (`scripts/experiment_error_rate.py`). **Substrate + governance landings in the
+  window** (from `REE_assembly` `git log --since=2026-08-09`): (a) **substrate
+  builds** -- `sleep_substrate:GAP-9` within-life sleep trigger BUILT 2026-08-14
+  (v1 ceiling arm; recommends composed (a)+(b), MECH-286 sleep-onset gate stays OFF
+  in the validation run per the lit-synthesis decision-log entry), MECH-357
+  agent-directed hazard pursuit build (V3-EXQ-603u the validation run),
+  SD-MECH303-THRESHOLD-SOURCING (V3-EXQ-861c queued),
+  SD-MECH267-CEM-SELECTION-FIX H2+H3 (2026-08-14), MECH-122 spindle-selection
+  novelty re-source (861a fix), SD-QUEUE-SEED-ENFORCEMENT queue-lint (2026-08-13).
+  (b) **governance cycle 2026-08-13** (REE_assembly `e5927f8acb`) applied the
+  confirmed V3-EXQ-861b autopsy (INV-050/MECH-180 `non_contributory`,
+  GFLAG-0002 unresolved), applied 6 confirmed autopsy dispositions
+  (910a/MECH-489, 603t/MECH-357, 228d/ARC-032, 914-914a/MECH-236,
+  922/MECH-150-151-152-ARC-041, 467e+464e/MECH-266+SD-032a), marked 9 FAILs
+  reviewed (910a/914a/603t/919/228d/922/436e/467e/464e -> pending_review
+  cleared to 0 indexed on the day, then re-accumulated one ERROR item),
+  raised 3 evidence_discrepancy flags (SD-017 / ARC-045 / MECH-166; +MECH-449 /
+  ARC-107 separately), held MECH-152 demotion pending owed ablation
+  (supersedes stale conflict-ratio recommendation), reaffirmed 8 standing
+  holds, reconciled closure-plan drift (`arc_005` GAP-B/GAP-A-precision
+  status, `commitment_closure` + `global_workspace_jlens` SHP-2 re-stamps).
+  MECH-140 `EXP-0532/EVB-0440` correctly routed to `blocked_substrate`
+  (2026-08-15). (c) **Governance rule** GOV-PRESERVE-1 (preservation)
+  registered 2026-08-14 as plan-of-record. (d) **STUDY-HUM-1** (humour as
+  societal epistemic probe) promoted Ireland to a second pilot 2026-08-15,
+  registered SOC-HUM-1..4 + SOC-HUM-5 (medium-externalization sub-question,
+  candidate). (e) **Infrastructure hardening** -- durable `ref_convergence`
+  refusal visibility (2026-08-15 `d4146b79` + `445c7072`): per-branch
+  wedge state persists to `<git-common-dir>/ree_ref_convergence_wedge.json`,
+  hygiene tick raises a chip on WEDGED checkouts; motivated by an
+  `[ahead 233, behind 365]` `ree-cloud-5` spiral (~45 orphans/hour).
+  **Bottleneck: the experimental pipeline is running steadily** -- 2
+  autopsy-driven claim retests in flight (V3-EXQ-603u MECH-357 Stage-H,
+  V3-EXQ-861c INV-050 MEL calibration-fixed replication), one MECH-266
+  affinity-cap sweep pending, one long-running fishtank showcase pending.
+  1 ERROR manifest awaits `/diagnose-errors`. No substrate wall in the
+  window; the pending-autopsy queue plus the SD-091 / MECH-481 4-arm
+  falsifier still blocked at Step 2.5a on the competence/adaptation-harness
+  premise probe (V3-EXQ-886, authored 2026-08-03, NOT queued) remain the
+  natural next scientific movements. **ETHICS-PERIMETER Phase 0 datum**
+  stays on the record (Phases 1-3 deferred; NON-BLOCKING).
+
+---
 
 - **2026-08-09T01:10Z nightly read (scheduled `/update-docs`, bot identity).**
   1-day window since the 2026-08-08 nightly. Manifest count on disk: **844 `v3_exq_*` + 3
