@@ -34,14 +34,22 @@ DEFAULT_BASE = Path.home() / "REE_Working"
 DEFAULT_ENV = DEFAULT_BASE / "REE_assembly" / "coordinator.env"
 SCHEMA_PATH = HERE / "schema.sql"
 
+# machine_identity.py lives in ROOT (ree-v3/), one directory up from here.
+sys.path.insert(0, str(ROOT))
+from machine_identity import canonical_machine_name  # noqa: E402
+
 CLOUD_HOSTS = ("ree-cloud-1", "ree-cloud-2", "ree-cloud-3", "ree-cloud-4")
-# Expected lifecycle peers on /shadow/status. The Mac (DLAPTOP-4.local) is
-# included because the operator runs this script on the Mac, so it MUST be
-# heartbeating to the coordinator. ree-cloud-4 is in shutdown-only mode by
-# default and may legitimately be gracefully_offline outside a cutover
-# window -- the fleet_lifecycle check accepts that.
+# Expected lifecycle peers on /shadow/status. The Mac (canonical name
+# DLAPTOP; also reported as DLAPTOP-4.local/DLAPTOP-5.local depending on
+# macOS LocalHostName drift -- see machine_identity.py) is included because
+# the operator runs this script on the Mac, so it MUST be heartbeating to
+# the coordinator. _evaluate_fleet_lifecycle() below matches this peer
+# through canonical_machine_name() so it is found regardless of which
+# hostname alias the heartbeat happened to land under. ree-cloud-4 is in
+# shutdown-only mode by default and may legitimately be gracefully_offline
+# outside a cutover window -- the fleet_lifecycle check accepts that.
 EXPECTED_LIFECYCLE_PEERS = (
-    "DLAPTOP-4.local",
+    "DLAPTOP",
     "ree-cloud-1",
     "ree-cloud-2",
     "ree-cloud-3",
@@ -211,12 +219,26 @@ def _evaluate_fleet_lifecycle(machines: list[dict],
         re-shut between wake and preflight). `stale` and missing also
         FAIL.
     """
-    by_machine = {m.get("machine"): m for m in machines}
+    # Group observed rows by CANONICAL machine name, not the raw reported
+    # string, so a peer heartbeating under an unexpected hostname alias
+    # (e.g. the Mac drifting DLAPTOP-4.local <-> DLAPTOP-5.local) is still
+    # found. If more than one raw name canonicalizes to the same peer and
+    # both are present, prefer whichever row is "live" -- a stale entry
+    # under one alias must not mask a live one under another.
+    by_canonical: dict[str, dict] = {}
+    for m in machines:
+        canon = canonical_machine_name(m.get("machine"))
+        if not canon:
+            continue
+        prior = by_canonical.get(canon)
+        if prior is None or (m.get("lifecycle_state") == "live"
+                              and prior.get("lifecycle_state") != "live"):
+            by_canonical[canon] = m
     accepted = ("live",) if cutover_window else ("live", "gracefully_offline")
     bad: list[str] = []
     summary: dict[str, str] = {}
     for peer in EXPECTED_LIFECYCLE_PEERS:
-        m = by_machine.get(peer)
+        m = by_canonical.get(canonical_machine_name(peer))
         if m is None:
             summary[peer] = "missing"
             bad.append("%s=missing" % peer)
