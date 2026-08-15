@@ -49,14 +49,30 @@ DEFAULT_SSH_HOSTS = {
     "ree-cloud-2": "116.203.216.181",
     "ree-cloud-3": "46.62.170.133",
     "ree-cloud-4": "91.99.68.94",
+    "ree-cloud-5": "46.224.127.182",
 }
 
-CLOUD_HOSTS = ("ree-cloud-1", "ree-cloud-2", "ree-cloud-3", "ree-cloud-4")
+# ree-cloud-5 (the Phase-H metaworker-dispatch box, provisioned 2026-08-02/03)
+# IS included here even though it is deliberately excluded from the
+# surge-scaling pool (cloud-scaler.py) and the narrower phase-3-cutover
+# fleet lists (phase3_preflight.py, phase3_wake_fleet.sh) -- this script's
+# purpose is fleet-WIDE "is this still our box?" security monitoring, not
+# cutover readiness, and a real, live machine absent from ALLOWED_MACHINES
+# below would have its legitimate heartbeats read as a possible foreign/
+# compromised host.
+CLOUD_HOSTS = ("ree-cloud-1", "ree-cloud-2", "ree-cloud-3", "ree-cloud-4",
+               "ree-cloud-5")
 HUB_HOST = "ree-cloud-1"
 
+# DLAPTOP-4.local and DLAPTOP-5.local are both kept even though the current
+# canonical form is bare "DLAPTOP" (see ree-v3/machine_identity.py): this is
+# an allowlist, not a state lookup, so listing a retired alias costs
+# nothing, while omitting one a heartbeat is still using is a false
+# security alert. Do not narrow this to only the canonical form.
 ALLOWED_MACHINES = frozenset({
     "Mac", "ree-cloud-1", "ree-cloud-2", "ree-cloud-3", "ree-cloud-4",
-    "Daniel-PC", "EWIN-PC", "DLAPTOP-4.local",
+    "ree-cloud-5", "Daniel-PC", "EWIN-PC",
+    "DLAPTOP", "DLAPTOP-4.local", "DLAPTOP-5.local",
 })
 
 # New enabled units matching these are ALERT even if baseline missed them.
