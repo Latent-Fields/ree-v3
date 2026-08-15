@@ -405,5 +405,188 @@ class RoutingUnitTest(unittest.TestCase):
         self.assertIsNotNone(repo)
 
 
+class WorktreeRemovalTest(unittest.TestCase):
+    """`DISPATCH_KEEP_WORKTREE=0` must not be able to destroy agent output.
+
+    remove_worktree used to be a bare `git worktree remove --force` whose return
+    code was discarded. --force bypasses git's own dirty check, which is the
+    last line of defence against an untracked DURABLE ARTIFACT a headless agent
+    staged in the worktree -- content with no commit, no stash, no reflog and no
+    recovery once the directory is gone (the confirmed loss in
+    chip-20260807-thoughtdigestion-trial-5). Same defect class as the fixes in
+    hygiene_routine_tick.py (817f2524) and igw_routine_tick.py (39f62c88).
+
+    Two directions matter here and both are asserted, because a guard that only
+    ever refuses is as broken as one that never does: the artifact cases must be
+    KEPT, and the ordinary success case must still be COLLECTED.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        os.environ.setdefault("DISPATCH_URL", "http://x")
+        os.environ.setdefault("DISPATCH_TOKEN", "x")
+        sys.path.insert(0, HERE)
+        import dispatch_executor  # noqa: E402
+        cls.ex = dispatch_executor
+        cls.tmp = tempfile.mkdtemp(prefix="dispatch-wt-")
+        cls.repo = os.path.join(cls.tmp, "repo")
+        os.makedirs(cls.repo)
+        subprocess.run(["git", "init", "-q", cls.repo], check=True)
+        for k, v in (("user.email", "t@t"), ("user.name", "t")):
+            subprocess.run(["git", "-C", cls.repo, "config", k, v], check=True)
+        with open(os.path.join(cls.repo, "seed.txt"), "w") as f:
+            f.write("seed\n")
+        with open(os.path.join(cls.repo, ".gitignore"), "w") as f:
+            f.write("*.scratch\n")
+        subprocess.run(["git", "-C", cls.repo, "add", "-A"], check=True)
+        subprocess.run(["git", "-C", cls.repo, "commit", "-qm", "init"],
+                       check=True)
+
+    def _worktree(self, job_id):
+        """A real dispatch worktree, made the way the executor makes one."""
+        self.ex.WORKTREE_BASE = os.path.join(self.tmp, "wt")
+        wt, branch, err = self.ex.make_worktree(self.repo, job_id)
+        self.assertIsNone(err, err)
+        return wt, branch
+
+    def _branch_exists(self, branch):
+        out = subprocess.run(["git", "-C", self.repo, "branch", "--list", branch],
+                             capture_output=True, text=True).stdout
+        return branch in out
+
+    # -- the negative control: removal must still actually happen -------------
+
+    def test_clean_worktree_is_removed_and_branch_survives(self):
+        """The documented success path: the agent COMMITS, so the tree is clean.
+
+        This is the control that matters most -- the failure mode of the fix is
+        removal silently never happening again. The branch must outlive the
+        worktree, because the branch is what the user reviews.
+        """
+        wt, branch = self._worktree("clean1")
+        with open(os.path.join(wt, "agent_work.py"), "w") as f:
+            f.write("print('done')\n")
+        subprocess.run(["git", "-C", wt, "add", "-A"], check=True)
+        subprocess.run(["git", "-C", wt, "commit", "-qm", "agent work"],
+                       check=True)
+        removed, detail = self.ex.remove_worktree(self.repo, wt)
+        self.assertTrue(removed, detail)
+        self.assertFalse(os.path.exists(wt))
+        self.assertTrue(self._branch_exists(branch))
+        # ...and the committed work is still reachable through that branch.
+        show = subprocess.run(["git", "-C", self.repo, "show",
+                               "%s:agent_work.py" % branch],
+                              capture_output=True, text=True)
+        self.assertEqual(show.returncode, 0, show.stderr)
+        self.assertIn("done", show.stdout)
+
+    def test_untouched_worktree_is_removed(self):
+        """An agent that wrote nothing leaves nothing to protect."""
+        wt, _ = self._worktree("clean2")
+        removed, detail = self.ex.remove_worktree(self.repo, wt)
+        self.assertTrue(removed, detail)
+        self.assertFalse(os.path.exists(wt))
+
+    def test_ignored_only_worktree_is_removed(self):
+        """A .gitignore'd file must not pin the worktree forever.
+
+        git's own check does not count ignored files, so the plain remove
+        collects here. This is what stops the guard degrading into "nothing is
+        ever collectable" for an operator with genuine scratch to declare.
+        """
+        wt, _ = self._worktree("ignored1")
+        with open(os.path.join(wt, "junk.scratch"), "w") as f:
+            f.write("throwaway\n")
+        removed, detail = self.ex.remove_worktree(self.repo, wt)
+        self.assertTrue(removed, detail)
+        self.assertFalse(os.path.exists(wt))
+
+    # -- the guard: unrecoverable content must survive ------------------------
+
+    def test_untracked_artifact_is_kept_and_reported(self):
+        """One extra untracked file => KEEP, and name it.
+
+        This is the chip-20260807 shape: a staged durable artifact the agent
+        never committed. --force would have deleted it with no trace and no
+        error.
+        """
+        wt, _ = self._worktree("artifact1")
+        artifact = os.path.join(wt, "design_review_staged.md")
+        with open(artifact, "w") as f:
+            f.write("# real work nobody else has a copy of\n")
+        removed, detail = self.ex.remove_worktree(self.repo, wt)
+        self.assertFalse(removed)
+        self.assertTrue(os.path.exists(wt))
+        self.assertTrue(os.path.exists(artifact))
+        with open(artifact) as f:
+            self.assertIn("real work", f.read())
+        self.assertIn("design_review_staged.md", detail)
+
+    def test_untracked_artifact_inside_a_new_directory_is_reported_by_file(self):
+        """`-uall`: an untracked DIRECTORY must not hide its contents.
+
+        Plain porcelain collapses this to `?? out/`, which tells an operator
+        nothing about what is actually at risk.
+        """
+        wt, _ = self._worktree("artifact2")
+        os.makedirs(os.path.join(wt, "out"))
+        with open(os.path.join(wt, "out", "analysis.md"), "w") as f:
+            f.write("findings\n")
+        removed, detail = self.ex.remove_worktree(self.repo, wt)
+        self.assertFalse(removed)
+        self.assertIn("out/analysis.md", detail)
+
+    def test_modified_tracked_file_is_kept(self):
+        """Uncommitted edits to a tracked file are unrecoverable too."""
+        wt, _ = self._worktree("dirty1")
+        with open(os.path.join(wt, "seed.txt"), "w") as f:
+            f.write("edited but never committed\n")
+        removed, detail = self.ex.remove_worktree(self.repo, wt)
+        self.assertFalse(removed)
+        self.assertTrue(os.path.exists(wt))
+        with open(os.path.join(wt, "seed.txt")) as f:
+            self.assertIn("never committed", f.read())
+        self.assertIn("seed.txt", detail)
+
+    # -- the premise the empty-scratch-set claim rests on ---------------------
+
+    def test_run_log_lands_outside_the_worktree(self):
+        """This lane writes NOTHING untracked into the job's worktree.
+
+        That is why remove_worktree needs no known-scratch exclusion, unlike the
+        IGW and metaworker lanes (which write IGW_START_HERE.md / .dispatch_pid /
+        DISPATCH_BRIEF.md / claude.log into theirs and must clear a bounded
+        disposable set before a plain remove can collect anything). LOG_DIR is
+        derived from __file__, so the log lands beside the executor. If that
+        ever changes, the plain remove starts refusing on every job and this
+        test is where it gets caught.
+        """
+        wt, _ = self._worktree("logsite1")
+        log_path = os.path.join(self.tmp, "logs", "dispatch-logsite1.log")
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        fake_bin = os.path.join(self.tmp, "fake-claude")
+        with open(fake_bin, "w") as f:
+            f.write("#!/usr/bin/env bash\n"
+                    'echo \'{"result":"ok","is_error":false}\'\n')
+        os.chmod(fake_bin, 0o755)
+        old_bin = self.ex.CLAUDE_BIN
+        self.ex.CLAUDE_BIN = fake_bin
+        try:
+            code, _summary, _tail = self.ex.run_claude("do it", wt, log_path)
+        finally:
+            self.ex.CLAUDE_BIN = old_bin
+        self.assertEqual(code, 0)
+        self.assertTrue(os.path.exists(log_path))
+        # The log is NOT in the worktree, so the worktree is still pristine...
+        status = subprocess.run(["git", "-C", wt, "status", "--porcelain", "-uall"],
+                                capture_output=True, text=True)
+        self.assertEqual(status.stdout.strip(), "",
+                         "run_claude left untracked files in the worktree: %r"
+                         % status.stdout)
+        # ...and therefore still collectable by the un-forced remove.
+        removed, detail = self.ex.remove_worktree(self.repo, wt)
+        self.assertTrue(removed, detail)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

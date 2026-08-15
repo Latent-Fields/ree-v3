@@ -6,8 +6,10 @@ Polls the hub dispatch service for `pending` jobs, claims one atomically, runs
 reports the outcome back (which the service turns into a phone push via ntfy).
 
 This runs on the machine that HAS the repo checkout + an authenticated Claude
-Code CLI (the Mac). It does ONE job at a time. It never merges or deletes the
-worktree -- like a chip, the work is left in a branch for the user to review.
+Code CLI (the Mac). It does ONE job at a time. It never merges the worktree --
+like a chip, the work is left in a branch for the user to review. It does not
+delete it either unless DISPATCH_KEEP_WORKTREE=0 is set explicitly, and even
+then only when git agrees the tree is clean (see remove_worktree).
 
 Why a worktree: it mirrors the spawn_task chip model (isolated copy), so a
 dispatched session can't disturb the user's working tree.
@@ -37,7 +39,11 @@ Env:
                           prompt; configure this to match how autonomous you
                           want dispatched sessions to be. See deploy/README.md.
   DISPATCH_JOB_TIMEOUT    seconds before a job is killed (default 3600)
-  DISPATCH_KEEP_WORKTREE  "1" keep (default), "0" remove on success
+  DISPATCH_KEEP_WORKTREE  "1" keep (default), "0" remove on success. The
+                          removal is NEVER forced: a worktree holding untracked
+                          or modified files is kept and reported instead, since
+                          an untracked file there has no git object and no
+                          recovery path. See remove_worktree.
   DISPATCH_ONESHOT        "1" process at most one job then exit (for testing)
 
 Routing (why a job can be REFUSED instead of run)
@@ -329,8 +335,77 @@ def make_worktree(repo, job_id):
     return wt, branch, None
 
 
+def worktree_dirt(wt):
+    """Porcelain lines for whatever would block a plain `git worktree remove`.
+
+    `-uall` so an untracked DIRECTORY expands to its files -- plain porcelain
+    collapses it to a single `?? dir/` line, which would hide every file inside
+    it from the report. Ignored files are deliberately absent: git's own check
+    does not count them, so they neither block a removal nor need reporting.
+
+    Best-effort. On a git error this returns [] and the caller just logs a less
+    specific reason -- it is a REPORTING aid, never the gate. The gate is git's
+    own check inside `worktree remove`, which stays armed regardless.
+    """
+    res = _run(["git", "-C", wt, "status", "--porcelain", "-uall"])
+    if res.returncode != 0:
+        return []
+    return [ln for ln in res.stdout.splitlines() if ln.strip()]
+
+
 def remove_worktree(repo, wt):
-    _run(["git", "-C", repo, "worktree", "remove", "--force", wt])
+    """Remove the job's worktree, but only if git agrees it is clean.
+
+    Returns (removed, detail) -- the caller reports `detail` when a worktree is
+    kept, so a refusal is visible rather than silent.
+
+    NO `--force`, DELIBERATELY. `git worktree remove` refuses on any untracked
+    non-ignored file or modified tracked file, and `--force` bypasses precisely
+    that check -- the last line of defence against an untracked DURABLE ARTIFACT
+    a headless agent staged in here. An untracked file has no git object of any
+    kind: no commit, no stash, no reflog, no recovery whatsoever once the
+    directory is gone. That is the mechanism of the confirmed, permanently
+    unrecoverable loss in chip-20260807-thoughtdigestion-trial-5 (metaworker
+    HEADLESS WORKER CONTRACT rule 6), and it is the same defect class fixed in
+    hygiene_routine_tick.py (REE_Working 817f2524) and igw_routine_tick.py
+    (REE_Working 39f62c88).
+
+    WHY THIS LANE NEEDS NO KNOWN-SCRATCH EXCLUSION, unlike those two. Both of
+    them write their own bookkeeping into the worktree and never `git add` it
+    (IGW_START_HERE.md + claude.log; .dispatch_pid + DISPATCH_BRIEF.md +
+    claude.log), so for them the plain form alone would refuse on every worktree
+    forever and collect nothing -- hence `classify_untracked`, a bounded
+    disposable set cleared before a plain remove. THIS lane writes nothing at
+    all into the worktree: LOG_DIR is derived from `__file__`, so run_claude's
+    log lands beside the executor, not in the job's tree (pinned by
+    test_run_log_lands_outside_the_worktree). The disposable set here is
+    therefore EMPTY, and the plain form is sufficient by itself. Do not port
+    those lanes' filenames across -- they are a different set for a different
+    directory, and an exclusion list that names files this lane never writes
+    would only be a licence to delete an agent's real output.
+
+    The normal success path still collects. A dispatched job is expected to
+    COMMIT its work -- the branch is what the user reviews (see module
+    docstring) -- which leaves a clean tree that git removes happily, with the
+    branch keeping the commits. What survives a refusal is content that exists
+    nowhere else, and keeping that is the correct outcome, not a failure.
+
+    Note git's own failure text ("use --force to delete it") steers a reader
+    straight back into the one flag this function exists to avoid. Do not take
+    that advice: an operator who sees a kept worktree should look at what is in
+    it, not force it away.
+    """
+    res = _run(["git", "-C", repo, "worktree", "remove", wt])
+    if res.returncode == 0:
+        return True, "removed"
+    lines = (res.stderr or "").strip().splitlines()
+    reason = lines[-1].strip() if lines else "rc=%d" % res.returncode
+    dirt = worktree_dirt(wt)
+    if dirt:
+        reason += " -- holding: " + ", ".join(dirt[:8])
+        if len(dirt) > 8:
+            reason += " (+%d more)" % (len(dirt) - 8)
+    return False, reason
 
 
 def run_claude(prompt, cwd, log_path):
@@ -405,7 +480,12 @@ def process(job):
     update(job_id, status, exit_code=code, summary=full_summary[:280],
            log_tail=tail)
     if status == "done" and not KEEP_WORKTREE:
-        remove_worktree(repo, wt)
+        removed, detail = remove_worktree(repo, wt)
+        if not removed:
+            # Not a job failure -- the work succeeded. But the worktree holds
+            # content git will not let us destroy, so say so by name instead of
+            # dropping it on the floor (the old call ignored the return code).
+            log("KEPT worktree %s: %s" % (wt, detail))
     log("%s %s (exit %d)" % (status.upper(), job_id, code))
     return True
 
