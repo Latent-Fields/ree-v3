@@ -113,7 +113,7 @@ echo
 echo "=== Step 3: poll /shadow/status for lifecycle=live ==="
 if [[ "$DRY_RUN" -eq 1 ]]; then
   echo "DRY-RUN: would poll $COORDINATOR_URL/shadow/status every ${POLL_INTERVAL}s"
-  echo "         until ree-cloud-1..4 + DLAPTOP-4.local all show lifecycle_state=live"
+  echo "         until ree-cloud-1..4 + the Mac (any DLAPTOP/DLAPTOP-N.local alias) show lifecycle_state=live"
   echo "         (timeout ${TIMEOUT_SECONDS}s); skipping in dry-run"
   exit 0
 fi
@@ -131,9 +131,13 @@ while true; do
     sleep "$POLL_INTERVAL"
     continue
   }
-  # Build a "needed but not-live" list. Mac (DLAPTOP-4.local) is also
-  # required and IS expected to be live on the operator's machine
-  # because they're running this script there.
+  # Build a "needed but not-live" list. Mac (canonical name DLAPTOP; also
+  # reported as DLAPTOP-4.local/DLAPTOP-5.local depending on macOS
+  # LocalHostName drift -- see ree-v3/machine_identity.py) is also required
+  # and IS expected to be live on the operator's machine because they're
+  # running this script there. The Mac's peer counts as live if seen under
+  # ANY of its known aliases, so this check does not depend on which name
+  # happened to be in force when the heartbeat landed.
   # NOTE: parse via `if ! VAR=$(...)` so an unparseable JSON response does
   # NOT silently produce an empty PENDING -- the empty-pending branch below
   # treats empty as "all live", which combined with a python KeyError /
@@ -141,13 +145,20 @@ while true; do
   if ! PENDING=$(echo "$SNAPSHOT" | "$PYTHON" -c "
 import json, sys
 d = json.load(sys.stdin)
-needed = {'ree-cloud-1','ree-cloud-2','ree-cloud-3','ree-cloud-4','DLAPTOP-4.local'}
+cloud_needed = {'ree-cloud-1','ree-cloud-2','ree-cloud-3','ree-cloud-4'}
+mac_aliases = {'DLAPTOP', 'DLAPTOP-4.local', 'DLAPTOP-5.local'}
 seen = {m['machine']: m.get('lifecycle_state','?') for m in d.get('machines', [])}
 pending = []
-for n in sorted(needed):
+for n in sorted(cloud_needed):
     state = seen.get(n, 'missing')
     if state != 'live':
         pending.append(f'{n}={state}')
+mac_states = {a: seen[a] for a in mac_aliases if a in seen}
+mac_live = any(s == 'live' for s in mac_states.values())
+if not mac_live:
+    label = '/'.join(sorted(mac_states)) or 'DLAPTOP'
+    state = '/'.join(sorted(set(mac_states.values()))) or 'missing'
+    pending.append(f'{label}={state}')
 print('|'.join(pending))
 " 2>/dev/null); then
     echo "  WARN: /shadow/status returned unparseable response; retrying"
