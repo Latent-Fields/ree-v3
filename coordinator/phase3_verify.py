@@ -29,6 +29,14 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 DEFAULT_ENV = Path.home() / "REE_Working" / "REE_assembly" / "coordinator.env"
 
+# machine_identity.py lives one directory up (ree-v3/), not in coordinator/
+# itself. Needed so _check_local_worker_env compares hostnames through
+# canonical_machine_name() instead of raw ==, which breaks under macOS
+# LocalHostName suffix drift (DLAPTOP-4.local <-> DLAPTOP-5.local, see that
+# module's docstring).
+sys.path.insert(0, str(HERE.parent))
+from machine_identity import same_machine  # noqa: E402
+
 # Required prefixes on every commit attributable to the sync_daemon writer.
 # Mirrors the constants declared in sync_daemon.py; if those drift, both the
 # writer and this guard need updating together (same coupling rationale as
@@ -39,10 +47,11 @@ WRITER_COMMIT_PREFIXES = (
     "phase3-heartbeats: ",
 )
 
-# Workers under systemd control. DLAPTOP-4.local is the developer Mac;
+# Workers under systemd control. DLAPTOP (the developer Mac; canonical form,
+# see machine_identity.py -- aliases DLAPTOP-4.local/DLAPTOP-5.local) is
 # treated specially (local env probe rather than SSH).
 CLOUD_WORKERS = ("ree-cloud-1", "ree-cloud-2", "ree-cloud-3", "ree-cloud-4")
-LOCAL_WORKER = "DLAPTOP-4.local"
+LOCAL_WORKER = "DLAPTOP"
 ALL_WORKERS = CLOUD_WORKERS + (LOCAL_WORKER,)
 
 # Hub paths (mirror phase3_preflight).
@@ -260,7 +269,7 @@ def _check_local_worker_env(env_keys, journal_needle):
     note so the operator knows to verify it by hand.
     """
     host = socket.gethostname()
-    if host != LOCAL_WORKER:
+    if not same_machine(host, LOCAL_WORKER):
         return ("SKIP",
                 "local worker %s not reachable (verifier on %s)"
                 % (LOCAL_WORKER, host),
