@@ -51,25 +51,39 @@ def _store(context_dim: int = 4, **kw) -> SuperOrdinalGoalMemory:
     )
 
 
-def _ctx(*vals) -> torch.Tensor:
-    return torch.tensor([list(vals)], dtype=torch.float32)
+def _onehot(dim: int, i: int, eps: float = 0.0) -> torch.Tensor:
+    """A [1, dim] near-one-hot row. `eps` perturbs it into a near-duplicate."""
+    v = torch.zeros(1, dim, dtype=torch.float32)
+    v[0, i] = 1.0 - eps
+    v[0, (i + 1) % dim] = eps
+    return v
+
+
+def _probe(s: SuperOrdinalGoalMemory) -> torch.Tensor:
+    """The query used to compare retrieval behaviour across a round-trip."""
+    return _onehot(s.context_dim, 0)
 
 
 def _mutate(s: SuperOrdinalGoalMemory) -> None:
     """Drive the store off its zero-init into a non-trivial live state.
 
+    Dimension-aware on purpose: the standalone fixtures use a 4-d context but
+    a real REEAgent builds this store at the live z_world/z_goal widths (S5),
+    and a hardcoded width silently mis-sizes there.
+
     Deliberately exercises BOTH write branches (allocate a fresh slot, then
     reinforce a near-duplicate) so the round-trip is not vacuously comparing
     two zero tensors -- the failure mode a naive round-trip test has.
     """
-    s.write(_ctx(1.0, 0.0, 0.0, 0.0), _ctx(0.9, 0.1, 0.0, 0.0), salience=1.0,
+    cd, gd = s.context_dim, s.goal_dim
+    s.write(_onehot(cd, 0), _onehot(gd, 0, 0.1), salience=1.0,
             context_complexity=1.0)
-    s.write(_ctx(0.0, 1.0, 0.0, 0.0), _ctx(0.0, 0.8, 0.2, 0.0), salience=1.0,
+    s.write(_onehot(cd, 1), _onehot(gd, 1, 0.2), salience=1.0,
             context_complexity=1.0)
     # near-duplicate of slot 0 -> reinforce rather than allocate
-    s.write(_ctx(0.99, 0.01, 0.0, 0.0), _ctx(0.7, 0.3, 0.0, 0.0), salience=1.0,
+    s.write(_onehot(cd, 0, 0.01), _onehot(gd, 0, 0.3), salience=1.0,
             context_complexity=1.0)
-    s.retrieve(_ctx(1.0, 0.0, 0.0, 0.0))
+    s.retrieve(_probe(s))
     s.note_seed()
 
 
@@ -97,7 +111,7 @@ def test_s1_super_ordinal_goal_memory_round_trips_bit_identically():
 
     # Behavioural equality, not just field equality: the restored store must
     # answer the same query the same way (this is what "resume" actually means).
-    q = _ctx(1.0, 0.0, 0.0, 0.0)
+    q = _probe(src)
     ra, rb = src.retrieve(q), dst.retrieve(q)
     assert ra is not None and rb is not None
     assert torch.equal(ra[0], rb[0])
@@ -213,7 +227,7 @@ def test_s4_centering_is_behaviour_bearing_and_absent_from_state_dict():
     assert off._baseline is not None
     assert off.centering is False
 
-    q = _ctx(1.0, 0.05, 0.0, 0.0)
+    q = _onehot(on.context_dim, 0, 0.05)
     m_on = on.retrieve(q)
     m_off = off.retrieve(q)
     assert m_on is not None and m_off is not None
@@ -309,8 +323,8 @@ def test_s6_ewc_anchor_is_dropped_silently_by_state_dict():
     """
     src = _field_with_anchor()
     assert src.ewc_anchored is True
-    p_src = src.ewc_penalty()
-    assert float(p_src) > 0.0, "fixture failed to produce a live EWC penalty"
+    p_src = float(src.ewc_penalty().detach())
+    assert p_src > 0.0, "fixture failed to produce a live EWC penalty"
 
     sd = copy.deepcopy(src.state_dict())
     assert not [k for k in sd if "ewc" in k.lower()], (
@@ -327,7 +341,7 @@ def test_s6_ewc_anchor_is_dropped_silently_by_state_dict():
     dst.load_state_dict(sd)          # succeeds, strict=True, no complaint
 
     assert dst.ewc_anchored is False
-    assert float(dst.ewc_penalty()) == 0.0, (
+    assert float(dst.ewc_penalty().detach()) == 0.0, (
         "the silent-loss failure mode did not reproduce; re-derive the "
         "Increment-2 worst case before trusting the cost estimate"
     )
@@ -357,7 +371,7 @@ def test_s7_ewc_anchor_capture_restore_is_four_keys():
     the Increment-2 go/no-go gate is decided.
     """
     src = _field_with_anchor()
-    p_src = float(src.ewc_penalty())
+    p_src = float(src.ewc_penalty().detach())
     assert p_src > 0.0
 
     from ree_core.residue.field import ResidueConfig, ResidueField
@@ -372,7 +386,7 @@ def test_s7_ewc_anchor_capture_restore_is_four_keys():
     for k in _EWC_KEYS[1:]:
         assert torch.equal(getattr(src, k), getattr(dst, k)), f"{k} diverged"
     # Bit-equal penalty is the behavioural proof, not just field equality.
-    assert float(dst.ewc_penalty()) == p_src
+    assert float(dst.ewc_penalty().detach()) == p_src
 
 
 def test_s7b_harm_history_is_dropped_too():
