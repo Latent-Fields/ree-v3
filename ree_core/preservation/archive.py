@@ -276,3 +276,100 @@ class S3Archive(_BaseArchive):
 
     def _read(self, key: str) -> bytes:
         return self.client.get_object(Bucket=self.bucket, Key=key)["Body"].read()
+
+
+# --------------------------------------------------------------------------- #
+# Fan-out to >1 backend (the >1-copy rule) + env-driven construction          #
+# --------------------------------------------------------------------------- #
+
+class MultiArchive:
+    """Store a record in EVERY backend, so no single provider holds the only copy.
+
+    This is the operational form of the ">1 copy" rule in the plan doc: give it
+    e.g. [Hetzner S3, Scaleway S3] and one `put` lands the record in both. It is
+    IDEMPOTENT -- a backend that already holds the record (append-only) is reported
+    as "exists" rather than raising -- so re-running a deposit is safe.
+    """
+
+    def __init__(self, archives, names=None):
+        self.archives = list(archives)
+        if not self.archives:
+            raise ValueError("MultiArchive needs at least one backend")
+        self.names = list(names) if names else [
+            getattr(a, "name", "archive%d" % i) for i, a in enumerate(self.archives)
+        ]
+
+    def put(self, record) -> Dict[str, Dict[str, str]]:
+        """Deposit into every backend. Returns {name: {status, key}} per backend."""
+        out: Dict[str, Dict[str, str]] = {}
+        for name, a in zip(self.names, self.archives):
+            key = a.object_key(record)
+            if a.exists(record):
+                out[name] = {"status": "exists", "key": key}
+            else:
+                out[name] = {"status": "written", "key": a.put(record)}
+        return out
+
+    def verify(self, record) -> Dict[str, bool]:
+        """Read the record back from every backend and confirm integrity + identity."""
+        out: Dict[str, bool] = {}
+        for name, a in zip(self.names, self.archives):
+            try:
+                rec = a.load(a.object_key(record))
+                out[name] = rec.integrity == record.integrity
+            except Exception:  # noqa: BLE001 - any failure is a failed verify
+                out[name] = False
+        return out
+
+
+def s3_archive_from_env(group: str, *, encryptor: Optional[Any] = None,
+                        client_factory: Optional[Callable[..., Any]] = None) -> "S3Archive":
+    """Build an S3Archive from a group of environment variables.
+
+    Reads (for GROUP=e.g. HETZNER / SCALEWAY, so two providers get INDEPENDENT
+    credentials -- one shared AWS_* env cannot serve two providers):
+
+        REE_PRESERVE_<GROUP>_ENDPOINT   (required)  e.g. https://fsn1.your-objectstorage.com
+        REE_PRESERVE_<GROUP>_BUCKET     (required)
+        REE_PRESERVE_<GROUP>_KEY_ID     (required)  the provider's S3 access key
+        REE_PRESERVE_<GROUP>_SECRET     (required)  the provider's S3 secret
+        REE_PRESERVE_<GROUP>_REGION     (default eu-central-1)
+        REE_PRESERVE_<GROUP>_PREFIX     (default "")
+
+    Credentials are read from the environment and handed straight to the S3 client;
+    this function never logs or persists them. Pass one shared `encryptor` (e.g.
+    AesGcmEncryptor.from_env()) so every provider stores the same ciphertext scheme.
+    `client_factory` is injectable for testing; the default builds a boto3 client
+    (imported lazily).
+    """
+    g = group.upper()
+
+    def _env(name: str, default: Optional[str] = None, required: bool = False) -> Optional[str]:
+        key = "REE_PRESERVE_%s_%s" % (g, name)
+        val = os.environ.get(key, default)
+        if required and not val:
+            raise ValueError("environment variable %r is not set" % key)
+        return val
+
+    endpoint = _env("ENDPOINT", required=True)
+    bucket = _env("BUCKET", required=True)
+    key_id = _env("KEY_ID", required=True)
+    secret = _env("SECRET", required=True)
+    region = _env("REGION", "eu-central-1")
+    prefix = _env("PREFIX", "") or ""
+
+    if client_factory is None:
+        def client_factory(**kw):  # lazy boto3
+            import boto3
+            return boto3.client("s3", **kw)
+
+    client = client_factory(
+        endpoint_url=endpoint,
+        region_name=region,
+        aws_access_key_id=key_id,
+        aws_secret_access_key=secret,
+    )
+    archive = S3Archive(bucket, endpoint_url=endpoint, client=client,
+                        encryptor=encryptor, prefix=prefix)
+    archive.name = group.lower()  # for MultiArchive reporting
+    return archive

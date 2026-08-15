@@ -36,6 +36,8 @@ from ree_core.preservation.archive import (
     AesGcmEncryptor,
     LocalArchive,
     S3Archive,
+    MultiArchive,
+    s3_archive_from_env,
 )
 from ree_core.preservation.token import (
     export_token,
@@ -49,6 +51,8 @@ __all__ = [
     "AesGcmEncryptor",
     "LocalArchive",
     "S3Archive",
+    "MultiArchive",
+    "s3_archive_from_env",
     "export_token",
     "record_key_line",
     "parse_key_line",
