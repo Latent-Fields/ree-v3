@@ -6,26 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-603u",
-      "title": "MECH-357 agent-directed hazard pursuit Stage-H retest (6th pressure candidate; 603s+directedness)",
-      "script": "experiments/v3_exq_603u_instrumental_avoidance_agent_pursuit.py",
-      "priority": 40,
-      "machine_affinity": "any",
-      "estimated_minutes": 120,
-      "supersedes": null,
-      "claim_id": "MECH-357",
-      "note": "6th and final pressure-mechanism candidate for the MECH-357 Stage-H readiness test. 603u = 603s + DIRECTEDNESS: keeps 603s mobile drift (env_drift_interval=1/prob=0.6) and adds hazard_agent_pursuit=0.9 (single isolated change vs 603s) so a moving hazard chases the agent's current cell, removing 603s's spawn-lottery confound (undirected drift -> exact tie G_H_INTACT=G_H_LESION=0.6667; 603t scheduled adjacency -> LESION ceiling 1.0). PRIMARY: G_H_INTACT>=2/3 AND G_H_INTACT_frac>G_H_LESION_frac; two-sided headroom guard self-routes a mis-calibrated pressure to substrate_not_ready_requeue. CLEARS MECH-357 re-derive brake (count=2: 603s 2026-08-10, 603t 2026-08-13): the 603t autopsy recommended_substrate_queue_entry names this exact build; env primitive hazard_agent_pursuit landed ree-v3 39b5ca8, Stage-H threading landed this session (intelligent-elgamal-222d2b). GOV-REUSE-1: agent-directed pursuit is a new manipulation in no recorded manifest -> ran fresh. 2.5c: runs under known DEGRADING defect SD-MECH303-THRESHOLD-SOURCING on causal_grid_world.py (non-blocking). The avoidance_efficacy eligibility-trace leak:learn imbalance is filed as a SEPARATE substrate_queue line item; it does not confound the G_H window (scaffold_floor covers Stage-H). Design doc: REE_assembly/evidence/planning/mech357_agent_pursuit_build_2026-08-14.md.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-08-14T06:53:53Z"
-      },
-      "conditions": 3,
-      "episodes_per_run": 235,
-      "experiment_type": "v3_exq_603u_instrumental_avoidance_agent_pursuit",
-      "seeds": 3
-    }
-  ]
+  "items": []
 }
