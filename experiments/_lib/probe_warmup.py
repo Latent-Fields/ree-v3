@@ -65,13 +65,32 @@ DESIGN DECISIONS (user-confirmed 2026-07-18)
 
 THREE HAZARDS THIS MODULE DEFENDS AGAINST
 -----------------------------------------
-(H1) e3._running_variance IS NOT IN state_dict. It is a plain Python float
-     (ree_core/predictors/e3_selector.py:291), not a register_buffer, and it feeds
-     commit_variance at e3_selector.py:2703 -- directly upstream of the very probs
-     distribution D_action_mass measures. A naive state_dict-only cache would make
-     cache-HIT and cache-MISS agents differ in commit behaviour, SILENTLY. We
-     therefore carry the declared non-buffer E3 scalars explicitly in the blob and
-     assert the round trip.
+(H1) THE NON-state_dict ATTRIBUTE SURFACE IS NOT IN state_dict, AND IT IS NOT JUST
+     E3. `nn.Module.state_dict()` carries registered Parameters and buffers only;
+     every plain-Python attribute hanging off the agent's 121-module tree (465 of
+     them at construction, 587 once warmed) is silently dropped. The load-bearing
+     ones are agent-level EXPERIENCE BUFFERS, not E3 scalars --
+     `_self_experience_buffer`, `_world_experience_buffer`, `_e2_transition_buffer`,
+     which `agent.compute_prediction_loss()` (ree_core/agent.py:9970) samples a
+     RANDOM WINDOW from on every warmup_train tick. A read that grows them puts
+     eval-rollout observations into the E1 TRAINING POOL. They cap at 1000
+     (agent.py:5319) and V3-EXQ-784's realised reads are 1081-1401 env steps, so one
+     read fully DISPLACES the pool. e3._running_variance (e3_selector.py:291, feeds
+     commit_variance at :2703) is a real member of this surface but a small one.
+
+     This module therefore captures and restores the WHOLE surface mechanically --
+     see capture_agent_surface() -- rather than a hand-listed set of names. The
+     hand-listed version (`_E3_NONBUFFER_STATE`, removed 2026-08-15) is exactly how
+     this defect arose: it named four E3 attributes, one of which
+     (`_last_error_var`) does not exist anywhere in ree_core, while the channel that
+     actually moved the dependent variable was not in E3 at all.
+
+     Measured (probe_warmup_nonbuffer_audit_2026-08-15.md, governance flag
+     GFLAG-0036): under the hand-listed restore a single 40-step read left 21
+     attributes changed, 17 of them surviving agent.reset(); replicating V3-EXQ-784's
+     ladder at its real scale, restoring the full surface changed the dependent
+     variable in 6 of 6 post-first-read cells and FLIPPED the saturation regime in
+     2 of 6. V3-EXQ-784's informative_yield is provisional as a result.
 
 (H2) PER-SEED CHECKPOINT SHARING ACROSS ARMS. The 2x2's arms differ only in
      use_tonic_vigor / use_noise_floor, and both regulators are documented
@@ -130,13 +149,16 @@ ASCII-only output (CLAUDE.md).
 
 from __future__ import annotations
 
+import collections
 import copy
 import math
 import os
+import pickle
 import sys
+import types
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, FrozenSet, List, Mapping, Optional, Sequence, Tuple
 
 import torch
 
@@ -167,8 +189,11 @@ __all__ = [
     "PROBE_WARMUP_SCHEMA",
     "WarmupRecipe",
     "WarmupOutcome",
+    "AgentSurface",
     "warm_agent",
     "measure_action_mass",
+    "capture_agent_surface",
+    "restore_agent_surface",
     "saturation_regime",
     "saturation_summary",
     "assert_state_dict_shareable",
@@ -177,7 +202,10 @@ __all__ = [
     "NoInformativeSeeds",
 ]
 
-PROBE_WARMUP_SCHEMA = "probe_warmup.v1"
+# v2 (2026-08-15): the warm-start blob carries the WHOLE non-state_dict attribute
+# surface, not the four hand-listed E3 scalars of v1. The schema string is part of
+# the cache key, so every v1 blob auto-MISSes rather than restoring a partial agent.
+PROBE_WARMUP_SCHEMA = "probe_warmup.v2"
 
 # Saturation bounds. Deliberately IDENTICAL to V3-EXQ-777a's D_SAT_LOW / D_SAT_HIGH
 # (script:246-247) so this substrate's success criterion is expressed in the SAME
@@ -189,17 +217,255 @@ D_SAT_HIGH = 0.95
 # CausalGridWorldV2 ACTIONS[4] = (0,0) = stay/no-op. Mirrors 777a:226.
 NOOP_CLASS = 4
 
-# E3 state that is NOT in state_dict (hazard H1). Plain Python attributes set in
-# E3Selector.__init__; each is captured if present and restored on a cache hit.
-# _running_variance is the load-bearing one (feeds commit_variance, e3_selector.py:2703);
-# the others are accumulators whose omission would make a HIT agent subtly younger
-# than a MISS agent.
-_E3_NONBUFFER_STATE: Tuple[str, ...] = (
-    "_running_variance",   # e3_selector.py:291  -- float, EMA of PE-MSE
-    "_rv_history",         # e3_selector.py:312  -- deque(maxlen=100)
-    "_novelty_ema",        # e3_selector.py:268  -- float
-    "_last_error_var",     # SD-069 instantaneous-PE source, if present
+# nn.Module's OWN bookkeeping keys, derived from a live probe instance rather than
+# hardcoded so a torch upgrade that adds one is excluded automatically. `training`
+# is deliberately ADDED BACK to the captured surface: agent.eval() flips it on all
+# 121 submodules, and the agent-level `agent.train()` that used to undo that would
+# wrongly wake a submodule the caller had deliberately left in eval mode.
+_MODULE_INTERNALS: FrozenSet[str] = frozenset(vars(torch.nn.Module()).keys()) - {"training"}
+
+# Leaves that are STATE-FREE at attribute level and must be carried by REFERENCE.
+# The live case is hippocampal._rng, which defaults to the stdlib `random` MODULE
+# itself (ree_core/hippocampal/module.py:186) -- copying a module object is both
+# impossible (TypeError: cannot pickle 'module' object) and wrong, since its state
+# is process-global. See the GLOBAL RNG note on measure_action_mass.
+_BY_REFERENCE_TYPES: Tuple[type, ...] = (
+    types.ModuleType,
+    types.FunctionType,
+    types.BuiltinFunctionType,
+    types.MethodType,
+    type,
 )
+
+_ATOMIC_TYPES: Tuple[type, ...] = (bool, int, float, complex, str, bytes)
+
+
+# ---------------------------------------------------------------------------
+# Non-state_dict attribute surface: mechanical capture / restore (hazard H1).
+# ---------------------------------------------------------------------------
+
+@dataclass
+class AgentSurface:
+    """One snapshot of everything on the agent that state_dict() does not carry.
+
+    `entries` is (module, module_path, {attr_name: copied_value}, frozenset(names))
+    per module in the agent's tree. The name set is kept SEPARATELY from the value
+    dict so restore can also DELETE attributes the read ADDED -- which is not a
+    hypothetical: measure_action_mass installs the hazard-H3 generate_trajectories
+    capture as an instance attribute, and without the delete each read would wrap
+    the previous read's wrapper, growing call depth by one per read forever.
+
+    `by_reference` names attributes that could not be copied and are therefore NOT
+    protected. It is expected to be EMPTY under every config that uses this module;
+    the contract pins that, so a new uncopyable attribute fails loudly and gets
+    classified rather than silently leaking. Do not read a non-empty list as benign.
+    """
+
+    entries: List[Tuple[Any, str, Dict[str, Any], FrozenSet[str]]]
+    by_reference: List[str]
+    n_modules: int
+    n_attrs: int
+
+    def report(self) -> Dict[str, Any]:
+        return {
+            "n_modules": int(self.n_modules),
+            "n_attrs": int(self.n_attrs),
+            "n_by_reference": len(self.by_reference),
+            "by_reference": list(self.by_reference),
+        }
+
+
+def _copy_state(value: Any, memo: Dict[int, Any], by_reference: List[str], path: str) -> Any:
+    """Structural deep copy with a by-reference floor. Never raises.
+
+    THIS IS DELIBERATELY NOT `copy.deepcopy`, and the reason is a real bug rather
+    than taste. A plain deepcopy of a live REEAgent attribute fails on the four
+    trajectory-shaped attributes (`_committed_candidates`,
+    `_last_e3_selection_result`, e3._persistent_committed_trajectory,
+    e3._last_selected_trajectory) because Trajectory.metadata can hold a module
+    object. Worse, deepcopy fails *midway*: `copy._reconstruct` registers the
+    half-built, EMPTY object in the shared memo BEFORE deep-copying its state, so a
+    fallback that then consults that same memo hands back an empty Trajectory and the
+    restore silently WIPES four behaviour-bearing attributes. Measured: 4 residual
+    drifts that read as "restored" until the object was inspected.
+
+    Two properties that are load-bearing and must survive any refactor:
+
+      * `memo` is PRE-SEEDED with every live nn.Module in the tree, so an attribute
+        holding a reference to a submodule keeps pointing at the LIVE module rather
+        than at a detached clone whose parameters no optimiser owns.
+      * `memo` is SHARED across the whole capture, so two attributes aliasing one
+        object still alias one object after the restore.
+    """
+    key = id(value)
+    if key in memo:
+        return memo[key]
+    if value is None or isinstance(value, _ATOMIC_TYPES) or isinstance(value, _BY_REFERENCE_TYPES):
+        return value
+    if torch.is_tensor(value):
+        out = value.detach().clone()
+        memo[key] = out
+        return out
+    if isinstance(value, torch.nn.Module):
+        # Not in memo => a module hanging off an attribute but NOT registered in the
+        # agent's tree, so state_dict does not carry it either. Cloning it would
+        # duplicate parameters and break identity; flag it instead of guessing.
+        by_reference.append("%s <unregistered nn.Module>" % path)
+        return value
+    if isinstance(value, list):
+        out_list: List[Any] = []
+        memo[key] = out_list
+        out_list.extend(_copy_state(v, memo, by_reference, path) for v in value)
+        return out_list
+    if isinstance(value, dict):
+        out_dict: Dict[Any, Any] = {}
+        memo[key] = out_dict
+        for k, v in value.items():
+            out_dict[_copy_state(k, memo, by_reference, path)] = _copy_state(v, memo, by_reference, path)
+        return out_dict
+    if isinstance(value, collections.deque):
+        out_deque: Any = collections.deque(maxlen=value.maxlen)
+        memo[key] = out_deque
+        out_deque.extend(_copy_state(v, memo, by_reference, path) for v in value)
+        return out_deque
+    if isinstance(value, tuple):
+        out = tuple(_copy_state(v, memo, by_reference, path) for v in value)
+        memo[key] = out
+        return out
+    if isinstance(value, (set, frozenset)):
+        out = type(value)(_copy_state(v, memo, by_reference, path) for v in value)
+        memo[key] = out
+        return out
+    d = getattr(value, "__dict__", None)
+    if d is not None:
+        try:
+            out = value.__class__.__new__(value.__class__)
+        except Exception:
+            out = None
+        if out is not None:
+            memo[key] = out
+            for k, v in d.items():
+                object.__setattr__(out, k, _copy_state(v, memo, by_reference, path))
+            return out
+    try:
+        # __slots__ objects and anything else without a __dict__. A FRESH memo, so a
+        # failure here cannot poison the shared one (see the docstring).
+        out = copy.deepcopy(value)
+    except Exception:
+        by_reference.append(path)
+        return value
+    memo[key] = out
+    return out
+
+
+def capture_agent_surface(agent: Any) -> AgentSurface:
+    """Snapshot every plain-Python attribute across the agent's module tree.
+
+    Cheap enough to run on every read: ~0.15 s for 587 attributes across 121 modules
+    with 120-entry experience buffers, measured on ree-cloud-5. Pair with
+    restore_agent_surface(); the snapshot is CONSUMED by the restore (its values are
+    installed directly rather than re-copied) so do not restore the same snapshot twice.
+    """
+    memo: Dict[int, Any] = {}
+    modules = list(agent.named_modules())
+    for _path, module in modules:
+        memo[id(module)] = module
+    by_reference: List[str] = []
+    entries: List[Tuple[Any, str, Dict[str, Any], FrozenSet[str]]] = []
+    n_attrs = 0
+    for mpath, module in modules:
+        live = vars(module)
+        names = [n for n in live if n not in _MODULE_INTERNALS]
+        values: Dict[str, Any] = {}
+        for name in names:
+            path = ("%s.%s" % (mpath, name)) if mpath else name
+            values[name] = _copy_state(live[name], memo, by_reference, path)
+        n_attrs += len(names)
+        entries.append((module, mpath, values, frozenset(names)))
+    return AgentSurface(entries=entries, by_reference=by_reference,
+                        n_modules=len(modules), n_attrs=n_attrs)
+
+
+def restore_agent_surface(agent: Any, surface: AgentSurface) -> Dict[str, Any]:
+    """Put every captured attribute back, and delete every attribute the read added.
+
+    In-place for the mutable containers (list / dict / set / deque) when the live
+    object is still the same type, so an external holder of that container -- a
+    closure, another module -- sees the restored contents rather than keeping a
+    reference to the drifted one. Plain `object.__setattr__` otherwise, which writes
+    straight into the module `__dict__` the value came from and therefore cannot
+    accidentally re-register a value as a parameter or submodule.
+
+    `agent` is accepted for symmetry and for the tree-shape check only: the snapshot
+    already holds direct module references.
+    """
+    n_deleted = 0
+    n_inplace = 0
+    n_setattr = 0
+    for module, _mpath, values, names in surface.entries:
+        live = vars(module)
+        for extra in [n for n in list(live) if n not in _MODULE_INTERNALS and n not in names]:
+            try:
+                object.__delattr__(module, extra)
+                n_deleted += 1
+            except Exception:
+                pass
+        for name, value in values.items():
+            current = live.get(name, None)
+            if current is not None and current is not value and type(current) is type(value):
+                if isinstance(current, list):
+                    current[:] = value
+                    n_inplace += 1
+                    continue
+                if isinstance(current, dict):
+                    current.clear()
+                    current.update(value)
+                    n_inplace += 1
+                    continue
+                if isinstance(current, set):
+                    current.clear()
+                    current.update(value)
+                    n_inplace += 1
+                    continue
+                if isinstance(current, collections.deque):
+                    current.clear()
+                    current.extend(value)
+                    n_inplace += 1
+                    continue
+            object.__setattr__(module, name, value)
+            n_setattr += 1
+    report = surface.report()
+    report.update({
+        "n_restored_inplace": n_inplace,
+        "n_restored_setattr": n_setattr,
+        "n_deleted_added_attrs": n_deleted,
+    })
+    return report
+
+
+def _picklable_surface(surface: AgentSurface) -> Tuple[Dict[str, Dict[str, Any]], List[str]]:
+    """Project a captured surface down to what torch.save can actually write.
+
+    The warm-start blob goes through pickle, and the surface legitimately contains
+    values pickle refuses (hippocampal._rng is the stdlib `random` module). Dropping
+    those per-attribute keeps the cache honest -- a dropped attribute is NAMED in the
+    blob and re-reported on load -- instead of letting one unpicklable leaf take the
+    whole cache store down, which is how a cache silently stops existing.
+    """
+    out: Dict[str, Dict[str, Any]] = {}
+    dropped: List[str] = []
+    for _module, mpath, values, _names in surface.entries:
+        keep: Dict[str, Any] = {}
+        for name, value in values.items():
+            try:
+                pickle.dumps(value)
+            except Exception:
+                dropped.append(("%s.%s" % (mpath, name)) if mpath else name)
+                continue
+            keep[name] = value
+        if keep:
+            out[mpath] = keep
+    return out, dropped
 
 
 class NoInformativeSeeds(RuntimeError):
@@ -426,9 +692,14 @@ def measure_action_mass(
     stop GRADIENT updates, but they do not stop either of the two ways this agent
     carries state forward while merely being stepped:
 
-      (a) plain-Python accumulators -- e3._running_variance drifted 0.001839 ->
-          0.001855 over a 25-selection read, and it feeds commit_variance
-          (e3_selector.py:2703);
+      (a) THE PLAIN-PYTHON ATTRIBUTE SURFACE -- 587 attributes across 121 modules,
+          none of them in state_dict. The load-bearing members are the experience
+          buffers `_self_experience_buffer` / `_world_experience_buffer` /
+          `_e2_transition_buffer`, which `agent.compute_prediction_loss()` samples a
+          random window from on every subsequent warmup_train tick, so a read that
+          grows them feeds EVAL-ROLLOUT DATA INTO THE E1 TRAINING POOL. Smaller
+          members drift too (e3._running_variance 0.001839 -> 0.001855 over a
+          25-selection read; it feeds commit_variance at e3_selector.py:2703).
       (b) REGISTERED BUFFERS -- the three-factor plasticity / eligibility traces
           (e3_selector.py:373-462) are updated in-place under no_grad. Measured: two
           agents identical at load diverged by max |dw| = 2.5e-01 after two
@@ -436,8 +707,24 @@ def measure_action_mass(
 
     Both would perturb the very distribution being measured, and would make
     `measure=True` hand back a different agent than `measure=False`. So the full
-    state_dict AND the declared non-buffer scalars are snapshotted and restored --
-    the caller gets back bit-identically the agent it passed in.
+    state_dict (b) AND the whole non-state_dict attribute surface (a) are snapshotted
+    and restored -- the caller gets back bit-identically the agent it passed in.
+
+    Until 2026-08-15 (a) was covered by a hand-listed set of four E3 attribute names,
+    which left 21 attributes drifting per read, 17 of them surviving agent.reset();
+    see hazard H1 in the module docstring for the measured consequence. The
+    verification that this is now genuinely empty is a CONTRACT, not a comment:
+    tests/contracts/test_probe_warmup_nondestructive.py fingerprints the whole
+    surface either side of a real read and requires an EMPTY diff.
+
+    WHAT IS STILL NOT RESTORED, STATED PLAINLY: process-global RNG. The read consumes
+    torch (and stdlib `random`, via hippocampal._rng) draws, so a subsequent training
+    leg starts at a different stream offset than it would have without the read. That
+    is deliberately out of scope here -- it is the CALLER's stage boundary to pin, it
+    is not agent state, and restoring it silently would be an unmeasured semantic
+    change to every consumer. The consequence to know about: two reads of the same
+    restored agent do NOT return the same D_action_mass. A ladder that wants a
+    controlled comparison must re-pin RNG at each stage boundary itself.
 
     BUDGET DENOMINATION. `max_episodes` should be >= `max_env_steps` so the STEP cap
     is what binds; see WarmupRecipe's docstring for why a tight episode cap starves a
@@ -446,12 +733,11 @@ def measure_action_mass(
     budget comes back in the return dict and reaches the manifest, so a read that was
     episode-denominated is visible rather than inferred.
     """
+    surface = capture_agent_surface(agent)
+    _sd_snapshot = copy.deepcopy(agent.state_dict())
+
     if captured is None:
         captured = reapply_candidate_capture(agent)
-
-    # Snapshot everything the rollout can drift (see docstring (a) and (b)).
-    _e3_snapshot = _capture_e3_nonbuffer(agent)
-    _sd_snapshot = copy.deepcopy(agent.state_dict())
 
     harness = StepHarness(agent, env, train_mode=False, seed=seed)
     d_vals: List[float] = []
@@ -470,7 +756,6 @@ def measure_action_mass(
         d_vals.append(float(pp[~mask].sum().item()))
         return {"selections": 1}
 
-    was_training = bool(getattr(agent, "training", False))
     agent.eval()
     try:
         with torch.no_grad():
@@ -489,16 +774,13 @@ def measure_action_mass(
                 progress_label=label,
             )
     finally:
-        if was_training:
-            agent.train()
-        # Undo BOTH drifts this read caused (buffers, then scalars), so the
-        # measurement leaves the warmed agent bit-identical to how it arrived.
+        # Undo BOTH drifts this read caused, so the measurement leaves the warmed
+        # agent bit-identical to how it arrived. state_dict FIRST (it copies into the
+        # live parameter/buffer tensors), then the attribute surface -- which also
+        # restores each module's `training` flag, so the eval() above needs no
+        # explicit undo and cannot wake a submodule the caller left in eval mode.
         agent.load_state_dict(_sd_snapshot)
-        e3 = getattr(agent, "e3", None)
-        if e3 is not None:
-            for _name, _value in _e3_snapshot.items():
-                if hasattr(e3, _name):
-                    setattr(e3, _name, copy.deepcopy(_value))
+        restore_report = restore_agent_surface(agent, surface)
 
     # Realised budget, on BOTH return paths. The zero-selection path needs these most:
     # "collected ZERO selections" reads as a sampling bug, and only the budget fields
@@ -510,6 +792,10 @@ def measure_action_mass(
         "max_episodes": int(outcome.max_episodes),
         "episode_cap_can_bind": bool(outcome.episode_cap_can_bind),
         "floors_met": bool(outcome.floors_met),
+        # Auditable proof that the read was non-destructive, next to the number it
+        # qualifies. `by_reference` non-empty means some attribute could NOT be
+        # protected and this read may have leaked into the next training leg.
+        "restore_report": dict(restore_report),
     }
 
     if not d_vals:
@@ -622,37 +908,64 @@ def _cache_store(key: str, blob: Dict[str, Any], cache_dir: Optional[Path],
             pass
 
 
-def _capture_e3_nonbuffer(agent: Any) -> Dict[str, Any]:
-    """Snapshot the E3 attributes that state_dict() does NOT carry (hazard H1)."""
-    e3 = getattr(agent, "e3", None)
-    if e3 is None:
-        return {}
-    out: Dict[str, Any] = {}
-    for name in _E3_NONBUFFER_STATE:
-        if hasattr(e3, name):
-            out[name] = copy.deepcopy(getattr(e3, name))
-    return out
+def _capture_cached_surface(agent: Any, logger: Callable[[str], None]) -> Dict[str, Any]:
+    """Build the picklable non-state_dict payload for a warm-start cache blob.
+
+    Same capture the read-restore uses, projected down to what pickle accepts, so a
+    cache HIT restores the SAME surface a MISS ends up with rather than four E3
+    scalars (hazard H1). Dropped paths are stored in the blob so the load side can
+    say which state a HIT is missing instead of leaving it to be discovered.
+    """
+    surface = capture_agent_surface(agent)
+    payload, dropped = _picklable_surface(surface)
+    if surface.by_reference:
+        logger("probe_warmup cache: %d attr(s) captured BY REFERENCE and not cached: %s"
+               % (len(surface.by_reference), ", ".join(sorted(surface.by_reference)[:6])))
+    if dropped:
+        logger("probe_warmup cache: %d attr(s) are unpicklable and are NOT cached: %s"
+               % (len(dropped), ", ".join(sorted(dropped)[:6])))
+    return {"attrs": payload, "dropped": sorted(dropped),
+            "by_reference": sorted(surface.by_reference)}
 
 
-def _restore_e3_nonbuffer(agent: Any, state: Mapping[str, Any],
-                          logger: Callable[[str], None]) -> None:
-    e3 = getattr(agent, "e3", None)
-    if e3 is None:
+def _restore_cached_surface(agent: Any, cached: Mapping[str, Any],
+                            logger: Callable[[str], None]) -> None:
+    """Put a cached surface back onto a freshly-constructed agent (cache HIT path)."""
+    payload = cached.get("attrs") or {}
+    if not payload:
+        logger("probe_warmup cache: blob carries NO attribute surface -- a HIT agent "
+               "will differ from a MISS agent in every non-state_dict attribute")
         return
-    for name, value in state.items():
-        if hasattr(e3, name):
-            setattr(e3, name, copy.deepcopy(value))
-        else:
-            logger("probe_warmup: cached E3 attr %s absent on this substrate" % name)
-    # The load-bearing one. If this did not round-trip, a cache-HIT agent would
-    # commit differently from a cache-MISS agent and nothing downstream would say so.
-    if "_running_variance" in state and hasattr(e3, "_running_variance"):
+    modules = dict(agent.named_modules())
+    n_set = 0
+    missing_modules: List[str] = []
+    for mpath, values in payload.items():
+        module = modules.get(mpath)
+        if module is None:
+            missing_modules.append(mpath)
+            continue
+        for name, value in values.items():
+            object.__setattr__(module, name, value)
+            n_set += 1
+    if missing_modules:
+        logger("probe_warmup cache: %d cached module path(s) absent on this substrate: %s"
+               % (len(missing_modules), ", ".join(sorted(missing_modules)[:6])))
+    for path in cached.get("dropped") or []:
+        logger("probe_warmup cache: attr %s was not cacheable -- HIT keeps its "
+               "fresh-construction value" % path)
+    # The load-bearing scalar, kept as an explicit assertion rather than trusted to
+    # the generic walk: if _running_variance did not round-trip, a cache-HIT agent
+    # commits differently from a MISS agent (e3_selector.py:2703) and nothing
+    # downstream would say so.
+    e3 = getattr(agent, "e3", None)
+    want = ((payload.get("e3") or {}).get("_running_variance"))
+    if e3 is not None and want is not None and hasattr(e3, "_running_variance"):
         got = float(getattr(e3, "_running_variance"))
-        want = float(state["_running_variance"])
-        if not math.isclose(got, want, rel_tol=1e-9, abs_tol=1e-12):
+        if not math.isclose(got, float(want), rel_tol=1e-9, abs_tol=1e-12):
             raise RuntimeError(
                 "probe_warmup: _running_variance round trip failed (want %r got %r). "
-                "A cache HIT would diverge from a MISS in E3 commit behaviour." % (want, got)
+                "A cache HIT would diverge from a MISS in E3 commit behaviour."
+                % (float(want), got)
             )
 
 
@@ -733,7 +1046,7 @@ def warm_agent(
 
     if cache_hit:
         agent.load_state_dict(blob["agent_state"])
-        _restore_e3_nonbuffer(agent, blob.get("e3_nonbuffer", {}), logger)
+        _restore_cached_surface(agent, blob.get("surface", {}), logger)
         notes.append("warmup restored from cache")
         logger("  [warmup] %s seed=%d HIT (%s eps, cached)"
                % (label, seed, recipe.num_episodes))
@@ -762,7 +1075,7 @@ def warm_agent(
                 "seed": int(seed),
                 "recipe": recipe.as_dict(),
                 "agent_state": agent.state_dict(),
-                "e3_nonbuffer": _capture_e3_nonbuffer(agent),
+                "surface": _capture_cached_surface(agent, logger),
             },
             cache_dir,
             logger,
@@ -808,6 +1121,13 @@ def warm_agent(
             "probe read was EPISODE-denominated (max_episodes=%d < max_env_steps=%d): "
             "a short-episode seed could not spend its full step budget"
             % (read["max_episodes"], read["max_env_steps"])
+        )
+    if read["restore_report"]["n_by_reference"]:
+        notes.append(
+            "de-saturation read could NOT protect %d attr(s) (%s): this read may have "
+            "leaked into any subsequent training leg -- see hazard H1"
+            % (read["restore_report"]["n_by_reference"],
+               ", ".join(read["restore_report"]["by_reference"][:4]))
         )
     if not read["floors_met"]:
         notes.append(
