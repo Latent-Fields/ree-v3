@@ -2709,8 +2709,8 @@ or goal types:
     - Throughput not yet benchmarked (original smoke errored 2026-04-06, -b pending)
     - Use `"EWIN-PC"` affinity string. GPU likely fast at larger world_dim.
   - Add ~20% overhead for scripts with stratified replay buffers or event classification
-- Set `machine_affinity` to match compute profile: `"DLAPTOP-4.local"` (macbook, online stepping), `"Daniel-PC"` (replay/batch heavy or long overnight runs), `"ree-cloud-1"` / `"ree-cloud-2"` (CPU-only Hetzner CX22, standard/env-heavy), `"EWIN-PC"` (GPU-capable, Eoin's machine), `"any"` (indifferent -- any cloud worker that's already awake will typically claim first)
-  - **IMPORTANT:** The runner matches affinity against `socket.gethostname()` exactly. The macbook hostname is `DLAPTOP-4.local` — do NOT use `"macbook"` as the affinity string, it will not match.
+- Set `machine_affinity` to match compute profile: `"DLAPTOP"` (macbook, online stepping), `"Daniel-PC"` (replay/batch heavy or long overnight runs), `"ree-cloud-1"` / `"ree-cloud-2"` (CPU-only Hetzner CX22, standard/env-heavy), `"EWIN-PC"` (GPU-capable, Eoin's machine), `"any"` (indifferent -- any cloud worker that's already awake will typically claim first)
+  - **IMPORTANT:** The runner matches affinity through `machine_identity.same_machine()` (see `machine_identity.py`'s module docstring), NOT raw `socket.gethostname()` equality — this closed a real bug where macOS LocalHostName suffix drift (`DLAPTOP-4.local` <-> `DLAPTOP-5.local`) silently split the Mac's identity in two. `"DLAPTOP"` is the canonical affinity string to use in new queue entries; `"DLAPTOP-4.local"`/`"DLAPTOP-5.local"` still match (they alias forward to `DLAPTOP`), but do NOT use `"macbook"` or any other unlisted string — only names in `validate_queue.py`'s `VALID_AFFINITIES` resolve to a real machine.
 - Always queue experiments immediately after writing the script.
 - Always include `estimated_minutes` — the runner's auto-calibration refines it over time.
 
