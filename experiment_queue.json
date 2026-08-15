@@ -26,26 +26,6 @@
       "episodes_per_run": 235,
       "experiment_type": "v3_exq_603u_instrumental_avoidance_agent_pursuit",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-934",
-      "title": "MECH-266/SD-032a GOV-FANOUT-1 H1: affinity_input_cap sweep for external_task mode-occupancy (diagnostic)",
-      "script": "experiments/v3_exq_934_mech266_cap_sweep_mode_occupancy.py",
-      "priority": 30,
-      "machine_affinity": "any",
-      "estimated_minutes": 100,
-      "claim_id": "MECH-266",
-      "backlog_id": null,
-      "note": "GOV-FANOUT-1 leg H1 of pre-registered frozen-ledger question mech266_mode_arbitration_saturation (failure_autopsy_mech266-464e-467e-cluster_2026-08-13). DIAGNOSTIC (excluded from confidence scoring). Sweeps affinity_input_cap in [0.75,1.0,1.25,1.5,1.75] at EVAL time on clones of one trained curriculum agent per seed (cap read live at SalienceCoordinator.tick(); train cap held at 2.0 for comparability with the banked 464e/467e reference). DV = per-cap/per-arm fraction_in_external_task reported per-arm (NEVER min-across-the-sweep) via experiments/_lib/regime_occupancy_gate.py, PLUS the continuous pre-argmax operating_mode['external_task'] margin (probe/H2 recommendation) and mode-conditioned external_task dwell. Null: no cap yields per-arm occupancy in (0.1,0.9) on >=2/3 seeds. GOV-REUSE-1: decisive readout = per-cap occupancy across the [0.75,1.75] band; absent from all banked manifests (464e/467e ran only cap=2.0) -> run needed, not reanalyzable. RE-DERIVE BRAKE: MECH-266/SD-032a count=4 but NOT braked -- this is a diagnostic discriminating WHY the ceiling holds (H1 vs H2), which Step 2.5b exempts, and the cluster autopsy's own re-derive brake explicitly PERMITS this H1 leg (refusing only a naked 464f/467f same-question same-gate re-queue). STEP 2.5c: mode-governance-engagement substrate_queue entry is severity=corrupting / implemented_pending_validation and overlaps salience_coordinator.py, but its corrupting defect was the min()-measurement gate, RESOLVED by (b) regime_occupancy_gate.py (which this run CONSUMES); the cap_calibration probe found the substrate code sound ('no defect in either file'). This run IS that entry's sanctioned validation follow-on, so it is not blocked; governance should downgrade the entry severity once this + H2 land. Empirically confirmed pre-authoring: one-tick probe against the real SalienceCoordinator showed operating_mode['external_task'] = 0.0 at cap=None/dacc_pe=16 and 0.76-0.86 across the swept band, and that the live cap override lands at tick(). Successor-in-spirit to 464e/467e, NOT a supersede.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-08-14T19:15:34Z"
-      },
-      "conditions": 1,
-      "episodes_per_run": 385,
-      "experiment_type": "v3_exq_934_mech266_cap_sweep_mode_occupancy",
-      "seeds": 3
     }
   ]
 }
