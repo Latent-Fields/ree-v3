@@ -48,6 +48,7 @@ from pathlib import Path
 from typing import Any
 
 import graceful_timeout
+import machine_identity
 
 # See the identical note in experiment_runner.py: SIGTERM-before-SIGKILL on
 # timeout, so a timed-out git unlinks its own .git/index.lock instead of
@@ -104,7 +105,13 @@ def _now_utc() -> str:
 
 
 def get_machine_id(override: str | None = None) -> str:
-    return override or socket.gethostname()
+    # Canonicalised for the same reason as experiment_runner._get_machine_name:
+    # this value becomes the heartbeat/status FILENAME, so macOS LocalHostName
+    # suffix drift would otherwise strand a machine's telemetry history under a
+    # new name and make it read as a dead box. See machine_identity.py.
+    return machine_identity.canonical_machine_name(
+        override or socket.gethostname()
+    )
 
 
 def heartbeat_path(ree_assembly_path: Path, machine: str) -> Path:

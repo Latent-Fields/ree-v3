@@ -36,6 +36,7 @@ import subprocess
 import sys
 
 import graceful_timeout
+import machine_identity
 
 # Module-local rebinding: every timed subprocess below (all of them go
 # through `_git_run`, defined further down) now
@@ -2954,13 +2955,25 @@ CLAIM_HEARTBEAT_FRESH_SECONDS = int(
 
 
 def _get_machine_name(override: str | None = None) -> str:
-    return override or socket.gethostname()
+    # Canonicalised so macOS LocalHostName suffix drift (DLAPTOP-4 -> DLAPTOP-5)
+    # cannot split this box's identity across heartbeat files, claims and
+    # manifests. The override is canonicalised too, so a stale `--machine
+    # DLAPTOP-5.local` in someone's shell history resolves correctly; the
+    # numbered cloud fleet passes through untouched. See machine_identity.py.
+    return machine_identity.canonical_machine_name(
+        override or socket.gethostname()
+    )
 
 
 def _affinity_matches(item: dict, machine: str) -> bool:
     """Return True if this machine is allowed to run the experiment."""
     affinity = item.get("machine_affinity", "any")
-    return affinity in ("any", None, "") or affinity == machine
+    if affinity in ("any", None, ""):
+        return True
+    # Compare on canonical identity, so a queue entry pinned to `DLAPTOP-4.local`
+    # still matches a laptop currently reporting `DLAPTOP-5.local` (and vice
+    # versa). `ree-cloud-N` affinities are unaffected -- they never collapse.
+    return machine_identity.same_machine(affinity, machine)
 
 
 # Cloud workers the laptop yields to when --laptop-yield-to-cloud is on.
@@ -2974,8 +2987,12 @@ LAPTOP_YIELD_CLOUD_HOSTS = (
     "ree-cloud-4",
 )
 
-# Hostname that auto-arms --laptop-yield-to-cloud when not explicitly set.
-LAPTOP_AUTO_YIELD_HOSTNAME = "DLAPTOP-4.local"
+# Machine that auto-arms --laptop-yield-to-cloud when not explicitly set.
+# Compared with machine_identity.same_machine, NOT `==`, so every LocalHostName
+# variant the Mac has ever reported (DLAPTOP, DLAPTOP-4.local, DLAPTOP-5.local)
+# arms it. A raw `==` against one of those spellings is what silently disarmed
+# cloud-yield for three weeks in Jul-Aug 2026.
+LAPTOP_AUTO_YIELD_HOSTNAME = "DLAPTOP"
 
 
 def _cloud_worker_is_fresh(
@@ -4519,8 +4536,15 @@ def main():
     # Resolve --laptop-yield-to-cloud auto-arming. None (default) -> on iff
     # we're on the laptop. Explicit True/False from the CLI overrides.
     if args.laptop_yield_to_cloud is None:
-        args.laptop_yield_to_cloud = (
-            socket.gethostname() == LAPTOP_AUTO_YIELD_HOSTNAME
+        # `same_machine`, NOT `socket.gethostname() == ...`. The raw comparison
+        # silently went False for three weeks when macOS re-suffixed the laptop
+        # to DLAPTOP-5.local, disarming cloud-yield with no warning (the only
+        # observable is the banner below, which simply stopped printing). It also
+        # read the raw hostname rather than the resolved `machine`, so an explicit
+        # `--machine DLAPTOP-4.local` could not re-arm it either. Both are fixed
+        # by going through the resolved identity here.
+        args.laptop_yield_to_cloud = machine_identity.same_machine(
+            machine, LAPTOP_AUTO_YIELD_HOSTNAME
         )
     if args.laptop_yield_to_cloud:
         print(
