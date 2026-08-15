@@ -4,9 +4,25 @@ WHY THIS EXISTS
 ---------------
 macOS appends a numeric suffix to `LocalHostName` whenever the name it wants is
 already claimed on the local network -- a stale Bonjour registration, or an
-interface rejoining (this fleet runs a WireGuard mesh, so it happens). On the
-Mac `HostName` is NOT set, so `socket.gethostname()` falls through to that
-auto-suffixed name and DRIFTS: `DLAPTOP-4.local` -> `DLAPTOP-5.local`.
+interface rejoining (this fleet runs a WireGuard mesh, so it happens). Through
+Jul-Aug 2026 the Mac had no `HostName` set, so `socket.gethostname()` fell
+through to that auto-suffixed name and DRIFTED: `DLAPTOP-4.local` ->
+`DLAPTOP-5.local`.
+
+STATE OF THE PIN, because the tense matters: `HostName` was explicitly set to
+`DLAPTOP-4.local` by a human on 2026-08-15T07:17:02Z (the mtime of
+`/Library/Preferences/SystemConfiguration/preferences.plist`; `scutil --set`
+needs root, so it was neither the runner nor a session). So the drift is not live
+as this is written. It cannot have been set earlier -- the 2026-07-25 .. 08-09
+`DLAPTOP-5.local` manifests could not otherwise exist.
+
+That pin is the fix at source and this module does not duplicate it. This module
+exists because the pin is (a) retrospective -- it does nothing for the manifests
+already written under the drifted name, and (b) revocable -- it is one unset,
+OS update, or migration away from the identity splitting again, silently, exactly
+as it did for three weeks. `LocalHostName` is STILL `DLAPTOP-5` today, so the
+underlying collision has not gone away; only the name `gethostname()` reports has
+been nailed down on top of it.
 
 That is reasonable OS behaviour and this module does not try to prevent it. The
 problem is that REE keys real coordination state on the STRING: heartbeat and
@@ -23,6 +39,27 @@ Measured on 2026-08-15, in `REE_assembly/evidence/experiments/`:
 -- one physical laptop, two identities, and the 38 attributed to a machine that
 appears in no fleet table, no heartbeat file and no doc. The earliest affected
 manifest is dated 2026-07-25, so this ran undetected for three weeks.
+
+The coordinator DB proves the "one physical laptop" half far more strongly than
+those counts do, and localises the split exactly (queried on the hub 2026-08-15
+by session musing-napier-6f0817, DLAPTOP-4.local vs DLAPTOP-5.local):
+
+    claim_log.machine               10533  vs  0
+    commands.machine                  140  vs  0
+    experiments.machine_affinity        9  vs  0
+    experiments.claimed_by_machine      2  vs  0
+    heartbeats.machine                  1  vs  0
+    results.machine                    37  vs  12
+
+A genuinely separate machine cannot claim 0 of 10533. So `DLAPTOP-5.local` was
+never a second box, and the split is confined to `results.machine` -- the one
+path that recorded the RAW reported hostname instead of the resolved identity.
+
+That asymmetry has a cause worth knowing: the live heartbeat carried
+`"machine": "DLAPTOP-4.local"` beside `"hostname": "DLAPTOP-5.local"`, meaning
+the runner was being started with an explicit `--machine` override BY HAND as a
+standing workaround. Undocumented, and one missed invocation from re-splitting
+the identity. This module makes that automatic, which is the actual before/after.
 
 It also SILENTLY DISARMED A FEATURE, which is the sharper cost. `experiment_runner`
 auto-armed `--laptop-yield-to-cloud` by comparing RAW `socket.gethostname()`
