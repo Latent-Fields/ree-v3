@@ -455,6 +455,73 @@ class BurnDetectorKnownTruthTest(unittest.TestCase):
         their OWN number; V3-EXQ-683 and V3-EXQ-686 never produced a manifest
         under any number. C3c pins the route on synthetic stints with three
         negative controls (different-slug, before-the-burn, same-number).
+
+        PIN UPDATE 2026-08-15: V3-EXQ-929 joined the LOST set from the
+        2026-08-14 queue churn. NO recovery route fired, and that is CORRECT
+        -- it is the V3-EXQ-895 / V4-EXQ-001 shape a third time, so the
+        2026-08-09 (a) reasoning applies unchanged and it is pinned the same
+        way. Mechanically genuine, all four legs: operator add (ree-v3
+        27fc77e1f9, 15:14:54Z), removed by the phase3-queue snapshot
+        (3506a49662) 2.9 min later, no manifest in the stint window,
+        prior_stints=1. Why each route is silent -- checked, not assumed:
+          supersedes  no entry anywhere declares `supersedes: V3-EXQ-929`;
+          same-stem   the stem's ONLY manifest is 2026-08-14T08:16:06Z,
+                      which is BEFORE the stint, so ran_after is False;
+          renumber    the only other sleep_gap9 driver is
+                      v3_exq_933_sleep_gap9_need_arm -- a DIFFERENT
+                      descriptive slug (`sleep_gap9_need_arm` vs
+                      `sleep_gap9_within_life_trigger`). 933 is the design-(b)
+                      MEL/need-crossing PRIMARY arm that 929's own queue note
+                      names as follow-up work; it is new science, not a
+                      renumbered recovery of 929, and the slug test correctly
+                      declines to treat it as one.
+        NO SCIENCE WAS LOST: 929 ran to PASS under its OWN number at
+        08:16:06Z on ree-cloud-2, inside its FIRST stint [08:15:07Z,
+        08:20:17Z] (v3_exq_929_sleep_gap9_within_life_trigger_20260814T081606Z
+        _v3; also cited as passed in REE_assembly/evidence/planning/
+        causal_sleep_deprivation_matched_arm_design_2026-08-14.md).
+
+        929 is a NEW SUB-SHAPE within that family, worth recording because
+        the disposition does NOT change but the cause does. 895's and
+        V4-EXQ-001's re-adds were DELIBERATE repair attempts (their commit
+        subjects name the id and say so). 929's was ACCIDENTAL: its first
+        stint was materialised by the phase3-queue SNAPSHOT writer, not an
+        operator commit, so no session ever committed the entry; the "re-add"
+        is a commit about a DIFFERENT id whose own queue item records the
+        cause verbatim -- V3-EXQ-932's note says "appended alongside a
+        pre-existing UNCOMMITTED working-tree V3-EXQ-929 (sleep_gap9) edit
+        that was not on origin/main -- preserved additively, not authored by
+        this session". That is CLAUDE.md's read-modify-write contamination
+        shape: a stale working-tree copy of an already-completed entry swept
+        into someone else's commit. The disposition still does not move,
+        for the same reason 2026-08-09 (a) gave -- intent is not a
+        machine-visible property, and here the only record of it is free text
+        in a note, which is not a basis for a detector route.
+
+        REFUTED ROUTE, recorded so it is not re-proposed: "the id's own stem
+        produced a manifest BEFORE the stint -> demote to RECOVERED". It
+        demotes 929, but held out against four cases it was not written from
+        it gets THREE wrong:
+          V4-EXQ-001  own number ran PASS 10:52:51Z, before its 10:58:50Z
+                      re-add -> demoted. Pinned LOST. WRONG.
+          V3-EXQ-895  own number ran PASS 01:24:22Z, before its 02:02:15Z
+                      re-add -> demoted. Pinned LOST by (a). WRONG.
+          V3-EXQ-728a its declared script -- the PARENT's, v3_exq_728_... --
+                      ran 2026-07-20T15:54:14Z before the burned second
+                      stint -> demoted. This is FP4 EXACTLY: the driver was
+                      rewired for SD-070 between the stints, so the earlier
+                      manifest is a different experiment. WRONG, and it
+                      re-introduces this module's canonical miss.
+          V3-EXQ-669b own number ran 12:34:33Z before its 2026-07-11 re-add
+                      -> demoted. Right answer (it IS recovered), wrong
+                      reason -- the recovery is successor 669c, per the
+                      2026-07-25 update, and the route would have demoted it
+                      weeks before 669c existed.
+        The same FP4 hazard blocks even a disposition-NEUTRAL advisory field
+        of that shape ("this id already produced a manifest"), which would
+        tell a reader 728a had already run when the rewired driver had not.
+        A safe version has to compare the SCRIPT BLOB between the stints;
+        that is real work and is filed as follow-on, not done here.
         """
         self.assertLessEqual(len(self.ids), 20,
                              "detector has started producing noise")
@@ -466,6 +533,10 @@ class BurnDetectorKnownTruthTest(unittest.TestCase):
             "V3-EXQ-683",
             "V3-EXQ-686",
             "V3-EXQ-895",   # burned for real; own number ran PASS, none renumbered
+            "V3-EXQ-929",   # same shape as 895: own number ran PASS at
+                            # 08:16:06Z BEFORE the stint, so no route fires.
+                            # Accidental re-add (stale working tree), not a
+                            # re-queue -- see PIN UPDATE 2026-08-15.
             "V4-EXQ-001",
         ])
 
