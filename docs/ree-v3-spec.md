@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-08-15
+**Last updated:** 2026-08-16
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -217,6 +217,41 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 `REE_assembly/docs/architecture/self_attribution_per_stream.md`.
 
 ### Experiment Status
+
+- **2026-08-16T08:19Z nightly read (scheduled `/update-docs`, bot identity).**
+  ~28h window since the 2026-08-15 nightly. Manifest count on disk: **899 `v3_exq_*` +
+  3 `v4_exq_*` flat** (+13 v3 vs the 2026-08-15 nightly's 886); nested per-run manifests
+  under `evidence/experiments/*/runs/`: **2832** (+13 vs 2819). **Currently queued
+  (`experiment_queue.json` items[]): 0 items** -- DRAINED sharply from the 2026-08-15
+  4-item board (V3-EXQ-603u / V3-EXQ-861c / V3-EXQ-934 / V3-EXQ-920a all completed
+  PASS). **Pending review (`pending_review.md`, regenerated 2026-08-13T20:32:15Z,
+  stale -- no regen in the window): 1 item** -- the V3-EXQ-926 ERROR entry, now
+  superseded by V3-EXQ-926a PASS 2026-08-14T17:10Z (a `python
+  scripts/generate_pending_review.py` regen is expected to clear it to 0).
+  **Recent completions in the window (7, all PASS):** V3-EXQ-929 / 930 / 933 (ree-cloud-2,
+  2026-08-14 morning-afternoon), V3-EXQ-926a / 922a (ree-cloud-3, 2026-08-14 afternoon),
+  V3-EXQ-920a (ree-cloud-2, 2026-08-14 evening), V3-EXQ-934 (ree-cloud-3, 2026-08-15
+  early morning). Zero FAIL/ERROR in the window. **Non-substrate work**: lit-pull
+  MECH-151 (4 entries) + MECH-467 (3 entries) with first-ever coverage (both `literature_confidence`
+  0 -> ~0.8, `759cabb35f`); GFLAG-0037 authored + raised on MECH-091's orphan status
+  vs SD-006 phase 2 async execution (`22c2cfb2d5` + `a2b91b227d`); 4 orphan-V3-claim
+  findings adjudicated (`7478ffe8ad`: MECH-316/317, MECH-314a, MECH-091); SD-031 split
+  out of self_attribution GAP-5 into new V3 GAP-6 (`3476fa56ee`); probe_warmup non-buffer
+  audit COMPLETED for GFLAG-0036 (`e9df8c825a`); SD-074 + MECH-063 evidence_discrepancy
+  flags raised (`1b1dce8640`); machine_identity canonical-name plumbing pushed through
+  serve.py + phase3_preflight/wake_fleet/verify/integrity_check (ree-v3 `eba199d` and
+  siblings) after the 2026-07-25 -> 2026-08-15 LocalHostName drift split the laptop
+  into two recorded identities; `d4cd066` pinned V3-EXQ-929 accidental re-add as LOST
+  (no science lost). **No substrate landings, no `/governance` cycle, no failure
+  autopsies confirmed in the window** -- planning-and-consolidation shape, not
+  substrate-forward. **Bottleneck: PIPELINE IDLE, not walled** -- with queue at 0 and
+  pending_review effectively at 0 once regenerated, next `/queue-experiment` is
+  unblocked; `sleep_substrate:GAP-9` validation (composed (a)+(b), 2026-08-14 build),
+  SD-MECH267-CEM-SELECTION-FIX H2+H3 validation (2026-08-14 build), and the 2026-08-02
+  cohort (SD-092 EXP-0385/0390 + SD-093 EXP-0384 + SD-MECH267-HORIZON-DEPTH +
+  MECH122-CONTENT-PACKAGING-SPINDLE-SELECTION) are all natural next targets. Green-board
+  target 2026-07-19 is now **28 days overdue**. **ETHICS-PERIMETER Phase 0 datum**
+  stays on the record (Phases 1-3 deferred; NON-BLOCKING).
 
 - **2026-08-15T04:36Z nightly read (scheduled `/update-docs`, bot identity).**
   6-day window since the 2026-08-09 nightly. Manifest count on disk: **886 `v3_exq_*`
