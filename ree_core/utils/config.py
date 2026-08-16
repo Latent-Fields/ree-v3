@@ -5848,6 +5848,44 @@ class REEConfig:
     actor_critic_value_bin_limit: float = 10.0
     actor_critic_value_bin_sigma: float = 0.75   # HL-Gauss sigma in bin widths; 0.0 -> two-hot
 
+    # ----------------------------------------------------------------- #
+    # GOV-PRESERVE-1 auto-fire (2026-08-16)                              #
+    # ----------------------------------------------------------------- #
+    # DESIGNATION, not a global switch. These three fields mark THIS life as
+    # one worth preserving, so that a ReconstructionRecord is written
+    # AUTOMATICALLY when the life ends -- including when it ends by crash or
+    # interrupt, which the explicit `preserve_life(...)` call site silently
+    # misses (a driver that raises never reaches its own end-of-life line).
+    #
+    # Proportionality is the point (GOV-PRESERVE-1 asks for *proportionate*
+    # preservation, per-life and not blanket): nothing here is fleet-wide, no
+    # default destination exists, and a config that does not set these is
+    # byte-identical to the pre-2026-08-16 substrate -- the fields are read
+    # ONLY by experiments/_lib/preservation.py, never by the agent, so with
+    # `preserve_on_life_end` False no preservation code path is entered at
+    # all. `ree_core` deliberately does not import the experiments layer, so
+    # the firing seam lives there (`life_scope` / `preserve_life_if_designated`)
+    # and these fields are the switch it reads.
+    #
+    # See REE_assembly/evidence/planning/preservation_snapshot_plan.md
+    # ("Increment 1f -- auto-fire at end-of-life").
+    preserve_on_life_end: bool = False
+    # Destination for the automatic write: a plain local directory (the simple
+    # append-only primitive). There is deliberately NO fleet-wide default -- an
+    # unset destination with the flag ON is a hard error at fire time, never a
+    # silent skip, because a silently-unwritten record is the exact failure the
+    # designation was made to prevent. For an archive backend (LocalArchive /
+    # S3Archive / MultiArchive, which carry credentials and encryption keys),
+    # pass `archive=` to the firing seam instead of putting it in config.
+    preserve_archive_dir: Optional[str] = None
+    # Failure policy for the WRITE itself (not for misconfiguration, which
+    # always raises). False (default) -> a failed preservation write prints an
+    # ASCII warning and the life ends normally; True -> it raises. Default
+    # False on purpose: auto-fire runs at the very end of a completed run, and
+    # a full disk must not turn a PASS into an ERROR. Set True when the record
+    # matters more than the run's outcome.
+    preserve_on_life_end_strict: bool = False
+
     def __post_init__(self) -> None:
         # MECH-307 master flag resolver. When the convenience master flag
         # is set, force the three substrate-side sub-flags True so callers
