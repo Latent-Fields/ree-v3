@@ -134,6 +134,41 @@ class _FakeEvidence:
         return audit.renumber_recovery(self.by_stem, stem, when_after)
 
 
+class _FakeBlobs:
+    """Stand-in for ScriptBlobs, the already-ran advisory's git side.
+
+    `commits` maps a script path to [(when, sha)] for the commits that
+    TOUCHED it. `blobs` maps (sha, path) -> blob oid -- an oid, not content,
+    because that is what the real provider returns: git oids are content
+    addresses, so equal oid means byte-identical file. An absent (sha, path)
+    is a blob git could not resolve, which must fall silent.
+
+    Records every `tip` it is asked about, so a test can pin that the
+    earlier revision is resolved from the burned stint's own add commit
+    rather than from HEAD.
+    """
+
+    def __init__(self, commits=None, blobs=None):
+        self.commits = commits or {}
+        self.blobs = blobs or {}
+        self.tips = []
+
+    def commit_at(self, path, when, tip):
+        self.tips.append(tip)
+        found = None
+        for stamp, sha in sorted(self.commits.get(path, ())):
+            if stamp <= when:
+                found = sha
+        return found
+
+    def blob_ids(self, specs):
+        out = {}
+        for spec in specs:
+            sha, path = spec.split(":", 1)
+            out[spec] = self.blobs.get((sha, path))
+        return out
+
+
 def _utc(text):
     return dt.datetime.fromisoformat(text)
 
@@ -142,9 +177,9 @@ CUTOVER = _utc(audit.PHASE3_CUTOVER)
 
 
 def _find(stints, evidence, successors=None, window=60.0, grace=120.0,
-          cutover=CUTOVER):
+          cutover=CUTOVER, blobs=None):
     return audit.find_burns(stints, successors or {}, evidence, window,
-                            grace, cutover)
+                            grace, cutover, blobs)
 
 
 class BurnDetectorLogicTest(unittest.TestCase):
@@ -330,6 +365,117 @@ class BurnDetectorLogicTest(unittest.TestCase):
                          finding["recovered_by"],
                          "same-number is not a renumber; it is the same-stem "
                          "route (which does fire here)")
+
+    # C3d ----------------------------------------------------------------
+    def test_c3d_already_ran_advisory_requires_blob_identity(self):
+        """The ALREADY-RAN advisory -- and why a timestamp cannot carry it.
+
+        The LOST set is "the set a session is expected to act on", and it
+        holds two structurally different things: entries that NEVER RAN
+        under any number (real, unrecovered science loss), and entries whose
+        DECLARED SCRIPT had already produced a manifest before the burned
+        stint, which therefore cannot have lost that run. Three separate
+        sessions hand-derived that split from commit subjects and manifest
+        timestamps before it was machine-visible.
+
+        The obvious implementation -- "the declared stem produced a manifest
+        BEFORE the stint" -- is REFUTED; see the block in C7. It fires on
+        V3-EXQ-728a, which declares the PARENT's driver, and that driver was
+        REWIRED for SD-070 between the two stints, so the earlier manifest
+        is a different experiment. An advisory saying "728a already ran"
+        would be actively false, which on the LOST set is exactly what the
+        pin exists to prevent -- disposition-neutrality does not make a
+        misleading advisory safe.
+
+        So the advisory is gated on BLOB IDENTITY: the declared script must
+        be byte-identical at the revision current when the earlier manifest
+        was written and at the burned stint's own add commit. Four arms,
+        THREE of them negative -- the negative half is the load-bearing
+        half here, as it is in C1 and C3c.
+        """
+        stem = "v3_exq_999_probe"
+        script = "experiments/v3_exq_999_probe.py"
+        stint = _stint()                       # 2026-06-01 10:00 -> 10:02
+        add_sha = "a" * 40                     # _stint()'s add commit
+        touched = {script: [(_utc("2026-05-30T00:00:00+00:00"), "c1")]}
+        ran_before = _FakeEvidence({stem: [_utc("2026-06-01T08:00:00+00:00")]})
+
+        # POSITIVE: the id's own script ran two hours before the burned
+        # re-add, from the same blob. This is the V3-EXQ-895 / V4-EXQ-001 /
+        # V3-EXQ-929 shape.
+        same = _FakeBlobs(commits=touched,
+                          blobs={("c1", script): "oid-A",
+                                 (add_sha, script): "oid-A"})
+        finding = _find([stint], ran_before, blobs=same)[0]
+        self.assertTrue(finding["already_ran_identical_script"],
+                        "same blob at both points must fire the advisory")
+        self.assertEqual(finding["already_ran_identical_script_at"],
+                         "2026-06-01T08:00:00Z")
+        self.assertEqual(same.tips, [add_sha],
+                         "the earlier revision must be resolved by walking "
+                         "back from the burned stint's OWN add commit, not "
+                         "from HEAD -- HEAD is both slower and the wrong "
+                         "ancestry")
+
+        # NEG-blob: THE 728a / FP4 CONTROL. Same path, blob CHANGED between
+        # the earlier run and the re-add -> the earlier manifest is a
+        # different experiment and the advisory must stay silent.
+        changed = _FakeBlobs(commits=touched,
+                             blobs={("c1", script): "oid-A",
+                                    (add_sha, script): "oid-REWIRED"})
+        self.assertFalse(
+            _find([stint], ran_before, blobs=changed)[0]
+            ["already_ran_identical_script"],
+            "a driver rewired between the stints is a DIFFERENT experiment; "
+            "this is FP4 and the advisory must not claim it already ran")
+
+        # NEG-none: never ran at all -- the V3-EXQ-569a / 683 / 686 shape,
+        # i.e. the entries a session really must act on.
+        self.assertFalse(
+            _find([stint], _FakeEvidence(), blobs=same)[0]
+            ["already_ran_identical_script"],
+            "no prior manifest means no advisory")
+
+        # NEG-blob-missing: a blob git cannot resolve is not evidence that
+        # the file is unchanged. Fail silent, like every other step.
+        half = _FakeBlobs(commits=touched,
+                          blobs={("c1", script): "oid-A"})
+        self.assertFalse(
+            _find([stint], ran_before, blobs=half)[0]
+            ["already_ran_identical_script"],
+            "an unresolvable blob must fall silent, not match")
+
+        # NEG-disp: DISPOSITION-NEUTRALITY, asserted structurally rather
+        # than field by field -- supplying a blob provider may change the
+        # advisory keys and NOTHING else. Demotion is the dangerous
+        # direction, so the LOST set must be identical either way.
+        recovered_stint = _stint(queue_id="V3-EXQ-998",
+                                 script="experiments/v3_exq_998_probe.py")
+        mixed = _FakeEvidence({
+            stem: [_utc("2026-06-01T08:00:00+00:00")],
+            "v3_exq_998_probe": [_utc("2026-06-05T00:00:00+00:00")],
+        })
+        without = _find([stint, recovered_stint], mixed)
+        with_advisory = _find([stint, recovered_stint], mixed, blobs=same)
+
+        def _strip(finding):
+            return {k: v for k, v in finding.items()
+                    if not k.startswith("already_ran")}
+
+        self.assertEqual([_strip(f) for f in with_advisory],
+                         [_strip(f) for f in without],
+                         "the advisory must not alter ANY other field -- "
+                         "not evidence_recovered, not recovered_by, and not "
+                         "which stints are findings at all")
+        self.assertEqual(
+            [f["queue_id"] for f in with_advisory
+             if not f["evidence_recovered"]],
+            [f["queue_id"] for f in without if not f["evidence_recovered"]],
+            "the LOST set must be identical with and without the advisory")
+        self.assertFalse(
+            any(f["already_ran_identical_script"] for f in without),
+            "with no blob provider the field must default to False, never "
+            "be absent -- consumers read it unconditionally")
 
 
 @unittest.skipUnless(
@@ -522,6 +668,57 @@ class BurnDetectorKnownTruthTest(unittest.TestCase):
         tell a reader 728a had already run when the rewired driver had not.
         A safe version has to compare the SCRIPT BLOB between the stints;
         that is real work and is filed as follow-on, not done here.
+
+        PIN UPDATE 2026-08-16: THE LOST SET IS NOW PARTITIONED IN THE
+        OUTPUT, by the disposition-NEUTRAL advisory
+        `already_ran_identical_script`. NOTHING MOVED -- the pinned LOST
+        list below is unchanged, and C3d asserts structurally that supplying
+        the advisory's blob provider can alter no other field. What changed
+        is only that the split three separate sessions kept re-deriving by
+        hand (2026-08-09 for 895, 2026-08-15 for 929, each re-deriving
+        V4-EXQ-001 from git subjects and manifest timestamps) is now
+        machine-visible:
+
+          (a) NEVER RAN UNDER ANY NUMBER -- V3-EXQ-569a, V3-EXQ-683,
+              V3-EXQ-686. Real, unrecovered science loss; advisory silent.
+          (b) THE DECLARED SCRIPT ALREADY PRODUCED A MANIFEST BEFORE THE
+              BURNED STINT -- V3-EXQ-895 (2026-08-08T01:24:22Z), V4-EXQ-001
+              (2026-06-17T10:52:51Z), V3-EXQ-929 (2026-08-14T08:16:06Z), so
+              that stint cannot have lost that run. Advisory fires, carrying
+              the timestamp. The disposition still does NOT move, for the
+              reason 2026-08-09 (a) gave: whether the re-add wanted a RERUN
+              is a human reading of intent, not a machine-visible property.
+
+        THE REFUTED ROUTE ABOVE IS STILL REFUTED, and this does not reopen
+        it -- the refutation is of the TIMESTAMP-ONLY test, and what ships
+        is the safe version that same block names as follow-on. The advisory
+        additionally requires the declared script's BLOB to be
+        byte-identical at two revisions: the one current when the earlier
+        manifest was written, and the burned stint's own add commit. On the
+        real corpus that is precisely what keeps V3-EXQ-728a silent, and for
+        the documented reason -- verified, not assumed: both revisions
+        resolve, and the one commit between them is ree-v3 b523b9c7 "SD-070
+        adoption: wire the z_world encoder warmup into the
+        _train_all_on_agent family". Different blob, different experiment,
+        no advisory. (A missing or unresolvable blob is also silent: not
+        being able to see a file is not evidence that it is unchanged.)
+
+        FOUR findings OUTSIDE the LOST set also carry the advisory --
+        V3-EXQ-612d, V3-EXQ-610a (both stints), V3-EXQ-669b, V3-EXQ-894.
+        Deliberately NOT pinned: they are already RECOVERED, so the advisory
+        tells a session nothing it must act on, and pinning them would make
+        ordinary corpus growth fail the suite. Only the LOST partition is
+        pinned, because the LOST set is the one that gets acted on.
+
+        COST: ~40 ms on the full corpus (0.56 s -> 0.60 s measured on
+        ree-cloud-5), because the oid reads share the existing
+        `git cat-file` batching and the per-script `git log` walks back from
+        the burned stint's add commit rather than from HEAD. Walking from
+        HEAD measured 1.77 s -- same answers, 3x the cost.
+
+        NOTED, NOT ACTED ON: the noise cap below is at 17 of 20. Two or
+        three more burns and it fires, and someone has to decide whether
+        that is noise or growth.
         """
         self.assertLessEqual(len(self.ids), 20,
                              "detector has started producing noise")
@@ -539,6 +736,42 @@ class BurnDetectorKnownTruthTest(unittest.TestCase):
                             # re-queue -- see PIN UPDATE 2026-08-15.
             "V4-EXQ-001",
         ])
+
+        # THE LOST-SET PARTITION (advisory, disposition-neutral). Pinned
+        # exactly, for the same reason the LOST set itself is: this is what
+        # a session reading "EVIDENCE LOST" acts on, and it must not drift
+        # silently. Timestamps are pinned too -- they cross-check the
+        # advisory against the manifest times the earlier pin updates
+        # derived by hand.
+        already_ran = {f["queue_id"]: f["already_ran_identical_script_at"]
+                       for f in self.findings
+                       if f["already_ran_identical_script"]}
+        lost_already_ran = {qid: when for qid, when in already_ran.items()
+                            if qid in lost}
+        self.assertEqual(lost_already_ran, {
+            "V3-EXQ-895": "2026-08-08T01:24:22Z",
+            "V3-EXQ-929": "2026-08-14T08:16:06Z",
+            "V4-EXQ-001": "2026-06-17T10:52:51Z",
+        })
+
+        # The other half of the partition: these never ran under ANY number,
+        # which is why they are the real science loss.
+        for queue_id in ("V3-EXQ-569a", "V3-EXQ-683", "V3-EXQ-686"):
+            with self.subTest(queue_id=queue_id):
+                self.assertNotIn(queue_id, already_ran,
+                                 "%s never produced a manifest under any "
+                                 "number -- an advisory here would be false"
+                                 % queue_id)
+
+        # FP4, on the real corpus rather than a fixture. 728a's declared
+        # script (the PARENT's) DID run before the burned stint, so the
+        # refuted timestamp-only route fires here; blob identity is the only
+        # thing stopping it, because ree-v3 b523b9c7 rewired that driver for
+        # SD-070 in between.
+        self.assertNotIn("V3-EXQ-728a", already_ran,
+                         "the driver was rewired between the stints, so the "
+                         "earlier manifest is a DIFFERENT experiment -- "
+                         "this is the blob-identity gate's whole job")
 
         # The three renumber demotions are still FOUND, now RECOVERED, and
         # carry the renumber label -- pinned so a regression in the route

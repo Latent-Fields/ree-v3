@@ -94,6 +94,37 @@ real defects at lower urgency:
 module tests for the two cases (V3-EXQ-592c, V3-EXQ-610a) where the
 2026-07-21 audit called this benign and this detector still reports it,
 demoted.
+
+THE ALREADY-RAN ADVISORY (`already_ran_identical_script`). The LOST set is
+"the set a session is expected to act on", and it holds two structurally
+different things:
+
+  (a) NEVER RAN UNDER ANY NUMBER -- real, unrecovered science loss
+      (V3-EXQ-569a, V3-EXQ-683, V3-EXQ-686);
+  (b) THE DECLARED SCRIPT ALREADY PRODUCED A MANIFEST BEFORE THE BURNED
+      STINT, so that stint cannot have lost that run (V3-EXQ-895,
+      V4-EXQ-001, V3-EXQ-929). Whether the re-add WANTED a fresh rerun is a
+      human reading of intent and is not machine-visible, so the
+      disposition does NOT move.
+
+Three separate sessions hand-derived (b) from commit subjects and manifest
+timestamps before it was made machine-visible. The advisory records the
+partition; it is DISPOSITION-NEUTRAL by construction -- it never feeds
+`evidence_recovered` and never removes an id from the LOST set. Demotion is
+the dangerous direction, so this route (like the three recovery routes)
+only ever annotates.
+
+  IT IS NOT A TIMESTAMP TEST. "The declared stem produced a manifest before
+  the stint" alone is WRONG on FP4: V3-EXQ-728a declares the PARENT's
+  script, which ran on 2026-07-20T15:54:14Z and was then REWIRED for SD-070
+  before the burned second stint -- so the earlier manifest is a DIFFERENT
+  experiment and an advisory saying "728a already ran" is actively false.
+  The advisory therefore fires only when the declared script's BLOB is
+  byte-identical at both points: at the revision current when that earlier
+  manifest was written, and at the burned stint's own add commit. A false
+  advisory on the LOST set is exactly the failure the pin exists to
+  prevent, so every step of it fails SILENT (missing path, missing blob,
+  unparseable manifest timestamp) rather than guessing.
 """
 
 import argparse
@@ -149,31 +180,126 @@ def queue_commits(repo):
     return commits
 
 
+def cat_file_batch(repo, specs, oid_only=False):
+    """Batch-read many `<rev>:<path>` objects in ONE `git cat-file` call.
+
+    Returns spec -> content bytes, or spec -> blob oid (str) when
+    `oid_only`. A spec git cannot resolve maps to None. Duplicate specs are
+    asked for once.
+
+    `oid_only` runs `--batch-check`, which emits only the object header. An
+    IDENTITY question ("is this the same file at both revisions?") is then
+    answered with no content transfer at all, because a git oid IS a content
+    address -- equal oids mean byte-identical blobs. That matters for the
+    already-ran advisory, which compares experiment DRIVERS (tens of KB
+    each) rather than the single queue file this batching was built for.
+    """
+    ordered = []
+    seen = set()
+    for spec in specs:
+        if spec not in seen:
+            seen.add(spec)
+            ordered.append(spec)
+    if not ordered:
+        return {}
+    mode = "--batch-check" if oid_only else "--batch"
+    stdin = "".join(spec + "\n" for spec in ordered)
+    proc = subprocess.run(["git", "-C", repo, "cat-file", mode],
+                          input=stdin.encode(), capture_output=True)
+    out = proc.stdout
+    result = {}
+    pos = 0
+    for spec in ordered:
+        nl = out.find(b"\n", pos)
+        if nl < 0:                                # truncated / no output
+            result[spec] = None
+            continue
+        header = out[pos:nl].decode("utf-8", "replace").split()
+        if len(header) == 3:                      # <oid> <type> <size>
+            if oid_only:
+                result[spec] = header[0]
+                pos = nl + 1
+            else:
+                size = int(header[2])
+                result[spec] = out[nl + 1:nl + 1 + size]
+                pos = nl + 1 + size + 1           # trailing newline
+        else:                                     # "missing" / "ambiguous"
+            result[spec] = None
+            pos = nl + 1
+    return result
+
+
 def read_blobs(repo, commits):
     """Batch-read <sha>:experiment_queue.json for every commit.
 
     One `git cat-file --batch` for the whole history -- ~1.3 s for 3.4k
     commits, versus minutes for a `git show` per commit.
     """
-    stdin = "".join("%s:%s\n" % (sha, QUEUE_PATH) for sha, _, _ in commits)
-    proc = subprocess.run(["git", "-C", repo, "cat-file", "--batch"],
-                          input=stdin.encode(), capture_output=True)
-    out = proc.stdout
-    blobs = {}
-    pos = 0
-    for sha, _, _ in commits:
-        nl = out.find(b"\n", pos)
-        if nl < 0:
-            break
-        header = out[pos:nl].decode("utf-8", "replace").split()
-        if len(header) == 3:                      # <oid> blob <size>
-            size = int(header[2])
-            blobs[sha] = out[nl + 1:nl + 1 + size]
-            pos = nl + 1 + size + 1               # trailing newline
-        else:                                     # "missing" / "ambiguous"
-            blobs[sha] = None
-            pos = nl + 1
-    return blobs
+    contents = cat_file_batch(
+        repo, ["%s:%s" % (sha, QUEUE_PATH) for sha, _, _ in commits])
+    return {sha: contents.get("%s:%s" % (sha, QUEUE_PATH))
+            for sha, _, _ in commits}
+
+
+class ScriptBlobs:
+    """Blob identity for a queue entry's declared script, at two revisions.
+
+    Two questions, both needed by the already-ran advisory:
+      `commit_at(path, when)` -- which revision held `path` at time `when`;
+      `blob_ids(specs)`       -- the blob oid of each `<rev>:<path>`.
+
+    Cost discipline, because the whole audit is ~4 s and must stay that way:
+    path history is fetched LAZILY, one `git log` per DISTINCT script, and
+    only for the handful of findings that have a prior run at all -- never
+    per commit. The oid reads go through `cat_file_batch` as a single call.
+    """
+
+    def __init__(self, repo):
+        self.repo = repo
+        self._commit_at = {}
+
+    def commit_at(self, path, when, tip):
+        """Last commit at or before `when` that TOUCHED `path`, walking back
+        from `tip`. None if there is none.
+
+        Reading the blob at that commit is exact rather than approximate:
+        nothing changed the file between it and `when`, by construction.
+
+        Two cost decisions, because a path-limited `git log` walks history
+        rather than indexing it:
+
+        `-1` stops at the first match instead of enumerating the path's
+        whole history (0.025 s vs 0.260 s per script, measured).
+
+        `tip` is the BURNED STINT'S OWN ADD COMMIT, not HEAD. Walking from
+        HEAD costs the whole distance back to `when` -- 0.22 s for a
+        three-month-old finding, and the corpus is mostly old ones. From the
+        add commit the distance is `added - when`, hours rather than months.
+        It is also the more faithful tip: that commit's ancestry is exactly
+        the main-line history the earlier run pulled its driver from, so a
+        side-branch commit merged in afterwards (dated before `when`, but
+        never in either tree) is correctly invisible.
+
+        `--before` filters on committer date, so the answer is always at or
+        before `when`; under clock skew it could be an EARLIER such commit
+        rather than the latest, which errs toward a different blob and hence
+        toward a SILENT advisory. A path git knows nothing about, or a tip
+        it cannot resolve, is silent for the same reason.
+        """
+        key = (path, when, tip)
+        if key in self._commit_at:
+            return self._commit_at[key]
+        try:
+            out = _git(self.repo, "log", "-1", "--format=%H",
+                       "--before=%s" % when.isoformat(), tip, "--", path)
+        except RuntimeError:
+            out = ""
+        sha = out.strip() or None
+        self._commit_at[key] = sha
+        return sha
+
+    def blob_ids(self, specs):
+        return cat_file_batch(self.repo, specs, oid_only=True)
 
 
 def parse_queue(blob):
@@ -257,6 +383,26 @@ def renumber_recovery(by_stem, stem, when_after):
     if not matches:
         return None
     return sorted(matches)[0][1]
+
+
+def prior_own_run(by_stem, stem, before):
+    """Latest manifest THIS EXACT stem produced strictly BEFORE `before`.
+
+    Half of the already-ran advisory -- the timestamp half, which on its own
+    is the REFUTED route (it fires on V3-EXQ-728a, whose declared script was
+    rewired between the two stints). The caller must gate it on blob
+    identity; this function deliberately does not know about dispositions.
+
+    `by_stem` maps stem -> iterable of manifest datetimes, the same shape
+    EvidenceIndex.by_stem and the module tests' fake share, so the lookup has
+    exactly one home (as with renumber_recovery). A stem whose timestamp
+    could not be parsed is absent from `by_stem` and therefore silent, which
+    is the safe direction for an advisory.
+    """
+    if not stem:
+        return None
+    stamps = [when for when in by_stem.get(stem, ()) if when < before]
+    return max(stamps) if stamps else None
 
 
 class EvidenceIndex:
@@ -403,9 +549,63 @@ def walk(repo, commits, blobs):
     return stints, successors
 
 
+def annotate_already_ran(pairs, by_stem, script_blobs):
+    """Fill the ADVISORY `already_ran_identical_script` on each finding.
+
+    Fires when the entry's DECLARED SCRIPT produced a manifest before the
+    burned stint AND that script's blob is byte-identical at both points --
+    at the revision current when the earlier manifest was written, and at
+    the burned stint's own add commit. Blob identity is what makes it safe:
+    the timestamp alone fires on V3-EXQ-728a, which declares the PARENT's
+    driver, ran it on 2026-07-20, and was then re-queued after that driver
+    was REWIRED for SD-070. The earlier manifest is a different experiment
+    there, so an advisory saying "728a already ran" would be actively false.
+
+    STRICTLY ADVISORY: it never touches `evidence_recovered` and never
+    removes a finding. Demotion is the dangerous direction (see the REFUTED
+    ROUTE block in the module tests), so this route only annotates.
+
+    `pairs` is [(finding, stint)]. Two phases so that every oid read goes
+    through ONE batched `git cat-file` -- phase 1 resolves which revisions
+    to compare, phase 2 reads them all at once.
+    """
+    if script_blobs is None:
+        return
+    wanted = []
+    specs = []
+    for finding, stint in pairs:
+        script = stint["item"].get("script")
+        added = parse_iso(stint["added_at"])
+        when = prior_own_run(by_stem, script_stem(script), added)
+        if when is None or not script:
+            continue
+        then_sha = script_blobs.commit_at(script, when, stint["added_sha"])
+        if then_sha is None:
+            continue
+        then_spec = "%s:%s" % (then_sha, script)
+        now_spec = "%s:%s" % (stint["added_sha"], script)
+        wanted.append((finding, then_spec, now_spec, when))
+        specs.extend((then_spec, now_spec))
+    if not specs:
+        return
+    oids = script_blobs.blob_ids(specs)
+    for finding, then_spec, now_spec, when in wanted:
+        then_oid = oids.get(then_spec)
+        now_oid = oids.get(now_spec)
+        # Fail SILENT on anything unresolvable: a missing blob means the
+        # script was not in one of the two trees, which is not evidence that
+        # it is the same file.
+        if not then_oid or not now_oid or then_oid != now_oid:
+            continue
+        finding["already_ran_identical_script"] = True
+        finding["already_ran_identical_script_at"] = when.strftime(
+            "%Y-%m-%dT%H:%M:%SZ")
+
+
 def find_burns(stints, successors, evidence, window_minutes, grace_minutes,
-               cutover):
+               cutover, script_blobs=None):
     findings = []
+    annotated = []
     for stint in stints:
         # L1 -- operator add
         if not stint["added_by_operator"]:
@@ -463,7 +663,7 @@ def find_burns(stints, successors, evidence, window_minutes, grace_minutes,
         renumbered = evidence.renumbered_run_after(stem, removed)
         if renumbered:
             recovered.append("(renumbered: %s)" % renumbered)
-        findings.append({
+        finding = {
             "queue_id": stint["queue_id"],
             "script": stint["item"].get("script"),
             "added_at": stint["added_at"],
@@ -475,7 +675,16 @@ def find_burns(stints, successors, evidence, window_minutes, grace_minutes,
             "prior_stints": stint["prior_stints"],
             "evidence_recovered": bool(recovered),
             "recovered_by": recovered,
-        })
+            # ADVISORY, filled below. Present unconditionally so consumers
+            # can read the field without knowing whether a blob provider
+            # was supplied.
+            "already_ran_identical_script": False,
+            "already_ran_identical_script_at": None,
+        }
+        findings.append(finding)
+        annotated.append((finding, stint))
+    annotate_already_ran(annotated, getattr(evidence, "by_stem", {}),
+                         script_blobs)
     return findings
 
 
@@ -494,7 +703,8 @@ def audit(repo=DEFAULT_REPO, evidence_dir=DEFAULT_EVIDENCE,
     stints, successors = walk(repo, commits, blobs)
     cutover = None if all_history else parse_iso(PHASE3_CUTOVER)
     return find_burns(stints, successors, EvidenceIndex(evidence_dir),
-                      window_minutes, grace_minutes, cutover)
+                      window_minutes, grace_minutes, cutover,
+                      ScriptBlobs(repo))
 
 
 # --------------------------------------------------------------------------
@@ -561,6 +771,27 @@ def main(argv=None):
             print("      removed %s  %s" % (f["removed_at"], f["removed_sha"]))
             if f["recovered_by"]:
                 print("      recovered by %s" % ", ".join(f["recovered_by"]))
+            if f["already_ran_identical_script"]:
+                print("      ADVISORY: this entry's declared script already "
+                      "ran at %s"
+                      % f["already_ran_identical_script_at"])
+                print("      from a BYTE-IDENTICAL blob, so the burned "
+                      "re-add cannot have lost")
+                print("      that run. Disposition unchanged -- whether the "
+                      "re-add wanted a")
+                print("      RERUN is not machine-visible.")
+        print()
+
+    already_ran = sorted({f["queue_id"] for f in lost
+                          if f["already_ran_identical_script"]})
+    if already_ran:
+        print("EVIDENCE LOST splits in two. %d of the %d lost id(s) already "
+              "ran under their" % (len(already_ran),
+                                   len({f["queue_id"] for f in lost})))
+        print("own number from an identical script (advisory above): %s"
+              % ", ".join(already_ran))
+        print("The rest never ran under any number -- those are the "
+              "unrecovered science.")
         print()
 
     ids = sorted({f["queue_id"] for f in findings})
