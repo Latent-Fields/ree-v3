@@ -158,6 +158,7 @@ class InstrumentalAvoidanceGate:
         self._n_ticks: int = 0
         self._n_credit: int = 0
         self._n_decay: int = 0
+        self._n_freeze_noop: int = 0
         self._n_freeze_suppressed: int = 0
         self._n_updates: int = 0
         self._n_sim_skipped: int = 0
@@ -288,11 +289,26 @@ class InstrumentalAvoidanceGate:
 
         Compares the current z_harm_a norm to the threat the PREVIOUS action
         responded to (_z_harm_a_prev). When that previous tick was under threat:
-          - directed action AND harm dropped  -> credit (efficacy rises)
-          - directed action AND harm did not drop -> decay
-          - froze (no-op) under threat        -> decay (freezing is not credited)
+          - directed action AND harm dropped      -> credit (efficacy rises)
+          - directed action AND harm did not drop -> decay (a real attempt failed)
+          - froze (no-op) under threat             -> NEITHER (see MECH-357 note)
         A one-tick lag: the avoidance outcome is the just-experienced threat
-        change. No-op under simulation_mode (MECH-094)."""
+        change. No-op under simulation_mode (MECH-094).
+
+        MECH-357 credit-eligibility windowing (2026-08-16): a freeze/no-op tick
+        does not decay avoidance_efficacy. Freezing and directed-instrumental-
+        avoidance are the two mutually exclusive resolutions of the Pavlovian-
+        instrumental conflict this module exists to arbitrate (Moscarello &
+        LeDoux 2013, module docstring above) -- a freeze tick is the absence of
+        an avoidance attempt, not a failed one, and standard extinction theory
+        requires an unreinforced EMISSION of the response to weaken it, not
+        its mere non-occurrence. Under sustained threat, freeze/no-op ticks
+        vastly outnumber directed-and-successful ones (n_credit << n_decay
+        historically), so charging decay on every freeze tick swamped the
+        learned trace toward numerical zero regardless of the per-event
+        learn_rate/leak_rate constants -- this was a tick-count artefact, not
+        evidence the avoidance behaviour itself was ineffective. Directed
+        attempts that fail still decay, unchanged."""
         z_now = float(z_harm_a_norm)
         if simulation_mode:
             self._n_sim_skipped += 1
@@ -304,7 +320,9 @@ class InstrumentalAvoidanceGate:
             delta = prev - z_now  # > 0 = harm dropped after the action
             lr = float(self.config.learn_rate)
             leak = float(self.config.leak_rate)
-            if action_was_directed and delta > float(self.config.efficacy_reward_floor):
+            if not action_was_directed:
+                self._n_freeze_noop += 1
+            elif delta > float(self.config.efficacy_reward_floor):
                 self._avoidance_efficacy += lr * (1.0 - self._avoidance_efficacy)
                 self._n_credit += 1
             else:
@@ -348,6 +366,7 @@ class InstrumentalAvoidanceGate:
             "mech357_effective_efficacy": float(self.effective_efficacy()),
             "mech357_n_credit": int(self._n_credit),
             "mech357_n_decay": int(self._n_decay),
+            "mech357_n_freeze_noop": int(self._n_freeze_noop),
             "mech357_n_freeze_suppressed": int(self._n_freeze_suppressed),
             "mech357_n_updates": int(self._n_updates),
             "mech357_n_sim_skipped": int(self._n_sim_skipped),

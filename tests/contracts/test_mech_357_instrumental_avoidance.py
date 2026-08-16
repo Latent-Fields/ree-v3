@@ -4,8 +4,11 @@ Interface-level guarantees that should hold regardless of tuning:
   C1  default OFF -> agent.instrumental_avoidance is None; bit-identical action
       stream (the gate uses no RNG and adds zero bias at zero efficacy/floor).
   C2  eligibility-trace learning: directed action under threat that drops
-      z_harm_a credits efficacy; freezing / failed avoidance under threat decays
-      it; below threat -> no change.
+      z_harm_a credits efficacy; a directed action under threat that fails to
+      drop it decays efficacy; a freeze/no-op under threat does NEITHER
+      (MECH-357 credit-eligibility windowing, 2026-08-16 -- freezing is the
+      absence of an avoidance attempt, not a failed one); below threat -> no
+      change.
   C3  action bias: penalise the no-op / freeze class under threat proportional
       to effective_efficacy * threat_scale; zero below threat / at zero efficacy;
       clamped to bias_scale.
@@ -81,10 +84,14 @@ def test_c2_eligibility_trace_credit_and_decay():
     # directed under threat but harm did NOT drop (0.2 -> 0.6) -> decay
     g.update(0.6, True)
     assert g.avoidance_efficacy < credited
-    # froze (no-op) under threat -> decay (freezing is not credited)
+    assert g._n_decay == 1 and g._n_freeze_noop == 0
+    # froze (no-op) under threat -> NEITHER credit nor decay (MECH-357
+    # credit-eligibility windowing): a freeze tick is not charged against the
+    # learned trace at all, unlike a directed-but-failed attempt above.
     before = g.avoidance_efficacy
-    g.update(0.2, False)  # prev=0.6>floor, but action not directed -> decay
-    assert g.avoidance_efficacy <= before
+    g.update(0.2, False)  # prev=0.6>floor, action not directed -> no-op, untouched
+    assert g.avoidance_efficacy == before
+    assert g._n_freeze_noop == 1 and g._n_decay == 1  # decay count unchanged
 
 
 # ---------------------------------------------------------------- C3
@@ -186,3 +193,43 @@ def test_c7_config_defaults_and_from_dims_propagation():
     ag.instrumental_avoidance.set_scaffold_floor(0.3)
     assert abs(ag.instrumental_avoidance.config.scaffold_floor - 0.3) < 1e-9
     assert abs(ag.instrumental_avoidance.effective_efficacy() - 0.3) < 1e-9
+
+
+# ---------------------------------------------------------------- C8
+def test_c8_mech357_freeze_dominated_sequence_does_not_underflow():
+    """Regression test for the tick-count-imbalance bug this fix addresses:
+    under sustained threat where freeze/no-op ticks vastly outnumber directed
+    ones (the documented real-run shape, n_credit << n_decay), the learned
+    trace must not be driven toward numerical zero by freeze frequency alone.
+    Uses production-default learn_rate/leak_rate (0.05 / 0.02) to be
+    representative of the actual reported underflow, not a tuned-for-the-test
+    config."""
+    g = InstrumentalAvoidanceGate(InstrumentalAvoidanceGateConfig(threat_floor=0.1))
+    assert abs(g.config.learn_rate - 0.05) < 1e-9
+    assert abs(g.config.leak_rate - 0.02) < 1e-9
+
+    # seed prev, then one genuine credit event (directed action, harm drops)
+    g.update(0.05, True)  # below floor, no-op
+    g.update(0.6, True)   # seeds prev=0.6
+    g.update(0.2, True)   # credit: 0.6 -> 0.2 under threat, directed
+    credited = g.avoidance_efficacy
+    assert credited > 0.0
+
+    # 50 consecutive freeze ticks under sustained threat -- a ratio far more
+    # lopsided than anything a single credit event would survive under the
+    # PRE-FIX semantics (which charged leak_rate=0.02 on every one of these).
+    for _ in range(50):
+        g.update(0.6, False)  # prev stays >= threat_floor, action not directed
+
+    # The learned value must be EXACTLY unchanged: freeze ticks are no longer
+    # eligible to decay it at all, regardless of how many occur.
+    assert g.avoidance_efficacy == credited
+    assert g._n_freeze_noop == 50
+    assert g._n_credit == 1
+    assert g._n_decay == 0
+
+    # A genuine failed directed attempt in between still decays, unchanged.
+    before = g.avoidance_efficacy
+    g.update(0.6, True)  # directed, harm did not drop (stayed at 0.6)
+    assert g.avoidance_efficacy < before
+    assert g._n_decay == 1
