@@ -726,6 +726,21 @@ def _graded(occ: float) -> bool:
     return bool(OCCUPANCY_FLOOR < float(occ) < OCCUPANCY_CEILING)
 
 
+def _r_values(dry_run: bool) -> List[float]:
+    """The r values swept per seed. Single source of truth so the cell-count
+    arithmetic in run_experiment() and the loop in _run_seed() cannot drift.
+
+    THE DRY-RUN SUBSET MUST CONTAIN R_STAR. C1 -- the load-bearing criterion --
+    is evaluated ONLY at R_STAR, so a smoke that omits it exercises nothing and
+    would route a verdict on a criterion that was never measured. Caught by the
+    first smoke of this script, which took R_SWEEP[:2] = [1.85, 2.05], produced
+    occ_at_r_star=None, and still routed the
+    `cap_recalibration_is_seed_idiosyncratic` VERDICT label."""
+    if dry_run:
+        return [R_SWEEP[0], R_STAR]
+    return list(R_SWEEP)
+
+
 def _frac(flags: List[bool]) -> float:
     return float(sum(1 for f in flags if f)) / float(len(flags)) if flags else 0.0
 
@@ -739,6 +754,7 @@ def _aborted_seed_record(seed: int, stage: str, reason: str) -> Dict[str, Any]:
         "is_out_of_sample": bool(seed in OUT_OF_SAMPLE_SEEDS),
         "baseline_margin": 0.0,
         "calib_ok": False,
+        "r_star_measured": False,
         "cells": [],
         "cap_at_r_star": 0.0,
         "occ_at_r_star": None,
@@ -763,7 +779,7 @@ def _run_seed(seed: int, dry_run: bool, total_eps: int,
     device = torch.device("cpu")
     steps_per_ep = scaffold_cfg.scaffold_steps_per_episode
     eval_eps = 2 if dry_run else MODE_EVAL_EPISODES
-    r_values = R_SWEEP[:2] if dry_run else R_SWEEP
+    r_values = _r_values(dry_run)
 
     probe_env = _build_dual_cue_env(
         scaffold_cfg, seed=_derive_env_seed(seed_env_base, stream=2, idx=0)
@@ -898,10 +914,15 @@ def _run_seed(seed: int, dry_run: bool, total_eps: int,
     star_cells = [c for c in norm_cells if c.get("is_r_star")]
     star_cell = star_cells[0] if star_cells else None
 
+    # An ABSENT R_STAR cell means C1 was never measured on this seed. That is an
+    # instrument condition, NOT evidence about the rule -- so it must never be
+    # allowed to read as "did not grade" and feed a verdict. It is carried as its
+    # own flag, gates rule_testable, and routes substrate_not_ready_requeue.
+    r_star_measured = bool(star_cell is not None)
     occ_at_r_star = (
-        float(star_cell["fraction_in_external_task"]) if star_cell is not None else None
+        float(star_cell["fraction_in_external_task"]) if r_star_measured else None
     )
-    graded_at_r_star = bool(star_cell is not None and _graded(occ_at_r_star))
+    graded_at_r_star = bool(r_star_measured and _graded(occ_at_r_star))
     occ_abs = float(abs_cell["fraction_in_external_task"])
     graded_abs = _graded(occ_abs)
 
@@ -925,7 +946,7 @@ def _run_seed(seed: int, dry_run: bool, total_eps: int,
 
     max_margin_mean = max((float(c["ext_margin_mean"]) for c in cells), default=0.0)
     margin_engaged = bool(max_margin_mean > MARGIN_FLOOR)
-    rule_testable = bool(guard_pass and calib_ok)
+    rule_testable = bool(guard_pass and calib_ok and r_star_measured)
 
     print(f"  [rule] seed={seed} baseline_margin={baseline_margin:.4f}"
           f" cap_at_r_star={R_STAR * baseline_margin:.4f}"
@@ -952,6 +973,7 @@ def _run_seed(seed: int, dry_run: bool, total_eps: int,
         "p2_num_contact_events": int(p2.num_contact_events),
         "baseline_margin": round(baseline_margin, 4),
         "calib_ok": calib_ok,
+        "r_star_measured": r_star_measured,
         "rule_testable": rule_testable,
         "cells": cells,
         "cap_at_r_star": round(R_STAR * baseline_margin, 4),
@@ -972,7 +994,7 @@ def run_experiment(dry_run: bool = False,
     print(f"[{EXPERIMENT_TYPE}] starting (dry_run={dry_run}, "
           f"env_seed_base={env_seed_base})", flush=True)
     seeds = SEEDS[:1] if dry_run else SEEDS
-    r_values = R_SWEEP[:2] if dry_run else R_SWEEP
+    r_values = _r_values(dry_run)
     # cells per seed = 1 calibration + len(r_values) ARM_NORM + 1 ARM_ABS
     n_cells = 1 + len(r_values) + 1
     if dry_run:
@@ -1004,11 +1026,24 @@ def run_experiment(dry_run: bool = False,
     calib_frac = _frac(calib_flags)
     calib_ready_met = bool(calib_frac >= MIN_FRACTION)
 
+    # G-rstar: the R_STAR cell must actually EXIST on every guard-passing seed.
+    # This is an instrument invariant, not a statistical one -- C1 is evaluated
+    # only at R_STAR, so a missing cell means C1 was never measured. Threshold is
+    # 1.0 (not MIN_FRACTION) for that reason.
+    r_star_flags = [bool(r.get("r_star_measured", False)) for r in guard_passing]
+    r_star_frac = _frac(r_star_flags)
+    r_star_measured_met = bool(r_star_frac >= 1.0)
+
     # Criteria are scored over seeds that are actually TESTABLE (guard-passing
-    # AND calibration-alive). A seed whose calibration statistic is dead never
-    # received the manipulation, so scoring it as "did not grade" would read a
-    # starved cell as a falsification -- scope it out instead, and record n.
-    testable = [r for r in guard_passing if r.get("calib_ok", False)]
+    # AND calibration-alive AND carrying a measured R_STAR cell). A seed whose
+    # calibration statistic is dead never received the manipulation, and a seed
+    # with no R_STAR cell was never measured at the rule point -- scoring either
+    # as "did not grade" would read a starved cell as a falsification. Scope
+    # them out instead, and record n.
+    testable = [
+        r for r in guard_passing
+        if r.get("calib_ok", False) and r.get("r_star_measured", False)
+    ]
     n_testable = len(testable)
 
     # -- C1: the COMMON RULE test. One r (R_STAR) for every seed.
@@ -1083,6 +1118,10 @@ def run_experiment(dry_run: bool = False,
         outcome = "FAIL"
         readiness_route = "substrate_not_ready_requeue"
         route_reason = "calibration_statistic_dead_cap_rule_degenerate"
+    elif not r_star_measured_met:
+        outcome = "FAIL"
+        readiness_route = "substrate_not_ready_requeue"
+        route_reason = "r_star_cell_missing_c1_never_evaluated"
     elif not manipulation_landed:
         outcome = "FAIL"
         readiness_route = "substrate_not_ready_requeue"
@@ -1099,7 +1138,8 @@ def run_experiment(dry_run: bool = False,
     # Diagnostic: excluded from confidence scoring. Directions are context only.
     if rule_supported:
         sd032a_dir = "supports"          # register recalibratable by a shippable rule
-    elif contact_non_vacuity_met and margin_ready_met and calib_ready_met and manipulation_landed:
+    elif (contact_non_vacuity_met and margin_ready_met and calib_ready_met
+          and r_star_measured_met and manipulation_landed):
         sd032a_dir = "weakens"           # ready + manipulation landed, but no rule generalises
     else:
         sd032a_dir = "non_contributory"  # not ready / inert; says nothing about the register
@@ -1111,6 +1151,7 @@ def run_experiment(dry_run: bool = False,
 
     print(f"[{EXPERIMENT_TYPE}] guard {sum(guard_flags)}/{n}"
           f" margin_ready={margin_ready_met} calib_ready={calib_ready_met}"
+          f" r_star_measured={r_star_measured_met}"
           f" n_testable={n_testable}", flush=True)
     print(f"[{EXPERIMENT_TYPE}] C1 graded_at_r_star={n_graded_norm}/{n_testable}"
           f" (frac={c1_frac:.3f}) passed={c1_passed}"
@@ -1132,6 +1173,8 @@ def run_experiment(dry_run: bool = False,
         "margin_ready_fraction": margin_frac,
         "calib_ready_met": calib_ready_met,
         "calib_ready_fraction": calib_frac,
+        "r_star_measured_met": r_star_measured_met,
+        "r_star_measured_fraction": r_star_frac,
         "n_testable_seeds": n_testable,
         "c1_rule_grades_at_r_star": c1_passed,
         "c1_fraction": c1_frac,
@@ -1217,6 +1260,28 @@ def run_experiment(dry_run: bool = False,
             "direction": "lower",
             "met": calib_ready_met,
         },
+        {
+            "name": "r_star_cell_measured",
+            "kind": "readiness",
+            "description": "the R_STAR cell must EXIST on every guard-passing seed. "
+                           "C1 -- the load-bearing criterion -- is evaluated ONLY at "
+                           "R_STAR, so a missing cell means C1 was never measured at "
+                           "all. This is an INSTRUMENT invariant, not a statistical "
+                           "one, which is why the threshold is 1.0 rather than "
+                           "MIN_FRACTION. Below it the run self-routes "
+                           "substrate_not_ready_requeue; it must NEVER be allowed to "
+                           "read as 'did not grade' and feed the "
+                           "cap_recalibration_is_seed_idiosyncratic verdict.",
+            "control": "R_STAR is a member of R_SWEEP by construction and the "
+                       "dry-run r subset is built by _r_values() to always contain "
+                       "it, so this is satisfiable by construction and can only "
+                       "fail on a real instrument fault. Added after the first "
+                       "smoke of this script evaluated C1 on an absent cell.",
+            "measured": round(r_star_frac, 4),
+            "threshold": 1.0,
+            "direction": "lower",
+            "met": r_star_measured_met,
+        },
     ]
 
     criteria = [
@@ -1232,7 +1297,7 @@ def run_experiment(dry_run: bool = False,
     # when at least one out-of-sample seed was testable.
     base_non_degenerate = bool(
         contact_non_vacuity_met and margin_ready_met and calib_ready_met
-        and manipulation_landed and n_testable > 0
+        and r_star_measured_met and manipulation_landed and n_testable > 0
     )
     criteria_non_degenerate = {
         "C1_rule_grades_at_r_star": base_non_degenerate,
