@@ -26,7 +26,19 @@ QUEUE_FILE = Path(__file__).resolve().parent / "experiment_queue.json"
 # Valid values for enum fields
 # ------------------------------------------------------------------
 VALID_STATUSES = {"pending", "claimed", "failed", "suspended"}
-VALID_AFFINITIES = {"any", "DLAPTOP-4.local", "Daniel-PC", "EWIN-PC", "ree-cloud-1", "ree-cloud-2", "ree-cloud-3", "ree-cloud-4"}
+# DLAPTOP is the canonical Mac identity (ree-v3/machine_identity.py);
+# DLAPTOP-4.local/DLAPTOP-5.local are kept alongside it so an existing
+# queue entry pinned to either literal (from before canonicalization, or
+# written by a tool that has not been updated) still validates -- this is
+# an allowlist, not a lookup, so listing a retired alias costs nothing.
+# ree-cloud-5 is deliberately NOT included: it is a dedicated
+# metaworker-dispatch box, not an experiment runner, so it can never be a
+# valid machine_affinity target.
+VALID_AFFINITIES = {
+    "any", "DLAPTOP", "DLAPTOP-4.local", "DLAPTOP-5.local",
+    "Daniel-PC", "EWIN-PC",
+    "ree-cloud-1", "ree-cloud-2", "ree-cloud-3", "ree-cloud-4",
+}
 
 # queue_id must match: V<gen>-EXQ-<digits>[optional letter][optional -<letter>]
 # OR onboarding smoke tests: V3-ONBOARD-smoke-<machine-name>
