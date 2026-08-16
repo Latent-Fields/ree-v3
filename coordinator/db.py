@@ -10,9 +10,15 @@ All stdout/stderr text is ASCII-only (Windows cp1252 safety).
 import json
 import os
 import sqlite3
+import sys
 from datetime import datetime, timedelta, timezone
 
 SCHEMA_PATH = os.path.join(os.path.dirname(__file__), "schema.sql")
+
+# machine_identity.py lives in ree-v3/, one directory up from coordinator/.
+# Same import shim phase3_preflight.py and phase3_verify.py already use.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from machine_identity import same_machine  # noqa: E402
 
 
 def utcnow():
@@ -142,7 +148,22 @@ TERMINAL_STATUSES = ("completed", "failed")
 
 
 def _affinity_ok(affinity, machine):
-    return affinity in (None, "", "any") or affinity == machine
+    """True when `machine` is allowed to run a row pinned to `affinity`.
+
+    Compared on CANONICAL identity, not raw string equality, mirroring
+    experiment_runner._affinity_matches -- which has done this since the
+    machine_identity resolver landed. Without it, a queue entry pinned
+    `DLAPTOP-4.local` silently stops being claimable the moment the Mac's
+    runner starts reporting its canonical `DLAPTOP`: no error, no log line,
+    the experiment just starves.
+
+    `same_machine` is an ALLOWLIST, so `ree-cloud-1` .. `-5` and
+    `ree-worker-1` .. `-4` still compare as distinct machines -- collapsing
+    those would route every affinity-pinned experiment to the wrong box.
+    See machine_identity.SUFFIX_BLIND_BASES, and the distinct-keys contract
+    in coordinator/test_machine_identity_ingest.py.
+    """
+    return affinity in (None, "", "any") or same_machine(affinity, machine)
 
 
 def upsert_experiment(conn, item, preserve_claim=False):

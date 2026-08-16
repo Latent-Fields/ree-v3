@@ -40,7 +40,51 @@ from urllib.parse import urlparse, parse_qs
 import db
 import manifest_spool
 
+# machine_identity.py lives in ree-v3/, one directory up from coordinator/.
+# Same import shim phase3_preflight.py and phase3_verify.py already use.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from machine_identity import canonical_machine_name  # noqa: E402
+
 MAX_BODY = 32 * 1024 * 1024  # 32MB; observed max manifest ~7MB
+
+
+def _canon(machine):
+    """Canonicalise a machine name arriving at the ingest boundary.
+
+    THE INGEST BOUNDARY IS THE ONLY PLACE THIS HAPPENS. Every mutable
+    coordination key -- the `heartbeats` PRIMARY KEY, `experiments`
+    .claimed_by_machine, `commands.machine` -- is resolved here, once, so
+    db.py can go on comparing plain strings and every downstream reader sees
+    one identity per physical box.
+
+    Why it is needed: macOS re-suffixes LocalHostName on a Bonjour collision,
+    so this fleet's Mac has reported `DLAPTOP-4.local` and `DLAPTOP-5.local`
+    for the same laptop, and `experiment_runner._get_machine_name` now
+    resolves both to `DLAPTOP`. Against a coordinator that string-matches,
+    that rename SPLITS the box in two: a second heartbeat row (PK is
+    `machine`), a claim its owner can no longer release (`release_claim`),
+    and -- worst -- a claim that `_has_fresh_owner_heartbeat` reads as
+    ownerless and hands to a second worker while the first is still running
+    it. Full analysis: REE_assembly/evidence/planning/
+    coordinator_canonical_machine_identity_staged_20260816.md.
+
+    NOT a `-<digits>` strip. `canonical_machine_name` is an ALLOWLIST
+    (machine_identity.SUFFIX_BLIND_BASES, one entry), so `ree-cloud-1` ..
+    `-5` and `ree-worker-1` .. `-4` pass through untouched. Collapsing those
+    would give the whole fleet one heartbeat row and one colliding claim
+    space -- a fleet-wide outage, not a cosmetic bug. That property is
+    pinned coordinator-side by test_machine_identity_ingest.py, not merely
+    inherited from tests/contracts/test_machine_identity.py.
+
+    Falls back to the raw value when canonicalisation yields "" (empty or
+    None input), and passes non-strings through untouched, so this can never
+    turn a present name into a blank NOR raise on a malformed body -- the
+    callers' own "machine required" guards keep deciding what is valid, and
+    they still see exactly what the client sent.
+    """
+    if not isinstance(machine, str):
+        return machine
+    return canonical_machine_name(machine) or machine
 
 # Remote-control command kinds the coordinator accepts on POST /commands/issue.
 # Mirrors ree-v3/runner_remote_control.VALID_COMMAND_KINDS exactly so a command
@@ -259,7 +303,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/commands":
             qs = parse_qs(urlparse(self.path).query)
-            machine = (qs.get("machine") or [""])[0]
+            # Canonicalised on the FETCH side, and POST /commands/issue is
+            # canonicalised on the ISSUE side. Those two must move together
+            # or not at all: canonicalising one alone converts a deliverable
+            # command into a permanently pending one. Round-trip pinned by
+            # test_machine_identity_ingest.CommandChannelDriftTest.
+            machine = _canon((qs.get("machine") or [""])[0])
             conn = db.connect(DB_PATH)
             try:
                 cmds = db.fetch_pending_commands(conn, machine)
@@ -323,6 +372,15 @@ class Handler(BaseHTTPRequestHandler):
                 nexp = conn.execute(
                     "SELECT COUNT(*) c FROM experiments").fetchone()["c"]
                 machines = []
+                # Rows are reported by their STORED key, not re-canonicalised
+                # on read. Since every writer of this table now resolves at
+                # ingest (_canon), new rows are already canonical -- and the
+                # one-off residue of the transition (an orphaned
+                # `DLAPTOP-4.local` row beside a new `DLAPTOP` one) SHOULD
+                # stay visible here rather than be merged away: that readout
+                # is how an operator knows the old row is safe to delete.
+                # See machine_identity.py's closing note on telemetry
+                # filenames -- let the stale pair age out, do not hide it.
                 stale_after_seconds = (
                     LIFECYCLE_STALE_AFTER_DAYS * 86400.0)
                 for r in conn.execute(
@@ -411,7 +469,21 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(400, {"error": "bad body"})
                 return
             qid = body.get("queue_id")
-            machine = body.get("machine") or machine_tok
+            # TWO names on purpose, and they must not be collapsed:
+            #   machine     -- canonical; decides and RECORDS claim ownership
+            #                  (evaluate_claim / try_claim / apply_git_outcome
+            #                  write experiments.claimed_by_machine).
+            #   machine_raw -- exactly what the client reported; goes only to
+            #                  log_claim. claim_log is the shadow AUDIT TRAIL,
+            #                  append-only, and its whole value is being a
+            #                  faithful record of what each box said at the
+            #                  time. Canonicalising it would erase the only
+            #                  evidence an identity split ever happened --
+            #                  which is precisely the evidence the "10533 vs
+            #                  0" argument in machine_identity.py rests on.
+            #                  Same reasoning as results.machine under /result.
+            machine_raw = body.get("machine") or machine_tok
+            machine = _canon(machine_raw)
             git_verdict = body.get("git_verdict")  # may be None
             if not qid:
                 self._send(400, {"error": "queue_id required"})
@@ -435,7 +507,7 @@ class Handler(BaseHTTPRequestHandler):
                     reap_quiet_seconds=reap)
                 if MODE == "shadow":
                     diverged = db.log_claim(
-                        conn, qid, machine, git_verdict, coord_verdict)
+                        conn, qid, machine_raw, git_verdict, coord_verdict)
                     db.apply_git_outcome(conn, qid, machine, git_verdict)
                     self._send(200, {"verdict": coord_verdict,
                                      "diverged": bool(diverged),
@@ -456,7 +528,7 @@ class Handler(BaseHTTPRequestHandler):
                     # separate, advisory channel). detail='phase3_only'
                     # marks rows that came in via the Phase 3 endpoint so
                     # mixed-mode periods are distinguishable post-hoc.
-                    db.log_claim(conn, qid, machine, None, real,
+                    db.log_claim(conn, qid, machine_raw, None, real,
                                  detail="phase3_only")
                     self._send(200, {"verdict": real,
                                      "authoritative": True})
@@ -469,7 +541,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(400, {"error": "bad body"})
                 return
             qid = body.get("queue_id")
-            machine = body.get("machine") or machine_tok
+            machine = _canon(body.get("machine") or machine_tok)
             if not qid:
                 self._send(400, {"error": "queue_id required"})
                 return
@@ -502,7 +574,7 @@ class Handler(BaseHTTPRequestHandler):
             conn = db.connect(DB_PATH)
             try:
                 db.upsert_heartbeat(
-                    conn, body.get("machine") or machine_tok,
+                    conn, _canon(body.get("machine") or machine_tok),
                     body.get("state"), body.get("current_exq"),
                     body.get("progress"), body.get("gpu"),
                     body.get("seconds_elapsed"),
@@ -522,7 +594,7 @@ class Handler(BaseHTTPRequestHandler):
             if body is None:
                 self._send(400, {"error": "bad body"})
                 return
-            machine = body.get("machine") or machine_tok
+            machine = _canon(body.get("machine") or machine_tok)
             payload = body.get("status") if "status" in body else body
             if not isinstance(payload, dict):
                 self._send(400, {"error": "status payload must be dict"})
@@ -564,6 +636,11 @@ class Handler(BaseHTTPRequestHandler):
             if not machine or not isinstance(machine, str):
                 self._send(400, {"error": "machine required"})
                 return
+            # Canonicalised AFTER the guard, so a malformed body still gets
+            # the same 400. record_shutdown_notice upserts the heartbeats
+            # row, and the claim fence + departure reaper both re-read it by
+            # that key -- a drifted spelling here arms a fence nobody checks.
+            machine = _canon(machine)
             reason = body.get("reason")
             wake = body.get("expected_wake_condition")
             conn = db.connect(DB_PATH)
@@ -597,6 +674,11 @@ class Handler(BaseHTTPRequestHandler):
             if not machine or not isinstance(machine, str):
                 self._send(400, {"error": "machine required"})
                 return
+            # Must resolve the same way /shutdown_notify does, or the scaler
+            # clears the fence on one spelling's row while the armed one
+            # stays armed and the freshly-woken worker keeps getting
+            # "draining".
+            machine = _canon(machine)
             conn = db.connect(DB_PATH)
             try:
                 db.record_claim_fence_clear(conn, machine)
@@ -622,6 +704,12 @@ class Handler(BaseHTTPRequestHandler):
             if not machine or not isinstance(machine, str):
                 self._send(400, {"error": "machine required"})
                 return
+            # ISSUE side. Paired with the FETCH side in GET /commands and the
+            # ACK side in POST /commands/ack -- all three canonicalise, or
+            # none may. serve.py's _coordinator_issue_command resolves before
+            # it posts too, so the explorer and a hand-rolled curl land the
+            # command in the same place.
+            machine = _canon(machine)
             kind = body.get("kind")
             if kind not in VALID_COMMAND_KINDS:
                 self._send(400, {"error": "unknown command kind",
@@ -659,7 +747,11 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(cmd_id, int):
                 self._send(400, {"error": "integer command id required"})
                 return
-            machine = body.get("machine") or machine_tok
+            # ACK side of the command channel -- see POST /commands/issue.
+            # ack_command is owner-guarded (`row["machine"] != machine`), so
+            # without this a runner cannot ack a command addressed to its
+            # other spelling and the command never leaves the pending list.
+            machine = _canon(body.get("machine") or machine_tok)
             result_status = body.get("result_status") or "done"
             if result_status not in ("done", "failed"):
                 self._send(400, {"error": "result_status must be "
@@ -693,6 +785,20 @@ class Handler(BaseHTTPRequestHandler):
             sha = hashlib.sha256(raw).hexdigest()
             conn = db.connect(DB_PATH)
             try:
+                # DELIBERATELY NOT _canon()'d, and this is the one ingest
+                # point that stays raw. `results.machine` is APPEND-ONLY
+                # PROVENANCE -- the DB form of the result manifest, which
+                # CLAUDE.md is explicit is "aliased on READ, deliberately
+                # never rewritten", because recording a run under a name the
+                # box was not reporting at the time is falsifying provenance.
+                # Nothing keys coordination behaviour off this column; it is
+                # a record of what happened, not a decision input.
+                #
+                # The manifest bytes spooled below carry the same raw name,
+                # so DB and evidence file agree -- canonicalising here would
+                # silently make them disagree.
+                #
+                # Same rule applies to claim_log.machine (see POST /claim).
                 fresh = db.record_result(
                     conn, run_id, manifest.get("queue_id"),
                     manifest.get("machine") or machine_tok,
