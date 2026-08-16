@@ -77,6 +77,47 @@ else
   echo "[$(ts)] autosync: FAILED (git pull --ff-only) -- continuing this cycle on existing code" >> "$LOG"
 fi
 
+# --- Executable-surface freshness gate --------------------------------------
+# The autosync above CANNOT be assumed to have worked, and on this box it
+# mostly has not: measured to 2026-08-16, 1299 FAILED against 853 ok. Once the
+# checkout carries any local commit origin does not have -- the normal residue
+# of every ree_commit.py cherry-pick push retry -- `--ff-only` refuses forever,
+# and the only trace is the log line above, in a file nobody reads.
+#
+# What that costs is not hypothetical. 2026-08-14: the orphaned-close push
+# guard was on origin all day; this box's scripts/task_claim.py was 399 lines
+# behind and had none of it; at 19:53Z the exact corruption it was written to
+# prevent happened anyway, marking a LIVE sibling session's ACTIVE claim done
+# (origin 7241ae05). A guard that ships to origin but not to the box that
+# needs it is not deployed. Full write-up: REE_assembly
+# evidence/planning/cloud5_stale_scripts_wedge_staged_20260814.md.
+#
+# WHY THE VERDICT GOES INTO THE PROMPT rather than a log line or a SKILL.md
+# step: this wrapper lives at /usr/local/bin, OUTSIDE the repo. It is the only
+# delivery channel that still reaches the dispatcher when the checkout cannot
+# adopt origin -- a SKILL.md step, a hook, or a python guard is inside the very
+# tree that is frozen, so landing one on origin does not deploy it. Same shape
+# as `.claude/settings.json` carrying the worktree-skills audit (CLAUDE.md
+# Session Startup Protocol step 7b) for exactly the same reason.
+#
+# It does NOT abort the cycle, deliberately. The repair for a wedged checkout
+# is itself carried out by a headless chip session dispatched by this loop, and
+# so are the ref_convergence_wedge escalation chips that name it -- halting on
+# stale scripts would deadlock its own fix.
+FRESHNESS_NOTE=""
+if [ -f "$REPO/scripts/check_dispatch_scripts_freshness.py" ]; then
+  FRESH_OUT="$(/opt/local/bin/python3 "$REPO/scripts/check_dispatch_scripts_freshness.py" 2>&1)"
+  FRESH_RC=$?
+  echo "[$(ts)] scripts-freshness check:" >> "$LOG"
+  echo "$FRESH_OUT" >> "$LOG"
+  if [ "$FRESH_RC" -ne 0 ]; then
+    FRESHNESS_NOTE="
+
+STALE EXECUTABLE SURFACE ON THIS BOX -- read this before trusting any guard. This checkout's scripts/ does not match origin/master, so the scripts every dispatched session invokes by absolute path are FROZEN at an older revision, and any guard landed on origin since the freeze is NOT in force here. Do NOT stop dispatching -- clearing this is itself work for a dispatched session -- but treat it as this cycle's priority: look for an open ref-convergence / wedge / stale-scripts chip in TASK_CHIPS.json and dispatch it ahead of other work (if none exists, that is the chip to raise), and do not assume any recently-landed fix is deployed on this box. Verbatim check output follows.
+$FRESH_OUT"
+  fi
+fi
+
 # Coordination-plane dirt check -- report only, never touches anything.
 # Confirmed live 2026-08-03: THIS box's own REE_assembly checkout sat with
 # 1220 uncommitted files (a stale build_experiment_indexes.py regen, never
@@ -206,7 +247,7 @@ else
   # transparent wrapper around the same claude invocation as before.
   flock -n -E 99 "$LOCKFILE" \
     timeout --signal=TERM --kill-after=60 "$DISPATCH_MAX_SEC" \
-    claude -p "Run exactly ONE cycle of the metaworker-dispatch skill (see $REPO/.claude/skills/metaworker-dispatch/SKILL.md), then exit. This is cycle $CYCLE on machine $MACHINE. Do not call ScheduleWakeup or otherwise self-pace via /loop -- an external systemd timer re-invokes this script every 5 minutes, so pacing is handled outside this session." \
+    claude -p "Run exactly ONE cycle of the metaworker-dispatch skill (see $REPO/.claude/skills/metaworker-dispatch/SKILL.md), then exit. This is cycle $CYCLE on machine $MACHINE. Do not call ScheduleWakeup or otherwise self-pace via /loop -- an external systemd timer re-invokes this script every 5 minutes, so pacing is handled outside this session.$FRESHNESS_NOTE" \
       --permission-mode auto >> "$LOG" 2>&1
   DISPATCH_RC=$?
   if [ "$DISPATCH_RC" -eq 99 ]; then
