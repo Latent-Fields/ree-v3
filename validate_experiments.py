@@ -47,7 +47,7 @@ CHECK_NAMES = ("conformance", "readiness", "arm_fingerprint", "degeneracy", "man
                "write_pack_dry_run", "dry_run_unreachable_criterion",
                "config_slice_declaration", "inert_salience_dacc_bias",
                "dacc_last_bundle", "agent_seed_order", "zworld_p0_warmup",
-               "fishtank_episode_log_seeds")
+               "fishtank_episode_log_seeds", "disjunctive_criteria_load_bearing")
 
 # Readiness-gate static lint (proposal_trivial_prediction_readiness_gate_2026-06-06).
 # A diagnostic/baseline script whose interpretation grid self-routes to one of
@@ -5821,6 +5821,269 @@ def fishtank_episode_log_seeds_lint(path: Path) -> Optional[str]:
     )
 
 
+# ---- disjunctive combination_rule vs load-bearing member criteria (V3-EXQ-927/928) ----
+# `build_experiment_indexes.py` rule (3b) flags `vacuous_pass` on any overall-PASS
+# manifest carrying a criterion tagged `load_bearing: true` with `passed: false`. Its own
+# comment says it is "gated on the explicit load_bearing tag so it never over-fires on a
+# legitimate M-of-N pass" -- and that gating is defeated by the DRIVER's tagging, not by
+# the indexer. When a driver declares a DISJUNCTIVE acceptance rule (">=1 arm clears")
+# and then tags its per-member criteria load-bearing, the member whose failure is the
+# INFORMATIVE half of the localisation trips the flag.
+#
+# MEASURED, not hypothetical. Over all 1777 indexed runs (2026-08-16) exactly THREE PASS
+# manifests trip rule (3b) -- v3_exq_921, v3_exq_927, v3_exq_928 -- and all three are
+# disjunctive, i.e. a 100% false-positive rate on that rule's output. The 927/928 pair was
+# adjudicated in the confirmed autopsy
+# REE_assembly/evidence/planning/failure_autopsy_927-928-mech267-cluster_2026-08-16.md
+# section 2, which CLEARED the flag as a tagging artifact and recorded the fix direction:
+# the driver should tag the AGGREGATE criterion `load_bearing: true` and the per-member
+# ones `load_bearing: false` -- exactly as that driver already, correctly, does for its
+# OFF control arm.
+#
+# THE FIX DIRECTION IS THE ARTIFACT, NEVER THE COUNTER. Do not "fix" this by widening
+# indexer rule (3b) to skip disjunctive manifests: (3b) exists to catch genuine
+# aggregation vacuity (a PASS resting on a gate that cleared on nothing), and a widened
+# rule stops catching it. The lint belongs on the AUTHORING side, which is here.
+#
+# CALIBRATION, and it is the reason this is worth having as a lint at all. Over the 1437
+# -file corpus: 44 drivers mention `combination_rule`, 43 of those declare it in a form
+# this scan can read, and exactly ONE matches a disjunctive phrase -- v3_exq_928, the
+# confirmed carrier, which fires. v3_exq_921 does NOT fire: its rule is an `A AND B` /
+# else-cascade with no disjunctive phrasing, and its failing load-bearing criterion is a
+# flat precondition rather than a per-member family. That is an accepted MISS, not a
+# defect of the predicate -- see the under-fire bias below.
+#
+# BIASED TO UNDER-FIRE, hard, in three separate places, because a false WARN on ordinary
+# authoring work is what gets a lint ignored:
+#   (1) DISJUNCTION DETECTION IS PHRASE-MATCHING on the declared rule text, restricted to
+#       explicit forms (">=1", "at least one", "either", "any of", "one or more", M-of-N).
+#       Prose that MEANS a disjunction without saying so is invisible. The numeric form
+#       deliberately refuses a decimal (`>=\s*1(?![\d.])`): the first draft matched
+#       v3_exq_861c's ">= 1.0 + K_CALIB_MARGIN" -- a pure conjunction -- which is exactly
+#       the false positive this lint must not produce. `\beither\b` will not match
+#       "neither", which appears in real rule text ("informative neither way").
+#   (2) ONLY A PER-MEMBER FAMILY IS ASSESSED -- a criterion dict built inside a `for` loop
+#       or a comprehension, i.e. ONE dict source producing MANY criteria entries. A flat
+#       hand-written criterion is never flagged: under a disjunction some flat criterion
+#       genuinely IS load-bearing (the aggregate), and this scan cannot tell which.
+#   (3) A MEMBER TAG THAT CAN ONLY BE TRUE ONCE IS SPARED. `load_bearing: False` is
+#       correct by construction. `arm == "H2"` / `arm is X` (equality against a single
+#       literal) selects at most one member, which is an aggregate-in-disguise, not the
+#       defect. What fires is literal `True`, or a non-constant that can hold for several
+#       members -- `arm in _FIX_ARMS` (the real 928 shape, true for 3 of 4 arms) or
+#       `arm != "OFF"`.
+# A rule text built by a helper, a criteria list assembled in another module, or a
+# `load_bearing` threaded through a dict are all invisible. A silent lint is acceptable
+# here; a false positive is not.
+_DISJUNCTIVE_CRITERIA_LOAD_BEARING_EXEMPT_MARKER = "DISJUNCTIVE_CRITERIA_LOAD_BEARING_EXEMPT"
+
+# Explicit disjunctive phrasings only -- see under-fire note (1) above. Matched
+# case-insensitively against the declared `combination_rule` text.
+_DISJUNCTIVE_RULE_PATTERNS = (
+    r"\bat least one\b",
+    r"\bat least 1\b",
+    r"\bone or more\b",
+    r"\bany one of\b",
+    r"\bany of\b",
+    r"\beither\b",
+    r"\bm-of-n\b",
+    r"\bn-of-m\b",
+    r">=\s*1(?![\d.])",
+)
+_DISJUNCTIVE_RULE_RE = tuple(re.compile(p, re.IGNORECASE) for p in _DISJUNCTIVE_RULE_PATTERNS)
+
+_LOOPISH = (ast.For, ast.AsyncFor, ast.ListComp, ast.GeneratorExp, ast.SetComp, ast.DictComp)
+
+
+def _literal_str(node: Optional[ast.AST]) -> Optional[str]:
+    """The literal text of a string expression, or None.
+
+    Covers the three shapes real drivers use for `combination_rule`: a plain (possibly
+    implicitly-concatenated -- the parser folds those into one Constant) string, an
+    f-string (literal segments only, interpolations dropped), and `+` concatenation.
+    """
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.JoinedStr):
+        return "".join(v.value for v in node.values
+                       if isinstance(v, ast.Constant) and isinstance(v.value, str))
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left, right = _literal_str(node.left), _literal_str(node.right)
+        if left is None and right is None:
+            return None
+        return (left or "") + (right or "")
+    return None
+
+
+def _combination_rule_texts(tree: ast.AST) -> List[str]:
+    """Every readable `"combination_rule": <text>` in the file.
+
+    Resolves a bare `Name` value one level, by bare name, against string bindings
+    anywhere in the file -- `combination_rule = ("...")` then
+    `"combination_rule": combination_rule` is the authoring shape in 10 of the 44
+    drivers that declare one, and skipping it would drop a quarter of the coverage.
+    First binding wins; a rebound name is not tracked (under-fire, as everywhere here).
+    """
+    bindings: Dict[str, str] = {}
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Assign) and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name):
+            text = _literal_str(n.value)
+            if text:
+                bindings.setdefault(n.targets[0].id, text)
+
+    out: List[str] = []
+    for n in ast.walk(tree):
+        if not isinstance(n, ast.Dict):
+            continue
+        value = _dict_str_keys(n).get("combination_rule")
+        if value is None:
+            continue
+        text = _literal_str(value)
+        if text is None and isinstance(value, ast.Name):
+            text = bindings.get(value.id)
+        if text:
+            out.append(text)
+    return out
+
+
+def _enclosing_loop(node: ast.AST, parent: Dict[int, ast.AST]) -> Optional[ast.AST]:
+    """The nearest enclosing `for`/comprehension, stopping at the function boundary.
+
+    Stopping at the boundary is what makes "per-member family" mean what it says: a
+    criterion built in a helper called FROM a loop is not textually inside one, and
+    following the call would need the interprocedural resolution this lint deliberately
+    does not do.
+    """
+    cur = parent.get(id(node))
+    while cur is not None:
+        if isinstance(cur, _LOOPISH):
+            return cur
+        if isinstance(cur, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Module)):
+            return None
+        cur = parent.get(id(cur))
+    return None
+
+
+def _selects_at_most_one_member(node: ast.expr) -> bool:
+    """True when the tag expression can hold for at most ONE loop member.
+
+    `arm == "H2"` / `arm is SENTINEL` designates a single member, which is an aggregate
+    criterion wearing a loop's clothes -- not the all-members-load-bearing defect. See
+    under-fire note (3). A membership test (`arm in _FIX_ARMS`) or an inequality
+    (`arm != "OFF"`) can hold for several and is NOT spared.
+    """
+    return (isinstance(node, ast.Compare) and len(node.ops) == 1
+            and isinstance(node.ops[0], (ast.Eq, ast.Is))
+            and isinstance(node.comparators[0], ast.Constant))
+
+
+def disjunctive_criteria_load_bearing_lint(path: Path) -> Optional[str]:
+    """Disjunctive acceptance rule with load-bearing per-member criteria. Issue, or None.
+
+    Fires when ALL of:
+      (1) the file declares a readable `"combination_rule"` whose text matches an
+          explicit disjunctive phrase (`_DISJUNCTIVE_RULE_PATTERNS`);
+      (2) it builds a criterion dict -- one carrying both `name` and `load_bearing` --
+          inside a `for` loop or comprehension, i.e. a per-MEMBER family rather than a
+          single hand-written criterion;
+      (3) that family's `load_bearing` tag can be true for more than one member: literal
+          `True`, or a non-constant expression that is not an equality against a single
+          literal.
+
+    Never blocking, in either mode. See the block comment above for the measured corpus
+    calibration (1 fire / 1437 files) and the three separate under-fire biases.
+    """
+    try:
+        src = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    if _DISJUNCTIVE_CRITERIA_LOAD_BEARING_EXEMPT_MARKER in src:
+        return None
+    # Cheap substring pre-filter BEFORE any tree work: only 44 of the 1437-file corpus
+    # mention `combination_rule` at all, so this skips the two `ast.walk`s below for ~97%
+    # of files. A source without the literal key cannot have a readable rule for
+    # `_combination_rule_texts` to find, so this cannot change any verdict.
+    if "combination_rule" not in src:
+        return None
+    try:
+        tree = ast.parse(src, filename=str(path))
+    except SyntaxError:
+        return None
+
+    rules = _combination_rule_texts(tree)
+    matched: Optional[str] = None
+    for text in rules:
+        for rx in _DISJUNCTIVE_RULE_RE:
+            hit = rx.search(text)
+            if hit:
+                matched = hit.group(0)
+                break
+        if matched:
+            break
+    if matched is None:
+        return None
+
+    parent: Dict[int, ast.AST] = {}
+    for n in ast.walk(tree):
+        for c in ast.iter_child_nodes(n):
+            parent[id(c)] = n
+
+    findings: List[Tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Dict):
+            continue
+        keys = _dict_str_keys(node)
+        if "name" not in keys or "load_bearing" not in keys:
+            continue
+        if _enclosing_loop(node, parent) is None:
+            continue
+        tag = keys["load_bearing"]
+        if isinstance(tag, ast.Constant):
+            if tag.value is not True:
+                continue
+            shown = "True"
+        else:
+            if _selects_at_most_one_member(tag):
+                continue
+            try:
+                shown = ast.unparse(tag)
+            except Exception:                                # pragma: no cover - old py
+                shown = "<non-constant>"
+        findings.append((node.lineno, shown))
+
+    if not findings:
+        return None
+
+    seen: Set[int] = set()
+    parts = []
+    for lineno, shown in findings:
+        if lineno in seen:
+            continue
+        seen.add(lineno)
+        parts.append(f"line {lineno}: `load_bearing: {shown}`")
+    where = "; ".join(parts)
+    return (
+        f"declares a DISJUNCTIVE combination_rule (matched {matched!r}) but tags a "
+        f"per-member criterion family load-bearing -- {where}. A disjunction accepts on "
+        f">=1 member, so a member that does NOT clear is the informative half of the "
+        f"localisation, not a gate that cleared on nothing; tagging it load_bearing "
+        f"encodes a CONJUNCTION the rule does not declare. The consequence is not "
+        f"cosmetic: build_experiment_indexes.py rule (3b) flags `vacuous_pass` on any "
+        f"overall-PASS manifest with a load_bearing criterion that did not pass, and all "
+        f"THREE PASS manifests tripping that rule across 1777 indexed runs are "
+        f"disjunctive -- a 100% false-positive rate that costs a governance adjudication "
+        f"each. Fix by tagging the AGGREGATE criterion (\"at least one arm clears...\") "
+        f"load_bearing: True and the per-member ones load_bearing: False -- v3_exq_928 "
+        f"already does exactly this, correctly, for its OFF control arm. Do NOT widen "
+        f"indexer rule (3b) instead: it exists to catch genuine aggregation vacuity. "
+        f"Full adjudication: REE_assembly/evidence/planning/"
+        f"failure_autopsy_927-928-mech267-cluster_2026-08-16.md section 2. Exempt with "
+        f"{_DISJUNCTIVE_CRITERIA_LOAD_BEARING_EXEMPT_MARKER} = \"<reason>\" when every "
+        f"member genuinely must hold despite the disjunctive-sounding rule. Do NOT "
+        f"retro-edit a LANDED driver whose run is complete."
+    )
+
+
 def _candidate_paths(paths: Sequence[str]) -> List[Path]:
     if paths:
         return [Path(p).resolve() for p in paths]
@@ -5896,6 +6159,7 @@ def main() -> int:
     agent_seed_order_warnings: List[Tuple[Path, str]] = []
     zworld_p0_warmup_warnings: List[Tuple[Path, str]] = []
     fishtank_episode_log_seeds_warnings: List[Tuple[Path, str]] = []
+    disjunctive_criteria_load_bearing_warnings: List[Tuple[Path, str]] = []
     for p in paths:
         rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
         if "conformance" in selected:
@@ -6090,6 +6354,14 @@ def main() -> int:
                 # this one never hardens under --paths (the landed V3-EXQ-483 lineage's
                 # runs are complete, so hardening would block commits on history).
                 fishtank_episode_log_seeds_warnings.append((p, fels))
+        if "disjunctive_criteria_load_bearing" in selected:
+            dclb = disjunctive_criteria_load_bearing_lint(p)
+            if dclb:
+                # WARN-only in BOTH modes -- see disjunctive_criteria_load_bearing_lint()
+                # for why this one never hardens under --paths (disjunction detection is
+                # phrase-matching on prose, so it is under-firing by construction, and the
+                # landed 927/928 carriers' runs are complete and already adjudicated).
+                disjunctive_criteria_load_bearing_warnings.append((p, dclb))
 
     print("", flush=True)
     print(f"[validate_experiments] checked {len(paths)} scripts: "
@@ -6117,8 +6389,29 @@ def main() -> int:
           f"{len(dacc_last_bundle_warnings)} dacc-_last_bundle-warning(s), "
           f"{len(agent_seed_order_warnings)} agent-seed-order-warning(s), "
           f"{len(zworld_p0_warmup_warnings)} zworld_p0-warmup-warning(s), "
-          f"{len(fishtank_episode_log_seeds_warnings)} fishtank-episode_log-seeds-warning(s)",
+          f"{len(fishtank_episode_log_seeds_warnings)} fishtank-episode_log-seeds-warning(s), "
+          f"{len(disjunctive_criteria_load_bearing_warnings)} "
+          f"disjunctive-criteria-load_bearing-warning(s)",
           flush=True)
+    if disjunctive_criteria_load_bearing_warnings:
+        # Advisory in BOTH modes (never hardens). A fire here means the driver declares a
+        # DISJUNCTIVE acceptance rule (">=1 arm clears") while tagging its per-member
+        # criteria load_bearing, which encodes a conjunction the rule does not declare --
+        # and build_experiment_indexes.py rule (3b) then flags `vacuous_pass` on the
+        # resulting PASS. All THREE PASS manifests tripping (3b) across 1777 indexed runs
+        # are disjunctive (measured 2026-08-16), i.e. every fire of that rule to date is a
+        # tagging artifact costing a governance adjudication. Triage each: tag the
+        # AGGREGATE criterion load_bearing: True and the per-member ones False (v3_exq_928
+        # already does this correctly for its OFF control arm). Do NOT widen indexer rule
+        # (3b) -- it exists to catch genuine aggregation vacuity. Do NOT retro-edit a
+        # LANDED driver whose run is complete; adjudicate the RESULT instead, as the
+        # confirmed 927/928 autopsy did.
+        print("", flush=True)
+        print("[validate_experiments] DISJUNCTIVE-CRITERIA-LOAD_BEARING WARNINGS "
+              "(advisory, non-blocking):", flush=True)
+        for p, warn in disjunctive_criteria_load_bearing_warnings:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
+            print(f"  - {rel}: {warn}", flush=True)
     if zworld_p0_warmup_warnings:
         # Advisory in BOTH modes (never hardens). A fire here means the driver calls
         # _train_all_on_agent but never passes zworld_p0_episodes anywhere in the file, so
