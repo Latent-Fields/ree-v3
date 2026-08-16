@@ -16,6 +16,13 @@ Covers:
 Run: /opt/local/bin/python3 test_phase3_runpack_materialize.py
 or:  /opt/local/bin/python3 -m unittest test_phase3_runpack_materialize
 
+Most of this file needs a REAL REE_assembly checkout (it copies and imports
+evidence/experiments/scripts/sync_v3_results.py).  It is found as the sibling
+<ree-v3>/../REE_assembly, which only exists in the REE_Working layout -- a
+ree-v3 git worktree (the sanctioned integration/<slug> pattern) lives outside
+it.  Set REE_ASSEMBLY_ROOT to point at a checkout explicitly; with neither,
+the checkout-dependent tests SKIP rather than fail.
+
 All printed text is ASCII-only (Windows cp1252 safety).
 """
 
@@ -33,14 +40,37 @@ sys.path.insert(0, str(HERE))
 
 import sync_daemon  # noqa: E402
 
-# REE_Working/ree-v3/coordinator -> REE_Working/REE_assembly
-REE_ASSEMBLY = HERE.parent.parent / "REE_assembly"
+def _resolve_ree_assembly():
+    """REE_ASSEMBLY_ROOT env var wins; else the REE_Working sibling.
+
+    Deliberately does NOT fall back to ~/REE_Working/REE_assembly the way
+    experiment_protocol._find_ree_assembly does: a ree-v3 worktree outside the
+    REE_Working layout should SKIP these tests, not silently bind to whatever
+    unrelated checkout happens to sit in $HOME and compare a foreign tree's
+    evidence against this worktree's code.
+    """
+    env = os.environ.get("REE_ASSEMBLY_ROOT")
+    if env:
+        return pathlib.Path(env).expanduser().resolve()
+    # REE_Working/ree-v3/coordinator -> REE_Working/REE_assembly
+    return HERE.parent.parent / "REE_assembly"
+
+
+REE_ASSEMBLY = _resolve_ree_assembly()
 SCRIPTS_DIR = REE_ASSEMBLY / "evidence" / "experiments" / "scripts"
 EVIDENCE_DIR = REE_ASSEMBLY / "evidence" / "experiments"
 
 # Make sync_v3_results importable for the golden-reference test.
 if SCRIPTS_DIR.is_dir():
     sys.path.insert(0, str(SCRIPTS_DIR))
+
+# The real dependency is the builder module itself, not merely the directory:
+# setUp copies it and FieldMappingProvenance imports it.
+HAVE_SYNC_V3_RESULTS = (SCRIPTS_DIR / "sync_v3_results.py").is_file()
+_NEEDS_ASSEMBLY = (
+    "no REE_assembly checkout with evidence/experiments/scripts/"
+    "sync_v3_results.py at %s -- run from the REE_Working layout, or set "
+    "REE_ASSEMBLY_ROOT" % REE_ASSEMBLY)
 
 _EXQ633_FLAT = (
     EVIDENCE_DIR
@@ -86,7 +116,9 @@ class GoldenByteShape(unittest.TestCase):
     """runpack_for_flat must reproduce the on-disk V3-EXQ-633 pack exactly."""
 
     @unittest.skipUnless(
-        _EXQ633_FLAT.is_file() and (_EXQ633_RUN_DIR / "manifest.json").is_file(),
+        HAVE_SYNC_V3_RESULTS
+        and _EXQ633_FLAT.is_file()
+        and (_EXQ633_RUN_DIR / "manifest.json").is_file(),
         "V3-EXQ-633 sibling pack not present in this checkout")
     def test_runpack_for_flat_matches_exq633_pack(self):
         import sync_v3_results
@@ -115,6 +147,7 @@ class GoldenByteShape(unittest.TestCase):
             (_EXQ633_RUN_DIR / "manifest.json").read_text(encoding="utf-8"))
 
 
+@unittest.skipUnless(HAVE_SYNC_V3_RESULTS, _NEEDS_ASSEMBLY)
 class MaterializeRunpacks(unittest.TestCase):
 
     def setUp(self):
@@ -199,6 +232,7 @@ class MaterializeRunpacks(unittest.TestCase):
         self.assertEqual(n, 6)
 
 
+@unittest.skipUnless(HAVE_SYNC_V3_RESULTS, _NEEDS_ASSEMBLY)
 class FieldMappingProvenance(unittest.TestCase):
     """build_runpack_docs must carry always-core provenance from the flat manifest
     into the pack (2026-07-16 thin-pack fix) and fold `aggregates` into
