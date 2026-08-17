@@ -5622,6 +5622,8 @@ class REEAgent(nn.Module):
             # does not leak across commitment boundaries.
             if released:
                 self._committed_anchor_keys = None
+                # MECH-091: task completion is salient -> phase reset.
+                self.clock.phase_reset()
             # MECH-290: backward credit sweep on goal arrival (Foster & Wilson 2006).
             # Fires synchronously on waking path when BetaGate releases via
             # hippocampal completion signal. Sweeps committed trajectory backward,
@@ -6505,6 +6507,8 @@ class REEAgent(nn.Module):
                 if not self.beta_gate.is_elevated:
                     self.beta_gate.elevate()
                     self._ncl_hold_reassert_count += 1
+                    # MECH-091: commitment-boundary crossing (entry) is salient.
+                    self.clock.phase_reset()
 
         if not ticks["e3_tick"] and self._last_action is not None:
             # Between E3 ticks: step through committed trajectory (Layer 1) or hold.
@@ -8799,6 +8803,8 @@ class REEAgent(nn.Module):
                 and _readiness_admits
             ):
                 self.beta_gate.elevate()
+                # MECH-091: commitment-boundary crossing (entry) is salient.
+                self.clock.phase_reset()
                 # SD-034 diagnostic: count elevations driven by the closure-plane
                 # coupling rather than a natural running_variance crossing.
                 if _closure_commit_active and not result.committed:
@@ -8987,12 +8993,18 @@ class REEAgent(nn.Module):
                 # mode re-calls elevate() every committed tick, so an
                 # unconditional reset here would defeat accumulation). No-op
                 # when disabled.
-                if (
-                    not self.beta_gate.is_elevated
-                    and self.maintenance_release is not None
-                ):
+                _entering_commitment = not self.beta_gate.is_elevated
+                if _entering_commitment and self.maintenance_release is not None:
                     self.maintenance_release.reset_pressure()
                 self.beta_gate.elevate()
+                if _entering_commitment:
+                    # MECH-091: commitment-boundary crossing (entry) is salient.
+                    # Gated on the same genuine-transition check as the
+                    # maintenance-release reset above -- this call site
+                    # re-invokes elevate() on every committed tick in legacy
+                    # mode, so an unconditional phase_reset() here would fire
+                    # every tick instead of only on the boundary crossing.
+                    self.clock.phase_reset()
             else:
                 if self.beta_gate.is_elevated:
                     self._committed_step_idx = 0  # reset when gate opens
