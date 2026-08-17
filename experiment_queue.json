@@ -26,26 +26,6 @@
       "experiment_type": "v3_exq_935_mech266_margin_normalised_cap_rule",
       "predecessor": "V3-EXQ-934",
       "seeds": 5
-    },
-    {
-      "queue_id": "V3-EXQ-936",
-      "title": "MECH-439: does the CONVERTING MECH-448 F->eligibility demotion actually REDUCE F's committed-selection variance share? (the claim's own pre-registered falsifier, never measured)",
-      "script": "experiments/v3_exq_936_mech439_f_variance_share_under_f_demotion.py",
-      "priority": 50,
-      "machine_affinity": "any",
-      "estimated_minutes": 480,
-      "claim_id": "MECH-439",
-      "backlog_id": "EVB-0618",
-      "note": "Proposal EXP-0443 / EVB-0618. MECH-439 has exp_conf=0 (7 evidence entries, ALL literature; evidence_quadrant plausible_unproven) despite 12 substrate_ceiling autopsies, because every one self-routed non_contributory and none scores. QUESTION: MECH-439's registered falsifier fires when a lever lifts committed-class entropy above BOTH controls WITHOUT reducing F's E3 variance share. The FIRST half is already established and user-confirmed -- V3-EXQ-689i's C_PRIMARY (on-selected entropy strictly above BOTH controls) is TRUE, adjudicated 2026-07-24 'Gate defect, science upheld'. The SECOND half has NEVER been measured on any arm. This run measures exactly that one quantity, which is what decides the falsifier's direction. RE-DERIVE BRAKE RELEASED (Step 2.5b): MECH-439 count=12 (689/689a/f-dominance-cluster/700-cluster/700b/700c/700d-708/709/710/711/713/711-713); the brake's named upstream_substrate 'f_dominance_conversion_ceiling' is now BUILT+VALIDATED -- MECH-448 PROMOTED provisional, MECH-449 689g RAN PASS, 'no_new_build_owed', and its own ready_blocked_by says 'what is owed is a FRESH successor validation (a queue/governance decision) ... forward motion is validation, not construction'. MECH-448 and MECH-449 brake counts are both 0. Independently covered by the 'not braked' carve-out: new EXQ number, different DV, discriminates WHY the ceiling held. GOV-REUSE-1: reanalysis_query for f_variance_share / temporal_variance / bias_fraction / variance_fraction against MECH-439 -> 12 manifests matched, 0 carry any variance-share readout (only 689a has a recoverable substrate_hash, and it carries none). Not recoverable -> run. DV-SYMMETRY (per arm): DV is a variance RATIO whose symmetry group is joint affine rescaling of ALL components plus observation permutation. ARM_OFF is the reference cell (no manipulation). ARM_DEMOTION reweights F relative to the modulatory channels AND restricts the eligible set, so it is NOT invariant under that group. Deliberate contrast with the 12 braked runs, whose entropy-over-argmax DVs are RANK statistics and are invariant under any monotone score transform -- structurally unable to see a change in F's variance share. METHOD FIDELITY: the routed statistic reproduces V3-EXQ-571 EXACTLY (per-step mean across candidates; denominator var(SUM of the six SCORE_COMPONENTS), covariance retained), because MECH-439's >0.85 bar is anchored to 571's 0.886. The selected-candidate variant is recorded as a secondary but NOT routed. C2 is a PER-SEED PAIRED reduction vs ARM_OFF (>=0.05 on >=3/4 seeds), which is scale-free -- 571 ran a different config, so an absolute bar would hostage the verdict to a cross-experiment calibration this run does not control. The 0.05 floor is pre-registered from the claim's OWN data (571: 0.886 -> 0.894 under the full diversity stack, a move the claim itself calls 'no dent'). A MECH-449 Go/No-Go arm was BUILT, SMOKE-TESTED, FOUND VACUOUS AND REMOVED: its f_variance_share was bit-identical to ARM_DEMOTION (1.4327509068, 10 d.p.) because MECH-449 consumes per-candidate go_nogo_signals passed to E3Selector.select(), which REEAgent.select_action() does not plumb -- so the gate reports active (15/15 ticks) while changing nothing. 689g exercised it via a selector-level driver. Shipping it would have been apparent coverage with zero information; a proper MECH-449 arm is a successor needing either the 689g architecture or agent-side plumbing. E3 LATCH: last_score_decomp latches across non-E3 ticks (cadence default 10), so every decomp sample is fresh-gated via _lib/fresh_select.py and n_fresh_select / n_latched / replication_factor / n_p1_ticks are emitted per cell (V3-EXQ-785 pseudo-replication guard). Seed 44 excluded (reef-config instability). Smoke PASS on the Mac (2 arms x 1 seed): demotion lever engages 1.0, F and non-F variance both non-degenerate, readiness correctly self-routes substrate_not_ready_requeue on the short sample.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-08-17T04:35:38Z"
-      },
-      "conditions": 2,
-      "episodes_per_run": 100,
-      "experiment_type": "v3_exq_936_mech439_f_variance_share_under_f_demotion",
-      "seeds": 4
     }
   ]
 }
