@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-08-16
+**Last updated:** 2026-08-17
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -217,6 +217,54 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 `REE_assembly/docs/architecture/self_attribution_per_stream.md`.
 
 ### Experiment Status
+
+- **2026-08-17T01:54Z nightly read (scheduled `/update-docs`, bot identity).**
+  ~17.5h window since the 2026-08-16 nightly. Manifest count on disk: **900 `v3_exq_*` +
+  3 `v4_exq_*` flat** (+1 v3 vs the 2026-08-16 nightly's 899); nested per-run manifests
+  under `evidence/experiments/*/runs/`: **2844** (+12 vs 2832). **Currently queued
+  (`experiment_queue.json` items[]): 1 item** -- V3-EXQ-935 (`MECH-266/SD-032a: margin-normalised
+  cap RULE vs best absolute cap`, `claim_id=MECH-266`, prio 55, ~600min; CLAIMED
+  `ree-cloud-1` 2026-08-16T13:01Z). Successor to V3-EXQ-934 (PASS 2026-08-15) that tests
+  whether the H1 external_task cap recalibration is a SHIPPABLE rule
+  (`cap = R_STAR * m_seed` with pre-registered R_STAR = 2.25) or per-seed hand-tuning.
+  **Pending review (`pending_review.md`, regenerated 2026-08-17T01:53:34Z): 1 item** --
+  V3-EXQ-874b (`mech467_distractor_three_leg_battery` FAIL 2026-08-16T22:29Z on
+  ree-cloud-2; unclaimed manifest / non_contributory + dead z_goal stream; the 08-16 ree-v3
+  redesign `73e5fa2` supersedes V3-EXQ-874 with the three-leg distractor battery, first run
+  failed the goal-stream engagement precondition). **Recent completions in the window
+  (1, FAIL):** V3-EXQ-874b only. **Substrate + governance landings in the window:**
+  (a) **Substrate builds** -- MECH-357 credit-eligibility WINDOWING landed in ree-v3
+  (`93d5d98`, `a012f2fbf2` REE_assembly substrate_queue flip): freeze/no-op no longer
+  decays `avoidance_efficacy`, closing the eligibility-trace imbalance IGW-20260815-219
+  routed via chip `chip-20260816-igw219-mech357-avoidance-efficacy-implement`; preservation
+  auto-fire at end-of-life via default-off `REEConfig` designation (`bbc69c4`);
+  MECH-151 affordance-set instrumentation staged design BLOCKED at /queue-experiment
+  Step 2.5c on a corrupting ContextMemory write-path defect (`4e62c2ff3a`).
+  (b) **Tooling** -- `validate_experiments.py` gained a `disjunctive_criteria_load_bearing`
+  lint (`5f162bd`) routed from the V3-EXQ-927/928 cluster autopsy; metaworker wrapper's
+  executable-surface freshness gate now feeds the cycle prompt (`a89a26d`);
+  burn detector now partitions the LOST set with a blob-gated already-ran advisory
+  (`afdb250`, docstring fix `2760aec`). (c) **Governance cycle 2026-08-16**
+  (REE_assembly `019a1120a1` + separate MECH-074d demotion cycle `288c1c7b98`):
+  applied 7 confirmed autopsies covering 14 runs, resolved 12 GFLAGs
+  (GFLAG-0027..0038 including the V3-EXQ-927/928 MECH-267 CEM-selection-fix
+  cluster and V3-EXQ-861c/861d MECH-180/MECH-122/INV-050 clusters), MECH-074d
+  demotion applied, MECH-122/152 holds recorded, V3-EXQ-926a reviewed with a
+  non-default-envelope-floor caveat, `GFLAG-0037` generation split closed,
+  `GFLAG-0031` placeholder habenula/DA literature entry removed (`734a9eab1a`).
+  (d) **`run_detectors.py` wired into `governance.sh` as Step 3m** (warn-only,
+  `f4d43eb7e5`). (e) Weekly `understand-anything` knowledge-graph snapshot
+  committed (`8db40ef`, part of last night's `/update-docs` step 2). (f) SD-006
+  phase 2 async-execution generation split (GFLAG-0037) formally resolved; the
+  MECH-091 orphan status is now unblocked. **Bottleneck: shifting toward the
+  H1/H2 GOV-FANOUT-1 MECH-266/SD-032a external-task-mode adaptation front + the
+  MECH-467 distractor-battery redesign** -- V3-EXQ-935 is the H1 shippability
+  test on top of yesterday's V3-EXQ-934 PASS; V3-EXQ-874b's first-run FAIL needs
+  a /failure-autopsy adjudication before governance cycles it (the dead-z_goal
+  precondition is the specific gap the 08-16 redesign was meant to fix, so a
+  successor is likely a different lever, not another 874-lineage letter).
+  Green-board target 2026-07-19 is now **29 days overdue**. **ETHICS-PERIMETER
+  Phase 0 datum** stays on the record (Phases 1-3 deferred; NON-BLOCKING).
 
 - **2026-08-16T08:19Z nightly read (scheduled `/update-docs`, bot identity).**
   ~28h window since the 2026-08-15 nightly. Manifest count on disk: **899 `v3_exq_*` +
