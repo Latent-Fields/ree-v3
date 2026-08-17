@@ -9,8 +9,8 @@
     ],
     "frameworks": [],
     "description": "Active V3 implementation substrate for the REE cognitive-architecture research program, written in Python on PyTorch and NumPy. This scan is scoped to the two executable-code planes: ree_core/ (brain-region-named cognitive modules such as amygdala, PFC, hippocampal, sleep, cingulate, PAG, neuromodulation, basal-ganglia action-learning, affect and residue) and coordinator/ (a stdlib http.server coordination service with SQLite storage, a sync daemon and Phase-3 git writers). Note: this project has over 100 source files; consider scoping analysis to a subdirectory for faster results.",
-    "analyzedAt": "2026-08-16T08:53:58.066537Z",
-    "gitCommitHash": "231a9dcdc6548227e92716be877b9e25cf0a7461"
+    "analyzedAt": "2026-08-17T02:07:47Z",
+    "gitCommitHash": "f5837e91b8dea524f4c29bb1cebd9186b689eb7b"
   },
   "nodes": [
     {
@@ -676,21 +676,6 @@
       "complexity": "complex"
     },
     {
-      "id": "file:ree_core/pfc/infralimbic_avoidance_gate.py",
-      "type": "file",
-      "name": "infralimbic_avoidance_gate.py",
-      "filePath": "ree_core/pfc/infralimbic_avoidance_gate.py",
-      "summary": "MECH-357/SD-058 infralimbic-PFC-analog gate that suppresses PAG-driven freezing and adds instrumental-avoidance action acquisition, resolving the Pavlovian-instrumental conflict.",
-      "tags": [
-        "avoidance",
-        "freeze-suppression",
-        "instrumental",
-        "pfc",
-        "gate"
-      ],
-      "complexity": "complex"
-    },
-    {
       "id": "file:ree_core/pfc/trainable_escape_affordance_learner.py",
       "type": "file",
       "name": "trainable_escape_affordance_learner.py",
@@ -998,58 +983,6 @@
         "de-commit",
         "stub",
         "pfc"
-      ],
-      "complexity": "complex"
-    },
-    {
-      "id": "class:ree_core/pfc/infralimbic_avoidance_gate.py:InstrumentalAvoidanceGateConfig",
-      "type": "class",
-      "name": "InstrumentalAvoidanceGateConfig",
-      "filePath": "ree_core/pfc/infralimbic_avoidance_gate.py",
-      "lineRange": [
-        71,
-        116
-      ],
-      "summary": "Configuration dataclass for the instrumental-avoidance gate thresholds and action-bias parameters.",
-      "tags": [
-        "config",
-        "dataclass",
-        "avoidance"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "class:ree_core/pfc/infralimbic_avoidance_gate.py:InstrumentalAvoidanceGateOutput",
-      "type": "class",
-      "name": "InstrumentalAvoidanceGateOutput",
-      "filePath": "ree_core/pfc/infralimbic_avoidance_gate.py",
-      "lineRange": [
-        120,
-        129
-      ],
-      "summary": "Output dataclass carrying freeze-suppression and instrumental-avoidance action bias.",
-      "tags": [
-        "output",
-        "dataclass",
-        "avoidance"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "class:ree_core/pfc/infralimbic_avoidance_gate.py:InstrumentalAvoidanceGate",
-      "type": "class",
-      "name": "InstrumentalAvoidanceGate",
-      "filePath": "ree_core/pfc/infralimbic_avoidance_gate.py",
-      "lineRange": [
-        132,
-        358
-      ],
-      "summary": "Infralimbic-PFC-analog gate suppressing PAG freezing and biasing E3 toward instrumental-avoidance actions under retained threat.",
-      "tags": [
-        "avoidance",
-        "freeze-suppression",
-        "instrumental",
-        "gate"
       ],
       "complexity": "complex"
     },
@@ -3252,93 +3185,6 @@
       "complexity": "simple"
     },
     {
-      "id": "file:coordinator/test_phase3_runpack_materialize.py",
-      "type": "file",
-      "name": "test_phase3_runpack_materialize.py",
-      "filePath": "coordinator/test_phase3_runpack_materialize.py",
-      "summary": "Unit tests for the Phase-3 sync_daemon run-pack materialization pipeline that backfills per-run run-pack directories (manifest.json / metrics.json / summary.md) from flat evidence JSON, exercising the golden byte-shape against a canonical EXQ-633 pack, backfill/skip logic, non-eligible filtering, field-mapping provenance rules, and the default-off feature flag.",
-      "tags": [
-        "test",
-        "phase3",
-        "sync-daemon",
-        "runpack",
-        "evidence-pipeline"
-      ],
-      "complexity": "complex",
-      "languageNotes": "unittest.TestCase suite with a per-test temporary git repo (via subprocess `_git` helper) and a `_make_flat` fixture-builder that fabricates flat manifest dicts matching the sync_daemon field-mapping contract."
-    },
-    {
-      "id": "function:coordinator/test_phase3_runpack_materialize.py:_make_flat",
-      "type": "function",
-      "name": "_make_flat",
-      "filePath": "coordinator/test_phase3_runpack_materialize.py",
-      "lineRange": [
-        63,
-        82
-      ],
-      "summary": "Test-fixture helper that builds a minimal flat manifest dict (run_id / experiment_type / architecture_epoch / claim_ids / outcome / criteria) matching the sync_daemon field-mapping contract.",
-      "tags": [
-        "test-helper",
-        "fixture",
-        "manifest-builder"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "class:coordinator/test_phase3_runpack_materialize.py:GoldenByteShape",
-      "type": "class",
-      "name": "GoldenByteShape",
-      "filePath": "coordinator/test_phase3_runpack_materialize.py",
-      "lineRange": [
-        85,
-        115
-      ],
-      "summary": "Bit-identical golden test asserting that runpack_for_flat applied to the EXQ-633 flat manifest reproduces the on-disk EXQ-633 run pack exactly (relative run_dir, manifest bytes, metrics bytes, summary text).",
-      "tags": [
-        "test",
-        "golden-test",
-        "byte-identical",
-        "runpack"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "class:coordinator/test_phase3_runpack_materialize.py:MaterializeRunpacks",
-      "type": "class",
-      "name": "MaterializeRunpacks",
-      "filePath": "coordinator/test_phase3_runpack_materialize.py",
-      "lineRange": [
-        118,
-        199
-      ],
-      "summary": "End-to-end tests for sync_daemon._materialize_runpacks over a scratch git repo: backfills missing run packs and stages them, skips runs whose pack already exists, ignores non-eligible flat files, and processes multiple flat manifests in a single pass.",
-      "tags": [
-        "test",
-        "integration",
-        "materialize-runpacks",
-        "git-staging"
-      ],
-      "complexity": "complex"
-    },
-    {
-      "id": "class:coordinator/test_phase3_runpack_materialize.py:FieldMappingProvenance",
-      "type": "class",
-      "name": "FieldMappingProvenance",
-      "filePath": "coordinator/test_phase3_runpack_materialize.py",
-      "lineRange": [
-        202,
-        248
-      ],
-      "summary": "Tests the flat-to-runpack field-mapping rules: provenance keys are carried into the pack when present, omitted (not nulled) when absent, per-arm aggregates fold in only when no top-level metrics exist, and top-level metrics always win over aggregates.",
-      "tags": [
-        "test",
-        "field-mapping",
-        "provenance",
-        "manifest-schema"
-      ],
-      "complexity": "moderate"
-    },
-    {
       "id": "file:ree_core/safety/conditioned_safety_store.py",
       "type": "file",
       "name": "conditioned_safety_store.py",
@@ -4580,655 +4426,6 @@
         "claim-mutex"
       ],
       "complexity": "complex"
-    },
-    {
-      "id": "file:coordinator/app.py",
-      "type": "file",
-      "name": "app.py",
-      "filePath": "coordinator/app.py",
-      "summary": "Stdlib HTTP coordinator server that arbitrates queue claims, ingests result manifests/heartbeats/status/shutdown notices from fleet workers, and exposes shadow/health endpoints; the single Phase-3 authority for claim mutex and telemetry.",
-      "tags": [
-        "api-handler",
-        "entry-point",
-        "coordinator",
-        "http-server",
-        "service",
-        "tested"
-      ],
-      "complexity": "complex",
-      "languageNotes": "Uses http.server.BaseHTTPRequestHandler with a per-connection lock; every route dispatches through one Handler class (do_GET/do_POST)."
-    },
-    {
-      "id": "class:coordinator/app.py:Handler",
-      "type": "class",
-      "name": "Handler",
-      "filePath": "coordinator/app.py",
-      "lineRange": [
-        171,
-        846
-      ],
-      "summary": "BaseHTTPRequestHandler subclass implementing every coordinator route -- /claim, /release, /result, /heartbeat, /status, /shutdown_notify, /clear_claim_fence, /queue/add, /command, and /shadow/* -- with bearer-token auth and JSON responses.",
-      "tags": [
-        "api-handler",
-        "http-handler",
-        "coordinator",
-        "router"
-      ],
-      "complexity": "complex"
-    },
-    {
-      "id": "function:coordinator/app.py:main",
-      "type": "function",
-      "name": "main",
-      "filePath": "coordinator/app.py",
-      "lineRange": [
-        849,
-        861
-      ],
-      "summary": "Entrypoint that initializes the SQLite DB, loads bearer tokens, and starts the ThreadingHTTPServer bound to COORDINATOR_HOST:PORT.",
-      "tags": [
-        "entry-point",
-        "bootstrap",
-        "service"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "function:coordinator/app.py:auth_machine",
-      "type": "function",
-      "name": "auth_machine",
-      "filePath": "coordinator/app.py",
-      "lineRange": [
-        158,
-        168
-      ],
-      "summary": "Parses a Bearer authorization header and returns the machine identity matching the shared-secret token, or None when the token is unknown.",
-      "tags": [
-        "auth",
-        "security",
-        "utility"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "function:coordinator/app.py:_read_writer_health",
-      "type": "function",
-      "name": "_read_writer_health",
-      "filePath": "coordinator/app.py",
-      "lineRange": [
-        119,
-        130
-      ],
-      "summary": "Reads and JSON-parses the sync_daemon writer-health snapshot file, returning an empty dict when the file is missing or malformed.",
-      "tags": [
-        "utility",
-        "io",
-        "health-check"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "function:coordinator/app.py:_age_out_errors",
-      "type": "function",
-      "name": "_age_out_errors",
-      "filePath": "coordinator/app.py",
-      "lineRange": [
-        133,
-        145
-      ],
-      "summary": "Filters a writer-health snapshot to drop recent-errors older than cutoff_iso so /writer-health reports only live incidents.",
-      "tags": [
-        "utility",
-        "health-check",
-        "filtering"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "file:coordinator/db.py",
-      "type": "file",
-      "name": "db.py",
-      "filePath": "coordinator/db.py",
-      "summary": "SQLite persistence + business logic for the Phase-3 coordinator: schema migrations, queue and claim state machine (try_claim, release, fence, departure-based recovery), heartbeat/status/shutdown ingest, and per-machine command channel.",
-      "tags": [
-        "data-model",
-        "database",
-        "state-machine",
-        "coordinator",
-        "persistence",
-        "tested"
-      ],
-      "complexity": "complex",
-      "languageNotes": "All writes wrap with BEGIN IMMEDIATE for serialised claim arbitration; migrations are idempotent ALTER TABLE guards keyed on PRAGMA table_info."
-    },
-    {
-      "id": "function:coordinator/db.py:init_db",
-      "type": "function",
-      "name": "init_db",
-      "filePath": "coordinator/db.py",
-      "lineRange": [
-        126,
-        141
-      ],
-      "summary": "Runs every schema migration (experiments, heartbeats, commands) in one connection so a fresh or upgraded DB reaches the current schema in one call.",
-      "tags": [
-        "schema",
-        "migration",
-        "bootstrap"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "function:coordinator/db.py:_migrate_experiments",
-      "type": "function",
-      "name": "_migrate_experiments",
-      "filePath": "coordinator/db.py",
-      "lineRange": [
-        32,
-        57
-      ],
-      "summary": "Creates the experiments table (queue rows with claim state) and adds later columns via idempotent ALTER TABLE guards.",
-      "tags": [
-        "schema",
-        "migration",
-        "database"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:coordinator/db.py:_migrate_heartbeats",
-      "type": "function",
-      "name": "_migrate_heartbeats",
-      "filePath": "coordinator/db.py",
-      "lineRange": [
-        60,
-        104
-      ],
-      "summary": "Creates the heartbeats table and progressively adds shutdown/telemetry columns (last_shutdown_at, claim_fence_cleared_at, last_process_exit_at, shutdown_reason) so old DBs converge to current shape.",
-      "tags": [
-        "schema",
-        "migration",
-        "database"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:coordinator/db.py:_migrate_commands",
-      "type": "function",
-      "name": "_migrate_commands",
-      "filePath": "coordinator/db.py",
-      "lineRange": [
-        107,
-        123
-      ],
-      "summary": "Creates the commands table (per-machine command channel: pause/resume/stop/kick/etc.) and indexes it by machine for fast polling.",
-      "tags": [
-        "schema",
-        "migration",
-        "database"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "function:coordinator/db.py:upsert_experiment",
-      "type": "function",
-      "name": "upsert_experiment",
-      "filePath": "coordinator/db.py",
-      "lineRange": [
-        148,
-        216
-      ],
-      "summary": "Inserts or updates a queue item from the source-of-truth queue JSON, honouring preserve_claim so a running claim is not accidentally reset by reconciler ticks.",
-      "tags": [
-        "persistence",
-        "queue",
-        "upsert"
-      ],
-      "complexity": "complex"
-    },
-    {
-      "id": "function:coordinator/db.py:_has_fresh_owner_heartbeat",
-      "type": "function",
-      "name": "_has_fresh_owner_heartbeat",
-      "filePath": "coordinator/db.py",
-      "lineRange": [
-        239,
-        253
-      ],
-      "summary": "Returns True when the machine holding a claim has heartbeated within the fresh-window, guarding against reaping a claim whose owner is actually still alive.",
-      "tags": [
-        "heartbeat",
-        "claim",
-        "safety-check"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "function:coordinator/db.py:_claim_recoverable",
-      "type": "function",
-      "name": "_claim_recoverable",
-      "filePath": "coordinator/db.py",
-      "lineRange": [
-        256,
-        280
-      ],
-      "summary": "Decides whether a stale claim may be reaped, combining the age-based rule (older than STALE_HOURS with no fresh owner heartbeat) with the departure route (announced-shutdown owner gone quiet for reap_quiet_seconds).",
-      "tags": [
-        "claim",
-        "recovery",
-        "state-machine"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:coordinator/db.py:claim_fence_active",
-      "type": "function",
-      "name": "claim_fence_active",
-      "filePath": "coordinator/db.py",
-      "lineRange": [
-        328,
-        368
-      ],
-      "summary": "Pure predicate that says whether a machine currently sits inside its post-shutdown claim fence, excluding process-exit reasons and honouring the fence-cleared timestamp with a strict tie-break.",
-      "tags": [
-        "claim",
-        "state-machine",
-        "predicate"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:coordinator/db.py:machine_claim_fenced",
-      "type": "function",
-      "name": "machine_claim_fenced",
-      "filePath": "coordinator/db.py",
-      "lineRange": [
-        371,
-        384
-      ],
-      "summary": "DB-backed wrapper around claim_fence_active that reads the heartbeats row for a machine and returns whether new claims should be refused.",
-      "tags": [
-        "claim",
-        "database",
-        "predicate"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "function:coordinator/db.py:record_claim_fence_clear",
-      "type": "function",
-      "name": "record_claim_fence_clear",
-      "filePath": "coordinator/db.py",
-      "lineRange": [
-        387,
-        408
-      ],
-      "summary": "Stamps claim_fence_cleared_at on a machine's heartbeat row (creating it if absent) so the fence disarms after a fresh poweron.",
-      "tags": [
-        "claim",
-        "fence",
-        "persistence"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:coordinator/db.py:machine_departed",
-      "type": "function",
-      "name": "machine_departed",
-      "filePath": "coordinator/db.py",
-      "lineRange": [
-        465,
-        524
-      ],
-      "summary": "Pure predicate answering whether a machine has announced a genuine shutdown (not a process exit) and stayed quiet for quiet_seconds since, so claims it still owns can be reaped early.",
-      "tags": [
-        "claim",
-        "state-machine",
-        "predicate"
-      ],
-      "complexity": "complex"
-    },
-    {
-      "id": "function:coordinator/db.py:machine_has_departed",
-      "type": "function",
-      "name": "machine_has_departed",
-      "filePath": "coordinator/db.py",
-      "lineRange": [
-        527,
-        541
-      ],
-      "summary": "DB wrapper for machine_departed that reads the machine's heartbeat row and answers the departure question.",
-      "tags": [
-        "claim",
-        "database",
-        "predicate"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "function:coordinator/db.py:claim_orphaned_by_departure",
-      "type": "function",
-      "name": "claim_orphaned_by_departure",
-      "filePath": "coordinator/db.py",
-      "lineRange": [
-        544,
-        556
-      ],
-      "summary": "Composite check that a queue row's owner has departed, gating the fast recovery path so an orphan claim can be released within minutes rather than 6 hours.",
-      "tags": [
-        "claim",
-        "recovery",
-        "predicate"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "function:coordinator/db.py:try_claim",
-      "type": "function",
-      "name": "try_claim",
-      "filePath": "coordinator/db.py",
-      "lineRange": [
-        559,
-        619
-      ],
-      "summary": "Atomic claim arbitration: under BEGIN IMMEDIATE, resolves affinity, fence, stale-recovery and departure-recovery, then either stamps the claim to the requesting machine or refuses with a reason code.",
-      "tags": [
-        "claim",
-        "concurrency",
-        "state-machine",
-        "arbitration"
-      ],
-      "complexity": "complex"
-    },
-    {
-      "id": "function:coordinator/db.py:evaluate_claim",
-      "type": "function",
-      "name": "evaluate_claim",
-      "filePath": "coordinator/db.py",
-      "lineRange": [
-        622,
-        643
-      ],
-      "summary": "Read-only sibling of try_claim used by /evaluate_claim: returns the same verdict without mutating rows, for the dry-run comparison path against the legacy git mutex.",
-      "tags": [
-        "claim",
-        "dry-run",
-        "arbitration"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:coordinator/db.py:apply_git_outcome",
-      "type": "function",
-      "name": "apply_git_outcome",
-      "filePath": "coordinator/db.py",
-      "lineRange": [
-        646,
-        658
-      ],
-      "summary": "Records the outcome the legacy git-push claim mutex reported for a queue_id, used to compute divergence stats between the two authorities during shadow mode.",
-      "tags": [
-        "claim",
-        "shadow-mode",
-        "audit"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "function:coordinator/db.py:release_claim",
-      "type": "function",
-      "name": "release_claim",
-      "filePath": "coordinator/db.py",
-      "lineRange": [
-        661,
-        697
-      ],
-      "summary": "Releases a machine's own claim on a queue_id and moves the row back to unclaimed, refusing to release someone else's claim.",
-      "tags": [
-        "claim",
-        "release",
-        "state-machine"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:coordinator/db.py:mark_queue_removed",
-      "type": "function",
-      "name": "mark_queue_removed",
-      "filePath": "coordinator/db.py",
-      "lineRange": [
-        700,
-        725
-      ],
-      "summary": "Marks a queue item as removed with a reason (typically because the source queue JSON no longer names it), preserving history rather than deleting the row.",
-      "tags": [
-        "queue",
-        "soft-delete",
-        "persistence"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:coordinator/db.py:claim_verdicts_diverge",
-      "type": "function",
-      "name": "claim_verdicts_diverge",
-      "filePath": "coordinator/db.py",
-      "lineRange": [
-        750,
-        762
-      ],
-      "summary": "Compares the coordinator claim verdict to the git-mutex verdict for the same queue_id and returns whether they diverge in a way that is not explained by machine ordering.",
-      "tags": [
-        "claim",
-        "shadow-mode",
-        "divergence"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "function:coordinator/db.py:divergence_stats",
-      "type": "function",
-      "name": "divergence_stats",
-      "filePath": "coordinator/db.py",
-      "lineRange": [
-        765,
-        776
-      ],
-      "summary": "Aggregates counts of claim-verdict divergences (agree, git-only, coordinator-only, both-different) for the shadow-mode dashboard.",
-      "tags": [
-        "claim",
-        "shadow-mode",
-        "metrics"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "function:coordinator/db.py:log_claim",
-      "type": "function",
-      "name": "log_claim",
-      "filePath": "coordinator/db.py",
-      "lineRange": [
-        779,
-        788
-      ],
-      "summary": "Appends a claim event row (both verdicts + detail) to the claims audit table for later divergence analysis.",
-      "tags": [
-        "claim",
-        "audit",
-        "logging"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "function:coordinator/db.py:record_result",
-      "type": "function",
-      "name": "record_result",
-      "filePath": "coordinator/db.py",
-      "lineRange": [
-        791,
-        806
-      ],
-      "summary": "Persists a fleet worker's result manifest (outcome + bytes + sha) keyed on run_id/queue_id/machine so the sync_daemon writer can pick it up.",
-      "tags": [
-        "persistence",
-        "result",
-        "manifest"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "function:coordinator/db.py:upsert_heartbeat",
-      "type": "function",
-      "name": "upsert_heartbeat",
-      "filePath": "coordinator/db.py",
-      "lineRange": [
-        809,
-        864
-      ],
-      "summary": "Merges a fleet heartbeat into the heartbeats table -- state/current_exq/progress/gpu/timing plus the full payload JSON -- creating the row on first sight and preserving any prior shutdown timestamps.",
-      "tags": [
-        "persistence",
-        "heartbeat",
-        "telemetry"
-      ],
-      "complexity": "complex"
-    },
-    {
-      "id": "function:coordinator/db.py:record_status_payload",
-      "type": "function",
-      "name": "record_status_payload",
-      "filePath": "coordinator/db.py",
-      "lineRange": [
-        867,
-        889
-      ],
-      "summary": "Stores a per-machine status payload (queue depth, GPU details) as JSON on the heartbeats row so /shadow/status can render fleet-wide.",
-      "tags": [
-        "persistence",
-        "status",
-        "telemetry"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:coordinator/db.py:record_shutdown_notice",
-      "type": "function",
-      "name": "record_shutdown_notice",
-      "filePath": "coordinator/db.py",
-      "lineRange": [
-        895,
-        982
-      ],
-      "summary": "Stores a machine shutdown notice, distinguishing genuine machine shutdowns (arm the claim fence) from process exits (do not arm), preserving last_seen and enforcing exact-field write semantics.",
-      "tags": [
-        "persistence",
-        "shutdown",
-        "claim",
-        "state-machine"
-      ],
-      "complexity": "complex"
-    },
-    {
-      "id": "function:coordinator/db.py:announced_offline_at",
-      "type": "function",
-      "name": "announced_offline_at",
-      "filePath": "coordinator/db.py",
-      "lineRange": [
-        985,
-        1016
-      ],
-      "summary": "Returns the later of a machine's last_shutdown_at and last_process_exit_at (both optional, both may be malformed), used by lifecycle reporting.",
-      "tags": [
-        "utility",
-        "lifecycle",
-        "predicate"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:coordinator/db.py:lifecycle_state",
-      "type": "function",
-      "name": "lifecycle_state",
-      "filePath": "coordinator/db.py",
-      "lineRange": [
-        1019,
-        1053
-      ],
-      "summary": "Classifies a machine as live / gracefully_offline / stale based on heartbeat freshness and whether an announced shutdown is the most recent event, so /shadow/status can label boxes.",
-      "tags": [
-        "utility",
-        "lifecycle",
-        "state-machine"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:coordinator/db.py:insert_command",
-      "type": "function",
-      "name": "insert_command",
-      "filePath": "coordinator/db.py",
-      "lineRange": [
-        1058,
-        1075
-      ],
-      "summary": "Enqueues a per-machine command (pause/resume/stop/kick/release_claim) with issuer attribution, returning the new command_id.",
-      "tags": [
-        "command-channel",
-        "persistence",
-        "queue"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "function:coordinator/db.py:fetch_pending_commands",
-      "type": "function",
-      "name": "fetch_pending_commands",
-      "filePath": "coordinator/db.py",
-      "lineRange": [
-        1078,
-        1087
-      ],
-      "summary": "Returns the machine's un-acked commands so the runner poll can drain them in FIFO order.",
-      "tags": [
-        "command-channel",
-        "query",
-        "polling"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "function:coordinator/db.py:ack_command",
-      "type": "function",
-      "name": "ack_command",
-      "filePath": "coordinator/db.py",
-      "lineRange": [
-        1089,
-        1123
-      ],
-      "summary": "Marks a command acked with result_status/result_note, refusing an ack from a machine other than the addressee so misdirected acks cannot silently clear another box's queue.",
-      "tags": [
-        "command-channel",
-        "persistence",
-        "safety-check"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:coordinator/db.py:get_queue_status",
-      "type": "function",
-      "name": "get_queue_status",
-      "filePath": "coordinator/db.py",
-      "lineRange": [
-        728,
-        737
-      ],
-      "summary": "Returns aggregate queue counts (pending / claimed / done / errored) for the coordinator's shadow status endpoint.",
-      "tags": [
-        "query",
-        "metrics",
-        "queue"
-      ],
-      "complexity": "simple"
     },
     {
       "id": "file:coordinator/test_shutdown_notify.py",
@@ -8616,323 +7813,6 @@
       "complexity": "complex"
     },
     {
-      "id": "file:ree_core/utils/config.py",
-      "type": "file",
-      "name": "config.py",
-      "filePath": "ree_core/utils/config.py",
-      "summary": "Central REEConfig dataclass tree: 16 subsystem configs plus the top-level REEConfig aggregating ~674 knobs that pin substrate behaviour across the fleet.",
-      "tags": [
-        "configuration",
-        "dataclass",
-        "type-definition",
-        "central-config"
-      ],
-      "complexity": "complex",
-      "languageNotes": "Every subsystem-config dataclass is enumerated here (E1/E2/E3, hippocampal, residue, event-segmenter, anchor-set, staleness, ghost-goal, heartbeat, environment). Adding a new knob requires the 3-site pattern noted in the from_dims silent-kwargs warning."
-    },
-    {
-      "id": "function:ree_core/utils/config.py:derive_stdlib_rng_seed",
-      "type": "function",
-      "name": "derive_stdlib_rng_seed",
-      "filePath": "ree_core/utils/config.py",
-      "lineRange": [
-        28,
-        41
-      ],
-      "summary": "Derives a deterministic stdlib RNG seed from a base seed plus stream label, used to split RNG streams across substrate components.",
-      "tags": [
-        "utility",
-        "rng",
-        "seeding",
-        "determinism"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "class:ree_core/utils/config.py:LatentStackConfig",
-      "type": "class",
-      "name": "LatentStackConfig",
-      "filePath": "ree_core/utils/config.py",
-      "lineRange": [
-        45,
-        355
-      ],
-      "summary": "Dataclass describing the latent-state stack (dimensions, activations, normalisation) shared across predictors and cognitive modules.",
-      "tags": [
-        "configuration",
-        "dataclass",
-        "latent-stack"
-      ],
-      "complexity": "complex"
-    },
-    {
-      "id": "class:ree_core/utils/config.py:E1Config",
-      "type": "class",
-      "name": "E1Config",
-      "filePath": "ree_core/utils/config.py",
-      "lineRange": [
-        359,
-        513
-      ],
-      "summary": "Configuration for the E1 (perceptual/encoder) predictor stage.",
-      "tags": [
-        "configuration",
-        "dataclass",
-        "e1",
-        "predictor"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "class:ree_core/utils/config.py:E2Config",
-      "type": "class",
-      "name": "E2Config",
-      "filePath": "ree_core/utils/config.py",
-      "lineRange": [
-        517,
-        602
-      ],
-      "summary": "Configuration for the E2 fast predictor: rollout depth, sampling temperatures, and trajectory shaping knobs.",
-      "tags": [
-        "configuration",
-        "dataclass",
-        "e2",
-        "predictor"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "class:ree_core/utils/config.py:E3Config",
-      "type": "class",
-      "name": "E3Config",
-      "filePath": "ree_core/utils/config.py",
-      "lineRange": [
-        606,
-        1592
-      ],
-      "summary": "Deep E3 selector configuration: ~124 knobs covering selection heads, commit thresholds, deliberation horizons, noisy-head parameters, and diagnostics.",
-      "tags": [
-        "configuration",
-        "dataclass",
-        "e3",
-        "predictor",
-        "central-config"
-      ],
-      "complexity": "complex"
-    },
-    {
-      "id": "class:ree_core/utils/config.py:EventSegmenterScaleConfig",
-      "type": "class",
-      "name": "EventSegmenterScaleConfig",
-      "filePath": "ree_core/utils/config.py",
-      "lineRange": [
-        1596,
-        1622
-      ],
-      "summary": "Per-scale configuration for the event segmenter (thresholds and detector parameters).",
-      "tags": [
-        "configuration",
-        "dataclass",
-        "event-segmenter"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "class:ree_core/utils/config.py:EventSegmenterConfig",
-      "type": "class",
-      "name": "EventSegmenterConfig",
-      "filePath": "ree_core/utils/config.py",
-      "lineRange": [
-        1626,
-        1663
-      ],
-      "summary": "Top-level event-segmenter configuration bundling per-scale settings.",
-      "tags": [
-        "configuration",
-        "dataclass",
-        "event-segmenter"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "class:ree_core/utils/config.py:InvalidationTriggerConfig",
-      "type": "class",
-      "name": "InvalidationTriggerConfig",
-      "filePath": "ree_core/utils/config.py",
-      "lineRange": [
-        1667,
-        1697
-      ],
-      "summary": "Configuration for the invalidation trigger regulator (broadcast thresholds and cooldowns).",
-      "tags": [
-        "configuration",
-        "dataclass",
-        "invalidation-trigger",
-        "regulator"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "class:ree_core/utils/config.py:AnchorSetConfig",
-      "type": "class",
-      "name": "AnchorSetConfig",
-      "filePath": "ree_core/utils/config.py",
-      "lineRange": [
-        1701,
-        1785
-      ],
-      "summary": "Configuration for the hippocampal anchor set (capacity, admit/evict rules, affordance instrumentation).",
-      "tags": [
-        "configuration",
-        "dataclass",
-        "anchor-set",
-        "hippocampal"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "class:ree_core/utils/config.py:StalenessAccumulatorConfig",
-      "type": "class",
-      "name": "StalenessAccumulatorConfig",
-      "filePath": "ree_core/utils/config.py",
-      "lineRange": [
-        1789,
-        1818
-      ],
-      "summary": "Configuration for the staleness accumulator that drives anchor decay and invalidation pressure.",
-      "tags": [
-        "configuration",
-        "dataclass",
-        "staleness",
-        "hippocampal"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "class:ree_core/utils/config.py:GhostGoalBankConfig",
-      "type": "class",
-      "name": "GhostGoalBankConfig",
-      "filePath": "ree_core/utils/config.py",
-      "lineRange": [
-        1822,
-        1942
-      ],
-      "summary": "Configuration for the ghost-goal bank: persistence appraisal, admission gates, and TTLs for ghost goals.",
-      "tags": [
-        "configuration",
-        "dataclass",
-        "ghost-goal",
-        "hippocampal"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "class:ree_core/utils/config.py:PersistenceAppraisalComputeConfig",
-      "type": "class",
-      "name": "PersistenceAppraisalComputeConfig",
-      "filePath": "ree_core/utils/config.py",
-      "lineRange": [
-        1946,
-        1953
-      ],
-      "summary": "Compute-side settings for the persistence-appraisal path in the ghost-goal bank.",
-      "tags": [
-        "configuration",
-        "dataclass",
-        "ghost-goal"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "class:ree_core/utils/config.py:HippocampalConfig",
-      "type": "class",
-      "name": "HippocampalConfig",
-      "filePath": "ree_core/utils/config.py",
-      "lineRange": [
-        1957,
-        2404
-      ],
-      "summary": "Top-level hippocampal-module configuration bundling anchors, event segmenter, ghost goals, staleness, and invalidation-trigger settings (~65 knobs).",
-      "tags": [
-        "configuration",
-        "dataclass",
-        "hippocampal",
-        "central-config"
-      ],
-      "complexity": "complex"
-    },
-    {
-      "id": "class:ree_core/utils/config.py:ResidueConfig",
-      "type": "class",
-      "name": "ResidueConfig",
-      "filePath": "ree_core/utils/config.py",
-      "lineRange": [
-        2408,
-        2546
-      ],
-      "summary": "Configuration for the residue field (RBF sizing, decay, care-marker parameters).",
-      "tags": [
-        "configuration",
-        "dataclass",
-        "residue"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "class:ree_core/utils/config.py:HeartbeatConfig",
-      "type": "class",
-      "name": "HeartbeatConfig",
-      "filePath": "ree_core/utils/config.py",
-      "lineRange": [
-        2550,
-        2635
-      ],
-      "summary": "Runner-heartbeat and status-reporting configuration used by the experiment runner and coordinator client.",
-      "tags": [
-        "configuration",
-        "dataclass",
-        "heartbeat",
-        "coordinator"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "class:ree_core/utils/config.py:EnvironmentConfig",
-      "type": "class",
-      "name": "EnvironmentConfig",
-      "filePath": "ree_core/utils/config.py",
-      "lineRange": [
-        2639,
-        2651
-      ],
-      "summary": "Small dataclass exposing environment-side knobs (max steps, seed, device) to the substrate.",
-      "tags": [
-        "configuration",
-        "dataclass",
-        "environment"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "class:ree_core/utils/config.py:REEConfig",
-      "type": "class",
-      "name": "REEConfig",
-      "filePath": "ree_core/utils/config.py",
-      "lineRange": [
-        2655,
-        8758
-      ],
-      "summary": "Top-level REE substrate configuration aggregating all subsystem configs (~674 fields) plus factory methods; the single object that pins every experiment's substrate behaviour.",
-      "tags": [
-        "configuration",
-        "dataclass",
-        "central-config",
-        "substrate-config"
-      ],
-      "complexity": "complex",
-      "languageNotes": "Adding a new knob without updating REEConfig.from_dims silently drops the kwarg \u2014 see the from_dims silent-kwargs reference in project memory."
-    },
-    {
       "id": "file:ree_core/sleep/mel_consumer.py",
       "type": "file",
       "name": "mel_consumer.py",
@@ -9401,6 +8281,1221 @@
         "backward-compat"
       ],
       "complexity": "simple"
+    },
+    {
+      "id": "file:coordinator/app.py",
+      "type": "file",
+      "name": "app.py",
+      "filePath": "coordinator/app.py",
+      "summary": "Phase-3 coordinator HTTP service (ThreadingHTTPServer) exposing bearer-authenticated GET/POST endpoints for experiment claim arbitration, heartbeats, result manifest ingestion, and command dispatch across the cloud worker fleet.",
+      "tags": [
+        "service",
+        "api-handler",
+        "coordinator",
+        "phase3",
+        "entry-point"
+      ],
+      "complexity": "complex",
+      "languageNotes": "Stdlib-only HTTP server (no framework); Handler subclasses BaseHTTPRequestHandler and routes by path in do_GET/do_POST dispatch."
+    },
+    {
+      "id": "file:coordinator/db.py",
+      "type": "file",
+      "name": "db.py",
+      "filePath": "coordinator/db.py",
+      "summary": "SQLite persistence layer for the Phase-3 coordinator: schema migrations, claim state machine (claim/release/reap/departure), heartbeat/status upserts, results and commands. Sole authoritative source of experiment claim state across the fleet.",
+      "tags": [
+        "data-model",
+        "coordinator",
+        "sqlite",
+        "claim-arbitration",
+        "state-machine"
+      ],
+      "complexity": "complex",
+      "languageNotes": "Stdlib sqlite3 with manual migrations (_migrate_* helpers); UTC timestamps stringly-typed via _parse_utc; claim recovery has TWO orthogonal routes (time-based staleness + departure notice) documented at length in the parent CLAUDE.md."
+    },
+    {
+      "id": "file:coordinator/test_phase3_runpack_materialize.py",
+      "type": "file",
+      "name": "test_phase3_runpack_materialize.py",
+      "filePath": "coordinator/test_phase3_runpack_materialize.py",
+      "summary": "unittest suite for the sync_daemon runpack materialization path: verifies flat manifest -> per-run pack conversion, staging into REE_assembly via git, provenance carry-through, and default-off flag behaviour.",
+      "tags": [
+        "test",
+        "coordinator",
+        "sync-daemon",
+        "runpack"
+      ],
+      "complexity": "complex",
+      "languageNotes": "Uses a scratch git repo under tempfile.mkdtemp; four TestCase classes cover golden-byte, materialize workflow, field mapping, and default-flag."
+    },
+    {
+      "id": "class:coordinator/app.py:Handler",
+      "type": "class",
+      "name": "Handler",
+      "filePath": "coordinator/app.py",
+      "lineRange": [
+        215,
+        952
+      ],
+      "summary": "BaseHTTPRequestHandler subclass implementing every coordinator HTTP endpoint (claim/release, queue snapshot, heartbeat/status, shutdown notice, fence clear, command issue/fetch/ack, result manifest + sidefile POST, writer health, machines dashboard). Enforces bearer-token auth on every non-liveness path.",
+      "tags": [
+        "api-handler",
+        "http-handler",
+        "phase3",
+        "auth-required"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:coordinator/app.py:_canon",
+      "type": "function",
+      "name": "_canon",
+      "filePath": "coordinator/app.py",
+      "lineRange": [
+        51,
+        87
+      ],
+      "summary": "Canonicalises a machine identifier via canonical_machine_name (with a small hardcoded fallback), guarding against the DLAPTOP-4/DLAPTOP-5 macOS Bonjour suffix drift that would otherwise split one laptop into two coordinator identities.",
+      "tags": [
+        "utility",
+        "machine-identity",
+        "coordinator"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:coordinator/app.py:_read_writer_health",
+      "type": "function",
+      "name": "_read_writer_health",
+      "filePath": "coordinator/app.py",
+      "lineRange": [
+        163,
+        174
+      ],
+      "summary": "Reads the sync_daemon writer-health JSON snapshot from disk (if present), returning an empty dict on any read/parse failure so the /writer-health endpoint stays best-effort.",
+      "tags": [
+        "utility",
+        "diagnostics",
+        "sync-daemon"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:coordinator/app.py:_age_out_errors",
+      "type": "function",
+      "name": "_age_out_errors",
+      "filePath": "coordinator/app.py",
+      "lineRange": [
+        177,
+        189
+      ],
+      "summary": "Strips stale error records (older than a caller-supplied cutoff) from the writer-health snapshot in place, preventing long-resolved failures from polluting the operator dashboard.",
+      "tags": [
+        "utility",
+        "diagnostics"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:coordinator/app.py:auth_machine",
+      "type": "function",
+      "name": "auth_machine",
+      "filePath": "coordinator/app.py",
+      "lineRange": [
+        202,
+        212
+      ],
+      "summary": "Constant-time bearer-token verifier (hmac.compare_digest) that maps an Authorization header to the machine name the token was issued for, returning None on any failure so unauthenticated requests uniformly get rejected.",
+      "tags": [
+        "auth",
+        "security",
+        "utility"
+      ],
+      "complexity": "simple",
+      "languageNotes": "Uses hmac.compare_digest to defeat timing attacks on token comparison."
+    },
+    {
+      "id": "function:coordinator/app.py:main",
+      "type": "function",
+      "name": "main",
+      "filePath": "coordinator/app.py",
+      "lineRange": [
+        955,
+        967
+      ],
+      "summary": "Coordinator service entry point: initialises the SQLite DB, loads bearer tokens, binds a ThreadingHTTPServer on the configured host/port, and serves forever until interrupted.",
+      "tags": [
+        "entry-point",
+        "service"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:coordinator/db.py:_migrate_experiments",
+      "type": "function",
+      "name": "_migrate_experiments",
+      "filePath": "coordinator/db.py",
+      "lineRange": [
+        38,
+        63
+      ],
+      "summary": "Adds newer columns (item_json, machine_affinity, priority, ...) to the experiments table if absent, keeping legacy coordinator DBs upgradeable in place.",
+      "tags": [
+        "migration",
+        "schema"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:coordinator/db.py:_migrate_heartbeats",
+      "type": "function",
+      "name": "_migrate_heartbeats",
+      "filePath": "coordinator/db.py",
+      "lineRange": [
+        66,
+        110
+      ],
+      "summary": "Additive schema migration for the heartbeats table, appending shutdown/fence/process-exit columns as they were introduced by later phase-3 features so older DB files keep working.",
+      "tags": [
+        "migration",
+        "schema"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:coordinator/db.py:_migrate_commands",
+      "type": "function",
+      "name": "_migrate_commands",
+      "filePath": "coordinator/db.py",
+      "lineRange": [
+        113,
+        129
+      ],
+      "summary": "Creates the commands table (id, machine, kind, args, issued_by, issued_at, acked_at, result_status, result_note) if missing so remote-control command channel state has a home.",
+      "tags": [
+        "migration",
+        "schema",
+        "remote-control"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:coordinator/db.py:_affinity_ok",
+      "type": "function",
+      "name": "_affinity_ok",
+      "filePath": "coordinator/db.py",
+      "lineRange": [
+        150,
+        166
+      ],
+      "summary": "Machine-affinity matcher used by claim gating: treats 'any' / empty as wildcard, otherwise resolves both sides through machine_identity.same_machine so DLAPTOP-4/DLAPTOP-5 do not appear as different boxes.",
+      "tags": [
+        "utility",
+        "claim-arbitration",
+        "machine-identity"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:coordinator/db.py:upsert_experiment",
+      "type": "function",
+      "name": "upsert_experiment",
+      "filePath": "coordinator/db.py",
+      "lineRange": [
+        169,
+        237
+      ],
+      "summary": "Insert-or-update path for the experiments table that preserves an already-active claim (preserve_claim=True) when re-materialising the queue snapshot, preventing the phase3 queue writer from silently clobbering a live claim.",
+      "tags": [
+        "data-model",
+        "claim-arbitration",
+        "queue"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:coordinator/db.py:_parse_utc",
+      "type": "function",
+      "name": "_parse_utc",
+      "filePath": "coordinator/db.py",
+      "lineRange": [
+        240,
+        250
+      ],
+      "summary": "Parses a stringly-typed UTC ISO timestamp (accepts both 'Z' and offset forms) into a timezone-aware datetime, returning None on any parse failure so callers can treat missing/malformed timestamps uniformly.",
+      "tags": [
+        "utility",
+        "timestamp"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:coordinator/db.py:_has_fresh_owner_heartbeat",
+      "type": "function",
+      "name": "_has_fresh_owner_heartbeat",
+      "filePath": "coordinator/db.py",
+      "lineRange": [
+        260,
+        274
+      ],
+      "summary": "Guard used by the claim-recovery predicate: returns True when the machine currently claiming a queue_id has posted a recent heartbeat AGAINST THAT queue_id, so a still-running claim is never reaped as stale.",
+      "tags": [
+        "claim-arbitration",
+        "recovery",
+        "heartbeat"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:coordinator/db.py:_claim_recoverable",
+      "type": "function",
+      "name": "_claim_recoverable",
+      "filePath": "coordinator/db.py",
+      "lineRange": [
+        277,
+        301
+      ],
+      "summary": "Two-route claim-recovery predicate (route a: time-staleness with no fresh owner heartbeat; route b: machine announced shutdown and has since been quiet), the sole gate for reassigning an already-claimed experiment.",
+      "tags": [
+        "claim-arbitration",
+        "recovery",
+        "state-machine"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "Route (b) added 2026-07-30 to cut V3-EXQ-841 orphan recovery from ~10h to ~20min without lowering the 6h staleness floor; see CLAUDE.md for the safety rationale."
+    },
+    {
+      "id": "function:coordinator/db.py:claim_fence_active",
+      "type": "function",
+      "name": "claim_fence_active",
+      "filePath": "coordinator/db.py",
+      "lineRange": [
+        349,
+        389
+      ],
+      "summary": "Pure predicate that returns True while a per-machine claim fence is still in effect (established by a graceful shutdown of a specific reason class and not yet cleared or timed out), preventing a rebooting worker from immediately re-claiming.",
+      "tags": [
+        "claim-arbitration",
+        "fence",
+        "state-machine"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:coordinator/db.py:machine_claim_fenced",
+      "type": "function",
+      "name": "machine_claim_fenced",
+      "filePath": "coordinator/db.py",
+      "lineRange": [
+        392,
+        405
+      ],
+      "summary": "DB-facing wrapper around claim_fence_active that reads the machine's heartbeat row and returns True iff the machine is currently claim-fenced.",
+      "tags": [
+        "claim-arbitration",
+        "fence"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:coordinator/db.py:record_claim_fence_clear",
+      "type": "function",
+      "name": "record_claim_fence_clear",
+      "filePath": "coordinator/db.py",
+      "lineRange": [
+        408,
+        429
+      ],
+      "summary": "Records a claim-fence clearing event on a machine's heartbeat row (either a live handshake or a new-boot marker) so the fence predicate flips to inactive.",
+      "tags": [
+        "claim-arbitration",
+        "fence"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:coordinator/db.py:machine_departed",
+      "type": "function",
+      "name": "machine_departed",
+      "filePath": "coordinator/db.py",
+      "lineRange": [
+        486,
+        545
+      ],
+      "summary": "Pure predicate for the 'gracefully departed and stayed quiet' state -- a machine that announced a non-process shutdown reason and has since been silent longer than quiet_seconds. Positive signal used by route (b) of claim recovery to bypass the 6h staleness floor safely.",
+      "tags": [
+        "claim-arbitration",
+        "recovery",
+        "lifecycle"
+      ],
+      "complexity": "complex",
+      "languageNotes": "Excludes runner_signal_exit / runner_drain_complete reasons on purpose -- both cases already released their claims on the way out."
+    },
+    {
+      "id": "function:coordinator/db.py:machine_has_departed",
+      "type": "function",
+      "name": "machine_has_departed",
+      "filePath": "coordinator/db.py",
+      "lineRange": [
+        548,
+        562
+      ],
+      "summary": "DB-facing wrapper around machine_departed: reads the machine's heartbeat row and returns True iff the machine announced shutdown and has since gone quiet past the reap threshold.",
+      "tags": [
+        "claim-arbitration",
+        "recovery",
+        "lifecycle"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:coordinator/db.py:claim_orphaned_by_departure",
+      "type": "function",
+      "name": "claim_orphaned_by_departure",
+      "filePath": "coordinator/db.py",
+      "lineRange": [
+        565,
+        577
+      ],
+      "summary": "Helper used inside _claim_recoverable: returns True when the machine currently claiming a queue_id has departed and been quiet longer than reap_quiet_seconds -- the recoverable-by-departure route.",
+      "tags": [
+        "claim-arbitration",
+        "recovery"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:coordinator/db.py:try_claim",
+      "type": "function",
+      "name": "try_claim",
+      "filePath": "coordinator/db.py",
+      "lineRange": [
+        580,
+        640
+      ],
+      "summary": "Coordinator-authoritative claim primitive: BEGIN IMMEDIATE transaction that checks affinity, fence, and existing claim state, atomically writes the claimed_by/claimed_at fields when eligible, and returns the outcome verdict. Sole entry point for /claim from workers.",
+      "tags": [
+        "claim-arbitration",
+        "state-machine",
+        "transactional"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:coordinator/db.py:evaluate_claim",
+      "type": "function",
+      "name": "evaluate_claim",
+      "filePath": "coordinator/db.py",
+      "lineRange": [
+        643,
+        664
+      ],
+      "summary": "Read-only claim evaluator: mirrors try_claim's decision logic without mutating state so the coord verdict can be compared to the git-side legacy claim verdict for divergence tracking.",
+      "tags": [
+        "claim-arbitration",
+        "diagnostics",
+        "divergence"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:coordinator/db.py:apply_git_outcome",
+      "type": "function",
+      "name": "apply_git_outcome",
+      "filePath": "coordinator/db.py",
+      "lineRange": [
+        667,
+        679
+      ],
+      "summary": "Applies a git-side claim outcome to the DB row (used during the transitional dual-write period when git commits and coordinator authority co-existed), keyed on queue_id.",
+      "tags": [
+        "claim-arbitration",
+        "phase3-migration"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:coordinator/db.py:release_claim",
+      "type": "function",
+      "name": "release_claim",
+      "filePath": "coordinator/db.py",
+      "lineRange": [
+        682,
+        718
+      ],
+      "summary": "Releases a claim held by the given machine, reverting the row to pending. Idempotent; refuses to release a claim owned by a different machine so a hostile or misconfigured worker cannot yank someone else's work.",
+      "tags": [
+        "claim-arbitration",
+        "state-machine"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:coordinator/db.py:mark_queue_removed",
+      "type": "function",
+      "name": "mark_queue_removed",
+      "filePath": "coordinator/db.py",
+      "lineRange": [
+        721,
+        746
+      ],
+      "summary": "Terminal-state helper that marks a queue_id row as removed with an audit reason, used when phase3_queue_writer materialises the git-side queue snapshot and finds an entry deleted upstream.",
+      "tags": [
+        "queue",
+        "state-machine"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:coordinator/db.py:claim_verdicts_diverge",
+      "type": "function",
+      "name": "claim_verdicts_diverge",
+      "filePath": "coordinator/db.py",
+      "lineRange": [
+        771,
+        783
+      ],
+      "summary": "Detects a genuine divergence between the git-side claim verdict and the coordinator verdict for a given claim attempt, ignoring explained-difference cases (schema-known race patterns).",
+      "tags": [
+        "diagnostics",
+        "divergence",
+        "phase3-migration"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:coordinator/db.py:divergence_stats",
+      "type": "function",
+      "name": "divergence_stats",
+      "filePath": "coordinator/db.py",
+      "lineRange": [
+        786,
+        797
+      ],
+      "summary": "Aggregates the claim_log divergence table into total/explained/unexplained counts for the operator health dashboard.",
+      "tags": [
+        "diagnostics",
+        "divergence"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:coordinator/db.py:log_claim",
+      "type": "function",
+      "name": "log_claim",
+      "filePath": "coordinator/db.py",
+      "lineRange": [
+        800,
+        809
+      ],
+      "summary": "Appends a claim attempt to the claim_log audit table with both git-side and coordinator verdicts + any detail, precomputing the divergence flag so downstream queries stay cheap.",
+      "tags": [
+        "diagnostics",
+        "audit"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:coordinator/db.py:record_result",
+      "type": "function",
+      "name": "record_result",
+      "filePath": "coordinator/db.py",
+      "lineRange": [
+        812,
+        827
+      ],
+      "summary": "Inserts a completed run's result row (run_id keyed) with the manifest bytes and sha256, deduplicating repeated POSTs of the same run_id so a worker retry does not corrupt the DB.",
+      "tags": [
+        "result",
+        "manifest",
+        "phase3-writer"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:coordinator/db.py:upsert_heartbeat",
+      "type": "function",
+      "name": "upsert_heartbeat",
+      "filePath": "coordinator/db.py",
+      "lineRange": [
+        830,
+        885
+      ],
+      "summary": "Insert-or-update a machine's heartbeats row with the latest state / current EXQ / progress payload / GPU info / elapsed / remaining, updating last_seen. Sole write path for runner heartbeat POSTs; feeds the git materialiser downstream.",
+      "tags": [
+        "heartbeat",
+        "telemetry",
+        "phase3-writer"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:coordinator/db.py:record_status_payload",
+      "type": "function",
+      "name": "record_status_payload",
+      "filePath": "coordinator/db.py",
+      "lineRange": [
+        888,
+        910
+      ],
+      "summary": "Records the runner's full status payload (large JSON) into the heartbeats row's payload_json column, used by /shadow/status for high-fidelity operator views.",
+      "tags": [
+        "telemetry",
+        "phase3-writer"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:coordinator/db.py:record_shutdown_notice",
+      "type": "function",
+      "name": "record_shutdown_notice",
+      "filePath": "coordinator/db.py",
+      "lineRange": [
+        916,
+        1003
+      ],
+      "summary": "Records a graceful shutdown notice (reason + expected wake condition + timing), updating both the last_shutdown_at and per-reason process/machine exit fields used by claim_fence_active, machine_departed, and lifecycle_state.",
+      "tags": [
+        "lifecycle",
+        "claim-arbitration",
+        "fence"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:coordinator/db.py:announced_offline_at",
+      "type": "function",
+      "name": "announced_offline_at",
+      "filePath": "coordinator/db.py",
+      "lineRange": [
+        1006,
+        1037
+      ],
+      "summary": "Returns the most recent 'announced offline' timestamp across last_shutdown_at and last_process_exit_at, tolerating None on either side. Used to compute lifecycle_state.",
+      "tags": [
+        "lifecycle",
+        "utility"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:coordinator/db.py:lifecycle_state",
+      "type": "function",
+      "name": "lifecycle_state",
+      "filePath": "coordinator/db.py",
+      "lineRange": [
+        1040,
+        1074
+      ],
+      "summary": "Classifies a machine's current lifecycle state from its heartbeat row: live / stale / gracefully_offline / silent, honouring the ordering constraint that a machine is only gracefully_offline if its shutdown notice is the most recent event.",
+      "tags": [
+        "lifecycle",
+        "state-machine"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "Deliberately NOT reused inside _claim_recoverable route (b) because a draining box keeps heartbeating for ~26min and would misclassify as stale; see CLAUDE.md."
+    },
+    {
+      "id": "function:coordinator/db.py:insert_command",
+      "type": "function",
+      "name": "insert_command",
+      "filePath": "coordinator/db.py",
+      "lineRange": [
+        1079,
+        1096
+      ],
+      "summary": "Inserts a remote-control command for a machine and returns the full row dict, giving the operator API a one-call issue-and-echo path.",
+      "tags": [
+        "remote-control",
+        "commands"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:coordinator/db.py:ack_command",
+      "type": "function",
+      "name": "ack_command",
+      "filePath": "coordinator/db.py",
+      "lineRange": [
+        1110,
+        1144
+      ],
+      "summary": "Runner-side command ack: stamps acked_at, result_status, and result_note on the command row, refusing to ack a command belonging to a different machine so a spoof cannot silently drain another worker's queue.",
+      "tags": [
+        "remote-control",
+        "commands"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:coordinator/test_phase3_runpack_materialize.py:GoldenByteShape",
+      "type": "class",
+      "name": "GoldenByteShape",
+      "filePath": "coordinator/test_phase3_runpack_materialize.py",
+      "lineRange": [
+        115,
+        147
+      ],
+      "summary": "Regression harness that pins the exact per-run pack bytes (manifest, metrics, summary) generated from an EXQ-633 flat manifest, guarding against silent format drift in sync_v3_results.runpack_for_flat.",
+      "tags": [
+        "test",
+        "regression",
+        "golden"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:coordinator/test_phase3_runpack_materialize.py:MaterializeRunpacks",
+      "type": "class",
+      "name": "MaterializeRunpacks",
+      "filePath": "coordinator/test_phase3_runpack_materialize.py",
+      "lineRange": [
+        151,
+        232
+      ],
+      "summary": "End-to-end unittest for sync_daemon._materialize_runpacks: constructs a scratch git repo under tempfile, writes flat manifests, invokes the backfill, and asserts pack files were created, staged, and are idempotent under re-run.",
+      "tags": [
+        "test",
+        "integration",
+        "sync-daemon"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:coordinator/test_phase3_runpack_materialize.py:FieldMappingProvenance",
+      "type": "class",
+      "name": "FieldMappingProvenance",
+      "filePath": "coordinator/test_phase3_runpack_materialize.py",
+      "lineRange": [
+        236,
+        282
+      ],
+      "summary": "Unit tests for sync_v3_results.build_runpack_docs field mapping: provenance keys carry into the pack, absent keys are omitted (not nulled), aggregates fold when top-level metrics missing, and top-level metrics take precedence when both present.",
+      "tags": [
+        "test",
+        "field-mapping",
+        "provenance"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:coordinator/test_phase3_runpack_materialize.py:_resolve_ree_assembly",
+      "type": "function",
+      "name": "_resolve_ree_assembly",
+      "filePath": "coordinator/test_phase3_runpack_materialize.py",
+      "lineRange": [
+        43,
+        56
+      ],
+      "summary": "Locates the REE_assembly checkout (honouring an env override) for the tests that need to reach into a real git worktree for the sync_daemon materialization path.",
+      "tags": [
+        "test-utility",
+        "path-resolution"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:coordinator/test_phase3_runpack_materialize.py:_make_flat",
+      "type": "function",
+      "name": "_make_flat",
+      "filePath": "coordinator/test_phase3_runpack_materialize.py",
+      "lineRange": [
+        93,
+        112
+      ],
+      "summary": "Fixture builder that returns a minimal but sync_daemon-eligible flat manifest dict (run_id, experiment_type, epoch, claim_ids, outcome, criteria), used across the materialization and field-mapping tests.",
+      "tags": [
+        "test-utility",
+        "fixture"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:ree_core/pfc/infralimbic_avoidance_gate.py",
+      "type": "file",
+      "name": "infralimbic_avoidance_gate.py",
+      "filePath": "ree_core/pfc/infralimbic_avoidance_gate.py",
+      "summary": "Implements MECH-357 / SD-058: an infralimbic-PFC analogue that suppresses PAG-driven freezing and biases E3 candidate selection so an instrumental avoidance action can be released and its efficacy learned via a per-agent eligibility trace.",
+      "tags": [
+        "pfc-analog",
+        "avoidance-learning",
+        "regulator",
+        "score-bias",
+        "arithmetic-only"
+      ],
+      "complexity": "complex",
+      "languageNotes": "Pure-arithmetic regulator (no nn.Module, no learned parameters); uses torch tensors only to shape the per-candidate score bias vector fed back into the E3 selector."
+    },
+    {
+      "id": "class:ree_core/pfc/infralimbic_avoidance_gate.py:InstrumentalAvoidanceGateConfig",
+      "type": "class",
+      "name": "InstrumentalAvoidanceGateConfig",
+      "filePath": "ree_core/pfc/infralimbic_avoidance_gate.py",
+      "lineRange": [
+        71,
+        116
+      ],
+      "summary": "Frozen dataclass holding eligibility-trace, threat-scaling, scaffold-floor and action-bias parameters for the MECH-357 gate; defaults yield backward-compatible no-op behaviour at rest.",
+      "tags": [
+        "config",
+        "dataclass",
+        "avoidance-parameters"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:ree_core/pfc/infralimbic_avoidance_gate.py:InstrumentalAvoidanceGateOutput",
+      "type": "class",
+      "name": "InstrumentalAvoidanceGateOutput",
+      "filePath": "ree_core/pfc/infralimbic_avoidance_gate.py",
+      "lineRange": [
+        120,
+        129
+      ],
+      "summary": "Frozen dataclass returned as a snapshot of the last gate tick \u2014 carries learned/effective avoidance efficacy, threat scale, freeze-suppression scalar, and bias magnitude for diagnostics.",
+      "tags": [
+        "dataclass",
+        "output",
+        "diagnostics"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:ree_core/pfc/infralimbic_avoidance_gate.py:InstrumentalAvoidanceGate",
+      "type": "class",
+      "name": "InstrumentalAvoidanceGate",
+      "filePath": "ree_core/pfc/infralimbic_avoidance_gate.py",
+      "lineRange": [
+        132,
+        377
+      ],
+      "summary": "Non-trainable ilPFC-analog gate: computes per-candidate action bias favouring directed movement over the no-op class, emits a freeze-suppression scalar that overrides MECH-279 when threat and learned efficacy warrant, and updates the avoidance-efficacy EMA trace from realised outcomes.",
+      "tags": [
+        "gate",
+        "score-bias",
+        "freeze-suppression",
+        "eligibility-trace",
+        "mech-094-guarded"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:ree_core/pfc/infralimbic_avoidance_gate.py:InstrumentalAvoidanceGate.__init__",
+      "type": "function",
+      "name": "InstrumentalAvoidanceGate.__init__",
+      "filePath": "ree_core/pfc/infralimbic_avoidance_gate.py",
+      "lineRange": [
+        148,
+        175
+      ],
+      "summary": "Initialises the gate from a config, clamping initial efficacy to [0, 1] and seeding EMA/threat traces and diagnostic counters used by later ticks and updates.",
+      "tags": [
+        "initialisation",
+        "state-setup"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:ree_core/pfc/infralimbic_avoidance_gate.py:InstrumentalAvoidanceGate.compute_action_bias",
+      "type": "function",
+      "name": "InstrumentalAvoidanceGate.compute_action_bias",
+      "filePath": "ree_core/pfc/infralimbic_avoidance_gate.py",
+      "lineRange": [
+        211,
+        258
+      ],
+      "summary": "Emits a per-candidate score-bias vector that penalises the no-op/freeze class in proportion to effective efficacy and threat, releasing directed instrumental actions without picking the escape direction itself.",
+      "tags": [
+        "score-bias",
+        "no-op-penalty",
+        "e3-hook"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/pfc/infralimbic_avoidance_gate.py:InstrumentalAvoidanceGate.update",
+      "type": "function",
+      "name": "InstrumentalAvoidanceGate.update",
+      "filePath": "ree_core/pfc/infralimbic_avoidance_gate.py",
+      "lineRange": [
+        283,
+        338
+      ],
+      "summary": "Runs the eligibility-trace acquisition step: on a directed action under threat that drops z_harm_a it credits avoidance_efficacy toward 1; on freezing or failed avoidance it decays it, no-op under simulation_mode.",
+      "tags": [
+        "eligibility-trace",
+        "ema-update",
+        "mech-094-guarded"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/pfc/infralimbic_avoidance_gate.py:InstrumentalAvoidanceGate.last_output",
+      "type": "function",
+      "name": "InstrumentalAvoidanceGate.last_output",
+      "filePath": "ree_core/pfc/infralimbic_avoidance_gate.py",
+      "lineRange": [
+        344,
+        358
+      ],
+      "summary": "Builds an InstrumentalAvoidanceGateOutput snapshot summarising current avoidance efficacy, effective efficacy, threat scale, freeze-suppression scalar and last bias magnitude for diagnostics and manifest recording.",
+      "tags": [
+        "diagnostics",
+        "snapshot",
+        "output-builder"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:ree_core/pfc/infralimbic_avoidance_gate.py:InstrumentalAvoidanceGate.get_state",
+      "type": "function",
+      "name": "InstrumentalAvoidanceGate.get_state",
+      "filePath": "ree_core/pfc/infralimbic_avoidance_gate.py",
+      "lineRange": [
+        361,
+        375
+      ],
+      "summary": "Returns a flat dict of scalar gate diagnostics (efficacy, effective efficacy, credit/decay/threat/freeze-suppression counters) suitable for downstream manifest emission and inclusion in scaffold curriculum results.",
+      "tags": [
+        "diagnostics",
+        "state-dict",
+        "manifest"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:ree_core/utils/config.py",
+      "type": "file",
+      "name": "config.py",
+      "filePath": "ree_core/utils/config.py",
+      "summary": "God-config module for the V3 REE agent: defines REEConfig plus every sub-config dataclass (latent stack, E1/E2/E3 systems, hippocampus, residue, heartbeat, goals, coalition, PFC/OFC/DACC, environment) and the from_dims factory that constructs a fully wired REEConfig for a given observation/action space. Imported by essentially every downstream ree_core module and treated as the top-level knob surface for experiments.",
+      "tags": [
+        "config",
+        "data-model",
+        "entry-point",
+        "type-definition",
+        "factory"
+      ],
+      "complexity": "complex",
+      "languageNotes": "Python @dataclass-heavy module (~8.4k non-empty lines, 16 dataclasses); REEConfig itself spans ~6.1k lines and centralises defaults for the entire agent. `from_dims` is the canonical factory and threads dozens of derived defaults; `derive_stdlib_rng_seed` bridges torch RNG state to stdlib random."
+    },
+    {
+      "id": "function:ree_core/utils/config.py:derive_stdlib_rng_seed",
+      "type": "function",
+      "name": "derive_stdlib_rng_seed",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        28,
+        41
+      ],
+      "summary": "Derives a deterministic 63-bit integer seed for stdlib random from an integer base seed and a string label, so config-time seeding is stable across processes without importing torch.",
+      "tags": [
+        "utility",
+        "rng",
+        "seeding",
+        "determinism"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:ree_core/utils/config.py:LatentStackConfig",
+      "type": "class",
+      "name": "LatentStackConfig",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        45,
+        355
+      ],
+      "summary": "Dataclass holding all knobs for the latent-stack encoder/decoder pathway (dimensionalities, gating rates, dropout schedules, projection depths). Consumed by REEConfig and by latent-stack modules across ree_core.",
+      "tags": [
+        "config",
+        "data-model",
+        "latent-stack"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:ree_core/utils/config.py:E1Config",
+      "type": "class",
+      "name": "E1Config",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        359,
+        513
+      ],
+      "summary": "Configuration dataclass for the E1 (early-perception / world-model) system, exposing its temporal-resolution, prediction-loss, and calibration knobs.",
+      "tags": [
+        "config",
+        "data-model",
+        "e1-system"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:ree_core/utils/config.py:E2Config",
+      "type": "class",
+      "name": "E2Config",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        517,
+        602
+      ],
+      "summary": "Configuration dataclass for the E2 (deliberative / model-based) system: rollout horizons, value-network parameters, and phase-3 arbitration flags.",
+      "tags": [
+        "config",
+        "data-model",
+        "e2-system"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:ree_core/utils/config.py:E3Config",
+      "type": "class",
+      "name": "E3Config",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        606,
+        1592
+      ],
+      "summary": "Large configuration dataclass for the E3 (control/selection) system: action-selection temperature, competence-floor thresholds, diagnostics, hold-weighted readouts, and the many probe gates the substrate exposes.",
+      "tags": [
+        "config",
+        "data-model",
+        "e3-system",
+        "action-selection"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:ree_core/utils/config.py:EventSegmenterScaleConfig",
+      "type": "class",
+      "name": "EventSegmenterScaleConfig",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        1596,
+        1622
+      ],
+      "summary": "Per-scale configuration for the multi-scale event segmenter (surprise thresholds, min segment length).",
+      "tags": [
+        "config",
+        "data-model",
+        "event-segmenter"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:ree_core/utils/config.py:EventSegmenterConfig",
+      "type": "class",
+      "name": "EventSegmenterConfig",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        1626,
+        1663
+      ],
+      "summary": "Top-level event-segmenter configuration bundling per-scale settings and cross-scale integration knobs.",
+      "tags": [
+        "config",
+        "data-model",
+        "event-segmenter"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:ree_core/utils/config.py:InvalidationTriggerConfig",
+      "type": "class",
+      "name": "InvalidationTriggerConfig",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        1667,
+        1697
+      ],
+      "summary": "Configuration for goal-invalidation triggers (thresholds and cooldowns that mark an anchor set stale).",
+      "tags": [
+        "config",
+        "data-model",
+        "goal-invalidation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:ree_core/utils/config.py:AnchorSetConfig",
+      "type": "class",
+      "name": "AnchorSetConfig",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        1701,
+        1785
+      ],
+      "summary": "Configuration for the anchor-set primitive that scaffolds goal representation, including capacity, decay, and selection knobs.",
+      "tags": [
+        "config",
+        "data-model",
+        "anchors",
+        "goals"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:ree_core/utils/config.py:StalenessAccumulatorConfig",
+      "type": "class",
+      "name": "StalenessAccumulatorConfig",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        1789,
+        1818
+      ],
+      "summary": "Configuration for the staleness accumulator that tracks how long an anchor or goal has gone unrewarded before invalidation is considered.",
+      "tags": [
+        "config",
+        "data-model",
+        "staleness"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:ree_core/utils/config.py:GhostGoalBankConfig",
+      "type": "class",
+      "name": "GhostGoalBankConfig",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        1822,
+        1942
+      ],
+      "summary": "Configuration for the ghost-goal bank (bank size, admission/eviction thresholds, decay schedules) that stores latent candidate goals for reactivation.",
+      "tags": [
+        "config",
+        "data-model",
+        "goals",
+        "ghost-goals"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:ree_core/utils/config.py:PersistenceAppraisalComputeConfig",
+      "type": "class",
+      "name": "PersistenceAppraisalComputeConfig",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        1946,
+        1953
+      ],
+      "summary": "Small dataclass holding compute-time knobs (batch size, precision) for the persistence-appraisal path.",
+      "tags": [
+        "config",
+        "data-model",
+        "persistence"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:ree_core/utils/config.py:HippocampalConfig",
+      "type": "class",
+      "name": "HippocampalConfig",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        1957,
+        2404
+      ],
+      "summary": "Large configuration dataclass for the hippocampal episodic-memory subsystem: pattern-separation and completion parameters, replay schedule, and consolidation gates.",
+      "tags": [
+        "config",
+        "data-model",
+        "hippocampus",
+        "memory"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:ree_core/utils/config.py:ResidueConfig",
+      "type": "class",
+      "name": "ResidueConfig",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        2408,
+        2546
+      ],
+      "summary": "Configuration for the residue subsystem (care-marker / mood-regulation trace) driving INV-001 falsifiers and downstream residue-conditioned behaviour.",
+      "tags": [
+        "config",
+        "data-model",
+        "residue",
+        "mood-regulation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:ree_core/utils/config.py:HeartbeatConfig",
+      "type": "class",
+      "name": "HeartbeatConfig",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        2550,
+        2635
+      ],
+      "summary": "Configuration for the heartbeat scheduler that drives phasic subsystems (sleep, consolidation ticks, residue decays).",
+      "tags": [
+        "config",
+        "data-model",
+        "heartbeat",
+        "scheduler"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:ree_core/utils/config.py:EnvironmentConfig",
+      "type": "class",
+      "name": "EnvironmentConfig",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        2639,
+        2651
+      ],
+      "summary": "Small dataclass holding environment-side knobs (obs/action space overrides, wrapper toggles) that REEConfig consults during construction.",
+      "tags": [
+        "config",
+        "data-model",
+        "environment"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:ree_core/utils/config.py:REEConfig",
+      "type": "class",
+      "name": "REEConfig",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        2655,
+        8796
+      ],
+      "summary": "Top-level agent configuration dataclass aggregating every sub-config (latent stack, E1/E2/E3, hippocampus, residue, heartbeat, goal/anchor, coalition, PFC/OFC/DACC, defensive orienting, environment) and providing the from_dims factory plus preset builders (large, xlarge, enable_goal_stream, enable_sleep_aggregation_cluster). This is the single object the runner and every experiment driver constructs to instantiate an agent.",
+      "tags": [
+        "config",
+        "data-model",
+        "god-config",
+        "entry-point",
+        "factory"
+      ],
+      "complexity": "complex",
+      "languageNotes": "Extremely large dataclass (~6.1k lines) with __post_init__ validation, a from_dims classmethod factory that threads dozens of derived defaults, and preset methods (large/xlarge/enable_goal_stream/enable_sleep_aggregation_cluster) that mutate self in-place. New knobs must be added at three sites: field definition, from_dims wiring, and any preset that touches the surrounding subsystem \u2014 bare from_dims silently swallows unknown kwargs, so tests must cover the new knob explicitly."
+    },
+    {
+      "id": "function:ree_core/utils/config.py:REEConfig.from_dims",
+      "type": "function",
+      "name": "REEConfig.from_dims",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        7189,
+        8589
+      ],
+      "summary": "Primary construction path for REEConfig: takes observation/action dimensions plus overrides and returns a fully wired config, deriving defaults for every subsystem (E1/E2/E3, latent stack, hippocampus, goal stream, sleep aggregation, residue) and seeding stdlib RNG via derive_stdlib_rng_seed. Every experiment driver builds its agent through this classmethod.",
+      "tags": [
+        "factory",
+        "entry-point",
+        "config-construction"
+      ],
+      "complexity": "complex",
+      "languageNotes": "Uses setattr/hasattr for optional-knob wiring; silently ignores kwargs not present on the dataclass, so new knobs need explicit test coverage."
     }
   ],
   "edges": [
@@ -9785,48 +9880,6 @@
     {
       "source": "file:ree_core/pfc/frontopolar_analog.py",
       "target": "class:ree_core/pfc/frontopolar_analog.py:FrontopolarAnalog",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/pfc/infralimbic_avoidance_gate.py",
-      "target": "class:ree_core/pfc/infralimbic_avoidance_gate.py:InstrumentalAvoidanceGateConfig",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:ree_core/pfc/infralimbic_avoidance_gate.py",
-      "target": "class:ree_core/pfc/infralimbic_avoidance_gate.py:InstrumentalAvoidanceGateConfig",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/pfc/infralimbic_avoidance_gate.py",
-      "target": "class:ree_core/pfc/infralimbic_avoidance_gate.py:InstrumentalAvoidanceGateOutput",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:ree_core/pfc/infralimbic_avoidance_gate.py",
-      "target": "class:ree_core/pfc/infralimbic_avoidance_gate.py:InstrumentalAvoidanceGateOutput",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/pfc/infralimbic_avoidance_gate.py",
-      "target": "class:ree_core/pfc/infralimbic_avoidance_gate.py:InstrumentalAvoidanceGate",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:ree_core/pfc/infralimbic_avoidance_gate.py",
-      "target": "class:ree_core/pfc/infralimbic_avoidance_gate.py:InstrumentalAvoidanceGate",
       "type": "exports",
       "direction": "forward",
       "weight": 0.8
@@ -11064,34 +11117,6 @@
       "weight": 0.8
     },
     {
-      "source": "file:coordinator/test_phase3_runpack_materialize.py",
-      "target": "function:coordinator/test_phase3_runpack_materialize.py:_make_flat",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/test_phase3_runpack_materialize.py",
-      "target": "class:coordinator/test_phase3_runpack_materialize.py:GoldenByteShape",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/test_phase3_runpack_materialize.py",
-      "target": "class:coordinator/test_phase3_runpack_materialize.py:MaterializeRunpacks",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/test_phase3_runpack_materialize.py",
-      "target": "class:coordinator/test_phase3_runpack_materialize.py:FieldMappingProvenance",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
       "source": "file:ree_core/safety/conditioned_safety_store.py",
       "target": "class:ree_core/safety/conditioned_safety_store.py:ConditionedSafetyStore",
       "type": "contains",
@@ -11930,405 +11955,6 @@
       "recoveredFromImportMap": true
     },
     {
-      "source": "file:coordinator/app.py",
-      "target": "file:coordinator/db.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:coordinator/test_shutdown_notify.py",
-      "target": "file:coordinator/db.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:coordinator/app.py",
-      "target": "class:coordinator/app.py:Handler",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/app.py",
-      "target": "function:coordinator/app.py:main",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/app.py",
-      "target": "function:coordinator/app.py:auth_machine",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/app.py",
-      "target": "function:coordinator/app.py:_read_writer_health",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/app.py",
-      "target": "function:coordinator/app.py:_age_out_errors",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/app.py",
-      "target": "class:coordinator/app.py:Handler",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:coordinator/app.py",
-      "target": "function:coordinator/app.py:main",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:coordinator/app.py",
-      "target": "function:coordinator/app.py:auth_machine",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:init_db",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:_migrate_experiments",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:_migrate_heartbeats",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:_migrate_commands",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:upsert_experiment",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:_has_fresh_owner_heartbeat",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:_claim_recoverable",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:claim_fence_active",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:machine_claim_fenced",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:record_claim_fence_clear",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:machine_departed",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:machine_has_departed",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:claim_orphaned_by_departure",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:try_claim",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:evaluate_claim",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:apply_git_outcome",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:release_claim",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:mark_queue_removed",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:claim_verdicts_diverge",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:divergence_stats",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:log_claim",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:record_result",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:upsert_heartbeat",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:record_status_payload",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:record_shutdown_notice",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:announced_offline_at",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:lifecycle_state",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:insert_command",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:fetch_pending_commands",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:ack_command",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:get_queue_status",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:init_db",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:upsert_experiment",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:try_claim",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:evaluate_claim",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:release_claim",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:record_result",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:upsert_heartbeat",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:record_shutdown_notice",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:record_claim_fence_clear",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:claim_fence_active",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:machine_departed",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:lifecycle_state",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:announced_offline_at",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:insert_command",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:fetch_pending_commands",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "function:coordinator/db.py:ack_command",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
       "source": "file:coordinator/test_shutdown_notify.py",
       "target": "class:coordinator/test_shutdown_notify.py:LifecycleStateTest",
       "type": "contains",
@@ -12397,20 +12023,6 @@
       "type": "contains",
       "direction": "forward",
       "weight": 1.0
-    },
-    {
-      "source": "file:coordinator/db.py",
-      "target": "file:coordinator/test_shutdown_notify.py",
-      "type": "tested_by",
-      "direction": "forward",
-      "weight": 0.5
-    },
-    {
-      "source": "file:coordinator/app.py",
-      "target": "file:coordinator/test_shutdown_notify.py",
-      "type": "tested_by",
-      "direction": "forward",
-      "weight": 0.5
     },
     {
       "source": "file:ree_core/latent/stack.py",
@@ -13148,86 +12760,6 @@
       "weight": 0.5
     },
     {
-      "source": "file:coordinator/seed_from_queue.py",
-      "target": "file:coordinator/db.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7,
-      "recoveredFromImportMap": true
-    },
-    {
-      "source": "file:coordinator/test_manifest_spool.py",
-      "target": "file:coordinator/db.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7,
-      "recoveredFromImportMap": true
-    },
-    {
-      "source": "file:coordinator/test_phase3_claim_guard.py",
-      "target": "file:coordinator/db.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7,
-      "recoveredFromImportMap": true
-    },
-    {
-      "source": "file:coordinator/test_phase3_command_channel.py",
-      "target": "file:coordinator/db.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7,
-      "recoveredFromImportMap": true
-    },
-    {
-      "source": "file:coordinator/test_phase3_heartbeat_writer_state_change.py",
-      "target": "file:coordinator/db.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7,
-      "recoveredFromImportMap": true
-    },
-    {
-      "source": "file:coordinator/test_phase3_heartbeat_writer.py",
-      "target": "file:coordinator/db.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7,
-      "recoveredFromImportMap": true
-    },
-    {
-      "source": "file:coordinator/test_phase3_queue_add.py",
-      "target": "file:coordinator/db.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7,
-      "recoveredFromImportMap": true
-    },
-    {
-      "source": "file:coordinator/test_phase3_queue_writer.py",
-      "target": "file:coordinator/db.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7,
-      "recoveredFromImportMap": true
-    },
-    {
-      "source": "file:coordinator/test_phase3_writer_smoke.py",
-      "target": "file:coordinator/db.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7,
-      "recoveredFromImportMap": true
-    },
-    {
-      "source": "file:coordinator/test_shadow_e2e.py",
-      "target": "file:coordinator/db.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7,
-      "recoveredFromImportMap": true
-    },
-    {
       "source": "file:ree_core/cingulate/__init__.py",
       "target": "file:ree_core/cingulate/dacc.py",
       "type": "imports",
@@ -13301,21 +12833,7 @@
     },
     {
       "source": "file:coordinator/sync_daemon.py",
-      "target": "file:coordinator/db.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:coordinator/sync_daemon.py",
       "target": "file:coordinator/manifest_spool.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:coordinator/test_phase3_sidefile_sync.py",
-      "target": "file:coordinator/db.py",
       "type": "imports",
       "direction": "forward",
       "weight": 0.7
@@ -14582,13 +14100,6 @@
     },
     {
       "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/pfc/infralimbic_avoidance_gate.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
       "target": "file:ree_core/pfc/lateral_pfc_analog.py",
       "type": "imports",
       "direction": "forward",
@@ -14700,13 +14211,6 @@
       "weight": 0.7
     },
     {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/utils/config.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
       "source": "file:ree_core/latent/theta_buffer.py",
       "target": "class:ree_core/latent/theta_buffer.py:ThetaBuffer",
       "type": "contains",
@@ -14730,13 +14234,6 @@
     {
       "source": "file:ree_core/predictors/e1_deep.py",
       "target": "file:ree_core/latent/stack.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/predictors/e1_deep.py",
-      "target": "file:ree_core/utils/config.py",
       "type": "imports",
       "direction": "forward",
       "weight": 0.7
@@ -14896,13 +14393,6 @@
       "weight": 0.7
     },
     {
-      "source": "file:ree_core/hippocampal/module.py",
-      "target": "file:ree_core/utils/config.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
       "source": "file:ree_core/predictors/e3_selector.py",
       "target": "class:ree_core/predictors/e3_selector.py:SelectionResult",
       "type": "contains",
@@ -14987,13 +14477,6 @@
       "weight": 0.7
     },
     {
-      "source": "file:ree_core/predictors/e3_selector.py",
-      "target": "file:ree_core/utils/config.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
       "source": "file:ree_core/residue/field.py",
       "target": "class:ree_core/residue/field.py:RBFLayer",
       "type": "contains",
@@ -15020,265 +14503,6 @@
       "type": "exports",
       "direction": "forward",
       "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/residue/field.py",
-      "target": "file:ree_core/utils/config.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "function:ree_core/utils/config.py:derive_stdlib_rng_seed",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:LatentStackConfig",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:E1Config",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:E2Config",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:E3Config",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:EventSegmenterScaleConfig",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:EventSegmenterConfig",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:InvalidationTriggerConfig",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:AnchorSetConfig",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:StalenessAccumulatorConfig",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:GhostGoalBankConfig",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:PersistenceAppraisalComputeConfig",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:HippocampalConfig",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:ResidueConfig",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:HeartbeatConfig",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:EnvironmentConfig",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:REEConfig",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "function:ree_core/utils/config.py:derive_stdlib_rng_seed",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:LatentStackConfig",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:E1Config",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:E2Config",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:E3Config",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:EventSegmenterScaleConfig",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:EventSegmenterConfig",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:InvalidationTriggerConfig",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:AnchorSetConfig",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:StalenessAccumulatorConfig",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:GhostGoalBankConfig",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:PersistenceAppraisalComputeConfig",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:HippocampalConfig",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:ResidueConfig",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:HeartbeatConfig",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:EnvironmentConfig",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:REEConfig",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "file:ree_core/goal.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "file:ree_core/neuromodulation/serotonin.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
     },
     {
       "source": "file:ree_core/sleep/mel_consumer.py",
@@ -15675,14 +14899,6 @@
       "description": "Path-based pairing (deterministic)"
     },
     {
-      "source": "file:coordinator/app.py",
-      "target": "file:coordinator/manifest_spool.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7,
-      "recoveredFromImportMap": true
-    },
-    {
       "source": "file:coordinator/test_manifest_spool.py",
       "target": "file:coordinator/manifest_spool.py",
       "type": "imports",
@@ -15732,14 +14948,6 @@
     },
     {
       "source": "file:coordinator/test_phase3_queue_writer.py",
-      "target": "file:coordinator/sync_daemon.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7,
-      "recoveredFromImportMap": true
-    },
-    {
-      "source": "file:coordinator/test_phase3_runpack_materialize.py",
       "target": "file:coordinator/sync_daemon.py",
       "type": "imports",
       "direction": "forward",
@@ -15803,6 +15011,1124 @@
       "recoveredFromImportMap": true
     },
     {
+      "source": "file:ree_core/sleep/__init__.py",
+      "target": "file:ree_core/sleep/mel_consumer.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:ree_core/sleep/__init__.py",
+      "target": "file:ree_core/sleep/phase_manager.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:ree_core/sleep/routing_gate.py",
+      "target": "file:ree_core/sleep/phase_manager.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:coordinator/app.py",
+      "target": "file:coordinator/db.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:coordinator/app.py",
+      "target": "file:coordinator/manifest_spool.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:coordinator/test_phase3_runpack_materialize.py",
+      "target": "file:coordinator/sync_daemon.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:coordinator/app.py",
+      "target": "class:coordinator/app.py:Handler",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/app.py",
+      "target": "function:coordinator/app.py:_canon",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/app.py",
+      "target": "function:coordinator/app.py:_read_writer_health",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/app.py",
+      "target": "function:coordinator/app.py:_age_out_errors",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/app.py",
+      "target": "function:coordinator/app.py:auth_machine",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/app.py",
+      "target": "function:coordinator/app.py:main",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:_migrate_experiments",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:_migrate_heartbeats",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:_migrate_commands",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:_affinity_ok",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:upsert_experiment",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:_parse_utc",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:_has_fresh_owner_heartbeat",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:_claim_recoverable",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:claim_fence_active",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:machine_claim_fenced",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:record_claim_fence_clear",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:machine_departed",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:machine_has_departed",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:claim_orphaned_by_departure",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:try_claim",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:evaluate_claim",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:apply_git_outcome",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:release_claim",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:mark_queue_removed",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:claim_verdicts_diverge",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:divergence_stats",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:log_claim",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:record_result",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:upsert_heartbeat",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:record_status_payload",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:record_shutdown_notice",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:announced_offline_at",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:lifecycle_state",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:insert_command",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:ack_command",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/test_phase3_runpack_materialize.py",
+      "target": "class:coordinator/test_phase3_runpack_materialize.py:GoldenByteShape",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/test_phase3_runpack_materialize.py",
+      "target": "class:coordinator/test_phase3_runpack_materialize.py:MaterializeRunpacks",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/test_phase3_runpack_materialize.py",
+      "target": "class:coordinator/test_phase3_runpack_materialize.py:FieldMappingProvenance",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/test_phase3_runpack_materialize.py",
+      "target": "function:coordinator/test_phase3_runpack_materialize.py:_resolve_ree_assembly",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/test_phase3_runpack_materialize.py",
+      "target": "function:coordinator/test_phase3_runpack_materialize.py:_make_flat",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:coordinator/app.py",
+      "target": "class:coordinator/app.py:Handler",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:coordinator/app.py",
+      "target": "function:coordinator/app.py:_canon",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:coordinator/app.py",
+      "target": "function:coordinator/app.py:auth_machine",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:coordinator/app.py",
+      "target": "function:coordinator/app.py:main",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:try_claim",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:evaluate_claim",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:release_claim",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:upsert_experiment",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:upsert_heartbeat",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:record_shutdown_notice",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:record_result",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:mark_queue_removed",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:insert_command",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:ack_command",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:coordinator/db.py",
+      "target": "function:coordinator/db.py:lifecycle_state",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:coordinator/app.py:Handler",
+      "target": "function:coordinator/db.py:try_claim",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:coordinator/app.py:Handler",
+      "target": "function:coordinator/db.py:evaluate_claim",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:coordinator/app.py:Handler",
+      "target": "function:coordinator/db.py:release_claim",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:coordinator/app.py:Handler",
+      "target": "function:coordinator/db.py:upsert_experiment",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:coordinator/app.py:Handler",
+      "target": "function:coordinator/db.py:upsert_heartbeat",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:coordinator/app.py:Handler",
+      "target": "function:coordinator/db.py:record_shutdown_notice",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:coordinator/app.py:Handler",
+      "target": "function:coordinator/db.py:record_result",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:coordinator/app.py:Handler",
+      "target": "function:coordinator/db.py:record_status_payload",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:coordinator/app.py:Handler",
+      "target": "function:coordinator/db.py:insert_command",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:coordinator/app.py:Handler",
+      "target": "function:coordinator/db.py:ack_command",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:coordinator/app.py:Handler",
+      "target": "function:coordinator/db.py:mark_queue_removed",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:coordinator/app.py:Handler",
+      "target": "function:coordinator/db.py:divergence_stats",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:coordinator/app.py:Handler",
+      "target": "function:coordinator/db.py:lifecycle_state",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:coordinator/app.py:Handler",
+      "target": "function:coordinator/db.py:record_claim_fence_clear",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:coordinator/app.py:main",
+      "target": "function:coordinator/db.py:_migrate_experiments",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:coordinator/db.py:try_claim",
+      "target": "function:coordinator/db.py:_claim_recoverable",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:coordinator/db.py:try_claim",
+      "target": "function:coordinator/db.py:_affinity_ok",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:coordinator/db.py:try_claim",
+      "target": "function:coordinator/db.py:machine_claim_fenced",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:coordinator/db.py:evaluate_claim",
+      "target": "function:coordinator/db.py:_claim_recoverable",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:coordinator/db.py:evaluate_claim",
+      "target": "function:coordinator/db.py:_affinity_ok",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:coordinator/db.py:evaluate_claim",
+      "target": "function:coordinator/db.py:machine_claim_fenced",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:coordinator/db.py:_claim_recoverable",
+      "target": "function:coordinator/db.py:_has_fresh_owner_heartbeat",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:coordinator/db.py:_claim_recoverable",
+      "target": "function:coordinator/db.py:claim_orphaned_by_departure",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:coordinator/db.py:claim_orphaned_by_departure",
+      "target": "function:coordinator/db.py:machine_has_departed",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:coordinator/db.py:machine_has_departed",
+      "target": "function:coordinator/db.py:machine_departed",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:coordinator/db.py:machine_claim_fenced",
+      "target": "function:coordinator/db.py:claim_fence_active",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:coordinator/db.py:log_claim",
+      "target": "function:coordinator/db.py:claim_verdicts_diverge",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:coordinator/sync_daemon.py",
+      "target": "file:coordinator/test_phase3_runpack_materialize.py",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.5,
+      "description": "Direction corrected (was test \u2192 production)"
+    },
+    {
+      "source": "class:coordinator/test_phase3_runpack_materialize.py:MaterializeRunpacks",
+      "target": "file:coordinator/sync_daemon.py",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/pfc/infralimbic_avoidance_gate.py",
+      "target": "class:ree_core/pfc/infralimbic_avoidance_gate.py:InstrumentalAvoidanceGateConfig",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/pfc/infralimbic_avoidance_gate.py",
+      "target": "class:ree_core/pfc/infralimbic_avoidance_gate.py:InstrumentalAvoidanceGateOutput",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/pfc/infralimbic_avoidance_gate.py",
+      "target": "class:ree_core/pfc/infralimbic_avoidance_gate.py:InstrumentalAvoidanceGate",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/pfc/infralimbic_avoidance_gate.py",
+      "target": "class:ree_core/pfc/infralimbic_avoidance_gate.py:InstrumentalAvoidanceGateConfig",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/pfc/infralimbic_avoidance_gate.py",
+      "target": "class:ree_core/pfc/infralimbic_avoidance_gate.py:InstrumentalAvoidanceGateOutput",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/pfc/infralimbic_avoidance_gate.py",
+      "target": "class:ree_core/pfc/infralimbic_avoidance_gate.py:InstrumentalAvoidanceGate",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:ree_core/pfc/infralimbic_avoidance_gate.py:InstrumentalAvoidanceGate",
+      "target": "function:ree_core/pfc/infralimbic_avoidance_gate.py:InstrumentalAvoidanceGate.__init__",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "class:ree_core/pfc/infralimbic_avoidance_gate.py:InstrumentalAvoidanceGate",
+      "target": "function:ree_core/pfc/infralimbic_avoidance_gate.py:InstrumentalAvoidanceGate.compute_action_bias",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "class:ree_core/pfc/infralimbic_avoidance_gate.py:InstrumentalAvoidanceGate",
+      "target": "function:ree_core/pfc/infralimbic_avoidance_gate.py:InstrumentalAvoidanceGate.update",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "class:ree_core/pfc/infralimbic_avoidance_gate.py:InstrumentalAvoidanceGate",
+      "target": "function:ree_core/pfc/infralimbic_avoidance_gate.py:InstrumentalAvoidanceGate.last_output",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "class:ree_core/pfc/infralimbic_avoidance_gate.py:InstrumentalAvoidanceGate",
+      "target": "function:ree_core/pfc/infralimbic_avoidance_gate.py:InstrumentalAvoidanceGate.get_state",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "function:ree_core/pfc/infralimbic_avoidance_gate.py:InstrumentalAvoidanceGate.__init__",
+      "target": "class:ree_core/pfc/infralimbic_avoidance_gate.py:InstrumentalAvoidanceGateConfig",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "function:ree_core/pfc/infralimbic_avoidance_gate.py:InstrumentalAvoidanceGate.last_output",
+      "target": "class:ree_core/pfc/infralimbic_avoidance_gate.py:InstrumentalAvoidanceGateOutput",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:ree_core/pfc/infralimbic_avoidance_gate.py",
+      "target": "file:ree_core/agent.py",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "function:ree_core/utils/config.py:derive_stdlib_rng_seed",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:LatentStackConfig",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:E1Config",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:E2Config",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:E3Config",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:EventSegmenterScaleConfig",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:EventSegmenterConfig",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:InvalidationTriggerConfig",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:AnchorSetConfig",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:StalenessAccumulatorConfig",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:GhostGoalBankConfig",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:PersistenceAppraisalComputeConfig",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:HippocampalConfig",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:ResidueConfig",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:HeartbeatConfig",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:EnvironmentConfig",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:REEConfig",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "function:ree_core/utils/config.py:REEConfig.from_dims",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "class:ree_core/utils/config.py:REEConfig",
+      "target": "function:ree_core/utils/config.py:REEConfig.from_dims",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "function:ree_core/utils/config.py:REEConfig.from_dims",
+      "target": "function:ree_core/utils/config.py:derive_stdlib_rng_seed",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "function:ree_core/utils/config.py:derive_stdlib_rng_seed",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:LatentStackConfig",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:E1Config",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:E2Config",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:E3Config",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:EventSegmenterScaleConfig",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:EventSegmenterConfig",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:InvalidationTriggerConfig",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:AnchorSetConfig",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:StalenessAccumulatorConfig",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:GhostGoalBankConfig",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:PersistenceAppraisalComputeConfig",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:HippocampalConfig",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:ResidueConfig",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:HeartbeatConfig",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:EnvironmentConfig",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:REEConfig",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:coordinator/seed_from_queue.py",
+      "target": "file:coordinator/db.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:coordinator/sync_daemon.py",
+      "target": "file:coordinator/db.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:coordinator/test_manifest_spool.py",
+      "target": "file:coordinator/db.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:coordinator/test_phase3_claim_guard.py",
+      "target": "file:coordinator/db.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:coordinator/test_phase3_command_channel.py",
+      "target": "file:coordinator/db.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:coordinator/test_phase3_heartbeat_writer_state_change.py",
+      "target": "file:coordinator/db.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:coordinator/test_phase3_heartbeat_writer.py",
+      "target": "file:coordinator/db.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:coordinator/test_phase3_queue_add.py",
+      "target": "file:coordinator/db.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:coordinator/test_phase3_queue_writer.py",
+      "target": "file:coordinator/db.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:coordinator/test_phase3_sidefile_sync.py",
+      "target": "file:coordinator/db.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:coordinator/test_phase3_writer_smoke.py",
+      "target": "file:coordinator/db.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:coordinator/test_shadow_e2e.py",
+      "target": "file:coordinator/db.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:coordinator/test_shutdown_notify.py",
+      "target": "file:coordinator/db.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/pfc/infralimbic_avoidance_gate.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/utils/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
       "source": "file:ree_core/hippocampal/anchor_set.py",
       "target": "file:ree_core/utils/config.py",
       "type": "imports",
@@ -15812,6 +16138,14 @@
     },
     {
       "source": "file:ree_core/hippocampal/ghost_goal_bank.py",
+      "target": "file:ree_core/utils/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:ree_core/hippocampal/module.py",
       "target": "file:ree_core/utils/config.py",
       "type": "imports",
       "direction": "forward",
@@ -15835,6 +16169,14 @@
       "recoveredFromImportMap": true
     },
     {
+      "source": "file:ree_core/predictors/e1_deep.py",
+      "target": "file:ree_core/utils/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
       "source": "file:ree_core/predictors/e2_fast.py",
       "target": "file:ree_core/utils/config.py",
       "type": "imports",
@@ -15843,24 +16185,32 @@
       "recoveredFromImportMap": true
     },
     {
-      "source": "file:ree_core/sleep/__init__.py",
-      "target": "file:ree_core/sleep/mel_consumer.py",
+      "source": "file:ree_core/predictors/e3_selector.py",
+      "target": "file:ree_core/utils/config.py",
       "type": "imports",
       "direction": "forward",
       "weight": 0.7,
       "recoveredFromImportMap": true
     },
     {
-      "source": "file:ree_core/sleep/__init__.py",
-      "target": "file:ree_core/sleep/phase_manager.py",
+      "source": "file:ree_core/residue/field.py",
+      "target": "file:ree_core/utils/config.py",
       "type": "imports",
       "direction": "forward",
       "weight": 0.7,
       "recoveredFromImportMap": true
     },
     {
-      "source": "file:ree_core/sleep/routing_gate.py",
-      "target": "file:ree_core/sleep/phase_manager.py",
+      "source": "file:ree_core/utils/config.py",
+      "target": "file:ree_core/goal.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "file:ree_core/neuromodulation/serotonin.py",
       "type": "imports",
       "direction": "forward",
       "weight": 0.7,
