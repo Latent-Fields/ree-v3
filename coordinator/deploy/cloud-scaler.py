@@ -498,8 +498,45 @@ def read_orchestrator(heartbeats_dir, affinity, fresh_min, now=None):
     age_min = (now - tick).total_seconds() / 60.0
     if age_min > fresh_min:
         return False, "orchestrator_stale(%dmin>%dmin)" % (age_min, fresh_min)
-    return True, "orchestrator_active state=%s in_flight=%s age=%dmin" % (
-        hb.get("state"), hb.get("in_flight_dispatches"), age_min)
+
+    # FRESHNESS ALONE IS NOT A VETO. A fresh heartbeat only says the dispatch
+    # timer is ticking, which on a box with the timer enabled is always true --
+    # so keying the veto on freshness made the box unconditionally always-on and
+    # the shutdown branch unreachable. That was the behaviour for the first
+    # hours of 2026-08-18; it happened to match "keep cloud-4 up", by accident
+    # rather than by decision, which is why it is replaced rather than kept.
+    #
+    # Two distinct reasons to hold the box, deliberately different in kind:
+    #
+    #   in_flight > 0      STRONG. Live `claude -p` workers. Shutting down
+    #                      destroys work in progress and strands a claimed chip
+    #                      until CLAIM_STALE_HOURS. Same class as the
+    #                      held_by_self experiment veto.
+    #   chips_open_work>0  WEAK. Nothing running this instant, but there is
+    #                      backlog this box would pick up on its next tick.
+    #                      Powering down here just means powering back up.
+    #
+    # With NEITHER, the metaworker plane is genuinely idle and empty, and the
+    # box falls through to the ordinary shutdown test -- which independently
+    # requires claimable == 0, so a box is only ever stopped when BOTH planes
+    # (experiments and chip ledger) have nothing for it. That is the
+    # demand-sensitive behaviour, and it is what makes the box's always-on-ness
+    # a consequence of there being work rather than a property of the veto.
+    in_flight = hb.get("in_flight_dispatches")
+    open_work = hb.get("chips_open_work")
+    if not isinstance(in_flight, int) or not isinstance(open_work, int):
+        # Malformed/legacy orchestrator heartbeat: cannot judge demand. Fail
+        # open, same as every other defect above -- a detector that cannot tell
+        # must not be what keeps a billable box alive indefinitely.
+        return False, "orchestrator_no_demand_fields"
+    if in_flight > 0:
+        return True, ("orchestrator_busy in_flight=%d state=%s age=%dmin"
+                      % (in_flight, hb.get("state"), age_min))
+    if open_work > 0:
+        return True, ("orchestrator_backlog chips_open_work=%d state=%s "
+                      "age=%dmin" % (open_work, hb.get("state"), age_min))
+    return False, ("orchestrator_idle_and_empty state=%s age=%dmin"
+                   % (hb.get("state"), age_min))
 
 
 def read_lease(lease_dir, affinity, max_lease_min, now=None):
@@ -692,8 +729,11 @@ def run_once(queue_path, heartbeats_dir, announce_script,
             # ORCHESTRATOR VETO. This box is also running metaworker-dispatch,
             # which creates no queue claim and no runner heartbeat -- so every
             # other signal here reads clean_idle while live `claude -p` workers
-            # are mid-flight. Bounded by ORCHESTRATOR_FRESH_MIN, so a dead
-            # metaworker stops vetoing rather than pinning the box forever.
+            # are mid-flight. Fires on live workers (strong) or on chip backlog
+            # this box would pick up (weak); an idle metaworker with an empty
+            # ledger does NOT veto and falls through to the ordinary shutdown
+            # test. Bounded by ORCHESTRATOR_FRESH_MIN, so a dead metaworker
+            # stops vetoing rather than pinning the box forever.
             log("  -> %s is running metaworker-dispatch, keeping %s running "
                 "(%s)" % (affinity, server_name, orch_reason))
 

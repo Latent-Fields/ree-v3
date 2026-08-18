@@ -39,6 +39,7 @@ def _hb(dirpath, affinity, **over):
             "%Y-%m-%dT%H:%M:%SZ"),
         "state": "dispatching",
         "in_flight_dispatches": 2,
+        "chips_open_work": 5,
     }
     hb.update(over)
     path = os.path.join(dirpath, "%s-metaworker.json" % affinity)
@@ -55,11 +56,11 @@ class OrchestratorVetoTest(unittest.TestCase):
         return cs.read_orchestrator(self.tmp, affinity, FRESH, now=NOW)
 
     # ---------- positive ----------
-    def test_fresh_orchestrator_heartbeat_vetoes(self):
+    def test_live_workers_veto(self):
         _hb(self.tmp, "ree-cloud-4")
         active, reason = self._read()
         self.assertTrue(active)
-        self.assertIn("orchestrator_active", reason)
+        self.assertIn("orchestrator_busy", reason)
 
     def test_boundary_age_equal_to_window_still_vetoes(self):
         _hb(self.tmp, "ree-cloud-4",
@@ -67,11 +68,43 @@ class OrchestratorVetoTest(unittest.TestCase):
                 "%Y-%m-%dT%H:%M:%SZ"))
         self.assertTrue(self._read()[0])
 
-    def test_idle_but_fresh_still_vetoes(self):
-        # A dispatcher between cycles is still a live metaworker; killing the
-        # box in that window loses the timer, not just one cycle.
-        _hb(self.tmp, "ree-cloud-4", state="idle", in_flight_dispatches=0)
+    def test_backlog_with_no_live_worker_still_vetoes(self):
+        # WEAK veto: nothing running this instant, but there is work this box
+        # picks up on its next tick. Powering down here just means powering
+        # back up.
+        _hb(self.tmp, "ree-cloud-4", state="idle", in_flight_dispatches=0,
+            chips_open_work=7)
+        active, reason = self._read()
+        self.assertTrue(active)
+        self.assertIn("orchestrator_backlog", reason)
+
+    def test_idle_AND_empty_ledger_does_NOT_veto(self):
+        # The whole point of the demand-sensitive rewrite: freshness alone is
+        # not a veto, or the box is unconditionally always-on and the shutdown
+        # branch is unreachable.
+        _hb(self.tmp, "ree-cloud-4", state="idle", in_flight_dispatches=0,
+            chips_open_work=0)
+        active, reason = self._read()
+        self.assertFalse(active)
+        self.assertIn("orchestrator_idle_and_empty", reason)
+
+    def test_live_worker_vetoes_even_with_an_empty_ledger(self):
+        # in_flight is the STRONG signal and must not be gated on backlog --
+        # the last chip in the ledger is exactly when open_work hits 0 while a
+        # worker is still running it.
+        _hb(self.tmp, "ree-cloud-4", state="dispatching",
+            in_flight_dispatches=1, chips_open_work=0)
         self.assertTrue(self._read()[0])
+
+    def test_missing_demand_fields_do_not_veto(self):
+        # Legacy/malformed orchestrator heartbeat: cannot judge demand, so fail
+        # open like every other defect -- a detector that cannot tell must not
+        # be what keeps a billable box alive indefinitely.
+        _hb(self.tmp, "ree-cloud-4", in_flight_dispatches=None,
+            chips_open_work=None)
+        active, reason = self._read()
+        self.assertFalse(active)
+        self.assertIn("no_demand_fields", reason)
 
     # ---------- negative controls: every fail-open path ----------
     def test_no_file_does_not_veto(self):
@@ -181,12 +214,22 @@ class VetoIsWiredIntoTheDecisionLoopTest(unittest.TestCase):
         self._run()
         self.assertEqual(self.shutdowns, ["ree-worker-4"])
 
-    def test_idle_box_running_metaworker_is_NOT_shut_down(self):
-        _hb(self.hb, "ree-cloud-4",
+    def test_box_with_live_chip_workers_is_NOT_shut_down(self):
+        _hb(self.hb, "ree-cloud-4", in_flight_dispatches=2, chips_open_work=5,
             last_tick_utc=datetime.now(timezone.utc).strftime(
                 "%Y-%m-%dT%H:%M:%SZ"))
         self._run()
         self.assertEqual(self.shutdowns, [])
+
+    def test_box_with_idle_metaworker_and_empty_ledger_IS_shut_down(self):
+        # Both planes empty -- experiments (queue has no items) and chip ledger.
+        # This is the path the old freshness-only veto made unreachable.
+        _hb(self.hb, "ree-cloud-4", state="idle", in_flight_dispatches=0,
+            chips_open_work=0,
+            last_tick_utc=datetime.now(timezone.utc).strftime(
+                "%Y-%m-%dT%H:%M:%SZ"))
+        self._run()
+        self.assertEqual(self.shutdowns, ["ree-worker-4"])
 
 
 

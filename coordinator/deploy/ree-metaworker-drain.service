@@ -1,0 +1,29 @@
+# Drains in-flight metaworker chip workers before shutdown. Reference copy --
+# see ree-metaworker-drain.sh's header for the rationale and install steps.
+#
+# The work is in ExecStop, not ExecStart: this unit does nothing while running
+# and exists purely to get a hook on the way down. RemainAfterExit=yes is what
+# makes systemd consider it "active" after the no-op ExecStart, so that ExecStop
+# actually fires at shutdown.
+[Unit]
+Description=Drain in-flight metaworker chip workers before shutdown
+# Ordered against shutdown rather than against the network, so it also runs on
+# an operator `systemctl poweroff` and not only on the scaler's ACPI shutdown.
+Before=shutdown.target
+Conflicts=reboot.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/true
+ExecStop=/usr/local/bin/ree_metaworker_drain.sh
+# Must exceed the script's own REE_DRAIN_MAX_SEC (1200) or systemd SIGKILLs the
+# drain before it can finish waiting -- which would silently reintroduce exactly
+# the worker-killing this unit exists to prevent.
+TimeoutStopSec=1260
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ree-metaworker-drain
+
+[Install]
+WantedBy=multi-user.target
