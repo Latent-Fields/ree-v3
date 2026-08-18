@@ -3710,29 +3710,83 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
   Training for cue_terrain_proj: supervised terrain_loss using hazard_field_view proxy (lambda=0.1).
     terrain_loss must be included in experiment E1 training loops to train this projection.
     Pattern: see EXQ-182, EXQ-187a, EXQ-194. Omitting terrain_loss leaves cue_terrain_proj random.
-  Training for cue_action_proj: UNRESOLVED (diagnostic open -- see EXP-0155). The original
-    claim "implicit via E3 trajectory selection gradient (no new loss)" is DEMONSTRABLY FALSE.
-    V3-EXQ-449 (diagnostic probe, 2026-04-20) confirmed cue_action_proj.weight receives
-    exactly 0.0 gradient under this path (C1 PASS, 2 seeds, ~1.7k steps) because the CEM
-    argmax in HippocampalModule is non-differentiable and agent.py:694 detaches action_bias
-    before rollouts. EXQ-449 C2 arm added a supervised MSE loss against
-    E2.action_object(z_world, a_executed).detach(): weights trained (grad ~0.013, delta
-    ~0.21) but action_bias_divergence stayed at exactly 0.0 in both seeds -- something
-    downstream of cue_action_proj zeroes the signal before it reaches E3.select. The simple
-    supervision fix is insufficient on its own. EXP-0155 queued to instrument the full
-    forward path (extract_cue_context -> cue_action_proj -> ... -> E3.select) and identify
-    the specific blocker before any EXQ-418b successor is written. Until EXP-0155
-    resolves, cue_action_proj must be treated as CURRENTLY UNGROUNDED: sd016_enabled=True
-    experiments should expect action_bias_divergence ~= 0.0 and should not rely on
-    cue_action_proj for behavioural effects unless use_differentiable_cem=True (SD-055
-    substrate-ready 2026-05-15; V3-EXQ-568 PASS grad_max=372 -- gradient barrier only,
-    not behavioural divergence). (cue_terrain_proj path remains valid --
-    trained via terrain_loss.)
+  Training for cue_action_proj: the original claim "implicit via E3 trajectory selection
+    gradient (no new loss)" is DEMONSTRABLY FALSE. V3-EXQ-449 (diagnostic probe,
+    2026-04-20) confirmed cue_action_proj.weight receives exactly 0.0 gradient under this
+    path (C1 PASS, 2 seeds, ~1.7k steps) because the CEM argmax in HippocampalModule is
+    non-differentiable and agent.py:694 detaches action_bias before rollouts. EXQ-449 C2
+    arm added a supervised MSE loss against E2.action_object(z_world, a_executed).detach():
+    weights trained (grad ~0.013, delta ~0.21) but action_bias_divergence stayed at exactly
+    0.0 in both seeds.
+  EXP-0155: RESOLVED 2026-08-18 -- ITS PREMISE WAS FALSE, and this is the load-bearing
+    correction (chip-20260818-exp0155-action-bias-scoring-disconnect; source-traced +
+    measured; contract tests/contracts/test_exp0155_action_bias_no_scoring_authority.py,
+    ree-v3 a1d49706).
+    EXP-0155 was queued to find "the specific blocker DOWNSTREAM of cue_action_proj that
+    zeroes the signal before it reaches E3.select". There is no such blocker, because
+    `action_bias_divergence` NEVER LOOKS DOWNSTREAM: `_action_bias_divergence` (see
+    experiments/v3_exq_449_sd016_cue_action_proj_wiring_probe.py:180) is computed directly
+    on `e1.extract_cue_context(z_world)[0]` -- the E1 OUTPUT -- with zero calls into
+    HippocampalModule, E2 rollout or E3.select. Nothing downstream can move it.
+    The exact 0.0 is an UPSTREAM degeneracy: under the uniform-softmax ContextMemory
+    attention saddle `cue_context` is constant in z_world, so the pre-EXQ-449a
+    `cue_action_proj(cue_context)` returned one vector for every context -> cosine
+    similarity exactly 1.0 -> divergence exactly 0.0. Measured at fresh init 2026-08-18:
+    slot-selection entropy 2.7726 == ln(16) (exactly uniform), divergence of cue_context
+    itself 0.000e+00. That is the subject of
+    chip-20260816-implsub-contextmemory-writepath-degeneracy, NOT a forward-path defect.
+    The `torch.cat([cue_context, z_world])` line in extract_cue_context is the EXQ-449a
+    partial fix for exactly this ("cue_context is constant under uniform attention").
+  SEPARATE, GENUINE finding from the same adjudication -- action_bias has NO
+    trajectory-RANKING authority. Nothing on the ranking path reads an action-object:
+    `o_t` lands only in `Trajectory.action_objects`; `world_forward`/`predict_next_self`
+    never read it; `_score_trajectory` scores `get_world_state_sequence()` (terrain +
+    optional wanting/curiosity/MECH-267 mode terms) and never touches action_objects;
+    `_trajectory_first_action_class` (and thus the SP-CEM elite path) and the MECH-294
+    theta packet both read `.actions`; `e3_selector.py` has ZERO occurrences of
+    action_object/action_bias. Across ree_core, `action_objects` appears in exactly two
+    files (e2_fast.py producer, hippocampal/module.py refit + storage copies).
+    Its ONLY channel is the CEM refit, where -- scores and hence softmax weights and elite
+    membership being bias-blind, and the bias being the same constant on every candidate
+    and horizon step -- it is an exact additive translation: ao_mean += b, ao_std unchanged,
+    in BOTH the legacy elite-mean and differentiable-softmax branches (so it never
+    compounds -- always exactly one b). Measured: candidate scores BIT-IDENTICAL at b=None
+    vs b=1e3 (incl. all scoring extensions on), elite ordering unchanged, and in a
+    matched-RNG pass the first differing scoring call is exactly the iteration-1 boundary.
+    At num_cem_iterations=1 the bias is bit-identically inert end-to-end.
+    DO NOT over-read this: "no ranking authority" is NOT "no effect". The rigid translation
+    passes through the nonlinear action_object_decoder and genuinely moves the pool -- a
+    large bias flips the whole final candidate set's first-action class. It steers WHERE
+    proposals are drawn, never WHICH proposal wins. This also explains why SD-055's
+    differentiable CEM restored an action-sequence gradient (V3-EXQ-568 grad_max=372)
+    without behavioural divergence.
+    MECH-151's registered notes ("action-objects consistent with the cue are ELEVATED,
+    contextually inappropriate ones SUPPRESSED ... E1 biases which action-objects RANK
+    HIGHLY, but E3 still selects") are therefore NOT satisfied by the substrate as built --
+    governance flag raised on MECH-151.
+    REPAIR SITE IS E3, NOT `_score_trajectory`. Q-020/ARC-007 STRICT (module header):
+    HippocampalModule generates VALUE-FLAT proposals, no value head, "E3 introduces ALL
+    weighting". Teaching `_score_trajectory` to read action_objects would put E1-supplied
+    weighting inside the hippocampal scorer -- forbidden. MECH-151's own wording is
+    satisfiable only where E3 selects, and E3 has NO action-object input channel at all.
+    That is the substrate gap; it is a design decision for /implement-substrate under
+    ARC-007, not a local patch.
+  Standing guidance for sd016_enabled=True experiments (UNCHANGED in force, now with a
+    cause): expect action_bias_divergence ~= 0.0 until the ContextMemory write-path
+    degeneracy is fixed, and do not rely on cue_action_proj for candidate-RANKING effects
+    at all -- not even with use_differentiable_cem=True (SD-055 substrate-ready 2026-05-15;
+    V3-EXQ-568 PASS grad_max=372 -- gradient barrier only, not behavioural divergence).
+    (cue_terrain_proj path remains valid -- trained via terrain_loss.)
   Backward compatible: sd016_enabled=False by default; existing experiments unaffected.
   MECH-094: not applicable (waking encoder query, not replay content).
   Validation experiment: V3-EXQ-418a queued (SD-016+SD-017 combined retest with terrain_loss).
-    V3-EXQ-418/418a/418b have all FAILed with action_bias_divergence=0.0; the EXQ-418b
-    successor is GATED on EXP-0155 diagnostic resolution.
+    V3-EXQ-418/418a/418b have all FAILed with action_bias_divergence=0.0. The EXQ-418b
+    successor was GATED on EXP-0155; EXP-0155 resolved 2026-08-18 (premise refuted -- see
+    above), so the gate now transfers to the UPSTREAM cause: the ContextMemory write-path
+    degeneracy (chip-20260816-implsub-contextmemory-writepath-degeneracy). A successor
+    written before that lands will reproduce action_bias_divergence=0.0 for the same
+    reason, and -- independently -- must not be scored on candidate-RANKING divergence,
+    which the substrate cannot produce at all (see the EXP-0155 block above).
   See MECH-150, MECH-151, MECH-152, ARC-041, INV-040, EXP-0155 (cue_action_proj diagnostic).
   Design doc: REE_assembly/docs/architecture/sd_016_frontal_cue_integration.md
 
