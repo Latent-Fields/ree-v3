@@ -61,6 +61,7 @@ _PATH_LINTS = (
     ("fishtank_episode_log_seeds_lint", V.fishtank_episode_log_seeds_lint),
     ("disjunctive_criteria_load_bearing_lint", V.disjunctive_criteria_load_bearing_lint),
     ("route_reason_consistency_lint", V.route_reason_consistency_lint),
+    ("multi_arm_default_off_flags_collapse_lint", V.multi_arm_default_off_flags_collapse_lint),
 )
 
 # Lints that decide on the SOURCE TEXT and return before ever reaching `ast.parse`:

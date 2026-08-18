@@ -49,7 +49,7 @@ CHECK_NAMES = ("conformance", "readiness", "arm_fingerprint", "degeneracy", "man
                "config_slice_declaration", "inert_salience_dacc_bias",
                "dacc_last_bundle", "agent_seed_order", "zworld_p0_warmup",
                "fishtank_episode_log_seeds", "disjunctive_criteria_load_bearing",
-               "route_reason_consistency")
+               "route_reason_consistency", "multi_arm_default_off_flags_collapse")
 
 # Readiness-gate static lint (proposal_trivial_prediction_readiness_gate_2026-06-06).
 # A diagnostic/baseline script whose interpretation grid self-routes to one of
@@ -6371,6 +6371,296 @@ def disjunctive_criteria_load_bearing_lint(path: Path) -> Optional[str]:
 
 
 # --------------------------------------------------------------------------------------
+# MULTI-ARM enabled_default_off_flags COLLAPSE (authorised 2026-08-16, failure-autopsy
+# batch gate, after four confirmed instances of a mechanism tested in a NON-PRODUCTION
+# config: 927/928 mode_partitioned_cem False; 930 use_contextual_safety_terrain False; 934
+# salience_affinity_input_cap None + use_external_task_drive False; 931
+# HippocampalConfig.wanting_weight ships 0.0, not the 0.5 called the operating weight).
+#
+# THIS LINT DOES NOT CATCH ANY OF THE FOUR ABOVE DIRECTLY -- audited first, and stated
+# honestly rather than papered over. Two broader framings were tried and both failed
+# calibration hard before this one was accepted (full audit:
+# REE_assembly/evidence/planning/nonproduction_config_drift_audit_2026-08-18.md):
+#
+#   (a) "driver sets a default-off knob but never wires agent=/
+#       enabled_default_off_flags= into write_flat_manifest" -- fires on 768 of 996
+#       drivers that call the sanctioned writer (77%). Recording the block is opt-in by
+#       design (manifest_core.py's own docstring: "omitted entirely when no config-bearing
+#       agent was supplied ... never measured"), so almost the entire corpus is a "hit"
+#       under this framing -- not a defect signal at that rate, the norm.
+#   (b) "driver's own claim_ids map (via default_off_drift_guard.py's decl-grade
+#       attribution) to a knob the driver never sets" -- fires on 479 of 666 claim-bearing
+#       drivers (72%). A claim spans many narrow sub-experiments; most legitimately test
+#       one slice of the mechanism without touching every knob decl-attributed to that
+#       claim id in config.py's field comments.
+#
+# THE ONE SIGNAL THAT DID CALIBRATE is the exact software defect the 2026-08-16 wanting
+# cluster autopsy (REE_assembly/evidence/planning/
+# failure_autopsy_931-932-wanting-authority-cluster_2026-08-16.md) flagged as a caveat:
+# `enabled_default_off_flags_for_agents` (experiments/_lib/manifest_core.py) pools
+# multiple agents' default-off knobs with a plain dict.update() per agent, so on a genuine
+# multi-arm sweep of a default-off knob, only the LAST agent constructed survives in the
+# manifest's top-level `enabled_default_off_flags` block -- silently misrepresenting every
+# other arm, including whichever one the run's own criteria/discussion treats as "the"
+# reported or operating arm. V3-EXQ-931 is the confirmed carrier:
+# `ARM_WEIGHTS: Dict[str, float] = {"ARM_W0": 0.0, "ARM_W05": 0.5, "ARM_W50": 50.0,
+# "ARM_W500": 500.0, "ARM_W5000": 5000.0}`, and the manifest recorded
+# `hippocampal.wanting_weight: 5000.0` (the last-constructed arm, the positive control)
+# even though the run's own OPERATING_ARM is ARM_W05 (0.5) -- the construction site's own
+# comment names the hazard ("retained so write_flat_manifest can record
+# enabled_default_off_flags off each arm's own .config (the flags differ by arm ...")
+# and falls into it anyway, because the auto-fill silently drops that per-arm intent.
+#
+# Fires when ALL of:
+#   (1) a default-off REEConfig field (this file's own knob-name parse of
+#       ree_core/utils/config.py -- see `_default_off_knob_names()`) is set from a
+#       SUBSCRIPT into a module-level dict/list literal carrying >=2 DISTINCT constant
+#       elements -- i.e. a genuine per-arm sweep of that field, not an incidental lookup;
+#   (2) the driver calls the sanctioned manifest writer with `agent=` bound to a
+#       MULTI-agent expression (a list/tuple/comprehension, or `list(...)`/`.values()`),
+#       never a single bare Name; and
+#   (3) that same call does NOT also pass `enabled_default_off_flags=` explicitly.
+#
+# Corpus calibration (2026-08-18, 1371 files under experiments/, excl _lib): ONE fire,
+# v3_exq_931_cem_wanting_weight_selection_authority.py -- the confirmed carrier above, and
+# nothing else.
+#
+# WHAT THIS DELIBERATELY DOES NOT CATCH. It is scoped to the recording-integrity defect,
+# not to "is this config non-production" in general -- that framing does not calibrate
+# (see (a)/(b) above). It does NOT catch 927/928, 930, or 934: none of those three sweeps
+# a default-off knob from a module-level >=2-distinct-value collection the way 931 does;
+# their drift is a claim-status/config.py-default mismatch (927/928, 934 --
+# REE_assembly/scripts/default_off_drift_guard.py's domain) or a driver that never enables
+# the knob its own docstring discusses at all (930 -- no per-driver static check reliably
+# distinguishes that from a driver correctly scoped to substrate-readiness, since 930's own
+# docstring says so explicitly and is right to). A single-arm driver relying on the same
+# auto-fill is also invisible here by design: `agent=` bound to one agent cannot collapse
+# anything, since there is nothing to collapse.
+#
+# WARN-ONLY IN BOTH MODES -- it never hardens under --paths. The one carrier is a LANDED
+# driver whose run is complete and already adjudicated at the 2026-08-16 confirmation
+# gate; hardening would block commits on history, and retro-editing it would falsify
+# provenance. The fix belongs to the next EXQ letter, or a manual patch of the historical
+# manifest's per-arm block if governance decides the recorded value should be corrected.
+#
+# Opt-out: MULTI_ARM_DEFAULT_OFF_FLAGS_EXEMPT = "<reason>" -- appropriate when the "last"
+# arm IS the one the manifest should represent (e.g. a driver deliberately reports only
+# its final/cumulative arm), or when a manual enabled_default_off_flags= override already
+# reconstructs the per-arm picture some other way this scan cannot see.
+_MULTI_ARM_EDOF_EXEMPT_MARKER = "MULTI_ARM_DEFAULT_OFF_FLAGS_EXEMPT"
+
+_default_off_knob_names_cache: Optional[frozenset] = None
+
+
+def _default_off_knob_names() -> frozenset:
+    """{field name} for every dataclass field in ree_core/utils/config.py whose literal
+    default is False / 0 / 0.0. Memoised at module scope: parsed once per process, not
+    once per file scanned.
+
+    Deliberately scoped to config.py ITSELF (every dataclass declared there), not followed
+    into nested sub-config modules declared elsewhere (GoalConfig in goal.py,
+    SerotoninConfig in serotonin.py -- see REE_assembly/scripts/default_off_drift_guard.py's
+    NESTED SUB-CONFIGS section for the two that live outside config.py). That mirrors this
+    file's existing under-fire posture (readiness_lint, dead_z_goal_stream_lint, etc.) and
+    keeps this a same-repo, stdlib-only, static parse -- no cross-repo import of the
+    REE_assembly guard, which would break a cloud worker checkout that has only ree-v3.
+    HippocampalConfig (the confirmed carrier's own knob, wanting_weight) IS declared
+    directly in config.py, so this scope covers the one calibrated case; a knob declared
+    only in a followed-import sub-config is a known, accepted blind spot here.
+    """
+    global _default_off_knob_names_cache
+    if _default_off_knob_names_cache is not None:
+        return _default_off_knob_names_cache
+    names: Set[str] = set()
+    config_py = REPO_ROOT / "ree_core" / "utils" / "config.py"
+    try:
+        tree = ast.parse(config_py.read_text(encoding="utf-8"), filename=str(config_py))
+    except (OSError, UnicodeDecodeError, SyntaxError):
+        _default_off_knob_names_cache = frozenset()
+        return _default_off_knob_names_cache
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        if not any(
+            (d.id if isinstance(d, ast.Name) else getattr(d, "attr", None)) == "dataclass"
+            for d in node.decorator_list
+        ):
+            continue
+        for stmt in node.body:
+            if not isinstance(stmt, ast.AnnAssign) or not isinstance(stmt.target, ast.Name):
+                continue
+            val = stmt.value
+            if not isinstance(val, ast.Constant):
+                continue
+            v = val.value
+            is_off = (
+                v is False
+                or (isinstance(v, int) and not isinstance(v, bool) and v == 0)
+                or (isinstance(v, float) and v == 0.0)
+            )
+            if is_off:
+                names.add(stmt.target.id)
+    _default_off_knob_names_cache = frozenset(names)
+    return _default_off_knob_names_cache
+
+
+def _module_swept_collections(tree: ast.Module) -> Dict[str, int]:
+    """name -> distinct-element-count, for module-level `NAME = {...}` / `NAME = [...]` /
+    `NAME: T = (...)` literals whose elements are all Constant. Only the count matters to
+    the caller (>= 2 == a genuine sweep); returning the count rather than a bool keeps this
+    reusable if a future caller wants a different threshold.
+    """
+    out: Dict[str, int] = {}
+    for node in tree.body:
+        target = None
+        value = None
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 \
+                and isinstance(node.targets[0], ast.Name):
+            target, value = node.targets[0].id, node.value
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) \
+                and node.value is not None:
+            target, value = node.target.id, node.value
+        if target is None:
+            continue
+        if isinstance(value, ast.Dict):
+            elts = value.values
+        elif isinstance(value, (ast.List, ast.Tuple)):
+            elts = value.elts
+        else:
+            continue
+        vals = []
+        ok = True
+        for e in elts:
+            if isinstance(e, ast.Constant):
+                vals.append(e.value)
+            else:
+                ok = False
+                break
+        if ok:
+            out[target] = len(set(vals))
+    return out
+
+
+def _knobs_swept_from_module_collections(tree: ast.Module, knobs: Set[str]) -> List[str]:
+    """Default-off knob names set (kwarg or attribute-assign) from a Subscript into a
+    module-level >=2-distinct-value collection -- see `_module_swept_collections`."""
+    swept_collections = {n for n, c in _module_swept_collections(tree).items() if c >= 2}
+    if not swept_collections:
+        return []
+    found: Set[str] = set()
+
+    def _note(name: Optional[str], val: ast.expr) -> None:
+        if name not in knobs or not isinstance(val, ast.Subscript):
+            return
+        base = val.value
+        if isinstance(base, ast.Name) and base.id in swept_collections:
+            found.add(name)
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.keyword):
+            _note(node.arg, node.value)
+        elif isinstance(node, ast.Assign):
+            for tgt in node.targets:
+                if isinstance(tgt, ast.Attribute):
+                    _note(tgt.attr, node.value)
+    return sorted(found)
+
+
+def _is_multi_agent_expr(node: ast.expr) -> bool:
+    """True if `node` structurally looks like MORE THAN ONE agent, never a single Name.
+
+    Deliberately conservative in the WARN direction: a bare `Name` (`agent=rep_agent`) is
+    always treated as single, even if that name happens to be bound to a list somewhere
+    else in the file -- resolving that would need a data-flow pass this scan does not do,
+    and under-firing here is the safe direction for a warn-only lint.
+    """
+    if isinstance(node, (ast.List, ast.Tuple, ast.ListComp, ast.GeneratorExp, ast.SetComp,
+                          ast.Set)):
+        return True
+    if isinstance(node, ast.Call):
+        fn = node.func
+        name = fn.id if isinstance(fn, ast.Name) else getattr(fn, "attr", None)
+        if name in ("list", "tuple", "sorted"):
+            return True
+        if isinstance(fn, ast.Attribute) and fn.attr == "values":
+            return True
+    return False
+
+
+def _chokepoint_writer_calls(tree: ast.Module) -> List[ast.Call]:
+    out: List[ast.Call] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        fn = node.func
+        name = fn.id if isinstance(fn, ast.Name) else getattr(fn, "attr", None)
+        if name in _CHOKEPOINT_WRITER_NAMES:
+            out.append(node)
+    return out
+
+
+def multi_arm_default_off_flags_collapse_lint(path: Path) -> Optional[str]:
+    """Multi-arm enabled_default_off_flags collapse risk. Return an issue string, or None.
+
+    See the block comment above for the full rule, the corpus calibration numbers, the two
+    rejected broader framings, and what this deliberately does not catch. Confirmed carrier:
+    V3-EXQ-931.
+    """
+    try:
+        src = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    if _MULTI_ARM_EDOF_EXEMPT_MARKER in src:
+        return None
+    if not any(n in src for n in _CHOKEPOINT_WRITER_NAMES):
+        return None
+    try:
+        tree = ast.parse(src, filename=str(path))
+    except SyntaxError:
+        return None
+
+    swept = _knobs_swept_from_module_collections(tree, _default_off_knob_names())
+    if not swept:
+        return None
+
+    for call in _chokepoint_writer_calls(tree):
+        agent_val = None
+        has_edof_override = False
+        for kw in call.keywords:
+            if kw.arg == "agent":
+                agent_val = kw.value
+            elif kw.arg == "enabled_default_off_flags":
+                has_edof_override = True
+        if agent_val is None or has_edof_override:
+            continue
+        if not _is_multi_agent_expr(agent_val):
+            continue
+        return (
+            f"MULTI-ARM enabled_default_off_flags COLLAPSE RISK: sweeps "
+            f"{', '.join(swept)} across a module-level per-arm collection, then calls "
+            f"the manifest writer at line {call.lineno} with agent=<multiple agents> and "
+            f"no explicit enabled_default_off_flags= override. "
+            f"experiments/_lib/manifest_core.py::enabled_default_off_flags_for_agents "
+            f"pools agents with a plain dict.update() per agent -- LATER agents in "
+            f"iteration order win on a disagreement, a documented simplification, not a "
+            f"per-arm attribution guarantee. The manifest's top-level "
+            f"enabled_default_off_flags block will silently report only the "
+            f"LAST-CONSTRUCTED arm's value, which need not be the arm the run's own "
+            f"criteria or discussion treats as reported/operating -- confirmed on "
+            f"V3-EXQ-931 (hippocampal wanting_weight): recorded 5000.0, the "
+            f"positive-control arm, while OPERATING_ARM was 0.5. FIX: pass "
+            f"enabled_default_off_flags= explicitly, built from whichever arm's config "
+            f"the run reports against (or a per-arm dict if more than one matters), "
+            f"rather than relying on the auto-fill. Exempt with "
+            f"{_MULTI_ARM_EDOF_EXEMPT_MARKER} = \"<reason>\" when the last-constructed "
+            f"arm genuinely is the one the manifest should represent. Full audit: "
+            f"REE_assembly/evidence/planning/"
+            f"nonproduction_config_drift_audit_2026-08-18.md."
+        )
+    return None
+
+
+# --------------------------------------------------------------------------------------
 # ROUTE_REASON CONSISTENCY (confirmed twice: V3-EXQ-467e/464e 2026-08-13, V3-EXQ-935
 # 2026-08-17).
 #
@@ -6765,6 +7055,7 @@ def main() -> int:
     fishtank_episode_log_seeds_warnings: List[Tuple[Path, str]] = []
     disjunctive_criteria_load_bearing_warnings: List[Tuple[Path, str]] = []
     route_reason_consistency_warnings: List[Tuple[Path, str]] = []
+    multi_arm_edof_warnings: List[Tuple[Path, str]] = []
     for p in paths:
         rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
         if "conformance" in selected:
@@ -6985,6 +7276,14 @@ def main() -> int:
                 # the static scan, and the landed carrier's run is complete -- retro-editing
                 # it would falsify provenance).
                 route_reason_consistency_warnings.append((p, rrc))
+        if "multi_arm_default_off_flags_collapse" in selected:
+            maedof = multi_arm_default_off_flags_collapse_lint(p)
+            if maedof:
+                # WARN-only in BOTH modes -- see multi_arm_default_off_flags_collapse_lint()
+                # for why this one never hardens under --paths (the one carrier's run is
+                # complete and already adjudicated at the 2026-08-16 confirmation gate;
+                # retro-editing it would falsify provenance).
+                multi_arm_edof_warnings.append((p, maedof))
 
     print("", flush=True)
     print(f"[validate_experiments] checked {len(paths)} scripts: "
@@ -7016,8 +7315,30 @@ def main() -> int:
           f"{len(fishtank_episode_log_seeds_warnings)} fishtank-episode_log-seeds-warning(s), "
           f"{len(disjunctive_criteria_load_bearing_warnings)} "
           f"disjunctive-criteria-load_bearing-warning(s), "
-          f"{len(route_reason_consistency_warnings)} route_reason-consistency-warning(s)",
+          f"{len(route_reason_consistency_warnings)} route_reason-consistency-warning(s), "
+          f"{len(multi_arm_edof_warnings)} multi_arm-default_off_flags-collapse-warning(s)",
           flush=True)
+    if multi_arm_edof_warnings:
+        # Advisory in BOTH modes (never hardens). A fire here means the driver sweeps a
+        # default-off REEConfig knob across a module-level per-arm collection, then calls
+        # the sanctioned manifest writer with agent=<multiple agents> and no explicit
+        # enabled_default_off_flags= override -- so
+        # experiments/_lib/manifest_core.py::enabled_default_off_flags_for_agents' documented
+        # last-wins pooling will silently record only the LAST-CONSTRUCTED arm's knob value,
+        # not necessarily the arm the run reports against. Confirmed on V3-EXQ-931
+        # (2026-08-16): recorded hippocampal.wanting_weight=5000.0, the positive-control arm,
+        # while OPERATING_ARM was 0.5. Triage: pass enabled_default_off_flags= explicitly,
+        # built off the reported arm's own config. Do NOT retro-edit a LANDED driver whose
+        # run is complete and already adjudicated -- correct the historical manifest by hand
+        # if governance decides the recorded value should change, and fix the pattern on the
+        # next EXQ letter. Full audit: REE_assembly/evidence/planning/
+        # nonproduction_config_drift_audit_2026-08-18.md.
+        print("", flush=True)
+        print("[validate_experiments] MULTI_ARM-DEFAULT_OFF_FLAGS-COLLAPSE WARNINGS "
+              "(advisory, non-blocking):", flush=True)
+        for p, warn in multi_arm_edof_warnings:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
+            print(f"  - {rel}: {warn}", flush=True)
     if route_reason_consistency_warnings:
         # Advisory in BOTH modes (never hardens). A fire here means the driver hardcodes
         # `route_reason` on the FALL-THROUGH `else` of a gate that is a conjunction of >=2
