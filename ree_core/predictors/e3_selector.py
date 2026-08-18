@@ -1603,6 +1603,38 @@ class E3TrajectorySelector(nn.Module):
         one). This guards the No-Go-over-pressure -> catatonia/avolition failure
         pole from deadlocking the gate.
 
+        ENVELOPE-WIDTH GATING of the SOFT axes (finding of record, V3-EXQ-926a,
+        2026-08-16). The fail-open guard composes with the MECH-448 envelope in a
+        way that bounds when the soft axes can act AT ALL: a soft No-Go is
+        APPLIED only while the eligible set holds MORE than
+        ``gng_protect_min_eligible`` members, so at the default protect_min=1 a
+        soft axis is structurally INERT whenever the envelope has already
+        collapsed to a single survivor -- and a decisive F-winner is exactly the
+        case the envelope is DESIGNED to narrow. At the shipped
+        ``f_eligibility_envelope_floor`` of 0.30 with K=4 candidates that is the
+        common case, not a corner. Measured by V3-EXQ-926a (the perseveration-axis
+        falsifier, PASS): floor 0.30 -> median envelope 1, soft No-Go applied in
+        6/16 banks; floor 0.10 -> median envelope 2, applied in 15/16. That run's
+        PASS is therefore recorded AT floor 0.10 and says nothing about the axis
+        at the shipped default, where the identical mechanism converted 1/16.
+        Diagnostic signature: ``go_nogo_n_soft_requested > 0`` together with
+        ``go_nogo_n_soft_applied == 0`` -- the axis fired and the fail-open
+        refused it. Three points of scope, each verified against this function
+        rather than inferred from the falsifier:
+          - it applies to ALL THREE soft axes (staleness / perseveration /
+            low-viability), which share this guard -- not to perseveration alone;
+          - ``safety`` is EXEMPT (applied to ``elig_mask`` above the guard and
+            never overridden), so the safety leg is live at any envelope width;
+          - ``use_f_eligibility_adaptive_floor`` does NOT lift it -- a
+            mean-relative floor also admits a single survivor on a decisive
+            field, so the channel-adaptive amend is not a workaround for this.
+        This is a composition property of two lever defaults, NOT a defect: on a
+        one-survivor envelope F has already decided, and dropping the last
+        candidate is the catatonia pole this guard exists to prevent. Whether
+        0.30 is the right production default GIVEN that it leaves the soft axes
+        near-inert is an open design question needing its own evidence -- do not
+        move the default to make an axis fire.
+
         ``signals`` is an optional dict of per-candidate [K] tensors keyed
         ``safety`` / ``staleness`` / ``perseveration`` / ``viability`` / ``go``;
         a missing axis is inert. Returns the (possibly modified) eligible-index

@@ -1430,6 +1430,19 @@ class E3Config:
     # Fail-open: No-Go keeps at least this many candidates eligible unless they
     # are safety-No-Go'd (safety is never overridden by the fail-open).
     gng_protect_min_eligible: int = 1
+    # ENVELOPE-WIDTH GATING (V3-EXQ-926a, 2026-08-16): this guard and the
+    # MECH-448 envelope above compose into an operating-point constraint that is
+    # easy to miss when tuning either one alone. A SOFT No-Go (staleness /
+    # perseveration / low-viability) is applied only while the eligible set holds
+    # MORE than gng_protect_min_eligible members, so at protect_min=1 the soft
+    # axes are structurally INERT on a one-survivor envelope -- which is exactly
+    # what f_eligibility_envelope_floor=0.30 produces on a decisive F-winner with
+    # K=4. Measured: floor 0.30 -> median envelope 1, soft No-Go applied 6/16
+    # banks; floor 0.10 -> median envelope 2, applied 15/16. safety is exempt
+    # (applied above the guard); use_f_eligibility_adaptive_floor does NOT lift
+    # it. Lawful composition, not a defect -- see the ENVELOPE-WIDTH GATING block
+    # in _go_nogo_eligibility_gate and docs/architecture/
+    # mech_449_go_nogo_constitution.md before changing either default.
 
     # DR-12 (self_model_v4:SELF-4, FIRST V4 substrate build, 2026-06-17):
     # E2 forward prediction-error modulates E3 trajectory-scoring confidence.
