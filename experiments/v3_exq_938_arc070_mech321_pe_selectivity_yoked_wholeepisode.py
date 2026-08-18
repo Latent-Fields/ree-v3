@@ -1,5 +1,5 @@
 #!/opt/local/bin/python3
-"""V3-EXQ-937 -- ARC-070 / MECH-321 PREDICTION-FAILURE SELECTIVITY, RATE-MATCHED
+"""V3-EXQ-938 -- ARC-070 / MECH-321 PREDICTION-FAILURE SELECTIVITY, RATE-MATCHED
 YOKED CONTROL, UNCONDITIONAL WHOLE-EPISODE DV.
 
 THE QUESTION, RESTATED SO A RUN CAN REACH A VERDICT EITHER WAY
@@ -305,11 +305,11 @@ from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E4
 from ree_core.policy import ChunkedPrimitive, ChunkState  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
 
-EXPERIMENT_TYPE = "v3_exq_937_arc070_mech321_pe_selectivity_yoked_wholeepisode"
+EXPERIMENT_TYPE = "v3_exq_938_arc070_mech321_pe_selectivity_yoked_wholeepisode"
 EXPERIMENT_PURPOSE = "evidence"
 ARCHITECTURE_EPOCH = "ree_hybrid_guardrails_v1"
 CLAIM_IDS = ["ARC-070", "MECH-321"]
-QUEUE_ID = "V3-EXQ-937"
+QUEUE_ID = "V3-EXQ-938"
 # `supersedes` deliberately OMITTED. The 816/830/839 chain is NOT superseded --
 # it is re-posed. Those runs' instrumentation findings (816c's decoupling
 # measurement above all) retain standalone value and are cited, not replaced.
