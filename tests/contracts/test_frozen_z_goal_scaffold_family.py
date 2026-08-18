@@ -111,7 +111,40 @@ signal 934 is measuring. (ii) The H1 verdict is a WITHIN-seed comparison across 
 (`sym_graded` = is symmetric-arm occupancy graded rather than saturated across
 CAP_SWEEP), and the goal state is identical across all cells of a seed, so it cannot
 produce a between-cell difference -- the same arm-symmetry argument the TRIAGE OUTCOME
-above rests on, extended over the cap axis. The one absolute-threshold criterion
+above rests on, extended over the cap axis.
+
+FAMILY GROWTH (2026-08-18). One new member: V3-EXQ-935
+(`v3_exq_935_mech266_margin_normalised_cap_rule.py`, ree-v3 `cbe407e5`, landed
+2026-08-16), the MECH-266/SD-032a margin-normalised cap rule spun out of the same
+GOV-FANOUT-1 leg as 934. It arrived with `_FROZEN_FAMILY_SIZE` still at 31, so trunk's
+contract gate was red from `cbe407e5` until this note. VERDICT: a fixed goal is INTENDED
+-- no retrofit, pin 31 -> 32.
+
+Checked directly rather than assumed, same four questions as the 934 note above. 935
+builds the curriculum ONCE per seed (`_run_seed` constructs one `agent` and drives it
+through run_stage0_nursery / run_stage0b_consolidation / run_p0 / run_hazard_avoidance /
+run_p1 / run_p2) and evaluates every cell -- the calibration cell, each ARM_NORM cell of
+the r-sweep, and the ARM_ABS cell -- from a `_clone_for_arm()` copy of that single
+trained agent, which carries `goal_state` across explicitly
+(`agent.goal_state.load_state_dict(trained_agent.goal_state.state_dict())`, the 464e
+fix, and 935's own docstring for that function names the gating this addresses). So
+every cell of a seed enters measurement with a BIT-IDENTICAL frozen z_goal. It sets
+neither `goal_weight` nor `residue.benefit_terrain_live_producer`, and calls neither
+`update_z_goal` nor `_set_goal_pipeline_frozen`. The freeze is therefore the deliberate
+inherited state, and per the family's own convention (recorded once here, never
+per-script) 935 carries no comment of its own about it.
+
+935 inherits 934's "one respect in which it is stronger" verbatim, and for the same
+reason: it too sets `use_external_task_drive=True`, so the frozen goal sits on the
+causal path of its primary DV (external_task mode occupancy). Both of 934's containment
+arguments carry over unchanged -- (i) it is a fixed TARGET, not a frozen SIGNAL, since
+`goal_proximity` is recomputed per tick against the live `z_world`; and (ii) 935's H1/C2
+read is a WITHIN-seed comparison across the r-sweep (is occupancy graded across
+normalised caps), and the goal state is identical across all cells of a seed, so it
+cannot produce a between-cell difference. 935 additionally instruments the goal stream
+directly (`ZGoalStreamAccumulator`, `_ZG.observe()` at the trained agent and at every
+evaluated cell, reported as `z_goal_stream_stats`), so its manifests record the frozen
+value rather than leaving it implicit -- the one member of the family that does. The one absolute-threshold criterion
 (`margin_engaged`, max continuous external_task margin > MARGIN_FLOOR) does read a level
 rather than a contrast, and the frozen post-curriculum goal is exactly the state the
 banked cap=2.0 464e/467e reference was measured in -- which is what makes 934 comparable
@@ -549,7 +582,13 @@ def test_scaffold_hands_off_with_the_goal_consumers_unfrozen():
 # _clone_for_arm copy). A fixed goal is INTENDED -- including for the external_task_drive
 # path, which unlike the rest of the family reads the goal directly into 934's primary
 # DV. Full derivation in the second FAMILY GROWTH addendum in this file's docstring.
-_FROZEN_FAMILY_SIZE = 31
+#
+# 31 -> 32 (2026-08-18): V3-EXQ-935, the MECH-266/SD-032a margin-normalised cap rule.
+# Structurally 934's sibling and the same member shape (train once per seed, evaluate
+# every calibration / ARM_NORM-sweep / ARM_ABS cell from a goal_state-carrying
+# _clone_for_arm copy). A fixed goal is INTENDED. Full derivation in the third FAMILY
+# GROWTH addendum in this file's docstring.
+_FROZEN_FAMILY_SIZE = 32
 
 
 def test_frozen_z_goal_family_size_is_pinned():

@@ -394,6 +394,36 @@ def test_live_probe_z_goal_degenerate_at_small_scale_names_activity_reason():
     construction time and therefore shifts the subsequent RNG draw
     sequence (env/action randomness) even at an identical `seed` --
     reproducible per target, but not equal across targets.
+
+    MECH-091 PHASE_RESET WIRING (2026-08-18): that authoring-time figure is now
+    STALE and the exact-count assertion has been relaxed to the invariant this
+    test actually exists to assert. Bisected to ree-v3 `6293b239` (MECH-091:
+    wire task-completion and commitment-boundary-crossing triggers into
+    phase_reset()), which moved this setting from 8 true boundary events over a
+    full 150-tick rollout to 3 over a rollout terminating at tick 70. That
+    commit's own message predicted and filed this
+    (chip-20260817-q081-boundary-pin-shift-mech091). Attribution is measured,
+    not inferred: 8/150 at the pin's authoring commit `891e0c9a`, still 8/150 at
+    `700ed2cc` (the last code commit before MECH-091), 3/70 at `6293b239` and at
+    trunk. NOT a regression -- altering the E3 tick cadence IS MECH-091's entire
+    purpose, and any fixed-seed live rollout of an untrained, randomly
+    initialised agent re-navigates when the RNG draw sequence shifts. NOT
+    cross-machine divergence either, which was tested rather than assumed: the
+    old 8/150 and the new 3/70 each reproduce on linux-x86_64/torch 2.13
+    (ree-cloud-5) and the new figure also on linux-x86_64/torch 2.11 (the hub),
+    so this is not the `torch.multinomial` platform split documented in CLAUDE.md.
+
+    WHY RELAXED RATHER THAN RE-PINNED 8 -> 3. This is the second such shift in
+    ten days -- `193bbec0` (SD-E3-SCORER-COMPLETION) did the same to the
+    z_harm_a sibling above, whose counts were relaxed then for the same reason.
+    A cadence- or parameter-count-perturbing substrate change re-rolls this
+    number, so an exact pin on it reports legitimate substrate work as a
+    contract failure and carries no scientific information of its own. What THIS
+    test asserts is that z_goal comes back degenerate on the ACTIVITY guard
+    specifically and NOT on the boundary-event guard; the invariant carrying
+    that is `n_boundaries_true_total >= min_boundary_events`, held below
+    alongside every activity-guard assertion kept exact. The exact scientific
+    reading lives in v3_exq_865.
     """
     report = run_pair_specific_stream_reach_probe(
         target="z_goal", n_episodes=1, steps_per_episode=150,
@@ -401,7 +431,9 @@ def test_live_probe_z_goal_degenerate_at_small_scale_names_activity_reason():
     )
     assert report["target"] == "z_goal"
     assert report["is_degenerate"] is True
-    assert report["n_boundaries_true_total"] == 8  # boundary guard CLEARS
+    # Boundary guard CLEARS -- asserted as the invariant, not the authoring-time
+    # count of 8, which MECH-091 legitimately moved to 3 (see docstring).
+    assert report["n_boundaries_true_total"] >= report["min_boundary_events"]
     assert report["n_active_ticks_intact"] == 0    # activity guard FAILS
     assert "was active (non-None snapshot) on only 0" in report["degeneracy_reason"]
     assert "z_goal" in report["degeneracy_reason"]

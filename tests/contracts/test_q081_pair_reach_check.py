@@ -442,6 +442,43 @@ def test_suppress_mode_positive_control_live_probe():
     wired dependency exists" would need a manipulation on something those
     8 signals actually read (z_harm_a, drive_level, beta_gate, offline mode),
     not on the boundary/landmark train. That is out of this test's scope.
+
+    MECH-091 PHASE_RESET WIRING (2026-08-18): the two navigation-dependent exact
+    counts below (n_boundaries_true_total, n_ticks_compared) were authoring-time
+    empirical observations and are now STALE; both have been relaxed to the
+    invariants this test exists to assert. Bisected to ree-v3 `6293b239`
+    (MECH-091: wire task-completion and commitment-boundary-crossing triggers
+    into phase_reset()), which moved this setting from 8 true boundary events
+    over a full 150-tick rollout to 3 over a rollout terminating at tick 70.
+    That commit's own message predicted and filed this
+    (chip-20260817-q081-boundary-pin-shift-mech091). Attribution is measured,
+    not inferred: 8/150 at this test's own authoring commit `02c155c6`, still
+    8/150 at `700ed2cc` (the last code commit before MECH-091), 3/70 at
+    `6293b239` and at trunk. NOT a regression -- altering the E3 tick cadence IS
+    MECH-091's entire purpose, and an untrained, randomly initialised agent
+    re-navigates whenever the RNG draw sequence shifts. NOT cross-machine
+    divergence either, which was tested rather than assumed: both the old and
+    the new figures reproduce on linux-x86_64/torch 2.13 (ree-cloud-5), and the
+    new one also on linux-x86_64/torch 2.11 (the hub), so this is not the
+    `torch.multinomial` platform split documented in CLAUDE.md.
+
+    WHY RELAXED RATHER THAN RE-PINNED. This is the second such shift in ten days
+    -- `193bbec0` (SD-E3-SCORER-COMPLETION) did the same to the z_harm_a probe in
+    the sibling stream module, whose counts were relaxed then for the same
+    reason. Any cadence- or parameter-count-perturbing substrate change re-rolls
+    these numbers, so an exact pin reports legitimate substrate work as a
+    contract failure while carrying no scientific information of its own. What
+    this positive control actually establishes -- the intervention is live, the
+    read point is correct, the rollout is NON-DEGENERATE, and even the maximal
+    manipulation reaches none of the checked signals -- is asserted exactly
+    below and is unaffected by the shift. One genuine loss of coverage, stated
+    rather than papered over: the old `n_ticks_compared == 150` also certified
+    "no early termination", and the episode now DOES terminate early (tick 70),
+    so the comparison covers a 70-tick prefix rather than the whole requested
+    rollout. The "no reach" reading holds over the window compared, and
+    `dropped_ticks` (a machinery invariant, not navigation-dependent) is still
+    asserted exact at zero, so a rollout truncated by a BROKEN harness rather
+    than by a terminal state is still caught.
     """
     report = run_pair_specific_reach_probe(
         mode="suppress",
@@ -457,10 +494,16 @@ def test_suppress_mode_positive_control_live_probe():
     # remove. A degenerate run here would make "no reach" vacuous, exactly the
     # failure mode the non-degeneracy guard exists to catch.
     assert report["is_degenerate"] is False
-    assert report["n_boundaries_true_total"] == 8
-    # Full episode ran (no early termination), so the comparison covers the
-    # whole requested rollout on both arms.
-    assert report["n_ticks_compared"] == 150
+    # Asserted as the non-degeneracy invariant, not the authoring-time count of
+    # 8, which MECH-091 legitimately moved to 3 (see docstring).
+    assert report["n_boundaries_true_total"] >= report["min_boundary_events"]
+    # The comparison window is a non-empty prefix of the requested rollout. It
+    # was the full 150 until MECH-091; the episode now reaches a terminal state
+    # at tick 70, which is navigation-dependent and no longer pinned exact.
+    assert 1 <= report["n_ticks_compared"] <= report["steps_per_episode"]
+    # Machinery invariant, NOT navigation-dependent -- held exact: no tick was
+    # lost by the harness on either arm, so a window truncated by a broken
+    # harness is still distinguishable from one truncated by a terminal state.
     assert report["dropped_ticks"] == {"intact": 0, "manipulated": 0}
     # The actual positive-control result: even the maximal manipulation shows
     # no reach to any checked signal at this seed/scale. See the module-level
