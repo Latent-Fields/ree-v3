@@ -25,8 +25,29 @@ set -u
 
 export PATH="/opt/local/bin:/usr/local/bin:/home/ree/.local/bin:/usr/bin:/bin"
 
-MACHINE="ree-cloud-5"
 REPO="/Users/dgolden/REE_Working"
+
+# Machine identity. Was hardcoded "ree-cloud-5" until 2026-08-18; parameterised
+# so this one wrapper serves any metaworker box (cloud-4 dual-role trial).
+# Resolved through machine_identity.py, NOT a raw hostname compare -- that
+# resolver is an ALLOWLIST, and for ree-cloud-1..5 the trailing digit IS the
+# identity and must never be collapsed (CLAUDE.md machine-identity note).
+# Falls back to the short hostname if the resolver is unavailable, because a
+# heartbeat under a slightly-wrong name beats no heartbeat at all.
+MACHINE="${REE_METAWORKER_MACHINE:-}"
+if [ -z "$MACHINE" ]; then
+  MACHINE=$(/opt/local/bin/python3 -c '
+import socket, sys
+sys.path.insert(0, sys.argv[1])
+raw = socket.gethostname()
+try:
+    from machine_identity import canonical_machine_name
+    print(canonical_machine_name(raw) or raw.split(".")[0])
+except Exception:
+    print(raw.split(".")[0])
+' "$REPO/ree-v3" 2>/dev/null)
+fi
+[ -n "$MACHINE" ] || MACHINE=$(hostname -s 2>/dev/null || echo unknown-metaworker)
 STATE_DIR="$HOME/.ree_metaworker"
 LOG="$HOME/ree_metaworker_dispatch.log"
 mkdir -p "$STATE_DIR"
@@ -149,23 +170,35 @@ DISPATCHED_FILE="$STATE_DIR/chips_dispatched_total"
 [ -f "$DISPATCHED_FILE" ] || echo 0 > "$DISPATCHED_FILE"
 PREV_DISPATCHED_TOTAL=$(cat "$DISPATCHED_FILE")
 
-# Ground-truth dispatch signal: a NEW metaworker-* worktree appearing during
-# this cycle means Step 4 actually dispatched (mirrors the skill's own Step 4a
-# in-flight tracking exactly, rather than trusting the agent's self-report).
-# NOTE: this counts worktree DIRECTORIES, which persist after their dispatched
-# session finishes (cleanup is a separate, deliberately-manual GC step) -- it
-# is the right signal for "how many dispatches have ever happened" (below) but
-# the WRONG one for "how many are running right now" (see count_alive_dispatches).
 WORKTREE_DIR="$REPO/.claude/worktrees"
-count_metaworker_worktrees() {
-  find "$WORKTREE_DIR" -maxdepth 1 -type d -name 'metaworker-*' 2>/dev/null | wc -l | tr -d ' '
+
+# Ground-truth dispatch signal: a NEW metaworker-* worktree NAME appearing
+# during this cycle means Step 4 actually dispatched (mirrors the skill's own
+# Step 4a in-flight tracking, rather than trusting the agent's self-report).
+# This is the right signal for "how many dispatches have ever happened"; for
+# "how many are running right now" see count_alive_dispatches below.
+#
+# This lists NAMES and takes a set difference, rather than comparing two
+# COUNTS. The count form (`WT_AFTER > WT_BEFORE ? WT_AFTER - WT_BEFORE : 0`,
+# used until 2026-08-18) silently lost every dispatch that happened in a cycle
+# where GC removed at least as many worktrees as were created -- the delta went
+# zero-or-negative and clamped to 0. Since metaworker_worktree_gc runs against
+# the same directory, that is the common case, not a corner: measured
+# 2026-08-18 on ree-cloud-5, the lifetime counter read 292 while the box had
+# created 65 worktrees in the preceding 24h alone. A name set difference is
+# immune to concurrent removal because it never reasons about totals.
+list_metaworker_worktrees() {
+  find "$WORKTREE_DIR" -maxdepth 1 -type d -name 'metaworker-*' 2>/dev/null \
+    | sed 's#.*/##' | LC_ALL=C sort
 }
-WT_BEFORE=$(count_metaworker_worktrees)
+WT_BEFORE_FILE="$STATE_DIR/.wt_names_before"
+WT_AFTER_FILE="$STATE_DIR/.wt_names_after"
+list_metaworker_worktrees > "$WT_BEFORE_FILE"
 
 # Actually-running signal for the heartbeat's in_flight_dispatches field --
 # reads each worktree's .dispatch_pid and checks liveness, exactly mirroring
 # the skill's own Step 4a in-flight cap check. Fixed 2026-08-03: the heartbeat
-# was previously using count_metaworker_worktrees (directory existence) for
+# was previously using a worktree-directory COUNT (existence) for
 # this field, which overcounts once a dispatched session finishes but its
 # worktree hasn't been GC'd yet.
 count_alive_dispatches() {
@@ -191,7 +224,21 @@ count_alive_dispatches() {
 # Worker COUNT is capped separately by the skill's Step 4 in-flight cap (2). This
 # guard is independent of that: it holds even if the skill's cap is not honoured,
 # and it also counts interactive sessions the skill knows nothing about.
-MAX_CLAUDE_SESSIONS="${REE_MAX_CLAUDE_SESSIONS:-4}"
+# Per-box in-flight WORKER cap, consumed by the dispatch skill's Step 4a
+# (available_slots = REE_DISPATCH_MAX_INFLIGHT - in-flight). Exported so the
+# `claude -p` child below inherits it. Default stays 2 -- an interactive
+# dispatcher on the Mac shares CPU/RAM with the user's own foreground session
+# and must NOT inherit a resident box's higher cap (SKILL.md's "one real,
+# non-hypothetical tradeoff"). Raise it per-box via the systemd unit only.
+DISPATCH_MAX_INFLIGHT="${REE_DISPATCH_MAX_INFLIGHT:-2}"
+export REE_DISPATCH_MAX_INFLIGHT="$DISPATCH_MAX_INFLIGHT"
+
+# Machine-level backstop on ALL claude processes here (dispatcher + workers +
+# any interactive session). Scales with the worker cap: N workers + this
+# dispatcher + 1 interactive-session headroom. Was a bare 4 (correct only for
+# N=2) until 2026-08-18; a hardcoded 4 against a cap of 3 would have throttled
+# the box at exactly the moment the raised cap was meant to take effect.
+MAX_CLAUDE_SESSIONS="${REE_MAX_CLAUDE_SESSIONS:-$(( DISPATCH_MAX_INFLIGHT + 2 ))}"
 MIN_AVAIL_MB="${REE_MIN_AVAIL_MB:-700}"
 LIVE_CLAUDE=$(pgrep -x claude 2>/dev/null | wc -l | tr -d ' ')
 AVAIL_MB=$(awk '/^MemAvailable:/ {print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 9999)
@@ -247,7 +294,7 @@ else
   # transparent wrapper around the same claude invocation as before.
   flock -n -E 99 "$LOCKFILE" \
     timeout --signal=TERM --kill-after=60 "$DISPATCH_MAX_SEC" \
-    claude -p "Run exactly ONE cycle of the metaworker-dispatch skill (see $REPO/.claude/skills/metaworker-dispatch/SKILL.md), then exit. This is cycle $CYCLE on machine $MACHINE. Do not call ScheduleWakeup or otherwise self-pace via /loop -- an external systemd timer re-invokes this script every 5 minutes, so pacing is handled outside this session.$FRESHNESS_NOTE" \
+    claude -p "Run exactly ONE cycle of the metaworker-dispatch skill (see $REPO/.claude/skills/metaworker-dispatch/SKILL.md), then exit. This is cycle $CYCLE on machine $MACHINE. Your Step 4a in-flight worker cap on this box is $DISPATCH_MAX_INFLIGHT (available_slots = $DISPATCH_MAX_INFLIGHT - in-flight), not the default 2. Do not call ScheduleWakeup or otherwise self-pace via /loop -- an external systemd timer re-invokes this script every 5 minutes, so pacing is handled outside this session.$FRESHNESS_NOTE" \
       --permission-mode auto >> "$LOG" 2>&1
   DISPATCH_RC=$?
   if [ "$DISPATCH_RC" -eq 99 ]; then
@@ -265,11 +312,32 @@ fi
 # state rather than trusted from the agent's own self-report, so a heartbeat
 # can't drift from reality even if the cycle's summary text is wrong or
 # truncated.
-OPEN_WORK=$(/opt/local/bin/python3 "$REPO/scripts/chip_ledger.py" list --status open --kind work 2>/dev/null | grep -c '^task_\|^chip_' || true)
-OPEN_DECISION=$(/opt/local/bin/python3 "$REPO/scripts/chip_ledger.py" list --status open --kind decision 2>/dev/null | grep -c '^task_\|^chip_' || true)
+# Chip-backlog counts. Read the ledger JSON directly rather than screen-scraping
+# `chip_ledger.py list`. The previous `grep -c '^task_\|^chip_'` undercounted by
+# ~4x -- measured 2026-08-18 on this box: reported 26, actual 97 -- because a
+# headless-origin chip has no task_id and `list` prints it as the literal
+# `None`, which neither anchor matches. The obvious repair (anchor on
+# `\[open\] chip_ref=`) was ALSO wrong: `list` inserts a
+# `CLAIMED(by=..., at=...)` token between those two when a chip is claimed, so
+# it still missed 2 of 97. Both misses are DISPLAY-FORMAT drift in a field this
+# wrapper never had any business parsing; the JSON is the stable surface.
+count_open_chips() {
+  /opt/local/bin/python3 -c '
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception:
+    print(0); raise SystemExit(0)
+items = d.get("chips") or d.get("items") or []
+print(sum(1 for c in items
+          if c.get("status") == "open" and c.get("kind") == sys.argv[2]))
+' "$REPO/TASK_CHIPS.json" "$1" 2>/dev/null || echo 0
+}
+OPEN_WORK=$(count_open_chips work)
+OPEN_DECISION=$(count_open_chips decision)
 
-WT_AFTER=$(count_metaworker_worktrees)
-NEW_DISPATCHES=$(( WT_AFTER > WT_BEFORE ? WT_AFTER - WT_BEFORE : 0 ))
+list_metaworker_worktrees > "$WT_AFTER_FILE"
+NEW_DISPATCHES=$(LC_ALL=C comm -13 "$WT_BEFORE_FILE" "$WT_AFTER_FILE" | wc -l | tr -d ' ')
 DISPATCHED_TOTAL=$(( PREV_DISPATCHED_TOTAL + NEW_DISPATCHES ))
 echo "$DISPATCHED_TOTAL" > "$DISPATCHED_FILE"
 
