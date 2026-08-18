@@ -1,0 +1,21 @@
+# Restores ree-runner if the metaworker stopped owning the box and never gave
+# it back. Reference copy -- see scripts/ree_runner_failsafe.py for the full
+# rationale, including why a healthy metaworker must be left alone.
+#
+# Install (dual-role boxes only -- ree-cloud-4 today):
+#   sudo cp ree-runner-failsafe.{service,timer} /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now ree-runner-failsafe.timer
+[Unit]
+Description=Restore ree-runner if the metaworker left it stopped
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ree
+WorkingDirectory=/home/ree/REE_Working
+ExecStart=/opt/local/bin/python3 /home/ree/REE_Working/scripts/ree_runner_failsafe.py
+# Raising a chip pushes to git; allow for a slow push plus a retry.
+TimeoutStartSec=300
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ree-runner-failsafe

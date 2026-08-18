@@ -1,0 +1,13 @@
+# 15 minutes: comfortably below the 40-minute staleness threshold the failsafe
+# uses, so a genuine wedge is caught within roughly one threshold window, while
+# staying far enough apart that a flapping condition cannot chip-storm.
+[Unit]
+Description=Run the ree-runner failsafe every 15 minutes
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=15min
+AccuracySec=60s
+
+[Install]
+WantedBy=timers.target
