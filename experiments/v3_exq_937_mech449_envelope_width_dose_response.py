@@ -169,7 +169,13 @@ WORLD_DIM = 8
 ACTION_DIM = 4
 K_CANDIDATES = 4
 HORIZON = 3
-N_BANKS = 32
+# 128 rather than V3-EXQ-926a's 32. The deliverable here is a CURVE, so per-dose
+# precision is the product, not a nicety: 32 banks quantises each dose's
+# conversion rate to 1/32 = 0.031, and the knee is read off differences between
+# adjacent doses. The whole grid is a selection-face probe with no training
+# (926a measured 9 cells x 32 banks in 0.77s), so 54 cells x 128 banks is still
+# well under a minute of compute -- 4x the resolution for no meaningful cost.
+N_BANKS = 128
 
 # --- pre-registered thresholds (constants, never derived from run statistics) --
 # C1: conversion lift from the stock floor to the widest envelope. V3-EXQ-926a's
@@ -192,6 +198,43 @@ ENVELOPE_DOSE_SEPARATION_FLOOR = 1.0  # P2 -- >= 1 whole candidate of movement
 # candidate must clear gng_perseveration_floor and the rest must NOT.
 DOMINANT_REPEATS = 6
 HISTORY_DEPTH = 8
+
+# ANCHOR REACHABILITY -- why the _lib/readiness_anchor.py guard is not used here,
+# and what is done instead. That helper's contract is a per-cell boolean
+# `score_fn` applied to a frozen fixture of recorded reference cells, gated on
+# the FRACTION that score True. Neither precondition here has that shape: P1 is
+# a scalar floor on a worst cell (min of a range) and P2 is a scalar range
+# across doses (max - min). Coercing them into a fraction-of-cells predicate
+# would require WRITING A NEW per-cell scorer that is not the shipped predicate,
+# which violates that module's own rule 1 ("score_fn MUST be the SAME callable
+# the run scores its live cells with; a re-implementation defeats the entire
+# purpose") and would guard a copy rather than the real gate.
+#
+# What is done instead, per precondition:
+#   P1 -- reachability is PROVEN AT SETUP by _assert_p1_anchor_reachable() below,
+#         which replays the actual shipped control construction through the
+#         actual shipped comparison and raises if it cannot clear the gate. This
+#         is the guard's SPIRIT in the shape the predicate really has, and it is
+#         free: the control is deterministic in dominant_class, so its
+#         suppression range is the constant 0.75 against a 0.25 gate (3x margin).
+#   P2 -- the predicate IS the degeneracy definition, which is the documented
+#         exemption condition: "the swept knob moved its mediator by at least one
+#         whole candidate across the ladder" is not a proxy for the sweep being
+#         non-degenerate, it is what non-degenerate MEANS for a dose sweep. It
+#         also cannot be anchored to a frozen fixture, because no recorded
+#         two-dose reference exists -- corpus-wide only ONE envelope-floor value
+#         (0.10, V3-EXQ-926a) has ever been measured with this readout, and
+#         producing the first such reference is precisely what this run is for.
+ANCHOR_REACHABILITY_EXEMPT = (
+    "P2 (envelope_size_dose_separation) IS the degeneracy definition for a dose "
+    "sweep, not a proxy for it, and no frozen two-dose reference exists to "
+    "anchor against -- this run produces the first one. P1 is not exempted by "
+    "argument: its reachability is proven at setup by "
+    "_assert_p1_anchor_reachable(), which replays the shipped control through "
+    "the shipped comparison. Neither precondition has the per-cell-boolean "
+    "shape _lib/readiness_anchor.py requires, and coercing them would guard a "
+    "re-implementation rather than the shipped predicate (that module's rule 1)."
+)
 
 
 def _make_candidate(action_class: int, world_vec: torch.Tensor) -> Trajectory:
@@ -295,6 +338,53 @@ def _config_plumbing_live() -> bool:
     )
 
 
+class AnchorUnreachable(RuntimeError):
+    """P1's gate cannot be cleared by its own positive control."""
+
+
+def _assert_p1_anchor_reachable() -> Dict[str, Any]:
+    """Setup-time proof that P1's gate is REACHABLE by P1's own positive control.
+
+    The failure mode this closes (SD-068 REM fanout autopsy, Learning 1): a
+    readiness predicate written NARROWER than the state it anchors to is
+    unmeetable by construction -- it reports met=false on every run forever and
+    self-routes `substrate_not_ready_requeue`, mislabelling an
+    instrument-specification bug as a substrate verdict.
+
+    Here that is checkable exactly rather than statistically, because the
+    control is DETERMINISTIC: `_live_suppression_vector` depends only on
+    `dominant_class`, so its cross-candidate range is a fixed constant. This
+    replays the SHIPPED control construction through the SHIPPED comparison
+    (`range >= SUPPRESSION_RANGE_FLOOR`) -- not a re-implementation of either.
+    """
+    ranges = []
+    for dominant in range(K_CANDIDATES):
+        v = _live_suppression_vector(dominant)
+        ranges.append(float(v.max() - v.min()))
+    worst = min(ranges)
+    if not (worst >= SUPPRESSION_RANGE_FLOOR):
+        raise AnchorUnreachable(
+            "P1 suppression_cross_candidate_range_supra_floor is UNREACHABLE: "
+            f"the positive control's own worst cross-candidate range is {worst:.4f}, "
+            f"below its gate of {SUPPRESSION_RANGE_FLOOR}. The gate is a guaranteed "
+            "false negative and would mislabel every run substrate_not_ready_requeue. "
+            "Widen the predicate or lower the gate -- do NOT interpret it as a "
+            "substrate verdict."
+        )
+    return {
+        "anchor_name": "suppression_cross_candidate_range_supra_floor",
+        "reachable": True,
+        "control_worst_range": worst,
+        "threshold": SUPPRESSION_RANGE_FLOOR,
+        "margin": worst - SUPPRESSION_RANGE_FLOOR,
+        "reference_source": (
+            "deterministic: an 8-deep recency ring with DOMINANT_REPEATS=6, "
+            "replayed through real DACCAdaptiveControl.record_action() + "
+            "_suppression_penalty() for every dominant class"
+        ),
+    }
+
+
 def _run_cell(arm: str, seed: int, envelope_floor: float, n_banks: int) -> Dict[str, Any]:
     """One (arm, seed, envelope_floor) cell over n_banks divergent candidate banks."""
     reset_all_rng(seed)
@@ -314,7 +404,12 @@ def _run_cell(arm: str, seed: int, envelope_floor: float, n_banks: int) -> Dict[
     cond = f"{arm}@floor{envelope_floor:.2f}"
     print(f"Seed {seed} Condition {cond}", flush=True)
     for b in range(n_banks):
-        if (b + 1) % 8 == 0:
+        # The trailing `or (b + 1) == n_banks` guarantees at least one progress
+        # line per cell even when n_banks < 8 (the --dry-run case), so the smoke
+        # actually verifies the runner's `ep N/M` instrumentation instead of
+        # silently emitting none. The denominator is the LOOP BOUND, never a
+        # hardcoded constant.
+        if (b + 1) % 8 == 0 or (b + 1) == n_banks:
             print(f"  [eval] {cond} seed={seed} ep {b+1}/{n_banks}", flush=True)
 
         cands = _build_bank(rng)
@@ -446,9 +541,26 @@ def _mean_env(cells: List[Dict[str, Any]]) -> float:
 
 def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
     t0 = datetime.utcnow()
-    seeds = SEEDS[:1] if dry_run else SEEDS
+    # TWO seeds under --dry-run, not one. C1 requires SEED_MAJORITY (2) seeds to
+    # clear the lift floor, so a single-seed smoke makes the load-bearing
+    # criterion STRUCTURALLY UNREACHABLE and the smoke can only ever report
+    # FAIL -- it would never exercise the PASS path it exists to validate.
+    # Cheap here: the whole grid is a selection-face probe with no training.
+    seeds = SEEDS[:2] if dry_run else SEEDS
     n_banks = 4 if dry_run else N_BANKS
     floors = [STOCK_FLOOR, REFERENCE_FLOOR] if dry_run else ENVELOPE_FLOORS
+
+    # Prove P1's gate is reachable by its own control BEFORE any compute is
+    # spent, so an unmeetable predicate is caught at setup rather than after the
+    # grid runs and self-routes a false substrate verdict.
+    p1_reachability = _assert_p1_anchor_reachable()
+    print(
+        f"[937] P1 anchor reachable: control worst range "
+        f"{p1_reachability['control_worst_range']:.4f} >= gate "
+        f"{p1_reachability['threshold']} (margin "
+        f"{p1_reachability['margin']:.4f})",
+        flush=True,
+    )
 
     arm_results: List[Dict[str, Any]] = []
     for floor in floors:
@@ -690,6 +802,7 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
                     "alone moving the baseline committed pick."
                 ),
             },
+            "anchor_reachability": p1_reachability,
             "scoped_out_preconditions": {
                 "pre_nogo_eligible_set_admits_alternative": (
                     "V3-EXQ-926a's per-cell 'envelope >= 2' readiness gate is "
