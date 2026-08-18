@@ -183,6 +183,60 @@ print(sum(1 for c in items
 ' "$REPO/TASK_CHIPS.json" "$1" 2>/dev/null || echo 0
 }
 
+# --- Scaler work lease (primary keepalive) --------------------------------
+# The scaler must not power this box off while it has chip work. There are two
+# transports for that signal and this is the PRIMARY one:
+#
+#   lease      hub-resident file, written over ssh. No lag, 30-min clamp.
+#   heartbeat  git-transported orchestrator heartbeat. Fallback: it depends on
+#              a COMMIT landing and the hub's checkout pulling it, so it needs a
+#              50-minute window to cover the writer's 30-min liveness floor plus
+#              observed git lag.
+#
+# Same shape as the fleet telemetry generally -- coordinator-primary with the
+# git mirror as the unreachable-coordinator fallback (CLAUDE.md, Coordinator).
+# The lease became available to this box on 2026-08-18 when it was given an ssh
+# key to the hub; before that the git heartbeat was the only channel it had.
+#
+# AFFINITY, NOT the metaworker identity: the scaler keys leases by the worker's
+# machine_affinity (ree-cloud-4), while the orchestrator heartbeat is written
+# under ree-cloud-4-metaworker to avoid colliding with the runner's heartbeat.
+LEASE_AFFINITY="${REE_LEASE_AFFINITY:-}"
+if [ -z "$LEASE_AFFINITY" ]; then
+  case "$MACHINE" in
+    *-metaworker) LEASE_AFFINITY="${MACHINE%-metaworker}" ;;
+    *)            LEASE_AFFINITY="$MACHINE" ;;
+  esac
+fi
+HUB_SSH="${REE_HUB_SSH:-ree@10.8.0.1}"
+LEASE_PURPOSE="metaworker_dispatch"
+LEASE_MIN="${REE_LEASE_MIN:-30}"   # the scaler CLAMPS to 30; asking for more is ignored
+
+take_lease() {
+  _exp=$(/opt/local/bin/python3 -c "
+import datetime
+print((datetime.datetime.now(datetime.timezone.utc)
+       + datetime.timedelta(minutes=$LEASE_MIN)).strftime('%Y-%m-%dT%H:%M:%SZ'))" 2>/dev/null) || return 1
+  printf '{"expires_at": "%s", "owner": "%s/%s", "purpose": "%s"}\n' \
+      "$_exp" "$MACHINE" "$$" "$LEASE_PURPOSE" \
+    | ssh -o BatchMode=yes -o ConnectTimeout=10 "$HUB_SSH" \
+        "mkdir -p /home/ree/pytest_leases && cat > /home/ree/pytest_leases/$LEASE_AFFINITY.lease" \
+        2>>"$LOG" \
+    && echo "[$(ts)] lease: held for $LEASE_AFFINITY until $_exp" >> "$LOG" \
+    || echo "[$(ts)] lease: WARN could not reach hub; falling back to the git heartbeat veto" >> "$LOG"
+}
+
+# Release ONLY a lease this dispatcher owns. remote_pytest.sh uses the SAME
+# per-affinity path for its own runs, so an unconditional rm would yank the
+# lease out from under a live test suite on this box and let the scaler kill it
+# mid-run -- the exact incident the lease was built for in the first place.
+release_lease() {
+  ssh -o BatchMode=yes -o ConnectTimeout=10 "$HUB_SSH" \
+    "grep -q '\"purpose\": \"$LEASE_PURPOSE\"' /home/ree/pytest_leases/$LEASE_AFFINITY.lease 2>/dev/null \
+       && rm -f /home/ree/pytest_leases/$LEASE_AFFINITY.lease && echo released || echo 'not ours -- left alone'" \
+    >>"$LOG" 2>&1 || true
+}
+
 # Emit a heartbeat. Called TWICE per cycle -- once before the claude launch and
 # once after -- because the scaler's orchestrator veto (cloud-scaler.py
 # read_orchestrator) keeps this box alive only while this heartbeat is FRESH,
@@ -309,6 +363,25 @@ fi
 # Refresh the scaler veto BEFORE the (potentially 25-minute) claude launch.
 emit_heartbeat "dispatching" "cycle $CYCLE starting"
 
+# Lease follows DEMAND, not mere liveness -- the same test the scaler applies to
+# the heartbeat (read_orchestrator): live workers, or backlog this box would pick
+# up. With neither, release, so an idle box with an empty ledger can actually be
+# powered down instead of being pinned up by the fact that its timer is ticking.
+# OPT-IN per box. A lease is only meaningful for a box the scaler actually
+# manages -- i.e. one that appears in cloud-scaler.py's WORKERS list. ree-cloud-5
+# is deliberately absent from that list and is never power-cycled, so a lease
+# there would be an ssh round-trip every 5 minutes that nothing ever reads.
+# Set REE_LEASE_ENABLED=1 in the systemd drop-in on scaler-managed boxes only.
+if [ "${REE_LEASE_ENABLED:-0}" != "1" ]; then
+  :   # not scaler-managed; the orchestrator heartbeat is the only signal needed
+elif _inflight=$(count_alive_dispatches); _backlog=$(count_open_chips work); \
+     [ "${_inflight:-0}" -gt 0 ] || [ "${_backlog:-0}" -gt 0 ]; then
+  take_lease
+else
+  echo "[$(ts)] lease: no in-flight workers and empty work ledger -- releasing" >> "$LOG"
+  release_lease
+fi
+
 if [ "$PAUSED" = "true" ]; then
   echo "[$(ts)] cycle $CYCLE: coordination plane paused, skipping dispatch" >> "$LOG"
   STATE="paused"
@@ -346,7 +419,7 @@ else
   # transparent wrapper around the same claude invocation as before.
   flock -n -E 99 "$LOCKFILE" \
     timeout --signal=TERM --kill-after=60 "$DISPATCH_MAX_SEC" \
-    claude -p "Run exactly ONE cycle of the metaworker-dispatch skill (see $REPO/.claude/skills/metaworker-dispatch/SKILL.md), then exit. This is cycle $CYCLE on machine $MACHINE. Your Step 4a in-flight worker cap on this box is $DISPATCH_MAX_INFLIGHT (available_slots = $DISPATCH_MAX_INFLIGHT - in-flight), not the default 2. Do not call ScheduleWakeup or otherwise self-pace via /loop -- an external systemd timer re-invokes this script every 5 minutes, so pacing is handled outside this session.$FRESHNESS_NOTE" \
+    claude -p "Run exactly ONE cycle of the metaworker-dispatch skill (see $REPO/.claude/skills/metaworker-dispatch/SKILL.md), then exit. This is cycle $CYCLE on machine $MACHINE. Your Step 4a in-flight worker cap on this box is $DISPATCH_MAX_INFLIGHT (available_slots = $DISPATCH_MAX_INFLIGHT - in-flight), not the default 2. AUTH: this box IS authenticated -- your own session is proof, since a claude -p cycle cannot run unauthenticated. Do NOT test for ~/.claude/.credentials.json; it is legitimately absent under CLAUDE_CODE_OAUTH_TOKEN auth, and treating its absence as an auth failure idled ree-cloud-4 for seven cycles on 2026-08-18. If a dispatched worker reports 'Not logged in', that is an environment-inheritance defect to report, NOT an account problem and NOT a reason to stop dispatching. Do not call ScheduleWakeup or otherwise self-pace via /loop -- an external systemd timer re-invokes this script every 5 minutes, so pacing is handled outside this session.$FRESHNESS_NOTE" \
       --permission-mode auto >> "$LOG" 2>&1
   DISPATCH_RC=$?
   if [ "$DISPATCH_RC" -eq 99 ]; then
