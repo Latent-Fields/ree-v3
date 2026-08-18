@@ -26,6 +26,7 @@ V3 changes from V2 runner:
 """
 
 import argparse
+import contextlib
 import json
 import os
 import re
@@ -88,6 +89,17 @@ except Exception as _rckpt_exc:
     _rckpt_import_error = _rckpt_exc
 else:
     _rckpt_import_error = None
+
+# Pause-the-puller substrate mutex (option A2 of the structural-isolation
+# design, REE_assembly/evidence/planning/substrate_stability_and_drift_detection_plan.md
+# section 3). Best-effort import like the modules above: a worker running an
+# older checkout without this file must keep running exactly as before, not
+# fail to start. Every call site below is additionally wrapped, so an
+# unimportable module degrades to the pre-A2 behaviour and never to a wedge.
+try:
+    import substrate_freeze as _sfreeze
+except Exception:  # pragma: no cover -- guard must never break the runner
+    _sfreeze = None
 
 REPO_ROOT = Path(__file__).resolve().parent
 QUEUE_FILE = REPO_ROOT / "experiment_queue.json"
@@ -2001,10 +2013,99 @@ def _pull_ree_v3(reason: str = "") -> bool:
         # The guard must never be the reason a pull does not happen.
         pass
     try:
+        if _substrate_freeze_blocked(reason):
+            return False
+    except Exception:
+        # Same direction as the guard above, and see substrate_freeze's module
+        # docstring for why THIS guard fails open in every direction while
+        # _ree_v3_pull_blocked deliberately fails closed.
+        pass
+    try:
         git_pull(REPO_ROOT, "ree-v3")
     except Exception:
         pass
     return True
+
+
+def _substrate_freeze_blocked(reason: str = "") -> bool:
+    """True when a running experiment holds a substrate freeze AND the pull
+    would move substrate files underneath it (option A2).
+
+    This is the puller half of the mutex; the acquiring half is the
+    `_sfreeze.hold(...)` wrapping the run_experiment() call in main().
+
+    Distinct from _ree_v3_pull_blocked in both question and failure direction.
+    That guard asks "would this pull autostash a SESSION'S UNCOMMITTED WORK",
+    and fails CLOSED because a swept stash is silent and unrecoverable. This
+    one asks "would this pull change the SUBSTRATE OF A RUN IN FLIGHT", and
+    fails OPEN because the harm it prevents is already self-reported after the
+    fact by arm_fingerprint.substrate_stability_report(), while a stuck-closed
+    guard on this path would stall experiment_queue.json and blind the worker
+    to new work. The asymmetry is deliberate; substrate_freeze.py's module
+    docstring carries the full reasoning.
+
+    Inert unless someone is actually holding a freeze, so with
+    REE_SUBSTRATE_FREEZE unset this costs one scandir of a directory that does
+    not exist.
+    """
+    if _sfreeze is None:
+        return False
+    why = _sfreeze.pull_deferred_reason(REPO_ROOT)
+    if not why:
+        return False
+    suffix = f" ({reason})" if reason else ""
+    print(
+        f"[runner] git pull ree-v3: DEFERRED{suffix} -- {why}. Resumes when "
+        f"the run finishes or the freeze goes stale.",
+        flush=True,
+    )
+    return True
+
+
+@contextlib.contextmanager
+def _substrate_freeze(queue_id: str):
+    """Acquiring half of the A2 mutex -- hold a substrate freeze for one run.
+
+    A no-op (yields immediately, acquires nothing) when the module is
+    unimportable or REE_SUBSTRATE_FREEZE is unset, which is what makes the
+    unflagged runner path identical to the pre-A2 one.
+
+    Total by construction: acquiring a freeze must never be able to stop an
+    experiment from running, so every failure here degrades to "run without
+    isolation" -- exactly today's behaviour.
+    """
+    if _sfreeze is None:
+        yield None
+        return
+    try:
+        enabled = _sfreeze.freeze_enabled()
+    except Exception:
+        enabled = False
+    if not enabled:
+        yield None
+        return
+    token = None
+    try:
+        token = _sfreeze.acquire(REPO_ROOT, queue_id)
+        if token is not None:
+            print(f"[runner] substrate freeze HELD for {queue_id} -- "
+                  f"substrate pulls defer until it completes.", flush=True)
+        else:
+            print(f"[runner] substrate freeze could not be acquired for "
+                  f"{queue_id}; running without isolation.", flush=True)
+    except Exception as exc:
+        print(f"[runner] substrate freeze acquire warn: {exc}", flush=True)
+        token = None
+    try:
+        yield token
+    finally:
+        try:
+            _sfreeze.release(token)
+            if token is not None:
+                print(f"[runner] substrate freeze RELEASED for {queue_id}.",
+                      flush=True)
+        except Exception:
+            pass
 
 
 def _check_active_claim_on_file(relative_path: str) -> bool:
@@ -5068,7 +5169,15 @@ def main():
                 _current_claim.append(queue_id)
 
             try:
-                result = run_experiment(item, status, status_path, calibration, script_timing,
+                # Option A2: hold a substrate freeze for exactly this run's
+                # life, so a concurrent `git pull` cannot move ree_core/ or
+                # experiments/_lib/ underneath the subprocess importing from
+                # them. `_substrate_freeze()` is a no-op unless
+                # REE_SUBSTRATE_FREEZE is set, so the unflagged path is
+                # unchanged; the release is in the context manager's `finally`,
+                # so a run that raises cannot leak the freeze.
+                with _substrate_freeze(queue_id):
+                    result = run_experiment(item, status, status_path, calibration, script_timing,
                                         proc_ref=_current_proc,
                                         suspend_flag=_suspend_flag,
                                         auto_sync=args.auto_sync,
