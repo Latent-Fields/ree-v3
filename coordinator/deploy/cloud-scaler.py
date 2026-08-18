@@ -108,9 +108,27 @@ DEFAULTS = {
     # doing real work the queue-derived signals cannot see, exactly like the
     # pytest lease. Same billing shape as PYTEST_LEASE_MAX_MIN: this is a MAX
     # AGE, so a metaworker that dies stops vetoing within this window and the
-    # box returns to normal auto-shutdown. The dispatch timer ticks every 5
-    # minutes, so 20 tolerates three consecutive missed ticks before releasing.
-    "ORCHESTRATOR_FRESH_MIN": 20,
+    # box returns to normal auto-shutdown.
+    #
+    # 50 IS ARITHMETIC, NOT A ROUND NUMBER -- do not trim it without redoing the
+    # sum. The transport here is git, and the age this reads is the age of the
+    # COMMITTED heartbeat as it appears in the hub's checkout:
+    #   30  ree_metaworker_heartbeat.LIVENESS_FLOOR_MINUTES -- a healthy box
+    #       whose heartbeat fields are all unchanged legitimately does not
+    #       commit for this long (deliberate: committing every tick is the
+    #       history churn the retired liveness tick was removed for)
+    # + ~13  observed worst-case lag for the hub's checkout to pull a commit
+    # + ~7  margin
+    # This was 20 for the first hours of 2026-08-18 and that was WRONG in two
+    # independent ways, both confirmed live on ree-worker-4: it sat BELOW the
+    # 30-minute liveness floor, so a healthy but unchanging box aged out on
+    # schedule; and the wrapper only wrote its heartbeat at END of cycle, so a
+    # cycle running toward REE_DISPATCH_MAX_SEC (25 min) outlived its own veto.
+    # The wrapper now also emits at cycle START (its emit_heartbeat), which is
+    # the real fix for the second; this constant is the fix for the first.
+    # test_cloud_scaler_orchestrator_veto.py pins the floor relationship, which
+    # is invisible from either file alone.
+    "ORCHESTRATOR_FRESH_MIN": 50,
 }
 
 

@@ -161,6 +161,55 @@ if [ -f "$REPO/scripts/audit_coordination_plane_dirt.py" ]; then
   fi
 fi
 
+# Chip-backlog counts. Read the ledger JSON directly rather than screen-scraping
+# `chip_ledger.py list`. The previous `grep -c '^task_\|^chip_'` undercounted by
+# ~4x -- measured 2026-08-18 on this box: reported 26, actual 97 -- because a
+# headless-origin chip has no task_id and `list` prints it as the literal
+# `None`, which neither anchor matches. The obvious repair (anchor on
+# `\[open\] chip_ref=`) was ALSO wrong: `list` inserts a
+# `CLAIMED(by=..., at=...)` token between those two when a chip is claimed, so
+# it still missed 2 of 97. Both misses are DISPLAY-FORMAT drift in a field this
+# wrapper never had any business parsing; the JSON is the stable surface.
+count_open_chips() {
+  /opt/local/bin/python3 -c '
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception:
+    print(0); raise SystemExit(0)
+items = d.get("chips") or d.get("items") or []
+print(sum(1 for c in items
+          if c.get("status") == "open" and c.get("kind") == sys.argv[2]))
+' "$REPO/TASK_CHIPS.json" "$1" 2>/dev/null || echo 0
+}
+
+# Emit a heartbeat. Called TWICE per cycle -- once before the claude launch and
+# once after -- because the scaler's orchestrator veto (cloud-scaler.py
+# read_orchestrator) keeps this box alive only while this heartbeat is FRESH,
+# and a dispatch cycle can legitimately run to REE_DISPATCH_MAX_SEC (25 min).
+#
+# End-of-cycle only was the bug. Confirmed live 2026-08-18: ree-worker-4's
+# heartbeat was written at 19:16 (end of cycle 2), cycle 3 started 19:35:30 and
+# was still running at 19:40, by which point the veto had aged past its window
+# and the scaler shut the box down MID-CYCLE, killing a live dispatched worker.
+# Scaler log: orch=active age=9min -> 14min -> 19min -> orch=none -> shutdown.
+# This is the same shape as remote_pytest.sh's mid-run lease renewal, and for
+# the same reason: work that outlives its own keepalive loses the box.
+emit_heartbeat() {
+  _hb_state="$1"; _hb_note="$2"
+  /opt/local/bin/python3 "$REPO/scripts/ree_metaworker_heartbeat.py" \
+    --machine "$MACHINE" \
+    --state "$_hb_state" \
+    --cycles-completed "$CYCLE" \
+    --chips-dispatched-total "$(cat "$DISPATCHED_FILE" 2>/dev/null || echo 0)" \
+    --chips-open-work "$(count_open_chips work)" \
+    --chips-open-decision "$(count_open_chips decision)" \
+    --in-flight-dispatches "$(count_alive_dispatches)" \
+    $( [ "${PAUSED:-false}" = "true" ] && echo "--paused" ) \
+    --note "$_hb_note" \
+    --push >> "$LOG" 2>&1
+}
+
 CYCLE_FILE="$STATE_DIR/cycle_count"
 [ -f "$CYCLE_FILE" ] || echo 0 > "$CYCLE_FILE"
 CYCLE=$(( $(cat "$CYCLE_FILE") + 1 ))
@@ -257,6 +306,9 @@ sys.exit(0 if paused else 1)
   PAUSED="true"
 fi
 
+# Refresh the scaler veto BEFORE the (potentially 25-minute) claude launch.
+emit_heartbeat "dispatching" "cycle $CYCLE starting"
+
 if [ "$PAUSED" = "true" ]; then
   echo "[$(ts)] cycle $CYCLE: coordination plane paused, skipping dispatch" >> "$LOG"
   STATE="paused"
@@ -312,27 +364,6 @@ fi
 # state rather than trusted from the agent's own self-report, so a heartbeat
 # can't drift from reality even if the cycle's summary text is wrong or
 # truncated.
-# Chip-backlog counts. Read the ledger JSON directly rather than screen-scraping
-# `chip_ledger.py list`. The previous `grep -c '^task_\|^chip_'` undercounted by
-# ~4x -- measured 2026-08-18 on this box: reported 26, actual 97 -- because a
-# headless-origin chip has no task_id and `list` prints it as the literal
-# `None`, which neither anchor matches. The obvious repair (anchor on
-# `\[open\] chip_ref=`) was ALSO wrong: `list` inserts a
-# `CLAIMED(by=..., at=...)` token between those two when a chip is claimed, so
-# it still missed 2 of 97. Both misses are DISPLAY-FORMAT drift in a field this
-# wrapper never had any business parsing; the JSON is the stable surface.
-count_open_chips() {
-  /opt/local/bin/python3 -c '
-import json, sys
-try:
-    d = json.load(open(sys.argv[1]))
-except Exception:
-    print(0); raise SystemExit(0)
-items = d.get("chips") or d.get("items") or []
-print(sum(1 for c in items
-          if c.get("status") == "open" and c.get("kind") == sys.argv[2]))
-' "$REPO/TASK_CHIPS.json" "$1" 2>/dev/null || echo 0
-}
 OPEN_WORK=$(count_open_chips work)
 OPEN_DECISION=$(count_open_chips decision)
 

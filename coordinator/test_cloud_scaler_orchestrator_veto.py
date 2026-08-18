@@ -13,6 +13,7 @@ alive, so each way it can FAIL OPEN is pinned explicitly. Widening the
 predicate by one case is a box that can never be shut down.
 """
 import importlib.util
+import re
 import json
 import os
 import tempfile
@@ -186,6 +187,57 @@ class VetoIsWiredIntoTheDecisionLoopTest(unittest.TestCase):
                 "%Y-%m-%dT%H:%M:%SZ"))
         self._run()
         self.assertEqual(self.shutdowns, [])
+
+
+
+
+class FreshnessWindowCoversTheCommitCadenceTest(unittest.TestCase):
+    """The veto window MUST exceed the heartbeat writer's liveness floor.
+
+    These two constants live in different repos and neither file mentions the
+    other's number, so nothing but this test couples them. Confirmed live
+    2026-08-18: with the window at 20 and the floor at 30, ree-worker-4 was
+    shut down while healthy and mid-cycle -- a heartbeat whose fields have not
+    changed legitimately goes uncommitted for the floor's duration, so the
+    hub's copy ages past a shorter window every single time.
+    """
+
+    FLOOR_PATH = "/Users/dgolden/REE_Working/scripts/ree_metaworker_heartbeat.py"
+
+    def _floor(self):
+        try:
+            with open(self.FLOOR_PATH, encoding="utf-8") as fh:
+                src = fh.read()
+        except OSError:
+            self.skipTest("umbrella scripts/ not present in this checkout")
+        m = re.search(r"^LIVENESS_FLOOR_MINUTES\s*=\s*(\d+)", src, re.M)
+        self.assertIsNotNone(m, "LIVENESS_FLOOR_MINUTES not found -- renamed?")
+        return int(m.group(1))
+
+    def test_window_exceeds_the_writers_liveness_floor(self):
+        floor = self._floor()
+        window = cs.DEFAULTS["ORCHESTRATOR_FRESH_MIN"]
+        self.assertGreater(
+            window, floor,
+            "ORCHESTRATOR_FRESH_MIN (%d) must exceed LIVENESS_FLOOR_MINUTES "
+            "(%d): a healthy box with unchanged heartbeat fields does not "
+            "commit for the floor's duration, so a shorter window vetoes "
+            "nothing and the box is shut down mid-cycle." % (window, floor))
+
+    def test_window_leaves_headroom_for_git_propagation(self):
+        # The hub reads its own checkout, which lags origin by minutes.
+        floor = self._floor()
+        window = cs.DEFAULTS["ORCHESTRATOR_FRESH_MIN"]
+        self.assertGreaterEqual(
+            window - floor, 15,
+            "only %dmin of headroom over the %dmin liveness floor; the hub's "
+            "checkout was measured lagging origin by up to ~13min."
+            % (window - floor, floor))
+
+    def test_window_still_bounded_so_a_dead_metaworker_releases_the_box(self):
+        # NEGATIVE CONTROL on the direction of the fix: widening the window is
+        # not free -- it is how long a DEAD metaworker keeps a billable box up.
+        self.assertLessEqual(cs.DEFAULTS["ORCHESTRATOR_FRESH_MIN"], 60)
 
 
 if __name__ == "__main__":
