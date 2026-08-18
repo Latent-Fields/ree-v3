@@ -157,8 +157,23 @@ UNCONDITIONAL whole-episode mean harm signal over ALL measured seeds: no
 screen, no tiering, no post-hoc divergence-tick windowing, no exclusion. n >= 40
 paired seeds as a PRE-REGISTERED HARD FLOOR (MIN_SEEDS), which can never be
 softened by any observed quantity because no unit is ever excluded by this
-design. Declared secondaries, REPORTED AND NON-GATING: mean episode length,
-mean per-episode return (summed harm), terminal health/energy, and forward-PE.
+design. Declared secondaries, REPORTED AND NON-GATING: mean per-episode return
+(summed harm), mean done-events per episode (health-depletion / step-cap
+terminations -- episode LENGTH is constant by construction, see below),
+terminal health/energy, and forward-PE.
+
+FIXED-LENGTH ROLLOUTS, AND WHY `done` IS NOT A BREAK. Every cell runs the full
+`steps` ticks of every episode and does NOT break on the env's `done` flag
+(`done = _health_depleted or _step_cap_reached`, causal_grid_world.py ~3123).
+This is the 844/867/867a/867b/919 lineage convention -- 919 names it `_done`
+and ignores it -- and it is load-bearing twice over: (a) `mean_harm_signal` is
+a whole-episode harm RATE, so truncating at health depletion would silently
+drop exactly the most harmful ticks and make the DV a survival-biased
+estimate, and it would not be cross-readable against 919's; (b) it guarantees
+every ARM_YOKED locus drawn from `range(steps)` actually occurs, so the
+rate-matched count is delivered EXACTLY rather than under-delivered whenever
+an episode happened to end early. Terminations are instead COUNTED and
+reported as `mean_done_events_per_episode`.
 
 This shape is not proposed on theory. V3-EXQ-919 ran it on this substrate and
 reached a decisive reading where four prior generations had not (C1 measured
@@ -166,9 +181,16 @@ reached a decisive reading where four prior generations had not (C1 measured
 
 OCCUPANCY IS A MANIPULATION CHECK, NEVER A GATE (design doc section 5e)
 
-Fires-per-episode is REPORTED per arm. Readiness is only the trivial
-existential: ARM_PE forced fires > 0, ARM_OFF decomposition EXACTLY 0, ARM_PE
-and ARM_YOKED realised rates matched within RATE_MATCH_TOL. **There is NO
+Fires-per-episode is REPORTED per arm and per seed. Readiness is only the
+trivial existential: ARM_PE forced fires > 0, ARM_OFF decomposition EXACTLY 0,
+and the ARM-LEVEL realised rates matched within RATE_MATCH_TOL. The rate gate
+is ARM-level because that is the design doc's literal quantity (section 5e,
+`|rate(ARM_PE) - rate(ARM_YOKED)|`); gating a per-seed conjunction instead
+would let ONE outlier seed void the whole run over sampling noise, which is
+the wrong failure mode for a claim about the amount of decomposition each arm
+carried IN AGGREGATE. Per-seed gaps and the count outside tolerance are
+reported regardless, so an aggregate match hiding a bimodal per-seed
+distribution stays visible. **There is NO
 `vs_heterogeneity_low_vs_steps_present` gate and NO absolute `low_vs_steps >= N`
 precondition anywhere in this file** -- that precondition IS the aliasing device
 that produced the six-run chain, and carrying it forward would reproduce it.
@@ -564,6 +586,7 @@ def _run_cell(seed: int, arm_id: str, episodes: int, steps: int,
     e3_tick_flags: List[bool] = []
     episode_returns: List[float] = []
     episode_lengths: List[int] = []
+    episode_done_events: List[int] = []
     terminal_health: List[float] = []
     terminal_energy: List[float] = []
     done_causes: Dict[str, int] = {}
@@ -580,6 +603,7 @@ def _run_cell(seed: int, arm_id: str, episodes: int, steps: int,
         ctrl.start_episode(ep, steps)
         ep_return = 0.0
         ep_steps = 0
+        n_done_events = 0
         last_info: Dict[str, Any] = {}
 
         for t in range(steps):
@@ -638,10 +662,11 @@ def _run_cell(seed: int, arm_id: str, episodes: int, steps: int,
             ctrl.observe_pe(pe_val)
             n_ticks += 1
             if done:
-                break
+                n_done_events += 1
 
         episode_returns.append(ep_return)
         episode_lengths.append(ep_steps)
+        episode_done_events.append(n_done_events)
         terminal_health.append(float(last_info.get("health", 0.0)))
         terminal_energy.append(float(last_info.get("energy", 0.0)))
         cause = str(last_info.get("done_cause", "") or "none")
@@ -700,6 +725,8 @@ def _run_cell(seed: int, arm_id: str, episodes: int, steps: int,
             statistics.fmean(episode_returns) if episode_returns else 0.0),
         "mean_episode_length": (
             statistics.fmean(episode_lengths) if episode_lengths else 0.0),
+        "mean_done_events_per_episode": (
+            statistics.fmean(episode_done_events) if episode_done_events else 0.0),
         "mean_terminal_health": (
             statistics.fmean(terminal_health) if terminal_health else 0.0),
         "mean_terminal_energy": (
@@ -707,6 +734,7 @@ def _run_cell(seed: int, arm_id: str, episodes: int, steps: int,
         "done_causes": dict(done_causes),
         "per_episode_returns": list(episode_returns),
         "per_episode_lengths": list(episode_lengths),
+        "per_episode_done_events": list(episode_done_events),
         "max_z_harm_a_norm": max_z_harm_a_norm,
         "action_sequence": actions,
         "per_tick_forward_pe": forward_pe_ticks,
@@ -875,7 +903,24 @@ def _analyse(rows: List[Dict[str, Any]],
     worst_rate_gap = max((r["rel_rate_gap"] for r in rate_rows), default=0.0)
     worst_rate_seed = next(
         (r["seed"] for r in rate_rows if r["rel_rate_gap"] == worst_rate_gap), None)
-    rate_match_ok = bool(rate_rows) and all(r["within_tol"] for r in rate_rows)
+    n_seeds_outside_tol = sum(1 for r in rate_rows if not r["within_tol"])
+    # THE GATE IS ARM-LEVEL, and that is the design doc's literal quantity:
+    # section 5e reads `|rate(ARM_PE) - rate(ARM_YOKED)|` -- a comparison of the
+    # two ARMS' rates, not a per-seed conjunction. Gating on all() over seeds
+    # instead would let ONE outlier seed void a ~30h run, which is both harsher
+    # than the design asks and the wrong failure mode: the claim under test is
+    # that the two arms carried the same AMOUNT of decomposition in aggregate,
+    # and a single seed's sampling noise does not falsify that. Per-seed gaps
+    # are REPORTED (rate_rows, plus n_seeds_outside_tol) so an aggregate match
+    # concealing a wildly bimodal per-seed distribution is still visible to a
+    # reader and to any later autopsy.
+    arm_rate_pe = statistics.fmean(
+        [r["pe_decomposed_per_episode"] for r in rate_rows]) if rate_rows else 0.0
+    arm_rate_yoked = statistics.fmean(
+        [r["yoked_decomposed_per_episode"] for r in rate_rows]) if rate_rows else 0.0
+    arm_denom = (arm_rate_pe + arm_rate_yoked) / 2.0
+    arm_rate_gap = (abs(arm_rate_pe - arm_rate_yoked) / arm_denom) if arm_denom > 0 else 0.0
+    rate_match_ok = bool(rate_rows) and arm_rate_gap <= RATE_MATCH_TOL
     rate_precondition = {
         "name": "pe_yoked_realised_rate_matched",
         "kind": "readiness",
@@ -889,8 +934,11 @@ def _analyse(rows: List[Dict[str, Any]],
             "SAME AMOUNT of decomposition, which is what makes the contrast a "
             "selectivity test rather than a dose comparison."),
         "control": (
-            f"WORST seed by relative rate gap (seed {worst_rate_seed})"),
-        "measured": worst_rate_gap,
+            "ARM-LEVEL mean realised decomposition rate, ARM_PE vs ARM_YOKED "
+            f"over {len(rate_rows)} paired seed(s); per-seed gaps reported "
+            f"separately (worst seed {worst_rate_seed} at {worst_rate_gap:.4f}, "
+            f"{n_seeds_outside_tol} seed(s) outside tolerance)"),
+        "measured": arm_rate_gap,
         "threshold": RATE_MATCH_TOL,
         "direction": "upper",
         "met": bool(rate_match_ok),
@@ -984,9 +1032,12 @@ def _analyse(rows: List[Dict[str, Any]],
         direction = "unknown"
         degeneracy_reason = (
             "ARM_PE and ARM_YOKED did not carry the same realised amount of "
-            "decomposition (worst relative rate gap "
-            f"{worst_rate_gap:.4f} > tolerance {RATE_MATCH_TOL} at seed "
-            f"{worst_rate_seed}). Without a rate match the contrast measures "
+            "decomposition: ARM-LEVEL relative rate gap "
+            f"{arm_rate_gap:.4f} > tolerance {RATE_MATCH_TOL} "
+            f"(ARM_PE {arm_rate_pe:.3f} vs ARM_YOKED {arm_rate_yoked:.3f} "
+            f"decompositions/episode; worst single seed {worst_rate_seed} at "
+            f"{worst_rate_gap:.4f}, {n_seeds_outside_tol} seed(s) outside "
+            "tolerance). Without a rate match the contrast measures "
             "decomposition DOSE, not SELECTIVITY, so no C1 reading is "
             "emitted. This is an instrument finding, NOT evidence about "
             "ARC-070.")
@@ -1050,9 +1101,12 @@ def _analyse(rows: List[Dict[str, Any]],
         ret_delta_mean = statistics.fmean([
             by_seed[ARM_PE][s]["mean_episode_return"]
             - by_seed[ARM_YOKED][s]["mean_episode_return"] for s in seeds])
+        # Episode LENGTH is constant by construction (fixed-length rollouts),
+        # so the informative termination secondary is the done-event RATE --
+        # how often health depletion / step cap actually fired.
         len_delta_mean = statistics.fmean([
-            by_seed[ARM_PE][s]["mean_episode_length"]
-            - by_seed[ARM_YOKED][s]["mean_episode_length"] for s in seeds])
+            by_seed[ARM_PE][s]["mean_done_events_per_episode"]
+            - by_seed[ARM_YOKED][s]["mean_done_events_per_episode"] for s in seeds])
 
         engagement_outcome_rho = spearman(
             [float(by_seed[ARM_PE][s]["decomp_n_decomposed_total"]) for s in seeds],
@@ -1125,7 +1179,12 @@ def _analyse(rows: List[Dict[str, Any]],
         },
         "rate_match": {
             "per_seed": rate_rows, "ok": rate_match_ok,
+            "gate_level": "arm",
+            "arm_rate_pe_per_episode": arm_rate_pe,
+            "arm_rate_yoked_per_episode": arm_rate_yoked,
+            "arm_rel_gap": arm_rate_gap,
             "worst_rel_gap": worst_rate_gap, "worst_seed": worst_rate_seed,
+            "n_seeds_outside_tol": n_seeds_outside_tol,
             "tolerance": RATE_MATCH_TOL,
         },
         "per_seed_harm_deltas": [
@@ -1143,11 +1202,13 @@ def _analyse(rows: List[Dict[str, Any]],
             "rel_floor_ok": rel_floor_ok,
             "pe_vs_off_harm_delta_mean": pe_vs_off_mean,
             "secondary_return_delta_mean": ret_delta_mean,
-            "secondary_episode_length_delta_mean": len_delta_mean,
+            "secondary_done_events_delta_mean": len_delta_mean,
             "secondary_fwd_pe_delta_yoked_minus_pe": fwd_pe_delta_mean,
             "engagement_outcome_spearman_rho": engagement_outcome_rho,
             "rate_match_ok": rate_match_ok,
-            "rate_match_worst_rel_gap": worst_rate_gap,
+            "rate_match_arm_rel_gap": arm_rate_gap,
+            "rate_match_worst_seed_rel_gap": worst_rate_gap,
+            "rate_match_n_seeds_outside_tol": n_seeds_outside_tol,
             "aa_control_ok": aa_control_ok,
             "aa_control_max_abs_delta": aa_max_abs_delta,
             "forced_fires_min_pe_arm": _worst_min(by_arm[ARM_PE], "forced_fires_total"),
@@ -1467,7 +1528,7 @@ def main() -> Tuple[Optional[str], Optional[str], bool]:
         f"rel_improvement={s['rel_improvement']:.4f}", flush=True)
     print(
         f"  rate_match_ok={s['rate_match_ok']} "
-        f"worst_rel_gap={s['rate_match_worst_rel_gap']:.4f} "
+        f"arm_rel_gap={s['rate_match_arm_rel_gap']:.4f} "
         f"tol={RATE_MATCH_TOL}", flush=True)
     print(
         f"  aa_control_ok={s['aa_control_ok']} "
