@@ -52,6 +52,7 @@ _PATH_LINTS = (
     ("emit_outcome_dry_run_lint", V.emit_outcome_dry_run_lint),
     ("write_pack_dry_run_lint", V.write_pack_dry_run_lint),
     ("dry_run_unreachable_criterion_lint", V.dry_run_unreachable_criterion_lint),
+    ("dry_run_sweep_excludes_keyed_point_lint", V.dry_run_sweep_excludes_keyed_point_lint),
     ("config_slice_under_declaration_lint", V.config_slice_under_declaration_lint),
     ("inert_salience_dacc_bias_lint", V.inert_salience_dacc_bias_lint),
     ("dacc_last_bundle_lint", V.dacc_last_bundle_lint),
