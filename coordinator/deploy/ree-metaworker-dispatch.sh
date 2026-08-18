@@ -380,8 +380,36 @@ VERDICT_SCRIPT="$REPO/scripts/metaworker_role_verdict.py"
 if [ "${REE_DUAL_ROLE:-0}" = "1" ] && [ -f "$VERDICT_SCRIPT" ]; then
   _runner_active=0
   systemctl is-active --quiet ree-runner 2>/dev/null && _runner_active=1
+  # READ THE QUEUE FROM origin/main, NOT the working tree.
+  #
+  # Stopping ree-runner (which this very script does whenever the metaworker
+  # owns the box) removed the only thing that was pulling ree-v3 on this box --
+  # the runner's own per-tick `git pull`. The wrapper's autosync covers the
+  # UMBRELLA only. So the working-tree queue file freezes the moment the box
+  # goes into metaworker mode: measured 2026-08-18, 2.5 HOURS stale. The verdict
+  # would then never see a surge, the box would never hand over to the runner,
+  # and the whole transition would be inert in the one direction that matters --
+  # a self-inflicted deadlock, since the thing that froze the queue is the thing
+  # waiting on it to change.
+  #
+  # Fetch + `git show` rather than pull: read-only, never touches the working
+  # tree, and immune to the divergence this checkout already has (ahead 2,
+  # behind 1 -- a --ff-only pull REFUSES outright, which would have looked like
+  # a working fix while changing nothing).
+  _qfile="$STATE_DIR/queue_snapshot.json"
+  if git -C "$REPO/ree-v3" fetch -q origin main 2>>"$LOG" \
+     && git -C "$REPO/ree-v3" show origin/main:experiment_queue.json > "$_qfile.tmp" 2>>"$LOG" \
+     && [ -s "$_qfile.tmp" ]; then
+    mv -f "$_qfile.tmp" "$_qfile"
+  else
+    rm -f "$_qfile.tmp"
+    # Fall back to the working tree, and SAY SO -- a stale queue silently
+    # suppresses the surge, which is indistinguishable from "no work queued".
+    echo "[$(ts)] role: WARN could not read queue from origin/main; falling back to the working-tree copy (may be stale)" >> "$LOG"
+    _qfile="$REPO/ree-v3/experiment_queue.json"
+  fi
   _v=$(/opt/local/bin/python3 "$VERDICT_SCRIPT" \
-        --queue "$REPO/ree-v3/experiment_queue.json" \
+        --queue "$_qfile" \
         --machine "$LEASE_AFFINITY" \
         --in-flight "$(count_alive_dispatches)" \
         --runner-active "$_runner_active" 2>>"$LOG")
