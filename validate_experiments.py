@@ -47,7 +47,8 @@ CHECK_NAMES = ("conformance", "readiness", "arm_fingerprint", "degeneracy", "man
                "write_pack_dry_run", "dry_run_unreachable_criterion",
                "config_slice_declaration", "inert_salience_dacc_bias",
                "dacc_last_bundle", "agent_seed_order", "zworld_p0_warmup",
-               "fishtank_episode_log_seeds", "disjunctive_criteria_load_bearing")
+               "fishtank_episode_log_seeds", "disjunctive_criteria_load_bearing",
+               "route_reason_consistency")
 
 # Readiness-gate static lint (proposal_trivial_prediction_readiness_gate_2026-06-06).
 # A diagnostic/baseline script whose interpretation grid self-routes to one of
@@ -6084,6 +6085,323 @@ def disjunctive_criteria_load_bearing_lint(path: Path) -> Optional[str]:
     )
 
 
+# --------------------------------------------------------------------------------------
+# ROUTE_REASON CONSISTENCY (confirmed twice: V3-EXQ-467e/464e 2026-08-13, V3-EXQ-935
+# 2026-08-17).
+#
+# `interpretation.route_reason` is the driver's own machine-readable account of WHY it
+# reached its verdict. Governance and failure-autopsy sessions read it as such. When the
+# acceptance gate is a CONJUNCTION of N criteria, the fall-through `else` is reached
+# whenever ANY ONE of the N fails -- so a single hardcoded literal there can only ever
+# name one of N possible causes, and is factually wrong on the other N-1 branches.
+#
+# THE SPECIMEN. v3_exq_935 gates on
+# `rule_supported = bool(c1_passed and c3_passed and (c2_passed or c2_scoped_out))`
+# and its `else` hardcodes
+# `route_reason = "no_common_normalised_rule_outperformed_the_best_absolute_cap"`,
+# which names C3. The run FAILED on C1 alone -- the manifest's own
+# `acceptance.c3_beats_best_absolute_cap` was `true`. The autopsy
+# `REE_assembly/evidence/planning/failure_autopsy_V3-EXQ-935_2026-08-18.md` caught it by
+# hand; nothing audited it.
+#
+# WHAT THE DISCRIMINATOR IS, AND WHY IT IS NOT "hardcoded literal on a fall-through".
+# 34 of the 1344 drivers assign a string literal to a reason variable in a terminal
+# `else`, and 20 of those do it under a >=2-conjunct guard. Firing on all 20 would be
+# wrong: a fall-through reason that names the DISJUNCTION of causes ("criteria_unmet",
+# "rule_not_supported") is correct by construction, and is what most of them do. The
+# defect is specifically that the literal SINGLES OUT one criterion. So the test is
+# lexical against the criteria the guard actually names: the literal must overlap one
+# declared criterion name by >=2 content tokens, strictly more than every other criterion
+# in the same conjunction. That step is what takes 20 fires down to 1.
+#
+# THE CRITERION LINK IS STRUCTURAL, NOT GUESSED. Drivers bind criterion identity to the
+# guard variable in the manifest itself -- `{"name": "C3_beats_best_absolute_cap",
+# "passed": c3_passed}`, or an acceptance map `{"c3_beats_best_absolute_cap": c3_passed}`.
+# Both forms are read, so the lint never has to infer a criterion's name from its
+# variable's spelling (`c3_passed` shares no content token with its own criterion name).
+#
+# MEASURED FUNNEL over the 1344-driver corpus: 79 mention a reason variable at all (the
+# cheap substring pre-filter skips the other ~94% before any tree work); 77 have a chain
+# with a terminal `else`; 34 assign a string literal there; 20 have a guard resolving to
+# a >=2-conjunct AND; 20 of those name >=2 declared criteria; ONE has a literal that
+# distinctively singles one out. That one is the confirmed v3_exq_935 carrier.
+#
+# WHAT THIS DELIBERATELY DOES NOT CATCH, stated because the chip that commissioned it
+# assumed otherwise. The FIRST of the two confirmed instances is NOT this shape and does
+# not fire. v3_exq_467e/464e emit `route_reason = "external_task_mode_not_occupied"` from
+# an `elif not occupancy_non_vacuity_met:` branch -- the guard IS the criterion the string
+# names, so the driver is self-consistent at the boolean level. Its reason was false
+# because the underlying STATISTIC (a `min()` across arms) cannot distinguish "occupancy
+# 0.0 everywhere" from "occupancy {0.0, 1.0}", and the label was written for the first.
+# That is a semantic mismatch between a criterion and the statistic implementing it; no
+# static scan over the AST can see it. Only the fall-through arity defect is in scope
+# here, and 467e is pinned as a negative control so a later widening cannot quietly
+# claim it.
+#
+# Also invisible, all in the under-fire direction: a reason assembled by concatenation or
+# an f-string rather than a literal; a guard whose conjuncts are computed inline instead
+# of bound to named criteria; a conjunction reached through more than one level of
+# indirection; and a criterion whose declared name shares no vocabulary with the reason
+# that names it.
+#
+# ADVISORY, never blocking, in both modes -- like every sibling here. The one carrier is
+# a LANDED driver whose run is complete, so hardening would block commits on history; and
+# retro-editing it would falsify provenance. The fix belongs to the next EXQ letter.
+# Exempt with ROUTE_REASON_CONSISTENCY_EXEMPT = "<reason>" when the fall-through reason is
+# genuinely correct by construction -- e.g. the other conjuncts are preconditions already
+# routed away above, so the criterion named really is the only one that can fail there.
+_ROUTE_REASON_CONSISTENCY_EXEMPT_MARKER = "ROUTE_REASON_CONSISTENCY_EXEMPT"
+
+# Variables whose value reaches `interpretation.route_reason` / `.readiness_route`.
+_ROUTE_REASON_VARS = ("route_reason", "readiness_route")
+
+# Dropped before token comparison: bare criterion ordinals (`c1`/`C3`), grammatical filler,
+# and the pass/fail vocabulary every criterion name and every reason string shares. Without
+# this, "criteria_unmet" would score against every criterion equally and the strict-max test
+# would spare it for the wrong reason.
+_ROUTE_REASON_STOPWORDS = frozenset({
+    "the", "a", "an", "of", "at", "is", "in", "to", "and", "or", "not", "no", "non",
+    "was", "were", "be", "been", "by", "on", "for", "it", "its", "that", "this",
+    "criterion", "criteria", "test", "check", "gate", "met", "unmet",
+    "passed", "pass", "fail", "failed",
+})
+_ROUTE_REASON_ORDINAL_RE = re.compile(r"^c\d+$")
+
+# A criterion-name key in an acceptance map: snake_case and long enough not to be an
+# incidental short key. Deliberately conservative -- an extra name can only ADD competition
+# to the strict-max test below, but a spurious one could in principle invent a winner.
+_ROUTE_REASON_ACCEPTANCE_KEY_RE = re.compile(r"^[a-z][a-z0-9_]{6,}$")
+
+
+def _route_reason_tokens(text: str) -> Set[str]:
+    """Content tokens of a criterion name or reason literal, for overlap scoring."""
+    out: Set[str] = set()
+    for t in re.split(r"[^A-Za-z0-9]+", text):
+        t = t.lower()
+        if len(t) <= 2 or t in _ROUTE_REASON_STOPWORDS or _ROUTE_REASON_ORDINAL_RE.match(t):
+            continue
+        out.add(t)
+    return out
+
+
+def _route_reason_chain(node: ast.If) -> Tuple[List[ast.expr], List[ast.stmt]]:
+    """Flatten an `if/elif/.../else` chain into (all tests, terminal else body).
+
+    `elif` is `orelse=[If(...)]` in the AST, so the chain is walked by descending that
+    single-If orelse. The returned else body is empty when the chain has no bare `else`.
+    """
+    tests: List[ast.expr] = []
+    cur = node
+    while True:
+        tests.append(cur.test)
+        orelse = cur.orelse
+        if len(orelse) == 1 and isinstance(orelse[0], ast.If):
+            cur = orelse[0]
+            continue
+        return tests, orelse
+
+
+def _route_reason_literal_assigns(body: Sequence[ast.stmt]) -> Dict[str, Tuple[str, int]]:
+    """`route_reason = "<literal>"` assignments directly in this block -> (literal, line).
+
+    Only a bare string Constant counts. A conditional expression (`"a" if ok else "b"`)
+    is by construction NOT a single hardcoded claim, and is the correct authoring shape.
+    """
+    out: Dict[str, Tuple[str, int]] = {}
+    for st in body:
+        if not isinstance(st, ast.Assign):
+            continue
+        if not (isinstance(st.value, ast.Constant) and isinstance(st.value.value, str)):
+            continue
+        for t in st.targets:
+            if isinstance(t, ast.Name) and t.id in _ROUTE_REASON_VARS:
+                out[t.id] = (st.value.value, st.lineno)
+    return out
+
+
+def _route_reason_criterion_names(tree: ast.AST) -> Dict[str, Set[str]]:
+    """Guard-variable -> declared criterion name(s), from the manifest's own dicts.
+
+    Two forms, both real in the corpus:
+      (A) `{"name": "C3_beats_best_absolute_cap", ..., "passed": c3_passed}`
+      (B) an acceptance map entry `{"c3_beats_best_absolute_cap": c3_passed}`
+    """
+    out: Dict[str, Set[str]] = {}
+    for n in ast.walk(tree):
+        if not isinstance(n, ast.Dict):
+            continue
+        keys = _dict_str_keys(n)
+        name_node = keys.get("name")
+        if isinstance(name_node, ast.Constant) and isinstance(name_node.value, str):
+            for value_key in ("passed", "value", "met"):
+                v = keys.get(value_key)
+                if isinstance(v, ast.Name):
+                    out.setdefault(v.id, set()).add(name_node.value)
+        for k, v in keys.items():
+            if isinstance(v, ast.Name) and _ROUTE_REASON_ACCEPTANCE_KEY_RE.match(k):
+                out.setdefault(v.id, set()).add(k)
+    return out
+
+
+def _route_reason_name_bindings(tree: ast.AST) -> Dict[str, ast.expr]:
+    """First `NAME = <expr>` binding per name -- used to resolve `rule_supported` once."""
+    out: Dict[str, ast.expr] = {}
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Assign) and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name):
+            out.setdefault(n.targets[0].id, n.value)
+    return out
+
+
+def _route_reason_conjunct_count(expr: ast.expr, binds: Dict[str, ast.expr], depth: int = 0) -> int:
+    """AND-conjuncts of a guard, resolving ONE level through a bound name.
+
+    `bool(...)` is transparent. A `not X` is one conjunct: negating a criterion is the
+    single-cause shape this lint must NOT fire on.
+    """
+    if isinstance(expr, ast.Call) and len(expr.args) == 1 and _call_name(expr) == "bool":
+        return _route_reason_conjunct_count(expr.args[0], binds, depth)
+    if isinstance(expr, ast.UnaryOp) and isinstance(expr.op, ast.Not):
+        return 1
+    if isinstance(expr, ast.BoolOp) and isinstance(expr.op, ast.And):
+        return sum(_route_reason_conjunct_count(v, binds, depth) for v in expr.values)
+    if isinstance(expr, ast.Name) and depth == 0 and expr.id in binds:
+        return _route_reason_conjunct_count(binds[expr.id], binds, 1)
+    return 1
+
+
+def _route_reason_guard_names(expr: ast.expr, binds: Dict[str, ast.expr]) -> Set[str]:
+    """Name leaves of a guard, plus those of its one-level binding expansion."""
+    direct = {s.id for s in ast.walk(expr) if isinstance(s, ast.Name)}
+    out = set(direct)
+    for nm in direct:
+        v = binds.get(nm)
+        if v is not None:
+            out |= {s.id for s in ast.walk(v) if isinstance(s, ast.Name)}
+    return out
+
+
+def route_reason_consistency_lint(path: Path) -> Optional[str]:
+    """Fall-through `route_reason` naming one criterion of a multi-criterion gate.
+
+    Fires when ALL:
+      (1) an `if/.../else` chain has a bare terminal `else` that assigns a STRING
+          LITERAL to `route_reason` or `readiness_route` (a conditional expression is
+          the correct shape and never fires);
+      (2) the chain's LAST test is, or resolves one level through a `NAME = bool(...)`
+          binding to, an AND-conjunction of >=2 conjuncts -- so the `else` has >=2
+          distinct possible causes;
+      (3) >=2 of that guard's names are bound to DECLARED criterion names by the
+          driver's own criterion dicts or acceptance map;
+      (4) the literal overlaps exactly ONE of those criteria by >=2 content tokens,
+          strictly more than every other -- i.e. it singles that criterion out.
+
+    Never blocking. See the block comment for the measured funnel, the exemption, and
+    the confirmed instance this deliberately does NOT catch (v3_exq_467e's reason is
+    false at the STATISTIC level, which no static scan can see).
+    """
+    try:
+        src = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    if _ROUTE_REASON_CONSISTENCY_EXEMPT_MARKER in src:
+        return None
+    # Cheap substring pre-filter BEFORE any tree work: only 79 of the 1344-driver corpus
+    # mention a reason variable at all. A source without the literal name cannot have a
+    # matching assignment target, so this cannot change any verdict.
+    if not any(v in src for v in _ROUTE_REASON_VARS):
+        return None
+    try:
+        tree = ast.parse(src, filename=str(path))
+    except SyntaxError:
+        return None
+
+    binds = _route_reason_name_bindings(tree)
+    crit_names = _route_reason_criterion_names(tree)
+    if not crit_names:
+        return None
+
+    # An `elif` is itself an `ast.If`, and `ast.walk` visits it independently -- walking
+    # every If would report the same terminal `else` once per branch of the chain. Only
+    # the OUTERMOST If of each chain is considered.
+    inner: Set[int] = set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.If) and len(n.orelse) == 1 and isinstance(n.orelse[0], ast.If):
+            inner.add(id(n.orelse[0]))
+
+    findings: List[Tuple[int, str, str, str, List[str]]] = []
+    seen_lines: Set[int] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.If) or id(node) in inner:
+            continue
+        tests, orelse = _route_reason_chain(node)
+        if not orelse or isinstance(orelse[0], ast.If):
+            continue
+        assigns = _route_reason_literal_assigns(orelse)
+        if not assigns:
+            continue
+        guard = tests[-1]
+        if _route_reason_conjunct_count(guard, binds) < 2:
+            continue
+        # A guard spelled as one name (`elif rule_supported:`) contributes that name to its
+        # own leaf set. It is the AGGREGATE, not a peer criterion that can fail alongside
+        # the others, so it is excluded -- otherwise the message lists the conjunction
+        # itself among the causes of its own falsity.
+        aggregate = guard.id if isinstance(guard, ast.Name) and guard.id in binds else None
+        guarded = sorted(n for n in _route_reason_guard_names(guard, binds)
+                         if n in crit_names and n != aggregate)
+        if len(guarded) < 2:
+            continue
+        for var, (literal, lineno) in sorted(assigns.items()):
+            if lineno in seen_lines:
+                continue
+            lit_tokens = _route_reason_tokens(literal)
+            if not lit_tokens:
+                continue
+            scores = {
+                cv: max((len(lit_tokens & _route_reason_tokens(nm)) for nm in crit_names[cv]),
+                        default=0)
+                for cv in guarded
+            }
+            top = max(scores.values())
+            if top < 2:
+                continue
+            winners = [cv for cv, s in scores.items() if s == top]
+            if len(winners) != 1:
+                continue
+            others = [cv for cv in guarded if cv != winners[0]]
+            seen_lines.add(lineno)
+            findings.append((lineno, var, literal, winners[0], others))
+
+    if not findings:
+        return None
+
+    parts = []
+    for lineno, var, literal, winner, others in findings:
+        parts.append(
+            f"line {lineno}: `{var} = {literal!r}` singles out `{winner}`, but the "
+            f"fall-through is also reached when any of {others} fails"
+        )
+    where = "; ".join(parts)
+    return (
+        f"hardcodes a route_reason on the FALL-THROUGH of a multi-criterion gate -- "
+        f"{where}. The `else` is reached when ANY conjunct fails, so this reason is "
+        f"factually WRONG on every branch except the one it names, and governance and "
+        f"failure-autopsy sessions read route_reason as the driver's own account of the "
+        f"verdict. Confirmed on V3-EXQ-935, which emitted "
+        f"'no_common_normalised_rule_outperformed_the_best_absolute_cap' while its own "
+        f"manifest recorded acceptance.c3_beats_best_absolute_cap = true -- only C1 had "
+        f"failed. Fix by DERIVING the reason from the criteria that actually failed "
+        f"(e.g. join the names of the false conjuncts), or by naming the disjunction "
+        f"generically ('criteria_unmet'); a conditional expression per criterion is the "
+        f"correct shape and never fires here. Do NOT retro-edit a LANDED driver whose "
+        f"run is complete -- that falsifies provenance; queue the fix on the next EXQ "
+        f"letter and adjudicate the RESULT, as the confirmed 935 autopsy did. Exempt "
+        f"with {_ROUTE_REASON_CONSISTENCY_EXEMPT_MARKER} = \"<reason>\" when the other "
+        f"conjuncts are preconditions already routed away above, so the named criterion "
+        f"really is the only one that can fail on this branch."
+    )
+
+
 def _candidate_paths(paths: Sequence[str]) -> List[Path]:
     if paths:
         return [Path(p).resolve() for p in paths]
@@ -6160,6 +6478,7 @@ def main() -> int:
     zworld_p0_warmup_warnings: List[Tuple[Path, str]] = []
     fishtank_episode_log_seeds_warnings: List[Tuple[Path, str]] = []
     disjunctive_criteria_load_bearing_warnings: List[Tuple[Path, str]] = []
+    route_reason_consistency_warnings: List[Tuple[Path, str]] = []
     for p in paths:
         rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
         if "conformance" in selected:
@@ -6362,6 +6681,15 @@ def main() -> int:
                 # phrase-matching on prose, so it is under-firing by construction, and the
                 # landed 927/928 carriers' runs are complete and already adjudicated).
                 disjunctive_criteria_load_bearing_warnings.append((p, dclb))
+        if "route_reason_consistency" in selected:
+            rrc = route_reason_consistency_lint(p)
+            if rrc:
+                # WARN-only in BOTH modes -- see route_reason_consistency_lint() for why
+                # this one never hardens under --paths (a reason assembled by f-string or
+                # a guard whose conjuncts are not bound to named criteria is invisible to
+                # the static scan, and the landed carrier's run is complete -- retro-editing
+                # it would falsify provenance).
+                route_reason_consistency_warnings.append((p, rrc))
 
     print("", flush=True)
     print(f"[validate_experiments] checked {len(paths)} scripts: "
@@ -6391,8 +6719,27 @@ def main() -> int:
           f"{len(zworld_p0_warmup_warnings)} zworld_p0-warmup-warning(s), "
           f"{len(fishtank_episode_log_seeds_warnings)} fishtank-episode_log-seeds-warning(s), "
           f"{len(disjunctive_criteria_load_bearing_warnings)} "
-          f"disjunctive-criteria-load_bearing-warning(s)",
+          f"disjunctive-criteria-load_bearing-warning(s), "
+          f"{len(route_reason_consistency_warnings)} route_reason-consistency-warning(s)",
           flush=True)
+    if route_reason_consistency_warnings:
+        # Advisory in BOTH modes (never hardens). A fire here means the driver hardcodes
+        # `route_reason` on the FALL-THROUGH `else` of a gate that is a conjunction of >=2
+        # criteria, so the emitted reason names ONE of >=2 possible causes and is factually
+        # wrong on the others. Confirmed on V3-EXQ-935 (2026-08-17), whose manifest recorded
+        # `acceptance.c3_beats_best_absolute_cap = true` while its route_reason asserted C3
+        # had failed -- only C1 had. Governance and failure-autopsy sessions read
+        # route_reason as the driver's own account of its verdict, so a false one misroutes
+        # the follow-on build. Triage each: derive the reason from the conjuncts that
+        # actually came out false, or name the disjunction generically. Do NOT retro-edit a
+        # LANDED driver whose run is complete -- adjudicate the RESULT and fix on the next
+        # EXQ letter, as the confirmed 935 autopsy did.
+        print("", flush=True)
+        print("[validate_experiments] ROUTE_REASON-CONSISTENCY WARNINGS "
+              "(advisory, non-blocking):", flush=True)
+        for p, warn in route_reason_consistency_warnings:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
+            print(f"  - {rel}: {warn}", flush=True)
     if disjunctive_criteria_load_bearing_warnings:
         # Advisory in BOTH modes (never hardens). A fire here means the driver declares a
         # DISJUNCTIVE acceptance rule (">=1 arm clears") while tagging its per-member

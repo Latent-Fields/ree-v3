@@ -59,7 +59,26 @@ _PATH_LINTS = (
     ("zworld_p0_warmup_lint", V.zworld_p0_warmup_lint),
     ("fishtank_episode_log_seeds_lint", V.fishtank_episode_log_seeds_lint),
     ("disjunctive_criteria_load_bearing_lint", V.disjunctive_criteria_load_bearing_lint),
+    ("route_reason_consistency_lint", V.route_reason_consistency_lint),
 )
+
+# Lints that decide on the SOURCE TEXT and return before ever reaching `ast.parse`:
+# `disjunctive_criteria_load_bearing_lint` skips any file without the literal
+# `combination_rule` (44 of 1344 have it), `route_reason_consistency_lint` any file
+# without `route_reason`/`readiness_route` (79 of 1344). They therefore contribute
+# almost NO parse hits -- not because sharing degraded, but because they never need the
+# parse at all, which is strictly cheaper than reusing it (measured: the route_reason
+# scan is 1.14s over the corpus against 7.6-14.4s for the lints that do walk it).
+#
+# The hit floor below is "every path lint reuses the pre-registration parse", so these
+# two must be discounted from it or the guard penalises exactly the optimisation it
+# exists to encourage. This list is NOT free slack -- adding a name here asserts the lint
+# really does gate on `src` before `ast.parse`, and the per-lint MISS budget further down
+# is what still catches a lint that parses and does so wastefully.
+_SOURCE_PREFILTERED_LINTS = frozenset({
+    "disjunctive_criteria_load_bearing_lint",
+    "route_reason_consistency_lint",
+})
 
 
 # ---- (1) the cache's own semantics ---------------------------------------------------
@@ -242,13 +261,19 @@ def test_shared_scan_parses_each_file_once(corpus_scan):
     """
     assert corpus_scan.n_glob_files > 500, "corpus unexpectedly small -- check the walk"
     assert corpus_scan.n_rglob_files >= corpus_scan.n_glob_files
-    # N path-lints per driver, each of which must reuse the pre-registration parse.
-    # Ideal is len(_PATH_LINTS) hits per driver; one lint's worth of slack absorbs the
-    # helper-file evictions described above. Scale this with _PATH_LINTS rather than
-    # leaving it constant -- a fixed floor silently stops guarding the lints added since.
-    assert corpus_scan.parse_hits >= (len(_PATH_LINTS) - 1) * corpus_scan.n_glob_files, (
+    # N path-lints per driver, each of which must reuse the pre-registration parse --
+    # EXCEPT the source-pre-filtered ones, which never reach the parse at all and so
+    # contribute no hits (see `_SOURCE_PREFILTERED_LINTS`). Ideal is therefore one hit per
+    # parsing lint per driver; one further lint's worth of slack absorbs the helper-file
+    # evictions described above. Scale this with _PATH_LINTS rather than leaving it
+    # constant -- a fixed floor silently stops guarding the lints added since.
+    n_parsing_lints = len(_PATH_LINTS) - len(_SOURCE_PREFILTERED_LINTS)
+    assert _SOURCE_PREFILTERED_LINTS <= {name for name, _ in _PATH_LINTS}, (
+        "_SOURCE_PREFILTERED_LINTS names a lint that is not in _PATH_LINTS")
+    assert corpus_scan.parse_hits >= (n_parsing_lints - 1) * corpus_scan.n_glob_files, (
         f"parse sharing degraded: {corpus_scan.parse_hits} hits for "
-        f"{corpus_scan.n_glob_files} drivers -- the lints are re-parsing")
+        f"{corpus_scan.n_glob_files} drivers across {n_parsing_lints} parsing lints "
+        f"-- the lints are re-parsing")
 
     # The direct property: no lint re-parses the drivers it is handed. Indexing
     # `lint_parse_misses` by `_PATH_LINTS` also KeyErrors if the scan's lint set and

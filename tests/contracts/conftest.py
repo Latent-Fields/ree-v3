@@ -382,6 +382,7 @@ def scan_corpus() -> CorpusScan:
         ("zworld_p0_warmup_lint", V.zworld_p0_warmup_lint),
         ("fishtank_episode_log_seeds_lint", V.fishtank_episode_log_seeds_lint),
         ("disjunctive_criteria_load_bearing_lint", V.disjunctive_criteria_load_bearing_lint),
+        ("route_reason_consistency_lint", V.route_reason_consistency_lint),
     )
 
     scan = CorpusScan()
