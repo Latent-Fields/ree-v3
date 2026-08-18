@@ -360,8 +360,52 @@ sys.exit(0 if paused else 1)
   PAUSED="true"
 fi
 
+# --- Dual-role arbitration (ree-cloud-4) ----------------------------------
+# This box holds BOTH roles: ree-runner and metaworker-dispatch. Until
+# 2026-08-18 they simply ran at the same time on 2 vCPU with no coordination in
+# either direction. metaworker_role_verdict.py decides which role owns the box,
+# recomputed from the queue file every tick and remembering nothing, so a
+# wrapper that dies mid-transition cannot strand the box in a phantom state.
+#
+# Neither direction ever kills work: a hand-over to the runner waits for
+# in-flight chips to DRAIN, and the runner is only ever stopped when it holds
+# no claim, so a running experiment always finishes.
+ROLE_STATE="dispatching"
+ROLE_SLOTS=""
+# In the UMBRELLA scripts/, not ree-v3, deliberately: this wrapper autosyncs
+# the umbrella every cycle, whereas nothing pulls ree-v3 on this box once the
+# runner is stopped -- which is precisely the state this script puts it in.
+# Same delivery-channel reasoning as the freshness gate above.
+VERDICT_SCRIPT="$REPO/scripts/metaworker_role_verdict.py"
+if [ "${REE_DUAL_ROLE:-0}" = "1" ] && [ -f "$VERDICT_SCRIPT" ]; then
+  _runner_active=0
+  systemctl is-active --quiet ree-runner 2>/dev/null && _runner_active=1
+  _v=$(/opt/local/bin/python3 "$VERDICT_SCRIPT" \
+        --queue "$REPO/ree-v3/experiment_queue.json" \
+        --machine "$LEASE_AFFINITY" \
+        --in-flight "$(count_alive_dispatches)" \
+        --runner-active "$_runner_active" 2>>"$LOG")
+  if [ -n "$_v" ]; then
+    ROLE_STATE=$(printf '%s' "$_v" | /opt/local/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["state"])' 2>/dev/null || echo dispatching)
+    _reason=$(printf '%s' "$_v" | /opt/local/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["reason"])' 2>/dev/null || echo "")
+    _start=$(printf '%s' "$_v" | /opt/local/bin/python3 -c 'import json,sys; print(int(json.load(sys.stdin)["start_runner"]))' 2>/dev/null || echo 0)
+    _stop=$(printf '%s' "$_v" | /opt/local/bin/python3 -c 'import json,sys; print(int(json.load(sys.stdin)["stop_runner"]))' 2>/dev/null || echo 0)
+    echo "[$(ts)] role: $ROLE_STATE -- $_reason" >> "$LOG"
+    if [ "$_start" = "1" ]; then
+      sudo -n systemctl start ree-runner >>"$LOG" 2>&1 \
+        && echo "[$(ts)] role: started ree-runner (drain complete)" >> "$LOG"
+    fi
+    if [ "$_stop" = "1" ]; then
+      # Safe by construction: the verdict only requests this when the runner
+      # holds NO claim, so nothing is interrupted.
+      sudo -n systemctl stop ree-runner >>"$LOG" 2>&1 \
+        && echo "[$(ts)] role: stopped ree-runner (holds no claim)" >> "$LOG"
+    fi
+  fi
+fi
+
 # Refresh the scaler veto BEFORE the (potentially 25-minute) claude launch.
-emit_heartbeat "dispatching" "cycle $CYCLE starting"
+emit_heartbeat "$ROLE_STATE" "cycle $CYCLE ($ROLE_STATE)"
 
 # Lease follows DEMAND, not mere liveness -- the same test the scaler applies to
 # the heartbeat (read_orchestrator): live workers, or backlog this box would pick
@@ -385,6 +429,13 @@ fi
 if [ "$PAUSED" = "true" ]; then
   echo "[$(ts)] cycle $CYCLE: coordination plane paused, skipping dispatch" >> "$LOG"
   STATE="paused"
+elif [ "$ROLE_STATE" != "dispatching" ]; then
+  # The runner owns the box (or is about to). Skip the claude launch entirely
+  # rather than starting a cycle that would compute available_slots = 0 anyway
+  # -- that saves a whole model invocation per tick for the whole time the box
+  # is running experiments, which on a deep queue is hours.
+  echo "[$(ts)] cycle $CYCLE: role=$ROLE_STATE, not dispatching this cycle" >> "$LOG"
+  STATE="$ROLE_STATE"
 elif [ "$LIVE_CLAUDE" -ge "$MAX_CLAUDE_SESSIONS" ] || [ "$AVAIL_MB" -lt "$MIN_AVAIL_MB" ]; then
   echo "[$(ts)] cycle $CYCLE: THROTTLED -- claude sessions=$LIVE_CLAUDE/$MAX_CLAUDE_SESSIONS, MemAvailable=${AVAIL_MB}MB (floor ${MIN_AVAIL_MB}MB); skipping dispatch" >> "$LOG"
   STATE="throttled"
