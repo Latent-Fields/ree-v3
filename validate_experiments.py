@@ -45,6 +45,7 @@ CHECK_NAMES = ("conformance", "readiness", "arm_fingerprint", "degeneracy", "man
                "action_object_selection", "spearman_guard_shape",
                "dead_z_goal_stream", "hardcoded_dry_run", "emit_outcome_dry_run",
                "write_pack_dry_run", "dry_run_unreachable_criterion",
+               "dry_run_sweep_excludes_keyed_point",
                "config_slice_declaration", "inert_salience_dacc_bias",
                "dacc_last_bundle", "agent_seed_order", "zworld_p0_warmup",
                "fishtank_episode_log_seeds", "disjunctive_criteria_load_bearing",
@@ -3429,6 +3430,290 @@ def dry_run_unreachable_criterion_lint(path: Path) -> Optional[str]:
     )
 
 
+_DRY_RUN_SWEPT_POINT_EXEMPT_MARKER = "DRY_RUN_SWEPT_POINT_EXEMPT"
+_POINT_EPS = 1e-9
+_SLICE_UNRESOLVED = object()
+
+
+def _module_list_constants(tree: ast.AST) -> Dict[str, List[float]]:
+    """Module-level `NAME = [<numeric literals>]` bindings (list or tuple, plain or
+    annotated assignment), >=2 elements. Values, in source order, as floats."""
+    out: Dict[str, List[float]] = {}
+    for st in getattr(tree, "body", []):
+        target = value = None
+        if (isinstance(st, ast.Assign) and len(st.targets) == 1
+                and isinstance(st.targets[0], ast.Name)):
+            target, value = st.targets[0], st.value
+        elif isinstance(st, ast.AnnAssign) and isinstance(st.target, ast.Name) and st.value is not None:
+            target, value = st.target, st.value
+        if target is None or not isinstance(value, (ast.List, ast.Tuple)):
+            continue
+        vals: List[float] = []
+        ok = True
+        for elt in value.elts:
+            if (isinstance(elt, ast.Constant) and isinstance(elt.value, (int, float))
+                    and not isinstance(elt.value, bool)):
+                vals.append(float(elt.value))
+            else:
+                ok = False
+                break
+        if ok and len(vals) >= 2:
+            out[target.id] = vals
+    return out
+
+
+def _module_numeric_constants(tree: ast.AST) -> Dict[str, float]:
+    """Module-level `NAME = <int-or-float literal>` bindings (plain or annotated
+    assignment), as floats."""
+    out: Dict[str, float] = {}
+    for st in getattr(tree, "body", []):
+        target = value = None
+        if (isinstance(st, ast.Assign) and len(st.targets) == 1
+                and isinstance(st.targets[0], ast.Name)):
+            target, value = st.targets[0], st.value
+        elif isinstance(st, ast.AnnAssign) and isinstance(st.target, ast.Name) and st.value is not None:
+            target, value = st.target, st.value
+        if target is None:
+            continue
+        if (isinstance(value, ast.Constant) and isinstance(value.value, (int, float))
+                and not isinstance(value.value, bool)):
+            out[target.id] = float(value.value)
+    return out
+
+
+def _slice_int_bound(node: Optional[ast.AST]):
+    """An int slice bound (constant, possibly unary-negated), `None` for an absent
+    bound (Python's own "use the default" value), or `_SLICE_UNRESOLVED` when the
+    bound is present but not a resolvable literal."""
+    if node is None:
+        return None
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+        v = _int_const(node.operand)
+        return -v if v is not None else _SLICE_UNRESOLVED
+    v = _int_const(node)
+    return v if v is not None else _SLICE_UNRESOLVED
+
+
+def _static_slice(values: List[float], sl: ast.Slice) -> Optional[List[float]]:
+    """`values[sl]` computed statically, or None when a bound isn't a resolvable
+    literal int (a runtime-computed bound is a different, unscannable shape)."""
+    lo = _slice_int_bound(sl.lower)
+    hi = _slice_int_bound(sl.upper)
+    step = _slice_int_bound(sl.step)
+    if _SLICE_UNRESOLVED in (lo, hi, step):
+        return None
+    return values[lo:hi:step]
+
+
+def _dry_sliced_sweep_subscripts(tree: ast.AST, sweep_names: Set[str]
+                                  ) -> List[Tuple[ast.Subscript, int]]:
+    """`SWEEP[<slice>]` subscripts, for SWEEP in sweep_names, that appear in the branch
+    taken when dry_run is truthy -- the ternary `... if dry_run else ...` and
+    `if dry_run: ...`. Returns (subscript, dry-test lineno) pairs. A single-index
+    subscript (`SWEEP[0]`) is not a slice and never matches -- that shape picks one
+    element rather than taking a subset, so it cannot exclude a point by construction."""
+    out: List[Tuple[ast.Subscript, int]] = []
+
+    def is_sweep_slice(node: ast.AST) -> bool:
+        return (isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name)
+                and node.value.id in sweep_names and isinstance(node.slice, ast.Slice))
+
+    for n in ast.walk(tree):
+        if isinstance(n, ast.IfExp) and _mentions_dry(n.test):
+            branch = n.orelse if _is_negated_test(n.test) else n.body
+            for sub in ast.walk(branch):
+                if is_sweep_slice(sub):
+                    out.append((sub, n.lineno))
+        elif isinstance(n, ast.If) and _mentions_dry(n.test):
+            dry_body = n.orelse if _is_negated_test(n.test) else n.body
+            for st in dry_body:
+                for sub in ast.walk(st):
+                    if is_sweep_slice(sub):
+                        out.append((sub, n.lineno))
+    return out
+
+
+def _point_is_keyed(tree: ast.AST, point_name: str) -> bool:
+    """Best-effort: is `point_name` used as a selection key anywhere -- an equality
+    comparison, or the tolerance-comparison idiom `abs(<expr with point_name>) < eps`
+    (the float-equality workaround the corpus specimen uses:
+    `is_r_star = abs(float(r) - R_STAR) < 1e-9`). This is what separates a genuinely
+    load-bearing pre-registered point -- used to pick ONE cell out of a swept axis --
+    from an unrelated module scalar that happens to numerically coincide with a sweep
+    element."""
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Compare) and len(node.ops) == 1):
+            continue
+        names_here = {nm.id for nm in ast.walk(node) if isinstance(nm, ast.Name)}
+        if point_name not in names_here:
+            continue
+        op = node.ops[0]
+        if isinstance(op, ast.Eq):
+            return True
+        if (isinstance(op, (ast.Lt, ast.LtE)) and isinstance(node.left, ast.Call)
+                and _call_name(node.left) == "abs"):
+            return True
+    return False
+
+
+def dry_run_sweep_excludes_keyed_point_lint(path: Path) -> Optional[str]:
+    """A swept axis is sliced down for --dry-run and the slice drops the ONE point a
+    load-bearing criterion is keyed on. Issue string, or None.
+
+    Sibling of dry_run_unreachable_criterion_lint() above -- same failure FAMILY (a
+    --dry-run smoke silently starves a criterion, which then reports a structural
+    absence as if it were a measurement) but a different AST SHAPE. That gate is about
+    an episode-INDEX loop bound shrinking past an absolute threshold; this one is about
+    a swept-AXIS list being sliced down so a specific pre-registered element falls out
+    of the subset. Kept as a separate function rather than folded into that one: the
+    two share no AST pattern (range-loop-with-threshold vs. list-slice-with-membership)
+    and conflating them would make one docstring describe two unrelated shapes.
+
+    Fires when ALL of:
+      (1) the script has a smoke path -- an argparse `--dry-run` flag or a `dry_run`
+          function parameter -- AND actually gates work on it. Same precondition as the
+          three dry-run siblings, for the same reason: a flag that gates nothing is not
+          a smoke mode.
+      (2) a module-level name (plain or annotated assignment) is bound to a list/tuple
+          of >=2 numeric literals -- the swept axis.
+      (3) a module-level name (plain or annotated assignment) is bound to a single
+          numeric literal that is a MEMBER of that axis (within 1e-9) -- the
+          pre-registered point.
+      (4) inside the branch taken when dry_run is truthy, the axis name is SLICED
+          (`AXIS[:n]`, `AXIS[a:b:c]`, ...) with every present bound a resolvable literal
+          int, and the point from (3) is NOT a member of the resulting static subset.
+      (5) the point is KEYED elsewhere in the file -- used in an `==` comparison, or the
+          `abs(<expr> - POINT) < eps` tolerance idiom -- which is what makes it a
+          selection criterion rather than a scalar that merely happens to coincide with
+          an axis element.
+
+    Confirmed instance (V3-EXQ-935, 2026-08-16): the first smoke of
+    experiments/v3_exq_935_mech266_margin_normalised_cap_rule.py took
+    `r_values = R_SWEEP[:2] if dry_run else R_SWEEP` with
+    `R_SWEEP = [1.85, 2.05, 2.25, 2.45, 2.65]` and `R_STAR = 2.25` (the load-bearing
+    criterion C1's evaluation point, keyed via `is_r_star = abs(r - R_STAR) < 1e-9`).
+    `R_SWEEP[:2]` excludes R_STAR, so `occ_at_r_star` came back None and the smoke still
+    routed the `cap_recalibration_is_seed_idiosyncratic` VERDICT label -- the exact
+    "starved criterion read as a falsification" shape dry_run_unreachable_criterion_lint
+    exists for, arriving through a list-slice exclusion instead of a range-loop bound.
+    Fixed the same day by factoring the subset into a single-source-of-truth helper
+    (`_r_values(dry_run)`) that always includes R_STAR, and by adding an explicit
+    `r_star_measured` instrument-condition flag/route so an absent cell can never again
+    silently read as a graded negative.
+
+    Known limits, both directions, same class as the other static lints here:
+      - UNDER-fires when the axis or the point is assembled at runtime (not a module
+        literal), when the subset is built by a helper function rather than a bare
+        slice at the dry_run branch site (the FIXED shape above is exactly this -- by
+        design, so the fix itself never re-fires), when a slice bound is a name or
+        expression rather than a literal int, or when the point is keyed by something
+        other than `==`/tolerance-`abs` (e.g. `min(axis, key=lambda x: abs(x - POINT))`).
+      - OVER-fires when the point coincides with a sweep element by pure numeric
+        accident and is independently keyed for an unrelated reason (unobserved in the
+        corpus at authoring time; the keying precondition in (5) exists specifically to
+        bound this).
+
+    Exempt with DRY_RUN_SWEPT_POINT_EXEMPT = "<reason>" when the criterion is genuinely
+    not meant to be evaluable in a smoke.
+
+    Never blocking -- WARN-only in BOTH modes, same rationale as its siblings: the
+    static scan is best-effort in both directions, and a landed driver's run is
+    complete, so hardening would block commits on history rather than on the authoring
+    path.
+    """
+    try:
+        src = path.read_text(encoding="utf-8")
+        tree = ast.parse(src)
+    except (OSError, SyntaxError, UnicodeDecodeError):
+        return None
+    if _DRY_RUN_SWEPT_POINT_EXEMPT_MARKER in src:
+        return None
+
+    has_flag = has_param = gates_work = False
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Call):
+            nm = _call_name(n)
+            if nm == "add_argument":
+                for a in n.args:
+                    if isinstance(a, ast.Constant) and a.value in ("--dry-run", "--dry_run"):
+                        has_flag = True
+        elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if any(a.arg == "dry_run" for a in list(n.args.args) + list(n.args.kwonlyargs)):
+                has_param = True
+        if isinstance(n, (ast.If, ast.IfExp)) and _mentions_dry(n.test):
+            gates_work = True
+    if not ((has_flag or has_param) and gates_work):
+        return None
+
+    sweeps = _module_list_constants(tree)
+    if not sweeps:
+        return None
+    points = _module_numeric_constants(tree)
+    if not points:
+        return None
+
+    subs = _dry_sliced_sweep_subscripts(tree, set(sweeps))
+    if not subs:
+        return None
+
+    keyed_cache: Dict[str, bool] = {}
+
+    def is_keyed(name: str) -> bool:
+        if name not in keyed_cache:
+            keyed_cache[name] = _point_is_keyed(tree, name)
+        return keyed_cache[name]
+
+    findings: List[Tuple[int, str, str, str]] = []
+    seen: Set[Tuple[int, str]] = set()
+    for sub, lineno in subs:
+        sweep_name = sub.value.id
+        full = sweeps[sweep_name]
+        sliced = _static_slice(full, sub.slice)
+        if sliced is None:
+            continue
+        for point_name, point_val in points.items():
+            if not any(abs(point_val - x) < _POINT_EPS for x in full):
+                continue  # point isn't even part of this axis -- unrelated constant
+            if any(abs(point_val - x) < _POINT_EPS for x in sliced):
+                continue  # point survives the slice -- nothing excluded
+            if not is_keyed(point_name):
+                continue
+            key = (lineno, point_name)
+            if key in seen:
+                continue
+            seen.add(key)
+            try:
+                expr_text = ast.unparse(sub)
+            except Exception:
+                expr_text = f"{sweep_name}[...]"
+            findings.append((lineno, sweep_name, point_name, expr_text))
+
+    if not findings:
+        return None
+
+    parts = [f"line {lineno}: `{expr}` drops {sweep_name}'s pre-registered point "
+             f"`{point_name}`" for lineno, sweep_name, point_name, expr in findings]
+    where = "; ".join(parts)
+    return (
+        f"accepts --dry-run and slices a swept axis down for the smoke, but the slice "
+        f"excludes a point that a load-bearing criterion keys on -- {where}. Any cell "
+        f"that reads that point is therefore ABSENT under --dry-run, so the criterion is "
+        f"never evaluated in the smoke at all; if the driver still routes an ordinary "
+        f"pass/fail/verdict on that absence rather than an instrument-condition route "
+        f"(e.g. substrate_not_ready_requeue), a starved read is indistinguishable from a "
+        f"measured negative. Confirmed in the first smoke of V3-EXQ-935 "
+        f"(experiments/v3_exq_935_mech266_margin_normalised_cap_rule.py): its dry-run "
+        f"took R_SWEEP[:2] = [1.85, 2.05], which excludes R_STAR = 2.25, so "
+        f"occ_at_r_star came back None and the smoke still routed the "
+        f"cap_recalibration_is_seed_idiosyncratic VERDICT label. Fix by making the "
+        f"dry-run subset a single source of truth that always includes the keyed point "
+        f"(a small helper, e.g. `[SWEEP[0], POINT]`), or exclude the criterion from the "
+        f"smoke explicitly. Exempt with {_DRY_RUN_SWEPT_POINT_EXEMPT_MARKER} = "
+        f"\"<reason>\" when the criterion is genuinely not meant to be evaluable in a "
+        f"smoke. Do NOT retro-edit a LANDED driver whose run is complete."
+    )
+
+
 # ---- config_slice under-declaration (V3-EXQ-798) -------------------------------------
 # arm_reuse_fingerprint_plan.md section 7b: a `config_slice` that UNDER-approximates --
 # omits a parameter the cell's RECORDED READOUTS depend on -- is a false-cache-HIT bug.
@@ -6471,6 +6756,7 @@ def main() -> int:
     emit_outcome_dry_run_warnings: List[Tuple[Path, str]] = []
     write_pack_dry_run_warnings: List[Tuple[Path, str]] = []
     dry_unreachable_criterion_warnings: List[Tuple[Path, str]] = []
+    dry_sweep_excludes_point_warnings: List[Tuple[Path, str]] = []
     config_slice_warnings: List[Tuple[Path, str]] = []
     inert_dacc_bias_warnings: List[Tuple[Path, str]] = []
     dacc_last_bundle_warnings: List[Tuple[Path, str]] = []
@@ -6620,6 +6906,15 @@ def main() -> int:
                 # landed carriers' runs are complete, so hardening would block commits on
                 # history).
                 dry_unreachable_criterion_warnings.append((p, duc))
+        if "dry_run_sweep_excludes_keyed_point" in selected:
+            dsp = dry_run_sweep_excludes_keyed_point_lint(p)
+            if dsp:
+                # WARN-only in BOTH modes -- see dry_run_sweep_excludes_keyed_point_lint()
+                # for why this one never hardens under --paths (a subset built by a helper
+                # function rather than a bare slice at the dry_run site is invisible to
+                # the static scan, and the landed carrier's run is complete, so hardening
+                # would block commits on history).
+                dry_sweep_excludes_point_warnings.append((p, dsp))
         if "config_slice_declaration" in selected:
             csd = config_slice_under_declaration_lint(p)
             if csd:
@@ -6712,6 +7007,7 @@ def main() -> int:
           f"{len(emit_outcome_dry_run_warnings)} emit_outcome-dry_run-warning(s), "
           f"{len(write_pack_dry_run_warnings)} write_pack-dry_run-warning(s), "
           f"{len(dry_unreachable_criterion_warnings)} dry_run-unreachable-criterion-warning(s), "
+          f"{len(dry_sweep_excludes_point_warnings)} dry_run-sweep-excludes-keyed-point-warning(s), "
           f"{len(config_slice_warnings)} config_slice-declaration-warning(s), "
           f"{len(inert_dacc_bias_warnings)} inert-salience-dacc_bias-warning(s), "
           f"{len(dacc_last_bundle_warnings)} dacc-_last_bundle-warning(s), "
@@ -6860,6 +7156,24 @@ def main() -> int:
         print("", flush=True)
         print("[validate_experiments] DRY_RUN-UNREACHABLE-CRITERION WARNINGS (advisory, non-blocking):", flush=True)
         for p, warn in dry_unreachable_criterion_warnings:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
+            print(f"  - {rel}: {warn}", flush=True)
+    if dry_sweep_excludes_point_warnings:
+        # Advisory in BOTH modes (never hardens). A fire here means the driver's
+        # --dry-run smoke slices a swept axis down and the slice drops the ONE point a
+        # load-bearing criterion is keyed on, so any cell that reads that point is
+        # ABSENT in the smoke and the criterion is never evaluated at all -- see
+        # dry_run_sweep_excludes_keyed_point_lint() for the confirmed V3-EXQ-935
+        # instance. Triage each: factor the dry-run subset into a single source of
+        # truth that always includes the keyed point, or exclude the criterion from
+        # the smoke explicitly. A driver whose subset is genuinely not meant to reach
+        # that point should carry DRY_RUN_SWEPT_POINT_EXEMPT rather than be left to
+        # re-fire. Do NOT retro-edit a LANDED driver whose run is complete -- adjudicate
+        # the affected RESULT instead.
+        print("", flush=True)
+        print("[validate_experiments] DRY_RUN-SWEEP-EXCLUDES-KEYED-POINT WARNINGS "
+              "(advisory, non-blocking):", flush=True)
+        for p, warn in dry_sweep_excludes_point_warnings:
             rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
             print(f"  - {rel}: {warn}", flush=True)
     if write_pack_dry_run_warnings:
