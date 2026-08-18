@@ -102,6 +102,15 @@ DEFAULTS = {
     # cleaning up, the worker is protected for at most this long and then
     # returns to normal auto-shutdown. Do NOT raise this casually.
     "PYTEST_LEASE_MAX_MIN": 30,
+    # Orchestrator veto (see read_orchestrator). A scaler-managed box that is
+    # ALSO running metaworker-dispatch writes an orchestrator-role heartbeat
+    # under "<affinity>-metaworker"; while that heartbeat is fresh, the box is
+    # doing real work the queue-derived signals cannot see, exactly like the
+    # pytest lease. Same billing shape as PYTEST_LEASE_MAX_MIN: this is a MAX
+    # AGE, so a metaworker that dies stops vetoing within this window and the
+    # box returns to normal auto-shutdown. The dispatch timer ticks every 5
+    # minutes, so 20 tolerates three consecutive missed ticks before releasing.
+    "ORCHESTRATOR_FRESH_MIN": 20,
 }
 
 
@@ -429,6 +438,52 @@ def announce_shutdown(affinity, announce_script, dry_run=False):
             "(%r) (proceeding)" % (affinity, exc))
 
 
+def read_orchestrator(heartbeats_dir, affinity, fresh_min, now=None):
+    """Return (active: bool, reason: str) for a co-resident metaworker.
+
+    A box can run experiments AND metaworker-dispatch. The dispatch work is
+    invisible to every signal this scaler already has -- it creates no queue
+    claim and no runner heartbeat -- so without this veto the box reads as
+    clean_idle and is shut down mid-cycle, killing live `claude -p` workers.
+    Confirmed live 2026-08-18: ree-worker-4 was powered on for exactly this
+    trial and shut down 4 minutes later (reason=clean_idle lease=none).
+
+    The orchestrator heartbeat is written under its OWN machine identity
+    ("<affinity>-metaworker") rather than into <affinity>.json. That is
+    deliberate: serve.py's read_machines() keys rows by canonical machine and
+    merges by freshness, so a runner heartbeat and an orchestrator heartbeat
+    sharing one name would collapse into a single card flip-flopping between
+    two schemas. Separate identities render as two cards -- which is also the
+    honest picture of a box doing two jobs.
+
+    FAILS OPEN in every direction (missing dir, missing file, unreadable,
+    unparseable, no timestamp, stale): no veto. A broken detector must degrade
+    to the pre-veto behaviour, never to a box that can't be shut down.
+    """
+    if now is None:
+        now = datetime.now(timezone.utc)
+    path = os.path.join(heartbeats_dir, "%s-metaworker.json" % affinity)
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            hb = json.load(fh)
+    except FileNotFoundError:
+        return False, "no_orchestrator"
+    except Exception as exc:  # noqa: BLE001
+        return False, "orchestrator_unreadable(%s)" % type(exc).__name__
+    if not isinstance(hb, dict):
+        return False, "orchestrator_not_object"
+    if hb.get("role") != "orchestrator":
+        return False, "orchestrator_role_mismatch"
+    tick = parse_utc(hb.get("last_tick_utc"))
+    if tick is None:
+        return False, "orchestrator_no_tick"
+    age_min = (now - tick).total_seconds() / 60.0
+    if age_min > fresh_min:
+        return False, "orchestrator_stale(%dmin>%dmin)" % (age_min, fresh_min)
+    return True, "orchestrator_active state=%s in_flight=%s age=%dmin" % (
+        hb.get("state"), hb.get("in_flight_dispatches"), age_min)
+
+
 def read_lease(lease_dir, affinity, max_lease_min, now=None):
     """Return (held: bool, reason: str) for a non-queue work lease.
 
@@ -490,6 +545,7 @@ def run_once(queue_path, heartbeats_dir, announce_script,
              hub_name, workers, dry_run=False,
              coordinator_url=None, coordinator_token=None,
              lease_dir=None, max_lease_min=None,
+             orchestrator_fresh_min=None,
              clear_fence_script=None):
     """One pass over the WORKERS list. Mirrors the bash for-loop body
     one-to-one. Returns 0 on success."""
@@ -499,6 +555,8 @@ def run_once(queue_path, heartbeats_dir, announce_script,
         lease_dir = DEFAULTS["PYTEST_LEASE_DIR"]
     if max_lease_min is None:
         max_lease_min = DEFAULTS["PYTEST_LEASE_MAX_MIN"]
+    if orchestrator_fresh_min is None:
+        orchestrator_fresh_min = DEFAULTS["ORCHESTRATOR_FRESH_MIN"]
     queue = load_queue(queue_path)
     if queue is None:
         return 1
@@ -536,6 +594,8 @@ def run_once(queue_path, heartbeats_dir, announce_script,
         held_by_self = count_held_by_self(queue, affinity)
         lease_held, lease_reason = read_lease(
             lease_dir, affinity, max_lease_min)
+        orch_active, orch_reason = read_orchestrator(
+            heartbeats_dir, affinity, orchestrator_fresh_min)
         coord_row = coord_status.get(affinity)
         idle_ok, idle_reason = evaluate_heartbeat(
             heartbeats_dir, affinity, idle_grace_min, heartbeat_fresh_min,
@@ -549,10 +609,11 @@ def run_once(queue_path, heartbeats_dir, announce_script,
         worker_held[affinity] = held_by_self
 
         log("[%s affinity=%s] claimable=%d held_by_self=%d status=%s "
-            "idle_ok=%d reason=%s hb_src=%s lease=%s"
+            "idle_ok=%d reason=%s hb_src=%s lease=%s orch=%s"
             % (server_name, affinity, claimable, held_by_self, status,
                idle_ok, idle_reason, hb_src,
-               "held" if lease_held else "none"))
+               "held" if lease_held else "none",
+               "active" if orch_active else "none"))
 
         if status == "unknown":
             log("  -> server not provisioned yet, skipping")
@@ -608,6 +669,15 @@ def run_once(queue_path, heartbeats_dir, announce_script,
             # 2026-05-30 fleet incident guard.
             log("  -> worker holds %d active claim(s), keeping %s running"
                 % (held_by_self, server_name))
+
+        elif orch_active and status == "running":
+            # ORCHESTRATOR VETO. This box is also running metaworker-dispatch,
+            # which creates no queue claim and no runner heartbeat -- so every
+            # other signal here reads clean_idle while live `claude -p` workers
+            # are mid-flight. Bounded by ORCHESTRATOR_FRESH_MIN, so a dead
+            # metaworker stops vetoing rather than pinning the box forever.
+            log("  -> %s is running metaworker-dispatch, keeping %s running "
+                "(%s)" % (affinity, server_name, orch_reason))
 
         elif lease_held and status == "running":
             # LEASE VETO. A worker doing non-queue work (remote pytest) is
@@ -726,6 +796,8 @@ def main(argv=None):
         or DEFAULTS["PYTEST_LEASE_DIR"],
         max_lease_min=env_int("PYTEST_LEASE_MAX_MIN",
                               DEFAULTS["PYTEST_LEASE_MAX_MIN"]),
+        orchestrator_fresh_min=env_int("ORCHESTRATOR_FRESH_MIN",
+                                       DEFAULTS["ORCHESTRATOR_FRESH_MIN"]),
     )
     return rc
 
