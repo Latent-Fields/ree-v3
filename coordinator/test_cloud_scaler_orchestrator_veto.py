@@ -53,7 +53,12 @@ class OrchestratorVetoTest(unittest.TestCase):
         self.tmp = tempfile.mkdtemp()
 
     def _read(self, affinity="ree-cloud-4"):
-        return cs.read_orchestrator(self.tmp, affinity, FRESH, now=NOW)
+        # coord_status is deliberately EMPTY here: this file pins the GIT
+        # FALLBACK path, which stayed byte-identical in judgement when the
+        # veto became coordinator-primary on 2026-08-19. The [:2] drops the
+        # transport-source label the 3-tuple added.
+        return cs.read_orchestrator(self.tmp, affinity, FRESH, now=NOW,
+                                    coord_status={})[:2]
 
     # ---------- positive ----------
     def test_live_workers_veto(self):
@@ -110,11 +115,15 @@ class OrchestratorVetoTest(unittest.TestCase):
     def test_no_file_does_not_veto(self):
         active, reason = self._read()
         self.assertFalse(active)
-        self.assertEqual(reason, "no_orchestrator")
+        # The reason string is now a JOIN of both transports' verdicts --
+        # coordinator first, git second -- so an operator reading the
+        # journal can see WHICH channel had nothing to say.
+        self.assertEqual(reason, "no_coordinator_snapshot; no_orchestrator")
 
     def test_missing_directory_does_not_veto(self):
         active, _ = cs.read_orchestrator(
-            os.path.join(self.tmp, "nope"), "ree-cloud-4", FRESH, now=NOW)
+            os.path.join(self.tmp, "nope"), "ree-cloud-4", FRESH, now=NOW,
+            coord_status={})[:2]
         self.assertFalse(active)
 
     def test_stale_heartbeat_does_not_veto(self):

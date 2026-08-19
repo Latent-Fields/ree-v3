@@ -5,7 +5,17 @@
 Description=Run ree-metaworker every 5 minutes
 
 [Timer]
-OnBootSec=5min
+# OnBootSec 5min -> 20s (2026-08-19,
+# chip-20260819-cloud4-orchestrator-veto-bootstrap-deadlock). This is the
+# window in which a freshly-woken box publishes NO orchestrator signal over
+# any transport, and cloud-scaler's veto fails open on absence -- so at 5min
+# the box was reliably shut down before its dispatcher had run even once
+# (measured: powered on ~16:45, killed 16:45:04Z, zero chips claimed). The
+# scaler's bounded wake hold is the guard that makes power-on survivable at
+# all; this shortens how much of that hold is actually needed, by getting the
+# first coordinator POST out within ~20s of boot instead of ~5min. Do not
+# raise it back without re-reading orchestrator_wake_hold() in cloud-scaler.py.
+OnBootSec=20s
 OnUnitActiveSec=5min
 AccuracySec=30s
 

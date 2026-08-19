@@ -155,8 +155,12 @@ class FixtureMixin:
     def assert_both(self, expected_veto, fresh_min=50):
         """Both transports must agree, and agree with `expected_veto`."""
         yaml_veto, yaml_reason = run_snippet(self.root, fresh_min=fresh_min)
+        # Empty coord_status forces the GIT path, which is the transport the
+        # GHA backstop has -- a GitHub-hosted runner cannot reach the
+        # WireGuard-only coordinator. Parity is asserted on the judgement of
+        # the same committed heartbeat, which is the thing that can drift.
         py_veto, py_reason = SCALER.read_orchestrator(
-            self.hb_dir, _AFFINITY, fresh_min)
+            self.hb_dir, _AFFINITY, fresh_min, coord_status={})[:2]
         self.assertEqual(
             bool(yaml_veto), bool(py_veto),
             "TRANSPORT DISAGREEMENT: workflow says veto=%s (%s), "
@@ -371,8 +375,87 @@ class ConstantParityTest(unittest.TestCase):
                          "WORKERS list drifted between transports")
 
 
+class OrchestratorAffinityParityTest(unittest.TestCase):
+    """ORCHESTRATOR_AFFINITIES is a CONFIG declaration that both transports
+    read. It must not drift -- a box declared on one side and not the other is
+    the same asymmetry that let the backstop power off a box the hub was
+    protecting (2026-08-19T01:39:26Z)."""
+
+    def _yaml_affinities(self):
+        m = re.search(r"^\s*ORCHESTRATOR_AFFINITIES:\s*(.+)$",
+                      WORKFLOW_SRC, re.M)
+        self.assertIsNotNone(
+            m, "the workflow must declare ORCHESTRATOR_AFFINITIES")
+        return set(m.group(1).split())
+
+    def test_declared_orchestrator_set_matches(self):
+        self.assertEqual(self._yaml_affinities(),
+                         set(SCALER.ORCHESTRATOR_AFFINITIES),
+                         "ORCHESTRATOR_AFFINITIES drifted between transports")
+
+    def test_the_set_is_not_empty(self):
+        """An empty set silently disables both the wake hold and the backstop
+        exclusion, restoring the exact 2026-08-19 failure with no error."""
+        self.assertTrue(SCALER.ORCHESTRATOR_AFFINITIES)
+
+    def test_declared_boxes_are_real_managed_workers(self):
+        """A typo'd affinity would match nothing and protect nothing."""
+        managed = {aff for _, aff, _ in SCALER.WORKERS}
+        for aff in SCALER.ORCHESTRATOR_AFFINITIES:
+            self.assertIn(aff, managed,
+                          "%s is declared an orchestrator but is not a "
+                          "scaler-managed worker" % aff)
+
+    def test_the_hub_is_never_declared_an_orchestrator(self):
+        """Negative control. The hub is skipped before any decision anyway,
+        but declaring it here would be a second, contradictory statement
+        about the one box the 2026-05-28 incident is about."""
+        self.assertNotIn("ree-cloud-1", SCALER.ORCHESTRATOR_AFFINITIES)
+
+
+class BackstopShutdownExclusionTest(unittest.TestCase):
+    """The GHA backstop holds NO shutdown authority over a declared
+    orchestrator box. This is the second deliberate divergence."""
+
+    def test_exclusion_branch_exists(self):
+        self.assertIn('"$IS_ORCHESTRATOR" = "1"', WORKFLOW_SRC)
+
+    def test_is_orchestrator_is_actually_computed(self):
+        """A branch on an always-empty variable is a no-op that reads as a
+        guard -- the vacuous-assertion shape this file exists to catch."""
+        self.assertIn("IS_ORCHESTRATOR=0", WORKFLOW_SRC)
+        self.assertIn("IS_ORCHESTRATOR=1", WORKFLOW_SRC)
+        self.assertIn("${ORCHESTRATOR_AFFINITIES}", WORKFLOW_SRC)
+
+    def test_exclusion_precedes_both_the_veto_and_the_shutdown_branch(self):
+        """Ordering IS the logic. Placed after ORCH_VETO it would only fire
+        when the git heartbeat already said 'idle and empty' -- i.e. never
+        when it matters, since that is precisely the state a stale git
+        heartbeat produces for a box that is actually busy."""
+        excl = WORKFLOW_SRC.index('"$IS_ORCHESTRATOR" = "1"')
+        veto = WORKFLOW_SRC.index('"$ORCH_VETO" = "1"')
+        shutdown = WORKFLOW_SRC.index(
+            '"$CLAIMABLE" -eq 0 ] && [ "$STATUS" = "running" ]')
+        self.assertLess(excl, veto)
+        self.assertLess(excl, shutdown)
+
+    def test_power_ON_authority_is_retained(self):
+        """Only the SHUTDOWN branch is withheld. The backstop must still be
+        able to start a box -- withholding that would make the backstop
+        useless for the surge case it exists to cover."""
+        excl = WORKFLOW_SRC.index('"$IS_ORCHESTRATOR" = "1"')
+        poweron = WORKFLOW_SRC.index('hcloud server poweron')
+        self.assertLess(poweron, excl,
+                        "the power-on branches must come before the "
+                        "orchestrator exclusion, or they become unreachable")
+
+    def test_header_documents_the_second_divergence(self):
+        self.assertIn("TWO divergences", WORKFLOW_SRC)
+        self.assertIn("COORDINATOR-PRIMARY", WORKFLOW_SRC)
+
+
 class DeliberateDivergenceTest(unittest.TestCase):
-    """The one divergence that is structural rather than drift."""
+    """The divergences that are structural rather than drift."""
 
     def test_lease_veto_absence_is_deliberate(self):
         """cloud-scaler.py's pytest lease veto reads a HUB-LOCAL directory

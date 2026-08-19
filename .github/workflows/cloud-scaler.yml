@@ -20,12 +20,24 @@ name: Cloud Worker Scaler
 # (reason=heartbeat_stale) while it was serving as the RESIDENT
 # metaworker-dispatch box with 2 dispatches in flight and 80 open chips; the
 # hub timer had correctly vetoed the same box minutes earlier. Nothing noticed
-# for ~15h. The orchestrator veto is now ported here (below). One divergence
-# REMAINS AND IS STRUCTURAL, not drift: the pytest lease veto reads
-# /home/ree/pytest_leases on the hub's own disk, which a GitHub-hosted runner
-# cannot see. That divergence is safe in the only direction that matters --
-# this backstop can shut a box down that the hub would have kept up, never the
-# reverse -- but it is why "1:1" must not be re-asserted without checking.
+# for ~15h. The orchestrator veto is now ported here (below). TWO divergences
+# REMAIN, both STRUCTURAL, not drift, and both for the same reason: this
+# workflow runs on a GitHub-hosted runner that cannot reach anything on the
+# hub's own disk or on the WireGuard mesh.
+#   (a) the pytest lease veto reads /home/ree/pytest_leases on the hub;
+#   (b) the hub timer's orchestrator veto is COORDINATOR-PRIMARY (2026-08-19)
+#       and its bootstrap wake hold reads hub-local state. Neither is
+#       reachable from here, so this path can only read the GIT heartbeat --
+#       the deliberately-stale channel that caused the 01:39Z shutdown above.
+#       The answer is NOT to trust it harder: this backstop simply holds no
+#       shutdown authority over a declared orchestrator box at all. See
+#       env.ORCHESTRATOR_AFFINITIES.
+# Divergence (a) is safe in the only direction that matters -- this backstop
+# can shut a box down that the hub would have kept up, never the reverse.
+# Divergence (b) is deliberately the OPPOSITE direction, and that asymmetry is
+# the point: for a box whose liveness only the fresh transport can see, the
+# stale transport must lose. Both are why "1:1" must not be re-asserted
+# without checking.
 # coordinator/test_cloud_scaler_transport_parity.py pins the vetoes that CAN
 # be shared, so the next one added to cloud-scaler.py fails a test rather than
 # silently killing a box.
@@ -109,6 +121,33 @@ env:
   # MUST stay equal to DEFAULTS["ORCHESTRATOR_FRESH_MIN"] in
   # coordinator/deploy/cloud-scaler.py; the parity test pins that.
   ORCHESTRATOR_FRESH_MIN: 50
+  # RESIDENT ORCHESTRATOR BOXES -- space-separated affinities on which
+  # metaworker-dispatch is installed. MUST stay equal to
+  # ORCHESTRATOR_AFFINITIES in coordinator/deploy/cloud-scaler.py; the parity
+  # test pins that.
+  #
+  # THIS BACKSTOP NEVER SHUTS THESE BOXES DOWN -- a DELIBERATE, DOCUMENTED
+  # DIVERGENCE from the hub timer, not drift, and the second such divergence
+  # after the pytest lease (see the header). The reason is transport, and it
+  # is the same reason this whole file was wrong on 2026-08-19:
+  #
+  #   The hub timer decides from the COORDINATOR (/shadow/status,
+  #   DB-authoritative, sub-second, and reachable only over WireGuard). A
+  #   GitHub-hosted runner cannot reach 10.8.0.1, so this path can only ever
+  #   read the GIT heartbeat -- the channel CLAUDE.md documents as
+  #   deliberately stale (state-change commits only, liveness tick retired).
+  #   It also cannot see the hub-local wake state that breaks the bootstrap
+  #   deadlock, so it cannot tell a BOOTING orchestrator from a dead one.
+  #
+  # On 2026-08-19T01:39:26Z this path powered ree-cloud-4 off with 2
+  # dispatches in flight and 80 open chips, on reason=heartbeat_stale, and
+  # nothing noticed for ~15h. A 6-hourly backstop reading the stale transport
+  # must not hold shutdown authority over a box whose liveness only the fresh
+  # transport can see. It keeps FULL power-ON authority; only the shutdown
+  # branch is withheld. The hub timer runs every ~5 minutes and remains fully
+  # authoritative for these boxes, including shutting them down when both
+  # planes are genuinely empty.
+  ORCHESTRATOR_AFFINITIES: ree-cloud-4
 
 jobs:
   scale:
@@ -301,6 +340,17 @@ jobs:
           ")
             ORCH_VETO=$(echo "$ORCH_INFO" | sed -n 's/^orch_veto=\([01]\) .*/\1/p')
 
+            # DECLARED-ORCHESTRATOR membership -- a standing CONFIG fact, never
+            # inferred from telemetry. Inferring it from "an orchestrator
+            # heartbeat exists" is exactly the inference that deadlocked: an
+            # OFF box publishes nothing, so it reads as "not an orchestrator"
+            # and gets powered off before it can ever publish. Word-boundary
+            # match so ree-cloud-4 never matches ree-cloud-40.
+            IS_ORCHESTRATOR=0
+            for _ORCH_AFF in ${ORCHESTRATOR_AFFINITIES}; do
+              if [ "$_ORCH_AFF" = "$AFFINITY" ]; then IS_ORCHESTRATOR=1; fi
+            done
+
             # Read heartbeat to decide whether the runner is genuinely idle.
             # idle_ok is "1" when:
             #   - heartbeat file exists and is fresh (last_tick_utc within HEARTBEAT_FRESH_MIN)
@@ -411,6 +461,15 @@ jobs:
               # claimed-and-not-completed beats every shutdown signal.
               # 2026-05-30 fleet incident guard.
               echo "  -> worker holds $HELD_BY_SELF active claim(s), keeping $SERVER_NAME running"
+            elif [ "$IS_ORCHESTRATOR" = "1" ] && [ "$STATUS" = "running" ]; then
+              # DECLARED ORCHESTRATOR BOX -- this backstop holds no shutdown
+              # authority here. See env.ORCHESTRATOR_AFFINITIES for why: this
+              # path can only read the git heartbeat and cannot see the
+              # coordinator row or the hub-local wake state, so it cannot
+              # distinguish a booting or a busy dispatcher from a dead one.
+              # Placed ABOVE the ORCH_VETO branch on purpose -- it must hold
+              # even when the git heartbeat says the box is idle and empty.
+              echo "  -> $AFFINITY is a declared orchestrator box; this backstop does not shut it down (hub cloud-scaler.timer is authoritative). orch=$ORCH_INFO"
             elif [ "$ORCH_VETO" = "1" ] && [ "$STATUS" = "running" ]; then
               # ORCHESTRATOR VETO. This box is also running metaworker-dispatch,
               # which creates no queue claim and no runner heartbeat -- so every
