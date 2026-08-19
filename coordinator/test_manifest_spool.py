@@ -7,7 +7,9 @@ Covers:
   - Unsafe run_id rejection (filesystem traversal defence).
   - Evidence-path derivation including manifest_relpath hint sanitisation.
   - sync_daemon.phase3_git_writer guards:
-      * Returns False when PHASE3_GIT_WRITER_READY is False (the default).
+      * Returns False when PHASE3_GIT_WRITER_READY is False (forced for
+        this test -- the real default is the post-cutover value, which
+        has been True since Phase 3 cut over 2026-05-29).
       * Returns False when the spool root is unset.
       * Returns True on an empty spool (idle-tick no-op).
       * Refuses to operate on a dirty REE_assembly working tree.
@@ -30,6 +32,14 @@ sys.path.insert(0, str(HERE))
 import manifest_spool  # noqa: E402
 import sync_daemon  # noqa: E402
 import db  # noqa: E402
+
+# Captured once at import time so every restore below puts the module
+# global back to its REAL value (True post-Phase-3-cutover, 2026-05-29),
+# not a stale hardcoded False. sync_daemon is cached in sys.modules for
+# the whole pytest process, so a literal `= False` restore here used to
+# leak into every OTHER test module collected afterward in the same
+# `pytest coordinator/` run.
+_ORIG_WRITER_READY = sync_daemon.PHASE3_GIT_WRITER_READY
 
 
 def _scratch_repo(tmpdir):
@@ -174,9 +184,12 @@ class WriterGuardsTest(unittest.TestCase):
         shutil.rmtree(self._tmp, ignore_errors=True)
 
     def test_refuses_when_writer_ready_flag_false(self):
-        self.assertFalse(sync_daemon.PHASE3_GIT_WRITER_READY)
-        self.assertFalse(sync_daemon.phase3_git_writer(
-            self._conn, self._queue, ree_assembly_path=self._tmp))
+        sync_daemon.PHASE3_GIT_WRITER_READY = False
+        try:
+            self.assertFalse(sync_daemon.phase3_git_writer(
+                self._conn, self._queue, ree_assembly_path=self._tmp))
+        finally:
+            sync_daemon.PHASE3_GIT_WRITER_READY = _ORIG_WRITER_READY
 
     def test_refuses_when_spool_unset(self):
         sync_daemon.PHASE3_GIT_WRITER_READY = True
@@ -184,7 +197,7 @@ class WriterGuardsTest(unittest.TestCase):
             self.assertFalse(sync_daemon.phase3_git_writer(
                 self._conn, self._queue, ree_assembly_path=self._tmp))
         finally:
-            sync_daemon.PHASE3_GIT_WRITER_READY = False
+            sync_daemon.PHASE3_GIT_WRITER_READY = _ORIG_WRITER_READY
 
     def test_idle_tick_returns_true(self):
         os.environ["COORDINATOR_SPOOL_DIR"] = self._tmp
@@ -193,7 +206,7 @@ class WriterGuardsTest(unittest.TestCase):
             self.assertTrue(sync_daemon.phase3_git_writer(
                 self._conn, self._queue, ree_assembly_path=self._tmp))
         finally:
-            sync_daemon.PHASE3_GIT_WRITER_READY = False
+            sync_daemon.PHASE3_GIT_WRITER_READY = _ORIG_WRITER_READY
 
     def test_dry_run_with_pending_does_not_touch_repo(self):
         os.environ["COORDINATOR_SPOOL_DIR"] = self._tmp
@@ -207,7 +220,7 @@ class WriterGuardsTest(unittest.TestCase):
                 self._conn, self._queue,
                 ree_assembly_path=str(repo), dry_run=True))
         finally:
-            sync_daemon.PHASE3_GIT_WRITER_READY = False
+            sync_daemon.PHASE3_GIT_WRITER_READY = _ORIG_WRITER_READY
         # Spool intact + repo untouched
         self.assertEqual(
             list(manifest_spool.list_pending_run_ids()), ["v3_test_002"])
@@ -228,7 +241,7 @@ class WriterGuardsTest(unittest.TestCase):
             self.assertFalse(sync_daemon.phase3_git_writer(
                 self._conn, self._queue, ree_assembly_path=str(repo)))
         finally:
-            sync_daemon.PHASE3_GIT_WRITER_READY = False
+            sync_daemon.PHASE3_GIT_WRITER_READY = _ORIG_WRITER_READY
         # Spool still has the manifest; nothing was committed.
         self.assertIn("v3_test_003",
                       list(manifest_spool.list_pending_run_ids()))
@@ -286,7 +299,7 @@ class WriterE2ELocalTest(unittest.TestCase):
             ok = sync_daemon.phase3_git_writer(
                 self._conn, self._queue, ree_assembly_path=str(self._repo))
         finally:
-            sync_daemon.PHASE3_GIT_WRITER_READY = False
+            sync_daemon.PHASE3_GIT_WRITER_READY = _ORIG_WRITER_READY
         self.assertTrue(ok)
 
         # The commit landed on origin/master with the manifest in the

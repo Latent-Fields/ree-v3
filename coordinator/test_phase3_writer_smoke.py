@@ -39,6 +39,14 @@ import db  # noqa: E402
 import manifest_spool  # noqa: E402
 import sync_daemon  # noqa: E402
 
+# Captured once at import time so every restore below puts the module
+# global back to its REAL value (True post-Phase-3-cutover, 2026-05-29),
+# not a stale hardcoded False. sync_daemon is cached in sys.modules for
+# the whole pytest process, so a literal `= False` restore here used to
+# leak into every OTHER test module collected afterward in the same
+# `pytest coordinator/` run.
+_ORIG_WRITER_READY = sync_daemon.PHASE3_GIT_WRITER_READY
+
 
 # ---------------------------------------------------------------------------
 # Shared scaffolding
@@ -126,11 +134,14 @@ class _WriterFixture(unittest.TestCase):
         self._queue = os.path.join(self._tmp, "queue.json")
         with open(self._queue, "w", encoding="utf-8") as fh:
             json.dump({"items": []}, fh)
-        # Default-False; each test flips and restores explicitly.
+        # Forced False as a known starting precondition for each test
+        # (independent of the real module default); _run_writer() below
+        # flips it True for the duration of a tick and restores the REAL
+        # value afterward, not this forced False.
         sync_daemon.PHASE3_GIT_WRITER_READY = False
 
     def tearDown(self):
-        sync_daemon.PHASE3_GIT_WRITER_READY = False
+        sync_daemon.PHASE3_GIT_WRITER_READY = _ORIG_WRITER_READY
         self._conn.close()
         if self._saved_spool is not None:
             os.environ["COORDINATOR_SPOOL_DIR"] = self._saved_spool
@@ -145,7 +156,7 @@ class _WriterFixture(unittest.TestCase):
                 self._conn, self._queue,
                 ree_assembly_path=str(self._repo))
         finally:
-            sync_daemon.PHASE3_GIT_WRITER_READY = False
+            sync_daemon.PHASE3_GIT_WRITER_READY = _ORIG_WRITER_READY
 
     def _committed_at(self, run_id):
         row = self._conn.execute(

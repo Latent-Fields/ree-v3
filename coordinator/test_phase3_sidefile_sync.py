@@ -49,6 +49,14 @@ import manifest_spool  # noqa: E402
 import sync_daemon  # noqa: E402
 import db  # noqa: E402
 
+# Captured once at import time so every restore below puts the module
+# global back to its REAL value (True post-Phase-3-cutover, 2026-05-29),
+# not a stale hardcoded False. sync_daemon is cached in sys.modules for
+# the whole pytest process, so a literal `= False` restore here used to
+# leak into every OTHER test module collected afterward in the same
+# `pytest coordinator/` run.
+_ORIG_WRITER_READY = sync_daemon.PHASE3_GIT_WRITER_READY
+
 
 def _git(repo, *args, check=True):
     return subprocess.run(
@@ -199,10 +207,14 @@ class WriterSidefileE2ETest(unittest.TestCase):
             json.dump({"items": []}, fh)
         self._saved_sf = sync_daemon.PHASE3_SPOOL_SIDEFILES
         self._saved_max_bytes = sync_daemon.PHASE3_SIDEFILE_MAX_BYTES
+        # Forced False as a known starting precondition for each test
+        # (independent of the real module default); _run_writer() below
+        # flips it True for the duration of a tick and restores the REAL
+        # value afterward, not this forced False.
         sync_daemon.PHASE3_GIT_WRITER_READY = False
 
     def tearDown(self):
-        sync_daemon.PHASE3_GIT_WRITER_READY = False
+        sync_daemon.PHASE3_GIT_WRITER_READY = _ORIG_WRITER_READY
         sync_daemon.PHASE3_SPOOL_SIDEFILES = self._saved_sf
         sync_daemon.PHASE3_SIDEFILE_MAX_BYTES = self._saved_max_bytes
         self._conn.close()
@@ -218,7 +230,7 @@ class WriterSidefileE2ETest(unittest.TestCase):
             return sync_daemon.phase3_git_writer(
                 self._conn, self._queue, ree_assembly_path=str(self._repo))
         finally:
-            sync_daemon.PHASE3_GIT_WRITER_READY = False
+            sync_daemon.PHASE3_GIT_WRITER_READY = _ORIG_WRITER_READY
 
     def _spool_manifest(self, run_id, relpath):
         body = {"run_id": run_id, "queue_id": "V3-EXQ-664",
