@@ -388,6 +388,26 @@ sys.exit(0 if paused else 1)
   PAUSED="true"
 fi
 
+# Account-wide usage-limit cooldown check -- dispatch_usage_cooldown.py's
+# Step-4-pre gate, run HERE too (one more early-exit branch of the same kind
+# as PAUSED/THROTTLED below) so a withheld cycle short-circuits before
+# spending a claude invocation. This is the WRAPPER-side half of the
+# 2026-08-19 fix: the gate's other call sites (Step 4-pre in SKILL.md, and
+# check_deferral_exit.py on a dispatched CHILD's death) can only ever run if
+# the dispatcher's OWN session survives to reach them, and an account-wide
+# usage-limit death is exactly what kills that session first -- measured on
+# ree-cloud-5, 1578 of 2706 completed cycles carried the banner in the
+# dispatcher's own stdout, against 2 real writes to the cooldown state file
+# in its whole git history (REE_assembly evidence/planning/
+# metaworker_dispatch_cooldown_wrapper_mis_siting_staged_20260819.md).
+COOLDOWN_WITHHELD="false"
+if [ -f "$REPO/scripts/dispatch_usage_cooldown.py" ]; then
+  COOLDOWN_OUT="$(/opt/local/bin/python3 "$REPO/scripts/dispatch_usage_cooldown.py" check 2>&1)"
+  COOLDOWN_RC=$?
+  echo "[$(ts)] cooldown check: $COOLDOWN_OUT" >> "$LOG"
+  [ "$COOLDOWN_RC" -eq 3 ] && COOLDOWN_WITHHELD="true"
+fi
+
 # --- Dual-role arbitration (ree-cloud-4) ----------------------------------
 # This box holds BOTH roles: ree-runner and metaworker-dispatch. Until
 # 2026-08-18 they simply ran at the same time on 2 vCPU with no coordination in
@@ -493,6 +513,9 @@ SESSION_RC=""
 if [ "$PAUSED" = "true" ]; then
   echo "[$(ts)] cycle $CYCLE: coordination plane paused, skipping dispatch" >> "$LOG"
   STATE="paused"
+elif [ "$COOLDOWN_WITHHELD" = "true" ]; then
+  echo "[$(ts)] cycle $CYCLE: WITHHELD -- account-wide usage-limit cooldown active, skipping dispatch" >> "$LOG"
+  STATE="withheld"
 elif [ "$ROLE_STATE" != "dispatching" ]; then
   # The runner owns the box (or is about to). Skip the claude launch entirely
   # rather than starting a cycle that would compute available_slots = 0 anyway
