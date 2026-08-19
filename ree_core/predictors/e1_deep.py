@@ -37,12 +37,27 @@ class ContextMemory(nn.Module):
     """Context memory for E1's long-horizon predictions (unchanged from V2)."""
 
     def __init__(self, latent_dim: int, memory_dim: int = 128, num_slots: int = 16,
-                 gated_content_write: bool = False):
+                 gated_content_write: bool = False,
+                 write_usage_balancing: bool = False,
+                 write_usage_bias_weight: float = 1.0,
+                 write_usage_decay: float = 0.99):
         super().__init__()
         self.latent_dim = latent_dim
         self.memory_dim = memory_dim
         self.num_slots = num_slots
         self.gated_content_write = bool(gated_content_write)
+        # contextmemory-write-path-addressing-degeneracy (V3-EXQ-436e/436f
+        # follow-up): see write() below and the E1Config field docstring for
+        # the mechanism. write_usage_ema is constructed only when enabled, so
+        # the disabled path constructs no extra state (mirrors write_content
+        # above) and named_buffers() is unchanged when the flag is off.
+        self.write_usage_balancing = bool(write_usage_balancing)
+        self.write_usage_bias_weight = float(write_usage_bias_weight)
+        self.write_usage_decay = float(write_usage_decay)
+        if self.write_usage_balancing:
+            self.register_buffer("write_usage_ema", torch.zeros(num_slots))
+        else:
+            self.write_usage_ema = None
 
         self.memory = nn.Parameter(torch.randn(num_slots, memory_dim) * 0.01)
         self.query_proj = nn.Linear(latent_dim, memory_dim)
@@ -141,10 +156,37 @@ class ContextMemory(nn.Module):
         with torch.no_grad():
             query = self.query_proj(state)
             scores = torch.mm(query, self.memory.t())
-            min_idx = scores.mean(0).argmin()
+            mean_scores = scores.mean(0)
+            if self.write_usage_balancing:
+                # contextmemory-write-path-addressing-degeneracy (V3-EXQ-436e/
+                # 436f follow-up): the raw argmin below has a deterministic
+                # single-slot fixed point under a near-constant query stream
+                # (closed-form discriminator q . (write_signal - memory[argmin]),
+                # predicted lock-vs-rotate 5/5). Conscience bias (DeSieno 1988,
+                # frequency-sensitive competitive learning): penalize a slot's
+                # eligibility for re-selection in proportion to its EMA usage,
+                # scaled to the same order of magnitude as the raw dot-product
+                # scores above (~sqrt(memory_dim) by CLT), so a self-reinforcing
+                # lock cannot persist -- the slot that keeps winning becomes
+                # artificially "more similar" and stops being the argmin.
+                bias = (
+                    self.write_usage_bias_weight
+                    * self.write_usage_ema
+                    * (self.memory_dim ** 0.5)
+                )
+                selection_scores = mean_scores + bias
+            else:
+                selection_scores = mean_scores
+            min_idx = selection_scores.argmin()
             self.memory.data[min_idx] = (
                 0.9 * self.memory.data[min_idx] + 0.1 * write_signal.mean(0)
             )
+            if self.write_usage_balancing:
+                decay = self.write_usage_decay
+                self.write_usage_ema.mul_(decay)
+                self.write_usage_ema[min_idx] = (
+                    self.write_usage_ema[min_idx] + (1.0 - decay)
+                )
 
     def compute_diversification_loss(self) -> torch.Tensor:
         # SD-016 Path 1 (2026-04-25): mean squared off-diagonal cosine similarity
@@ -182,6 +224,15 @@ class E1DeepPredictor(nn.Module):
             num_slots=16,
             gated_content_write=getattr(
                 self.config, "contextmemory_gated_content_write", False
+            ),
+            write_usage_balancing=getattr(
+                self.config, "contextmemory_write_usage_balancing", False
+            ),
+            write_usage_bias_weight=getattr(
+                self.config, "contextmemory_write_usage_bias_weight", 1.0
+            ),
+            write_usage_decay=getattr(
+                self.config, "contextmemory_write_usage_decay", 0.99
             ),
         )
 

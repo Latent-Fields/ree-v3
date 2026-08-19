@@ -413,6 +413,43 @@ class E1Config:
     # measurement, including why removing write_gate's bias is NOT the fix.
     contextmemory_gated_content_write: bool = False
 
+    # substrate_queue contextmemory-write-path-addressing-degeneracy (V3-EXQ-436e/
+    # 436f follow-up, 2026-08-16): ContextMemory.write() addresses by a hard
+    # `scores.mean(0).argmin()`, which under a near-constant query stream is a
+    # deterministic single-slot fixed point -- established by a closed-form sign
+    # discriminator `q . (write_signal - memory[argmin])` that predicted lock-vs-
+    # rotate 5/5 (failure_autopsy_V3-EXQ-436e_2026-08-13.md). Measured live:
+    # V3-EXQ-436f recorded n_occupied_slots = 1 of 16 in BOTH arms on 3/5 seeds
+    # despite 2,837-4,903 write() calls per arm, with the full SD-016 production
+    # combination armed and engaged -- the READ-path fix does not touch this,
+    # because write() runs under torch.no_grad() and compute_diversification_loss()
+    # only ever trains self.memory, never the write-address selection itself.
+    #
+    # When True, adds a frequency-sensitive competitive-learning "conscience" bias
+    # (DeSieno 1988) to the write-address selection score: a slot's eligibility for
+    # re-selection is penalized in proportion to an EMA of how recently/often it
+    # has already won, so a self-reinforcing lock cannot persist -- the standard
+    # ML fix for the "dead unit" pathology in competitive-learning / VQ codebooks.
+    # No gradient is required (write() is already no_grad), so this is a pure
+    # selection-score adjustment, not a differentiable relaxation like the SD-016
+    # read-path Gumbel-softmax (V3-EXQ-908) it is the write-side sibling of.
+    # Default False = bit-identical to the legacy argmin path: with the bias term
+    # excluded, `selection_scores` is exactly `scores.mean(0)` and no extra buffer
+    # is constructed.
+    # See ContextMemory.__init__ / .write() in ree_core/predictors/e1_deep.py.
+    contextmemory_write_usage_balancing: bool = False
+    # Bias strength, in units of one sqrt(memory_dim) (the expected order of
+    # magnitude of a random memory_dim-vector dot product by CLT, matching the
+    # scale of the raw unnormalized write-address scores above). 1.0 means a
+    # slot at full EMA usage (1.0) is penalized by one score-stdev-equivalent.
+    contextmemory_write_usage_bias_weight: float = 1.0
+    # EMA decay applied to the per-slot usage counter on every write() call
+    # (time constant ~1/(1-decay) writes). 0.99 -> ~100-write memory, long enough
+    # to force rotation off a locked slot well within a typical multi-thousand-
+    # write experiment run, short enough that a slot cools down and becomes
+    # reselectable again after a few hundred writes.
+    contextmemory_write_usage_decay: float = 0.99
+
     # SD-016 Path 4 (V3-EXQ-418g): learnable attention temperature on the
     # z_world-only ContextMemory query inside extract_cue_context().
     # When True, exp(log_tau) replaces the fixed sqrt(memory_dim) divisor and
@@ -6051,6 +6088,13 @@ class REEConfig:
         # False (default) = legacy path, bit-identical. See E1Config for the
         # measured homogenization pathology this repairs.
         contextmemory_gated_content_write: bool = False,
+        # contextmemory-write-path-addressing-degeneracy (V3-EXQ-436e/436f
+        # follow-up): conscience-bias write-address usage balancing. False
+        # (default) = legacy argmin path, bit-identical. See E1Config for the
+        # measured deterministic single-slot fixed point this repairs.
+        contextmemory_write_usage_balancing: bool = False,
+        contextmemory_write_usage_bias_weight: float = 1.0,
+        contextmemory_write_usage_decay: float = 0.99,
         # SD-016 Path 1 (V3-EXQ-418e): auxiliary diversification loss weight
         # on ContextMemory slots. 0.0 = no-op (legacy substrate). Recommended
         # 0.5 when sd016_enabled=True (mirrors LAMBDA_CUE_ACTION).
@@ -7248,6 +7292,9 @@ class REEConfig:
         config.e1.sd016_enabled = sd016_enabled
         config.e1.sd016_writepath_mode = sd016_writepath_mode
         config.e1.contextmemory_gated_content_write = contextmemory_gated_content_write
+        config.e1.contextmemory_write_usage_balancing = contextmemory_write_usage_balancing
+        config.e1.contextmemory_write_usage_bias_weight = contextmemory_write_usage_bias_weight
+        config.e1.contextmemory_write_usage_decay = contextmemory_write_usage_decay
         config.e1.sd016_temperature_learnable = sd016_temperature_learnable
         config.e1.sd016_cue_slot_tagger = sd016_cue_slot_tagger
         config.e1.sd016_cue_slot_tagger_hidden = sd016_cue_slot_tagger_hidden
