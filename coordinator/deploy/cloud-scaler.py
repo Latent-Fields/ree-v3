@@ -735,6 +735,19 @@ def orchestrator_wake_hold(state_dir, affinity, status, grace_min, now=None,
     this box running", which starts the window NOW and therefore self-expires.
     An unwritable state dir yields no hold at all (fail open, logged) rather
     than an unbounded one.
+
+    KNOWN RESIDUAL, stated rather than papered over: the wake is detected from
+    the SCALER's own observations, which are 5 minutes apart. A box that goes
+    down and comes back BETWEEN two ticks is never observed "off", so
+    running_since is not reset and no hold fires -- e.g. a `hcloud server
+    reboot`, or an OS reboot. That gap is not covered here and does not need to
+    be for the reported incident (16:40Z observed off, 16:45Z observed
+    running). Closing it needs a wake signal the box itself reports, which is
+    the coordinator's job, not this function's: the dispatcher's first POST
+    after such a reboot lands within one ree-metaworker.timer OnBootSec (20s)
+    and the veto takes over from there. What is genuinely uncovered is the
+    intersection -- a sub-5-minute reboot whose dispatcher ALSO fails to come
+    back -- and in that case shutting the box down is the correct outcome.
     """
     if now is None:
         now = datetime.now(timezone.utc)
