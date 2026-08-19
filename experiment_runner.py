@@ -3841,18 +3841,32 @@ def _resolve_signal_dir(ree_assembly_path: Path | None) -> Path | None:
     return d
 
 
-def _build_subprocess_env(queue_id: str, signal_dir: Path | None) -> dict:
+def _build_subprocess_env(queue_id: str, signal_dir: Path | None,
+                          declared_seed_count: int | None = None) -> dict:
     """Build the env dict for an experiment subprocess.
 
-    Both REE_QUEUE_ID and REE_RUNNER_SIGNAL_DIR are ALWAYS written -- with
-    empty-string fallbacks -- so the child never inherits a stale value
-    from the runner's own shell env. A stale REE_QUEUE_ID would route the
-    sentinel emit_outcome() writes to the wrong file under the wrong
-    signal dir, masking real-run sentinels with phantom ones.
+    REE_QUEUE_ID, REE_RUNNER_SIGNAL_DIR and REE_QUEUE_DECLARED_SEED_COUNT are
+    ALWAYS written -- with empty-string fallbacks -- so the child never
+    inherits a stale value from the runner's own shell env. A stale
+    REE_QUEUE_ID would route the sentinel emit_outcome() writes to the wrong
+    file under the wrong signal dir, masking real-run sentinels with phantom
+    ones; a stale REE_QUEUE_DECLARED_SEED_COUNT would let a driver silently
+    validate against a prior run's seed count instead of this one's.
+
+    declared_seed_count is the queue item's own "seeds" count (already
+    computed by the caller via _run_axis_count) -- the count the queue
+    DECLARED, as opposed to whatever subset of --seeds actually reached the
+    subprocess CLI via "args". A driver's own coverage check (e.g.
+    all_seeds_completed) can read this to detect a declared-vs-actual seed
+    shortfall, which comparing only against the CLI-invoked seed list cannot
+    do (see failure_autopsy_V3-EXQ-920a_2026-08-16.md Section 7b).
     """
     env = os.environ.copy()
     env["REE_QUEUE_ID"] = queue_id or ""
     env["REE_RUNNER_SIGNAL_DIR"] = str(signal_dir) if signal_dir is not None else ""
+    env["REE_QUEUE_DECLARED_SEED_COUNT"] = (
+        str(declared_seed_count) if declared_seed_count is not None else ""
+    )
     return env
 
 
@@ -4100,7 +4114,7 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
     has_sentinel = False
 
     try:
-        env = _build_subprocess_env(queue_id, signal_dir)
+        env = _build_subprocess_env(queue_id, signal_dir, declared_seed_count=seed_count)
         proc = subprocess.Popen(
             args,
             stdout=subprocess.PIPE,

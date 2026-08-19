@@ -127,19 +127,38 @@ inference of sentience, suffering, or welfare is made; SENT-0 boundary applies
 exactly as it does to every other V3 diagnostic (see ethics preflight block below).
 
 SLEEP-CADENCE DESIGN NOTE (a genuine finding this run's design surfaces, not
-something it resolves). Because sleep only fires at inter-segment boundaries in the
-current substrate (agent.sleep_loop.notify_episode_end() is called exclusively from
-_segment_boundary_consolidate(), itself called only for ep_idx>0), a TRUE single
-unbroken life -- exactly the design the organism-lifespan review asked for -- can
-NEVER sleep during that life, no matter how long it runs. Every prior 906-lineage
-run's incidental sleep-cycle sampling (906b/906c/911: 0-1 boundaries/seed at 8
-segments; 912: ~6 boundaries/seed at 60 segments) was an artifact of the very
-segment-chunking this run's design deliberately removes. This is worth naming
-explicitly for a future reader: if REE's substrate is meant to sleep as an emergent
-consequence of lived experience (time- or fatigue-triggered) rather than only at the
-experimenter's artificial recording-chunk boundaries, that is a SEPARATE substrate
-question this run's result cannot speak to and does not attempt to -- flagged as a
-FOR-A-FUTURE-READER item below, not built here.
+something it resolves). Because episode-boundary sleep only fires at inter-segment
+boundaries in the substrate (agent.sleep_loop.notify_episode_end() is called
+exclusively from _segment_boundary_consolidate(), itself called only for ep_idx>0),
+a TRUE single unbroken life -- exactly the design the organism-lifespan review asked
+for -- gets NO episode-boundary sleep during that life, no matter how long it runs.
+Every prior 906-lineage run's incidental sleep-cycle sampling (906b/906c/911: 0-1
+boundaries/seed at 8 segments; 912: ~6 boundaries/seed at 60 segments) was an
+artifact of the very segment-chunking this run's design deliberately removes. This
+is worth naming explicitly for a future reader: if REE's substrate is meant to sleep
+as an emergent consequence of lived experience (time- or fatigue-triggered) rather
+than only at the experimenter's artificial recording-chunk boundaries, that is a
+SEPARATE substrate question this run's result cannot speak to and does not attempt
+to -- flagged as a FOR-A-FUTURE-READER item below, not built here.
+
+CORRECTION (2026-08-19, chip-20260816-920a-driver-fixes, per
+failure_autopsy_V3-EXQ-920a_2026-08-16.md Section 7c). The paragraph above -- and
+the identically-reasoned claim this driver used to generate into
+`interpretation.note` / `summary_markdown` on every run -- overstated the finding:
+"can NEVER sleep during that life" is true only of the episode-boundary path this
+driver exercises, not of the substrate in general. A SEPARATE within-life sleep
+trigger landed in ree-v3 5f14036 (sleep_substrate:GAP-9, v1 ceiling arm) and c38e083
+(MELConsumer.need_crossed() + notify_waking_step wiring) -- both ancestors of this
+run's substrate -- gated by ree_core/utils/config.py::use_within_life_sleep_trigger,
+default False. This driver never sets that flag, so it stays at its False default
+and every run through this file genuinely does see 0 within-eval sleep cycles: the
+OUTCOME is unchanged, only the REASON was wrong ("structurally impossible" ->
+"within-life trigger left at its default-off"). A TRUE single unbroken life is in
+fact the one design in the corpus able to actually exercise the within-life
+trigger, since no episode boundary competes with it -- noting this as a good bed
+for that validation for a future author, not built here. Before queuing anything
+sleep-related off this driver, check v3_exq_931_sleep_gap9_need_arm (authored,
+ree-v3 c38e083) -- it is the designated validation and may already cover it.
 
 CUMULATIVE STEP COUNTER. Organism-lifespan review Section 1's flagged gap ("no
 manifest field stores a cumulative/monotonic step counter across the whole run") does
@@ -237,6 +256,7 @@ seed worst case (full EVAL_STEPS=20000 realized, i.e. right-censored):
 lower since seeds that die early realize fewer than 20000 steps.
 """
 
+import os
 import random
 import statistics
 from pathlib import Path
@@ -458,9 +478,35 @@ def run_seed(seed: int, dry_run: bool = False) -> Dict[str, Any]:
     }
 
 
+def _resolve_declared_seed_count(cli_seed_count: int) -> int:
+    """Return the queue-declared seed count for the all_seeds_completed gate.
+
+    The runner threads the queue item's own "seeds" count through
+    REE_QUEUE_DECLARED_SEED_COUNT (see experiment_runner.py
+    _build_subprocess_env). Comparing realized seeds against that DECLARED
+    count -- rather than against len(seeds), the list this process was
+    actually invoked with -- is what lets this gate detect a declared-vs-
+    actual seed shortfall (e.g. the queue declaring 8 seeds while only 1
+    reached the CLI); see failure_autopsy_V3-EXQ-920a_2026-08-16.md Section
+    7b. A standalone/manual/dry-run invocation has no runner and therefore
+    no such env var -- falls back to the CLI-invoked count, which is the
+    only DECLARED count that exists for those invocations.
+    """
+    raw = os.environ.get("REE_QUEUE_DECLARED_SEED_COUNT", "")
+    if raw:
+        try:
+            declared = int(raw)
+        except ValueError:
+            declared = 0
+        if declared > 0:
+            return declared
+    return cli_seed_count
+
+
 def run(seeds=None, dry_run: bool = False) -> dict:
     if seeds is None:
         seeds = [0]
+    declared_seed_count = _resolve_declared_seed_count(len(seeds))
     print(f"[V3-EXQ-920] Uncensored Survival-to-Death Fishtank, TRUE Single-Life Design\n"
           f"  Seeds: {seeds}  curriculum: Stage-0/0b/P0/Stage-H/P1 + harm-pathway training\n"
           f"  Train eps/seed: {TRAIN_TOTAL_EPS}  Eval: 1 continuous life x up to {EVAL_STEPS} "
@@ -501,7 +547,7 @@ def run(seeds=None, dry_run: bool = False) -> dict:
     harm_trained = total_harm_steps > 0
     freeze_not_locked = (total_freeze == 0) or (total_freeze < total_steps)
     sufficient_uncensored_deaths = bool(n_uncensored_total >= MIN_UNCENSORED_DEATHS_TOTAL)
-    all_seeds_completed = bool(n_seeds_total == len(seeds))
+    all_seeds_completed = bool(n_seeds_total == declared_seed_count)
     passed = bool(core_ok and harm_trained and sufficient_uncensored_deaths)
     outcome = "PASS" if passed else "FAIL"
 
@@ -519,6 +565,7 @@ def run(seeds=None, dry_run: bool = False) -> dict:
         "z_goal_activated_at_eval": 1.0 if z_goal_activated else 0.0,
         "total_spawn_safe_retries": float(total_spawn_retries),
         "total_spawn_safe_exhausted_segments": float(total_spawn_exhausted),
+        "declared_seed_count": float(declared_seed_count),
         # --- primary DV: pooled single-life survival-time distribution (one draw/seed) ---
         "n_seeds_total": float(n_seeds_total),
         "n_uncensored_deaths_total": float(n_uncensored_total),
@@ -561,10 +608,16 @@ def run(seeds=None, dry_run: bool = False) -> dict:
              "measured": float(total_harm_steps), "threshold": 1.0, "direction": "lower",
              "met": bool(harm_trained)},
             {"name": "all_seeds_completed",
-             "description": "every requested seed produced exactly one completed single-life "
-                             "observation (no early crash/truncation silently shrinking n)",
-             "measured": float(n_seeds_total), "threshold": float(len(seeds)), "direction": "lower",
-             "met": all_seeds_completed},
+             "description": "every DECLARED seed (the queue item's own seed count, threaded "
+                             "through REE_QUEUE_DECLARED_SEED_COUNT by the runner; falls back "
+                             "to the CLI-invoked seed count for a standalone/manual/dry-run "
+                             "invocation with no runner) produced exactly one completed "
+                             "single-life observation -- catches both an early crash/truncation "
+                             "silently shrinking n AND a declared-vs-actual seed-count mismatch "
+                             "upstream of this process (see "
+                             "failure_autopsy_V3-EXQ-920a_2026-08-16.md Section 7b)",
+             "measured": float(n_seeds_total), "threshold": float(declared_seed_count),
+             "direction": "lower", "met": all_seeds_completed},
         ],
         "criteria_non_degenerate": {
             **{f"channel_{k}": chan_nondegen.get(k, False) for k in chan_keys},
@@ -596,8 +649,11 @@ def run(seeds=None, dry_run: bool = False) -> dict:
                  f"pct_right_censored_pooled ({pooled_pct_censored:.3f}) and "
                  f"n_uncensored_deaths_total are the load-bearing scientific readouts -- this "
                  f"is a characterization run, not a hypothesis test. See module docstring "
-                 f"'SLEEP-CADENCE DESIGN NOTE' for why zero within-eval sleep cycles is the "
-                 f"EXPECTED reading here, not a defect. claim_ids=[]; does not weight "
+                 f"'SLEEP-CADENCE DESIGN NOTE' -- zero within-eval sleep cycles is EXPECTED "
+                 f"here because this driver leaves use_within_life_sleep_trigger at its "
+                 f"default (False), not because within-life sleep is structurally "
+                 f"impossible (a separate substrate trigger for that now exists; see the "
+                 f"docstring's CORRECTION paragraph). claim_ids=[]; does not weight "
                  f"governance."),
     }
 
@@ -621,7 +677,7 @@ item 1 literally, as originally described, rather than as an approximation.
 - uncensored survival times (steps, one per genuinely-died seed): min={metrics['uncensored_survival_min']} median={metrics['uncensored_survival_median']} mean={metrics['uncensored_survival_mean']} max={metrics['uncensored_survival_max']}
 - cumulative lived steps (sum of realized_steps across all seeds' single lives): {total_cumulative_lived_steps}
 - events: block={total_block} limb_damage={total_limb_damage} external_hazard={total_external_hazard} world_rule_shift={total_world_rule_shift}
-- sleep cycles fired (during eval): {total_sleep_cycles} (EXPECTED 0 -- see module docstring "SLEEP-CADENCE DESIGN NOTE": a single-episode eval has no non-zero segment boundary to trigger sleep_loop.notify_episode_end())
+- sleep cycles fired (during eval): {total_sleep_cycles} (EXPECTED 0 -- see module docstring "SLEEP-CADENCE DESIGN NOTE": this driver leaves use_within_life_sleep_trigger at its default False, so the episode-boundary path fires no within-eval sleep; NOT because within-life sleep is structurally impossible -- see the docstring's CORRECTION paragraph)
 - freeze fires (eval, motor-override relaxed): {total_freeze}
 - safe-spawn retries (total, at each life's single spawn): {total_spawn_retries}  (lives exhausted: {total_spawn_exhausted})
 
