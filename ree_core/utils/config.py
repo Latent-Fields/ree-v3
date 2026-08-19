@@ -450,6 +450,50 @@ class E1Config:
     # reselectable again after a few hundred writes.
     contextmemory_write_usage_decay: float = 0.99
 
+    # contextmemory-write-path-addressing-degeneracy, SECOND MODE (2026-08-19,
+    # chip-20260819-contextmemory-add-refractory-mode; user-authorised build).
+    # An ELIGIBILITY rule, orthogonal to contextmemory_write_usage_balancing
+    # above, which is a SCORE rule. The two compose -- all four combinations are
+    # legal -- and this is deliberate rather than a missing mutual exclusion:
+    # the composition is well defined and measurable, so it becomes an arm the
+    # validation experiment can use instead of a configuration error.
+    #
+    #   "argmin"     - every slot eligible. DEFAULT, bit-identical, keeps the
+    #                  defect when usage balancing is also off.
+    #   "refractory" - argmin over content EXCLUDING the k most-recently-written
+    #                  slots, so n_occupied >= k+1 BY CONSTRUCTION, for any
+    #                  stream/seed/init.
+    #
+    # An unrecognised value raises at construction. Fail-closed on purpose: a
+    # typo that silently fell back to "argmin" would reinstate a `corrupting`
+    # defect under a config claiming to have fixed it.
+    #
+    # WHY BOTH MODES EXIST, and what does NOT justify either. Both clear the
+    # registered floor (>= 2 occupied slots on >= 3/5 seeds). The independently
+    # pre-registered probe (REE_assembly/evidence/planning/
+    # contextmemory_write_selection_comparison_20260819.md; pre-registration
+    # fcfb311e4b, results b7e072ddf0) found the occupied-slot COSINE column
+    # cannot discriminate the arms at 5 seeds (every contrast |dz| <= 0.47,
+    # |t(4)| <= 1.04, sign-inconsistent). Do NOT quote it as evidence for
+    # either mode -- including for the +0.6060 -> +0.5919 refractory-over-legacy
+    # gap, which is dz = -0.06. The robust, deterministic finding is that with
+    # usage balancing ON the rule is 99.9% a fixed period-16 LRU cycle on the
+    # degenerate stream (entropy exactly 4.00 bits, HHI exactly 1/16): the
+    # sqrt(memory_dim) = 11.31 scaling puts the usage term 2-3 orders of
+    # magnitude above the ~0.026 across-slot spread of mean_scores, so the
+    # address becomes a function of the write COUNTER rather than the query.
+    # Real occupancy, but occupancy without addressing. "refractory" is 0.000
+    # on that same index. Choosing between them is the validation experiment's
+    # job; both are default-off until it runs.
+    # See ContextMemory._select_write_slot() in ree_core/predictors/e1_deep.py.
+    contextmemory_write_selection: str = "argmin"
+    # Refractory horizon for contextmemory_write_selection="refractory": the k
+    # most-recently-written slots are ineligible. k=2 guarantees >= 3 occupied
+    # slots against the registered floor of 2, i.e. one slot of margin. Inert
+    # unless the mode is "refractory". Capped internally at num_slots - 1 so a
+    # large k degrades gracefully instead of masking every slot.
+    contextmemory_write_refractory_k: int = 2
+
     # SD-016 Path 4 (V3-EXQ-418g): learnable attention temperature on the
     # z_world-only ContextMemory query inside extract_cue_context().
     # When True, exp(log_tau) replaces the fixed sqrt(memory_dim) divisor and
@@ -6095,6 +6139,12 @@ class REEConfig:
         contextmemory_write_usage_balancing: bool = False,
         contextmemory_write_usage_bias_weight: float = 1.0,
         contextmemory_write_usage_decay: float = 0.99,
+        # contextmemory-write-path-addressing-degeneracy, second mode: refractory
+        # write-address eligibility. "argmin" (default) = every slot eligible,
+        # bit-identical. See E1Config for why BOTH modes exist and why the
+        # occupied-slot cosine column must not be cited for either.
+        contextmemory_write_selection: str = "argmin",
+        contextmemory_write_refractory_k: int = 2,
         # SD-016 Path 1 (V3-EXQ-418e): auxiliary diversification loss weight
         # on ContextMemory slots. 0.0 = no-op (legacy substrate). Recommended
         # 0.5 when sd016_enabled=True (mirrors LAMBDA_CUE_ACTION).
@@ -7295,6 +7345,8 @@ class REEConfig:
         config.e1.contextmemory_write_usage_balancing = contextmemory_write_usage_balancing
         config.e1.contextmemory_write_usage_bias_weight = contextmemory_write_usage_bias_weight
         config.e1.contextmemory_write_usage_decay = contextmemory_write_usage_decay
+        config.e1.contextmemory_write_selection = contextmemory_write_selection
+        config.e1.contextmemory_write_refractory_k = contextmemory_write_refractory_k
         config.e1.sd016_temperature_learnable = sd016_temperature_learnable
         config.e1.sd016_cue_slot_tagger = sd016_cue_slot_tagger
         config.e1.sd016_cue_slot_tagger_hidden = sd016_cue_slot_tagger_hidden

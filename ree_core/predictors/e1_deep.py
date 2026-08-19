@@ -40,7 +40,9 @@ class ContextMemory(nn.Module):
                  gated_content_write: bool = False,
                  write_usage_balancing: bool = False,
                  write_usage_bias_weight: float = 1.0,
-                 write_usage_decay: float = 0.99):
+                 write_usage_decay: float = 0.99,
+                 write_selection: str = "argmin",
+                 write_refractory_k: int = 2):
         super().__init__()
         self.latent_dim = latent_dim
         self.memory_dim = memory_dim
@@ -58,6 +60,40 @@ class ContextMemory(nn.Module):
             self.register_buffer("write_usage_ema", torch.zeros(num_slots))
         else:
             self.write_usage_ema = None
+
+        # contextmemory-write-path-addressing-degeneracy, SECOND MODE (2026-08-19,
+        # chip-20260819-contextmemory-add-refractory-mode; user-authorised build).
+        # This is an ELIGIBILITY rule and is ORTHOGONAL to the conscience bias
+        # above, which is a SCORE rule -- see write() / _select_write_slot() for
+        # how the two compose. Default "argmin" = every slot eligible = the
+        # landed path, bit-identical.
+        self.write_selection = str(write_selection)
+        if self.write_selection not in ("argmin", "refractory"):
+            # Fail closed. A typo'd mode name that silently fell back to argmin
+            # would reinstate the corrupting defect under a config that claims
+            # to have fixed it.
+            raise ValueError(
+                "contextmemory_write_selection must be 'argmin' or 'refractory', "
+                f"got {self.write_selection!r}"
+            )
+        self.write_refractory_k = int(write_refractory_k)
+
+        # Cumulative per-slot write count + last written index. ALWAYS maintained,
+        # in EVERY mode including the legacy default, because instrumentation must
+        # never have to RE-DERIVE the selection: V3-EXQ-436f's occupancy tracker
+        # duplicated write()'s own `scores.mean(0).argmin()` expression to learn
+        # which slot was written, which silently reports the WRONG slot the moment
+        # the selection rule changes -- and it has now changed twice (the landed
+        # conscience bias, and this mode). Any driver must read these instead.
+        # persistent=False, so state_dict() is unchanged and existing checkpoints
+        # load untouched. This DOES add one name to named_buffers(); the landed
+        # negative control test_off_constructs_no_extra_buffer is scoped to names
+        # starting "write_usage_ema" and is unaffected (verified, not assumed).
+        self.register_buffer(
+            "slot_write_counts", torch.zeros(num_slots), persistent=False
+        )
+        self._recent_write_idx: List[int] = []
+        self._last_write_idx: Optional[int] = None
 
         self.memory = nn.Parameter(torch.randn(num_slots, memory_dim) * 0.01)
         self.query_proj = nn.Linear(latent_dim, memory_dim)
@@ -177,7 +213,7 @@ class ContextMemory(nn.Module):
                 selection_scores = mean_scores + bias
             else:
                 selection_scores = mean_scores
-            min_idx = selection_scores.argmin()
+            min_idx = self._select_write_slot(selection_scores)
             self.memory.data[min_idx] = (
                 0.9 * self.memory.data[min_idx] + 0.1 * write_signal.mean(0)
             )
@@ -187,6 +223,102 @@ class ContextMemory(nn.Module):
                 self.write_usage_ema[min_idx] = (
                     self.write_usage_ema[min_idx] + (1.0 - decay)
                 )
+            self._record_write(int(min_idx))
+
+    def _select_write_slot(self, selection_scores: torch.Tensor) -> torch.Tensor:
+        """Resolve the write address from per-slot `selection_scores` [num_slots].
+
+        Runs inside write()'s torch.no_grad() block, and is the ELIGIBILITY half
+        of the write-address rule. `selection_scores` has ALREADY had the
+        conscience bias applied by the caller when write_usage_balancing is on,
+        so the two mechanisms compose without either needing to know about the
+        other: the bias decides HOW GOOD each slot looks, this decides WHICH
+        slots are allowed to be looked at. All four combinations are legal.
+
+        THE DEFECT (substrate_queue `contextmemory-write-path-addressing-
+        degeneracy`, severity `corrupting`): the legacy address rule is a hard
+        `scores.mean(0).argmin()`. The write PAYLOAD (write_gate(x) *
+        write_content(x)) is an unaligned projection of the state relative to
+        the ADDRESS space (query_proj(x)), so a write to the argmin slot can
+        push that slot FURTHER from the query -- which re-selects it on the next
+        write, forever. V3-EXQ-436e's closed-form sign discriminator
+        `q . (write_signal - memory[argmin])` predicted lock-vs-rotate 5/5.
+
+        WHY "refractory" IS AVAILABLE ALONGSIDE THE CONSCIENCE BIAS, AND WHAT
+        DOES *NOT* JUSTIFY IT. Both modes clear the registered acceptance floor
+        (>= 2 occupied slots on >= 3/5 seeds); the independently pre-registered
+        probe (REE_assembly/evidence/planning/
+        contextmemory_write_selection_comparison_20260819.md, pre-registration
+        fcfb311e4b, results b7e072ddf0) found the occupied-slot cosine column
+        CANNOT discriminate the arms at 5 seeds -- every contrast |dz| <= 0.47,
+        |t(4)| <= 1.04, sign-inconsistent across seeds. DO NOT cite that column
+        as evidence that either mode is better; that applies to the +0.6060 ->
+        +0.5919 refractory-over-legacy gap too (dz = -0.06, t(4) = -0.13).
+
+        The case for `refractory` is STRUCTURAL, and rests on the probe's
+        deterministic columns, which reproduce exactly:
+
+          arm                        round-robin  entropy  HHI     distinct slots
+                                     agreement    (bits)           per seed
+          ------------------------   -----------  -------  ------  ----------------
+          argmin (legacy)            0.000        2.00     0.473   [1, 14, 11, 14, 1]
+          + write_usage_balancing    0.999        4.00     0.0625  [16,16,16,16,16]
+          refractory k=2             0.000        2.66     0.201   [3, 14, 11, 14, 3]
+
+        (1) Occupancy >= k+1 holds BY CONSTRUCTION, for any stream, seed or
+        initialisation -- the conscience bias reaches full occupancy
+        empirically, on the streams measured. (2) The conscience bias's
+        sqrt(memory_dim) scaling makes the usage term ~2-3 orders of magnitude
+        larger than the across-slot spread of mean_scores (~0.026 here), so
+        after the first pass the address is a function of the write COUNTER,
+        not the query: a fixed period-16 cycle on 99.9% of writes. That is a
+        real improvement on every occupancy metric and is NOT content-blind
+        globally -- but it is occupancy without addressing. `refractory` masks
+        only the last k slots and leaves selection among the rest as the
+        UNMODIFIED content argmin, which is why its distinct-slot counts track
+        legacy's exactly on the three non-locking seeds.
+
+        Neither mode is declared the winner here. That is the validation
+        experiment's job; both are default-off until it runs.
+        """
+        if self.write_selection == "argmin":
+            # Legacy / landed path: bit-identical, tensor index type preserved.
+            return selection_scores.argmin()
+
+        # "refractory": the k most-recently-written slots are ineligible.
+        k = self.write_refractory_k
+        if k <= 0 or not self._recent_write_idx:
+            return selection_scores.argmin()
+        # Never mask every slot -- with k >= num_slots there would be nothing
+        # left to write to. Capping at num_slots - 1 degrades to "anything but
+        # the most recent (num_slots - 1)" rather than deadlocking.
+        k = min(k, self.num_slots - 1)
+        eligible = selection_scores.clone()
+        for prev in self._recent_write_idx[-k:]:
+            eligible[prev] = float("inf")
+        return eligible.argmin()
+
+    def _record_write(self, idx: int) -> None:
+        """Bookkeeping after a write. Runs in EVERY mode, including the legacy
+        default, so instrumentation reads the slot actually written instead of
+        re-deriving it (see __init__). Consumes no RNG and touches no tensor the
+        selection reads, so the legacy path stays bit-identical."""
+        self._last_write_idx = idx
+        self.slot_write_counts[idx] += 1.0
+        self._recent_write_idx.append(idx)
+        # Bounded: only the last (num_slots - 1) entries can ever be consulted.
+        if len(self._recent_write_idx) > self.num_slots:
+            del self._recent_write_idx[:-self.num_slots]
+
+    @property
+    def last_write_index(self) -> Optional[int]:
+        """Slot index mutated by the most recent write(), or None before any."""
+        return self._last_write_idx
+
+    def occupied_slots(self) -> List[int]:
+        """Slot indices written to at least once since construction."""
+        return [i for i in range(self.num_slots)
+                if float(self.slot_write_counts[i]) > 0.0]
 
     def compute_diversification_loss(self) -> torch.Tensor:
         # SD-016 Path 1 (2026-04-25): mean squared off-diagonal cosine similarity
@@ -233,6 +365,12 @@ class E1DeepPredictor(nn.Module):
             ),
             write_usage_decay=getattr(
                 self.config, "contextmemory_write_usage_decay", 0.99
+            ),
+            write_selection=getattr(
+                self.config, "contextmemory_write_selection", "argmin"
+            ),
+            write_refractory_k=getattr(
+                self.config, "contextmemory_write_refractory_k", 2
             ),
         )
 
