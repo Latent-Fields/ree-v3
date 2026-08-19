@@ -8,6 +8,13 @@ Cross-session resume primitive for **sole git writer** migration. Read with
 implemented, `PHASE3_GIT_WRITER_READY` is deliberately set `True`, and both
 `phase3_preflight.py` and `phase3_verify.py` exit 0 on the live fleet.**
 
+Historical note: cutover completed 2026-05-29, so this precondition is long
+satisfied. But `phase3_preflight.py` could not actually exit 0 on the live
+fleet at all between then and 2026-08-18 -- its `hub_sync_mode_safe` check
+kept the pre-cutover polarity forever, FAILing on the very success it was
+meant to gate. Fixed by giving the tool a deployment stage; see "Deployment
+stage" under Preconditions below and the Status entry for 2026-08-18.
+
 ---
 
 ## What Phase 3 changes
@@ -109,13 +116,34 @@ their `lifecycle_state` still derives from the structured columns.
 Run before any maintenance window:
 
 ```bash
-/opt/local/bin/python3 ~/REE_Working/ree-v3/coordinator/phase3_preflight.py
+/opt/local/bin/python3 ~/REE_Working/ree-v3/coordinator/phase3_preflight.py --pre-cutover
 ```
+
+### Deployment stage (added 2026-08-18)
+
+`phase3_preflight.py` is both the pre-cutover gate this checklist describes
+AND the routine post-cutover fleet health check (Phase 3 has been live since
+2026-05-29, so that is its more common use today). A `--stage` selects which
+polarity `hub_sync_mode_safe` blocks on:
+
+| Flag | Stage | `hub_sync_mode_safe` |
+|------|-------|-----------------------|
+| (none, default) | `auto` -- inferred from the hub's observed `SYNC_MODE`, falling back to the local `PHASE3_GIT_WRITER_READY` flag when the hub isn't probed (`--dry-run`/`--mock`/SSH failure) | ADVISORY (reports posture, does not block -- inferring the stage from the same probe and then blocking on it would be circular) |
+| `--pre-cutover` | pinned pre-cutover | BLOCKING, original polarity: `SYNC_MODE=authoritative` -> FAIL. Implied by `--cutover-window`, so `deploy/phase3_cutover.sh` needs no changes. |
+| `--post-cutover` | pinned post-cutover (steady state) | BLOCKING, OPPOSITE polarity: `SYNC_MODE=coordinator` -> FAIL (the cutover regressed) |
+
+`fleet_lifecycle` stays blocking in every stage. `--json` output carries
+`stage`, `stage_source`, and `advisory_fail_count`; `fail_count` counts only
+BLOCKING failures (an advisory FAIL under `auto` no longer flips the overall
+verdict to FAIL). Full reasoning in the module docstring.
+
+For this checklist -- a genuine pre-cutover run -- pin `--pre-cutover`
+explicitly rather than relying on auto-detect.
 
 | Category | ID | Pass criterion |
 |----------|-----|----------------|
 | **hub** | `hub_health` | `GET /health` -> `ok:true`, `mode:coordinator` |
-| **hub** | `hub_sync_mode_safe` | Hub `/etc/ree-coordinator.env` has `SYNC_MODE=coordinator` (not `authoritative`) |
+| **hub** | `hub_sync_mode_safe` | Hub `/etc/ree-coordinator.env` has `SYNC_MODE=coordinator` (not `authoritative`). Blocking here because this checklist runs `--pre-cutover`; see "Deployment stage" above for how this check's polarity and blocking-ness change under `--post-cutover` / `auto`. |
 | **hub** | `sync_daemon_active` | `ree-sync-daemon` active on ree-cloud-1 |
 | **hub** | `hub_git_clean` | `REE_assembly` checkout on hub: no precious dirty files |
 | **implementation** | `phase3_writer_ready` | `PHASE3_GIT_WRITER_READY` is true (writer live). Was `phase3_writer_stub`, asserting *false* -- the pre-cutover "writer not half-enabled" invariant. `d98f9a5` flipped the flag on 2026-05-28 and cutover completed 2026-05-29, so the old polarity made this check, and hence the whole preflight exit code, fail unconditionally. Renamed and inverted 2026-07-27. |
@@ -127,7 +155,8 @@ Run before any maintenance window:
 | **reachability** | `coordinator_api` | Authenticated `GET /shadow/status` succeeds |
 
 Categories map 1:1 to `phase3_preflight.py` check IDs. `--dry-run` skips SSH;
-`--mock` forces network checks to SKIP (tests only).
+`--mock` forces network checks to SKIP (tests only). Both stay compatible
+with any `--stage` flag.
 
 ### Human gates (not automated)
 
@@ -163,6 +192,13 @@ git-pushing results/heartbeats):
 Checks marked **SKIP** in `phase3_verify.py` until the corresponding code
 landed (see file header). Re-run verify until all required IDs are PASS.
 
+`phase3_verify.py`'s 7 post-cutover stub checks currently FAIL rather than
+SKIP/PASS under `--expect-cutover` (known follow-up #5 below) -- until that
+lands, `phase3_preflight.py --post-cutover` (or bare, once the hub's observed
+`SYNC_MODE` makes auto-detect resolve the same way) is the tool that gives a
+usable ongoing post-cutover health-check verdict; see "Deployment stage"
+under Preconditions above.
+
 ---
 
 ## Cutover procedure (operator)
@@ -180,7 +216,10 @@ brings them up and pauses the scaler so they stay up through the window.
    non-zero on timeout. Requires `HCLOUD_TOKEN` env var; reads
    `COORDINATOR_URL` + `COORDINATOR_LOCAL_TOKEN` from
    `REE_assembly/coordinator.env`.
-2. `phase3_preflight.py` -> exit 0
+2. `phase3_preflight.py --pre-cutover` -> exit 0 (auto-detect would resolve
+   to the same stage here, since the hub is still `SYNC_MODE=coordinator`
+   at this point in the runbook -- pin it explicitly rather than relying on
+   the inference)
 3. Drain fleet (same discipline as `deploy/phase2_cutover.sh`)
 4. `deploy/phase3_cutover.sh` (calls preflight; refuses if not green)
 5. Hub: set `SYNC_MODE=authoritative`, enable writer, restart sync_daemon
@@ -226,7 +265,9 @@ Fast rollback (claims stay on coordinator; git writers restored):
 2. Hub: `SYNC_MODE=coordinator` (not `authoritative`); restart `ree-sync-daemon`.
 3. Workers: re-enable `--auto-sync` git pushes for results/status/queue/heartbeats.
 4. Restart runners.
-5. Run `phase3_preflight.py` (should pass Phase 2 posture again).
+5. Run `phase3_preflight.py --pre-cutover` (should pass Phase 2 posture
+   again; pin the stage rather than relying on auto-detect, since the hub's
+   `SYNC_MODE` may not have settled back to `coordinator` yet).
 
 Full rollback to Phase 1 shadow (only if claim cutover must be undone):
 
@@ -269,7 +310,7 @@ Until engineering sign-off on `phase3_git_writer`:
 | Tool | Role |
 |------|------|
 | `deploy/phase3_wake_fleet.sh` | Pre-cutover prep: pauses scaler, wakes offline workers, waits for lifecycle=live across the fleet |
-| `phase3_preflight.py` | Pre-cutover gate (exit 0/1) |
+| `phase3_preflight.py` | Pre-cutover gate (`--pre-cutover`, exit 0/1) AND routine post-cutover fleet health check (`--post-cutover`; default `auto` infers the stage from the hub's observed `SYNC_MODE`) -- see "Deployment stage" under Preconditions |
 | `phase3_verify.py` | Post-cutover gate (exit 0/1; SKIP until implemented) |
 | `deploy/phase3_cutover.sh` | Drains + hub flip; **refuses** if preflight fails |
 | `deploy/phase3_release_fleet.sh` | Post-verify: re-enables scaler workflow |
@@ -304,6 +345,16 @@ Until engineering sign-off on `phase3_git_writer`:
   result manifest(s) 2026-05-29`), `phase3_queue_writer` cleared the
   item, `phase3_heartbeat_writer` continued ticking throughout
   (~30+ commits visible on origin/master in `phase3-heartbeats:`).
+- 2026-08-18: `phase3_preflight.py` gained a DEPLOYMENT STAGE
+  (auto-detect / `--pre-cutover` / `--post-cutover`; `--cutover-window`
+  implies `--pre-cutover`, c095ccb0c2). Fixes the FAIL-always verdict
+  `hub_sync_mode_safe` had produced on every run since the 2026-05-29
+  cutover -- it kept asserting the hub had NOT yet flipped to
+  `SYNC_MODE=authoritative`, which is correct pre-cutover and permanently
+  wrong afterwards. `--json` gained `stage` / `stage_source` /
+  `advisory_fail_count`; `fail_count` now counts BLOCKING failures only.
+  See the module docstring and "Deployment stage" under Preconditions
+  above.
 
 ### Phase 3 live -- known follow-ups
 
