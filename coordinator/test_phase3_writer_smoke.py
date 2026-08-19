@@ -47,6 +47,30 @@ import sync_daemon  # noqa: E402
 # `pytest coordinator/` run.
 _ORIG_WRITER_READY = sync_daemon.PHASE3_GIT_WRITER_READY
 
+# Isolate every git subprocess this module spawns (both this file's own
+# _git() and sync_daemon._git(), neither of which passes env= so both
+# inherit os.environ) from the RUNNING MACHINE's ambient git config.
+# Without this, a developer machine with commit.gpgsign=true set globally
+# (or via an includeIf directory match) makes the writer's own `git commit`
+# fail with "gpg failed to sign the data" / exit 128 -- the seed/writer
+# commit never lands, so a later `git log` on the still-empty bare remote
+# also exits 128, and every test in this file reds with no code defect
+# anywhere in sync_daemon.py. A machine-installed git hook template
+# (init.templateDir) firing inside these throwaway repos is the same class
+# of hazard. GIT_CONFIG_* env vars are the highest-precedence git config
+# source (git >= 2.31), so this covers every repo this module creates --
+# including the ad-hoc sibling clones scattered through individual test
+# methods -- without needing a `git config` call at every creation site.
+# Same pattern already used for this exact reason in
+# scripts/audit_clinical_hours_guard.py's _init_repo/_commit.
+_GIT_ISOLATION_ENV = {
+    "GIT_CONFIG_COUNT": "2",
+    "GIT_CONFIG_KEY_0": "commit.gpgsign",
+    "GIT_CONFIG_VALUE_0": "false",
+    "GIT_CONFIG_KEY_1": "core.hooksPath",
+    "GIT_CONFIG_VALUE_1": "/dev/null",
+}
+
 
 # ---------------------------------------------------------------------------
 # Shared scaffolding
@@ -124,6 +148,9 @@ class _WriterFixture(unittest.TestCase):
         self._tmp = tempfile.mkdtemp(prefix="phase3_smoke_")
         self._saved_spool = os.environ.get("COORDINATOR_SPOOL_DIR")
         os.environ["COORDINATOR_SPOOL_DIR"] = self._tmp
+        self._saved_git_env = {
+            k: os.environ.get(k) for k in _GIT_ISOLATION_ENV}
+        os.environ.update(_GIT_ISOLATION_ENV)
         self._remote = _bare_remote(self._tmp)
         self._repo = _seeded_clone(
             self._tmp, self._remote, name="asm",
@@ -147,6 +174,11 @@ class _WriterFixture(unittest.TestCase):
             os.environ["COORDINATOR_SPOOL_DIR"] = self._saved_spool
         else:
             os.environ.pop("COORDINATOR_SPOOL_DIR", None)
+        for k, v in self._saved_git_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
         shutil.rmtree(self._tmp, ignore_errors=True)
 
     def _run_writer(self):
