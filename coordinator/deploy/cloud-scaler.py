@@ -19,6 +19,17 @@ Routing rules (per worker, mirroring cloud-scaler.yml):
   - server running + claimable == 0 + heartbeat says idle + last completed
       > IDLE_GRACE_MIN ago -> shutdown (graceful, drains current run).
 
+Shutdown VETOES, in the order the decision matrix applies them:
+  held_by_self > 0        a claimed experiment (2026-05-30 fleet incident)
+  wake hold               a DECLARED orchestrator box within
+                          ORCHESTRATOR_WAKE_GRACE_MIN of first being seen
+                          running -- it was booting and could not yet speak
+                          (2026-08-19 bootstrap deadlock)
+  orchestrator veto       live dispatches (strong) or chip backlog (weak),
+                          read COORDINATOR-PRIMARY with the git heartbeat as
+                          the unreachable-coordinator fallback
+  pytest lease            non-queue work with no queue claim (2026-07-19)
+
 Authoritative invariants preserved from the bash version (DO NOT REMOVE):
   (1) HUB_NAME guard -- ree-worker-1 is skipped before any read or decision.
       The 2026-05-28 incident this guards against is in the YAML header.
@@ -36,6 +47,19 @@ Authoritative invariants preserved from the bash version (DO NOT REMOVE):
       still guards the git-fallback path (coordinator unreachable), where
       the file is refreshed on state-changes only. Tighter values regress
       to the heartbeat-aging bug fixed 2026-05-31 on that fallback path.
+  (5) The orchestrator veto is COORDINATOR-PRIMARY (2026-08-19). It was
+      built on 2026-08-18 reading ONLY the git heartbeat -- the transport
+      this same file had already demoted for runner telemetry in 2026-06-23,
+      and which CLAUDE.md documents as deliberately stale (state-change
+      commits only). Do NOT route it back through git as the primary: an
+      operational decision to power a billable box off, killing live
+      `claude -p` workers, must not read a channel designed to lag. The git
+      path remains, unchanged, as the fallback.
+  (6) ORCHESTRATOR_AFFINITIES is CONFIG, not telemetry. Which boxes are
+      resident dispatchers is a standing fact; inferring it from "an
+      orchestrator heartbeat exists" is precisely the inference that
+      deadlocked (an OFF box has no heartbeat, so it read as "not an
+      orchestrator" and was shut down before it could make one).
 
 All printed output is ASCII-only.
 """
@@ -129,6 +153,40 @@ DEFAULTS = {
     # test_cloud_scaler_orchestrator_veto.py pins the floor relationship, which
     # is invisible from either file alone.
     "ORCHESTRATOR_FRESH_MIN": 50,
+    # Max age of the COORDINATOR-transported orchestrator row before it stops
+    # vetoing. Much tighter than the git figure above, and the two are NOT
+    # interchangeable -- they measure different things:
+    #
+    #   ORCHESTRATOR_FRESH_MIN       50  age of a COMMITTED heartbeat as it
+    #                                    appears in the hub's checkout: a
+    #                                    30-min liveness floor + ~13 observed
+    #                                    checkout lag + margin.
+    #   ORCHESTRATOR_COORD_FRESH_MIN 12  age of a POSTed coordinator row. The
+    #                                    dispatch wrapper POSTs at cycle START
+    #                                    and cycle END, paced by a 5-minute
+    #                                    ree-metaworker.timer, and the POST is
+    #                                    sub-second -- so 12 covers two missed
+    #                                    ticks with margin and nothing else.
+    #
+    # The tighter window is the whole point of the transport change: a dead
+    # metaworker now stops vetoing in ~12 minutes instead of ~50.
+    "ORCHESTRATOR_COORD_FRESH_MIN": 12,
+    # BOOTSTRAP WAKE HOLD -- see orchestrator_wake_hold(). A box that is OFF
+    # cannot publish an orchestrator signal over ANY transport, so "no signal"
+    # is exactly what a freshly-woken orchestrator box looks like, and the
+    # fail-open veto then shuts it down before its dispatcher has run once.
+    # Measured 2026-08-19: ree-worker-4 was powered on by an operator at
+    # ~16:45 and the 16:45:04Z tick shut it down ONE SECOND later
+    # (status=running idle_ok=1 reason=clean_idle lease=none orch=none) --
+    # before the box had finished booting, let alone spoken. This is the
+    # window that hold covers, and it is a MAX AGE like every other veto here:
+    # a box whose metaworker never comes up is shut down once it expires.
+    "ORCHESTRATOR_WAKE_GRACE_MIN": 12,
+    # Hub-local, never git-tracked. Same shape and same reasoning as
+    # PYTEST_LEASE_DIR: the scaler is a hub-resident systemd oneshot with no
+    # memory between ticks, and the wake hold needs to remember one timestamp
+    # per affinity. Losing the directory is safe -- see orchestrator_wake_hold.
+    "SCALER_STATE_DIR": "/home/ree/scaler_state",
 }
 
 
@@ -154,12 +212,33 @@ WORKERS = [
     ("ree-worker-4", "ree-cloud-4", "surge"),
 ]
 
+# RESIDENT ORCHESTRATOR BOXES -- a STANDING FACT, declared in config, never
+# inferred from telemetry.
+#
+# This is deliberately not derived from "an orchestrator heartbeat exists",
+# because that is precisely the inference that deadlocked: a box that is OFF
+# has no fresh signal, so absence-of-signal was read as "not an orchestrator"
+# and the box was shut down before it could ever produce one. Membership here
+# says only "this affinity is a box on which metaworker-dispatch is
+# installed"; whether it currently has WORK is still decided from live demand
+# (read_orchestrator), so this does NOT make a listed box always-on.
+#
+# It gates exactly two things: the bounded wake hold below, and the GHA
+# backstop's refusal to shut these boxes down at all (see cloud-scaler.yml).
+ORCHESTRATOR_AFFINITIES = {"ree-cloud-4"}
+
 
 def log(msg):
     """Single-line ASCII output to stdout; systemd journal captures it."""
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     sys.stdout.write("[%s] %s\n" % (ts, msg))
     sys.stdout.flush()
+
+
+def iso(dt):
+    """UTC ISO-8601 with a trailing Z -- the one timestamp format every other
+    coordination artifact in this repo uses."""
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def parse_utc(s):
@@ -456,40 +535,85 @@ def announce_shutdown(affinity, announce_script, dry_run=False):
             "(%r) (proceeding)" % (affinity, exc))
 
 
-def read_orchestrator(heartbeats_dir, affinity, fresh_min, now=None):
-    """Return (active: bool, reason: str) for a co-resident metaworker.
+def _orchestrator_from_coordinator(coord_status, affinity):
+    """Return (hb_dict, source) for the coordinator's orchestrator row.
 
-    A box can run experiments AND metaworker-dispatch. The dispatch work is
-    invisible to every signal this scaler already has -- it creates no queue
-    claim and no runner heartbeat -- so without this veto the box reads as
-    clean_idle and is shut down mid-cycle, killing live `claude -p` workers.
-    Confirmed live 2026-08-18: ree-worker-4 was powered on for exactly this
-    trial and shut down 4 minutes later (reason=clean_idle lease=none).
+    The orchestrator publishes under its OWN machine identity
+    "<affinity>-metaworker" -- verified passthrough in machine_identity
+    (canonical_machine_name is an allowlist, so the suffix survives
+    canonicalisation and can never collapse onto the runner's row).
 
-    The orchestrator heartbeat is written under its OWN machine identity
-    ("<affinity>-metaworker") rather than into <affinity>.json. That is
-    deliberate: serve.py's read_machines() keys rows by canonical machine and
-    merges by freshness, so a runner heartbeat and an orchestrator heartbeat
-    sharing one name would collapse into a single card flip-flopping between
-    two schemas. Separate identities render as two cards -- which is also the
-    honest picture of a box doing two jobs.
+    The demand fields ride in the row's `progress` blob rather than in a
+    POSTed `payload`, deliberately: sync_daemon's phase3_heartbeat_writer
+    materialises runner_heartbeats/<machine>.json from every row whose
+    heartbeat_payload_json is non-NULL, so sending a payload would hand the
+    orchestrator's git heartbeat a second writer racing the metaworker's own.
+    See ree_metaworker_heartbeat.post_to_coordinator.
 
-    FAILS OPEN in every direction (missing dir, missing file, unreadable,
-    unparseable, no timestamp, stale): no veto. A broken detector must degrade
-    to the pre-veto behaviour, never to a box that can't be shut down.
+    Returns (None, "...") when there is no usable row, so the caller falls
+    back to the git mirror.
     """
-    if now is None:
-        now = datetime.now(timezone.utc)
+    if not coord_status:
+        return None, "no_coordinator_snapshot"
+    row = coord_status.get("%s-metaworker" % affinity)
+    if not isinstance(row, dict):
+        return None, "no_coordinator_row"
+    progress = row.get("progress")
+    if not isinstance(progress, dict) or not progress:
+        return None, "coordinator_row_no_progress"
+    # Flatten into the same shape read_orchestrator's git path produces, so
+    # ONE decision function judges both transports and they cannot drift.
+    hb = dict(progress)
+    hb.setdefault("role", "orchestrator")
+    hb["last_tick_utc"] = row.get("last_seen") or progress.get("last_tick_utc")
+    if row.get("state"):
+        hb["state"] = row.get("state")
+    return hb, "coord"
+
+
+def _read_git_orchestrator(heartbeats_dir, affinity):
+    """Return (hb_dict, source) for the git-materialised orchestrator file."""
     path = os.path.join(heartbeats_dir, "%s-metaworker.json" % affinity)
     try:
         with open(path, "r", encoding="utf-8") as fh:
             hb = json.load(fh)
     except FileNotFoundError:
-        return False, "no_orchestrator"
+        return None, "no_orchestrator"
     except Exception as exc:  # noqa: BLE001
-        return False, "orchestrator_unreadable(%s)" % type(exc).__name__
+        return None, "orchestrator_unreadable(%s)" % type(exc).__name__
     if not isinstance(hb, dict):
-        return False, "orchestrator_not_object"
+        return None, "orchestrator_not_object"
+    return hb, "git"
+
+
+def judge_orchestrator(hb, fresh_min, now):
+    """The SINGLE decision function, applied identically to whichever
+    transport supplied `hb`. Returns (active: bool, reason: str).
+
+    FAILS OPEN in every direction (bad role, no timestamp, stale, missing
+    demand fields): no veto. A broken detector must degrade to the pre-veto
+    behaviour, never to a box that cannot be shut down.
+
+    FRESHNESS ALONE IS NOT A VETO. A fresh tick only says the dispatch timer
+    is running, which on a box with the timer enabled is always true -- so
+    keying the veto on freshness made the box unconditionally always-on and
+    the shutdown branch unreachable. That was the behaviour for the first
+    hours of 2026-08-18. Two distinct reasons to hold the box, deliberately
+    different in kind:
+
+      in_flight > 0      STRONG. Live `claude -p` workers. Shutting down
+                         destroys work in progress and strands a claimed chip
+                         until CLAIM_STALE_HOURS. Same class as the
+                         held_by_self experiment veto.
+      chips_open_work>0  WEAK. Nothing running this instant, but there is
+                         backlog this box would pick up on its next tick.
+                         Powering down here just means powering back up.
+
+    With NEITHER, the metaworker plane is genuinely idle and empty and the box
+    falls through to the ordinary shutdown test -- which independently
+    requires claimable == 0, so a box is only ever stopped when BOTH planes
+    (experiments and chip ledger) have nothing for it.
+    """
     if hb.get("role") != "orchestrator":
         return False, "orchestrator_role_mismatch"
     tick = parse_utc(hb.get("last_tick_utc"))
@@ -498,36 +622,12 @@ def read_orchestrator(heartbeats_dir, affinity, fresh_min, now=None):
     age_min = (now - tick).total_seconds() / 60.0
     if age_min > fresh_min:
         return False, "orchestrator_stale(%dmin>%dmin)" % (age_min, fresh_min)
-
-    # FRESHNESS ALONE IS NOT A VETO. A fresh heartbeat only says the dispatch
-    # timer is ticking, which on a box with the timer enabled is always true --
-    # so keying the veto on freshness made the box unconditionally always-on and
-    # the shutdown branch unreachable. That was the behaviour for the first
-    # hours of 2026-08-18; it happened to match "keep cloud-4 up", by accident
-    # rather than by decision, which is why it is replaced rather than kept.
-    #
-    # Two distinct reasons to hold the box, deliberately different in kind:
-    #
-    #   in_flight > 0      STRONG. Live `claude -p` workers. Shutting down
-    #                      destroys work in progress and strands a claimed chip
-    #                      until CLAIM_STALE_HOURS. Same class as the
-    #                      held_by_self experiment veto.
-    #   chips_open_work>0  WEAK. Nothing running this instant, but there is
-    #                      backlog this box would pick up on its next tick.
-    #                      Powering down here just means powering back up.
-    #
-    # With NEITHER, the metaworker plane is genuinely idle and empty, and the
-    # box falls through to the ordinary shutdown test -- which independently
-    # requires claimable == 0, so a box is only ever stopped when BOTH planes
-    # (experiments and chip ledger) have nothing for it. That is the
-    # demand-sensitive behaviour, and it is what makes the box's always-on-ness
-    # a consequence of there being work rather than a property of the veto.
     in_flight = hb.get("in_flight_dispatches")
     open_work = hb.get("chips_open_work")
     if not isinstance(in_flight, int) or not isinstance(open_work, int):
-        # Malformed/legacy orchestrator heartbeat: cannot judge demand. Fail
-        # open, same as every other defect above -- a detector that cannot tell
-        # must not be what keeps a billable box alive indefinitely.
+        # Malformed/legacy orchestrator tick: cannot judge demand. Fail open,
+        # same as every other defect above -- a detector that cannot tell must
+        # not be what keeps a billable box alive indefinitely.
         return False, "orchestrator_no_demand_fields"
     if in_flight > 0:
         return True, ("orchestrator_busy in_flight=%d state=%s age=%dmin"
@@ -537,6 +637,154 @@ def read_orchestrator(heartbeats_dir, affinity, fresh_min, now=None):
                       "age=%dmin" % (open_work, hb.get("state"), age_min))
     return False, ("orchestrator_idle_and_empty state=%s age=%dmin"
                    % (hb.get("state"), age_min))
+
+
+def read_orchestrator(heartbeats_dir, affinity, fresh_min, now=None,
+                      coord_status=None, coord_fresh_min=None):
+    """Return (active: bool, reason: str, source: str) for a co-resident
+    metaworker.
+
+    A box can run experiments AND metaworker-dispatch. The dispatch work is
+    invisible to every signal this scaler already has -- it creates no queue
+    claim and no runner heartbeat -- so without this veto the box reads as
+    clean_idle and is shut down mid-cycle, killing live `claude -p` workers.
+    Confirmed live 2026-08-18: ree-worker-4 was powered on for exactly this
+    trial and shut down 4 minutes later (reason=clean_idle lease=none).
+
+    TRANSPORT (2026-08-19, chip-20260819-cloud4-orchestrator-veto-bootstrap-
+    deadlock). COORDINATOR-PRIMARY, git mirror as fallback -- the same shape
+    fetch_coordinator_status / evaluate_heartbeat already established for
+    runner telemetry on 2026-06-23, and for the same reason. This veto was
+    built on 2026-08-18 reading ONLY the git heartbeat, i.e. the transport
+    this very file had already demoted: CLAUDE.md states in terms that the
+    phase3 writer commits on state-changes only and that those files must not
+    be assumed current. An OPERATIONAL decision -- power a billable box off,
+    killing live workers -- must not be made from a channel documented as
+    deliberately stale. The git path is retained UNCHANGED as the fallback so
+    behaviour degrades to 2026-08-18's when the coordinator is unreachable.
+
+    The two paths carry DIFFERENT freshness windows on purpose (see
+    ORCHESTRATOR_COORD_FRESH_MIN); the judgement applied to them is the same
+    function, so they cannot drift in what they conclude from a given tick.
+
+    FAILS OPEN in every direction (missing dir, missing file, unreadable,
+    unparseable, no timestamp, stale, no coordinator): no veto.
+    """
+    if now is None:
+        now = datetime.now(timezone.utc)
+    if coord_fresh_min is None:
+        coord_fresh_min = DEFAULTS["ORCHESTRATOR_COORD_FRESH_MIN"]
+
+    hb, source = _orchestrator_from_coordinator(coord_status, affinity)
+    if hb is not None:
+        active, reason = judge_orchestrator(hb, coord_fresh_min, now)
+        if active:
+            return True, reason, "coord"
+        # A coordinator row that says "not active" is AUTHORITATIVE for the
+        # busy/idle question -- but only while it is FRESH. A stale row means
+        # the box has stopped POSTing (down, wedged, or pre-boot), and the git
+        # mirror can legitimately still hold a newer-looking committed tick
+        # from before that, so consult it rather than concluding from silence.
+        if not reason.startswith("orchestrator_stale"):
+            return False, reason, "coord"
+        coord_reason = reason
+    else:
+        coord_reason = source
+
+    git_hb, git_source = _read_git_orchestrator(heartbeats_dir, affinity)
+    if git_hb is None:
+        return False, "%s; %s" % (coord_reason, git_source), "none"
+    active, reason = judge_orchestrator(git_hb, fresh_min, now)
+    return active, "%s; git:%s" % (coord_reason, reason), "git"
+
+
+def wake_state_path(state_dir, affinity):
+    return os.path.join(state_dir, "%s.wake.json" % affinity)
+
+
+def orchestrator_wake_hold(state_dir, affinity, status, grace_min, now=None,
+                           is_orchestrator=False):
+    """Bounded bootstrap hold for a DECLARED orchestrator box that has just
+    come up. Returns (hold: bool, reason: str).
+
+    WHY THIS IS STRUCTURAL AND NOT A BAND-AID ON THE TRANSPORT. Moving the
+    veto onto the coordinator (read_orchestrator, above) removes the git
+    commit+push lag and the state-change gating -- but it cannot remove the
+    window in which the box is PHYSICALLY UNABLE TO SPEAK. Measured
+    2026-08-19: ree-worker-4 was powered on at ~16:45 and the 16:45:04Z tick
+    shut it down ONE SECOND later, while it was still booting. No box-side
+    transport, however fast, publishes anything during its own boot. So the
+    fail-open veto reads a booting orchestrator exactly like a dead one, and
+    the box never survives long enough to write a first tick -- the bootstrap
+    deadlock this function exists to break.
+
+    It is deliberately the NARROWEST thing that breaks it:
+
+      * Only for affinities in ORCHESTRATOR_AFFINITIES -- a standing config
+        fact, never inferred from telemetry (inferring it from telemetry is
+        the deadlock).
+      * Only while status == "running".
+      * Only for grace_min minutes after this scaler FIRST observed the box
+        running following an off/unknown observation. It is a MAX AGE like
+        PYTEST_LEASE_MAX_MIN and ORCHESTRATOR_FRESH_MIN: a box whose
+        metaworker never comes up is shut down when it expires, so the
+        steady-state fail-open property is untouched.
+
+    STATE. One small hub-local JSON per affinity. Losing it is safe in the
+    only direction that matters: a missing file is treated as "first sight of
+    this box running", which starts the window NOW and therefore self-expires.
+    An unwritable state dir yields no hold at all (fail open, logged) rather
+    than an unbounded one.
+    """
+    if now is None:
+        now = datetime.now(timezone.utc)
+    if not is_orchestrator:
+        return False, "not_declared_orchestrator"
+    path = wake_state_path(state_dir, affinity)
+
+    if status != "running":
+        # Remember that we saw it down, so the NEXT running observation is
+        # recognisable as a wake rather than as steady-state uptime.
+        try:
+            os.makedirs(state_dir, exist_ok=True)
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump({"status": status, "observed_at": iso(now)}, fh)
+        except Exception as exc:  # noqa: BLE001
+            log("  [scaler] WARN could not record wake state for %s (%r)"
+                % (affinity, exc))
+        return False, "not_running"
+
+    prev = None
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            prev = json.load(fh)
+    except Exception:  # noqa: BLE001  (missing/unreadable -> treat as first sight)
+        prev = None
+
+    running_since = None
+    if isinstance(prev, dict) and prev.get("status") == "running":
+        running_since = parse_utc(prev.get("running_since"))
+
+    if running_since is None:
+        # First running observation (or the state was lost): the window opens
+        # NOW. This is what makes a lost state file self-limiting.
+        running_since = now
+        try:
+            os.makedirs(state_dir, exist_ok=True)
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump({"status": "running",
+                           "running_since": iso(running_since),
+                           "observed_at": iso(now)}, fh)
+        except Exception as exc:  # noqa: BLE001
+            log("  [scaler] WARN could not record wake state for %s (%r) -- "
+                "no wake hold this tick" % (affinity, exc))
+            return False, "wake_state_unwritable"
+
+    age_min = (now - running_since).total_seconds() / 60.0
+    if age_min <= grace_min:
+        return True, ("orchestrator_wake_hold up=%dmin<=%dmin since first "
+                      "seen running" % (age_min, grace_min))
+    return False, "wake_grace_expired(%dmin>%dmin)" % (age_min, grace_min)
 
 
 def read_lease(lease_dir, affinity, max_lease_min, now=None):
@@ -601,6 +849,10 @@ def run_once(queue_path, heartbeats_dir, announce_script,
              coordinator_url=None, coordinator_token=None,
              lease_dir=None, max_lease_min=None,
              orchestrator_fresh_min=None,
+             orchestrator_coord_fresh_min=None,
+             orchestrator_wake_grace_min=None,
+             orchestrator_affinities=None,
+             state_dir=None,
              clear_fence_script=None):
     """One pass over the WORKERS list. Mirrors the bash for-loop body
     one-to-one. Returns 0 on success."""
@@ -612,6 +864,14 @@ def run_once(queue_path, heartbeats_dir, announce_script,
         max_lease_min = DEFAULTS["PYTEST_LEASE_MAX_MIN"]
     if orchestrator_fresh_min is None:
         orchestrator_fresh_min = DEFAULTS["ORCHESTRATOR_FRESH_MIN"]
+    if orchestrator_coord_fresh_min is None:
+        orchestrator_coord_fresh_min = DEFAULTS["ORCHESTRATOR_COORD_FRESH_MIN"]
+    if orchestrator_wake_grace_min is None:
+        orchestrator_wake_grace_min = DEFAULTS["ORCHESTRATOR_WAKE_GRACE_MIN"]
+    if orchestrator_affinities is None:
+        orchestrator_affinities = ORCHESTRATOR_AFFINITIES
+    if state_dir is None:
+        state_dir = DEFAULTS["SCALER_STATE_DIR"]
     queue = load_queue(queue_path)
     if queue is None:
         return 1
@@ -649,8 +909,11 @@ def run_once(queue_path, heartbeats_dir, announce_script,
         held_by_self = count_held_by_self(queue, affinity)
         lease_held, lease_reason = read_lease(
             lease_dir, affinity, max_lease_min)
-        orch_active, orch_reason = read_orchestrator(
-            heartbeats_dir, affinity, orchestrator_fresh_min)
+        is_orchestrator = affinity in orchestrator_affinities
+        orch_active, orch_reason, orch_src = read_orchestrator(
+            heartbeats_dir, affinity, orchestrator_fresh_min,
+            coord_status=coord_status,
+            coord_fresh_min=orchestrator_coord_fresh_min)
         coord_row = coord_status.get(affinity)
         idle_ok, idle_reason = evaluate_heartbeat(
             heartbeats_dir, affinity, idle_grace_min, heartbeat_fresh_min,
@@ -659,16 +922,26 @@ def run_once(queue_path, heartbeats_dir, announce_script,
         hb_src = "coord" if coord_row is not None else "git"
         status = hcloud_describe_status(server_name, dry_run=dry_run)
 
+        # Bootstrap wake hold -- evaluated AFTER status, because it is the
+        # off -> running transition it keys on. Records state on every tick
+        # for declared orchestrator affinities, so it must not be short-
+        # circuited out of the path when the veto is already active.
+        wake_hold, wake_reason = orchestrator_wake_hold(
+            state_dir, affinity, status, orchestrator_wake_grace_min,
+            is_orchestrator=is_orchestrator)
+
         # Stash for the surge branch on a later worker (cloud-4).
         worker_status[affinity] = status
         worker_held[affinity] = held_by_self
 
         log("[%s affinity=%s] claimable=%d held_by_self=%d status=%s "
-            "idle_ok=%d reason=%s hb_src=%s lease=%s orch=%s"
+            "idle_ok=%d reason=%s hb_src=%s lease=%s orch=%s orch_src=%s "
+            "wake=%s"
             % (server_name, affinity, claimable, held_by_self, status,
                idle_ok, idle_reason, hb_src,
                "held" if lease_held else "none",
-               "active" if orch_active else "none"))
+               "active" if orch_active else "none", orch_src,
+               "hold" if wake_hold else "none"))
 
         if status == "unknown":
             log("  -> server not provisioned yet, skipping")
@@ -724,6 +997,20 @@ def run_once(queue_path, heartbeats_dir, announce_script,
             # 2026-05-30 fleet incident guard.
             log("  -> worker holds %d active claim(s), keeping %s running"
                 % (held_by_self, server_name))
+
+        elif wake_hold and status == "running":
+            # BOOTSTRAP WAKE HOLD. A declared orchestrator box that has only
+            # just come up cannot have published anything yet -- it was
+            # booting. Without this, the fail-open orchestrator veto reads a
+            # booting box exactly like a dead one and shuts it down within
+            # one tick of power-on, so its dispatcher can NEVER produce the
+            # first signal the veto needs. Confirmed 2026-08-19: powered on
+            # ~16:45, shut down at 16:45:04Z, one second later, zero chips
+            # claimed. Bounded by ORCHESTRATOR_WAKE_GRACE_MIN, so a box whose
+            # metaworker never starts still shuts down. See
+            # orchestrator_wake_hold.
+            log("  -> %s is a declared orchestrator box that has just come "
+                "up, holding %s (%s)" % (affinity, server_name, wake_reason))
 
         elif orch_active and status == "running":
             # ORCHESTRATOR VETO. This box is also running metaworker-dispatch,
@@ -856,6 +1143,14 @@ def main(argv=None):
                               DEFAULTS["PYTEST_LEASE_MAX_MIN"]),
         orchestrator_fresh_min=env_int("ORCHESTRATOR_FRESH_MIN",
                                        DEFAULTS["ORCHESTRATOR_FRESH_MIN"]),
+        orchestrator_coord_fresh_min=env_int(
+            "ORCHESTRATOR_COORD_FRESH_MIN",
+            DEFAULTS["ORCHESTRATOR_COORD_FRESH_MIN"]),
+        orchestrator_wake_grace_min=env_int(
+            "ORCHESTRATOR_WAKE_GRACE_MIN",
+            DEFAULTS["ORCHESTRATOR_WAKE_GRACE_MIN"]),
+        state_dir=os.environ.get("SCALER_STATE_DIR")
+        or DEFAULTS["SCALER_STATE_DIR"],
     )
     return rc
 
