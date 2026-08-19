@@ -144,6 +144,60 @@ def test_missing_declared_companion_does_not_block_manifest_relocation(tmp_path,
     assert dest.exists()
 
 
+def test_manifest_already_in_scratch_dir_is_not_deleted(tmp_path, monkeypatch):
+    """Regression, 2026-08-19: a driver whose --dry-run out_dir IS the scratch
+    dir itself (e.g. v3_exq_937a) writes its manifest directly to `dest`, so
+    `src == dest`. The old code did `if dest.exists(): dest.unlink()` before
+    the move -- which deleted the manifest that was ALREADY at the
+    destination, then failed to find a source to move (swallowed by the
+    outer best-effort except), silently destroying the smoke manifest.
+    Confirmed live while smoke-testing V3-EXQ-937b.
+    """
+    scratch_root = tmp_path / "systmp"
+    monkeypatch.setattr(ep.tempfile, "gettempdir", lambda: str(scratch_root))
+
+    scratch = scratch_root / ep.DRY_RUN_SCRATCH_DIRNAME
+    scratch.mkdir(parents=True)
+    manifest_path = scratch / "v3_exq_937a_fake_20260819T000000Z.json"
+    manifest_path.write_text(json.dumps({"run_id": "v3_exq_937a_fake_20260819T000000Z_v3"}))
+
+    dest = ep._relocate_dry_run_manifest(manifest_path)
+
+    assert manifest_path.exists(), "manifest must survive a relocate onto itself"
+    assert dest == manifest_path
+    assert dest.exists()
+    assert dest.read_text() == json.dumps({"run_id": "v3_exq_937a_fake_20260819T000000Z_v3"})
+
+
+def test_companion_already_in_scratch_dir_is_not_deleted(tmp_path, monkeypatch):
+    """Same hazard as above, for the companion-file loop: a declared
+    companion already sitting at its own relocation destination must survive
+    the unlink-then-move instead of being deleted with no move to replace it.
+    """
+    scratch_root = tmp_path / "systmp"
+    monkeypatch.setattr(ep.tempfile, "gettempdir", lambda: str(scratch_root))
+
+    evidence_dir = tmp_path / "evidence_experiments" / "v3_exq_994_fake"
+    evidence_dir.mkdir(parents=True)
+    manifest_path = evidence_dir / "v3_exq_994_fake_20260819T000000Z.json"
+
+    scratch = scratch_root / ep.DRY_RUN_SCRATCH_DIRNAME
+    scratch.mkdir(parents=True)
+    companion = scratch / "v3_exq_994_fake_20260819T000000Z_episode_log.json"
+    companion.write_text(json.dumps({"episodes": ["smoke"]}))
+
+    manifest_path.write_text(json.dumps({
+        "run_id": "v3_exq_994_fake_20260819T000000Z_v3",
+        "companion_files": [str(companion)],
+    }))
+
+    dest = ep._relocate_dry_run_manifest(manifest_path)
+
+    assert companion.exists(), "companion already at its destination must survive"
+    assert dest.exists()
+    assert (dest.parent / companion.name).exists()
+
+
 def test_emit_outcome_dry_run_relocates_manifest_and_companion(tmp_path, monkeypatch):
     """End-to-end through the public emit_outcome() entry point."""
     monkeypatch.setattr(ep.tempfile, "gettempdir", lambda: str(tmp_path / "systmp"))

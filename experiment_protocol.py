@@ -193,6 +193,8 @@ def _relocate_dry_run_manifest(manifest_path: Path) -> Path:
         for companion in _iter_companion_files(manifest_path):
             try:
                 cdest = scratch / companion.name
+                if companion.resolve() == cdest.resolve():
+                    continue
                 if cdest.exists():
                     cdest.unlink()
                 shutil.move(str(companion), str(cdest))
@@ -200,6 +202,13 @@ def _relocate_dry_run_manifest(manifest_path: Path) -> Path:
                 pass
 
         dest = scratch / manifest_path.name
+        if manifest_path.resolve() == dest.resolve():
+            # Driver already wrote its --dry-run manifest directly into the
+            # scratch dir (src == dest) -- the unlink-then-move below would
+            # otherwise delete the manifest and then fail to find a source
+            # to move, silently destroying it (see this function's incident
+            # note, and V3-EXQ-937b's smoke-test discovery, 2026-08-19).
+            return manifest_path
         # shutil.move handles the cross-filesystem case (tempdir vs evidence on
         # a different mount) that os.replace would reject.
         if dest.exists():
