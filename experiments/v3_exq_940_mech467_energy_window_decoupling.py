@@ -761,6 +761,14 @@ def build_manifest(seed_results, smoke: bool, started_at: float,
     # C2 compares RATES. With no events anywhere there is no rate to compare, so C2
     # discriminates nothing -- that is a degenerate criterion, not a null result.
     c2_non_degenerate = bool(total_events_all_arms > 0)
+    # C1 NON-DEGENERACY -- found by the Step 2.5b adversarial design audit (2026-08-19).
+    # C1 reads a LIFT in window_completeness from gating contamination. If ARM_STOCK
+    # never truncated in the first place, that lift is ~0 and C1 reads FALSE -- which
+    # ALIASES "self-contamination was not what truncated the window" onto "there was no
+    # truncation to explain". Those are opposite findings. C1 can only discriminate when
+    # the reproduction arm actually reproduced 874b's truncation (7 of 12 cells), so its
+    # non-degeneracy is keyed to that.
+    c1_non_degenerate = bool(stock["n_truncated_cells"] > 0)
 
     criteria_by_arm = {
         # C1 is owned ONLY by the two arms in which window_completeness can move.
@@ -773,7 +781,10 @@ def build_manifest(seed_results, smoke: bool, started_at: float,
     criteria_nd = arm_criteria_non_degenerate(
         criteria_by_arm,
         aggregate,
-        extra={"C2_event_rate_lifts_when_window_decoupled": c2_non_degenerate},
+        extra={
+            "C1_window_completeness_lifts_when_contamination_gated": c1_non_degenerate,
+            "C2_event_rate_lifts_when_window_decoupled": c2_non_degenerate,
+        },
     )
 
     # ---- self-route ---------------------------------------------------------
@@ -782,6 +793,17 @@ def build_manifest(seed_results, smoke: bool, started_at: float,
         interpretation_note = (
             "No arm cleared its readiness gate; nothing here is a verdict on MECH-467 "
             "or on the energy hypothesis."
+        )
+    elif not c1_non_degenerate:
+        label = "truncation_not_reproduced_c1_undiscriminating"
+        interpretation_note = (
+            "ARM_STOCK -- the reproduction arm, run on 874b's env kwargs verbatim -- did "
+            "not truncate in any cell, so there was no window collapse to explain and C1 "
+            "cannot discriminate. This is NOT the H-energy null: it means 874b's "
+            "truncation did not reproduce here, which is itself a finding about "
+            "874b (its 7-of-12 health_depleted cells) and must be read before anything "
+            "else in this manifest. Compare per_arm_pooled done_causes against the "
+            "autopsy's table. Step 2.5b adversarial design audit, 2026-08-19."
         )
     elif c1_pass and c2_pass:
         label = "energy_window_self_contamination_confirmed"
@@ -857,6 +879,11 @@ def build_manifest(seed_results, smoke: bool, started_at: float,
                 "name": "C1_window_completeness_lifts_when_contamination_gated",
                 "load_bearing": True,
                 "passed": bool(c1_pass),
+                "non_degenerate": bool(c1_non_degenerate),
+                "non_degeneracy_basis": (
+                    "ARM_STOCK truncated in at least one cell, so there was a window "
+                    "collapse for the gate to explain."
+                ),
                 "measured_lift": window_lift,
                 "threshold": WINDOW_COMPLETENESS_LIFT_MIN,
                 "owned_by_arms": [ARM_STOCK, ARM_CONTAM_OFF],
@@ -881,7 +908,10 @@ def build_manifest(seed_results, smoke: bool, started_at: float,
         ],
         "combination_rule": (
             "PASS iff the aggregate gate is non-degenerate (ANY arm green) AND at least "
-            "one of C1 / C2 fires. C1 and C2 are NOT ANDed: they answer different "
+            "one of C1 / C2 fires. C1 is additionally only READABLE when ARM_STOCK "
+            "actually truncated (see its non_degenerate field); a non-reproducing stock "
+            "arm routes to truncation_not_reproduced_c1_undiscriminating rather than to "
+            "a null. C1 and C2 are NOT ANDed: they answer different "
             "halves of the question (did the window survive; did the rate move), and "
             "the autopsy's declared null is precisely C1-true / C2-false."
         ),
