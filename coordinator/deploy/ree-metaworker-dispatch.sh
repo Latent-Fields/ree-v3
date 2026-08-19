@@ -183,6 +183,33 @@ print(sum(1 for c in items
 ' "$REPO/TASK_CHIPS.json" "$1" 2>/dev/null || echo 0
 }
 
+# Open work chips that are UNCLAIMED -- the heartbeat's `eligible_work`, and the
+# only thing that makes health "idle" distinguishable from health "stalled" (see
+# ree_metaworker_heartbeat.derive_health). A box with nothing it is allowed to
+# take is FINE; a box with a backlog and no dispatch is not, and `chips_open_work`
+# alone cannot tell those apart because it counts chips another dispatcher is
+# already running.
+#
+# Deliberately CONSERVATIVE, i.e. it can only ever UNDERSTATE a stall. It does
+# not re-run the skill's Step 3 STOP-CHECKs (this wrapper has no business
+# reimplementing them, and a wrong guess in the other direction would fire the
+# stall signal on ordinary states -- which is how a guard gets switched off).
+# So a chip claimed by a dead worker still reads as ineligible until its claim
+# is reaped: a missed stall, never a false one.
+count_eligible_work_chips() {
+  /opt/local/bin/python3 -c '
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception:
+    print(0); raise SystemExit(0)
+items = d.get("chips") or d.get("items") or []
+print(sum(1 for c in items
+          if c.get("status") == "open" and c.get("kind") == "work"
+          and not c.get("claimed_by")))
+' "$REPO/TASK_CHIPS.json" 2>/dev/null || echo 0
+}
+
 # --- Scaler work lease (primary keepalive) --------------------------------
 # The scaler must not power this box off while it has chip work. There are two
 # transports for that signal and this is the PRIMARY one:
@@ -261,6 +288,7 @@ emit_heartbeat() {
     --in-flight-dispatches "$(count_alive_dispatches)" \
     $( [ "${PAUSED:-false}" = "true" ] && echo "--paused" ) \
     --note "$_hb_note" \
+    --health-carry \
     --push >> "$LOG" 2>&1
 }
 
@@ -454,6 +482,14 @@ else
   release_lease
 fi
 
+# --- This cycle's own claude session, for the heartbeat's health verdict -----
+# Only set in the branch that actually launches claude. Left EMPTY in every
+# branch that does not, so ree_metaworker_heartbeat.py is never handed an
+# "outcome" for a session that was never started -- an empty log slice plus a
+# non-zero status is indistinguishable from a session that died on arrival.
+SESSION_LOG_FROM=""
+SESSION_RC=""
+
 if [ "$PAUSED" = "true" ]; then
   echo "[$(ts)] cycle $CYCLE: coordination plane paused, skipping dispatch" >> "$LOG"
   STATE="paused"
@@ -496,12 +532,28 @@ else
   # SIGKILL 60s later) so a wedged cycle releases the lock instead of pinning the
   # box forever. Under normal operation the lock is uncontended and this is a
   # transparent wrapper around the same claude invocation as before.
+  # Byte offset of the log RIGHT BEFORE the launch. Everything appended past
+  # this point until DISPATCH_RC is read is this cycle's own claude stdout, and
+  # nothing else writes to $LOG in between -- which is what lets the heartbeat
+  # classify a usage-limit death the session itself could never report, because
+  # it never got a turn. Measured on this box: of 1578 cycles whose output
+  # carried the limit banner, 1430 exited 0, so the TEXT is the signal and the
+  # exit status is only corroboration.
+  SESSION_LOG_FROM=$(wc -c < "$LOG" 2>/dev/null | tr -d ' ')
+  [ -n "$SESSION_LOG_FROM" ] || SESSION_LOG_FROM=0
   flock -n -E 99 "$LOCKFILE" \
     timeout --signal=TERM --kill-after=60 "$DISPATCH_MAX_SEC" \
     claude -p "Run exactly ONE cycle of the metaworker-dispatch skill (see $REPO/.claude/skills/metaworker-dispatch/SKILL.md), then exit. This is cycle $CYCLE on machine $MACHINE. Your Step 4a in-flight worker cap on this box is $DISPATCH_MAX_INFLIGHT (available_slots = $DISPATCH_MAX_INFLIGHT - in-flight), not the default 2. AUTH: this box IS authenticated -- your own session is proof, since a claude -p cycle cannot run unauthenticated. Do NOT test for ~/.claude/.credentials.json; it is legitimately absent under CLAUDE_CODE_OAUTH_TOKEN auth, and treating its absence as an auth failure idled ree-cloud-4 for seven cycles on 2026-08-18. If a dispatched worker reports 'Not logged in', that is an environment-inheritance defect to report, NOT an account problem and NOT a reason to stop dispatching. Do not call ScheduleWakeup or otherwise self-pace via /loop -- an external systemd timer re-invokes this script every 5 minutes, so pacing is handled outside this session.$FRESHNESS_NOTE" \
       --permission-mode auto >> "$LOG" 2>&1
   DISPATCH_RC=$?
+  SESSION_RC="$DISPATCH_RC"
   if [ "$DISPATCH_RC" -eq 99 ]; then
+    # flock refused; claude never started. Withdraw the observation rather than
+    # report an empty slice with a non-zero status, which reads as a death.
+    # derive_health also guards this on state=locked-out -- belt and braces,
+    # because the two live in different repos and drift independently.
+    SESSION_LOG_FROM=""
+    SESSION_RC=""
     echo "[$(ts)] cycle $CYCLE: LOCKED OUT -- a sibling dispatch cycle already holds $LOCKFILE; not dispatching (reentrancy guard working as intended)" >> "$LOG"
     STATE="locked-out"
   elif [ "$DISPATCH_RC" -eq 124 ]; then
@@ -534,6 +586,10 @@ ALIVE_COUNT=$(count_alive_dispatches)
   --chips-open-work "${OPEN_WORK:-0}" \
   --chips-open-decision "${OPEN_DECISION:-0}" \
   --in-flight-dispatches "$ALIVE_COUNT" \
+  --dispatched-this-cycle "${NEW_DISPATCHES:-0}" \
+  --eligible-work "$(count_eligible_work_chips)" \
+  $( [ -n "$SESSION_LOG_FROM" ] && echo "--session-log $LOG --session-log-from-byte $SESSION_LOG_FROM" ) \
+  $( [ -n "$SESSION_RC" ] && echo "--session-rc $SESSION_RC" ) \
   $( [ "$PAUSED" = "true" ] && echo "--paused" ) \
   --note "cycle $CYCLE ($STATE)" \
   --push >> "$LOG" 2>&1
