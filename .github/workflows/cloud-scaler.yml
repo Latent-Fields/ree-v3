@@ -11,7 +11,36 @@ name: Cloud Worker Scaler
 # under load, leaving idle cloud workers running 1-4 hours past
 # IDLE_GRACE_MIN=20. The hub timer's cadence is reliable; if the hub is
 # itself down for hours, this 6-hourly backstop still catches forgotten
-# workers. Logic in both transports is identical 1:1.
+# workers.
+#
+# TRANSPORT PARITY (2026-08-19): the two transports are NOT automatically
+# identical -- this header claimed "identical 1:1" while the hub scaler had
+# grown two shutdown vetoes this workflow lacked, and the drift powered off a
+# live box. On 2026-08-19T01:39:26Z this backstop shut down ree-worker-4
+# (reason=heartbeat_stale) while it was serving as the RESIDENT
+# metaworker-dispatch box with 2 dispatches in flight and 80 open chips; the
+# hub timer had correctly vetoed the same box minutes earlier. Nothing noticed
+# for ~15h. The orchestrator veto is now ported here (below). One divergence
+# REMAINS AND IS STRUCTURAL, not drift: the pytest lease veto reads
+# /home/ree/pytest_leases on the hub's own disk, which a GitHub-hosted runner
+# cannot see. That divergence is safe in the only direction that matters --
+# this backstop can shut a box down that the hub would have kept up, never the
+# reverse -- but it is why "1:1" must not be re-asserted without checking.
+# coordinator/test_cloud_scaler_transport_parity.py pins the vetoes that CAN
+# be shared, so the next one added to cloud-scaler.py fails a test rather than
+# silently killing a box.
+#
+# Orchestrator veto: a scaler-managed box may ALSO run metaworker-dispatch.
+# That work creates no queue claim and no runner heartbeat, so every other
+# signal here reads clean_idle while live `claude -p` workers are mid-flight.
+# The box publishes a role=orchestrator heartbeat under
+# "<affinity>-metaworker.json" in the runner_heartbeats sparse checkout this
+# workflow already pulls. It vetoes shutdown when in_flight_dispatches > 0
+# (strong: live workers) or chips_open_work > 0 (weak: backlog it would pick
+# up next tick). An orchestrator that is idle AND has an empty ledger does NOT
+# veto -- so the box is stopped only when BOTH planes (experiment queue and
+# durable chip ledger) are empty, which is the demand-sensitive behaviour the
+# user asked for on 2026-08-19. Fails OPEN in every direction.
 #
 # Routing rules (per worker):
 #   - "claimable" items = status==pending AND machine_affinity in {any, <server_affinity>}
@@ -72,6 +101,14 @@ env:
   # update HUB_NAME here AND on the hub VM itself (hostname + coordinator/
   # sync-daemon systemd units).
   HUB_NAME: ree-worker-1
+  # Max age of the role=orchestrator heartbeat before it stops vetoing.
+  # 50 IS ARITHMETIC, NOT A ROUND NUMBER -- it must exceed
+  # scripts/ree_metaworker_heartbeat.py's LIVENESS_FLOOR_MINUTES (30), below
+  # which a healthy-but-unchanging box ages out of its own veto on schedule,
+  # plus ~13min observed worst-case git propagation lag plus ~7min margin.
+  # MUST stay equal to DEFAULTS["ORCHESTRATOR_FRESH_MIN"] in
+  # coordinator/deploy/cloud-scaler.py; the parity test pins that.
+  ORCHESTRATOR_FRESH_MIN: 50
 
 jobs:
   scale:
@@ -207,6 +244,63 @@ jobs:
           print(n)
           ")
 
+            # ORCHESTRATOR VETO INPUT. Mirrors read_orchestrator() in
+            # coordinator/deploy/cloud-scaler.py. A box co-running
+            # metaworker-dispatch publishes role=orchestrator under
+            # "<affinity>-metaworker.json". FAILS OPEN in every direction
+            # (missing dir/file, unreadable, unparseable, wrong role, no
+            # timestamp, stale, missing demand fields) -- a broken detector
+            # must degrade to the pre-veto behaviour, never to a billable box
+            # that can no longer be shut down.
+            ORCH_INFO=$(AFFINITY="$AFFINITY" \
+              ORCHESTRATOR_FRESH_MIN="${ORCHESTRATOR_FRESH_MIN}" \
+              python3 -c "
+          import json, os, sys
+          from datetime import datetime, timezone
+          aff = os.environ['AFFINITY']
+          fresh = int(os.environ['ORCHESTRATOR_FRESH_MIN'])
+          path = f'ree-assembly/evidence/experiments/runner_heartbeats/{aff}-metaworker.json'
+          now = datetime.now(timezone.utc)
+
+          def out(veto, reason):
+              print(f'orch_veto={veto} orch_reason={reason}')
+              sys.exit(0)
+
+          try:
+              with open(path) as f:
+                  hb = json.load(f)
+          except FileNotFoundError:
+              out(0, 'no_orchestrator')
+          except Exception as exc:
+              out(0, f'orchestrator_unreadable({type(exc).__name__})')
+          if not isinstance(hb, dict):
+              out(0, 'orchestrator_not_object')
+          if hb.get('role') != 'orchestrator':
+              out(0, 'orchestrator_role_mismatch')
+          try:
+              tick = datetime.fromisoformat(
+                  (hb.get('last_tick_utc') or '').replace('Z', '+00:00'))
+          except Exception:
+              out(0, 'orchestrator_no_tick')
+          age_min = (now - tick).total_seconds() / 60.0
+          if age_min > fresh:
+              out(0, f'orchestrator_stale({int(age_min)}min>{fresh}min)')
+          # FRESHNESS ALONE IS NOT A VETO -- a fresh heartbeat only says the
+          # dispatch timer is ticking, which is always true on a box with the
+          # timer enabled, and would make the box unconditionally always-on
+          # with the shutdown branch unreachable. Demand is what vetoes.
+          in_flight = hb.get('in_flight_dispatches')
+          open_work = hb.get('chips_open_work')
+          if not isinstance(in_flight, int) or not isinstance(open_work, int):
+              out(0, 'orchestrator_no_demand_fields')
+          if in_flight > 0:
+              out(1, f'orchestrator_busy_in_flight={in_flight}_age={int(age_min)}min')
+          if open_work > 0:
+              out(1, f'orchestrator_backlog_chips_open_work={open_work}_age={int(age_min)}min')
+          out(0, f'orchestrator_idle_and_empty_age={int(age_min)}min')
+          ")
+            ORCH_VETO=$(echo "$ORCH_INFO" | sed -n 's/^orch_veto=\([01]\) .*/\1/p')
+
             # Read heartbeat to decide whether the runner is genuinely idle.
             # idle_ok is "1" when:
             #   - heartbeat file exists and is fresh (last_tick_utc within HEARTBEAT_FRESH_MIN)
@@ -280,7 +374,7 @@ jobs:
             WORKER_STATUS[$AFFINITY]="$STATUS"
             WORKER_HELD[$AFFINITY]="$HELD_BY_SELF"
 
-            echo "[$SERVER_NAME affinity=$AFFINITY] claimable=$CLAIMABLE held_by_self=$HELD_BY_SELF status=$STATUS $IDLE_INFO"
+            echo "[$SERVER_NAME affinity=$AFFINITY] claimable=$CLAIMABLE held_by_self=$HELD_BY_SELF status=$STATUS $IDLE_INFO $ORCH_INFO"
 
             if [ "$STATUS" = "unknown" ]; then
               echo "  -> server not provisioned yet, skipping"
@@ -317,6 +411,19 @@ jobs:
               # claimed-and-not-completed beats every shutdown signal.
               # 2026-05-30 fleet incident guard.
               echo "  -> worker holds $HELD_BY_SELF active claim(s), keeping $SERVER_NAME running"
+            elif [ "$ORCH_VETO" = "1" ] && [ "$STATUS" = "running" ]; then
+              # ORCHESTRATOR VETO. This box is also running metaworker-dispatch,
+              # which creates no queue claim and no runner heartbeat -- so every
+              # other signal here reads clean_idle while live `claude -p` workers
+              # are mid-flight. Fires on live workers (strong) or on chip backlog
+              # this box would pick up (weak); an idle metaworker with an empty
+              # ledger does NOT veto and falls through to the ordinary shutdown
+              # test below, which independently requires CLAIMABLE=0. So the box
+              # stops only when BOTH planes are empty. Bounded by
+              # ORCHESTRATOR_FRESH_MIN so a dead metaworker stops vetoing rather
+              # than pinning a billable box forever.
+              # 2026-08-19 ree-worker-4 incident guard -- see workflow header.
+              echo "  -> $AFFINITY is running metaworker-dispatch, keeping $SERVER_NAME running ($ORCH_INFO)"
             elif [ "$CLAIMABLE" -eq 0 ] && [ "$STATUS" = "running" ] && [ "$IDLE_OK" = "1" ]; then
               echo "  -> no matching work AND runner idle past grace window, shutting down $SERVER_NAME"
               # Announce shutdown to the coordinator BEFORE issuing hcloud
