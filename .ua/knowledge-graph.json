@@ -9,8 +9,8 @@
     ],
     "frameworks": [],
     "description": "Active V3 implementation substrate for the REE cognitive-architecture research program, written in Python on PyTorch and NumPy. This scan is scoped to the two executable-code planes: ree_core/ (brain-region-named cognitive modules such as amygdala, PFC, hippocampal, sleep, cingulate, PAG, neuromodulation, basal-ganglia action-learning, affect and residue) and coordinator/ (a stdlib http.server coordination service with SQLite storage, a sync daemon and Phase-3 git writers). Note: this project has over 100 source files; consider scoping analysis to a subdirectory for faster results.",
-    "analyzedAt": "2026-08-17T02:07:47Z",
-    "gitCommitHash": "f5837e91b8dea524f4c29bb1cebd9186b689eb7b"
+    "analyzedAt": "2026-08-18T07:32:02Z",
+    "gitCommitHash": "d28d73d41d05d8beeceb0ec50f5f07f0f80f2a2f"
   },
   "nodes": [
     {
@@ -6728,745 +6728,6 @@
       "complexity": "complex"
     },
     {
-      "id": "file:ree_core/agent.py",
-      "type": "file",
-      "name": "agent.py",
-      "filePath": "ree_core/agent.py",
-      "summary": "Central REEAgent module \u2014 the ~11.8k-line top-level cognitive-architecture agent that assembles perception, prediction (E1/E2/E3), affective residue, hippocampal navigation, PFC control, sleep consolidation, and actor-critic learning into a single V3 substrate. Wires ~43 brain-region-named submodules via dependency injection in __init__.",
-      "tags": [
-        "entry-point",
-        "agent",
-        "orchestrator",
-        "torch-module",
-        "cognitive-architecture"
-      ],
-      "complexity": "complex",
-      "languageNotes": "Single nn.Module subclass with 95 methods and heavy use of getattr for optional-substrate probes; ~11k non-empty lines."
-    },
-    {
-      "id": "function:ree_core/agent.py:candidate_support_preflight",
-      "type": "function",
-      "name": "candidate_support_preflight",
-      "filePath": "ree_core/agent.py",
-      "lineRange": [
-        246,
-        305
-      ],
-      "summary": "Module-level preflight that inspects proposed action candidates and per-class score biases before selection, returning a support map used to guard degenerate cases.",
-      "tags": [
-        "utility",
-        "validation",
-        "policy",
-        "preflight"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:ree_core/agent.py:_resolve_chunk_deliberation_horizon",
-      "type": "function",
-      "name": "_resolve_chunk_deliberation_horizon",
-      "filePath": "ree_core/agent.py",
-      "lineRange": [
-        323,
-        348
-      ],
-      "summary": "Resolves the deliberation horizon the MECH-323 growable chunk ceiling derives from, using the agent config as input.",
-      "tags": [
-        "utility",
-        "configuration",
-        "chunking"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "class:ree_core/agent.py:AgentState",
-      "type": "class",
-      "name": "AgentState",
-      "filePath": "ree_core/agent.py",
-      "lineRange": [
-        309,
-        320
-      ],
-      "summary": "Dataclass snapshot of the complete REE-v3 agent state at a timestep: latent, precision, running variance, harm accumulator, commitment flag, beta-gate state, E3 iteration count, and optional serotonergic state.",
-      "tags": [
-        "data-model",
-        "dataclass",
-        "state",
-        "snapshot"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "class:ree_core/agent.py:REEAgent",
-      "type": "class",
-      "name": "REEAgent",
-      "filePath": "ree_core/agent.py",
-      "lineRange": [
-        351,
-        11805
-      ],
-      "summary": "Reflective-Ethical Engine V3 agent \u2014 the top-level nn.Module composing all brain-region-analog substrates (E1/E2/E3 predictors, hippocampal navigation, PFC/OFC/frontopolar, amygdala, PAG, cingulate, residue field, goal state, actor-critic, sleep) and enforcing the V3 invariants (persistent ethical cost, world-delta residue, harm-eval on z_world, motor-sensory E2 training).",
-      "tags": [
-        "orchestrator",
-        "agent",
-        "torch-module",
-        "cognitive-architecture",
-        "central"
-      ],
-      "complexity": "complex",
-      "languageNotes": "Inherits from torch.nn.Module; 95 methods spanning constructor, perception (sense/sense_flat), policy (select_action/act), learning (compute_*_loss, actor_critic_step), navigation (update_z_goal), and sleep (run_sws/rem_pass)."
-    },
-    {
-      "id": "function:ree_core/agent.py:__init__",
-      "type": "function",
-      "name": "__init__",
-      "filePath": "ree_core/agent.py",
-      "summary": "Constructor that instantiates and wires ~40 brain-region submodules (predictors, PFC/OFC/hippocampus/amygdala/PAG, residue field, goal state, comparators, serotonin, sleep, actor-critic) from an REEConfig, gated by many optional-substrate flags.",
-      "tags": [
-        "constructor",
-        "wiring",
-        "dependency-injection",
-        "initialization"
-      ],
-      "complexity": "complex"
-    },
-    {
-      "id": "function:ree_core/agent.py:from_config",
-      "type": "function",
-      "name": "from_config",
-      "filePath": "ree_core/agent.py",
-      "summary": "Classmethod factory that constructs an REEAgent from a config object, resolving dimensions and defaults before delegating to __init__.",
-      "tags": [
-        "factory",
-        "constructor",
-        "classmethod"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "function:ree_core/agent.py:reset",
-      "type": "function",
-      "name": "reset",
-      "filePath": "ree_core/agent.py",
-      "summary": "Episode-boundary reset that clears per-episode state (goal, residue, hippocampal, exploration record, comparator caches) while preserving learned parameters.",
-      "tags": [
-        "lifecycle",
-        "reset",
-        "episode-boundary"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:ree_core/agent.py:sense",
-      "type": "function",
-      "name": "sense",
-      "filePath": "ree_core/agent.py",
-      "summary": "Perception step ingesting an observation dict, running the E1/E2 encoders and updating latent state, residue, and object-file buffer; the main upstream entry into a policy tick.",
-      "tags": [
-        "perception",
-        "encoder",
-        "sense",
-        "core-api"
-      ],
-      "complexity": "complex"
-    },
-    {
-      "id": "function:ree_core/agent.py:sense_flat",
-      "type": "function",
-      "name": "sense_flat",
-      "filePath": "ree_core/agent.py",
-      "summary": "Flat-observation variant of sense() for environments emitting a single tensor rather than a dict \u2014 routes through the same encoder pipeline with default channel splits.",
-      "tags": [
-        "perception",
-        "encoder",
-        "compatibility"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:ree_core/agent.py:select_action",
-      "type": "function",
-      "name": "select_action",
-      "filePath": "ree_core/agent.py",
-      "summary": "Main policy inference: enumerates candidate actions, scores them through E3 (harm/benefit evaluator) and E2 (motor-sensory predictor), applies frontopolar/PFC gating and beta modulation, and returns the selected action plus diagnostics.",
-      "tags": [
-        "policy",
-        "action-selection",
-        "e3",
-        "core-api"
-      ],
-      "complexity": "complex"
-    },
-    {
-      "id": "function:ree_core/agent.py:act",
-      "type": "function",
-      "name": "act",
-      "filePath": "ree_core/agent.py",
-      "summary": "High-level tick combining sense+select_action for a single environment step; returns the chosen action for the runner.",
-      "tags": [
-        "policy",
-        "tick",
-        "core-api"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:ree_core/agent.py:act_with_split_obs",
-      "type": "function",
-      "name": "act_with_split_obs",
-      "filePath": "ree_core/agent.py",
-      "summary": "act() variant that accepts split-observation tensors (proprio/extero separated) \u2014 used by experiments that instrument the observation split.",
-      "tags": [
-        "policy",
-        "tick",
-        "compatibility"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:ree_core/agent.py:act_with_log_prob",
-      "type": "function",
-      "name": "act_with_log_prob",
-      "filePath": "ree_core/agent.py",
-      "summary": "act() variant that additionally returns the action log-probability under the current policy, for actor-critic training and importance weighting.",
-      "tags": [
-        "policy",
-        "tick",
-        "actor-critic"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:ree_core/agent.py:forward",
-      "type": "function",
-      "name": "forward",
-      "filePath": "ree_core/agent.py",
-      "summary": "nn.Module.forward implementation \u2014 dispatches through the sense-then-select_action pipeline so the agent can be used as an ordinary torch module.",
-      "tags": [
-        "torch-forward",
-        "policy",
-        "core-api"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "function:ree_core/agent.py:get_state",
-      "type": "function",
-      "name": "get_state",
-      "filePath": "ree_core/agent.py",
-      "summary": "Returns the current AgentState snapshot (latent, precision, running variance, harm, commitment, beta-elevation, E3 steps, serotonin) for external logging and diagnostics.",
-      "tags": [
-        "state",
-        "diagnostics",
-        "snapshot"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "function:ree_core/agent.py:generate_trajectories",
-      "type": "function",
-      "name": "generate_trajectories",
-      "filePath": "ree_core/agent.py",
-      "summary": "Rolls out candidate trajectories via the E2 world model \u2014 used by the deliberation horizon expansion and MECH-323 growable chunking.",
-      "tags": [
-        "planning",
-        "rollout",
-        "e2-world",
-        "deliberation"
-      ],
-      "complexity": "complex"
-    },
-    {
-      "id": "function:ree_core/agent.py:update_object_file_buffer",
-      "type": "function",
-      "name": "update_object_file_buffer",
-      "filePath": "ree_core/agent.py",
-      "summary": "Ingests EntityObservations from the current sense-step into the ObjectFileBuffer, maintaining persistent per-entity slots for the object-representation thread.",
-      "tags": [
-        "object-file",
-        "entities",
-        "perception"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:ree_core/agent.py:update_residue",
-      "type": "function",
-      "name": "update_residue",
-      "filePath": "ree_core/agent.py",
-      "summary": "Updates the persistent residue field from world-delta (z_world change) \u2014 implements V3 invariant that ethical cost is persistent and tracks world change, not body state.",
-      "tags": [
-        "residue",
-        "affect",
-        "ethical-cost",
-        "v3-invariant"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:ree_core/agent.py:update_z_goal",
-      "type": "function",
-      "name": "update_z_goal",
-      "filePath": "ree_core/agent.py",
-      "summary": "Updates the current z_goal (goal latent) via the hippocampal module and super-ordinal writer, gated by write-enable and beta-gate release state.",
-      "tags": [
-        "goal",
-        "hippocampal",
-        "super-ordinal"
-      ],
-      "complexity": "complex"
-    },
-    {
-      "id": "function:ree_core/agent.py:record_transition",
-      "type": "function",
-      "name": "record_transition",
-      "filePath": "ree_core/agent.py",
-      "summary": "Records the (state, action, next_state, reward, done) transition into the agent's per-episode buffers used by actor-critic, replay, and offline integration.",
-      "tags": [
-        "transition",
-        "buffer",
-        "learning"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:ree_core/agent.py:update_cross_stream_binder",
-      "type": "function",
-      "name": "update_cross_stream_binder",
-      "filePath": "ree_core/agent.py",
-      "summary": "Updates the cross-stream binder that ties latent streams across E1/E2/E3 and the residue field.",
-      "tags": [
-        "cross-stream",
-        "binder",
-        "latent"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:ree_core/agent.py:compute_prediction_loss",
-      "type": "function",
-      "name": "compute_prediction_loss",
-      "filePath": "ree_core/agent.py",
-      "summary": "Computes the E1/E2 predictive loss over recorded transitions \u2014 the core self-supervised objective for the world/self models.",
-      "tags": [
-        "loss",
-        "prediction",
-        "e1",
-        "e2"
-      ],
-      "complexity": "complex"
-    },
-    {
-      "id": "function:ree_core/agent.py:compute_benefit_eval_loss",
-      "type": "function",
-      "name": "compute_benefit_eval_loss",
-      "filePath": "ree_core/agent.py",
-      "summary": "Computes the loss for the benefit-evaluator head on z_world targets \u2014 E3 benefit-side supervision.",
-      "tags": [
-        "loss",
-        "e3",
-        "benefit-eval"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:ree_core/agent.py:compute_event_contrastive_loss",
-      "type": "function",
-      "name": "compute_event_contrastive_loss",
-      "filePath": "ree_core/agent.py",
-      "summary": "Contrastive loss between event embeddings, supporting event-segmented representation learning.",
-      "tags": [
-        "loss",
-        "contrastive",
-        "event"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:ree_core/agent.py:compute_resource_proximity_loss",
-      "type": "function",
-      "name": "compute_resource_proximity_loss",
-      "filePath": "ree_core/agent.py",
-      "summary": "Loss shaping the resource-proximity readout used by the hippocampal navigation head.",
-      "tags": [
-        "loss",
-        "resource",
-        "proximity",
-        "hippocampal"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:ree_core/agent.py:compute_resource_encoder_loss",
-      "type": "function",
-      "name": "compute_resource_encoder_loss",
-      "filePath": "ree_core/agent.py",
-      "summary": "Supervises the resource encoder used by the resource-proximity and identity heads.",
-      "tags": [
-        "loss",
-        "resource",
-        "encoder"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:ree_core/agent.py:compute_resource_identity_loss",
-      "type": "function",
-      "name": "compute_resource_identity_loss",
-      "filePath": "ree_core/agent.py",
-      "summary": "Identity-classification loss for the resource identity head; disambiguates resource types across contexts.",
-      "tags": [
-        "loss",
-        "resource",
-        "identity"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:ree_core/agent.py:compute_harm_nonredundancy_loss",
-      "type": "function",
-      "name": "compute_harm_nonredundancy_loss",
-      "filePath": "ree_core/agent.py",
-      "summary": "Enforces non-redundancy between the two harm-side E2 heads (harm_a and harm_s), preventing collapse to a single channel.",
-      "tags": [
-        "loss",
-        "harm",
-        "nonredundancy",
-        "e2"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:ree_core/agent.py:compute_harm_accum_loss",
-      "type": "function",
-      "name": "compute_harm_accum_loss",
-      "filePath": "ree_core/agent.py",
-      "summary": "Loss on the harm-suffering accumulator's regression, supervising accumulated-harm predictions.",
-      "tags": [
-        "loss",
-        "harm",
-        "accumulator"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:ree_core/agent.py:compute_schema_readout_loss",
-      "type": "function",
-      "name": "compute_schema_readout_loss",
-      "filePath": "ree_core/agent.py",
-      "summary": "Loss on the schema-wanting readout, tying wanting signals to schema activation.",
-      "tags": [
-        "loss",
-        "schema",
-        "wanting"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:ree_core/agent.py:compute_self_maintenance_loss",
-      "type": "function",
-      "name": "compute_self_maintenance_loss",
-      "filePath": "ree_core/agent.py",
-      "summary": "Loss maintaining z_self stability against motor-sensory prediction targets \u2014 implements V3 invariant #4 (E2 on motor-sensory error).",
-      "tags": [
-        "loss",
-        "self",
-        "v3-invariant"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:ree_core/agent.py:compute_e2_loss",
-      "type": "function",
-      "name": "compute_e2_loss",
-      "filePath": "ree_core/agent.py",
-      "summary": "Aggregate E2 predictor loss across its heads (fast, world, harm_a, harm_s).",
-      "tags": [
-        "loss",
-        "e2",
-        "aggregate"
-      ],
-      "complexity": "complex"
-    },
-    {
-      "id": "function:ree_core/agent.py:compute_goal_maintenance_diagnostic",
-      "type": "function",
-      "name": "compute_goal_maintenance_diagnostic",
-      "filePath": "ree_core/agent.py",
-      "summary": "Diagnostic-only computation of goal-maintenance quality; feeds instrumentation panels rather than gradients.",
-      "tags": [
-        "diagnostic",
-        "goal",
-        "instrumentation"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:ree_core/agent.py:actor_critic_step",
-      "type": "function",
-      "name": "actor_critic_step",
-      "filePath": "ree_core/agent.py",
-      "summary": "One actor-critic optimization step over the recorded transition buffer \u2014 applies gradients to the policy/value heads.",
-      "tags": [
-        "actor-critic",
-        "training",
-        "step"
-      ],
-      "complexity": "complex"
-    },
-    {
-      "id": "function:ree_core/agent.py:actor_critic_reward",
-      "type": "function",
-      "name": "actor_critic_reward",
-      "filePath": "ree_core/agent.py",
-      "summary": "Computes the actor-critic reward signal from residue-adjusted extrinsic reward plus intrinsic terms.",
-      "tags": [
-        "actor-critic",
-        "reward"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:ree_core/agent.py:serotonin_step",
-      "type": "function",
-      "name": "serotonin_step",
-      "filePath": "ree_core/agent.py",
-      "summary": "Advances the serotonergic neuromodulator per MECH-203/204 \u2014 updates tonic level from persistence appraisal and modulates downstream gating.",
-      "tags": [
-        "neuromodulation",
-        "serotonin",
-        "mech-204"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:ree_core/agent.py:offline_integration",
-      "type": "function",
-      "name": "offline_integration",
-      "filePath": "ree_core/agent.py",
-      "summary": "Offline-mode integration pass consolidating recent experience without emitting actions \u2014 the entry point for the sleep/consolidation subsystem.",
-      "tags": [
-        "offline",
-        "sleep",
-        "integration"
-      ],
-      "complexity": "complex"
-    },
-    {
-      "id": "function:ree_core/agent.py:run_sws_schema_pass",
-      "type": "function",
-      "name": "run_sws_schema_pass",
-      "filePath": "ree_core/agent.py",
-      "summary": "SWS (slow-wave sleep) analog pass consolidating schemas via the hippocampal replay + latent stack \u2014 supports INV-049 sleep-necessity claim.",
-      "tags": [
-        "sleep",
-        "sws",
-        "schema",
-        "consolidation",
-        "inv-049"
-      ],
-      "complexity": "complex"
-    },
-    {
-      "id": "function:ree_core/agent.py:run_rem_attribution_pass",
-      "type": "function",
-      "name": "run_rem_attribution_pass",
-      "filePath": "ree_core/agent.py",
-      "summary": "REM analog pass that re-attributes recent experience via the scientist attribution buffer and BLA remap heads.",
-      "tags": [
-        "sleep",
-        "rem",
-        "attribution",
-        "consolidation"
-      ],
-      "complexity": "complex"
-    },
-    {
-      "id": "function:ree_core/agent.py:run_sleep_cycle",
-      "type": "function",
-      "name": "run_sleep_cycle",
-      "filePath": "ree_core/agent.py",
-      "summary": "Runs a full SWS+REM sleep cycle, orchestrating enter/exit mode transitions around the two consolidation passes.",
-      "tags": [
-        "sleep",
-        "cycle",
-        "orchestrator"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:ree_core/agent.py:enter_sws_mode",
-      "type": "function",
-      "name": "enter_sws_mode",
-      "filePath": "ree_core/agent.py",
-      "summary": "Transitions the agent into SWS mode \u2014 disables online policy tick and enables the schema-replay code path.",
-      "tags": [
-        "sleep",
-        "sws",
-        "mode"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "function:ree_core/agent.py:enter_rem_mode",
-      "type": "function",
-      "name": "enter_rem_mode",
-      "filePath": "ree_core/agent.py",
-      "summary": "Transitions the agent into REM mode \u2014 enables the attribution-remap code path.",
-      "tags": [
-        "sleep",
-        "rem",
-        "mode"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "function:ree_core/agent.py:exit_sleep_mode",
-      "type": "function",
-      "name": "exit_sleep_mode",
-      "filePath": "ree_core/agent.py",
-      "summary": "Restores the agent's online-tick mode after a sleep cycle completes.",
-      "tags": [
-        "sleep",
-        "mode",
-        "exit"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "function:ree_core/agent.py:notify_env_completion",
-      "type": "function",
-      "name": "notify_env_completion",
-      "filePath": "ree_core/agent.py",
-      "summary": "External notification hook the runner calls when an environment episode terminates \u2014 flushes exploration episodes, records task outcome, and clears per-episode buffers.",
-      "tags": [
-        "lifecycle",
-        "notification",
-        "episode-end"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:ree_core/agent.py:notify_subgoal_attainment",
-      "type": "function",
-      "name": "notify_subgoal_attainment",
-      "filePath": "ree_core/agent.py",
-      "summary": "External notification hook indicating a sub-goal was attained \u2014 updates the incentive-token bank and goal state.",
-      "tags": [
-        "lifecycle",
-        "notification",
-        "subgoal"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:ree_core/agent.py:_update_blocked_agency",
-      "type": "function",
-      "name": "_update_blocked_agency",
-      "filePath": "ree_core/agent.py",
-      "summary": "Internal update of the BlockedAgency module tracking cases where an intended action is blocked, which feeds suffering and residue.",
-      "tags": [
-        "affect",
-        "blocked-agency",
-        "internal"
-      ],
-      "complexity": "complex"
-    },
-    {
-      "id": "function:ree_core/agent.py:_update_scientist_attribution",
-      "type": "function",
-      "name": "_update_scientist_attribution",
-      "filePath": "ree_core/agent.py",
-      "summary": "Internal update of the scientist attribution buffer that records per-region contribution traces used by the REM attribution pass.",
-      "tags": [
-        "attribution",
-        "scientist",
-        "internal"
-      ],
-      "complexity": "complex"
-    },
-    {
-      "id": "function:ree_core/agent.py:_e1_tick",
-      "type": "function",
-      "name": "_e1_tick",
-      "filePath": "ree_core/agent.py",
-      "summary": "Per-tick advance of the E1 deep predictor over the current latent state.",
-      "tags": [
-        "e1",
-        "tick",
-        "internal"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:ree_core/agent.py:_e3_tick",
-      "type": "function",
-      "name": "_e3_tick",
-      "filePath": "ree_core/agent.py",
-      "summary": "Per-tick advance of the E3 harm/benefit evaluator, producing scores over candidate world outcomes.",
-      "tags": [
-        "e3",
-        "tick",
-        "internal",
-        "harm-eval"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:ree_core/agent.py:_compute_persistence_appraisal",
-      "type": "function",
-      "name": "_compute_persistence_appraisal",
-      "filePath": "ree_core/agent.py",
-      "summary": "Computes the persistence appraisal driving serotonergic modulation and hippocampal ghost-goal reactivation.",
-      "tags": [
-        "appraisal",
-        "persistence",
-        "serotonin",
-        "internal"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:ree_core/agent.py:_assemble_control_vector",
-      "type": "function",
-      "name": "_assemble_control_vector",
-      "filePath": "ree_core/agent.py",
-      "summary": "Assembles the control-vector conditioning input for the policy from the current goal, residue, serotonin, and beta-gate state.",
-      "tags": [
-        "control-vector",
-        "conditioning",
-        "internal"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:ree_core/agent.py:_curiosity_per_candidate_uncertainty",
-      "type": "function",
-      "name": "_curiosity_per_candidate_uncertainty",
-      "filePath": "ree_core/agent.py",
-      "summary": "Per-candidate epistemic uncertainty used by the curiosity term \u2014 feeds action selection's exploration bonus.",
-      "tags": [
-        "curiosity",
-        "uncertainty",
-        "exploration",
-        "internal"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:ree_core/agent.py:_flush_exploration_episode",
-      "type": "function",
-      "name": "_flush_exploration_episode",
-      "filePath": "ree_core/agent.py",
-      "summary": "Flushes recorded exploration-episode state to the exploration buffer at episode boundaries.",
-      "tags": [
-        "exploration",
-        "episode-boundary",
-        "internal"
-      ],
-      "complexity": "moderate"
-    },
-    {
       "id": "file:ree_core/latent/theta_buffer.py",
       "type": "file",
       "name": "theta_buffer.py",
@@ -9496,6 +8757,497 @@
       ],
       "complexity": "complex",
       "languageNotes": "Uses setattr/hasattr for optional-knob wiring; silently ignores kwargs not present on the dataclass, so new knobs need explicit test coverage."
+    },
+    {
+      "id": "file:ree_core/agent.py",
+      "type": "file",
+      "name": "agent.py",
+      "filePath": "ree_core/agent.py",
+      "summary": "Top-level REEAgent orchestrator that composes the full cognitive substrate \u2014 sensing, action selection, prediction/error hierarchy, PFC, amygdala, hippocampal, cingulate, PAG, sleep, neuromodulation, residue and z-goal subsystems \u2014 into one PyTorch module driving per-tick perception, deliberation, action, and offline consolidation.",
+      "tags": [
+        "entry-point",
+        "orchestrator",
+        "agent-core",
+        "pytorch-module",
+        "substrate"
+      ],
+      "complexity": "complex",
+      "languageNotes": "Single-file agent facade: ~11.8k lines, one large REEAgent class with 95 methods composing ~43 project-internal subsystem modules. Uses PyTorch nn.Module pattern with per-tick forward() and phase methods (sense, select_action, act, sleep passes)."
+    },
+    {
+      "id": "class:ree_core/agent.py:REEAgent",
+      "type": "class",
+      "name": "REEAgent",
+      "filePath": "ree_core/agent.py",
+      "lineRange": [
+        351,
+        11817
+      ],
+      "summary": "Central cognitive-architecture agent class: wires ~40 subsystem modules (predictors E1/E2/E3, PFC analogs, hippocampal, amygdala, cingulate, PAG, sleep, neuromodulation, residue, goals, safety, governance) into a single PyTorch nn.Module exposing per-tick sense/select/act, training losses, and sleep passes.",
+      "tags": [
+        "agent-core",
+        "orchestrator",
+        "pytorch-module",
+        "cognitive-architecture",
+        "god-class"
+      ],
+      "complexity": "complex",
+      "languageNotes": "95 methods spanning perception, action selection, ~11 loss functions, sleep-phase entry/exit, neuromodulation ticks, z-goal management, and cross-stream binding. Constructed via from_config classmethod from REEConfig."
+    },
+    {
+      "id": "class:ree_core/agent.py:AgentState",
+      "type": "class",
+      "name": "AgentState",
+      "filePath": "ree_core/agent.py",
+      "lineRange": [
+        309,
+        320
+      ],
+      "summary": "Frozen dataclass snapshotting an agent tick \u2014 latent state, action, prediction errors, salience, drive, and residue readouts \u2014 returned to callers for logging and analysis.",
+      "tags": [
+        "data-model",
+        "dataclass",
+        "state-snapshot",
+        "immutable"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:ree_core/agent.py:candidate_support_preflight",
+      "type": "function",
+      "name": "candidate_support_preflight",
+      "filePath": "ree_core/agent.py",
+      "lineRange": [
+        246,
+        305
+      ],
+      "summary": "Module-level helper that validates candidate action support and applies forced score-bias overrides before scoring, ensuring per-class biases are shape-checked and safely broadcast across candidates.",
+      "tags": [
+        "validation",
+        "preprocessing",
+        "action-scoring",
+        "utility"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/agent.py:_resolve_chunk_deliberation_horizon",
+      "type": "function",
+      "name": "_resolve_chunk_deliberation_horizon",
+      "filePath": "ree_core/agent.py",
+      "lineRange": [
+        323,
+        348
+      ],
+      "summary": "Resolves the deliberation horizon (in ticks) used for chunk boundary decisions by consulting the config with sensible defaults and shape guards.",
+      "tags": [
+        "configuration",
+        "chunking",
+        "utility",
+        "helper"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:ree_core/agent.py:REEAgent.__init__",
+      "type": "function",
+      "name": "REEAgent.__init__",
+      "filePath": "ree_core/agent.py",
+      "summary": "Constructs and wires the full agent: instantiates every subsystem module (predictors, PFC, hippocampal, amygdala, cingulate, PAG, sleep, neuromod, residue, goals, safety), registers PyTorch parameters, and initialises per-tick buffers and diagnostics.",
+      "tags": [
+        "constructor",
+        "initialization",
+        "wiring",
+        "pytorch-module"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:ree_core/agent.py:REEAgent.from_config",
+      "type": "function",
+      "name": "REEAgent.from_config",
+      "filePath": "ree_core/agent.py",
+      "summary": "Factory classmethod that constructs a REEAgent from a REEConfig, resolving all subsystem sub-configs and dimensional parameters into constructor arguments.",
+      "tags": [
+        "factory",
+        "classmethod",
+        "configuration",
+        "constructor"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/agent.py:REEAgent.reset",
+      "type": "function",
+      "name": "REEAgent.reset",
+      "filePath": "ree_core/agent.py",
+      "summary": "Resets all per-episode transient state on the agent: latent buffers, replay/attribution queues, tick counters, gate snapshots, and per-episode diagnostics \u2014 leaving learned parameters intact.",
+      "tags": [
+        "lifecycle",
+        "episode-reset",
+        "state-management"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/agent.py:REEAgent.sense",
+      "type": "function",
+      "name": "REEAgent.sense",
+      "filePath": "ree_core/agent.py",
+      "summary": "Encodes a structured observation dict into the agent's latent world/self/harm/beta streams via the perception encoders, updating object-file buffers and refreshing salience inputs for downstream deliberation.",
+      "tags": [
+        "perception",
+        "encoding",
+        "latent-state",
+        "per-tick"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:ree_core/agent.py:REEAgent.sense_flat",
+      "type": "function",
+      "name": "REEAgent.sense_flat",
+      "filePath": "ree_core/agent.py",
+      "summary": "Flat-observation variant of sense that accepts a single stacked tensor rather than a structured dict \u2014 used by environments and tests that pre-flatten their observation channels.",
+      "tags": [
+        "perception",
+        "encoding",
+        "flat-obs",
+        "test-affordance"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/agent.py:REEAgent.select_action",
+      "type": "function",
+      "name": "REEAgent.select_action",
+      "filePath": "ree_core/agent.py",
+      "summary": "Core deliberation entry point: generates candidate trajectories, scores them across E1/E2/E3 heads, applies PFC gating (frontopolar, infralimbic, OFC, lateral), and returns the chosen action plus its scoring diagnostics.",
+      "tags": [
+        "deliberation",
+        "action-selection",
+        "candidate-scoring",
+        "pfc-gating"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:ree_core/agent.py:REEAgent.generate_trajectories",
+      "type": "function",
+      "name": "REEAgent.generate_trajectories",
+      "filePath": "ree_core/agent.py",
+      "summary": "Rolls out candidate action trajectories through the internal world model (E2 world predictor) for scoring by curiosity, benefit, harm, and drive heads during select_action.",
+      "tags": [
+        "planning",
+        "rollout",
+        "world-model",
+        "candidate-generation"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:ree_core/agent.py:REEAgent.act",
+      "type": "function",
+      "name": "REEAgent.act",
+      "filePath": "ree_core/agent.py",
+      "summary": "One-shot public per-tick API combining sense + select_action + record_transition, returning the chosen action and updating internal state for the next tick.",
+      "tags": [
+        "api",
+        "per-tick",
+        "convenience-facade"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/agent.py:REEAgent.act_with_split_obs",
+      "type": "function",
+      "name": "REEAgent.act_with_split_obs",
+      "filePath": "ree_core/agent.py",
+      "summary": "Variant of act that takes separately-typed observation streams (world, self, harm) rather than a merged dict, matching environments that emit split observation channels.",
+      "tags": [
+        "api",
+        "per-tick",
+        "split-obs",
+        "test-affordance"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/agent.py:REEAgent.act_with_log_prob",
+      "type": "function",
+      "name": "REEAgent.act_with_log_prob",
+      "filePath": "ree_core/agent.py",
+      "summary": "Act variant that additionally returns the log-probability of the chosen action under the current policy \u2014 used by RL/policy-gradient outer loops.",
+      "tags": [
+        "api",
+        "policy-gradient",
+        "log-prob",
+        "actor-critic"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/agent.py:REEAgent.record_transition",
+      "type": "function",
+      "name": "REEAgent.record_transition",
+      "filePath": "ree_core/agent.py",
+      "summary": "Ingests the environment's observation and reward following an action, updates prediction-error buffers, residue field, cross-stream binder, and per-tick diagnostics.",
+      "tags": [
+        "per-tick",
+        "state-update",
+        "prediction-error",
+        "residue"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:ree_core/agent.py:REEAgent.update_z_goal",
+      "type": "function",
+      "name": "REEAgent.update_z_goal",
+      "filePath": "ree_core/agent.py",
+      "summary": "Advances the super-ordinal z-goal state each tick: routes writer calls through the incentive-token bank, updates active/total tick counts, and refreshes ghost-goal-bank cue signals.",
+      "tags": [
+        "goal-management",
+        "z-goal",
+        "super-ordinal",
+        "per-tick"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:ree_core/agent.py:REEAgent.serotonin_step",
+      "type": "function",
+      "name": "REEAgent.serotonin_step",
+      "filePath": "ree_core/agent.py",
+      "summary": "Advances the serotonin neuromodulator: updates tonic and phasic levels from harm, benefit, and drive signals, and propagates the resulting modulation to downstream consumers each tick.",
+      "tags": [
+        "neuromodulation",
+        "serotonin",
+        "per-tick"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/agent.py:REEAgent.compute_drive_level",
+      "type": "function",
+      "name": "REEAgent.compute_drive_level",
+      "filePath": "ree_core/agent.py",
+      "summary": "Computes the agent's current drive/motivational tone by integrating per-axis benefit and harm signals through the drive-consumer channel weights.",
+      "tags": [
+        "motivation",
+        "drive",
+        "per-tick",
+        "aggregation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/agent.py:REEAgent.actor_critic_step",
+      "type": "function",
+      "name": "REEAgent.actor_critic_step",
+      "filePath": "ree_core/agent.py",
+      "summary": "Runs one actor-critic training step: forward-passes an action through the critic, computes advantage from the reward buffer, backprops the actor+critic losses, and steps their optimisers.",
+      "tags": [
+        "training",
+        "actor-critic",
+        "policy-gradient",
+        "optimizer-step"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:ree_core/agent.py:REEAgent.compute_prediction_loss",
+      "type": "function",
+      "name": "REEAgent.compute_prediction_loss",
+      "filePath": "ree_core/agent.py",
+      "summary": "Aggregates prediction losses across the E1 (deep), E2 (world/harm) predictor stack given a batch of transitions, returning per-head scalar losses for the training driver.",
+      "tags": [
+        "training",
+        "loss",
+        "prediction-error",
+        "world-model"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:ree_core/agent.py:REEAgent.compute_e2_loss",
+      "type": "function",
+      "name": "REEAgent.compute_e2_loss",
+      "filePath": "ree_core/agent.py",
+      "summary": "Computes the E2 fast-predictor loss (world + harm heads) from a mini-batch of transitions, applied during phased and interleaved training.",
+      "tags": [
+        "training",
+        "loss",
+        "e2-predictor",
+        "world-model"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/agent.py:REEAgent.compute_self_maintenance_loss",
+      "type": "function",
+      "name": "REEAgent.compute_self_maintenance_loss",
+      "filePath": "ree_core/agent.py",
+      "summary": "Computes the self-maintenance regularisation loss keeping the agent's z-self latent within a viable operating range under the drive/harm regime.",
+      "tags": [
+        "training",
+        "loss",
+        "self-maintenance",
+        "viability"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/agent.py:REEAgent.update_residue",
+      "type": "function",
+      "name": "REEAgent.update_residue",
+      "filePath": "ree_core/agent.py",
+      "summary": "Updates the affective residue field from the current latent world state and the most recent transition, decaying and depositing benefit/harm residue as the falsifier for care-vs-simulation.",
+      "tags": [
+        "residue",
+        "affect",
+        "per-tick",
+        "state-update"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/agent.py:REEAgent.update_cross_stream_binder",
+      "type": "function",
+      "name": "REEAgent.update_cross_stream_binder",
+      "filePath": "ree_core/agent.py",
+      "summary": "Updates the cross-stream binder that ties world / self / harm latent streams into a coherent multi-content theta packet on the latent stack.",
+      "tags": [
+        "cross-stream",
+        "binding",
+        "theta-packet",
+        "latent-integration"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/agent.py:REEAgent.offline_integration",
+      "type": "function",
+      "name": "REEAgent.offline_integration",
+      "filePath": "ree_core/agent.py",
+      "summary": "Runs the offline (between-episode) integration pass: consolidates recent transitions into slower predictors and residue, updates schemas, and refreshes long-horizon buffers.",
+      "tags": [
+        "offline",
+        "consolidation",
+        "integration",
+        "between-episode"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:ree_core/agent.py:REEAgent.enter_sws_mode",
+      "type": "function",
+      "name": "REEAgent.enter_sws_mode",
+      "filePath": "ree_core/agent.py",
+      "summary": "Enters slow-wave-sleep mode: puts predictors into schema-consolidation posture, gates action, and prepares hippocampal replay buffers for the SWS schema pass.",
+      "tags": [
+        "sleep",
+        "sws",
+        "mode-transition",
+        "consolidation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/agent.py:REEAgent.enter_rem_mode",
+      "type": "function",
+      "name": "REEAgent.enter_rem_mode",
+      "filePath": "ree_core/agent.py",
+      "summary": "Enters REM sleep mode: enables noradrenergic suppression posture, opens attribution and reweighting pathways for the REM attribution pass.",
+      "tags": [
+        "sleep",
+        "rem",
+        "mode-transition",
+        "attribution"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/agent.py:REEAgent.exit_sleep_mode",
+      "type": "function",
+      "name": "REEAgent.exit_sleep_mode",
+      "filePath": "ree_core/agent.py",
+      "summary": "Exits any active sleep mode (SWS or REM), restores wake-time gating on action and neuromodulator baselines, and consolidates diagnostics from the sleep cycle.",
+      "tags": [
+        "sleep",
+        "mode-transition",
+        "wake-restore"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/agent.py:REEAgent.run_sws_schema_pass",
+      "type": "function",
+      "name": "REEAgent.run_sws_schema_pass",
+      "filePath": "ree_core/agent.py",
+      "summary": "Executes the slow-wave-sleep schema-consolidation pass: replays recent transitions into schema stores via the hippocampal module and updates schema readouts.",
+      "tags": [
+        "sleep",
+        "sws",
+        "schema-consolidation",
+        "replay"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:ree_core/agent.py:REEAgent.run_rem_attribution_pass",
+      "type": "function",
+      "name": "REEAgent.run_rem_attribution_pass",
+      "filePath": "ree_core/agent.py",
+      "summary": "Executes the REM attribution pass: replays high-affect events under noradrenergic suppression to update scientist-attribution and BLA context remap heads.",
+      "tags": [
+        "sleep",
+        "rem",
+        "attribution",
+        "replay",
+        "bla"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:ree_core/agent.py:REEAgent.run_sleep_cycle",
+      "type": "function",
+      "name": "REEAgent.run_sleep_cycle",
+      "filePath": "ree_core/agent.py",
+      "summary": "Runs one full SWS\u2192REM sleep cycle by chaining enter_sws_mode, run_sws_schema_pass, enter_rem_mode, run_rem_attribution_pass, and exit_sleep_mode.",
+      "tags": [
+        "sleep",
+        "orchestration",
+        "full-cycle"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/agent.py:REEAgent.forward",
+      "type": "function",
+      "name": "REEAgent.forward",
+      "filePath": "ree_core/agent.py",
+      "summary": "PyTorch nn.Module forward entry: runs the per-tick agent pipeline (sense \u2192 deliberate \u2192 act \u2192 record) suitable for use inside torch training/inference contexts.",
+      "tags": [
+        "pytorch",
+        "forward",
+        "per-tick",
+        "nn-module"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:ree_core/agent.py:REEAgent.get_state",
+      "type": "function",
+      "name": "REEAgent.get_state",
+      "filePath": "ree_core/agent.py",
+      "summary": "Returns a frozen AgentState snapshot of the agent's current tick \u2014 latent, action, prediction errors, salience, drive, residue \u2014 for logging and offline analysis.",
+      "tags": [
+        "api",
+        "diagnostics",
+        "state-snapshot"
+      ],
+      "complexity": "simple"
     }
   ],
   "edges": [
@@ -13525,692 +13277,6 @@
       "weight": 0.8
     },
     {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:candidate_support_preflight",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:_resolve_chunk_deliberation_horizon",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "class:ree_core/agent.py:AgentState",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "class:ree_core/agent.py:REEAgent",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:__init__",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:from_config",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:reset",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:sense",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:sense_flat",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:select_action",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:act",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:act_with_split_obs",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:act_with_log_prob",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:forward",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:get_state",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:generate_trajectories",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:update_object_file_buffer",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:update_residue",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:update_z_goal",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:record_transition",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:update_cross_stream_binder",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:compute_prediction_loss",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:compute_benefit_eval_loss",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:compute_event_contrastive_loss",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:compute_resource_proximity_loss",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:compute_resource_encoder_loss",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:compute_resource_identity_loss",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:compute_harm_nonredundancy_loss",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:compute_harm_accum_loss",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:compute_schema_readout_loss",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:compute_self_maintenance_loss",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:compute_e2_loss",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:compute_goal_maintenance_diagnostic",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:actor_critic_step",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:actor_critic_reward",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:serotonin_step",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:offline_integration",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:run_sws_schema_pass",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:run_rem_attribution_pass",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:run_sleep_cycle",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:enter_sws_mode",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:enter_rem_mode",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:exit_sleep_mode",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:notify_env_completion",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:notify_subgoal_attainment",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:_update_blocked_agency",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:_update_scientist_attribution",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:_e1_tick",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:_e3_tick",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:_compute_persistence_appraisal",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:_assemble_control_vector",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:_curiosity_per_candidate_uncertainty",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:_flush_exploration_episode",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:candidate_support_preflight",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "class:ree_core/agent.py:AgentState",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:_resolve_chunk_deliberation_horizon",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "class:ree_core/agent.py:REEAgent",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/action_learning/__init__.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/affect/blocked_agency.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/affect/harm_suffering_accumulator.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/amygdala/__init__.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/attribution/scientist_attribution_buffer.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/cingulate/__init__.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/comparator/suffering_derivative_comparator.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/comparator/tpj_comparator.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/entities/object_file_buffer.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/goal.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/governance/__init__.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/heartbeat/beta_gate.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/heartbeat/clock.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/hippocampal/ghost_goal_bank.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/hippocampal/module.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/hippocampal/persistence_appraisal_compute.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/latent/multi_content_theta_packet.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/latent/stack.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/latent/theta_buffer.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/neuromodulation/serotonin.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/pag/__init__.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/pfc/__init__.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/pfc/e2_escape_affordance_linker.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/pfc/escape_affordance_bridge.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/pfc/frontopolar_analog.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/pfc/lateral_pfc_analog.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/pfc/ofc_analog.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/pfc/trainable_escape_affordance_learner.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/policy/__init__.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/policy/model_disagreement.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/predictors/e1_deep.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/predictors/e2_fast.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/predictors/e2_harm_a.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/predictors/e2_harm_s.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/predictors/e2_world.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/predictors/e3_score_diversity.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/predictors/e3_selector.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/regulators/__init__.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/residue/field.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/safety/__init__.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/sleep/__init__.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
       "source": "file:ree_core/latent/theta_buffer.py",
       "target": "class:ree_core/latent/theta_buffer.py:ThetaBuffer",
       "type": "contains",
@@ -15743,13 +14809,6 @@
       "weight": 0.6
     },
     {
-      "source": "file:ree_core/pfc/infralimbic_avoidance_gate.py",
-      "target": "file:ree_core/agent.py",
-      "type": "related",
-      "direction": "forward",
-      "weight": 0.5
-    },
-    {
       "source": "file:ree_core/utils/config.py",
       "target": "function:ree_core/utils/config.py:derive_stdlib_rng_seed",
       "type": "contains",
@@ -16113,22 +15172,6 @@
       "recoveredFromImportMap": true
     },
     {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/pfc/infralimbic_avoidance_gate.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7,
-      "recoveredFromImportMap": true
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/utils/config.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7,
-      "recoveredFromImportMap": true
-    },
-    {
       "source": "file:ree_core/hippocampal/anchor_set.py",
       "target": "file:ree_core/utils/config.py",
       "type": "imports",
@@ -16215,6 +15258,573 @@
       "direction": "forward",
       "weight": 0.7,
       "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "class:ree_core/agent.py:REEAgent",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "class:ree_core/agent.py:AgentState",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:candidate_support_preflight",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:_resolve_chunk_deliberation_horizon",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:REEAgent.__init__",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:REEAgent.from_config",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:REEAgent.reset",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:REEAgent.sense",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:REEAgent.sense_flat",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:REEAgent.select_action",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:REEAgent.generate_trajectories",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:REEAgent.act",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:REEAgent.act_with_split_obs",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:REEAgent.act_with_log_prob",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:REEAgent.record_transition",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:REEAgent.update_z_goal",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:REEAgent.serotonin_step",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:REEAgent.compute_drive_level",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:REEAgent.actor_critic_step",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:REEAgent.compute_prediction_loss",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:REEAgent.compute_e2_loss",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:REEAgent.compute_self_maintenance_loss",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:REEAgent.update_residue",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:REEAgent.update_cross_stream_binder",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:REEAgent.offline_integration",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:REEAgent.enter_sws_mode",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:REEAgent.enter_rem_mode",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:REEAgent.exit_sleep_mode",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:REEAgent.run_sws_schema_pass",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:REEAgent.run_rem_attribution_pass",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:REEAgent.run_sleep_cycle",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:REEAgent.forward",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:REEAgent.get_state",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:REEAgent.__init__",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "class:ree_core/agent.py:REEAgent",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "class:ree_core/agent.py:AgentState",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:candidate_support_preflight",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:_resolve_chunk_deliberation_horizon",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/action_learning/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/affect/blocked_agency.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/affect/harm_suffering_accumulator.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/amygdala/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/attribution/scientist_attribution_buffer.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/cingulate/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/comparator/suffering_derivative_comparator.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/comparator/tpj_comparator.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/entities/object_file_buffer.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/goal.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/governance/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/heartbeat/beta_gate.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/heartbeat/clock.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/hippocampal/ghost_goal_bank.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/hippocampal/module.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/hippocampal/persistence_appraisal_compute.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/latent/multi_content_theta_packet.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/latent/stack.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/latent/theta_buffer.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/neuromodulation/serotonin.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/pag/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/pfc/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/pfc/e2_escape_affordance_linker.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/pfc/escape_affordance_bridge.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/pfc/frontopolar_analog.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/pfc/infralimbic_avoidance_gate.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/pfc/lateral_pfc_analog.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/pfc/ofc_analog.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/pfc/trainable_escape_affordance_learner.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/policy/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/policy/model_disagreement.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/predictors/e1_deep.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/predictors/e2_fast.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/predictors/e2_harm_a.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/predictors/e2_harm_s.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/predictors/e2_world.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/predictors/e3_score_diversity.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/predictors/e3_selector.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/regulators/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/residue/field.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/safety/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/sleep/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/utils/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
     }
   ],
   "layers": [

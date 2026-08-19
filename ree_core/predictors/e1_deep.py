@@ -37,12 +37,52 @@ class ContextMemory(nn.Module):
     """Context memory for E1's long-horizon predictions (unchanged from V2)."""
 
     def __init__(self, latent_dim: int, memory_dim: int = 128, num_slots: int = 16,
-                 gated_content_write: bool = False):
+                 gated_content_write: bool = False,
+                 write_selection: str = "argmin",
+                 write_refractory_k: int = 2,
+                 write_usage_weight: float = 1.0,
+                 write_usage_decay: float = 0.99,
+                 write_gumbel_tau_init: float = 1.0,
+                 write_gumbel_tau_min: float = 0.1,
+                 write_gumbel_anneal_steps: int = 2000):
         super().__init__()
         self.latent_dim = latent_dim
         self.memory_dim = memory_dim
         self.num_slots = num_slots
         self.gated_content_write = bool(gated_content_write)
+
+        # V3-EXQ-436f follow-up (2026-08-18): write-address selection mode.
+        # See write() for the defect, the mechanism, and the measurement table.
+        self.write_selection = str(write_selection)
+        if self.write_selection not in ("argmin", "refractory", "usage", "gumbel"):
+            raise ValueError(
+                "contextmemory_write_selection must be 'argmin', 'refractory', "
+                f"'usage' or 'gumbel', got {self.write_selection!r}"
+            )
+        self.write_refractory_k = int(write_refractory_k)
+        self.write_usage_weight = float(write_usage_weight)
+        self.write_usage_decay = float(write_usage_decay)
+        self.write_gumbel_tau_init = float(write_gumbel_tau_init)
+        self.write_gumbel_tau_min = float(write_gumbel_tau_min)
+        self.write_gumbel_anneal_steps = int(write_gumbel_anneal_steps)
+        self._write_step = 0
+
+        # Non-persistent so the state_dict is unchanged and existing checkpoints
+        # load untouched; these are bookkeeping, not learned parameters.
+        self.register_buffer(
+            "slot_usage", torch.zeros(num_slots), persistent=False
+        )
+        # Cumulative per-slot write count + last written index. ALWAYS maintained,
+        # in every mode including the legacy default, because instrumentation must
+        # never have to RE-DERIVE the selection: V3-EXQ-436f's occupancy tracker
+        # duplicated write()'s own `scores.mean(0).argmin()` expression to learn
+        # which slot was written, which silently reports the WRONG slot the moment
+        # the selection rule changes. Read these instead.
+        self.register_buffer(
+            "slot_write_counts", torch.zeros(num_slots), persistent=False
+        )
+        self._recent_write_idx: List[int] = []
+        self._last_write_idx: Optional[int] = None
 
         self.memory = nn.Parameter(torch.randn(num_slots, memory_dim) * 0.01)
         self.query_proj = nn.Linear(latent_dim, memory_dim)
@@ -133,6 +173,56 @@ class ContextMemory(nn.Module):
         return self.output_proj(context)
 
     def write(self, state: torch.Tensor) -> None:
+        """Blend `state`'s write payload into one slot, chosen by write_selection.
+
+        THE DEFECT THIS ADDRESSES (substrate_queue
+        `contextmemory-write-path-addressing-degeneracy`, severity `corrupting`):
+        the legacy address rule is a hard `scores.mean(0).argmin()`. The write
+        PAYLOAD (`write_gate(x) * write_content(x)`) is an unaligned projection of
+        the state relative to the ADDRESS space (`query_proj(x)`), so a write to
+        the argmin slot can push that slot FURTHER from the query -- which
+        re-selects it on the next write, forever. V3-EXQ-436e established the
+        closed-form sign discriminator `q . (write_signal - memory[argmin])`:
+        negative predicts LOCK, positive predicts ROTATE, 5/5. Under a
+        near-constant query stream the lock is the common case, and it is
+        CORRUPTING rather than merely wrong because write() returns normally,
+        thousands of calls are logged, and the resulting 1-slot bank yields a
+        well-formed null that reads as a genuine "sleep has no effect" finding.
+        Confirmed twice: V3-EXQ-436e and V3-EXQ-436f (n_occupied_slots = 1 of 16
+        in BOTH arms on 3/5 seeds despite 2,837-4,903 write() calls per arm).
+
+        MODES, and the measurement that should govern the choice between them.
+        Probe: 5 seeds x 3000 writes, memory_dim 128, num_slots 16, at the
+        measured operating point (state rms 0.078). Two streams -- "degenerate"
+        is the near-constant stream that triggers the lock; "2-context" is a
+        varied stream on which the differentiation DV is meaningful.
+
+          mode                 degenerate: seeds   2-context: occupied-slot
+                               with >= 2 slots     cosine sim / cluster Jaccard
+          ------------------   -----------------   ----------------------------
+          argmin (legacy)      3/5   (LOCKS)       +0.6060  /  0.329
+          refractory k=2       5/5                 +0.5919  /  0.364
+          usage                5/5                 (content-blind)
+          gumbel + usage       5/5                 +0.7525  /  1.000
+
+        Read the second column before trusting the first. `usage` and `gumbel`
+        reach full occupancy by making selection CONTENT-BLIND: at Jaccard 1.000
+        both contexts write to the SAME slot set, i.e. the bank is filled by
+        noise rather than by context, and the occupied-slot cosine similarity
+        (the DV that SD-017/ARC-045/MECH-166 actually turn on, lower = more
+        differentiated) gets WORSE than the legacy path it replaces. They are
+        implemented because the substrate_queue entry names both, and because
+        they are the correct comparison arms for the validation experiment --
+        NOT because occupancy alone recommends them. Selecting one of them on
+        the strength of the n_occupied floor would swap this corrupting defect
+        for a quieter one.
+
+        `refractory` is the recommended mode: the k most-recently-written slots
+        are ineligible, so the single-slot fixed point CANNOT form (occupancy is
+        structurally >= k+1), while selection among the remaining slots is the
+        unmodified content argmin -- which is why it is the only mode that holds
+        context-conditioning at the legacy level.
+        """
         write_signal = self.write_gate(state)
         if self.gated_content_write:
             # Gate modulates content rather than serving as the content itself.
@@ -141,10 +231,89 @@ class ContextMemory(nn.Module):
         with torch.no_grad():
             query = self.query_proj(state)
             scores = torch.mm(query, self.memory.t())
-            min_idx = scores.mean(0).argmin()
+            sim = scores.mean(0)
+            min_idx = self._select_write_slot(sim)
             self.memory.data[min_idx] = (
                 0.9 * self.memory.data[min_idx] + 0.1 * write_signal.mean(0)
             )
+            self._record_write(int(min_idx))
+
+    def _select_write_slot(self, sim: torch.Tensor):
+        """Resolve the write address from per-slot similarity `sim` [num_slots].
+
+        Runs inside write()'s torch.no_grad() block. Deliberately has NO
+        straight-through estimator on the gumbel branch, unlike the read path's
+        _sd016_gumbel_select: there is no gradient here to pass through, so the
+        ST algebra would be dead code that only implied a learning signal that
+        does not exist.
+        """
+        mode = self.write_selection
+        if mode == "argmin":
+            return sim.argmin()  # legacy: bit-identical, tensor index preserved
+
+        if mode == "refractory":
+            k = max(self.write_refractory_k, 0)
+            if k <= 0 or not self._recent_write_idx:
+                return sim.argmin()
+            eligible = sim.clone()
+            # Never mask every slot: with k >= num_slots there would be nothing
+            # left to write to. Cap the horizon at num_slots - 1.
+            k = min(k, self.num_slots - 1)
+            for prev in self._recent_write_idx[-k:]:
+                eligible[prev] = float("inf")
+            return eligible.argmin()
+
+        # "usage" and "gumbel" share an availability score. sim is standardised
+        # so the usage penalty has a comparable scale regardless of the (tiny,
+        # measured ~0.013) natural spread of sim across slots.
+        avail = -self._zscore(sim)
+        if self.write_usage_weight > 0.0:
+            avail = avail - self.write_usage_weight * self._zscore(self.slot_usage)
+        if mode == "usage":
+            return avail.argmax()
+
+        # "gumbel": anneal tau linearly from init to min over anneal_steps writes.
+        anneal_steps = max(self.write_gumbel_anneal_steps, 1)
+        frac = min(self._write_step / anneal_steps, 1.0)
+        tau = max(
+            self.write_gumbel_tau_init
+            + frac * (self.write_gumbel_tau_min - self.write_gumbel_tau_init),
+            1e-3,
+        )
+        u = torch.rand_like(avail).clamp(min=1e-10, max=1.0 - 1e-10)
+        gumbel_noise = -torch.log(-torch.log(u))
+        return (avail / tau + gumbel_noise).argmax()
+
+    @staticmethod
+    def _zscore(v: torch.Tensor) -> torch.Tensor:
+        """Standardise across slots. clamp_min on the std keeps an all-equal
+        vector (e.g. slot_usage before the first write) at exactly zero rather
+        than amplifying float noise into a spurious penalty."""
+        return (v - v.mean()) / v.std().clamp_min(1e-6)
+
+    def _record_write(self, idx: int) -> None:
+        """Bookkeeping after a write. Runs in EVERY mode, including the legacy
+        default, so instrumentation can read the slot that was actually written
+        instead of re-deriving it (see __init__)."""
+        self._last_write_idx = idx
+        self._write_step += 1
+        self.slot_write_counts[idx] += 1.0
+        self.slot_usage.mul_(self.write_usage_decay)
+        self.slot_usage[idx] += 1.0 - self.write_usage_decay
+        self._recent_write_idx.append(idx)
+        # Bounded: only the last (num_slots - 1) entries can ever be consulted.
+        if len(self._recent_write_idx) > self.num_slots:
+            del self._recent_write_idx[:-self.num_slots]
+
+    @property
+    def last_write_index(self) -> Optional[int]:
+        """Slot index mutated by the most recent write(), or None before any."""
+        return self._last_write_idx
+
+    def occupied_slots(self) -> List[int]:
+        """Slot indices written to at least once since construction."""
+        return [i for i in range(self.num_slots)
+                if float(self.slot_write_counts[i]) > 0.0]
 
     def compute_diversification_loss(self) -> torch.Tensor:
         # SD-016 Path 1 (2026-04-25): mean squared off-diagonal cosine similarity
@@ -182,6 +351,27 @@ class E1DeepPredictor(nn.Module):
             num_slots=16,
             gated_content_write=getattr(
                 self.config, "contextmemory_gated_content_write", False
+            ),
+            write_selection=getattr(
+                self.config, "contextmemory_write_selection", "argmin"
+            ),
+            write_refractory_k=getattr(
+                self.config, "contextmemory_write_refractory_k", 2
+            ),
+            write_usage_weight=getattr(
+                self.config, "contextmemory_write_usage_weight", 1.0
+            ),
+            write_usage_decay=getattr(
+                self.config, "contextmemory_write_usage_decay", 0.99
+            ),
+            write_gumbel_tau_init=getattr(
+                self.config, "contextmemory_write_gumbel_tau_init", 1.0
+            ),
+            write_gumbel_tau_min=getattr(
+                self.config, "contextmemory_write_gumbel_tau_min", 0.1
+            ),
+            write_gumbel_anneal_steps=getattr(
+                self.config, "contextmemory_write_gumbel_anneal_steps", 2000
             ),
         )
 

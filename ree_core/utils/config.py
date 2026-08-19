@@ -413,6 +413,55 @@ class E1Config:
     # measurement, including why removing write_gate's bias is NOT the fix.
     contextmemory_gated_content_write: bool = False
 
+    # V3-EXQ-436f follow-up (2026-08-18): ContextMemory WRITE-ADDRESS selection.
+    # substrate_queue `contextmemory-write-path-addressing-degeneracy`, severity
+    # `corrupting`. read() addresses by softmax over query.key; write() addressed
+    # by a hard `scores.mean(0).argmin()`, which under a near-constant query
+    # stream is a DETERMINISTIC SINGLE-SLOT FIXED POINT: the write payload
+    # write_gate(x)*write_content(x) lives in an unaligned space from
+    # query_proj(x), so writing to the argmin slot can push it FURTHER from the
+    # query, re-selecting it forever. V3-EXQ-436e's closed-form sign
+    # discriminator q . (write_signal - memory[argmin]) predicts lock-vs-rotate
+    # 5/5 (re-confirmed 5/5 on this implementation's own probe).
+    #
+    # Values (see ContextMemory.write for the full measurement table):
+    #   "argmin"     - legacy hard argmin. DEFAULT, bit-identical, keeps the bug.
+    #   "refractory" - argmin over content, EXCLUDING the last k written slots.
+    #                  RECOMMENDED. Structurally guarantees n_occupied >= k+1,
+    #                  and is the only mode that preserves content-addressing.
+    #   "usage"      - deterministic argmax of (-similarity - usage penalty).
+    #   "gumbel"     - annealed Gumbel sampling over the same availability score.
+    #
+    # MEASURED WARNING -- "usage" and "gumbel" reach full occupancy by making the
+    # bank CONTENT-BLIND, so they satisfy the registered n_occupied floor while
+    # making the differentiation DV WORSE. On a 2-context stream (5 seeds, 3000
+    # writes): mean occupied-slot cosine similarity (LOWER = better) legacy
+    # +0.6060, refractory k=2 +0.5919, gumbel+usage +0.7525; and cluster slot-set
+    # Jaccard overlap (LOWER = more context-conditioned) legacy 0.329,
+    # refractory k=2 0.364, gumbel+usage 1.000 (i.e. both contexts write to the
+    # SAME slots -- addressing destroyed). Do not select "gumbel"/"usage" on the
+    # strength of the occupancy number alone.
+    contextmemory_write_selection: str = "argmin"
+
+    # Refractory horizon for contextmemory_write_selection="refractory": the k
+    # most-recently-written slots are ineligible, so the bank cannot lock. k=2
+    # guarantees >= 3 occupied slots against the registered floor of 2.
+    contextmemory_write_refractory_k: int = 2
+
+    # Usage-EMA penalty for the "usage"/"gumbel" modes. usage[i] decays by
+    # contextmemory_write_usage_decay each write and gains (1-decay) on the
+    # written slot; the penalty is weight * zscore(usage).
+    contextmemory_write_usage_weight: float = 1.0
+    contextmemory_write_usage_decay: float = 0.99
+
+    # Annealed temperature schedule for the "gumbel" mode. Mirrors the read-path
+    # SD-016 H3 selector (_sd016_gumbel_select), but WITHOUT its straight-through
+    # estimator: write() runs under torch.no_grad(), so there is no gradient to
+    # pass through and the ST algebra would be dead code.
+    contextmemory_write_gumbel_tau_init: float = 1.0
+    contextmemory_write_gumbel_tau_min: float = 0.1
+    contextmemory_write_gumbel_anneal_steps: int = 2000
+
     # SD-016 Path 4 (V3-EXQ-418g): learnable attention temperature on the
     # z_world-only ContextMemory query inside extract_cue_context().
     # When True, exp(log_tau) replaces the fixed sqrt(memory_dim) divisor and
@@ -6051,6 +6100,16 @@ class REEConfig:
         # False (default) = legacy path, bit-identical. See E1Config for the
         # measured homogenization pathology this repairs.
         contextmemory_gated_content_write: bool = False,
+        # V3-EXQ-436f follow-up: ContextMemory write-address selection.
+        # "argmin" (default) = legacy, bit-identical. See E1Config for the
+        # measured lock mechanism and why "gumbel"/"usage" are NOT recommended.
+        contextmemory_write_selection: str = "argmin",
+        contextmemory_write_refractory_k: int = 2,
+        contextmemory_write_usage_weight: float = 1.0,
+        contextmemory_write_usage_decay: float = 0.99,
+        contextmemory_write_gumbel_tau_init: float = 1.0,
+        contextmemory_write_gumbel_tau_min: float = 0.1,
+        contextmemory_write_gumbel_anneal_steps: int = 2000,
         # SD-016 Path 1 (V3-EXQ-418e): auxiliary diversification loss weight
         # on ContextMemory slots. 0.0 = no-op (legacy substrate). Recommended
         # 0.5 when sd016_enabled=True (mirrors LAMBDA_CUE_ACTION).
@@ -7248,6 +7307,13 @@ class REEConfig:
         config.e1.sd016_enabled = sd016_enabled
         config.e1.sd016_writepath_mode = sd016_writepath_mode
         config.e1.contextmemory_gated_content_write = contextmemory_gated_content_write
+        config.e1.contextmemory_write_selection = contextmemory_write_selection
+        config.e1.contextmemory_write_refractory_k = contextmemory_write_refractory_k
+        config.e1.contextmemory_write_usage_weight = contextmemory_write_usage_weight
+        config.e1.contextmemory_write_usage_decay = contextmemory_write_usage_decay
+        config.e1.contextmemory_write_gumbel_tau_init = contextmemory_write_gumbel_tau_init
+        config.e1.contextmemory_write_gumbel_tau_min = contextmemory_write_gumbel_tau_min
+        config.e1.contextmemory_write_gumbel_anneal_steps = contextmemory_write_gumbel_anneal_steps
         config.e1.sd016_temperature_learnable = sd016_temperature_learnable
         config.e1.sd016_cue_slot_tagger = sd016_cue_slot_tagger
         config.e1.sd016_cue_slot_tagger_hidden = sd016_cue_slot_tagger_hidden
