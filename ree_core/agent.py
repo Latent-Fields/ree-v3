@@ -8176,6 +8176,54 @@ class REEAgent(nn.Module):
                     self._current_latent.z_world.detach().clone()
                 )
 
+            # SD-ORIENTING-DECISION-SCALE amend (2026-08-20): expire the
+            # post-override decision window HERE -- unconditionally, once per E3
+            # tick, gated ONLY on there being a live decision -- BEFORE an
+            # override this tick can set a fresh one.
+            #
+            # THE DEFECT THIS FIXES (evidence/planning/
+            # mech489_decision_counts_defect_staged_20260817.md section 2(d)):
+            # outside reset(), the ONLY clear of _orienting_decision used to sit
+            # INSIDE the score-bias application block below, which is gated on
+            # five conditions including `_orienting_decision_ticks_remaining > 0`
+            # and `_orienting_decision in ("approach", "withdraw")`. A "resume"
+            # decision sets ticks_remaining=0 and is excluded by BOTH, so it
+            # could never reach the clear and persisted for the rest of the
+            # episode. Likewise any tick on which `candidates` was empty or
+            # lacked world_states froze the countdown without clearing, making
+            # `orienting_post_override_bias_ticks` a LOWER BOUND on persistence
+            # rather than a bound.
+            #
+            # Forward-critical, not cosmetic: V3-EXQ-910 and 910a both recorded
+            # resume=0, so the "resume" leak has never yet fired -- it becomes
+            # active precisely WHEN the Component 4/5 scale fix starts working,
+            # corrupting the retest's decision counter only in the branch that
+            # indicates success, biasing it toward the null invisibly.
+            #
+            # HAPPY-PATH BEHAVIOUR IS UNCHANGED. With the bias gate open every
+            # tick, decrementing at the top of each SUBSEQUENT tick applies the
+            # bias on exactly `orienting_post_override_bias_ticks` ticks (the
+            # override tick plus N-1 following) -- identical to the old
+            # decrement-after-applying placement. What changes is only that the
+            # window now also expires on ticks where the bias gate does NOT open.
+            #
+            # DENOMINATION: this countdown is in E3 TICKS, not env steps. The
+            # whole block is downstream of select_action()'s non-E3-tick early
+            # return, so at the default heartbeat.e3_steps_per_tick=10 a nominal
+            # 5-tick window spans ~50 env steps. Kept in E3 ticks deliberately:
+            # DefensiveOrientingGate.tick() is only ever called from here, so
+            # every other SD-099 tick quantity (orienting_max_duration,
+            # orienting_confidence_rise_rate, ticks_in_orienting) already counts
+            # these same E3 ticks; re-denominating this one param in env steps
+            # would make it the sole env-step quantity in the mechanism. See
+            # docs/architecture/sd_orienting_decision_scale.md, "Persistence-
+            # window denomination".
+            if self._orienting_decision is not None:
+                self._orienting_decision_ticks_remaining -= 1
+                if self._orienting_decision_ticks_remaining <= 0:
+                    self._orienting_decision = None
+                    self._orienting_decision_ticks_remaining = 0
+
             # Component 4/5 (override -> resolved-valence action decision).
             # Reads benefit terrain (ARC-030, always available regardless of
             # the MECH-307 split-surprise flag) against z_harm norm (SD-010,
@@ -8253,9 +8301,6 @@ class REEAgent(nn.Module):
                     dacc_score_bias = dacc_score_bias + _do_bias.to(
                         dtype=dacc_score_bias.dtype, device=dacc_score_bias.device
                     )
-                self._orienting_decision_ticks_remaining -= 1
-                if self._orienting_decision_ticks_remaining <= 0:
-                    self._orienting_decision = None
 
         self._last_e3_score_bias = (
             dacc_score_bias.detach().clone()
