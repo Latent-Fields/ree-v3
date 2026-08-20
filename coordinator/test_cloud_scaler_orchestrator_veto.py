@@ -207,21 +207,49 @@ class VetoIsWiredIntoTheDecisionLoopTest(unittest.TestCase):
         cs.hcloud_shutdown = self._orig_shutdown
         cs.announce_shutdown = self._orig_announce
 
-    def _run(self):
+    def _run(self, workers=None):
         return cs.run_once(
             queue_path=self.queue, heartbeats_dir=self.hb,
             announce_script="/bin/true", idle_grace_min=0,
             heartbeat_fresh_min=35, surge_queue_threshold=2,
             hub_name="ree-worker-1",
-            workers=[("ree-worker-4", "ree-cloud-4", "surge")],
+            workers=workers or [("ree-worker-4", "ree-cloud-4", "surge")],
             dry_run=True, lease_dir=os.path.join(self.tmp, "noleases"),
             clear_fence_script="/bin/true")
 
     def test_idle_box_with_no_orchestrator_is_shut_down(self):
         # NEGATIVE CONTROL -- proves the test can observe a shutdown at all,
-        # so the veto assertion below is not vacuously passing.
+        # so the veto assertions below are not vacuously passing.
+        #
+        # AMENDED 2026-08-20. This used to run against ree-cloud-4 with no
+        # orchestrator heartbeat present, and asserted a shutdown. That
+        # premise was wrong and is now the opposite assertion in
+        # test_declared_orchestrator_with_NO_record_is_HELD below: ree-cloud-4
+        # is a DECLARED orchestrator affinity, so "no record" there means the
+        # scaler could not read a box it knows does invisible work -- not that
+        # the box is idle. Reading that silence as idle powered ree-worker-4
+        # off at 2026-08-20T03:45:11Z with three live `claude -p` workers.
+        #
+        # The VACUITY-GUARD purpose is unchanged and is what this test is for,
+        # so it now uses a box with no orchestrator role at all, where absence
+        # of a record is a determinate fact. That also makes the guard
+        # independent of orchestrator state entirely, which is what a vacuity
+        # guard should have been in the first place.
+        self._run(workers=[("ree-worker-2", "ree-cloud-2", "full")])
+        self.assertEqual(self.shutdowns, ["ree-worker-2"])
+
+    def test_declared_orchestrator_with_NO_record_is_HELD(self):
+        """The corrected form of the case above -- see 2026-08-20 in
+        cloud-scaler.py's ORCH_* block. Neither transport produced a
+        measurement for a box declared to run metaworker-dispatch, so the
+        shutdown is withheld rather than taken on silence.
+
+        Held here as well as in test_cloud_scaler_orchestrator_unknown.py
+        deliberately: this file is where the opposite was asserted, and a
+        later session reading only this file must not re-derive the old
+        answer from it."""
         self._run()
-        self.assertEqual(self.shutdowns, ["ree-worker-4"])
+        self.assertEqual(self.shutdowns, [])
 
     def test_box_with_live_chip_workers_is_NOT_shut_down(self):
         _hb(self.hb, "ree-cloud-4", in_flight_dispatches=2, chips_open_work=5,

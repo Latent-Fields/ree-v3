@@ -28,6 +28,11 @@ Shutdown VETOES, in the order the decision matrix applies them:
   orchestrator veto       live dispatches (strong) or chip backlog (weak),
                           read COORDINATOR-PRIMARY with the git heartbeat as
                           the unreachable-coordinator fallback
+  unreadable-orch hold    a DECLARED orchestrator box whose demand could not
+                          be positively read from EITHER transport. Absence
+                          of a signal is not evidence of absence of work
+                          (2026-08-20 ree-worker-4 shutdown, 3 live
+                          dispatches). See the ORCH_* verdict block below.
   pytest lease            non-queue work with no queue claim (2026-07-19)
 
 Authoritative invariants preserved from the bash version (DO NOT REMOVE):
@@ -226,6 +231,67 @@ WORKERS = [
 # It gates exactly two things: the bounded wake hold below, and the GHA
 # backstop's refusal to shut these boxes down at all (see cloud-scaler.yml).
 ORCHESTRATOR_AFFINITIES = {"ree-cloud-4"}
+
+
+# ORCHESTRATOR VERDICT -- a THREE-state answer, not a boolean.
+#
+# The veto was a boolean until 2026-08-20, and that boolean conflated two
+# completely different findings under one value:
+#
+#   "this box's dispatcher is idle with an empty ledger"   (a MEASUREMENT)
+#   "this box's dispatcher could not be read at all"       (a NON-measurement)
+#
+# Both returned False, and False authorised a shutdown. So a transient read
+# failure was promoted into positive evidence that there was no work -- the
+# textbook absence-of-evidence error, wired to an IRREVERSIBLE action (power
+# off a box, killing live `claude -p` workers mid-flight).
+#
+# CONFIRMED LIVE 2026-08-20T03:45:11Z, ree-worker-4. Two consecutive ticks,
+# five minutes apart, nothing about the box changed:
+#   03:40:04 ... orch=active orch_src=coord
+#            -> keeping ree-worker-4 running (orchestrator_busy in_flight=3
+#               state=dispatching age=2min)
+#   03:45:11 ... orch=none orch_src=coord
+#            -> no matching work AND runner idle past grace window,
+#               shutting down ree-worker-4
+# The box's own orchestrator heartbeat, written 03:42:48Z -- 2min23s before
+# that tick, i.e. FRESHER than the age=2min the scaler had just accepted --
+# recorded in_flight_dispatches=2, "3 dispatched worker(s) still running" and
+# chips_open_work=49. BOTH vetoes should have fired. Neither was evaluated,
+# because read_orchestrator never got as far as the demand fields: the
+# coordinator row came back degraded, judge_orchestrator returned one of its
+# fail-open non-answers, and -- because that non-answer was not specifically
+# `orchestrator_stale` -- the git mirror was never consulted. A later tick at
+# 04:00:18Z logged `orch=active orch_src=git`, so the fallback that would have
+# saved the box was present, reachable, and correct the whole time.
+#
+# (The journal cannot say WHICH non-answer it was: orch_reason was only ever
+# logged on the branch where the veto FIRED. That is fixed here too -- the
+# per-worker line now carries orch_why= unconditionally.)
+#
+# UNKNOWN is therefore NOT merged into IDLE. It is carried through
+# orchestrator_verdict, cross-checked against the other transport, and -- for
+# a DECLARED orchestrator box that is still unreadable after that -- it HOLDS.
+#
+# THE COST OF THIS IS REAL AND IS ACCEPTED DELIBERATELY. A declared
+# orchestrator box whose metaworker is permanently broken now stays up and
+# bills, where before it aged out. That is the trade: the failure this
+# replaces destroyed live work irreversibly, and the failure it introduces
+# spends money recoverably and is loudly visible in the journal on every
+# tick (`orch=unknown`). Do NOT "fix" the cost by adding a timeout that lets
+# silence authorise a shutdown again -- that is precisely the inference being
+# removed, just with a delay bolted on. If the billing matters, act on the
+# `orch=unknown` line: it names the box and both transports' reasons.
+#
+# SCOPE. UNKNOWN only holds for an affinity in ORCHESTRATOR_AFFINITIES. A
+# plain experiment runner (ree-cloud-2, ree-cloud-3) has no orchestrator
+# record by design, so its absence is a determinate fact rather than a failed
+# read, and it must keep shutting down on clean_idle exactly as before --
+# that is the cost-control path and it is pinned by negative controls in
+# test_cloud_scaler_orchestrator_unknown.py.
+ORCH_ACTIVE = "active"      # positively read, and there is demand -> veto
+ORCH_IDLE = "idle"          # positively read, and there is none -> may stop
+ORCH_UNKNOWN = "unknown"    # NOT read. Says nothing either way.
 
 
 def log(msg):
@@ -588,11 +654,23 @@ def _read_git_orchestrator(heartbeats_dir, affinity):
 
 def judge_orchestrator(hb, fresh_min, now):
     """The SINGLE decision function, applied identically to whichever
-    transport supplied `hb`. Returns (active: bool, reason: str).
+    transport supplied `hb`. Returns (verdict, reason) where verdict is one
+    of ORCH_ACTIVE / ORCH_IDLE / ORCH_UNKNOWN.
 
-    FAILS OPEN in every direction (bad role, no timestamp, stale, missing
-    demand fields): no veto. A broken detector must degrade to the pre-veto
-    behaviour, never to a box that cannot be shut down.
+    THREE-STATE, not two (2026-08-20). Exactly ONE path returns ORCH_IDLE:
+    the record parsed, declared the orchestrator role, carried a fresh tick,
+    and both demand counters were integers and both were zero. That is a
+    MEASUREMENT of "no work". Every other non-active outcome -- bad role, no
+    timestamp, unparseable timestamp, stale tick, missing or non-integer
+    demand fields -- is ORCH_UNKNOWN: the detector could not tell, and must
+    not be allowed to masquerade as having told. See the ORCH_* block above
+    for the 2026-08-20 incident this distinction is drawn from.
+
+    THIS FUNCTION STILL FAILS OPEN -- ORCH_UNKNOWN is not a veto here. It is
+    a "keep looking" that orchestrator_verdict resolves by consulting the
+    other transport first. Only a DECLARED orchestrator box that is still
+    unknown after BOTH transports is held, and that decision lives in the
+    decision matrix in main(), not here.
 
     FRESHNESS ALONE IS NOT A VETO. A fresh tick only says the dispatch timer
     is running, which on a box with the timer enabled is always true -- so
@@ -615,34 +693,46 @@ def judge_orchestrator(hb, fresh_min, now):
     (experiments and chip ledger) have nothing for it.
     """
     if hb.get("role") != "orchestrator":
-        return False, "orchestrator_role_mismatch"
+        return ORCH_UNKNOWN, "orchestrator_role_mismatch"
     tick = parse_utc(hb.get("last_tick_utc"))
     if tick is None:
-        return False, "orchestrator_no_tick"
+        return ORCH_UNKNOWN, "orchestrator_no_tick"
     age_min = (now - tick).total_seconds() / 60.0
     if age_min > fresh_min:
-        return False, "orchestrator_stale(%dmin>%dmin)" % (age_min, fresh_min)
+        return ORCH_UNKNOWN, ("orchestrator_stale(%dmin>%dmin)"
+                              % (age_min, fresh_min))
     in_flight = hb.get("in_flight_dispatches")
     open_work = hb.get("chips_open_work")
     if not isinstance(in_flight, int) or not isinstance(open_work, int):
-        # Malformed/legacy orchestrator tick: cannot judge demand. Fail open,
-        # same as every other defect above -- a detector that cannot tell must
-        # not be what keeps a billable box alive indefinitely.
-        return False, "orchestrator_no_demand_fields"
+        # Malformed/legacy orchestrator tick: cannot judge demand.
+        #
+        # THIS IS THE SHAPE THAT KILLED THE BOX ON 2026-08-20, and it is not
+        # exotic -- ree_metaworker_heartbeat.coordinator_progress() projects
+        # the tick with `heartbeat.get(k)`, so a field the emitting caller
+        # omitted arrives as an explicit `None` inside an otherwise-populated
+        # progress blob. The row is therefore present and non-empty (so the
+        # coordinator path is taken and reports src=coord), yet undecidable.
+        # Under the old boolean this returned False and was indistinguishable
+        # from a measured idle. It is UNKNOWN.
+        return ORCH_UNKNOWN, "orchestrator_no_demand_fields"
     if in_flight > 0:
-        return True, ("orchestrator_busy in_flight=%d state=%s age=%dmin"
-                      % (in_flight, hb.get("state"), age_min))
+        return ORCH_ACTIVE, ("orchestrator_busy in_flight=%d state=%s "
+                             "age=%dmin"
+                             % (in_flight, hb.get("state"), age_min))
     if open_work > 0:
-        return True, ("orchestrator_backlog chips_open_work=%d state=%s "
-                      "age=%dmin" % (open_work, hb.get("state"), age_min))
-    return False, ("orchestrator_idle_and_empty state=%s age=%dmin"
-                   % (hb.get("state"), age_min))
+        return ORCH_ACTIVE, ("orchestrator_backlog chips_open_work=%d "
+                             "state=%s age=%dmin"
+                             % (open_work, hb.get("state"), age_min))
+    # THE ONLY path to ORCH_IDLE. Everything needed to judge demand was
+    # present, fresh and well-formed, and it said there is none.
+    return ORCH_IDLE, ("orchestrator_idle_and_empty state=%s age=%dmin"
+                       % (hb.get("state"), age_min))
 
 
-def read_orchestrator(heartbeats_dir, affinity, fresh_min, now=None,
-                      coord_status=None, coord_fresh_min=None):
-    """Return (active: bool, reason: str, source: str) for a co-resident
-    metaworker.
+def orchestrator_verdict(heartbeats_dir, affinity, fresh_min, now=None,
+                         coord_status=None, coord_fresh_min=None):
+    """Return (verdict, reason: str, source: str) for a co-resident
+    metaworker, where verdict is ORCH_ACTIVE / ORCH_IDLE / ORCH_UNKNOWN.
 
     A box can run experiments AND metaworker-dispatch. The dispatch work is
     invisible to every signal this scaler already has -- it creates no queue
@@ -667,8 +757,26 @@ def read_orchestrator(heartbeats_dir, affinity, fresh_min, now=None,
     ORCHESTRATOR_COORD_FRESH_MIN); the judgement applied to them is the same
     function, so they cannot drift in what they conclude from a given tick.
 
-    FAILS OPEN in every direction (missing dir, missing file, unreadable,
-    unparseable, no timestamp, stale, no coordinator): no veto.
+    WHICH COORDINATOR ANSWERS ARE AUTHORITATIVE (changed 2026-08-20). A
+    coordinator verdict of ORCH_ACTIVE or ORCH_IDLE is authoritative and ends
+    the read -- both are MEASUREMENTS, and primary-means-primary. A verdict of
+    ORCH_UNKNOWN is not an answer at all, so it falls through to the git
+    mirror.
+
+    Before 2026-08-20 only `orchestrator_stale` fell through, and every OTHER
+    undecidable coordinator outcome -- role mismatch, no tick, unparseable
+    tick, missing/non-integer demand fields -- was returned as a flat "not
+    active" that authorised a shutdown without the mirror ever being opened.
+    That is exactly how ree-worker-4 was powered off at 03:45:11Z with three
+    dispatched workers live and a 2min23s-old heartbeat on disk saying so.
+    Widening the fall-through from one hardcoded reason to "anything that is
+    not a measurement" is the fix; see the ORCH_* block above.
+
+    NEVER RAISES, and never invents a measurement it does not have. Missing
+    dir, missing file, unreadable, unparseable, no timestamp, stale, no
+    coordinator all yield ORCH_UNKNOWN -- which is still not a veto here (the
+    hold decision is in main(), and applies only to declared orchestrator
+    boxes).
     """
     if now is None:
         now = datetime.now(timezone.utc)
@@ -677,25 +785,46 @@ def read_orchestrator(heartbeats_dir, affinity, fresh_min, now=None,
 
     hb, source = _orchestrator_from_coordinator(coord_status, affinity)
     if hb is not None:
-        active, reason = judge_orchestrator(hb, coord_fresh_min, now)
-        if active:
-            return True, reason, "coord"
-        # A coordinator row that says "not active" is AUTHORITATIVE for the
-        # busy/idle question -- but only while it is FRESH. A stale row means
-        # the box has stopped POSTing (down, wedged, or pre-boot), and the git
-        # mirror can legitimately still hold a newer-looking committed tick
-        # from before that, so consult it rather than concluding from silence.
-        if not reason.startswith("orchestrator_stale"):
-            return False, reason, "coord"
+        verdict, reason = judge_orchestrator(hb, coord_fresh_min, now)
+        # ACTIVE or IDLE: the coordinator positively determined demand, and it
+        # is the primary transport. Done -- do not second-guess a measurement
+        # with the deliberately-lagging git mirror (that is the 2026-08-19
+        # transport decision, invariant (5), and it is unchanged).
+        if verdict != ORCH_UNKNOWN:
+            return verdict, reason, "coord"
         coord_reason = reason
     else:
         coord_reason = source
 
     git_hb, git_source = _read_git_orchestrator(heartbeats_dir, affinity)
     if git_hb is None:
-        return False, "%s; %s" % (coord_reason, git_source), "none"
-    active, reason = judge_orchestrator(git_hb, fresh_min, now)
-    return active, "%s; git:%s" % (coord_reason, reason), "git"
+        return ORCH_UNKNOWN, "%s; %s" % (coord_reason, git_source), "none"
+    verdict, reason = judge_orchestrator(git_hb, fresh_min, now)
+    return verdict, "%s; git:%s" % (coord_reason, reason), "git"
+
+
+def read_orchestrator(heartbeats_dir, affinity, fresh_min, now=None,
+                      coord_status=None, coord_fresh_min=None):
+    """Back-compatible boolean view of orchestrator_verdict: returns
+    (active: bool, reason: str, source: str).
+
+    KEPT DELIBERATELY, not left behind. This is the ONE question the GitHub
+    Actions backstop can also answer -- "is there positively demand here" --
+    and test_cloud_scaler_transport_parity.py compares this return against the
+    workflow's embedded veto program, executed for real. The backstop has no
+    hold semantics to compare against and needs none: it already refuses to
+    shut a DECLARED orchestrator box down at all (IS_ORCHESTRATOR exclusion).
+    So the tri-state lives on this side only, and parity still holds on the
+    question both transports actually share.
+
+    `active` is True for ORCH_ACTIVE only. Note that False here now means
+    "idle OR unknown" and is therefore NOT sufficient to authorise a
+    shutdown -- callers making that decision must use orchestrator_verdict.
+    """
+    verdict, reason, source = orchestrator_verdict(
+        heartbeats_dir, affinity, fresh_min, now=now,
+        coord_status=coord_status, coord_fresh_min=coord_fresh_min)
+    return verdict == ORCH_ACTIVE, reason, source
 
 
 def wake_state_path(state_dir, affinity):
@@ -923,10 +1052,18 @@ def run_once(queue_path, heartbeats_dir, announce_script,
         lease_held, lease_reason = read_lease(
             lease_dir, affinity, max_lease_min)
         is_orchestrator = affinity in orchestrator_affinities
-        orch_active, orch_reason, orch_src = read_orchestrator(
+        orch_verdict, orch_reason, orch_src = orchestrator_verdict(
             heartbeats_dir, affinity, orchestrator_fresh_min,
             coord_status=coord_status,
             coord_fresh_min=orchestrator_coord_fresh_min)
+        orch_active = orch_verdict == ORCH_ACTIVE
+        # UNKNOWN only means anything on a box DECLARED to have the role.
+        # ORCHESTRATOR_AFFINITIES is config, not telemetry (invariant 6), so
+        # for ree-cloud-2/3 the absence of an orchestrator record is a
+        # determinate fact rather than a failed read, and they must go on
+        # shutting down on clean_idle. Without this clause the hold would
+        # apply fleet-wide and nothing would ever be collected again.
+        orch_unreadable = is_orchestrator and orch_verdict == ORCH_UNKNOWN
         coord_row = coord_status.get(affinity)
         idle_ok, idle_reason = evaluate_heartbeat(
             heartbeats_dir, affinity, idle_grace_min, heartbeat_fresh_min,
@@ -947,14 +1084,22 @@ def run_once(queue_path, heartbeats_dir, announce_script,
         worker_status[affinity] = status
         worker_held[affinity] = held_by_self
 
+        # orch= is the THREE-state verdict verbatim (active / idle / unknown),
+        # not the old two-state active/none. An operator reading this line
+        # must be able to tell a measured idle from a failed read -- on
+        # 2026-08-20 both printed `orch=none` and only one of them was a
+        # reason to power a box off. orch_why= carries the reason on EVERY
+        # tick, not just the ones where the veto fired; it goes last because
+        # it contains spaces. Without it the 03:45:11Z line was undiagnosable
+        # after the fact.
         log("[%s affinity=%s] claimable=%d held_by_self=%d status=%s "
             "idle_ok=%d reason=%s hb_src=%s lease=%s orch=%s orch_src=%s "
-            "wake=%s"
+            "wake=%s orch_why=%s"
             % (server_name, affinity, claimable, held_by_self, status,
                idle_ok, idle_reason, hb_src,
                "held" if lease_held else "none",
-               "active" if orch_active else "none", orch_src,
-               "hold" if wake_hold else "none"))
+               orch_verdict, orch_src,
+               "hold" if wake_hold else "none", orch_reason))
 
         if status == "unknown":
             log("  -> server not provisioned yet, skipping")
@@ -1036,6 +1181,36 @@ def run_once(queue_path, heartbeats_dir, announce_script,
             # stops vetoing rather than pinning the box forever.
             log("  -> %s is running metaworker-dispatch, keeping %s running "
                 "(%s)" % (affinity, server_name, orch_reason))
+
+        elif orch_unreadable and status == "running":
+            # UNREADABLE-ORCHESTRATOR HOLD (2026-08-20). Distinct in kind from
+            # every veto above it: those fire on POSITIVE evidence of work,
+            # this one fires on the ABSENCE OF ANY EVIDENCE AT ALL about a box
+            # that is declared to do work the scaler cannot otherwise see.
+            #
+            # Both transports were consulted and neither produced a
+            # measurement (orchestrator_verdict already tried the coordinator
+            # and then the git mirror). The pre-2026-08-20 code fell straight
+            # through to the shutdown branch here, treating "I could not read
+            # it" as "there is nothing there" -- and on 2026-08-20T03:45:11Z
+            # that powered off ree-worker-4 with three `claude -p` workers
+            # live, five minutes after the same scaler had read
+            # in_flight=3 from the same box.
+            #
+            # HOLDING IS THE ASYMMETRIC CHOICE, NOT THE CAUTIOUS ONE. Holding
+            # wrongly costs an hourly VM rate and is visible on every
+            # subsequent tick. Shutting down wrongly destroys in-flight work
+            # irreversibly and strands the claimed chips until
+            # CLAIM_STALE_HOURS. There is no bounded timeout on this hold on
+            # purpose: a timeout would restore "silence eventually authorises
+            # a shutdown", which is the entire defect. Note this is NOT the
+            # only thing keeping the box collectable -- a metaworker that
+            # comes back and reports idle-and-empty yields ORCH_IDLE and the
+            # box shuts down on the very next tick.
+            log("  -> %s is a DECLARED orchestrator box whose demand could "
+                "not be read from EITHER transport; holding %s rather than "
+                "reading silence as idle (%s)"
+                % (affinity, server_name, orch_reason))
 
         elif lease_held and status == "running":
             # LEASE VETO. A worker doing non-queue work (remote pytest) is
