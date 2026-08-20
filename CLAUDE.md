@@ -17842,6 +17842,55 @@ Form B recommendation: a two-stage threat-modulated selection rule.
   acceptance test for this fix; criteria (a)/(b) still computed for context but already stand as
   fairly falsified per the autopsy and are not re-litigated), `supersedes: V3-EXQ-910`.
   See MECH-489, SD-099 (parent gate, unchanged), `failure_autopsy_V3-EXQ-910_2026-08-10.md`.
+  AMEND 2026-08-20 (decision-window persistence / `decision_counts` defect, ree-v3 775eb55).
+  Discharges the SUBSTRATE half of this SD's SECOND `failure_record` (severity `degrading`), the
+  one V3-EXQ-910a surfaced and `failure_autopsy_V3-EXQ-910a_2026-08-11` could not fully pin
+  ("decision_counts sum 206 exceeds the theoretical max n_overrides x
+  orienting_post_override_bias_ticks = 105, and is byte-identical to 910's total despite half the
+  override count"). Pinned statically in
+  `REE_assembly/evidence/planning/mech489_decision_counts_defect_staged_20260817.md` section 2(d):
+  outside `reset()`, the ONLY clear of `_orienting_decision` sat INSIDE the score-bias
+  application block, gated on five conditions including `_orienting_decision_ticks_remaining > 0`
+  and `_orienting_decision in ("approach", "withdraw")`. A `"resume"` decision sets
+  `ticks_remaining = 0` and is excluded by BOTH, so it could never reach the clear and persisted
+  for the rest of the episode; and any tick with no `candidates` / no `world_states` froze the
+  countdown without clearing, making `orienting_post_override_bias_ticks` a LOWER BOUND on
+  persistence rather than a bound.
+  Fix: the countdown/expiry moves into its own UNCONDITIONAL step, gated only on
+  `_orienting_decision is not None`, placed BEFORE the Component 4/5 override block so it acts on
+  the previous tick's decision. The score-bias APPLICATION stays conditional on exactly the same
+  five conditions as before. No new config.
+  Behaviour on the happy path is UNCHANGED: with the bias gate open every tick this applies the
+  bias on exactly `orienting_post_override_bias_ticks` block executions, identical to the old
+  decrement-after-applying placement. What changes is only that the window now also expires on
+  ticks where the bias gate does NOT open, and that a `"resume"` expires after one block
+  execution instead of never. `"resume"` is deliberately NOT cleared on the tick it is set --
+  an eager clear would make it invisible to any per-step readout, reproducing the degenerate
+  `resume = 0` reading the retest exists to escape.
+  Forward-critical, not cosmetic: V3-EXQ-910 and 910a both recorded `resume = 0`, so the leak has
+  never yet fired -- it arms itself precisely WHEN the Component 4/5 scale fix starts working,
+  corrupting the owed retest's counter only in the branch that indicates success.
+  DENOMINATION, now stated rather than implicit: `orienting_post_override_bias_ticks` counts E3
+  TICKS, not env steps -- this block is downstream of `select_action()`'s non-E3-tick early
+  return, so at the default `heartbeat.e3_steps_per_tick = 10` a nominal 5-tick window spans ~50
+  env steps. Retained deliberately (`DefensiveOrientingGate.tick()` is only ever called from this
+  block, so every other SD-099 tick quantity already counts these same ticks), and surfaced as
+  `chip-20260820-orienting-bias-ticks-denomination` rather than decided by a measurement-repair
+  session.
+  Contract: `tests/contracts/test_orienting_decision_window_expiry.py` (5, time-independent, real
+  `REEAgent` over a real `CausalGridWorldV2` rollout -- only the gate's verdict is scripted).
+  Verified differentially: 3 of 5 FAIL against the pre-amend `agent.py`; the 2 that pass in both
+  are the invariance controls (master switch OFF stays bit-identical inert; `reset()` still
+  clears). Full ree-v3 contract suite green on the hub against this tree: 3998 passed, 21 skipped,
+  43 subtests, 0 failed.
+  STILL OWED -- the DRIVER half, which is what produces the headline ratio: the 910-lineage
+  `_decision_alignment` reads the latched `_orienting_decision` once per ENV STEP against an
+  E3-tick-denominated window, inflating `decision_counts` by ~`e3_steps_per_tick` (predicting
+  ~5x, matching 910's 206/42 = 4.90). It must count at the override tick only and emit
+  `n_latched_ticks`; that goes through `/queue-experiment` with the retest, chipped as
+  `chip-20260820-mech489-retest-driver-decision-at-override-tick`. So `decision_counts` is NOT
+  yet trustworthy, `substrate_queue.json` stays `implemented_pending_validation`, MECH-489 keeps
+  `pending_retest_after_substrate: true`, and EVB-0610 / EXP-0033 stays `blocked_substrate`.
 
 ## CausalGridWorldV2: max_episode_steps constructor kwarg -- IMPLEMENTED (2026-08-10)
 - environment.max_episode_steps -- IMPLEMENTED 2026-08-10 (chip-20260810-fishtank-max-episode-steps).
