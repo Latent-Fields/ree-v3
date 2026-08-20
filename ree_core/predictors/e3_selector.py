@@ -188,6 +188,80 @@ def project_channel_range(features: torch.Tensor) -> torch.Tensor:
     return centered @ u.to(dtype=centered.dtype, device=centered.device)  # [K]
 
 
+AUTHORITY_COMPETITIVE_RATIO_FLOOR_DEFAULT = 0.1
+
+
+def authority_spread_ratio(
+    lever: "torch.Tensor",
+    dominant: "torch.Tensor",
+    basis: str = "range",
+) -> float:
+    """
+    modulatory-bias-selection-authority AMEND (2026-08-19, V3-EXQ-931 half (c)).
+
+    STANDING READINESS STATISTIC: the ratio of a scoring-layer lever's own
+    cross-candidate spread to the dominant term's.
+
+    This generalises the 2026-06-10 route-range amendment ("assert the
+    channel's cross-candidate range EXISTS") by exactly one step: the range
+    must also be COMPETITIVE with the dominant term's, not merely nonzero.
+    V3-EXQ-931 is the case that forces the distinction -- its wanting term was
+    live, non-degenerate and behaviourally predictive, with a cross-candidate
+    range that passes any nonzero gate, and a ratio to the terrain term of
+    ~0.0037. That number predicts the measured null (selection_flip_rate = 0.0
+    in 5/5 seeds at the documented operating weight) directly: the term is a
+    near-uniform offset, ~270x too small to move an argmin.
+
+    One definition, used at BOTH layers -- the hippocampal CEM elite stage
+    (HippocampalModule.propose_trajectories) and E3.select -- so the statistic
+    means the same thing wherever it is read. A second, layer-local definition
+    would reintroduce exactly the incomparability this is meant to remove.
+
+    basis: "range" (max - min; outlier-sensitive, the near-tie question) or
+    "std" (robust; the typical-spread question). Anything else falls back to
+    "range".
+
+    Returns 0.0 for a degenerate input (fewer than 2 candidates, or a dominant
+    term with no spread) rather than raising or returning inf: a lever cannot
+    be shown competitive against a flat dominant term, and 0.0 is the reading
+    that keeps a readiness gate CLOSED. Reported, never enforced -- see
+    REEConfig.authority_competitive_ratio_floor for why enforcement belongs at
+    experiment-design time and not in the substrate.
+    """
+    lv = lever.detach().reshape(-1).float()
+    dv = dominant.detach().reshape(-1).float()
+    if lv.numel() < 2 or dv.numel() < 2:
+        return 0.0
+    if basis == "std":
+        lever_spread = float(lv.std().item())
+        dominant_spread = float(dv.std().item())
+    else:
+        lever_spread = float((lv.max() - lv.min()).item())
+        dominant_spread = float((dv.max() - dv.min()).item())
+    if not (dominant_spread > 0.0):
+        return 0.0
+    ratio = lever_spread / dominant_spread
+    if ratio != ratio:  # NaN guard (inf - inf, or an all-NaN lever)
+        return 0.0
+    return float(ratio)
+
+
+def authority_ratio_is_competitive(
+    ratio: float,
+    floor: float = AUTHORITY_COMPETITIVE_RATIO_FLOOR_DEFAULT,
+) -> bool:
+    """Companion verdict for authority_spread_ratio(). True when the lever's
+    spread is at least ``floor`` of the dominant term's.
+
+    Kept as a separate one-line function on purpose: the RATIO is the datum an
+    autopsy reads and the VERDICT is a policy call against a configurable
+    floor, and collapsing them would bake today's floor into every recorded
+    diagnostic. A NaN ratio reads False."""
+    if ratio != ratio:
+        return False
+    return bool(ratio >= float(floor))
+
+
 def variance_commit_threshold(config_threshold: float) -> float:
     """
     Return the variance-space commit threshold (ARC-016).
@@ -2953,6 +3027,29 @@ class E3TrajectorySelector(nn.Module):
             ),
             "modulatory_authority_active": modulatory_authority_active,
             "modulatory_authority_scale_factor": modulatory_authority_scale_factor,
+            # STANDING READINESS ASSERTION (2026-08-19 AMEND, V3-EXQ-931 half
+            # (c)) at the COMMITTED-SELECTION layer. score_bias_to_raw_range_
+            # ratio above is the same statistic and has been reported for a
+            # while; what was missing is the VERDICT -- whether that ratio is
+            # COMPETITIVE, not merely nonzero. V3-EXQ-931's lever sat at ~0.0037
+            # and its null selection-flip rate followed directly, so a
+            # nonzero-range gate passes exactly the case that predicts the null.
+            # Computed by the shared authority_spread_ratio() so this reading is
+            # directly comparable with the CEM elite stage's
+            # cem_modulatory_authority_ratio one layer upstream.
+            # Reported, never enforced -- see REEConfig.authority_competitive_
+            # ratio_floor.
+            "modulatory_authority_ratio": authority_spread_ratio(
+                bias_detached, raw_scores
+            ),
+            "modulatory_authority_ratio_competitive": authority_ratio_is_competitive(
+                authority_spread_ratio(bias_detached, raw_scores),
+                floor=float(getattr(
+                    self.config,
+                    "authority_competitive_ratio_floor",
+                    AUTHORITY_COMPETITIVE_RATIO_FLOOR_DEFAULT,
+                )),
+            ),
             # V3-EXQ-643a: the true cross-candidate modulatory range the gate
             # keyed on (explicitly tracked; immune to large-score cancellation).
             "modulatory_authority_range": modulatory_authority_range,

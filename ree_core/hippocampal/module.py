@@ -40,6 +40,15 @@ from ree_core.utils.config import HippocampalConfig
 from ree_core.hippocampal.curiosity import FamiliarityTracker
 from ree_core.hippocampal.visitation import VisitationCounter
 from ree_core.predictors.e2_fast import E2FastPredictor, Trajectory
+# modulatory-bias-selection-authority AMEND (2026-08-19, V3-EXQ-931 half (c)):
+# the readiness statistic has ONE definition, shared with E3.select, so a ratio
+# reported at the CEM elite stage is directly comparable with one reported at the
+# committed-selection stage. e3_selector does not import hippocampal, so this is
+# not a cycle.
+from ree_core.predictors.e3_selector import (
+    authority_ratio_is_competitive,
+    authority_spread_ratio,
+)
 from ree_core.residue.field import (
     ResidueField,
     VALENCE_WANTING,
@@ -400,6 +409,17 @@ class HippocampalModule(nn.Module):
         # at the start of each propose_trajectories() call. Empty dict when
         # MECH-293 is off or the ghost branch did not fire this tick.
         self._last_propose_diagnostics: Dict[str, Any] = {}
+        # modulatory-bias-selection-authority AMEND (2026-08-19, V3-EXQ-931
+        # half (b)): per-candidate modulatory contribution over the LAST
+        # proposed pool, [K], index-aligned to the candidate list handed to
+        # E3.select. Populated by propose_trajectories only when
+        # use_cem_modulatory_throughput is on; consumed by REEAgent via
+        # modulatory_channel_route_source="cem_elite". Declared here so a
+        # consumer reading it before the first propose call gets None rather
+        # than AttributeError -- a missing attribute would send the route
+        # source down its silent-None path, which is the V3-EXQ-863 inert-route
+        # failure shape.
+        self.last_candidate_modulatory_bias: Optional[torch.Tensor] = None
 
     def drain_boundary_events(self) -> List[BoundaryEvent]:
         """Return and clear all queued boundary events from MECH-288.
@@ -1520,7 +1540,8 @@ class HippocampalModule(nn.Module):
         trajectory: Trajectory,
         max_horizon: Optional[int] = None,
         operating_mode: Optional[Dict[str, float]] = None,
-    ) -> torch.Tensor:
+        return_components: bool = False,
+    ):
         """
         Score a trajectory for CEM elite selection.
 
@@ -1560,8 +1581,38 @@ class HippocampalModule(nn.Module):
         (all pre-existing call sites) or an empty mode_value_weight map leaves
         the score untouched -- bit-identical.
 
-        Returns a scalar score (lower = better).
+        modulatory-bias-selection-authority AMEND (2026-08-19, V3-EXQ-931)
+        -- return_components: when True, returns
+        ``(score, {"terrain": <tensor>, "modulatory": <tensor>})`` instead of
+        the bare score, where ``modulatory`` is the SIGNED ADDITIVE
+        contribution of every non-terrain term (wanting, curiosity,
+        mode_value) such that ``score == terrain + modulatory`` exactly.
+
+        The sign convention is chosen to mirror E3.select's
+        ``scores = scores_raw + scale_factor * modulatory_total`` verbatim, so
+        the two authority layers read as one mechanism rather than two
+        dialects. Note this means ``modulatory`` is NEGATIVE for a favourable
+        term (all three are SUBTRACTED here, lower = better).
+
+        Why a decomposition rather than a subtraction at the call site: an
+        authority rescale needs the modulatory contribution measured DIRECTLY.
+        Reconstructing it as ``(score - terrain)`` is what produced the
+        V3-EXQ-643 dead gate -- when primary scores had exploded to ~1e32 the
+        real ~0.17 modulatory range fell below the float32 ULP and the
+        difference computed EXACTLY 0.0, so the gate never fired. The
+        components are therefore carried explicitly, never re-derived.
+
+        return_components=False (default, every pre-existing call site)
+        returns the identical scalar tensor -- bit-identical.
+
+        Returns a scalar score (lower = better), or the (score, components)
+        pair described above.
         """
+        def _ret(_score, _terrain, _modulatory):
+            if not return_components:
+                return _score
+            return _score, {"terrain": _terrain, "modulatory": _modulatory}
+
         if trajectory.world_states is not None:
             world_seq = trajectory.get_world_state_sequence()  # [batch, horizon, world_dim]
             if world_seq is not None:
@@ -1569,6 +1620,14 @@ class HippocampalModule(nn.Module):
                     # +1: keep the initial state plus max_horizon steps.
                     world_seq = world_seq[:, : max_horizon + 1, :]
                 terrain_score = self.residue_field.evaluate_trajectory(world_seq).sum()
+                # AMEND (2026-08-19): explicit modulatory accumulator. Carried
+                # alongside terrain_score rather than recovered by subtraction
+                # afterwards -- see the return_components note in the docstring
+                # for why (V3-EXQ-643 float32 catastrophic cancellation).
+                # Costs one zeros_like when return_components is False, and is
+                # never read on that path.
+                terrain_only = terrain_score
+                modulatory_accum = torch.zeros_like(terrain_score)
 
                 if self.config.wanting_weight > 0:
                     # Reshape to [batch*horizon, world_dim] for evaluate_valence
@@ -1578,10 +1637,14 @@ class HippocampalModule(nn.Module):
                         valence_flat = self.residue_field.evaluate_valence(flat)  # [B*H, 4]
                     wanting_flat = valence_flat[..., VALENCE_WANTING]  # [B*H]
                     wanting_score = wanting_flat.mean()
-                    terrain_score = terrain_score - self.config.wanting_weight * wanting_score
+                    _wanting_term = self.config.wanting_weight * wanting_score
+                    terrain_score = terrain_score - _wanting_term
+                    modulatory_accum = modulatory_accum - _wanting_term
 
                 if float(getattr(self.config, "curiosity_weight", 0.0)) > 0.0:
-                    terrain_score = terrain_score - self._curiosity_bonus(world_seq)
+                    _curiosity_term = self._curiosity_bonus(world_seq)
+                    terrain_score = terrain_score - _curiosity_term
+                    modulatory_accum = modulatory_accum - _curiosity_term
 
                 # SD-MECH267-CEM-SELECTION-FIX H2: mode-dependent value term.
                 # Keeps the CEM elite-selection RANKING mode-differentiated on
@@ -1621,15 +1684,22 @@ class HippocampalModule(nn.Module):
                             )
                         w = w + float(_mode_wt) * _vect
                     # Subtract (lower score = better), same sign as wanting.
-                    terrain_score = terrain_score - torch.dot(w, mean_world)
+                    _mode_term = torch.dot(w, mean_world)
+                    terrain_score = terrain_score - _mode_term
+                    modulatory_accum = modulatory_accum - _mode_term
 
-                return terrain_score
+                return _ret(terrain_score, terrain_only, modulatory_accum)
 
-        # Fallback: residue over z_self states (pre-SD-005 wiring)
+        # Fallback: residue over z_self states (pre-SD-005 wiring). No
+        # modulatory term is composed on this path, so the decomposition is
+        # (terrain = score, modulatory = 0) -- a genuinely zero contribution,
+        # which the authority rescale correctly reads as below the spread floor
+        # rather than as a missing measurement.
         states = trajectory.get_state_sequence()
         if max_horizon is not None:
             states = states[:, : max_horizon + 1, :]
-        return self.residue_field.evaluate_trajectory(states).sum()
+        _fallback = self.residue_field.evaluate_trajectory(states).sum()
+        return _ret(_fallback, _fallback, torch.zeros_like(_fallback))
 
     def _curiosity_bonus(self, world_seq: torch.Tensor) -> torch.Tensor:
         """SD-025: information-seeking bonus for a candidate trajectory.
@@ -1964,9 +2034,23 @@ class HippocampalModule(nn.Module):
         }
         cem_iteration_diagnostics: List[Dict[str, Any]] = []
 
+        # modulatory-bias-selection-authority AMEND (2026-08-19, V3-EXQ-931).
+        # Accumulated ACROSS iterations (the readiness statistic is a property
+        # of the lever over the whole refit sequence, not of one draw); the
+        # per-candidate component lists are reset per iteration below, since
+        # `scores` is rebuilt from a fresh candidate sample each time.
+        _cem_auth_on = bool(
+            getattr(self.config, "use_cem_modulatory_authority", False)
+        )
+        _cem_auth_ratios: List[float] = []
+        _cem_auth_scales: List[float] = []
+        _cem_auth_fired = 0
+
         for _iteration in range(self.config.num_cem_iterations):
             trajectories: List[Trajectory] = []
             scores: List[torch.Tensor] = []
+            _cem_auth_terrain: List[torch.Tensor] = []
+            _cem_auth_mod: List[torch.Tensor] = []
             ao_std_diag = self._ao_std_stats(ao_std)
 
             # Pre-generate orthogonal noise for this CEM iteration when enabled.
@@ -2031,15 +2115,89 @@ class HippocampalModule(nn.Module):
                 # SD-MECH267-HORIZON-DEPTH: mode-conditioned scoring window.
                 # effective_horizon is None (full trajectory, unchanged) unless
                 # mode conditioning is enabled and operating_mode was supplied.
-                scores.append(
-                    self._score_trajectory(
+                # modulatory-bias-selection-authority AMEND (2026-08-19,
+                # V3-EXQ-931): when the CEM authority is on, keep the terrain /
+                # modulatory decomposition per candidate so the rescale below
+                # has the cross-candidate spreads it needs. Off (default) the
+                # call is byte-for-byte the pre-amend one.
+                if _cem_auth_on:
+                    _sc, _comp = self._score_trajectory(
                         traj,
                         max_horizon=effective_horizon,
                         operating_mode=operating_mode,
+                        return_components=True,
                     )
-                )
+                    scores.append(_sc)
+                    _cem_auth_terrain.append(_comp["terrain"])
+                    _cem_auth_mod.append(_comp["modulatory"])
+                else:
+                    scores.append(
+                        self._score_trajectory(
+                            traj,
+                            max_horizon=effective_horizon,
+                            operating_mode=operating_mode,
+                        )
+                    )
 
             scores_tensor = torch.stack(scores)
+            # modulatory-bias-selection-authority AMEND (2026-08-19, V3-EXQ-931
+            # half (a)): give the CEM elite stage's modulatory terms genuine but
+            # BOUNDED authority over the elite argmin, one layer upstream of the
+            # implemented E3.select fix, which does not reach this call site.
+            #
+            # V3-EXQ-931 measured the wanting term's cross-candidate spread at
+            # ~0.37% of the terrain term's, so it acted as a near-uniform offset
+            # and could not move an argmin until scaled ~100x. The rescale below
+            # is E3's algebra verbatim: put the COMBINED modulatory contribution
+            # on a spread equal to gain * terrain_spread, then recompose.
+            #
+            # scale_factor is a detached float, so gradient still flows through
+            # BOTH terrain and modulatory -- the SD-055 differentiable-CEM path
+            # below reads the same rescaled scores and keeps its grad path to
+            # cue_action_proj.
+            if _cem_auth_on and _cem_auth_terrain:
+                _terr_t = torch.stack(_cem_auth_terrain)
+                _mod_t = torch.stack(_cem_auth_mod)
+                _basis = str(getattr(
+                    self.config,
+                    "cem_modulatory_authority_normalize_basis",
+                    "range",
+                ))
+                if _basis == "std":
+                    _mod_spread = float(_mod_t.detach().std().item())
+                    _terr_spread = float(_terr_t.detach().std().item())
+                else:
+                    _mod_spread = float(
+                        (_mod_t.detach().max() - _mod_t.detach().min()).item()
+                    )
+                    _terr_spread = float(
+                        (_terr_t.detach().max() - _terr_t.detach().min()).item()
+                    )
+                _floor = float(getattr(
+                    self.config,
+                    "cem_modulatory_authority_min_spread_floor",
+                    1e-6,
+                ))
+                # READINESS statistic (half (c)): reported on every iteration
+                # whether or not the rescale fires, because the diagnostic value
+                # is precisely in watching a sub-competitive lever run -- that is
+                # what produced this finding. Uses the one shared definition.
+                _cem_auth_ratio = authority_spread_ratio(
+                    _mod_t, _terr_t, basis=_basis
+                )
+                _cem_auth_ratios.append(_cem_auth_ratio)
+                # "Scaling zero is still zero" (V3-EXQ-648): a flat modulatory
+                # term carries no cross-candidate information, so amplifying it
+                # would manufacture numerical noise, not authority.
+                if _mod_spread > _floor:
+                    _gain = float(getattr(
+                        self.config, "cem_modulatory_authority_gain", 0.5
+                    ))
+                    _scale = (_gain * _terr_spread) / _mod_spread
+                    scores_tensor = _terr_t + _scale * _mod_t
+                    scores = [scores_tensor[_i] for _i in range(len(scores))]
+                    _cem_auth_scales.append(float(_scale))
+                    _cem_auth_fired += 1
             elite_indices = torch.argsort(scores_tensor)[:num_elite]
             elite_indices, support_elite_diag = (
                 self._support_preserving_elite_indices(
@@ -2260,8 +2418,128 @@ class HippocampalModule(nn.Module):
                     ],
                 })
 
+        # ------------------------------------------------------------------ #
+        # modulatory-bias-selection-authority AMEND (2026-08-19, V3-EXQ-931    #
+        # half (b)): BEHAVIOURAL THROUGHPUT.                                   #
+        # ------------------------------------------------------------------ #
+        # Authority at the elite stage does NOT imply behavioural throughput.
+        # V3-EXQ-931 flipped 80.3% of genuine elite argmins (43/104, 96/98) and
+        # measured mean_resource_proximity BIT-IDENTICAL to ablation
+        # (0.6229773644254133), because REEAgent.select_action re-scores the pool
+        # with e3.last_scores independently of the CEM's elite pick. The elite
+        # stage is therefore ADVISORY-ONLY unless this cache is populated and
+        # routed: it shapes the PROPOSAL DISTRIBUTION, and E3 alone decides the
+        # committed action.
+        #
+        # Cached over the FINAL pool -- after ghost mixing, support-preserving
+        # injection, scaffold and chunk splicing -- so the vector is index-
+        # aligned to the candidate list E3.select actually receives. Computing
+        # it over the CEM's internal per-iteration samples instead would produce
+        # a vector of the wrong length whose indices name different trajectories,
+        # which is silent misattribution rather than a crash.
+        #
+        # Routed (not applied here) via REEConfig.modulatory_channel_route_source
+        # = "cem_elite", so it passes through E3's own bounded authority rescale
+        # and harm weighting still applies downstream. Deliberately NOT an
+        # override of E3's argmin: _score_trajectory is ARC-007 STRICT ("no
+        # independent harm prediction here -- E3 introduces all value
+        # weighting"), so a terrain-plus-wanting argmin bypassing E3 would carry
+        # authority over the committed action without harm weighting.
+        #
+        # Costs one residue-field evaluation per final candidate, so it is gated.
+        # Off (default) -> stays None -> nothing to route -> bit-identical.
+        self.last_candidate_modulatory_bias = None
+        _cem_thru_ratio = 0.0
+        if (
+            bool(getattr(self.config, "use_cem_modulatory_throughput", False))
+            and all_trajectories
+        ):
+            _thru_terr: List[torch.Tensor] = []
+            _thru_mod: List[torch.Tensor] = []
+            for _t in all_trajectories:
+                _s, _c = self._score_trajectory(
+                    _t,
+                    max_horizon=effective_horizon,
+                    operating_mode=operating_mode,
+                    return_components=True,
+                )
+                _thru_terr.append(_c["terrain"])
+                _thru_mod.append(_c["modulatory"])
+            if len(_thru_mod) >= 2:
+                _thru_terr_t = torch.stack(_thru_terr).detach().reshape(-1)
+                _thru_mod_t = torch.stack(_thru_mod).detach().reshape(-1)
+                self.last_candidate_modulatory_bias = _thru_mod_t
+                _cem_thru_ratio = authority_spread_ratio(
+                    _thru_mod_t,
+                    _thru_terr_t,
+                    basis=str(getattr(
+                        self.config,
+                        "cem_modulatory_authority_normalize_basis",
+                        "range",
+                    )),
+                )
+
+        # Readiness statistic (half (c)), reported whether or not either lever
+        # fired. A mean over the refit iterations: the ratio is a property of the
+        # lever across the whole sequence, and a single iteration's value is a
+        # noisier read of the same quantity.
+        _cem_auth_ratio_mean = (
+            float(sum(_cem_auth_ratios) / len(_cem_auth_ratios))
+            if _cem_auth_ratios else 0.0
+        )
+        _cem_auth_floor = float(getattr(
+            self.config, "authority_competitive_ratio_floor", 0.1
+        ))
+
         final_summary = self._summarize_trajectories(all_trajectories)
         self._last_propose_diagnostics.update({
+            # --- modulatory-bias-selection-authority AMEND (2026-08-19) ---
+            # AUTHORITY (half a): did the elite-stage rescale fire, and how hard.
+            "cem_modulatory_authority_enabled": _cem_auth_on,
+            "cem_modulatory_authority_fired_iterations": int(_cem_auth_fired),
+            "cem_modulatory_authority_scale_factor_mean": (
+                float(sum(_cem_auth_scales) / len(_cem_auth_scales))
+                if _cem_auth_scales else 0.0
+            ),
+            # READINESS (half c): the ratio of the modulatory lever's own
+            # cross-candidate spread to the terrain term's, and the verdict
+            # against the floor. V3-EXQ-931 read ~0.0037 here and its null
+            # selection-flip rate followed directly. A behavioural falsifier
+            # must not be queued against this lever while competitive is False.
+            "cem_modulatory_authority_ratio": _cem_auth_ratio_mean,
+            "cem_modulatory_authority_competitive": authority_ratio_is_competitive(
+                _cem_auth_ratio_mean, floor=_cem_auth_floor
+            ),
+            "authority_competitive_ratio_floor": _cem_auth_floor,
+            # THROUGHPUT (half b): is a per-candidate bias actually available to
+            # route to E3, and is IT competitive. advisory_only is the headline:
+            # True means the elite stage cannot reach the committed action, so
+            # any behavioural DV read off it returns a STRUCTURAL null that looks
+            # like a substrate or claim finding (the V3-EXQ-914/914a failure).
+            "cem_modulatory_throughput_enabled": bool(
+                getattr(self.config, "use_cem_modulatory_throughput", False)
+            ),
+            "cem_modulatory_throughput_available": bool(
+                self.last_candidate_modulatory_bias is not None
+            ),
+            "cem_modulatory_throughput_ratio": _cem_thru_ratio,
+            "cem_modulatory_throughput_competitive": authority_ratio_is_competitive(
+                _cem_thru_ratio, floor=_cem_auth_floor
+            ),
+            # ADVISORY-ONLY headline. True means the elite stage has no path to
+            # the committed action at all, so any behavioural DV read off it
+            # returns a STRUCTURAL null that LOOKS like a substrate or claim
+            # finding -- the failure that invalidated V3-EXQ-914/914a and cost
+            # that lineage two runs. This is a NECESSARY-condition read only:
+            # the module sees HippocampalConfig, and whether the cached bias is
+            # actually CONSUMED depends on REEConfig.modulatory_channel_route_
+            # source == "cem_elite", which lives one level up. False here means
+            # "throughput is possible", not "throughput is wired" -- agent.py's
+            # modulatory_channel_route_range is the confirming read, and the
+            # inert-route backstop warns when a source yields nothing.
+            "cem_elite_stage_advisory_only": bool(
+                self.last_candidate_modulatory_bias is None
+            ),
             "candidate_first_action_counts": final_summary["first_action_counts"],
             "candidate_unique_first_action_classes": final_summary[
                 "unique_first_action_classes"

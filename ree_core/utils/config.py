@@ -928,6 +928,15 @@ class E3Config:
     use_modulatory_selection_authority: bool = False
     modulatory_authority_gain: float = 0.5
     modulatory_authority_min_range_floor: float = 1e-6
+    # STANDING READINESS ASSERTION floor (2026-08-19 AMEND, V3-EXQ-931 half
+    # (c)). Mirror of REEConfig.authority_competitive_ratio_floor, carried on
+    # this sub-config because the layer that reports the verdict only ever sees
+    # THIS object, not the REEConfig above it. from_dims sets all three from one
+    # parameter so they cannot drift; a hand-built config that sets only the
+    # REEConfig field leaves these at the same default, so the verdict is still
+    # computed against a sane floor rather than crashing or silently reading
+    # zero (which would mark every lever competitive).
+    authority_competitive_ratio_floor: float = 0.1
 
     # ARC-108 JOB-1 step-1 (learned dopamine-gated E3 gating, dopamine_into_gating
     # design 2026-06-22 secs 2-4): a single LEARNED per-channel selection-weight
@@ -2255,6 +2264,90 @@ class HippocampalConfig:
     # the exact C1 test. Empty map ({}, default) -> no term added ->
     # bit-identical.
     mode_value_weight: Dict[str, List[float]] = field(default_factory=dict)
+    # ------------------------------------------------------------------ #
+    # modulatory-bias-selection-authority AMEND (2026-08-19, V3-EXQ-931):     #
+    # CEM elite-stage selection authority + behavioural throughput.           #
+    # ------------------------------------------------------------------ #
+    # FOURTH convergent instance of "scoring-layer signals do not reach the
+    # committed argmax", after MECH-314 curiosity bias, MECH-320 vigor penalty
+    # and MECH-341 within-class temperature -- this one at a NEW call site one
+    # layer UPSTREAM of E3.select, inside the hippocampal CEM's own elite
+    # selection (HippocampalModule._score_trajectory), which the implemented
+    # E3.select authority fix does not reach.
+    #
+    # V3-EXQ-931 measured the wanting term's cross-candidate spread at ~0.37%
+    # of the terrain term's (wanting_authority_ratio ~= 0.0037): the term acts
+    # as a near-uniform offset and cannot move the elite argmin until scaled
+    # ~100x (first flips at wanting_weight ~50; 5/5 seeds at ~500). When ON,
+    # the COMBINED modulatory contribution (wanting + curiosity + mode_value)
+    # is rescaled so its cross-candidate spread equals
+    #     cem_modulatory_authority_gain * terrain_spread
+    # before the elite argsort -- E3's algebra (e3_selector.py, 2026-06-03 /
+    # 2026-06-15 conversion amend) verbatim, one layer upstream.
+    #
+    # The components are tracked EXPLICITLY (_score_trajectory's
+    # return_components path), never reconstructed as (score - terrain): that
+    # subtraction is what produced the V3-EXQ-643 dead gate, losing a real
+    # ~0.17 modulatory range below the float32 ULP when primary scores had
+    # exploded to ~1e32.
+    #
+    # False (default) -> the elite argsort sees the identical scores tensor
+    # -> bit-identical.
+    use_cem_modulatory_authority: bool = False
+    # Target spread as a fraction of the terrain spread. Keep < 1.0 so the
+    # modulatory term stays SUBDOMINANT to a decisive terrain gap (the safety
+    # property the 2026-06-15 E3 conversion amend established); at gain >= 1.0
+    # a modulatory channel can out-magnitude the terrain score it is meant to
+    # bias.
+    cem_modulatory_authority_gain: float = 0.5
+    # "range" (default; outlier-sensitive, flips near-tie outliers) or "std"
+    # (robust to outliers -- anchors the target to the TYPICAL primary spread,
+    # so the channel competes against near-decisive candidates rather than only
+    # ties). Same two bases E3Config.modulatory_authority_normalize_basis
+    # offers; unrecognised values fall back to "range".
+    cem_modulatory_authority_normalize_basis: str = "range"
+    # Below this modulatory spread the rescale is SKIPPED rather than applied
+    # with an enormous scale factor. "Scaling zero is still zero" (V3-EXQ-648):
+    # a flat modulatory term carries no cross-candidate information and cannot
+    # be given authority, only numerical noise.
+    cem_modulatory_authority_min_spread_floor: float = 1e-6
+    # THROUGHPUT (V3-EXQ-931 half (b)). Authority at the elite stage does NOT
+    # imply behavioural throughput: at wanting_weight=5000 the elite argmin
+    # flipped on 80.3% of genuine refits while mean_resource_proximity stayed
+    # BIT-IDENTICAL to ablation, because REEAgent.select_action re-scores the
+    # pool with e3.last_scores independently of the CEM's elite pick. The CEM
+    # elite stage is therefore ADVISORY-ONLY by default and no behavioural DV
+    # may be read off it -- that structural null is what invalidated
+    # V3-EXQ-914/914a.
+    #
+    # When True, propose_trajectories caches the per-candidate modulatory
+    # contribution over the FINAL returned pool as
+    # HippocampalModule.last_candidate_modulatory_bias ([K], index-aligned to
+    # the candidate list E3.select receives). Combined with
+    # REEConfig.modulatory_channel_route_source = "cem_elite", that vector is
+    # routed into E3's modulatory accumulator via the existing
+    # channel_route_bias path, where it passes through E3's own bounded
+    # authority rescale and so REACHES the committed argmin.
+    #
+    # Deliberately NOT an override of E3's selection: _score_trajectory's
+    # contract is ARC-007 STRICT ("no independent harm prediction here -- E3
+    # introduces all value weighting"), so letting a terrain-plus-wanting
+    # argmin bypass E3 would give a scoring knob authority over the committed
+    # action without harm weighting.
+    #
+    # Costs one residue-field evaluation per final candidate per propose call,
+    # so it is gated rather than always-on. False (default) -> the cache stays
+    # None -> nothing to route -> bit-identical.
+    use_cem_modulatory_throughput: bool = False
+    # STANDING READINESS ASSERTION floor (2026-08-19 AMEND, V3-EXQ-931 half
+    # (c)). Mirror of REEConfig.authority_competitive_ratio_floor, carried on
+    # this sub-config because the layer that reports the verdict only ever sees
+    # THIS object, not the REEConfig above it. from_dims sets all three from one
+    # parameter so they cannot drift; a hand-built config that sets only the
+    # REEConfig field leaves these at the same default, so the verdict is still
+    # computed against a sane floor rather than crashing or silently reading
+    # zero (which would mark every lever competitive).
+    authority_competitive_ratio_floor: float = 0.1
     # H3 -- mode_partitioned_cem: keep the mode-conditioned proposal BREADTH
     # from washing out of the CEM pool. The refit recomputes ao_std fresh from
     # the elites each iteration (module.py propose_trajectories), discarding the
@@ -4052,9 +4145,42 @@ class REEConfig:
     # channel -- NOT "gated_policy", which is the unrelated ARC-062 Phase-1
     # GatedPolicy module). route_weight sets the routed-channel proportion in
     # _modulatory_accum before the authority rescale.
+    #
+    # "cem_elite" (2026-08-19 AMEND, V3-EXQ-931): routes the HIPPOCAMPAL CEM
+    # elite-stage modulatory contribution (wanting + curiosity + mode_value,
+    # cached per FINAL candidate by propose_trajectories as
+    # HippocampalModule.last_candidate_modulatory_bias) into the same
+    # accumulator. This is the THROUGHPUT half of the amend: without it the CEM
+    # elite pick has no path to the committed action at all, so a flipped elite
+    # argmin produces a bit-identical behavioural DV (measured: 80.3% of genuine
+    # refits flipped, mean_resource_proximity unchanged to the last bit).
+    # Requires HippocampalConfig.use_cem_modulatory_throughput=True to populate
+    # the cache; otherwise the source yields None and the inert-route backstop
+    # warns after 8 consecutive empty ticks.
     use_modulatory_channel_routing: bool = False
     modulatory_channel_route_source: str = "none"
     modulatory_channel_route_weight: float = 1.0
+    # STANDING READINESS ASSERTION (2026-08-19 AMEND, V3-EXQ-931 half (c)).
+    # Generalises the 2026-06-10 route-range amendment ("assert the channel's
+    # cross-candidate range EXISTS") by one step: the range must also be
+    # COMPETITIVE with the dominant term's, not merely nonzero. V3-EXQ-931's
+    # wanting term had a live, non-degenerate, behaviourally-predictive range
+    # whose ratio to the terrain term's was ~0.0037 -- it passes a nonzero-range
+    # gate and predicts a null selection-flip rate directly.
+    #
+    # A scoring-layer lever must REPORT the ratio of its own cross-candidate
+    # spread to the dominant term's, and that ratio must clear this floor
+    # before a behavioural falsifier is queued against it. Surfaced as
+    # *_authority_ratio / *_authority_ratio_competitive at BOTH layers (the CEM
+    # elite stage and E3.select), computed by the single shared helper
+    # authority_spread_ratio() so the statistic has one definition.
+    #
+    # REPORTED, NEVER ENFORCED in the substrate: this is a readiness statistic
+    # for experiment DESIGN. A substrate that refused to run below the floor
+    # would break every existing default-off configuration, and the diagnostic
+    # value of watching a sub-competitive lever run is exactly what produced
+    # this finding. The gate belongs at /queue-experiment time.
+    authority_competitive_ratio_floor: float = 0.1
 
     # ----------------------------------------------------------------
     # ControlVector logging (recommendation B, four-signal control
@@ -7287,6 +7413,20 @@ class REEConfig:
         mech307_conjunction_wanting_threshold: float = 0.6,
         mech307_conjunction_liking_threshold: float = 0.3,
         mech307_conjunction_z_beta_threshold: float = 0.3,
+        # modulatory-bias-selection-authority AMEND (2026-08-19, V3-EXQ-931):
+        # CEM elite-stage authority + throughput + the standing readiness floor.
+        # Placed immediately before **kwargs so no existing positional argument
+        # index moves, and given from_dims entries at all (rather than left as
+        # dataclass-only fields) because a flag reachable ONLY by direct
+        # attribute assignment is the [memory]
+        # reference-reeconfig-from-dims-silent-kwargs failure mode: it falls
+        # into **kwargs and is silently dropped with no error.
+        use_cem_modulatory_authority: bool = False,
+        cem_modulatory_authority_gain: float = 0.5,
+        cem_modulatory_authority_normalize_basis: str = "range",
+        cem_modulatory_authority_min_spread_floor: float = 1e-6,
+        use_cem_modulatory_throughput: bool = False,
+        authority_competitive_ratio_floor: float = 0.1,
         **kwargs,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
@@ -8459,6 +8599,35 @@ class REEConfig:
         config.e3.modulatory_channel_route_weight = modulatory_channel_route_weight
         config.use_modulatory_channel_routing = use_modulatory_channel_routing
         config.modulatory_channel_route_source = modulatory_channel_route_source
+        # modulatory-bias-selection-authority AMEND (2026-08-19, V3-EXQ-931).
+        config.hippocampal.use_cem_modulatory_authority = bool(
+            use_cem_modulatory_authority
+        )
+        config.hippocampal.cem_modulatory_authority_gain = float(
+            cem_modulatory_authority_gain
+        )
+        config.hippocampal.cem_modulatory_authority_normalize_basis = str(
+            cem_modulatory_authority_normalize_basis
+        )
+        config.hippocampal.cem_modulatory_authority_min_spread_floor = float(
+            cem_modulatory_authority_min_spread_floor
+        )
+        config.hippocampal.use_cem_modulatory_throughput = bool(
+            use_cem_modulatory_throughput
+        )
+        # One parameter, three homes: REEConfig (canonical), HippocampalConfig
+        # (read by the CEM elite stage) and E3Config (read by the committed
+        # selection stage). Fanned out here so the two reporting layers cannot
+        # disagree about the floor they are judging against.
+        config.authority_competitive_ratio_floor = float(
+            authority_competitive_ratio_floor
+        )
+        config.hippocampal.authority_competitive_ratio_floor = float(
+            authority_competitive_ratio_floor
+        )
+        config.e3.authority_competitive_ratio_floor = float(
+            authority_competitive_ratio_floor
+        )
         config.modulatory_channel_route_weight = modulatory_channel_route_weight
         # modulatory-bias-selection-authority CONVERSION amend (569g/682, 2026-06-15)
         config.e3.modulatory_authority_normalize_basis = (

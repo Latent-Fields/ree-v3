@@ -237,6 +237,28 @@ from ree_core.residue.field import (
 _MODULATORY_ROUTE_CHANNEL_SOURCES = frozenset(
     {"lateral_pfc", "gated_policy", "mech295", "curiosity"}
 )
+# modulatory-bias-selection-authority AMEND (2026-08-19, V3-EXQ-931): sources the
+# INERT-ROUTE BACKSTOP covers, which is a STRICT SUPERSET of the set above and
+# must stay a separate constant.
+#
+# _MODULATORY_ROUTE_CHANNEL_SOURCES carries a second meaning beyond "sources the
+# backstop watches": test_modulatory_route_decomp_gate_decoupling.py::
+# test_c4b_route_source_set_matches_the_dispatch pins it 1:1 against
+# _DECOUPLED_TRACKERS -- the channels whose per-candidate bias is captured
+# DECOUPLED from the decomp gate. "cem_elite" is not one of those and never can
+# be: it is not a bias-head channel at all, it is a cache computed on the
+# hippocampal module. Adding it there would have conflated tracker parity with
+# backstop coverage (caught by that contract, 2026-08-19).
+#
+# It DOES want the backstop, though -- more than any existing source. It goes
+# inert whenever HippocampalConfig.use_cem_modulatory_throughput is left off (a
+# SECOND flag, on a DIFFERENT config object, from the one that selects the
+# route), which is exactly the two-flag coupling that produced the V3-EXQ-863
+# silent no-op this backstop exists for; and again on a candidate-count
+# mismatch, which nothing else would surface.
+_MODULATORY_ROUTE_BACKSTOP_SOURCES = frozenset(
+    _MODULATORY_ROUTE_CHANNEL_SOURCES | {"cem_elite"}
+)
 # Consecutive empty ticks before the backstop warns. A single empty tick is
 # legitimate (the channel's own block may not have run on a warmup tick), a
 # sustained run of them is the inert-route failure.
@@ -8412,6 +8434,39 @@ class REEAgent(nn.Module):
                 # GatedPolicy module; see arc_062_conversion_fanout_2026-07-29.md
                 # erratum).
                 _route_repr = _bdc_lpfc
+            elif _route_source == "cem_elite":
+                # modulatory-bias-selection-authority AMEND (2026-08-19,
+                # V3-EXQ-931 half (b)): THE THROUGHPUT ROUTE. Identity-routes
+                # the hippocampal CEM elite stage's own per-candidate modulatory
+                # contribution (wanting + curiosity + mode_value), cached by
+                # propose_trajectories over the FINAL pool and therefore
+                # index-aligned to `candidates` here.
+                #
+                # This is the fix for the measured disconnect: at
+                # wanting_weight=5000 the CEM flipped 80.3% of genuine elite
+                # argmins while mean_resource_proximity stayed bit-identical to
+                # ablation, because this function re-scores the pool with
+                # e3.last_scores independently of the CEM's pick. Routing sends
+                # that contribution into E3's modulatory accumulator, where the
+                # existing bounded authority rescale gives it real reach over
+                # the committed argmin -- WITHOUT letting it bypass E3's harm
+                # weighting, which a direct elite-pick override would.
+                #
+                # Length guard: the cache is only valid for the pool it was
+                # computed over. A mismatch means the candidate list was
+                # rebuilt between propose and select, and routing a stale
+                # vector would silently misattribute each bias to a DIFFERENT
+                # trajectory -- worse than not routing, because it still
+                # produces a plausible-looking nonzero route_range. Fall
+                # through to None and let the inert-route backstop warn.
+                _cem_bias = getattr(
+                    self.hippocampal, "last_candidate_modulatory_bias", None
+                )
+                if (
+                    _cem_bias is not None
+                    and int(_cem_bias.reshape(-1).shape[0]) == len(candidates)
+                ):
+                    _route_repr = _cem_bias.reshape(-1)
             # SD-modulatory-channel-route-decomp-gate-fix (2026-08-03) BACKSTOP.
             # The failure this whole fix exists for was SILENT: a correctly
             # configured route source produced channel_route_bias=None for a full
@@ -8423,7 +8478,7 @@ class REEAgent(nn.Module):
             # consecutive ticks rather than fired on the first, because a single
             # empty tick is legitimate (the channel's own block may not have run
             # yet on a warmup tick).
-            if _route_source in _MODULATORY_ROUTE_CHANNEL_SOURCES:
+            if _route_source in _MODULATORY_ROUTE_BACKSTOP_SOURCES:
                 if _route_repr is None:
                     _n_none = getattr(self, "_route_source_empty_ticks", 0) + 1
                     self._route_source_empty_ticks = _n_none
