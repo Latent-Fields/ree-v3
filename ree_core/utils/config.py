@@ -4242,6 +4242,35 @@ class REEConfig:
     # real outcome data has been collected).
     commit_readiness_initial: float = 1.0
 
+    # e3.last_scores pre-arbitration staleness (chip-20260819-e3-last-scores-
+    # prearbitration-staleness). last_scores is captured ONCE inside
+    # E3TrajectorySelector.select(), BEFORE any within-eligible narrowing
+    # mechanism (modulatory shortlist, F-eligibility demotion, or the ARC-110
+    # cross-loop segregation below) can override the raw argmin winner --
+    # those mechanisms are correctly authoritative over the COMMITTED action
+    # (e3.select()'s own selected_idx reflects them), but last_scores never
+    # does. The two decisiveness-margin readers below (MECH-342 maintenance-
+    # release, SD-061 stuck-state) both sort last_scores and take
+    # sorted[1]-sorted[0] as "margin between the winner and the runner-up" --
+    # an assumption that silently breaks once shortlist_idx no longer equals
+    # scores.argmin(). When True, both margins are anchored instead to
+    # e3.last_selected_idx (the candidate actually committed to): margin =
+    # (best score among the OTHER candidates) - (the selected candidate's
+    # score). This is IDENTICAL to the legacy blind top-2 sort whenever the
+    # selected candidate already is the raw argmin -- the only case reachable
+    # at all when every shortlist/arbitration flag is off -- so enabling this
+    # with no shortlist/arbitration mechanism active is also bit-identical.
+    # Default False -> bit-identical OFF (legacy blind sort).
+    #
+    # Deliberately NOT applied to the third last_scores consumer (the dACC
+    # per-candidate payoff proxy in the drive-appraisal block): that reader
+    # needs a payoff value for EVERY candidate, not just a winner-vs-runner-up
+    # margin, and the loop-segregation/shortlist mechanisms never produce a
+    # re-scored value for non-eligible or non-winning candidates -- there is
+    # no well-defined "post-arbitration" substitute for the full per-candidate
+    # vector, so it is left reading the pre-arbitration scores as before.
+    use_arbitration_aware_decisiveness_margin: bool = False
+
     # ----------------------------------------------------------------
     # MECH-342: maintenance-time readiness-driven commitment-release
     # coupling (B3b; commit-entry predicate is admission-only by design --

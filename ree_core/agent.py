@@ -5983,19 +5983,26 @@ class REEAgent(nn.Module):
             _mr_n: int = 0
             # Decisiveness axis: per-candidate first-action margin off the
             # last completed E3 selection (REE lower-is-better -> margin =
-            # sorted[1] - sorted[0]). last_scores is available every tick
+            # runner-up - winner). last_scores is available every tick
             # (including between-E3-tick steps); a controlled state-machine
             # probe sets it directly. None when no prior selection -> the
             # decisiveness axis is inert this tick (nav axis still drives).
+            # chip-20260819-e3-last-scores-prearbitration-staleness: the
+            # margin is anchored to the arbitration-committed winner (not a
+            # blind top-2 sort of the pre-arbitration scores) when
+            # use_arbitration_aware_decisiveness_margin is on -- see
+            # E3TrajectorySelector.decisiveness_margin's docstring. Default
+            # off -> bit-identical legacy blind sort.
             if self.e3.last_scores is not None:
                 try:
-                    _mr_scores = self.e3.last_scores.detach()
-                    _mr_n = int(_mr_scores.numel())
-                    if _mr_n >= 2:
-                        _mr_sorted, _ = torch.sort(_mr_scores)
-                        _mr_margin = float(
-                            _mr_sorted[1].item() - _mr_sorted[0].item()
+                    _mr_n = int(self.e3.last_scores.numel())
+                    _mr_margin = self.e3.decisiveness_margin(
+                        arbitration_aware=getattr(
+                            self.config,
+                            "use_arbitration_aware_decisiveness_margin",
+                            False,
                         )
+                    )
                 except (AttributeError, RuntimeError, TypeError):
                     _mr_margin = None
                     _mr_n = 0
@@ -6263,13 +6270,17 @@ class REEAgent(nn.Module):
             _ss_n: int = 0
             try:
                 if self.e3.last_scores is not None:
-                    _ss_scores = self.e3.last_scores.detach()
-                    _ss_n = int(_ss_scores.numel())
-                    if _ss_n >= 2:
-                        _ss_sorted, _ = torch.sort(_ss_scores)
-                        _ss_margin = float(
-                            _ss_sorted[1].item() - _ss_sorted[0].item()
+                    _ss_n = int(self.e3.last_scores.numel())
+                    # chip-20260819-e3-last-scores-prearbitration-staleness:
+                    # see the mirrored comment on the MECH-342 margin above --
+                    # same fix, independent consumer.
+                    _ss_margin = self.e3.decisiveness_margin(
+                        arbitration_aware=getattr(
+                            self.config,
+                            "use_arbitration_aware_decisiveness_margin",
+                            False,
                         )
+                    )
             except (AttributeError, RuntimeError, TypeError):
                 _ss_margin = None
                 _ss_n = 0

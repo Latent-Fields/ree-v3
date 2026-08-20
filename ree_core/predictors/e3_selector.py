@@ -471,6 +471,14 @@ class E3TrajectorySelector(nn.Module):
         # rv never updates -> agent can never commit.
         self._last_selected_trajectory: Optional[Trajectory] = None
         self.last_scores: Optional[torch.Tensor] = None
+        # chip-20260819-e3-last-scores-prearbitration-staleness: the FULL-space
+        # candidate index select() actually committed to. Stored UNCONDITIONALLY
+        # (like last_raw_scores / _persistent_committed_trajectory above), same
+        # index space as last_scores, so a consumer can recover "the selected
+        # candidate's score" even when a shortlist/arbitration mechanism made
+        # selected_idx != last_scores.argmin(). A run whose consumers never read
+        # this never observes the write (output-neutral, bit-identical).
+        self.last_selected_idx: Optional[int] = None
         # SD-033e frontopolar de-commit lever (V3-narrow MECH-264): z_world endpoints
         # of the chosen trajectory and the best UNCHOSEN candidate from the last
         # select(). Detached refs, stored unconditionally (like last_raw_scores) --
@@ -2503,6 +2511,50 @@ class E3TrajectorySelector(nn.Module):
         }
         return local
 
+    def decisiveness_margin(self, arbitration_aware: bool = False) -> Optional[float]:
+        """Per-candidate first-action margin off the last completed selection.
+
+        REE lower-is-better -> margin = (runner-up score) - (winner score); a
+        healthy positive margin means the winner clearly beat the field.
+
+        chip-20260819-e3-last-scores-prearbitration-staleness. `last_scores`
+        is captured once inside select(), BEFORE any within-eligible
+        narrowing mechanism (modulatory shortlist, F-eligibility demotion, or
+        ARC-110 cross-loop segregation) can override the raw argmin winner --
+        those mechanisms are correctly authoritative over the COMMITTED
+        action (last_selected_idx reflects them), but a blind top-2 sort of
+        last_scores does not, so it can silently describe two candidates
+        neither of which was actually selected.
+
+        arbitration_aware=False (default): legacy behaviour -- blind
+        sorted[1] - sorted[0] over last_scores, ignoring last_selected_idx.
+        Bit-identical to every call site before this method existed.
+
+        arbitration_aware=True: anchor the margin to last_selected_idx
+        instead -- (best score among the OTHER candidates) - (the selected
+        candidate's score). IDENTICAL to the legacy computation whenever the
+        selected candidate already is the raw argmin (the only case
+        reachable at all when every shortlist/arbitration flag is off), and
+        falls back to the legacy blind sort when last_selected_idx is
+        unavailable or out of range (e.g. a controlled state-machine probe
+        that sets last_scores directly without going through select()).
+
+        Returns None when there is no prior selection or fewer than 2
+        candidates -- the caller's decisiveness axis is then inert.
+        """
+        if self.last_scores is None:
+            return None
+        scores = self.last_scores.detach()
+        n = int(scores.numel())
+        if n < 2:
+            return None
+        sel = self.last_selected_idx
+        if arbitration_aware and sel is not None and 0 <= sel < n:
+            others = torch.cat([scores[:sel], scores[sel + 1:]])
+            return float(others.min().item() - scores[sel].item())
+        sorted_scores, _ = torch.sort(scores)
+        return float(sorted_scores[1].item() - sorted_scores[0].item())
+
     def select(
         self,
         candidates: List[Trajectory],
@@ -3693,6 +3745,13 @@ class E3TrajectorySelector(nn.Module):
                 selected_idx = int(stratified_idx)
             else:
                 selected_idx = int(torch.multinomial(probs, 1).item())
+
+        # chip-20260819-e3-last-scores-prearbitration-staleness: record the
+        # committed full-space index UNCONDITIONALLY (see the __init__ comment
+        # on last_selected_idx) -- unlike last_score_decomp below, this is not
+        # gated on e3_score_decomp_enabled, since decisiveness-margin consumers
+        # need it regardless of that diagnostic flag.
+        self.last_selected_idx = int(selected_idx)
 
         # V3-EXQ-571: record which candidate was selected into decomp dict.
         if self.e3_score_decomp_enabled and self.last_score_decomp:

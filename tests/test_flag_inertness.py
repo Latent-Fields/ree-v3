@@ -2888,7 +2888,20 @@ KNOWN_UNPROBED = {
     "action_loop_gate_enabled", "harm_descending_mod_enabled",
     "harm_surprise_pe_enabled", "replay_diversity_enabled",
     "shy_enabled",
-    "use_aic_analog", "use_blocked_agency",
+    "use_aic_analog",
+    # chip-20260819-e3-last-scores-prearbitration-staleness: gates whether
+    # REEAgent's MECH-342 / SD-061 decisiveness margins anchor to
+    # e3.last_selected_idx (E3TrajectorySelector.decisiveness_margin) instead
+    # of a blind top-2 sort of e3.last_scores. Registered here rather than
+    # probed at the full-REEAgent level for the same reason as its sibling
+    # use_maintenance_release below -- ON vs OFF behaviour (identical when the
+    # committed candidate already is the raw argmin; diverges when a
+    # shortlist/arbitration mechanism overrode it) is already pinned directly
+    # against E3TrajectorySelector.decisiveness_margin, the exact computation
+    # this flag switches, in tests/contracts/
+    # test_e3_last_scores_prearbitration_staleness.py.
+    "use_arbitration_aware_decisiveness_margin",
+    "use_blocked_agency",
     "use_broadcast_override", "use_cea_analog",
     "use_closure_commit_beta_coupling", "use_closure_env_completion_hook",
     "use_commit_readiness", "use_conditioned_safety_store",
@@ -3036,6 +3049,22 @@ KNOWN_UNPROBED_NESTED = {
     # harness driving a commit-then-invalidate sequence over several ticks,
     # comparable in scope to this file's own MECH-321 mid-execution probes.
     "use_vs_commit_release",
+    # modulatory-bias-selection-authority AMEND (V3-EXQ-931, landed 1a4b6bef
+    # 2026-08-20 by a THIRD-PARTY session): CEM elite-stage selection
+    # authority + behavioural throughput. Registered here (not probed) to
+    # unbreak trunk -- 1a4b6bef landed both flags without a
+    # test_flag_registry_is_current entry, the same gap use_rem_precision_
+    # broadcast's entry above already documents for a different session's
+    # landing. The owning session's own module docstring (ree_core/utils/
+    # config.py, ~2267) already states the ON-vs-OFF behaviour: authority
+    # rescales the CEM elite argsort's modulatory spread to a terrain-relative
+    # target (V3-EXQ-931 measured 5/5 seeds flipping the elite argmin at
+    # wanting_weight ~500 with it on); throughput additionally routes that
+    # cached bias into E3's own accumulator via channel_route_bias, which is
+    # where a behavioural probe would need to drive a full propose_trajectories
+    # -> E3.select round trip -- out of scope for an unrelated chip fix.
+    "use_cem_modulatory_authority",
+    "use_cem_modulatory_throughput",
 }
 
 
