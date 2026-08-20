@@ -27,6 +27,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 from typing import Any, Callable, Mapping, Optional, Union
 
 
@@ -71,6 +72,20 @@ DEFAULT_ENVIRONMENT = {
 
 _SNAKE_CASE_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 _EXPERIMENT_SLUG_RE = re.compile(r"[^a-z0-9]+")
+
+# Letter-drop hygiene (failure_autopsy_V3-EXQ-920a_2026-08-16.md sec 7a). A
+# lettered queue_id like "V3-EXQ-920a" identifies a re-queued (usually
+# bug-fixed) iteration of a driver that is commonly the SAME script file as
+# its predecessor, unrenamed -- so the run_id it builds from a hardcoded
+# EXPERIMENT_TYPE constant silently drops the letter unless the driver author
+# remembered to thread it through. Corpus-measured 2026-08-16: 9 of 376
+# lettered queue_ids (2.4%) hit this; the full run_id stays unique corpus-wide
+# (its timestamp disambiguates), so no evidence is lost -- the exposure is
+# that anything keying on a STRIPPED run_id stem (a family glob, a filename
+# prefix sweep) silently conflates the two runs. See
+# REE_assembly/scripts/check_run_id_letter_hygiene.py for the corpus-wide
+# scan; this is the runtime half, catching the NEXT instance at write time.
+_LETTERED_QUEUE_ID_RE = re.compile(r"^(?:V\d-)?EXQ-(\d+)([a-z])$")
 
 # Reserved plumbing filenames that live alongside flat manifests under
 # evidence/experiments/ -- a run_id must never collide with one, or downstream
@@ -363,6 +378,56 @@ def _resolve_flat_status(manifest: Mapping[str, Any]) -> Optional[str]:
     return None
 
 
+def _warn_if_queue_letter_dropped(manifest: Mapping[str, Any], run_id: str) -> None:
+    """Print a loud, non-fatal warning when a lettered queue_id's letter is
+    absent from run_id (the letter-drop shape, see _LETTERED_QUEUE_ID_RE above).
+
+    The authoritative queue_id at write time is whichever of these resolves
+    first: an explicit `manifest["queue_id"]` (some drivers set it), else the
+    runner-exported REE_QUEUE_ID env var (set for every real run whether or
+    not the driver reads it -- experiment_runner.py always writes it into the
+    subprocess env). Neither being present (a manual/offline invocation) is
+    silently skipped -- there is nothing to compare against.
+
+    Deliberately does NOT flag the SD-068 shape (run_id never encodes the
+    queue number at all, e.g. v3_exq_sd068_<slug>_diagnostic_...) -- the
+    number-not-found branch below returns before ever looking at the letter,
+    exactly mirroring the corpus scan's own exclusion in
+    REE_assembly/scripts/check_run_id_letter_hygiene.py.
+
+    Never raises: a hygiene warning must not be able to fail a manifest write.
+    """
+    try:
+        qid = manifest.get("queue_id") or os.environ.get("REE_QUEUE_ID")
+        if not qid:
+            return
+        m = _LETTERED_QUEUE_ID_RE.match(str(qid).strip())
+        if not m:
+            return
+        number, letter = m.group(1), m.group(2)
+        idx = run_id.find(number)
+        if idx == -1:
+            return
+        after = run_id[idx + len(number):idx + len(number) + 1]
+        if after == letter:
+            return
+        print(
+            f"[write_flat_manifest] WARNING: queue_id {qid!r} is lettered but "
+            f"run_id {run_id!r} does not carry the '{letter}' -- this run_id's "
+            f"STEM collides with any other queue_id sharing the same "
+            f"{number}-prefixed run_id (a family glob, a filename-prefix sweep, "
+            f"or any consumer keying on a stripped stem will conflate them). "
+            f"The full run_id (with its timestamp) still stays unique, so no "
+            f"evidence is lost -- but fix the driver's run_id/EXPERIMENT_TYPE "
+            f"construction so the NEXT re-queue of this script does not repeat "
+            f"it. See failure_autopsy_V3-EXQ-920a_2026-08-16.md sec 7a and "
+            f"REE_assembly/scripts/check_run_id_letter_hygiene.py.",
+            file=sys.stderr, flush=True,
+        )
+    except Exception:
+        pass
+
+
 def write_flat_manifest(
     manifest: dict,
     out_dir: Optional[Union[str, Path]] = None,
@@ -465,6 +530,7 @@ def write_flat_manifest(
             f"'_v3_<ts>'), got '{run_id}' -- else sync_v3_results._is_flat_v3 "
             "silently never scores it"
         )
+    _warn_if_queue_letter_dropped(manifest, run_id)
 
     # architecture_epoch is the other _is_flat_v3 gate; default-fill so a caller
     # may omit it, but never clobber a deliberate value.

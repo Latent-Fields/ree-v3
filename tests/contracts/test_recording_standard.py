@@ -380,6 +380,80 @@ def test_write_flat_manifest_escape_hatch_downgrades_to_warning(monkeypatch, cap
 
 
 # --------------------------------------------------------------------------- #
+# queue_id letter-drop hygiene warning (failure_autopsy_V3-EXQ-920a_2026-08-16.md
+# sec 7a; REE_assembly/scripts/check_run_id_letter_hygiene.py is the corpus-wide
+# counterpart of this write-time check)
+# --------------------------------------------------------------------------- #
+
+_MANDATORY_CORE = {
+    "recording_schema": "rec/v1", "substrate_hash": "0" * 64,
+    "machine": "test-host", "machine_class": "test-class",
+}
+
+
+def test_write_flat_manifest_warns_on_queue_letter_drop(monkeypatch, capsys):
+    monkeypatch.setenv("REE_QUEUE_ID", "V3-EXQ-920a")
+    tmp = Path(tempfile.mkdtemp())
+    manifest = {
+        "run_id": "v3_exq_920_uncensored_survival_single_life_fishtank_20260814T223432Z_v3",
+        "outcome": "PASS", **_MANDATORY_CORE,
+    }
+    pw.write_flat_manifest(manifest, tmp, stamp=False)
+    err = capsys.readouterr().err
+    assert "queue_id 'V3-EXQ-920a' is lettered" in err
+    assert "run_id" in err and "does not carry the 'a'" in err
+
+
+def test_write_flat_manifest_no_warning_when_letter_correctly_carried(monkeypatch, capsys):
+    monkeypatch.setenv("REE_QUEUE_ID", "V3-EXQ-878a")
+    tmp = Path(tempfile.mkdtemp())
+    manifest = {
+        "run_id": "v3_exq_878a_mech332_commitment_calibration_20260808T193223Z_v3",
+        "outcome": "PASS", **_MANDATORY_CORE,
+    }
+    pw.write_flat_manifest(manifest, tmp, stamp=False)
+    assert capsys.readouterr().err == ""
+
+
+def test_write_flat_manifest_no_warning_without_a_queue_id(monkeypatch, capsys):
+    monkeypatch.delenv("REE_QUEUE_ID", raising=False)
+    tmp = Path(tempfile.mkdtemp())
+    manifest = {"run_id": "wfm_no_queue_id_v3", "outcome": "PASS", **_MANDATORY_CORE}
+    pw.write_flat_manifest(manifest, tmp, stamp=False)
+    assert capsys.readouterr().err == ""
+
+
+def test_write_flat_manifest_no_warning_for_sd068_shape(monkeypatch, capsys):
+    """run_id never encodes the queue number at all -- not a letter-drop
+    (failure_autopsy_V3-EXQ-920a_2026-08-16.md sec 7a: not a de-dup hazard)."""
+    monkeypatch.setenv("REE_QUEUE_ID", "V3-EXQ-778b")
+    tmp = Path(tempfile.mkdtemp())
+    manifest = {
+        "run_id": "v3_exq_sd068_null_content_control_diagnostic_20260717T160320Z_v3",
+        "outcome": "PASS", **_MANDATORY_CORE,
+    }
+    pw.write_flat_manifest(manifest, tmp, stamp=False)
+    assert capsys.readouterr().err == ""
+
+
+def test_write_flat_manifest_manifest_queue_id_field_takes_precedence_over_env(
+    monkeypatch, capsys,
+):
+    # An explicit manifest["queue_id"] must win over a stale/unrelated env var --
+    # matches emit_outcome's own `queue_id or os.environ.get(...)` precedence.
+    monkeypatch.setenv("REE_QUEUE_ID", "V3-EXQ-999z")
+    tmp = Path(tempfile.mkdtemp())
+    manifest = {
+        "run_id": "v3_exq_920_uncensored_survival_single_life_fishtank_20260814T223432Z_v3",
+        "outcome": "PASS", "queue_id": "V3-EXQ-920a", **_MANDATORY_CORE,
+    }
+    pw.write_flat_manifest(manifest, tmp, stamp=False)
+    err = capsys.readouterr().err
+    assert "V3-EXQ-920a" in err
+    assert "V3-EXQ-999z" not in err
+
+
+# --------------------------------------------------------------------------- #
 # pack_writer structured sections
 # --------------------------------------------------------------------------- #
 
