@@ -53,6 +53,21 @@ Guarantees enforced here:
       no counters were supplied -- absence must never be readable as "measured zero".
   Z9. `StepHarness` records it too, and its own tally agrees with the agent's tick for
       tick.
+  Z12. THE TRAINING-PHASE-AGENT FALSE POSITIVE (V3-EXQ-874b). `writer_calls == 0` with
+      `ticks_total > 0` is Z4's defect signature -- but it is also exactly what a
+      TRAINING-phase agent reads: `select_action` bumps `ticks_total` on every call,
+      including calls from an ordinary training loop where `update_z_goal` is never
+      called because z_goal has nothing to do with that phase. V3-EXQ-874b's driver
+      accumulated a P0-trained base agent's counters (100% training ticks, since the
+      driver's actual eval loop stepped a separate `clone_trained_agent` clone) and
+      published a false `writer_defect: true`. `eval_stepped=False` on every observation
+      entry point (`z_goal_stream_stats`, `ZGoalStreamAccumulator.observe`/
+      `observe_stats`, `stamp_z_goal_stream`) routes counts into a separate
+      `training_phase_*` tally that never feeds `writer_defect`. Pinned here alongside a
+      regression guard: the fix must NOT weaken Z4's real-defect detection for an agent
+      that simply never had `.eval()`/`.train()` called on it (the corpus norm, and
+      exactly V3-EXQ-830's own shape) -- see the module docstring's "why this cannot be
+      auto-detected" section for why `agent.training` was rejected as the discriminator.
 """
 
 from __future__ import annotations
@@ -795,3 +810,146 @@ def test_z11_unmeasured_is_not_reported_as_exoneration(tmp_path, capsys):
     assert "not assessable" in out
     assert "no writer defect" not in out
     assert "WRITER DEFECT" not in out
+
+
+# ---- Z12: the training-phase-agent false positive (V3-EXQ-874b) -----------------------
+#
+# writer_calls == 0 with ticks_total > 0 is Z4's defect signature, and it is also
+# exactly what a training-phase-only agent reads. eval_stepped=False on every
+# observation entry point routes counts to a separate training_phase_* tally that
+# never feeds writer_defect. The regression guards (z12_defect_still_fires_by_default
+# family) pin that this does NOT weaken Z4's real-defect detection.
+
+def test_z12_training_only_agent_does_not_report_writer_defect():
+    """The V3-EXQ-874b shape itself: an agent stepped only by a training loop that
+    legitimately never calls update_z_goal. Without eval_stepped=False this reads
+    exactly like Z4's real defect (ticks_total > 0, writer_calls == 0) -- that is the
+    whole point of the guard."""
+    agent, env = _agent(goal_on=True, seed=90)
+    _run(agent, env, 6, write_z_goal=False)   # stands in for a training-only loop
+    assert agent.z_goal_ticks_total == 6
+    assert agent.z_goal_writer_calls == 0
+
+    stats = ZGS.z_goal_stream_stats(agent, eval_stepped=False)
+    assert stats["writer_defect"] is None, "training-only must never read as the defect"
+    assert stats["ticks_total"] == 0
+    assert stats["writer_calls"] == 0
+    assert stats["n_agents"] == 0
+    assert stats["training_phase_ticks_total"] == 6
+    assert stats["training_phase_writer_calls"] == 0
+    assert stats["training_phase_n_agents"] == 1
+    assert stats["goal_state_present"] is True
+
+
+def test_z12_default_is_unchanged_eval_stepped_true():
+    """eval_stepped defaults to True -- every existing call site (which does not know
+    the new kwarg exists) must see byte-identical behaviour."""
+    agent, env = _agent(goal_on=True, seed=91)
+    _run(agent, env, 5, write_z_goal=False)
+    explicit = ZGS.z_goal_stream_stats(agent, eval_stepped=True)
+    implicit = ZGS.z_goal_stream_stats(agent)
+    assert explicit == implicit
+    assert implicit["writer_defect"] is True
+    assert "training_phase_ticks_total" not in implicit
+
+
+def test_z12_real_defect_still_fires_regardless_of_agent_training_attribute():
+    """Regression guard for the rejected `.training`-heuristic design (see the module
+    docstring's "why this cannot be auto-detected" section): V3-EXQ-830's own driver
+    never calls `.eval()`/`.train()`, so its agent sits at the nn.Module default
+    `training=True` throughout -- identical object-state to the 874b false positive.
+    The fix must still report the real defect by default (eval_stepped=True)."""
+    agent, env = _agent(goal_on=True, seed=92)
+    assert agent.training is True, "nn.Module default, untouched -- the corpus norm"
+    _run(agent, env, 6, write_z_goal=False)
+    assert agent.training is True, "still untouched -- nothing in this driver toggles it"
+    stats = ZGS.z_goal_stream_stats(agent)   # eval_stepped defaults to True
+    assert stats["writer_defect"] is True, (
+        "a genuinely broken eval loop must still be caught even though its agent.training "
+        "state is indistinguishable from a training-phase-only agent's"
+    )
+
+
+def test_z12_accumulator_pools_training_and_eval_observations_separately():
+    """A driver correctly using both: the P0 base agent (training_only) and the
+    stepping clone (eval). writer_defect must reflect ONLY the eval clone."""
+    base, base_env = _agent(goal_on=True, seed=93)
+    _run(base, base_env, 6, write_z_goal=False)   # P0-training-shaped
+
+    clone, clone_env = _agent(goal_on=True, seed=94)
+    _run(clone, clone_env, 4, write_z_goal=True)  # eval-shaped, correctly wired
+
+    acc = ZGS.ZGoalStreamAccumulator()
+    acc.observe(base, eval_stepped=False)
+    acc.observe(clone, eval_stepped=True)
+    stats = acc.stats()
+
+    assert stats["writer_defect"] is False, "the eval clone was correctly wired"
+    assert stats["ticks_total"] == 4
+    assert stats["writer_calls"] == 4
+    assert stats["n_agents"] == 1
+    assert stats["training_phase_ticks_total"] == 6
+    assert stats["training_phase_writer_calls"] == 0
+    assert stats["training_phase_n_agents"] == 1
+
+
+def test_z12_accumulator_all_training_only_reports_unmeasured_eval_but_keeps_training_tally():
+    """The exact 874b mistake reproduced through the accumulator: only the base agent
+    is ever observed (eval_stepped=False on every call, or the driver never observes
+    the clone at all). writer_defect must be None, not True, and the training data
+    must still be visible rather than silently dropped."""
+    acc = ZGS.ZGoalStreamAccumulator()
+    for i in range(2):
+        agent, env = _agent(goal_on=True, seed=100 + i)
+        _run(agent, env, 3, write_z_goal=False)
+        acc.observe(agent, eval_stepped=False)
+    stats = acc.stats()
+
+    assert stats["writer_defect"] is None
+    assert stats["ticks_total"] == 0
+    assert stats["n_agents"] == 0
+    assert stats["training_phase_ticks_total"] == 6
+    assert stats["training_phase_n_agents"] == 2
+    assert stats["goal_state_present"] is True
+
+
+def test_z12_observe_stats_training_only_routes_correctly():
+    """observe_stats mirrors observe()'s eval_stepped split, for a precomputed block
+    (e.g. StepHarness) that the caller knows is training-phase-only."""
+    acc = ZGS.ZGoalStreamAccumulator()
+    training_block = ZGS.stats_from_counts(5, 0, writer_calls=0, goal_state_present=True)
+    acc.observe_stats(training_block, eval_stepped=False)
+    stats = acc.stats()
+    assert stats["writer_defect"] is None
+    assert stats["training_phase_ticks_total"] == 5
+    assert stats["training_phase_n_agents"] == 1
+
+
+def test_z12_stamp_z_goal_stream_eval_stepped_false():
+    agent, env = _agent(goal_on=True, seed=95)
+    _run(agent, env, 4, write_z_goal=False)
+    manifest: dict = {}
+    ZGS.stamp_z_goal_stream(manifest, agent, eval_stepped=False)
+    block = manifest["z_goal_stream"]
+    assert block["writer_defect"] is None
+    assert block["training_phase_ticks_total"] == 4
+
+
+def test_z12_stamp_z_goal_stream_precomputed_stats_ignores_eval_stepped():
+    """A precomputed `stats=` block bypasses z_goal_stream_stats entirely, so
+    eval_stepped must have no effect on it -- the caller already decided its shape."""
+    manifest: dict = {}
+    precomputed = ZGS.stats_from_counts(9, 0, writer_calls=0, goal_state_present=True)
+    ZGS.stamp_z_goal_stream(manifest, stats=precomputed, eval_stepped=False)
+    assert manifest["z_goal_stream"]["writer_defect"] is True, (
+        "eval_stepped only governs agent= observation, never a precomputed stats= block"
+    )
+
+
+def test_z12_no_counter_bearing_agent_yields_no_block_even_training_only():
+    assert ZGS.z_goal_stream_stats(None, eval_stepped=False) is None
+    assert ZGS.z_goal_stream_stats(object(), eval_stepped=False) is None
+
+
+def test_z12_empty_accumulator_with_no_observations_at_all_reports_unmeasured():
+    assert ZGS.ZGoalStreamAccumulator().stats() is None

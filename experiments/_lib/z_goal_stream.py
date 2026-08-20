@@ -89,6 +89,50 @@ third counter exists; it was found by measurement, not anticipated):
 A goal-OFF parity arm and a negative control like V3-EXQ-626b's ARM_NO_BENEFIT both read
 0.0 correctly. Interpret against the run's design; this is never a gate.
 
+The training-phase-agent false positive (V3-EXQ-874b, 2026-08-19)
+-------------------------------------------------------------------
+``writer_calls == 0`` with ``ticks_total > 0`` is documented above as "the defect" --
+but that inference is WRONG when the observed object is a TRAINING-phase agent rather
+than the one actually driving the run's eval loop. ``REEAgent.select_action`` bumps
+``ticks_total`` on every call, including calls made from an ordinary supervised/RL
+TRAINING loop (e.g. P0 world-model warmup via ``committed_mode_curriculum.run_p0_warmup``),
+where ``update_z_goal`` is never called because z_goal has nothing to do with that phase.
+V3-EXQ-874b's driver called ``zg_acc.observe(agent)`` on the P0-trained BASE agent, while
+every cell actually stepped a CLONE from ``clone_trained_agent`` (a fresh object -- cloning
+copies weight ``state_dict()``, not these counters) -- so the base agent's ``ticks_total``
+was 100% P0-training ticks and its ``writer_calls`` was legitimately 0, and the accumulator
+published ``writer_defect: true`` into the manifest and ``pending_review.md`` even though
+``update_z_goal`` ran throughout eval on the (unobserved) clone.
+
+**Why this cannot be auto-detected from object state alone.** A tempting fix is to key off
+``agent.training`` (the standard ``nn.Module`` flag set by ``.train()``/``.eval()``): the
+874b base agent really was left in ``.train()`` mode at observe time. But this is not a
+general discriminator -- ``nn.Module.__init__`` defaults ``training`` to ``True``, and the
+corpus does not consistently call ``.eval()`` before a genuine eval loop (``StepHarness``
+itself never toggles it, and V3-EXQ-830's own driver -- the confirmed real defect this
+module exists to catch -- never calls ``.eval()``/``.train()`` either). Gating on
+``.training`` would therefore read V3-EXQ-830's true positive as an equally plausible
+"training-phase" false positive: the same object-state signature, opposite verdict. No
+purely-passive signal on the object distinguishes "ticks came from training, and the
+writer is legitimately silent" from "ticks came from a genuinely broken eval loop" --
+the two are only distinguishable by DRIVER INTENT, which this module cannot observe. That
+is not an oversight; it is why this fix is an EXPLICIT opt-in rather than a heuristic.
+
+**The fix: an explicit ``eval_stepped`` flag on every observation entry point**
+(``z_goal_stream_stats``, ``ZGoalStreamAccumulator.observe``/``observe_stats``,
+``stamp_z_goal_stream``), default ``True`` (unchanged behaviour for every existing call
+site). A driver that knowingly observes a training-only object -- most commonly a P0 base
+agent kept around after ``clone_trained_agent`` -- passes ``eval_stepped=False``. Those
+ticks/calls are pooled SEPARATELY from the eval-facing counters, under
+``training_phase_ticks_total`` / ``training_phase_ticks_active`` /
+``training_phase_writer_calls`` / ``training_phase_n_agents``, and are EXCLUDED from
+``writer_defect``: an observation that is training-only in its entirety reports
+``writer_defect: null`` (unmeasured, exactly like ``ticks_total: 0``) rather than a false
+``true``. This does not retroactively fix a driver that observes the wrong object
+outright (874b's actual bug -- the fix there, landed in V3-EXQ-940/941, is to observe the
+stepping clone instead); it gives a driver that DOES know it is holding a training-only
+object a correct, explicit way to say so instead of silently mis-reporting.
+
 Duck-typed and stdlib-only, so it imports without torch/ree_core -- matching its sibling
 stampers (``inert_arm_knob``, ``dose_saturation``) and keeping ``manifest_core`` free of a
 substrate dependency. Every entry point is exception-safe: a missing or odd agent yields
@@ -189,12 +233,50 @@ def stats_from_counts(
     return block
 
 
-def z_goal_stream_stats(agent: Any) -> Optional[Dict[str, Any]]:
+def _training_phase_block(
+    total: int, active: int, calls: int, n: int, present: bool,
+) -> Dict[str, Any]:
+    """An eval-shaped block relabelled as training-phase-only.
+
+    Used when the caller has told us (``eval_stepped=False``) that every observed
+    agent's ticks came from a phase where ``update_z_goal`` is legitimately never
+    called (P0 warmup and the like), not from the driver's actual eval loop.
+    Reporting these under ``ticks_total``/``writer_calls`` would still read
+    ``writer_defect: true`` by the letter of the inference above -- exactly the
+    V3-EXQ-874b false positive this exists to prevent -- so they are moved to
+    ``training_phase_*`` keys and the eval-facing fields report UNMEASURED
+    (``writer_defect: null``), the same as a genuine ``ticks_total: 0``.
+    """
+    return {
+        "ticks_total": 0,
+        "ticks_active": 0,
+        "writer_calls": 0,
+        "active_frac": None,
+        "writer_defect": None,
+        "goal_state_present": bool(present),
+        "n_agents": 0,
+        "training_phase_ticks_total": int(total),
+        "training_phase_ticks_active": int(active),
+        "training_phase_writer_calls": int(calls),
+        "training_phase_n_agents": int(n),
+    }
+
+
+def z_goal_stream_stats(
+    agent: Any, *, eval_stepped: bool = True,
+) -> Optional[Dict[str, Any]]:
     """Pooled z_goal-liveness stats for one agent or an iterable of them.
 
     Returns None when no counter-bearing agent was supplied (nothing to record --
     the block is omitted rather than written as zeros, so a manifest carrying it
     always means the run actually measured it).
+
+    ``eval_stepped=False`` -- pass when the caller KNOWS the given agent(s) are
+    training-phase-only objects (see the module docstring's "training-phase-agent
+    false positive" section), e.g. a P0 base agent kept around after
+    ``clone_trained_agent``. The pooled counts are then reported under
+    ``training_phase_*`` keys instead of ``ticks_total``/``writer_calls``, and
+    ``writer_defect`` reports unmeasured rather than a false positive.
     """
     agents = _iter_agents(agent)
     if not agents:
@@ -217,6 +299,8 @@ def z_goal_stream_stats(agent: Any) -> Optional[Dict[str, Any]]:
         n += 1
     if n == 0:
         return None
+    if not eval_stepped:
+        return _training_phase_block(total, active, calls, n, present)
     return stats_from_counts(
         total, active,
         writer_calls=calls, goal_state_present=present, n_agents=n,
@@ -260,7 +344,10 @@ class ZGoalStreamAccumulator:
         write_flat_manifest(manifest, ..., z_goal_stream_stats=_ZG.stats())
     """
 
-    __slots__ = ("_total", "_active", "_calls", "_present", "_n")
+    __slots__ = (
+        "_total", "_active", "_calls", "_present", "_n",
+        "_train_total", "_train_active", "_train_calls", "_train_n", "_train_present",
+    )
 
     def __init__(self) -> None:
         self._total = 0
@@ -268,40 +355,78 @@ class ZGoalStreamAccumulator:
         self._calls = 0
         self._present = False
         self._n = 0
+        # Training-phase-only tally -- see the module docstring's
+        # "training-phase-agent false positive" section. Kept fully separate from
+        # the eval tally above so a training-only observation can never contribute
+        # to writer_defect.
+        self._train_total = 0
+        self._train_active = 0
+        self._train_calls = 0
+        self._train_n = 0
+        self._train_present = False
 
-    def observe(self, agent: Any) -> None:
+    def observe(self, agent: Any, *, eval_stepped: bool = True) -> None:
         """Fold one FINISHED cell's agent (or iterable of agents) into the tally.
 
         Exception-safe and duck-typed, matching the module's posture: a non-agent
         contributes nothing rather than raising or diluting the fraction with zeros.
+
+        ``eval_stepped=False`` -- pass when this agent is known to be a
+        training-phase-only object (e.g. the P0 base agent, as opposed to the
+        ``clone_trained_agent`` clone that actually stepped the eval loop -- the
+        V3-EXQ-874b shape). Its counts are pooled into a separate training-phase
+        tally that ``stats()`` reports but never folds into ``writer_defect``.
         """
         try:
             for one in _iter_agents(agent):
                 c = _counts(one)
                 if c is None:
                     continue
-                self._total += c["ticks_total"]
-                self._active += c["ticks_active"]
-                self._calls += c["writer_calls"]
-                self._present = self._present or bool(c["goal_state_present"])
-                self._n += 1
+                if eval_stepped:
+                    self._total += c["ticks_total"]
+                    self._active += c["ticks_active"]
+                    self._calls += c["writer_calls"]
+                    self._present = self._present or bool(c["goal_state_present"])
+                    self._n += 1
+                else:
+                    self._train_total += c["ticks_total"]
+                    self._train_active += c["ticks_active"]
+                    self._train_calls += c["writer_calls"]
+                    self._train_present = self._train_present or bool(c["goal_state_present"])
+                    self._train_n += 1
         except Exception:
             pass
 
-    def observe_stats(self, stats: Optional[Dict[str, Any]]) -> None:
+    def observe_stats(
+        self, stats: Optional[Dict[str, Any]], *, eval_stepped: bool = True,
+    ) -> None:
         """Fold one cell's precomputed block -- e.g. ``StepHarness.z_goal_stream_stats()``.
 
         ``n_agents`` is summed rather than counted as one, so a block that already
         pooled several agents keeps its weight in the run-level ``n_agents``.
+        ``eval_stepped=False`` routes the block into the training-phase tally --
+        see ``observe()``.
         """
         try:
             if not isinstance(stats, dict):
                 return
-            self._total += max(0, int(stats.get("ticks_total") or 0))
-            self._active += max(0, int(stats.get("ticks_active") or 0))
-            self._calls += max(0, int(stats.get("writer_calls") or 0))
-            self._present = self._present or bool(stats.get("goal_state_present"))
-            self._n += max(1, int(stats.get("n_agents") or 1))
+            total = max(0, int(stats.get("ticks_total") or 0))
+            active = max(0, int(stats.get("ticks_active") or 0))
+            calls = max(0, int(stats.get("writer_calls") or 0))
+            present = bool(stats.get("goal_state_present"))
+            n = max(1, int(stats.get("n_agents") or 1))
+            if eval_stepped:
+                self._total += total
+                self._active += active
+                self._calls += calls
+                self._present = self._present or present
+                self._n += n
+            else:
+                self._train_total += total
+                self._train_active += active
+                self._train_calls += calls
+                self._train_present = self._train_present or present
+                self._train_n += n
         except Exception:
             pass
 
@@ -310,14 +435,34 @@ class ZGoalStreamAccumulator:
 
         None (not a zero-filled block) so the manifest keeps the module's invariant:
         a recorded ``z_goal_stream`` always means the run actually measured it.
+
+        When only training-phase-only observations were folded in (``eval_stepped=
+        False`` on every ``observe``/``observe_stats`` call), the eval-facing fields
+        report unmeasured (``writer_defect: null``) and the raw counts are surfaced
+        under ``training_phase_*`` -- see ``_training_phase_block``.
         """
-        if self._n == 0:
+        if self._n == 0 and self._train_n == 0:
             return None
-        return stats_from_counts(
-            self._total, self._active,
-            writer_calls=self._calls,
-            goal_state_present=self._present,
-            n_agents=self._n,
+        # goal_state_present answers "was z_goal even configured", which is true
+        # regardless of which phase observed it -- merge both tallies for it, unlike
+        # every other field, which stays strictly phase-separated.
+        present = self._present or self._train_present
+        if self._n > 0:
+            block = stats_from_counts(
+                self._total, self._active,
+                writer_calls=self._calls,
+                goal_state_present=present,
+                n_agents=self._n,
+            )
+            if self._train_n > 0:
+                block["training_phase_ticks_total"] = self._train_total
+                block["training_phase_ticks_active"] = self._train_active
+                block["training_phase_writer_calls"] = self._train_calls
+                block["training_phase_n_agents"] = self._train_n
+            return block
+        return _training_phase_block(
+            self._train_total, self._train_active, self._train_calls,
+            self._train_n, present,
         )
 
 
@@ -327,6 +472,7 @@ def stamp_z_goal_stream(
     *,
     stats: Optional[Dict[str, Any]] = None,
     overwrite: bool = False,
+    eval_stepped: bool = True,
 ) -> Dict[str, Any]:
     """Merge the `z_goal_stream` block onto `manifest` in place; return the manifest.
 
@@ -334,6 +480,11 @@ def stamp_z_goal_stream(
     block a script set deliberately (e.g. counts pooled by hand across a driver's own
     agent bookkeeping) wins unless `overwrite=True`. Pass EITHER `agent` (one agent or
     an iterable) or a precomputed `stats` dict from `stats_from_counts`.
+
+    `eval_stepped=False` passes through to `z_goal_stream_stats` when `agent` is
+    given -- see the module docstring's "training-phase-agent false positive"
+    section. Ignored when a precomputed `stats` block is passed directly; the
+    caller built that block itself and is responsible for its shape.
 
     Never raises: provenance stamping must not be able to crash an experiment at
     manifest-write time, when the compute is already spent.
@@ -343,7 +494,10 @@ def stamp_z_goal_stream(
             return manifest
         if not overwrite and manifest.get(MANIFEST_KEY):
             return manifest
-        block = stats if stats is not None else z_goal_stream_stats(agent)
+        block = (
+            stats if stats is not None
+            else z_goal_stream_stats(agent, eval_stepped=eval_stepped)
+        )
         if block:
             manifest[MANIFEST_KEY] = block
     except Exception:
