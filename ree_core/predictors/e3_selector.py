@@ -479,6 +479,13 @@ class E3TrajectorySelector(nn.Module):
         # selected_idx != last_scores.argmin(). A run whose consumers never read
         # this never observes the write (output-neutral, bit-identical).
         self.last_selected_idx: Optional[int] = None
+        # E3-last-scores-pre-arbitration-staleness repair: the segregated-loop
+        # arbitration's own per-eligible-candidate preference (`final`), captured
+        # only when use_post_arbitration_last_scores is on so
+        # _publish_post_arbitration_last_scores can remap last_scores onto it
+        # after the arbitration decides its winner. None when the flag is off or
+        # loop segregation never ran. See config.py's field docstring.
+        self._last_loop_arb_pref: Optional[torch.Tensor] = None
         # SD-033e frontopolar de-commit lever (V3-narrow MECH-264): z_world endpoints
         # of the chosen trajectory and the best UNCHOSEN candidate from the last
         # select(). Detached refs, stored unconditionally (like last_raw_scores) --
@@ -2371,6 +2378,13 @@ class E3TrajectorySelector(nn.Module):
                 self._scs_last_round_delta
             )
 
+        # E3-last-scores-pre-arbitration-staleness repair: capture the fully
+        # arbitrated (post-settling) per-eligible preference so the caller can
+        # remap last_scores onto it. Gated on the flag -> no extra tensor is
+        # retained (and the OFF path is untouched) when it is False.
+        if getattr(self.config, "use_post_arbitration_last_scores", False):
+            self._last_loop_arb_pref = final.detach()
+
         # Commit (argmin when committed; gap-agnostic softmax sample otherwise).
         if n_elig == 1:
             local = 0
@@ -2554,6 +2568,40 @@ class E3TrajectorySelector(nn.Module):
             return float(others.min().item() - scores[sel].item())
         sorted_scores, _ = torch.sort(scores)
         return float(sorted_scores[1].item() - sorted_scores[0].item())
+    def _publish_post_arbitration_last_scores(
+        self, eligible_idx: torch.Tensor, arb_pref: torch.Tensor
+    ) -> None:
+        """E3-last-scores-pre-arbitration-staleness repair (opt-in).
+
+        self.last_scores is built from the additive-authority `scores` field
+        BEFORE the shortlist-then-modulate / loop-segregation arbitration runs,
+        so it can rank candidates differently from the arbitration that actually
+        decided shortlist_idx (== selected_idx). This remaps the eligible slice
+        of last_scores: the VALUES already there are kept (a rank-preserving
+        permutation, not a rescale), just reassigned to eligible candidates in
+        arb_pref's own preference order (ascending -- lower is better, matching
+        the cost convention everywhere else in this module), so
+        last_scores.argmin() matches the committed candidate again and the top-2
+        margin reflects the arbitration's actual gap. Candidates outside
+        eligible_idx are untouched -- they were already excluded from
+        contention and neither shortlist-then-modulate nor loop segregation can
+        re-admit them (safety inherited from the F/Go-No-Go envelope).
+
+        Reassigns self.last_scores to a CLONE rather than writing through the
+        existing tensor: self.last_scores is scores.detach(), a view sharing
+        storage with the live (possibly requires_grad) `scores` local that
+        select() still uses for log_prob / SelectionResult.scores after this
+        call -- an in-place write here would silently corrupt that shared
+        storage (and can trip autograd's in-place-modification version check
+        on backward). The clone keeps this remap fully isolated.
+        """
+        if eligible_idx.numel() <= 1 or self.last_scores is None:
+            return
+        remapped = self.last_scores.clone()
+        sorted_vals, _ = torch.sort(remapped[eligible_idx])
+        arb_order = torch.argsort(arb_pref)
+        remapped[eligible_idx[arb_order]] = sorted_vals
+        self.last_scores = remapped
 
     def select(
         self,
@@ -3551,6 +3599,15 @@ class E3TrajectorySelector(nn.Module):
                 )
             n_eligible = int(eligible_idx.numel())
             if n_eligible >= 1:
+                # E3-last-scores-pre-arbitration-staleness repair: whichever
+                # branch below runs, capture ITS arbitration preference so it
+                # can be published into last_scores after shortlist_idx is set.
+                # None -> no-op (last_scores stays exactly the pre-arbitration
+                # `scores` field, as before this flag existed).
+                _post_arb_active = bool(
+                    getattr(self.config, "use_post_arbitration_last_scores", False)
+                )
+                _post_arb_pref: Optional[torch.Tensor] = None
                 # ARC-110: parallel segregated cortico-BG-thalamic loop arbitration
                 # REPLACES the single-arena within-eligible argmin when
                 # use_loop_segregation is on. The motor (F) / associative / limbic
@@ -3571,6 +3628,8 @@ class E3TrajectorySelector(nn.Module):
                         loop_term_override=_loop_term_override,
                     )
                     shortlist_idx = int(eligible_idx[local].item())
+                    if _post_arb_active:
+                        _post_arb_pref = self._last_loop_arb_pref
                 else:
                     mod_eligible = _modulatory_accum.detach()[eligible_idx]
                     # MECH-450 (ARC-108 factor 2): bounded recurrent lateral-inhibition
@@ -3637,6 +3696,12 @@ class E3TrajectorySelector(nn.Module):
                         )
                         local = int(torch.multinomial(shortlist_probs, 1).item())
                     shortlist_idx = int(eligible_idx[local].item())
+                    if _post_arb_active:
+                        _post_arb_pref = mod_eligible
+                if _post_arb_pref is not None:
+                    self._publish_post_arbitration_last_scores(
+                        eligible_idx, _post_arb_pref
+                    )
             if _f_demotion_active:
                 # MECH-448 diagnostics. excluded_count > 0 is the NON-DEGENERACY
                 # signal (the envelope actually excluded a candidate, not all-admit);

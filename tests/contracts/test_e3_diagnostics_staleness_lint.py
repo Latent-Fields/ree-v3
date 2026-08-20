@@ -197,8 +197,8 @@ def test_e3s_all_latched_attrs_are_select_only_in_the_substrate():
     (`self.last_scores: Optional[Tensor] = None`) is invisible to it. The docstring
     previously claimed an added `__init__` default would fail here; it would not, and six
     of the seven attributes already have exactly that (last_scores:473,
-    last_selected_idx:481, last_raw_scores:491, last_score_diagnostics:509,
-    last_score_decomp:512, last_channel_terms:520 -- only last_precommit_probs has none).
+    last_selected_idx:481, last_raw_scores:498, last_score_diagnostics:516,
+    last_score_decomp:519, last_channel_terms:527 -- only last_precommit_probs has none).
     That is the correct behaviour, not a hole to plug: an `__init__` default changes only
     the very FIRST read (None instead of AttributeError) and nothing thereafter, so it does
     not weaken the latch and must not disqualify an attribute. What would genuinely break
@@ -225,11 +225,38 @@ def test_e3s_all_latched_attrs_are_select_only_in_the_substrate():
             for t in n.targets:
                 if isinstance(t, _ast.Attribute) and t.attr in seen:
                     seen[t.attr].append(_owner(t.lineno))
+    # last_scores additionally has ONE select()-internal publisher (the
+    # E3-last-scores-pre-arbitration-staleness repair, 2026-08-20): a helper
+    # called only FROM select(), after select() has already set the attribute,
+    # which remaps it onto the arbitration's own preference order. The latching
+    # premise is unaffected -- the attribute is still written exactly once per
+    # select() call, and never outside one -- so the allowlist admits it BY NAME
+    # rather than by loosening the predicate. A publisher NOT named here still
+    # fails, and the call-site check below is what keeps the premise checkable
+    # instead of merely asserted: an allowlisted helper called from anywhere
+    # other than select() would reintroduce exactly the out-of-select write this
+    # test exists to catch.
+    _SELECT_INTERNAL_PUBLISHERS = {"_publish_post_arbitration_last_scores"}
+
     for attr, owners in seen.items():
         assert owners, f"{attr} is never assigned in e3_selector.py -- stale lint entry?"
-        assert set(owners) == {"select"}, (
-            f"{attr} is assigned outside select() ({sorted(set(owners))}). It no longer "
+        extra = set(owners) - {"select"} - _SELECT_INTERNAL_PUBLISHERS
+        assert not extra, (
+            f"{attr} is assigned outside select() ({sorted(extra)}). It no longer "
             f"latches unconditionally, so the lint's premise does not hold for it.")
+
+    for pub in sorted(_SELECT_INTERNAL_PUBLISHERS):
+        callers = set()
+        for n in _ast.walk(tree):
+            if (isinstance(n, _ast.Call) and isinstance(n.func, _ast.Attribute)
+                    and n.func.attr == pub):
+                callers.add(_owner(n.lineno))
+        assert callers, (
+            f"{pub} is allowlisted as a select()-internal publisher but is never "
+            f"called in e3_selector.py -- stale allowlist entry?")
+        assert callers == {"select"}, (
+            f"{pub} assigns a latched attr but is called from {sorted(callers)}, "
+            f"not from select() only -- the latching premise no longer holds.")
 
 
 def test_e3s_bare_loop_read_is_flagged():

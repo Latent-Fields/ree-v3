@@ -3065,6 +3065,23 @@ KNOWN_UNPROBED_NESTED = {
     # -> E3.select round trip -- out of scope for an unrelated chip fix.
     "use_cem_modulatory_authority",
     "use_cem_modulatory_throughput",
+    # --- E3Config -------------------------------------------------------------#
+    # chip-20260819-e3-last-scores-prearbitration-staleness: republishes the
+    # eligible slice of e3.last_scores AFTER the shortlist-then-modulate /
+    # loop-segregation arbitration decides its winner, via a rank-preserving
+    # remap (existing score VALUES kept, reassigned in the arbitration's own
+    # preference order), so last_scores.argmin() matches the committed
+    # candidate. Registered here rather than probed at the full-REEAgent level
+    # for the same reason as its sibling use_arbitration_aware_decisiveness_
+    # margin in KNOWN_UNPROBED above -- ON vs OFF is already pinned directly
+    # against the exact computation this flag switches (bit-identical OFF
+    # across seeds with a shortlist active; OFF-mismatch/ON-match for BOTH the
+    # shortlist-then-modulate and loop-segregation branches; the dACC
+    # per-candidate payoff proxy, which is the consumer that sibling flag
+    # deliberately left unaddressed) in tests/contracts/
+    # test_e3_last_scores_post_arbitration.py. A full-agent probe would add no
+    # discrimination the direct pins do not already provide.
+    "use_post_arbitration_last_scores",
 }
 
 

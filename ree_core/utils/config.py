@@ -1694,6 +1694,31 @@ class E3Config:
     # action, not a re-read of the state you are already in.
     dualsystem_habit_depth: int = 2
 
+    # E3-last-scores-pre-arbitration-staleness repair (2026-08-20). last_scores
+    # is published (e3_selector.select(), ~line 3239) from the additive-authority
+    # `scores` field BEFORE the shortlist-then-modulate (use_modulatory_shortlist_
+    # then_modulate / use_f_eligibility_demotion) / loop-segregation (use_loop_
+    # segregation) arbitration runs -- but that arbitration, when active, IS
+    # authoritative over the committed action (selected_idx = shortlist_idx). So
+    # a downstream last_scores reader (agent.py: MECH-342 maintenance-release
+    # decisiveness margin, SD-061 stuck-state-detector margin, dACC per-candidate
+    # payoff proxy) can see a ranking the arbitration already overrode, and
+    # last_scores.argmin() need not match the committed candidate.
+    #
+    # When True, select() republishes the eligible slice of last_scores after
+    # the arbitration decides its winner, via a RANK-PRESERVING remap: the
+    # existing score VALUES at the eligible positions are kept unchanged (so any
+    # threshold calibrated against last_scores' scale, e.g. a margin floor, is
+    # undisturbed) but reassigned to eligible candidates in the arbitration's own
+    # preference order. last_scores.argmin() then matches the committed candidate
+    # again and the top-2 margin reflects the arbitration's actual gap.
+    # Candidates outside the eligible set are untouched (never in contention).
+    # No-op when shortlist_idx is never set (neither lever enabled) -> the
+    # existing pre-arbitration `scores` field is published exactly as before.
+    # Default False -> last_scores is bit-identical to pre-fix. See
+    # chip-20260819-e3-last-scores-prearbitration-staleness.
+    use_post_arbitration_last_scores: bool = False
+
 
 @dataclass
 class EventSegmenterScaleConfig:
@@ -7290,6 +7315,9 @@ class REEConfig:
         dualsystem_arbitration_bias: float = 0.0,
         dualsystem_uncertainty_ema_alpha: float = 0.05,
         dualsystem_habit_depth: int = 2,
+        # E3-last-scores-pre-arbitration-staleness repair (2026-08-20). No-op
+        # default; bit-identical OFF.
+        use_post_arbitration_last_scores: bool = False,
         # MECH-290: backward trajectory credit sweep
         use_backward_credit_sweep: bool = False,
         backward_sweep_gamma: float = 0.9,
@@ -8731,6 +8759,9 @@ class REEConfig:
         config.e3.dualsystem_arbitration_bias = dualsystem_arbitration_bias
         config.e3.dualsystem_uncertainty_ema_alpha = dualsystem_uncertainty_ema_alpha
         config.e3.dualsystem_habit_depth = dualsystem_habit_depth
+
+        # E3-last-scores-pre-arbitration-staleness repair (2026-08-20).
+        config.e3.use_post_arbitration_last_scores = use_post_arbitration_last_scores
 
         # MECH-290: backward trajectory credit sweep
         config.hippocampal.use_backward_credit_sweep = use_backward_credit_sweep
