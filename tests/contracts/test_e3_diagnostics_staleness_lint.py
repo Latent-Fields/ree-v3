@@ -8,9 +8,9 @@ Surfaces under test:
       the invariant that this gate is WARN-ONLY IN BOTH MODES (never hardens under
       --paths, never affects the exit code even under --strict).
 
-WHY THIS GATE EXISTS. `ree_core/predictors/e3_selector.py` sets all SIX of
+WHY THIS GATE EXISTS. `ree_core/predictors/e3_selector.py` sets all SEVEN of
 last_score_diagnostics / last_score_decomp / last_channel_terms / last_scores /
-last_precommit_probs / last_raw_scores ONLY inside `select()`. The attributes LATCH: on a tick where
+last_precommit_probs / last_raw_scores / last_selected_idx ONLY inside `select()`. The attributes LATCH: on a tick where
 `select()` did not run they still hold the PREVIOUS selection. A driver reading them
 once per env step therefore records the same selection repeatedly. Nothing raises --
 the run just reports a sample size it does not have. Confirmed 2026-07-19 on the
@@ -120,6 +120,18 @@ if __name__ == "__main__":
 '''
 
 
+_DEFECTIVE_SELECTED_IDX = '''
+def main():
+    for step in range(100):
+        agent.select_action(obs)
+        idx = agent.e3.last_selected_idx
+        rows.append({"step": step, "committed_idx": idx})
+
+if __name__ == "__main__":
+    main()
+'''
+
+
 def test_e3s_identity_freshness_guard_is_exempt():
     """Exemption (d): dedupe by object identity discharges the same obligation as (a).
 
@@ -145,7 +157,7 @@ def test_e3s_identity_guard_does_not_blanket_exempt_unrelated_id_calls():
 
 
 def test_e3s_covers_last_raw_scores():
-    """last_raw_scores latches like the other five (e3_selector.py:2103, inside select()).
+    """last_raw_scores latches like its siblings (e3_selector.py:2725, inside select()).
 
     It was absent from _E3_LATCHED_ATTRS until 2026-07-19. Not academic: V3-EXQ-722
     carried TWO latched reads and this was the second, with a comment asserting exactly
@@ -156,12 +168,42 @@ def test_e3s_covers_last_raw_scores():
     assert out is not None and "last_raw_scores" in out, out
 
 
-def test_e3s_all_six_latched_attrs_are_select_only_in_the_substrate():
+def test_e3s_covers_last_selected_idx():
+    """last_selected_idx latches like its siblings (e3_selector.py:3754, inside select()).
+
+    The same coverage hole as `last_raw_scores`, closed the same way on 2026-08-20
+    (`chip-20260820-e3-last-selected-idx-staleness-lint-gap`). It is the attribute a
+    driver reads to learn WHICH candidate was committed to, so an unguarded per-step read
+    re-attributes one selection to every held tick -- the same pseudo-replication as its
+    siblings, on the field most likely to be the unit of analysis.
+
+    Measured corpus movement when it was added: ZERO (63 -> 63 over 1353 files), so this
+    buys future coverage without re-pinning and without a backlog.
+    """
+    assert "last_selected_idx" in V._E3_LATCHED_ATTRS
+    out = _lint_src(_DEFECTIVE_SELECTED_IDX)
+    assert out is not None and "last_selected_idx" in out, out
+
+
+def test_e3s_all_latched_attrs_are_select_only_in_the_substrate():
     """The lint's premise, asserted against the substrate rather than assumed.
 
-    Every name in _E3_LATCHED_ATTRS must be assigned ONLY inside E3Selector.select().
-    If a future refactor adds an __init__ default or a reset path, that attribute stops
-    latching and its fires become false positives -- this fails first and says so.
+    Every name in _E3_LATCHED_ATTRS must be assigned ONLY inside E3Selector.select(), so
+    that a read on a skipped tick is guaranteed to be stale rather than merely maybe-stale.
+    A refactor that adds a second assignment site or a reset path breaks that premise and
+    turns the attribute's fires into false positives -- this fails first and says so.
+
+    SCOPE, corrected 2026-08-20: this walks `ast.Assign` only, so an ANNOTATED assignment
+    (`self.last_scores: Optional[Tensor] = None`) is invisible to it. The docstring
+    previously claimed an added `__init__` default would fail here; it would not, and six
+    of the seven attributes already have exactly that (last_scores:473,
+    last_selected_idx:481, last_raw_scores:491, last_score_diagnostics:509,
+    last_score_decomp:512, last_channel_terms:520 -- only last_precommit_probs has none).
+    That is the correct behaviour, not a hole to plug: an `__init__` default changes only
+    the very FIRST read (None instead of AttributeError) and nothing thereafter, so it does
+    not weaken the latch and must not disqualify an attribute. What would genuinely break
+    the premise is a RESET path -- a non-`__init__` re-assignment, which is `ast.Assign`
+    and so is caught. Keep the walk as it is; the docstring was the defect.
     """
     import ast as _ast
     sel = REPO_ROOT / "ree_core" / "predictors" / "e3_selector.py"
@@ -375,7 +417,7 @@ def test_e3s_is_warn_only_under_strict_and_paths():
 #       On today's corpus: 45 of the fires read last_score_diagnostics, 20 fire on a
 #       DIFFERENT latching attribute only. Those 20 are true positives, not slack: all
 #       six attributes are assigned exclusively inside select() (asserted against the
-#       substrate by test_e3s_all_six_latched_attrs_are_select_only_in_the_substrate),
+#       substrate by test_e3s_all_latched_attrs_are_select_only_in_the_substrate),
 #       so a driver latching last_scores pseudo-replicates exactly as one latching
 #       last_score_diagnostics does.
 #   (2) GLOB. The lint's corpus is `v3_exq_*.py`; the brief said `experiments/*.py`. At

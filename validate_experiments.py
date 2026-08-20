@@ -1652,18 +1652,49 @@ def manifest_writer_lint(path: Path) -> Optional[str]:
             "pack_writer_single_writer_migration_plan.md.")
 
 
-# All SIX are assigned ONLY inside `E3Selector.select()` -- verified by AST scan of
-# `ree_core/predictors/e3_selector.py` (2026-07-19): last_raw_scores:2103,
-# last_score_diagnostics:2452, last_scores:2657, last_score_decomp:2659,
-# last_channel_terms:2680, last_precommit_probs:2687. There is no `__init__` default and
-# no reset path, so every one of them latches identically and none is a weaker signal
-# than the others. `last_raw_scores` was MISSING from this tuple until 2026-07-19 -- a
-# coverage hole, not a deliberate narrowing: V3-EXQ-722 carried TWO latched reads and
-# `last_raw_scores` was the second one, so the attribute the lint was blind to is one the
-# defect demonstrably uses. Adding it moved the corpus count by ZERO (measured), so it
-# buys future coverage at no backlog cost.
+# All SEVEN are assigned ONLY inside `E3Selector.select()` -- verified by AST scan of
+# `ree_core/predictors/e3_selector.py` (2026-08-20): last_raw_scores:2725,
+# last_score_diagnostics:3074, last_scores:3302, last_score_decomp:3304,
+# last_channel_terms:3325, last_precommit_probs:3332, last_selected_idx:3754. Every one
+# latches identically -- after the first `select()` each holds that tick's value until the
+# next one, so a read on a tick where `select()` did not run silently returns the PREVIOUS
+# tick's value -- and none is a weaker signal than the others.
+#
+# `last_raw_scores` was MISSING from this tuple until 2026-07-19 -- a coverage hole, not a
+# deliberate narrowing: V3-EXQ-722 carried TWO latched reads and `last_raw_scores` was the
+# second one, so the attribute the lint was blind to is one the defect demonstrably uses.
+# Adding it moved the corpus count by ZERO (measured), so it bought future coverage at no
+# backlog cost. `last_selected_idx` was the same kind of hole and was closed the same way
+# on 2026-08-20 (`chip-20260820-e3-last-selected-idx-staleness-lint-gap`), also measured at
+# ZERO corpus movement (63 -> 63 over 1353 files).
+#
+# CAVEAT SPECIFIC TO `last_selected_idx` -- PREFER DISCHARGE (b)/(c)/(e), NOT (a). The
+# reference idiom (a) is a literal `agent.e3.last_selected_idx = None` clear, and for this
+# ONE attribute that clear has a substrate side effect the other six do not:
+# `E3Selector.decisiveness_margin(arbitration_aware=True)` reads `last_selected_idx`
+# (e3_selector.py:2551) and, when it is None or out of range, SILENTLY FALLS BACK to the
+# legacy blind top-2 sort (:2538-2540) -- i.e. clearing it to satisfy this lint quietly
+# changes what the margin measures, which is the same class of quiet failure the lint
+# exists to catch. Not hypothetical: v4_exq_001 and v4_exq_003 already call that path.
+# Discharge (d) is also weak here and must not be relied on: `last_selected_idx` is an
+# int, and CPython interns small ints, so `id()` is equal across genuinely fresh
+# selections. That fails in the sound direction (drops rows, never inflates -- see
+# `_guards_e3_latch_by_identity`), so it is not a correctness bug, but it buys ~no
+# freshness signal for this attribute.
+#
+# CORRECTION, 2026-08-20: this comment previously asserted "There is no `__init__` default
+# and no reset path". The second half holds -- there is still no reset path -- but the
+# first half is FALSE and was load-bearing, because it read as the membership test for this
+# tuple and would have excluded `last_selected_idx` (defaulted at :481) on a property SIX
+# of the seven share: last_scores:473, last_selected_idx:481, last_raw_scores:491,
+# last_score_diagnostics:509, last_score_decomp:512, last_channel_terms:520 all have
+# annotated `__init__` defaults, and only `last_precommit_probs` does not. An `__init__`
+# default does not weaken the latch -- it changes only the very first read (None rather
+# than AttributeError) and nothing after it -- so it is not a membership criterion. The
+# real criterion is the one stated above: assigned only inside `select()`, never reset.
 _E3_LATCHED_ATTRS = ("last_score_diagnostics", "last_score_decomp", "last_channel_terms",
-                     "last_scores", "last_precommit_probs", "last_raw_scores")
+                     "last_scores", "last_precommit_probs", "last_raw_scores",
+                     "last_selected_idx")
 _E3_STALENESS_EXEMPT_MARKER = "E3_DIAGNOSTICS_STALENESS_EXEMPT"
 
 
@@ -1748,10 +1779,10 @@ def _guards_e3_latch_by_identity(tree: ast.Module) -> bool:
 def e3_diagnostics_staleness_lint(path: Path) -> Optional[str]:
     """Stale-E3-diagnostics pseudo-replication check. Return an issue string, or None.
 
-    `ree_core/predictors/e3_selector.py` populates all six of `last_score_diagnostics` /
+    `ree_core/predictors/e3_selector.py` populates all seven of `last_score_diagnostics` /
     `last_score_decomp` / `last_channel_terms` / `last_scores` / `last_precommit_probs` /
-    `last_raw_scores` ONLY inside `select()` (see `_E3_LATCHED_ATTRS` for the verified
-    per-attribute assignment lines). The attributes LATCH: after a tick on which `select()` did
+    `last_raw_scores` / `last_selected_idx` ONLY inside `select()` (see `_E3_LATCHED_ATTRS`
+    for the verified per-attribute assignment lines). The attributes LATCH: after a tick on which `select()` did
     not run, they still hold the PREVIOUS selection's values. A driver that reads them
     once per env step, in a loop, WITHOUT clearing them first therefore re-records one
     selection as many independent observations. Nothing raises; the run simply reports
@@ -4285,7 +4316,7 @@ def config_slice_under_declaration_lint(path: Path) -> Optional[str]:
 # diagnostics are fresh, where 708's identical 1.0 was vacuous. Conflating freshness
 # with replication mis-adjudicates in both directions (autopsy 699 sec 11.2).
 #
-# `_last_selected_trajectory` latches exactly like the six form-1 attributes -- assigned
+# `_last_selected_trajectory` latches exactly like the seven form-1 attributes -- assigned
 # only in `E3Selector.select()` (`e3_selector.py:3108`; `:3224` is a read in
 # `post_action_update`). It is kept HERE rather than appended to _E3_LATCHED_ATTRS so the
 # form-1 corpus pin stays a measurement of form 1.
@@ -4507,7 +4538,7 @@ def _e3_selection_latch_reads(tree: ast.Module) -> List[ast.expr]:
     """Reads of `agent.e3._last_selected_trajectory` -- the per-selection latch, form (b).
 
     Assigned only inside `E3Selector.select()` (`e3_selector.py:3108`), so it latches
-    exactly like the six form-1 attributes and the READ alone is the defect. 699 proved
+    exactly like the seven form-1 attributes and the READ alone is the defect. 699 proved
     (a) and (b) are one defect empirically: its `selected_class_entropy_nats` equalled
     `committed_class_entropy_nats` to 6dp on all 12 arm-seeds.
     """
