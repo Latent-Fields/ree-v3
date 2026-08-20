@@ -715,12 +715,25 @@ def _print_z_goal_stream_smoke(manifest: Mapping[str, Any], *, wired: bool) -> N
             verdict = "writer_defect not assessable (no ticks with goal_state present)"
         else:
             verdict = "no writer defect"
+        # training_phase_* (V3-EXQ-874b, z_goal_stream.py) holds ticks the driver
+        # explicitly marked eval_stepped=False -- pooled separately so they cannot
+        # feed writer_defect. Surface them here too, else a driver correctly using
+        # eval_stepped=False sees the SAME "not assessable" line as a genuinely
+        # unmeasured run, with the real training-phase data invisible at the smoke.
+        train_total = block.get("training_phase_ticks_total")
+        train_note = ""
+        if train_total:
+            train_note = (
+                f" (+{int(train_total)} training-phase ticks, "
+                f"{int(block.get('training_phase_writer_calls') or 0)} writer calls, "
+                f"not counted toward writer_defect)"
+            )
         print(
             f"[smoke] z_goal_stream: active_frac={frac_s} "
             f"ticks={block.get('ticks_active')}/{block.get('ticks_total')} "
             f"writer_calls={block.get('writer_calls')} "
             f"goal_state_present={block.get('goal_state_present')} "
-            f"n_agents={block.get('n_agents')} -- {verdict}",
+            f"n_agents={block.get('n_agents')} -- {verdict}{train_note}",
             flush=True,
         )
     except Exception:

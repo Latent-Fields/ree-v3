@@ -68,6 +68,13 @@ Guarantees enforced here:
       that simply never had `.eval()`/`.train()` called on it (the corpus norm, and
       exactly V3-EXQ-830's own shape) -- see the module docstring's "why this cannot be
       auto-detected" section for why `agent.training` was rejected as the discriminator.
+  Z13. THE SMOKE PRINT SURFACES training_phase_*. Z11's --dry-run line read the
+      eval-facing fields only, so a driver correctly using `eval_stepped=False` saw the
+      same "not assessable" line as a genuinely unmeasured run -- the real training-phase
+      counts were in the manifest block but invisible at the smoke. The print now appends
+      a short note ("+N training-phase ticks, M writer calls, not counted toward
+      writer_defect") whenever `training_phase_ticks_total` is present and nonzero, and
+      omits it otherwise; the eval-facing verdict itself is unchanged.
 """
 
 from __future__ import annotations
@@ -953,3 +960,99 @@ def test_z12_no_counter_bearing_agent_yields_no_block_even_training_only():
 
 def test_z12_empty_accumulator_with_no_observations_at_all_reports_unmeasured():
     assert ZGS.ZGoalStreamAccumulator().stats() is None
+
+
+# ---- Z13: the --dry-run smoke print surfaces training_phase_* (V3-EXQ-874b) -----------
+#
+# Z12 gave a driver a correct way to say "this agent's ticks are training-phase-only"
+# (eval_stepped=False) instead of a false writer_defect. But the Z11 smoke print did not
+# know about training_phase_* at all, so a driver correctly using eval_stepped=False saw
+# the SAME "not assessable" line as a genuinely unmeasured run -- the real training-phase
+# data existed in the manifest block but was invisible at the smoke, where an author is
+# actually looking. These pin that the note appears when training_phase_ticks_total is
+# present and nonzero, stays out when it is not, and never changes the eval-facing verdict.
+
+def test_z13_dry_run_training_only_shows_the_training_note(tmp_path, capsys):
+    """The V3-EXQ-874b shape itself, observed correctly via eval_stepped=False: the
+    eval-facing verdict must still read 'not assessable' (Z11), and the training ticks
+    that would otherwise be invisible must now show up alongside it."""
+    agent, env = _agent(goal_on=True, seed=110)
+    _run(agent, env, 6, write_z_goal=False)
+    block = ZGS.z_goal_stream_stats(agent, eval_stepped=False)
+    assert block["training_phase_ticks_total"] == 6      # sanity on the fixture
+    out = _dry_write(tmp_path, capsys, dry_run=True, z_goal_stream_stats=block)
+    assert "not assessable" in out, "eval-facing verdict is unchanged by the note"
+    assert "WRITER DEFECT" not in out
+    assert "+6 training-phase ticks" in out
+    assert "0 writer calls" in out
+    assert "not counted toward writer_defect" in out
+
+
+def test_z13_dry_run_mixed_training_and_eval_shows_both(tmp_path, capsys):
+    """A driver correctly observing BOTH the P0 base agent (training-only) and the
+    stepping clone (eval): the real eval verdict prints as usual (Z11), and the
+    training-phase ticks are appended rather than silently pooled away."""
+    base, base_env = _agent(goal_on=True, seed=111)
+    _run(base, base_env, 6, write_z_goal=False)
+    clone, clone_env = _agent(goal_on=True, seed=112)
+    _run(clone, clone_env, 4, write_z_goal=True)
+
+    acc = ZGS.ZGoalStreamAccumulator()
+    acc.observe(base, eval_stepped=False)
+    acc.observe(clone, eval_stepped=True)
+    block = acc.stats()
+    assert block["training_phase_ticks_total"] == 6
+    assert block["writer_calls"] == 4
+
+    out = _dry_write(tmp_path, capsys, dry_run=True, z_goal_stream_stats=block)
+    assert "no writer defect" in out
+    assert "writer_calls=4" in out
+    assert "+6 training-phase ticks" in out
+    assert "0 writer calls, not counted toward writer_defect" in out
+
+
+def test_z13_dry_run_without_training_phase_omits_the_note(tmp_path, capsys):
+    """An ordinary block with no training_phase_* keys at all (the corpus norm) must
+    not grow a spurious note."""
+    agent, env = _agent(goal_on=True, seed=113)
+    _run(agent, env, 4, write_z_goal=True)
+    out = _dry_write(tmp_path, capsys, dry_run=True, agent=agent)
+    assert "training-phase" not in out
+
+
+def test_z13_dry_run_zero_training_ticks_omits_the_note(tmp_path, capsys):
+    """training_phase_ticks_total present but 0 (an accumulator that never actually
+    folded in a training-only observation) reads as absent, matching 'present and
+    nonzero', not merely 'key present'."""
+    agent, env = _agent(goal_on=True, seed=114)
+    _run(agent, env, 3, write_z_goal=True)
+    block = ZGS.z_goal_stream_stats(agent)
+    block["training_phase_ticks_total"] = 0
+    out = _dry_write(tmp_path, capsys, dry_run=True, z_goal_stream_stats=block)
+    assert "training-phase" not in out
+
+
+def test_z13_print_is_ascii_only(tmp_path, capsys):
+    agent, env = _agent(goal_on=True, seed=115)
+    _run(agent, env, 5, write_z_goal=False)
+    block = ZGS.z_goal_stream_stats(agent, eval_stepped=False)
+    out = _dry_write(tmp_path, capsys, dry_run=True, z_goal_stream_stats=block)
+    out.encode("ascii")     # repo rule: printed output must survive cp1252
+
+
+def test_z13_print_never_gates_or_raises(tmp_path, capsys):
+    sys.path.insert(0, str(EXPERIMENTS_DIR))
+    from pack_writer import write_flat_manifest  # noqa: E402
+    out_path = write_flat_manifest(
+        {"run_id": "z13_nogate_v3", "outcome": "PASS",
+         "z_goal_stream": {"ticks_total": 0, "ticks_active": 0, "writer_calls": 0,
+                           "active_frac": None, "writer_defect": None,
+                           "goal_state_present": True, "n_agents": 0,
+                           "training_phase_ticks_total": 7,
+                           "training_phase_ticks_active": 2,
+                           "training_phase_writer_calls": 0,
+                           "training_phase_n_agents": 1}},
+        tmp_path, dry_run=True, script_path=Path(__file__),
+    )
+    assert Path(out_path).exists(), "a training-phase-only block must still write"
+    assert "+7 training-phase ticks" in capsys.readouterr().out
