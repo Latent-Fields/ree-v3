@@ -1685,12 +1685,23 @@ class E3TrajectorySelector(nn.Module):
         soft axis is structurally INERT whenever the envelope has already
         collapsed to a single survivor -- and a decisive F-winner is exactly the
         case the envelope is DESIGNED to narrow. At the shipped
-        ``f_eligibility_envelope_floor`` of 0.30 with K=4 candidates that is the
-        common case, not a corner. Measured by V3-EXQ-926a (the perseveration-axis
-        falsifier, PASS): floor 0.30 -> median envelope 1, soft No-Go applied in
-        6/16 banks; floor 0.10 -> median envelope 2, applied in 15/16. That run's
-        PASS is therefore recorded AT floor 0.10 and says nothing about the axis
-        at the shipped default, where the identical mechanism converted 1/16.
+        ``f_eligibility_envelope_floor`` of 0.30 with K=4 candidates that is
+        NOT the common case: V3-EXQ-926a's own 16-bank authoring note (floor
+        0.30 -> median envelope 1, soft No-Go applied 6/16 banks; floor 0.10
+        -> median envelope 2, applied 15/16) DID NOT REPLICATE. V3-EXQ-937b's
+        larger, K-matched per-bank re-measurement (384 banks, 3 seeds, floor
+        0.30, K=4) found the gate applied (envelope >= 2) in 263/384 banks
+        (~68%), median envelope 2, and that conversion is a DETERMINISTIC step
+        function of per-bank envelope size (envelope 1 -> 0 conversions,
+        envelope >= 2 -> 100%, 0 exceptions over 12,672 ARM_CONSTITUTION
+        banks; confirmed failure_autopsy_V3-EXQ-937-937a-cluster_2026-08-18).
+        926a's PASS remains recorded at floor 0.10; V3-EXQ-937b is
+        diagnostic-purpose (selection-face synthetic, no training, no agent
+        loop) and its own confirmed autopsy
+        (failure_autopsy_V3-EXQ-937b_2026-08-20) found its load-bearing
+        criterion analytically entailed by this guard's own logic -- a
+        manipulation check confirming the arithmetic above, not independent
+        behavioural evidence; it PROMOTES NOTHING.
         Diagnostic signature: ``go_nogo_n_soft_requested > 0`` together with
         ``go_nogo_n_soft_applied == 0`` -- the axis fired and the fail-open
         refused it. Three points of scope, each verified against this function
@@ -1705,9 +1716,9 @@ class E3TrajectorySelector(nn.Module):
         This is a composition property of two lever defaults, NOT a defect: on a
         one-survivor envelope F has already decided, and dropping the last
         candidate is the catatonia pole this guard exists to prevent. Whether
-        0.30 is the right production default GIVEN that it leaves the soft axes
-        near-inert is an open design question needing its own evidence -- do not
-        move the default to make an axis fire.
+        0.30 is the right production default is an open design question
+        needing its own evidence -- do not move the default to make an axis
+        fire.
 
         ``signals`` is an optional dict of per-candidate [K] tensors keyed
         ``safety`` / ``staleness`` / ``perseveration`` / ``viability`` / ``go``;
