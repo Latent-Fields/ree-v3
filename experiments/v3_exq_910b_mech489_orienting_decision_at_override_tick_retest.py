@@ -187,6 +187,33 @@ EVAL_EPISODES_OVERRIDE = 48
 
 DECISION_CLASSES = ("approach", "withdraw", "resume")
 
+# validate_experiments --checks anchor_reachability: EXEMPT, with the reachability
+# argument stated rather than waved at.
+#   * `latch_separation_observed` (>=1 latched tick) and
+#     `fresh_orienting_ticks_sufficient` (>=100 fresh ticks) are reachable BY
+#     CONSTRUCTION from this run's own pre-registered length: the ON arm observes
+#     3 seeds x EVAL_EPISODES_OVERRIDE(48) x <=500 steps ~= 6.5e4 select_action calls,
+#     and `heartbeat.e3_steps_per_tick` defaults to 10, so both a fresh and a latched
+#     tick are produced many thousands of times over. The 2026-08-21 --dry-run measured
+#     11 fresh / 49 latched in only 60 eval steps, i.e. both gates are cleared ~1000x
+#     over at full scale. Neither predicate can be narrower than the state it anchors to.
+#   * `pooled_override_ticks_sufficient` (>=10 genuine override ticks) is DELIBERATELY
+#     NOT reachable by construction, and that is what makes it a readiness gate rather
+#     than a defect: it depends on SD-099's override RATE, which is the empirical unknown
+#     no recorded manifest can supply -- V3-EXQ-910/910a recorded only the LATCHED
+#     counter this run exists to replace, so there is no frozen reference cell to hand
+#     `assert_anchor_reachable` a score_fn over. Below-floor therefore self-routes
+#     `substrate_not_ready_requeue`, whose meaning here is exactly correct: the gate
+#     fires too rarely at its shipped defaults to measure its own decision. The
+#     --dry-run cleared it once in 60 eval steps, so it is attainable, not unmeetable.
+ANCHOR_REACHABILITY_EXEMPT = (
+    "Two of the three readiness anchors are reachable by arithmetic on this run's own "
+    "pre-registered length (see the comment block above); the third is a genuine "
+    "rate-dependent readiness gate with no frozen reference cell available, because "
+    "every prior manifest in this lineage recorded the latched counter that this run "
+    "replaces."
+)
+
 # Pre-registered readiness floor for the DECISIVE criterion (C2), stated on the CORRECTED
 # counter. 10 genuine override ticks is the minimum at which "is the resolved decision
 # unconditionally one class" is a question about the mechanism rather than about small
@@ -479,8 +506,12 @@ def run(seeds: Optional[List[int]] = None, dry_run: bool = False) -> Dict[str, A
                   f"latched={counters['n_latched_ticks']} "
                   f"override_ticks={counters['n_override_ticks']} "
                   f"decisions={counters['decision_counts']}", flush=True)
-            print(f"verdict: PASS seed={seed} arm={arm} "
-                  f"(cell ran to completion -- see aggregate criteria below)", flush=True)
+            # NOTE: deliberately NO `verdict:` print here. The reused 906b `run_seed`
+            # already emits exactly one `verdict:` line per cell, so adding a second
+            # would make the runner count 2 x (seeds x conditions) runs and drive
+            # overall_pct() past 100%. V3-EXQ-910a shipped with that double-count
+            # (4 cells, 8 verdict lines against a declared seeds=2 x conditions=2);
+            # this run declares seeds=3 x conditions=2 = 6 and prints exactly 6.
             print(f"  [progress] run {run_idx}/{total_runs} complete", flush=True)
 
     on_steps = per_arm_pooled_steps[SCORED_ARM]
