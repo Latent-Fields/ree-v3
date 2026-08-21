@@ -106,6 +106,34 @@ THE FOUR REPAIRS (failure_autopsy_V3-EXQ-939_2026-08-20 requeue_spec).
     that it would have become a second way to void a sound run -- the failure 939a exists to
     fix.
 
+MEASURED AT AUTHORING TIME (all on darwin-arm64 / torch 2.12.0, via a scratch harness calling
+run_experiment() directly so no manifest was written).
+
+  * SUPERSESSION BRIDGE, VERIFIED EXACTLY. Trials 1..30 of this driver's 90-trial test window
+    reproduce the WHOLE of V3-EXQ-939's 30-trial window bit-for-bit at seed 0, on all four arms:
+    bridge release rates 0.46666666666666667 / 0.0 / 0.0 / 0.43333333333333335 against 939's
+    realised 0.46666666666666667 / 0.0 / 0.0 / 0.43333333333333335. So `supersedes` here is an
+    auditable arithmetic identity, not an assertion: 939a re-measures 939's exact window and
+    then keeps looking. Emitted per cell as `release_rate_bridge_window`.
+
+  * THE DV IS WINDOW-DEPENDENT, AND THAT IS WHY THE ABSOLUTE NUMBERS WILL MOVE. Over the full
+    90 trials the same seed-0 cells read A 0.7444 and D 0.7000, against 0.4667 and 0.4333 over
+    the first 30 -- and a 2-seed calibration gives arm means A 0.7556 / B 0.0 / C 0.0 /
+    D 0.7611. release_rate is therefore not a stationary per-trial probability; a longer walk
+    spends proportionally more time where the accumulated terrain reads above the release
+    threshold. This is NOT a confound (the window is identical across all four arms, every
+    contrast is within-context, and B and C stay at exactly 0.0), and it moves the DV gaps UP,
+    away from the margin, not toward it. It IS recorded rather than left to be rediscovered:
+    shipping a successor whose headline number is ~70% above its predecessor's with nothing in
+    the manifest to explain it would repeat the very defect requeue_spec item 4 exists to
+    remove. See custom_information.release_window_profile.
+
+  * THE REPAIRED GATE CLEARS COMFORTABLY at the new trial count: arm-A mean 0.7556 against
+    READINESS_FLOOR_MEAN 0.34, and both calibrated seeds clear the per-seed floor
+    _per_seed_floor() = floor(0.34*90)/90 = 30/90 = 0.33333. Under 939's own realised data the
+    repaired gate would also have passed (mean 0.43889 >= 0.34; all six seeds >= 30/90, seed 1
+    landing exactly on it), which is the point: 939's result was sound and its gate voided it.
+
 WHAT IS DELIBERATELY UNCHANGED. The scientific design is not touched: same 2x2, same arms,
 same contexts, same gate sources and thresholds, same DV_MARGIN = 0.34, same DVs, same
 load-bearing assignment, same 6 seeds, same substrate config, same phased training, same
@@ -331,6 +359,7 @@ N_TEST_TRIALS = 90            # was 30 in V3-EXQ-939. Repair (2): the 1/30 latti
                               # and made the per-seed estimate (binomial SE ~0.091 at
                               # p~0.44) fragile. 1/90 lattice, SE ~0.052, ~2% more runtime.
 SETTLE_STEPS = 8              # settle the recurrent z_world into the test context
+BRIDGE_WINDOW = 30            # V3-EXQ-939's trial count -- see _release_window_profile()
 
 DV_MARGIN = 0.34              # every DV gap must clear this (764's registered margin)
 # Repair (1): the readiness floor is DERIVED from DV_MARGIN, not declared beside it.
@@ -469,6 +498,7 @@ def _config_slice(arm):
         "p0_steps_per_episode": P0_STEPS_PER_EPISODE,
         "exposure_steps": EXPOSURE_STEPS,
         "n_test_trials": N_TEST_TRIALS,
+        "bridge_window": BRIDGE_WINDOW,
         "settle_steps": SETTLE_STEPS,
     }
 
@@ -574,6 +604,7 @@ def _test_release(agent, test_env):
         if done:
             _, obs = test_env.reset()
     released = 0
+    release_flags = []
     preds, zharm_a, prox, damage = [], [], [], []
     for _t in range(N_TEST_TRIALS):
         prox.append(_prox(obs))
@@ -587,7 +618,9 @@ def _test_release(agent, test_env):
         agent.beta_gate.elevate()
         was = agent.beta_gate.is_elevated
         _ = _act(agent, latent)
-        if was and not agent.beta_gate.is_elevated:
+        _this_trial_released = bool(was and not agent.beta_gate.is_elevated)
+        release_flags.append(1 if _this_trial_released else 0)
+        if _this_trial_released:
             released += 1
         _flat, _harm, done, _info, obs = test_env.step(random.randint(0, 4))
         if done:
@@ -596,6 +629,7 @@ def _test_release(agent, test_env):
         "release_rate": released / max(N_TEST_TRIALS, 1),
         "n_released": released,
         "n_test_trials": N_TEST_TRIALS,
+        "release_flags": release_flags,
         "mean_contextual_safety_pred": float(np.mean(preds)) if preds else 0.0,
         "series": {"zharm_a": zharm_a, "prox": prox, "damage": damage},
     }
@@ -647,6 +681,8 @@ def _run_cell(arm, seed):
             "proximity_threshold": prox_thresh,
             "release_rate": test["release_rate"],
             "n_released": test["n_released"],
+            "release_flags": test["release_flags"],
+            "release_rate_bridge_window": _bridge_rate(test["release_flags"]),
             "mean_contextual_safety_pred": test["mean_contextual_safety_pred"],
             "num_safety_steps": num_safety_steps,
             "total_safety": total_safety,
@@ -672,6 +708,64 @@ def _run_cell(arm, seed):
 def _mean(vals):
     vals = [v for v in vals if v is not None]
     return float(statistics.fmean(vals)) if vals else 0.0
+
+
+def _bridge_rate(flags, window=BRIDGE_WINDOW):
+    """release_rate restricted to the FIRST `window` test trials.
+
+    This is the exact V3-EXQ-939-comparable statistic. The test walk is a pure function of
+    (substrate, config_slice, seed) with all RNG reset at cell entry, and nothing inside the
+    trial loop depends on N_TEST_TRIALS, so trials 1..30 of this run's 90-trial window are
+    bit-identical to the whole of 939's 30-trial window. Emitting it makes the supersession an
+    auditable arithmetic identity rather than an assertion.
+    """
+    head = list(flags)[:int(window)]
+    return (sum(head) / len(head)) if head else None
+
+
+def _release_window_profile(rows):
+    """NON-GATING. How release_rate depends on how long you look.
+
+    Discovered while calibrating this experiment and recorded because it would otherwise be an
+    unexplained discrepancy of exactly the kind repair (4) exists to remove: raising the test
+    window from 30 to 90 trials raised arm A's release_rate from ~0.44 (V3-EXQ-939) to ~0.76
+    (2-seed calibration at n=90), a ~70% jump. It is not a confound -- the window is identical
+    across all four arms, every contrast is within-context, and B and C stay at exactly 0.0 --
+    but it does mean release_rate is a WINDOW-DEPENDENT readout rather than a stationary
+    per-trial probability, so 939a's absolute values are not directly comparable to 939's and
+    the `supersedes` relation is a re-measurement on a wider window, not a replication.
+
+    The per-third profile says which way it moves within a single run, and the bridge column
+    reconciles the two runs directly, and is VERIFIED to do so: at seed 0 the bridge column
+    reproduces 939's realised release rates bit-for-bit on all four arms.
+    """
+    out = {}
+    for r in rows:
+        flags = r.get("release_flags") or []
+        if not flags:
+            continue
+        n = len(flags)
+        k = max(n // 3, 1)
+        thirds = [flags[0:k], flags[k:2 * k], flags[2 * k:]]
+        out.setdefault("per_cell", []).append({
+            "arm": r["arm"], "seed": r["seed"],
+            "release_rate_full": r["release_rate"],
+            "release_rate_bridge_window": _bridge_rate(flags),
+            "release_rate_by_third": [
+                (sum(t) / len(t)) if t else None for t in thirds
+            ],
+        })
+    if not out:
+        return None
+    cells = out["per_cell"]
+    full = [c["release_rate_full"] for c in cells]
+    bridge = [c["release_rate_bridge_window"] for c in cells
+              if c["release_rate_bridge_window"] is not None]
+    out["bridge_window"] = BRIDGE_WINDOW
+    out["n_test_trials"] = N_TEST_TRIALS
+    out["release_rate_full_mean"] = float(statistics.fmean(full)) if full else None
+    out["release_rate_bridge_window_mean"] = float(statistics.fmean(bridge)) if bridge else None
+    return out
 
 
 def _operating_point(rows):
@@ -932,6 +1026,20 @@ def run_experiment(seeds):
             "gate_source": GATE_SOURCE,
             # Repair (4) -- see _operating_point()'s docstring. NON-GATING by design.
             "terrain_read_operating_point": {a: _operating_point(rows(a)) for a in ARMS},
+            # See _release_window_profile()'s docstring. NON-GATING.
+            "release_window_profile": {a: _release_window_profile(rows(a)) for a in ARMS},
+            "release_window_profile_note": (
+                "release_rate is WINDOW-DEPENDENT, not a stationary per-trial probability. "
+                "V3-EXQ-939 measured arm A at ~0.44 over 30 trials; a 2-seed calibration of "
+                "this driver at 90 trials measured ~0.76. The window is identical across all "
+                "four arms and every contrast is within-context, so this is not a confound, "
+                "but it does mean 939a's absolute release rates are NOT directly comparable to "
+                "939's -- the supersession is a re-measurement on a wider window, not a "
+                "replication. release_rate_bridge_window restricts the statistic to the first "
+                "%d trials, which are bit-identical to 939's entire window (all RNG is reset at "
+                "cell entry and nothing in the trial loop depends on N_TEST_TRIALS), so the two "
+                "runs can be reconciled from this manifest without a re-run." % (BRIDGE_WINDOW,)
+            ),
             "terrain_read_operating_point_note": (
                 "Where each arm's accumulated terrain read sat relative to the FIXED "
                 "contextual_safety_release_threshold. release_rate is a crossing COUNT and "
@@ -1037,6 +1145,7 @@ def build_and_run():
         "p0_steps_per_episode": P0_STEPS_PER_EPISODE,
         "exposure_steps": EXPOSURE_STEPS,
         "n_test_trials": N_TEST_TRIALS,
+        "bridge_window": BRIDGE_WINDOW,
         "settle_steps": SETTLE_STEPS,
         "dv_margin": DV_MARGIN,
         "readiness_floor_mean": READINESS_FLOOR_MEAN,
