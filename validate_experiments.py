@@ -49,7 +49,8 @@ CHECK_NAMES = ("conformance", "readiness", "arm_fingerprint", "degeneracy", "man
                "config_slice_declaration", "inert_salience_dacc_bias",
                "dacc_last_bundle", "agent_seed_order", "zworld_p0_warmup",
                "fishtank_episode_log_seeds", "disjunctive_criteria_load_bearing",
-               "route_reason_consistency", "multi_arm_default_off_flags_collapse")
+               "route_reason_consistency", "multi_arm_default_off_flags_collapse",
+               "sd056_training_without_rollout_clamp")
 
 # Readiness-gate static lint (proposal_trivial_prediction_readiness_gate_2026-06-06).
 # A diagnostic/baseline script whose interpretation grid self-routes to one of
@@ -2417,6 +2418,88 @@ def dead_z_goal_stream_lint(path: Path) -> Optional[str]:
             "comparable to its predecessors. Exempt with DEAD_Z_GOAL_STREAM_EXEMPT = "
             "\"<reason>\" when the zero-goal condition is the point (a goal-OFF parity "
             "arm, or a negative control like V3-EXQ-626b's ARM_NO_BENEFIT).")
+
+
+_SD056_ROLLOUT_CLAMP_EXEMPT_MARKER = "SD056_ROLLOUT_CLAMP_EXEMPT"
+_SD056_ROLLOUT_CLAMP_KNOB = ("e2_rollout_output_norm_clamp_enabled",)
+
+
+def sd056_training_without_rollout_clamp_lint(path: Path) -> Optional[str]:
+    """WARN-only: SD-056 contrastive training with the rollout-stability clamp unarmed.
+
+    Fires when a script calls `<e2>.world_forward_contrastive_loss(...)` -- the SD-056
+    action-conditional divergence contrastive objective -- with no reachable
+    `e2_rollout_output_norm_clamp_enabled=True` setting, in the driver itself or in a
+    LOCAL config-builder helper it imports and calls one level deep. Reuses
+    `_sets_knob_truthy` / `_helper_sets_knob_truthy` -- the same generic resolver
+    `dead_z_goal_stream_lint` uses for its own trigger knobs -- rather than a
+    bespoke walk, so the driver/helper resolution semantics (and their documented
+    blind spots: **kwargs splats, indirection beyond one level, helpers outside
+    `experiments/`) stay identical across both lints by construction.
+
+    WHY THIS MATTERS. The clamp (E2.rollout_with_world's per-step ||z_world|| bound,
+    ree_core/predictors/e2_fast.py:694-747) is the fix V3-EXQ-617 validated (PASS,
+    2026-05-31) for exactly the failure mode SD-056 contrastive training triggers on
+    its own: an unbounded E2 imagination rollout under sustained training. Confirmed
+    twice on the identical code path -- V3-EXQ-569e (2026-05-31, rollout magnitudes
+    overflowing to 1e16-1e18, the incident the clamp was built for) and V3-EXQ-936
+    (2026-08-17, back-solved ||dz_world|| ~1.42e18, f_variance_share saturated to 1.0
+    in all 8 cells, MECH-439 neither supported nor weakened by the run --
+    failure_autopsy_V3-EXQ-936_2026-08-18.json). The guard ships DEFAULT OFF
+    (`e2_rollout_output_norm_clamp_enabled: bool = False` in config.py, bit-identical
+    to pre-amend SD-056) and is silently omitted rather than deliberately declined:
+    measured 2026-08-18, 20 of 117 corpus drivers calling world_forward_contrastive_loss
+    never set it.
+
+    DO NOT FLIP THE CONFIG DEFAULT TO TRUE. That changes bit-identity for every run
+    relying on the default, including completed runs being reproduced (user decision,
+    SD-056 substrate_queue.json amend_history, 2026-08-18 Step 8 gate). This lint is
+    the whole remedy asked for; a default flip is a separate, explicitly-not-taken
+    decision that would need its own registration if governance wants it.
+
+    WARN-ONLY IN BOTH MODES -- it never hardens under --paths. Six of the 20 measured
+    fires are legitimate, not omissions: v3_exq_569a-e predate the 2026-05-31 amend
+    (the clamp did not exist when they were written) and v3_exq_613 is the pre-amend
+    readiness probe the amend was validated against. Do NOT retro-edit any LANDED
+    driver whose run is complete -- a completed run's pre-registered emission is not
+    rewritten; the exemption marker is for NEW work that deliberately measures the
+    unclamped path (e.g. a future replication of the 569e/936 divergence itself).
+
+    Opt-out: SD056_ROLLOUT_CLAMP_EXEMPT = "<reason>".
+    """
+    try:
+        src = path.read_text(encoding="utf-8")
+        tree = ast.parse(src, filename=str(path))
+    except (OSError, UnicodeDecodeError, SyntaxError):
+        return None  # check_script already reports unreadable / syntax errors
+
+    if _SD056_ROLLOUT_CLAMP_EXEMPT_MARKER in src:
+        return None
+
+    calls_contrastive = any(
+        isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+        and n.func.attr == "world_forward_contrastive_loss"
+        for n in ast.walk(tree))
+    if not calls_contrastive:
+        return None
+
+    if _sets_knob_truthy(tree, _SD056_ROLLOUT_CLAMP_KNOB):
+        return None
+    if _helper_sets_knob_truthy(tree, _SD056_ROLLOUT_CLAMP_KNOB):
+        return None
+
+    return (
+        "SD-056 TRAINING WITHOUT ROLLOUT CLAMP: calls world_forward_contrastive_loss "
+        "(SD-056 action-conditional divergence contrastive training) but never sets "
+        "e2_rollout_output_norm_clamp_enabled=True, in this file or in an imported "
+        "local config-builder helper. Without it, E2's imagination rollout is "
+        "unbounded under sustained contrastive training and can diverge to 1e16-1e18 "
+        "magnitude (confirmed V3-EXQ-569e, V3-EXQ-936), saturating any "
+        "f_variance_share-style readout and silently annihilating every additive E3 "
+        "score term below float32 eps. FIX: pass e2_rollout_output_norm_clamp_enabled="
+        "True (ratio 2.0 is the V3-EXQ-689i/617-validated operating point) to the "
+        "REEConfig builder. Exempt with SD056_ROLLOUT_CLAMP_EXEMPT = \"<reason>\" when "
+        "the unclamped path is deliberately under test.")
 
 
 # ---- hardcoded dry_run at the sanctioned writer --------------------------------------
@@ -7087,6 +7170,7 @@ def main() -> int:
     disjunctive_criteria_load_bearing_warnings: List[Tuple[Path, str]] = []
     route_reason_consistency_warnings: List[Tuple[Path, str]] = []
     multi_arm_edof_warnings: List[Tuple[Path, str]] = []
+    sd056_rollout_clamp_warnings: List[Tuple[Path, str]] = []
     for p in paths:
         rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
         if "conformance" in selected:
@@ -7315,6 +7399,15 @@ def main() -> int:
                 # complete and already adjudicated at the 2026-08-16 confirmation gate;
                 # retro-editing it would falsify provenance).
                 multi_arm_edof_warnings.append((p, maedof))
+        if "sd056_training_without_rollout_clamp" in selected:
+            src056 = sd056_training_without_rollout_clamp_lint(p)
+            if src056:
+                # WARN-only in BOTH modes -- see sd056_training_without_rollout_clamp_lint()
+                # for why this one never hardens under --paths (six of the measured fires
+                # legitimately predate the 2026-05-31 clamp amend, and the landed carriers'
+                # runs are complete). Does NOT flip the config default -- see the lint
+                # docstring and SD-056 substrate_queue.json amend_history.
+                sd056_rollout_clamp_warnings.append((p, src056))
 
     print("", flush=True)
     print(f"[validate_experiments] checked {len(paths)} scripts: "
@@ -7347,8 +7440,31 @@ def main() -> int:
           f"{len(disjunctive_criteria_load_bearing_warnings)} "
           f"disjunctive-criteria-load_bearing-warning(s), "
           f"{len(route_reason_consistency_warnings)} route_reason-consistency-warning(s), "
-          f"{len(multi_arm_edof_warnings)} multi_arm-default_off_flags-collapse-warning(s)",
+          f"{len(multi_arm_edof_warnings)} multi_arm-default_off_flags-collapse-warning(s), "
+          f"{len(sd056_rollout_clamp_warnings)} sd056-training-without-rollout-clamp-warning(s)",
           flush=True)
+    if sd056_rollout_clamp_warnings:
+        # Advisory in BOTH modes (never hardens). A fire here means the driver calls
+        # world_forward_contrastive_loss (SD-056 action-conditional divergence
+        # contrastive training) with no reachable e2_rollout_output_norm_clamp_enabled
+        # setting, so E2's imagination rollout is unbounded under sustained training --
+        # confirmed to diverge to 1e16-1e18 magnitude on this identical code path
+        # (V3-EXQ-569e 2026-05-31, V3-EXQ-936 2026-08-17; see
+        # failure_autopsy_V3-EXQ-936_2026-08-18.json). Six of the measured fires
+        # (v3_exq_569a-e, v3_exq_613) legitimately predate the 2026-05-31 clamp amend
+        # and are not omissions. Triage: pass e2_rollout_output_norm_clamp_enabled=True
+        # (ratio 2.0 is the validated operating point) to the REEConfig builder, or mark
+        # SD056_ROLLOUT_CLAMP_EXEMPT when the unclamped path is deliberately under test.
+        # Do NOT flip the config default to True -- that changes bit-identity for every
+        # run relying on the default (SD-056 substrate_queue.json amend_history,
+        # 2026-08-18 Step 8 gate). Do NOT retro-edit a LANDED driver whose run is
+        # complete.
+        print("", flush=True)
+        print("[validate_experiments] SD056-TRAINING-WITHOUT-ROLLOUT-CLAMP WARNINGS "
+              "(advisory, non-blocking):", flush=True)
+        for p, warn in sd056_rollout_clamp_warnings:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
+            print(f"  - {rel}: {warn}", flush=True)
     if multi_arm_edof_warnings:
         # Advisory in BOTH modes (never hardens). A fire here means the driver sweeps a
         # default-off REEConfig knob across a module-level per-arm collection, then calls

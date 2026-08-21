@@ -62,6 +62,8 @@ _PATH_LINTS = (
     ("disjunctive_criteria_load_bearing_lint", V.disjunctive_criteria_load_bearing_lint),
     ("route_reason_consistency_lint", V.route_reason_consistency_lint),
     ("multi_arm_default_off_flags_collapse_lint", V.multi_arm_default_off_flags_collapse_lint),
+    ("sd056_training_without_rollout_clamp_lint",
+     V.sd056_training_without_rollout_clamp_lint),
 )
 
 # Lints that decide on the SOURCE TEXT and return before ever reaching `ast.parse`:
