@@ -106,6 +106,37 @@ CREATE TABLE IF NOT EXISTS commands (
 CREATE INDEX IF NOT EXISTS idx_commands_pending
     ON commands(machine, acked_at);
 
+-- Append-only heartbeat HISTORY, sibling to `heartbeats` above. `heartbeats`
+-- is upserted on every POST /heartbeat and holds only the LATEST tick per
+-- machine (PRIMARY KEY(machine)) -- "what was ree-cloud-3 doing at 04:00
+-- last Tuesday" is unanswerable from it, and the only surviving record was
+-- git commit history, a poor query interface. This table answers that.
+--
+-- NOT written on every tick. The runner POSTs /heartbeat every ~5s while an
+-- experiment is running (experiment_runner.STATUS_WRITE_INTERVAL), which
+-- would be ~720 rows/machine/hour logged unconditionally -- the same
+-- growth-without-bound mistake the retired 30-minute git heartbeat liveness
+-- tick was pulled for (see CLAUDE.md Coordinator section). A row is
+-- appended only when (state, current_exq) differs from the machine's
+-- current `heartbeats` row, i.e. one row per experiment start / finish /
+-- switch / idle transition, not per tick. See db.upsert_heartbeat.
+--
+-- Retention: trimmed to the most recent
+-- COORDINATOR_HEARTBEAT_LOG_RETENTION_DAYS (default 30) by
+-- db.trim_heartbeat_log, invoked opportunistically from upsert_heartbeat at
+-- most once per COORDINATOR_HEARTBEAT_LOG_TRIM_INTERVAL_SECONDS (default
+-- 3600) -- no separate timer needed on the 3.8 GB hub.
+CREATE TABLE IF NOT EXISTS heartbeat_log (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    machine       TEXT NOT NULL,
+    observed_at   TEXT NOT NULL,     -- ISO-8601 UTC, transition time
+    state         TEXT,
+    current_exq   TEXT,
+    payload_json  TEXT               -- verbatim heartbeat payload at the transition, nullable
+);
+CREATE INDEX IF NOT EXISTS idx_heartbeat_log_machine_time
+    ON heartbeat_log(machine, observed_at);
+
 -- Shadow audit. One row per reported claim attempt: what git decided vs
 -- what the coordinator's own logic would have decided. diverged=1 rows are
 -- the signal the operator watches before advancing past Phase 1.

@@ -11,6 +11,7 @@ import json
 import os
 import sqlite3
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 
 SCHEMA_PATH = os.path.join(os.path.dirname(__file__), "schema.sql")
@@ -32,6 +33,7 @@ def connect(db_path):
     _migrate_heartbeats(conn)
     _migrate_commands(conn)
     _migrate_experiments(conn)
+    _migrate_heartbeat_log(conn)
     return conn
 
 
@@ -129,6 +131,36 @@ def _migrate_commands(conn):
         conn.execute("ALTER TABLE commands ADD COLUMN result_note TEXT")
 
 
+def _migrate_heartbeat_log(conn):
+    """Create the append-only heartbeat_log table if missing.
+
+    Unlike _migrate_heartbeats/_migrate_commands/_migrate_experiments (which
+    ALTER an existing table with new columns), this is a brand-new table, so
+    there is nothing to gate on -- CREATE TABLE/INDEX IF NOT EXISTS is
+    idempotent and cheap on every call. Called from connect() (not just
+    init_db()) so a live DB picks it up without a rebuild, mirroring the
+    "no rebuild needed" contract the other _migrate_* functions document --
+    schema.sql's own CREATE TABLE IF NOT EXISTS only runs inside init_db()'s
+    executescript, which fires once at process start.
+    """
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS heartbeat_log (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            machine       TEXT NOT NULL,
+            observed_at   TEXT NOT NULL,
+            state         TEXT,
+            current_exq   TEXT,
+            payload_json  TEXT
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_heartbeat_log_machine_time "
+        "ON heartbeat_log(machine, observed_at)"
+    )
+
+
 def init_db(db_path):
     conn = connect(db_path)
     with open(SCHEMA_PATH, "r", encoding="utf-8") as fh:
@@ -136,6 +168,7 @@ def init_db(db_path):
     _migrate_heartbeats(conn)
     _migrate_commands(conn)
     _migrate_experiments(conn)
+    _migrate_heartbeat_log(conn)
     conn.close()
 
 
@@ -827,6 +860,52 @@ def record_result(conn, run_id, queue_id, machine, outcome,
     return True
 
 
+# heartbeat_log retention/write knobs. Env-overridable, same convention as
+# app.py's COORDINATOR_* constants. See schema.sql's heartbeat_log comment
+# for why this is on-change (not every tick) and why trim runs opportunistic
+# rather than needing its own systemd timer.
+HEARTBEAT_LOG_RETENTION_DAYS = int(
+    os.environ.get("COORDINATOR_HEARTBEAT_LOG_RETENTION_DAYS", "30"))
+HEARTBEAT_LOG_TRIM_INTERVAL_SECONDS = float(
+    os.environ.get("COORDINATOR_HEARTBEAT_LOG_TRIM_INTERVAL_SECONDS", "3600"))
+
+# Wall-clock (time.monotonic) of the last trim, module-global because the
+# coordinator is one process (ThreadingHTTPServer) even though each request
+# opens its own sqlite3 connection -- see app.py's per-request db.connect().
+# A race between two threads both deciding to trim at once is harmless: the
+# DELETE is idempotent and cheap (uses idx_heartbeat_log_machine_time).
+_last_heartbeat_log_trim = [0.0]
+
+
+def trim_heartbeat_log(conn, retention_days=None):
+    """Delete heartbeat_log rows older than `retention_days` (default
+    HEARTBEAT_LOG_RETENTION_DAYS). Returns the number of rows deleted.
+    Safe to call any time; not gated by _maybe_trim_heartbeat_log's interval
+    -- that gate is only for the opportunistic call from upsert_heartbeat.
+    """
+    days = HEARTBEAT_LOG_RETENTION_DAYS if retention_days is None else retention_days
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ")
+    cur = conn.execute(
+        "DELETE FROM heartbeat_log WHERE observed_at < ?", (cutoff,))
+    return cur.rowcount
+
+
+def _maybe_trim_heartbeat_log(conn):
+    """Opportunistic trim, at most once per HEARTBEAT_LOG_TRIM_INTERVAL_SECONDS.
+
+    Keeps the retention policy self-enforcing on the write path with no
+    separate timer/cron needed -- every POST /heartbeat is a chance to trim,
+    throttled so the DELETE only actually runs ~once/hour regardless of
+    heartbeat volume.
+    """
+    now = time.monotonic()
+    if now - _last_heartbeat_log_trim[0] < HEARTBEAT_LOG_TRIM_INTERVAL_SECONDS:
+        return
+    _last_heartbeat_log_trim[0] = now
+    trim_heartbeat_log(conn)
+
+
 def upsert_heartbeat(conn, machine, state, current_exq, progress, gpu,
                      seconds_elapsed=None, seconds_remaining=None,
                      payload_json=None):
@@ -839,7 +918,21 @@ def upsert_heartbeat(conn, machine, state, current_exq, progress, gpu,
     runner_heartbeats/*.json directly. None is the legacy path (old
     runners that don't send the rich payload); the coordinator still
     stores the structured fields and lifecycle_state remains derivable.
+
+    Also appends to heartbeat_log (see schema.sql) when (state,
+    current_exq) differs from the machine's PRIOR row -- i.e. one history
+    row per experiment start/finish/switch/idle transition, read BEFORE
+    this upsert overwrites the current-state row.
     """
+    prior = conn.execute(
+        "SELECT state, current_exq FROM heartbeats WHERE machine=?",
+        (machine,),
+    ).fetchone()
+    transitioned = (
+        prior is None
+        or (prior["state"], prior["current_exq"]) != (state, current_exq)
+    )
+
     # On update, leave heartbeat_payload_json unchanged when caller passes
     # None (so structured-field-only POSTs from legacy clients don't
     # clobber a payload sent by a newer client on a different tick).
@@ -883,6 +976,17 @@ def upsert_heartbeat(conn, machine, state, current_exq, progress, gpu,
              json.dumps(progress or {}), json.dumps(gpu or {}),
              seconds_elapsed, seconds_remaining, payload_json),
         )
+
+    if transitioned:
+        conn.execute(
+            """
+            INSERT INTO heartbeat_log
+              (machine, observed_at, state, current_exq, payload_json)
+            VALUES (?,?,?,?,?)
+            """,
+            (machine, utcnow(), state, current_exq, payload_json),
+        )
+    _maybe_trim_heartbeat_log(conn)
 
 
 def record_status_payload(conn, machine, payload_json):
