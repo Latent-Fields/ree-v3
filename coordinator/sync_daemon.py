@@ -552,8 +552,32 @@ PHASE3_ASSEMBLY_BRANCH = _validate_branch_name(
 #       current state.
 #   PHASE3_HEARTBEAT_STALE_AFTER        -- machine considered "silent" if
 #       its heartbeat.last_tick_utc has not advanced for this many
-#       seconds (default 600 = 10 min). silent <-> active is a tracked
-#       state-change axis.
+#       seconds (default 900 = 15 min; was 600 until 2026-08-21). silent
+#       <-> active is a tracked state-change axis.
+#   PHASE3_HEARTBEAT_RECOVERY_CONFIRM_TICKS -- number of DISTINCT fresh
+#       last_tick_utc observations required, while a machine is flagged
+#       silent, before it is reported "came back" (default 2).
+#
+# 2026-08-21 hysteresis follow-up (chip-20260821-heartbeat-silent-flapping):
+# measured 14 days of REE_assembly `phase3-heartbeats:` history plus live
+# coordinator access logs on the hub. Two findings drove the changes above:
+#   (1) The "uptime" between a machine's came-back commit and its very next
+#       went-silent commit clustered at exactly PHASE3_HEARTBEAT_STALE_AFTER
+#       (the mechanism's own detection floor) for a large share of
+#       transitions on ree-cloud-2/3/4 and DLAPTOP -- i.e. the machine sent
+#       exactly ONE heartbeat before going quiet again, not a sustained
+#       recovery. The old code reported "came back" on that single
+#       heartbeat, producing a spurious went_silent/came_back commit pair
+#       per blip. STALE_AFTER alone cannot fix this -- raising it only
+#       delays the same single-blip flap, it does not suppress it.
+#   (2) Live coordinator access-log gap analysis (2.5 days, all fleet
+#       machines) put the noisiest well-behaved box's (ree-cloud-4, combined
+#       with its co-located metaworker identity) p99 inter-heartbeat gap at
+#       ~493s under normal idle-loop operation -- only ~22% below the old
+#       600s threshold, i.e. thin margin against ordinary jitter (git pulls,
+#       claim checks, dispatch-cycle contention on that dual-role box).
+# See REE_Working/docs/plans/fleet_telemetry_consolidation_20260821.md
+# workstream W5 for the churn-reduction context this follows on from.
 PHASE3_HEARTBEAT_DEBOUNCE_INTERVAL = _validate_float(
     os.environ.get("PHASE3_HEARTBEAT_DEBOUNCE_INTERVAL", "300"),
     "PHASE3_HEARTBEAT_DEBOUNCE_INTERVAL", 300.0)
@@ -561,8 +585,11 @@ PHASE3_HEARTBEAT_LIVENESS_INTERVAL = _validate_float(
     os.environ.get("PHASE3_HEARTBEAT_LIVENESS_INTERVAL", "1800"),
     "PHASE3_HEARTBEAT_LIVENESS_INTERVAL", 1800.0)
 PHASE3_HEARTBEAT_STALE_AFTER = _validate_float(
-    os.environ.get("PHASE3_HEARTBEAT_STALE_AFTER", "600"),
-    "PHASE3_HEARTBEAT_STALE_AFTER", 600.0)
+    os.environ.get("PHASE3_HEARTBEAT_STALE_AFTER", "900"),
+    "PHASE3_HEARTBEAT_STALE_AFTER", 900.0)
+PHASE3_HEARTBEAT_RECOVERY_CONFIRM_TICKS = _validate_positive_int(
+    os.environ.get("PHASE3_HEARTBEAT_RECOVERY_CONFIRM_TICKS", "2"),
+    "PHASE3_HEARTBEAT_RECOVERY_CONFIRM_TICKS", 2)
 
 
 # Module-level state for the state-change-triggered writer. Persists across
@@ -574,6 +601,12 @@ _PHASE3_HEARTBEAT_LAST_COMMITTED_STATE = {}   # machine -> state dict
 _PHASE3_HEARTBEAT_LAST_TICK_UTC = {}          # machine -> (utc_str, monotonic_seen_at)
 _PHASE3_HEARTBEAT_LAST_COMMIT_TS = 0.0        # monotonic time of last commit
 _PHASE3_HEARTBEAT_INITIALIZED = False         # False until first commit lands
+# Recovery-hysteresis state (2026-08-21). A machine is "confirmed silent"
+# once raw staleness fires; it stays confirmed-silent across single-blip
+# heartbeats until PHASE3_HEARTBEAT_RECOVERY_CONFIRM_TICKS distinct fresh
+# last_tick_utc observations are seen. See _phase3_heartbeat_is_silent.
+_PHASE3_HEARTBEAT_CONFIRMED_SILENT = {}       # machine -> bool
+_PHASE3_HEARTBEAT_RECOVERY_TICKS = {}         # machine -> int (pending confirmations)
 
 
 # ---- Writer-health snapshot (read by coordinator app.py /writer-health) ----
@@ -818,6 +851,8 @@ def _reset_phase3_heartbeat_state():
     _PHASE3_HEARTBEAT_LAST_TICK_UTC.clear()
     _PHASE3_HEARTBEAT_LAST_COMMIT_TS = 0.0
     _PHASE3_HEARTBEAT_INITIALIZED = False
+    _PHASE3_HEARTBEAT_CONFIRMED_SILENT.clear()
+    _PHASE3_HEARTBEAT_RECOVERY_TICKS.clear()
 
 
 def _extract_heartbeat_machine_state(status_doc, heartbeat_doc):
@@ -851,16 +886,72 @@ def _extract_heartbeat_machine_state(status_doc, heartbeat_doc):
     return state
 
 
-def _phase3_heartbeat_is_silent(machine, current_utc, now, stale_after):
+def _phase3_heartbeat_is_silent(machine, current_utc, now, stale_after,
+                                recovery_confirm_ticks=None):
     """Update the per-machine last_tick_utc cache and return True iff the
-    machine's last_tick_utc has been unchanged for >= stale_after seconds.
-    First observation of a (machine, utc) pair seeds the timer without
-    declaring silent."""
+    machine should currently be REPORTED as silent.
+
+    Declaring silent is immediate: as soon as last_tick_utc has been
+    unchanged for >= stale_after seconds, this returns True on the same
+    tick (a genuine departure must still be reported without delay --
+    CLAUDE.md Concurrency Rules / this function's callers never suppress
+    a went_silent event).
+
+    Recovering from silent is NOT immediate. It requires observing
+    `recovery_confirm_ticks` DISTINCT last_tick_utc advances while the
+    machine is flagged silent -- not merely one. A single stray heartbeat
+    from a machine that then goes quiet again would otherwise flip
+    silent -> not-silent for one tick and flip straight back once that
+    same heartbeat itself goes stale, producing a spurious
+    went_silent/came_back commit pair. Measured 2026-08-21 on 14 days of
+    REE_assembly history: this single-blip pattern -- "uptime" between a
+    came-back and the very next went-silent landing almost exactly at
+    stale_after, the mechanism's own detection floor -- accounted for a
+    large share of all silent/came-back commits on ree-cloud-2/3/4 and
+    DLAPTOP. See PHASE3_HEARTBEAT_RECOVERY_CONFIRM_TICKS above.
+
+    Counting DISTINCT new-utc observations (rather than elapsed wall time)
+    is deliberate: it is agnostic to each machine's real heartbeat cadence,
+    which varies widely (5s while an experiment runs, ~120s idle-looping,
+    longer under contention on a dual-role box) -- a fixed time window
+    would either be too short for a slow machine or needlessly delay a
+    fast one.
+    """
+    if recovery_confirm_ticks is None:
+        recovery_confirm_ticks = PHASE3_HEARTBEAT_RECOVERY_CONFIRM_TICKS
+
     prev = _PHASE3_HEARTBEAT_LAST_TICK_UTC.get(machine)
-    if prev is None or prev[0] != current_utc:
+    is_new_tick = prev is None or prev[0] != current_utc
+    if is_new_tick:
         _PHASE3_HEARTBEAT_LAST_TICK_UTC[machine] = (current_utc, now)
+    raw_stale = (not is_new_tick) and ((now - prev[1]) >= stale_after)
+
+    if raw_stale:
+        _PHASE3_HEARTBEAT_CONFIRMED_SILENT[machine] = True
+        _PHASE3_HEARTBEAT_RECOVERY_TICKS.pop(machine, None)
+        return True
+
+    was_confirmed_silent = _PHASE3_HEARTBEAT_CONFIRMED_SILENT.get(
+        machine, False)
+    if not was_confirmed_silent:
+        # Not currently silent and no recovery in progress -- stays clear.
+        _PHASE3_HEARTBEAT_RECOVERY_TICKS.pop(machine, None)
         return False
-    return (now - prev[1]) >= stale_after
+
+    # was_confirmed_silent and not raw_stale: a recovery attempt is under
+    # way. Only count DISTINCT new heartbeats, not every tick that merely
+    # remains within stale_after of the last one seen.
+    if is_new_tick:
+        _PHASE3_HEARTBEAT_RECOVERY_TICKS[machine] = (
+            _PHASE3_HEARTBEAT_RECOVERY_TICKS.get(machine, 0) + 1)
+
+    if _PHASE3_HEARTBEAT_RECOVERY_TICKS.get(machine, 0) >= recovery_confirm_ticks:
+        _PHASE3_HEARTBEAT_CONFIRMED_SILENT[machine] = False
+        _PHASE3_HEARTBEAT_RECOVERY_TICKS.pop(machine, None)
+        return False
+
+    # Recovery not yet confirmed -- keep reporting silent.
+    return True
 
 
 def _phase3_heartbeat_compute_changes(last_committed, current_states):

@@ -411,42 +411,106 @@ class CommitMessageNaming(_Fixture):
 class GoingSilentTransition(_Fixture):
     """A machine whose heartbeat.last_tick_utc stops advancing past the
     staleness threshold must be flagged silent exactly once (transition
-    edge, not every tick), and must flag came-back if it resumes."""
+    edge, not every tick). Recovering from silent additionally requires
+    PHASE3_HEARTBEAT_RECOVERY_CONFIRM_TICKS distinct fresh observations
+    (2026-08-21 hysteresis follow-up, chip-20260821-heartbeat-silent-
+    flapping) -- see the two tests below this one for the behavior that
+    changed and why."""
 
-    def test_went_silent_then_came_back(self):
-        self._seed("cloud-z", queue_id=None,
-                   last_tick_utc="2026-05-31T08:00:00Z")
+    def _go_silent(self, machine="cloud-z",
+                   first_utc="2026-05-31T08:00:00Z"):
+        """Shared setup: seed a machine, then advance past stale_after +
+        debounce so its went-silent commit lands. Returns nothing; caller
+        continues from a confirmed-silent state."""
+        self._seed(machine, queue_id=None, last_tick_utc=first_utc)
         self.assertTrue(self._run())
-
-        # Hold the same last_tick_utc and advance past the stale-after
-        # threshold + debounce so the silent transition fires.
         stale = sync_daemon.PHASE3_HEARTBEAT_STALE_AFTER
         debounce = sync_daemon.PHASE3_HEARTBEAT_DEBOUNCE_INTERVAL
         self._advance(max(stale, debounce) + 1)
         self.assertTrue(self._run())  # detect stale; tick advances cache
-        # Cross past debounce so the commit can fire on the silent event.
         self._advance(debounce + 1)
-        self.assertTrue(self._run())
+        self.assertTrue(self._run())  # went-silent commits
         subj_silent = self._head_subject()
-        self.assertIn("cloud-z", subj_silent)
+        self.assertIn(machine, subj_silent)
         self.assertIn("went silent", subj_silent)
 
-        # Same payload again: no second went-silent commit.
+    def test_went_silent_does_not_refire_while_still_silent(self):
+        self._go_silent()
         sha_at_silent = self._head_sha()
+        debounce = sync_daemon.PHASE3_HEARTBEAT_DEBOUNCE_INTERVAL
         self._advance(debounce + 1)
         self.assertTrue(self._run())
         self.assertEqual(
             self._head_sha(), sha_at_silent,
             "went-silent must not re-fire while the machine stays silent")
 
-        # Resume: last_tick_utc advances, came-back fires past debounce.
+    def test_sustained_recovery_confirms_came_back(self):
+        """Two DISTINCT fresh last_tick_utc observations after silent ->
+        came-back fires. This is the genuine-recovery path the hysteresis
+        must still allow through."""
+        self._go_silent()
+        debounce = sync_daemon.PHASE3_HEARTBEAT_DEBOUNCE_INTERVAL
+
+        # First fresh heartbeat: recovery attempt starts, not yet confirmed
+        # (1 of 2 ticks) -- no came-back commit yet.
         self._advance(debounce + 1)
+        sha_before = self._head_sha()
         self._seed("cloud-z", queue_id=None,
                    last_tick_utc="2026-05-31T09:00:00Z")
+        self.assertTrue(self._run())
+        self.assertEqual(
+            self._head_sha(), sha_before,
+            "a single fresh heartbeat must not confirm recovery")
+
+        # Second DISTINCT fresh heartbeat: recovery confirmed, came-back
+        # fires past debounce.
+        self._advance(debounce + 1)
+        self._seed("cloud-z", queue_id=None,
+                   last_tick_utc="2026-05-31T09:05:00Z")
         self.assertTrue(self._run())
         subj_back = self._head_subject()
         self.assertIn("cloud-z", subj_back)
         self.assertIn("came back", subj_back)
+
+    def test_single_blip_does_not_cause_spurious_flap(self):
+        """The bug this fix targets: a machine that posts exactly ONE
+        heartbeat while silent, then goes quiet again, must NOT produce a
+        came_back commit at all (and therefore no subsequent spurious
+        went_silent either) -- it must simply stay reported silent.
+        Measured 2026-08-21: this single-blip pattern accounted for a
+        large share of all silent/came-back commit pairs on
+        ree-cloud-2/3/4 and DLAPTOP over 14 days of REE_assembly history."""
+        self._go_silent()
+        sha_at_silent = self._head_sha()
+        debounce = sync_daemon.PHASE3_HEARTBEAT_DEBOUNCE_INTERVAL
+
+        # Exactly one fresh heartbeat -- not enough to confirm recovery.
+        self._advance(debounce + 1)
+        self._seed("cloud-z", queue_id=None,
+                   last_tick_utc="2026-05-31T09:00:00Z")
+        self.assertTrue(self._run())
+        self.assertEqual(
+            self._head_sha(), sha_at_silent,
+            "a lone blip must not commit a came-back event")
+
+        # The blip itself goes stale again (no further heartbeats) -- still
+        # no new commit; the machine was never confirmed recovered, so
+        # there is nothing to re-flip to silent. Single call: the earlier
+        # trace (test_went_silent_does_not_refire_while_still_silent)
+        # already shows a state-change commits on the very first tick that
+        # crosses stale_after when a change is pending, so one call is
+        # sufficient here (a second, redundant call would push total
+        # elapsed time since the went-silent commit past
+        # PHASE3_HEARTBEAT_LIVENESS_INTERVAL and trigger an unrelated
+        # liveness-tick commit, which is not what this test is about).
+        stale = sync_daemon.PHASE3_HEARTBEAT_STALE_AFTER
+        self._advance(max(stale, debounce) + 1)
+        self.assertTrue(self._run())
+        self.assertEqual(
+            self._head_sha(), sha_at_silent,
+            "a lone blip going stale again must not commit a second "
+            "went-silent event -- the machine was reported silent "
+            "throughout, so there is no transition to report")
 
 
 # ---------------------------------------------------------------------------
