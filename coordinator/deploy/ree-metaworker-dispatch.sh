@@ -595,11 +595,28 @@ OPEN_WORK=$(count_open_chips work)
 OPEN_DECISION=$(count_open_chips decision)
 
 list_metaworker_worktrees > "$WT_AFTER_FILE"
-NEW_DISPATCHES=$(LC_ALL=C comm -13 "$WT_BEFORE_FILE" "$WT_AFTER_FILE" | wc -l | tr -d ' ')
+NEW_WT_NAMES_FILE="$STATE_DIR/.wt_new_names"
+LC_ALL=C comm -13 "$WT_BEFORE_FILE" "$WT_AFTER_FILE" > "$NEW_WT_NAMES_FILE"
+NEW_DISPATCHES=$(wc -l < "$NEW_WT_NAMES_FILE" | tr -d ' ')
 DISPATCHED_TOTAL=$(( PREV_DISPATCHED_TOTAL + NEW_DISPATCHES ))
 echo "$DISPATCHED_TOTAL" > "$DISPATCHED_FILE"
 
 ALIVE_COUNT=$(count_alive_dispatches)
+
+# Chip_ref of the most recently dispatched worktree this cycle, for the
+# heartbeat's last_dispatch_chip_ref field. Worktree names are
+# metaworker-<chip_ref> (Step 4's own convention); when more than one was
+# created this cycle, take the lexicographically LAST -- chip_ref sorts
+# chip-YYYYMMDD-..., so this is a same-cycle approximation of "most
+# recent", not a hazard: ree_metaworker_heartbeat.py's build_heartbeat()
+# carries the field forward across every OTHER call (the START-of-cycle
+# keepalive, and any cycle that dispatches nothing), so a same-cycle
+# ordering miss self-corrects on the very next real dispatch and is never
+# silently permanent the way a plain args-only field would be.
+LAST_DISPATCH_CHIP_REF=""
+if [ -s "$NEW_WT_NAMES_FILE" ]; then
+  LAST_DISPATCH_CHIP_REF=$(tail -1 "$NEW_WT_NAMES_FILE" | sed 's/^metaworker-//')
+fi
 
 /opt/local/bin/python3 "$REPO/scripts/ree_metaworker_heartbeat.py" \
   --machine "$MACHINE" \
@@ -614,6 +631,7 @@ ALIVE_COUNT=$(count_alive_dispatches)
   $( [ -n "$SESSION_LOG_FROM" ] && echo "--session-log $LOG --session-log-from-byte $SESSION_LOG_FROM" ) \
   $( [ -n "$SESSION_RC" ] && echo "--session-rc $SESSION_RC" ) \
   $( [ "$PAUSED" = "true" ] && echo "--paused" ) \
+  $( [ -n "$LAST_DISPATCH_CHIP_REF" ] && printf -- '--last-dispatch-chip-ref %s' "$LAST_DISPATCH_CHIP_REF" ) \
   --note "cycle $CYCLE ($STATE)" \
   --push >> "$LOG" 2>&1
 
