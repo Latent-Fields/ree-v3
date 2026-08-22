@@ -64,6 +64,7 @@ _PATH_LINTS = (
     ("multi_arm_default_off_flags_collapse_lint", V.multi_arm_default_off_flags_collapse_lint),
     ("sd056_training_without_rollout_clamp_lint",
      V.sd056_training_without_rollout_clamp_lint),
+    ("precondition_recomputability_lint", V.precondition_recomputability_lint),
 )
 
 # Lints that decide on the SOURCE TEXT and return before ever reaching `ast.parse`:

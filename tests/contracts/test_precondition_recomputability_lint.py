@@ -810,3 +810,270 @@ def test_r0s_partition_branch_is_warn_only():
         assert "SATURATION GUARD" in r.stdout
     finally:
         os.unlink(name)
+
+
+# ---- (1f) zero-or-negative FLOOR on a manifestly non-negative `measured` ---
+# (2026-08-21/22). V3-EXQ-914 mech293_ghost_branch_live: `measured` is a worst-cell
+# MINIMUM of `mech293_n_ghost_admitted_mean` (a per-seed admitted-ghost COUNT, so
+# >= 0 by construction) reported against `threshold: 0.0, direction: "lower"`.
+# build_experiment_indexes recomputes that as `measured >= 0.0`, which is trivially
+# true for a non-negative measured -- so the floor CANNOT FAIL, regardless of what
+# `met` (p1_ghost_live -- an unrelated SEED FRACTION against SEED_PASS_FRACTION)
+# actually says. 1 of 5 seeds admitted zero ghosts (bit-identical to the
+# closed-channel control arm) and the precondition still reported met=True.
+#
+# Different from (b)/(d): those key on `measured` and `met` sharing (or visibly
+# NOT sharing) a collection/statistic. This branch does not look at `met` at all --
+# it flags the threshold/measured PAIR alone, because the floor is unfalsifiable
+# independent of whatever `met` happens to compute.
+
+_ZERO_FLOOR_NONNEG = '''
+SEED_PASS_FRACTION = 2.0 / 3.0
+
+def _worst_cell(rows, key, mode="min"):
+    fn = min if mode == "min" else max
+    r = fn(rows, key=lambda x: x[key])
+    return float(r[key]), f"seed{r['seed']}"
+
+def main():
+    rows = [
+        {"seed": 42, "n_ghost_admitted_mean": 3.1},
+        {"seed": 43, "n_ghost_admitted_mean": 0.0},
+        {"seed": 44, "n_ghost_admitted_mean": 1.2},
+    ]
+    ghost_fire_frac = sum(1 for r in rows if r["n_ghost_admitted_mean"] > 0) / len(rows)
+    p1_ghost_live = ghost_fire_frac >= SEED_PASS_FRACTION
+    ghost_worst, ghost_worst_cell = _worst_cell(rows, "n_ghost_admitted_mean", mode="min")
+    interpretation = {
+        "preconditions": [
+            {
+                "name": "ghost_branch_live",
+                "measured": ghost_worst,
+                "threshold": 0.0,
+                "direction": "lower",
+                "met": p1_ghost_live,
+            },
+        ],
+    }
+    return interpretation
+
+if __name__ == "__main__":
+    main()
+'''
+
+
+def test_r0y_zero_floor_on_nonneg_worst_cell_flagged():
+    """The V3-EXQ-914 shape itself: worst-cell min of an `n_`-prefixed count field
+    against a non-strict zero floor, `met` a disjoint seed fraction."""
+    out = _lint(_ZERO_FLOOR_NONNEG)
+    assert out is not None
+    assert "non-strict FLOOR" in out, out
+    assert "ghost_branch_live" in out, out
+
+
+def test_r0y2_strict_comparator_is_not_flagged():
+    """CONSERVATISM, and the load-bearing discriminator for this branch. A STRICT
+    ">" floor recomputes as `measured > threshold`, which a non-negative measured
+    CAN fail at exactly zero -- genuinely falsifiable, not the defect shape. This
+    is the real V3-EXQ-819 shape (`comparator: ">"` on an abs-delta worst cell) and
+    it must stay quiet."""
+    src = _ZERO_FLOOR_NONNEG.replace(
+        '                "direction": "lower",\n',
+        '                "direction": "lower",\n'
+        '                "comparator": ">",\n')
+    out = _lint(src)
+    assert out is None or "non-strict FLOOR" not in out, out
+
+
+def test_r0y3_nonstrict_comparator_still_flags():
+    """An explicit `comparator: ">="` is the same non-strict recompute as the
+    absent-comparator default, so it must fire identically."""
+    src = _ZERO_FLOOR_NONNEG.replace(
+        '                "direction": "lower",\n',
+        '                "direction": "lower",\n'
+        '                "comparator": ">=",\n')
+    out = _lint(src)
+    assert out is not None and "non-strict FLOOR" in out, out
+
+
+def test_r0y4_unhinted_field_name_is_not_flagged():
+    """CONSERVATISM: without a recognised non-negative marker token (abs/n/count)
+    anywhere in the reduction's string arguments, non-negativity is UNPROVEN, not
+    disproven -- this branch must stay silent rather than guess. Mirrors the real
+    108b real_zworld_nondegenerate case, which this branch also does not catch."""
+    src = _ZERO_FLOOR_NONNEG.replace("n_ghost_admitted_mean", "vt_mean")
+    out = _lint(src)
+    assert out is None or "non-strict FLOOR" not in out, out
+
+
+def test_r0y5_positive_threshold_is_not_flagged():
+    """CONSERVATISM: a real, non-zero floor on the same non-negative quantity is a
+    genuinely falsifiable check (measured can fall short of a positive threshold),
+    so it is out of this branch's scope entirely -- unlike threshold<=0, it is not
+    definitionally unfalsifiable."""
+    src = _ZERO_FLOOR_NONNEG.replace('"threshold": 0.0,', '"threshold": 1.5,')
+    out = _lint(src)
+    assert out is None or "non-strict FLOOR" not in out, out
+
+
+def test_r0y6_negative_threshold_also_flags():
+    """threshold < 0 is an even more clearly unfalsifiable floor than threshold ==
+    0 on a non-negative measured (measured >= 0 > any negative threshold, always)
+    -- covers the "or <= 0" half of the brief, not just the literal zero case."""
+    src = _ZERO_FLOOR_NONNEG.replace('"threshold": 0.0,', '"threshold": -1.0,')
+    out = _lint(src)
+    assert out is not None and "non-strict FLOOR" in out, out
+
+
+def test_r0y7_ceiling_direction_is_not_a_floor():
+    """CONSERVATISM: `direction: "upper"` is a ceiling, not a floor -- threshold<=0
+    there means "measured must stay at or below zero", which is not the
+    unfalsifiable-floor shape at all and must never fire."""
+    src = _ZERO_FLOOR_NONNEG.replace('"direction": "lower",', '"direction": "upper",')
+    out = _lint(src)
+    assert out is None or "non-strict FLOOR" not in out, out
+
+
+def test_r0y8_interval_precondition_is_not_flagged():
+    """CONSERVATISM: the interval (threshold_low/threshold_high) shape has no
+    single `threshold` for this branch to read at all, and must stay outside its
+    scope exactly like it stays outside (b)'s undeclared-band scope."""
+    out = _lint(_BAND_INTERVAL)
+    assert out is None or "non-strict FLOOR" not in out, out
+
+
+def test_r0y9_ternary_config_constant_idiom_flagged():
+    """The V3-EXQ-720/725/725a shape: `measured` is a ternary choosing between a
+    positive module-level constant and a literal 0.0 fallback -- both provably
+    non-negative, so `_is_manifestly_nonneg` must see through the conditional."""
+    src = '''
+BINDING_STRENGTH = 0.5
+
+def main():
+    binding_active = False
+    interpretation = {
+        "preconditions": [
+            {
+                "name": "binding_active",
+                "measured": float(BINDING_STRENGTH if binding_active else 0.0),
+                "threshold": 0.0,
+                "met": bool(binding_active),
+            },
+        ],
+    }
+    return interpretation
+
+if __name__ == "__main__":
+    main()
+'''
+    out = _lint(src)
+    assert out is not None and "non-strict FLOOR" in out, out
+    assert "binding_active" in out, out
+
+
+def test_r0y10_abs_call_measured_flagged():
+    """`abs(...)` is non-negative regardless of its argument -- the direct
+    safe-call path, not the reduction-over-a-hinted-field path."""
+    src = '''
+def main():
+    delta = -0.0001
+    interpretation = {
+        "preconditions": [
+            {
+                "name": "moved_at_all",
+                "measured": abs(delta),
+                "threshold": 0.0,
+                "direction": "lower",
+                "met": bool(delta != 0.0),
+            },
+        ],
+    }
+    return interpretation
+
+if __name__ == "__main__":
+    main()
+'''
+    out = _lint(src)
+    assert out is not None and "non-strict FLOOR" in out, out
+
+
+def test_r0y11_branch_f_is_warn_only():
+    """INVARIANT: like every other branch of this gate, never blocks."""
+    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False,
+                                     dir=str(EXPERIMENTS_DIR)) as f:
+        f.write(_ZERO_FLOOR_NONNEG)
+        name = f.name
+    try:
+        r = _run("--checks", "precondition_recomputability", "--quiet", "--strict",
+                 "--paths", name)
+        assert r.returncode == 0, r.stdout[-2000:]
+        assert "non-strict FLOOR" in r.stdout
+    finally:
+        os.unlink(name)
+
+
+def test_r0y12_real_914_is_the_detection_witness():
+    """Pins the confirmed miss against the real file, not just a synthetic shape."""
+    real = EXPERIMENTS_DIR / "v3_exq_914_mech236_hippocampal_zgoal_channel_ablation.py"
+    if not real.exists():
+        return
+    out = V.precondition_recomputability_lint(real)
+    assert out is not None and "non-strict FLOOR" in out, out
+    assert "mech293_ghost_branch_live" in out, out
+
+
+# ---- (4) whole-corpus fire-count pin (2026-08-22) --------------------------
+# Every branch of this gate combined, via the SHARED corpus_scan fixture in
+# tests/contracts/conftest.py -- per that module's own "a new corpus-wide lint
+# belongs in path_lints ... its corpus test takes corpus_scan" convention, not a
+# second full-corpus enumeration.
+#
+# Baseline before branch (f) (2026-08-21, ree-v3 ca856563): 148. Branch (f) adds
+# exactly 2 NEW files to the total --
+# v3_exq_108b_mech135_inv088_zworld_disambiguation.py (encoder_trained: worst-cell
+# min of a "max_abs_delta" field against a threshold-0.0 floor, `met` an unrelated
+# per-seed boolean) and v3_exq_914_mech236_hippocampal_zgoal_channel_ablation.py
+# (mech293_ghost_branch_live, the motivating defect). Three files with the SAME
+# threshold==0 floor shape were correctly EXCLUDED -- their comparator is strict
+# ">", genuinely falsifiable at measured==0, not "cannot fail":
+# v3_exq_819_mech457_..., v3_exq_819a_mech457_..., v3_exq_874_mech467_...,
+# v3_exq_895_mech074c_.... Four more zero-floor hits (v3_exq_689g_...,
+# v3_exq_720_..., v3_exq_725_..., v3_exq_725a_...) were ALREADY in the 148
+# baseline via other branches (no_direction / central_vs_worst) -- branch (f) adds
+# a second reason to an existing warning there, not a new file to the total.
+_PINNED_CORPUS_FIRE_COUNT = 150
+
+# The branch-(f)-specific subset, isolated from the other five branches sharing
+# the aggregate pin above. Pinned as an exact FILE SET (not just a count) since
+# corpus_scan only tracks whether the whole lint fired, not which branch.
+_PINNED_BRANCH_F_FILES = frozenset({
+    "v3_exq_108b_mech135_inv088_zworld_disambiguation.py",
+    "v3_exq_689g_mech449_go_nogo_conversion_falsifier.py",
+    "v3_exq_720_coherence_nonreducibility_bound_substrate.py",
+    "v3_exq_725_coherence_nonreducibility_learned_binder.py",
+    "v3_exq_725a_coherence_nonreducibility_converged_binder.py",
+    "v3_exq_914_mech236_hippocampal_zgoal_channel_ablation.py",
+})
+
+
+def test_r0z_corpus_fire_rate_is_pinned(corpus_scan):
+    fired = corpus_scan["precondition_recomputability_lint"]
+    assert len(fired) == _PINNED_CORPUS_FIRE_COUNT, (
+        f"precondition-recomputability fire count moved: {len(fired)} vs pinned "
+        f"{_PINNED_CORPUS_FIRE_COUNT}. If a NEW script is in this list, that is "
+        f"very likely a genuine defect in a NEW precondition -- fix the script "
+        f"rather than re-pinning. If you deliberately widened or narrowed a "
+        f"branch, re-pin and say so in the commit message. "
+        f"Fired: {sorted(p.name for p in fired)}")
+
+
+def test_r0z2_branch_f_corpus_fire_set_is_pinned(corpus_scan):
+    """Re-lints only the (small) already-fired subset from corpus_scan to isolate
+    branch (f)'s own contribution -- cheap, and avoids a second full-corpus walk."""
+    hits = {
+        p.name for p in corpus_scan["precondition_recomputability_lint"]
+        if "non-strict FLOOR" in (V.precondition_recomputability_lint(p) or "")
+    }
+    assert hits == _PINNED_BRANCH_F_FILES, (
+        f"branch (f) corpus hit SET moved: {sorted(hits)} vs pinned "
+        f"{sorted(_PINNED_BRANCH_F_FILES)}")

@@ -26,7 +26,7 @@ import ast
 import re
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 
 REPO_ROOT = Path(__file__).resolve().parent
 EXPERIMENTS_DIR = REPO_ROOT / "experiments"
@@ -917,6 +917,21 @@ _CARDINALITY_CALLS = ("len", "sum", "count", "bincount", "count_nonzero")
 # `all`/`any` quantify over a collection; `min`/`max` reduce it to an extremum. Either
 # way the resulting claim is about the WORST row, not about the collection's centre.
 _QUANTIFIER_CALLS = ("all", "any", "min", "max", "amin", "amax", "nanmin", "nanmax")
+# Branch (f): a zero-or-negative FLOOR on a `measured` this codebase's own naming
+# convention marks as manifestly non-negative. Any reduction over such a quantity
+# (central tendency, extremum, or cardinality) is non-negative too.
+_REDUCTION_CALLS_FOR_NONNEG = _CENTRAL_TENDENCY_CALLS + ("min", "max", "_worst_cell") + _CARDINALITY_CALLS
+# Sign-preserving wrappers to see through when locating the underlying reduction.
+_NONNEG_IDENTITY_CALLS = ("round", "float", "int")
+# Calls that are non-negative regardless of their argument.
+_NONNEG_SAFE_CALLS = ("abs", "len", "count_nonzero", "bincount")
+# Underscore-delimited field-name tokens this codebase uses, by convention, only for
+# manifestly non-negative quantities -- an absolute value ("*_abs_*"), a seed/step/
+# episode COUNT ("n_*" / "*_n_*", e.g. `n_ghost_admitted`, `n_e3_selects`), or a
+# "count" field ("median_excluded_count"). Deliberately excludes softer signals like
+# "_frac"/"_norm" that were not needed to reproduce any confirmed corpus case and
+# would widen the surface for a false match with no offsetting evidence.
+_NONNEG_FIELD_TOKENS = frozenset({"abs", "n", "count"})
 
 
 def _dict_str_keys(node: ast.Dict) -> Dict[str, ast.expr]:
@@ -987,6 +1002,185 @@ def _resolve_one_level(node: ast.expr, tree: ast.Module) -> ast.expr:
             if isinstance(sub.target, ast.Name) and sub.target.id == inner.id and sub.value:
                 found = sub.value
     return found if found is not None else node
+
+
+def _numeric_literal_value(node: ast.expr) -> Optional[Union[int, float]]:
+    """The numeric value of a literal `threshold`, or None if it is not one.
+
+    A plain positive/zero literal parses as `ast.Constant`, but Python's AST
+    represents a NEGATIVE literal as `UnaryOp(USub, Constant(<positive value>))` --
+    `-1.0` is never a `Constant` node. Branch (f)'s "threshold <= 0" test needs the
+    negative case too (a negative floor on a non-negative `measured` is even more
+    clearly unfalsifiable than a zero one), so this unwraps exactly that one-level
+    negation rather than requiring every threshold-reading call site to know about
+    the AST quirk separately.
+    """
+    if (isinstance(node, ast.Constant) and isinstance(node.value, (int, float))
+            and not isinstance(node.value, bool)):
+        return node.value
+    if (isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub)
+            and isinstance(node.operand, ast.Constant)
+            and isinstance(node.operand.value, (int, float))
+            and not isinstance(node.operand.value, bool)):
+        return -node.operand.value
+    return None
+
+
+def _resolve_measured_source(node: ast.expr, tree: ast.Module) -> ast.expr:
+    """Resolve a bare `measured` Name to its assigned RHS -- branch (f) only.
+
+    `_resolve_one_level` above is deliberately never applied to `measured` (see its
+    own docstring): resolving it would make branch (b)/(d)'s STATISTIC comparisons
+    look at what `measured` was computed FROM rather than the reported value itself,
+    which is exactly the transitivity those branches avoid on purpose. Branch (f)
+    asks a different, narrower question -- "is this reported number provably
+    non-negative" -- for which seeing through the assignment is required (a
+    `measured: ghost_worst` field is opaque without it) and safe (it cannot turn a
+    real mismatch into a false negative, only a missed non-negativity proof into a
+    found one).
+
+    Unlike `_resolve_one_level`, this ALSO resolves a tuple-unpack target
+    (`x, cell = _worst_cell(...)`) -- the codebase's own worst-cell convention
+    returns `(value, offending_cell_id)`, so `measured` is very often the first
+    element of such a pair. The unpack itself is not modelled; the whole call is
+    returned, which is sufficient because callers only inspect the call's function
+    name and string arguments, never a positional return value.
+    """
+    if not isinstance(node, ast.Name):
+        return node
+    found: Optional[ast.expr] = None
+    for sub in ast.walk(tree):
+        if isinstance(sub, ast.Assign):
+            for tgt in sub.targets:
+                if isinstance(tgt, ast.Name) and tgt.id == node.id:
+                    found = sub.value
+                elif isinstance(tgt, (ast.Tuple, ast.List)):
+                    if isinstance(sub.value, ast.Call) and any(
+                        isinstance(elt, ast.Name) and elt.id == node.id
+                        for elt in tgt.elts
+                    ):
+                        found = sub.value
+        elif isinstance(sub, ast.AnnAssign):
+            if isinstance(sub.target, ast.Name) and sub.target.id == node.id and sub.value:
+                found = sub.value
+    return found if found is not None else node
+
+
+def _call_fn_name(node: ast.expr) -> Optional[str]:
+    """The called function/method name of a Call node, or None."""
+    if not isinstance(node, ast.Call):
+        return None
+    if isinstance(node.func, ast.Name):
+        return node.func.id
+    if isinstance(node.func, ast.Attribute):
+        return node.func.attr
+    return None
+
+
+def _all_string_constants(node: ast.expr) -> List[str]:
+    """Every string-literal constant anywhere in an expression subtree."""
+    return [
+        sub.value for sub in ast.walk(node)
+        if isinstance(sub, ast.Constant) and isinstance(sub.value, str)
+    ]
+
+
+def _field_tokens_suggest_nonneg(text: str) -> bool:
+    """True when an underscore/non-alnum-delimited token of `text` is a known
+    non-negative-quantity marker (see `_NONNEG_FIELD_TOKENS`)."""
+    tokens = [t for t in re.split(r"[^a-zA-Z0-9]+", text.lower()) if t]
+    return bool(_NONNEG_FIELD_TOKENS & set(tokens))
+
+
+def _is_manifestly_nonneg(node: ast.expr, tree: ast.Module, _depth: int = 0) -> bool:
+    """Best-effort proof that an AST expression is ALWAYS >= 0 -- branch (f).
+
+    Deliberately conservative and shallow (bounded recursion via `_depth`): a
+    "False" return means "not proven", not "can be negative", so this must only
+    ever be used to WARN on a suspiciously-unfalsifiable floor, never to assert a
+    check is fine. Recognised shapes, chosen to match this codebase's own
+    conventions rather than to be exhaustive:
+
+      - a numeric literal >= 0;
+      - `abs(...)`, `len(...)`, `count_nonzero(...)`, `bincount(...)` -- calls whose
+        result is non-negative regardless of their argument;
+      - a reduction (`median`/`mean`/.../`min`/`max`/`_worst_cell`/`len`/`sum`/...)
+        over a collection whose per-item field name carries a non-negative marker
+        token (`_NONNEG_FIELD_TOKENS`) anywhere among the call's string-literal
+        arguments -- a mean, median, min, max, or count of non-negative values is
+        itself non-negative;
+      - `A if COND else B`, when BOTH `A` and `B` independently prove non-negative
+        (the `CROSS_STREAM_BINDING_STRENGTH if binding_active else 0.0` idiom);
+      - a bare Name, resolved one hop via `_resolve_measured_source` and then
+        re-checked recursively;
+      - seeing through `round(...)`/`float(...)`/`int(...)` wrappers first (sign-
+        preserving, so unwrapping them cannot turn a false proof into a true one).
+
+    Misses by design: a field whose non-negativity is only provable by tracing a
+    helper's own arithmetic (e.g. `min(v for v in xs if v == v)` over a bare
+    variable with no string-keyed field to read a hint from) is left unproven. That
+    is an accepted miss, not a defect -- see `precondition_recomputability_lint`'s
+    branch (f) docstring.
+    """
+    if _depth > 4:
+        return False
+    while True:
+        fn = _call_fn_name(node)
+        if fn in _NONNEG_IDENTITY_CALLS and node.args:
+            node = node.args[0]
+            continue
+        break
+    literal = _numeric_literal_value(node)
+    if literal is not None:
+        return literal >= 0
+    if isinstance(node, ast.Call):
+        fn = _call_fn_name(node)
+        if fn in _NONNEG_SAFE_CALLS:
+            return True
+        if fn in _REDUCTION_CALLS_FOR_NONNEG:
+            strings: List[str] = []
+            for arg in node.args:
+                strings.extend(_all_string_constants(arg))
+            for kw in node.keywords:
+                if kw.value is not None:
+                    strings.extend(_all_string_constants(kw.value))
+            return any(_field_tokens_suggest_nonneg(s) for s in strings)
+        return False
+    if isinstance(node, ast.IfExp):
+        return (_is_manifestly_nonneg(node.body, tree, _depth + 1)
+                and _is_manifestly_nonneg(node.orelse, tree, _depth + 1))
+    if isinstance(node, ast.Name):
+        resolved = _resolve_measured_source(node, tree)
+        if resolved is node:
+            return False
+        return _is_manifestly_nonneg(resolved, tree, _depth + 1)
+    return False
+
+
+def _is_nonstrict_floor(fields: Dict[str, ast.expr]) -> bool:
+    """True when a single-bound precondition is a FLOOR whose comparator is NOT
+    strict ">" -- i.e. build_experiment_indexes._precondition_unmet recomputes it
+    as `measured >= threshold` (see that function's line "return m <= t if comp ==
+    '>' else m < t" for the lower-direction unmet test; only a literal ">"
+    comparator is strict, everything else -- including an absent comparator --
+    recomputes non-strictly). Mirrors _precondition_direction's comparator-over-
+    direction priority. A ceiling (comparator "<="/"<", or direction "upper") is
+    not a floor at all and returns False; absent/unrecognised direction defaults
+    to "lower", matching the indexer's own fallback.
+    """
+    comparator = fields.get("comparator")
+    if isinstance(comparator, ast.Constant) and isinstance(comparator.value, str):
+        c = comparator.value.strip()
+        if c in (">=", ">"):
+            return c != ">"
+        if c in ("<=", "<"):
+            return False
+    direction = fields.get("direction")
+    if isinstance(direction, ast.Constant) and isinstance(direction.value, str):
+        d = direction.value.strip().lower()
+        if d in ("upper", "ceiling", "max", "upper_bound"):
+            return False
+    return True
 
 
 _LOW_OPS = (ast.Gt, ast.GtE)
@@ -1157,7 +1351,20 @@ def precondition_recomputability_lint(path: Path) -> Optional[str]:
           unguarded on the arms that carry the manipulation (V3-EXQ-779b and V3-EXQ-777
           baseline_entropy_headroom; autopsy 2026-07-19 section 7). A one-sided FLOOR is
           NOT a saturation guard and never fires -- the ceiling/floor asymmetry is the
-          load-bearing distinction, see _is_one_sided_ceiling.
+          load-bearing distinction, see _is_one_sided_ceiling; or
+      (f) declares a non-strict FLOOR (threshold <= 0, comparator absent or ">=") on a
+          `measured` this codebase's own field-naming convention marks as manifestly
+          NON-NEGATIVE (an absolute value, a count, or a reduction -- mean/median/min/
+          max/`_worst_cell`/... -- over one; see _is_manifestly_nonneg). Such a floor
+          recomputes as `measured >= threshold`, which is unconditionally true for a
+          non-negative `measured` -- the floor CANNOT FAIL, independent of what `met`
+          actually asserts. V3-EXQ-914 mech293_ghost_branch_live is the worked case: a
+          worst-cell MINIMUM of a per-seed admitted-ghost COUNT against threshold 0.0,
+          while `met` was an unrelated SEED FRACTION. Unlike (b)/(d), NOT gated on `met`
+          sharing a statistic with `measured` -- the defect is in the threshold/measured
+          PAIR alone, so it fires even when `met` is unresolvable. A STRICT ">"
+          comparator is excluded (measured == threshold genuinely fails there, so the
+          floor is not unfalsifiable) -- see _is_nonstrict_floor.
 
     The shared-variable test is what keeps (b) conservative and is why the post-fix 726
     goes silent: there `measured = round(latch_seeds_frac, 4)` and `met` resolves to
@@ -1202,6 +1409,7 @@ def precondition_recomputability_lint(path: Path) -> Optional[str]:
     undeclared_band: List[str] = []
     central_vs_worst: List[str] = []
     partition_scoped: List[str] = []
+    unfalsifiable_floor: List[str] = []
     subsets = _filtered_subsets(tree)
     for name, fields in preconds:
         # (e) TWO-SIDED SATURATION BAND scoped to ONE partition while SIBLING
@@ -1274,6 +1482,30 @@ def precondition_recomputability_lint(path: Path) -> Optional[str]:
         if not has_interval and met_node_c is not None:
             if _is_two_sided(_resolve_one_level(met_node_c, tree)):
                 undeclared_band.append(name)
+        # (f) ZERO-OR-NEGATIVE FLOOR on a `measured` this codebase's own naming
+        # convention marks as manifestly non-negative (see _is_manifestly_nonneg).
+        # A non-strict floor comparison (comparator absent or ">=" -- ">" is
+        # excluded, see _is_nonstrict_floor) with threshold <= 0 recomputes as
+        # `measured >= threshold`, which is trivially true whenever `measured`
+        # cannot be negative -- the floor CANNOT FAIL, independent of what the
+        # author's own `met` asserts. V3-EXQ-914 mech293_ghost_branch_live is the
+        # worked case: `measured` is a worst-cell MINIMUM of
+        # `mech293_n_ghost_admitted_mean` (a per-seed admitted-ghost COUNT, hence
+        # >= 0 by construction) against `threshold: 0.0`, `direction: "lower"` --
+        # while the script's own `met` (p1_ghost_live) is a different statistic
+        # entirely, a SEED FRACTION compared against SEED_PASS_FRACTION. 1 of 5
+        # seeds admitted zero ghosts (bit-identical to the closed-channel control
+        # arm) and the gate this precondition exists to enforce reported met=True
+        # anyway, because the recomputed floor could not have reported anything
+        # else. Deliberately NOT gated on `met` sharing a statistic with `measured`
+        # (unlike (b)/(d)) -- this is a defect in the threshold/measured PAIR
+        # alone, so it fires even when `met` is unresolvable.
+        threshold_value = (_numeric_literal_value(fields["threshold"])
+                           if (not has_interval and "threshold" in fields) else None)
+        if (threshold_value is not None and threshold_value <= 0
+                and _is_nonstrict_floor(fields)
+                and _is_manifestly_nonneg(fields["measured"], tree)):
+            unfalsifiable_floor.append(name)
         # `comparator` satisfies the requirement too, and at HIGHER priority than
         # `direction` in _precondition_direction (comparator ">="/">" -> lower,
         # "<="/"<" -> upper; direction is only consulted when comparator is absent
@@ -1318,7 +1550,7 @@ def precondition_recomputability_lint(path: Path) -> Optional[str]:
             mismatched.append(name)
 
     if not (no_direction or mismatched or undeclared_band or central_vs_worst
-            or partition_scoped):
+            or partition_scoped or unfalsifiable_floor):
         return None
 
     parts: List[str] = []
@@ -1406,6 +1638,27 @@ def precondition_recomputability_lint(path: Path) -> Optional[str]:
               "\"upper\" (ceiling: met when measured <= threshold) -- or equivalently a "
               "\"comparator\" of \">=\"/\">\" resp. \"<=\"/\"<\", which the indexer honours "
               "at higher priority"
+        )
+    if unfalsifiable_floor:
+        parts.append(
+            "precondition(s) " + ", ".join(sorted(set(unfalsifiable_floor)))
+            + " declare a non-strict FLOOR (threshold <= 0, comparator absent or "
+              "\">=\") on a `measured` this codebase's own field-naming convention "
+              "marks as manifestly NON-NEGATIVE (an absolute value, a count, or a "
+              "reduction -- mean/median/min/max/_worst_cell/... -- over one). Such a "
+              "floor CANNOT FAIL: build_experiment_indexes recomputes "
+              "`measured >= threshold` as unconditionally true, regardless of what the "
+              "script's own `met` actually asserts. V3-EXQ-914 "
+              "mech293_ghost_branch_live is the worked case: a worst-cell MINIMUM of a "
+              "per-seed admitted-ghost COUNT against threshold 0.0/direction \"lower\", "
+              "while `met` was a SEED FRACTION compared against SEED_PASS_FRACTION -- 1 "
+              "of 5 seeds admitted zero ghosts (bit-identical to the closed-channel "
+              "control arm) and the gate reported met=True regardless, because the "
+              "recomputed floor could not have reported anything else. FIX: re-express "
+              "the floor against the SAME statistic `met` actually tests, or, if a "
+              "trivial non-negativity sanity check was genuinely intended rather than "
+              "the load-bearing gate, drop the numeric measured/threshold pair and "
+              "express it as a boolean-only precondition instead"
         )
     return ("; ".join(parts)
             + ". The indexer RECOMPUTES `met` and does not trust the author's value, so a "
