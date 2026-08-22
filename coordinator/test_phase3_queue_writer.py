@@ -232,12 +232,16 @@ class DirtyTreeRefusal(_QueueWriterFixture):
             "a dirty-tree refusal must be visible via /writer-health, "
             "not only in the hub's own stderr/journal")
         self.assertIn("dirty working tree", rec["last_error"]["message"])
-        # Repeated refusals must keep re-stamping "at" so a persistent
-        # wedge is distinguishable from a one-off blip that already
-        # cleared -- not merely set-once-and-forgotten.
+        # Repeated refusals must keep re-stamping "at" (not just set it
+        # once and go quiet) so a persistent wedge's age is measurable
+        # from how long ago the MOST RECENT refusal was, not the first.
         first_at = rec["last_error"]["at"]
+        first_message = rec["last_error"]["message"]
         self.assertFalse(self._run())
-        self.assertEqual(rec["last_error"]["at"], first_at)
+        self.assertGreaterEqual(rec["last_error"]["at"], first_at)
+        self.assertEqual(
+            rec["last_error"]["message"], first_message,
+            "still the same refusal reason across repeated ticks")
 
     def test_clean_tick_does_not_record_an_error(self):
         """Negative control: an ordinary successful tick (no dirt at all)
