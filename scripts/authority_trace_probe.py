@@ -277,9 +277,18 @@ class Recorder:
             except Exception:
                 return None
 
-        n_elig = diag.get("modulatory_shortlist_size")
-        if n_elig is None:
-            n_elig = diag.get("f_eligibility_envelope_size")
+        # SENTINELS, NOT SIZES. `modulatory_shortlist_size` is 0 and
+        # `f_eligibility_envelope_size` is -1 when the eligibility stage did
+        # not run -- both are present-and-numeric on every tick, so a plain
+        # `is not None` test reports the stage ACTIVE in a config where it is
+        # structurally skipped. Read the explicit *_active booleans instead and
+        # only then trust the size.
+        n_elig = None
+        if diag.get("modulatory_shortlist_active"):
+            n_elig = diag.get("modulatory_shortlist_size")
+        elif diag.get("f_eligibility_demotion_active"):
+            v = diag.get("f_eligibility_envelope_size")
+            n_elig = v if (v is not None and v >= 0) else None
         self.ticks.append(
             TickCapture(
                 step=self._step,

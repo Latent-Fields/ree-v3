@@ -290,3 +290,20 @@ def test_freshness_gating_not_one_capture_per_env_step():
     rec = atp.rollout(11, {}, steps, "atp_freshness_test")
     assert 0 < len(rec.ticks) < steps
     assert len(rec.actions) == steps
+
+
+def test_eligibility_stage_inactive_is_not_reported_active():
+    """`modulatory_shortlist_size` is 0 and `f_eligibility_envelope_size` is -1
+    when the stage did not run. Both are present-and-numeric on every tick, so
+    an `is not None` test reports the stage ACTIVE in the bare default config,
+    where E3's own diagnostics say `modulatory_shortlist_active=False` and
+    `f_eligibility_demotion_active=False`.
+
+    Reporting a stage as live when it is structurally skipped is the same
+    class of error as reporting a signal as live when its producer was never
+    built -- it puts a column in the table that describes nothing.
+    """
+    rec = atp.rollout(11, {}, 40, "atp_elig_sentinel_test")
+    assert rec.ticks, "no fresh E3 ticks captured"
+    assert all(t.n_eligible is None for t in rec.ticks)
+    assert all(t.arbitration_ran is False for t in rec.ticks)
