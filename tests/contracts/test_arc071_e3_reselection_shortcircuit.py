@@ -61,6 +61,16 @@ to the next. Fixed by pinning `CausalGridWorldV2(seed=seed)` in `_make_agent`
 (same `SEED=71` already used for `torch.manual_seed`), which makes the whole
 module bit-identical run to run. Verified: 2x standalone (5/5 each) plus a
 full `tests/contracts` run (4108 passed, 3 skipped, 0 failed, 1156s).
+
+MARGIN (chip-20260822-arc071-shortcircuit-seed71-margin, 2026-08-22): measured
+how much of the `MAX_COMMIT_STEPS=60` budget the pinned `SEED=71` actually
+uses in `_drive_until_chunk_committed`, since the de-flake fix above only
+pins nondeterminism and says nothing about headroom (the seed=3 case it
+replaced needed 69 steps -- past budget). At `SEED=71`, both SEQ5 and SEQ15
+commit their `arc071_chunk` on step 6 -- comfortable margin (54 of 60 steps,
+90%, unused). Reproduced twice, deterministic both times. No code change:
+the budget is not close to being exhausted at this seed, so
+`MAX_COMMIT_STEPS` was left as-is.
 """
 
 import torch
