@@ -105,11 +105,15 @@ class _QueueWriterFixture(unittest.TestCase):
         db.init_db(self._dbpath)
         self._conn = db.connect(self._dbpath)
         sync_daemon.PHASE3_QUEUE_WRITER_READY = False
+        # writer_health is a module-level global -- reset so a prior test's
+        # last_error / last_tick_at cannot leak into this one's assertions.
+        sync_daemon._reset_writer_health_state()
 
     def tearDown(self):
         sync_daemon.PHASE3_QUEUE_WRITER_READY = False
         self._conn.close()
         shutil.rmtree(self._tmp, ignore_errors=True)
+        sync_daemon._reset_writer_health_state()
 
     def _run(self):
         sync_daemon.PHASE3_QUEUE_WRITER_READY = True
@@ -206,6 +210,61 @@ class DirtyTreeRefusal(_QueueWriterFixture):
         result = self._run()
         self.assertFalse(result)
 
+    def test_dirty_tree_refusal_is_recorded_in_writer_health(self):
+        """Regression guard, 2026-08-21: a stray untracked file (the real
+        incident was coordinator/tokens.json.bak-<stamp>) wedged this
+        refusal for ~1.5 days with nothing surfacing it anywhere but the
+        hub's own journal -- last_tick_at kept advancing (looked alive)
+        while last_error stayed None (looked healthy). The dirty-tree
+        refusal is explicitly non-self-healing ("resolve the dirt by
+        hand"), unlike the D1-D4 transient refusals below, so it must
+        populate last_error for /writer-health to see it."""
+        _upsert_item(self._conn, "V3-EXQ-dirty-health", priority=10)
+        (self._repo / "coordinator").mkdir(exist_ok=True)
+        (self._repo / "coordinator" /
+         "tokens.json.bak-20260820T142804Z").write_text("{}\n")
+        self.assertFalse(self._run())
+        rec = sync_daemon._WRITER_HEALTH["queue_writer"]
+        self.assertIsNotNone(
+            rec["last_tick_at"], "tick must still be recorded")
+        self.assertIsNotNone(
+            rec["last_error"],
+            "a dirty-tree refusal must be visible via /writer-health, "
+            "not only in the hub's own stderr/journal")
+        self.assertIn("dirty working tree", rec["last_error"]["message"])
+        # Repeated refusals must keep re-stamping "at" so a persistent
+        # wedge is distinguishable from a one-off blip that already
+        # cleared -- not merely set-once-and-forgotten.
+        first_at = rec["last_error"]["at"]
+        self.assertFalse(self._run())
+        self.assertEqual(rec["last_error"]["at"], first_at)
+
+    def test_clean_tick_does_not_record_an_error(self):
+        """Negative control: an ordinary successful tick (no dirt at all)
+        must leave last_error unset -- a detector reading /writer-health
+        must not flag a healthy writer."""
+        _upsert_item(self._conn, "V3-EXQ-clean-health", priority=10)
+        self.assertTrue(self._run())
+        rec = sync_daemon._WRITER_HEALTH["queue_writer"]
+        self.assertIsNone(rec["last_error"])
+
+    def test_successful_tick_clears_a_prior_refusal(self):
+        """Negative control: once the dirt is cleared and a tick
+        succeeds, last_error must go back to None -- a resolved wedge
+        must not keep reading as wedged forever."""
+        _upsert_item(self._conn, "V3-EXQ-recovers-health", priority=10)
+        stray = self._repo / "coordinator" / "tokens.json.bak-x"
+        stray.parent.mkdir(exist_ok=True)
+        stray.write_text("{}\n")
+        self.assertFalse(self._run())
+        self.assertIsNotNone(
+            sync_daemon._WRITER_HEALTH["queue_writer"]["last_error"])
+        stray.unlink()
+        self.assertTrue(self._run())
+        self.assertIsNone(
+            sync_daemon._WRITER_HEALTH["queue_writer"]["last_error"],
+            "a successful tick must clear a prior refusal's last_error")
+
 
 class ForeignCommitRefusal(_QueueWriterFixture):
     def test_operator_commit_ahead_blocks_push(self):
@@ -217,6 +276,20 @@ class ForeignCommitRefusal(_QueueWriterFixture):
              "operator hand edit on hub")
         result = self._run()
         self.assertFalse(result, "writer must refuse foreign commit push")
+
+    def test_foreign_commit_refusal_is_recorded_in_writer_health(self):
+        """Same wedge class as the dirty-tree case: 'Operator must
+        investigate' is not self-healing, so it must be visible via
+        /writer-health, not only stderr."""
+        _upsert_item(self._conn, "V3-EXQ-foreign-health", priority=10)
+        _git(self._repo, "config", "user.email", "operator@example")
+        _git(self._repo, "config", "user.name", "operator")
+        _git(self._repo, "commit", "--allow-empty", "-m",
+             "operator hand edit on hub")
+        self.assertFalse(self._run())
+        rec = sync_daemon._WRITER_HEALTH["queue_writer"]
+        self.assertIsNotNone(rec["last_error"])
+        self.assertIn("foreign", rec["last_error"]["message"])
 
 
 class CalibrationRoundtrip(_QueueWriterFixture):

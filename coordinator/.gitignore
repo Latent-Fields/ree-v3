@@ -5,3 +5,13 @@ coordinator.db-shm
 *.db
 tokens.json
 *.tmp
+# Manual/ad-hoc backups of the secret above (e.g. `tokens.json.bak-<stamp>`
+# made by hand before running gen_token.py) land untracked-and-not-ignored
+# without this -- confirmed 2026-08-21: one such stray file wedged
+# phase3_queue_writer's clean-tree refusal on the hub for ~1.5 days
+# ("Phase 3 does NOT autostash -- resolve the dirt by hand"). Same shape
+# CLAUDE.md documents for coordinator/writer_health.json. The real fix is
+# not making this kind of backup at all -- see the note in
+# deploy/gen_token.py -- this is belt-and-braces so a future one is inert.
+*.bak-*
+tokens.json.bak*

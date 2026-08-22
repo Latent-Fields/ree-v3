@@ -6,6 +6,17 @@ from tokens.json + restart the coordinator) without rotating everyone.
 Usage:
   python3 gen_token.py <machine-label> [--tokens PATH]
 
+If you want a manual safety copy of tokens.json before running this
+(e.g. before a bulk rotation), put it OUTSIDE this repo -- e.g.
+~/token-backups/tokens.json.bak-$(date -u +%Y%m%dT%H%M%SZ) -- never
+inside coordinator/. This script itself never needs a backup (it
+merges via tmp+os.replace, so tokens.json is never left partially
+written), but a copy left inside the repo is untracked-and-not-ignored
+and wedges phase3_queue_writer's clean-tree refusal until a human
+clears it by hand -- confirmed 2026-08-21, ~1.5 days undetected.
+coordinator/.gitignore now ignores tokens.json.bak* as a backstop, but
+the safe fix is not creating the file here at all.
+
 ASCII-only output.
 """
 

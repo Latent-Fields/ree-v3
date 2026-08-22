@@ -720,6 +720,48 @@ def _record_writer_error(name, exc):
             }
 
 
+def _record_writer_refusal(name, message):
+    """Like _record_writer_error, for a REFUSAL that returns False from
+    inside a writer rather than raising -- so it never reaches main()'s
+    try/except and _record_writer_error. Without this, a writer that
+    refuses every tick for the same operator-actionable reason (dirty
+    working tree, foreign commits ahead) still reports last_error=None
+    forever: last_tick_at keeps advancing (looks alive) and last_error
+    never fires (looks fine), so /writer-health cannot distinguish a
+    persistently wedged writer from an idle-but-healthy one. Confirmed
+    2026-08-21: a stray coordinator/tokens.json.bak-* file wedged
+    phase3_queue_writer's dirty-tree check for ~1.5 days with nothing
+    surfacing it anywhere but the hub's own journal. Scoped to refusals
+    the writer's own comments already call out as needing a human
+    (dirty tree, foreign commits) -- NOT the transient/self-healing
+    refusals (fetch/push failures, DB errors) the D1-D4 tests below
+    cover, which clear on their own on the next tick and would just add
+    noise here. A plain string, not repr(exc): these are refusal
+    messages already meant for a human, not exception objects."""
+    with _WRITER_HEALTH_LOCK:
+        rec = _WRITER_HEALTH.get(name)
+        if rec is not None:
+            rec["last_error"] = {
+                "at": _utc_iso_now(),
+                "message": message[:240],
+            }
+
+
+def _clear_writer_refusal(name):
+    """Clear a prior _record_writer_refusal on a tick that succeeds but
+    takes a no-op path (nothing to commit) -- _record_writer_commit
+    already clears last_error on the paths that DO commit, but the two
+    "already matches, nothing to do" early returns in
+    phase3_queue_writer skip that entirely. Without this, a writer that
+    recovers from a wedge (dirt cleared) and then finds nothing new to
+    write would keep reporting the old, already-resolved refusal
+    forever -- a false-positive wedge signal."""
+    with _WRITER_HEALTH_LOCK:
+        rec = _WRITER_HEALTH.get(name)
+        if rec is not None:
+            rec["last_error"] = None
+
+
 def _persist_writer_health():
     """Atomically write the writer-health snapshot to WRITER_HEALTH_FILE.
     Best-effort; failures do not break the writer tick."""
@@ -2566,10 +2608,12 @@ def phase3_queue_writer(
     # false-positiving the idempotent no-op against post-rebase content.
     clean, reason = _hub_working_tree_clean(repo)
     if not clean:
-        sys.stderr.write(
-            "[phase3-queue] refusing tick: %s at %s is %s. Phase 3 "
-            "does NOT autostash -- resolve the dirt by hand, then the "
-            "next tick will retry.\n" % (rel, repo, reason))
+        msg = (
+            "refusing tick: %s at %s is %s. Phase 3 does NOT autostash "
+            "-- resolve the dirt by hand, then the next tick will "
+            "retry." % (rel, repo, reason))
+        sys.stderr.write("[phase3-queue] %s\n" % msg)
+        _record_writer_refusal("queue_writer", msg)
         return False
 
     # Additive policy: when PHASE3_QUEUE_CONFLICT_RECOVERY is set, FORCE
@@ -2639,6 +2683,7 @@ def phase3_queue_writer(
 
     # Idempotent no-op when content matches.
     if current_text is not None and current_text == new_text:
+        _clear_writer_refusal("queue_writer")
         return True
 
     # Atomic write to the working tree.
@@ -2711,12 +2756,13 @@ def phase3_queue_writer(
             if ahead_count and ahead_count != "0":
                 ok, foreign = _check_ahead_writer_authored(repo, br)
                 if not ok:
-                    sys.stderr.write(
-                        "[phase3-queue] refusing tick: %d foreign "
-                        "commit(s) in origin/%s..HEAD that no phase3 "
-                        "writer authored: %s. Operator must "
-                        "investigate.\n" % (
+                    msg = (
+                        "refusing tick: %d foreign commit(s) in "
+                        "origin/%s..HEAD that no phase3 writer "
+                        "authored: %s. Operator must investigate." % (
                             len(foreign), br, foreign))
+                    sys.stderr.write("[phase3-queue] %s\n" % msg)
+                    _record_writer_refusal("queue_writer", msg)
                     return False
                 push = _git(
                     repo, "push", "origin", "HEAD:" + br,
@@ -2735,6 +2781,7 @@ def phase3_queue_writer(
                     "queue_writer", repo_path=repo, subject=commit_msg)
                 return True
             # ahead == 0 -- view is already on origin. Treat as no-op.
+            _clear_writer_refusal("queue_writer")
             return True
 
         # diff.returncode != 0: there's a real change to commit.
@@ -2744,12 +2791,13 @@ def phase3_queue_writer(
         restore_needed = False
         ok, foreign = _check_ahead_writer_authored(repo, br)
         if not ok:
-            sys.stderr.write(
-                "[phase3-queue] refusing tick: writer's commit landed "
-                "but %d foreign commit(s) are ahead of origin/%s and "
-                "would be carried by the push: %s. Operator must "
-                "resolve the foreign commit(s) before next tick.\n" % (
-                    len(foreign), br, foreign))
+            msg = (
+                "refusing tick: writer's commit landed but %d foreign "
+                "commit(s) are ahead of origin/%s and would be carried "
+                "by the push: %s. Operator must resolve the foreign "
+                "commit(s) before next tick." % (len(foreign), br, foreign))
+            sys.stderr.write("[phase3-queue] %s\n" % msg)
+            _record_writer_refusal("queue_writer", msg)
             return False
         push = _git(
             repo, "push", "origin", "HEAD:" + br,
