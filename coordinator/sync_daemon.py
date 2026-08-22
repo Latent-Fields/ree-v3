@@ -2036,10 +2036,12 @@ def phase3_git_writer(
 
     clean, reason = _hub_working_tree_clean_for_writer(asm, "phase3")
     if not clean:
-        sys.stderr.write(
-            "[phase3] refusing tick: REE_assembly at %s is %s. Phase 3 "
-            "does NOT autostash -- resolve the dirt by hand, then the "
-            "next tick will retry.\n" % (asm, reason))
+        msg = (
+            "refusing tick: REE_assembly at %s is %s. Phase 3 does NOT "
+            "autostash -- resolve the dirt by hand, then the next tick "
+            "will retry." % (asm, reason))
+        sys.stderr.write("[phase3] %s\n" % msg)
+        _record_writer_refusal("git_writer", msg)
         return False
 
     # Absorb any unrelated commits that landed on origin between writer
@@ -2226,15 +2228,17 @@ def phase3_git_writer(
                 ok, foreign = _check_ahead_writer_authored(
                     asm, PHASE3_ASSEMBLY_BRANCH)
                 if not ok:
-                    sys.stderr.write(
-                        "[phase3] refusing tick: %d foreign commit(s) "
-                        "in origin/%s..HEAD that the writer did not "
-                        "author: %s. NOT marking committed_at; spool "
-                        "retained. Operator must investigate (do not "
-                        "let the writer publish unrelated commits under "
-                        "sync_daemon's authority).\n" % (
+                    msg = (
+                        "refusing tick: %d foreign commit(s) in "
+                        "origin/%s..HEAD that the writer did not author: "
+                        "%s. NOT marking committed_at; spool retained. "
+                        "Operator must investigate (do not let the "
+                        "writer publish unrelated commits under "
+                        "sync_daemon's authority)." % (
                             len(foreign), PHASE3_ASSEMBLY_BRANCH,
                             foreign))
+                    sys.stderr.write("[phase3] %s\n" % msg)
+                    _record_writer_refusal("git_writer", msg)
                     return False
                 push = _git(
                     asm, "push", "origin",
@@ -2261,6 +2265,7 @@ def phase3_git_writer(
                     "[phase3] batch already on tree and on origin "
                     "(ahead==0); marking %d row(s) committed without "
                     "a push\n" % len(staged))
+                _clear_writer_refusal("git_writer")
         else:
             _git(asm, "commit", "-m", commit_msg, timeout=20, check=True)
             # After the writer's own commit lands, origin/<branch>..HEAD
@@ -2273,13 +2278,15 @@ def phase3_git_writer(
             ok, foreign = _check_ahead_writer_authored(
                 asm, PHASE3_ASSEMBLY_BRANCH)
             if not ok:
-                sys.stderr.write(
-                    "[phase3] refusing tick: writer's commit landed but "
-                    "%d foreign commit(s) are ahead of origin/%s and "
-                    "would be carried by the push: %s. NOT marking "
+                msg = (
+                    "refusing tick: writer's commit landed but %d "
+                    "foreign commit(s) are ahead of origin/%s and would "
+                    "be carried by the push: %s. NOT marking "
                     "committed_at; spool retained. Operator must "
-                    "resolve the foreign commit(s) before next tick.\n"
+                    "resolve the foreign commit(s) before next tick."
                     % (len(foreign), PHASE3_ASSEMBLY_BRANCH, foreign))
+                sys.stderr.write("[phase3] %s\n" % msg)
+                _record_writer_refusal("git_writer", msg)
                 return False
             push = _git(
                 asm, "push", "origin", "HEAD:" + PHASE3_ASSEMBLY_BRANCH,
@@ -3053,10 +3060,11 @@ def phase3_heartbeat_writer(
     # reason) or false-negative on files origin updated in between.
     clean, reason = _hub_working_tree_clean_for_writer(asm, "phase3-heartbeats")
     if not clean:
-        sys.stderr.write(
-            "[phase3-heartbeats] refusing tick: REE_assembly at %s is "
-            "%s. Phase 3 does NOT autostash -- resolve the dirt by "
-            "hand.\n" % (asm, reason))
+        msg = (
+            "refusing tick: REE_assembly at %s is %s. Phase 3 does NOT "
+            "autostash -- resolve the dirt by hand." % (asm, reason))
+        sys.stderr.write("[phase3-heartbeats] %s\n" % msg)
+        _record_writer_refusal("heartbeat_writer", msg)
         return False
 
     synced, reason = _sync_to_origin(asm, br, "[phase3-heartbeats]")
@@ -3112,11 +3120,12 @@ def phase3_heartbeat_writer(
         _git(asm, *commit_args, timeout=20, check=True)
         ok, foreign = _check_ahead_writer_authored(asm, br)
         if not ok:
-            sys.stderr.write(
-                "[phase3-heartbeats] refusing tick: writer's commit landed "
-                "but %d foreign commit(s) are ahead of origin/%s and no "
-                "phase3 writer authored them: %s.\n" % (
-                    len(foreign), br, foreign))
+            msg = (
+                "refusing tick: writer's commit landed but %d foreign "
+                "commit(s) are ahead of origin/%s and no phase3 writer "
+                "authored them: %s." % (len(foreign), br, foreign))
+            sys.stderr.write("[phase3-heartbeats] %s\n" % msg)
+            _record_writer_refusal("heartbeat_writer", msg)
             return False
         push = _git(
             asm, "push", "origin", "HEAD:" + br,

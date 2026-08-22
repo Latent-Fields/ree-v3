@@ -110,10 +110,14 @@ class _Fixture(unittest.TestCase):
         # Module-level state-change cache survives across the daemon's
         # lifetime; reset between tests so each fixture starts cold.
         sync_daemon._reset_phase3_heartbeat_state()
+        # writer_health is a module-level global -- reset so a prior test's
+        # last_error / last_tick_at cannot leak into this one's assertions.
+        sync_daemon._reset_writer_health_state()
 
     def tearDown(self):
         sync_daemon.PHASE3_HEARTBEAT_WRITER_READY = False
         sync_daemon._reset_phase3_heartbeat_state()
+        sync_daemon._reset_writer_health_state()
         self._conn.close()
         shutil.rmtree(self._tmp, ignore_errors=True)
 
@@ -262,6 +266,57 @@ class DirtyTreeRefusal(_Fixture):
         (self._repo / "stray.txt").write_text("WIP\n")
         self.assertFalse(self._run())
 
+    def test_dirty_tree_refusal_is_recorded_in_writer_health(self):
+        """Regression guard, 2026-08-22: same shape as the confirmed
+        2026-08-21 phase3_queue_writer incident (a stray untracked file
+        wedging a refusal for ~1.5 days with nothing surfacing it
+        anywhere but the hub's own journal) -- a `return False` from
+        inside the writer never reaches main()'s try/except and
+        _record_writer_error, so it must self-record via
+        _record_writer_refusal for /writer-health to see it."""
+        self._seed_heartbeat("ree-cloud-1")
+        (self._repo / "stray.txt").write_text("WIP\n")
+        self.assertFalse(self._run())
+        rec = sync_daemon._WRITER_HEALTH["heartbeat_writer"]
+        self.assertIsNotNone(
+            rec["last_tick_at"], "tick must still be recorded")
+        self.assertIsNotNone(
+            rec["last_error"],
+            "a dirty-tree refusal must be visible via /writer-health, "
+            "not only in the hub's own stderr/journal")
+        self.assertIn("dirty working tree", rec["last_error"]["message"])
+        first_at = rec["last_error"]["at"]
+        first_message = rec["last_error"]["message"]
+        self.assertFalse(self._run())
+        self.assertGreaterEqual(rec["last_error"]["at"], first_at)
+        self.assertEqual(
+            rec["last_error"]["message"], first_message,
+            "still the same refusal reason across repeated ticks")
+
+    def test_clean_tick_does_not_record_an_error(self):
+        """Negative control: an ordinary successful tick (no dirt at
+        all) must leave last_error unset."""
+        self._seed_heartbeat("ree-cloud-1")
+        self.assertTrue(self._run())
+        rec = sync_daemon._WRITER_HEALTH["heartbeat_writer"]
+        self.assertIsNone(rec["last_error"])
+
+    def test_successful_tick_clears_a_prior_refusal(self):
+        """Negative control: once the dirt is cleared and a tick
+        succeeds, last_error must go back to None -- a resolved wedge
+        must not keep reading as wedged forever."""
+        self._seed_heartbeat("ree-cloud-1")
+        stray = self._repo / "stray.txt"
+        stray.write_text("WIP\n")
+        self.assertFalse(self._run())
+        self.assertIsNotNone(
+            sync_daemon._WRITER_HEALTH["heartbeat_writer"]["last_error"])
+        stray.unlink()
+        self.assertTrue(self._run())
+        self.assertIsNone(
+            sync_daemon._WRITER_HEALTH["heartbeat_writer"]["last_error"],
+            "a successful tick must clear a prior refusal's last_error")
+
 
 class ForeignCommitRefusal(_Fixture):
     def test_operator_commit_blocks_push(self):
@@ -272,6 +327,19 @@ class ForeignCommitRefusal(_Fixture):
              "operator hand edit")
         result = self._run()
         self.assertFalse(result, "must refuse to push foreign commit")
+
+    def test_foreign_commit_refusal_is_recorded_in_writer_health(self):
+        """Same wedge class as the dirty-tree case: not self-healing,
+        so it must be visible via /writer-health, not only stderr."""
+        self._seed_heartbeat("ree-cloud-1")
+        _git(self._repo, "config", "user.email", "operator@example")
+        _git(self._repo, "config", "user.name", "operator")
+        _git(self._repo, "commit", "--allow-empty", "-m",
+             "operator hand edit")
+        self.assertFalse(self._run())
+        rec = sync_daemon._WRITER_HEALTH["heartbeat_writer"]
+        self.assertIsNotNone(rec["last_error"])
+        self.assertIn("foreign", rec["last_error"]["message"])
 
 
 class SiblingWriterCommitTolerated(_Fixture):

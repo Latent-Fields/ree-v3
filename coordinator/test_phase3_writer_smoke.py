@@ -166,9 +166,13 @@ class _WriterFixture(unittest.TestCase):
         # flips it True for the duration of a tick and restores the REAL
         # value afterward, not this forced False.
         sync_daemon.PHASE3_GIT_WRITER_READY = False
+        # writer_health is a module-level global -- reset so a prior test's
+        # last_error / last_tick_at cannot leak into this one's assertions.
+        sync_daemon._reset_writer_health_state()
 
     def tearDown(self):
         sync_daemon.PHASE3_GIT_WRITER_READY = _ORIG_WRITER_READY
+        sync_daemon._reset_writer_health_state()
         self._conn.close()
         if self._saved_spool is not None:
             os.environ["COORDINATOR_SPOOL_DIR"] = self._saved_spool
@@ -340,6 +344,107 @@ class NonFastForwardRejectionTest(_WriterFixture):
     # refuses + the operator's documented recovery in PHASE3_CUTOVER.md.
 
 
+class DirtyTreeRefusalWriterHealth(_WriterFixture):
+    """Regression guard, 2026-08-22: the same shape as the confirmed
+    2026-08-21 phase3_queue_writer incident (a stray untracked file
+    wedging a refusal for ~1.5 days with nothing surfacing it anywhere
+    but the hub's own journal) applies identically to phase3_git_writer
+    -- it shares the same `_hub_working_tree_clean_for_writer` /
+    "resolve the dirt by hand" refusal shape, and a `return False` from
+    inside the writer never reaches main()'s try/except and
+    _record_writer_error. Must populate last_error via
+    _record_writer_refusal for /writer-health to see it."""
+
+    def test_dirty_tree_refusal_is_recorded_in_writer_health(self):
+        run_id = "v3_smoke_dirty_health"
+        _spool_manifest(run_id, "V3-EXQ-DIRTY", self._conn)
+        (self._repo / "stray.txt").write_text("WIP\n")
+        self.assertFalse(self._run_writer())
+        rec = sync_daemon._WRITER_HEALTH["git_writer"]
+        self.assertIsNotNone(
+            rec["last_tick_at"], "tick must still be recorded")
+        self.assertIsNotNone(
+            rec["last_error"],
+            "a dirty-tree refusal must be visible via /writer-health, "
+            "not only in the hub's own stderr/journal")
+        self.assertIn("dirty working tree", rec["last_error"]["message"])
+        # Repeated refusals must keep re-stamping "at", not go quiet
+        # after the first, so a persistent wedge's age is measurable
+        # from the MOST RECENT refusal.
+        first_at = rec["last_error"]["at"]
+        first_message = rec["last_error"]["message"]
+        self.assertFalse(self._run_writer())
+        self.assertGreaterEqual(rec["last_error"]["at"], first_at)
+        self.assertEqual(
+            rec["last_error"]["message"], first_message,
+            "still the same refusal reason across repeated ticks")
+
+    def test_clean_tick_does_not_record_an_error(self):
+        """Negative control: an ordinary successful tick (no dirt at
+        all) must leave last_error unset."""
+        run_id = "v3_smoke_clean_health"
+        _spool_manifest(run_id, "V3-EXQ-CLEAN", self._conn)
+        self.assertTrue(self._run_writer())
+        rec = sync_daemon._WRITER_HEALTH["git_writer"]
+        self.assertIsNone(rec["last_error"])
+
+    def test_successful_tick_clears_a_prior_refusal(self):
+        """Negative control: once the dirt is cleared and a tick
+        succeeds, last_error must go back to None."""
+        run_id = "v3_smoke_recovers_health"
+        _spool_manifest(run_id, "V3-EXQ-RECOVERS", self._conn)
+        stray = self._repo / "stray.txt"
+        stray.write_text("WIP\n")
+        self.assertFalse(self._run_writer())
+        self.assertIsNotNone(
+            sync_daemon._WRITER_HEALTH["git_writer"]["last_error"])
+        stray.unlink()
+        self.assertTrue(self._run_writer())
+        self.assertIsNone(
+            sync_daemon._WRITER_HEALTH["git_writer"]["last_error"],
+            "a successful tick must clear a prior refusal's last_error")
+
+
+class CaseAIdempotentClearsWriterHealth(_WriterFixture):
+    """Case (a) (diff.returncode==0, ahead==0 -- bytes already on tree
+    AND on origin) falls through to Stage 3 without ever calling
+    _record_writer_commit, so unlike the push-a-new-commit paths it
+    needs its own explicit _clear_writer_refusal call -- otherwise a
+    writer that recovers from a wedge and then finds nothing new to
+    write would keep reporting the OLD, already-resolved refusal
+    forever. Mirrors phase3_queue_writer's analogous ahead==0 clear."""
+
+    def test_ahead_zero_respool_clears_a_stale_last_error(self):
+        run_id = "v3_smoke_casea_health"
+        raw = _spool_manifest(run_id, "V3-EXQ-CASEA", self._conn)
+        self.assertTrue(self._run_writer())
+        self.assertEqual(self._spool_ids(), [])
+
+        # Simulate a stale wedge signal left over from an unrelated
+        # earlier tick (e.g. a since-resolved dirty-tree refusal) --
+        # nothing in THIS re-spool should need it, which is exactly
+        # what makes it a valid probe of the clear path in isolation.
+        sync_daemon._WRITER_HEALTH["git_writer"]["last_error"] = {
+            "at": "2026-08-22T00:00:00Z", "message": "stale wedge",
+        }
+
+        # Re-spool the SAME bytes (duplicate POST /result simulation).
+        # No operator commit this time -- content already matches HEAD
+        # (git add no-diff) and HEAD already matches origin (ahead==0),
+        # so this must take case (a), not case (b).
+        manifest_spool.write_manifest(
+            run_id, raw,
+            received_at="2026-05-27T21:05:00Z", sha256_hex="sha")
+        self._conn.execute(
+            "UPDATE results SET committed_at=NULL WHERE run_id=?",
+            (run_id,))
+
+        self.assertTrue(self._run_writer())
+        self.assertIsNone(
+            sync_daemon._WRITER_HEALTH["git_writer"]["last_error"],
+            "case (a) ahead==0 no-op must clear a stale prior refusal")
+
+
 class ForeignCommitRejectionTest(_WriterFixture):
     """HIGH-2 from the 2026-05-27 review: the writer's push must publish
     ONLY writer-authored commits. An operator hand-commit on the hub's
@@ -442,6 +547,37 @@ class ForeignCommitRejectionTest(_WriterFixture):
         ).stdout
         self.assertNotIn(
             "operator hand edit pre case-b", origin_log)
+
+    def test_else_branch_refusal_is_recorded_in_writer_health(self):
+        """Same wedge class as the dirty-tree case: 'Operator must
+        investigate' is not self-healing, so it must be visible via
+        /writer-health, not only stderr."""
+        run_id_1 = "v3_smoke_h2_health_1"
+        _spool_manifest(run_id_1, "V3-EXQ-H2HEALTH-A", self._conn)
+        self.assertTrue(self._run_writer())
+        self._operator_commits_on_hub("operator hand edit while writer idle")
+        run_id_2 = "v3_smoke_h2_health_2"
+        _spool_manifest(run_id_2, "V3-EXQ-H2HEALTH-B", self._conn)
+        self.assertFalse(self._run_writer())
+        rec = sync_daemon._WRITER_HEALTH["git_writer"]
+        self.assertIsNotNone(rec["last_error"])
+        self.assertIn("foreign", rec["last_error"]["message"])
+
+    def test_case_b_refusal_is_recorded_in_writer_health(self):
+        run_id = "v3_smoke_h2_caseb_health"
+        raw = _spool_manifest(run_id, "V3-EXQ-H2CHEALTH", self._conn)
+        self.assertTrue(self._run_writer())
+        manifest_spool.write_manifest(
+            run_id, raw,
+            received_at="2026-05-27T21:00:00Z", sha256_hex="sha")
+        self._conn.execute(
+            "UPDATE results SET committed_at=NULL WHERE run_id=?",
+            (run_id,))
+        self._operator_commits_on_hub("operator hand edit pre case-b health")
+        self.assertFalse(self._run_writer())
+        rec = sync_daemon._WRITER_HEALTH["git_writer"]
+        self.assertIsNotNone(rec["last_error"])
+        self.assertIn("foreign", rec["last_error"]["message"])
 
 
 class StaleOriginRefTest(_WriterFixture):
