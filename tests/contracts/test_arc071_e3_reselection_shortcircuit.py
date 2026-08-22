@@ -43,6 +43,24 @@ SAFETY REGRESSION: a separate test confirms the short-circuit does not
 swallow the MECH-091 urgency-interrupt release -- forcing `z_harm_a` norm
 above `urgency_interrupt_threshold` while short-circuit conditions otherwise
 hold must still release `beta_gate`, exactly as with the flag off.
+
+STATUS (chip-20260822-arc071-shortcircuit-chunk5-flake, 2026-08-22): the
+chunk5 OFF negative control was flaky under a full-suite run -- confirmed as
+two independent occurrences (ree-v3 6293b2395248, 243a0858839836546f813fbce
+63435a8ce4bb741), both failing once and passing on an immediate standalone
+re-run against a bit-identical tree. Root cause: `_make_agent` constructed
+`CausalGridWorldV2()` with no explicit `seed=`, so the env's own `self._rng`
+(`np.random.default_rng(seed)`, a separate stream from the `torch.manual_seed`
+call two lines above it) drew from OS entropy on every invocation. A
+deterministic repro swept explicit env seeds 0..6 and found seed=3 makes the
+UNFORCED natural E3 cadence in `_drive_until_chunk_committed` favour an
+ordinary (non-chunk) CEM trajectory for 69 steps before finally settling on
+the registered `arc071_chunk` -- past `MAX_COMMIT_STEPS=60` -- raising
+"fixture broken" with zero code change and zero reproducibility from one run
+to the next. Fixed by pinning `CausalGridWorldV2(seed=seed)` in `_make_agent`
+(same `SEED=71` already used for `torch.manual_seed`), which makes the whole
+module bit-identical run to run. Verified: 2x standalone (5/5 each) plus a
+full `tests/contracts` run (4108 passed, 3 skipped, 0 failed, 1156s).
 """
 
 import torch
@@ -61,7 +79,19 @@ N_FORCED_TICKS = 25
 
 def _make_agent(seq, shortcircuit_on, seed=SEED):
     torch.manual_seed(seed)
-    env = CausalGridWorldV2()
+    # chip-20260822-arc071-shortcircuit-chunk5-flake: CausalGridWorldV2's own
+    # self._rng is np.random.default_rng(seed), separate from torch's global
+    # RNG above -- leaving seed unset draws from OS entropy, so each test
+    # invocation gets a genuinely different terrain/hazard layout. Confirmed
+    # (env_seed=3 out of a 0..6 sweep) that an unlucky layout can make the
+    # natural (unforced) E3 cadence favour an ordinary CEM trajectory over the
+    # registered arc071_chunk for 69 steps -- past MAX_COMMIT_STEPS=60 -- so
+    # `_drive_until_chunk_committed` raises "fixture broken" with no code
+    # change and no reproducibility (diagnosed 2026-08-22, two prior full-
+    # suite-only failures that passed on immediate standalone re-run:
+    # ree-v3 6293b2395248 and 243a0858839836546f813fbce63435a8ce4bb741).
+    # Pinning the env seed removes the nondeterminism outright.
+    env = CausalGridWorldV2(seed=seed)
     cfg = REEConfig.from_dims(
         body_obs_dim=env.body_obs_dim,
         world_obs_dim=env.world_obs_dim,
