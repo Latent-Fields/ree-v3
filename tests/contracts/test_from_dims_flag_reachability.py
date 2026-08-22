@@ -19,17 +19,15 @@ when this was first measured (2026-08-22):
     `use_self_recurrence`, `self_recurrence_e1_coupling`,
     `use_cross_module_consolidation` (+ its three companions) are explicit
     `kwargs.pop(...)` reads in the body;
-  * `sd016_diversification_weight` has a signature entry (added 2026-06-05) and
-    the body never assigns it, so it is accepted and dropped on the floor --
+  * `sd016_diversification_weight` HAD a signature entry (added 2026-06-05) and
+    the body never assigned it, so it was accepted and dropped on the floor --
     a SHARPER failure than the `**kwargs` swallow, because a signature entry
-    actively advertises reachability. Ten drivers pass a non-zero weight and
-    run with the diversification loss term OFF. STILL OPEN: the one-line repair
-    was written and verified on 2026-08-22 and deliberately NOT landed, because
-    `ree_core/utils/config.py` was held by a concurrent claim
-    (`elated-jackson-f12eae-docs`, ARC-065 GAP-A head training) whose own
-    uncommitted edit was sitting in the shared checkout at the time -- committing
-    that file would have swept 18 of their lines under this change. See
-    `test_sd016_diversification_weight_is_an_open_defect` for the exact repair.
+    actively advertises reachability. Ten drivers passed a non-zero weight and
+    ran with the diversification loss term OFF. REPAIRED 2026-08-22
+    (chip-20260822-fromdims-sd016-divweight-repair) -- one line added in
+    `from_dims`, beside the other SD-016 assignments:
+    `config.sd016_diversification_weight = sd016_diversification_weight`. Now
+    LANDS; the registry entry and its pinning test were removed accordingly.
 
 So this contract EXECUTES `from_dims` and reads the values back off a live config
 tree. It never parses config.py.
@@ -217,35 +215,14 @@ NO_CONFIRMED_CALLER = {
 # entry below records the measured blast radius so the decision can be taken per
 # flag, by whoever owns the claim.
 KNOWN_FROM_DIMS_DROP_SITES = {
-    "sd016_diversification_weight": {
-        "reason": (
-            "THE ONE WITH A SIGNATURE ENTRY, which is why it is listed first: "
-            "from_dims ACCEPTS it (no **kwargs swallow, no TypeError) and the "
-            "body simply never assigns it, so a caller has no signal of any kind. "
-            "Consumer is agent.py's compute_prediction_loss, gated "
-            "`_div_w > 0.0 and sd016_enabled` -- so ten of these eleven drivers "
-            "passed SD016_DIVERSIFICATION_WEIGHT=0.5 and trained with the "
-            "diversification loss term OFF (418f passes 0.0 and is unaffected). "
-            "REPAIR, verified 2026-08-22 but NOT landed -- see the module "
-            "docstring for why -- one line in from_dims, beside the other SD-016 "
-            "assignments: `config.sd016_diversification_weight = "
-            "sd016_diversification_weight`. Default 0.0 == the dataclass default, "
-            "so an unaffected driver stays bit-identical."
-        ),
-        "paths": {
-            "experiments/v3_exq_265a_sd017_sleep_phase_methods_validation_phase2.py",
-            "experiments/v3_exq_418f_sd016_attention_uniformity_probe.py",
-            "experiments/v3_exq_418l_sd017_action_bias_div_phase2.py",
-            "experiments/v3_exq_436a_sd017_arc045_mech166_context_harm_phase2.py",
-            "experiments/v3_exq_436b_sd017_mech166_repr_confirmer.py",
-            "experiments/v3_exq_436c_sd017_mech166_repr_confirmer.py",
-            "experiments/v3_exq_436d_sd017_mech166_writepath_retest.py",
-            "experiments/v3_exq_436e_sd017_mech166_occupied_slot_retest.py",
-            "experiments/v3_exq_436f_sd017_mech166_sd016_armed_retest.py",
-            "experiments/v3_exq_500a_sd017_sleep_phase_readiness_phase2.py",
-            "experiments/v3_exq_503a_sd017_sleep_phase_discriminative_phase2.py",
-        },
-    },
+    # sd016_diversification_weight: REPAIRED 2026-08-22
+    # (chip-20260822-fromdims-sd016-divweight-repair) -- one line added in
+    # from_dims (`config.sd016_diversification_weight =
+    # sd016_diversification_weight`, beside the other SD-016 assignments), so
+    # the value now lands on the live config tree for all eleven drivers that
+    # pass it. Removed from this registry rather than left as a stale
+    # phantom-path entry; see the module docstring for the pre-repair history.
+    #
     # harm_descending_mod_enabled / descending_attenuation_factor: REPAIRED
     # 2026-08-22 (chip-20260822-fromdims-exq325-dead-ablation-axis) -- all six
     # v3_exq_325-family call sites now set both by attribute assignment on the
@@ -525,30 +502,6 @@ def test_registry_has_no_phantom_entries(sweep):
     assert not gone, (
         f"Registry lists flag(s) no longer on any live config object: {gone}. "
         "Remove them."
-    )
-
-
-def test_sd016_diversification_weight_is_an_open_defect():
-    """Pins the OPEN defect, and fails loudly the moment it is repaired.
-
-    This is the in-signature-but-never-assigned case (see module docstring).
-    It is pinned in its BROKEN state rather than fixed here because
-    `ree_core/utils/config.py` was under a concurrent claim; the repair is one
-    line in `from_dims`, beside the other SD-016 assignments:
-
-        config.sd016_diversification_weight = sd016_diversification_weight
-
-    Verified 2026-08-22: with that line, `from_dims(sd016_diversification_weight
-    =0.5)` yields 0.5 and the default stays 0.0 (so every unaffected driver is
-    bit-identical). WHEN YOU LAND IT, this test fails on purpose -- delete it
-    and drop `sd016_diversification_weight` from KNOWN_FROM_DIMS_DROP_SITES.
-    """
-    assert _build().sd016_diversification_weight == 0.0, (
-        "the dataclass default moved; the repair is no longer bit-identical"
-    )
-    assert _build(sd016_diversification_weight=0.5).sd016_diversification_weight == 0.0, (
-        "sd016_diversification_weight now lands -- the defect is REPAIRED. "
-        "Delete this test and remove the flag from KNOWN_FROM_DIMS_DROP_SITES."
     )
 
 

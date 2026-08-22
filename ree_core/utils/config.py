@@ -7554,6 +7554,15 @@ class REEConfig:
         config.e1.sd016_cue_slot_tagger_gumbel_tau_min = sd016_cue_slot_tagger_gumbel_tau_min
         config.e1.sd016_cue_slot_tagger_gumbel_anneal_steps = sd016_cue_slot_tagger_gumbel_anneal_steps
         config.e1.sd016_context_divergence_weight = sd016_context_divergence_weight
+        # NOTE (2026-08-22 repair): sd016_diversification_weight is a TOP-LEVEL
+        # REEConfig field (not an E1Config one -- see line ~3043), so it needs
+        # its own assignment here; it cannot piggyback on the config.e1.* loop
+        # above. This assignment was missing from 2026-06-05 (when the
+        # parameter was added to from_dims's signature) until this fix, so
+        # every from_dims(sd016_diversification_weight=...) caller silently
+        # got the 0.0 default instead. Pinned by
+        # tests/contracts/test_from_dims_flag_reachability.py.
+        config.sd016_diversification_weight = sd016_diversification_weight
         config.e1.action_object_dim = action_object_dim
         config.e1.schema_wanting_enabled = schema_wanting_enabled
 
