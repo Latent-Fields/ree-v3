@@ -129,9 +129,21 @@ REACHABLE_BY_ALTERNATIVE_IDIOM = {
     "benefit_terrain_enabled": "residue; 16 drivers + 5 tests set it directly",
     "benefit_terrain_live_producer": "residue; 2 drivers + 1 test",
     "beta_gate_bistable": "heartbeat; 160 drivers + 4 lib + 11 tests set it directly",
+    "descending_attenuation_factor": (
+        "REEConfig; companion float knob of harm_descending_mod_enabled, set "
+        "directly alongside it by the same 7 call sites (see that entry)."
+    ),
     "e3_include_untrained_fallback_scorers": "e3; 2 drivers + 4 tests",
     "ewc_enabled": "residue; 5 tests + 1 ree_core site",
     "gaba_harm_state_recurrence": "latent; ree_core-internal only",
+    "harm_descending_mod_enabled": (
+        "REEConfig; SD-021 descending pain modulation. REPAIRED 2026-08-22 "
+        "(chip-20260822-fromdims-exq325-dead-ablation-axis) -- all 6 "
+        "v3_exq_325-family drivers now set it by attribute assignment on the "
+        "returned config, the same idiom v3_exq_610_inv074_crystallization_"
+        "necessity.py already used. Formerly a live KNOWN_FROM_DIMS_DROP_SITES "
+        "entry; moved here once no call site passed it into from_dims anymore."
+    ),
     "include_active": "hippocampal.ghost_goal_bank_config; 2 drivers via ctor",
     "include_inactive": "hippocampal.ghost_goal_bank_config; 2 drivers via ctor",
     "mode_conditioning_enabled": "hippocampal; 11 drivers + 2 tests",
@@ -214,40 +226,11 @@ KNOWN_FROM_DIMS_DROP_SITES = {
             "experiments/v3_exq_503a_sd017_sleep_phase_discriminative_phase2.py",
         },
     },
-    "harm_descending_mod_enabled": {
-        "reason": (
-            "SEVEREST of the four. v3_exq_325's DESCENDING vs CONTROL arms are "
-            "distinguished ONLY by this kwarg -- the driver has no downstream "
-            "`if descending:` branch, it relies on the substrate honouring the "
-            "config (agent.py:4940 reads it). Verified by construction: "
-            "make_config(True) and make_config(False) return configs whose "
-            "REEConfig top-level fields are IDENTICAL. The ablation axis is dead."
-        ),
-        "paths": {
-            "experiments/v3_exq_325_sd021_descending_pain_modulation.py",
-            "experiments/v3_exq_325a_sd021_descending_pain_modulation.py",
-            "experiments/v3_exq_325c_sd032c_aic_descending_modulation.py",
-            "experiments/v3_exq_325d_sd032c_aic_descending_modulation.py",
-            "experiments/v3_exq_325e_sd032c_aic_drive_dependence.py",
-            "experiments/v3_exq_325f_sd032c_aic_descending_reef.py",
-        },
-    },
-    "descending_attenuation_factor": {
-        "reason": (
-            "Companion knob of harm_descending_mod_enabled, dropped in the same "
-            "six calls. HARMLESS TODAY -- every call passes 0.5, which equals the "
-            "dataclass default -- but it is registered rather than ignored "
-            "because it becomes live the moment anyone sweeps it."
-        ),
-        "paths": {
-            "experiments/v3_exq_325_sd021_descending_pain_modulation.py",
-            "experiments/v3_exq_325a_sd021_descending_pain_modulation.py",
-            "experiments/v3_exq_325c_sd032c_aic_descending_modulation.py",
-            "experiments/v3_exq_325d_sd032c_aic_descending_modulation.py",
-            "experiments/v3_exq_325e_sd032c_aic_drive_dependence.py",
-            "experiments/v3_exq_325f_sd032c_aic_descending_reef.py",
-        },
-    },
+    # harm_descending_mod_enabled / descending_attenuation_factor: REPAIRED
+    # 2026-08-22 (chip-20260822-fromdims-exq325-dead-ablation-axis) -- all six
+    # v3_exq_325-family call sites now set both by attribute assignment on the
+    # returned config, the same idiom v3_exq_610 already used. Removed from
+    # this registry rather than left as a stale phantom-path entry.
     "gated_policy_use_differential_heads": {
         "reason": (
             "Passed True in all ten, commented '# ARC-062 fix.' -- so the fix is "

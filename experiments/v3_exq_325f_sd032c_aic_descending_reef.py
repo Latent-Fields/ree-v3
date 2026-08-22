@@ -118,7 +118,7 @@ def make_config(condition: str, env: CausalGridWorldV2) -> REEConfig:
     descending = condition != "CONTROL"
     drive_protect_weight = 0.0 if condition == "AIC_DRIVE_ABLATED" else 1.0
 
-    return REEConfig.from_dims(
+    config = REEConfig.from_dims(
         body_obs_dim=env.body_obs_dim,
         world_obs_dim=env.world_obs_dim,
         action_dim=env.action_dim,
@@ -130,8 +130,6 @@ def make_config(condition: str, env: CausalGridWorldV2) -> REEConfig:
         harm_obs_a_dim=HARM_OBS_A_DIM,
         z_harm_a_dim=Z_HARM_A_DIM,
         limb_damage_enabled=True,
-        harm_descending_mod_enabled=descending,
-        descending_attenuation_factor=0.5,
         use_aic_analog=use_aic,
         aic_baseline_alpha=0.02,
         aic_drive_coupling=1.0,
@@ -139,6 +137,11 @@ def make_config(condition: str, env: CausalGridWorldV2) -> REEConfig:
         aic_drive_protect_weight=drive_protect_weight,
         heartbeat=hb,
     )
+    # from_dims() silently drops unknown kwargs -- these two must be set by
+    # attribute assignment, not passed above (chip-20260822-fromdims-exq325-dead-ablation-axis).
+    config.harm_descending_mod_enabled = descending
+    config.descending_attenuation_factor = 0.5
+    return config
 
 
 def run_training(agent: REEAgent, enc_s: HarmEncoder, enc_a: AffectiveHarmEncoder,

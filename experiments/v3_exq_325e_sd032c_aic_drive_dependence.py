@@ -200,7 +200,7 @@ def make_config(condition: str) -> REEConfig:
     )
     e3 = E3Config(urgency_interrupt_threshold=urgency_thresh)
 
-    return REEConfig.from_dims(
+    config = REEConfig.from_dims(
         body_obs_dim=17,
         world_obs_dim=250,
         action_dim=4,
@@ -212,8 +212,6 @@ def make_config(condition: str) -> REEConfig:
         harm_obs_a_dim=HARM_OBS_A_DIM,
         z_harm_a_dim=Z_HARM_A_DIM,
         limb_damage_enabled=True,
-        harm_descending_mod_enabled=descending,
-        descending_attenuation_factor=0.5,
         use_aic_analog=use_aic,
         aic_baseline_alpha=0.02,
         aic_drive_coupling=drive_coupling,
@@ -222,6 +220,11 @@ def make_config(condition: str) -> REEConfig:
         heartbeat=hb,
         e3=e3,
     )
+    # from_dims() silently drops unknown kwargs -- these two must be set by
+    # attribute assignment, not passed above (chip-20260822-fromdims-exq325-dead-ablation-axis).
+    config.harm_descending_mod_enabled = descending
+    config.descending_attenuation_factor = 0.5
+    return config
 
 
 def _compute_drive(obs_body: torch.Tensor) -> float:

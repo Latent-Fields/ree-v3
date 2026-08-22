@@ -113,7 +113,7 @@ def make_config(descending: bool) -> REEConfig:
     # beta_gate_bistable=True required: gate must elevate and HOLD so SD-021
     # attenuation path is reached during committed steps
     hb = HeartbeatConfig(beta_gate_bistable=True)
-    return REEConfig.from_dims(
+    config = REEConfig.from_dims(
         body_obs_dim=17,   # SD-022: body_obs_dim=17 when limb_damage_enabled
         world_obs_dim=250,
         action_dim=4,
@@ -125,10 +125,13 @@ def make_config(descending: bool) -> REEConfig:
         harm_obs_a_dim=HARM_OBS_A_DIM,
         z_harm_a_dim=Z_HARM_A_DIM,
         limb_damage_enabled=True,
-        harm_descending_mod_enabled=descending,
-        descending_attenuation_factor=0.5,
         heartbeat=hb,
     )
+    # from_dims() silently drops unknown kwargs -- these two must be set by
+    # attribute assignment, not passed above (chip-20260822-fromdims-exq325-dead-ablation-axis).
+    config.harm_descending_mod_enabled = descending
+    config.descending_attenuation_factor = 0.5
+    return config
 
 
 def run_training(agent: REEAgent, enc_s: HarmEncoder, enc_a: AffectiveHarmEncoder,
