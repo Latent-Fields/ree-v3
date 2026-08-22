@@ -132,10 +132,10 @@ def _make_agent_goal_present(env: CausalGridWorldV2, seed: int) -> REEAgent:
         body_obs_dim=env.body_obs_dim,
         harm_obs_dim=env.harm_obs_dim if hasattr(env, 'harm_obs_dim') else 32,
         action_dim=env.action_dim,
-        use_resource_encoder=True,
         use_resource_proximity_head=True,
         drive_weight=2.0,
     )
+    cfg.latent.use_resource_encoder = True
     # SD-049 Phase 2: identity classifier
     cfg.latent.use_identity_classifier = True
     cfg.latent.identity_classifier_n_types = N_RESOURCE_TYPES
@@ -151,9 +151,9 @@ def _make_agent_goal_absent(env: CausalGridWorldV2, seed: int) -> REEAgent:
         body_obs_dim=env.body_obs_dim,
         harm_obs_dim=env.harm_obs_dim if hasattr(env, 'harm_obs_dim') else 32,
         action_dim=env.action_dim,
-        use_resource_encoder=False,
         drive_weight=2.0,
     )
+    cfg.latent.use_resource_encoder = False
     cfg.goal.z_goal_enabled = False
     return REEAgent(cfg)
 

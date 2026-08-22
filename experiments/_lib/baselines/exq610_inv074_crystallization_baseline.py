@@ -397,7 +397,6 @@ def build_off_arm(
         e1_goal_conditioned=True,
         # Policy substrate (both arms).
         use_gated_policy=True,
-        gated_policy_use_differential_heads=True,  # ARC-062 fix.
         gated_policy_use_first_action_onehot=True,  # ARC-062 head input.
         use_dacc=True,
         dacc_weight=DACC_WEIGHT,
@@ -415,6 +414,7 @@ def build_off_arm(
     config.heartbeat.beta_gate_bistable = True
     config.harm_descending_mod_enabled = True
     config.descending_attenuation_factor = 0.5
+    config.gated_policy_use_differential_heads = True  # ARC-062 fix.
     config.gated_policy_bias_scale = GATED_BIAS_SCALE
 
     agent = REEAgent(config)

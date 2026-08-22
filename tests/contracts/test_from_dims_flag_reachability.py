@@ -136,6 +136,16 @@ REACHABLE_BY_ALTERNATIVE_IDIOM = {
     "e3_include_untrained_fallback_scorers": "e3; 2 drivers + 4 tests",
     "ewc_enabled": "residue; 5 tests + 1 ree_core site",
     "gaba_harm_state_recurrence": "latent; ree_core-internal only",
+    "gated_policy_use_differential_heads": (
+        "REEConfig; ARC-062 differential-heads fix, gated_policy builder. "
+        "REPAIRED 2026-08-22 (chip-20260822-fromdims-exq610-527-unarmed-flags) "
+        "-- all 10 v3_exq_610-family call sites (610, 610a-610f, 655, 656, "
+        "_lib/baselines/exq610_inv074_crystallization_baseline.py) now set it "
+        "by attribute assignment on the returned config, the same idiom the "
+        "same files already used for beta_gate_bistable / "
+        "harm_descending_mod_enabled. Formerly a live KNOWN_FROM_DIMS_DROP_SITES "
+        "entry; moved here once no call site passed it into from_dims anymore."
+    ),
     "harm_descending_mod_enabled": (
         "REEConfig; SD-021 descending pain modulation. REPAIRED 2026-08-22 "
         "(chip-20260822-fromdims-exq325-dead-ablation-axis) -- all 6 "
@@ -167,6 +177,16 @@ REACHABLE_BY_ALTERNATIVE_IDIOM = {
     "use_identity_classifier": "latent; 17 drivers + 1 ree_core site",
     "use_persistence_efficacy_gate": "ghost_goal_bank_config; 2 drivers + 4 tests",
     "use_progress_velocity_effort_modulation": "goal; 1 lib + 1 test",
+    "use_resource_encoder": (
+        "latent; REPAIRED 2026-08-22 "
+        "(chip-20260822-fromdims-exq610-527-unarmed-flags) -- v3_exq_527's "
+        "GOAL_PRESENT and GOAL_ABSENT arms now set it by attribute assignment "
+        "(cfg.latent.use_resource_encoder), the same idiom already used two "
+        "lines later for use_identity_classifier. Also reachable via "
+        "enable_goal_stream (config.py ~6273). Formerly a live "
+        "KNOWN_FROM_DIMS_DROP_SITES entry; moved here once no call site passed "
+        "it into from_dims anymore."
+    ),
     "use_waking_confidence_inflation": "e3; 7 drivers + 1 test",
     "valence_bounding_enabled": "residue; 1 test",
     "valence_enabled": "residue; 27 drivers + 2 lib + 2 tests",
@@ -231,43 +251,19 @@ KNOWN_FROM_DIMS_DROP_SITES = {
     # v3_exq_325-family call sites now set both by attribute assignment on the
     # returned config, the same idiom v3_exq_610 already used. Removed from
     # this registry rather than left as a stale phantom-path entry.
-    "gated_policy_use_differential_heads": {
-        "reason": (
-            "Passed True in all ten, commented '# ARC-062 fix.' -- so the fix is "
-            "not applied, in BOTH arms (it sits in the shared builder; the arm "
-            "difference is **xtal_kwargs). Not a dead axis, an unarmed mechanism. "
-            "Consumer: agent.py:1128. The same builder sets "
-            "config.heartbeat.beta_gate_bistable / config.harm_descending_mod_enabled "
-            "by attribute assignment three lines later, which DO land -- the "
-            "working idiom is already in the file, immediately below the broken one."
-        ),
-        "paths": {
-            "experiments/_lib/baselines/exq610_inv074_crystallization_baseline.py",
-            "experiments/v3_exq_610_inv074_crystallization_necessity.py",
-            "experiments/v3_exq_610a_inv074_crystallization_necessity.py",
-            "experiments/v3_exq_610b_inv074_crystallization_necessity.py",
-            "experiments/v3_exq_610c_inv074_crystallization_necessity.py",
-            "experiments/v3_exq_610d_inv074_crystallization_necessity.py",
-            "experiments/v3_exq_610e_inv074_crystallization_necessity.py",
-            "experiments/v3_exq_610f_inv074_crystallization_necessity.py",
-            "experiments/v3_exq_655_inv074_crystallization_necessity_taskshift.py",
-            "experiments/v3_exq_656_inv074_crystallization_necessity_taskshift.py",
-        },
-    },
-    "use_resource_encoder": {
-        "reason": (
-            "v3_exq_527 passes True on the GOAL_PRESENT arm and False on "
-            "GOAL_ABSENT; both are dropped, so no ResourceEncoder is built and "
-            "the arm's own probe condition (`latent.z_resource is not None`, "
-            "line 313) can never hold. The two arms still differ on "
-            "use_identity_classifier / z_goal_enabled, so the experiment is not "
-            "wholly dead -- but the z_resource pathway it names is absent. "
-            "Reachable via enable_goal_stream (config.py:6273) and by attribute "
-            "assignment, which this same driver uses two lines later for "
-            "use_identity_classifier."
-        ),
-        "paths": {"experiments/v3_exq_527_mech112_identity_goal_reef.py"},
-    },
+    #
+    # gated_policy_use_differential_heads: REPAIRED 2026-08-22
+    # (chip-20260822-fromdims-exq610-527-unarmed-flags) -- all ten
+    # v3_exq_610-family call sites now set it by attribute assignment on the
+    # returned config, the same idiom those files already used for
+    # beta_gate_bistable / harm_descending_mod_enabled. Removed from this
+    # registry rather than left as a stale phantom-path entry.
+    #
+    # use_resource_encoder: REPAIRED 2026-08-22
+    # (chip-20260822-fromdims-exq610-527-unarmed-flags) -- v3_exq_527's
+    # GOAL_PRESENT and GOAL_ABSENT arms now set it by attribute assignment,
+    # the same idiom the driver already used for use_identity_classifier.
+    # Removed from this registry rather than left as a stale phantom-path entry.
     "harm_surprise_pe_enabled": {
         "reason": (
             "DECORATIVE, NOT DEAD -- and the distinction is the whole reason this "
