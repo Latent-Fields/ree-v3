@@ -270,6 +270,13 @@ class ResetLedger:
         self.by_site: Dict[str, int] = {}
         self.executed: int = 0
         self.episode: int = 0
+        # V3-EXQ-944a: a RATE_MATCHED request whose decoupled slot could not be
+        # placed inside the episode is DROPPED, not executed. 944 had no counter
+        # for this, so a cell that silently degraded toward NO_RESET was
+        # invisible in the manifest and surfaced only as a downstream rate-match
+        # failure attributed to the substrate. Counted here so the shortfall is
+        # readable directly off the cell row.
+        self.dropped: int = 0
 
     def note(self, step: int, cls: str, lineno: int) -> None:
         self.requests.append((self.episode, step, cls))
@@ -301,16 +308,33 @@ def install_reset_policy(agent: REEAgent, arm: str, ledger: ResetLedger,
         elif arm == ARM_RATE_MATCHED:
             due = clock._global_step + rng.randint(DECOUPLE_MIN_K * k,
                                                    DECOUPLE_MAX_K * k)
+            # V3-EXQ-944a FIX 1 -- OFF-BY-ONE. `drain()` runs BEFORE
+            # `harness.step()`, so across a `for _ in range(steps)` loop the
+            # LARGEST `clock._global_step` a drain ever observes is
+            # `steps - 1`, never `steps`. 944 clamped to `episode_step_budget`
+            # (= steps) exactly, so every clamped reset was scheduled one step
+            # beyond the last drain that could see it and could NEVER fire --
+            # reintroducing, inside the clamp, the very truncation the clamp was
+            # added to remove.
+            last_drainable = None
             if episode_step_budget is not None:
-                # Clamp into the episode. Without this a reset requested late in
-                # an episode is scheduled past its end, never fires, and
-                # RATE_MATCHED silently under-executes -- which is exactly the
-                # drift back toward NO_RESET that would make C3 measure rate
-                # rather than phase. Clamping keeps the COUNT matched; the reset
-                # is still decoupled from the event (it lands at the episode
-                # tail, not in the event's own cycle).
-                due = min(due, int(episode_step_budget))
-            pending.append(due)
+                last_drainable = int(episode_step_budget) - 1
+                due = min(due, last_drainable)
+            # V3-EXQ-944a FIX 2 -- DISTINCT SLOTS. `real()` only sets the
+            # idempotent `_pending_phase_reset` flag, so two resets landing on
+            # the SAME step yield ONE extra E3 tick, not two. 944's clamp
+            # collapsed every late request onto one step, so a burst of events
+            # near the episode tail produced a single tick while the ledger
+            # counted them all as pending -- RATE_MATCHED's COUNT contract broke
+            # exactly where the event rate was highest. Give each reset its own
+            # step; if none is free inside the episode, DROP it and say so
+            # rather than silently stacking.
+            while due in pending:
+                due += 1
+            if last_drainable is not None and due > last_drainable:
+                ledger.dropped += 1
+            else:
+                pending.append(due)
         # ARM_NO_RESET: request recorded, never executed.
 
     clock.phase_reset = patched
@@ -460,6 +484,14 @@ def measure_cell(agent: REEAgent, env: CausalGridWorldV2, arm: str, seed: int,
         "trigger_coverage": coverage,
         "trigger_sites_fired": dict(ledger.by_site),
         "n_resets_executed": ledger.executed,
+        # V3-EXQ-944a: execution accounting, so a RATE_MATCHED cell that
+        # degraded toward NO_RESET is readable directly instead of being
+        # inferred from a downstream rate deviation.
+        "n_resets_requested": len(ledger.requests),
+        "n_resets_dropped_unfired": ledger.dropped,
+        "reset_execution_frac": (
+            ledger.executed / len(ledger.requests)
+        ) if ledger.requests else None,
         "n_e3_ticks": n_ticks,
         "e3_tick_rate": (n_ticks / total_steps) if total_steps else 0.0,
         "beta_elevated_frac": (elevated_steps / total_steps) if total_steps else 0.0,
