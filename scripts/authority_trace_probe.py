@@ -250,6 +250,7 @@ class Recorder:
         self.probe = FreshSelectProbe(namespace)
         self.ticks: List[TickCapture] = []
         self.actions: List[Tuple[float, ...]] = []
+        self.action_tensors: List[Any] = []
         self.harm_sum: float = 0.0
         self.n_steps: int = 0
         self._step = 0
@@ -306,9 +307,60 @@ class Recorder:
         )
 
 
-def rollout(seed: int, overrides: Dict[str, Any], steps: int, namespace: str) -> Recorder:
+def rollout(
+    seed: int,
+    overrides: Dict[str, Any],
+    steps: int,
+    namespace: str,
+    forced_actions: Optional[List[Any]] = None,
+) -> Recorder:
+    """One rollout. With `forced_actions`, runs in FORCED-LOCKSTEP.
+
+    FREE mode answers the THROUGHPUT question: left to itself, does this signal
+    change what the agent does? Its weakness is that stage comparison ends at
+    the first divergent action, because past that the two agents are in
+    different world states and are solving different problems. A signal that
+    diverges on step 1 gets ZERO comparable ticks and cannot be localised at
+    all -- which is exactly what happened to use_support_preserving_cem.
+
+    LOCKSTEP mode answers the AUTHORITY question: at matched state, does this
+    signal change the choice? The follower's own `select()` runs in full and
+    every stage tensor is captured from it, but the ACTION handed to the
+    environment is the leader's. Both arms therefore see an identical world at
+    every step and the whole episode stays comparable.
+
+    THE FOLLOWER IS A CHIMERA AND THIS IS NOT HIDDEN. Its E3 commitment state
+    evolves from ITS OWN selection while its world evolves from the leader's
+    action, so the two can disagree -- a committed trajectory that was never
+    executed. That is inherent to a matched-state counterfactual, not a defect,
+    and it is why lockstep is reported ALONGSIDE the free run rather than
+    replacing it. This is the same measurement shape as the V3-EXQ-931/932
+    autopsy, which counted elite-argmin flips against identical inputs and
+    separately found behaviour bit-identical to ablation.
+
+    Implemented by wrapping `agent.select_action` rather than by editing
+    `StepHarness`: the real call still runs and populates every `e3.last_*`
+    field, and only its RETURN value is substituted. Re-implementing the
+    canonical loop here would risk the double-sense bug the harness exists to
+    prevent.
+    """
     env, agent, _cfg = build(seed, overrides)
     rec = Recorder(agent, namespace)
+
+    if forced_actions is not None:
+        _orig_select = agent.select_action
+        _idx = {"i": 0}
+
+        def _forced_select(*a: Any, **kw: Any) -> Any:
+            real = _orig_select(*a, **kw)   # runs select(); populates last_*
+            i = _idx["i"]
+            _idx["i"] += 1
+            if i < len(forced_actions):
+                return forced_actions[i].clone()
+            return real
+
+        agent.select_action = _forced_select  # type: ignore[method-assign]
+
     harness = StepHarness(agent, env, train_mode=False, hooks=rec.hooks(), seed=seed)
     flat, od = env.reset()
     agent.reset()
@@ -317,6 +369,7 @@ def rollout(seed: int, overrides: Dict[str, Any], steps: int, namespace: str) ->
         for _ in range(steps):
             res = harness.step(od)
             od = res.next_obs_dict
+            rec.action_tensors.append(res.action.detach().clone())
             rec.actions.append(tuple(
                 round(float(x), 10) for x in res.action.detach().reshape(-1).tolist()
             ))
@@ -327,6 +380,24 @@ def rollout(seed: int, overrides: Dict[str, Any], steps: int, namespace: str) ->
                 agent.reset()
                 harness.reset()
     return rec
+
+
+# ON and CONTROL rollouts depend only on (seed, operating point, steps, mode) --
+# never on which flag is being probed -- so recomputing them per flag costs 2/3
+# of the sweep. Keyed on BASE_OVERRIDES so a --base change cannot serve a stale
+# arm from a different operating point.
+_ARM_CACHE: Dict[Any, Recorder] = {}
+
+
+def cached_arm(seed: int, steps: int, namespace: str,
+               forced_actions: Optional[List[Any]] = None,
+               forced_key: Any = None) -> Recorder:
+    key = (seed, steps, namespace, tuple(sorted(BASE_OVERRIDES.items())), forced_key)
+    hit = _ARM_CACHE.get(key)
+    if hit is None:
+        hit = rollout(seed, {}, steps, namespace, forced_actions=forced_actions)
+        _ARM_CACHE[key] = hit
+    return hit
 
 
 # --------------------------------------------------------------------------
@@ -425,6 +496,27 @@ def _pairwise_stage_delta(a: Recorder, b: Recorder) -> Dict[str, Any]:
     }
 
 
+def _localise(d: Dict[str, Any]) -> str:
+    """Where the signal acts AT MATCHED STATE, from the lockstep pass.
+
+    Deliberately separate from `classify`, which answers the throughput
+    question from the free run. A signal can be loud here and silent there --
+    that pairing IS the V3-EXQ-931/932 finding, and collapsing the two into one
+    verdict would erase it.
+    """
+    if not d.get("lockstep_control_clean", False):
+        return "UNMEASURABLE"
+    if d.get("lockstep_n_ticks", 0) == 0:
+        return "NO_TICKS"
+    if d.get("lockstep_committed_diff", 0) > 0:
+        return "COMMITTED"
+    if d.get("lockstep_scoring_diff", 0) > 0:
+        return "SCORING_ONLY"
+    if d.get("lockstep_raw_diff", 0) > 0:
+        return "RAW_ONLY"
+    return "NONE"
+
+
 def classify(d: Dict[str, Any], control_clean: bool) -> str:
     if not control_clean:
         return "UNMEASURABLE"
@@ -445,7 +537,8 @@ def classify(d: Dict[str, Any], control_clean: bool) -> str:
 # driver
 # --------------------------------------------------------------------------
 
-def probe_flag(flag: str, seeds: List[int], steps: int) -> Dict[str, Any]:
+def probe_flag(flag: str, seeds: List[int], steps: int,
+               lockstep: bool = False) -> Dict[str, Any]:
     """Contrast the BARE DEFAULT against the same config with `flag` FLIPPED.
 
     Direction follows the live default, so the probe is meaningful on a
@@ -467,10 +560,10 @@ def probe_flag(flag: str, seeds: List[int], steps: int) -> Dict[str, Any]:
 
     per_seed: List[Dict[str, Any]] = []
     for sd in seeds:
-        on = rollout(sd, {}, steps, "atp_on")
+        on = cached_arm(sd, steps, "atp_on")
         # NULL CONTROL: a second independent ON build. Any difference here is
         # harness/RNG desync, not the flag.
-        ctl = rollout(sd, {}, steps, "atp_ctl")
+        ctl = cached_arm(sd, steps, "atp_ctl")
         off = rollout(sd, {flag: target}, steps, "atp_off")
         c = _pairwise_stage_delta(on, ctl)
         control_clean = (
@@ -483,6 +576,28 @@ def probe_flag(flag: str, seeds: List[int], steps: int) -> Dict[str, Any]:
         d["control_clean"] = control_clean
         d["seed"] = sd
         d["n_fresh_ticks_on"] = len(on.ticks)
+
+        if lockstep:
+            # Follower arms driven along the LEADER's action sequence, so the
+            # whole episode stays state-matched and comparable. The control is
+            # locked too -- an unlocked control cannot certify a locked
+            # measurement, since the forcing wrapper is itself part of what
+            # could desynchronise the arms.
+            fa = on.action_tensors
+            lctl = cached_arm(sd, steps, "atp_lctl", forced_actions=fa,
+                              forced_key=("lock", sd))
+            loff = rollout(sd, {flag: target}, steps, "atp_loff", forced_actions=fa)
+            lc = _pairwise_stage_delta(on, lctl)
+            ld = _pairwise_stage_delta(on, loff)
+            d["lockstep_control_clean"] = (
+                lc["n_scoring_diff"] == 0 and lc["n_committed_diff"] == 0
+            )
+            d["lockstep_n_ticks"] = ld["n_comparable_ticks"]
+            d["lockstep_scoring_diff"] = ld["n_scoring_diff"]
+            d["lockstep_raw_diff"] = ld["n_raw_score_diff"]
+            d["lockstep_committed_diff"] = ld["n_committed_diff"]
+            d["lockstep_spread_ratio"] = ld["authority_spread_ratio_mean"]
+            d["stage_localisation"] = _localise(d)
         per_seed.append(d)
 
     verdicts = [p["verdict"] for p in per_seed]
@@ -501,6 +616,12 @@ def probe_flag(flag: str, seeds: List[int], steps: int) -> Dict[str, Any]:
         "default": cur,
         "contrast": "%s -> %s" % (cur, target),
         "per_seed": per_seed,
+        "stage_localisation": (
+            max((p.get("stage_localisation", "NONE") for p in per_seed),
+                key=lambda v: {"UNMEASURABLE": 0, "NO_TICKS": 1, "NONE": 2,
+                               "RAW_ONLY": 3, "SCORING_ONLY": 4, "COMMITTED": 5}.get(v, 0))
+            if lockstep else None
+        ),
         "declared_on": None,
     }
 
@@ -514,6 +635,10 @@ def main() -> int:
                     help="explicit flag names; default = every default-ON use_* flag. "
                          "A named default-OFF flag is contrasted in the ON direction, "
                          "which is how positive controls are run.")
+    ap.add_argument("--lockstep", action="store_true",
+                    help="additionally run each arm along the leader's action "
+                         "sequence, so the whole episode stays state-matched and a "
+                         "signal that diverges immediately can still be localised")
     ap.add_argument("--base", nargs="*", default=None, metavar="FLAG=BOOL",
                     help="operating point: extra overrides applied to EVERY arm "
                          "(e.g. --base use_harm_stream=true use_affective_harm_stream=true). "
@@ -563,7 +688,7 @@ def main() -> int:
     results: List[Dict[str, Any]] = []
     for i, fl in enumerate(flags, 1):
         print("[%2d/%2d] %s ..." % (i, len(flags), fl), flush=True)
-        r = probe_flag(fl, seeds, args.steps)
+        r = probe_flag(fl, seeds, args.steps, lockstep=args.lockstep)
         r["declared_on"] = default_on.get(fl, declaring_classes(fl))
         results.append(r)
         ps = r.get("per_seed") or [{}]
@@ -575,17 +700,25 @@ def main() -> int:
 
     print()
     print("=" * 100)
-    print("%-42s %-14s %10s %9s %9s %8s" % (
-        "flag", "dies_at", "spread", "commit", "realised", "ticks"))
-    print("-" * 100)
+    hdr = "%-42s %-14s %10s %9s %9s %8s" % (
+        "flag", "dies_at", "spread", "commit", "realised", "ticks")
+    if args.lockstep:
+        hdr += " %-13s %8s %7s" % ("at_matched", "ls_ticks", "ls_cmt")
+    print(hdr)
+    print("-" * (113 if args.lockstep else 100))
     for r in sorted(results, key=lambda x: x["verdict"]):
         ps = r.get("per_seed") or []
         sr = max((p.get("authority_spread_ratio_mean", 0.0) for p in ps), default=0.0)
         cd = sum(p.get("n_committed_diff", 0) for p in ps)
         rd = any(p.get("realised_actions_differ") for p in ps)
         nt = sum(p.get("n_comparable_ticks", 0) for p in ps)
-        print("%-42s %-14s %10.4f %9d %9s %8d" % (
-            r["flag"][:42], r["verdict"], sr, cd, "yes" if rd else "no", nt))
+        row = "%-42s %-14s %10.4f %9d %9s %8d" % (
+            r["flag"][:42], r["verdict"], sr, cd, "yes" if rd else "no", nt)
+        if args.lockstep:
+            lt = sum(p.get("lockstep_n_ticks", 0) for p in ps)
+            lc = sum(p.get("lockstep_committed_diff", 0) for p in ps)
+            row += " %-13s %8d %7d" % (r.get("stage_localisation") or "-", lt, lc)
+        print(row)
     print("=" * 100)
 
     if args.json:

@@ -307,3 +307,91 @@ def test_eligibility_stage_inactive_is_not_reported_active():
     assert rec.ticks, "no fresh E3 ticks captured"
     assert all(t.n_eligible is None for t in rec.ticks)
     assert all(t.arbitration_ran is False for t in rec.ticks)
+
+
+# --------------------------------------------------------------------------
+# forced lockstep -- authority at matched state
+# --------------------------------------------------------------------------
+
+def test_localise_requires_a_clean_lockstep_control():
+    """A dirty lockstep control outranks any lockstep delta.
+
+    The forcing wrapper is itself part of what could desynchronise the arms,
+    so an UNLOCKED control cannot certify a LOCKED measurement. This mirrors
+    the free-run rule and must not be relaxed to reuse the free control.
+    """
+    loud = {"lockstep_control_clean": False, "lockstep_n_ticks": 40,
+            "lockstep_scoring_diff": 40, "lockstep_committed_diff": 12}
+    assert atp._localise(loud) == "UNMEASURABLE"
+    loud["lockstep_control_clean"] = True
+    assert atp._localise(loud) == "COMMITTED"
+
+
+def test_localise_reports_no_ticks_rather_than_none():
+    """Zero comparable ticks is ABSENCE OF EVIDENCE, not evidence of absence.
+
+    Collapsing it to NONE would read as 'this signal does nothing at matched
+    state' when nothing was measured at all.
+    """
+    d = {"lockstep_control_clean": True, "lockstep_n_ticks": 0,
+         "lockstep_scoring_diff": 0, "lockstep_committed_diff": 0}
+    assert atp._localise(d) == "NO_TICKS"
+    assert atp._localise(d) != "NONE"
+
+
+def test_localise_separates_scoring_only_from_committed():
+    base = {"lockstep_control_clean": True, "lockstep_n_ticks": 40,
+            "lockstep_raw_diff": 0}
+    assert atp._localise({**base, "lockstep_scoring_diff": 40,
+                          "lockstep_committed_diff": 0}) == "SCORING_ONLY"
+    assert atp._localise({**base, "lockstep_scoring_diff": 40,
+                          "lockstep_committed_diff": 3}) == "COMMITTED"
+    assert atp._localise({**base, "lockstep_scoring_diff": 0,
+                          "lockstep_committed_diff": 0}) == "NONE"
+
+
+def test_forced_lockstep_actually_executes_the_leaders_actions():
+    """Otherwise the arms are not state-matched and every lockstep tick is a lie."""
+    leader = atp.rollout(11, {}, 40, "atp_lead_test")
+    follower = atp.rollout(11, {"use_dualsystem_arbitration": True}, 40,
+                           "atp_follow_test",
+                           forced_actions=leader.action_tensors)
+    assert follower.actions == leader.actions
+    free = atp.rollout(11, {"use_dualsystem_arbitration": True}, 40, "atp_free_test")
+    assert free.actions != leader.actions, (
+        "negative control: this flag must diverge when NOT forced, else the "
+        "lockstep assertion above is vacuous"
+    )
+
+
+def test_lockstep_recovers_ticks_the_free_run_cannot_compare():
+    """THE REASON LOCKSTEP EXISTS.
+
+    `use_support_preserving_cem` diverges on the first action, so the free run
+    yields ZERO state-matched ticks and the signal cannot be localised at all.
+    Under lockstep the whole episode stays comparable.
+    """
+    r = atp.probe_flag("use_support_preserving_cem", [11], 60, lockstep=True)
+    p = r["per_seed"][0]
+    assert p["n_comparable_ticks"] == 0          # free run: nothing to compare
+    assert p["lockstep_n_ticks"] > 0             # lockstep: recovered
+    assert p["lockstep_control_clean"] is True
+    assert r["stage_localisation"] != "NO_TICKS"
+
+
+def test_cached_arms_do_not_leak_across_operating_points():
+    """The ON/control cache is keyed on BASE_OVERRIDES.
+
+    Serving a bare-default arm as the ON arm of a --base run would silently
+    compare two different operating points and attribute the difference to the
+    flag.
+    """
+    atp._ARM_CACHE.clear()
+    a = atp.cached_arm(11, 20, "atp_cache_test")
+    atp.BASE_OVERRIDES["use_harm_stream"] = True
+    try:
+        b = atp.cached_arm(11, 20, "atp_cache_test")
+        assert a is not b
+    finally:
+        atp.BASE_OVERRIDES.clear()
+        atp._ARM_CACHE.clear()
