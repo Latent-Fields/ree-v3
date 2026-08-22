@@ -69,10 +69,10 @@ def _rec(ticks, actions):
     return r
 
 
-def _tick(step, raw, sel, n_elig=None, arb=False):
+def _tick(step, raw, sel, n_elig=None, arb=False, scores=None):
     return atp.TickCapture(
-        step=step, raw_scores=raw, scores=raw, selected_idx=sel,
-        n_eligible=n_elig, arbitration_ran=arb, action=None,
+        step=step, raw_scores=raw, scores=(raw if scores is None else scores),
+        selected_idx=sel, n_eligible=n_elig, arbitration_ran=arb, action=None,
     )
 
 
@@ -137,6 +137,45 @@ def test_probe_does_not_mutate_the_substrate_defaults():
     atp.probe_flag("use_bla_analog", [11], 4)
     after = atp.discover_default_on_flags()
     assert before == after
+
+
+def test_scoring_stage_reads_post_modulation_scores_not_raw():
+    """REGRESSION. `last_raw_scores` (e3_selector.py:2773) is the PRE-modulation
+    F value axis; `last_scores` (:3350) is post-bias, and every modulatory term
+    lands between the two.
+
+    An earlier version of this probe compared only raw_scores, which is blind
+    to the entire population it exists to measure -- it returned INERT for a
+    contrast that moved the final score on every tick. This fixture is exactly
+    that shape: raw identical, final differing. A verdict of INERT here means
+    the regression is back.
+    """
+    a = _rec([_tick(1, [1.0, 2.0], 0, scores=[1.0, 2.0]),
+              _tick(2, [1.0, 2.0], 0, scores=[1.0, 2.0])],
+             [(1.0, 0.0), (1.0, 0.0)])
+    b = _rec([_tick(1, [1.0, 2.0], 0, scores=[1.3, 2.0]),
+              _tick(2, [1.0, 2.0], 0, scores=[1.3, 2.0])],
+             [(1.0, 0.0), (1.0, 0.0)])
+    d = atp._pairwise_stage_delta(a, b)
+    assert d["n_raw_score_diff"] == 0        # the F axis really is untouched
+    assert d["n_scoring_diff"] == 2          # ... and the modulated score is not
+    assert d["authority_spread_ratio_mean"] > 0.0
+    assert atp.classify(d, control_clean=True) == "SCORING_ONLY"
+
+
+def test_spread_ratio_denominator_is_the_unmodulated_f_axis():
+    """The ratio must be against the DOMINANT term, not the modulated total.
+
+    Dividing by the modulated spread shrinks the denominator by the very
+    quantity being measured, inflating a weak signal toward competitiveness --
+    which inverts the readiness verdict V3-EXQ-931 turned on (~0.0037 vs a 0.1
+    floor).
+    """
+    a = _rec([_tick(1, [0.0, 10.0], 0, scores=[0.0, 10.0])], [(1.0, 0.0)])
+    b = _rec([_tick(1, [0.0, 10.0], 0, scores=[0.0, 12.0])], [(1.0, 0.0)])
+    d = atp._pairwise_stage_delta(a, b)
+    # delta spread 2.0 against the RAW spread 10.0 -> 0.2 (not 2.0/12.0)
+    assert d["authority_spread_ratio_mean"] == pytest.approx(0.2)
 
 
 # --------------------------------------------------------------------------
@@ -205,6 +244,7 @@ def test_spread_ratio_is_relative_not_absolute():
     d = atp._pairwise_stage_delta(a, b)
     # delta spread 1.0 against base spread 10.0
     assert d["authority_spread_ratio_mean"] == pytest.approx(0.1)
+    assert d["n_raw_score_diff"] == 1
     assert d["max_abs_score_delta"] == pytest.approx(1.0)
 
 

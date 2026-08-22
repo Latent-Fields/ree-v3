@@ -350,7 +350,8 @@ def _pairwise_stage_delta(a: Recorder, b: Recorder) -> Dict[str, Any]:
     if div_step is not None:
         common = [s for s in common if s < div_step]
 
-    n_scoring_diff = 0
+    n_scoring_diff = 0   # post-modulation `scores` -- the real scoring authority
+    n_raw_diff = 0       # pre-modulation `raw_scores` -- the F value axis itself
     n_committed_diff = 0
     n_elig_diff = 0
     n_arb_diff = 0
@@ -358,14 +359,33 @@ def _pairwise_stage_delta(a: Recorder, b: Recorder) -> Dict[str, Any]:
     max_abs = 0.0
     for s in common:
         x, y = ta[s], tb[s]
+
+        # RAW vs FINAL IS NOT A DETAIL. `last_raw_scores` is assigned at
+        # e3_selector.py:2773, `last_scores` at :3350, and EVERY modulatory
+        # term lands in between. Comparing only raw_scores measures the F
+        # value axis and is blind to the entire population this probe exists
+        # to measure -- it reported false INERT for every modulatory flag
+        # until this was caught. The scoring-stage verdict keys on `scores`.
         if x.raw_scores and y.raw_scores and len(x.raw_scores) == len(y.raw_scores):
-            d = [p - q for p, q in zip(y.raw_scores, x.raw_scores)]
+            dr = [p - q for p, q in zip(y.raw_scores, x.raw_scores)]
+            if any(abs(v) > 0.0 for v in dr):
+                n_raw_diff += 1
+
+        if x.scores and y.scores and len(x.scores) == len(y.scores):
+            d = [p - q for p, q in zip(y.scores, x.scores)]
             if any(abs(v) > 0.0 for v in d):
                 n_scoring_diff += 1
                 max_abs = max(max_abs, max(abs(v) for v in d))
-                base = _spread(x.raw_scores)
+                # authority_spread_ratio semantics: the contrast's
+                # cross-candidate spread against the DOMINANT term's, which is
+                # the unmodulated F score -- not against the modulated total,
+                # which would shrink the denominator by the very quantity
+                # being measured. Falls back to the `scores` spread only when
+                # raw_scores is unavailable.
+                base = _spread(x.raw_scores) if x.raw_scores else _spread(x.scores)
                 if base > 0.0:
                     ratios.append(_spread(d) / base)
+
         if x.selected_idx != y.selected_idx:
             n_committed_diff += 1
         if x.n_eligible != y.n_eligible:
@@ -377,6 +397,7 @@ def _pairwise_stage_delta(a: Recorder, b: Recorder) -> Dict[str, Any]:
         "n_comparable_ticks": len(common),
         "divergence_step": div_step,
         "n_scoring_diff": n_scoring_diff,
+        "n_raw_score_diff": n_raw_diff,
         "n_eligibility_diff": n_elig_diff,
         "n_arbitration_diff": n_arb_diff,
         "n_committed_diff": n_committed_diff,
