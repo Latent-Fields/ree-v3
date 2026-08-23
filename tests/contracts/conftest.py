@@ -172,10 +172,22 @@ the PRE half and flatters the change; it was discarded, not adjusted. (2) The
 idle gate written for the retry tested `ps | grep -c "[b]in/pytest"` -- but the
 hub invokes pytest as `python3 -m pytest`, so it reported `pytest=0` while a run
 sat at 100% CPU. A settle gate blind to the one process it exists to detect is
-worse than none: it certifies a contended box as idle. Use `[-]m pytest`, and
-verify the probe returns 0 on a genuinely quiet box before trusting a run behind
-it. This is the third and fourth instance of the pattern the next paragraph
-warns about.
+worse than none: it certifies a contended box as idle. This is the third and
+fourth instance of the pattern the next paragraph warns about.
+
+DO NOT HAND-ROLL THAT PROBE AT ALL -- USE `scripts/remote_pytest_detect.py`.
+Bracket-escaping to `[-]m pytest` fixes the miss above and is still not the right
+answer: `remote_pytest.sh`'s own header documents TWO ways a command-line
+substring lies about what a process is RUNNING, and the bracket trick addresses
+only the first (SELF-match, where the ssh `bash -c` wrapper's cmdline holds the
+pattern). The second -- FOREIGN mention, a leftover wait-loop whose cmdline
+contains the pattern it was itself searching for -- defeats it, and cost a real
+run a 900s block against a verified-idle hub on 2026-07-27. That is why the
+production path asks about argv STRUCTURE (argv[0] is a python interpreter and
+`-m pytest` follows, or argv[0] is the pytest console script) instead. A
+measurement gate deserves the same detector the routing gate uses; reach for that
+module rather than any grep, and verify the probe returns 0 on a genuinely quiet
+box before trusting a run behind it.
 
 TAKE THE MEASUREMENT PROTOCOL SERIOUSLY IF YOU REVISIT THIS. Three earlier
 attempts at this number were wrong, all in the optimistic-looking direction until
