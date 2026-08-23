@@ -82,13 +82,34 @@ CLAUDE.md "Running the test suite" before reasoning from them.
 SCOPE, STATED SO IT IS NOT MISREAD. This file says nothing about whether a flag
 DOES anything once it lands -- that is `test_flag_inertness.py`'s question. It
 asks only whether the canonical constructor can set it at all.
+
+TWO SEPARATE CHECKS LIVE IN THIS FILE, AND NEITHER SUBSUMES THE OTHER. Every-
+thing above is the FIELD-driven sweep: it enumerates every SCALAR field on the
+live config tree and asks whether from_dims can set it, so it structurally
+cannot see (a) a kwarg whose VALUE IS A WHOLE SUB-CONFIG OBJECT
+(`heartbeat=HeartbeatConfig(...)` is not a scalar field, so the sweep never
+enumerates it) or (b) a kwarg that NAMES NOTHING on the config tree at all
+(there is no field to sweep in the first place). The USAGE-driven check below
+is the complement: it collects every keyword literally passed to `from_dims`
+(or a forwarder) anywhere in `experiments/` and asks whether from_dims can
+receive it AT ALL -- via a signature entry, an explicit `kwargs.pop`, or (for a
+real scalar field) the field-driven sweep above. Measured 2026-08-23:
+`heartbeat` swallows a whole `HeartbeatConfig(...)` on 9 files, including
+`v3_exq_321`/`321a` passing `HeartbeatConfig(beta_gate_bistable=True)` -- the
+exact flag those MECH-090 drivers exist to test; `noise_floor_weight` names
+nothing on the tree at all, on 10 files (the v3_exq_610 INV-074 family).
+Neither check can do the other's job: the field sweep cannot see a name that
+names no field, and the usage check cannot find a field nobody has ever tried
+to set (that is `NO_CONFIRMED_CALLER`'s question, and it stays field-driven).
 """
 
 from __future__ import annotations
 
 import ast
 import dataclasses
+import inspect
 import sys
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -317,6 +338,125 @@ KNOWN_FROM_DIMS_DROP_SITES = {
     },
 }
 
+# USAGE-driven registries -- see the module docstring paragraph "TWO SEPARATE
+# CHECKS LIVE IN THIS FILE". These catch what KNOWN_FROM_DIMS_DROP_SITES above
+# structurally cannot: it is keyed by SCALAR field name (from the sweep), so a
+# kwarg whose value is a whole sub-config object, or a kwarg naming no field at
+# all, never enters `at_risk` and is invisible to it.
+
+# A kwarg naming a whole SUB-CONFIG OBJECT (`heartbeat=HeartbeatConfig(...)`),
+# not a scalar field. from_dims's **kwargs swallow applies to the object
+# itself -- every field on it is dropped, not just one. Measured 2026-08-23.
+USAGE_DRIVEN_SUBCONFIG_DROP_SITES = {
+    "heartbeat": {
+        "reason": (
+            "SEVERE, not decorative. v3_exq_321/321a pass "
+            "`heartbeat=HeartbeatConfig(beta_gate_bistable=True)` -- the exact "
+            "flag those MECH-090 bistable-gate drivers exist to test -- and it "
+            "is swallowed along with the rest of the object. The other 7 files "
+            "are the v3_exq_325/878 families setting harm_descending_mod_enabled "
+            "/ AIC-related heartbeat fields the same way. Whether this "
+            "invalidates any of these drivers' recorded evidence is a "
+            "/governance + /failure-autopsy question, deliberately NOT "
+            "adjudicated here -- see chip-20260822-exq325-family-evidence-"
+            "disposition for the adjacent 325-family case. The repair, when "
+            "taken, is the idiom this repo already uses elsewhere in the same "
+            "files: attribute assignment on the returned config "
+            "(`cfg.heartbeat.beta_gate_bistable = True`), not a from_dims "
+            "signature entry for a whole sub-config object."
+        ),
+        "paths": {
+            "experiments/v3_exq_321_mech090_bistable_gate.py",
+            "experiments/v3_exq_321a_mech090_bistable_gate.py",
+            "experiments/v3_exq_325a_sd021_descending_pain_modulation.py",
+            "experiments/v3_exq_325c_sd032c_aic_descending_modulation.py",
+            "experiments/v3_exq_325d_sd032c_aic_descending_modulation.py",
+            "experiments/v3_exq_325e_sd032c_aic_drive_dependence.py",
+            "experiments/v3_exq_325f_sd032c_aic_descending_reef.py",
+            "experiments/v3_exq_878_mech332_efference_aic_dissociation.py",
+            "experiments/v3_exq_878a_mech332_commitment_calibration.py",
+        },
+    },
+    "e3": {
+        "reason": (
+            "Same shape as heartbeat, one file: v3_exq_325e also passes "
+            "`e3=E3Config(...)` directly and it is swallowed whole."
+        ),
+        "paths": {"experiments/v3_exq_325e_sd032c_aic_drive_dependence.py"},
+    },
+    "latent": {
+        "reason": (
+            "Same shape as heartbeat, one file: v3_exq_322 passes "
+            "`latent=LatentStackConfig(...)` directly (SD-015 resource encoder "
+            "seeding) and it is swallowed whole."
+        ),
+        "paths": {"experiments/v3_exq_322_sd015_resource_encoder_seeding.py"},
+    },
+}
+
+# A kwarg that names NOTHING on the live config tree at all -- not a scalar
+# field, not a sub-config object, not a signature parameter, not an explicit
+# pop. Each has a plausible real target (given in the reason), which is
+# exactly why these read as harmless ablations instead of raising.
+#
+# DO NOT "fix" these by guessing the intended name here. `noise_floor_weight`
+# -> `noise_floor_alpha` is plausible and would CHANGE EXPERIMENT SEMANTICS on
+# 10 drivers if wrong. Each needs adjudication against what its driver's own
+# docstring/criteria claim it was testing -- a per-family decision, not a
+# mechanical rename. Measured 2026-08-23.
+USAGE_DRIVEN_UNRECEIVABLE_NAMES = {
+    "noise_floor_weight": {
+        "reason": (
+            "Nearest real fields: noise_floor_alpha, use_noise_floor. Affects "
+            "the whole v3_exq_610 INV-074 crystallization-necessity family plus "
+            "its shared baseline module -- 10 files. Not adjudicated here."
+        ),
+        "paths": {
+            "experiments/_lib/baselines/exq610_inv074_crystallization_baseline.py",
+            "experiments/v3_exq_610_inv074_crystallization_necessity.py",
+            "experiments/v3_exq_610a_inv074_crystallization_necessity.py",
+            "experiments/v3_exq_610b_inv074_crystallization_necessity.py",
+            "experiments/v3_exq_610c_inv074_crystallization_necessity.py",
+            "experiments/v3_exq_610d_inv074_crystallization_necessity.py",
+            "experiments/v3_exq_610e_inv074_crystallization_necessity.py",
+            "experiments/v3_exq_610f_inv074_crystallization_necessity.py",
+            "experiments/v3_exq_655_inv074_crystallization_necessity_taskshift.py",
+            "experiments/v3_exq_656_inv074_crystallization_necessity_taskshift.py",
+        },
+    },
+    "curiosity_lp_weight": {
+        "reason": (
+            "Nearest real fields: curiosity_weight, curiosity_lp_window_k, "
+            "curiosity_lp_ema_alpha. v3_exq_605 is literally titled "
+            "q043_noise_floor_curiosity_weight_sweep -- a sweep over a kwarg "
+            "that never lands. Not adjudicated here."
+        ),
+        "paths": {
+            "experiments/v3_exq_604_q044_mech314_subflavour_three_arm_ablation.py",
+            "experiments/v3_exq_605_q043_noise_floor_curiosity_weight_sweep.py",
+        },
+    },
+    "use_hippocampal": {
+        "reason": (
+            "There is no bool by this name anywhere -- `hippocampal` is a "
+            "SUB-CONFIG OBJECT (see USAGE_DRIVEN_SUBCONFIG_DROP_SITES above), "
+            "not a flag, so this is not even a near-miss of the working idiom. "
+            "Not adjudicated here."
+        ),
+        "paths": {
+            "experiments/v3_exq_688_mech044_hippocampal_relational_binding.py",
+            "experiments/v3_exq_688a_mech044_hippocampal_relational_binding.py",
+        },
+    },
+    "use_harm_proximity_head": {
+        "reason": (
+            "Nearest real field: use_resource_proximity_head. Not adjudicated "
+            "here."
+        ),
+        "paths": {"experiments/v3_exq_533_mech102_harm_stream_ablation.py"},
+    },
+}
+
 
 # ---------------------------------------------------------------------------
 # the sweep
@@ -520,27 +660,35 @@ def test_registry_has_no_phantom_entries(sweep):
 # ---------------------------------------------------------------------------
 # the call-site contract -- who is actually LOSING a value right now
 # ---------------------------------------------------------------------------
+#
+# ONE corpus walk feeds BOTH checks below (the FIELD-driven drop-site filter
+# and the USAGE-driven unreceivable-kwarg check) -- `_from_dims_usage` is not
+# re-run per check. See the module docstring paragraph "TWO SEPARATE CHECKS
+# LIVE IN THIS FILE" for why a single usage map still needs two different
+# registries downstream.
 
-def _drop_sites(sweep_result):
-    """{name: {relpath}} for names passed into a from_dims forwarder and dropped.
+def _from_dims_usage():
+    """{kwarg name: {relpath}} for EVERY literal keyword passed to a from_dims
+    forwarder call anywhere in `experiments/` -- unfiltered by risk or type.
 
-    Type-agnostic on purpose: restricting this to bools would have missed
-    sd016_diversification_weight (float) and harm_nonredundancy_weight (float).
-    PARTIAL counts as well as UNREACHABLE -- see the wanting_weight entry.
+    This is the raw usage inventory both checks below classify. `kw.arg is
+    None` (a `**something` spread rather than a literal `name=value`) is
+    skipped -- there is no literal name to attribute a drop to.
     """
-    at_risk = {n for n, (st, _l, _m) in sweep_result.items() if st in ("UNREACHABLE", "PARTIAL")}
     found = {}
     for path in sorted(EXPERIMENTS_DIR.rglob("*.py")):
         try:
             src = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        # Prefilter on TEXT before parsing. A SECOND prefilter on the at-risk
-        # names themselves was written, measured and REMOVED: it cost ~9s of
-        # `re.findall` and eliminated only 38 of the 1184 surviving files,
-        # because the at-risk set contains generic names (`hidden_dim`,
-        # `learning_rate`, `size`) present in nearly every driver. The forwarder
-        # substring is the whole prefilter.
+        # Prefilter on TEXT before parsing. A SECOND prefilter on an at-risk
+        # name set was written, measured and REMOVED (for the drop-site filter
+        # this fed before the walk was shared): it cost ~9s of `re.findall`
+        # and eliminated only 38 of the 1184 surviving files, because that set
+        # contains generic names (`hidden_dim`, `learning_rate`, `size`)
+        # present in nearly every driver. The forwarder substring is the whole
+        # prefilter, and it is even less selective now that usage is
+        # unfiltered by risk -- do not resurrect the removed prefilter here.
         if not any(w in src for w in FROM_DIMS_FORWARDERS):
             continue
         try:
@@ -559,14 +707,33 @@ def _drop_sites(sweep_result):
             if fname not in FROM_DIMS_FORWARDERS:
                 continue
             for kw in node.keywords:
-                if kw.arg in at_risk:
-                    found.setdefault(kw.arg, set()).add(rel)
+                if kw.arg is None:
+                    continue
+                found.setdefault(kw.arg, set()).add(rel)
     return found
 
 
 @pytest.fixture(scope="module")
-def drop_sites(sweep):
-    return _drop_sites(sweep)
+def usage():
+    return _from_dims_usage()
+
+
+def _drop_sites(usage_map, sweep_result):
+    """{name: {relpath}} for names passed into a from_dims forwarder and dropped.
+
+    Type-agnostic on purpose: restricting this to bools would have missed
+    sd016_diversification_weight (float) and harm_nonredundancy_weight (float).
+    PARTIAL counts as well as UNREACHABLE -- see the wanting_weight entry.
+    Filters the shared `usage_map` down to names the FIELD-driven sweep above
+    actually saw as at-risk; it does not walk the corpus itself.
+    """
+    at_risk = {n for n, (st, _l, _m) in sweep_result.items() if st in ("UNREACHABLE", "PARTIAL")}
+    return {n: paths for n, paths in usage_map.items() if n in at_risk}
+
+
+@pytest.fixture(scope="module")
+def drop_sites(usage, sweep):
+    return _drop_sites(usage, sweep)
 
 
 def test_no_unregistered_from_dims_drop_site(drop_sites):
@@ -599,6 +766,195 @@ def test_drop_site_registry_has_no_phantom_paths(drop_sites):
         f"flag into from_dims: {stale}. Prune them -- if a flag's whole path "
         "set is empty, the defect is fixed and the entry should go."
     )
+
+
+# ---------------------------------------------------------------------------
+# the USAGE-driven contract -- catches what the FIELD-driven sweep cannot see
+# at all: a kwarg naming a whole sub-config object, or naming nothing on the
+# config tree. See the module docstring paragraph "TWO SEPARATE CHECKS LIVE IN
+# THIS FILE" for why this does not subsume, or get subsumed by, the sweep.
+# ---------------------------------------------------------------------------
+
+def _from_dims_signature_names():
+    """Real parameter names in `from_dims`'s own signature (no `**kwargs`).
+
+    A name here is receivable by construction -- it has an explicit slot, so
+    it is never in the usage-driven "unreceivable" classification below,
+    regardless of what the field-driven sweep says about it.
+    """
+    sig = inspect.signature(REEConfig.from_dims)
+    return {
+        p.name
+        for p in sig.parameters.values()
+        if p.kind not in (inspect.Parameter.VAR_KEYWORD, inspect.Parameter.VAR_POSITIONAL)
+    }
+
+
+def _from_dims_popped_names():
+    """Names read via an explicit `kwargs.pop("name", ...)` in `from_dims`'s body.
+
+    PARSED straight out of the live method -- not hardcoded. A hardcoded copy
+    would silently rot the moment a pop is added or removed; see the module
+    docstring's account of the six-plus-four names that land this way with no
+    signature entry at all.
+    """
+    src = textwrap.dedent(inspect.getsource(REEConfig.from_dims))
+    tree = ast.parse(src)
+    names = set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "pop"
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "kwargs"
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and isinstance(node.args[0].value, str)
+        ):
+            names.add(node.args[0].value)
+    return names
+
+
+def _config_object_names(cfg):
+    """Top-level attribute names on `cfg` that are themselves live *Config objects.
+
+    A from_dims kwarg is a bare identifier, so a sub-config object can only be
+    swallowed under its TOP-LEVEL attribute name (`heartbeat=HeartbeatConfig
+    (...)`) -- a dotted nested path like `hippocampal.anchor_set` is not a
+    legal kwarg name and cannot appear in usage at all, so this deliberately
+    does not descend into `_config_objects`' dotted paths.
+    """
+    return {
+        path for path in _config_objects(cfg) if "." not in path and path != type(cfg).__name__
+    }
+
+
+def _unreceivable_usage(usage_map, sweep_result):
+    """(subconfig, other) -- from_dims kwargs the field-driven sweep cannot see.
+
+    `subconfig`: the kwarg names a whole live sub-config object (bucket B).
+    `other`: the kwarg names nothing on the config tree at all (bucket D).
+    Kept apart because they need different remedies -- pass the object's
+    fields individually / assign by attribute, vs. find the correct name --
+    and collapsing them into one registry would lose that distinction.
+
+    A name already covered by the FIELD-driven checks above (real scalar
+    field, in `sweep_result` regardless of verdict) is deliberately excluded
+    here even if it is UNREACHABLE/PARTIAL -- that is `KNOWN_FROM_DIMS_DROP_
+    SITES`'s job via `drop_sites`, and reporting it from both checks would be
+    double-counting the same defect under two registries.
+    """
+    receivable = (
+        _from_dims_signature_names() | _from_dims_popped_names() | set(sweep_result)
+    )
+    subconfig_names = _config_object_names(_build())
+    candidates = {n: paths for n, paths in usage_map.items() if n not in receivable}
+    subconfig = {n: paths for n, paths in candidates.items() if n in subconfig_names}
+    other = {n: paths for n, paths in candidates.items() if n not in subconfig_names}
+    return subconfig, other
+
+
+@pytest.fixture(scope="module")
+def unreceivable_usage(usage, sweep):
+    return _unreceivable_usage(usage, sweep)
+
+
+def test_usage_walk_is_not_vacuous(usage):
+    """A walk that silently stopped matching forwarder calls would make every
+    check below pass vacuously, exactly as `test_sweep_detects_a_synthetic_
+    swallow` guards the field-driven sweep. Measured 2026-08-23: 518 distinct
+    kwarg names across 1158 files; 400 is a safety margin below that, not the
+    real figure -- re-measure before citing this number elsewhere."""
+    assert len(usage) >= 400, f"usage walk collapsed to {len(usage)} distinct kwarg names"
+
+
+def test_popped_kwargs_are_never_reported_as_unreceivable(unreceivable_usage):
+    """NEGATIVE CONTROL for bucket A (the explicit `kwargs.pop` names).
+
+    `use_iterative_inference` is popped in `from_dims`'s body with no
+    signature entry, and real drivers (e.g. v3_exq_676/679/680*) pass it. A
+    usage-driven check that does not know about `kwargs.pop` would flag it as
+    unreceivable, which is exactly wrong -- it lands.
+    """
+    subconfig, other = unreceivable_usage
+    assert "use_iterative_inference" not in subconfig
+    assert "use_iterative_inference" not in other
+    popped = _from_dims_popped_names()
+    assert "use_iterative_inference" in popped, (
+        "the from_dims-pop parser no longer finds use_iterative_inference; "
+        "either the pop was removed (update the module docstring's account of "
+        "it) or the parser regressed"
+    )
+
+
+def test_every_unreceivable_usage_kwarg_is_registered(unreceivable_usage):
+    """A new from_dims kwarg that names a sub-config object or nothing at all
+    forces a decision, exactly as the field-driven registries above do."""
+    subconfig, other = unreceivable_usage
+    unregistered_subconfig = {
+        name: sorted(
+            paths - USAGE_DRIVEN_SUBCONFIG_DROP_SITES.get(name, {}).get("paths", set())
+        )
+        for name, paths in subconfig.items()
+    }
+    unregistered_subconfig = {k: v for k, v in unregistered_subconfig.items() if v}
+    assert not unregistered_subconfig, (
+        "Call site(s) pass a whole SUB-CONFIG OBJECT by keyword into "
+        f"from_dims (or a forwarder) that silently swallows it: "
+        f"{unregistered_subconfig}. The field-driven sweep above cannot see "
+        "this -- a sub-config object is not a scalar field. Register in "
+        "USAGE_DRIVEN_SUBCONFIG_DROP_SITES with the measured blast radius, or "
+        "fix the call site to set the object's fields individually / by "
+        "attribute assignment on the returned config."
+    )
+    unregistered_other = {
+        name: sorted(paths - USAGE_DRIVEN_UNRECEIVABLE_NAMES.get(name, {}).get("paths", set()))
+        for name, paths in other.items()
+    }
+    unregistered_other = {k: v for k, v in unregistered_other.items() if v}
+    assert not unregistered_other, (
+        "Call site(s) pass a keyword into from_dims (or a forwarder) that "
+        f"NAMES NOTHING on the live config tree: {unregistered_other}. The "
+        "field-driven sweep above cannot see this -- there is no field to "
+        "sweep. Register in USAGE_DRIVEN_UNRECEIVABLE_NAMES with the measured "
+        "blast radius and the nearest real field name, or fix the call site."
+    )
+
+
+def test_usage_registries_have_no_phantom_paths(unreceivable_usage):
+    """A registered path that no longer passes the kwarg must be pruned."""
+    subconfig, other = unreceivable_usage
+    stale_subconfig = {
+        name: sorted(entry["paths"] - subconfig.get(name, set()))
+        for name, entry in USAGE_DRIVEN_SUBCONFIG_DROP_SITES.items()
+    }
+    stale_subconfig = {k: v for k, v in stale_subconfig.items() if v}
+    assert not stale_subconfig, (
+        f"USAGE_DRIVEN_SUBCONFIG_DROP_SITES lists path(s) that no longer pass "
+        f"the kwarg into from_dims: {stale_subconfig}. Prune them."
+    )
+    stale_other = {
+        name: sorted(entry["paths"] - other.get(name, set()))
+        for name, entry in USAGE_DRIVEN_UNRECEIVABLE_NAMES.items()
+    }
+    stale_other = {k: v for k, v in stale_other.items() if v}
+    assert not stale_other, (
+        f"USAGE_DRIVEN_UNRECEIVABLE_NAMES lists path(s) that no longer pass "
+        f"the kwarg into from_dims: {stale_other}. Prune them."
+    )
+
+
+def test_usage_registries_do_not_duplicate_field_driven_drop_sites(unreceivable_usage, drop_sites):
+    """Bucket C (a real, at-risk scalar field) is `KNOWN_FROM_DIMS_DROP_SITES`'s
+    job via `drop_sites`; it must never also appear in the usage-driven
+    registries, or the same defect would be reported -- and could be silently
+    fixed in only one place -- twice."""
+    subconfig, other = unreceivable_usage
+    assert not (set(USAGE_DRIVEN_SUBCONFIG_DROP_SITES) & set(drop_sites))
+    assert not (set(USAGE_DRIVEN_UNRECEIVABLE_NAMES) & set(drop_sites))
+    assert not (set(subconfig) & set(drop_sites))
+    assert not (set(other) & set(drop_sites))
 
 
 # ---------------------------------------------------------------------------
