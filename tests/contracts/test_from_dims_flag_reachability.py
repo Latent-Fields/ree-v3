@@ -170,6 +170,18 @@ REACHABLE_BY_ALTERNATIVE_IDIOM = {
     ),
     "use_da_modulated_rbf_density": "residue; 11 drivers + 3 tests",
     "use_e2_world_uncertainty": "latent; 2 drivers + 6 tests + 1 ree_core site",
+    "use_e2_world_uncertainty_online_training": (
+        "latent; SD-063 online head training (ARC-065 GAP-A keystone, "
+        "2026-08-22). Set by attribute assignment on config.latent -- the "
+        "same idiom as its sibling use_e2_world_uncertainty above, which "
+        "from_dims likewise does not plumb. Call sites: "
+        "tests/contracts/test_sd063_online_head_training.py (the ON/OFF "
+        "agent-rollout pair) and the agent-side read in ree_core/agent.py. "
+        "Deliberately NOT given a from_dims signature entry -- per this "
+        "file's own guidance that is a convention change, not a repair, and "
+        "the whole SD-063 knob family (hidden_dim / lr / warmup_steps / "
+        "replay_capacity / batch_size) is set the same way."
+    ),
     "use_harm_un": "latent; 12 drivers + 1 lib + 2 tests",
     "use_hierarchical_goal_credit": "goal; 2 drivers + 2 tests",
     "use_identity_classifier": "latent; 17 drivers + 1 ree_core site",

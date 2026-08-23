@@ -302,6 +302,24 @@ class LatentStackConfig:
     use_e2_world_uncertainty: bool = False
     e2_world_uncertainty_hidden_dim: int = 128   # trunk width (V3-EXQ-712 HEAD_HIDDEN)
     e2_world_uncertainty_lr: float = 1e-3        # head LR (V3-EXQ-712 HEAD_LR)
+    # ONLINE phased training of the head inside the agent (added 2026-08-22 --
+    # the ARC-065 GAP-A follow-on keystone). use_e2_world_uncertainty alone only
+    # INSTANTIATES the head; without this the head stays at its random init and
+    # its predictive_variance is near-uniform, so
+    # curiosity_uncertainty_source="e2_predictive_variance" contributes a
+    # VACUOUS per-candidate channel (the 604a / 624a / 614d / 640a failure
+    # class). Default False -> bit-identical: no optimizer is built, no replay
+    # buffer is allocated, and REEAgent._train_e2_world_uncertainty is a no-op.
+    # Schedule: P0 = the first _warmup_steps observed transitions are buffered
+    # but produce no head update (the z_world encoder is still becoming
+    # discriminative); P1 = minibatch pinball updates on DETACHED transitions
+    # sampled from a bounded replay; P2 = agent.eval() freezes the head, so a
+    # measurement phase measures frozen weights.
+    use_e2_world_uncertainty_online_training: bool = False
+    e2_world_uncertainty_warmup_steps: int = 200
+    e2_world_uncertainty_replay_capacity: int = 2048
+    e2_world_uncertainty_batch_size: int = 32
+    e2_world_uncertainty_ready_min_train_steps: int = 50
 
     # MECH-441 -- model-disagreement directed curiosity ensemble (RND / Plan2Explore
     # analog). A SMALL K-head ensemble of independent residual-delta predictors over

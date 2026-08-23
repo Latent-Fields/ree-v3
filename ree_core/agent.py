@@ -582,8 +582,40 @@ class REEAgent(nn.Module):
                 learning_rate=float(
                     getattr(config.latent, "e2_world_uncertainty_lr", 1e-3)
                 ),
+                # ARC-065 GAP-A follow-on keystone (2026-08-22): the phased
+                # ONLINE P1 loop. Default off -> the head is instantiated but
+                # never updated, exactly as before this landed.
+                train_online=bool(
+                    getattr(
+                        config.latent,
+                        "use_e2_world_uncertainty_online_training",
+                        False,
+                    )
+                ),
+                warmup_steps=int(
+                    getattr(config.latent, "e2_world_uncertainty_warmup_steps", 200)
+                ),
+                replay_capacity=int(
+                    getattr(config.latent, "e2_world_uncertainty_replay_capacity", 2048)
+                ),
+                batch_size=int(
+                    getattr(config.latent, "e2_world_uncertainty_batch_size", 32)
+                ),
+                ready_min_train_steps=int(
+                    getattr(
+                        config.latent,
+                        "e2_world_uncertainty_ready_min_train_steps",
+                        50,
+                    )
+                ),
             )
             self.e2_world_uncertainty = E2WorldUncertaintyHead(unc_cfg)
+        # SD-063 P1 one-tick-lag cache: the z_world observed BEFORE the last
+        # emitted action, so the online head trains on genuine observed
+        # (z_world_t, a_t) -> z_world_{t+1} transitions. Mirrors the MECH-276
+        # _sci_prev_z_world / MECH-353 _ba_prev_z_world caches. None when the
+        # head is off.
+        self._e2u_prev_z_world: Optional[torch.Tensor] = None
 
         # MECH-441: model-disagreement directed curiosity ensemble (RND / Plan2Explore
         # analog). A standalone K-head forward-model ensemble over (z_world, action);
@@ -3403,6 +3435,13 @@ class REEAgent(nn.Module):
         self._sci_prev_z_world = None
         self._sci_prev_z_harm_s = None
 
+        # SD-063: clear the online-training prev-z_world cache so the first tick
+        # of a new episode never trains on a cross-episode transition (the
+        # previous episode's final z_world -> this episode's first z_world is
+        # not a transition the world produced). The HEAD ITSELF PERSISTS across
+        # episodes -- learning is cumulative, exactly like the MECH-276 buffer.
+        self._e2u_prev_z_world = None
+
         # MECH-219: reset the suffering accumulator per episode (s_t -> 0).
         if self.harm_suffering_accumulator is not None:
             self.harm_suffering_accumulator.reset()
@@ -4069,6 +4108,65 @@ class REEAgent(nn.Module):
         if new_latent.z_harm is not None:
             self._sci_prev_z_harm_s = new_latent.z_harm.detach().clone()
 
+    def _train_e2_world_uncertainty(self, new_latent: LatentState) -> None:
+        """One phased-P1 step for the SD-063 E2WorldUncertaintyHead.
+
+        The ARC-065 GAP-A follow-on keystone: without this the head sits at its
+        random init, `predictive_variance` is near-uniform across candidates, and
+        `curiosity_uncertainty_source="e2_predictive_variance"` feeds MECH-314b a
+        VACUOUS per-candidate channel -- the 604a / 624a / 614d / 640a failure
+        class. Instantiating the head (use_e2_world_uncertainty) makes 314b
+        per-candidate-CAPABLE; training it is what makes 314b LIVE.
+
+        No-op unless the head exists AND
+        latent.use_e2_world_uncertainty_online_training is set. Skipped:
+          - in eval mode (`self.training` False) -- the P1-train / P2-eval split
+            the phased-training rule requires, so a measurement phase measures
+            frozen weights (same discipline as _train_bla_attribution_head);
+          - under simulation / replay (hypothesis_tag) -- an imagined tick has no
+            OBSERVED next z_world, so training on it would fit the head to the
+            proposer's own rollout instead of to the world. (This is a schedule
+            correctness point, not a MECH-094 memory-write claim: the SD-063
+            head is a waking online read and MECH-094 does not apply to it.)
+
+        SD-031 agency-residual guard: everything handed to the head is detached,
+        and the head shares no parameters with E2WorldForward or the encoder, so
+        this loop structurally cannot explain away the agency residual. The
+        head's own train_step re-detaches -- belt and braces, deliberately.
+        """
+        head = getattr(self, "e2_world_uncertainty", None)
+        if head is None or not bool(head.config.train_online):
+            return
+        if not self.training:
+            return
+        if bool(getattr(new_latent, "hypothesis_tag", False)):
+            return
+        zw_now = getattr(new_latent, "z_world", None)
+        if zw_now is None:
+            return
+        zw_now = zw_now.detach()
+        if zw_now.dim() == 1:
+            zw_now = zw_now.unsqueeze(0)
+        zw_now = zw_now[:1]
+
+        zw_prev = self._e2u_prev_z_world
+        if zw_prev is not None and self._last_action is not None:
+            with torch.no_grad():
+                # One-hot of the discrete action the env actually executed --
+                # the same reconstruction _update_scientist_attribution uses, so
+                # both comparators read one action encoding.
+                _raw_a = self._last_action.detach()
+                if _raw_a.dim() == 1:
+                    _raw_a = _raw_a.unsqueeze(0)
+                _a_idx = int(_raw_a.argmax(dim=-1).flatten()[0].item())
+                a_in = torch.zeros_like(_raw_a[:1])
+                a_in[0, _a_idx] = 1.0
+            if a_in.shape[-1] == head.action_dim and zw_prev.shape[-1] == head.z_world_dim:
+                head.observe_transition(zw_prev, a_in, zw_now)
+
+        # Refresh the cache for the next tick.
+        self._e2u_prev_z_world = zw_now.clone()
+
     def _get_context_memory_code_contributions(
         self,
         z_self: torch.Tensor,
@@ -4369,6 +4467,17 @@ class REEAgent(nn.Module):
         # waking-phase feedstock for the MECH-275 sleep aggregator). No-op when
         # use_scientist_attribution is False (buffer is None).
         self._update_scientist_attribution(new_latent)
+
+        # SD-063 (ARC-065 GAP-A keystone): one phased-P1 update of the
+        # E2WorldUncertaintyHead on the just-observed
+        # (z_world_prev, a_last) -> z_world_now transition. Placed here so it
+        # reads the same freshly-encoded latent the MECH-276 comparator does,
+        # and so it runs AFTER this tick's selection has already consumed the
+        # head -- the gate never sees a head updated on the very transition it
+        # is about to be evaluated against (the MECH-074d second-pass rule).
+        # No-op when the head is absent or
+        # use_e2_world_uncertainty_online_training is False -> bit-identical.
+        self._train_e2_world_uncertainty(new_latent)
 
         # SD-058 / MECH-357: advance the avoidance-efficacy eligibility trace.
         # Compares the current z_harm_a (SD-011 affective stream) to the threat

@@ -76,8 +76,9 @@ See docs/architecture/sd_063_e2_conditional_uncertainty_head.md,
       replaces at the commit gate under E3Config.use_conditional_precision_gate).
 """
 
+from collections import deque
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Deque, Dict, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -126,6 +127,39 @@ class E2WorldUncertaintyConfig:
     # Training.
     learning_rate: float = 1e-3
 
+    # ---------------------------------------------------------------- #
+    # Phased ONLINE training (P0 warmup -> P1 head update -> P2 eval)   #
+    # ---------------------------------------------------------------- #
+    # All four are inert unless train_online=True. With train_online=False the
+    # module is bit-identical to the pre-2026-08-22 head: no optimizer is ever
+    # built, no replay buffer is allocated, and observe_transition() is a no-op.
+    # This is the keystone the ARC-065 GAP-A follow-on named -- without it the
+    # agent-level head stays at its random init and predictive_variance is
+    # near-uniform (the vacuous-channel class the readiness gate refuses).
+    train_online: bool = False
+
+    # P0: number of observed transitions buffered BEFORE the first head update.
+    # The z_world encoder is still warming during this window (SD-009
+    # event-contrastive + SD-018 resource proximity), so its z_world is not yet
+    # discriminative; training the head on it fits a trivial spread (the
+    # MECH-353 / V3-EXQ-642 vacuous-comparison lesson). Transitions ARE buffered
+    # during warmup and age out of the bounded replay as the encoder moves --
+    # exactly the V3-EXQ-716 driver's schedule (`replay.append` while not in_p2,
+    # head updates in P1 only).
+    warmup_steps: int = 200
+
+    # P1: bounded replay over DETACHED (z_world_t, a_t, z_world_{t+1}) triples.
+    # Bounded on purpose: the encoder keeps moving through P1 (the 716 "joint
+    # phase"), so stale-representation transitions must age out rather than
+    # accumulate.
+    replay_capacity: int = 2048
+    batch_size: int = 32
+
+    # Diagnostic-only readiness floor for `training_ready`. NOT a gate on
+    # predictive_variance -- see the training_ready docstring for why the read
+    # is deliberately never filtered on it.
+    ready_min_train_steps: int = 50
+
 
 class E2WorldUncertaintyHead(nn.Module):
     """SD-063: conditional predictive-uncertainty head over (z_world, action).
@@ -157,6 +191,16 @@ class E2WorldUncertaintyHead(nn.Module):
         # Commit-gate read (per-input predictive variance -> E3.select):
         pvar = head.predictive_variance(z_world_t, action_t)   # [batch]
         result = e3.select(candidates, conditional_predictive_variance=float(pvar.mean()))
+
+    Usage in the AGENT (online P1, added 2026-08-22 -- the ARC-065 GAP-A
+    follow-on keystone that makes MECH-314b's per-candidate source genuinely
+    live rather than a random-init near-uniform vector):
+        cfg = E2WorldUncertaintyConfig(..., train_online=True)
+        # then each waking tick, from REEAgent._train_e2_world_uncertainty:
+        head.observe_transition(z_world_prev, action_onehot, z_world_now)
+    The agent path owns the P0/P1 schedule (warmup_steps) and the bounded
+    replay; P2 is `agent.eval()` (the hook skips when self.training is False).
+    Do NOT combine it with an externally-built optimizer -- pick one.
     """
 
     def __init__(self, config: Optional[E2WorldUncertaintyConfig] = None):
@@ -193,6 +237,25 @@ class E2WorldUncertaintyHead(nn.Module):
         # Registered buffer so it moves with .to(device) and serializes with the
         # module, without being a trainable parameter.
         self.register_buffer("_levels", torch.tensor(levels, dtype=torch.float32))
+
+        # --- Phased online-training state (inert unless train_online) ---
+        # The optimizer is built LAZILY on the first train_step so constructing
+        # the head is unchanged for the existing callers that build their own
+        # (tests/contracts/test_sd063_conditional_uncertainty_head.py and the
+        # V3-EXQ-716/716a drivers all do `torch.optim.Adam(head.parameters())`).
+        # DO NOT mix the two: an external optimizer plus train_step() gives two
+        # Adam moment estimates over one parameter set.
+        self._optimizer: Optional[torch.optim.Optimizer] = None
+        self._replay: Optional[Deque[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]] = None
+        self._n_observed: int = 0
+        self._n_train_steps: int = 0
+        self._last_train_loss: float = 0.0
+        # Diagnostics of the LAST predictive_variance() read. The relative
+        # spread is the quantity that actually discriminates a trained head from
+        # a random-init one -- see the predictive_variance docstring.
+        self._last_pvar_mean: float = 0.0
+        self._last_pvar_range: float = 0.0
+        self._last_pvar_relative_spread: float = 0.0
 
         in_dim = self.z_world_dim + self.action_dim
         # Trunk matches V3-EXQ-712 _trunk (2-layer MLP, ReLU).
@@ -264,6 +327,185 @@ class E2WorldUncertaintyHead(nn.Module):
         return torch.maximum(lv * err, (lv - 1.0) * err).mean()
 
     # ------------------------------------------------------------------ #
+    # Phased online training (P0 warmup -> P1 update -> P2 eval)         #
+    # ------------------------------------------------------------------ #
+
+    @property
+    def n_train_steps(self) -> int:
+        """Number of P1 optimizer steps applied to this head."""
+        return int(self._n_train_steps)
+
+    @property
+    def n_observed_transitions(self) -> int:
+        """Number of transitions handed to observe_transition() (incl. warmup)."""
+        return int(self._n_observed)
+
+    @property
+    def training_ready(self) -> bool:
+        """True once the head has taken >= config.ready_min_train_steps updates.
+
+        DIAGNOSTIC ONLY -- deliberately NOT consulted by predictive_variance /
+        predictive_std, and deliberately NOT consulted by the agent's MECH-314b
+        per-candidate read. Filtering the read on this flag would convert a
+        vacuous channel into a SILENT fallback to the Phase-1 broadcast, which
+        is precisely the failure the ARC-065 readiness gate exists to catch in
+        the open: the gate is measured on StructuredCuriosity plus this head's
+        `_last_pvar_relative_spread`, never a self-report of "I have taken N
+        steps". A head that is trained but still emits a flat spread must be
+        visible as such -- and note that step count and differentiation really do
+        come apart, since a random-init head already passes
+        `last_uncertainty_dev_range > 0` (see predictive_variance).
+        """
+        return self._n_train_steps >= int(self.config.ready_min_train_steps)
+
+    def _ensure_optimizer(self) -> torch.optim.Optimizer:
+        """Build the P1 optimizer on first use (see __init__ for why lazily)."""
+        if self._optimizer is None:
+            self._optimizer = torch.optim.Adam(
+                self.parameters(), lr=float(self.config.learning_rate)
+            )
+        return self._optimizer
+
+    def train_step(
+        self,
+        z_world_prev: torch.Tensor,
+        action: torch.Tensor,
+        z_world_next: torch.Tensor,
+        simulation_mode: bool = False,
+    ) -> Optional[float]:
+        """One P1 pinball update on the FROZEN z_world target.
+
+        Detaches inputs AND target internally -- the SD-031 agency-residual
+        guard (gradients must never reach the z_world encoder or E2WorldForward;
+        see the module docstring). This is the same stop-gradient discipline the
+        documented external-optimizer recipe applies by hand, made a method so
+        the agent-side loop cannot get it wrong.
+
+        Args:
+            z_world_prev: [B, z_world_dim] (or [z_world_dim]) previous z_world.
+            action:       [B, action_dim]  (or [action_dim]) action taken.
+            z_world_next: [B, z_world_dim] (or [z_world_dim]) observed next z_world.
+            simulation_mode: True -> no-op, returns None. Imagined transitions
+                carry no OBSERVED next state, so training on them would fit the
+                head to the proposer's own rollout rather than to the world.
+
+        Returns:
+            The scalar pinball loss, or None if the step was skipped.
+        """
+        if simulation_mode:
+            return None
+        z_prev = z_world_prev.detach()
+        a = action.detach()
+        target = z_world_next.detach()
+        if z_prev.dim() == 1:
+            z_prev = z_prev.unsqueeze(0)
+        if a.dim() == 1:
+            a = a.unsqueeze(0)
+        if target.dim() == 1:
+            target = target.unsqueeze(0)
+        if z_prev.shape[0] != target.shape[0] or z_prev.shape[0] != a.shape[0]:
+            # Caller error -- skipped rather than silently broadcast-averaged
+            # (mirrors AttributionHead.train_step's refusal).
+            return None
+        a = a.to(device=z_prev.device, dtype=z_prev.dtype)
+        target = target.to(device=z_prev.device, dtype=z_prev.dtype)
+
+        opt = self._ensure_optimizer()
+        opt.zero_grad()
+        loss = self.compute_loss(self.forward(z_prev, a), target)
+        loss.backward()
+        opt.step()
+        self._n_train_steps += 1
+        self._last_train_loss = float(loss.detach().item())
+        return self._last_train_loss
+
+    def observe_transition(
+        self,
+        z_world_prev: torch.Tensor,
+        action: torch.Tensor,
+        z_world_next: torch.Tensor,
+        simulation_mode: bool = False,
+    ) -> Optional[float]:
+        """Buffer one observed transition and, once warm, take a P1 update.
+
+        The online (per-tick) entry point, mirroring the V3-EXQ-716 driver's
+        schedule: buffer every observed transition; take NO head update until
+        `config.warmup_steps` transitions have been seen (P0 -- the encoder is
+        still becoming discriminative); thereafter sample a minibatch of
+        `config.batch_size` from the bounded replay and call train_step on it.
+        A minibatch rather than the single current transition because the
+        pinball loss estimates 9 quantile levels per z_world dim -- a batch of
+        one is a near-useless gradient, and the 712 winner config was measured
+        with batched updates.
+
+        No-op (returns None) when `config.train_online` is False, under
+        simulation_mode, or while the replay has fewer than one batch.
+
+        Returns:
+            The scalar pinball loss of this tick's update, or None if no update
+            was taken.
+        """
+        if not bool(self.config.train_online) or simulation_mode:
+            return None
+
+        z_prev = z_world_prev.detach()
+        a = action.detach()
+        nxt = z_world_next.detach()
+        if z_prev.dim() == 1:
+            z_prev = z_prev.unsqueeze(0)
+        if a.dim() == 1:
+            a = a.unsqueeze(0)
+        if nxt.dim() == 1:
+            nxt = nxt.unsqueeze(0)
+        # Only the first row is buffered -- the online caller supplies one tick.
+        z_prev = z_prev[:1].clone()
+        a = a[:1].to(device=z_prev.device, dtype=z_prev.dtype).clone()
+        nxt = nxt[:1].clone()
+
+        if self._replay is None:
+            self._replay = deque(maxlen=int(self.config.replay_capacity))
+        self._replay.append((z_prev, a, nxt))
+        self._n_observed += 1
+
+        # P0: buffer only. Stale-encoder transitions age out of the bounded
+        # replay rather than being filtered, so P1 starts from a mixed buffer
+        # that converges as the encoder settles (the 716 joint-phase schedule).
+        if self._n_observed <= int(self.config.warmup_steps):
+            return None
+        batch = int(self.config.batch_size)
+        if len(self._replay) < batch:
+            return None
+
+        # torch RNG (not `random`) so the sampling participates in the agent's
+        # existing torch seeding rather than a second, separately-seeded stream.
+        idx = torch.randint(0, len(self._replay), (batch,))
+        rows = [self._replay[int(i)] for i in idx]
+        z0b = torch.cat([r[0] for r in rows], dim=0)
+        ab = torch.cat([r[1] for r in rows], dim=0)
+        z1b = torch.cat([r[2] for r in rows], dim=0)
+        return self.train_step(z0b, ab, z1b)
+
+    def get_state(self) -> Dict[str, float]:
+        """Diagnostic snapshot for experiment manifests / readiness reporting."""
+        return {
+            "e2_world_uncertainty_n_train_steps": int(self._n_train_steps),
+            "e2_world_uncertainty_n_observed": int(self._n_observed),
+            "e2_world_uncertainty_last_train_loss": float(self._last_train_loss),
+            "e2_world_uncertainty_replay_size": (
+                0 if self._replay is None else int(len(self._replay))
+            ),
+            "e2_world_uncertainty_training_ready": bool(self.training_ready),
+            # Last predictive_variance() read -- the readiness discriminator.
+            # relative_spread is the one to gate on; range alone is passed by a
+            # random-init head (see the predictive_variance docstring).
+            "e2_world_uncertainty_last_pvar_mean": float(self._last_pvar_mean),
+            "e2_world_uncertainty_last_pvar_range": float(self._last_pvar_range),
+            "e2_world_uncertainty_last_pvar_relative_spread": float(
+                self._last_pvar_relative_spread
+            ),
+        }
+
+    # ------------------------------------------------------------------ #
     # Predictive-spread readouts (for the E3 commit gate)                #
     # ------------------------------------------------------------------ #
 
@@ -292,14 +534,49 @@ class E2WorldUncertaintyHead(nn.Module):
         """Per-input predictive variance (mean over z_world dims) -- [batch].
 
         This is the signal the SD-063 E3 commit gate consumes: pass its mean (a
-        scalar) as E3.select(conditional_predictive_variance=...). HIGH exactly
-        where THIS prediction is about to be wrong (the V3-EXQ-712 property the
-        state-blind EMA structurally cannot carry). Computed under no_grad -- it
-        is a read for gating, never a training path.
+        scalar) as E3.select(conditional_predictive_variance=...). It is also
+        the MECH-314b per-candidate source (agent._curiosity_per_candidate_
+        uncertainty). HIGH exactly where THIS prediction is about to be wrong
+        (the V3-EXQ-712 property the state-blind EMA structurally cannot carry).
+        Computed under no_grad -- it is a read for gating, never a training path.
+
+        READINESS DIAGNOSTIC -- read this before trusting an absolute range.
+        Each call records `_last_pvar_mean`, `_last_pvar_range` and
+        `_last_pvar_relative_spread` (= range / mean) over the batch.
+        RELATIVE spread, NOT absolute range, is what discriminates a trained
+        head from a random-init one. Measured on a real CausalGridWorldV2
+        rollout (seed 71, 4 ep x 80 steps, 2026-08-22), evaluating the head on
+        all 5 action classes at one z_world:
+
+            untrained : [0.00486, 0.00478, 0.00536, 0.00467, 0.00450]
+                        absolute range 8.63e-04, max/min 1.19x   <- near-uniform
+            trained   : [7.39e-04, 5.54e-05, 2.52e-05, 2.98e-04, 3.56e-04]
+                        absolute range 7.14e-04, max/min 29.3x   <- differentiated
+
+        Note the direction: the UNTRAINED head has the LARGER absolute range.
+        Training lowers the overall predicted spread (the world is more
+        predictable than a random init assumes) while raising the relative
+        differentiation, so any gate phrased on the absolute range alone --
+        including `last_uncertainty_dev_range > 0` as written in the ARC-065
+        readiness gate -- is passed by a random-init head and is therefore
+        necessary but NOT sufficient. See
+        REE_assembly/evidence/planning/mech314bc_percandidate_extension_staged_2026-08-08.md
+        section 5.
         """
         with torch.no_grad():
             q = self.forward(z_world, action)                # [B, D, Q]
             qs, _ = torch.sort(q, dim=-1)
             iqr = qs[..., -1] - qs[..., 0]                    # [B, D]
             std = iqr / IQR_TO_STD_10_90
-            return (std ** 2).mean(dim=-1)                    # [B]
+            pvar = (std ** 2).mean(dim=-1)                    # [B]
+            if pvar.numel() >= 2:
+                mean = float(pvar.mean().item())
+                rng = float((pvar.max() - pvar.min()).item())
+                self._last_pvar_mean = mean
+                self._last_pvar_range = rng
+                # Guarded: a genuinely-zero mean spread has no defined relative
+                # spread, and reporting inf/nan would corrupt a manifest.
+                self._last_pvar_relative_spread = (
+                    rng / mean if abs(mean) > 1e-12 else 0.0
+                )
+            return pvar

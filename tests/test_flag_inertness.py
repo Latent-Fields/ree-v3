@@ -2747,6 +2747,14 @@ PROBED = {
     "use_resource_proximity_head",  # test_use_resource_proximity_head_populates_resource_prox_pred_only_when_enabled
     "use_e2_harm_s_forward",        # test_use_e2_harm_s_forward_constructs_agent_e2_harm_s_only_when_enabled
     "use_e2_world_uncertainty",     # test_use_e2_world_uncertainty_constructs_agent_head_only_when_enabled
+    # SD-063 ONLINE head training (ARC-065 GAP-A keystone, 2026-08-22). Probed
+    # in tests/contracts/test_sd063_online_head_training.py by an ON/OFF pair on
+    # a real CausalGridWorldV2 rollout: OFF leaves n_train_steps == 0 with no
+    # optimizer and no replay allocated; ON drives n_train_steps > 0 and a
+    # non-zero pinball loss. Distinct from use_e2_world_uncertainty above, which
+    # only CONSTRUCTS the head -- constructing it without training it is exactly
+    # the vacuous-channel gap this flag closes.
+    "use_e2_world_uncertainty_online_training",
     "use_resource_encoder",         # test_use_resource_encoder_populates_z_resource_only_when_enabled
     "use_identity_classifier",      # test_use_identity_classifier_populates_identity_logits_only_when_enabled
     # E2Config/HeartbeatConfig/ResidueConfig cluster (same 2026-08-11 audit,
