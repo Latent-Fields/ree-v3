@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-08-22
+**Last updated:** 2026-08-23
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -227,6 +227,56 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 `REE_assembly/docs/architecture/self_attribution_per_stream.md`.
 
 ### Experiment Status
+
+- **2026-08-23T01:10Z nightly read (scheduled `/update-docs`, bot identity).**
+  ~24h window since the 2026-08-22 nightly. Flat `v3_exq_*` manifests on disk:
+  **923** (+23 vs 900); nested per-run manifests under
+  `evidence/experiments/*/runs/`: **2852**. Corpus outcome counts (from raw
+  manifests, not the aggregated `claim_evidence.v1.json` tree which regenerates
+  on `/governance`): PASS 289, FAIL 570, ERROR 5, UNKNOWN 53, plus 6 partial /
+  inconclusive rows. **Currently queued (`experiment_queue.json` items[]): 1
+  item** -- V3-EXQ-861f (`INV-050/MECH-180 H1 leg (measurement axis):
+  reseed the measurement-phase RNG on a pinned historical substrate to isolate
+  whether 861e's HIGH-arm MEL collapse is an intervention-isolation defect`,
+  claim_ids `INV-050`+`MECH-180`, prio 58, ~420min; CLAIMED `DLAPTOP`
+  2026-08-22T10:47:28Z). GOV-FANOUT-1 portfolio leg carried forward from
+  yesterday. **Pending review (`pending_review.md`, regenerated
+  2026-08-22T13:45:22Z): 0 items** -- "All experiments reviewed. Nothing
+  pending." (a) **Recent completions in the window (six new, plus three
+  late-writeback landings of older run files):** new -- V3-EXQ-861g FAIL
+  (`INV-050/MECH-180 H3 substrate-pin sibling of 861f`, ree-cloud-3, followup
+  to the H1 leg on a different pinned substrate revision f810969);
+  V3-EXQ-861h FAIL (`INV-050/MECH-180 ContextMemory write-lock control`, the
+  Step 2.5b(iv) adversarial-audit leg exercising the non-degenerate write
+  selection ON to measure the corrupting contextmemory-write-path defect
+  instead of inheriting it); V3-EXQ-910b PASS (`MECH-489 (SD-099)
+  valence-gating retest with decision counted at the override tick`, the
+  DRIVER half of the retest against yesterday's substrate amend --
+  ree-cloud-1); V3-EXQ-939a PASS (`MECH-303 proximity-gated contextual safety
+  vigilance release`); V3-EXQ-944 FAIL (`MECH-091 salient event cycle
+  boundary`); V3-EXQ-944a ERROR (runner error, needs `/diagnose-errors`).
+  Late-writeback (older run timestamps, historical data landing this window):
+  two V3-EXQ-429 PASSes (2026-04-18/19) + V3-EXQ-604c PASS (2026-06-07). (b)
+  **No substrate landings in the window.** (c) **No governance apply cycle in
+  the window** -- last was 2026-08-16 (REE_assembly `019a1120a1` +
+  `288c1c7b98`). V3-EXQ-910b PASS clears the MECH-489/SD-099 valence-gating
+  driver retest branch that was the 2026-08-22 nightly's primary bottleneck.
+  The 861f/861g/861h triad advances the INV-050/MECH-180 GOV-FANOUT-1
+  portfolio (H1 measurement axis + H3 substrate pin + the contextmemory
+  write-lock control) but two of the three landed FAIL, so the portfolio
+  needs `/failure-autopsy` adjudication before the H2 leg can be composed
+  from the readings. **Bottleneck: `/failure-autopsy` on the INV-050/MECH-180
+  861f/g/h portfolio** (two FAILs, one PASS-adjacent DRIVER retest) +
+  `/diagnose-errors` on V3-EXQ-944a runner error + governance close of
+  V3-EXQ-910b PASS + V3-EXQ-939a PASS + the earlier PASS backlog from the
+  2026-08-16 through 2026-08-22 window. Green-board target 2026-07-19 is now
+  **35 days overdue**; governance throughput was ZERO applied cycles in the
+  window. **ETHICS-PERIMETER Phase 0 datum** stays on the record (Phases 1-3
+  deferred; NON-BLOCKING). Public-information-architecture impact: reviewed
+  against `docs/design/public_information_architecture.md` -- no `/api/*`
+  surface, generated visualization, or public export changed; nightly
+  snapshot + spec date bump + status-history entry only (same category as
+  the 2026-08-22 attestation).
 
 - **2026-08-22T01:14Z nightly read (scheduled `/update-docs`, bot identity).**
   ~5-day window since the 2026-08-17 nightly (the intervening nightlies did not
