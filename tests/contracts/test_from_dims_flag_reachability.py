@@ -52,32 +52,50 @@ THE WALK IS RECURSIVE ON PURPOSE. `scripts/authority_trace_probe._config_objects
 visible from there. Keys are dotted PATHS, not class names, so two instances of
 one class are not collapsed.
 
-WHY THIS FILE DOES NOT RIDE `conftest.corpus_scan`. That fixture's docstring
-states the standing pattern for a new corpus-wide lint (add to `path_lints`,
-take the `corpus_scan` fixture), and this deviates from it for two specific
-reasons rather than by oversight. (1) FILE SET: the `path_lints` share is
-driver-major over `glob("v3_exq_*.py")`, and one of the confirmed drop sites is
+THIS FILE RIDES `conftest.corpus_scan` (since 2026-08-23; it did not when it
+landed the day before). The corpus walk that feeds `usage` below is
+`conftest.from_dims_usage_findings`, applied inside the ONE shared walk. Until
+that fold-in this file ran a SEVENTH independent parse of the corpus -- ~1184 of
+1467 files really parsed, the prefilter eliminating only the ~280 with no
+forwarder token -- which is precisely what the shared scan exists to delete. It
+now adds ZERO real parses: by the time the collector runs, that file's tree is
+already in the one-entry cache.
+
+IT IS AN RGLOB-SCOPED ENTRY, NOT A `path_lints` LINE, AND THAT DISTINCTION IS
+LOAD-BEARING. `path_lints` is driver-major over `glob("v3_exq_*.py")`, and one
+of the confirmed drop sites is
 `experiments/_lib/baselines/exq610_inv074_crystallization_baseline.py`, which
-that glob does not contain -- riding the share would mean widening its file set,
-which is exactly what its exact-count pins exist to prevent. (2) SHAPE: the
-share is driver-major and hands each lint one already-parsed tree, whereas this
-check is a whole-call-graph question about kwarg names, so it would need a new
-rglob-scoped entry beside `prereg_share_feasibility_lint` rather than a
-`path_lints` line.
+that glob does not contain. Riding the driver share would mean either losing
+that file or widening the share's file set -- and widening it is exactly what
+its exact-count pins exist to prevent. So the collector sits beside
+`prereg_share_feasibility_lint` on the outer `rglob("*.py")` loop instead. The
+`path_lints` pins are unchanged by the fold-in, which is the evidence that no
+file set moved.
 
-BE HONEST ABOUT WHAT THAT COSTS: this IS a seventh independent parse of the
-corpus, which is precisely what the shared scan was built to delete, and the
-prefilter does not rescue it -- only ~280 of 1466 files lack a forwarder token,
-so ~1184 are really parsed. Folding it into `conftest.scan_corpus` is worth
-doing and is tracked as follow-on; it is deliberately NOT done in the same
-change as the audit that motivated the file, because that fixture carries
-exact-count pins whose whole purpose is to fail when a file set moves.
+COVERAGE IS IDENTICAL, AND THAT WAS MEASURED RATHER THAN ASSUMED. A one-off
+FULL-CORPUS differential -- the shared scan's `from_dims_usage` against an
+independent uncached walk over all 1467 files -- was run when this landed and
+agreed exactly: 519 distinct kwarg names, 21240 (name, file) pairs, 1106 files.
+The standing check is `test_corpus_scan_sharing.py::
+test_from_dims_usage_scan_is_transparent`, a bounded per-file differential
+(sampled the same way, and for the same reason, as
+`test_corpus_scan_is_transparent`: a full-corpus re-walk in the suite would cost
+more than the sharing saves). One deliberate, verified difference: the shared
+walk reads with `errors="ignore"` (the mode the rest of `scan_corpus` uses)
+where this file read with `errors="replace"`. Byte-identical over all 1467
+corpus files when checked; a file where they diverged would carry a U+FFFD and
+fail to parse either way.
 
-TIMING NUMBERS BELONG ON AN IDLE BOX, NOT HERE. Every figure quoted in this
-docstring was taken on the CONTENDED Mac during an interactive session and
-moved by 3x between runs of the identical code (17.3s vs 58.5s to parse the
-same 1184 files). Treat them as orders of magnitude, and re-measure per
-CLAUDE.md "Running the test suite" before reasoning from them.
+TIMING NUMBERS BELONG ON AN IDLE BOX, NOT HERE. The ~1184-file / 17.3s-vs-58.5s
+figures above were taken on the CONTENDED Mac during an interactive session and
+moved by 3x between runs of the identical code. Treat them as orders of
+magnitude. The ONE properly-taken figure for the fold-in lives in
+`conftest.py`'s "THIRD MEASUREMENT" block -- two A/B pairs on the idle hub,
+~-13s / ~-4.7% over the 25-file corpus-consumer set, with the post half running
+two MORE tests than the pre half. Re-measure per CLAUDE.md "Running the test
+suite" before reasoning from any of them, and read that block's note on the two
+probe mistakes made while taking it -- both looked like a bigger saving than was
+real.
 
 SCOPE, STATED SO IT IS NOT MISREAD. This file says nothing about whether a flag
 DOES anything once it lands -- that is `test_flag_inertness.py`'s question. It
@@ -120,17 +138,16 @@ if str(REPO_ROOT) not in sys.path:
 
 from ree_core.utils.config import REEConfig  # noqa: E402
 
-EXPERIMENTS_DIR = REPO_ROOT / "experiments"
-
 # Structural dimensions, not knobs: overriding these changes the shape of the
 # tree rather than a setting on it, so they are not swept.
 DIMS = dict(body_obs_dim=10, world_obs_dim=20, action_dim=4, self_dim=16, world_dim=16)
 
-# Classmethods that forward `**kwargs` into `from_dims` (config.py ~9026/9075/9117).
-# A name dropped by `from_dims` is dropped identically through any of these.
-FROM_DIMS_FORWARDERS = frozenset(
-    {"from_dims", "for_grid_world", "for_causal_grid_world", "minimal", "standard"}
-)
+# `EXPERIMENTS_DIR` and `FROM_DIMS_FORWARDERS` MOVED TO `conftest.py` (2026-08-23)
+# when this file's corpus walk was folded into the shared scan. Do not re-add a
+# local copy of the forwarder set: two copies drift, and a forwarder missing from
+# one of them makes the usage checks below silently under-report rather than fail.
+# `conftest.FROM_DIMS_FORWARDERS` is the single definition; nothing in this file
+# needs to enumerate `experiments/` any more.
 
 
 # ---------------------------------------------------------------------------
@@ -662,60 +679,26 @@ def test_registry_has_no_phantom_entries(sweep):
 # ---------------------------------------------------------------------------
 #
 # ONE corpus walk feeds BOTH checks below (the FIELD-driven drop-site filter
-# and the USAGE-driven unreceivable-kwarg check) -- `_from_dims_usage` is not
-# re-run per check. See the module docstring paragraph "TWO SEPARATE CHECKS
-# LIVE IN THIS FILE" for why a single usage map still needs two different
-# registries downstream.
+# and the USAGE-driven unreceivable-kwarg check), and since 2026-08-23 it is not
+# even this file's own walk -- both read `conftest.corpus_scan.from_dims_usage`.
+# See the module docstring paragraph "TWO SEPARATE CHECKS LIVE IN THIS FILE" for
+# why a single usage map still needs two different registries downstream.
 
-def _from_dims_usage():
+@pytest.fixture(scope="module")
+def usage(corpus_scan):
     """{kwarg name: {relpath}} for EVERY literal keyword passed to a from_dims
     forwarder call anywhere in `experiments/` -- unfiltered by risk or type.
 
-    This is the raw usage inventory both checks below classify. `kw.arg is
-    None` (a `**something` spread rather than a literal `name=value`) is
-    skipped -- there is no literal name to attribute a drop to.
+    This is the raw usage inventory both checks below classify. It is computed
+    by `conftest.from_dims_usage_findings` inside the ONE shared corpus walk
+    (`conftest.scan_corpus`), not by a walk of this file's own -- see this
+    module's docstring section "THIS FILE RIDES `conftest.corpus_scan`". The
+    collector, and the reasoning about its prefilter and its rglob scope, live
+    in that function's docstring; `kw.arg is None` (a `**something` spread
+    rather than a literal `name=value`) is skipped there, because there is no
+    literal name to attribute a drop to.
     """
-    found = {}
-    for path in sorted(EXPERIMENTS_DIR.rglob("*.py")):
-        try:
-            src = path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        # Prefilter on TEXT before parsing. A SECOND prefilter on an at-risk
-        # name set was written, measured and REMOVED (for the drop-site filter
-        # this fed before the walk was shared): it cost ~9s of `re.findall`
-        # and eliminated only 38 of the 1184 surviving files, because that set
-        # contains generic names (`hidden_dim`, `learning_rate`, `size`)
-        # present in nearly every driver. The forwarder substring is the whole
-        # prefilter, and it is even less selective now that usage is
-        # unfiltered by risk -- do not resurrect the removed prefilter here.
-        if not any(w in src for w in FROM_DIMS_FORWARDERS):
-            continue
-        try:
-            tree = ast.parse(src, filename=str(path))
-        except SyntaxError:
-            continue
-        rel = path.relative_to(REPO_ROOT).as_posix()
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-            fname = (
-                node.func.attr if isinstance(node.func, ast.Attribute)
-                else node.func.id if isinstance(node.func, ast.Name)
-                else None
-            )
-            if fname not in FROM_DIMS_FORWARDERS:
-                continue
-            for kw in node.keywords:
-                if kw.arg is None:
-                    continue
-                found.setdefault(kw.arg, set()).add(rel)
-    return found
-
-
-@pytest.fixture(scope="module")
-def usage():
-    return _from_dims_usage()
+    return corpus_scan.from_dims_usage
 
 
 def _drop_sites(usage_map, sweep_result):

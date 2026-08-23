@@ -15,6 +15,17 @@ actually happened (rather than silently degrading to a re-parse per lint, which
 would be green but pointless), and differentially re-run a bounded sample of
 files UNCACHED to confirm identical verdicts.
 
+SECTION (4) COVERS A CONSUMER `_PATH_LINTS` STRUCTURALLY CANNOT. Sections (2) and
+(3) are driver-major: they mirror `scan_corpus()`'s `path_lints` and sample from its
+fire lists. `from_dims_usage_findings` (folded in 2026-08-23 from
+`test_from_dims_flag_reachability.py`'s own seventh corpus walk) is the second
+RGLOB-scoped consumer beside `prereg_share_feasibility_lint` -- it must see
+`experiments/_lib/baselines/`, which `glob("v3_exq_*.py")` excludes -- so it is not
+a `path_lints` entry and `test_every_path_lint_is_covered_by_this_files_differential`
+does not reach it. Section (4) is its equivalent: one test that the rglob scope is
+real (naming the non-driver file), one bounded per-file differential against an
+uncached walk.
+
 The one soundness precondition is that no consumer mutates the AST it is handed.
 That was verified over both validators when this landed -- no NodeTransformer, no
 fix_missing_locations, no parent-pointer annotation, no node mutation; every
@@ -407,3 +418,98 @@ def test_corpus_scan_is_transparent(corpus_scan):
         uncached = bool(VQ.prereg_share_feasibility_lint(src))
         assert uncached == (p.name in prereg_hits), (
             f"prereg_share_feasibility_lint disagrees on {p.name}")
+# ---- (4) differential: the RGLOB-scoped from_dims usage collector ---------------------
+#
+# `from_dims_usage_findings` is the second rglob-scoped consumer of the shared walk
+# (beside `prereg_share_feasibility_lint`), folded in 2026-08-23 from
+# `test_from_dims_flag_reachability.py`'s own seventh corpus walk. It is NOT a
+# `path_lints` entry, so `_PATH_LINTS` above does not cover it and neither does
+# `test_corpus_scan_is_transparent`; these two tests are its equivalent.
+
+# The load-bearing NON-DRIVER file: a confirmed from_dims drop site that
+# `glob("v3_exq_*.py")` does not contain, and therefore the single concrete reason
+# this collector rides the rglob loop rather than `path_lints`. If the file set ever
+# silently narrowed to drivers, this is what would notice.
+_LIB_BASELINE_REL = "experiments/_lib/baselines/exq610_inv074_crystallization_baseline.py"
+
+
+def _usage_by_file(usage):
+    """Invert {kwarg: {rel}} to {rel: {kwarg}} for per-file comparison."""
+    per_file = {}
+    for name, rels in usage.items():
+        for rel in rels:
+            per_file.setdefault(rel, set()).add(name)
+    return per_file
+
+
+def test_from_dims_usage_scan_covers_the_rglob_set(corpus_scan):
+    """The collector must see non-driver files, which is its whole reason to be
+    rglob-scoped.
+
+    A regression that moved it into `path_lints` -- or that swapped the outer walk
+    for `glob("v3_exq_*.py")` -- would still look healthy on every count-shaped
+    assertion (hundreds of names, thousands of pairs, all from drivers) while
+    silently dropping `_lib/baselines/`. Naming the file is what makes that
+    detectable.
+    """
+    per_file = _usage_by_file(corpus_scan.from_dims_usage)
+    assert (REPO_ROOT / _LIB_BASELINE_REL).exists(), (
+        f"{_LIB_BASELINE_REL} is gone from the corpus -- if it moved, repoint "
+        "_LIB_BASELINE_REL at another non-driver from_dims caller; do NOT delete "
+        "this test, it is the only guard that the walk is not driver-only")
+    assert _LIB_BASELINE_REL in per_file, (
+        f"the shared from_dims usage walk did not see {_LIB_BASELINE_REL}. It is a "
+        "confirmed drop site outside glob('v3_exq_*.py'), so this means the walk "
+        "narrowed to drivers -- the exact failure the rglob scoping prevents")
+    non_driver = {
+        rel for rel in per_file
+        if not (rel.startswith("experiments/v3_exq_") and rel.count("/") == 1)
+    }
+    assert len(non_driver) >= 5, (
+        f"only {len(non_driver)} non-driver files carry from_dims usage "
+        "(21 when this landed) -- the rglob scope looks to have collapsed")
+
+
+def test_from_dims_usage_scan_is_transparent(corpus_scan, from_dims_usage_findings_fn):
+    """Re-run the collector UNCACHED over a bounded sample; require identical sets.
+
+    Bounded for exactly the reason `test_corpus_scan_is_transparent` is: re-walking
+    all ~1467 files is the duplicated work the fold-in removes, so a full-corpus
+    differential in the suite would cost more than the sharing saves. One WAS run
+    off-suite when this landed and agreed exactly (519 distinct kwarg names, 21240
+    (name, file) pairs, 1106 files with usage).
+
+    The sample is comparison-by-FILE, not by name: for each sampled path, the set of
+    kwargs the shared scan attributed to it must equal the set an independent walk
+    finds. That catches a drift in either direction. Both halves of the sample are
+    load-bearing -- the usage-carrying files are the positive witnesses, and the
+    fixed-stride spread over the whole rglob set is the false-NEGATIVE control
+    (files the shared scan reported as having NO usage, which must really have none;
+    a collector that silently stopped matching forwarder calls would pass every
+    positive-only check by reporting nothing).
+    """
+    assert V.ast is ast, "must run uncached -- the proxy should not be installed here"
+    per_file = _usage_by_file(corpus_scan.from_dims_usage)
+
+    all_paths = sorted(EXPERIMENTS_DIR.rglob("*.py"))
+    assert len(all_paths) == corpus_scan.n_rglob_files, (
+        "the corpus changed under the scan -- rerun")
+
+    with_usage = sorted(per_file)
+    sample_rels = [_LIB_BASELINE_REL] + with_usage[::120]
+    sample = [REPO_ROOT / rel for rel in dict.fromkeys(sample_rels)]
+    sample += all_paths[::130]           # false-negative control: mostly no usage
+    sample = list(dict.fromkeys(sample))
+    assert len(sample) >= 20, f"sample too small to be meaningful: {len(sample)}"
+    assert any(
+        (p.relative_to(REPO_ROOT).as_posix() not in per_file) for p in sample
+    ), "sample contains no zero-usage file -- the false-negative control is vacuous"
+
+    for path in sample:
+        rel = path.relative_to(REPO_ROOT).as_posix()
+        src = path.read_text(encoding="utf-8", errors="ignore")
+        uncached = from_dims_usage_findings_fn(src, path, ast.parse)
+        shared = per_file.get(rel, set())
+        assert uncached == shared, (
+            f"from_dims usage disagrees on {rel}: shared scan said "
+            f"{sorted(shared)}, uncached said {sorted(uncached)}")

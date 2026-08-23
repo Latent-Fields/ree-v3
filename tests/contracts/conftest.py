@@ -57,6 +57,21 @@ byte-identical before and after, and its pin is still 0. THIS IS THE STANDING
 PATTERN: a new corpus-wide lint belongs in `path_lints` below, and its corpus
 test takes `corpus_scan` -- it must not enumerate `experiments/` itself.
 
+A SEVENTH WALK LANDED AND WAS FOLDED IN THE OTHER SHAPE (2026-08-23).
+`test_from_dims_flag_reachability.py` (landed 2026-08-22) arrived with its own
+`sorted(EXPERIMENTS_DIR.rglob("*.py"))` walk, ast-parsing ~1184 of 1467 files to
+collect the keywords passed to `REEConfig.from_dims` forwarders. Its own module
+docstring recorded the deferral and the reason: it is RGLOB-scoped, because one
+confirmed drop site lives at `experiments/_lib/baselines/exq610_inv074_
+crystallization_baseline.py`, which the driver glob does not contain. So it did
+NOT become a `path_lints` line -- it became a second rglob-scoped consumer
+beside `prereg_share_feasibility_lint`, in `from_dims_usage_findings` below,
+reading `scan.from_dims_usage`. It adds ZERO real parses: by the time it runs,
+that file's parse is already in the cache. The standing pattern therefore has
+two shapes, and which one applies is decided by FILE SET, not by convenience --
+driver-only goes in `path_lints`, anything needing the rglob set rides the outer
+loop.
+
 ONE CHECK RIDES THE PARSE ITSELF RATHER THAN `path_lints`: INVALID ESCAPE
 SEQUENCES. `scan.invalid_escapes` pins `'\\|'`-style invalid escapes at zero
 corpus-wide (`test_invalid_escape_sequence_lint.py`). It is deliberately NOT a
@@ -128,6 +143,40 @@ with respect to each other. (Originally recorded in `WORKSPACE_STATE.md`
 because a third session had ~125 uncommitted lines in this file at the time -- the
 CLAUDE.md read-modify-write hazard.)
 
+THIRD MEASUREMENT -- FOLDING IN THE SEVENTH WALK (2026-08-23). The
+`from_dims_usage_findings` fold-in described above, A/B'd on the IDLE hub
+`ree-worker-1`, two pairs back-to-back on base `0b51630`, running the 25
+`corpus_scan`-consuming test files plus `test_from_dims_flag_reachability.py`:
+
+    pair 1:  273.65s -> 261.03s   (-12.62s, -4.6%)
+    pair 2:  277.40s -> 264.15s   (-13.25s, -4.8%)
+
+i.e. **~-13s, ~-4.7%**, reproducible -- about one corpus parse, which is what the
+fold-in deletes. Note the test COUNT: **620 passed pre, 622 post**. The post half
+is faster while running two MORE tests (the new
+`test_from_dims_usage_scan_covers_the_rglob_set` and
+`..._is_transparent`), so the delta understates the parse saving slightly rather
+than flattering it. Coverage was separately proven identical by a one-off
+FULL-corpus differential of the usage map against an independent uncached walk:
+519 distinct kwarg names, 21240 (name, file) pairs, 1106 files, exactly equal.
+
+SAME RULE AS ABOVE -- THESE ABSOLUTE SECONDS ARE NOT COMPARABLE TO EITHER BLOCK
+BEFORE THEM. Different box again (the hub, where the two earlier pairs were
+`ree-worker-2` and `ree-worker-4`), different day, and a 25-file set rather than a
+five- or six-test one. Only the within-pair ratio carries across.
+
+TWO PROBE MISTAKES MADE WHILE TAKING THAT PAIR, BOTH IN THE OPTIMISTIC DIRECTION,
+BOTH CAUGHT ONLY BY CHECKING. (1) The first attempt started with hub load still
+decaying from an unrelated 22-minute suite run (`0.86 1.43 1.16`), which penalises
+the PRE half and flatters the change; it was discarded, not adjusted. (2) The
+idle gate written for the retry tested `ps | grep -c "[b]in/pytest"` -- but the
+hub invokes pytest as `python3 -m pytest`, so it reported `pytest=0` while a run
+sat at 100% CPU. A settle gate blind to the one process it exists to detect is
+worse than none: it certifies a contended box as idle. Use `[-]m pytest`, and
+verify the probe returns 0 on a genuinely quiet box before trusting a run behind
+it. This is the third and fourth instance of the pattern the next paragraph
+warns about.
+
 TAKE THE MEASUREMENT PROTOCOL SERIOUSLY IF YOU REVISIT THIS. Three earlier
 attempts at this number were wrong, all in the optimistic-looking direction until
 checked: two were polluted by another session's full-suite run on the shared hub,
@@ -156,6 +205,78 @@ for _p in (str(REPO_ROOT), str(REPO_ROOT / "experiments")):
         sys.path.insert(0, _p)
 
 EXPERIMENTS_DIR = REPO_ROOT / "experiments"
+
+# Classmethods that forward `**kwargs` into `REEConfig.from_dims` (config.py
+# ~9026/9075/9117). CANONICAL HOME: this was a module-level constant in
+# `test_from_dims_flag_reachability.py` until its corpus walk was folded in here
+# (2026-08-23); it lives here now so there is exactly one copy, the same way the
+# `path_lints` entries name the production validators rather than restating them.
+FROM_DIMS_FORWARDERS = frozenset(
+    {"from_dims", "for_grid_world", "for_causal_grid_world", "minimal", "standard"}
+)
+
+
+def from_dims_usage_findings(source, path, parse=None):
+    """Return the set of literal keyword names passed to a from_dims forwarder.
+
+    The USAGE half of `test_from_dims_flag_reachability.py`: every `name=value`
+    handed to `from_dims` (or one of `FROM_DIMS_FORWARDERS`) anywhere in the
+    file. Unfiltered by risk or type -- the callers downstream classify it. A
+    `**spread` (`kw.arg is None`) is skipped: there is no literal name to
+    attribute a drop to.
+
+    RGLOB-SCOPED, NOT DRIVER-SCOPED, AND THAT IS WHY IT IS NOT A `path_lints`
+    ENTRY. One confirmed drop site is
+    `experiments/_lib/baselines/exq610_inv074_crystallization_baseline.py`,
+    which `glob("v3_exq_*.py")` does not contain. Widening the `path_lints`
+    file set is exactly what its exact-count pins exist to prevent, so this
+    rides the outer rglob loop beside `prereg_share_feasibility_lint` instead.
+
+    The `FROM_DIMS_FORWARDERS` substring test is the WHOLE prefilter. A second
+    prefilter on an at-risk name set was written, measured and REMOVED before
+    the walk was shared: it cost ~9s of `re.findall` and eliminated only 38 of
+    the 1184 surviving files, because that set contains generic names
+    (`hidden_dim`, `learning_rate`, `size`) present in nearly every driver. Do
+    not resurrect it. It survives the fold-in only because it still skips the
+    `ast.walk`, which the shared parse does not make free -- the PARSE is what
+    sharing removes, not the traversal.
+
+    `parse` defaults to the real `ast.parse`; the shared scan passes the
+    one-entry cache's, so this adds no parse to the corpus walk at all. It must
+    run AFTER `invalid_escape_findings` for that file -- see the module
+    docstring: only the cache MISS does a real parse, and only a real parse
+    raises the tokenizer's escape warning.
+    """
+    if not any(w in source for w in FROM_DIMS_FORWARDERS):
+        return set()
+    if parse is None:
+        parse = ast.parse
+    try:
+        tree = parse(source, str(path))
+    except (SyntaxError, ValueError):
+        # Fail-soft, as every other corpus lint here is. `ValueError` (a null
+        # byte in the source) is caught alongside `SyntaxError` because the
+        # shared cache re-raises both; no corpus file raises either today, so
+        # this widens nothing that fires.
+        return set()
+
+    names = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        fname = (
+            func.attr if isinstance(func, ast.Attribute)
+            else func.id if isinstance(func, ast.Name)
+            else None
+        )
+        if fname not in FROM_DIMS_FORWARDERS:
+            continue
+        for kw in node.keywords:
+            if kw.arg is None:
+                continue
+            names.add(kw.arg)
+    return names
 
 
 class _LastParseCache:
@@ -318,7 +439,7 @@ class CorpusScan:
 
     __slots__ = (
         "fires", "n_glob_files", "n_rglob_files", "parse_hits", "parse_misses",
-        "invalid_escapes", "lint_parse_misses",
+        "invalid_escapes", "lint_parse_misses", "from_dims_usage",
     )
 
     def __init__(self) -> None:
@@ -340,6 +461,13 @@ class CorpusScan:
         # re-parses the driver it was handed -- is exactly `n_glob_files`. See
         # `test_shared_scan_parses_each_file_once`.
         self.lint_parse_misses: Dict[str, int] = {}
+        # {kwarg name: {repo-relative posix path}} for every literal keyword
+        # passed to a from_dims forwarder over the whole RGLOB set. Not in
+        # `fires` for two independent reasons: it is not a `path_lints` entry
+        # (`test_every_path_lint_is_covered_by_this_files_differential` treats
+        # every `fires` key as one), and its value is a name->paths map rather
+        # than a fire list.
+        self.from_dims_usage: Dict[str, set] = {}
 
     def __getitem__(self, lint_name: str):
         return self.fires[lint_name]
@@ -361,6 +489,13 @@ def scan_corpus() -> CorpusScan:
         into `path_lints` keeps its own file set unchanged.
       * `rglob`/`glob` results are sorted, so each fire list comes out in the
         same order the old per-test `sorted(...)` comprehensions produced.
+
+    TWO CONSUMERS ARE RGLOB-SCOPED RATHER THAN `path_lints` ENTRIES:
+    `prereg_share_feasibility_lint` (takes SOURCE) and `from_dims_usage_findings`
+    (needs `_lib/baselines/`, which `glob("v3_exq_*.py")` excludes). Both ride
+    the outer loop. Adding either to `path_lints` would silently narrow it to
+    drivers; widening `path_lints`' own file set is what its exact-count pins
+    exist to prevent.
     """
     import validate_experiments as V
     import validate_queue as VQ
@@ -434,6 +569,15 @@ def scan_corpus() -> CorpusScan:
             if src is not None and VQ.prereg_share_feasibility_lint(src):
                 scan.fires["prereg_share_feasibility_lint"].append(p.name)
 
+            # (1b) from_dims forwarder kwarg usage -- also RGLOB-scoped, so it
+            #      rides the outer loop rather than `path_lints`. Parses through
+            #      the same cache, so by here it is always a HIT: this entry adds
+            #      ZERO real parses to the walk. See `from_dims_usage_findings`.
+            if src is not None:
+                rel = p.relative_to(REPO_ROOT).as_posix()
+                for kwarg in from_dims_usage_findings(src, p, cache.parse):
+                    scan.from_dims_usage.setdefault(kwarg, set()).add(rel)
+
             # (2) the four path-taking lints -- over the top-level v3_exq_* set only.
             if not is_driver:
                 continue
@@ -485,6 +629,20 @@ def invalid_escape_findings_fn():
     collection order. A fixture is unambiguous.
     """
     return invalid_escape_findings
+
+
+@pytest.fixture(scope="session")
+def from_dims_usage_findings_fn():
+    """Hand `from_dims_usage_findings` to its differential test via a fixture.
+
+    Same reason as `last_parse_cache_cls`: `tests/conftest.py` and
+    `tests/contracts/conftest.py` both import under the bare module name
+    `conftest`, so a plain `import conftest` on the test side resolves by
+    collection order. A fixture is unambiguous. `test_corpus_scan_sharing.py`
+    calls it with the REAL `ast.parse`, which is what makes that check a
+    differential rather than a restatement of the shared scan.
+    """
+    return from_dims_usage_findings
 
 
 @pytest.fixture(scope="session")
