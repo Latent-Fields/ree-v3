@@ -121,16 +121,29 @@ DEFAULTS = {
     # cloud-4 when cloud-2/3 are already saturated.
     "SURGE_QUEUE_THRESHOLD": 2,
     "HUB_NAME": "ree-worker-1",
-    # Lease veto (see read_lease). A worker running non-queue work -- today
-    # only REE_Working/scripts/remote_pytest.sh -- holds a lease file here so
-    # the scaler does not shut it down mid-run. Hub-local; the scaler runs on
-    # the hub, so no extra transport is involved.
+    # Lease veto (see read_lease). A worker running non-queue work -- either
+    # REE_Working/scripts/remote_pytest.sh, or a scaler-managed box's own
+    # metaworker-dispatch wrapper (take_lease() in ree-metaworker-dispatch.sh,
+    # REE_LEASE_ENABLED opt-in) -- holds a lease file here so the scaler does
+    # not shut it down mid-run. Hub-local; the scaler runs on the hub, so no
+    # extra transport is involved.
     "PYTEST_LEASE_DIR": "/home/ree/pytest_leases",
     # HARD CAP on how far ahead a lease may expire, regardless of what the
     # file asks for. This is the billing guard: if a lease holder dies without
     # cleaning up, the worker is protected for at most this long and then
     # returns to normal auto-shutdown. Do NOT raise this casually.
-    "PYTEST_LEASE_MAX_MIN": 30,
+    #
+    # 30 -> 40 (2026-08-24): the metaworker wrapper's own dispatch cadence
+    # (ree-metaworker.timer OnUnitActiveSec) moved 5min -> 30min. Each cycle
+    # requests a fresh REE_LEASE_MIN-minute lease early on, before the claude
+    # launch; at exactly-30-vs-30 the previous lease would expire right at
+    # the instant the next cycle renews it, with near-zero margin against
+    # ordinary scheduling jitter or a slow renewal push. 40 gives a real
+    # 10-minute cushion above the new cadence. REE_LEASE_MIN in the wrapper
+    # (ree-v3/coordinator/deploy/ree-metaworker-dispatch.sh) was raised to
+    # match -- raising the cap alone does nothing if the requester still only
+    # asks for 30.
+    "PYTEST_LEASE_MAX_MIN": 40,
     # Orchestrator veto (see read_orchestrator). A scaler-managed box that is
     # ALSO running metaworker-dispatch writes an orchestrator-role heartbeat
     # under "<affinity>-metaworker"; while that heartbeat is fresh, the box is

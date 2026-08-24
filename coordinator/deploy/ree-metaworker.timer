@@ -1,8 +1,8 @@
-# Paces ree-metaworker.service every 5 minutes. Reference copy -- see
+# Paces ree-metaworker.service every 30 minutes. Reference copy -- see
 # ree-metaworker.service's header for the sync convention and install steps.
 
 [Unit]
-Description=Run ree-metaworker every 5 minutes
+Description=Run ree-metaworker every 30 minutes
 
 [Timer]
 # OnBootSec 5min -> 20s (2026-08-19,
@@ -15,8 +15,20 @@ Description=Run ree-metaworker every 5 minutes
 # all; this shortens how much of that hold is actually needed, by getting the
 # first coordinator POST out within ~20s of boot instead of ~5min. Do not
 # raise it back without re-reading orchestrator_wake_hold() in cloud-scaler.py.
+# This is a one-shot boot timing fix and is independent of the steady-state
+# cadence below -- it stays 20s regardless of OnUnitActiveSec.
 OnBootSec=20s
-OnUnitActiveSec=5min
+# 5min -> 30min (2026-08-24, user-directed cadence reduction). Paired changes
+# needed for this to stay safe on a scaler-managed (REE_LEASE_ENABLED=1) box:
+# REE_LEASE_MIN default 30 -> 40 in ree-metaworker-dispatch.sh, and
+# PYTEST_LEASE_MAX_MIN 30 -> 40 in cloud-scaler.py -- at the old 5-min cadence
+# a 30-min lease had 6x renewal slack; at exactly 30-vs-30 it would expire
+# right as the next cycle renews it. See those two constants' own comments.
+# A single cycle can still run up to REE_DISPATCH_MAX_SEC (25 min. default,
+# in ree-metaworker-dispatch.sh), which stays comfortably under 30min -- the
+# per-box flock non-reentrancy lock (see that script's own header) already
+# handles the rare case of a cycle still running when the next one fires.
+OnUnitActiveSec=30min
 AccuracySec=30s
 
 [Install]

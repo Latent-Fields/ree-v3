@@ -1,5 +1,5 @@
 #!/bin/bash
-# REE metaworker-dispatch wrapper (systemd timer, every 5 minutes).
+# REE metaworker-dispatch wrapper (systemd timer, every 30 minutes, 5min until 2026-08-24).
 #
 # Reference copy, synced by hand from the live file on ree-worker-5
 # (/usr/local/bin/ree_metaworker_dispatch.sh) -- install as that path (note the
@@ -237,7 +237,16 @@ if [ -z "$LEASE_AFFINITY" ]; then
 fi
 HUB_SSH="${REE_HUB_SSH:-ree@10.8.0.1}"
 LEASE_PURPOSE="metaworker_dispatch"
-LEASE_MIN="${REE_LEASE_MIN:-30}"   # the scaler CLAMPS to 30; asking for more is ignored
+LEASE_MIN="${REE_LEASE_MIN:-40}"
+# 30 -> 40 (2026-08-24), paired with cloud-scaler.py DEFAULTS["PYTEST_LEASE_MAX_MIN"]
+# 30 -> 40 and ree-metaworker.timer's OnUnitActiveSec 5min -> 30min. At the old
+# 5-min cadence a 30-min lease was renewed 6x within its own lifetime -- huge
+# slack. At 30-min cadence, requesting exactly 30 would make the lease expire
+# right as the next cycle renews it, with near-zero margin against scheduling
+# jitter or a slow renewal push. The scaler CLAMPS to whatever
+# PYTEST_LEASE_MAX_MIN is (currently 40, see that constant's own comment for
+# why); asking for more than the clamp is ignored, so this and that must move
+# together -- raising one alone does nothing.
 
 take_lease() {
   _exp=$(/opt/local/bin/python3 -c "
@@ -516,7 +525,7 @@ emit_heartbeat "$ROLE_STATE" "cycle $CYCLE ($ROLE_STATE)"
 # OPT-IN per box. A lease is only meaningful for a box the scaler actually
 # manages -- i.e. one that appears in cloud-scaler.py's WORKERS list. ree-cloud-5
 # is deliberately absent from that list and is never power-cycled, so a lease
-# there would be an ssh round-trip every 5 minutes that nothing ever reads.
+# there would be an ssh round-trip every cycle that nothing ever reads.
 # Set REE_LEASE_ENABLED=1 in the systemd drop-in on scaler-managed boxes only.
 if [ "${REE_LEASE_ENABLED:-0}" != "1" ]; then
   :   # not scaler-managed; the orchestrator heartbeat is the only signal needed
@@ -595,7 +604,7 @@ else
   [ -n "$SESSION_LOG_FROM" ] || SESSION_LOG_FROM=0
   flock -n -E 99 "$LOCKFILE" \
     timeout --signal=TERM --kill-after=60 "$DISPATCH_MAX_SEC" \
-    claude -p "Run exactly ONE cycle of the metaworker-dispatch skill (see $REPO/.claude/skills/metaworker-dispatch/SKILL.md), then exit. This is cycle $CYCLE on machine $MACHINE. Your Step 4a in-flight worker cap on this box is $DISPATCH_MAX_INFLIGHT (available_slots = $DISPATCH_MAX_INFLIGHT - in-flight), not the default 2. AUTH: this box IS authenticated -- your own session is proof, since a claude -p cycle cannot run unauthenticated. Do NOT test for ~/.claude/.credentials.json; it is legitimately absent under CLAUDE_CODE_OAUTH_TOKEN auth, and treating its absence as an auth failure idled ree-cloud-4 for seven cycles on 2026-08-18. If a dispatched worker reports 'Not logged in', that is an environment-inheritance defect to report, NOT an account problem and NOT a reason to stop dispatching. Do not call ScheduleWakeup or otherwise self-pace via /loop -- an external systemd timer re-invokes this script every 5 minutes, so pacing is handled outside this session.$FRESHNESS_NOTE" \
+    claude -p "Run exactly ONE cycle of the metaworker-dispatch skill (see $REPO/.claude/skills/metaworker-dispatch/SKILL.md), then exit. This is cycle $CYCLE on machine $MACHINE. Your Step 4a in-flight worker cap on this box is $DISPATCH_MAX_INFLIGHT (available_slots = $DISPATCH_MAX_INFLIGHT - in-flight), not the default 2. AUTH: this box IS authenticated -- your own session is proof, since a claude -p cycle cannot run unauthenticated. Do NOT test for ~/.claude/.credentials.json; it is legitimately absent under CLAUDE_CODE_OAUTH_TOKEN auth, and treating its absence as an auth failure idled ree-cloud-4 for seven cycles on 2026-08-18. If a dispatched worker reports 'Not logged in', that is an environment-inheritance defect to report, NOT an account problem and NOT a reason to stop dispatching. Do not call ScheduleWakeup or otherwise self-pace via /loop -- an external systemd timer re-invokes this script every 30 minutes, so pacing is handled outside this session.$FRESHNESS_NOTE" \
       --permission-mode auto >> "$LOG" 2>&1
   DISPATCH_RC=$?
   SESSION_RC="$DISPATCH_RC"

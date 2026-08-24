@@ -5,7 +5,7 @@
 # ree-runner.service in this repo (see cloud_workers.md's note on that file).
 # This box is NOT an experiment runner: it runs one dispatch cycle of
 # .claude/skills/metaworker-dispatch/SKILL.md per invocation, paced externally
-# by ree-metaworker.timer (5-minute OnUnitActiveSec) rather than a persistent
+# by ree-metaworker.timer (30-minute OnUnitActiveSec, 5min until 2026-08-24) rather than a persistent
 # `/loop` session -- see the Phase H runbook (WORKSPACE_STATE.md, 2026-08-02/03)
 # for why a stateless relaunch was chosen over a long-lived ScheduleWakeup loop.
 #
