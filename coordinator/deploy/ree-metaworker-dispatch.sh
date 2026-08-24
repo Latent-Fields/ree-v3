@@ -408,6 +408,32 @@ if [ -f "$REPO/scripts/dispatch_usage_cooldown.py" ]; then
   [ "$COOLDOWN_RC" -eq 3 ] && COOLDOWN_WITHHELD="true"
 fi
 
+# --- No-open-work pre-exit (dispatch_preexit_check.py) ---------------------
+# chip-20260823-preflight-batch-triage-of-candidate-chips item (a): a
+# genuinely idle cycle (zero open chips of either kind) never needs to load
+# the metaworker-dispatch SKILL.md at all -- skip the claude launch entirely
+# rather than pay for a session that will find nothing in Step 3/4/5.
+#
+# Deliberately NOT folded into the PAUSED check above, even though
+# dispatch_preexit_check.py's own preexit_verdict() covers both conditions.
+# Its "plane paused" branch returns HAS-WORK on purpose -- that is the
+# INTERACTIVE /loop convention (Step 1 needs a live session to log the skip
+# and the recheck-delay correctly; see the script's own module docstring).
+# This wrapper's PAUSED check above already short-circuits BEFORE reaching
+# this point, more cheaply (no claude launch at all, not even this check), so
+# by the time this runs the plane is known clear -- only the exit-3 IDLE
+# verdict (zero open chips) is ever meaningful here. Any other outcome --
+# exit 0 HAS-WORK, or an unexpected exit code on a crash/missing-file --
+# falls through to the ordinary throttle/dispatch checks below: fail toward
+# launching, same direction as every other gate in this file.
+IDLE_NO_WORK="false"
+if [ -f "$REPO/scripts/dispatch_preexit_check.py" ]; then
+  PREEXIT_OUT="$(/opt/local/bin/python3 "$REPO/scripts/dispatch_preexit_check.py" check 2>&1)"
+  PREEXIT_RC=$?
+  echo "[$(ts)] preexit check: $PREEXIT_OUT" >> "$LOG"
+  [ "$PREEXIT_RC" -eq 3 ] && IDLE_NO_WORK="true"
+fi
+
 # --- Dual-role arbitration (ree-cloud-4) ----------------------------------
 # This box holds BOTH roles: ree-runner and metaworker-dispatch. Until
 # 2026-08-18 they simply ran at the same time on 2 vCPU with no coordination in
@@ -523,6 +549,9 @@ elif [ "$ROLE_STATE" != "dispatching" ]; then
   # is running experiments, which on a deep queue is hours.
   echo "[$(ts)] cycle $CYCLE: role=$ROLE_STATE, not dispatching this cycle" >> "$LOG"
   STATE="$ROLE_STATE"
+elif [ "$IDLE_NO_WORK" = "true" ]; then
+  echo "[$(ts)] cycle $CYCLE: IDLE -- no open chips (work or decision), skipping dispatch" >> "$LOG"
+  STATE="idle"
 elif [ "$LIVE_CLAUDE" -ge "$MAX_CLAUDE_SESSIONS" ] || [ "$AVAIL_MB" -lt "$MIN_AVAIL_MB" ]; then
   echo "[$(ts)] cycle $CYCLE: THROTTLED -- claude sessions=$LIVE_CLAUDE/$MAX_CLAUDE_SESSIONS, MemAvailable=${AVAIL_MB}MB (floor ${MIN_AVAIL_MB}MB); skipping dispatch" >> "$LOG"
   STATE="throttled"
