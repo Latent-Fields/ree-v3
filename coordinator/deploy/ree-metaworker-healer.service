@@ -14,6 +14,13 @@
 #   sudo systemctl daemon-reload
 #   sudo systemctl enable --now ree-metaworker-healer.timer
 #
+# AUTH: this unit needs the same Claude credential the dispatcher uses. On the
+# resident boxes that lives in /etc/ree/claude_auth.env, written by
+# scripts/claude_account.py deploy, and ree-metaworker.service picks it up via
+# its own auth.conf drop-in. Referenced directly below with a leading `-` so a
+# box that has no such file still STARTS (the wrapper then fails loudly on the
+# claude call) rather than the unit refusing to load.
+#
 # Logs: journalctl -u ree-metaworker-healer -f  |  ~/ree_metaworker_healer.log
 
 [Unit]
@@ -25,6 +32,7 @@ Wants=network-online.target
 Type=oneshot
 User=ree
 WorkingDirectory=/home/ree/REE_Working
+EnvironmentFile=-/etc/ree/claude_auth.env
 ExecStart=/usr/local/bin/ree_metaworker_healer.sh
 StandardOutput=journal
 StandardError=journal

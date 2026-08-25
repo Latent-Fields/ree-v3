@@ -27,6 +27,14 @@
 # Logs: journalctl -u ree-metaworker-healer -f  |  ~/ree_metaworker_healer.log
 set -uo pipefail
 
+# systemd gives a Type=oneshot unit a MINIMAL PATH, and this script is
+# #!/bin/bash rather than a login shell, so ~/.profile never runs and
+# `command -v claude` finds nothing -- claude lives in ~/.local/bin. Measured
+# on ree-cloud-5 2026-08-25: the first `systemctl start` of this unit exited
+# 127 with "no claude binary on PATH", caught by smoke-testing before
+# enabling the timer. Same line, same order, as ree-metaworker-dispatch.sh.
+export PATH="/opt/local/bin:/usr/local/bin:/home/ree/.local/bin:/usr/bin:/bin"
+
 REPO="${REE_REPO:-/home/ree/REE_Working}"
 LOG="${REE_HEALER_LOG:-/home/ree/ree_metaworker_healer.log}"
 LOCK="${REE_HEALER_LOCK:-/tmp/ree_metaworker_healer.lock}"
