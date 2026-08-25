@@ -190,12 +190,28 @@ print(sum(1 for c in items
 # alone cannot tell those apart because it counts chips another dispatcher is
 # already running.
 #
-# Deliberately CONSERVATIVE, i.e. it can only ever UNDERSTATE a stall. It does
-# not re-run the skill's Step 3 STOP-CHECKs (this wrapper has no business
-# reimplementing them, and a wrong guess in the other direction would fire the
-# stall signal on ordinary states -- which is how a guard gets switched off).
-# So a chip claimed by a dead worker still reads as ineligible until its claim
-# is reaped: a missed stall, never a false one.
+# Deliberately CONSERVATIVE w.r.t. CLAIM state, i.e. it can only ever
+# UNDERSTATE a stall on that axis. It does not re-run the skill's Step 3
+# STOP-CHECKs (this wrapper has no business reimplementing them, and a wrong
+# guess in the other direction would fire the stall signal on ordinary states
+# -- which is how a guard gets switched off). So a chip claimed by a dead
+# worker still reads as ineligible until its claim is reaped: a missed
+# stall, never a false one on THAT axis.
+#
+# KNOWN GAP, on a DIFFERENT axis (2026-08-22, chip-20260822-metaworkerrepair-
+# cloud5-stalled-allwithheld-cycle3528): this count does NOT exclude a chip
+# dispatch_candidate_order.py's already_dispatched() marks [ALREADY-
+# DISPATCHED] (a .claude/worktrees/metaworker-<chip_ref>/ already exists on
+# this box). Step 4c skips such a candidate entirely -- no box-constraint
+# condition is evaluated on it, so it can never produce a WITHHELD line --
+# so counting it here CAN overstate eligible_work and starve rule 6b's
+# WITHHELD-coverage check permanently while any such chip sits open. Do NOT
+# "fix" this function to match: ree_metaworker_heartbeat.recompute_
+# eligible_work() already corrects for it downstream, in the tracked python
+# file every box re-pulls on its own next `git pull` -- fixing it HERE too
+# would require a manual /usr/local/bin redeploy on every box for no benefit
+# (see recompute_eligible_work()'s own docstring for why the correction was
+# deliberately placed there instead of here).
 count_eligible_work_chips() {
   /opt/local/bin/python3 -c '
 import json, sys
