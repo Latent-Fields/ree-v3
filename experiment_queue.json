@@ -26,25 +26,6 @@
       "episodes_per_run": 100,
       "experiment_type": "v3_exq_925a_e3_fdominance_committed_regime_causal_harness",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-945",
-      "title": "CEM elite-stage modulatory authority + throughput readiness (DIAGNOSTIC)",
-      "script": "experiments/v3_exq_945_cem_elite_authority_throughput_readiness.py",
-      "priority": 50,
-      "machine_affinity": "any",
-      "estimated_minutes": 30,
-      "note": "Readiness/validation diagnostic for the 2026-08-19 CEM elite-stage modulatory-authority + throughput build (chip-20260819-modulatory-authority-cem-throughput-build). NOT a claim-tagged behavioural falsifier -- claim_ids=[] by design (design doc Section 8): its PASS flips substrate_queue entry modulatory-bias-selection-authority's failure_record (v3_exq_931_cem_wanting_weight_selection_authority) resolved field from open, per that record's own addressed_by instruction. Measures at shipped default cem_modulatory_authority_gain=0.5: (a) AUTHORITY -- does the rescale flip the CEM elite argmin with a competitive spread ratio; (b) THROUGHPUT -- routed via modulatory_channel_route_source=cem_elite, does a flipped elite argmin produce a nonzero behavioural DV gap vs the ablated arm; (c) NO-HARM -- does enabling routed throughput regress harm exposure vs the ablated arm. Uses the mode_value term (HippocampalConfig.mode_value_weight, keyed on trajectory mean z_world, always non-trivial per module.py docstring) as the lever rather than wanting_weight, since a fresh ResidueField's valence head is identically zero (V3-EXQ-869/923 wash-out regime) and would test nothing. 4 arms (ARM_OFF baseline, ARM_AUTH_RANGE, ARM_AUTH_STD, ARM_AUTH_THROUGHPUT) x 5 seeds ([42,43,45,46,47], seed 44 excluded per recurring per-seed early-death) = 20 cells. estimated_minutes derived from the queue's own calibration formula (8000ms/episode-condition x 10 episodes x 4 conditions x 5 seeds), not an empirical dry-run timing -- treat as approximate. Script fully authored, code-reviewed, smoke-tested (validate_experiments.py --strict OK, --dry-run PASS), and landed on origin/main at 751fc5e3 (renamed from an initial v3_exq_944 after a same-window ID collision with V3-EXQ-944's own landing). Queue-append step was blocked for several days by a stale TASK_CLAIMS.json claim on this file (metaworker-chip-20260821-igw-234-mech091-confirm); confirmed cleared before this append.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-08-25T20:55:49Z"
-      },
-      "claim_ids": [],
-      "conditions": 4,
-      "episodes_per_run": 10,
-      "experiment_type": "v3_exq_945_cem_elite_authority_throughput_readiness",
-      "seeds": 5
     }
   ]
 }
