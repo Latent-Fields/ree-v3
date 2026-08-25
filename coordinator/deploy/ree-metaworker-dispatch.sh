@@ -1,5 +1,5 @@
 #!/bin/bash
-# REE metaworker-dispatch wrapper (systemd timer, every 30 minutes, 5min until 2026-08-24).
+# REE metaworker-dispatch wrapper (systemd timer, every 5 minutes).
 #
 # Reference copy, synced by hand from the live file on ree-worker-5
 # (/usr/local/bin/ree_metaworker_dispatch.sh) -- install as that path (note the
