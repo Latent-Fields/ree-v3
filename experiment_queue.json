@@ -6,27 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-949",
-      "title": "MECH-314b authority-rescale validation: 2x2 (314b ON/OFF x use_modulatory_selection_authority ON/OFF), raised diversity floor",
-      "script": "experiments/v3_exq_949_mech314b_authority_rescale_validation.py",
-      "priority": 55,
-      "machine_affinity": "any",
-      "estimated_minutes": 150,
-      "note": "SUPERSEDES the un-queued V3-EXQ-947 2x2 (mech314b_percandidate_2x2_design_and_null_authority_2026-08-23.md; driver landed but its queue entry was never appended -- claim contention, see that doc sec 6). mech314b_score_bias_magnitude_diagnostic_2026-08-25.md then measured WHY 947 found 0/320 argmin authority: structured_curiosity's per-candidate contribution (last_uncertainty_dev_range ~1.5-2e-05) is ~1.4-1.8e7x smaller than the base E3 raw_score_range (~270-290) it competes against, and this is NOT closeable by raising curiosity_uncertainty_weight (hard-clamped to curiosity_bias_scale=0.1, itself ~2700-2900x too small) -- so V3-EXQ-947 as briefed (authority always OFF) is mechanistically guaranteed null regardless of seed count and is NOT recommended for queuing. The diagnostic confirmed the existing (built, off-by-default) fix use_modulatory_selection_authority changes post_score_range materially (271.4->243.8 mean, 284.9->178.4 last tick at gain=0.5) where OFF shows post_score_range==raw_score_range exactly. This experiment crosses 314b ON/OFF x use_modulatory_selection_authority ON/OFF (gain=0.5) instead of against the diversity floor, which the 947 2x2 already proved necessary and is fixed here at its raised (=action_dim) value. Same yoked-pair / private-RNG-stream / in-run-pairing-control design as 947 (extended from a yoked pair to a yoked quad: one reference agent drives the env, the other 3 arms are stepped on its identical observation sequence). GOV-REUSE-1 (Step 2.4): decisive readout is yoked committed-action divergence under a genuine per-candidate signal WITH authority rescale, plus post_score_range/raw_score_range relative deviation. Checked all manifests tagging MECH-314/314a/314b/314c and all use_modulatory_selection_authority=true manifests (grep across evidence/experiments/) -- no prior run crosses 314b x authority-on under the GAP-A-corrected, SD-063-trained substrate; NOT recoverable, must run. Step 2.5b re-derive brake: MECH-314b count=3 (604a/604b/604c) -- RELEASED. 604b was itself an earlier authority-ON attempt for this claim that failed for a DIFFERENT reason (recommended_substrate_queue_entry named ARC-065 GAP-A action-conditional candidate diversity as the missing upstream substrate, with failure_record_entry noting the candidate pool was class-uniform pre-GAP-A); GAP-A has since landed and validated (V3-EXQ-649) and this driver's own smoke measured 4.95/5 distinct first-action classes, confirming the pool is now saturated -- this retest targets the separately-diagnosed magnitude mismatch, not the pool-uniformity defect 604b hit. Step 2.5c substrate-path overlap gate: same 3 open corrupting entries as the 947 driver (identical imports) -- mode-governance-engagement and MECH122-CONTENT-PACKAGING-SPINDLE-SELECTION are not in this driver's causal path (no such knobs enabled); contextmemory-write-path-addressing-degeneracy (e1_deep.py ContextMemory.write) is potentially in path via E1 but applies identically across all 4 arms and does not interact with either the 314b or authority factor, biasing the load-bearing contrast toward the null rather than a false positive. This retest also supplies the per-claim EVIDENCE retest use_modulatory_selection_authority itself is gated on (claims.yaml, implemented_pending_validation in substrate_queue.json) -- serves both claims at once. Pre-registered thresholds (never lowered): YOKED_DIVERGENCE_FLOOR=0.02 (C1), INTERACTION_MARGIN=0.02 (C2), HEAD_REL_SPREAD_FLOOR=1.0, AUTHORITY_ENGAGEMENT_REL_DEVIATION_FLOOR=0.05 (new readiness precondition confirming authority actually rescales post_score_range away from raw_score_range), AUTHORITY_NULL_REL_DEVIATION_CEILING=0.01 (new readiness precondition confirming authority cannot manufacture engagement from a uniform zero-range broadcast -- the DV-symmetry negative control for the authority factor alone). estimated_minutes is an estimate (no queue entry exists for the un-queued 947 2x2 to calibrate against directly; the diagnostic's own estimate for a comparable 5-seed x 4-arm-identity battery at full training budget was ~2-3h cloud). Smoke: PASS per decisive-readout engagement checks (1 seed, reduced warmup=20) -- authority engagement measured directly: yoked_divergence_frac 0.0 (314b OFF) / 0.0 (authority-alone negative control) -> 0.4125 (314b ON + authority ON); authority_rel_deviation_mean 0.0 (negative control) vs 0.197 (test arm). validate_experiments.py --strict and validate_recording.py --strict both clean, 0 warnings. OPERATOR ACTION REQUIRED -- STEP 8.6 NOT PERFORMED: queued from a headless metaworker box with no REE_assembly/coordinator.env, so POST /queue/add could not be issued. A coordinator-capable session must POST this item (both script and entry already confirmed on origin/main) from ree-v3 commit 7176319c15 before the fleet can claim it.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-08-25T22:06:17Z"
-      },
-      "claim_ids": [
-        "MECH-314b"
-      ],
-      "conditions": 4,
-      "episodes_per_run": 4,
-      "experiment_type": "v3_exq_949_mech314b_authority_rescale_validation",
-      "seeds": 5
-    }
-  ]
+  "items": []
 }
