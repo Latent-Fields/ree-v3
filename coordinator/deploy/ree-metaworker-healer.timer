@@ -1,0 +1,22 @@
+# Paces ree-metaworker-healer.service. Reference copy -- see the .service
+# header for the sync convention and install steps.
+
+[Unit]
+Description=Run the REE metaworker healer hourly
+
+[Timer]
+# Short OnBootSec for the same reason as ree-metaworker.timer: a freshly-woken
+# box should get its first cycle out quickly. The healer is cheaper than a
+# dispatch cycle (it exits before loading any context when there is nothing to
+# repair), so this costs almost nothing on a healthy box.
+OnBootSec=60s
+# HOURLY, not the dispatcher's 30min. The healer is reactive to
+# hygiene_tick findings, which accrue slowly, and every avoided tick is a
+# ~117k-token context floor not paid -- the 2026-08-23 pause was called over
+# exactly that arithmetic. Its wrapper gate means a healthy box pays nothing
+# per tick anyway; this cadence bounds the cost when it is NOT healthy.
+OnUnitActiveSec=1h
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

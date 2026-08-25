@@ -1,0 +1,43 @@
+# REE metaworker HEALER -- systemd unit template (resident on the metaworker box)
+#
+# Reference copy; sync by hand with the live file, same convention as
+# ree-metaworker.service.
+#
+# Repair-only. It NEVER dispatches kind:work chips, which is why -- unlike the
+# Dispatcher -- it needs no run lease from the Orchestrator and may run
+# resident. See ree-metaworker-healer.sh's header.
+#
+# Installation (on the cloud VM, as the `ree` user with sudo):
+#   sudo cp ree-metaworker-healer.service ree-metaworker-healer.timer /etc/systemd/system/
+#   sudo cp ree-metaworker-healer.sh /usr/local/bin/ree_metaworker_healer.sh
+#   sudo chmod 755 /usr/local/bin/ree_metaworker_healer.sh
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now ree-metaworker-healer.timer
+#
+# Logs: journalctl -u ree-metaworker-healer -f  |  ~/ree_metaworker_healer.log
+
+[Unit]
+Description=REE metaworker healer: one repair-only cycle
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ree
+WorkingDirectory=/home/ree/REE_Working
+ExecStart=/usr/local/bin/ree_metaworker_healer.sh
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ree-metaworker-healer
+# Must exceed the wrapper's own REE_HEALER_MAX_SEC (900) plus overhead, so a
+# normal long cycle stays inside the service lifetime and systemd's
+# one-instance-per-oneshot guarantee is what prevents overlap. Same reasoning
+# as ree-metaworker.service's 1800 -- see its comment for the 2026-08-09
+# three-dispatchers-at-once incident that established it.
+TimeoutStartSec=1200
+# KillMode=process for the same reason as ree-metaworker.service: under the
+# default control-group mode systemd SIGTERMs the whole cgroup when a oneshot
+# deactivates. A healer spawns no long-lived workers, but it can leave a
+# repair subprocess (a git operation, a remote ssh fix) mid-flight, and
+# killing those halfway is how a repair becomes damage.
+KillMode=process
