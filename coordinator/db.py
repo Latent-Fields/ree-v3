@@ -290,6 +290,47 @@ def _is_stale(claimed_at, stale_hours):
     return datetime.now(timezone.utc) - dt > timedelta(hours=stale_hours)
 
 
+# How fresh an owner's heartbeat must be, against the CURRENT queue_id, to
+# block route (a) (the absence-based stale-claim recovery in
+# _claim_recoverable below). This is the window that actually decided the
+# V3-EXQ-861f incident (2026-08-23): DLAPTOP's claim was already ~25h past
+# `stale_hours` (it always will be, for any experiment running longer than a
+# few hours -- that floor is about ABANDONMENT, not about how long a single
+# run may take), so the whole outcome rode on this one number. Its owner
+# heartbeated continuously via POST /heartbeat (confirmed from the hub's
+# coordinator access log -- one heartbeat roughly every 5s for the full
+# 25-hour run) except for a single ~54-minute gap, almost certainly a
+# transient network/sleep blip on the laptop, which is not evidence the
+# machine had stopped running the experiment. ree-cloud-4 polled to claim
+# exactly 16 minutes into that gap -- past the old 900s (15min) floor -- and
+# won, producing a second, duplicate ~9h execution of the same queue_id while
+# DLAPTOP's own run continued for another ~15 hours to completion.
+#
+# WHY NOT JUST RAISE stale_hours instead: see _claim_recoverable's own
+# docstring and CLAUDE.md -- that floor is deliberately about long-run
+# abandonment, not about heartbeat noise, and this incident's claim was
+# already many multiples past it. The fix belongs on the ABSENCE-detection
+# granularity, not the eligibility floor.
+#
+# WHY THIS IS NOT THE SAME NUMBER AS CLAIM_REAP_QUIET_DEFAULT_SECONDS below,
+# despite both having read "900" and both answering some version of "how
+# long is quiet before we act". They gate different EVIDENCE. Route (b)
+# (departure) only engages once the machine has POSITIVELY announced a
+# shutdown -- a real signal that costs nothing to wait out quickly (900s),
+# because there is no risk of mistaking "still running" for "gone" once a
+# shutdown notice already fired. Route (a) has no positive signal at all: it
+# is pure absence, on a fleet that includes a laptop subject to sleep, WiFi
+# roaming, and VPN reassociation, so it needs slack against exactly the kind
+# of transient blip that caused this incident. Widening this constant alone
+# (not the departure one) targets that difference without slowing down the
+# already-proven-good departure recovery from the V3-EXQ-841 incident.
+# 3600s (60min) gives >4x margin over the measured 54-minute gap while
+# staying at 16.7% of the 6h stale_hours floor, preserving the two-layer
+# defense (an owner must be BOTH long-claimed AND silent for a full hour
+# before another machine may take over).
+HEARTBEAT_FRESH_DEFAULT_SECONDS = 3600
+
+
 def _has_fresh_owner_heartbeat(conn, queue_id, claimed_by_machine,
                                heartbeat_fresh_seconds):
     if not claimed_by_machine or not queue_id or heartbeat_fresh_seconds <= 0:
@@ -507,11 +548,18 @@ def record_claim_fence_clear(conn, machine):
 # `departed` is surfaced on /shadow/status so the orphan is visible anyway.
 
 # How long a machine must be SILENT after announcing a shutdown before its
-# claims are reapable. Deliberately equal to the default
-# heartbeat_fresh_seconds (900) -- one number for "we would have heard from
-# this machine by now", used by both the absence rule and this one. It must
-# comfortably exceed the runner's ~60s heartbeat cadence; it does NOT need
-# to exceed the ~26min ACPI drain window, because a draining box keeps
+# claims are reapable. Until 2026-08-23 this was deliberately equal to the
+# default heartbeat_fresh_seconds (900) -- "one number for 'we would have
+# heard from this machine by now', used by both the absence rule and this
+# one." That default has since moved to HEARTBEAT_FRESH_DEFAULT_SECONDS
+# (3600, see its own docstring for the V3-EXQ-861f incident that drove it),
+# and this constant deliberately did NOT move with it: the two gate different
+# EVIDENCE. This route only engages after a POSITIVE signal -- an explicit
+# shutdown notice -- so there is no risk of mistaking "still running" for
+# "gone" the way a bare heartbeat gap can, and widening it would only slow
+# down the V3-EXQ-841 recovery this route exists for, for no safety benefit.
+# It must comfortably exceed the runner's ~60s heartbeat cadence; it does NOT
+# need to exceed the ~26min ACPI drain window, because a draining box keeps
 # heartbeating and so is never quiet while it drains.
 CLAIM_REAP_QUIET_DEFAULT_SECONDS = 900
 
@@ -611,8 +659,8 @@ def claim_orphaned_by_departure(conn, row, quiet_seconds, now=None):
 
 
 def try_claim(conn, queue_id, machine, stale_hours=6,
-              heartbeat_fresh_seconds=900, fence_seconds=0,
-              reap_quiet_seconds=0):
+              heartbeat_fresh_seconds=HEARTBEAT_FRESH_DEFAULT_SECONDS,
+              fence_seconds=0, reap_quiet_seconds=0):
     """Atomic conditional claim. Returns one of: 'ok', 'already_claimed',
     'draining', 'error'. Mirrors experiment_runner.attempt_claim() semantics
     exactly so the shadow comparison is apples-to-apples.
@@ -674,8 +722,8 @@ def try_claim(conn, queue_id, machine, stale_hours=6,
 
 
 def evaluate_claim(conn, queue_id, machine, stale_hours=6,
-                   heartbeat_fresh_seconds=900, fence_seconds=0,
-                   reap_quiet_seconds=0):
+                   heartbeat_fresh_seconds=HEARTBEAT_FRESH_DEFAULT_SECONDS,
+                   fence_seconds=0, reap_quiet_seconds=0):
     """Read-only: what verdict WOULD the coordinator return, without
     mutating the mirror. Used by the shadow audit so the comparison does
     not perturb state. Same logic as try_claim()."""

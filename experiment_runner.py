@@ -3050,8 +3050,13 @@ def git_push_status(ree_assembly_path: Path, status_path: Path, queue_id: str) -
 # ── Multi-machine coordination ────────────────────────────────────────────────
 
 CLAIM_TTL_HOURS = float(os.environ.get("REE_CLAIM_TTL_HOURS", "6"))
+# Kept in sync with coordinator/db.py HEARTBEAT_FRESH_DEFAULT_SECONDS
+# (900 -> 3600, V3-EXQ-861f incident, 2026-08-23) even though this copy is
+# observability-only (see recover_stale_claims) -- a runner log line calling
+# a claim "stale" on a tighter window than the coordinator actually uses
+# would be actively misleading, not just redundant.
 CLAIM_HEARTBEAT_FRESH_SECONDS = int(
-    os.environ.get("REE_CLAIM_HEARTBEAT_FRESH_SECONDS", "900")
+    os.environ.get("REE_CLAIM_HEARTBEAT_FRESH_SECONDS", "3600")
 )
 
 
@@ -3842,29 +3847,31 @@ def _resolve_signal_dir(ree_assembly_path: Path | None) -> Path | None:
 
 
 def _build_subprocess_env(queue_id: str, signal_dir: Path | None,
-                          declared_seed_count: int | None = None) -> dict:
+                           declared_seed_count: int | None = None) -> dict:
     """Build the env dict for an experiment subprocess.
 
-    REE_QUEUE_ID, REE_RUNNER_SIGNAL_DIR and REE_QUEUE_DECLARED_SEED_COUNT are
+    REE_QUEUE_ID, REE_RUNNER_SIGNAL_DIR and REE_DECLARED_SEED_COUNT are
     ALWAYS written -- with empty-string fallbacks -- so the child never
     inherits a stale value from the runner's own shell env. A stale
-    REE_QUEUE_ID would route the sentinel emit_outcome() writes to the wrong
-    file under the wrong signal dir, masking real-run sentinels with phantom
-    ones; a stale REE_QUEUE_DECLARED_SEED_COUNT would let a driver silently
-    validate against a prior run's seed count instead of this one's.
+    REE_QUEUE_ID would route the sentinel emit_outcome() writes to the
+    wrong file under the wrong signal dir, masking real-run sentinels with
+    phantom ones.
 
-    declared_seed_count is the queue item's own "seeds" count (already
-    computed by the caller via _run_axis_count) -- the count the queue
-    DECLARED, as opposed to whatever subset of --seeds actually reached the
-    subprocess CLI via "args". A driver's own coverage check (e.g.
-    all_seeds_completed) can read this to detect a declared-vs-actual seed
-    shortfall, which comparing only against the CLI-invoked seed list cannot
-    do (see failure_autopsy_V3-EXQ-920a_2026-08-16.md Section 7b).
+    REE_DECLARED_SEED_COUNT carries the queue item's own declared seed
+    count (item["seeds"], resolved via _run_axis_count) independently of
+    whatever --seeds CLI args actually reached the driver. A driver-side
+    "all_seeds_completed" check that instead compares completed seeds
+    against its own --seeds argv is structurally blind to a runner-side
+    args-wiring defect that silently drops declared seeds (confirmed
+    2026-08-12, V3-EXQ-920 Target 4 -- the queue declared 8 seeds but the
+    driver's own --seeds default of [0] governed, and a check keyed on
+    argv reported a clean 1-of-1 pass). Comparing against this env var
+    instead lets a driver detect that mismatch.
     """
     env = os.environ.copy()
     env["REE_QUEUE_ID"] = queue_id or ""
     env["REE_RUNNER_SIGNAL_DIR"] = str(signal_dir) if signal_dir is not None else ""
-    env["REE_QUEUE_DECLARED_SEED_COUNT"] = (
+    env["REE_DECLARED_SEED_COUNT"] = (
         str(declared_seed_count) if declared_seed_count is not None else ""
     )
     return env

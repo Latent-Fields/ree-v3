@@ -213,10 +213,14 @@ class MachineDepartedTest(unittest.TestCase):
         self.assertTrue(self._departed(
             _iso(now - timedelta(seconds=self.QUIET + 60)), shutdown, now=now))
 
-    def test_default_quiet_seconds_matches_heartbeat_fresh_default(self):
-        # One number for "we would have heard from this machine by now".
-        # It must also comfortably exceed the runner's ~60s heartbeat
-        # cadence, or an ordinary missed tick would read as departure.
+    def test_quiet_seconds_default_is_stable(self):
+        # Was named "...matches_heartbeat_fresh_default" until 2026-08-23,
+        # when HEARTBEAT_FRESH_DEFAULT_SECONDS moved to 3600 (V3-EXQ-861f
+        # incident) and this one deliberately did NOT move with it -- see
+        # CLAIM_REAP_QUIET_DEFAULT_SECONDS's own docstring for why the two
+        # numbers now differ on purpose. This still must comfortably exceed
+        # the runner's ~60s heartbeat cadence, or an ordinary missed tick
+        # would read as departure.
         self.assertEqual(db.CLAIM_REAP_QUIET_DEFAULT_SECONDS, 900)
         self.assertGreater(db.CLAIM_REAP_QUIET_DEFAULT_SECONDS, 5 * 60)
 
@@ -376,6 +380,42 @@ class ReaperSafetyTest(_ReaperDBBase):
                             current_exq=self.QID, progress=None, gpu=None)
         self._backdate_heartbeat("DLAPTOP-4", 7 * 60)
         self._backdate_claim(7 * 60)
+        self.assertEqual(self._claim("ree-cloud-3"), "ok")
+
+    def test_transient_heartbeat_gap_during_long_run_is_not_reaped(self):
+        # Regression test for the V3-EXQ-861f incident (2026-08-23):
+        # DLAPTOP's claim was ~25h past stale_hours (as any single-run
+        # experiment estimated at more than a few hours always will be) and
+        # heartbeated continuously except for one ~54-minute gap -- almost
+        # certainly a transient network/sleep blip, not abandonment.
+        # ree-cloud-4 polled to claim 16 minutes into that gap, past the OLD
+        # 900s (15min) heartbeat_fresh_seconds default, and won -- producing
+        # a duplicate ~9h execution while DLAPTOP's own run continued for
+        # another ~15h to completion. A 30-minute silence, on a claim this
+        # old, must NOT be reaped under the new default.
+        self.assertEqual(self._claim("DLAPTOP"), "ok")
+        db.upsert_heartbeat(self._conn, "DLAPTOP", state="running",
+                            current_exq=self.QID, progress=None, gpu=None)
+        self._backdate_heartbeat("DLAPTOP", 30)     # 30 min silent
+        self._backdate_claim(25 * 60)                # 25h claimed
+        self.assertEqual(self._claim("ree-cloud-3"), "already_claimed")
+
+    def test_heartbeat_fresh_default_covers_the_measured_gap_with_margin(self):
+        # The measured incident gap was ~54 minutes. The new default must
+        # comfortably exceed it -- this pins that relationship so a future
+        # change to either number is caught if it erodes the margin.
+        self.assertEqual(db.HEARTBEAT_FRESH_DEFAULT_SECONDS, 3600)
+        self.assertGreater(db.HEARTBEAT_FRESH_DEFAULT_SECONDS, 54 * 60)
+
+    def test_a_gap_beyond_the_new_default_is_still_reaped(self):
+        # The window is WIDENED, not disabled: a genuinely dead machine
+        # (silent well beyond the new 60min default, on a long-past-floor
+        # claim) is still recoverable.
+        self.assertEqual(self._claim("DLAPTOP"), "ok")
+        db.upsert_heartbeat(self._conn, "DLAPTOP", state="running",
+                            current_exq=self.QID, progress=None, gpu=None)
+        self._backdate_heartbeat("DLAPTOP", 70)     # 70 min silent
+        self._backdate_claim(25 * 60)                # 25h claimed
         self.assertEqual(self._claim("ree-cloud-3"), "ok")
 
     def test_draining_owner_still_heartbeating_is_not_reaped(self):

@@ -636,13 +636,20 @@ def run_preflight(
                 add("hub_git_clean", "hub", "PASS",
                     "hub REE_assembly clean or telemetry-only")
 
+        # Same staleness window as db.HEARTBEAT_FRESH_DEFAULT_SECONDS (moved
+        # 900 -> 3600 for the V3-EXQ-861f incident, 2026-08-23): a live owner
+        # can have a transient heartbeat gap well past 900s without having
+        # abandoned its claim, and this check would otherwise FAIL (blocking
+        # by default) on exactly that noise. Kept in sync deliberately --
+        # this is a diagnostic mirror of the same absence-based judgment
+        # /claim makes, not an independent threshold.
         sql = (
             "SELECT e.queue_id, e.claimed_by_machine "
             "FROM experiments e "
             "LEFT JOIN heartbeats h ON h.machine = e.claimed_by_machine "
             "WHERE e.status='claimed' AND ("
             "  h.last_seen IS NULL OR "
-            "  h.last_seen < datetime('now', '-900 seconds') OR "
+            "  h.last_seen < datetime('now', '-3600 seconds') OR "
             "  (h.current_exq IS NOT NULL AND h.current_exq != e.queue_id)"
             ");"
         )

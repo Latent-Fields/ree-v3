@@ -19,7 +19,10 @@ Config (env):
   COORDINATOR_BIND_PORT    default 8787
   COORDINATOR_TOKENS_FILE  JSON {token: machine} (default ./tokens.json)
   COORDINATOR_STALE_HOURS  stale-claim cutoff, default 6
-  COORDINATOR_HEARTBEAT_FRESH_SECONDS live-owner grace window, default 900
+  COORDINATOR_HEARTBEAT_FRESH_SECONDS live-owner grace window, default 3600
+                           (see db.HEARTBEAT_FRESH_DEFAULT_SECONDS docstring
+                           for why this is not the same number as the one
+                           below)
   COORDINATOR_CLAIM_REAP_QUIET_SECONDS departed-owner silence before its
                            claims are reapable, default 900 (0 disables)
   COORDINATOR_MODE         shadow (default) | coordinator
@@ -106,7 +109,8 @@ TOKENS_FILE = os.environ.get("COORDINATOR_TOKENS_FILE", os.path.join(
     os.path.dirname(__file__), "tokens.json"))
 STALE_HOURS = float(os.environ.get("COORDINATOR_STALE_HOURS", "6"))
 HEARTBEAT_FRESH_SECONDS = int(
-    os.environ.get("COORDINATOR_HEARTBEAT_FRESH_SECONDS", "900")
+    os.environ.get("COORDINATOR_HEARTBEAT_FRESH_SECONDS",
+                   str(db.HEARTBEAT_FRESH_DEFAULT_SECONDS))
 )
 # Lifecycle state thresholds (Phase 3 readiness). The "live" window is
 # generous (covers brief network blips between heartbeats). The watchdog
