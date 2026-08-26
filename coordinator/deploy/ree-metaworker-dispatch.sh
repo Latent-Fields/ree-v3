@@ -1,10 +1,15 @@
 #!/bin/bash
 # REE metaworker-dispatch wrapper (systemd timer, every 5 minutes).
 #
-# Reference copy, synced by hand from the live file on ree-worker-5
-# (/usr/local/bin/ree_metaworker_dispatch.sh) -- install as that path (note the
-# underscore, not hyphen) per ree-metaworker.service's header. Same
-# manual-sync convention as ree-runner.service in this repo.
+# Reference copy -- THIS TRACKED FILE IS CANONICAL, same convention as
+# ree-metaworker-healer.sh (see check_metaworker_wrapper_deploy.py). The
+# INSTALLED copy lives at /usr/local/bin/ree_metaworker_dispatch.sh (note the
+# underscore, not hyphen, per ree-metaworker.service's header) and is a
+# manually-synced DEPLOY TARGET, not the source of truth -- deploy by copying
+# this file's content to that path. Do not treat the installed copy as
+# authoritative or hand-edit it expecting the edit to persist; a hand patch
+# made there needs to be folded back into this tracked file, the same stance
+# check_metaworker_wrapper_deploy.py's docstring takes.
 #
 # Runs ONE cycle of .claude/skills/metaworker-dispatch/SKILL.md via a headless
 # `claude -p` invocation, then writes an orchestrator-role heartbeat so this
