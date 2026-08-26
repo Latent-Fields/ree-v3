@@ -53,6 +53,36 @@ Guarantees enforced:
   G14. Predicate unit: MELConsumer.need_crossed() gates on use_mel_entry + count
        + threshold; entry_permitted() == `need_crossed() or at_ceiling`
        (bit-identical delegation in both lever states).
+
+sleep_substrate:SD-SLEEP-ENTRY-PRESSURE (GAP-9 follow-up, registered 2026-08-16
+from confirmed failure_autopsy_929-933-sleep-gap9-cluster_2026-08-16 / V3-EXQ-933):
+need_crossed() above thresholds current_mel(), a time-invariant MEAN built for
+GAP-5b's scale-free DURATION lever -- reused for ENTRY TIMING it inverts the
+intended dynamic: constant sub-threshold demand never crosses however long the
+agent stays awake (V3-EXQ-933 NEED_SUB: 0/120 fires), while supra-threshold
+demand crosses on step 1 and every step thereafter (NEED_HIGH: 120/120 fires,
+no refractory). MELConsumer.entry_pressure_crossed() (a SEPARATE running SUM,
+current_mel() untouched) plus SleepLoopManager's own steps_since_sleep
+refractory floor fix both halves, per the substrate_queue.json failure_record
+target. G15-G19 below are this follow-up's guarantees.
+
+  G15. Process-S integration: sustained CONSTANT sub-threshold per-step demand
+       (below entry_pressure_threshold on its own) crosses in BOUNDED time via
+       the running SUM -- unlike need_crossed(), which never crosses at any
+       elapsed time under constant demand.
+  G16. Refractory bound: sustained supra-threshold demand (crosses on step 1)
+       yields a fire rate STRICTLY BELOW 1 cycle per waking step -- bounded by
+       within_life_entry_pressure_refractory_steps, not by pressure decay.
+  G17. OFF (use_entry_pressure=False, consumer present): entry_pressure_crossed()
+       is always False regardless of injected demand -- byte-identical to the
+       pre-SD-SLEEP-ENTRY-PRESSURE need/ceiling-arm-only behaviour.
+  G18. Discharge: entry-pressure crosses, fires, and the SUM resets to 0 on
+       cycle completion (Process-S homeostatic reset) -- confirmed via a second
+       sub-threshold accumulation window needing the same step count to re-cross.
+  G19. Arm-attribution priority + config wiring: need_crossed (when also
+       satisfied) takes attribution priority over the pressure arm, which takes
+       priority over the ceiling arm; REEConfig defaults + from_dims round-trip
+       the four new knobs (silent-kwargs guard).
 """
 
 from __future__ import annotations
@@ -71,6 +101,10 @@ def _build_agent(
     use_mel_consumer: bool = False,
     use_mel_entry: bool = False,
     mel_entry_threshold: float = 0.0,
+    use_entry_pressure: bool = False,
+    entry_pressure_threshold: float = 0.0,
+    entry_pressure_gain: float = 1.0,
+    within_life_entry_pressure_refractory_steps: int = 2,
 ):
     from ree_core.agent import REEAgent
     from ree_core.utils.config import REEConfig
@@ -89,6 +123,13 @@ def _build_agent(
         use_mel_consumer=use_mel_consumer,
         use_mel_entry=use_mel_entry,
         mel_entry_threshold=mel_entry_threshold,
+        # SD-SLEEP-ENTRY-PRESSURE (GAP-9 follow-up): the pressure arm.
+        use_entry_pressure=use_entry_pressure,
+        entry_pressure_threshold=entry_pressure_threshold,
+        entry_pressure_gain=entry_pressure_gain,
+        within_life_entry_pressure_refractory_steps=(
+            within_life_entry_pressure_refractory_steps
+        ),
     )
     cfg.sws_enabled = sws
     cfg.rem_enabled = rem
@@ -318,3 +359,160 @@ def test_g14_need_crossed_and_entry_permitted_delegation():
     assert on.need_crossed() is False
     assert on.entry_permitted(0, 3) is False
     assert on.entry_permitted(3, 3) is True
+
+
+# -- sleep_substrate:SD-SLEEP-ENTRY-PRESSURE (GAP-9 follow-up, V3-EXQ-933 fix) --
+
+
+def test_g15_sub_threshold_demand_crosses_in_bounded_time():
+    # NEED_SUB repro (V3-EXQ-933): constant per-step demand (0.1) below the
+    # threshold (0.5) on its own. need_crossed() never crosses this (0/120 in
+    # the original failure). entry_pressure_crossed() is a running SUM, so
+    # 5 steps of 0.1 = 0.5 >= threshold -> crosses at step 5, not never.
+    agent = _build_agent(
+        trigger=True, ceiling=1000, sws=True, rem=True,
+        use_mel_consumer=True, use_entry_pressure=True,
+        entry_pressure_threshold=0.5,
+    )
+    fired_steps = []
+    for step in range(1, 21):
+        agent.mel_consumer.note_step_pe(0.1)
+        metrics = agent.sleep_loop.notify_waking_step(agent)
+        if metrics is not None:
+            fired_steps.append(step)
+            assert metrics["within_life_trigger_arm_pressure"] == 1.0
+            assert metrics["within_life_trigger_arm_need"] == 0.0
+            assert metrics["within_life_trigger_arm_ceiling"] == 0.0
+            assert metrics["within_life_pressure_at_fire"] == pytest.approx(0.5)
+            assert metrics["within_life_pressure_threshold"] == pytest.approx(0.5)
+    # Crosses well below the (high) ceiling, and repeatedly -- not the
+    # NEED_SUB failure signature (0 fires in 120 steps).
+    assert fired_steps, "sub-threshold demand must eventually cross via the SUM"
+    assert fired_steps[0] < 1000
+    assert len(fired_steps) > 1
+
+
+def test_g16_supra_threshold_demand_is_bounded_by_refractory():
+    # NEED_HIGH repro (V3-EXQ-933): per-step demand (1.0) crosses the
+    # threshold (0.5) on step 1 alone, every step. need_crossed() fired every
+    # single step (120/120, no refractory). The pressure arm must be bounded
+    # strictly below 1 fire per waking step by the refractory floor.
+    refractory = 2
+    agent = _build_agent(
+        trigger=True, ceiling=100000, sws=True, rem=True,
+        use_mel_consumer=True, use_entry_pressure=True,
+        entry_pressure_threshold=0.5,
+        within_life_entry_pressure_refractory_steps=refractory,
+    )
+    n_steps = 40
+    fires = 0
+    for _ in range(n_steps):
+        agent.mel_consumer.note_step_pe(1.0)
+        metrics = agent.sleep_loop.notify_waking_step(agent)
+        if metrics is not None:
+            fires += 1
+            assert metrics["within_life_trigger_arm_pressure"] == 1.0
+            assert metrics["within_life_trigger_arm_ceiling"] == 0.0
+    assert fires > 0
+    # Strictly below 1 cycle per waking step (the NEED_HIGH failure signature).
+    assert fires < n_steps
+    # Exactly bounded by the refractory: at most one fire per `refractory`
+    # waking steps.
+    assert fires <= n_steps // refractory + 1
+
+
+def test_g17_off_is_bit_identical_pressure_never_crosses():
+    # A consumer is present and demand is high, but use_entry_pressure is off
+    # -> entry_pressure_crossed() must always be False, and the trigger must
+    # degrade to exactly the pre-existing ceiling-only behaviour.
+    agent = _build_agent(
+        trigger=True, ceiling=5, sws=True, rem=True,
+        use_mel_consumer=True, use_entry_pressure=False,
+        entry_pressure_threshold=1e-9,  # would trivially cross if lever read
+    )
+    assert agent.mel_consumer.entry_pressure_crossed() is False
+    for _ in range(4):
+        agent.mel_consumer.note_step_pe(10.0)  # huge demand, lever off
+        assert agent.sleep_loop.notify_waking_step(agent) is None
+    metrics = agent.sleep_loop.notify_waking_step(agent)  # 5th step: ceiling
+    assert metrics is not None
+    assert metrics["within_life_trigger_arm_pressure"] == 0.0
+    assert metrics["within_life_trigger_arm_ceiling"] == 1.0
+    assert metrics["within_life_steps_at_fire"] == 5.0
+
+
+def test_g18_pressure_discharges_on_cycle_completion():
+    # After a pressure-arm fire, the SUM must reset to 0 (Process-S discharge)
+    # so a second sub-threshold window needs the same step count to re-cross,
+    # not a shorter one (which would mean stale carry-over pressure).
+    agent = _build_agent(
+        trigger=True, ceiling=1000, sws=True, rem=True,
+        use_mel_consumer=True, use_entry_pressure=True,
+        entry_pressure_threshold=0.5,
+    )
+    first_fire_step = None
+    for step in range(1, 21):
+        agent.mel_consumer.note_step_pe(0.1)
+        metrics = agent.sleep_loop.notify_waking_step(agent)
+        if metrics is not None:
+            first_fire_step = step
+            break
+    assert first_fire_step == 5
+    assert agent.mel_consumer.current_entry_pressure() == pytest.approx(0.0)
+    # Second window: same constant demand, same step count to re-cross.
+    second_fire_step = None
+    for step in range(1, 21):
+        agent.mel_consumer.note_step_pe(0.1)
+        metrics = agent.sleep_loop.notify_waking_step(agent)
+        if metrics is not None:
+            second_fire_step = step
+            break
+    assert second_fire_step == 5
+
+
+def test_g19_arm_priority_and_config_wiring():
+    from ree_core.utils.config import REEConfig
+
+    # Config defaults + from_dims round-trip (silent-kwargs guard).
+    cfg = REEConfig()
+    assert cfg.use_entry_pressure is False
+    assert cfg.entry_pressure_gain == 1.0
+    assert cfg.entry_pressure_threshold == 0.0
+    assert cfg.within_life_entry_pressure_refractory_steps == 2
+    cfg2 = REEConfig.from_dims(
+        body_obs_dim=12,
+        world_obs_dim=250,
+        action_dim=4,
+        use_entry_pressure=True,
+        entry_pressure_gain=2.0,
+        entry_pressure_threshold=0.7,
+        within_life_entry_pressure_refractory_steps=9,
+    )
+    assert cfg2.use_entry_pressure is True
+    assert cfg2.entry_pressure_gain == 2.0
+    assert cfg2.entry_pressure_threshold == 0.7
+    assert cfg2.within_life_entry_pressure_refractory_steps == 9
+
+    # Refractory validation mirrors the ceiling's (>= 1).
+    from ree_core.sleep import SleepLoopManager
+
+    with pytest.raises(ValueError):
+        SleepLoopManager(
+            within_life_trigger=True,
+            within_life_entry_pressure_refractory_steps=0,
+        )
+
+    # Arm-attribution priority: both need_crossed() and entry_pressure_crossed()
+    # satisfied simultaneously -> need takes priority (arm_need=1, arm_pressure=0).
+    agent = _build_agent(
+        trigger=True, ceiling=100000, sws=True, rem=True,
+        use_mel_consumer=True,
+        use_mel_entry=True, mel_entry_threshold=1e-3,
+        use_entry_pressure=True, entry_pressure_threshold=0.5,
+    )
+    agent.mel_consumer.note_step_pe(1.0)  # crosses BOTH need_crossed and pressure
+    metrics = agent.sleep_loop.notify_waking_step(agent)
+    assert metrics is not None
+    assert metrics["within_life_trigger_arm_need"] == 1.0
+    assert metrics["within_life_trigger_arm_pressure"] == 0.0
+    assert metrics["within_life_trigger_arm_ceiling"] == 0.0

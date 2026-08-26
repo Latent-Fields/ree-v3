@@ -22,6 +22,21 @@ sleep_substrate:GAP-5, V4-deferred): that drive keys off override/staleness/thre
 this one keys off learning demand (MEL). They compose -- the MEL duration factor
 applies to a cycle the MECH-286 gate has permitted.
 
+SD-SLEEP-ENTRY-PRESSURE (sleep_substrate:GAP-9 follow-up, V3-EXQ-933 fix): a
+SEPARATE time-integrating (Borbely Process-S) entry-pressure term, distinct from
+both current_mel() and need_crossed() above. need_crossed() thresholds
+current_mel(), a time-invariant MEAN correct for the DURATION lever's
+scale-freeness but wrong when reused for entry TIMING (V3-EXQ-933): a constant
+sub-threshold demand never crosses however long the agent stays awake, while
+supra-threshold demand crosses on step 1 with no way to discharge. The
+entry-pressure term instead accumulates a running SUM of per-step waking demand
+(current_mel() is left untouched), so it grows monotonically with waking steps
+and crosses entry_pressure_threshold in bounded time under ANY sustained
+positive demand; the caller (phase_manager.notify_waking_step) additionally
+enforces a minimum inter-cycle interval via its own steps_since_sleep counter so
+sustained supra-threshold demand cannot fire every step. Default OFF
+(use_entry_pressure) -> entry_pressure_crossed() always False, byte-identical.
+
 Instrument-floor note (V3-EXQ-701c): the response is RELATIVE (mel/ref), never an
 absolute spread gate. The 701c instrument's ABS_MEL_FLOOR=1e-4 was ~5x the entire
 converged-base MEL magnitude (~2e-5); here relative_floor (~1e-6) only guards the
@@ -56,6 +71,14 @@ class MELConsumerConfig:
     mel_scale_rem: bool = True
     use_mel_entry: bool = False
     mel_entry_threshold: float = 0.0
+    # SD-SLEEP-ENTRY-PRESSURE (GAP-9 follow-up): time-integrating (Process-S
+    # SUM) entry-pressure term. gain scales the accumulated SUM at crossing-check
+    # time (mirrors mel_gain's role in duration_factor()); threshold is the
+    # crossing point. Both inert (entry_pressure_crossed() always False) unless
+    # use_entry_pressure is on.
+    use_entry_pressure: bool = False
+    entry_pressure_gain: float = 1.0
+    entry_pressure_threshold: float = 0.0
 
 
 class WakingMELAccumulator:
@@ -92,12 +115,52 @@ class WakingMELAccumulator:
         self._count = 0
 
 
+class EntryPressureAccumulator:
+    """Time-integrating (Borbely Process-S) sleep-pressure term for the
+    sleep_substrate:GAP-9 within-life ENTRY decision (SD-SLEEP-ENTRY-PRESSURE).
+
+    DISTINCT from WakingMELAccumulator.mean() (current_mel()): that statistic
+    is a time-invariant MEAN, correct for the GAP-5b scale-free DURATION lever
+    but wrong for entry timing (V3-EXQ-933) -- a constant sub-threshold demand
+    never crosses however long the agent stays awake, because the mean of a
+    constant series never grows. This accumulator instead integrates a running
+    SUM of per-step demand, so it grows monotonically with waking steps and
+    crosses any finite threshold in bounded time under any sustained positive
+    demand, however small (V3-EXQ-933 NEED_SUB fix). Discharged wholesale on
+    sleep (Process-S homeostatic reset), matching WakingMELAccumulator.reset()'s
+    per-cycle discharge -- the refractory bound on fire RATE (V3-EXQ-933
+    NEED_HIGH fix) is the caller's responsibility (phase_manager's own
+    steps_since_sleep floor), not this accumulator's.
+    """
+
+    def __init__(self) -> None:
+        self._pressure: float = 0.0
+
+    def accumulate(self, demand: float) -> None:
+        d = float(demand)
+        if not math.isfinite(d):
+            return
+        self._pressure += abs(d)
+
+    @property
+    def pressure(self) -> float:
+        return self._pressure
+
+    def discharge(self) -> None:
+        """Discharge accumulated pressure (Process-S reset on sleep)."""
+        self._pressure = 0.0
+
+
 class MELConsumer:
     """Reads accumulated waking MEL and modulates offline-phase entry/duration."""
 
     def __init__(self, config: MELConsumerConfig) -> None:
         self.config = config
         self.accumulator = WakingMELAccumulator()
+        # SD-SLEEP-ENTRY-PRESSURE (GAP-9 follow-up): separate time-integrating
+        # entry-pressure accumulator; current_mel()'s duration-statistic role
+        # (self.accumulator, above) is untouched.
+        self._entry_pressure = EntryPressureAccumulator()
         # EMA / auto-calibrated reference set-point (per-step PE units). None
         # until the first cycle establishes it (fixed-auto or ema seed).
         self._reference_state: float | None = None
@@ -115,6 +178,11 @@ class MELConsumer:
         (hypothesis_tag=False), so replay / simulation PE never enters MEL.
         """
         self.accumulator.accumulate(prediction_error)
+        # SD-SLEEP-ENTRY-PRESSURE: gated on use_entry_pressure so the
+        # accumulator stays at exactly 0.0 (not merely unread) when the lever
+        # is off -- true byte-identical inertness, not "harmless but nonzero".
+        if self.config.use_entry_pressure:
+            self._entry_pressure.accumulate(prediction_error)
 
     def current_mel(self) -> float:
         """Mean per-step waking PE accumulated since the last cycle."""
@@ -237,6 +305,34 @@ class MELConsumer:
             and self.current_mel() >= float(self.config.mel_entry_threshold)
         )
 
+    def current_entry_pressure(self) -> float:
+        """Current gained entry-pressure value (diagnostics + crossing check).
+
+        0.0 whenever use_entry_pressure is off (note_step_pe never accumulates
+        into it in that case).
+        """
+        return self._entry_pressure.pressure * float(self.config.entry_pressure_gain)
+
+    def entry_pressure_crossed(self) -> bool:
+        """Whether the SD-SLEEP-ENTRY-PRESSURE time-integrating term has
+        crossed entry_pressure_threshold.
+
+        DISTINCT from need_crossed(): that predicate thresholds current_mel(),
+        a time-invariant MEAN correct for the GAP-5b duration lever but wrong
+        for entry timing (V3-EXQ-933) -- see EntryPressureAccumulator's
+        docstring. This predicate thresholds a running SUM instead, so it
+        grows monotonically with waking steps and crosses in bounded time
+        under any sustained positive demand. It carries NO refractory of its
+        own -- the caller (phase_manager.notify_waking_step) bounds fire RATE
+        via its own steps_since_sleep floor, exactly as it already does for
+        the ceiling arm.
+
+        Returns False when the lever is OFF (use_entry_pressure).
+        """
+        if not self.config.use_entry_pressure:
+            return False
+        return self.current_entry_pressure() >= float(self.config.entry_pressure_threshold)
+
     def entry_permitted(self, episodes_since_sleep: int, k_ceiling: int) -> bool:
         """Whether a cycle should fire this episode boundary.
 
@@ -267,10 +363,15 @@ class MELConsumer:
                 # fixed-auto: lock the set-point to the first cycle's MEL.
                 self._reference_state = mel
         self.accumulator.reset()
+        # SD-SLEEP-ENTRY-PRESSURE: Process-S discharge on every completed
+        # cycle (any arm, any call site) -- a no-op (already 0.0) when the
+        # lever is off.
+        self._entry_pressure.discharge()
 
     def reset(self) -> None:
         """Hard reset (e.g. between training stages)."""
         self.accumulator.reset()
+        self._entry_pressure.discharge()
         self._reference_state = None
         self._last_mel = 0.0
         self._last_reference = 0.0

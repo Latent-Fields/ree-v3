@@ -2969,6 +2969,15 @@ KNOWN_UNPROBED = {
     # its registry entry, so test_flag_registry_is_current was red on main --
     # same situation as use_mel/use_rem_precision_broadcast above.
     "use_within_life_sleep_trigger",
+    # sleep_substrate:SD-SLEEP-ENTRY-PRESSURE (GAP-9 follow-up, REEConfig
+    # top-level). Registered here rather than probed, for the same reason as
+    # its sibling directly above (use_within_life_sleep_trigger): behavioural
+    # inertness OFF and effect ON are already pinned by dedicated contracts in
+    # tests/contracts/test_sleep_within_life_trigger_gap9.py (G17 OFF
+    # byte-identical -- entry_pressure_crossed() always False even under huge
+    # injected demand; G15/G16/G18/G19 ON fires + refractory bound + discharge
+    # + arm-attribution priority).
+    "use_entry_pressure",
     "valence_harm_enabled", "valence_liking_enabled",
     # SD-ORIENTING-DECISION-SCALE / SD-099 defensive-orienting master switch
     # (REEConfig top-level, landed 2026-08-08/2026-08-10 -- genuinely predates

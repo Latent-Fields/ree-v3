@@ -2656,6 +2656,16 @@ class REEAgent(nn.Module):
                     mel_entry_threshold=float(
                         getattr(config, "mel_entry_threshold", 0.0)
                     ),
+                    # sleep_substrate:SD-SLEEP-ENTRY-PRESSURE (GAP-9 follow-up)
+                    use_entry_pressure=bool(
+                        getattr(config, "use_entry_pressure", False)
+                    ),
+                    entry_pressure_gain=float(
+                        getattr(config, "entry_pressure_gain", 1.0)
+                    ),
+                    entry_pressure_threshold=float(
+                        getattr(config, "entry_pressure_threshold", 0.0)
+                    ),
                 )
             )
 
@@ -2885,6 +2895,16 @@ class REEAgent(nn.Module):
                 ),
                 within_life_step_ceiling=int(
                     getattr(config, "within_life_sleep_step_ceiling", 1000)
+                ),
+                # sleep_substrate:SD-SLEEP-ENTRY-PRESSURE (GAP-9 follow-up):
+                # refractory floor (in waking steps since the last cycle) that
+                # bounds the new entry-pressure arm's fire rate. Consulted by
+                # notify_waking_step regardless of use_entry_pressure (harmless
+                # when the arm is inert).
+                within_life_entry_pressure_refractory_steps=int(
+                    getattr(
+                        config, "within_life_entry_pressure_refractory_steps", 2
+                    )
                 ),
             )
 

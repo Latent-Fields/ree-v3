@@ -5749,6 +5749,29 @@ class REEConfig:
     # use_within_life_sleep_trigger is True.
     within_life_sleep_step_ceiling: int = 1000
 
+    # sleep_substrate:SD-SLEEP-ENTRY-PRESSURE (GAP-9 follow-up, V3-EXQ-933 fix):
+    # a time-integrating (Borbely Process-S) entry-pressure arm for the
+    # within-life trigger's need decision, DISTINCT from MELConsumer's
+    # need_crossed() (design (b) v1): need_crossed() thresholds current_mel(), a
+    # time-invariant MEAN built for GAP-5b's scale-free DURATION lever -- reused
+    # for entry timing it never crosses under constant sub-threshold demand
+    # (V3-EXQ-933 NEED_SUB: 0/120 fires) and fires every step under
+    # supra-threshold demand with no refractory (NEED_HIGH: 120/120 fires). This
+    # arm instead accumulates a running SUM of per-step waking demand
+    # (current_mel() is left untouched -- see mel_consumer.py), so it grows
+    # monotonically with waking steps and crosses entry_pressure_threshold in
+    # bounded time under ANY sustained positive demand;
+    # within_life_entry_pressure_refractory_steps enforces a minimum inter-cycle
+    # interval (via phase_manager's own steps_since_sleep counter) so sustained
+    # supra-threshold demand cannot fire every step. Composes via OR with the
+    # existing need_crossed()/ceiling arms. Default OFF -> byte-identical
+    # (entry_pressure_crossed() always returns False). See
+    # REE_assembly/evidence/planning/substrate_queue.json SD-SLEEP-ENTRY-PRESSURE.
+    use_entry_pressure: bool = False
+    entry_pressure_gain: float = 1.0
+    entry_pressure_threshold: float = 0.0
+    within_life_entry_pressure_refractory_steps: int = 2
+
     # Phase B (MECH-285): SleepReplaySampler offline arm. When True (and
     # use_sleep_loop is True), the SleepLoopManager freezes a
     # StalenessAccumulator snapshot at SLEEP_ENTRY and instantiates a
@@ -7395,6 +7418,11 @@ class REEConfig:
         # sleep_substrate:GAP-9 within-life sleep trigger (v1: step-ceiling arm)
         use_within_life_sleep_trigger: bool = False,
         within_life_sleep_step_ceiling: int = 1000,
+        # sleep_substrate:SD-SLEEP-ENTRY-PRESSURE (GAP-9 follow-up)
+        use_entry_pressure: bool = False,
+        entry_pressure_gain: float = 1.0,
+        entry_pressure_threshold: float = 0.0,
+        within_life_entry_pressure_refractory_steps: int = 2,
         # Phase B: MECH-285 SleepReplaySampler
         use_mech285_sampler: bool = False,
         mech285_draws_per_cycle: int = 50,
@@ -8849,6 +8877,14 @@ class REEConfig:
         # sleep_substrate:GAP-9 within-life sleep trigger (v1: step-ceiling arm)
         config.use_within_life_sleep_trigger = use_within_life_sleep_trigger
         config.within_life_sleep_step_ceiling = within_life_sleep_step_ceiling
+
+        # sleep_substrate:SD-SLEEP-ENTRY-PRESSURE (GAP-9 follow-up)
+        config.use_entry_pressure = use_entry_pressure
+        config.entry_pressure_gain = entry_pressure_gain
+        config.entry_pressure_threshold = entry_pressure_threshold
+        config.within_life_entry_pressure_refractory_steps = (
+            within_life_entry_pressure_refractory_steps
+        )
 
         # Sleep-aggregation cluster Phase B (MECH-285)
         config.use_mech285_sampler = use_mech285_sampler

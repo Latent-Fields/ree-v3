@@ -126,6 +126,7 @@ class SleepLoopManager:
         mel_consumer: Optional["MELConsumer"] = None,
         within_life_trigger: bool = False,
         within_life_step_ceiling: int = 1000,
+        within_life_entry_pressure_refractory_steps: int = 2,
     ) -> None:
         if cycle_every_k_episodes < 1:
             raise ValueError(
@@ -190,6 +191,21 @@ class SleepLoopManager:
             )
         self.within_life_trigger = bool(within_life_trigger)
         self.within_life_step_ceiling = int(within_life_step_ceiling)
+        # sleep_substrate:SD-SLEEP-ENTRY-PRESSURE (GAP-9 follow-up): minimum
+        # waking steps since the last cycle before the entry-pressure arm is
+        # eligible to fire again (V3-EXQ-933 NEED_HIGH fix -- bounds fire rate
+        # strictly below 1/step; refractory=1 is degenerate and does NOT bound
+        # it, since steps_since_sleep already reads 1 on the very next step
+        # after a reset). Consulted regardless of use_entry_pressure (harmless
+        # when the arm is inert -- entry_pressure_crossed() is always False).
+        if int(within_life_entry_pressure_refractory_steps) < 1:
+            raise ValueError(
+                "within_life_entry_pressure_refractory_steps must be >= 1; "
+                f"got {within_life_entry_pressure_refractory_steps}"
+            )
+        self.within_life_entry_pressure_refractory_steps = int(
+            within_life_entry_pressure_refractory_steps
+        )
         # Re-entrancy guard: a fired cycle must never recursively re-trigger the
         # within-life path. Belt-and-braces (sleep passes are hypothesis-tagged
         # and never call the waking update_residue path).
@@ -241,17 +257,29 @@ class SleepLoopManager:
         single-continuous-life driver (num_episodes=1) that never crosses an
         episode boundary -- can reach the sleep cycle. Increments a waking-step
         counter and fires a sleep cycle when accumulated waking MEL crosses the
-        entry threshold (design (b), PRIMARY) OR once within_life_step_ceiling
-        steps have elapsed since the last cycle (design (a), BACKSTOP) --
-        i.e. `need_crossed or at_ceiling`, matching MELConsumer.entry_permitted().
+        entry threshold (design (b), PRIMARY) OR the SD-SLEEP-ENTRY-PRESSURE
+        time-integrating term crosses its own threshold (design (b) follow-up,
+        also PRIMARY) OR once within_life_step_ceiling steps have elapsed since
+        the last cycle (design (a), BACKSTOP) -- i.e.
+        `need_crossed or pressure_crossed or at_ceiling`.
 
         The need arm reads the injected MEL consumer's need_crossed() (reuse of
         GAP-5b's accumulator); it requires use_mel_entry on and some accumulated
         waking PE, so absent a consumer / with the entry lever off the trigger
         degrades to the ceiling arm alone (the v1 behaviour, and the intended
         CausalGridWorldV2 path -- measured MEL there is noise-level per GAP-5b).
+
+        The pressure arm (SD-SLEEP-ENTRY-PRESSURE, GAP-9 follow-up) reads the
+        same consumer's entry_pressure_crossed() -- a running SUM rather than
+        need_crossed()'s time-invariant MEAN, so unlike the need arm it crosses
+        in bounded time under ANY sustained positive demand (V3-EXQ-933
+        NEED_SUB fix) -- gated by this trigger's own steps_since_sleep
+        refractory floor so it cannot fire every step (V3-EXQ-933 NEED_HIGH
+        fix). Requires use_entry_pressure on; otherwise always inert.
+
         The arm-attribution diagnostics (within_life_trigger_arm_need /
-        _arm_ceiling / _mel_at_fire / _need_threshold) are emitted so a
+        _arm_pressure / _arm_ceiling / _mel_at_fire / _need_threshold /
+        _pressure_at_fire / _pressure_threshold) are emitted so a
         ceiling-carried run is never mistaken for a demand-sensitive one.
 
         Returns the fired cycle's merged metrics (with within_life_* keys), or
@@ -275,13 +303,32 @@ class SleepLoopManager:
         # firing). note_step_pe() runs earlier in the same update_residue tick,
         # so the accumulator already reflects the current waking step here.
         need_crossed = self.mel_consumer is not None and self.mel_consumer.need_crossed()
-        if not (need_crossed or at_ceiling):
+        # sleep_substrate:SD-SLEEP-ENTRY-PRESSURE (GAP-9 follow-up, V3-EXQ-933
+        # fix): a SEPARATE time-integrating (Process-S SUM) entry-pressure arm,
+        # distinct from need_crossed() above (which thresholds the
+        # time-invariant current_mel() MEAN -- correct for the GAP-5b duration
+        # lever, wrong for entry timing). entry_pressure_crossed() is a running
+        # SUM, so it grows monotonically with waking steps and crosses in
+        # bounded time under any sustained positive demand (NEED_SUB fix);
+        # gated here by this trigger's OWN steps_since_sleep refractory floor
+        # so sustained supra-threshold demand cannot fire every step (NEED_HIGH
+        # fix). False when mel_consumer is absent or use_entry_pressure is off
+        # (mirrors need_crossed's degrade-gracefully contract) -> byte-identical
+        # when the lever is off, since pressure_crossed is then always False.
+        pressure_crossed = (
+            self.mel_consumer is not None
+            and self.mel_consumer.entry_pressure_crossed()
+            and self.state.steps_since_sleep
+            >= self.within_life_entry_pressure_refractory_steps
+        )
+        if not (need_crossed or pressure_crossed or at_ceiling):
             return None
         steps_at_fire = self.state.steps_since_sleep
         # Capture the demand-side decision inputs at fire time (BEFORE _run_cycle
-        # -> mel_consumer.on_cycle_complete() resets the accumulator), so a
-        # ceiling-carried run is never mistaken for a demand-sensitive one -- the
-        # V3-EXQ-718a failure mode one level up. -1.0 sentinels when no consumer.
+        # -> mel_consumer.on_cycle_complete() resets/discharges the
+        # accumulators), so a ceiling-carried run is never mistaken for a
+        # demand-sensitive one -- the V3-EXQ-718a failure mode one level up.
+        # -1.0 sentinels when no consumer.
         mel_at_fire = (
             self.mel_consumer.current_mel() if self.mel_consumer is not None else -1.0
         )
@@ -290,15 +337,32 @@ class SleepLoopManager:
             if self.mel_consumer is not None
             else -1.0
         )
+        pressure_at_fire = (
+            self.mel_consumer.current_entry_pressure()
+            if self.mel_consumer is not None
+            else -1.0
+        )
+        pressure_threshold = (
+            float(self.mel_consumer.config.entry_pressure_threshold)
+            if self.mel_consumer is not None
+            else -1.0
+        )
         within_life_meta = {
             "within_life_trigger_fired": 1.0,
             "within_life_trigger_arm_need": 1.0 if need_crossed else 0.0,
+            "within_life_trigger_arm_pressure": (
+                1.0 if (pressure_crossed and not need_crossed) else 0.0
+            ),
             "within_life_trigger_arm_ceiling": (
-                1.0 if (at_ceiling and not need_crossed) else 0.0
+                1.0
+                if (at_ceiling and not need_crossed and not pressure_crossed)
+                else 0.0
             ),
             "within_life_steps_at_fire": float(steps_at_fire),
             "within_life_mel_at_fire": float(mel_at_fire),
             "within_life_need_threshold": float(need_threshold),
+            "within_life_pressure_at_fire": float(pressure_at_fire),
+            "within_life_pressure_threshold": float(pressure_threshold),
         }
         self._within_life_cycle_active = True
         try:
