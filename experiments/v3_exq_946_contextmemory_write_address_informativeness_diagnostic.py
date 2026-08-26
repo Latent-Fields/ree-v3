@@ -1032,6 +1032,7 @@ def run(dry_run: bool = False) -> Tuple[Dict[str, Any], ZGoalStreamAccumulator]:
             "preconditions": preconditions,
             "criteria_non_degenerate": criteria_non_degenerate,
             "criteria": criteria,
+            "criteria_aggregation": "any",
         },
         "fatal_error_count": 0,
     }

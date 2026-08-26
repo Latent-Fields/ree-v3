@@ -622,6 +622,7 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
             "preconditions": preconditions,
             "criteria": criteria,
             "criteria_non_degenerate": criteria_non_degenerate,
+            "criteria_aggregation": "any",
             "combination_rule": (
                 "outcome = FAIL/non_contributory if the raw_std readout is "
                 "unpopulated on any cell, or the manipulation check fails (a "

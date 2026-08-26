@@ -747,6 +747,7 @@ def run_experiment(
 
     interpretation = {
         "label": label,
+        "criteria_aggregation": "any",
         "combination_rule": (
             "PASS is carried by ONE criterion -- C_latent_plus_localfield_clears_floor -- not "
             "by a conjunction. The other three load-bearing criteria are expected to read "
