@@ -902,11 +902,12 @@ class E3Config:
     goal_weight: float = 0.0
 
     # SD-011: z_harm_a urgency modulation of commit threshold (ARC-016 reframe).
-    # When > 0 and z_harm_a is provided to select(), effective_threshold is LOWERED
+    # When > 0 and z_harm_a is provided to select(), effective_threshold is RAISED
     # proportionally to z_harm_a.norm(), making the agent commit faster under threat
-    # (D2 avoidance escape response). 0.0 disables (default, backward compat).
+    # (D2 avoidance escape response -- variance-space commit rule: a higher threshold
+    # is more permissive). 0.0 disables (default, backward compat).
     urgency_weight: float = 0.0
-    urgency_max: float = 0.5    # saturation cap: threshold never drops below 50% of base
+    urgency_max: float = 0.5    # saturation cap: threshold never raised more than 50% above base
 
     # SD-011: z_harm_a amplification of M(zeta) ethical cost.
     # lambda_eff = lambda_ethical * (1.0 + affective_harm_scale * z_harm_a_norm)

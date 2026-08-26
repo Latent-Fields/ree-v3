@@ -2645,8 +2645,9 @@ class E3TrajectorySelector(nn.Module):
             terrain_weight:         [batch, 2] or None (SD-016 MECH-152).
             sweep_threshold_reduction: MECH-108 BreathOscillator threshold reduction.
             z_harm_a:               SD-011 affective-motivational harm latent [batch, z_harm_a_dim].
-                                    When provided and urgency_weight > 0, lowers effective
-                                    commit threshold under accumulated threat (D2 avoidance).
+                                    When provided and urgency_weight > 0, raises effective
+                                    commit threshold under accumulated threat (D2 avoidance,
+                                    i.e. commit faster -- see the variance-space commit rule).
                                     When provided and affective_harm_scale > 0, amplifies
                                     lambda_ethical in score_trajectory().
             harm_forward_model:     SD-011/ARC-033 ResidualHarmForward instance. When
@@ -3391,9 +3392,20 @@ class E3TrajectorySelector(nn.Module):
             effective_threshold = effective_threshold * (1.0 - sweep_threshold_reduction)
 
         # SD-011: z_harm_a urgency modulation.
-        # High accumulated threat -> LOWER effective threshold -> commit faster.
-        # D2 avoidance escape response. Capped by urgency_max to prevent
-        # threshold collapse to zero (which would produce permanent commitment).
+        # Per this method's own commit rule (committed = variance < threshold,
+        # variance_commit_threshold() fixed to variance space 2026-03-18; see
+        # its docstring), RAISING effective_threshold makes commitment MORE
+        # permissive -- a given variance more readily counts as "confident
+        # enough to lock in" -- exactly as the SD-093/MECH-426 block below
+        # states for its own modulation. High accumulated threat -> RAISE
+        # effective threshold -> commit faster (D2 avoidance escape response).
+        # Capped by urgency_max to bound how permissive the threshold can get.
+        # (Fixed 2026-08-26: this block previously LOWERED the threshold,
+        # which under variance-space semantics makes commitment STRICTER --
+        # the opposite of the D2 escape response it was written to produce.
+        # It was introduced 2026-04-05, after the 2026-03-18 variance-space
+        # flip, carrying the pre-flip precision-space intuition. Latent by
+        # default: urgency_weight defaults to 0.0.)
         urgency_applied = 0.0
         if z_harm_a is not None and self.config.urgency_weight > 0.0:
             z_harm_a_norm = z_harm_a.norm(dim=-1).mean().item()
@@ -3401,7 +3413,7 @@ class E3TrajectorySelector(nn.Module):
                 z_harm_a_norm * self.config.urgency_weight,
                 self.config.urgency_max,
             )
-            effective_threshold = effective_threshold * (1.0 - urgency_applied)
+            effective_threshold = effective_threshold * (1.0 + urgency_applied)
 
         # SD-093 / MECH-426: progress-velocity effort/persistence modulation
         # (Carver & Scheier 1990 second-order "velocity" control loop). Per
