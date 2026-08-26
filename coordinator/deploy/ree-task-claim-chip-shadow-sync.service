@@ -1,0 +1,68 @@
+# ree-task-claim-chip-shadow-sync -- systemd unit template (PHASE-1 shadow
+# mirror of TASK_CLAIMS.json/TASK_CHIPS.json into the coordinator DB).
+#
+# Reference copy, synced by hand from the live file on the box it runs on --
+# same convention as ree-git-wedge-watchdog.service in this directory.
+#
+# WHAT THIS DOES: runs task_claim_chip_shadow_sync.py's main() ONCE per
+# invocation (Type=oneshot; the paired .timer owns pacing, not this unit).
+# Each tick reads TASK_CLAIMS.json/TASK_CHIPS.json from the REE_Working
+# umbrella repo's `origin/master` (read-only: fetch + rev-parse + show,
+# never touches that repo's working tree or advances its branch -- see the
+# module's own docstring for the structural-incapability argument) and
+# reconciles the coordinator DB's task_claims/task_claim_resources/
+# chip_ledger tables to match, logging one row to
+# task_claim_chip_drift_log every tick. See
+# REE_assembly/evidence/planning/task_claim_chip_coordinator_migration_plan.md
+# (PHASE-1 node) for the design and exit criterion.
+#
+# NOT YET LIVE-INSTALLED ANYWHERE as of this commit (2026-08-26). Doing so
+# needs a decision this template does not make on its own: this box (the
+# coordinator hub, ree-cloud-1) does not currently hold a git clone of the
+# REE_Working umbrella repo -- only ree-v3/REE_assembly/etc, which is a
+# distinct repo (see root CLAUDE.md's repo map). Provisioning a new
+# read-only clone on shared production infra, and reloading
+# ree-coordinator.service to pick up the schema migration, are deliberately
+# left for a human to do with eyes on it -- see the plan doc's HARD STOP
+# note on not self-authorizing infra changes to shared boxes mid-session.
+#
+# Installation (on the coordinator hub, as the `ree` user with sudo), once
+# a decision is made to start the Phase-1 soak:
+#   1. Provision a READ-ONLY clone (fetch-only is enough; nothing here ever
+#      pushes) of the REE_Working umbrella repo, e.g.:
+#        git clone --no-checkout https://github.com/<org>/REE_Working.git \
+#          /home/ree/REE_Working_shadow_mirror_readonly
+#        git -C /home/ree/REE_Working_shadow_mirror_readonly checkout master
+#      (a full checkout is fine too; the reconciler never touches the
+#      working tree either way, so a --no-checkout + sparse read via
+#      `git show` also works if disk is a concern -- 1697 chip entries /
+#      154 claims is a few MB either way.)
+#   2. Set TASK_CLAIM_CHIP_REPO_PATH below to that path (defaulting to
+#      "two directories up from this file" assumes the usual dev layout,
+#      which does not hold on this box -- see the WHY note above).
+#   3. sudo cp ree-task-claim-chip-shadow-sync.service \
+#           ree-task-claim-chip-shadow-sync.timer /etc/systemd/system/
+#      sudo systemctl daemon-reload
+#      sudo systemctl enable --now ree-task-claim-chip-shadow-sync.timer
+#
+# Logs: journalctl -u ree-task-claim-chip-shadow-sync -f
+# Soak status without SSH: GET /task_claim/drift on the coordinator
+# (bearer-authenticated, same token scheme as every other endpoint).
+
+[Unit]
+Description=REE TASK_CLAIMS/TASK_CHIPS shadow-mirror sync (PHASE-1, read-only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ree
+WorkingDirectory=/home/ree/REE_Working/ree-v3/coordinator
+EnvironmentFile=/etc/ree-coordinator.env
+Environment=TASK_CLAIM_CHIP_REPO_PATH=/home/ree/REE_Working_shadow_mirror_readonly
+Environment=TASK_CLAIM_CHIP_SYNC_REF=origin/master
+ExecStart=/usr/bin/python3 task_claim_chip_shadow_sync.py
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ree-task-claim-chip-shadow-sync
+TimeoutStartSec=90

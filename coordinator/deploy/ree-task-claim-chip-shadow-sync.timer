@@ -1,0 +1,24 @@
+# Paces ree-task-claim-chip-shadow-sync.service every 10 minutes. Reference
+# copy -- see ree-task-claim-chip-shadow-sync.service's header for the sync
+# convention, the not-yet-live-installed prerequisite, and install steps.
+#
+# 10 minutes: TASK_CLAIMS.json/TASK_CHIPS.json are lower-frequency,
+# lower-urgency data than the experiment queue (ree-sync-daemon reconciles
+# every 60s) or the git-wedge watchdog (every 3min, guarding a resident
+# dispatcher's next cycle) -- this is a soak-evidence collector, not
+# something anything else blocks on. Slower than ree-metaworker.timer's
+# 30min so a human checking GET /task_claim/drift mid-session sees
+# reasonably fresh evidence; cheap enough (a few MB read, sub-4s measured
+# locally against the live 144-claim/1697-chip files) that tightening this
+# later costs nothing to reconsider.
+
+[Unit]
+Description=Run ree-task-claim-chip-shadow-sync every 10 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=10min
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

@@ -459,6 +459,114 @@ class Handler(BaseHTTPRequestHandler):
                              "machines": machines,
                              "recent_divergences": recent})
             return
+        if path == "/task_claim/list":
+            # PHASE-1 read-only observability only -- see
+            # task_claim_chip_shadow_sync.py's module docstring. No mutating
+            # /task_claim/* or /chip/* endpoint exists yet; that is PHASE-2
+            # (plan doc section 5.2.5), not yet built.
+            qs = parse_qs(urlparse(self.path).query)
+            status = (qs.get("status") or [None])[0]
+            conn = db.connect(DB_PATH)
+            try:
+                if status:
+                    rows = conn.execute(
+                        "SELECT entry_json FROM task_claims WHERE status=? "
+                        "ORDER BY claimed_at", (status,)).fetchall()
+                else:
+                    rows = conn.execute(
+                        "SELECT entry_json FROM task_claims "
+                        "ORDER BY claimed_at").fetchall()
+                claims = []
+                for r in rows:
+                    try:
+                        claims.append(json.loads(r["entry_json"]))
+                    except (TypeError, ValueError):
+                        continue
+            finally:
+                conn.close()
+            self._send(200, {"claims": claims, "stale_after_hours": STALE_HOURS})
+            return
+        if path == "/task_claim/check":
+            # Mirrors task_claim.py's own arbitration predicate: does any
+            # ACTIVE claim already own one of the named resources? GET and
+            # writes nothing (D10 in the plan doc) -- this is the START-TIME
+            # predicate a chip STOP-CHECK can carry once something actually
+            # calls it; nothing does yet in Phase 1.
+            qs = parse_qs(urlparse(self.path).query)
+            resources = qs.get("resource") or []
+            conn = db.connect(DB_PATH)
+            try:
+                rivals = []
+                if resources:
+                    q = ",".join("?" * len(resources))
+                    rivals = conn.execute(
+                        "SELECT c.session_id, c.claimed_at, c.session_label, "
+                        "       c.task, r.resource "
+                        "FROM task_claim_resources r "
+                        "JOIN task_claims c ON c.session_id=r.session_id "
+                        "                  AND c.claimed_at=r.claimed_at "
+                        "WHERE r.resource IN (%s) AND c.status='active' "
+                        "ORDER BY c.claimed_at" % q,
+                        resources,
+                    ).fetchall()
+            finally:
+                conn.close()
+            rivals = [dict(r) for r in rivals]
+            self._send(200, {"owned": bool(rivals), "rivals": rivals})
+            return
+        if path == "/chip/list":
+            qs = parse_qs(urlparse(self.path).query)
+            status = (qs.get("status") or [None])[0]
+            origin = (qs.get("origin") or [None])[0]
+            try:
+                limit = int((qs.get("limit") or ["500"])[0])
+            except ValueError:
+                limit = 500
+            limit = max(1, min(limit, 5000))
+            clauses = []
+            params = []
+            if status:
+                clauses.append("status=?")
+                params.append(status)
+            if origin:
+                clauses.append("origin=?")
+                params.append(origin)
+            where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+            conn = db.connect(DB_PATH)
+            try:
+                rows = conn.execute(
+                    "SELECT entry_json FROM chip_ledger%s "
+                    "ORDER BY spawned_at DESC LIMIT ?" % where,
+                    params + [limit],
+                ).fetchall()
+                chips = []
+                for r in rows:
+                    try:
+                        chips.append(json.loads(r["entry_json"]))
+                    except (TypeError, ValueError):
+                        continue
+            finally:
+                conn.close()
+            self._send(200, {"chips": chips})
+            return
+        if path == "/task_claim/drift":
+            # PHASE-1 soak-status readout: the evidence a human reads to
+            # judge the "N days of zero drift" exit criterion (plan doc
+            # frontmatter, PHASE-1 node). Mirrors /shadow/divergence's
+            # shape for the existing experiment-claim shadow audit.
+            qs = parse_qs(urlparse(self.path).query)
+            try:
+                limit = int((qs.get("limit") or ["50"])[0])
+            except ValueError:
+                limit = 50
+            limit = max(1, min(limit, 1000))
+            conn = db.connect(DB_PATH)
+            try:
+                summary = db.task_claim_chip_drift_summary(conn, limit=limit)
+            finally:
+                conn.close()
+            self._send(200, summary)
+            return
         self._send(404, {"error": "not found"})
 
     def do_POST(self):

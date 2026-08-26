@@ -153,3 +153,129 @@ CREATE TABLE IF NOT EXISTS claim_log (
 
 CREATE INDEX IF NOT EXISTS idx_claim_log_diverged ON claim_log(diverged);
 CREATE INDEX IF NOT EXISTS idx_experiments_status ON experiments(status);
+
+-- ---------------------------------------------------------------------------
+-- TASK_CLAIMS.json / TASK_CHIPS.json shadow mirror (PHASE 1, read-only).
+-- See REE_assembly/evidence/planning/task_claim_chip_coordinator_migration_plan.md
+-- section 5.2 for the reviewed design (D1-D11). The AUTHORITATIVE source for
+-- these three tables is git (the REE_Working umbrella repo, NOT this repo) --
+-- task_claim_chip_shadow_sync.py reconciles them read-only, on the exact
+-- pattern schema.sql already uses for `experiments`/`claim_log` above. No
+-- code anywhere in this codebase writes TASK_CLAIMS.json/TASK_CHIPS.json
+-- content back to git from these tables; that is PHASE-2, not yet built.
+-- ---------------------------------------------------------------------------
+
+-- One row per TASK_CLAIMS.json claims[] entry. PK is COMPOSITE and must stay
+-- that way: root CLAUDE.md states the claim key is (session_id, claimed_at),
+-- and `task_claim.py close --claimed-at` exists precisely because session_id
+-- alone is ambiguous (8/154 live session_ids own more than one claim, 2026-08-26).
+CREATE TABLE IF NOT EXISTS task_claims (
+    session_id                   TEXT NOT NULL,
+    claimed_at                   TEXT NOT NULL,   -- ISO-8601 UTC, 2nd half of the key
+    session_label                TEXT NOT NULL DEFAULT '',
+    task                         TEXT NOT NULL DEFAULT '',
+    status                       TEXT NOT NULL DEFAULT 'active',  -- active|done
+    closed_at                    TEXT,            -- committer date of the landing commit
+    completion_note              TEXT,
+    completion_note_history_json TEXT,            -- JSON array, append-only
+    spawned_by                   TEXT,
+    entry_json                   TEXT NOT NULL,    -- full original entry, lossless
+    updated_at                   TEXT NOT NULL,
+    PRIMARY KEY (session_id, claimed_at)
+);
+CREATE INDEX IF NOT EXISTS idx_task_claims_status ON task_claims(status);
+
+-- `resources` is a LIST and gets a child table, NOT a JSON column -- see
+-- design problem D2 in the plan doc. This is what makes a future Phase-2
+-- rival lookup a single indexed SELECT inside a BEGIN IMMEDIATE transaction
+-- instead of a whole-table JSON scan (i.e. today's git-based best effort,
+-- reimplemented server-side with no correctness gain).
+CREATE TABLE IF NOT EXISTS task_claim_resources (
+    session_id  TEXT NOT NULL,
+    claimed_at  TEXT NOT NULL,
+    resource    TEXT NOT NULL,           -- repo-relative path, verbatim
+    PRIMARY KEY (session_id, claimed_at, resource),
+    FOREIGN KEY (session_id, claimed_at)
+        REFERENCES task_claims(session_id, claimed_at) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_task_claim_resources_resource
+    ON task_claim_resources(resource);
+
+-- One row per TASK_CHIPS.json chips[] entry. PK = chip_ref (unique across
+-- every live entry). task_id is NOT the PK: it is null on a chip nobody has
+-- ever clicked via spawn_task, so it is nullable with a partial unique index.
+CREATE TABLE IF NOT EXISTS chip_ledger (
+    chip_ref                     TEXT PRIMARY KEY,
+    task_id                      TEXT,
+    session_id                   TEXT NOT NULL DEFAULT '',
+    session_label                TEXT NOT NULL DEFAULT '',
+    title                        TEXT NOT NULL DEFAULT '',
+    tldr                         TEXT NOT NULL DEFAULT '',
+    prompt                       TEXT,           -- NULL once archived (see D5)
+    cwd                          TEXT NOT NULL DEFAULT '',
+    origin                       TEXT,           -- spawn_task|headless|hygiene_tick|igw_tick|proposal_tick
+    kind                         TEXT,           -- work|decision|report
+    urgency                      INTEGER NOT NULL DEFAULT 0,   -- bool
+    spawned_at                   TEXT NOT NULL DEFAULT '',
+    origin_host                  TEXT,           -- canonical_machine_name()
+    origin_host_raw              TEXT,           -- as reported; audit only (see D6)
+    status                       TEXT NOT NULL DEFAULT 'open',  -- open|done|withdrawn
+    claimed_by                   TEXT,
+    claimed_at                   TEXT,
+    claim_note                   TEXT,
+    claimed_host                 TEXT,           -- canonical
+    claimed_host_raw             TEXT,           -- as reported; audit only
+    resolved_at                  TEXT,
+    resolved_by_session_id       TEXT,
+    resolution_note              TEXT,           -- NULL once archived (see D5)
+    resolution_note_auto         INTEGER NOT NULL DEFAULT 0,   -- bool
+    attached_by_session_id       TEXT,
+    attached_at                  TEXT,
+    archived_json                TEXT,           -- {file, month, fields[], at}
+    prompt_history_json          TEXT,           -- JSON array
+    urgency_history_json         TEXT,           -- JSON array
+    resolution_note_history_json TEXT,           -- JSON array
+    confirmer_verdict_json       TEXT,           -- JSON object
+    entry_json                   TEXT NOT NULL,
+    updated_at                   TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_chip_ledger_task_id
+    ON chip_ledger(task_id) WHERE task_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_chip_ledger_status  ON chip_ledger(status);
+CREATE INDEX IF NOT EXISTS idx_chip_ledger_claimed ON chip_ledger(status, claimed_by);
+CREATE INDEX IF NOT EXISTS idx_chip_ledger_spawned ON chip_ledger(status, spawned_at);
+
+-- Shadow soak evidence. One row per reconciliation tick of
+-- task_claim_chip_shadow_sync.py -- this is the "N days of zero drift"
+-- exit criterion for PHASE-1 (plan doc frontmatter), and the durable record
+-- a human reads to judge the soak. Mirrors claim_log's shape (one row per
+-- check, a diverged flag, free-text detail) even though the underlying
+-- comparison differs: claim_log compares two independently-computed
+-- verdicts (git vs coordinator claim logic); this table is a mirror
+-- self-consistency check (git content vs what actually landed in the
+-- mirror), since nothing yet computes a coordinator-side claim/chip verdict
+-- independently of git (that is Phase 2). A drift row here is always
+-- anomalous -- it means a mirrored key exists in the DB but the current
+-- git-sourced file no longer has it, which should not happen given
+-- TASK_CLAIMS.json/TASK_CHIPS.json are append-only registries.
+CREATE TABLE IF NOT EXISTS task_claim_chip_drift_log (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    checked_at       TEXT NOT NULL,     -- ISO-8601 UTC
+    source_ref       TEXT,              -- git commit sha the check read
+    n_claims_git     INTEGER NOT NULL,
+    n_claims_db      INTEGER NOT NULL,
+    n_claims_new     INTEGER NOT NULL,
+    n_claims_updated INTEGER NOT NULL,
+    n_claims_orphan  INTEGER NOT NULL,  -- DB keys absent from git; always 0 if healthy
+    n_chips_git      INTEGER NOT NULL,
+    n_chips_db       INTEGER NOT NULL,
+    n_chips_new      INTEGER NOT NULL,
+    n_chips_updated  INTEGER NOT NULL,
+    n_chips_orphan   INTEGER NOT NULL,
+    diverged         INTEGER NOT NULL DEFAULT 0,
+    detail           TEXT               -- JSON: {"claim_orphans":[...], "chip_orphans":[...]}
+);
+CREATE INDEX IF NOT EXISTS idx_task_claim_chip_drift_log_diverged
+    ON task_claim_chip_drift_log(diverged);
+CREATE INDEX IF NOT EXISTS idx_task_claim_chip_drift_log_checked_at
+    ON task_claim_chip_drift_log(checked_at);

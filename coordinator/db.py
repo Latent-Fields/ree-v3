@@ -19,7 +19,7 @@ SCHEMA_PATH = os.path.join(os.path.dirname(__file__), "schema.sql")
 # machine_identity.py lives in ree-v3/, one directory up from coordinator/.
 # Same import shim phase3_preflight.py and phase3_verify.py already use.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from machine_identity import same_machine  # noqa: E402
+from machine_identity import canonical_machine_name, same_machine  # noqa: E402
 
 
 def utcnow():
@@ -30,10 +30,19 @@ def connect(db_path):
     conn = sqlite3.connect(db_path, timeout=30.0, isolation_level=None)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA busy_timeout=30000")
+    # SQLite's foreign-key enforcement is PER-CONNECTION, not persisted in
+    # the file: schema.sql's own `PRAGMA foreign_keys=ON` only ever ran on
+    # the one-off connection init_db()'s executescript used, so every
+    # ordinary connect() silently had FK enforcement OFF -- the
+    # task_claim_resources ON DELETE CASCADE (schema.sql) never actually
+    # fired outside that one init call. No pre-existing table declares a
+    # FOREIGN KEY, so enabling this here changes nothing for them.
+    conn.execute("PRAGMA foreign_keys=ON")
     _migrate_heartbeats(conn)
     _migrate_commands(conn)
     _migrate_experiments(conn)
     _migrate_heartbeat_log(conn)
+    _migrate_task_claim_chip_tables(conn)
     return conn
 
 
@@ -161,6 +170,456 @@ def _migrate_heartbeat_log(conn):
     )
 
 
+def _migrate_task_claim_chip_tables(conn):
+    """Create the TASK_CLAIMS.json/TASK_CHIPS.json shadow-mirror tables if
+    missing: task_claims, task_claim_resources, chip_ledger,
+    task_claim_chip_drift_log. See schema.sql for the DDL and the plan doc
+    (REE_assembly/evidence/planning/task_claim_chip_coordinator_migration_plan.md
+    section 5.2) for the design rationale.
+
+    Brand-new tables, nothing to gate on -- mirrors _migrate_heartbeat_log's
+    "CREATE TABLE/INDEX IF NOT EXISTS is idempotent and cheap on every call"
+    contract, not the ALTER-an-existing-table pattern the other _migrate_*
+    functions use. Called from connect() (not just init_db()) so a live DB
+    picks up these tables without a rebuild.
+    """
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS task_claims (
+            session_id                   TEXT NOT NULL,
+            claimed_at                   TEXT NOT NULL,
+            session_label                TEXT NOT NULL DEFAULT '',
+            task                         TEXT NOT NULL DEFAULT '',
+            status                       TEXT NOT NULL DEFAULT 'active',
+            closed_at                    TEXT,
+            completion_note              TEXT,
+            completion_note_history_json TEXT,
+            spawned_by                   TEXT,
+            entry_json                   TEXT NOT NULL,
+            updated_at                   TEXT NOT NULL,
+            PRIMARY KEY (session_id, claimed_at)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_task_claims_status "
+        "ON task_claims(status)"
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS task_claim_resources (
+            session_id  TEXT NOT NULL,
+            claimed_at  TEXT NOT NULL,
+            resource    TEXT NOT NULL,
+            PRIMARY KEY (session_id, claimed_at, resource),
+            FOREIGN KEY (session_id, claimed_at)
+                REFERENCES task_claims(session_id, claimed_at) ON DELETE CASCADE
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_task_claim_resources_resource "
+        "ON task_claim_resources(resource)"
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS chip_ledger (
+            chip_ref                     TEXT PRIMARY KEY,
+            task_id                      TEXT,
+            session_id                   TEXT NOT NULL DEFAULT '',
+            session_label                TEXT NOT NULL DEFAULT '',
+            title                        TEXT NOT NULL DEFAULT '',
+            tldr                         TEXT NOT NULL DEFAULT '',
+            prompt                       TEXT,
+            cwd                          TEXT NOT NULL DEFAULT '',
+            origin                       TEXT,
+            kind                         TEXT,
+            urgency                      INTEGER NOT NULL DEFAULT 0,
+            spawned_at                   TEXT NOT NULL DEFAULT '',
+            origin_host                  TEXT,
+            origin_host_raw              TEXT,
+            status                       TEXT NOT NULL DEFAULT 'open',
+            claimed_by                   TEXT,
+            claimed_at                   TEXT,
+            claim_note                   TEXT,
+            claimed_host                 TEXT,
+            claimed_host_raw             TEXT,
+            resolved_at                  TEXT,
+            resolved_by_session_id       TEXT,
+            resolution_note              TEXT,
+            resolution_note_auto         INTEGER NOT NULL DEFAULT 0,
+            attached_by_session_id       TEXT,
+            attached_at                  TEXT,
+            archived_json                TEXT,
+            prompt_history_json          TEXT,
+            urgency_history_json         TEXT,
+            resolution_note_history_json TEXT,
+            confirmer_verdict_json       TEXT,
+            entry_json                   TEXT NOT NULL,
+            updated_at                   TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_chip_ledger_task_id "
+        "ON chip_ledger(task_id) WHERE task_id IS NOT NULL"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_chip_ledger_status "
+        "ON chip_ledger(status)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_chip_ledger_claimed "
+        "ON chip_ledger(status, claimed_by)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_chip_ledger_spawned "
+        "ON chip_ledger(status, spawned_at)"
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS task_claim_chip_drift_log (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            checked_at       TEXT NOT NULL,
+            source_ref       TEXT,
+            n_claims_git     INTEGER NOT NULL,
+            n_claims_db      INTEGER NOT NULL,
+            n_claims_new     INTEGER NOT NULL,
+            n_claims_updated INTEGER NOT NULL,
+            n_claims_orphan  INTEGER NOT NULL,
+            n_chips_git      INTEGER NOT NULL,
+            n_chips_db       INTEGER NOT NULL,
+            n_chips_new      INTEGER NOT NULL,
+            n_chips_updated  INTEGER NOT NULL,
+            n_chips_orphan   INTEGER NOT NULL,
+            diverged         INTEGER NOT NULL DEFAULT 0,
+            detail           TEXT
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_task_claim_chip_drift_log_diverged "
+        "ON task_claim_chip_drift_log(diverged)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_task_claim_chip_drift_log_checked_at "
+        "ON task_claim_chip_drift_log(checked_at)"
+    )
+
+
+def upsert_task_claim(conn, claim, now=None):
+    """Insert/refresh one TASK_CLAIMS.json claims[] entry into the mirror,
+    plus its `resources` child rows. Read-only mirror: git is the source of
+    truth (PHASE-1 shadow), so this always overwrites with the git content --
+    there is no "preserve existing" branch the way upsert_experiment has for
+    coordinator claim-cutover mode, because Phase 2 (where the DB itself
+    becomes writable) has not been built yet.
+
+    Returns (created, changed): created=True on a brand-new
+    (session_id, claimed_at) key; changed=True when the stored entry_json
+    differs from what is already mirrored (created implies changed).
+    """
+    now = now or utcnow()
+    session_id = claim["session_id"]
+    claimed_at = claim["claimed_at"]
+    entry_json = json.dumps(claim, sort_keys=True)
+    existing = conn.execute(
+        "SELECT entry_json FROM task_claims WHERE session_id=? AND claimed_at=?",
+        (session_id, claimed_at),
+    ).fetchone()
+    created = existing is None
+    changed = created or existing["entry_json"] != entry_json
+    history = claim.get("completion_note_history")
+    conn.execute(
+        """
+        INSERT INTO task_claims
+          (session_id, claimed_at, session_label, task, status, closed_at,
+           completion_note, completion_note_history_json, spawned_by,
+           entry_json, updated_at)
+        VALUES
+          (:session_id, :claimed_at, :session_label, :task, :status,
+           :closed_at, :completion_note, :completion_note_history_json,
+           :spawned_by, :entry_json, :updated_at)
+        ON CONFLICT(session_id, claimed_at) DO UPDATE SET
+           session_label=excluded.session_label,
+           task=excluded.task,
+           status=excluded.status,
+           closed_at=excluded.closed_at,
+           completion_note=excluded.completion_note,
+           completion_note_history_json=excluded.completion_note_history_json,
+           spawned_by=excluded.spawned_by,
+           entry_json=excluded.entry_json,
+           updated_at=excluded.updated_at
+        """,
+        {
+            "session_id": session_id,
+            "claimed_at": claimed_at,
+            "session_label": claim.get("session_label") or "",
+            "task": claim.get("task") or "",
+            "status": claim.get("status") or "active",
+            "closed_at": claim.get("closed_at"),
+            "completion_note": claim.get("completion_note"),
+            "completion_note_history_json": (
+                json.dumps(history) if history is not None else None),
+            "spawned_by": claim.get("spawned_by"),
+            "entry_json": entry_json,
+            "updated_at": now,
+        },
+    )
+    # Delete + reinsert rather than diff: 372 resource rows total across all
+    # 154 live claims (2026-08-26), cheap, and correct by construction --
+    # no risk of a stale resource row surviving a claim whose resource list
+    # shrank between ticks.
+    conn.execute(
+        "DELETE FROM task_claim_resources WHERE session_id=? AND claimed_at=?",
+        (session_id, claimed_at),
+    )
+    resources = claim.get("resources") or []
+    conn.executemany(
+        "INSERT OR IGNORE INTO task_claim_resources "
+        "(session_id, claimed_at, resource) VALUES (?,?,?)",
+        [(session_id, claimed_at, r) for r in resources],
+    )
+    return created, changed
+
+
+def upsert_chip(conn, chip, now=None):
+    """Insert/refresh one TASK_CHIPS.json chips[] entry into the mirror.
+    Same read-only-mirror semantics as upsert_task_claim: git content always
+    wins. origin_host/claimed_host are canonicalised via
+    machine_identity.canonical_machine_name() for logic, mirroring D6 /
+    app.py's existing machine_raw-vs-_canon(machine) split; the *_raw
+    columns keep exactly what the JSON reported, for audit.
+
+    Returns (created, changed), same contract as upsert_task_claim.
+    """
+    now = now or utcnow()
+    chip_ref = chip["chip_ref"]
+    entry_json = json.dumps(chip, sort_keys=True)
+    existing = conn.execute(
+        "SELECT entry_json FROM chip_ledger WHERE chip_ref=?", (chip_ref,)
+    ).fetchone()
+    created = existing is None
+    changed = created or existing["entry_json"] != entry_json
+
+    def _jd(key):
+        val = chip.get(key)
+        return json.dumps(val) if val is not None else None
+
+    origin_host_raw = chip.get("origin_host")
+    claimed_host_raw = chip.get("claimed_host")
+    conn.execute(
+        """
+        INSERT INTO chip_ledger (
+          chip_ref, task_id, session_id, session_label, title, tldr, prompt,
+          cwd, origin, kind, urgency, spawned_at, origin_host, origin_host_raw,
+          status, claimed_by, claimed_at, claim_note, claimed_host, claimed_host_raw,
+          resolved_at, resolved_by_session_id, resolution_note, resolution_note_auto,
+          attached_by_session_id, attached_at, archived_json, prompt_history_json,
+          urgency_history_json, resolution_note_history_json, confirmer_verdict_json,
+          entry_json, updated_at
+        ) VALUES (
+          :chip_ref, :task_id, :session_id, :session_label, :title, :tldr, :prompt,
+          :cwd, :origin, :kind, :urgency, :spawned_at, :origin_host, :origin_host_raw,
+          :status, :claimed_by, :claimed_at, :claim_note, :claimed_host, :claimed_host_raw,
+          :resolved_at, :resolved_by_session_id, :resolution_note, :resolution_note_auto,
+          :attached_by_session_id, :attached_at, :archived_json, :prompt_history_json,
+          :urgency_history_json, :resolution_note_history_json, :confirmer_verdict_json,
+          :entry_json, :updated_at
+        )
+        ON CONFLICT(chip_ref) DO UPDATE SET
+          task_id=excluded.task_id, session_id=excluded.session_id,
+          session_label=excluded.session_label, title=excluded.title,
+          tldr=excluded.tldr, prompt=excluded.prompt, cwd=excluded.cwd,
+          origin=excluded.origin, kind=excluded.kind, urgency=excluded.urgency,
+          spawned_at=excluded.spawned_at, origin_host=excluded.origin_host,
+          origin_host_raw=excluded.origin_host_raw, status=excluded.status,
+          claimed_by=excluded.claimed_by, claimed_at=excluded.claimed_at,
+          claim_note=excluded.claim_note, claimed_host=excluded.claimed_host,
+          claimed_host_raw=excluded.claimed_host_raw, resolved_at=excluded.resolved_at,
+          resolved_by_session_id=excluded.resolved_by_session_id,
+          resolution_note=excluded.resolution_note,
+          resolution_note_auto=excluded.resolution_note_auto,
+          attached_by_session_id=excluded.attached_by_session_id,
+          attached_at=excluded.attached_at, archived_json=excluded.archived_json,
+          prompt_history_json=excluded.prompt_history_json,
+          urgency_history_json=excluded.urgency_history_json,
+          resolution_note_history_json=excluded.resolution_note_history_json,
+          confirmer_verdict_json=excluded.confirmer_verdict_json,
+          entry_json=excluded.entry_json, updated_at=excluded.updated_at
+        """,
+        {
+            "chip_ref": chip_ref,
+            "task_id": chip.get("task_id"),
+            "session_id": chip.get("session_id") or "",
+            "session_label": chip.get("session_label") or "",
+            "title": chip.get("title") or "",
+            "tldr": chip.get("tldr") or "",
+            "prompt": chip.get("prompt"),
+            "cwd": chip.get("cwd") or "",
+            "origin": chip.get("origin"),
+            "kind": chip.get("kind"),
+            "urgency": 1 if chip.get("urgency") else 0,
+            "spawned_at": chip.get("spawned_at") or "",
+            "origin_host": canonical_machine_name(origin_host_raw) or origin_host_raw,
+            "origin_host_raw": origin_host_raw,
+            "status": chip.get("status") or "open",
+            "claimed_by": chip.get("claimed_by"),
+            "claimed_at": chip.get("claimed_at"),
+            "claim_note": chip.get("claim_note"),
+            "claimed_host": canonical_machine_name(claimed_host_raw) or claimed_host_raw,
+            "claimed_host_raw": claimed_host_raw,
+            "resolved_at": chip.get("resolved_at"),
+            "resolved_by_session_id": chip.get("resolved_by_session_id"),
+            "resolution_note": chip.get("resolution_note"),
+            "resolution_note_auto": 1 if chip.get("resolution_note_auto") else 0,
+            "attached_by_session_id": chip.get("attached_by_session_id"),
+            "attached_at": chip.get("attached_at"),
+            "archived_json": _jd("archived"),
+            "prompt_history_json": _jd("prompt_history"),
+            "urgency_history_json": _jd("urgency_history"),
+            "resolution_note_history_json": _jd("resolution_note_history"),
+            "confirmer_verdict_json": _jd("confirmer_verdict"),
+            "entry_json": entry_json,
+            "updated_at": now,
+        },
+    )
+    return created, changed
+
+
+def reconcile_task_claims(conn, claims, now=None):
+    """Upsert every claims[] entry from a TASK_CLAIMS.json read into the
+    mirror. Returns a stats dict; see task_claim_chip_shadow_sync.py's
+    module docstring for how this feeds the drift log.
+
+    `orphans`: (session_id, claimed_at) keys present in the DB but absent
+    from `claims`. Always empty on a healthy mirror -- TASK_CLAIMS.json
+    entries are never deleted (root CLAUDE.md), so an orphan here means
+    either a bug in this reconciler or an out-of-band mutation of the
+    task_claims table, neither of which should happen in Phase 1.
+    """
+    now = now or utcnow()
+    seen = set()
+    n_new = n_updated = n_unchanged = 0
+    for c in claims:
+        session_id = c.get("session_id")
+        claimed_at = c.get("claimed_at")
+        if not session_id or not claimed_at:
+            continue
+        seen.add((session_id, claimed_at))
+        created, changed = upsert_task_claim(conn, c, now=now)
+        if created:
+            n_new += 1
+        elif changed:
+            n_updated += 1
+        else:
+            n_unchanged += 1
+    existing_keys = {
+        (r["session_id"], r["claimed_at"])
+        for r in conn.execute(
+            "SELECT session_id, claimed_at FROM task_claims").fetchall()
+    }
+    orphans = sorted("%s|%s" % k for k in (existing_keys - seen))
+    return {
+        "n_git": len(claims),
+        "n_db": len(existing_keys),
+        "n_new": n_new,
+        "n_updated": n_updated,
+        "n_unchanged": n_unchanged,
+        "orphans": orphans,
+    }
+
+
+def reconcile_chips(conn, chips, now=None):
+    """Upsert every chips[] entry from a TASK_CHIPS.json read into the
+    mirror. Same contract as reconcile_task_claims. `orphans` here would
+    mean a chip_ref present in the DB but no longer in the git file --
+    archiving strips fields but keeps the row (D5), so this should also
+    always be empty on a healthy mirror.
+    """
+    now = now or utcnow()
+    seen = set()
+    n_new = n_updated = n_unchanged = 0
+    for c in chips:
+        chip_ref = c.get("chip_ref")
+        if not chip_ref:
+            continue
+        seen.add(chip_ref)
+        created, changed = upsert_chip(conn, c, now=now)
+        if created:
+            n_new += 1
+        elif changed:
+            n_updated += 1
+        else:
+            n_unchanged += 1
+    existing_refs = {
+        r["chip_ref"]
+        for r in conn.execute("SELECT chip_ref FROM chip_ledger").fetchall()
+    }
+    orphans = sorted(existing_refs - seen)
+    return {
+        "n_git": len(chips),
+        "n_db": len(existing_refs),
+        "n_new": n_new,
+        "n_updated": n_updated,
+        "n_unchanged": n_unchanged,
+        "orphans": orphans,
+    }
+
+
+def log_task_claim_chip_drift(conn, source_ref, claim_stats, chip_stats, now=None):
+    """Append one row to task_claim_chip_drift_log -- the durable soak
+    evidence a human reads to judge PHASE-1's exit criterion ("N days of
+    the coordinator's mirrored claim/chip state matching git HEAD with zero
+    drift"). Returns the `diverged` flag written (1 if any orphan found).
+    """
+    now = now or utcnow()
+    detail = json.dumps({
+        "claim_orphans": claim_stats["orphans"][:50],
+        "chip_orphans": chip_stats["orphans"][:50],
+    })
+    diverged = 1 if (claim_stats["orphans"] or chip_stats["orphans"]) else 0
+    conn.execute(
+        """
+        INSERT INTO task_claim_chip_drift_log (
+          checked_at, source_ref, n_claims_git, n_claims_db, n_claims_new,
+          n_claims_updated, n_claims_orphan, n_chips_git, n_chips_db,
+          n_chips_new, n_chips_updated, n_chips_orphan, diverged, detail
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            now, source_ref,
+            claim_stats["n_git"], claim_stats["n_db"], claim_stats["n_new"],
+            claim_stats["n_updated"], len(claim_stats["orphans"]),
+            chip_stats["n_git"], chip_stats["n_db"], chip_stats["n_new"],
+            chip_stats["n_updated"], len(chip_stats["orphans"]),
+            diverged, detail,
+        ),
+    )
+    return diverged
+
+
+def task_claim_chip_drift_summary(conn, limit=50):
+    """Recent drift_log rows plus aggregate counts, for GET /task_claim/drift
+    (app.py) and for a human checking soak status by hand. Mirrors
+    divergence_stats()/the /shadow/divergence shape used for the existing
+    experiment-claim shadow audit."""
+    total = conn.execute(
+        "SELECT COUNT(*) c FROM task_claim_chip_drift_log").fetchone()["c"]
+    diverged = conn.execute(
+        "SELECT COUNT(*) c FROM task_claim_chip_drift_log WHERE diverged=1"
+    ).fetchone()["c"]
+    rows = conn.execute(
+        "SELECT * FROM task_claim_chip_drift_log ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    return {
+        "total_ticks": total,
+        "diverged_ticks": diverged,
+        "recent": [dict(r) for r in rows],
+    }
+
+
 def init_db(db_path):
     conn = connect(db_path)
     with open(SCHEMA_PATH, "r", encoding="utf-8") as fh:
@@ -169,6 +628,7 @@ def init_db(db_path):
     _migrate_commands(conn)
     _migrate_experiments(conn)
     _migrate_heartbeat_log(conn)
+    _migrate_task_claim_chip_tables(conn)
     conn.close()
 
 
