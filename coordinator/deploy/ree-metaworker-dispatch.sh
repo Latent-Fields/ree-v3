@@ -459,76 +459,31 @@ if [ -f "$REPO/scripts/dispatch_preexit_check.py" ]; then
   [ "$PREEXIT_RC" -eq 3 ] && IDLE_NO_WORK="true"
 fi
 
-# --- Dual-role arbitration (ree-cloud-4) ----------------------------------
-# This box holds BOTH roles: ree-runner and metaworker-dispatch. Until
-# 2026-08-18 they simply ran at the same time on 2 vCPU with no coordination in
-# either direction. metaworker_role_verdict.py decides which role owns the box,
-# recomputed from the queue file every tick and remembering nothing, so a
-# wrapper that dies mid-transition cannot strand the box in a phantom state.
+# --- Runner-ownership guard (ree-cloud-4) -----------------------------------
+# The FULL dual-role arbitration (metaworker_role_verdict.py's decision, plus
+# the actual `sudo systemctl start/stop ree-runner` calls) moved to the
+# resident, unleased Healer on 2026-08-26
+# (chip-20260825-cloud4-arbitration-into-healer) -- see
+# ree-metaworker-healer.sh's own "Dual-role arbitration" block, which is now
+# this box's ONLY decision-maker for that transition. It had to move: since
+# the 2026-08-25 Dispatcher/Healer split this wrapper runs only while an
+# Orchestrator session holds a run lease, so a verdict computed only here
+# would go inert (and unable to reverse itself) the moment nobody happens to
+# lease this box (chip-20260825-cloud4-role-arbitration-lease-gap) -- whereas
+# the Healer's hourly resident cadence re-evaluates it regardless.
 #
-# Neither direction ever kills work: a hand-over to the runner waits for
-# in-flight chips to DRAIN, and the runner is only ever stopped when it holds
-# no claim, so a running experiment always finishes.
+# What stays here is a narrower, READ-ONLY safety net: a lease can be granted
+# to this box for a reason unrelated to role state, and if that happens while
+# the runner already owns it, this cycle must not dispatch new chip work onto
+# a box actively running an experiment -- the exact CPU contention this
+# arbitration exists to prevent. This check never calls the verdict script
+# and never touches systemctl beyond the read-only `is-active` query below,
+# so it is not a second decision-maker racing the Healer's `sudo systemctl
+# start/stop` -- only the Healer ever issues those.
 ROLE_STATE="dispatching"
-ROLE_SLOTS=""
-# In the UMBRELLA scripts/, not ree-v3, deliberately: this wrapper autosyncs
-# the umbrella every cycle, whereas nothing pulls ree-v3 on this box once the
-# runner is stopped -- which is precisely the state this script puts it in.
-# Same delivery-channel reasoning as the freshness gate above.
-VERDICT_SCRIPT="$REPO/scripts/metaworker_role_verdict.py"
-if [ "${REE_DUAL_ROLE:-0}" = "1" ] && [ -f "$VERDICT_SCRIPT" ]; then
-  _runner_active=0
-  systemctl is-active --quiet ree-runner 2>/dev/null && _runner_active=1
-  # READ THE QUEUE FROM origin/main, NOT the working tree.
-  #
-  # Stopping ree-runner (which this very script does whenever the metaworker
-  # owns the box) removed the only thing that was pulling ree-v3 on this box --
-  # the runner's own per-tick `git pull`. The wrapper's autosync covers the
-  # UMBRELLA only. So the working-tree queue file freezes the moment the box
-  # goes into metaworker mode: measured 2026-08-18, 2.5 HOURS stale. The verdict
-  # would then never see a surge, the box would never hand over to the runner,
-  # and the whole transition would be inert in the one direction that matters --
-  # a self-inflicted deadlock, since the thing that froze the queue is the thing
-  # waiting on it to change.
-  #
-  # Fetch + `git show` rather than pull: read-only, never touches the working
-  # tree, and immune to the divergence this checkout already has (ahead 2,
-  # behind 1 -- a --ff-only pull REFUSES outright, which would have looked like
-  # a working fix while changing nothing).
-  _qfile="$STATE_DIR/queue_snapshot.json"
-  if git -C "$REPO/ree-v3" fetch -q origin main 2>>"$LOG" \
-     && git -C "$REPO/ree-v3" show origin/main:experiment_queue.json > "$_qfile.tmp" 2>>"$LOG" \
-     && [ -s "$_qfile.tmp" ]; then
-    mv -f "$_qfile.tmp" "$_qfile"
-  else
-    rm -f "$_qfile.tmp"
-    # Fall back to the working tree, and SAY SO -- a stale queue silently
-    # suppresses the surge, which is indistinguishable from "no work queued".
-    echo "[$(ts)] role: WARN could not read queue from origin/main; falling back to the working-tree copy (may be stale)" >> "$LOG"
-    _qfile="$REPO/ree-v3/experiment_queue.json"
-  fi
-  _v=$(/opt/local/bin/python3 "$VERDICT_SCRIPT" \
-        --queue "$_qfile" \
-        --machine "$LEASE_AFFINITY" \
-        --in-flight "$(count_alive_dispatches)" \
-        --runner-active "$_runner_active" 2>>"$LOG")
-  if [ -n "$_v" ]; then
-    ROLE_STATE=$(printf '%s' "$_v" | /opt/local/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["state"])' 2>/dev/null || echo dispatching)
-    _reason=$(printf '%s' "$_v" | /opt/local/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["reason"])' 2>/dev/null || echo "")
-    _start=$(printf '%s' "$_v" | /opt/local/bin/python3 -c 'import json,sys; print(int(json.load(sys.stdin)["start_runner"]))' 2>/dev/null || echo 0)
-    _stop=$(printf '%s' "$_v" | /opt/local/bin/python3 -c 'import json,sys; print(int(json.load(sys.stdin)["stop_runner"]))' 2>/dev/null || echo 0)
-    echo "[$(ts)] role: $ROLE_STATE -- $_reason" >> "$LOG"
-    if [ "$_start" = "1" ]; then
-      sudo -n systemctl start ree-runner >>"$LOG" 2>&1 \
-        && echo "[$(ts)] role: started ree-runner (drain complete)" >> "$LOG"
-    fi
-    if [ "$_stop" = "1" ]; then
-      # Safe by construction: the verdict only requests this when the runner
-      # holds NO claim, so nothing is interrupted.
-      sudo -n systemctl stop ree-runner >>"$LOG" 2>&1 \
-        && echo "[$(ts)] role: stopped ree-runner (holds no claim)" >> "$LOG"
-    fi
-  fi
+if [ "${REE_DUAL_ROLE:-0}" = "1" ] && systemctl is-active --quiet ree-runner 2>/dev/null; then
+  ROLE_STATE="runner"
+  echo "[$(ts)] role: ree-runner is active on this dual-role box; not dispatching this cycle (arbitration itself now lives in the Healer)" >> "$LOG"
 fi
 
 # Refresh the scaler veto BEFORE the (potentially 25-minute) claude launch.
