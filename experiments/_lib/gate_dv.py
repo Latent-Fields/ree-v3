@@ -101,6 +101,7 @@ __all__ = [
     "DEFAULT_W_EFF_RATIO_CEILING",
     "DEFAULT_M_CROSS_RANGE_CEILING",
     "DEFAULT_M_CROSS_MOVED_FLOOR",
+    "DEFAULT_STRADDLE_FRAC_FLOOR",
 ]
 
 # The e3_selector.last_score_diagnostics keys this instrument reads. Kept as a
@@ -122,6 +123,11 @@ GATE_DIAGNOSTIC_KEYS = (
     "loop_d1_d2_conflict_signal",
     "loop_committed_neq_motor_winner",
     "loop_cross_loop_winner_disagreement",
+    # MECH-464: the straddle-fraction non-vacuity gate + da=0 shadow argmin.
+    "loop_assoc_straddle_frac",
+    "loop_limbic_straddle_frac",
+    "loop_d1_d2_reorder_vs_da0",
+    "loop_d1_d2_d2_gain_zero",
 )
 
 # Readiness defaults.
@@ -133,6 +139,10 @@ DEFAULT_FRESH_SELECT_FLOOR = 30
 DEFAULT_W_EFF_RATIO_CEILING = 5.0
 DEFAULT_M_CROSS_RANGE_CEILING = 50.0
 DEFAULT_M_CROSS_MOVED_FLOOR = 1e-6
+#   straddle 0.01 -- MECH-464's MANDATORY non-vacuity gate: "if [the straddle
+#   fraction] is ~0 the run is vacuous and MUST be scored precondition_unmet,
+#   not as a null". 1% is comfortably above float noise, well below "healthy".
+DEFAULT_STRADDLE_FRAC_FLOOR = 0.01
 
 GATE_DV_RATIONALE = (
     "Gate-level DVs are read via experiments/_lib/gate_dv.py, which takes every "
@@ -199,10 +209,12 @@ class GateDVRecorder:
         w_eff_ratio_ceiling: float = DEFAULT_W_EFF_RATIO_CEILING,
         m_cross_range_ceiling: float = DEFAULT_M_CROSS_RANGE_CEILING,
         m_cross_moved_floor: float = DEFAULT_M_CROSS_MOVED_FLOOR,
+        straddle_frac_floor: float = DEFAULT_STRADDLE_FRAC_FLOOR,
     ) -> None:
         self.probe = FreshSelectProbe(namespace)
         self.counter = FreshSelectCounter()
         self.fresh_select_floor = int(fresh_select_floor)
+        self.straddle_frac_floor = float(straddle_frac_floor)
         self.w_eff_ratio_ceiling = float(w_eff_ratio_ceiling)
         self.m_cross_range_ceiling = float(m_cross_range_ceiling)
         self.m_cross_moved_floor = float(m_cross_moved_floor)
@@ -223,6 +235,16 @@ class GateDVRecorder:
         self._limbic_routed_range: List[float] = []
         self._d1d2_conflict: List[float] = []
         self._w_eff_ratio: List[float] = []
+        # MECH-464: straddle fraction / reorder confound, sampled only on
+        # d1d2-active gate samples (see _n_d1d2_active denominator below) so an
+        # arm that runs with d1d2 off does not dilute these means/fractions
+        # toward the vacuous zero -- the same dilution _d1d2_conflict above
+        # already carries and which these MUST NOT repeat, since MECH-464's
+        # falsifier reads the straddle fraction as its non-vacuity gate.
+        self._assoc_straddle: List[float] = []
+        self._limbic_straddle: List[float] = []
+        self._n_d1d2_reorder_vs_da0 = 0
+        self._n_d1d2_d2_gain_zero = 0
 
         self._n_gate_samples = 0
         self._n_limbic_ge_motor = 0
@@ -316,8 +338,22 @@ class GateDVRecorder:
 
         if bool(diag.get("loop_cross_loop_limbic_ge_motor", False)):
             self._n_limbic_ge_motor += 1
-        if bool(diag.get("loop_d1_d2_active", False)):
+        d1d2_active = bool(diag.get("loop_d1_d2_active", False))
+        if d1d2_active:
             self._n_d1d2_active += 1
+            # MECH-464: only sampled on d1d2-active ticks (see the __init__
+            # comment) -- the straddle fraction and reorder confound are
+            # undefined, not zero, when the split never ran.
+            assoc_s = _f(diag, "loop_assoc_straddle_frac")
+            if assoc_s is not None:
+                self._assoc_straddle.append(assoc_s)
+            limbic_s = _f(diag, "loop_limbic_straddle_frac")
+            if limbic_s is not None:
+                self._limbic_straddle.append(limbic_s)
+            if bool(diag.get("loop_d1_d2_reorder_vs_da0", False)):
+                self._n_d1d2_reorder_vs_da0 += 1
+            if bool(diag.get("loop_d1_d2_d2_gain_zero", False)):
+                self._n_d1d2_d2_gain_zero += 1
         if bool(diag.get("loop_committed_neq_motor_winner", False)):
             self._n_committed_neq_motor += 1
         if bool(diag.get("loop_cross_loop_winner_disagreement", False)):
@@ -331,6 +367,9 @@ class GateDVRecorder:
     # -- reporting ---------------------------------------------------------
     def _frac(self, n: int) -> float:
         return float(n / self._n_gate_samples) if self._n_gate_samples else 0.0
+
+    def _frac_of(self, n: int, denom: int) -> float:
+        return float(n / denom) if denom else 0.0
 
     @property
     def saturated(self) -> bool:
@@ -396,6 +435,24 @@ class GateDVRecorder:
                 # D1/D2 opponent structure (ARC-109).
                 "gate_d1_d2_active_frac": self._frac(self._n_d1d2_active),
                 "gate_d1_d2_conflict_mean": round(_mean(self._d1d2_conflict), 6),
+                # MECH-464 straddle-fraction non-vacuity gate + da=0 shadow argmin
+                # reorder confound -- all denominated on d1d2-ACTIVE samples
+                # (_n_d1d2_active), not _n_gate_samples, so an arm run with the
+                # split off never dilutes these toward a spurious "vacuous" 0.
+                "gate_assoc_straddle_frac_mean": round(_mean(self._assoc_straddle), 6),
+                "gate_assoc_straddle_frac_peak": round(_peak(self._assoc_straddle), 6),
+                "gate_limbic_straddle_frac_mean": round(
+                    _mean(self._limbic_straddle), 6
+                ),
+                "gate_limbic_straddle_frac_peak": round(
+                    _peak(self._limbic_straddle), 6
+                ),
+                "gate_d1_d2_reorder_vs_da0_frac": self._frac_of(
+                    self._n_d1d2_reorder_vs_da0, self._n_d1d2_active
+                ),
+                "gate_d1_d2_d2_gain_zero_frac": self._frac_of(
+                    self._n_d1d2_d2_gain_zero, self._n_d1d2_active
+                ),
                 # Arbitration outcome.
                 "gate_committed_neq_motor_winner_frac": self._frac(
                     self._n_committed_neq_motor
@@ -423,12 +480,23 @@ class GateDVRecorder:
         arbitration_ran = self._n_gate_samples > 0
         limbic_can_win = self._n_limbic_ge_motor > 0
         not_saturated = not self.saturated
+        # MECH-464 MANDATORY non-vacuity gate: independent of the
+        # learned-cross-loop `gate_ready` below (a D1/D2 sweep need not enable
+        # use_learned_cross_loop_arbitration at all) -- "if [the straddle
+        # fraction] is ~0 the run is vacuous and MUST be scored
+        # precondition_unmet, not as a null". Reported False when d1d2 never
+        # ran at all, distinct from a run where it ran but straddled nothing.
+        d1d2_ran = self._n_d1d2_active > 0
+        straddle_mean_max = max(_mean(self._assoc_straddle), _mean(self._limbic_straddle))
+        straddle_nonvacuous = bool(d1d2_ran and straddle_mean_max >= self.straddle_frac_floor)
         return {
             "gate_fresh_selects_sufficient": bool(fresh_ok),
             "gate_arbitration_engaged": bool(arbitration_ran),
             "gate_learning_engaged": bool(engaged and learning),
             "gate_limbic_can_win": bool(limbic_can_win),
             "gate_parity_not_saturated": bool(not_saturated),
+            "gate_d1_d2_ran": bool(d1d2_ran),
+            "gate_straddle_nonvacuous": straddle_nonvacuous,
             "gate_ready": bool(
                 fresh_ok
                 and arbitration_ran

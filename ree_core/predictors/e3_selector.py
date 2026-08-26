@@ -2119,6 +2119,28 @@ class E3TrajectorySelector(nn.Module):
         d2_act = d2_gain * nogo
         return (d2_act - d1_act), d1_act, d2_act
 
+    def _pair_straddle_frac(self, accum: torch.Tensor) -> float:
+        """MECH-464 non-vacuity gate: fraction of the C(n,2) eligible candidate
+        pairs whose (pre-split) accumulators have differing sign
+        (``sign(accum_i) != sign(accum_j)``) -- i.e. straddle zero.
+
+        `_loop_normalize`'s zscore is invariant to positive affine scaling, so
+        when every candidate in a loop shares a sign, `_d1_d2_split` (ARC-109)
+        is a pure positive-scalar rescale that the zscore cancels EXACTLY: the
+        zero-straddle case is not merely a weak precondition for MECH-464's
+        falsifier, it is a structurally nil one. n < 2 -> 0.0 (no pair exists).
+        """
+        n = int(accum.numel())
+        if n < 2:
+            return 0.0
+        sign = torch.sign(accum)
+        total_pairs = n * (n - 1) // 2
+        matched = 0
+        for c in (-1.0, 0.0, 1.0):
+            cnt = int((sign == c).sum().item())
+            matched += cnt * (cnt - 1) // 2
+        return float(total_pairs - matched) / float(total_pairs)
+
     def _ascending_gain_matrix(
         self, gain: float, dtype: torch.dtype, device: torch.device
     ) -> torch.Tensor:
@@ -2273,8 +2295,29 @@ class E3TrajectorySelector(nn.Module):
         # baseline V-hat_t, tanh-squashed). At da==0 the split is bit-identical.
         d1d2 = bool(getattr(self.config, "use_d1_d2_population_split", False))
         d1d2_conflict = 0.0
+        loop_assoc_straddle_frac = 0.0
+        loop_limbic_straddle_frac = 0.0
+        loop_d1_d2_d2_gain_zero = False
+        _pre_split_assoc_accum: Optional[torch.Tensor] = None
+        _pre_split_limbic_accum: Optional[torch.Tensor] = None
         if d1d2:
             da = math.tanh(float(self._lcg_value_baseline))
+            # MECH-464: capture the PRE-SPLIT accumulators (post S2-null, before
+            # _d1_d2_split overwrites assoc_accum/limbic_accum in place below) --
+            # both the straddle fraction and the da=0 shadow argmin further down
+            # need the exact field the split saw, not the post-split result.
+            _pre_split_assoc_accum = assoc_accum
+            _pre_split_limbic_accum = limbic_accum
+            loop_assoc_straddle_frac = self._pair_straddle_frac(_pre_split_assoc_accum)
+            loop_limbic_straddle_frac = self._pair_straddle_frac(_pre_split_limbic_accum)
+            # Saturation confound: d2_gain==0 means DA has fully depressed the
+            # No-Go/D2 population, silencing the suppress side entirely -- a
+            # real da-dependent behavioural change that is NOT a reorder and
+            # must be excludable when interpreting loop_d1_d2_reorder_vs_da0.
+            _d2_gain_now = max(
+                0.0, 1.0 - float(getattr(self.config, "d2_da_gain", 1.0)) * da
+            )
+            loop_d1_d2_d2_gain_zero = bool(_d2_gain_now <= 0.0)
             assoc_accum, _a_d1, _a_d2 = self._d1_d2_split(assoc_accum, da)
             limbic_accum, _l_d1, _l_d2 = self._d1_d2_split(limbic_accum, da)
             # Conflict (both populations co-active) is representable here but NOT in
@@ -2394,6 +2437,40 @@ class E3TrajectorySelector(nn.Module):
             probs = F.softmax(-final / max(temperature, 1e-6), dim=0)
             local = int(torch.multinomial(probs, 1).item())
 
+        # MECH-464 da=0 shadow argmin: an EXACT within-tick counterfactual for
+        # whether ARC-109's D1/D2 split actually reordered the cross-loop winner,
+        # rather than a between-arm trajectory comparison (which diverges after the
+        # first reorder and confounds "reorders" with "different world"). Compares
+        # the arbitration CORE (m_a*motor_z + g_a*assoc_z + g_l*limbic_z, or its
+        # learned-cross-loop `eff` form) at the actual da against the same core
+        # recomputed with da forced to 0.0 from the identical pre-split accumulators
+        # -- deliberately the core argmin on BOTH sides (not the stochastic
+        # `local` above) so a softmax sample's own randomness (when not committed)
+        # is never read as a da-driven reorder. Deliberately does NOT re-run the
+        # MECH-450 lateral settling step (`settle_on` above) on the da=0 side --
+        # that step is LEARNED and side-effecting (records a W_lat trace and arms
+        # a pending update), so replaying it here with a counterfactual da would
+        # double-record against the real tick's outcome. The comparison therefore
+        # isolates the D1/D2 split's own marginal contribution, orthogonal to
+        # MECH-450 settling.
+        loop_d1_d2_reorder_vs_da0 = False
+        if d1d2:
+            assoc_accum_da0, _, _ = self._d1_d2_split(_pre_split_assoc_accum, 0.0)
+            limbic_accum_da0, _, _ = self._d1_d2_split(_pre_split_limbic_accum, 0.0)
+            assoc_z_da0 = self._loop_normalize(assoc_accum_da0, norm)
+            limbic_z_da0 = self._loop_normalize(limbic_accum_da0, norm)
+            if learn_cross:
+                Zmat_da0 = torch.stack([motor_z, assoc_z_da0, limbic_z_da0], dim=0)
+                eff_da0 = Wc @ Zmat_da0
+                final_da0 = m_a * eff_da0[0] + g_a * eff_da0[1] + g_l * eff_da0[2]
+                final_core = m_a * eff_motor + g_a * eff_assoc + g_l * eff_limbic
+            else:
+                final_da0 = m_a * motor_z + g_a * assoc_z_da0 + g_l * limbic_z_da0
+                final_core = m_a * motor_z + g_a * assoc_z + g_l * limbic_z
+            loop_d1_d2_reorder_vs_da0 = bool(
+                int(final_da0.argmin().item()) != int(final_core.argmin().item())
+            )
+
         # ARC-108 x ARC-110: arm the learned cross-loop three-factor update. Signed
         # outer-product Hebbian co-activation at the committed candidate:
         # pre_j  = -loop_z_j[committed] (>0 when loop j PREFERRED the committed
@@ -2425,6 +2502,13 @@ class E3TrajectorySelector(nn.Module):
         self.last_score_diagnostics["loop_segregation_noise_active"] = noise_on
         self.last_score_diagnostics["loop_d1_d2_active"] = d1d2
         self.last_score_diagnostics["loop_d1_d2_conflict_signal"] = d1d2_conflict
+        # MECH-464 straddle-fraction non-vacuity gate + da=0 shadow argmin (both
+        # 0.0/False when d1d2 is off -- see _pair_straddle_frac and the shadow
+        # argmin block above the Hebbian arming section).
+        self.last_score_diagnostics["loop_assoc_straddle_frac"] = loop_assoc_straddle_frac
+        self.last_score_diagnostics["loop_limbic_straddle_frac"] = loop_limbic_straddle_frac
+        self.last_score_diagnostics["loop_d1_d2_reorder_vs_da0"] = loop_d1_d2_reorder_vs_da0
+        self.last_score_diagnostics["loop_d1_d2_d2_gain_zero"] = loop_d1_d2_d2_gain_zero
         self.last_score_diagnostics["loop_committed_neq_motor_winner"] = bool(
             local != motor_win
         )

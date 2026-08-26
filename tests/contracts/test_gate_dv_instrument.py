@@ -313,3 +313,90 @@ def test_every_gate_key_still_exists_in_the_selector():
 def test_module_output_is_ascii_only():
     raw = GATE_DV_SRC.read_bytes()
     assert all(b < 128 for b in raw), "non-ASCII byte in gate_dv.py"
+
+
+# ---------------------------------------------------------------------------
+# MECH-464: straddle fraction + da=0 shadow argmin
+# ---------------------------------------------------------------------------
+def test_straddle_and_reorder_confound_denominated_on_d1d2_active_only():
+    """A d1d2-OFF sample in the same run must not dilute the MECH-464 fields
+    (the same dilution bug loop_d1_d2_conflict_signal already carries, which
+    these must not repeat)."""
+    agent = FakeAgent()
+    rec = GateDVRecorder("testns")
+    rec.begin_episode()
+    gate_on = _healthy_gate(True)
+    gate_on.update(
+        {
+            "loop_assoc_straddle_frac": 0.6,
+            "loop_limbic_straddle_frac": 0.8,
+            "loop_d1_d2_reorder_vs_da0": True,
+            "loop_d1_d2_d2_gain_zero": True,
+        }
+    )
+    with rec.watch(agent) as sel:
+        agent.select(**gate_on)
+    rec.record(agent, sel, committed_class=1)
+
+    gate_off = _healthy_gate(False)
+    gate_off["loop_d1_d2_active"] = False
+    with rec.watch(agent) as sel:
+        agent.select(**gate_off)
+    rec.record(agent, sel, committed_class=2)
+    rec.end_episode()
+
+    d = rec.as_dict()
+    assert d["gate_assoc_straddle_frac_mean"] == pytest.approx(0.6)
+    assert d["gate_limbic_straddle_frac_mean"] == pytest.approx(0.8)
+    assert d["gate_d1_d2_reorder_vs_da0_frac"] == pytest.approx(1.0)
+    assert d["gate_d1_d2_d2_gain_zero_frac"] == pytest.approx(1.0)
+
+
+def test_straddle_nonvacuous_gate_refuses_near_zero_straddle():
+    """MECH-464 MANDATORY non-vacuity gate: a ~0 straddle fraction must
+    refuse, not pass, so the falsifier scores precondition_unmet rather than
+    a spurious null."""
+    agent = FakeAgent()
+    rec = GateDVRecorder("testns")
+    gate = _healthy_gate(True)
+    gate["loop_assoc_straddle_frac"] = 0.0
+    gate["loop_limbic_straddle_frac"] = 0.0
+    rec.begin_episode()
+    for _ in range(5):
+        with rec.watch(agent) as sel:
+            agent.select(**gate)
+        rec.record(agent, sel, committed_class=1)
+    rec.end_episode()
+    r = rec.gate_readiness()
+    assert r["gate_d1_d2_ran"] is True
+    assert r["gate_straddle_nonvacuous"] is False
+
+
+def test_straddle_nonvacuous_gate_passes_above_floor():
+    agent = FakeAgent()
+    rec = GateDVRecorder("testns")
+    gate = _healthy_gate(True)
+    gate["loop_assoc_straddle_frac"] = 0.5
+    gate["loop_limbic_straddle_frac"] = 0.0
+    rec.begin_episode()
+    for _ in range(5):
+        with rec.watch(agent) as sel:
+            agent.select(**gate)
+        rec.record(agent, sel, committed_class=1)
+    rec.end_episode()
+    assert rec.gate_readiness()["gate_straddle_nonvacuous"] is True
+
+
+def test_straddle_nonvacuous_gate_false_when_d1d2_never_ran():
+    agent = FakeAgent()
+    rec = GateDVRecorder("testns")
+    gate = _healthy_gate(True)
+    gate["loop_d1_d2_active"] = False
+    rec.begin_episode()
+    with rec.watch(agent) as sel:
+        agent.select(**gate)
+    rec.record(agent, sel, committed_class=1)
+    rec.end_episode()
+    r = rec.gate_readiness()
+    assert r["gate_d1_d2_ran"] is False
+    assert r["gate_straddle_nonvacuous"] is False
