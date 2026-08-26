@@ -86,13 +86,19 @@ def test_fires_on_the_real_carrier_shape(tmp_path):
 
 
 def test_fires_on_a_list_literal_agent_arg(tmp_path):
+    # Fixture flag is `use_cem_modulatory_authority`, not `mode_partitioned_cem` --
+    # the latter's real config.py default flipped False -> True 2026-08-26
+    # (SD-MECH267-CEM-SELECTION-FIX), so `_default_off_knob_names()` (which parses
+    # the REAL config.py) no longer recognises it as default-off and this lint
+    # would stop firing on it. Any still-default-off bool works here; the lint's
+    # own logic under test does not care which one.
     p = _write(tmp_path, '''
         from experiments.pack_writer import write_pack
 
         CAPS = [True, False, True]
 
         def build(i, cfg_cls):
-            return cfg_cls(mode_partitioned_cem=CAPS[i])
+            return cfg_cls(use_cem_modulatory_authority=CAPS[i])
 
         def main(cfg_cls, a0, a1, a2, out_dir):
             write_pack({"run_id": "x_v3"}, out_dir, agent=[a0, a1, a2])
@@ -122,7 +128,7 @@ def test_fires_on_a_listcomp_agent_arg(tmp_path):
         CAPS = {"a": True, "b": False}
 
         def build(arm, cfg_cls):
-            return cfg_cls(mode_partitioned_cem=CAPS[arm])
+            return cfg_cls(use_cem_modulatory_authority=CAPS[arm])
 
         def main(cfg_cls, out_dir):
             agents = {arm: build(arm, cfg_cls) for arm in CAPS}

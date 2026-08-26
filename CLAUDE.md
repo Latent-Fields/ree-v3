@@ -17608,12 +17608,12 @@ Form B recommendation: a two-stage threat-modulated selection rule.
   conditioning enabled + operating_mode supplied). For a single mode-conditioned proposer call
   (the C1 measurement setup) this is equivalent to a per-mode candidate pool whose elites never
   mix across modes.
-  Backward compatible: `_score_trajectory`'s new `operating_mode` param defaults None (its five
-  other call sites pass nothing -> bit-identical); `mode_value_weight` empty and
-  `mode_partitioned_cem` False are the defaults, so both new branches are skipped. Neither facet
-  is wired through `REEConfig.from_dims` -- like `mode_conditioning_enabled` / `mode_noise_scale`
-  / `mode_horizon_scale`, they are set directly on `HippocampalConfig` by the experiment
-  (mirroring V3-EXQ-462's `_make_hippocampal`), so no from_dims silent-kwargs hazard.
+  Backward compatible at landing (2026-08-14): `_score_trajectory`'s new `operating_mode` param
+  defaults None (its five other call sites pass nothing -> bit-identical); `mode_value_weight`
+  empty and `mode_partitioned_cem` False were the defaults, so both new branches were skipped.
+  Neither facet is wired through `REEConfig.from_dims` -- like `mode_conditioning_enabled` /
+  `mode_noise_scale` / `mode_horizon_scale`, they are set directly on `HippocampalConfig` by the
+  experiment (mirroring V3-EXQ-462's `_make_hippocampal`), so no from_dims silent-kwargs hazard.
   Diagnostics: `_last_mode_value_weight_active` (bool) and `_last_mode_partitioned_cem` (bool),
   both False when disabled/no-op, mirroring the `_last_mode_noise_scale` convention.
   Smoke (untrained field, single seed): defaults inert; H2 shifts a trajectory score
@@ -17628,6 +17628,23 @@ Form B recommendation: a two-stage threat-modulated selection rule.
   re-measuring V3-EXQ-869 C1 at num_cem_iterations=3; acceptance = mean pairwise raw_std mode gap
   >= 0.01 per arm; ARM OFF expected to FAIL as the washed-out control). Dry-run (3 seeds,
   OFF+H3): OFF gap ~-0.0004 (washed), H3 ~0.0246 (clears floor).
+
+  **`mode_partitioned_cem` DEFAULT FLIPPED False -> True 2026-08-26**
+  (chip-20260825-mech267-cem-flip-default), per the V3-EXQ-927/928
+  validation this SD's own doc queued: H2 (`mode_value_weight`) is a confirmed NULL on the C1
+  wash-out target (paired +0.0015, t=+0.48) and stays at its default `{}` -- deliberately left
+  dormant rather than retired, since a null on the C1 metric is not evidence the term is inert
+  everywhere, and deleting it would drop its own contract coverage
+  (`test_cem_modulatory_authority.py`, `test_exp0155_action_bias_no_scoring_authority.py`) for
+  no behavioural gain. H3 (`mode_partitioned_cem`) rescues the extreme-pair (tight-vs-broad)
+  breadth contrast (H3-OFF control +0.0167, t=+4.34, 24/30 seeds positive) and is now the
+  production default. Still gated on `mode_conditioning_enabled` AND `operating_mode` being
+  supplied, so this is bit-identical for every caller that does not already enable mode
+  conditioning with an operating mode.
+  **RESIDUAL, not closed by this flip**: V3-EXQ-928 found the ORDERED four-mode gradient still
+  NOT restored (`per_arm_all_adjacent_gaps_clear_floor` false in all four arms; adjacent gaps
+  +0.00729 / +0.00750 / -0.00116, the last INVERTED). Only the broad-minus-tight extreme-pair
+  contrast is rescued -- do not read this landing as full closure of MECH-267 mode-conditioning.
   See MECH-267, SD-MECH267-HORIZON-DEPTH, SD-055, `failure_autopsy_V3-EXQ-923_2026-08-12`,
   `failure_autopsy_V3-EXQ-869_2026-08-02`,
   `REE_assembly/docs/architecture/sd_mech267_cem_selection_fix.md`.

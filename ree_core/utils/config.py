@@ -2307,6 +2307,17 @@ class HippocampalConfig:
     # curiosity_weight (both 0.0 in the wash-out experiments), so it bites in
     # the exact C1 test. Empty map ({}, default) -> no term added ->
     # bit-identical.
+    #
+    # SD-MECH267-CEM-SELECTION-FIX DECISION (2026-08-26, chip-20260825-mech267-
+    # cem-flip-default): H2 stays DORMANT at its default {} rather than being
+    # retired. V3-EXQ-927 confirmed it a null on the C1 wash-out target (paired
+    # +0.0015, t=+0.48) -- but a null on THAT metric is not evidence the
+    # z_world-keyed ranking term is inert everywhere; it is evidence it does not
+    # rescue the extreme-pair breadth gap H3 rescues. Deleting the field would
+    # also delete its _score_trajectory wiring and its own contract coverage
+    # (test_cem_modulatory_authority.py, test_exp0155_action_bias_no_scoring_
+    # authority.py) for no behavioural gain, since {} is already bit-identical.
+    # Revisit only if a future audit wants the dead code removed outright.
     mode_value_weight: Dict[str, List[float]] = field(default_factory=dict)
     # ------------------------------------------------------------------ #
     # modulatory-bias-selection-authority AMEND (2026-08-19, V3-EXQ-931):     #
@@ -2404,8 +2415,23 @@ class HippocampalConfig:
     # applied once per iteration and does NOT compound. For a single
     # mode-conditioned proposer call (the C1 measurement setup) this is
     # equivalent to a per-mode candidate pool whose elites never mix across
-    # modes. False (default) -> refit unchanged -> bit-identical.
-    mode_partitioned_cem: bool = False
+    # modes.
+    #
+    # DEFAULT FLIPPED False -> True 2026-08-26 (SD-MECH267-CEM-SELECTION-FIX,
+    # chip-20260825-mech267-cem-flip-default), per V3-EXQ-927/928 validation:
+    # H3-OFF control +0.0167, t=+4.34, 24/30 seeds positive -- confirms the
+    # wash-out (mean pairwise raw_std mode gap collapsing to ~1e-5..1e-6 by
+    # num_cem_iterations=3, per V3-EXQ-869/923) is rescued by H3 on the
+    # extreme-pair (tight-vs-broad) contrast. STILL gated on
+    # mode_conditioning_enabled AND operating_mode being supplied, so this is
+    # bit-identical for every caller that does not already enable mode
+    # conditioning with an operating_mode -- the vast majority of the corpus.
+    # RESIDUAL, not fixed by this flip: V3-EXQ-928 found the ORDERED four-mode
+    # gradient still NOT restored (per_arm_all_adjacent_gaps_clear_floor false
+    # in all four arms; adjacent gaps +0.00729 / +0.00750 / -0.00116, the last
+    # INVERTED). Only the broad-minus-tight extreme-pair contrast is rescued;
+    # do not read this default as closing MECH-267 mode-conditioning in full.
+    mode_partitioned_cem: bool = True
     # SD-055: differentiable CEM selection approximation. When enabled, replaces
     # the non-differentiable argsort elite-selection step with a softmax-weighted
     # candidate mean so gradient can flow back to cue_action_proj (SD-016).
