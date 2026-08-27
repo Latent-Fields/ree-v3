@@ -42,7 +42,11 @@ class ContextMemory(nn.Module):
                  write_usage_bias_weight: float = 1.0,
                  write_usage_decay: float = 0.99,
                  write_selection: str = "argmin",
-                 write_refractory_k: int = 2):
+                 write_refractory_k: int = 2,
+                 write_gumbel_tau_init: float = 1.0,
+                 write_gumbel_tau_min: float = 0.1,
+                 write_gumbel_anneal_steps: int = 2000,
+                 write_gumbel_tagger_hidden: int = 32):
         super().__init__()
         self.latent_dim = latent_dim
         self.memory_dim = memory_dim
@@ -68,15 +72,40 @@ class ContextMemory(nn.Module):
         # how the two compose. Default "argmin" = every slot eligible = the
         # landed path, bit-identical.
         self.write_selection = str(write_selection)
-        if self.write_selection not in ("argmin", "refractory"):
+        if self.write_selection not in ("argmin", "refractory", "gumbel_learned"):
             # Fail closed. A typo'd mode name that silently fell back to argmin
             # would reinstate the corrupting defect under a config that claims
-            # to have fixed it.
+            # to have fixed it. "usage" and "gumbel" (bare) are still rejected
+            # BY NAME even though they are not caught by the tuple check above
+            # they would be -- they are explicitly not in the tuple, so this
+            # branch already refuses them; the point of calling that out here
+            # is that "gumbel" is NOT an accepted spelling of the THIRD mode
+            # below, on purpose (see E1Config.contextmemory_write_selection).
             raise ValueError(
-                "contextmemory_write_selection must be 'argmin' or 'refractory', "
-                f"got {self.write_selection!r}"
+                "contextmemory_write_selection must be 'argmin', 'refractory' "
+                f"or 'gumbel_learned', got {self.write_selection!r}"
             )
         self.write_refractory_k = int(write_refractory_k)
+
+        # THIRD mode, "gumbel_learned" (2026-08-27): annealed straight-through
+        # Gumbel-softmax over a DEDICATED feedforward tagger (write_addr_tagger,
+        # constructed below) -- SEPARATE from query_proj (used only by read())
+        # so this mode's training signal (compute_write_addressing_loss(), see
+        # below) cannot compete with read()'s own retrieval-quality objective
+        # for the same parameters. See _select_write_slot_gumbel() and
+        # compute_write_addressing_loss() for the two halves of the mechanism,
+        # and the E1Config field docstring for why this is not the rejected
+        # "gumbel" mode under a new name, and why a TAGGER (state -> num_slots
+        # logits directly) rather than a query.memory dot product: an earlier
+        # dot-product version was measured stuck at the uniform softmax saddle
+        # (self.memory's 0.01 init scale leaves near-zero cross-slot score
+        # variance), the exact pathology V3-EXQ-418i independently diagnosed
+        # and fixed on the read path with the same remedy this mode copies.
+        self.write_gumbel_tau_init = float(write_gumbel_tau_init)
+        self.write_gumbel_tau_min = float(write_gumbel_tau_min)
+        self.write_gumbel_anneal_steps = int(write_gumbel_anneal_steps)
+        self.write_gumbel_tagger_hidden = int(write_gumbel_tagger_hidden)
+        self._write_gumbel_step = 0  # forward-call counter for the annealed schedule
 
         # Cumulative per-slot write count + last written index. ALWAYS maintained,
         # in EVERY mode including the legacy default, because instrumentation must
@@ -97,6 +126,23 @@ class ContextMemory(nn.Module):
 
         self.memory = nn.Parameter(torch.randn(num_slots, memory_dim) * 0.01)
         self.query_proj = nn.Linear(latent_dim, memory_dim)
+        # write_selection="gumbel_learned" ONLY: a feedforward tagger dedicated
+        # to write-address scoring (state -> num_slots logits directly, never
+        # a dot product against self.memory), never used by read() or by the
+        # "argmin"/"refractory" modes. Constructed only when selected,
+        # mirroring write_content's conditional construction below --
+        # named_buffers()/state_dict() gain write_addr_tagger.* ONLY in this
+        # mode, so existing checkpoints for the other two modes load
+        # untouched. Same shape as E1DeepPredictor.cue_slot_tagger (SD-016
+        # Path 3), which is the read-path mechanism this one is modelled on.
+        self.write_addr_tagger = (
+            nn.Sequential(
+                nn.Linear(latent_dim, self.write_gumbel_tagger_hidden),
+                nn.ReLU(),
+                nn.Linear(self.write_gumbel_tagger_hidden, num_slots),
+            )
+            if self.write_selection == "gumbel_learned" else None
+        )
         # SD-016 Part A (2026-04-25): key_proj bias removed.
         # With memory init scale 0.01 and a default-init bias on Linear, the bias
         # term dominates over W_K @ memory_s for every slot, collapsing all keys
@@ -190,8 +236,17 @@ class ContextMemory(nn.Module):
             # See the __init__ note for the measured pathology this repairs.
             write_signal = write_signal * self.write_content(state)
         with torch.no_grad():
-            query = self.query_proj(state)
-            scores = torch.mm(query, self.memory.t())
+            if self.write_selection == "gumbel_learned":
+                # Own dedicated tagger (see __init__): state -> num_slots
+                # logits DIRECTLY, never a dot product against self.memory
+                # (that path was measured stuck at the uniform softmax
+                # saddle -- see the E1Config field docstring). Also keeps
+                # this mode's training signal from competing with read()'s
+                # retrieval-quality objective for query_proj.
+                scores = self.write_addr_tagger(state)
+            else:
+                query = self.query_proj(state)
+                scores = torch.mm(query, self.memory.t())
             mean_scores = scores.mean(0)
             if self.write_usage_balancing:
                 # contextmemory-write-path-addressing-degeneracy (V3-EXQ-436e/
@@ -285,6 +340,9 @@ class ContextMemory(nn.Module):
             # Legacy / landed path: bit-identical, tensor index type preserved.
             return selection_scores.argmin()
 
+        if self.write_selection == "gumbel_learned":
+            return self._select_write_slot_gumbel(selection_scores)
+
         # "refractory": the k most-recently-written slots are ineligible.
         k = self.write_refractory_k
         if k <= 0 or not self._recent_write_idx:
@@ -297,6 +355,57 @@ class ContextMemory(nn.Module):
         for prev in self._recent_write_idx[-k:]:
             eligible[prev] = float("inf")
         return eligible.argmin()
+
+    def _select_write_slot_gumbel(self, selection_scores: torch.Tensor) -> torch.Tensor:
+        """THIRD write-address mechanism: annealed straight-through Gumbel-max
+        selection, mirroring the SD-016 read-path mechanism's STRUCTURE
+        (E1DeepPredictor._sd016_gumbel_select, V3-EXQ-908 CONFIRMED) but
+        answering the reason the superseded draft's "gumbel" mode was measured
+        content-blind (Jaccard exactly 1.000 on 5/5 seeds) and NOT landed: that
+        mode perturbed an UNTRAINED score with noise and nothing ever shaped
+        it, so noise dominated regardless of content. `selection_scores` here
+        is still computed under write()'s torch.no_grad() -- this method adds
+        NO gradient of its own -- but the score it perturbs comes from
+        write_addr_tagger, which DOES get shaped by gradient, via the entirely
+        separate compute_write_addressing_loss() the training loop calls
+        explicitly (see that method's docstring for why it is a fresh forward
+        pass rather than anything reused from here).
+
+        Runs inside write()'s no_grad block, so this method's own tensor ops
+        never build a graph regardless of what write_addr_tagger's parameters
+        require_grad -- consistent with EVERY other selection mode staying
+        no_grad, and avoiding any retained per-call graph across write() calls.
+
+        Legacy/refractory semantics are "lower score wins" (argmin -- the
+        address rule targets the LEAST similar slot to the query). This method
+        preserves that convention by negating `selection_scores` before the
+        standard Gumbel-max trick (sample Gumbel(0,1) noise, add to logits,
+        take argmax) rather than inventing a non-standard Gumbel-min variant.
+
+        Eval-mode (self.training=False) calls neither advance the annealing
+        step counter nor sample Gumbel noise: deterministic, bit-identical to
+        `selection_scores.argmin()` (a monotonic temperature rescaling does
+        not change the argmax of -selection_scores, so this is exactly the
+        "argmin" mode's answer, not merely close to it) -- reproducible
+        inference, mirroring the read-path precedent exactly. RNG is consumed
+        ONLY in training mode, and ONLY by this mode; "argmin" and "refractory"
+        are unaffected and remain fully deterministic in every mode.
+        """
+        if not self.training:
+            return selection_scores.argmin()
+        anneal_steps = max(self.write_gumbel_anneal_steps, 1)
+        frac = min(self._write_gumbel_step / anneal_steps, 1.0)
+        tau_init = self.write_gumbel_tau_init
+        tau_min = self.write_gumbel_tau_min
+        tau = max(tau_init + frac * (tau_min - tau_init), 1e-3)
+        self._write_gumbel_step += 1
+
+        logits = -selection_scores / tau
+        eps = 1e-10
+        u = torch.rand_like(logits).clamp(min=eps, max=1.0 - eps)
+        gumbel_noise = -torch.log(-torch.log(u))
+        perturbed = logits + gumbel_noise
+        return perturbed.argmax()
 
     def _record_write(self, idx: int) -> None:
         """Bookkeeping after a write. Runs in EVERY mode, including the legacy
@@ -328,6 +437,102 @@ class ContextMemory(nn.Module):
         slot_norm = F.normalize(self.memory, dim=-1)
         sim = slot_norm @ slot_norm.T
         n = self.num_slots
+        mask = 1.0 - torch.eye(n, device=sim.device, dtype=sim.dtype)
+        return (sim * mask).pow(2).sum() / (n * (n - 1))
+
+    def compute_write_addressing_loss(self, states: torch.Tensor) -> torch.Tensor:
+        """Auxiliary loss that shapes write_addr_tagger via gradient -- the
+        piece compute_diversification_loss() above explicitly does NOT cover:
+        that method's gradient flows only into self.memory CONTENT, never into
+        write-ADDRESS selection (see its docstring and the E1Config field note
+        above write_selection). Only meaningful when
+        write_selection="gumbel_learned" (write_addr_tagger is not constructed
+        otherwise).
+
+        MIRRORS compute_diversification_loss()'S OWN STRUCTURE, deliberately,
+        as the direct answer to "how does this interact with the diversification
+        loss": that method computes mean squared off-diagonal COSINE SIMILARITY
+        of MEMORY ROWS and minimizes it, pushing slot CONTENT toward mutual
+        orthogonality. This method computes the identical quantity over
+        PER-EXAMPLE SELECTION DISTRIBUTIONS (softmax(-write_addr_tagger(state)))
+        instead of memory rows, and minimizes it too -- pushing DIFFERENT
+        states' write-address preferences apart from each other. The two are
+        orthogonal and complementary in exactly the BIAS/REFRACTORY sense
+        already established in this file (one adjusts content, the other
+        adjusts selection); they can be trained together.
+
+        FIRST-ATTEMPT DESIGN, MEASURED AND REPLACED (2026-08-27, same session).
+        The initial version of this method used the standard MoE load-balancing
+        ("importance") loss (Shazeer et al. 2017, "Outrageously Large Neural
+        Networks", eq. 8): `num_slots * (mean_probs ** 2).sum()`, minimizing
+        only the deviation of the BATCH-MEAN selection probability from
+        uniform. Measured over 300 SGD steps x 5 seeds on the 2-cluster
+        content-conditioning stream this file's sibling tests use: loss
+        converged to ~1.0002-1.0003 (its global minimum) but occupied_slots()
+        was 16/16 and 2-cluster Jaccard was EXACTLY 1.000 on 5/5 seeds --
+        reproducing, under a genuinely trained tagger, THE IDENTICAL failure
+        signature the superseded draft's rejected "gumbel" mode was measured
+        at (see contextmemory_write_selection_comparison_20260819.md). The
+        mechanism: batch-mean uniformity has a DEGENERATE minimum -- it is
+        satisfied equally by "every example independently prefers a near-
+        uniform distribution" (content-blind) and by "different examples
+        prefer different PEAKED distributions that average to uniform"
+        (content-conditioned, the wanted outcome) -- and with annealed Gumbel
+        noise already guaranteeing full occupancy regardless of what the
+        tagger learns, nothing in that loss pushed toward the second solution
+        over the first. The pairwise-diversity form here has no such
+        degenerate minimum for a near-uniform-per-example solution: two
+        near-uniform distributions ARE highly cosine-similar to each other
+        (both close to the constant 1/num_slots vector), so that solution
+        scores HIGH under this loss, not low -- the gradient pushes away from
+        it. NOTE THIS IS NOT YET VALIDATED EITHER; it is the theoretically
+        correct fix for the specific degeneracy measured above, not a proven
+        result. See REE_assembly/docs/architecture/contextmemory_write_address_selection.md
+        for the full measurement and status.
+
+        WHY THIS IS A SEPARATE, EXPLICIT, FRESH FORWARD PASS rather than
+        reusing anything write() computed: write() runs entirely under
+        torch.no_grad() and its content update (self.memory.data[idx] = ...)
+        is a raw .data write with no autograd version tracking. A soft
+        selection tensor retained FROM inside write() and consumed by
+        .backward() at some LATER point (after further write() calls have
+        since mutated self.memory.data) would silently differentiate through
+        the CURRENT memory values instead of the ones actually seen at that
+        forward pass -- wrong gradients with no error raised, because .data
+        writes bypass the version-counter check that would normally catch
+        this. Recomputing fresh here, from a caller-supplied batch of already-
+        detached states (the same convention every write() call site already
+        uses -- see e.g. agent.py's `z_self.detach()` at its context_memory.write()
+        call sites), avoids that hazard entirely: this method's graph never
+        touches write(), never touches the encoder/LSTM, and is discarded the
+        moment the caller's .backward() returns.
+
+        `states` must contain >= 2 examples -- with exactly 1, the pairwise
+        term is vacuously zero over an empty off-diagonal (returned directly,
+        no NaN from an n*(n-1)=0 divide). Scores the SAME way write() itself
+        does in this mode -- write_addr_tagger(states) directly, num_slots
+        logits, no dot product against self.memory (see __init__ and write()
+        for why the dot-product form was abandoned: it was measured stuck at
+        the uniform softmax saddle at self.memory's 0.01 init scale,
+        mirroring V3-EXQ-418i's independent read-path diagnosis of the same
+        pathology).
+        """
+        if self.write_addr_tagger is None:
+            raise RuntimeError(
+                "compute_write_addressing_loss requires "
+                "write_selection='gumbel_learned' (write_addr_tagger is not "
+                f"constructed when write_selection={self.write_selection!r})"
+            )
+        n = states.shape[0]
+        if n < 2:
+            return torch.zeros((), device=states.device, dtype=states.dtype)
+        scores = self.write_addr_tagger(states)
+        # Same "lower score wins" convention as the selection operator: negate
+        # before softmax so probs approximates "probability this slot is the
+        # argmin winner", not the argmax.
+        probs = F.softmax(-scores, dim=-1)
+        probs_norm = F.normalize(probs, dim=-1)
+        sim = probs_norm @ probs_norm.T
         mask = 1.0 - torch.eye(n, device=sim.device, dtype=sim.dtype)
         return (sim * mask).pow(2).sum() / (n * (n - 1))
 
@@ -371,6 +576,18 @@ class E1DeepPredictor(nn.Module):
             ),
             write_refractory_k=getattr(
                 self.config, "contextmemory_write_refractory_k", 2
+            ),
+            write_gumbel_tau_init=getattr(
+                self.config, "contextmemory_write_gumbel_tau_init", 1.0
+            ),
+            write_gumbel_tau_min=getattr(
+                self.config, "contextmemory_write_gumbel_tau_min", 0.1
+            ),
+            write_gumbel_anneal_steps=getattr(
+                self.config, "contextmemory_write_gumbel_anneal_steps", 2000
+            ),
+            write_gumbel_tagger_hidden=getattr(
+                self.config, "contextmemory_write_gumbel_tagger_hidden", 32
             ),
         )
 

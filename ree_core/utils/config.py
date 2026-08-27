@@ -512,6 +512,47 @@ class E1Config:
     # large k degrades gracefully instead of masking every slot.
     contextmemory_write_refractory_k: int = 2
 
+    # THIRD mechanism for the same substrate_queue entry, contextmemory_write_
+    # selection="gumbel_learned" (2026-08-27). Annealed straight-through
+    # Gumbel-softmax selection over a DEDICATED feedforward tagger
+    # (ContextMemory.write_addr_tagger: state -> num_slots logits, a fresh
+    # MLP), matching the SD-016 read-path mechanism's ACTUAL confirmed shape
+    # (V3-EXQ-908 = _sd016_gumbel_select applied to cue_slot_tagger's MLP
+    # output, NOT the legacy q.k attention -- that q.k path was independently
+    # diagnosed stuck at the uniform softmax saddle, V3-EXQ-418i, and
+    # abandoned for exactly this reason).
+    #
+    # An EARLIER version of this mechanism scored a raw
+    # `query_proj(state) @ memory.T` dot product (mirroring write()'s own
+    # legacy score expression) and was measured, empirically, to hit the SAME
+    # saddle: with self.memory initialised at 0.01 scale, the dot product has
+    # near-zero cross-slot variance, softmax is near-exactly uniform from
+    # step 0 (compute_write_addressing_loss == 1.0 to 7 significant figures,
+    # 50 SGD steps, zero movement), and gradient into the projection is
+    # negligible. The tagger sidesteps this by construction -- its logits
+    # never touch self.memory's scale at all.
+    #
+    # Unlike the superseded draft's rejected "gumbel" mode (measured
+    # content-blind, Jaccard exactly 1.000 on 5/5 seeds -- see
+    # contextmemory_write_selection_comparison_20260819.md), write_addr_tagger
+    # receives a real gradient via the paired
+    # contextmemory_write_addressing_loss_weight term below, which
+    # compute_diversification_loss() never provided (it only ever trains
+    # self.memory content, never the write-ADDRESS selection). write() itself
+    # stays entirely torch.no_grad() -- only the SEPARATE, explicit
+    # compute_write_addressing_loss() call carries gradient, so no per-step
+    # graph is retained across write() calls. Deliberately NOT spelled
+    # "gumbel" (still rejected by name below, pointing here) to avoid any
+    # reader mistaking this for the resurrected rejected mode under an
+    # unchanged string.
+    # See ContextMemory._select_write_slot_gumbel() / .compute_write_addressing_loss()
+    # in ree_core/predictors/e1_deep.py, and
+    # REE_assembly/docs/architecture/contextmemory_write_address_selection.md.
+    contextmemory_write_gumbel_tau_init: float = 1.0
+    contextmemory_write_gumbel_tau_min: float = 0.1
+    contextmemory_write_gumbel_anneal_steps: int = 2000
+    contextmemory_write_gumbel_tagger_hidden: int = 32
+
     # SD-016 Path 4 (V3-EXQ-418g): learnable attention temperature on the
     # z_world-only ContextMemory query inside extract_cue_context().
     # When True, exp(log_tau) replaces the fixed sqrt(memory_dim) divisor and
@@ -3086,6 +3127,25 @@ class REEConfig:
     # REEAgent.compute_prediction_loss after the existing E1 loss. 0.0 = no-op.
     # See REE_assembly/docs/architecture/sd_016_writepath_v3_diversification_loss.md.
     sd016_diversification_weight: float = 0.0
+
+    # substrate_queue contextmemory-write-path-addressing-degeneracy, THIRD
+    # mechanism (2026-08-27): auxiliary MoE-style load-balancing loss weight
+    # (Shazeer et al. 2017, "Outrageously Large Neural Networks" importance
+    # loss) for ContextMemory.write_query_proj, active only when
+    # E1Config.contextmemory_write_selection="gumbel_learned" (write_query_proj
+    # is otherwise not constructed). When > 0, adds
+    # `weight * context_memory.compute_write_addressing_loss(states)` to
+    # REEAgent.compute_prediction_loss, where `states` is the SAME detached
+    # buffer sequence already used for the E1 prediction loss above. 0.0 =
+    # no-op (default). This is the gradient path sd016_diversification_weight
+    # never provides for write-address SELECTION (it only ever trains
+    # self.memory content) -- see the E1Config field note above
+    # contextmemory_write_selection for the full mechanism.
+    # Top-level, not E1Config-scoped: mirrors sd016_diversification_weight's
+    # own placement and the 2026-08-22 repair note on it below explaining why
+    # (agent.py reads self.config.*, not self.e1.config.*, at the call site).
+    # See REE_assembly/docs/architecture/contextmemory_write_address_selection.md.
+    contextmemory_write_addressing_loss_weight: float = 0.0
 
     # SD-019: affective harm non-redundancy constraint.
     # harm_nonredundancy_weight > 0 adds a cosine^2 penalty between z_harm_s and z_harm_a,
@@ -6393,6 +6453,14 @@ class REEConfig:
         # occupied-slot cosine column must not be cited for either.
         contextmemory_write_selection: str = "argmin",
         contextmemory_write_refractory_k: int = 2,
+        # THIRD write-address mechanism, "gumbel_learned" -- see E1Config for
+        # the full mechanism and why it is not a resurrection of the rejected
+        # "gumbel" name.
+        contextmemory_write_gumbel_tau_init: float = 1.0,
+        contextmemory_write_gumbel_tau_min: float = 0.1,
+        contextmemory_write_gumbel_anneal_steps: int = 2000,
+        contextmemory_write_gumbel_tagger_hidden: int = 32,
+        contextmemory_write_addressing_loss_weight: float = 0.0,
         # SD-016 Path 1 (V3-EXQ-418e): auxiliary diversification loss weight
         # on ContextMemory slots. 0.0 = no-op (legacy substrate). Recommended
         # 0.5 when sd016_enabled=True (mirrors LAMBDA_CUE_ACTION).
@@ -7617,6 +7685,13 @@ class REEConfig:
         config.e1.contextmemory_write_usage_decay = contextmemory_write_usage_decay
         config.e1.contextmemory_write_selection = contextmemory_write_selection
         config.e1.contextmemory_write_refractory_k = contextmemory_write_refractory_k
+        config.e1.contextmemory_write_gumbel_tau_init = contextmemory_write_gumbel_tau_init
+        config.e1.contextmemory_write_gumbel_tau_min = contextmemory_write_gumbel_tau_min
+        config.e1.contextmemory_write_gumbel_anneal_steps = contextmemory_write_gumbel_anneal_steps
+        config.e1.contextmemory_write_gumbel_tagger_hidden = contextmemory_write_gumbel_tagger_hidden
+        # contextmemory_write_addressing_loss_weight is TOP-LEVEL (see the
+        # sd016_diversification_weight note just below for why that pattern is
+        # used), so its assignment lives beside that one, not here.
         config.e1.sd016_temperature_learnable = sd016_temperature_learnable
         config.e1.sd016_cue_slot_tagger = sd016_cue_slot_tagger
         config.e1.sd016_cue_slot_tagger_hidden = sd016_cue_slot_tagger_hidden
@@ -7636,6 +7711,11 @@ class REEConfig:
         # got the 0.0 default instead. Pinned by
         # tests/contracts/test_from_dims_flag_reachability.py.
         config.sd016_diversification_weight = sd016_diversification_weight
+        # Same top-level-not-e1 pattern as sd016_diversification_weight just
+        # above, same reason: agent.py's compute_prediction_loss() reads
+        # self.config.contextmemory_write_addressing_loss_weight (REEConfig),
+        # not self.e1.config.*.
+        config.contextmemory_write_addressing_loss_weight = contextmemory_write_addressing_loss_weight
         config.e1.action_object_dim = action_object_dim
         config.e1.schema_wanting_enabled = schema_wanting_enabled
 

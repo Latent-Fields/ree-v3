@@ -10276,6 +10276,28 @@ class REEAgent(nn.Module):
         if _div_w > 0.0 and getattr(self.e1.config, "sd016_enabled", False):
             loss = loss + _div_w * self.e1.context_memory.compute_diversification_loss()
 
+        # substrate_queue contextmemory-write-path-addressing-degeneracy,
+        # THIRD mechanism (2026-08-27): auxiliary write-ADDRESSING loss --
+        # the gradient path _div_w's diversification loss above never
+        # provides (it only ever trains self.memory content). Gated on
+        # weight > 0 AND write_selection="gumbel_learned" (write_query_proj
+        # is not constructed otherwise -- compute_write_addressing_loss()
+        # would raise). Default 0.0 preserves bit-identical legacy behaviour.
+        # `sequence` (built above for the E1 prediction loss) is reused as the
+        # representative batch of states, detached exactly like every other
+        # context_memory.write() caller in this codebase -- see
+        # compute_write_addressing_loss()'s own docstring for why a fresh
+        # detached batch, not anything write() itself computed, is required.
+        # See REE_assembly/docs/architecture/contextmemory_write_address_selection.md.
+        _waddr_w = getattr(self.config, "contextmemory_write_addressing_loss_weight", 0.0)
+        if _waddr_w > 0.0 and getattr(
+            self.e1.context_memory, "write_selection", "argmin"
+        ) == "gumbel_learned":
+            waddr_states = sequence.reshape(-1, sequence.shape[-1]).detach()
+            loss = loss + _waddr_w * self.e1.context_memory.compute_write_addressing_loss(
+                waddr_states
+            )
+
         self.e1._hidden_state = saved_hidden
         return loss
 
