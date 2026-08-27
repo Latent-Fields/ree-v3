@@ -655,6 +655,43 @@ class TestChips(Base):
                                           now=T1)
         self.assertEqual(verdict, "missing_marker")
 
+    def test_an_unmodelled_field_survives_a_mutation(self):
+        """Section 5.2.1 promises entry_json is LOSSLESS -- "a field this
+        schema does not model explicitly still round-trips" -- and that promise
+        is what makes the migration safe against every existing consumer.
+
+        `handoff_pending` is the live counterexample that nearly broke it: no
+        column here, set by chip_ledger.py's `resolve --handoff-pending` /
+        `declare-handoff`, and present on 198 of 1920 chips in the real
+        TASK_CHIPS.json (measured 2026-08-27). Before _carry_unmodelled,
+        claiming or resolving one of those chips through the coordinator
+        rebuilt its entry_json without the key and the field vanished with no
+        error anywhere."""
+        chip = _chip("c1")
+        chip["handoff_pending"] = {"to": "another-session", "at": T0}
+        chip["some_future_field"] = ["not", "modelled", "either"]
+        db.record_chip(self.conn, chip, now=T0)
+        db.try_claim_chip(self.conn, chip_ref="c1", claimed_by="w",
+                          claimed_host="DLAPTOP", claimed_at=T1, now=T1)
+        e = self.chip_entry("c1")
+        self.assertEqual(e["handoff_pending"], {"to": "another-session",
+                                                "at": T0})
+        self.assertEqual(e["some_future_field"], ["not", "modelled", "either"])
+        # ...and the modelled columns still WIN over the stale blob.
+        self.assertEqual(e["claimed_by"], "w")
+        self.assertEqual(e["claimed_at"], T1)
+
+    def test_a_modelled_field_is_not_overwritten_by_the_stale_blob(self):
+        """The direction that would be worse than the bug: if the stored blob
+        won, an unclaim would appear to do nothing at all."""
+        db.record_chip(self.conn, _chip("c1"), now=T0)
+        db.try_claim_chip(self.conn, chip_ref="c1", claimed_by="w",
+                          claimed_host="DLAPTOP", claimed_at=T0, now=T0)
+        db.unclaim_chip(self.conn, chip_ref="c1", now=T1)
+        e = self.chip_entry("c1")
+        self.assertIsNone(e["claimed_by"])
+        self.assertIsNone(e["claimed_at"])
+
     def test_archived_fields_are_absent_not_null_in_entry_json(self):
         """D5: chip_ledger.archived_field() distinguishes 'never had a prompt'
         from 'its prompt was archived' by reading the `archived` block. A

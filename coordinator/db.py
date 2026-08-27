@@ -714,6 +714,49 @@ def _claim_entry_json(session_id, claimed_at, session_label, task, resources,
     return entry
 
 
+def _carry_unmodelled(stored_json, rebuilt):
+    """Carry forward any key the columns do not model.
+
+    Section 5.2.1 of the plan promises entry_json is LOSSLESS -- "a field this
+    schema does not model explicitly still round-trips" -- and that promise is
+    what makes the migration safe against every existing consumer. A rebuild
+    that only emits the modelled columns silently breaks it.
+
+    This is not hypothetical. Measured on the live TASK_CHIPS.json 2026-08-27:
+    **198 of 1920 chips carry `handoff_pending`**, which has no column here
+    (see chip_ledger.py's "HANDOFF-PENDING" section -- it is set by `resolve
+    --handoff-pending` / `declare-handoff`). Before this helper, claiming or
+    resolving one of those chips through the coordinator would have rebuilt its
+    entry_json WITHOUT that key, and the field would have vanished from the
+    materialized JSON with no error anywhere.
+
+    The rebuilt dict WINS on every key it produces -- it is derived from the
+    columns, which are what the verbs actually updated. Only keys absent from
+    it are taken from the stored blob.
+
+    CALL IT BEFORE ANY DELIBERATE REMOVAL, never after. _chip_entry_from_row
+    calls it ahead of its archived-field pop for exactly this reason: run the
+    other way round it resurrects a stripped `prompt` out of a stale blob,
+    which is the archive-undo D5 forbids -- and that is not a hypothetical
+    ordering worry, it is what
+    test_archived_fields_are_absent_not_null_in_entry_json caught on the first
+    attempt at this fix.
+    """
+    if not stored_json:
+        return rebuilt
+    try:
+        stored = json.loads(stored_json)
+    except (TypeError, ValueError):
+        return rebuilt
+    if not isinstance(stored, dict):
+        return rebuilt
+    out = dict(rebuilt)
+    for key, val in stored.items():
+        if key not in out:
+            out[key] = val
+    return out
+
+
 def _reserialise_claim_row(conn, session_id, claimed_at):
     """Rebuild entry_json from the row + its resource child rows, and store it.
 
@@ -744,6 +787,7 @@ def _reserialise_claim_row(conn, session_id, claimed_at):
         spawned_by=row["spawned_by"], closed_at=row["closed_at"],
         completion_note=row["completion_note"],
         completion_note_history=history)
+    entry = _carry_unmodelled(row["entry_json"], entry)
     conn.execute(
         "UPDATE task_claims SET entry_json=? WHERE session_id=? AND claimed_at=?",
         (json.dumps(entry, sort_keys=True), session_id, claimed_at))
@@ -1113,6 +1157,10 @@ def _chip_entry_from_row(row):
         "attached_by_session_id": row["attached_by_session_id"],
         "attached_at": row["attached_at"],
     }
+    # Carry unmodelled keys BEFORE the archived-field pop, never after: the
+    # pop must win. Resurrecting a stripped `prompt` from a stale blob is
+    # exactly the archive-undo D5 forbids.
+    entry = _carry_unmodelled(row["entry_json"], entry)
     for key in archived_fields:
         entry.pop(key, None)
     if archived is not None:
