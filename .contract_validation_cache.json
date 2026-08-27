@@ -1,22 +1,12 @@
 {
   "records": {
-    "41673767dbdeed581058660ee2e8603881c0ee9d04737025f9fad793f6ab7c04": {
+    "3a834078e1b5946c86fc034db3351fb610e5f7e8a6f700e68d7650b689e32f95": {
       "machine_class": "darwin-arm64-py3.13-torch2.12.0",
-      "n_files": 199,
-      "recorded_at": "2026-08-23T02:06:31Z",
-      "recorded_by_commit": "c13a324fc24c3b28997d0d9d5be31ea4764c2784",
+      "n_files": 200,
+      "recorded_at": "2026-08-27T21:18:17Z",
+      "recorded_by_commit": "528ce44fc5d9fddd8d9d809233f2ad63e0e2794c",
       "recorded_by_session_id": null,
-      "relevant_hash": "2eef0403d0691fe3012d4e9f3dcf2602fd5698a102815fc4dd8571795b2a689b",
-      "result": "pass",
-      "tier": "ree-v3-contracts-full-suite"
-    },
-    "8082942eb9988a219b5ab426d3e0332cfbcd73bdfa69675b4b13ea12e1a1c53e": {
-      "machine_class": "darwin-arm64-py3.13-torch2.12.0",
-      "n_files": 199,
-      "recorded_at": "2026-08-22T10:44:33Z",
-      "recorded_by_commit": "be66b2bfe637fa104aa7ccb4bf5c0bb85076cfed",
-      "recorded_by_session_id": null,
-      "relevant_hash": "5a69c0568a7e1e33ba6ad4334c21a31031c45b5edd492bd1ebe2ef36e7f2f7fe",
+      "relevant_hash": "ab66cc195f199030c626896dbb34e87b64435c9fa2f73a4cd40e9881bdae3994",
       "result": "pass",
       "tier": "ree-v3-contracts-full-suite"
     }
