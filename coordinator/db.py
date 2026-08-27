@@ -620,6 +620,886 @@ def task_claim_chip_drift_summary(conn, limit=50):
     }
 
 
+
+# ---------------------------------------------------------------------------
+# PHASE-2 MUTATING VERBS for TASK_CLAIMS.json / TASK_CHIPS.json
+#
+# Everything above this line is PHASE-1: a read-only mirror reconciled from
+# git. The functions below are the write path the migration plan
+# (REE_assembly/evidence/planning/task_claim_chip_coordinator_migration_plan.md
+# section 5.2.4/5.2.5) specifies, so that `task_claim.py` / `chip_ledger.py`
+# can put their arbitration on a real transaction instead of a best-effort
+# read-then-write against a shared git clone.
+#
+# WHAT THIS BUYS, precisely: today two sessions on two machines can each read
+# TASK_CLAIMS.json, each see no rival, and each write -- the confirmed
+# 2026-07-28 three-session collision on runner_remote_control.py (three claims
+# inside 84 seconds). Every verb below takes BEGIN IMMEDIATE *before* its
+# guard SELECT, exactly as try_claim() does for experiment claims, so there is
+# no window for a second caller to interleave between the check and the write.
+#
+# WHAT IT DOES NOT DO, and this is deliberate: nothing here writes git. The
+# DB->git materializer (the analogue of sync_daemon's phase3_*_writer) is NOT
+# built. Until it is, a caller running in coordinator mode must still perform
+# its own git write -- see scripts/coordinator_transport.py's module docstring
+# for why the client keeps writing git in this phase and what has to exist
+# before that can stop.
+#
+# `now` is injected on every verb, matching this module's existing convention
+# (_is_stale, machine_departed, lifecycle_state all take an explicit now), so
+# every test below is time-independent.
+#
+# ASCII-only in all returned strings, per this module's header.
+# ---------------------------------------------------------------------------
+
+TASK_CLAIM_STALE_HOURS_DEFAULT = 6.0
+CHIP_CLAIM_STALE_HOURS_DEFAULT = 6.0
+
+
+def _is_stale_at(claimed_at, stale_hours, now=None):
+    """_is_stale() with an injectable clock. The existing _is_stale reads
+    datetime.now() directly, which is fine for the experiment-claim path
+    (whose tests backdate rows by SQL) but not for arbitration verdicts a
+    caller wants to assert deterministically."""
+    dt = _parse_utc(claimed_at)
+    if dt is None:
+        return False
+    ref = _parse_utc(now) if now else datetime.now(timezone.utc)
+    if ref is None:
+        ref = datetime.now(timezone.utc)
+    return ref - dt > timedelta(hours=float(stale_hours))
+
+
+def _is_scope_resource(resource):
+    """A directory-shaped resource is a SCOPE claim and is never arbitrated.
+
+    Mirrors task_claim.py's is_scope_resource() and the "Conflict resolution"
+    rule in root CLAUDE.md: a verdict fires only on an exact match of a
+    FILE-shaped resource. governance.sh holds REE_assembly/evidence/ for the
+    length of a regen and fails open on a non-zero `open`, so arbitrating a
+    directory would both stop every evidence session and leave every regen
+    unprotected. Directory overlaps are reported as a NOTE by the caller.
+    """
+    return str(resource).endswith("/")
+
+
+def _claim_entry_json(session_id, claimed_at, session_label, task, resources,
+                      status="active", spawned_by=None, closed_at=None,
+                      completion_note=None, completion_note_history=None):
+    """The lossless entry_json for a task_claims row.
+
+    Field ORDER and field SET both matter: this is what the (not-yet-built)
+    materializer will write back into TASK_CLAIMS.json, and it is what the
+    PHASE-1 reconciler compares against to decide `diverged`. It therefore
+    mirrors task_claim.py cmd_open()'s literal entry dict exactly -- same six
+    keys in the same order for an open claim, with the closure fields appended
+    only once they exist, which is what `close` does to the JSON today.
+    """
+    entry = {
+        "session_id": session_id,
+        "session_label": session_label or "",
+        "claimed_at": claimed_at,
+        "task": task or "",
+        "resources": list(resources or []),
+        "status": status,
+    }
+    if closed_at is not None:
+        entry["closed_at"] = closed_at
+    if completion_note is not None:
+        entry["completion_note"] = completion_note
+    if completion_note_history:
+        entry["completion_note_history"] = list(completion_note_history)
+    if spawned_by is not None:
+        entry["spawned_by"] = spawned_by
+    return entry
+
+
+def _reserialise_claim_row(conn, session_id, claimed_at):
+    """Rebuild entry_json from the row + its resource child rows, and store it.
+
+    Called at the end of every claim mutation. Keeping entry_json derived
+    rather than hand-patched at each call site is what stops the lossless
+    column drifting away from the columns -- the failure the PHASE-1
+    reconciler would then report forever as drift.
+    """
+    row = conn.execute(
+        "SELECT * FROM task_claims WHERE session_id=? AND claimed_at=?",
+        (session_id, claimed_at),
+    ).fetchone()
+    if row is None:
+        return None
+    resources = [r["resource"] for r in conn.execute(
+        "SELECT resource FROM task_claim_resources "
+        "WHERE session_id=? AND claimed_at=? ORDER BY rowid",
+        (session_id, claimed_at)).fetchall()]
+    history = None
+    if row["completion_note_history_json"]:
+        try:
+            history = json.loads(row["completion_note_history_json"])
+        except (TypeError, ValueError):
+            history = None
+    entry = _claim_entry_json(
+        row["session_id"], row["claimed_at"], row["session_label"],
+        row["task"], resources, status=row["status"],
+        spawned_by=row["spawned_by"], closed_at=row["closed_at"],
+        completion_note=row["completion_note"],
+        completion_note_history=history)
+    conn.execute(
+        "UPDATE task_claims SET entry_json=? WHERE session_id=? AND claimed_at=?",
+        (json.dumps(entry, sort_keys=True), session_id, claimed_at))
+    return entry
+
+
+def try_open_task_claim(conn, session_id, session_label, task, resources,
+                        allow_overlap=False, spawned_by=None, claimed_at=None,
+                        stale_hours=TASK_CLAIM_STALE_HOURS_DEFAULT, now=None):
+    """Atomic claim-open with resource arbitration.
+
+    Returns (verdict, payload):
+      'ok'             -- claim written; caller owns every named resource
+      'idempotent'     -- this session already holds an active claim; nothing
+                          written. Preserves task_claim.py's documented
+                          per-session_id idempotency (plan doc D8): the git
+                          path retries routinely under contention, and a naive
+                          INSERT would mint a second row on every retry.
+      'owned_by_other' -- a live rival owns at least one named FILE resource;
+                          nothing written. payload['rivals'] carries the owner
+                          rows so the CLI can render today's exit-3 text.
+      'error'          -- sqlite failure; nothing written.
+
+    `claimed_at` is CLIENT-SUPPLIED and optional. The plan's original
+    signature had the server stamp it. That is wrong for this phase and the
+    reason is concrete: while the client still performs its own git write
+    (see the block comment above), a server-stamped claimed_at would give the
+    DB row and the JSON entry DIFFERENT halves of the (session_id, claimed_at)
+    primary key, and the PHASE-1 reconciler would report that as permanent
+    drift on every tick. The client sends the stamp it is about to write to
+    git; the server falls back to `now` only when none is given. Recorded as
+    D12 in the plan doc.
+
+    Atomicity: BEGIN IMMEDIATE takes the write lock BEFORE the rival SELECT,
+    so no other request -- on any machine -- can interleave between the
+    arbitration check and the INSERT.
+    """
+    now = now or utcnow()
+    stamp = claimed_at or now
+    resources = list(resources or [])
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        existing = conn.execute(
+            "SELECT claimed_at FROM task_claims "
+            "WHERE session_id=? AND status='active' ORDER BY claimed_at",
+            (session_id,),
+        ).fetchone()
+        if existing is not None:
+            conn.execute("ROLLBACK")
+            return ("idempotent", {"claimed_at": existing["claimed_at"]})
+
+        rivals = []
+        notes = []
+        files = [r for r in resources if not _is_scope_resource(r)]
+        scopes = [r for r in resources if _is_scope_resource(r)]
+        if scopes:
+            notes.append(
+                "%d directory-scope resource(s) not arbitrated: %s"
+                % (len(scopes), ", ".join(sorted(scopes))))
+        if files:
+            q = ",".join("?" * len(files))
+            candidates = conn.execute(
+                "SELECT c.session_id, c.claimed_at, c.session_label, "
+                "       c.task, r.resource "
+                "FROM task_claim_resources r "
+                "JOIN task_claims c ON c.session_id=r.session_id "
+                "                  AND c.claimed_at=r.claimed_at "
+                "WHERE r.resource IN (%s) AND c.status='active' "
+                "  AND c.session_id<>? "
+                "ORDER BY c.claimed_at" % q,
+                files + [session_id],
+            ).fetchall()
+            for r in candidates:
+                if _is_stale_at(r["claimed_at"], stale_hours, now):
+                    continue
+                rivals.append(dict(r))
+        if rivals and not allow_overlap:
+            conn.execute("ROLLBACK")
+            return ("owned_by_other", {"rivals": rivals, "notes": notes})
+        if rivals:
+            notes.append(
+                "allow_overlap: %d live rival claim(s) on a shared file were "
+                "downgraded to a note" % len(rivals))
+
+        entry = _claim_entry_json(session_id, stamp, session_label, task,
+                                  resources, spawned_by=spawned_by)
+        conn.execute(
+            "INSERT INTO task_claims (session_id, claimed_at, session_label, "
+            " task, status, spawned_by, entry_json, updated_at) "
+            "VALUES (?,?,?,?, 'active', ?, ?, ?)",
+            (session_id, stamp, session_label or "", task or "", spawned_by,
+             json.dumps(entry, sort_keys=True), now),
+        )
+        conn.executemany(
+            "INSERT OR IGNORE INTO task_claim_resources "
+            "(session_id, claimed_at, resource) VALUES (?,?,?)",
+            [(session_id, stamp, r) for r in resources],
+        )
+        conn.execute("COMMIT")
+        return ("ok", {"claimed_at": stamp, "rivals": rivals, "notes": notes})
+    except sqlite3.Error:
+        try:
+            conn.execute("ROLLBACK")
+        except sqlite3.Error:
+            pass
+        return ("error", {})
+
+
+def _select_one_claim(conn, session_id, claimed_at, status):
+    """Resolve (session_id, claimed_at?) to exactly one row, or explain why not.
+
+    Returns (row, verdict, payload). verdict is None on success, else
+    'not_found' or 'ambiguous'. Mirrors task_claim.py's documented refusal:
+    `close`/`amend`/`renew` NEVER guess when a session_id owns more than one
+    candidate -- they refuse and print the candidate stamps, because a headless
+    worker cannot go and read the JSON. `status` narrows the candidate set the
+    same way each CLI verb does (active for renew, done for amend, either for
+    close's own two-step).
+    """
+    params = [session_id]
+    sql = "SELECT * FROM task_claims WHERE session_id=?"
+    if status is not None:
+        sql += " AND status=?"
+        params.append(status)
+    if claimed_at:
+        sql += " AND claimed_at=?"
+        params.append(claimed_at)
+    sql += " ORDER BY claimed_at"
+    rows = conn.execute(sql, params).fetchall()
+    if not rows:
+        return (None, "not_found", {"session_id": session_id,
+                                    "claimed_at": claimed_at,
+                                    "status": status})
+    if len(rows) > 1:
+        return (None, "ambiguous", {"candidates": [
+            {"claimed_at": r["claimed_at"], "task": r["task"],
+             "status": r["status"]} for r in rows]})
+    return (rows[0], None, {})
+
+
+def close_task_claim(conn, session_id, closed_at, completion_note,
+                     claimed_at=None, now=None):
+    """Flip one active claim to done. Verdicts: 'ok' | 'not_found' |
+    'ambiguous' | 'already_closed' | 'error'.
+
+    closed_at and completion_note are BOTH required by the caller (root
+    CLAUDE.md: a bare status:done is indistinguishable from an abandoned
+    claim). This function does not re-derive closed_at from anything -- the
+    CLI resolves it from the landing commit's committer date and sends it.
+    """
+    now = now or utcnow()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row, verdict, payload = _select_one_claim(conn, session_id, claimed_at,
+                                                  "active")
+        if verdict == "not_found":
+            # Distinguish "no such claim" from "already done" -- the CLI's own
+            # message for the second is different, and reporting a completed
+            # close as not_found would send a caller re-opening a claim.
+            row2, v2, _ = _select_one_claim(conn, session_id, claimed_at, "done")
+            conn.execute("ROLLBACK")
+            if v2 is None:
+                return ("already_closed", {"claimed_at": row2["claimed_at"],
+                                           "closed_at": row2["closed_at"]})
+            return (verdict, payload)
+        if verdict is not None:
+            conn.execute("ROLLBACK")
+            return (verdict, payload)
+        conn.execute(
+            "UPDATE task_claims SET status='done', closed_at=?, "
+            "completion_note=?, updated_at=? "
+            "WHERE session_id=? AND claimed_at=?",
+            (closed_at, completion_note, now, session_id, row["claimed_at"]))
+        entry = _reserialise_claim_row(conn, session_id, row["claimed_at"])
+        conn.execute("COMMIT")
+        return ("ok", {"claimed_at": row["claimed_at"], "entry": entry})
+    except sqlite3.Error:
+        try:
+            conn.execute("ROLLBACK")
+        except sqlite3.Error:
+            pass
+        return ("error", {})
+
+
+def renew_task_claim(conn, session_id, claimed_at=None, new_claimed_at=None,
+                     stale_hours=TASK_CLAIM_STALE_HOURS_DEFAULT, now=None):
+    """Re-stamp claimed_at to now on this session's own ACTIVE claim so it does
+    not silently fall out of staleness protection.
+
+    Verdicts: 'ok' | 'not_found' | 'ambiguous' | 'would_lose_ownership' |
+    'error'.
+
+    'would_lose_ownership' mirrors task_claim.py cmd_renew's refusal: renewing
+    must not flip arbitration ownership to a live rival. Under a composite PK
+    the re-stamp is a key change, so this is a DELETE+INSERT inside the one
+    transaction, not an UPDATE -- and the child resource rows move with it.
+    """
+    now = now or utcnow()
+    stamp = new_claimed_at or now
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row, verdict, payload = _select_one_claim(conn, session_id, claimed_at,
+                                                  "active")
+        if verdict is not None:
+            conn.execute("ROLLBACK")
+            return (verdict, payload)
+        old_stamp = row["claimed_at"]
+        resources = [r["resource"] for r in conn.execute(
+            "SELECT resource FROM task_claim_resources "
+            "WHERE session_id=? AND claimed_at=? ORDER BY rowid",
+            (session_id, old_stamp)).fetchall()]
+        files = [r for r in resources if not _is_scope_resource(r)]
+        if files:
+            q = ",".join("?" * len(files))
+            rivals = [dict(r) for r in conn.execute(
+                "SELECT c.session_id, c.claimed_at, c.session_label, c.task, "
+                "       r.resource "
+                "FROM task_claim_resources r "
+                "JOIN task_claims c ON c.session_id=r.session_id "
+                "                  AND c.claimed_at=r.claimed_at "
+                "WHERE r.resource IN (%s) AND c.status='active' "
+                "  AND c.session_id<>?" % q,
+                files + [session_id]).fetchall()]
+            live = [r for r in rivals
+                    if not _is_stale_at(r["claimed_at"], stale_hours, now)]
+            # A rival that is CURRENTLY older than us but would become the
+            # owner once we re-stamp forward is exactly what cmd_renew refuses.
+            losing = [r for r in live if r["claimed_at"] < stamp]
+            if losing:
+                conn.execute("ROLLBACK")
+                return ("would_lose_ownership", {"rivals": losing})
+        conn.execute(
+            "INSERT INTO task_claims (session_id, claimed_at, session_label, "
+            " task, status, closed_at, completion_note, "
+            " completion_note_history_json, spawned_by, entry_json, updated_at) "
+            "SELECT session_id, ?, session_label, task, status, closed_at, "
+            "       completion_note, completion_note_history_json, spawned_by, "
+            "       entry_json, ? FROM task_claims "
+            "WHERE session_id=? AND claimed_at=?",
+            (stamp, now, session_id, old_stamp))
+        conn.executemany(
+            "INSERT OR IGNORE INTO task_claim_resources "
+            "(session_id, claimed_at, resource) VALUES (?,?,?)",
+            [(session_id, stamp, r) for r in resources])
+        conn.execute(
+            "DELETE FROM task_claims WHERE session_id=? AND claimed_at=?",
+            (session_id, old_stamp))
+        entry = _reserialise_claim_row(conn, session_id, stamp)
+        conn.execute("COMMIT")
+        return ("ok", {"claimed_at": stamp, "previous_claimed_at": old_stamp,
+                       "entry": entry})
+    except sqlite3.Error:
+        try:
+            conn.execute("ROLLBACK")
+        except sqlite3.Error:
+            pass
+        return ("error", {})
+
+
+def amend_task_claim(conn, session_id, completion_note, claimed_at=None,
+                     now=None):
+    """Correct completion_note on an already-CLOSED claim; nothing else moves.
+
+    Verdicts: 'ok' | 'not_found' | 'ambiguous' | 'error'.
+
+    The prior text is pushed onto completion_note_history_json, never dropped
+    -- same discipline as the CLI, so an amendment cannot silently erase what
+    was originally claimed. closed_at/status/task/resources keep the CLI's
+    refusal to move: they record a landing and must not drift.
+    """
+    now = now or utcnow()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row, verdict, payload = _select_one_claim(conn, session_id, claimed_at,
+                                                  "done")
+        if verdict is not None:
+            conn.execute("ROLLBACK")
+            return (verdict, payload)
+        history = []
+        if row["completion_note_history_json"]:
+            try:
+                history = json.loads(row["completion_note_history_json"]) or []
+            except (TypeError, ValueError):
+                history = []
+        if row["completion_note"] is not None:
+            history.append(row["completion_note"])
+        conn.execute(
+            "UPDATE task_claims SET completion_note=?, "
+            "completion_note_history_json=?, updated_at=? "
+            "WHERE session_id=? AND claimed_at=?",
+            (completion_note, json.dumps(history), now, session_id,
+             row["claimed_at"]))
+        entry = _reserialise_claim_row(conn, session_id, row["claimed_at"])
+        conn.execute("COMMIT")
+        return ("ok", {"claimed_at": row["claimed_at"], "entry": entry})
+    except sqlite3.Error:
+        try:
+            conn.execute("ROLLBACK")
+        except sqlite3.Error:
+            pass
+        return ("error", {})
+
+
+def dedupe_task_claim(conn, session_id, claimed_at=None, now=None):
+    """Accepted NO-OP. See plan doc D3.
+
+    `dedupe` removes claim entries byte-identical to another entry under one
+    session_id. Under the (session_id, claimed_at) PRIMARY KEY that duplicate
+    class CANNOT BE CREATED -- the second INSERT fails -- so the 2026-08-18
+    byte-identical-duplicate incident is prevented at the source rather than
+    repaired after the fact. The verb is kept so existing call sites and tests
+    do not break; its logic is deliberately NOT ported.
+    """
+    return ("ok", {"removed": 0,
+                   "note": "not applicable under the composite primary key"})
+
+
+# ---- chips ----------------------------------------------------------------
+
+
+def _chip_entry_from_row(row):
+    """Rebuild the TASK_CHIPS.json chips[] entry from a chip_ledger row.
+
+    Same role as _reserialise_claim_row: entry_json is the lossless column the
+    materializer and the PHASE-1 reconciler both read, so it must be derived
+    from the columns rather than hand-patched per call site.
+
+    ARCHIVED FIELDS ARE PRESERVED AS ABSENT, NOT AS NULL, and that is
+    load-bearing (plan doc D5): chip_ledger.archived_field() distinguishes
+    "this chip never had a prompt" from "its prompt was archived", and it does
+    so by reading the `archived` block, not by probing for a NULL. A row whose
+    prompt was stripped keeps archived_json set and simply omits the key.
+    """
+    def _jl(value, default=None):
+        if value is None:
+            return default
+        try:
+            return json.loads(value)
+        except (TypeError, ValueError):
+            return default
+
+    archived = _jl(row["archived_json"])
+    archived_fields = set((archived or {}).get("fields") or [])
+    entry = {
+        "task_id": row["task_id"],
+        "chip_ref": row["chip_ref"],
+        "origin": row["origin"],
+        "kind": row["kind"],
+        "urgency": bool(row["urgency"]),
+        "session_id": row["session_id"],
+        "session_label": row["session_label"],
+        "title": row["title"],
+        "tldr": row["tldr"],
+        "prompt": row["prompt"],
+        "cwd": row["cwd"],
+        "origin_host": row["origin_host_raw"],
+        "spawned_at": row["spawned_at"],
+        "status": row["status"],
+        "resolved_at": row["resolved_at"],
+        "resolved_by_session_id": row["resolved_by_session_id"],
+        "resolution_note": row["resolution_note"],
+        "resolution_note_auto": bool(row["resolution_note_auto"]),
+        "claimed_by": row["claimed_by"],
+        "claimed_at": row["claimed_at"],
+        "claim_note": row["claim_note"],
+        "claimed_host": row["claimed_host_raw"],
+        "attached_by_session_id": row["attached_by_session_id"],
+        "attached_at": row["attached_at"],
+    }
+    for key in archived_fields:
+        entry.pop(key, None)
+    if archived is not None:
+        entry["archived"] = archived
+    for col, key in (("prompt_history_json", "prompt_history"),
+                     ("urgency_history_json", "urgency_history"),
+                     ("resolution_note_history_json", "resolution_note_history"),
+                     ("confirmer_verdict_json", "confirmer_verdict")):
+        val = _jl(row[col])
+        if val is not None:
+            entry[key] = val
+    return entry
+
+
+def _reserialise_chip_row(conn, chip_ref):
+    row = conn.execute("SELECT * FROM chip_ledger WHERE chip_ref=?",
+                       (chip_ref,)).fetchone()
+    if row is None:
+        return None
+    entry = _chip_entry_from_row(row)
+    conn.execute("UPDATE chip_ledger SET entry_json=? WHERE chip_ref=?",
+                 (json.dumps(entry, sort_keys=True), chip_ref))
+    return entry
+
+
+def _find_chip_row(conn, chip_ref=None, task_id=None):
+    """chip_ref first, then task_id through the partial unique index.
+
+    task_id CANNOT be an identifier on its own (plan doc D4): it is NULL on
+    1043/1692 live rows, because a chip only gets one if spawn_task actually
+    minted it. Callers may pass either; a task_id lookup that finds nothing
+    404s cleanly rather than matching some NULL-task_id row.
+    """
+    if chip_ref:
+        return conn.execute("SELECT * FROM chip_ledger WHERE chip_ref=?",
+                            (chip_ref,)).fetchone()
+    if task_id:
+        return conn.execute(
+            "SELECT * FROM chip_ledger WHERE task_id=? AND task_id IS NOT NULL",
+            (task_id,)).fetchone()
+    return None
+
+
+def record_chip(conn, chip, now=None):
+    """Append one chip. Verdicts: 'ok' | 'idempotent' | 'ref_collision' |
+    'missing_marker' | 'error'.
+
+    'missing_marker': `prompt` must literally contain "[chip_ref: <ref>]".
+    This is a REFUSAL, not a warning, and mirrors the CLI's own hard failure
+    since 2026-08-03 -- a chip whose stored prompt lacks the marker can never
+    self-report at close, and 12 such chips were recorded in one governance
+    session while it was only a warning.
+
+    'idempotent' covers the tick shape the CLI already handles: a routine
+    re-scanning its backlog calls record with the SAME deterministic chip_ref
+    every cycle, and that must be a no-op rather than a failure. Restricted,
+    exactly as the CLI restricts it, to the case where BOTH the stored row and
+    the incoming chip have no task_id -- a same-ref/different-task_id
+    collision is a genuine bug (two distinct spawn_task calls reusing a ref)
+    and still refuses.
+    """
+    now = now or utcnow()
+    chip_ref = chip.get("chip_ref")
+    if not chip_ref:
+        return ("error", {"reason": "chip_ref is required"})
+    marker = "[chip_ref: %s]" % chip_ref
+    prompt = chip.get("prompt") or ""
+    if marker not in prompt:
+        return ("missing_marker", {"chip_ref": chip_ref, "marker": marker})
+    task_id = chip.get("task_id")
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        if task_id:
+            by_task = conn.execute(
+                "SELECT chip_ref FROM chip_ledger "
+                "WHERE task_id=? AND task_id IS NOT NULL", (task_id,)).fetchone()
+            if by_task is not None:
+                conn.execute("ROLLBACK")
+                return ("idempotent", {"chip_ref": by_task["chip_ref"],
+                                       "reason": "task_id already recorded"})
+        clash = conn.execute("SELECT task_id, origin FROM chip_ledger "
+                             "WHERE chip_ref=?", (chip_ref,)).fetchone()
+        if clash is not None:
+            conn.execute("ROLLBACK")
+            if task_id is None and clash["task_id"] is None:
+                return ("idempotent", {"chip_ref": chip_ref,
+                                       "origin": clash["origin"],
+                                       "reason": "chip_ref already recorded"})
+            return ("ref_collision", {"chip_ref": chip_ref,
+                                      "task_id": clash["task_id"]})
+        upsert_chip(conn, chip, now=now)
+        conn.execute("COMMIT")
+        return ("ok", {"chip_ref": chip_ref})
+    except sqlite3.Error:
+        try:
+            conn.execute("ROLLBACK")
+        except sqlite3.Error:
+            pass
+        return ("error", {})
+
+
+def try_claim_chip(conn, chip_ref=None, task_id=None, claimed_by=None,
+                   claimed_host=None, note=None,
+                   stale_hours=CHIP_CLAIM_STALE_HOURS_DEFAULT,
+                   claimed_at=None, now=None):
+    """Atomic chip claim -- the cross-host dispatch MUTEX.
+
+    Verdicts: 'ok' | 'not_found' | 'not_open' | 'already_claimed' | 'error'.
+    payload['note_prefix'] carries the CLI's own explanatory prefix
+    ("refreshed own claim", "previous claim ... superseded") so the client can
+    print the identical line it prints today.
+
+    This is the verb with the most to gain from the migration. Today's claim
+    is a git write whose mutual exclusion depends on push ordering across
+    hosts, which is why chip_ledger.py has to verify the claim reached origin
+    afterwards (verify_claim_on_origin) and why the 2026-08-09 double-dispatch
+    happened when a claim stayed on a local branch. Here the SELECT and the
+    UPDATE are inside one BEGIN IMMEDIATE, so exactly one of N simultaneous
+    claimants wins and the loser is told immediately.
+    """
+    now = now or utcnow()
+    stamp = claimed_at or now
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = _find_chip_row(conn, chip_ref=chip_ref, task_id=task_id)
+        if row is None:
+            conn.execute("ROLLBACK")
+            return ("not_found", {"chip_ref": chip_ref, "task_id": task_id})
+        if row["status"] != "open":
+            conn.execute("ROLLBACK")
+            return ("not_open", {"chip_ref": row["chip_ref"],
+                                 "status": row["status"]})
+        existing = row["claimed_by"]
+        note_prefix = ""
+        if existing and existing != claimed_by:
+            age_stale = _is_stale_at(row["claimed_at"], stale_hours, now)
+            if row["claimed_at"] and not age_stale:
+                conn.execute("ROLLBACK")
+                return ("already_claimed", {
+                    "chip_ref": row["chip_ref"],
+                    "claimed_by": existing,
+                    "claimed_at": row["claimed_at"],
+                    "stale_after_hours": stale_hours})
+            reason = ("unparseable/missing claimed_at" if not row["claimed_at"]
+                      else "past the %.1fh stale threshold" % float(stale_hours))
+            note_prefix = ("previous claim by %s (%s) superseded -- "
+                           % (existing, reason))
+        elif existing == claimed_by:
+            note_prefix = "refreshed own claim -- "
+        canon_host = canonical_machine_name(claimed_host) or claimed_host
+        conn.execute(
+            "UPDATE chip_ledger SET claimed_by=?, claimed_at=?, claim_note=?, "
+            "claimed_host=?, claimed_host_raw=?, updated_at=? WHERE chip_ref=?",
+            (claimed_by, stamp, note or "", canon_host, claimed_host, now,
+             row["chip_ref"]))
+        entry = _reserialise_chip_row(conn, row["chip_ref"])
+        conn.execute("COMMIT")
+        return ("ok", {"chip_ref": row["chip_ref"], "claimed_at": stamp,
+                       "note_prefix": note_prefix, "entry": entry})
+    except sqlite3.Error:
+        try:
+            conn.execute("ROLLBACK")
+        except sqlite3.Error:
+            pass
+        return ("error", {})
+
+
+def unclaim_chip(conn, chip_ref=None, task_id=None, note=None, now=None):
+    """Release a chip claim. Verdicts: 'ok' | 'not_found' | 'error'.
+    payload['was_claimed_by'] is None when the chip was not claimed -- the
+    CLI's "nothing to release" case, which is a success, not a failure."""
+    now = now or utcnow()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = _find_chip_row(conn, chip_ref=chip_ref, task_id=task_id)
+        if row is None:
+            conn.execute("ROLLBACK")
+            return ("not_found", {"chip_ref": chip_ref, "task_id": task_id})
+        was = row["claimed_by"]
+        conn.execute(
+            "UPDATE chip_ledger SET claimed_by=NULL, claimed_at=NULL, "
+            "claim_note=?, claimed_host=NULL, claimed_host_raw=NULL, "
+            "updated_at=? WHERE chip_ref=?",
+            (note or "", now, row["chip_ref"]))
+        entry = _reserialise_chip_row(conn, row["chip_ref"])
+        conn.execute("COMMIT")
+        return ("ok", {"chip_ref": row["chip_ref"], "was_claimed_by": was,
+                       "entry": entry})
+    except sqlite3.Error:
+        try:
+            conn.execute("ROLLBACK")
+        except sqlite3.Error:
+            pass
+        return ("error", {})
+
+
+CHIP_TERMINAL_STATUSES = ("done", "withdrawn")
+
+
+def resolve_chip(conn, status, chip_ref=None, task_id=None, note=None,
+                 resolved_by_session_id=None, note_auto=False, force=False,
+                 resolved_at=None, now=None):
+    """Mark a chip done/withdrawn.
+
+    Verdicts: 'ok' | 'not_found' | 'bad_status' | 'terminal_conflict' | 'error'.
+    payload['changed'] is False when the chip was ALREADY at that status
+    (plan doc D11): today that is a SILENT no-op indistinguishable from a real
+    transition, which is exactly the trap a headless worker falls into when
+    its report is dropped. Reporting changed=False lets the CLI say so.
+
+    'terminal_conflict' mirrors the CLI's 2026-08-25 guard: a chip already at
+    a DIFFERENT terminal status is not overwritten without force, and even
+    with force the prior status/resolved_at/resolver/note is preserved in
+    resolution_note_history rather than dropped.
+    """
+    now = now or utcnow()
+    stamp = resolved_at or now
+    if status not in CHIP_TERMINAL_STATUSES:
+        return ("bad_status", {"status": status,
+                               "valid": list(CHIP_TERMINAL_STATUSES)})
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = _find_chip_row(conn, chip_ref=chip_ref, task_id=task_id)
+        if row is None:
+            conn.execute("ROLLBACK")
+            return ("not_found", {"chip_ref": chip_ref, "task_id": task_id})
+        prior = row["status"]
+        history = []
+        if row["resolution_note_history_json"]:
+            try:
+                history = json.loads(row["resolution_note_history_json"]) or []
+            except (TypeError, ValueError):
+                history = []
+        if prior == status:
+            # Equal-status: leave it alone, with the ONE documented exception
+            # -- the stored note is a generic AUTOMATED one and the caller is
+            # supplying a real one. That is the recovery path for the
+            # 2026-08-14 defect where a routine tick resolved a chip out from
+            # under the worker who had done the work and the worker's own
+            # resolve then no-op'd and DROPPED its report.
+            if row["resolution_note_auto"] and note and not note_auto:
+                history.append({
+                    "resolution_note": row["resolution_note"],
+                    "resolution_note_auto": True,
+                    "replaced_at": now,
+                    "replaced_by": resolved_by_session_id,
+                })
+                conn.execute(
+                    "UPDATE chip_ledger SET resolution_note=?, "
+                    "resolution_note_auto=0, resolution_note_history_json=?, "
+                    "updated_at=? WHERE chip_ref=?",
+                    (note, json.dumps(history), now, row["chip_ref"]))
+                entry = _reserialise_chip_row(conn, row["chip_ref"])
+                conn.execute("COMMIT")
+                return ("ok", {"chip_ref": row["chip_ref"], "changed": True,
+                               "replaced_auto_note": True, "entry": entry})
+            conn.execute("ROLLBACK")
+            return ("ok", {"chip_ref": row["chip_ref"], "changed": False,
+                           "status": prior})
+        if prior in CHIP_TERMINAL_STATUSES and not force:
+            conn.execute("ROLLBACK")
+            return ("terminal_conflict", {
+                "chip_ref": row["chip_ref"], "status": prior,
+                "resolved_at": row["resolved_at"],
+                "resolved_by_session_id": row["resolved_by_session_id"],
+                "resolution_note": row["resolution_note"]})
+        if prior in CHIP_TERMINAL_STATUSES:
+            history.append({
+                "status": prior,
+                "resolved_at": row["resolved_at"],
+                "resolved_by_session_id": row["resolved_by_session_id"],
+                "resolution_note": row["resolution_note"],
+                "forced_over_at": now,
+            })
+        conn.execute(
+            "UPDATE chip_ledger SET status=?, resolved_at=?, "
+            "resolved_by_session_id=?, resolution_note=?, "
+            "resolution_note_auto=?, resolution_note_history_json=?, "
+            "updated_at=? WHERE chip_ref=?",
+            (status, stamp, resolved_by_session_id, note,
+             1 if note_auto else 0,
+             json.dumps(history) if history else None,
+             now, row["chip_ref"]))
+        entry = _reserialise_chip_row(conn, row["chip_ref"])
+        conn.execute("COMMIT")
+        return ("ok", {"chip_ref": row["chip_ref"], "changed": True,
+                       "previous_status": prior, "entry": entry})
+    except sqlite3.Error:
+        try:
+            conn.execute("ROLLBACK")
+        except sqlite3.Error:
+            pass
+        return ("error", {})
+
+
+def attach_chip(conn, chip_ref, task_id, attached_by_session_id=None,
+                attached_at=None, now=None):
+    """Attach a spawn_task task_id to an already-recorded chip.
+
+    Verdicts: 'ok' | 'not_found' | 'task_id_taken' | 'already_attached' |
+    'error'.
+
+    Does NOT claim the chip (chip_ledger.py's "RECORD/ATTACH DO NOT AUTO-CLAIM
+    ON task_id"): a task_id means only that spawn_task created a clickable UI
+    suggestion, not that anyone started it. Auto-claiming on attach is what
+    left chips 40-60h old permanently marked claimed with no worktree and no
+    process anywhere.
+    """
+    now = now or utcnow()
+    stamp = attached_at or now
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT * FROM chip_ledger WHERE chip_ref=?",
+                           (chip_ref,)).fetchone()
+        if row is None:
+            conn.execute("ROLLBACK")
+            return ("not_found", {"chip_ref": chip_ref})
+        if row["task_id"] and row["task_id"] != task_id:
+            conn.execute("ROLLBACK")
+            return ("already_attached", {"chip_ref": chip_ref,
+                                         "task_id": row["task_id"]})
+        other = conn.execute(
+            "SELECT chip_ref FROM chip_ledger "
+            "WHERE task_id=? AND task_id IS NOT NULL AND chip_ref<>?",
+            (task_id, chip_ref)).fetchone()
+        if other is not None:
+            conn.execute("ROLLBACK")
+            return ("task_id_taken", {"task_id": task_id,
+                                      "chip_ref": other["chip_ref"]})
+        conn.execute(
+            "UPDATE chip_ledger SET task_id=?, attached_by_session_id=?, "
+            "attached_at=?, updated_at=? WHERE chip_ref=?",
+            (task_id, attached_by_session_id, stamp, now, chip_ref))
+        entry = _reserialise_chip_row(conn, chip_ref)
+        conn.execute("COMMIT")
+        return ("ok", {"chip_ref": chip_ref, "task_id": task_id,
+                       "entry": entry})
+    except sqlite3.Error:
+        try:
+            conn.execute("ROLLBACK")
+        except sqlite3.Error:
+            pass
+        return ("error", {})
+
+
+def amend_chip_prompt(conn, chip_ref, prompt, reason=None, now=None):
+    """Replace a chip's stored prompt, preserving the original in
+    prompt_history. Verdicts: 'ok' | 'not_found' | 'missing_marker' | 'error'.
+
+    Same marker requirement as record_chip: this verb exists to repair an
+    entry recorded with a placeholder instead of the real spawn_task text, so
+    accepting another marker-less prompt would defeat it.
+    """
+    now = now or utcnow()
+    marker = "[chip_ref: %s]" % chip_ref
+    if marker not in (prompt or ""):
+        return ("missing_marker", {"chip_ref": chip_ref, "marker": marker})
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT * FROM chip_ledger WHERE chip_ref=?",
+                           (chip_ref,)).fetchone()
+        if row is None:
+            conn.execute("ROLLBACK")
+            return ("not_found", {"chip_ref": chip_ref})
+        history = []
+        if row["prompt_history_json"]:
+            try:
+                history = json.loads(row["prompt_history_json"]) or []
+            except (TypeError, ValueError):
+                history = []
+        history.append({"prompt": row["prompt"], "replaced_at": now,
+                        "reason": reason or ""})
+        conn.execute(
+            "UPDATE chip_ledger SET prompt=?, prompt_history_json=?, "
+            "updated_at=? WHERE chip_ref=?",
+            (prompt, json.dumps(history), now, chip_ref))
+        entry = _reserialise_chip_row(conn, chip_ref)
+        conn.execute("COMMIT")
+        return ("ok", {"chip_ref": chip_ref, "entry": entry})
+    except sqlite3.Error:
+        try:
+            conn.execute("ROLLBACK")
+        except sqlite3.Error:
+            pass
+        return ("error", {})
+
+
 def init_db(db_path):
     conn = connect(db_path)
     with open(SCHEMA_PATH, "r", encoding="utf-8") as fh:

@@ -216,6 +216,258 @@ def auth_machine(header_value):
     return None
 
 
+
+# ---------------------------------------------------------------------------
+# PHASE-2 POST handlers for TASK_CLAIMS.json / TASK_CHIPS.json.
+#
+# Kept as plain module-level functions in one dispatch table rather than
+# another eleven `if path == ...` arms inside do_POST: do_POST is already ~500
+# lines and each new arm there has to re-do the body/auth boilerplate.
+#
+# Each returns (http_status, payload_dict). Every payload carries "verdict"
+# verbatim from db.py so a client never has to infer the outcome from the
+# status code alone -- the CLI branches on the verdict string, the status code
+# is for anything speaking plain HTTP.
+#
+# ASCII-only in every string, per this module's header.
+# ---------------------------------------------------------------------------
+
+def _tc_open(conn, body, machine_tok):
+    session_id = body.get("session_id")
+    if not session_id:
+        return 400, {"error": "session_id is required"}
+    resources = body.get("resources") or []
+    if not isinstance(resources, list):
+        return 400, {"error": "resources must be a list"}
+    verdict, payload = db.try_open_task_claim(
+        conn,
+        session_id=session_id,
+        session_label=body.get("session_label") or "",
+        task=body.get("task") or "",
+        resources=resources,
+        allow_overlap=bool(body.get("allow_overlap")),
+        spawned_by=body.get("spawned_by"),
+        claimed_at=body.get("claimed_at"),
+        stale_hours=float(body.get("stale_after_hours")
+                          or db.TASK_CLAIM_STALE_HOURS_DEFAULT),
+    )
+    out = dict(payload)
+    out["verdict"] = verdict
+    if verdict == "owned_by_other":
+        return 409, out
+    if verdict == "error":
+        return 500, out
+    return 200, out
+
+
+def _tc_close(conn, body, machine_tok):
+    session_id = body.get("session_id")
+    if not session_id:
+        return 400, {"error": "session_id is required"}
+    closed_at = body.get("closed_at")
+    note = body.get("completion_note")
+    if not closed_at or note is None:
+        # Mirrors the CLI's own refusal: a bare status:done cannot be told
+        # apart from an abandoned claim (root CLAUDE.md).
+        return 400, {"error": "closed_at and completion_note are both required"}
+    verdict, payload = db.close_task_claim(
+        conn, session_id=session_id, closed_at=closed_at,
+        completion_note=note, claimed_at=body.get("claimed_at"))
+    out = dict(payload)
+    out["verdict"] = verdict
+    if verdict == "ambiguous":
+        return 409, out
+    if verdict == "not_found":
+        return 404, out
+    if verdict == "error":
+        return 500, out
+    return 200, out
+
+
+def _tc_renew(conn, body, machine_tok):
+    session_id = body.get("session_id")
+    if not session_id:
+        return 400, {"error": "session_id is required"}
+    verdict, payload = db.renew_task_claim(
+        conn, session_id=session_id, claimed_at=body.get("claimed_at"),
+        new_claimed_at=body.get("new_claimed_at"),
+        stale_hours=float(body.get("stale_after_hours")
+                          or db.TASK_CLAIM_STALE_HOURS_DEFAULT))
+    out = dict(payload)
+    out["verdict"] = verdict
+    if verdict in ("ambiguous", "would_lose_ownership"):
+        return 409, out
+    if verdict == "not_found":
+        return 404, out
+    if verdict == "error":
+        return 500, out
+    return 200, out
+
+
+def _tc_amend(conn, body, machine_tok):
+    session_id = body.get("session_id")
+    note = body.get("completion_note")
+    if not session_id or note is None:
+        return 400, {"error": "session_id and completion_note are required"}
+    verdict, payload = db.amend_task_claim(
+        conn, session_id=session_id, completion_note=note,
+        claimed_at=body.get("claimed_at"))
+    out = dict(payload)
+    out["verdict"] = verdict
+    if verdict == "ambiguous":
+        return 409, out
+    if verdict == "not_found":
+        return 404, out
+    if verdict == "error":
+        return 500, out
+    return 200, out
+
+
+def _tc_dedupe(conn, body, machine_tok):
+    # Accepted no-op -- D3. The duplicate class it cleans up cannot be created
+    # under the composite primary key.
+    session_id = body.get("session_id")
+    if not session_id:
+        return 400, {"error": "session_id is required"}
+    verdict, payload = db.dedupe_task_claim(
+        conn, session_id=session_id, claimed_at=body.get("claimed_at"))
+    out = dict(payload)
+    out["verdict"] = verdict
+    return 200, out
+
+
+def _chip_record(conn, body, machine_tok):
+    chip = body.get("chip")
+    if not isinstance(chip, dict):
+        return 400, {"error": "chip object is required"}
+    verdict, payload = db.record_chip(conn, chip)
+    out = dict(payload)
+    out["verdict"] = verdict
+    if verdict == "missing_marker":
+        return 400, out
+    if verdict == "ref_collision":
+        return 409, out
+    if verdict == "error":
+        return 500, out
+    return 200, out
+
+
+def _chip_claim(conn, body, machine_tok):
+    if not body.get("chip_ref") and not body.get("task_id"):
+        return 400, {"error": "chip_ref or task_id is required"}
+    verdict, payload = db.try_claim_chip(
+        conn, chip_ref=body.get("chip_ref"), task_id=body.get("task_id"),
+        claimed_by=body.get("claimed_by"),
+        claimed_host=body.get("claimed_host"), note=body.get("note"),
+        claimed_at=body.get("claimed_at"),
+        stale_hours=float(body.get("stale_after_hours")
+                          or db.CHIP_CLAIM_STALE_HOURS_DEFAULT))
+    out = dict(payload)
+    out["verdict"] = verdict
+    if verdict in ("already_claimed", "not_open"):
+        return 409, out
+    if verdict == "not_found":
+        return 404, out
+    if verdict == "error":
+        return 500, out
+    return 200, out
+
+
+def _chip_unclaim(conn, body, machine_tok):
+    if not body.get("chip_ref") and not body.get("task_id"):
+        return 400, {"error": "chip_ref or task_id is required"}
+    verdict, payload = db.unclaim_chip(
+        conn, chip_ref=body.get("chip_ref"), task_id=body.get("task_id"),
+        note=body.get("note"))
+    out = dict(payload)
+    out["verdict"] = verdict
+    if verdict == "not_found":
+        return 404, out
+    if verdict == "error":
+        return 500, out
+    return 200, out
+
+
+def _chip_resolve(conn, body, machine_tok):
+    if not body.get("chip_ref") and not body.get("task_id"):
+        return 400, {"error": "chip_ref or task_id is required"}
+    verdict, payload = db.resolve_chip(
+        conn, status=body.get("status"), chip_ref=body.get("chip_ref"),
+        task_id=body.get("task_id"), note=body.get("note"),
+        resolved_by_session_id=body.get("resolved_by_session_id"),
+        note_auto=bool(body.get("note_auto")),
+        force=bool(body.get("force")), resolved_at=body.get("resolved_at"))
+    out = dict(payload)
+    out["verdict"] = verdict
+    if verdict == "bad_status":
+        return 400, out
+    if verdict == "terminal_conflict":
+        return 409, out
+    if verdict == "not_found":
+        return 404, out
+    if verdict == "error":
+        return 500, out
+    return 200, out
+
+
+def _chip_attach(conn, body, machine_tok):
+    chip_ref = body.get("chip_ref")
+    task_id = body.get("task_id")
+    if not chip_ref or not task_id:
+        return 400, {"error": "chip_ref and task_id are both required"}
+    verdict, payload = db.attach_chip(
+        conn, chip_ref=chip_ref, task_id=task_id,
+        attached_by_session_id=body.get("attached_by_session_id"))
+    out = dict(payload)
+    out["verdict"] = verdict
+    if verdict in ("task_id_taken", "already_attached"):
+        return 409, out
+    if verdict == "not_found":
+        return 404, out
+    if verdict == "error":
+        return 500, out
+    return 200, out
+
+
+def _chip_amend_prompt(conn, body, machine_tok):
+    chip_ref = body.get("chip_ref")
+    prompt = body.get("prompt")
+    if not chip_ref or prompt is None:
+        return 400, {"error": "chip_ref and prompt are both required"}
+    verdict, payload = db.amend_chip_prompt(
+        conn, chip_ref=chip_ref, prompt=prompt, reason=body.get("reason"))
+    out = dict(payload)
+    out["verdict"] = verdict
+    if verdict == "missing_marker":
+        return 400, out
+    if verdict == "not_found":
+        return 404, out
+    if verdict == "error":
+        return 500, out
+    return 200, out
+
+
+# /chip/archive is DELIBERATELY ABSENT and must stay that way in Phase 2 --
+# plan doc D7. Its correctness gate is that the archive file has actually
+# reached ORIGIN (cmd_archive fetches and verifies at origin_ref() before
+# stripping, after the 2026-08-19 first-run failure). That is inherently a git
+# fact with no DB equivalent, so archiving stays a git-side operation reading
+# the materialized file. Revisit only in Phase 3.
+_TASK_CLAIM_CHIP_POST = {
+    "/task_claim/open": _tc_open,
+    "/task_claim/close": _tc_close,
+    "/task_claim/renew": _tc_renew,
+    "/task_claim/amend": _tc_amend,
+    "/task_claim/dedupe": _tc_dedupe,
+    "/chip/record": _chip_record,
+    "/chip/claim": _chip_claim,
+    "/chip/unclaim": _chip_unclaim,
+    "/chip/resolve": _chip_resolve,
+    "/chip/attach": _chip_attach,
+    "/chip/amend-prompt": _chip_amend_prompt,
+}
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "REECoordinator/1.0"
 
@@ -1059,6 +1311,36 @@ class Handler(BaseHTTPRequestHandler):
                 finally:
                     conn.close()
             self._send(200, {"ok": True, "applied": applied})
+            return
+
+        # ---- PHASE-2 mutating task_claim / chip verbs -------------------
+        #
+        # Plan doc section 5.2.5. Namespaced under /task_claim/* and /chip/*,
+        # NOT under /claim/* -- D1: /claim and /claim/release are already the
+        # EXPERIMENT claim endpoints and mean something entirely different.
+        #
+        # Status-code convention, matching the plan: 409 for a refusal that is
+        # a legitimate VERDICT (a rival owns the resource, a chip is already
+        # claimed) so a client can branch on it; 400 for a malformed request;
+        # 404 for an unknown key. A 409 is not an error to retry.
+        #
+        # D6: the bearer token identifies a MACHINE (machine_tok), but claims
+        # and chips are per-SESSION -- session_id always comes from the body.
+        # The token still gates access; it just is not the actor.
+        if path.startswith("/task_claim/") or path.startswith("/chip/"):
+            if body is None:
+                self._send(400, {"error": "bad body"})
+                return
+            handler = _TASK_CLAIM_CHIP_POST.get(path)
+            if handler is None:
+                self._send(404, {"error": "not found"})
+                return
+            conn = db.connect(DB_PATH)
+            try:
+                code, payload = handler(conn, body, machine_tok)
+            finally:
+                conn.close()
+            self._send(code, payload)
             return
 
         self._send(404, {"error": "not found"})

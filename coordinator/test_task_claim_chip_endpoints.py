@@ -238,22 +238,41 @@ class TestEndpoints(unittest.TestCase):
 
     # ---- no mutating verb exists yet (PHASE-2 scope guard) ------------
 
-    def test_no_mutating_task_claim_or_chip_post_route_exists(self):
-        """PHASE-1 is read-only by design (see the plan doc's HARD STOP
-        note). If any of these ever starts returning something other than
-        404, PHASE-2 write plumbing has been added -- which must be a
-        deliberate, reviewed, user-ratified change, not a silent side
-        effect of an unrelated edit."""
+    def test_phase2_mutating_routes_now_exist_and_unknown_ones_still_404(self):
+        """PHASE-1's pin was the inverse of this: it asserted every mutating
+        verb 404s, and said a change had to be "deliberate, reviewed,
+        user-ratified". PHASE-2 is that change (plan doc PHASE-2 node,
+        2026-08-27), so the pin is inverted rather than deleted -- the routes
+        must now EXIST, and anything not in the table must still 404 so a typo
+        in a client path is not silently swallowed.
+
+        Bodies here are deliberately empty/minimal: this test is about the
+        route table, not the verb semantics (those are
+        test_task_claim_chip_mutations.py). An empty body must therefore
+        produce a 400 validation refusal, never a 404."""
         for path in ("/task_claim/open", "/task_claim/close",
                      "/task_claim/renew", "/task_claim/amend",
                      "/task_claim/dedupe", "/chip/record", "/chip/claim",
                      "/chip/unclaim", "/chip/resolve", "/chip/attach",
                      "/chip/amend-prompt"):
-            status, _ = _http("POST", self._url(path), token=TOKEN, body={})
-            self.assertEqual(
-                status, 404,
-                "%s must not exist yet -- PHASE-1 is read-only" % path)
+            status, payload = _http("POST", self._url(path), token=TOKEN,
+                                    body={})
+            self.assertNotEqual(status, 404,
+                                "%s must exist in PHASE-2" % path)
+            self.assertEqual(status, 400,
+                             "%s with an empty body must be a validation "
+                             "refusal, got %s %r" % (path, status, payload))
 
+    def test_chip_archive_has_no_endpoint(self):
+        """D7: archive stays git-side, because its correctness gate is that
+        the archive file reached ORIGIN -- a git fact with no DB equivalent."""
+        for path in ("/chip/archive", "/task_claim/archive"):
+            status, _ = _http("POST", self._url(path), token=TOKEN, body={})
+            self.assertEqual(status, 404, "%s must not exist (D7)" % path)
+
+    def test_mutating_routes_require_a_token(self):
+        status, _ = _http("POST", self._url("/task_claim/open"), body={})
+        self.assertEqual(status, 401)
 
 if __name__ == "__main__":
     unittest.main()
