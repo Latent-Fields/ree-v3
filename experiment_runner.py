@@ -3850,14 +3850,14 @@ def _build_subprocess_env(queue_id: str, signal_dir: Path | None,
                            declared_seed_count: int | None = None) -> dict:
     """Build the env dict for an experiment subprocess.
 
-    REE_QUEUE_ID, REE_RUNNER_SIGNAL_DIR and REE_DECLARED_SEED_COUNT are
+    REE_QUEUE_ID, REE_RUNNER_SIGNAL_DIR and REE_QUEUE_DECLARED_SEED_COUNT are
     ALWAYS written -- with empty-string fallbacks -- so the child never
     inherits a stale value from the runner's own shell env. A stale
     REE_QUEUE_ID would route the sentinel emit_outcome() writes to the
     wrong file under the wrong signal dir, masking real-run sentinels with
     phantom ones.
 
-    REE_DECLARED_SEED_COUNT carries the queue item's own declared seed
+    REE_QUEUE_DECLARED_SEED_COUNT carries the queue item's own declared seed
     count (item["seeds"], resolved via _run_axis_count) independently of
     whatever --seeds CLI args actually reached the driver. A driver-side
     "all_seeds_completed" check that instead compares completed seeds
@@ -3871,7 +3871,7 @@ def _build_subprocess_env(queue_id: str, signal_dir: Path | None,
     env = os.environ.copy()
     env["REE_QUEUE_ID"] = queue_id or ""
     env["REE_RUNNER_SIGNAL_DIR"] = str(signal_dir) if signal_dir is not None else ""
-    env["REE_DECLARED_SEED_COUNT"] = (
+    env["REE_QUEUE_DECLARED_SEED_COUNT"] = (
         str(declared_seed_count) if declared_seed_count is not None else ""
     )
     return env
