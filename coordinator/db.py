@@ -297,6 +297,17 @@ def _migrate_task_claim_chip_tables(conn):
         )
         """
     )
+    # Additive columns (2026-08-28), guarded by the PRAGMA table_info
+    # convention this module uses everywhere -- never a table rebuild, so
+    # existing soak rows keep their history and simply carry NULL here.
+    cols = {r[1] for r in conn.execute(
+        "PRAGMA table_info(task_claim_chip_drift_log)").fetchall()}
+    if "n_claims_retired" not in cols:
+        conn.execute("ALTER TABLE task_claim_chip_drift_log "
+                     "ADD COLUMN n_claims_retired INTEGER")
+    if "n_chips_retired" not in cols:
+        conn.execute("ALTER TABLE task_claim_chip_drift_log "
+                     "ADD COLUMN n_chips_retired INTEGER")
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_task_claim_chip_drift_log_diverged "
         "ON task_claim_chip_drift_log(diverged)"
@@ -492,11 +503,16 @@ def reconcile_task_claims(conn, claims, now=None):
     mirror. Returns a stats dict; see task_claim_chip_shadow_sync.py's
     module docstring for how this feeds the drift log.
 
-    `orphans`: (session_id, claimed_at) keys present in the DB but absent
-    from `claims`. Always empty on a healthy mirror -- TASK_CLAIMS.json
-    entries are never deleted (root CLAUDE.md), so an orphan here means
-    either a bug in this reconciler or an out-of-band mutation of the
-    task_claims table, neither of which should happen in Phase 1.
+    `orphans`: (session_id, claimed_at) keys present in the DB, absent from
+    `claims`, and still ACTIVE in the mirror. Empty on a healthy mirror -- an
+    active claim disappearing from git is either a bug in this reconciler or
+    an out-of-band mutation, and is the loss direction that actually matters.
+
+    `retired`: the same absence for a `done` entry. EXPECTED, not drift --
+    `scripts/prune_task_claims_done.py` removes done entries older than 24h at
+    every `/session-land` close. Counted and reported so the mirror's growth
+    stays auditable, but it never raises `diverged`. See the long comment at
+    the split below for the measured incident that motivated separating these.
     """
     now = now or utcnow()
     seen = set()
@@ -514,12 +530,41 @@ def reconcile_task_claims(conn, claims, now=None):
             n_updated += 1
         else:
             n_unchanged += 1
-    existing_keys = {
-        (r["session_id"], r["claimed_at"])
-        for r in conn.execute(
-            "SELECT session_id, claimed_at FROM task_claims").fetchall()
-    }
-    orphans = sorted("%s|%s" % k for k in (existing_keys - seen))
+    # A DB key absent from git is NOT automatically drift, and treating it as
+    # such is the false positive that saturated the whole PHASE-1 soak.
+    #
+    # WHAT HAPPENED (2026-08-27/28, found while judging the soak for a cutover
+    # go/no-go): this function's own docstring asserted "TASK_CLAIMS.json
+    # entries are never deleted (root CLAUDE.md), so an orphan here means
+    # either a bug in this reconciler or an out-of-band mutation". That premise
+    # is FALSE. `scripts/prune_task_claims_done.py` deletes `done` entries
+    # older than 24h, and it runs at EVERY `/session-land` close (Phase 2b) --
+    # it is routine, documented, and correct. Measured: prune b6907cce removed
+    # 127 entries at 19:02:07Z and the very next tick, 78 seconds later, went
+    # diverged and STAYED diverged. All 50 reported orphans were `done` in git
+    # immediately before that prune and absent after; zero were unexplained.
+    #
+    # The consequence was worse than a noisy metric: the exit criterion
+    # ("N days of diverged_ticks at 0") became UNMEETABLE, because one routine
+    # prune arms it permanently -- and a REAL divergence would then hide behind
+    # the same already-raised flag.
+    #
+    # So the split below keys on exactly the predicate the pruner itself uses:
+    #   status='done'   absent from git -> RETIRED. Expected. Not drift.
+    #   status='active' absent from git -> ORPHAN. Real drift, and the
+    #                   dangerous direction: a live claim vanishing from git is
+    #                   precisely the read-modify-write loss this whole
+    #                   subsystem exists to detect.
+    # Retired keys are counted and reported, never silently dropped.
+    rows = conn.execute(
+        "SELECT session_id, claimed_at, status FROM task_claims").fetchall()
+    existing_keys = {(r["session_id"], r["claimed_at"]) for r in rows}
+    status_by_key = {(r["session_id"], r["claimed_at"]): r["status"] for r in rows}
+    absent = existing_keys - seen
+    orphans = sorted("%s|%s" % k for k in absent
+                     if status_by_key.get(k) != "done")
+    retired = sorted("%s|%s" % k for k in absent
+                     if status_by_key.get(k) == "done")
     return {
         "n_git": len(claims),
         "n_db": len(existing_keys),
@@ -527,6 +572,7 @@ def reconcile_task_claims(conn, claims, now=None):
         "n_updated": n_updated,
         "n_unchanged": n_unchanged,
         "orphans": orphans,
+        "retired": retired,
     }
 
 
@@ -557,6 +603,17 @@ def reconcile_chips(conn, chips, now=None):
         for r in conn.execute("SELECT chip_ref FROM chip_ledger").fetchall()
     }
     orphans = sorted(existing_refs - seen)
+    # NO status split here, and the asymmetry with reconcile_task_claims is
+    # deliberate rather than an oversight. Claims get pruned; CHIPS ARE NEVER
+    # DELETED. Root CLAUDE.md is emphatic about both halves of that: archiving
+    # "strips the fields in place and keeps the row" (D5), and
+    # merge_origin_into_local "has no deletion path anywhere in it,
+    # deliberately" -- teaching it tombstones is explicitly warned against. So
+    # a chip present in the mirror and absent from git has no benign
+    # explanation, and softening this to match the claims side would discard
+    # the one signal that would catch a chip genuinely going missing.
+    # `retired` is present-but-always-empty purely so both stats dicts have
+    # one shape for log_task_claim_chip_drift to consume.
     return {
         "n_git": len(chips),
         "n_db": len(existing_refs),
@@ -564,6 +621,7 @@ def reconcile_chips(conn, chips, now=None):
         "n_updated": n_updated,
         "n_unchanged": n_unchanged,
         "orphans": orphans,
+        "retired": [],
     }
 
 
@@ -574,50 +632,102 @@ def log_task_claim_chip_drift(conn, source_ref, claim_stats, chip_stats, now=Non
     drift"). Returns the `diverged` flag written (1 if any orphan found).
     """
     now = now or utcnow()
+    claim_retired = claim_stats.get("retired") or []
+    chip_retired = chip_stats.get("retired") or []
     detail = json.dumps({
         "claim_orphans": claim_stats["orphans"][:50],
         "chip_orphans": chip_stats["orphans"][:50],
+        # Reported so a pruned entry stays auditable, but see `diverged` below.
+        "claim_retired": claim_retired[:50],
+        "chip_retired": chip_retired[:50],
     })
+    # `retired` is DELIBERATELY not part of this. A pruned `done` claim is
+    # expected, routine and correct; counting it as drift is what made the
+    # PHASE-1 exit criterion unmeetable (see reconcile_task_claims).
     diverged = 1 if (claim_stats["orphans"] or chip_stats["orphans"]) else 0
     conn.execute(
         """
         INSERT INTO task_claim_chip_drift_log (
           checked_at, source_ref, n_claims_git, n_claims_db, n_claims_new,
-          n_claims_updated, n_claims_orphan, n_chips_git, n_chips_db,
-          n_chips_new, n_chips_updated, n_chips_orphan, diverged, detail
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          n_claims_updated, n_claims_orphan, n_claims_retired, n_chips_git,
+          n_chips_db, n_chips_new, n_chips_updated, n_chips_orphan,
+          n_chips_retired, diverged, detail
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
             now, source_ref,
             claim_stats["n_git"], claim_stats["n_db"], claim_stats["n_new"],
             claim_stats["n_updated"], len(claim_stats["orphans"]),
+            len(claim_retired),
             chip_stats["n_git"], chip_stats["n_db"], chip_stats["n_new"],
             chip_stats["n_updated"], len(chip_stats["orphans"]),
+            len(chip_retired),
             diverged, detail,
         ),
     )
     return diverged
 
 
-def task_claim_chip_drift_summary(conn, limit=50):
+def task_claim_chip_drift_summary(conn, limit=50, since=None):
     """Recent drift_log rows plus aggregate counts, for GET /task_claim/drift
     (app.py) and for a human checking soak status by hand. Mirrors
     divergence_stats()/the /shadow/divergence shape used for the existing
-    experiment-claim shadow audit."""
+    experiment-claim shadow audit.
+
+    `since` (ISO-8601 UTC) restricts the counts AND the rows to ticks at or
+    after that instant, and is what makes the soak's exit criterion actually
+    checkable. WHY IT WAS NEEDED: the totals are CUMULATIVE over all history,
+    so the 64 diverged ticks produced by the pruned-done false positive
+    (2026-08-27T19:03Z onward, see reconcile_task_claims) are permanent. With
+    cumulative counts alone, "N days of diverged_ticks at 0" can never read as
+    satisfied again no matter how clean the mirror becomes -- the historical
+    rows are not wrong and must not be deleted, so the QUESTION has to become
+    windowed instead.
+
+    Judging a 24h window is therefore one call:
+        GET /task_claim/drift?since=<24h-ago>&limit=200
+    and the criterion is `window.diverged_ticks == 0` with a `window
+    .total_ticks` consistent with the 10-minute tick cadence (~144 per day).
+    That second half matters: zero diverged ticks out of two ticks is not
+    evidence of anything, and reporting the window's total alongside is what
+    stops a stalled timer reading as a clean soak.
+
+    The unwindowed `total_ticks`/`diverged_ticks` keys are retained verbatim
+    so every existing reader keeps working.
+    """
     total = conn.execute(
         "SELECT COUNT(*) c FROM task_claim_chip_drift_log").fetchone()["c"]
     diverged = conn.execute(
         "SELECT COUNT(*) c FROM task_claim_chip_drift_log WHERE diverged=1"
     ).fetchone()["c"]
-    rows = conn.execute(
-        "SELECT * FROM task_claim_chip_drift_log ORDER BY id DESC LIMIT ?",
-        (limit,),
-    ).fetchall()
-    return {
+    if since:
+        rows = conn.execute(
+            "SELECT * FROM task_claim_chip_drift_log WHERE checked_at>=? "
+            "ORDER BY id DESC LIMIT ?", (since, limit)).fetchall()
+        w_total = conn.execute(
+            "SELECT COUNT(*) c FROM task_claim_chip_drift_log "
+            "WHERE checked_at>=?", (since,)).fetchone()["c"]
+        w_div = conn.execute(
+            "SELECT COUNT(*) c FROM task_claim_chip_drift_log "
+            "WHERE checked_at>=? AND diverged=1", (since,)).fetchone()["c"]
+    else:
+        rows = conn.execute(
+            "SELECT * FROM task_claim_chip_drift_log ORDER BY id DESC LIMIT ?",
+            (limit,)).fetchall()
+        w_total, w_div = total, diverged
+    out = {
         "total_ticks": total,
         "diverged_ticks": diverged,
         "recent": [dict(r) for r in rows],
     }
+    if since:
+        out["window"] = {
+            "since": since,
+            "total_ticks": w_total,
+            "diverged_ticks": w_div,
+            "clean": w_div == 0,
+        }
+    return out
 
 
 

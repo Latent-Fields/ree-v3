@@ -812,9 +812,16 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError:
                 limit = 50
             limit = max(1, min(limit, 1000))
+            # ?since=<iso> windows the counts. The unwindowed totals are
+            # cumulative and therefore permanently carry the 2026-08-27
+            # pruned-done false positive, so a windowed read is the only way
+            # the soak's exit criterion stays checkable. See
+            # db.task_claim_chip_drift_summary.
+            since = (qs.get("since") or [None])[0]
             conn = db.connect(DB_PATH)
             try:
-                summary = db.task_claim_chip_drift_summary(conn, limit=limit)
+                summary = db.task_claim_chip_drift_summary(
+                    conn, limit=limit, since=since)
             finally:
                 conn.close()
             self._send(200, summary)

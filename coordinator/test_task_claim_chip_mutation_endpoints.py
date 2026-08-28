@@ -11,6 +11,22 @@ Scope: the WIRING -- route table, body parse, status-code mapping, verdict
 passthrough. The verb SEMANTICS are pinned at the db.py layer in
 test_task_claim_chip_mutations.py, and are not re-asserted here.
 
+TIME-INDEPENDENCE, and the trap this file fell into once (2026-08-28).
+The db-layer tests inject `now`; these drive the real HTTP handler, which
+calls db.utcnow() itself, so there is no clock to inject. The first version
+used fixed 2026-08-27 timestamps -- fresh when written, and **silently past
+the 6h staleness threshold a few hours later**, at which point arbitration
+correctly stopped seeing the rival and two tests began failing for a reason
+that had nothing to do with the code under test. A test that passes only on
+the day it was written is worse than no test.
+
+The fix is to pin the ONE clock-dependent input out of the picture: every
+arbitration request below sends an explicit `stale_after_hours`, huge where
+the test is about arbitration and tiny where it is about staleness itself.
+Timestamps are then free to be any fixed value. `test_a_stale_rival_does_not
+_block_over_http` is the negative control proving the staleness path is still
+live rather than merely disabled.
+
 ASCII-only.
 """
 
@@ -31,6 +47,10 @@ sys.path.insert(0, str(HERE))
 
 import app  # noqa: E402
 import db  # noqa: E402
+
+# Large enough that no fixed timestamp below can age past it. The point is
+# to make these tests answer "does arbitration work", not "what time is it".
+NEVER_STALE_HOURS = 24 * 365 * 100
 
 TOKEN = "test-token-mut"
 MACHINE = "ree-cloud-4"
@@ -88,7 +108,8 @@ class TestMutatingEndpoints(unittest.TestCase):
                                 body={"session_id": "http-s1",
                                       "session_label": "l", "task": "t",
                                       "resources": ["http/a.py"],
-                                      "claimed_at": "2026-08-27T20:00:00Z"})
+                                      "claimed_at": "2026-08-27T20:00:00Z",
+                                      "stale_after_hours": NEVER_STALE_HOURS})
         self.assertEqual(status, 200, payload)
         self.assertEqual(payload["verdict"], "ok")
 
@@ -98,7 +119,8 @@ class TestMutatingEndpoints(unittest.TestCase):
                                 body={"session_id": "http-s2",
                                       "session_label": "l", "task": "t",
                                       "resources": ["http/a.py"],
-                                      "claimed_at": "2026-08-27T20:00:01Z"})
+                                      "claimed_at": "2026-08-27T20:00:01Z",
+                                      "stale_after_hours": NEVER_STALE_HOURS})
         self.assertEqual(status, 409, payload)
         self.assertEqual(payload["verdict"], "owned_by_other")
         self.assertEqual(payload["rivals"][0]["session_id"], "http-s1")
@@ -117,7 +139,8 @@ class TestMutatingEndpoints(unittest.TestCase):
                                 body={"session_id": "http-s2",
                                       "session_label": "l", "task": "t",
                                       "resources": ["http/a.py"],
-                                      "claimed_at": "2026-08-27T20:06:00Z"})
+                                      "claimed_at": "2026-08-27T20:06:00Z",
+                                      "stale_after_hours": NEVER_STALE_HOURS})
         self.assertEqual(status, 200, payload)
 
     def test_chip_record_claim_resolve_roundtrip_over_http(self):
@@ -134,13 +157,15 @@ class TestMutatingEndpoints(unittest.TestCase):
         status, payload = _http("POST", self._url("/chip/claim"), token=TOKEN,
                                 body={"chip_ref": ref, "claimed_by": "w1",
                                       "claimed_host": "DLAPTOP",
-                                      "claimed_at": "2026-08-27T20:01:00Z"})
+                                      "claimed_at": "2026-08-27T20:01:00Z",
+                                      "stale_after_hours": NEVER_STALE_HOURS})
         self.assertEqual(status, 200, payload)
 
         status, payload = _http("POST", self._url("/chip/claim"), token=TOKEN,
                                 body={"chip_ref": ref, "claimed_by": "w2",
                                       "claimed_host": "ree-cloud-5",
-                                      "claimed_at": "2026-08-27T20:02:00Z"})
+                                      "claimed_at": "2026-08-27T20:02:00Z",
+                                      "stale_after_hours": NEVER_STALE_HOURS})
         self.assertEqual(status, 409, payload)
         self.assertEqual(payload["claimed_by"], "w1")
 
@@ -157,6 +182,37 @@ class TestMutatingEndpoints(unittest.TestCase):
                                       "note": "again"})
         self.assertEqual(status, 200, payload)
         self.assertFalse(payload["changed"])
+
+    def test_a_stale_rival_does_not_block_over_http(self):
+        """NEGATIVE CONTROL for the NEVER_STALE_HOURS used everywhere above.
+
+        Without this, a bug that disabled staleness entirely would make every
+        other test in this file pass, and the pinning would be indistinguish-
+        able from breaking the feature. Here the threshold is deliberately
+        TINY, so the same fixed timestamps that are 'fresh' above are stale --
+        which is exactly the aging that broke this file on 2026-08-28, now
+        asserted on purpose instead of suffered by accident."""
+        status, payload = _http("POST", self._url("/task_claim/open"),
+                                token=TOKEN,
+                                body={"session_id": "stale-owner",
+                                      "session_label": "l", "task": "t",
+                                      "resources": ["stale/a.py"],
+                                      "claimed_at": "2026-08-27T20:00:00Z",
+                                      "stale_after_hours": NEVER_STALE_HOURS})
+        self.assertEqual(status, 200, payload)
+
+        # Same rival, same timestamps -- only the threshold changes.
+        status, payload = _http("POST", self._url("/task_claim/open"),
+                                token=TOKEN,
+                                body={"session_id": "later-session",
+                                      "session_label": "l", "task": "t",
+                                      "resources": ["stale/a.py"],
+                                      "claimed_at": "2026-08-27T20:00:01Z",
+                                      "stale_after_hours": 0.0001})
+        self.assertEqual(status, 200, payload)
+        self.assertEqual(payload["verdict"], "ok",
+                         "a rival past stale_after_hours must NOT block -- if "
+                         "this 409s, staleness stopped being applied")
 
     def test_a_marker_less_chip_prompt_is_a_400(self):
         status, payload = _http("POST", self._url("/chip/record"), token=TOKEN,

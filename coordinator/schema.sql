@@ -266,12 +266,14 @@ CREATE TABLE IF NOT EXISTS task_claim_chip_drift_log (
     n_claims_db      INTEGER NOT NULL,
     n_claims_new     INTEGER NOT NULL,
     n_claims_updated INTEGER NOT NULL,
-    n_claims_orphan  INTEGER NOT NULL,  -- DB keys absent from git; always 0 if healthy
+    n_claims_orphan  INTEGER NOT NULL,  -- ACTIVE DB keys absent from git; 0 if healthy
+    n_claims_retired INTEGER,           -- `done` keys absent from git: PRUNED, expected, not drift
     n_chips_git      INTEGER NOT NULL,
     n_chips_db       INTEGER NOT NULL,
     n_chips_new      INTEGER NOT NULL,
     n_chips_updated  INTEGER NOT NULL,
     n_chips_orphan   INTEGER NOT NULL,
+    n_chips_retired  INTEGER,           -- always 0: chips are never deleted (D5)
     diverged         INTEGER NOT NULL DEFAULT 0,
     detail           TEXT               -- JSON: {"claim_orphans":[...], "chip_orphans":[...]}
 );
