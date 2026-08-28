@@ -1,5 +1,5 @@
 """
-V3-EXQ-953 -- MECH-135/INV-088 E1 forward-model horizon sweep + one-step
+V3-EXQ-954 -- MECH-135/INV-088 E1 forward-model horizon sweep + one-step
 per-action divergence probe
 
 Claims: MECH-135, INV-088
@@ -164,7 +164,7 @@ from experiments._lib.zworld_encoder_guard import (
 )
 
 
-EXPERIMENT_TYPE = "v3_exq_953_mech135_inv088_e1_horizon_sweep_action_divergence_probe"
+EXPERIMENT_TYPE = "v3_exq_954_mech135_inv088_e1_horizon_sweep_action_divergence_probe"
 CLAIM_IDS = ["MECH-135", "INV-088"]
 EXPERIMENT_PURPOSE = "diagnostic"
 SUPERSEDES = None
@@ -251,12 +251,12 @@ def _run_zworld_p0_warmup(
     warmup_env = CausalGridWorldV2(seed=seed, **_env_kwargs())
     p0a_report = run_zworld_p0(
         agent, warmup_env, seed, zworld_p0_episodes, steps_per_episode,
-        policy=RandomPolicy(seed), label="v3_exq_953 P0a (SD-070 z_world encoder)",
+        policy=RandomPolicy(seed), label="v3_exq_954 P0a (SD-070 z_world encoder)",
         dry_run=dry_run,
     )
     encoder_report = assert_world_encoder_trained(
         agent, before, p0=zworld_p0_episodes, strict=False,
-        context="v3_exq_953_mech135_inv088_e1_horizon_sweep_action_divergence_probe",
+        context="v3_exq_954_mech135_inv088_e1_horizon_sweep_action_divergence_probe",
         escape_hint="pass zworld_p0_episodes=0 for a deliberate frozen-encoder run",
     )
     return {**p0a_report, **encoder_report}
@@ -610,13 +610,13 @@ def run_seed(
     checkpoints: List[int],
     dry_run: bool = False,
 ) -> Dict[str, Any]:
-    print(f"\n[EXQ-953] seed={seed}", flush=True)
+    print(f"\n[EXQ-954] seed={seed}", flush=True)
     print(f"Seed {seed} Condition single", flush=True)
 
     agent, env = _build_agent(seed, world_dim, self_dim)
 
     # Phase 0a: SD-070 sanctioned encoder warmup (unchanged from 108b)
-    print(f"[EXQ-953] Phase 0a: SD-070 z_world encoder warmup ({zworld_p0_episodes} eps)...", flush=True)
+    print(f"[EXQ-954] Phase 0a: SD-070 z_world encoder warmup ({zworld_p0_episodes} eps)...", flush=True)
     readiness_report = _run_zworld_p0_warmup(
         agent, seed, zworld_p0_episodes, steps_per_episode, dry_run=dry_run,
     )
@@ -627,11 +627,11 @@ def run_seed(
     )
 
     # Phase 0b: bespoke E1/E2 single-step training (unchanged from 108b)
-    print(f"[EXQ-953] Phase 0b: training E1/E2 ({n_train_episodes} eps)...", flush=True)
+    print(f"[EXQ-954] Phase 0b: training E1/E2 ({n_train_episodes} eps)...", flush=True)
     _train_agent(agent, env, seed, n_train_episodes, steps_per_episode)
 
     # Phase 1: goal template (unchanged from 108b)
-    print("[EXQ-953] Phase 1: goal template...", flush=True)
+    print("[EXQ-954] Phase 1: goal template...", flush=True)
     z_goal_tensor, goal_template_source = _collect_goal_template(agent, env, seed, goal_max_steps)
     goal_config = GoalConfig(goal_dim=world_dim, z_goal_enabled=True, goal_weight=1.0)
     goal_state = GoalState(goal_config, agent.device)
@@ -639,17 +639,17 @@ def run_seed(
     print(f"  z_goal_norm={goal_state.goal_norm():.4f} source={goal_template_source}", flush=True)
 
     # Phase 2: warmup state (unchanged from 108b)
-    print("[EXQ-953] Phase 2: warmup state...", flush=True)
+    print("[EXQ-954] Phase 2: warmup state...", flush=True)
     z_self_0, z_world_0, warmup_actions = _get_warmup_state(agent, env, seed, n_warmup_steps)
     base_prox = float(goal_state.goal_proximity(z_world_0).item())
     print(f"  base_prox={base_prox:.4f}", flush=True)
 
     # Phase 3: candidate sequences (unchanged from 108b)
-    print(f"[EXQ-953] Phase 3: generating {n_sequences} candidate sequences...", flush=True)
+    print(f"[EXQ-954] Phase 3: generating {n_sequences} candidate sequences...", flush=True)
     seqs = _generate_candidate_sequences(n_sequences, rollout_horizon, env.action_dim, seed)
 
     # Phase 4: score sequences, capturing every horizon checkpoint
-    print(f"[EXQ-953] Phase 4: scoring sequences at horizons {checkpoints}...", flush=True)
+    print(f"[EXQ-954] Phase 4: scoring sequences at horizons {checkpoints}...", flush=True)
     scores_by_h: Dict[int, List[float]] = {h: [] for h in checkpoints}
     endpoints_by_h: Dict[int, List[torch.Tensor]] = {h: [] for h in checkpoints}
 
@@ -677,7 +677,7 @@ def run_seed(
         )
 
     # Phase 4b: real z_world sample at every horizon checkpoint
-    print(f"[EXQ-953] Phase 4b: sampling {n_real_samples} real trajectories at horizons {checkpoints}...", flush=True)
+    print(f"[EXQ-954] Phase 4b: sampling {n_real_samples} real trajectories at horizons {checkpoints}...", flush=True)
     real_samples_by_h = _collect_real_zworld_sample_multi_horizon(
         agent, env, seed, n_real_samples, checkpoints,
     )
@@ -699,7 +699,7 @@ def run_seed(
         )
 
     # Phase 4c: one-step per-action divergence probe
-    print("[EXQ-953] Phase 4c: one-step per-action divergence probe...", flush=True)
+    print("[EXQ-954] Phase 4c: one-step per-action divergence probe...", flush=True)
     action_probe = _one_step_action_divergence(agent, z_self_0, z_world_0, self_dim)
     cr_real_h1 = cr_real_by_h.get(1, {}).get("contrast_ratio", float("nan"))
     action_cr = action_probe["contrast_ratio"]["contrast_ratio"]
@@ -803,12 +803,19 @@ def run(
             "kind": "readiness",
             "description": (
                 "At least one split_encoder.world_encoder tensor moved during the "
-                "Phase 0a SD-070 warmup, per every seed -- unchanged precondition "
-                "from V3-EXQ-108b."
+                "Phase 0a SD-070 warmup, per every seed. The underlying guard "
+                "(zworld_encoder_guard.latent_stack_weight_delta) tests "
+                "delta > 0.0 (strict), so the recomputable floor here MUST use "
+                "an exclusive comparator -- a >= 0.0 floor on a manifestly "
+                "non-negative abs-delta can never fail regardless of what "
+                "actually happened (validate_experiments.py's "
+                "precondition_recomputability check; V3-EXQ-108b carried this "
+                "exact defect unfixed -- fixed here, not propagated)."
             ),
             "measured": min_encoder_delta,
             "threshold": 0.0,
             "direction": "lower",
+            "comparator": ">",
             "met": p_encoder_trained_met,
         },
         {
@@ -887,8 +894,8 @@ def run(
             evidence_direction = "non_contributory"
             evidence_direction_per_claim = {"MECH-135": "non_contributory", "INV-088": "non_contributory"}
 
-    print(f"\n[EXQ-953] Label: {label}", flush=True)
-    print(f"[EXQ-953] Status: {status}", flush=True)
+    print(f"\n[EXQ-954] Label: {label}", flush=True)
+    print(f"[EXQ-954] Status: {status}", flush=True)
 
     criteria = [
         {
@@ -963,7 +970,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(
         description=(
-            "V3-EXQ-953: E1 forward-model horizon sweep + one-step per-action "
+            "V3-EXQ-954: E1 forward-model horizon sweep + one-step per-action "
             "divergence probe (MECH-135/INV-088 diagnostic)"
         )
     )
@@ -993,7 +1000,7 @@ if __name__ == "__main__":
         zworld_p0 = 3
         n_real = 15  # > MIN_REAL_SAMPLES_PER_HORIZON so the smoke exercises the label branch too
         seeds = seeds[:1]
-        print("[V3-EXQ-953] SMOKE TEST MODE", flush=True)
+        print("[V3-EXQ-954] SMOKE TEST MODE", flush=True)
     else:
         n_train = args.train_episodes
         steps_ep = args.steps_per_episode
@@ -1061,7 +1068,7 @@ if __name__ == "__main__":
     print(f"Label: {result['interpretation']['label']}", flush=True)
 
     if args.dry_run:
-        print("[V3-EXQ-953] SMOKE TEST COMPLETE", flush=True)
+        print("[V3-EXQ-954] SMOKE TEST COMPLETE", flush=True)
         for k in ["status", "non_degenerate", "degeneracy_reason"]:
             print(f"  {k}: {result.get(k, 'N/A')}", flush=True)
         print(f"  label: {result['interpretation']['label']}", flush=True)
