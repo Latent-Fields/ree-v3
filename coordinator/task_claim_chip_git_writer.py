@@ -171,6 +171,17 @@ def render_task_claims(conn, source_doc=None, now_iso=None):
     convention). Top-level metadata is carried over from `source_doc`
     (the file as read from origin this tick) so the materializer never
     invents values; defaults cover a missing/first-run source.
+
+    Returns (text, stats, snapshots) where snapshots is a list of
+    (session_id, claimed_at, entry_json) for every RENDERED row, with
+    entry_json captured VERBATIM from the row (never re-serialised --
+    entry_json key order is the D15 byte-equality contract). The caller
+    writes these to last_rendered_json once the render provably reached
+    git (push succeeded, or the file already matched) -- the 3-way-merge
+    base upsert_task_claim reads. Capturing at render time (not writeback
+    time) matters: a DB mutation racing between render and writeback must
+    leave base = what git actually holds, so the next ingest sees
+    git==base, DB-newer, and preserves the mutation.
     """
     now_epoch = _now_epoch(now_iso)
     cutoff = now_epoch - RETAIN_HOURS * 3600.0
@@ -195,9 +206,12 @@ def render_task_claims(conn, source_doc=None, now_iso=None):
                              "for claim row; skipping\n")
             continue
         key = (row["session_id"], row["claimed_at"])
-        kept.append((order.get(key, len(order) + row["rowid"]), entry))
-    kept.sort(key=lambda pair: pair[0])
-    entries = [entry for _, entry in kept]
+        kept.append((order.get(key, len(order) + row["rowid"]), entry,
+                     (row["session_id"], row["claimed_at"],
+                      row["entry_json"])))
+    kept.sort(key=lambda triple: triple[0])
+    entries = [entry for _, entry, _snap in kept]
+    snapshots = [snap for _, _entry, snap in kept]
     source_doc = source_doc or {}
     doc = {
         "claims": entries,
@@ -205,13 +219,18 @@ def render_task_claims(conn, source_doc=None, now_iso=None):
         "stale_after_hours": source_doc.get("stale_after_hours", 6),
     }
     return json.dumps(doc, indent=2) + "\n", {
-        "n_rendered": len(entries), "n_retention_dropped": n_dropped}
+        "n_rendered": len(entries),
+        "n_retention_dropped": n_dropped}, snapshots
 
 
 def render_chips(conn, source_doc=None):
     """Render TASK_CHIPS.json's full text from the DB. Every row renders
     -- chips are never deleted (D5); archiving strips fields in place and
-    the stripped state is already reflected in entry_json."""
+    the stripped state is already reflected in entry_json.
+
+    Returns (text, stats, snapshots); snapshots is [(chip_ref, entry_json)]
+    for every rendered row, verbatim -- same 3-way-merge-base contract as
+    render_task_claims (see its docstring)."""
     order = _source_order(source_doc, "chips", lambda e: e.get("chip_ref"))
     kept = []
     rows = conn.execute(
@@ -225,15 +244,17 @@ def render_chips(conn, source_doc=None):
                              "for chip row; skipping\n")
             continue
         kept.append((order.get(row["chip_ref"], len(order) + row["rowid"]),
-                     entry))
-    kept.sort(key=lambda pair: pair[0])
-    entries = [entry for _, entry in kept]
+                     entry, (row["chip_ref"], row["entry_json"])))
+    kept.sort(key=lambda triple: triple[0])
+    entries = [entry for _, entry, _snap in kept]
+    snapshots = [snap for _, _entry, snap in kept]
     source_doc = source_doc or {}
     doc = {
         "schema_version": source_doc.get("schema_version", "task_chips/v1"),
         "chips": entries,
     }
-    return json.dumps(doc, indent=2) + "\n", {"n_rendered": len(entries)}
+    return (json.dumps(doc, indent=2) + "\n",
+            {"n_rendered": len(entries)}, snapshots)
 
 
 def ingest(conn, claims_doc, chips_doc):
@@ -251,6 +272,33 @@ def ingest(conn, claims_doc, chips_doc):
         conn.execute("ROLLBACK")
         raise
     return claim_stats, chip_stats
+
+
+def _writeback_rendered_base(conn, claim_snapshots, chip_snapshots):
+    """Record the render base: set last_rendered_json to the CAPTURED
+    render-time blobs for the rendered rows. Call only once the rendered
+    text provably IS what git holds -- push succeeded, or the file already
+    byte-matched the render (safe in check mode too: matching text proves
+    git holds exactly those blobs). See render_task_claims's docstring for
+    why the captured blobs (not current entry_json) are written."""
+    if not claim_snapshots and not chip_snapshots:
+        return
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        if claim_snapshots:
+            conn.executemany(
+                "UPDATE task_claims SET last_rendered_json=? "
+                "WHERE session_id=? AND claimed_at=?",
+                [(blob, sid, cat) for (sid, cat, blob) in claim_snapshots])
+        if chip_snapshots:
+            conn.executemany(
+                "UPDATE chip_ledger SET last_rendered_json=? "
+                "WHERE chip_ref=?",
+                [(blob, ref) for (ref, blob) in chip_snapshots])
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
 
 
 def _texts_match(source_text, rendered_text):
@@ -311,12 +359,19 @@ def materialize_once(conn, repo_path, branch=None, mode=None, now_iso=None,
             chips_doc = None
 
         ingest(conn, claims_doc, chips_doc)
-        claims_render, claims_stats = render_task_claims(
+        claims_render, claims_stats, claims_snaps = render_task_claims(
             conn, source_doc=claims_doc, now_iso=now_iso)
-        chips_render, chips_stats = render_chips(conn, source_doc=chips_doc)
+        chips_render, chips_stats, chips_snaps = render_chips(
+            conn, source_doc=chips_doc)
 
         claims_match = _texts_match(claims_text, claims_render)
         chips_match = _texts_match(chips_text, chips_render)
+        # Record the render base for any file whose render already matches
+        # git -- the matching text proves git holds exactly those blobs, so
+        # this is safe in check mode as well as write mode.
+        _writeback_rendered_base(conn,
+                                 claims_snaps if claims_match else (),
+                                 chips_snaps if chips_match else ())
         result = {
             "source_ref": sha,
             "mode": mode,
@@ -371,6 +426,12 @@ def materialize_once(conn, repo_path, branch=None, mode=None, now_iso=None,
             return result
         if push.returncode == 0:
             result["committed"] = True
+            # The pushed renders are now exactly what git holds: record the
+            # render base for the files that were just written (the matched
+            # ones were already recorded above).
+            _writeback_rendered_base(conn,
+                                     () if claims_match else claims_snaps,
+                                     () if chips_match else chips_snaps)
             return result
         sys.stderr.write("[registry-writer] push rejected (attempt %d/%d); "
                          "re-running tick\n"

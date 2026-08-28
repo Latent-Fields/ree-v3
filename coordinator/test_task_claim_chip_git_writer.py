@@ -234,7 +234,7 @@ class TestRetention(_Fixture):
         self.assertEqual(result["claims"]["n_rendered"], 2)
         self.assertEqual(result["claims_delta"], {"added": 0, "dropped": 1})
         # And the render equals the source doc minus exactly that entry.
-        claims_render, _ = writer.render_task_claims(
+        claims_render, _, _snaps = writer.render_task_claims(
             self._conn, source_doc=self.CLAIMS, now_iso=NOW)
         expect = dict(self.CLAIMS)
         expect["claims"] = [e for e in self.CLAIMS["claims"]
@@ -287,7 +287,7 @@ class TestCoordinatorMutatedRows(_Fixture):
             self._conn, "s-coord", "coord label", "coord task",
             ["x.json"], claimed_at="2026-08-28T11:45:00Z")
         self.assertEqual(verdict, "ok")
-        claims_render, stats = writer.render_task_claims(
+        claims_render, stats, _snaps = writer.render_task_claims(
             self._conn,
             source_doc=json.loads(self._origin_text(writer.CLAIMS_REL_PATH)),
             now_iso=NOW)

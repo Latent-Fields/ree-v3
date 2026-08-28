@@ -196,6 +196,7 @@ def _migrate_task_claim_chip_tables(conn):
             completion_note_history_json TEXT,
             spawned_by                   TEXT,
             entry_json                   TEXT NOT NULL,
+            last_rendered_json           TEXT,
             updated_at                   TEXT NOT NULL,
             PRIMARY KEY (session_id, claimed_at)
         )
@@ -256,6 +257,7 @@ def _migrate_task_claim_chip_tables(conn):
             resolution_note_history_json TEXT,
             confirmer_verdict_json       TEXT,
             entry_json                   TEXT NOT NULL,
+            last_rendered_json           TEXT,
             updated_at                   TEXT NOT NULL
         )
         """
@@ -298,8 +300,23 @@ def _migrate_task_claim_chip_tables(conn):
         """
     )
     # Additive columns (2026-08-28), guarded by the PRAGMA table_info
-    # convention this module uses everywhere -- never a table rebuild, so
-    # existing soak rows keep their history and simply carry NULL here.
+    # convention this module uses everywhere -- never a table rebuild.
+    #
+    # last_rendered_json is the 3-way-merge BASE for the PHASE-2b ingest
+    # authority fix: the materializer records, per row, the exact entry_json
+    # blob it last rendered into git (and verified/pushed there), so
+    # upsert_task_claim/upsert_chip can tell "git unchanged since our render,
+    # the DB moved" (preserve the DB) apart from "git moved" (adopt git).
+    # NULL = pre-migration / never rendered; both upserts then fall back to
+    # the terminal-status conflict guard. The coordinator daemon never reads
+    # these columns, so deploy is a git pull -- the writer/shadow-sync are
+    # fresh processes per timer tick and run this migration via connect().
+    for table in ("task_claims", "chip_ledger"):
+        tcols = {r[1] for r in conn.execute(
+            "PRAGMA table_info(%s)" % table).fetchall()}
+        if tcols and "last_rendered_json" not in tcols:
+            conn.execute("ALTER TABLE %s ADD COLUMN last_rendered_json TEXT"
+                         % table)
     cols = {r[1] for r in conn.execute(
         "PRAGMA table_info(task_claim_chip_drift_log)").fetchall()}
     if "n_claims_retired" not in cols:
@@ -320,15 +337,41 @@ def _migrate_task_claim_chip_tables(conn):
 
 def upsert_task_claim(conn, claim, now=None):
     """Insert/refresh one TASK_CLAIMS.json claims[] entry into the mirror,
-    plus its `resources` child rows. Read-only mirror: git is the source of
-    truth (PHASE-1 shadow), so this always overwrites with the git content --
-    there is no "preserve existing" branch the way upsert_experiment has for
-    coordinator claim-cutover mode, because Phase 2 (where the DB itself
-    becomes writable) has not been built yet.
+    plus its `resources` child rows.
+
+    PHASE-2b AUTHORITY (2026-08-28): this is no longer an unconditional
+    git-wins overwrite. Under PHASE-1 shadow semantics git was the source of
+    truth and this function always adopted the git content; after the
+    PHASE-2b cutover the DB is authoritative for coordinator-acked mutations,
+    and the old overwrite silently REVERTED any close/renew/amend that landed
+    in the DB after the row was last rendered into git (the ingest-clobber
+    defect, root-caused live 2026-08-28: a suppressed-git-write close was
+    acked, persisted, then clobbered back to active by the next materializer
+    ingest of the still-active git row). The fix is a 3-way merge against the
+    recorded render base (last_rendered_json, written by the materializer
+    after a render provably reached git):
+
+      row is None                     -> INSERT (bootstrap + git-fallback
+                                         writers -- unchanged).
+      row.entry_json == incoming      -> unchanged no-op (as before).
+      base set and incoming == base   -> SKIP: git has not moved since our
+                                         render, so the difference is a
+                                         DB-side mutation. Preserve the DB.
+      base set and row.entry_json ==
+        base                          -> ADOPT git: only git moved (a client
+                                         git-path/fallback write). This is
+                                         the proven self-healing direction
+                                         and must be kept.
+      else (base NULL [pre-migration]
+        or both moved)                -> conflict guard: never downgrade a
+                                         terminal DB row ('done') to a
+                                         non-terminal git one; otherwise
+                                         adopt git.
 
     Returns (created, changed): created=True on a brand-new
     (session_id, claimed_at) key; changed=True when the stored entry_json
-    differs from what is already mirrored (created implies changed).
+    differs from what is already mirrored (created implies changed). A
+    merge SKIP returns (False, False) and writes nothing.
     """
     now = now or utcnow()
     session_id = claim["session_id"]
@@ -344,11 +387,26 @@ def upsert_task_claim(conn, claim, now=None):
     # n_updated blip; `diverged` counts only orphans and is unaffected).
     entry_json = json.dumps(claim)
     existing = conn.execute(
-        "SELECT entry_json FROM task_claims WHERE session_id=? AND claimed_at=?",
+        "SELECT entry_json, last_rendered_json, status FROM task_claims "
+        "WHERE session_id=? AND claimed_at=?",
         (session_id, claimed_at),
     ).fetchone()
     created = existing is None
     changed = created or existing["entry_json"] != entry_json
+    if not created and existing["entry_json"] != entry_json:
+        base = existing["last_rendered_json"]
+        if base is not None and entry_json == base:
+            # git unchanged since our render; the DB moved. Preserve it.
+            return (False, False)
+        if base is not None and existing["entry_json"] == base:
+            pass  # only git moved -> adopt git below.
+        else:
+            # base unknown (pre-migration) or both sides moved: never
+            # downgrade a terminal DB row to a non-terminal git one.
+            db_status = existing["status"] or "active"
+            git_status = claim.get("status") or "active"
+            if db_status == "done" and git_status != "done":
+                return (False, False)
     history = claim.get("completion_note_history")
     conn.execute(
         """
@@ -405,23 +463,42 @@ def upsert_task_claim(conn, claim, now=None):
 
 def upsert_chip(conn, chip, now=None):
     """Insert/refresh one TASK_CHIPS.json chips[] entry into the mirror.
-    Same read-only-mirror semantics as upsert_task_claim: git content always
-    wins. origin_host/claimed_host are canonicalised via
-    machine_identity.canonical_machine_name() for logic, mirroring D6 /
-    app.py's existing machine_raw-vs-_canon(machine) split; the *_raw
-    columns keep exactly what the JSON reported, for audit.
+    Same PHASE-2b 3-way-merge semantics as upsert_task_claim (see its
+    docstring for the full rule and the 2026-08-28 ingest-clobber incident
+    that motivated it): a DB-side resolve/claim on a row git still carries
+    in its pre-mutation state is PRESERVED when git matches the recorded
+    render base; a git-path write is still adopted. Terminal guard here is
+    CHIP_TERMINAL_STATUSES (done/withdrawn). origin_host/claimed_host are
+    canonicalised via machine_identity.canonical_machine_name() for logic,
+    mirroring D6 / app.py's existing machine_raw-vs-_canon(machine) split;
+    the *_raw columns keep exactly what the JSON reported, for audit.
 
-    Returns (created, changed), same contract as upsert_task_claim.
+    Returns (created, changed), same contract as upsert_task_claim. A merge
+    SKIP returns (False, False) and writes nothing.
     """
     now = now or utcnow()
     chip_ref = chip["chip_ref"]
     # Verbatim key order -- see upsert_task_claim for why (D15 byte-equality).
     entry_json = json.dumps(chip)
     existing = conn.execute(
-        "SELECT entry_json FROM chip_ledger WHERE chip_ref=?", (chip_ref,)
+        "SELECT entry_json, last_rendered_json, status FROM chip_ledger "
+        "WHERE chip_ref=?", (chip_ref,)
     ).fetchone()
     created = existing is None
     changed = created or existing["entry_json"] != entry_json
+    if not created and existing["entry_json"] != entry_json:
+        base = existing["last_rendered_json"]
+        if base is not None and entry_json == base:
+            # git unchanged since our render; the DB moved. Preserve it.
+            return (False, False)
+        if base is not None and existing["entry_json"] == base:
+            pass  # only git moved -> adopt git below.
+        else:
+            db_status = existing["status"] or "open"
+            git_status = chip.get("status") or "open"
+            if (db_status in CHIP_TERMINAL_STATUSES
+                    and git_status not in CHIP_TERMINAL_STATUSES):
+                return (False, False)
 
     def _jd(key):
         val = chip.get(key)
