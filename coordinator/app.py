@@ -770,6 +770,8 @@ class Handler(BaseHTTPRequestHandler):
             qs = parse_qs(urlparse(self.path).query)
             status = (qs.get("status") or [None])[0]
             origin = (qs.get("origin") or [None])[0]
+            chip_ref = (qs.get("chip_ref") or [None])[0]
+            task_id = (qs.get("task_id") or [None])[0]
             try:
                 limit = int((qs.get("limit") or ["500"])[0])
             except ValueError:
@@ -783,6 +785,16 @@ class Handler(BaseHTTPRequestHandler):
             if origin:
                 clauses.append("origin=?")
                 params.append(origin)
+            # Exact-match lookups for the suppressed-record lag window: a chip
+            # recorded with the git write suppressed exists only in this DB
+            # until the hub materializer renders it, so same-session verbs
+            # (resolve/claim) need a direct fetch by identity.
+            if chip_ref:
+                clauses.append("chip_ref=?")
+                params.append(chip_ref)
+            if task_id:
+                clauses.append("task_id=?")
+                params.append(task_id)
             where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
             conn = db.connect(DB_PATH)
             try:
