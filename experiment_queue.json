@@ -6,30 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-862b",
-      "title": "Q-040c dACC PE-weight delta correlation, z_harm_a-calibrated V_s gate threshold (supersedes V3-EXQ-862a)",
-      "script": "experiments/v3_exq_862b_q040c_dacc_pe_weight_delta_correlation.py",
-      "priority": 45,
-      "machine_affinity": "any",
-      "estimated_minutes": 550,
-      "supersedes": "V3-EXQ-862a",
-      "note": "Third letter on Q-040.c. Confirmed failure_autopsy_dacc-cluster-862a-870a_2026-08-03: 862a fixed both prior config bugs (475b's z_harm_a wiring, 862's dacc_weight=0 consumer gain) and its own P1/P2 preconditions PASSed, but the ON/OFF manipulation ITSELF never engaged -- code-verified vs_gate_held_e1/e2_z_harm_a=0 across all 3 ARM_vs_on seeds (0/128, 0/200, 0/10 refreshes). ROOT CAUSE: a single GLOBAL gate threshold (vs_gate_e1/e2_threshold=0.85) borrowed verbatim from V3-EXQ-490b, calibrated for a DIFFERENT target stream; z_harm_a's own V_s never dips below 0.85 in this harness, so the ON arm's held-budget landed almost entirely on z_beta (a stream this DV's PE computation, dacc.py:211-214, does not read) instead. pe_series/bias_magnitude_series were bit-identical between ARM_vs_on and ARM_vs_off per seed -- a manipulation-check failure, not a substantive null result. FIX (this session): empirically measured z_harm_a's own per_stream_vs distribution directly (ad hoc calibration probe, ARM_vs_on-equivalent config, 3 seeds x 15 warmup + 5 eval episodes x 100 steps, not committed -- n=1192 pooled ticks: min=0.9892 p5=0.9932 p25=0.9961 median=0.9983 p75=0.9997 p95=1.0000 max=1.0000), confirming the autopsy's read exactly (a tight, near-ceiling band nowhere near 0.85). Set Z_HARM_A_E1/E2_THRESHOLD=0.995 (between p5 and p25, ~15-20% of ticks fall below -> genuine non-degenerate holds without saturating to 'always held') via the gate's own per-stream override dicts (VsRolloutGate.config.e1_threshold_per_stream/e2_threshold_per_stream) -- confirmed by reading ree_core/agent.py:2549-2579 that these dicts are NOT wired from HippocampalConfig at agent-construction time (the autopsy's routing text names 'hc.e1_threshold_per_stream' but that field does not exist there); the only live wiring path is setting them directly on agent.vs_rollout_gate.config immediately after REEAgent(cfg) construction -- _apply_z_harm_a_gate_calibration() does this, called in both the preflight probe and every seed x arm cell. Also raised VS_GATE_SNAPSHOT_REFRESH_THRESHOLD 0.95->0.999 (above the new gate threshold, restoring the gate's documented Schmitt-trigger dead-band invariant for z_harm_a specifically -- otherwise the snapshot would refresh on essentially every tick, making held substitutions content-identical to current values). NEW preflight gate PreflightVsGateZHarmANotHeld: raises if the pilot rollout (unchanged 20-step scale) observes dACC firing with nonzero bias (both 862a's preflight checks still pass) but vs_gate_held_e1_z_harm_a + vs_gate_held_e2_z_harm_a == 0 -- exactly 862a's failure mode, invisible to its own two preflight gates since neither depends on which stream the V_s gate happens to hold. evaluate_q040c() adds a stream-specific P1' precondition (on_z_harm_a_gate_fired_seeds >= 2/3) that is now the OPERATIVE gating check, replacing 862a's aggregate P1 (six-stream 'any held' -- retained as p1_gate_firing_pass, informational only, since it is precisely what false-positived in 862a). Everything else (Spearman-rho DV, seeds 42/7/19, 2-arm structure, acceptance thresholds CORR_DETECT_THRESH=0.3/CORR_NULL_THRESH=0.15) unchanged from 862a. Verified this session: preflight pilot (seed 42, ARM_vs_on) measured n_dacc_fires=7, peak_bias_magnitude=169.59, held_e1_z_harm_a=3, held_e2_z_harm_a=3 (was 0/0 under 862a's threshold). --dry-run (1 seed x 2 arms, 40 steps): both cells complete, verdict PASS x2, vs_gate_held_z_harm_a_per_cell=[0, 27] (OFF arm 0 as expected -- gate disabled; ON arm 27, confirming the manipulation now genuinely touches z_harm_a), correctly self-routes substrate_not_ready_requeue at 1-seed smoke scale (P1'/P2 both require >=2/3 of 3 seeds) -- expected, matching 862a's own dry-run behaviour, not a defect. GOV-REUSE-1: reanalysis_query.py-equivalent check -- 475b (n_dacc_fires=0 everywhere) and 862a (dACC engaged but vs_gate_held_e1/e2_z_harm_a=0 everywhere) are the only two prior manifests reading this DV; neither satisfies the new P1' precondition, so neither is a usable prior reading. Not recoverable -> proceed to author. Re-derive brake: 0 prior substrate_ceiling autopsies tag Q-040 -- does not fire; three consecutive non_contributory reads (475b/862/862a), no weakened reading, is instrumentation debt per the autopsy's own granularity-debt recurrence check, not a signal the claim needs splitting. GFLAG-0092 raised (evidence_discrepancy, Q-040): once this run lands, mark 862a's manifest evidence_direction=superseded. validate_experiments.py --strict: OK, 1 script checked, 0 non-conforming, 0 warnings across every registered lint.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-08-28T20:47:49Z"
-      },
-      "architecture_epoch": "ree_hybrid_guardrails_v1",
-      "claim_ids": [
-        "Q-040"
-      ],
-      "conditions": 2,
-      "episodes_per_run": 60,
-      "experiment_purpose": "evidence",
-      "experiment_type": "v3_exq_862b_q040c_dacc_pe_weight_delta_correlation",
-      "seeds": 3
-    }
-  ]
+  "items": []
 }
