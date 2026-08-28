@@ -1,0 +1,61 @@
+# ree-task-claim-chip-git-writer -- systemd unit template (PHASE-2b DB->git
+# materializer for TASK_CLAIMS.json/TASK_CHIPS.json).
+#
+# Reference copy, synced by hand from the live file on the box it runs on --
+# same convention as ree-task-claim-chip-shadow-sync.service in this
+# directory.
+#
+# WHAT THIS DOES: runs task_claim_chip_git_writer.py's main() ONCE per
+# invocation (Type=oneshot; the paired .timer owns pacing). Each tick
+# ingests origin/master's TASK_CLAIMS.json/TASK_CHIPS.json into the
+# coordinator DB (closing the fallback-commit race), renders both files
+# from the DB's lossless entry_json blobs (D14 retention at render, D15
+# byte-equality), and -- in write mode only -- commits + pushes when the
+# rendered content differs from origin. Commit-on-state-change only. See
+# the module's own docstring and
+# REE_assembly/evidence/planning/task_claim_chip_coordinator_migration_plan.md
+# (PHASE-2 node) for the full design.
+#
+# MODE IS THE GO-LIVE LEVER. REGISTRY_WRITER_MODE=check (the deployment
+# default below) renders + compares + reports and NEVER writes -- that is
+# the soak. Flip to REGISTRY_WRITER_MODE=write only as part of the
+# explicit PHASE-2 go-live decision (which also flips the clients'
+# TASK_CLAIM_COORDINATION_MODE); do not flip it casually.
+#
+# Installation (on the coordinator hub, as the `ree` user with sudo):
+#   1. Provision a WRITABLE clone of the umbrella repo, DEDICATED to this
+#      writer (nothing else may edit it -- the writer resets it hard to
+#      origin each write tick):
+#        git clone https://github.com/Latent-Fields/REE_Working.git \
+#          /home/ree/REE_Working_registry_writer
+#        git -C /home/ree/REE_Working_registry_writer config \
+#          user.name  "REE Automation (Hub)"
+#        git -C /home/ree/REE_Working_registry_writer config \
+#          user.email "nooarche@users.noreply.github.com"
+#      (Push credentials: the hub's existing ~/.git-credentials already
+#      covers github.com pushes for the phase3 writers.)
+#   2. sudo cp ree-task-claim-chip-git-writer.service \
+#           ree-task-claim-chip-git-writer.timer /etc/systemd/system/
+#      sudo systemctl daemon-reload
+#      sudo systemctl enable --now ree-task-claim-chip-git-writer.timer
+#
+# Logs: journalctl -u ree-task-claim-chip-git-writer -f
+
+[Unit]
+Description=REE TASK_CLAIMS/TASK_CHIPS DB->git materializer (PHASE-2b)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ree
+WorkingDirectory=/home/ree/REE_Working/ree-v3/coordinator
+EnvironmentFile=/etc/ree-coordinator.env
+Environment=REGISTRY_WRITER_REPO_PATH=/home/ree/REE_Working_registry_writer
+Environment=REGISTRY_WRITER_BRANCH=master
+Environment=REGISTRY_WRITER_MODE=check
+ExecStart=/usr/bin/python3 task_claim_chip_git_writer.py
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ree-task-claim-chip-git-writer
+TimeoutStartSec=180

@@ -1,0 +1,22 @@
+# Paces ree-task-claim-chip-git-writer.service every 2 minutes. Reference
+# copy -- see ree-task-claim-chip-git-writer.service's header for the sync
+# convention and install steps.
+#
+# 2 minutes: faster than the 10-minute shadow-sync because, post-cutover,
+# this writer is what makes a coordinator-side claim/chip VISIBLE in git
+# (the /workset panel, audit_stale_claims.py, every other session's local
+# read all consume the materialized file). Arbitration correctness does
+# not depend on this cadence -- the coordinator is the authority at open
+# time -- so 2 minutes is a visibility lag, not a race window. Commits are
+# state-change-only, so a faster tick costs fetches, not history bloat.
+
+[Unit]
+Description=Run ree-task-claim-chip-git-writer every 2 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+AccuracySec=15s
+
+[Install]
+WantedBy=timers.target

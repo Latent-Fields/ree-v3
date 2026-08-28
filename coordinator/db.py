@@ -333,7 +333,16 @@ def upsert_task_claim(conn, claim, now=None):
     now = now or utcnow()
     session_id = claim["session_id"]
     claimed_at = claim["claimed_at"]
-    entry_json = json.dumps(claim, sort_keys=True)
+    # VERBATIM key order, deliberately NOT sort_keys=True (changed 2026-08-28
+    # for PHASE-2b): entry_json is what the DB->git materializer renders back
+    # into TASK_CLAIMS.json, and D15 (plan doc 5.2.7) requires byte-equality
+    # with the file the clients write -- whose per-entry key order is the
+    # client's construction order, not alphabetical. json.load preserves file
+    # order into this dict, so a plain dumps preserves it into the blob. The
+    # reconciler overwrites entry_json from git every tick, so pre-change
+    # sorted blobs self-heal on the first tick after this lands (a one-tick
+    # n_updated blip; `diverged` counts only orphans and is unaffected).
+    entry_json = json.dumps(claim)
     existing = conn.execute(
         "SELECT entry_json FROM task_claims WHERE session_id=? AND claimed_at=?",
         (session_id, claimed_at),
@@ -406,7 +415,8 @@ def upsert_chip(conn, chip, now=None):
     """
     now = now or utcnow()
     chip_ref = chip["chip_ref"]
-    entry_json = json.dumps(chip, sort_keys=True)
+    # Verbatim key order -- see upsert_task_claim for why (D15 byte-equality).
+    entry_json = json.dumps(chip)
     existing = conn.execute(
         "SELECT entry_json FROM chip_ledger WHERE chip_ref=?", (chip_ref,)
     ).fetchone()
@@ -898,9 +908,11 @@ def _reserialise_claim_row(conn, session_id, claimed_at):
         completion_note=row["completion_note"],
         completion_note_history=history)
     entry = _carry_unmodelled(row["entry_json"], entry)
+    # Verbatim key order (_claim_entry_json's construction order IS the
+    # client's) -- see upsert_task_claim for why (D15 byte-equality).
     conn.execute(
         "UPDATE task_claims SET entry_json=? WHERE session_id=? AND claimed_at=?",
-        (json.dumps(entry, sort_keys=True), session_id, claimed_at))
+        (json.dumps(entry), session_id, claimed_at))
     return entry
 
 
@@ -989,7 +1001,7 @@ def try_open_task_claim(conn, session_id, session_label, task, resources,
             " task, status, spawned_by, entry_json, updated_at) "
             "VALUES (?,?,?,?, 'active', ?, ?, ?)",
             (session_id, stamp, session_label or "", task or "", spawned_by,
-             json.dumps(entry, sort_keys=True), now),
+             json.dumps(entry), now),
         )
         conn.executemany(
             "INSERT OR IGNORE INTO task_claim_resources "
@@ -1291,8 +1303,9 @@ def _reserialise_chip_row(conn, chip_ref):
     if row is None:
         return None
     entry = _chip_entry_from_row(row)
+    # Verbatim key order -- see upsert_task_claim for why (D15 byte-equality).
     conn.execute("UPDATE chip_ledger SET entry_json=? WHERE chip_ref=?",
-                 (json.dumps(entry, sort_keys=True), chip_ref))
+                 (json.dumps(entry), chip_ref))
     return entry
 
 
