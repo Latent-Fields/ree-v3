@@ -43,6 +43,7 @@ def connect(db_path):
     _migrate_experiments(conn)
     _migrate_heartbeat_log(conn)
     _migrate_task_claim_chip_tables(conn)
+    _migrate_workspace_state_table(conn)
     return conn
 
 
@@ -1780,6 +1781,146 @@ def amend_chip_prompt(conn, chip_ref, prompt, reason=None, now=None):
         return ("error", {})
 
 
+# ---------------------------------------------------------------------------
+# WORKSPACE_STATE.md append intake (PHASE-4, first slice).
+#
+# The registry tables above mirror WHOLE documents (every entry, upserted both
+# directions). This table is deliberately narrower: it is an APPEND-ONLY
+# intake spool. A closing session POSTs one entry; the materializer SPLICES
+# pending entries into the live file on origin (byte-preserving -- it never
+# re-renders the 2.4MB prose file) and marks them materialized once the text
+# provably reached git. There is no ingest of the file's existing entries into
+# the DB and no edit/delete verb -- WORKSPACE_STATE.md's git copy stays the
+# authority for everything except the not-yet-materialized tail, so the
+# ingest-authority clobber class the registries needed a 3-way merge for
+# cannot arise here by construction.
+#
+# client_git_write records the CLIENT's declared intent at submit time:
+#   1 -- the client will (also) append+commit the entry itself (dual-write
+#        soak, or a box where WS suppression is not yet armed). The
+#        materializer must NEVER splice such an entry -- doing so would race
+#        the client's own push into a duplicate -- it only WATCHES for the
+#        entry to appear in the file and then marks it materialized.
+#   0 -- the client suppressed its git write; the materializer owns landing it.
+# ---------------------------------------------------------------------------
+
+def _migrate_workspace_state_table(conn):
+    """Create the WORKSPACE_STATE.md append-intake table if missing. Same
+    idempotent CREATE IF NOT EXISTS contract as _migrate_task_claim_chip_tables
+    (called from connect(), so a live DB picks it up without a rebuild)."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS workspace_state_entries (
+            entry_id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts               TEXT NOT NULL,
+            text             TEXT NOT NULL,
+            session_id       TEXT NOT NULL DEFAULT '',
+            client_git_write INTEGER NOT NULL DEFAULT 0,
+            submitted_at     TEXT NOT NULL,
+            submitted_host   TEXT,
+            materialized_at  TEXT,
+            materialized_ref TEXT
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_workspace_state_pending "
+        "ON workspace_state_entries(materialized_at) "
+        "WHERE materialized_at IS NULL"
+    )
+
+
+def submit_workspace_state_entry(conn, text, ts=None, session_id="",
+                                 client_git_write=False, host=None, now=None):
+    """Record one WORKSPACE_STATE.md closing entry for materialization.
+
+    Append-only by design: there is no update or delete counterpart, and this
+    function never touches an existing row. Verdicts:
+      'ok'            -- inserted; payload carries entry_id + ts.
+      'idempotent'    -- an identical (ts, text) row already exists (client
+                         retry after a lost response); payload carries the
+                         existing entry_id. Nothing written.
+      'empty_text'    -- text is empty/whitespace. Nothing written.
+      'bad_timestamp' -- ts does not parse as %Y-%m-%dT%H:%M:%SZ (the file's
+                         heading convention). Nothing written.
+      'error'         -- sqlite failure.
+
+    `text` is stored stripped of leading/trailing newlines, exactly what the
+    client-side format_entry() folds into '## <ts> -- <text>\\n\\n' -- the
+    materializer re-derives the formatted block from these two fields, so
+    normalizing here is what makes its presence check byte-exact.
+    """
+    now = now or utcnow()
+    if not isinstance(text, str) or not text.strip():
+        return ("empty_text", {})
+    text = text.strip("\n")
+    ts = ts or now
+    try:
+        datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ")
+    except (TypeError, ValueError):
+        return ("bad_timestamp", {"ts": ts})
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT entry_id FROM workspace_state_entries "
+            "WHERE ts=? AND text=?", (ts, text)).fetchone()
+        if row is not None:
+            conn.execute("ROLLBACK")
+            return ("idempotent", {"entry_id": row["entry_id"], "ts": ts})
+        cur = conn.execute(
+            "INSERT INTO workspace_state_entries "
+            "(ts, text, session_id, client_git_write, submitted_at, "
+            "submitted_host) VALUES (?,?,?,?,?,?)",
+            (ts, text, session_id or "", 1 if client_git_write else 0,
+             now, host))
+        entry_id = cur.lastrowid
+        conn.execute("COMMIT")
+        return ("ok", {"entry_id": entry_id, "ts": ts})
+    except sqlite3.Error:
+        try:
+            conn.execute("ROLLBACK")
+        except sqlite3.Error:
+            pass
+        return ("error", {})
+
+
+def pending_workspace_state_entries(conn):
+    """All not-yet-materialized entries, oldest submission first (entry_id
+    order == submission order; the materializer splices newest-first from
+    this so the file stays reverse-chronological)."""
+    return conn.execute(
+        "SELECT entry_id, ts, text, session_id, client_git_write, "
+        "submitted_at FROM workspace_state_entries "
+        "WHERE materialized_at IS NULL ORDER BY entry_id").fetchall()
+
+
+def mark_workspace_state_entries_materialized(conn, entry_ids, ref, now=None):
+    """Flip entries to materialized. Call ONLY once the entry's formatted
+    text provably IS in git -- the push carrying it succeeded, or the text
+    was found already present in origin's file (a dual-write client landed
+    it). Same only-after-proof discipline as the registries'
+    last_rendered_json writeback. Idempotent; never un-materializes."""
+    ids = [int(i) for i in (entry_ids or [])]
+    if not ids:
+        return 0
+    now = now or utcnow()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        cur = conn.executemany(
+            "UPDATE workspace_state_entries "
+            "SET materialized_at=?, materialized_ref=? "
+            "WHERE entry_id=? AND materialized_at IS NULL",
+            [(now, ref, i) for i in ids])
+        conn.execute("COMMIT")
+        return cur.rowcount if cur.rowcount is not None else len(ids)
+    except sqlite3.Error:
+        try:
+            conn.execute("ROLLBACK")
+        except sqlite3.Error:
+            pass
+        raise
+
+
 def init_db(db_path):
     conn = connect(db_path)
     with open(SCHEMA_PATH, "r", encoding="utf-8") as fh:
@@ -1789,6 +1930,7 @@ def init_db(db_path):
     _migrate_experiments(conn)
     _migrate_heartbeat_log(conn)
     _migrate_task_claim_chip_tables(conn)
+    _migrate_workspace_state_table(conn)
     conn.close()
 
 

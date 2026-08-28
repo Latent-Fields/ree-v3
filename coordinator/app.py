@@ -447,6 +447,35 @@ def _chip_amend_prompt(conn, body, machine_tok):
     return 200, out
 
 
+def _ws_append(conn, body, machine_tok):
+    """POST /workspace_state/append (PHASE-4 first slice). Append-ONLY: there
+    is deliberately no edit or delete verb for WORKSPACE_STATE entries --
+    the file's git copy stays authoritative for everything already in it;
+    this endpoint only spools NEW closing entries for the materializer to
+    splice in (byte-preserving). client_git_write=true declares the client
+    will also land the entry itself (dual-write soak); the materializer then
+    only watches for it instead of splicing -- see
+    db.submit_workspace_state_entry."""
+    text = body.get("text")
+    if not isinstance(text, str) or not text.strip():
+        return 400, {"error": "text is required and must be non-empty",
+                     "verdict": "empty_text"}
+    verdict, payload = db.submit_workspace_state_entry(
+        conn,
+        text=text,
+        ts=body.get("timestamp"),
+        session_id=body.get("session_id") or "",
+        client_git_write=bool(body.get("client_git_write")),
+        host=machine_tok)
+    out = dict(payload)
+    out["verdict"] = verdict
+    if verdict in ("empty_text", "bad_timestamp"):
+        return 400, out
+    if verdict == "error":
+        return 500, out
+    return 200, out
+
+
 # /chip/archive is DELIBERATELY ABSENT and must stay that way in Phase 2 --
 # plan doc D7. Its correctness gate is that the archive file has actually
 # reached ORIGIN (cmd_archive fetches and verifies at origin_ref() before
@@ -465,6 +494,10 @@ _TASK_CLAIM_CHIP_POST = {
     "/chip/resolve": _chip_resolve,
     "/chip/attach": _chip_attach,
     "/chip/amend-prompt": _chip_amend_prompt,
+    # PHASE-4 (append-only; the name of this dict predates it -- same
+    # dispatch, same auth, same body plumbing, so it rides here rather than
+    # growing a parallel table).
+    "/workspace_state/append": _ws_append,
 }
 
 
@@ -837,6 +870,33 @@ class Handler(BaseHTTPRequestHandler):
             finally:
                 conn.close()
             self._send(200, summary)
+            return
+        if path == "/workspace_state/pending":
+            # PHASE-4 observability: the not-yet-materialized WS entry spool.
+            # awaiting_client (client_git_write=1, dual-write soak) rows are
+            # the ones to watch for staleness -- the materializer never
+            # splices them, so one whose client crashed pre-push sits here
+            # until a human (or a future takeover rule) intervenes.
+            conn = db.connect(DB_PATH)
+            try:
+                rows = db.pending_workspace_state_entries(conn)
+            finally:
+                conn.close()
+            pending = []
+            for r in rows:
+                pending.append({
+                    "entry_id": r["entry_id"],
+                    "ts": r["ts"],
+                    "session_id": r["session_id"],
+                    "client_git_write": bool(r["client_git_write"]),
+                    "submitted_at": r["submitted_at"],
+                    "first_line": (r["text"] or "").split("\n", 1)[0][:120],
+                })
+            self._send(200, {
+                "n_pending": len(pending),
+                "n_awaiting_client": sum(
+                    1 for p in pending if p["client_git_write"]),
+                "pending": pending})
             return
         self._send(404, {"error": "not found"})
 
@@ -1346,7 +1406,8 @@ class Handler(BaseHTTPRequestHandler):
         # D6: the bearer token identifies a MACHINE (machine_tok), but claims
         # and chips are per-SESSION -- session_id always comes from the body.
         # The token still gates access; it just is not the actor.
-        if path.startswith("/task_claim/") or path.startswith("/chip/"):
+        if (path.startswith("/task_claim/") or path.startswith("/chip/")
+                or path.startswith("/workspace_state/")):
             if body is None:
                 self._send(400, {"error": "bad body"})
                 return

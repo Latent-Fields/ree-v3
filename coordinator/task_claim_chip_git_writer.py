@@ -65,6 +65,20 @@ task_claim_chip_shadow_sync.py). Each tick:
      same derived-materialisation idiom the phase3 queue writer uses (and
      the reason the ref-move guard is not installed on the hub).
 
+WORKSPACE_STATE.md (PHASE-4 first slice, 2026-08-28): the same tick also
+lands pending /workspace_state/append intake entries -- but by a strictly
+NARROWER mechanism than the registries' full re-render. The file's git copy
+stays authoritative for everything already in it; the writer only SPLICES
+not-yet-carried entries in at the structural insertion point (before the
+first '^## ' section, exactly like scripts/append_workspace_state_entry.py),
+byte-preserving all existing content, guarded by conservation + size +
+entry-count assertions (three confirmed truncation incidents on this file).
+There is NO ingest of the file's entries into the DB and no edit/delete
+verb, so the ingest-authority clobber class cannot arise for it. An entry
+whose client declared it would git-write it itself (dual-write soak) is
+never spliced -- only watched for, and marked materialized once its text is
+seen in origin's file. See render_workspace_state().
+
 Deploy shape: deploy/ree-task-claim-chip-git-writer.{service,timer} --
 Type=oneshot + timer, a WRITABLE clone of the umbrella repo (e.g.
 /home/ree/REE_Working_registry_writer), env REGISTRY_WRITER_MODE=check
@@ -74,6 +88,7 @@ until the cutover decision. All printed text is ASCII-only.
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -84,8 +99,17 @@ DEFAULT_BRANCH = os.environ.get("REGISTRY_WRITER_BRANCH", "master")
 DEFAULT_MODE = os.environ.get("REGISTRY_WRITER_MODE", "check")
 CLAIMS_REL_PATH = "TASK_CLAIMS.json"
 CHIPS_REL_PATH = "TASK_CHIPS.json"
+WORKSPACE_STATE_REL_PATH = "WORKSPACE_STATE.md"
 RETAIN_HOURS = float(os.environ.get("COORDINATOR_TASK_CLAIM_RETAIN_HOURS", "24"))
 COMMIT_PREFIX = "phase2b-registry:"
+
+# Same section convention as scripts/append_workspace_state_entry.py
+# (SECTION_RE there): entries are '## <ts> -- <text>' headings, newest first,
+# after a preamble (pinned block + ROTATE-INDEX block) that must never be
+# touched. The formatted-block expression below must stay byte-identical to
+# that script's format_entry() -- the presence check that decides whether an
+# entry is already carried by the file is an exact-substring match on it.
+WS_SECTION_RE = re.compile(r"(?m)^## ")
 
 
 def _git(repo_path, *args, check=True, timeout=60):
@@ -108,13 +132,14 @@ def _fetch_and_resolve(repo_path, branch):
         return None
 
 
-def _show_text(repo_path, rev, rel_path):
+def _show_text(repo_path, rev, rel_path, warn=True):
     try:
         out = _git(repo_path, "show", "%s:%s" % (rev, rel_path), timeout=30)
         return out.stdout.decode("utf-8")
     except Exception as exc:  # noqa: BLE001
-        sys.stderr.write("[registry-writer] WARN could not read %s at %s: "
-                         "%r\n" % (rel_path, rev, exc))
+        if warn:
+            sys.stderr.write("[registry-writer] WARN could not read %s at %s: "
+                             "%r\n" % (rel_path, rev, exc))
         return None
 
 
@@ -257,6 +282,116 @@ def render_chips(conn, source_doc=None):
             {"n_rendered": len(entries)}, snapshots)
 
 
+def _ws_format_entry(ts, text):
+    """'## <ts> -- <text>\\n\\n' -- MUST stay byte-identical to
+    scripts/append_workspace_state_entry.py format_entry(); see WS_SECTION_RE's
+    comment for why."""
+    return "## %s -- %s\n\n" % (ts, (text or "").strip("\n"))
+
+
+def _ws_insertion_point(text):
+    """Byte offset right before the first '^## ' section, or len(text) if
+    none -- the preamble is carried through verbatim on both sides of the
+    splice, never read as structure (same contract as the client tool)."""
+    m = WS_SECTION_RE.search(text)
+    return m.start() if m else len(text)
+
+
+def _ws_render_guards(source_text, new_text, block, pos):
+    """The size/entry-count assertions the plan requires on EVERY write path
+    for this file (three confirmed silent-truncation incidents -- see
+    scripts/append_workspace_state_entry.py's module docstring). Returns
+    (ok, reason). All three are backstops a correct splice cannot trip;
+    each is tested directly with corrupted inputs rather than through the
+    real pipeline, which cannot produce a failing case."""
+    # 1. Conservation: removing the spliced span reproduces the source
+    #    byte-for-byte -- the strongest possible "nothing existing was
+    #    touched" check for a pure insertion.
+    if new_text[:pos] + new_text[pos + len(block):] != source_text:
+        return False, "conservation"
+    # 2. Grow-only, exactly: a splice adds exactly the block's bytes. This is
+    #    deliberately stricter than the client tool's 0.90 ratio -- the
+    #    materializer never has a legitimate reason to shrink OR to grow by
+    #    anything but the block.
+    if len(new_text) != len(source_text) + len(block):
+        return False, "size"
+    # 3. Entry count: the render adds exactly the block's own '^## ' headings
+    #    (counting the block's, not the entry count, so an entry body that
+    #    itself contains a line starting '## ' does not false-trip).
+    if (len(WS_SECTION_RE.findall(new_text))
+            != len(WS_SECTION_RE.findall(source_text))
+            + len(WS_SECTION_RE.findall(block))):
+        return False, "entry_count"
+    return True, None
+
+
+def render_workspace_state(conn, source_text):
+    """Compute the append-only WORKSPACE_STATE.md render: splice pending
+    DB entries the file does not yet carry in at the structural insertion
+    point, byte-preserving everything already there. NEVER a re-render of
+    the file -- entries already in the file are never reconstructed, so the
+    ingest-authority clobber class cannot arise (there is no ingest).
+
+    Returns (new_text, stats, carried_ids, spliced_ids):
+      * carried_ids -- pending entries whose formatted block is already a
+        substring of the file (a dual-write client, or this writer's own
+        earlier push, landed it). The caller marks these materialized
+        regardless of mode: the text being in origin IS the proof.
+      * spliced_ids -- entries this render splices (client_git_write=0
+        only). The caller marks these ONLY after the push carrying them
+        succeeds.
+      * entries with client_git_write=1 not yet carried are NEVER spliced
+        (splicing would race the client's own push into a duplicate); they
+        are counted as n_awaiting_client and simply watched.
+
+    new_text is source_text unchanged when there is nothing to splice, when
+    the file is unreadable (source_text None), or when a guard refuses.
+    """
+    pending = db.pending_workspace_state_entries(conn)
+    carried_ids = []
+    splice_rows = []
+    awaiting = 0
+    for row in pending:
+        entry_block = _ws_format_entry(row["ts"], row["text"])
+        if source_text is not None and entry_block in source_text:
+            carried_ids.append(row["entry_id"])
+        elif row["client_git_write"]:
+            awaiting += 1
+        else:
+            splice_rows.append(row)
+    stats = {
+        "n_pending": len(pending),
+        "n_carried": len(carried_ids),
+        "n_awaiting_client": awaiting,
+        "n_spliced": len(splice_rows),
+        "guard_error": None,
+    }
+    if source_text is None or not splice_rows:
+        stats["n_spliced"] = 0
+        if source_text is None and splice_rows:
+            sys.stderr.write("[registry-writer] WARN %s unreadable at origin "
+                             "with %d entr%s pending splice -- holding them\n"
+                             % (WORKSPACE_STATE_REL_PATH, len(splice_rows),
+                                "y" if len(splice_rows) == 1 else "ies"))
+        return source_text, stats, carried_ids, []
+    # pending is oldest-submission-first; the file is newest-first, so the
+    # spliced block is built newest-first and inserted once at the top of
+    # the section list.
+    block = "".join(_ws_format_entry(r["ts"], r["text"])
+                    for r in reversed(splice_rows))
+    pos = _ws_insertion_point(source_text)
+    new_text = source_text[:pos] + block + source_text[pos:]
+    ok, reason = _ws_render_guards(source_text, new_text, block, pos)
+    if not ok:
+        stats["guard_error"] = reason
+        stats["n_spliced"] = 0
+        sys.stderr.write("[registry-writer] ERROR %s render failed the %s "
+                         "guard -- refusing to write it this tick\n"
+                         % (WORKSPACE_STATE_REL_PATH, reason))
+        return source_text, stats, carried_ids, []
+    return new_text, stats, carried_ids, [r["entry_id"] for r in splice_rows]
+
+
 def ingest(conn, claims_doc, chips_doc):
     """Reconcile origin's current content into the DB, one transaction.
     Upsert-only (the reconcilers never delete), no drift-log row -- see
@@ -364,6 +499,19 @@ def materialize_once(conn, repo_path, branch=None, mode=None, now_iso=None,
         chips_render, chips_stats, chips_snaps = render_chips(
             conn, source_doc=chips_doc)
 
+        # WORKSPACE_STATE.md (PHASE-4 first slice): a missing file is normal
+        # for a repo that predates this (warn=False); render_workspace_state
+        # itself warns when entries are actually stranded by it.
+        ws_text = _show_text(repo_path, sha, WORKSPACE_STATE_REL_PATH,
+                             warn=False)
+        ws_render, ws_stats, ws_carried, ws_splice_ids = (
+            render_workspace_state(conn, ws_text))
+        # Entries already carried by origin's file are materialized however
+        # this tick ends -- the text being in git IS the proof (safe in check
+        # mode, same reasoning as the render-base writeback below).
+        if ws_carried:
+            db.mark_workspace_state_entries_materialized(conn, ws_carried, sha)
+
         claims_match = _texts_match(claims_text, claims_render)
         chips_match = _texts_match(chips_text, chips_render)
         # Record the render base for any file whose render already matches
@@ -379,6 +527,7 @@ def materialize_once(conn, repo_path, branch=None, mode=None, now_iso=None,
             "chips_match": chips_match,
             "claims": claims_stats,
             "chips": chips_stats,
+            "workspace_state": ws_stats,
             "committed": False,
         }
         if not claims_match:
@@ -388,7 +537,9 @@ def materialize_once(conn, repo_path, branch=None, mode=None, now_iso=None,
             result["chips_delta"] = _semantic_delta(
                 chips_doc, chips_render, ("chip_ref",))
 
-        if mode != "write" or (claims_match and chips_match):
+        ws_needs_write = bool(ws_splice_ids)
+        if mode != "write" or (claims_match and chips_match
+                               and not ws_needs_write):
             return result
 
         # -- write mode, something differs: materialize onto origin tip.
@@ -410,11 +561,19 @@ def materialize_once(conn, repo_path, branch=None, mode=None, now_iso=None,
                       encoding="utf-8") as fh:
                 fh.write(chips_render)
             wrote.append(CHIPS_REL_PATH)
-        msg = ("%s materialize %s (claims %d kept/%d aged-out, chips %d)"
+        if ws_needs_write:
+            with open(os.path.join(repo_path, WORKSPACE_STATE_REL_PATH), "w",
+                      encoding="utf-8") as fh:
+                fh.write(ws_render)
+            wrote.append(WORKSPACE_STATE_REL_PATH)
+        msg = ("%s materialize %s (claims %d kept/%d aged-out, chips %d"
                % (COMMIT_PREFIX, "+".join(wrote),
                   claims_stats["n_rendered"],
                   claims_stats["n_retention_dropped"],
                   chips_stats["n_rendered"]))
+        if ws_needs_write:
+            msg += ", ws +%d" % len(ws_splice_ids)
+        msg += ")"
         try:
             _git(repo_path, "add", "--", *wrote)
             _git(repo_path, "commit", "--quiet", "-m", msg)
@@ -432,6 +591,17 @@ def materialize_once(conn, repo_path, branch=None, mode=None, now_iso=None,
             _writeback_rendered_base(conn,
                                      () if claims_match else claims_snaps,
                                      () if chips_match else chips_snaps)
+            if ws_splice_ids:
+                # The push carrying the spliced entries succeeded: THAT is
+                # the durability proof this flip requires. Record the pushed
+                # commit itself as the materialized ref.
+                try:
+                    head = _git(repo_path, "rev-parse",
+                                "HEAD").stdout.decode("utf-8").strip()
+                except Exception:  # noqa: BLE001
+                    head = sha
+                db.mark_workspace_state_entries_materialized(
+                    conn, ws_splice_ids, head)
             return result
         sys.stderr.write("[registry-writer] push rejected (attempt %d/%d); "
                          "re-running tick\n"
@@ -475,13 +645,18 @@ def main():
         sys.stderr.write("[registry-writer] nothing materialized this tick "
                          "(origin unreadable)\n")
         return 1
+    ws = result.get("workspace_state") or {}
     sys.stdout.write(
         "[registry-writer] ref=%s mode=%s claims: match=%s rendered=%d "
-        "aged_out=%d | chips: match=%s rendered=%d | committed=%s\n" % (
+        "aged_out=%d | chips: match=%s rendered=%d | ws: pending=%d "
+        "carried=%d spliced=%d awaiting_client=%d%s | committed=%s\n" % (
             result["source_ref"][:12], result["mode"],
             result["claims_match"], result["claims"]["n_rendered"],
             result["claims"]["n_retention_dropped"],
             result["chips_match"], result["chips"]["n_rendered"],
+            ws.get("n_pending", 0), ws.get("n_carried", 0),
+            ws.get("n_spliced", 0), ws.get("n_awaiting_client", 0),
+            (" GUARD=%s" % ws["guard_error"]) if ws.get("guard_error") else "",
             result["committed"]))
     for side in ("claims_delta", "chips_delta"):
         if side in result:

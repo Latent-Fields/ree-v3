@@ -281,3 +281,23 @@ CREATE INDEX IF NOT EXISTS idx_task_claim_chip_drift_log_diverged
     ON task_claim_chip_drift_log(diverged);
 CREATE INDEX IF NOT EXISTS idx_task_claim_chip_drift_log_checked_at
     ON task_claim_chip_drift_log(checked_at);
+
+-- WORKSPACE_STATE.md append intake (PHASE-4 first slice). Append-only spool:
+-- clients POST /workspace_state/append, the registry materializer SPLICES
+-- pending rows into the live file (byte-preserving) and marks them
+-- materialized once the text provably reached git. No ingest of the file's
+-- existing entries, no edit/delete verb -- see db._migrate_workspace_state_table.
+CREATE TABLE IF NOT EXISTS workspace_state_entries (
+    entry_id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts               TEXT NOT NULL,      -- entry heading timestamp (%Y-%m-%dT%H:%M:%SZ)
+    text             TEXT NOT NULL,      -- entry body, stripped of leading/trailing newlines
+    session_id       TEXT NOT NULL DEFAULT '',
+    client_git_write INTEGER NOT NULL DEFAULT 0,  -- 1: client lands it itself; writer only watches
+    submitted_at     TEXT NOT NULL,
+    submitted_host   TEXT,               -- machine label from the bearer token
+    materialized_at  TEXT,               -- NULL until the text provably reached git
+    materialized_ref TEXT                -- commit sha that carries (or was seen carrying) it
+);
+CREATE INDEX IF NOT EXISTS idx_workspace_state_pending
+    ON workspace_state_entries(materialized_at)
+    WHERE materialized_at IS NULL;
