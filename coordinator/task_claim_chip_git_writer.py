@@ -253,6 +253,22 @@ def ingest(conn, claims_doc, chips_doc):
     return claim_stats, chip_stats
 
 
+def _texts_match(source_text, rendered_text):
+    """Byte-equality, tolerating exactly one historical quirk: a source
+    file missing its trailing newline (the live TASK_CHIPS.json on
+    origin/master ends `}` with no final newline -- some past writer
+    dropped it). The render always emits the canonical client format
+    (`json.dumps(doc, indent=2) + "\\n"`); a source differing ONLY by
+    that final newline is the same content, and rewriting a 10 MB file
+    to add one byte is exactly the no-op churn commit-on-state-change
+    exists to prevent."""
+    if source_text == rendered_text:
+        return True
+    return (source_text is not None
+            and not source_text.endswith("\n")
+            and rendered_text == source_text + "\n")
+
+
 def _semantic_delta(source_doc, rendered_text, key_fields):
     """Which entry keys the render adds/drops vs the source file. Cheap
     orientation for a check-mode mismatch report; byte-equality is the
@@ -299,8 +315,8 @@ def materialize_once(conn, repo_path, branch=None, mode=None, now_iso=None,
             conn, source_doc=claims_doc, now_iso=now_iso)
         chips_render, chips_stats = render_chips(conn, source_doc=chips_doc)
 
-        claims_match = (claims_text == claims_render)
-        chips_match = (chips_text == chips_render)
+        claims_match = _texts_match(claims_text, claims_render)
+        chips_match = _texts_match(chips_text, chips_render)
         result = {
             "source_ref": sha,
             "mode": mode,

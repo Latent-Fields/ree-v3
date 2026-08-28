@@ -195,6 +195,27 @@ class TestRoundTripByteEquality(_Fixture):
         self.assertTrue(result["claims_match"])
         self.assertTrue(result["chips_match"])
 
+    def test_source_missing_trailing_newline_still_matches(self):
+        # The live TASK_CHIPS.json on origin ends without a final newline
+        # (historical writer quirk). Same content must read as a match --
+        # rewriting 10 MB to add one byte is the churn this writer exists
+        # to avoid.
+        remote = _bare_remote(self._tmp, "r_nl.git")
+        repo2 = _seed_repo(self._tmp, remote,
+                           _claims_doc([_claim("s1", "2026-08-28T10:00:00Z")]),
+                           _chips_doc([_chip("chip-nl")]),
+                           name="REE_Working_nl")
+        text = (repo2 / writer.CHIPS_REL_PATH).read_text()
+        (repo2 / writer.CHIPS_REL_PATH).write_text(text.rstrip("\n"))
+        _git(repo2, "add", writer.CHIPS_REL_PATH)
+        _git(repo2, "commit", "-q", "-m", "strip trailing newline")
+        _git(repo2, "push", "-q", "origin", "master")
+        result = writer.materialize_once(self._conn, str(repo2),
+                                         branch="master", mode="write",
+                                         now_iso=NOW)
+        self.assertTrue(result["chips_match"])
+        self.assertFalse(result["committed"])
+
 
 class TestRetention(_Fixture):
 
