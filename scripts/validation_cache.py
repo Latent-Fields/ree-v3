@@ -50,6 +50,15 @@ atomic-write / CAS-retry / commit-landed-locally primitives (imported, not
 restated -- a private copy would drift, exactly the vendored-copy hazard CLAUDE.md
 warns about) rather than reinventing them.
 
+...BUT THAT COMMIT MUST NOT MOVE THE LOCAL BRANCH REF, unlike every other caller
+of that pattern. This module is unique among them in running INSIDE a pre-commit
+hook -- i.e. inside another ree_commit.py invocation, between that invocation's
+`old_head` read and its compare-and-swap -- so an ordinary local commit here
+invalidates the outer CAS and the gate rejects the very commit it was gating.
+`record` therefore defaults to ree_commit.py --to-remote-tip. Full mechanism,
+the five confirmed historical instances, and the fallback trade: see
+_write_and_commit_pass's docstring. Do not "simplify" that flag away.
+
 FAIL-OPEN, ALWAYS. A missing, corrupt, or unparseable cache file -- or any
 unexpected exception anywhere in the lookup path -- resolves to a MISS, never an
 error propagated to the caller. `record` never raises either: recording is
@@ -345,7 +354,8 @@ def cmd_check(args) -> int:
 # ---------------------------------------------------------------------------
 
 def _write_and_commit_pass(cache_path: Path, repo_root, tier: str, session_id, push: bool,
-                           bot: bool, ree_commit_path: Path) -> str:
+                           bot: bool, ree_commit_path: Path,
+                           remote_tip: bool = True) -> str:
     """Upsert one cache_key entry after a PASSING run, then commit via
     ree_commit.py. Narrow structural update (load, upsert one key, write) --
     not a whole-file rewrite -- and re-read happens immediately before write on
@@ -354,6 +364,52 @@ def _write_and_commit_pass(cache_path: Path, repo_root, tier: str, session_id, p
 
     Best-effort: every failure mode returns a status string rather than
     raising -- recording must never be able to block the caller's own commit.
+
+    THE COMMIT MUST NOT MOVE refs/heads/<branch> -- THIS IS A CORRECTNESS
+    REQUIREMENT, NOT A PREFERENCE (2026-08-27, chip-20260827-precommit-cache-
+    self-collision). This function only ever runs from INSIDE a pre-commit
+    hook (precommit_contracts.sh Block 2's record_validation_cache_result),
+    and ree_commit.py's own flow is:
+
+        old_head = rev-parse HEAD
+        build private index
+        run_pre_commit_hook(...)          <-- THIS FUNCTION RUNS IN HERE
+        commit-tree <tree> -p old_head
+        update-ref <ref> <new> <old_head>  <-- compare-and-swap
+
+    so an ordinary local commit made here advances the branch and makes the
+    OUTER commit's `old_head` stale, and the CAS then fails with "branch moved
+    under us while building the commit ... Nothing was committed." The gate
+    rejects the very commit it was invoked to gate -- AFTER paying the ~13min
+    suite. It is deterministic, not a race: it fires on every cache MISS whose
+    suite PASSes (a HIT exits before recording, which is why the cold path was
+    the only one affected and the defect survived from 2026-08-10). Confirmed
+    on five historical instances, all with the identical signature -- the cache
+    commit lands and the gated commit lands as its CHILD one to eight minutes
+    later, i.e. after the failure and a manual retry that then hit the cache:
+    55dbe77 -> 031377d (2026-08-27), 0481c1c -> 88287f1, 547f053 -> 492e51f,
+    12d6839 -> 1a4b6be, 6702d5a -> 775eb55.
+
+    `remote_tip` (default True) therefore routes the commit through
+    ree_commit.py --to-remote-tip, which lands it on origin/<branch> via the
+    already-hardened throwaway-worktree cherry-pick path and NEVER moves the
+    local ref, so the outer CAS's `old_head` stays valid. Nothing about the
+    record itself changes: same content, same push, same audit trail. On a
+    genuine conflict or lock contention --to-remote-tip falls back to exactly
+    today's local CAS landing, which re-exposes the collision -- accepted,
+    because that path is rare and the fallback is the pre-existing "the commit
+    is safe locally" safety net, not a new risk.
+
+    `--to-remote-tip` requires `--push`, so with push=False this degrades to an
+    ordinary local commit and the collision is back. That combination is
+    test-only: precommit_contracts.sh's record_validation_cache_result always
+    passes --push. Do NOT call `record` without --push from inside a hook.
+
+    Note also which invariant this restores. The design doc's safety-invariant
+    list (REE_assembly/docs/architecture/landing_integration_worker_investigation.md
+    sec 7) asserts "Path-scoped/intended-file commits, CAS ... untouched" --
+    the cache write was in fact defeating the CAS, so this is a regression of a
+    documented invariant, not an optimisation.
     """
     repo_root = Path(repo_root).resolve()
     try:
@@ -396,6 +452,10 @@ def _write_and_commit_pass(cache_path: Path, repo_root, tier: str, session_id, p
                     push,
                     bot,
                     ree_commit_path=ree_commit_path,
+                    # Never move refs/heads/<branch> -- see this function's
+                    # docstring. ree_commit_once() makes this a no-op when
+                    # push is False (--to-remote-tip requires --push).
+                    to_remote_tip=remote_tip,
                 )
             except CommitLandedLocally as landed:
                 return ("record: committed %s locally but a later step failed (exit %d) -- "
@@ -424,6 +484,7 @@ def cmd_record(args) -> int:
         status = _write_and_commit_pass(
             cache_path, args.repo_root, args.tier, session_id, args.push,
             not args.no_bot, Path(args.ree_commit_path) if args.ree_commit_path else REE_COMMIT_DEFAULT,
+            remote_tip=not args.no_remote_tip,
         )
     except Exception as exc:  # belt-and-braces: record must NEVER raise out to the caller
         status = "record: FAILED (%s: %s) -- cache not updated, suite result unaffected" \
@@ -463,6 +524,12 @@ def build_parser():
                    help="defaults to the current worktree slug, if any")
     r.add_argument("--no-bot", action="store_true",
                    help="author as the real user instead of the automation bot identity")
+    r.add_argument("--no-remote-tip", action="store_true",
+                   help="land the commit on the LOCAL branch instead of straight "
+                        "to origin's tip. Escape hatch only: the default exists "
+                        "because this command runs inside a pre-commit hook and a "
+                        "local ref move defeats the outer ree_commit.py CAS -- see "
+                        "_write_and_commit_pass's docstring.")
     r.add_argument("--ree-commit-path", default=None,
                    help="override the ree_commit.py path (tests only)")
     r.set_defaults(func=cmd_record)

@@ -260,6 +260,17 @@ record_validation_cache_result() {
     # Called unconditionally after the suite (or a cache hit's stand-in for
     # it) resolves -- validation_cache.py record itself no-ops (logged, not
     # silent) on --result fail, so the caller never has to branch on outcome.
+    #
+    # THIS RUNS INSIDE A PRE-COMMIT HOOK, so the commit it makes must never
+    # move refs/heads/<branch>: ree_commit.py reads old_head, runs this hook,
+    # then CAS's `update-ref <ref> <new> <old_head>`, and a ref move in here
+    # makes that CAS fail -- the gate rejecting the very commit it is gating,
+    # after paying the full ~13min suite. Deterministic on every cache
+    # MISS+PASS (a HIT exits above, before this is reached), confirmed on five
+    # historical instances (2026-08-27, chip-20260827-precommit-cache-self-
+    # collision). validation_cache.py `record` defaults to ree_commit.py
+    # --to-remote-tip for exactly this reason and needs no flag from here --
+    # but --push is what makes that mode available, so do NOT drop it below.
     [ "${REE_PRECOMMIT_VALIDATION_CACHE_DISABLE:-0}" = "1" ] && return 0
     [ -f "$VALIDATION_CACHE_PY" ] || return 0
     "$PY" "$VALIDATION_CACHE_PY" record "${VALIDATION_CACHE_ARGS[@]}" --result "$1" --push >&2 || true
