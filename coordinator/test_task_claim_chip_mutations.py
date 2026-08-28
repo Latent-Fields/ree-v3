@@ -278,14 +278,41 @@ class TestCloseRenewAmend(Base):
             self.conn, "s1", new_claimed_at=T1, now=T1)
         self.assertEqual(verdict, "ok")
         self.assertEqual(payload["previous_claimed_at"], T0)
-        self.assertIsNone(self.entry("s1", T0))
+        # The old stamp is TOMBSTONE-CLOSED, not deleted (2026-08-28 ingest
+        # authority fix): a deleted row cannot survive the materializer's
+        # ingest of the stale git file -- it would be re-INSERTed as an
+        # active phantom. A done row is preserved by the 3-way merge and
+        # aged out by the render's 24h retention instead.
+        old = self.entry("s1", T0)
+        self.assertIsNotNone(old)
+        self.assertEqual(old["status"], "done")
+        self.assertTrue(old["completion_note"].startswith("renewed:"))
         e = self.entry("s1", T1)
+        self.assertEqual(e["status"], "active")
         self.assertEqual(sorted(e["resources"]), ["a.py", "b.py"])
+        self.assertEqual(e["original_claimed_at"], T0)
+        self.assertEqual(e["renewal_history"][-1]["previous_claimed_at"], T0)
         rows = self.conn.execute(
             "SELECT claimed_at FROM task_claim_resources WHERE session_id='s1'"
         ).fetchall()
-        self.assertEqual({r["claimed_at"] for r in rows}, {T1},
-                         "child rows must move with the key, not be orphaned")
+        self.assertIn(T1, {r["claimed_at"] for r in rows},
+                      "child rows must be carried to the new key")
+        # The tombstone keeps its child rows; arbitration filters on
+        # status='active', so they never contend.
+
+    def test_renew_tombstone_survives_stale_git_reingest(self):
+        """The phantom-row seam end-to-end: after a DB-side renew, ingesting
+        the stale git file (old stamp still active) must NOT resurrect the
+        old stamp as an active row."""
+        self.open_claim("s1", ["a.py"])
+        stale_git_entry = self.entry("s1", T0)  # what git still carries
+        verdict, _payload = db.renew_task_claim(
+            self.conn, "s1", new_claimed_at=T1, now=T1)
+        self.assertEqual(verdict, "ok")
+        db.reconcile_task_claims(self.conn, [stale_git_entry], now=T1)
+        old = self.entry("s1", T0)
+        self.assertEqual(old["status"], "done",
+                         "stale-git ingest resurrected the renewed-away stamp")
 
     def test_renew_refuses_when_it_would_hand_ownership_to_a_live_rival(self):
         self.open_claim("s1", ["shared.py"], at=T0)

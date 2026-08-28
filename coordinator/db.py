@@ -1181,8 +1181,20 @@ def renew_task_claim(conn, session_id, claimed_at=None, new_claimed_at=None,
 
     'would_lose_ownership' mirrors task_claim.py cmd_renew's refusal: renewing
     must not flip arbitration ownership to a live rival. Under a composite PK
-    the re-stamp is a key change, so this is a DELETE+INSERT inside the one
-    transaction, not an UPDATE -- and the child resource rows move with it.
+    the re-stamp is a key change, so the new stamp is an INSERT and the child
+    resource rows are copied to it inside the one transaction.
+
+    THE OLD-STAMP ROW IS TOMBSTONE-CLOSED, NOT DELETED (2026-08-28, part of
+    the ingest-authority fix). A DELETE cannot survive the materializer's
+    ingest: git still carries the old-stamp row as active until the next
+    render lands, and a deleted row has neither an entry to merge against nor
+    a base -- ingest would simply re-INSERT it, resurrecting the phantom
+    old-stamp row the renew mirror exists to remove. Closing it as done
+    ("renewed: ...") instead lets the 3-way merge / terminal guard in
+    upsert_task_claim PRESERVE the closure against stale-git ingest, and the
+    render's 24h retention then ages it out -- the same lifecycle as any
+    other done row. Its child resource rows stay put: arbitration queries
+    filter on status='active', so a done row's resources never contend.
     """
     now = now or utcnow()
     stamp = new_claimed_at or now
@@ -1231,9 +1243,29 @@ def renew_task_claim(conn, session_id, claimed_at=None, new_claimed_at=None,
             "INSERT OR IGNORE INTO task_claim_resources "
             "(session_id, claimed_at, resource) VALUES (?,?,?)",
             [(session_id, stamp, r) for r in resources])
+        # Renewal provenance on the NEW row (mirrors cmd_renew's git-path
+        # bookkeeping): original_claimed_at + renewal_history ride the
+        # lossless entry_json as unmodelled keys.
+        try:
+            carried = json.loads(row["entry_json"]) if row["entry_json"] else {}
+        except (TypeError, ValueError):
+            carried = {}
+        if isinstance(carried, dict):
+            carried.setdefault("original_claimed_at", old_stamp)
+            carried.setdefault("renewal_history", []).append(
+                {"renewed_at": stamp, "previous_claimed_at": old_stamp})
+            conn.execute(
+                "UPDATE task_claims SET entry_json=? "
+                "WHERE session_id=? AND claimed_at=?",
+                (json.dumps(carried), session_id, stamp))
+        # Tombstone-close the old stamp (never DELETE -- see docstring).
         conn.execute(
-            "DELETE FROM task_claims WHERE session_id=? AND claimed_at=?",
-            (session_id, old_stamp))
+            "UPDATE task_claims SET status='done', closed_at=?, "
+            "completion_note=?, updated_at=? "
+            "WHERE session_id=? AND claimed_at=?",
+            (now, "renewed: claimed_at re-stamped to %s" % stamp, now,
+             session_id, old_stamp))
+        _reserialise_claim_row(conn, session_id, old_stamp)
         entry = _reserialise_claim_row(conn, session_id, stamp)
         conn.execute("COMMIT")
         return ("ok", {"claimed_at": stamp, "previous_claimed_at": old_stamp,
