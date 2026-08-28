@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-08-23
+**Last updated:** 2026-08-28
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -227,6 +227,76 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 `REE_assembly/docs/architecture/self_attribution_per_stream.md`.
 
 ### Experiment Status
+
+- **2026-08-28T19:24Z nightly read (scheduled `/update-docs`, bot identity).**
+  ~5-day window since the 2026-08-23 nightly. Flat `v3_exq_*` manifests on
+  disk: **929** (+6 vs 923); nested per-run manifests under
+  `evidence/experiments/*/runs/`: **2863** (+11 vs 2852). **Currently queued
+  (`experiment_queue.json` items[]): 0 items** -- pipeline drained. **Pending
+  review (`pending_review.md`, regenerated 2026-08-28T19:24:41Z): 0 items** --
+  "All experiments reviewed. Nothing pending." (a) **Governance cycle
+  2026-08-28 APPLIED** (REE_assembly `governance-cycle-20260828`, 3 waves,
+  DLAPTOP): landed 7 commits on `master` covering derive-only regen (5a305fdd,
+  65 files), GFLAG-0065 resolution (0279acd5), 7 pending applied (1397450b),
+  MECH-357 diag_adj (5444c5cd), 945 lever ratification + GFLAG-0048/0049
+  (62335c99), GFLAG-0059 + ceiling notes (b1ae0ce4), and a 29-row GOV-APPLY-1
+  slice (62edbf45, 45 files). Pending review walked 7 -> 0 (3 evidence PASS +
+  4 confirmed same-day diagnostic autopsies). MECH-314b UN-PARKED + ceiling
+  lifted on V3-EXQ-949 (user-ratified); MECH-091 recorded first non-vacuous
+  supports evidence (944b); MECH-492 got its first-ever direct evidence (950);
+  MECH-357 adjudicated 603v supports -> non_contributory. GOV-APPLY-1 backlog
+  REDUCED for the first time (137 -> 108 rows, 102 -> 80 runs, 69 -> 51
+  claims). Standing scans clean (closure drift 0 drifted / 0 stale,
+  hypothesis-space integrity 0 flags, GOV-DRY-1 0, GOV-DIAG-1 0, GOV-CEIL-1 0,
+  GOV-SUBPATH-1 0, dangling citations 0 of 3171, Steward ESCALATE=no).
+  (b) **Failure-autopsy activity confirmed:** four diagnostic PASSes
+  adjudicated + confirmed 2026-08-28 (`failure-autopsy-20260828-diagbatch`,
+  REE_assembly master `55d69f6b75`) -- V3-EXQ-945 (CEM authority/throughput
+  readiness, ratifies 931 flip with lever-substitution + attenuate-only
+  caveats), V3-EXQ-925a (committed-regime harness, partially supersedes
+  925/2026-08-12; red-team-corrected reading keeps H1-H4 alive and confirms
+  GFLAG-0048/0049 basis), V3-EXQ-933a (GAP-9 entry-pressure fix validated),
+  V3-EXQ-603v (MECH-357 trace repair validated 3/3, supports->non_contributory).
+  (c) **No new substrate landings this window** -- the 2026-08-28
+  infrastructure work concentrated on the coordination plane: PHASE-4
+  WORKSPACE_STATE append endpoint activated (ree-v3 `7bef34181b`, coordinator
+  `18:26:17Z`) with the REE_Working client-side branch armed for dual-write
+  soak (per `phase4_commit_intake_design.md`); PHASE-2b ingest-authority fix
+  (ree-v3 `ce50a937b9` 3-way merge + `047307a2ad` renew tombstone-close, hub
+  deployed) + REE_Working `c8738b2f` renew/amend/dedupe coordinator mirrors +
+  chip_ledger in_scope gate; PHASE-3 registry-doctrine rewrite of
+  `REE_Working/CLAUDE.md` (`7914a203` on master) declaring TASK_CLAIMS /
+  TASK_CHIPS coordinator-authoritative post-cutover, and the clinical-hours
+  guard removed ENTIRELY per explicit user decision. Coordinator wedge cleared
+  pre-account-handover (9 stranded IGW commits cherry-picked -x onto
+  origin/master `b0e95d3300..f3f62e115b`, 18 rebase-twins proven by patch-id,
+  33c89a3175 discarded via safe_adopt_ref content audit). (d) **Non-substrate
+  work in the window:** heavy governance ledger churn (many chips recorded
+  from the 2026-08-28 governance cycle + failure autopsies), ARC-004
+  wiring-topology probe confirmed depth cascade has NO cross-tick path
+  (research thread; no claim status changed), Barrett & Miller (NRN 2026)
+  outreach draft handed to Strategy repo, and 4 GOV-APPLY-1 follow-on chips
+  recorded (grandfathered batch ratification, individual rows, disposition
+  false-positives, Step 5c registry producer rule).
+  **Bottleneck: coordinator PHASE-4 dual-write soak** (WORKSPACE_STATE
+  append endpoint went live at 2026-08-28T18:26:17Z; awaits soak criteria
+  clearance before the client can flip to coordinator-authoritative)
+  **+ GOV-APPLY-1 grandfathered-batch ratification chips** (100 of the 108
+  remaining rows trace to 18 bulk retrospective sweep autopsies with no
+  per-item governance event; the 4 chips recorded 2026-08-28 own this)
+  **+ the coordinator-migration hand-editing hazard** (`TASK_CLAIMS.json`
+  and `TASK_CHIPS.json` are now DB-authoritative -- the next render
+  overwrites any git-side hand edit; the CLAUDE.md rewrite installs the
+  standing warning and a `PreToolUse` hook). Green-board target 2026-07-19
+  is now **40 days overdue**; governance throughput this window was ONE
+  applied cycle (2026-08-28) draining pending_review to 0 and cutting the
+  GOV-APPLY-1 backlog for the first time. **ETHICS-PERIMETER Phase 0 datum**
+  stays on the record (Phases 1-3 deferred; NON-BLOCKING). Public-information-
+  architecture impact: reviewed against
+  `docs/design/public_information_architecture.md` -- no `/api/*` surface,
+  generated visualization, or public export changed; nightly snapshot + spec
+  date bump + status-history entry only (same category as the 2026-08-23
+  attestation).
 
 - **2026-08-23T01:10Z nightly read (scheduled `/update-docs`, bot identity).**
   ~24h window since the 2026-08-22 nightly. Flat `v3_exq_*` manifests on disk:
