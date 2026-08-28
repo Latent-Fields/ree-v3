@@ -80,7 +80,10 @@ from ree_core.utils.config import REEConfig  # noqa: E402
 MANIFEST_WRITER_EXEMPT = "archival early-era manifest (non-canonical filename not provably == run_id.json; superseded lineage, not re-run)"
 
 EXPERIMENT_TYPE = "v3_exq_516_mech302_suffering_derivative_integration"
-CLAIM_IDS = ["MECH-302"]
+# SD-050 (SufferingDerivativeComparator) is the substrate this diagnostic directly
+# exercises -- see the module docstring's "Substrate: SD-050" line and its ARM_0-3
+# integration checks on the comparator's own fire/clear/valence-write behaviour.
+CLAIM_IDS = ["MECH-302", "SD-050"]
 EXPERIMENT_PURPOSE = "diagnostic"
 
 # Diagnostic comparator params.

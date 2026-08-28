@@ -92,7 +92,11 @@ from ree_core.utils.config import REEConfig  # noqa: E402
 from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_515_mech302_suffering_derivative_comparator_substrate_readiness"
-CLAIM_IDS = ["MECH-302"]
+# SD-050 (SufferingDerivativeComparator) is the substrate this diagnostic directly
+# exercises -- per the module docstring, it tests only that the comparator fires at
+# the right time with the correct logical structure, not MECH-302's downstream
+# behavioural consequence.
+CLAIM_IDS = ["MECH-302", "SD-050"]
 EXPERIMENT_PURPOSE = "diagnostic"
 
 # 4-arm sweep specification.

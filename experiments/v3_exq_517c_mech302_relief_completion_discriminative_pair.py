@@ -74,7 +74,11 @@ from experiments.pack_writer import write_flat_manifest  # noqa: E402
 from pathlib import Path  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_517c_mech302_relief_completion_discriminative_pair"
-CLAIM_IDS = ["MECH-302"]
+# SD-050 (SufferingDerivativeComparator) is the substrate this discriminative pair
+# directly exercises -- ARM_A/ARM_B toggle use_suffering_derivative_comparator and
+# count the comparator's own relief-completion events (C1/C3), not only the
+# downstream valence-write pipeline (C2).
+CLAIM_IDS = ["MECH-302", "SD-050"]
 EXPERIMENT_PURPOSE = "evidence"
 ARCHITECTURE_EPOCH = "ree_hybrid_guardrails_v1"
 

@@ -196,7 +196,10 @@ from experiments.pack_writer import write_flat_manifest  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_779b_mech063_tonic_phasic_dissociation"
 EXPERIMENT_PURPOSE = "evidence"
-CLAIM_IDS: List[str] = ["MECH-063"]
+# SD-069 (phasic_surprise_burst) is the substrate this probe directly exercises --
+# see the module docstring's PHASIC factor / readiness checks (R1-R5), which test
+# SD-069's own firing behaviour, not just MECH-063's downstream dissociation.
+CLAIM_IDS: List[str] = ["MECH-063", "SD-069"]
 SUPERSEDES = "v3_exq_779a_mech063_tonic_phasic_dissociation"
 
 # ---- Pre-registered constants (fixed before the run; not derived post-hoc) ----
