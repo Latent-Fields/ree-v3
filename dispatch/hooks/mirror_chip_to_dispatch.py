@@ -31,6 +31,24 @@ import urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 CLIENT_CONFIG = (os.environ.get("DISPATCH_CLIENT_CONFIG", "").strip()
                  or os.path.join(HERE, "..", ".dispatch_client.json"))
+SPOOL_PATH = (os.environ.get("DISPATCH_SPOOL", "").strip()
+              or os.path.join(HERE, "..", "dispatch_spool.jsonl"))
+
+
+def _spool(record):
+    """Persist a chip we could not deliver, for the service to drain on boot.
+
+    Fail-open is right for a PostToolUse hook -- it must never disrupt a chip
+    that has already spawned -- but fail-open plus no trace means a wedged
+    service silently swallows every chip, which is what happened for four hours
+    on 2026-08-29 (181 dropped POSTs, noticed only by reading the error log).
+    Spooling keeps fail-open while making the loss recoverable.
+    """
+    try:
+        with open(SPOOL_PATH, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record) + "\n")
+    except Exception as exc:  # noqa: BLE001
+        sys.stderr.write("[mirror_chip] spool failed: %s\n" % exc)
 
 
 def _config():
@@ -61,21 +79,23 @@ def main():
     if not url or not token:
         return  # not configured / service not deployed -> silent no-op
 
-    body = json.dumps({
+    record = {
         "title": (ti.get("title") or "").strip(),
         "cwd": (ti.get("cwd") or "").strip(),
         "prompt": prompt,
         "source": "chip",
         "status": "staged",   # awaiting a tap on the phone
-    }).encode("utf-8")
+    }
     req = urllib.request.Request(url.rstrip("/") + "/api/enqueue",
-                                 data=body, method="POST")
+                                 data=json.dumps(record).encode("utf-8"),
+                                 method="POST")
     req.add_header("Authorization", "Bearer " + token)
     req.add_header("Content-Type", "application/json")
     try:
         urllib.request.urlopen(req, timeout=4).read()
     except Exception as exc:  # noqa: BLE001  fire-and-forget
-        sys.stderr.write("[mirror_chip] enqueue failed (non-fatal): %s\n" % exc)
+        sys.stderr.write("[mirror_chip] enqueue failed (spooled): %s\n" % exc)
+        _spool(record)
 
 
 if __name__ == "__main__":

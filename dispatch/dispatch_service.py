@@ -39,6 +39,7 @@ Env:
   DISPATCH_NTFY_SERVER  default https://ntfy.sh
   DISPATCH_MAX_BODY     default 262144
 """
+import contextlib
 import hmac
 import json
 import os
@@ -72,6 +73,21 @@ ALL_STATUSES = OPEN_STATUSES + TERMINAL_STATUSES
 _tokens = {}
 _tokens_lock = threading.Lock()
 _db_lock = threading.Lock()
+
+# Consecutive db-open failures before the process exits for a clean restart.
+# 0 disables the watchdog (tests that assert 500-on-broken-db use that).
+DB_FAIL_EXIT_THRESHOLD = int(os.environ.get("DISPATCH_DB_FAIL_EXIT", "5"))
+EXIT_DB_UNRECOVERABLE = 86
+_db_fail_lock = threading.Lock()
+_db_consecutive_failures = 0
+
+# Chips the mirror hook could not deliver while this service was down get
+# appended here as JSON lines, and are drained into the queue on next startup.
+# The hook is fail-open by design, so without a spool a chip spawned during a
+# wedge was silently lost -- 181 such POSTs were dropped on 2026-08-29 alone.
+SPOOL_PATH = os.environ.get(
+    "DISPATCH_SPOOL",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "dispatch_spool.jsonl"))
 
 
 # --------------------------------------------------------------------------
@@ -144,8 +160,73 @@ def db_connect():
     return conn
 
 
+# --------------------------------------------------------------------------
+# db_session -- the ONLY way request paths should touch sqlite.
+#
+# `with sqlite3.connect(...) as conn:` commits/rolls back but does NOT close;
+# every such block leaked ~2 fds (db + wal). Under launchd the soft limit is
+# `launchctl limit maxfiles` = 256, so the service reached EMFILE after ~125
+# requests and every subsequent sqlite3.connect() raised
+#   OperationalError: unable to open database file
+# -- a message that reads like a missing/unreadable file and sent at least one
+# diagnosis down a permissions path. Confirmed 2026-08-29: pid 99472 held 251
+# fds on dispatch.db against a 256 ceiling. Always close in a finally.
+# --------------------------------------------------------------------------
+@contextlib.contextmanager
+def db_session():
+    try:
+        conn = db_connect()
+    except Exception as exc:  # noqa: BLE001
+        _note_db_failure(exc)
+        raise
+    try:
+        with conn:  # commit on success / rollback on exception (unchanged)
+            yield conn
+    finally:
+        conn.close()  # release the fd -- the whole point of this wrapper
+    _note_db_ok()
+
+
+def _note_db_ok():
+    global _db_consecutive_failures
+    with _db_fail_lock:
+        _db_consecutive_failures = 0
+
+
+def _note_db_failure(exc):
+    """Count consecutive db-open failures; exit the process once it is clear
+    we cannot recover in place, so the supervisor restarts us clean.
+
+    An fd-exhausted process can NEVER heal itself: every retry needs the fd it
+    does not have. Before this, the process stayed up serving 500s forever, so
+    launchd KeepAlive (which only fires on EXIT) never restarted it -- the
+    service was wedged from ~125 requests into every boot until someone noticed
+    by hand. Exiting is what converts that into a self-clearing restart.
+
+    os._exit, not sys.exit: this runs on a ThreadingHTTPServer handler thread,
+    where SystemExit would be swallowed as a per-request error and kill only
+    that thread. os._exit takes the process down, which is the point.
+    """
+    global _db_consecutive_failures
+    with _db_fail_lock:
+        _db_consecutive_failures += 1
+        n = _db_consecutive_failures
+    sys.stderr.write("[dispatch] db failure %d/%s: %s: %s\n" % (
+        n, DB_FAIL_EXIT_THRESHOLD or "off", type(exc).__name__, exc))
+    sys.stderr.flush()
+    if DB_FAIL_EXIT_THRESHOLD > 0 and n >= DB_FAIL_EXIT_THRESHOLD:
+        sys.stderr.write(
+            "[dispatch] FATAL: %d consecutive db failures on %s -- exiting %d "
+            "so the supervisor restarts a clean process. If this repeats every "
+            "few minutes, check open fds against `launchctl limit maxfiles` "
+            "(lsof -p <pid> | grep -c dispatch.db).\n"
+            % (n, DB_PATH, EXIT_DB_UNRECOVERABLE))
+        sys.stderr.flush()
+        os._exit(EXIT_DB_UNRECOVERABLE)
+
+
 def db_init():
-    with _db_lock, db_connect() as conn:
+    with _db_lock, db_session() as conn:
         conn.executescript(SCHEMA)
 
 
@@ -156,7 +237,7 @@ def _row_to_dict(row):
 def create_job(title, prompt, cwd, status, source, created_by):
     job_id = uuid.uuid4().hex[:12]
     ts = now_iso()
-    with _db_lock, db_connect() as conn:
+    with _db_lock, db_session() as conn:
         conn.execute(
             "INSERT INTO jobs (id,title,prompt,cwd,status,source,created_by,"
             "created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
@@ -167,7 +248,7 @@ def create_job(title, prompt, cwd, status, source, created_by):
 def list_jobs(limit=200):
     # Open jobs first (staged/pending/claimed/running) oldest-first, then
     # terminal jobs newest-first.
-    with _db_lock, db_connect() as conn:
+    with _db_lock, db_session() as conn:
         rows = conn.execute("SELECT * FROM jobs").fetchall()
     jobs = [_row_to_dict(r) for r in rows]
     order = {s: i for i, s in enumerate(ALL_STATUSES)}
@@ -184,13 +265,13 @@ def list_jobs(limit=200):
 
 
 def get_job(job_id):
-    with _db_lock, db_connect() as conn:
+    with _db_lock, db_session() as conn:
         row = conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
     return _row_to_dict(row) if row else None
 
 
 def pending_jobs(limit=20):
-    with _db_lock, db_connect() as conn:
+    with _db_lock, db_session() as conn:
         rows = conn.execute(
             "SELECT * FROM jobs WHERE status='pending' ORDER BY created_at ASC "
             "LIMIT ?", (limit,)).fetchall()
@@ -209,7 +290,7 @@ def set_status_guarded(job_id, new_status, from_statuses, **fields):
     sql = ("UPDATE jobs SET " + ",".join(cols) +
            " WHERE id=? AND status IN (" + placeholders + ")")
     vals2 = vals + [job_id] + list(from_statuses)
-    with _db_lock, db_connect() as conn:
+    with _db_lock, db_session() as conn:
         cur = conn.execute(sql, vals2)
         changed = cur.rowcount
         row = conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
@@ -287,6 +368,18 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlparse(self.path).path
         if path == "/health":
+            # Probe the db for real. This used to return ok:True
+            # unconditionally without touching sqlite, so it reported healthy
+            # throughout the 2026-08-29 wedge -- the one endpoint whose whole
+            # job is to notice. A liveness check that cannot fail is decoration.
+            try:
+                with _db_lock, db_session() as conn:
+                    conn.execute("SELECT 1 FROM jobs LIMIT 1").fetchone()
+            except Exception as exc:  # noqa: BLE001
+                self._send(503, {"ok": False, "service": "ree-dispatch",
+                                 "error": "%s: %s" % (type(exc).__name__, exc),
+                                 "db": DB_PATH, "now": now_iso()})
+                return
             self._send(200, {"ok": True, "service": "ree-dispatch",
                              "now": now_iso()})
             return
@@ -540,8 +633,58 @@ setInterval(load,15000);
 """
 
 
+def drain_spool():
+    """Replay chips the mirror hook spooled while this service was unreachable.
+
+    Runs at startup, which is exactly when a supervisor-restarted process comes
+    back: wedge -> watchdog exit -> launchd restart -> drain -> the chips that
+    were dropped during the outage appear in the queue. Best-effort; a spool we
+    cannot read must never stop the service from booting.
+    """
+    if not os.path.exists(SPOOL_PATH):
+        return 0
+    staging = SPOOL_PATH + ".draining"
+    try:
+        os.rename(SPOOL_PATH, staging)  # atomic: new writes start a fresh spool
+    except OSError as exc:
+        sys.stderr.write("[dispatch] spool rename failed: %s\n" % exc)
+        return 0
+    n = 0
+    try:
+        with open(staging, "r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                    prompt = (rec.get("prompt") or "").strip()
+                    if not prompt:
+                        continue
+                    create_job(
+                        title=(rec.get("title") or "").strip(),
+                        prompt=prompt,
+                        cwd=(rec.get("cwd") or "").strip(),
+                        status=rec.get("status") or "staged",
+                        source=rec.get("source") or "chip",
+                        created_by=rec.get("created_by") or "spool")
+                    n += 1
+                except Exception as exc:  # noqa: BLE001
+                    sys.stderr.write("[dispatch] spool line skipped: %s\n" % exc)
+    finally:
+        try:
+            os.remove(staging)
+        except OSError:
+            pass
+    if n:
+        sys.stdout.write("[dispatch] drained %d spooled chip(s)\n" % n)
+        sys.stdout.flush()
+    return n
+
+
 def main():
     db_init()
+    drain_spool()
     load_tokens()
     with _tokens_lock:
         n_tokens = len(_tokens)

@@ -7,3 +7,5 @@ dispatch_tokens.json
 dispatch-logs/
 dispatch-worktrees/
 __pycache__/
+dispatch_spool.jsonl
+dispatch_spool.jsonl.draining

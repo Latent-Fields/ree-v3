@@ -588,5 +588,158 @@ class WorktreeRemovalTest(unittest.TestCase):
         self.assertTrue(removed, detail)
 
 
+def _open_fd_count():
+    """Portable-enough open-fd count (macOS /dev/fd, Linux /proc/self/fd)."""
+    for d in ("/dev/fd", "/proc/self/fd"):
+        if os.path.isdir(d):
+            try:
+                return len(os.listdir(d))
+            except OSError:
+                pass
+    raise unittest.SkipTest("no fd directory on this platform")
+
+
+class DbSessionLeakTest(unittest.TestCase):
+    """Regression: the sqlite fd leak that wedged the service on 2026-08-29.
+
+    `with sqlite3.connect(...) as conn:` commits but does NOT close, so every
+    request leaked ~2 fds. Under launchd (`launchctl limit maxfiles` = 256) the
+    service hit EMFILE after ~125 requests, and sqlite reported it as
+    "unable to open database file" -- which reads as a missing/unreadable file
+    and misdirects diagnosis toward permissions. Measured at the time: 251 fds
+    held on dispatch.db by one process.
+    """
+
+    def setUp(self):
+        sys.path.insert(0, HERE)
+        self.tmp = tempfile.mkdtemp(prefix="dispatch-leak-")
+        os.environ["DISPATCH_DB"] = os.path.join(self.tmp, "leak.db")
+        import importlib
+        import dispatch_service  # noqa: E402
+        self.d = importlib.reload(dispatch_service)
+        self.d.db_init()
+
+    def test_db_session_does_not_leak_fds(self):
+        _open_fd_count()  # warm any lazy fds before baselining
+        for i in range(20):
+            self.d.create_job("warm%d" % i, "p", "", "staged", "chip", "t")
+        base = _open_fd_count()
+        for i in range(300):
+            self.d.create_job("t%d" % i, "p", "", "staged", "chip", "t")
+            self.d.pending_jobs()
+            self.d.list_jobs()
+        after = _open_fd_count()
+        self.assertLessEqual(
+            after - base, 2,
+            "db_session leaked %d fds over 900 operations (base=%d after=%d); "
+            "this is the EMFILE wedge regressing" % (after - base, base, after))
+        self.assertEqual(len(self.d.list_jobs(limit=1000)), 320)
+
+    def test_health_reports_unhealthy_when_db_unreachable(self):
+        """/health used to return ok:True without touching sqlite, so it read
+        healthy for the entire wedge. Probing is the whole point of it."""
+        self.d.DB_PATH = "/nonexistent-dir-xyz/nope.db"
+        self.d.DB_FAIL_EXIT_THRESHOLD = 0  # do not take the test process down
+        with self.assertRaises(Exception):
+            with self.d.db_session() as conn:
+                conn.execute("SELECT 1 FROM jobs LIMIT 1").fetchone()
+
+
+class WatchdogAndSpoolTest(unittest.TestCase):
+    """The service must be able to get unstuck on its own.
+
+    An fd-exhausted process can never heal in place, and launchd KeepAlive only
+    fires on EXIT -- so the pre-fix service stayed up serving 500s indefinitely
+    and no supervisor ever restarted it. Exiting converts a permanent wedge into
+    a self-clearing restart; the spool makes the chips dropped meanwhile
+    recoverable rather than lost.
+    """
+
+    def _run(self, code, env_extra):
+        env = dict(os.environ)
+        env.update(env_extra)
+        return subprocess.run([sys.executable, "-c", code], env=env,
+                              capture_output=True, text=True, cwd=HERE)
+
+    SNIPPET = ("import sys; sys.path.insert(0, %r)\n"
+               "import dispatch_service as d\n"
+               "for _ in range(10):\n"
+               "    try:\n"
+               "        with d.db_session() as c: c.execute('select 1')\n"
+               "    except Exception: pass\n"
+               "print('SURVIVED')\n") % HERE
+
+    def test_watchdog_exits_so_supervisor_can_restart(self):
+        r = self._run(self.SNIPPET, {"DISPATCH_DB": "/nonexistent-dir-xyz/d.db",
+                                     "DISPATCH_DB_FAIL_EXIT": "3"})
+        self.assertEqual(r.returncode, 86,
+                         "expected EXIT_DB_UNRECOVERABLE; stderr=%s" % r.stderr)
+        self.assertNotIn("SURVIVED", r.stdout)
+        self.assertIn("FATAL", r.stderr)
+
+    def test_watchdog_can_be_disabled(self):
+        r = self._run(self.SNIPPET, {"DISPATCH_DB": "/nonexistent-dir-xyz/d.db",
+                                     "DISPATCH_DB_FAIL_EXIT": "0"})
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("SURVIVED", r.stdout)
+
+    def test_watchdog_resets_on_success(self):
+        """Consecutive, not cumulative -- an intermittent blip must not
+        accumulate across hours into a spurious exit."""
+        tmp = tempfile.mkdtemp(prefix="dispatch-wd-")
+        code = ("import sys; sys.path.insert(0, %r)\n"
+                "import dispatch_service as d\n"
+                "d.db_init()\n"
+                "good = d.DB_PATH\n"
+                "for _ in range(20):\n"
+                "    d.DB_PATH = '/nonexistent-dir-xyz/d.db'\n"
+                "    try:\n"
+                "        with d.db_session() as c: c.execute('select 1')\n"
+                "    except Exception: pass\n"
+                "    d.DB_PATH = good\n"
+                "    with d.db_session() as c: c.execute('select 1')\n"
+                "print('SURVIVED')\n") % HERE
+        r = self._run(code, {"DISPATCH_DB": os.path.join(tmp, "d.db"),
+                             "DISPATCH_DB_FAIL_EXIT": "3"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("SURVIVED", r.stdout)
+
+    def test_spool_drains_on_startup_and_survives_garbage(self):
+        tmp = tempfile.mkdtemp(prefix="dispatch-spool-")
+        spool = os.path.join(tmp, "spool.jsonl")
+        with open(spool, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps({"title": "chip A", "prompt": "do A",
+                                 "source": "chip", "status": "staged"}) + "\n")
+            fh.write("NOT-JSON\n")  # a torn line must not abort the drain
+            fh.write(json.dumps({"title": "chip B", "prompt": "do B",
+                                 "source": "chip", "status": "staged"}) + "\n")
+        code = ("import sys, json; sys.path.insert(0, %r)\n"
+                "import dispatch_service as d\n"
+                "d.db_init()\n"
+                "n = d.drain_spool()\n"
+                "import os\n"
+                "print(json.dumps({'n': n,\n"
+                "                  'titles': sorted(j['title'] for j in d.list_jobs()),\n"
+                "                  'gone': not os.path.exists(d.SPOOL_PATH)}))\n") % HERE
+        r = self._run(code, {"DISPATCH_DB": os.path.join(tmp, "d.db"),
+                             "DISPATCH_SPOOL": spool})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = json.loads(r.stdout.strip().splitlines()[-1])
+        self.assertEqual(out["n"], 2)
+        self.assertEqual(out["titles"], ["chip A", "chip B"])
+        self.assertTrue(out["gone"], "spool not consumed -- would replay forever")
+
+    def test_drain_spool_noop_without_spool(self):
+        tmp = tempfile.mkdtemp(prefix="dispatch-nospool-")
+        code = ("import sys; sys.path.insert(0, %r)\n"
+                "import dispatch_service as d\n"
+                "d.db_init()\n"
+                "print('DRAINED', d.drain_spool())\n") % HERE
+        r = self._run(code, {"DISPATCH_DB": os.path.join(tmp, "d.db"),
+                             "DISPATCH_SPOOL": os.path.join(tmp, "absent.jsonl")})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("DRAINED 0", r.stdout)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
