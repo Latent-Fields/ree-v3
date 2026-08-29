@@ -500,6 +500,52 @@ def _reclog_append(conn, body, machine_tok):
     return 200, out
 
 
+_DISPATCHER_LEASE_STATES = ("run", "stop")
+
+
+def _dispatcher_lease(conn, body, machine_tok):
+    """POST /dispatcher/lease (PHASE-4 slice, 2026-08-29, W3 fold-in). The
+    Orchestrator's grant/stop channel, coordinator-primary: upserts the
+    lease row the materializer renders into dispatcher_control.json. The
+    git file stays the degraded fallback (dispatchers fail CLOSED on a
+    missing/expired lease regardless of transport -- scripts/
+    dispatcher_control.py's own doctrine -- so a hub outage stops dispatch
+    rather than freeing it). Newest requested_at wins in both directions;
+    see db.upsert_dispatcher_lease.
+
+    The body may pass a full `entry` object (lossless passthrough,
+    preferred by programmatic clients) or the typed fields
+    (requested_state/requested_by/note/lease_hours/expires_at), from which
+    the entry is assembled. requested_at defaults to the server clock.
+    """
+    dispatcher = body.get("dispatcher")
+    if not isinstance(dispatcher, str) or not dispatcher.strip():
+        return 400, {"error": "dispatcher is required", "verdict": "bad_entry"}
+    entry = body.get("entry")
+    if entry is None:
+        entry = {}
+        for field in ("requested_state", "requested_by", "note",
+                      "lease_hours", "expires_at", "requested_at"):
+            if body.get(field) is not None:
+                entry[field] = body[field]
+        entry.setdefault("requested_at", db.utcnow())
+    if not isinstance(entry, dict):
+        return 400, {"error": "entry must be an object", "verdict": "bad_entry"}
+    state = entry.get("requested_state")
+    if state not in _DISPATCHER_LEASE_STATES:
+        return 400, {"error": "requested_state must be one of %r"
+                     % (_DISPATCHER_LEASE_STATES,), "verdict": "bad_entry"}
+    verdict, payload = db.upsert_dispatcher_lease(
+        conn, dispatcher.strip(), entry, via="endpoint:%s" % (machine_tok,))
+    out = dict(payload)
+    out["verdict"] = verdict
+    if verdict == "bad_entry":
+        return 400, out
+    if verdict == "error":
+        return 500, out
+    return 200, out
+
+
 # /chip/archive is DELIBERATELY ABSENT and must stay that way in Phase 2 --
 # plan doc D7. Its correctness gate is that the archive file has actually
 # reached ORIGIN (cmd_archive fetches and verifies at origin_ref() before
@@ -523,6 +569,7 @@ _TASK_CLAIM_CHIP_POST = {
     # growing a parallel table).
     "/workspace_state/append": _ws_append,
     "/recommendation_log/append": _reclog_append,
+    "/dispatcher/lease": _dispatcher_lease,
 }
 
 
@@ -895,6 +942,23 @@ class Handler(BaseHTTPRequestHandler):
             finally:
                 conn.close()
             self._send(200, summary)
+            return
+        if path == "/dispatcher/leases":
+            # PHASE-4 observability + dispatcher-side coordinator-primary
+            # read: the current lease rows, rendered exactly as the git
+            # file's dispatchers map would carry them.
+            conn = db.connect(DB_PATH)
+            try:
+                rows = db.dispatcher_lease_rows(conn)
+            finally:
+                conn.close()
+            dispatchers = {}
+            for r in rows:
+                try:
+                    dispatchers[r["dispatcher"]] = json.loads(r["entry_json"])
+                except ValueError:
+                    continue
+            self._send(200, {"dispatchers": dispatchers})
             return
         if path == "/recommendation_log/pending":
             # PHASE-4 observability, RECLOG sibling of the WS spool below.
@@ -1451,7 +1515,8 @@ class Handler(BaseHTTPRequestHandler):
         # The token still gates access; it just is not the actor.
         if (path.startswith("/task_claim/") or path.startswith("/chip/")
                 or path.startswith("/workspace_state/")
-                or path.startswith("/recommendation_log/")):
+                or path.startswith("/recommendation_log/")
+                or path.startswith("/dispatcher/")):
             if body is None:
                 self._send(400, {"error": "bad body"})
                 return

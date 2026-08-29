@@ -322,3 +322,20 @@ CREATE TABLE IF NOT EXISTS recommendation_log_entries (
 CREATE INDEX IF NOT EXISTS idx_recommendation_log_pending
     ON recommendation_log_entries(materialized_at)
     WHERE materialized_at IS NULL;
+
+-- PHASE-4 slice (2026-08-29, fleet-wedge campaign W3 fold-in): dispatcher
+-- run-lease intake. The Orchestrator's lease grant/stop commands become DB
+-- state POSTed to /dispatcher/lease; the registry materializer renders
+-- dispatcher_control.json from these rows and INGESTS git-side writes
+-- (upsert-if-newer), so the git file remains the DEGRADED FALLBACK a
+-- dispatcher can still read -- and an operator can still write -- when the
+-- hub is unreachable (RT3: the emergency STOP must survive a hub outage).
+-- entry_json is lossless, rendered verbatim, same doctrine as the claim/chip
+-- registries.
+CREATE TABLE IF NOT EXISTS dispatcher_leases (
+    dispatcher   TEXT PRIMARY KEY,
+    requested_at TEXT NOT NULL,
+    entry_json   TEXT NOT NULL,
+    updated_at   TEXT NOT NULL,
+    updated_via  TEXT
+);

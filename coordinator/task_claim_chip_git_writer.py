@@ -101,6 +101,7 @@ CLAIMS_REL_PATH = "TASK_CLAIMS.json"
 CHIPS_REL_PATH = "TASK_CHIPS.json"
 WORKSPACE_STATE_REL_PATH = "WORKSPACE_STATE.md"
 RECLOG_REL_PATH = "RECOMMENDATION_LOG.jsonl"
+DISPATCHER_CONTROL_REL_PATH = "dispatcher_control.json"
 RETAIN_HOURS = float(os.environ.get("COORDINATOR_TASK_CLAIM_RETAIN_HOURS", "24"))
 COMMIT_PREFIX = "phase2b-registry:"
 
@@ -458,6 +459,57 @@ def render_recommendation_log(conn, source_text):
     return new_text, stats, carried_ids, [r["entry_id"] for r in append_rows]
 
 
+def ingest_dispatcher_control(conn, source_doc):
+    """Reconcile origin's dispatcher_control.json into dispatcher_leases,
+    upsert-if-newer per entry (db.upsert_dispatcher_lease's 'stale' verdict
+    keeps endpoint-written newer state). This is what keeps the git file a
+    real DEGRADED FALLBACK: a stop written git-side during a hub outage is
+    adopted here the moment the hub can see origin again."""
+    stats = {"n_seen": 0, "n_adopted": 0}
+    if not isinstance(source_doc, dict):
+        return stats
+    dispatchers = source_doc.get("dispatchers")
+    if not isinstance(dispatchers, dict):
+        return stats
+    for name, entry in sorted(dispatchers.items()):
+        stats["n_seen"] += 1
+        verdict, _ = db.upsert_dispatcher_lease(conn, name, entry,
+                                                via="ingest")
+        if verdict == "ok":
+            stats["n_adopted"] += 1
+    return stats
+
+
+def render_dispatcher_control(conn, source_doc):
+    """Render dispatcher_control.json from the lease rows: the envelope
+    (every top-level key except `dispatchers` -- the _comment doctrine
+    block) is preserved from origin's copy verbatim; the dispatchers map is
+    the DB rows' lossless entry_json. Serialization matches
+    scripts/dispatcher_control.py._save (indent=2, sort_keys, trailing
+    newline) so an in-sync render is byte-identical to a client write.
+
+    Returns (new_text, stats). new_text is None when there is nothing to
+    write: no source doc (unreadable/missing file -- never invent the
+    envelope), or no DB rows yet (pre-flip quiescence -- ingest-only)."""
+    stats = {"n_rows": 0, "differs": False}
+    if not isinstance(source_doc, dict):
+        return None, stats
+    rows = db.dispatcher_lease_rows(conn)
+    stats["n_rows"] = len(rows)
+    if not rows:
+        return None, stats
+    doc = {k: v for k, v in source_doc.items() if k != "dispatchers"}
+    dispatchers = {}
+    for r in rows:
+        try:
+            dispatchers[r["dispatcher"]] = json.loads(r["entry_json"])
+        except ValueError:
+            continue
+    doc["dispatchers"] = dispatchers
+    new_text = json.dumps(doc, indent=2, sort_keys=True) + "\n"
+    return new_text, stats
+
+
 def ingest(conn, claims_doc, chips_doc):
     """Reconcile origin's current content into the DB, one transaction.
     Upsert-only (the reconcilers never delete), no drift-log row -- see
@@ -587,6 +639,21 @@ def materialize_once(conn, repo_path, branch=None, mode=None, now_iso=None,
             db.mark_recommendation_log_entries_materialized(
                 conn, reclog_carried, sha)
 
+        # dispatcher_control.json (PHASE-4 slice, 2026-08-29, W3 fold-in):
+        # ingest BEFORE render, so a git-side fallback write is adopted and
+        # the render then has nothing to fight.
+        dc_text = _show_text(repo_path, sha, DISPATCHER_CONTROL_REL_PATH,
+                             warn=False)
+        try:
+            dc_doc = json.loads(dc_text) if dc_text else None
+        except ValueError:
+            dc_doc = None
+        dc_ingest_stats = ingest_dispatcher_control(conn, dc_doc)
+        dc_render, dc_stats = render_dispatcher_control(conn, dc_doc)
+        dc_stats.update(dc_ingest_stats)
+        dc_match = dc_render is None or _texts_match(dc_text, dc_render)
+        dc_stats["differs"] = not dc_match
+
         claims_match = _texts_match(claims_text, claims_render)
         chips_match = _texts_match(chips_text, chips_render)
         # Record the render base for any file whose render already matches
@@ -604,6 +671,7 @@ def materialize_once(conn, repo_path, branch=None, mode=None, now_iso=None,
             "chips": chips_stats,
             "workspace_state": ws_stats,
             "recommendation_log": reclog_stats,
+            "dispatcher_control": dc_stats,
             "committed": False,
         }
         if not claims_match:
@@ -615,9 +683,11 @@ def materialize_once(conn, repo_path, branch=None, mode=None, now_iso=None,
 
         ws_needs_write = bool(ws_splice_ids)
         reclog_needs_write = bool(reclog_append_ids)
+        dc_needs_write = not dc_match
         if mode != "write" or (claims_match and chips_match
                                and not ws_needs_write
-                               and not reclog_needs_write):
+                               and not reclog_needs_write
+                               and not dc_needs_write):
             return result
 
         # -- write mode, something differs: materialize onto origin tip.
@@ -649,6 +719,11 @@ def materialize_once(conn, repo_path, branch=None, mode=None, now_iso=None,
                       encoding="utf-8") as fh:
                 fh.write(reclog_render)
             wrote.append(RECLOG_REL_PATH)
+        if dc_needs_write:
+            with open(os.path.join(repo_path, DISPATCHER_CONTROL_REL_PATH),
+                      "w", encoding="utf-8") as fh:
+                fh.write(dc_render)
+            wrote.append(DISPATCHER_CONTROL_REL_PATH)
         msg = ("%s materialize %s (claims %d kept/%d aged-out, chips %d"
                % (COMMIT_PREFIX, "+".join(wrote),
                   claims_stats["n_rendered"],
@@ -658,6 +733,8 @@ def materialize_once(conn, repo_path, branch=None, mode=None, now_iso=None,
             msg += ", ws +%d" % len(ws_splice_ids)
         if reclog_needs_write:
             msg += ", reclog +%d" % len(reclog_append_ids)
+        if dc_needs_write:
+            msg += ", dispatcher_control"
         msg += ")"
         try:
             _git(repo_path, "add", "--", *wrote)

@@ -45,6 +45,7 @@ def connect(db_path):
     _migrate_task_claim_chip_tables(conn)
     _migrate_workspace_state_table(conn)
     _migrate_recommendation_log_table(conn)
+    _migrate_dispatcher_leases_table(conn)
     return conn
 
 
@@ -2042,6 +2043,88 @@ def mark_recommendation_log_entries_materialized(conn, entry_ids, ref,
         raise
 
 
+def _migrate_dispatcher_leases_table(conn):
+    """Create the dispatcher run-lease table if missing. Same idempotent
+    contract as the other _migrate_* helpers (called from connect())."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS dispatcher_leases (
+            dispatcher   TEXT PRIMARY KEY,
+            requested_at TEXT NOT NULL,
+            entry_json   TEXT NOT NULL,
+            updated_at   TEXT NOT NULL,
+            updated_via  TEXT
+        )
+        """
+    )
+
+
+def upsert_dispatcher_lease(conn, dispatcher, entry, via, now=None):
+    """Upsert one dispatcher's lease entry, NEWEST requested_at wins.
+
+    `entry` is the full lease dict exactly as dispatcher_control.json's
+    dispatchers[<name>] carries it (lossless entry_json doctrine -- the
+    renderer emits it verbatim, so unknown future fields survive a round
+    trip). Verdicts:
+      'ok'          -- inserted or replaced (strictly newer requested_at,
+                       or no prior row).
+      'idempotent'  -- an identical entry is already stored (client retry).
+      'stale'       -- the stored row's requested_at is newer or equal with
+                       different content; nothing written. The caller keeps
+                       the newer state -- this is what makes an INGEST of an
+                       old git file safe after endpoint writes, and an
+                       endpoint replay safe after a newer git-side stop.
+      'bad_entry'   -- entry is not a dict with a parseable requested_at.
+      'error'       -- sqlite failure.
+    """
+    now = now or utcnow()
+    if not isinstance(entry, dict):
+        return ("bad_entry", {"reason": "entry must be an object"})
+    requested_at = entry.get("requested_at")
+    try:
+        datetime.strptime(requested_at or "", "%Y-%m-%dT%H:%M:%SZ")
+    except (TypeError, ValueError):
+        return ("bad_entry", {"reason": "requested_at must be UTC ISO-8601"})
+    blob = json.dumps(entry, sort_keys=True)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT requested_at, entry_json FROM dispatcher_leases "
+            "WHERE dispatcher=?", (dispatcher,)).fetchone()
+        if row is not None:
+            if row["entry_json"] == blob:
+                conn.execute("ROLLBACK")
+                return ("idempotent", {"dispatcher": dispatcher})
+            if row["requested_at"] >= requested_at:
+                conn.execute("ROLLBACK")
+                return ("stale", {"dispatcher": dispatcher,
+                                  "stored_requested_at": row["requested_at"]})
+        conn.execute(
+            "INSERT INTO dispatcher_leases "
+            "(dispatcher, requested_at, entry_json, updated_at, updated_via) "
+            "VALUES (?,?,?,?,?) ON CONFLICT(dispatcher) DO UPDATE SET "
+            "requested_at=excluded.requested_at, "
+            "entry_json=excluded.entry_json, "
+            "updated_at=excluded.updated_at, "
+            "updated_via=excluded.updated_via",
+            (dispatcher, requested_at, blob, now, via))
+        conn.execute("COMMIT")
+        return ("ok", {"dispatcher": dispatcher, "requested_at": requested_at})
+    except sqlite3.Error:
+        try:
+            conn.execute("ROLLBACK")
+        except sqlite3.Error:
+            pass
+        return ("error", {})
+
+
+def dispatcher_lease_rows(conn):
+    """All lease rows, keyed for the renderer."""
+    return conn.execute(
+        "SELECT dispatcher, requested_at, entry_json, updated_at, "
+        "updated_via FROM dispatcher_leases ORDER BY dispatcher").fetchall()
+
+
 def init_db(db_path):
     conn = connect(db_path)
     with open(SCHEMA_PATH, "r", encoding="utf-8") as fh:
@@ -2053,6 +2136,7 @@ def init_db(db_path):
     _migrate_task_claim_chip_tables(conn)
     _migrate_workspace_state_table(conn)
     _migrate_recommendation_log_table(conn)
+    _migrate_dispatcher_leases_table(conn)
     conn.close()
 
 
