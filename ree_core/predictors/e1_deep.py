@@ -591,13 +591,58 @@ class E1DeepPredictor(nn.Module):
             ),
         )
 
+        # SD-e1-rollout-consistency-training ITEM 1 (2026-08-29): action-conditioned
+        # transition. V3-EXQ-954 established that E1's rollout evaluator is floored
+        # at h=1 (cr_ratio 4.8e-07 against a 0.1 bar) with the horizon-compounding
+        # signature ABSENT, and its red-team pass measured a ~5,000x per-action
+        # divergence attenuation inside E1 (E2 output 2.8e-2 -> E1 output 5.6e-6).
+        # The transition took no action at all, so an evaluator scoring forty
+        # candidate action sequences through E1 was scoring an action-blind model.
+        #
+        # When enabled, the LSTM is given a DEDICATED action channel
+        # (input_size widened by action_dim) rather than having the action
+        # projected back down into total_dim. See the config comment on
+        # E1Config.action_conditioned_transition for why the projection form was
+        # rejected, and sd_e1_rollout_consistency_training.md for the full design.
+        #
+        # NOTE this only fixes the INTERFACE. The dominant ~675x crush the
+        # red-team localised is at the LSTM + output_proj stage, and closing it
+        # is item 2 (the multi-step / rollout-consistency objective). Do not read
+        # this flag as "the collapse is fixed".
+        self._action_conditioned = bool(
+            getattr(self.config, "action_conditioned_transition", False)
+        )
+        self._action_dim = int(getattr(self.config, "action_dim", 4))
+        self._action_cond_unzero_self_slot = bool(
+            getattr(self.config, "action_cond_unzero_self_slot", True)
+        )
+        # Instrumentation: counts predict_long_horizon calls that ran the
+        # action-conditioned path with NO actions supplied (and therefore fell
+        # back to a zero action). A validation experiment asserts this is 0 on
+        # the paths it measures -- otherwise an "ON" arm is silently an OFF arm,
+        # which is exactly the vacuity class the 108/108a history warns about.
+        self._action_cond_missing_calls: int = 0
+
+        _transition_input_size = total_dim
+        if self._action_conditioned:
+            _transition_input_size = total_dim + self._action_dim
+
         self.transition_rnn = nn.LSTM(
-            input_size=total_dim,
+            input_size=_transition_input_size,
             hidden_size=self.config.hidden_dim,
             num_layers=self.config.num_layers,
             batch_first=True,
             dropout=0.1 if self.config.num_layers > 1 else 0,
         )
+
+        # Action encoder, mirroring E2FastPredictor's convention
+        # (nn.Linear(action_dim, action_dim) applied to the one-hot before
+        # concatenation). Constructed ONLY under the master switch, so with the
+        # flag off no parameters exist and no construction-time RNG is consumed.
+        if self._action_conditioned:
+            self.action_encoder = nn.Linear(self._action_dim, self._action_dim)
+        else:
+            self.action_encoder = None
 
         self.output_proj = nn.Sequential(
             nn.Linear(self.config.hidden_dim, self.config.hidden_dim),
@@ -755,10 +800,71 @@ class E1DeepPredictor(nn.Module):
     def total_latent_dim(self) -> int:
         return self.config.self_dim + self.config.world_dim
 
+    def _prepare_action_sequence(
+        self,
+        actions: Optional[torch.Tensor],
+        batch_size: int,
+        horizon: int,
+        device: torch.device,
+        dtype: torch.dtype,
+    ) -> torch.Tensor:
+        """
+        Normalise an action argument to [batch, horizon, action_dim].
+
+        SD-e1-rollout-consistency-training ITEM 1. Accepts either shape, because
+        E1's two consumer families need different ones:
+          [batch, action_dim]            one action held across the whole rollout
+                                         (the agent-loop efference-copy call)
+          [batch, horizon, action_dim]   a per-step action sequence (what a
+                                         candidate-sequence evaluator supplies)
+
+        `actions=None` under the action-conditioned path falls back to a ZERO
+        action and increments _action_cond_missing_calls. This keeps legacy
+        internal callers (integrate_experience) working, but a zero action is
+        not a real conditioning signal -- any experiment claiming an ON arm must
+        assert the counter is 0 over the calls it measures.
+        """
+        if actions is None:
+            self._action_cond_missing_calls += 1
+            return torch.zeros(
+                batch_size, horizon, self._action_dim, device=device, dtype=dtype
+            )
+
+        a = actions.to(device=device, dtype=dtype)
+        if a.dim() == 1:
+            a = a.unsqueeze(0)
+        if a.dim() == 2:
+            # [batch, action_dim] -> hold across the horizon
+            a = a.unsqueeze(1).expand(-1, horizon, -1)
+        elif a.dim() != 3:
+            raise ValueError(
+                "actions must be [batch, action_dim] or "
+                f"[batch, horizon, action_dim]; got shape {tuple(actions.shape)}"
+            )
+
+        if a.shape[-1] != self._action_dim:
+            raise ValueError(
+                f"actions last dim {a.shape[-1]} != E1Config.action_dim "
+                f"{self._action_dim}"
+            )
+        if a.shape[0] == 1 and batch_size > 1:
+            a = a.expand(batch_size, -1, -1)
+        if a.shape[0] != batch_size:
+            raise ValueError(
+                f"actions batch {a.shape[0]} != current_state batch {batch_size}"
+            )
+        if a.shape[1] < horizon:
+            # Shorter sequence than the horizon: hold the final action. Explicit
+            # rather than silent truncation of the rollout.
+            pad = a[:, -1:, :].expand(-1, horizon - a.shape[1], -1)
+            a = torch.cat([a, pad], dim=1)
+        return a[:, :horizon, :]
+
     def predict_long_horizon(
         self,
         current_state: torch.Tensor,
         horizon: Optional[int] = None,
+        actions: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
         Predict latent states over a long horizon.
@@ -766,6 +872,10 @@ class E1DeepPredictor(nn.Module):
         Args:
             current_state: Concatenated [z_self, z_world] [batch, self_dim+world_dim]
             horizon: Number of steps to predict
+            actions: SD-e1-rollout-consistency-training ITEM 1. Optional action
+                conditioning, [batch, action_dim] (held across the rollout) or
+                [batch, horizon, action_dim] (per-step sequence). Ignored unless
+                E1Config.action_conditioned_transition is True.
 
         Returns:
             Predicted states [batch, horizon, self_dim+world_dim]
@@ -779,8 +889,19 @@ class E1DeepPredictor(nn.Module):
         prior = self.prior_generator(combined)
 
         # prior is world_dim; expand back to total_dim for LSTM input
-        # by concatenating with zeros for z_self part
-        prior_self = torch.zeros(batch_size, self.config.self_dim, device=device)
+        # by concatenating with zeros for z_self part.
+        #
+        # SD-e1-rollout-consistency-training ITEM 1: that zeroing is the second
+        # defect V3-EXQ-954 named -- the real z_self never reaches the LSTM, so
+        # the whole action signal was squeezed through this one world_dim-wide
+        # prior_generator projection. Under action_cond_unzero_self_slot the
+        # slot carries the real z_self instead. Kept on its own sub-flag (inert
+        # unless the master switch is on) so the two defects stay separately
+        # ablatable.
+        if self._action_conditioned and self._action_cond_unzero_self_slot:
+            prior_self = current_state[:, : self.config.self_dim]
+        else:
+            prior_self = torch.zeros(batch_size, self.config.self_dim, device=device)
         prior_full = torch.cat([prior_self, prior], dim=-1)  # [batch, total_dim]
 
         if self._hidden_state is None or self._hidden_state[0].shape[1] != batch_size:
@@ -794,13 +915,31 @@ class E1DeepPredictor(nn.Module):
 
         predictions = []
         hidden = self._hidden_state
-        input_state = prior_full.unsqueeze(1)  # [batch, 1, total_dim]
 
-        for _ in range(horizon):
-            output, hidden = self.transition_rnn(input_state, hidden)
-            predicted = self.output_proj(output.squeeze(1))
-            predictions.append(predicted)
-            input_state = predicted.unsqueeze(1)
+        if self._action_conditioned:
+            # SD-e1-rollout-consistency-training ITEM 1: each rollout step is fed
+            # cat([state_i, action_encoder(a_i)]) on a dedicated LSTM input
+            # channel. a_i is the action taken AT step i, i.e. the one that
+            # carries state_i -> state_{i+1}.
+            action_seq = self._prepare_action_sequence(
+                actions, batch_size, horizon, device, prior_full.dtype
+            )
+            state_i = prior_full
+            for step in range(horizon):
+                a_enc = self.action_encoder(action_seq[:, step, :])
+                step_in = torch.cat([state_i, a_enc], dim=-1).unsqueeze(1)
+                output, hidden = self.transition_rnn(step_in, hidden)
+                predicted = self.output_proj(output.squeeze(1))
+                predictions.append(predicted)
+                state_i = predicted
+        else:
+            input_state = prior_full.unsqueeze(1)  # [batch, 1, total_dim]
+
+            for _ in range(horizon):
+                output, hidden = self.transition_rnn(input_state, hidden)
+                predicted = self.output_proj(output.squeeze(1))
+                predictions.append(predicted)
+                input_state = predicted.unsqueeze(1)
 
         self._hidden_state = (hidden[0].detach(), hidden[1].detach())
 
@@ -1103,6 +1242,7 @@ class E1DeepPredictor(nn.Module):
         self,
         experience_buffer: List[torch.Tensor],
         num_iterations: int = 10,
+        action_buffer: Optional[List[torch.Tensor]] = None,
     ) -> Dict[str, float]:
         if len(experience_buffer) < 2:
             return {"integration_loss": 0.0}
@@ -1116,7 +1256,21 @@ class E1DeepPredictor(nn.Module):
             if sequence.dim() == 2:
                 sequence = sequence.unsqueeze(0)
             initial = sequence[:, 0, :]
-            predictions = self.predict_long_horizon(initial, horizon=sequence.shape[1] - 1)
+            # SD-e1-rollout-consistency-training ITEM 1: the action that carries
+            # state_i -> state_{i+1} is the one recorded ALONGSIDE state_{i+1}
+            # (sense() can only observe a_{t-1}), hence the +1 offset. Same
+            # convention as REEAgent.compute_prediction_loss; see the SD doc's
+            # "Buffer alignment" note.
+            _acts = None
+            if self._action_conditioned and action_buffer is not None:
+                _slice = action_buffer[start_idx + 1:end_idx]
+                if _slice:
+                    _acts = torch.stack(
+                        [a.reshape(-1) for a in _slice]
+                    ).unsqueeze(0)
+            predictions = self.predict_long_horizon(
+                initial, horizon=sequence.shape[1] - 1, actions=_acts
+            )
             targets = sequence[:, 1:, :]
             loss = F.mse_loss(predictions[:, :targets.shape[1], :], targets)
             total_loss += loss.item()
@@ -1128,6 +1282,7 @@ class E1DeepPredictor(nn.Module):
         current_state: torch.Tensor,
         horizon: Optional[int] = None,
         z_goal: Optional[torch.Tensor] = None,
+        actions: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Forward pass.
@@ -1135,6 +1290,10 @@ class E1DeepPredictor(nn.Module):
         Args:
             current_state: [z_self, z_world] concatenated [batch, total_dim]
             z_goal:        optional goal latent [1, goal_dim] for MECH-116 conditioning
+            actions:       SD-e1-rollout-consistency-training ITEM 1. Optional
+                           action conditioning, [batch, action_dim] or
+                           [batch, horizon, action_dim]. Ignored unless
+                           E1Config.action_conditioned_transition is True.
 
         Returns:
             predictions: [batch, horizon, total_dim]
@@ -1147,6 +1306,6 @@ class E1DeepPredictor(nn.Module):
             total_state = self.goal_input_proj(
                 torch.cat([total_state, goal_exp], dim=-1)
             )
-        predictions = self.predict_long_horizon(total_state, horizon)
+        predictions = self.predict_long_horizon(total_state, horizon, actions=actions)
         prior = self.generate_prior(current_state)
         return predictions, prior

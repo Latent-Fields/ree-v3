@@ -398,6 +398,44 @@ class E1Config:
     prediction_horizon: int = 20   # Steps into future
     learning_rate: float = 1e-4
 
+    # SD-e1-rollout-consistency-training, ITEM 1 (2026-08-29): action-conditioned
+    # transition. V3-EXQ-954 measured E1's rollout evaluator floored at h=1
+    # (cr_ratio 4.8e-07 vs a 0.1 bar) with the compounding signature ABSENT, and
+    # its red-team pass localised a ~5,000x per-action divergence attenuation
+    # inside E1 (E2 output 2.8e-2 -> E1 output 5.6e-6; prior_generator ~7x,
+    # LSTM+output_proj ~675x). Cause: the transition takes no action at all, and
+    # the LSTM seed zeroes the z_self half, so the entire action signal is
+    # squeezed through one world_dim-wide prior_generator projection.
+    #
+    # When True, transition_rnn is constructed with
+    # input_size = self_dim + world_dim + action_dim and every rollout step is fed
+    # cat([state_i, action_encoder(a_i)]) -- a DEDICATED action channel, not a
+    # projection back down to total_dim. The projection form was rejected: it
+    # re-imposes a width-64 squeeze on the signal this change exists to
+    # un-squeeze, and this file already records that failure mode once (the
+    # EXQ-449a comment on cue_action_proj, per-channel std ~2.7e-8 from a swamped
+    # input).
+    #
+    # Default False = bit-identical to the legacy path: no action_encoder is
+    # constructed, transition_rnn.input_size is unchanged, and no
+    # construction-time RNG is consumed for the new path.
+    # See REE_assembly/docs/architecture/sd_e1_rollout_consistency_training.md.
+    action_conditioned_transition: bool = False
+
+    # One-hot action width. Mirrors E2Config.action_dim (from_dims wires both
+    # from the same action_dim argument). Read only when
+    # action_conditioned_transition is True.
+    action_dim: int = 4
+
+    # Fill the zeroed z_self half of the LSTM seed with the real z_self
+    # (e1_deep.py's `prior_self = torch.zeros(...)`). INERT unless
+    # action_conditioned_transition is True. Carried on its own sub-flag so the
+    # two defects V3-EXQ-954 named -- the missing action parameter and the
+    # zeroed z_self slot -- stay separately ablatable, and a validation
+    # experiment can attribute movement to one or the other rather than to
+    # "the flag".
+    action_cond_unzero_self_slot: bool = True
+
     # SD-016: frontal cue-indexed integration circuit (MECH-150/151/152, ARC-041)
     sd016_enabled: bool = False
     action_object_dim: int = 16    # must match E2Config.action_object_dim
@@ -6598,6 +6636,9 @@ class REEConfig:
         stdlib_rng_seed: Optional[int] = None,
         # VALENCE_WANTING gradient in trajectory scoring
         wanting_weight: float = 0.0,
+        # SD-e1-rollout-consistency-training ITEM 1: E1 action-conditioned transition
+        action_conditioned_transition: bool = False,
+        action_cond_unzero_self_slot: bool = True,
         # MECH-216: E1 predictive wanting (schema readout)
         schema_wanting_enabled: bool = False,
         schema_wanting_threshold: float = 0.3,
@@ -7756,6 +7797,13 @@ class REEConfig:
         config.contextmemory_write_addressing_loss_weight = contextmemory_write_addressing_loss_weight
         config.e1.action_object_dim = action_object_dim
         config.e1.schema_wanting_enabled = schema_wanting_enabled
+        # SD-e1-rollout-consistency-training ITEM 1: E1 action-conditioned
+        # transition. action_dim is wired from the SAME from_dims argument that
+        # feeds config.e2.action_dim just below, so E1 and E2 can never disagree
+        # about the one-hot width.
+        config.e1.action_conditioned_transition = action_conditioned_transition
+        config.e1.action_cond_unzero_self_slot = action_cond_unzero_self_slot
+        config.e1.action_dim = action_dim
 
         # E2
         config.e2.self_dim = self_dim

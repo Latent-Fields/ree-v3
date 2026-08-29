@@ -2988,6 +2988,31 @@ class REEAgent(nn.Module):
         # Experience buffers for training
         self._self_experience_buffer: List[torch.Tensor] = []   # z_self history
         self._world_experience_buffer: List[torch.Tensor] = []  # z_world history
+        # SD-e1-rollout-consistency-training ITEM 1: one-hot action history,
+        # index-aligned with the two buffers above (appended and trimmed in the
+        # same place in _e1_tick, so they cannot drift apart).
+        #
+        # Entry i is the most recent EXECUTED action at the time state i was
+        # recorded -- i.e. the action that LED TO state i, since _e1_tick can
+        # only observe a_{t-1}. So the action carrying state_i -> state_{i+1} is
+        # entry i+1, and compute_prediction_loss slices [start+1:end]
+        # accordingly. An off-by-one here trains E1 on the action that led INTO
+        # the input state rather than the one that leaves it, and is
+        # indistinguishable from correct at the shape level.
+        #
+        # CAVEAT, inherited not introduced: these buffers advance at E1's TICK
+        # cadence, not once per env step. When E1 ticks every step, entry i+1 is
+        # exactly the carrying action; when it ticks more slowly, it is the LAST
+        # of the several actions executed across that interval. This is the same
+        # assumption compute_prediction_loss already makes about consecutive
+        # state entries being a one-step transition -- the action buffer does not
+        # make it any weaker, but an experiment that needs exact per-step
+        # conditioning should run E1 at tick-every-step.
+        #
+        # Populated unconditionally (a few floats per tick) so that turning the
+        # E1 flag on mid-run cannot find an empty buffer; the buffer is only
+        # READ under E1Config.action_conditioned_transition.
+        self._action_experience_buffer: List[torch.Tensor] = []
         self._e2_transition_buffer: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = []
         # GAP-4 / MECH-273: waking-stream (z_harm_s, action) pairs for sleep WRITEBACK.
         self._harm_replay_buffer: List[Tuple[torch.Tensor, torch.Tensor]] = []
@@ -5631,7 +5656,12 @@ class REEAgent(nn.Module):
         # buffers feed training / replay, not forward-prediction inputs).
         self._self_experience_buffer.append(latent_state.z_self.detach().clone())
         self._world_experience_buffer.append(latent_state.z_world.detach().clone())
-        for buf in [self._self_experience_buffer, self._world_experience_buffer]:
+        # SD-e1-rollout-consistency-training ITEM 1: keep the action history in
+        # lockstep with the two buffers above -- appended in the same place, and
+        # trimmed in the same loop, so they cannot drift apart.
+        self._action_experience_buffer.append(self._e1_action_one_hot())
+        for buf in [self._self_experience_buffer, self._world_experience_buffer,
+                    self._action_experience_buffer]:
             if len(buf) > 1000:
                 del buf[:-1000]
 
@@ -5656,7 +5686,20 @@ class REEAgent(nn.Module):
                         self._vs_gate_staleness_cache or None
                     ),
                 )
-        _e1_predictions, e1_prior = self.e1(total_state, z_goal=_z_goal_input)
+        # SD-e1-rollout-consistency-training ITEM 1: condition the online
+        # transition on the efference copy of the action just executed. This is
+        # the biological reading -- a forward model is conditioned on the motor
+        # command it was issued -- and it is the only action available at this
+        # point in the loop. None unless the flag is on, so the OFF path is
+        # bit-identical.
+        _e1_actions_online = (
+            self._e1_action_one_hot()
+            if getattr(self.e1.config, "action_conditioned_transition", False)
+            else None
+        )
+        _e1_predictions, e1_prior = self.e1(
+            total_state, z_goal=_z_goal_input, actions=_e1_actions_online
+        )
 
         # SELF-1 / DR-13: cache E1's generative prediction of the NEXT-step
         # z_self so the next sense()/encode() can anchor the self-recurrence to
@@ -10461,6 +10504,79 @@ class REEAgent(nn.Module):
         binder.observe(z_self, z_world)
         return binder.learn_step()
 
+    def _e1_action_one_hot(self) -> torch.Tensor:
+        """
+        SD-e1-rollout-consistency-training ITEM 1: one-hot of the last executed
+        action, for E1's action-conditioned transition.
+
+        Uses the ONE-HOT of the discrete action the env actually executed
+        (env.step does argmax(action)), NOT the raw continuous pre-argmax policy
+        output -- the same convention every other forward-model call site in
+        this file uses, and for the same reason: a forward model trained on the
+        executed discrete action cannot use a continuous encoding.
+
+        Returns a zero vector when there is no last action (episode start), which
+        is the honest encoding of "no action led to this state".
+        """
+        a_dim = int(getattr(self.e1.config, "action_dim", 0)) or int(
+            getattr(self.config.e2, "action_dim", 4)
+        )
+        out = torch.zeros(1, a_dim, device=self.device)
+        if self._last_action is None:
+            return out
+        raw = self._last_action.detach()
+        if raw.dim() == 1:
+            raw = raw.unsqueeze(0)
+        idx = int(raw.argmax(dim=-1).flatten()[0].item())
+        if 0 <= idx < a_dim:
+            out[0, idx] = 1.0
+        return out
+
+    def record_executed_action(self, action: torch.Tensor) -> None:
+        """
+        SD-e1-rollout-consistency-training ITEM 1: tell the agent which action
+        was actually executed, for drivers that step the env DIRECTLY instead of
+        going through select_action().
+
+        This matters more than it looks. Several experiment drivers (the whole
+        108/954 lineage among them) drive the env with `random.randint` actions
+        and never call select_action(), so `_last_action` stays None and the E1
+        action buffer fills with zero vectors. `_action_cond_missing_calls`
+        cannot catch that -- actions ARE being supplied, they are just all zero
+        -- so an "ON" arm would look armed and be scientifically vacuous. Any
+        such driver must call this immediately after choosing its action, and
+        should assert on e1_action_buffer_stats() before believing its own arm.
+
+        Caveat for the driver author: `_last_action` is read by several other
+        subsystems (blocked-agency, the TPJ predicted-z_self cache, the
+        event-boundary action-class trackers). A driver that previously left it
+        None was giving all of those "no action"; calling this hands them the
+        real one. That is arguably more correct, but it IS a behaviour change
+        for that driver, so an ablation must call it in BOTH arms, not only the
+        action-conditioned one, or the arms differ by more than the flag. No
+        existing driver calls this, so nothing is affected until one opts in.
+        """
+        self._last_action = action
+
+    def e1_action_buffer_stats(self) -> Dict[str, float]:
+        """
+        SD-e1-rollout-consistency-training ITEM 1: non-vacuity check on the E1
+        action history. `nonzero_fraction` near 0 means the buffer is full of
+        zero actions and an action-conditioned arm is conditioning on nothing.
+        See record_executed_action() for how that happens.
+        """
+        buf = self._action_experience_buffer
+        n = len(buf)
+        nz = sum(1 for a in buf if float(a.abs().sum()) > 0.0)
+        return {
+            "n": float(n),
+            "n_nonzero": float(nz),
+            "nonzero_fraction": (nz / n) if n else 0.0,
+            "missing_action_calls": float(
+                getattr(self.e1, "_action_cond_missing_calls", 0)
+            ),
+        }
+
     def compute_prediction_loss(self) -> torch.Tensor:
         """
         E1 world-model prediction loss for training.
@@ -10491,7 +10607,26 @@ class REEAgent(nn.Module):
 
         initial = sequence[:, 0, :]
         horizon_len = sequence.shape[1] - 1
-        predictions = self.e1.predict_long_horizon(initial, horizon=horizon_len)
+
+        # SD-e1-rollout-consistency-training ITEM 1: supply the executed action
+        # sequence when E1's transition is action-conditioned. The action that
+        # carries state_i -> state_{i+1} is the buffer entry recorded ALONGSIDE
+        # state_{i+1}, because sense() can only observe a_{t-1} -- hence the +1
+        # offset against the state slice. Getting this wrong trains E1 on the
+        # action that led INTO the input state rather than the one that leaves
+        # it, which is indistinguishable from correct at the shape level.
+        # Pinned by tests/contracts/test_e1_action_conditioned_transition.py.
+        _e1_actions = None
+        if getattr(self.e1.config, "action_conditioned_transition", False):
+            _abuf = self._action_experience_buffer[start_idx + 1:end_idx]
+            if len(_abuf) == horizon_len:
+                _e1_actions = torch.stack(
+                    [a.reshape(-1) for a in _abuf]
+                ).unsqueeze(0).to(self.device)
+
+        predictions = self.e1.predict_long_horizon(
+            initial, horizon=horizon_len, actions=_e1_actions
+        )
         targets = sequence[:, 1:, :]
         loss = F.mse_loss(predictions[:, :targets.shape[1], :], targets)
 
@@ -11640,7 +11775,12 @@ class REEAgent(nn.Module):
         if len(self._world_experience_buffer) > 10:
             e1_metrics = self.e1.integrate_experience(
                 [torch.cat([s, w]) for s, w in
-                 zip(self._self_experience_buffer, self._world_experience_buffer)]
+                 zip(self._self_experience_buffer, self._world_experience_buffer)],
+                # SD-e1-rollout-consistency-training ITEM 1: pass the aligned
+                # action history so offline replay conditions on the actions
+                # actually taken rather than silently falling back to the zero
+                # action (which would bump E1._action_cond_missing_calls).
+                action_buffer=self._action_experience_buffer,
             )
             metrics.update({f"e1_{k}": v for k, v in e1_metrics.items()})
         residue_metrics = self.residue_field.integrate()
