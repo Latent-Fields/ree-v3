@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-08-28
+**Last updated:** 2026-08-29
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -227,6 +227,42 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 `REE_assembly/docs/architecture/self_attribution_per_stream.md`.
 
 ### Experiment Status
+
+- **2026-08-29T03:00Z nightly attestation (scheduled `/update-docs`, bot
+  identity).** Short (~7.5h) window since the 2026-08-28T19:24Z snapshot;
+  intentionally brief per the standing attestation pattern (same category as
+  the 2026-08-23 entry vs the 2026-08-22 snapshot). No new substrate landings,
+  no `/governance` apply cycle, no confirmed failure autopsies in the window.
+  **Currently queued (`experiment_queue.json` items[]): 1 item** -- V3-EXQ-955
+  (`MECH-440 armed-stack falsifier at the raised candidate-diversity floor
+  (708b design + V3-EXQ-949 yoked-divergence instrumentation)`,
+  claim `MECH-440`, prio 70; queued 2026-08-28T22:58Z during the
+  metaworker-chip-20260828-armedstack-exp0593 dispatch, at the tail of
+  yesterday's governance/autopsy cycle). Queue rearmed 0 -> 1 since yesterday
+  drained it. **Pending review (`pending_review.md`, regenerated
+  2026-08-28T19:25:26Z): 0 items** -- "All experiments reviewed. Nothing
+  pending" (unchanged from yesterday's 0 close-out; no new completions have
+  landed in the window). Coordination-plane activity in the window: multiple
+  metaworker-chip / orchestrator sessions running (ratification of GOV-APPLY-1
+  grandfathered-batch and individual-rows chips; live TASK_CLAIMS entries
+  including `metaworker-chip-20260828-govapply1-grandfathered-batch-ratification`
+  and `metaworker-chip-20260828-govapply1-individual-rows`; PHASE-2b
+  coordinator ack-verify follow-on
+  `metaworker-chip-20260828-taskclaim-close-chipledger-ack-verify`;
+  representation/authority/selection research thread resume
+  `repr-authority-selection-thread-resume-20260828`; orchestrator lease
+  `orchestrate-20260828-1940` still active). **Bottleneck: unchanged from
+  2026-08-28** -- coordinator PHASE-4 dual-write soak (WORKSPACE_STATE append
+  endpoint live since 2026-08-28T18:26:17Z, ~8.5h into the soak window) +
+  GOV-APPLY-1 grandfathered-batch ratification (chip owns the 100 of 108
+  remaining rows) + the coordinator-migration hand-editing hazard (standing
+  CLAUDE.md warning + `PreToolUse` hook in place). Green-board target
+  2026-07-19 is now **41 days overdue**. **ETHICS-PERIMETER Phase 0 datum**
+  stays on the record (Phases 1-3 deferred; NON-BLOCKING). Public-information-
+  architecture impact: reviewed against
+  `docs/design/public_information_architecture.md` -- no `/api/*` surface,
+  generated visualization, or public export changed; spec date bump + roadmap
+  snapshot only (same category as the 2026-08-23 attestation).
 
 - **2026-08-28T19:24Z nightly read (scheduled `/update-docs`, bot identity).**
   ~5-day window since the 2026-08-23 nightly. Flat `v3_exq_*` manifests on
