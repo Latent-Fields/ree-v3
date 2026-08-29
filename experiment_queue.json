@@ -119,6 +119,22 @@
       "episodes_per_run": 200,
       "experiment_type": "v3_exq_961_mech144_ventral_valence_spatial_gradient_probe",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-642a",
+      "title": "MECH-353 blocked-agency (z_block) discriminative diagnostic RETEST -- SD-070 encoder + SD-056 comparator fix",
+      "script": "experiments/v3_exq_642a_blocked_agency_zblock_discriminative.py",
+      "priority": 300,
+      "machine_affinity": "any",
+      "estimated_minutes": 150,
+      "supersedes": "V3-EXQ-642",
+      "note": "Retest fixing the comparator-discriminability gap V3-EXQ-642's own FAIL diagnosed (failure_autopsy_V3-EXQ-642_2026-06-06.md, status=confirmed, Reading A): 642 self-routed substrate_ceiling_comparator_nondiscriminative but the autopsy found it PREMATURE -- P0 trained world_forward on a FROZEN RANDOM encoder with SD-056 OFF, so pred_mag stayed below the 0.05 predicted-effect floor by construction (wf_mse~2e-5 was a low-variance-target fit, not a discriminative comparator); MECH-353 was never actually tested. Fix per autopsy Section 8, all three required changes applied: (1) P0a SD-070 z_world encoder warmup (ree_core/latent/zworld_p0.py via experiments/_lib/zworld_p0_warmup.run_zworld_p0) trains split_encoder.world_encoder + world_precision_logit with anti-collapse VICReg + reconstruction (hazard/resource grounding heads degrade gracefully to a trivial single-class fit on this num_hazards=num_resources=0 env without corrupting the reconstruction/anti-collapse terms this design actually needs); (2) P0b amended to add SD-056 (e2_action_contrastive_enabled=True, weight=0.01, V3-EXQ-613-validated) plus e2_rollout_output_norm_clamp_enabled=True (ratio 2.0, V3-EXQ-689i/617-validated) so world_forward does not collapse the action channel; (3) a NEW P0 readiness gate (experiments._metrics.p0_readiness_gate) re-measures the SAME statistic C0 routes on (blocked_step_mismatch_mean - free_step_mismatch_mean >= 0.10) plus the zworld_encoder_trained precondition on a small pre-registered probe BEFORE committing to the full P1 budget -- a seed failing the gate self-routes substrate_not_ready_requeue for that seed (never substrate_ceiling), never counts toward the pass fraction, and P1 is skipped for it; if ALL seeds fail, the whole run self-routes substrate_not_ready_requeue. CONSEQUENCE FOR PROGRESS INSTRUMENTATION: verdict-line count (normally seeds x conditions = 6) can be LESS if any seed self-routes at the P0 gate -- expected, not a bug. GOV-REUSE-1: decisive readout (C0/C1/C2/C3 on a TRAINED substrate) not recorded anywhere -- the only prior MECH-353 run (642) carries an untrained-encoder/SD-056-off substrate_hash, incompatible with this config; not recoverable -> ran fresh. Re-derive brake: N/A -- the 642 autopsy explicitly classifies its own result as a measurement/test-design gap, NOT substrate_ceiling (recommended_epistemic_category: none), so the brake count for MECH-353 is 0. Substrate-path overlap gate: two open corrupting-severity substrate_queue.json entries (mode-governance-engagement, SD-082) list a bare ree_core/agent.py path, but both concern no-op-default opt-in consumer paths (mode-governance/affinity-clamp; SD-082 lateral_pfc_analog.compute_bias rule-readout consumer) that this script's config never enables -- not engaged. z_goal is deliberately PINNED per-episode (goal-value held constant, matching 642), never via update_z_goal, so the smoke-test z_goal_stream reads WRITER DEFECT -- this is the intended design (held-constant goal), not a retrofit candidate (retrofitting would confound the SD-024 benefit-attractor pathway, unrelated to what this retest fixes). PRE-REGISTERED ACCEPTANCE unchanged from 642 (per READY seed; PASS = each on >=2/3 of ready seeds): C0/C1/C2/C3 as in 642. Smoke: --dry-run PASS (dry-run overrides the P0 gate to exercise the full P1 pipeline at toy scale; real run gate is unaffected). bears_on (NOT tagged) MECH-353/SD-029/MECH-112/MECH-320/MECH-342/ARC-016/SD-011/SD-019b/SD-070/SD-056.",
+      "status": "pending",
+      "conditions": 2,
+      "episodes_per_run": 60,
+      "experiment_type": "v3_exq_642a_blocked_agency_zblock_discriminative",
+      "seeds": 3,
+      "claim_ids": []
     }
   ]
 }
