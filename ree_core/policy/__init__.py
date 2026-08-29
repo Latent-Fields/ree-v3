@@ -25,6 +25,10 @@ from ree_core.policy.difficulty_gated_proposal_entropy import (
     DifficultyGatedProposalEntropy,
     DifficultyGatedProposalEntropyConfig,
 )
+from ree_core.policy.epistemic_deficit import (
+    EpistemicDeficitAccumulator,
+    EpistemicDeficitConfig,
+)
 from ree_core.policy.gated_policy import (
     GatedPolicy,
     GatedPolicyConfig,
@@ -80,6 +84,8 @@ __all__ = [
     "depth_cap_config_issues",
     "CandidateRuleField",
     "CandidateRuleFieldConfig",
+    "EpistemicDeficitAccumulator",
+    "EpistemicDeficitConfig",
     "CommitMaintenanceRelease",
     "CommitMaintenanceReleaseConfig",
     "CommitReadiness",

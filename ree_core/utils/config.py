@@ -4141,6 +4141,36 @@ class REEConfig:
         "broadcast", "epistemic_deficit"
     ] = "broadcast"
 
+    # SD-102 (MECH-482): epistemic_deficit_accumulator. Consulted only when
+    # curiosity_learning_progress_source == "epistemic_deficit"; otherwise
+    # REEAgent never instantiates the accumulator (bit-identical off). See
+    # ree_core/policy/epistemic_deficit.py and
+    # REE_assembly/docs/architecture/sd_102_epistemic_deficit_accumulator.md.
+    #
+    # epistemic_deficit_max_targets : bounded persistent-target capacity;
+    #     lowest-deficit target evicted when a new target is needed at
+    #     capacity. Default 16.
+    # epistemic_deficit_match_radius : L2 distance in z_world space below
+    #     which a location counts as "the same target" as an existing one.
+    #     Default 1.0, matching ResidueField's default RBF bandwidth so the
+    #     two spatial accumulators are calibrated to the same z_world scale.
+    # epistemic_deficit_ema_alpha : persistence/decay smoothing on a matched
+    #     target's deficit each update. Default 0.1, matching
+    #     curiosity_lp_ema_alpha's smoothing convention.
+    # epistemic_deficit_uncertainty_weight / _disagreement_weight /
+    #     _persistent_pe_weight : UPDATE combination weights for the three
+    #     candidate inputs (candidate-specific predictive uncertainty,
+    #     predictive-system disagreement, persistent prediction error).
+    #     Default 1.0 each; final magnitude is governed downstream by the
+    #     existing curiosity_learning_progress_weight and curiosity_bias_scale
+    #     clamp -- this SD adds no new clamp.
+    epistemic_deficit_max_targets: int = 16
+    epistemic_deficit_match_radius: float = 1.0
+    epistemic_deficit_ema_alpha: float = 0.1
+    epistemic_deficit_uncertainty_weight: float = 1.0
+    epistemic_deficit_disagreement_weight: float = 1.0
+    epistemic_deficit_persistent_pe_weight: float = 1.0
+
     # ARC-065 GAP-A (behavioral_diversity_isolation): source of the SHARED
     # per-candidate cand_world_summaries consumed by the E3-side bias channels
     # (lateral_pfc / ofc / mech295 / gated_policy / tonic_vigor). "proposer"
@@ -6827,6 +6857,14 @@ class REEConfig:
         curiosity_learning_progress_source: Literal[
             "broadcast", "epistemic_deficit"
         ] = "broadcast",
+        # SD-102 (MECH-482): epistemic_deficit_accumulator. See the dataclass
+        # fields.
+        epistemic_deficit_max_targets: int = 16,
+        epistemic_deficit_match_radius: float = 1.0,
+        epistemic_deficit_ema_alpha: float = 0.1,
+        epistemic_deficit_uncertainty_weight: float = 1.0,
+        epistemic_deficit_disagreement_weight: float = 1.0,
+        epistemic_deficit_persistent_pe_weight: float = 1.0,
         # ARC-065 GAP-A: shared cand_world_summaries source for the E3-side
         # bias channels (lateral_pfc / ofc / mech295 / gated_policy / vigor).
         candidate_summary_source: Literal[
@@ -8178,6 +8216,19 @@ class REEConfig:
         config.curiosity_uncertainty_source = curiosity_uncertainty_source
         config.curiosity_learning_progress_source = (
             curiosity_learning_progress_source
+        )
+        # SD-102 (MECH-482): epistemic_deficit_accumulator.
+        config.epistemic_deficit_max_targets = epistemic_deficit_max_targets
+        config.epistemic_deficit_match_radius = epistemic_deficit_match_radius
+        config.epistemic_deficit_ema_alpha = epistemic_deficit_ema_alpha
+        config.epistemic_deficit_uncertainty_weight = (
+            epistemic_deficit_uncertainty_weight
+        )
+        config.epistemic_deficit_disagreement_weight = (
+            epistemic_deficit_disagreement_weight
+        )
+        config.epistemic_deficit_persistent_pe_weight = (
+            epistemic_deficit_persistent_pe_weight
         )
         config.candidate_summary_source = candidate_summary_source
 

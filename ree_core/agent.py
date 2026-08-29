@@ -85,6 +85,10 @@ from ree_core.policy.model_disagreement import (
     ModelDisagreementConfig,
     ModelDisagreementEnsemble,
 )
+from ree_core.policy.epistemic_deficit import (
+    EpistemicDeficitAccumulator,
+    EpistemicDeficitConfig,
+)
 from ree_core.cingulate import (
     AICAnalog,
     AICConfig,
@@ -1757,6 +1761,63 @@ class REEAgent(nn.Module):
                 maxlen=int(getattr(config, "curiosity_visitation_buffer_len", 256))
             )
 
+        # SD-102 (MECH-482): epistemic_deficit_accumulator. Fills the
+        # per_candidate_learning_progress slot MECH-314c's Phase-2 extension
+        # reserved (2026-08-08) with the genuine, persistent, target-bound
+        # source that slot has always needed. Instantiated only when
+        # curiosity_learning_progress_source == "epistemic_deficit" (default
+        # "broadcast" -> None -> bit-identical, same None-when-off pattern as
+        # self.e2_world_uncertainty / self.curiosity). See
+        # ree_core/policy/epistemic_deficit.py and
+        # REE_assembly/docs/architecture/sd_102_epistemic_deficit_accumulator.md.
+        self.epistemic_deficit: Optional[EpistemicDeficitAccumulator] = None
+        if (
+            getattr(config, "curiosity_learning_progress_source", "broadcast")
+            == "epistemic_deficit"
+        ):
+            self.epistemic_deficit = EpistemicDeficitAccumulator(
+                config=EpistemicDeficitConfig(
+                    max_targets=int(
+                        getattr(config, "epistemic_deficit_max_targets", 16)
+                    ),
+                    match_radius=float(
+                        getattr(config, "epistemic_deficit_match_radius", 1.0)
+                    ),
+                    ema_alpha=float(
+                        getattr(config, "epistemic_deficit_ema_alpha", 0.1)
+                    ),
+                    uncertainty_weight=float(
+                        getattr(
+                            config, "epistemic_deficit_uncertainty_weight", 1.0
+                        )
+                    ),
+                    disagreement_weight=float(
+                        getattr(
+                            config, "epistemic_deficit_disagreement_weight", 1.0
+                        )
+                    ),
+                    persistent_pe_weight=float(
+                        getattr(
+                            config,
+                            "epistemic_deficit_persistent_pe_weight",
+                            1.0,
+                        )
+                    ),
+                )
+            )
+        # SD-102 P1-style one-tick-lag cache: the z_world observed BEFORE the
+        # last emitted action, so update() trains on genuine observed
+        # (z_world_t, a_t) -> z_world_{t+1} transitions. Mirrors
+        # self._e2u_prev_z_world exactly (same cadence, same cache shape);
+        # kept as its own attribute rather than reusing _e2u_prev_z_world so
+        # epistemic_deficit_learning_progress_source can be
+        # "epistemic_deficit" even when use_e2_world_uncertainty_online_
+        # training is False (the head still gets READ for its predictive_
+        # variance / forward() outputs; it does not need to be online-
+        # training for this accumulator's UPDATE step to run). None when the
+        # accumulator is off.
+        self._epistemic_deficit_prev_z_world: Optional[torch.Tensor] = None
+
         # MECH-320 (ARC-066 child): tonic_vigor_coupling_score_bias.
         # Capacity-keyed additive (or multiplicative-gain) bias on E3
         # action-vs-no-op scoring. Vigor scalar = slow EWMA over realised
@@ -3376,6 +3437,12 @@ class REEAgent(nn.Module):
         # 314a / 314b are stateless across ticks.
         if self.curiosity is not None:
             self.curiosity.reset()
+        # SD-102 (MECH-482): clear all persistent targets on episode boundary
+        # -- mirrors StructuredCuriosity's own per-episode 314c LP-EMA reset
+        # immediately above (MECH-482 is architecturally 314c's genuine
+        # source, so it inherits the same episode-scoping convention).
+        if self.epistemic_deficit is not None:
+            self.epistemic_deficit.reset()
         # MECH-314a Phase 2 (Candidate 5A): clear the rolling z_world
         # visitation buffer per-episode (fresh novelty landscape each episode,
         # matching the StructuredCuriosity LP-buffer per-episode reset).
@@ -3461,6 +3528,11 @@ class REEAgent(nn.Module):
         # not a transition the world produced). The HEAD ITSELF PERSISTS across
         # episodes -- learning is cumulative, exactly like the MECH-276 buffer.
         self._e2u_prev_z_world = None
+
+        # SD-102 (MECH-482): same cross-episode-transition guard as the
+        # SD-063 cache directly above, for the epistemic_deficit
+        # accumulator's own one-tick-lag cache.
+        self._epistemic_deficit_prev_z_world = None
 
         # MECH-219: reset the suffering accumulator per episode (s_t -> 0).
         if self.harm_suffering_accumulator is not None:
@@ -4187,6 +4259,88 @@ class REEAgent(nn.Module):
         # Refresh the cache for the next tick.
         self._e2u_prev_z_world = zw_now.clone()
 
+    def _update_epistemic_deficit(self, new_latent: LatentState) -> None:
+        """SD-102 (MECH-482): fold one realized tick's deficit signal in.
+
+        Mirrors _train_e2_world_uncertainty's cache/cadence exactly (called
+        right after it, from the same sense()-time hook, on the same
+        (z_world_prev, action_taken, z_world_now) realized triple) but is
+        NOT a training step -- EpistemicDeficitAccumulator is pure
+        arithmetic, so unlike _train_e2_world_uncertainty this does NOT gate
+        on self.training (mirrors update_prediction_error's always-on
+        cadence, not the phased P1/P2 training discipline).
+
+        No-op when: the accumulator is off (self.epistemic_deficit is None,
+        i.e. curiosity_learning_progress_source != "epistemic_deficit");
+        under simulation / replay (MECH-094 -- an imagined tick has no
+        OBSERVED next z_world, mirrors _train_e2_world_uncertainty's own
+        hypothesis_tag check); or when the SD-063 head
+        (self.e2_world_uncertainty) is not instantiated -- the accumulator's
+        three candidate inputs all read that head (or e2's point predictor
+        against it), so with no head there is no meaningful signal to
+        accumulate and the targets list simply stays empty, which makes
+        readout() return None (the same "no signal" shape 314b/c already
+        use when their own source is absent).
+        """
+        accumulator = getattr(self, "epistemic_deficit", None)
+        if accumulator is None:
+            return
+        if bool(getattr(new_latent, "hypothesis_tag", False)):
+            accumulator.skip_simulation_tick()
+            return
+        head = getattr(self, "e2_world_uncertainty", None)
+        e2 = getattr(self, "e2", None)
+        if head is None or e2 is None:
+            return
+
+        zw_now = getattr(new_latent, "z_world", None)
+        if zw_now is None:
+            return
+        zw_now = zw_now.detach()
+        if zw_now.dim() == 1:
+            zw_now = zw_now.unsqueeze(0)
+        zw_now = zw_now[:1]
+
+        zw_prev = self._epistemic_deficit_prev_z_world
+        if zw_prev is not None and self._last_action is not None:
+            with torch.no_grad():
+                _raw_a = self._last_action.detach()
+                if _raw_a.dim() == 1:
+                    _raw_a = _raw_a.unsqueeze(0)
+                _a_idx = int(_raw_a.argmax(dim=-1).flatten()[0].item())
+                a_in = torch.zeros_like(_raw_a[:1])
+                a_in[0, _a_idx] = 1.0
+            if a_in.shape[-1] == head.action_dim and zw_prev.shape[-1] == head.z_world_dim:
+                with torch.no_grad():
+                    a_in = a_in.to(device=zw_prev.device, dtype=zw_prev.dtype)
+                    point_pred = e2.world_forward(zw_prev, a_in)  # [1, world_dim]
+                    quantiles = head.forward(zw_prev, a_in)  # [1, world_dim, n_quantiles]
+                    median_idx = min(
+                        range(quantiles.shape[-1]),
+                        key=lambda i: abs(float(head._levels[i].item()) - 0.5),
+                    )
+                    median_pred = quantiles[..., median_idx]  # [1, world_dim]
+                    pvar = head.predictive_variance(zw_prev, a_in)  # [1]
+
+                    persistent_pe = float(
+                        (zw_now.to(dtype=point_pred.dtype, device=point_pred.device) - point_pred)
+                        .norm()
+                        .item()
+                    )
+                    disagreement = float((point_pred - median_pred).norm().item())
+                    uncertainty = float(pvar.reshape(-1)[0].item())
+
+                accumulator.update(
+                    z_world_prev=zw_prev.reshape(-1),
+                    uncertainty=uncertainty,
+                    disagreement=disagreement,
+                    persistent_pe=persistent_pe,
+                    simulation_mode=False,
+                )
+
+        # Refresh the cache for the next tick.
+        self._epistemic_deficit_prev_z_world = zw_now.clone()
+
     def _get_context_memory_code_contributions(
         self,
         z_self: torch.Tensor,
@@ -4498,6 +4652,16 @@ class REEAgent(nn.Module):
         # No-op when the head is absent or
         # use_e2_world_uncertainty_online_training is False -> bit-identical.
         self._train_e2_world_uncertainty(new_latent)
+
+        # SD-102 (MECH-482): fold the just-observed transition's deficit
+        # signal into the epistemic_deficit accumulator. Same placement
+        # rationale as the SD-063 call directly above (reads the same
+        # freshly-encoded latent; runs AFTER this tick's selection already
+        # consumed the accumulator's READOUT, so the gate never sees a
+        # target updated on the very transition it was just evaluated
+        # against). No-op when curiosity_learning_progress_source !=
+        # "epistemic_deficit" -> bit-identical.
+        self._update_epistemic_deficit(new_latent)
 
         # SD-058 / MECH-357: advance the avoidance-efficacy eligibility trace.
         # Compares the current z_harm_a (SD-011 affective stream) to the threat
@@ -5914,6 +6078,82 @@ class REEAgent(nn.Module):
         with torch.no_grad():
             pvar = head.predictive_variance(z0_K, actions_K)  # [K]
         return pvar.detach().reshape(-1)
+
+    def _curiosity_per_candidate_learning_progress(
+        self, candidates: List[Trajectory]
+    ) -> Optional[torch.Tensor]:
+        """SD-102 (MECH-482): genuine per-candidate learning-progress value
+        for the structured-curiosity learning-progress sub-flavour (314c).
+
+        Returns None (-> StructuredCuriosity falls back to the Phase-1
+        uniform lp_ema broadcast, bit-identical) unless
+        curiosity_learning_progress_source == "epistemic_deficit" AND the
+        accumulator + SD-063 head are both wired on this agent. Otherwise
+        returns a [K] tensor: each candidate's persistent deficit at its
+        nearest known target (READOUT; see
+        ree_core/policy/epistemic_deficit.py), 0.0 for a candidate matching
+        no known target yet.
+
+        READINESS GATE (binding, corrected ARC-065 gate per
+        mech314bc_percandidate_extension_staged_2026-08-08.md section 5):
+        this method REFUSES (returns None) unless the K-candidate batch read
+        of head.predictive_variance(...) below yields
+        e2_world_uncertainty_last_pvar_relative_spread > 0 THIS tick --
+        last_uncertainty_dev_range > 0 (absolute range) is NOT sufficient, a
+        random-init head passes that with a LARGER range than a trained one.
+        A refusal calls accumulator.mark_vacuous_readout() so the substrate
+        self-reports rather than silently reading as "no deficit anywhere".
+        This K-candidate predictive_variance read is independent of (and, if
+        both are enabled, duplicates one no_grad forward of) the read
+        _curiosity_per_candidate_uncertainty does for 314b -- kept
+        independent on purpose so 314b and 314c (via MECH-482) stay
+        separately togglable per Q-044's ablation requirement.
+        """
+        if (
+            getattr(self.config, "curiosity_learning_progress_source", "broadcast")
+            != "epistemic_deficit"
+        ):
+            return None
+        accumulator = getattr(self, "epistemic_deficit", None)
+        head = getattr(self, "e2_world_uncertainty", None)
+        if (
+            accumulator is None
+            or head is None
+            or self._current_latent is None
+            or len(candidates) == 0
+        ):
+            return None
+        z0 = self._current_latent.z_world.detach()
+        if z0.dim() == 1:
+            z0 = z0.unsqueeze(0)
+        z0 = z0[:1]  # [1, world_dim]
+        adim = int(candidates[0].actions.shape[-1])
+        act_rows: List[torch.Tensor] = []
+        for c in candidates:
+            act_rows.append(c.actions[:, 0, :].detach().reshape(adim))
+        actions_K = torch.stack(act_rows, dim=0).to(
+            device=z0.device, dtype=z0.dtype
+        )  # [K, action_dim]
+        z0_K = z0.expand(actions_K.shape[0], -1)  # [K, world_dim]
+        with torch.no_grad():
+            head.predictive_variance(z0_K, actions_K)  # refreshes head.get_state()
+        readiness = float(
+            head.get_state().get("e2_world_uncertainty_last_pvar_relative_spread", 0.0)
+        )
+        if not (readiness > 0.0):
+            accumulator.mark_vacuous_readout()
+            return None
+        # Candidate first-step z_world predictions -- the same per-candidate
+        # frame the 314a e2_world_forward summaries and 314b's read use, so
+        # the persistent-target lookup matches against the same locations
+        # the rest of the per-candidate channels reason about.
+        e2 = getattr(self, "e2", None)
+        if e2 is None:
+            accumulator.mark_vacuous_readout()
+            return None
+        with torch.no_grad():
+            cand_next = e2.world_forward(z0_K, actions_K)  # [K, world_dim]
+        return accumulator.readout(cand_next.detach())
 
     def _candidate_world_summaries(
         self, candidates: List[Trajectory]
@@ -7712,10 +7952,17 @@ class REEAgent(nn.Module):
             # ARC-065 GAP-A Phase-2 (MECH-314b): genuine per-candidate epistemic
             # value from the SD-063 head. None (-> Phase-1 uniform broadcast,
             # bit-identical) unless curiosity_uncertainty_source is
-            # "e2_predictive_variance" and a trained head is wired. 314c's
-            # per-candidate source (MECH-482) is not built yet, so its vector
-            # stays None (Phase-1 broadcast).
+            # "e2_predictive_variance" and a trained head is wired.
             cur_uncertainty = self._curiosity_per_candidate_uncertainty(candidates)
+            # SD-102 (MECH-482): genuine per-candidate learning-progress value
+            # from the epistemic_deficit accumulator. None (-> Phase-1 uniform
+            # lp_ema broadcast, bit-identical) unless
+            # curiosity_learning_progress_source is "epistemic_deficit" and
+            # the readiness gate (e2_world_uncertainty_last_pvar_relative_
+            # spread > 0) holds this tick.
+            cur_learning_progress = self._curiosity_per_candidate_learning_progress(
+                candidates
+            )
             with torch.no_grad():
                 cur_bias = self.curiosity.compute_score_bias(
                     candidate_world_summaries=cur_summaries.detach(),
@@ -7725,7 +7972,7 @@ class REEAgent(nn.Module):
                     visitation_source=self._zworld_visitation_buffer,
                     first_action_onehots=cur_onehots,
                     per_candidate_uncertainty=cur_uncertainty,
-                    per_candidate_learning_progress=None,
+                    per_candidate_learning_progress=cur_learning_progress,
                 )
             if _bdc_keep_curiosity:  # decomp diagnostic OR "curiosity" route source
                 _bdc_curiosity = cur_bias.detach().clone()
