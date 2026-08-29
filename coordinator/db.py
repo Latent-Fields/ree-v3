@@ -2125,6 +2125,99 @@ def dispatcher_lease_rows(conn):
         "updated_via FROM dispatcher_leases ORDER BY dispatcher").fetchall()
 
 
+# Bounded-growth cap for a standing chip's episode list (W5a). Old episodes
+# are dropped OLDEST-first past this, with episodes_truncated counting the
+# drops -- a standing class chip lives for weeks and its per-episode
+# forensic detail matters most recently; the count preserves the magnitude
+# when the detail ages out.
+CHIP_EPISODE_CAP = 500
+
+
+def record_chip_episode(conn, chip_ref, episode, now=None):
+    """Append one observation episode INTO a standing chip (W5a, 2026-08-29
+    fleet-wedge campaign; precondition C3 of the redesign's red-team). The
+    recurrence-collapse design replaces per-observation `since-<ts>` chip
+    minting with ONE standing chip per (class, subject) whose episodes
+    accumulate here -- and this verb is what lets that accumulation ride
+    the coordinator like resolve/claim do, instead of the mirror-less
+    amend-shaped git path that would have re-installed the R3 stranding
+    generator inside the workstream meant to end it.
+
+    `episode` is a dict carrying a client-chosen stable `episode_key`
+    (e.g. the since-<ts> string the old minting would have used) -- the
+    idempotency key, so a tick replaying an observation is a no-op -- plus
+    any forensic payload. Verdicts:
+      'ok'          -- appended; payload carries episode_count.
+      'idempotent'  -- an episode with this episode_key already exists.
+      'not_found'   -- no chip with this chip_ref.
+      'not_open'    -- the chip is resolved; episodes only accumulate on a
+                       standing OPEN chip (the minting client decides
+                       whether a re-observation of a resolved class reopens
+                       or escalates -- that judgment does not belong in a
+                       storage verb).
+      'bad_episode' -- episode is not a dict with a non-empty string
+                       episode_key.
+      'error'       -- sqlite failure.
+
+    Episodes live in entry_json (episodes[], episode_count,
+    last_episode_at, episodes_truncated), so the materializer renders them
+    with zero changes and every whole-file git reader round-trips them.
+    """
+    now = now or utcnow()
+    if (not isinstance(episode, dict)
+            or not isinstance(episode.get("episode_key"), str)
+            or not episode["episode_key"].strip()):
+        return ("bad_episode", {"reason": "episode must be an object with a "
+                                          "non-empty string episode_key"})
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = _find_chip_row(conn, chip_ref=chip_ref)
+        if row is None:
+            conn.execute("ROLLBACK")
+            return ("not_found", {"chip_ref": chip_ref})
+        if row["status"] != "open":
+            conn.execute("ROLLBACK")
+            return ("not_open", {"chip_ref": chip_ref,
+                                 "status": row["status"]})
+        try:
+            entry = json.loads(row["entry_json"])
+        except (TypeError, ValueError):
+            conn.execute("ROLLBACK")
+            return ("error", {"reason": "stored entry_json unparseable"})
+        episodes = entry.get("episodes") or []
+        key = episode["episode_key"]
+        if any(isinstance(e, dict) and e.get("episode_key") == key
+               for e in episodes):
+            conn.execute("ROLLBACK")
+            return ("idempotent", {"chip_ref": chip_ref, "episode_key": key})
+        ep = dict(episode)
+        ep.setdefault("observed_at", now)
+        episodes.append(ep)
+        truncated = int(entry.get("episodes_truncated") or 0)
+        while len(episodes) > CHIP_EPISODE_CAP:
+            episodes.pop(0)
+            truncated += 1
+        entry["episodes"] = episodes
+        entry["episode_count"] = len(episodes) + truncated
+        entry["last_episode_at"] = ep["observed_at"]
+        if truncated:
+            entry["episodes_truncated"] = truncated
+        conn.execute(
+            "UPDATE chip_ledger SET entry_json=?, updated_at=? "
+            "WHERE chip_ref=?",
+            (json.dumps(entry, sort_keys=True), now, row["chip_ref"]))
+        conn.execute("COMMIT")
+        return ("ok", {"chip_ref": chip_ref,
+                       "episode_count": entry["episode_count"],
+                       "last_episode_at": entry["last_episode_at"]})
+    except sqlite3.Error:
+        try:
+            conn.execute("ROLLBACK")
+        except sqlite3.Error:
+            pass
+        return ("error", {})
+
+
 def init_db(db_path):
     conn = connect(db_path)
     with open(SCHEMA_PATH, "r", encoding="utf-8") as fh:

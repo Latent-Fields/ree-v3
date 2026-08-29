@@ -546,6 +546,29 @@ def _dispatcher_lease(conn, body, machine_tok):
     return 200, out
 
 
+def _chip_episode(conn, body, machine_tok):
+    """POST /chip/episode (PHASE-4 slice, 2026-08-29, W5a precondition C3).
+    Append one observation episode into a standing OPEN chip -- see
+    db.record_chip_episode for the full contract and why this exists
+    (recurrence collapse must not ride the mirror-less git amend path)."""
+    chip_ref = body.get("chip_ref")
+    if not isinstance(chip_ref, str) or not chip_ref.strip():
+        return 400, {"error": "chip_ref is required", "verdict": "bad_episode"}
+    verdict, payload = db.record_chip_episode(
+        conn, chip_ref.strip(), body.get("episode"))
+    out = dict(payload)
+    out["verdict"] = verdict
+    if verdict == "bad_episode":
+        return 400, out
+    if verdict == "not_found":
+        return 404, out
+    if verdict == "not_open":
+        return 409, out
+    if verdict == "error":
+        return 500, out
+    return 200, out
+
+
 # /chip/archive is DELIBERATELY ABSENT and must stay that way in Phase 2 --
 # plan doc D7. Its correctness gate is that the archive file has actually
 # reached ORIGIN (cmd_archive fetches and verifies at origin_ref() before
@@ -564,6 +587,7 @@ _TASK_CLAIM_CHIP_POST = {
     "/chip/resolve": _chip_resolve,
     "/chip/attach": _chip_attach,
     "/chip/amend-prompt": _chip_amend_prompt,
+    "/chip/episode": _chip_episode,
     # PHASE-4 (append-only; the name of this dict predates it -- same
     # dispatch, same auth, same body plumbing, so it rides here rather than
     # growing a parallel table).
