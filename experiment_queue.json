@@ -28,28 +28,6 @@
       "episodes_per_run": 150,
       "experiment_type": "v3_exq_955_mech440_armed_stack_raised_class_floor_falsifier",
       "seeds": 6
-    },
-    {
-      "queue_id": "V3-EXQ-936a",
-      "title": "MECH-439 F-variance-share under F-demotion, rollout-clamp bug-fix re-run of V3-EXQ-936",
-      "script": "experiments/v3_exq_936a_mech439_f_variance_share_rollout_clamp_fix.py",
-      "priority": 60,
-      "machine_affinity": "any",
-      "estimated_minutes": 115,
-      "supersedes": "V3-EXQ-936",
-      "note": "Bug-fix letter, not a new hypothesis (same question/claim as V3-EXQ-936). V3-EXQ-936 (2026-08-17) measured this exact question and got a corrupted answer: SD-056's online E2 contrastive training was armed on every arm but the E2 rollout-norm clamp (e2_rollout_output_norm_clamp_enabled) that V3-EXQ-689i paired it with was never declared in this lineage's baseline module despite claiming '689i parity'. Without the clamp, world_forward_contrastive_loss rollout magnitudes overflowed to 1e16-1e18 (confirmed independently on V3-EXQ-569e's identical code path), saturating f_variance_share to 1.0 in all 8 cells and destroying the load-bearing C2 criterion. failure_autopsy_V3-EXQ-936_2026-08-18 confirmed this as an INSTRUMENT defect (severity corrupting, category standard/non_contributory, not substrate_ceiling) and named the fix: enable the clamp with 689i's own parameters. Fix applied in experiments/_lib/baselines/mech439_f_variance_share.py CONFIG_FLAGS (fires on every arm); does NOT flip the REEConfig class default (still False globally per the autopsy's explicit veto of that as a separate governance decision). GOV-REUSE-1 (Step 2.4): the corrected readout is not recoverable from any existing manifest -- V3-EXQ-936 is the only prior run of this question and its own reading is the corrupted one this corrects. Step 2.5b re-derive brake: MECH-439 count=12 (13 incl. 936 itself), threshold-triggering, but the most recent counted autopsy (936's own) names the required upstream substrate as SD-056 with status=implemented (clamp mechanism BUILT+VALIDATED, already exercised for real by V3-EXQ-689i) -- brake RELEASES per Step 2.5b's release condition; only the autopsy's separate corpus-wide WARN lint recommendation remains unbuilt and is orthogonal to this run's validity (that lint now exists and was exempted here via SD056_ROLLOUT_CLAMP_EXEMPT, documented false-positive: it cannot see through the CONFIG_FLAGS kwargs-splat indirection). Step 2.5c: substrate_queue.json SD-056 status=implemented reads as CLOSED under the gate's own text-match rule (only the corpus lint sub-task remains open, not the clamp mechanism this run applies), so no block. SMOKE: --dry-run PASS, no crash; critically the nonf_variance_nondegenerate precondition (the exact statistic the overflow annihilated in 936, var(non-F)/var(F)) measured ~9.3 at dry-run scale vs 936's near-zero collapse -- direct evidence the fix works. validate_experiments.py --strict clean (0 warnings after exemption). estimated_minutes taken directly from V3-EXQ-936's own landed manifest (elapsed_seconds=6299.6s=~105min on ree-cloud-2), +~10 min margin -- compute shape (P0/P1/seeds/arms) is unchanged by the clamp.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-08-29T05:00:47Z"
-      },
-      "claim_ids": [
-        "MECH-439"
-      ],
-      "conditions": 2,
-      "episodes_per_run": 100,
-      "experiment_type": "v3_exq_936a_mech439_f_variance_share_rollout_clamp_fix",
-      "seeds": 4
     }
   ]
 }
