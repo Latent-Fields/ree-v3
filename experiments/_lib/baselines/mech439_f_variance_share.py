@@ -175,6 +175,21 @@ CONFIG_FLAGS: Dict[str, Any] = dict(
     use_ofc_analog=False,
     use_gated_policy=False,
     use_candidate_rule_field=False,
+    # BUG FIX (V3-EXQ-936a, 2026-08-29): SD-056 online contrastive training
+    # (above) fires on every arm but this lineage never enabled the E2
+    # rollout-norm clamp that V3-EXQ-689i used alongside it ("689i parity" was
+    # claimed in the module docstring but not actually declared here). Without
+    # the clamp, world_forward_contrastive_loss's rollout magnitudes overflow
+    # to 1e16-1e18 (confirmed V3-EXQ-569e, V3-EXQ-936; failure_autopsy
+    # V3-EXQ-936_2026-08-18, severity corrupting), saturating f_variance_share
+    # to 1.0 and destroying the load-bearing C2 criterion. The clamp mechanism
+    # itself is BUILT and VALIDATED (substrate_queue.json SD-056,
+    # status=implemented) -- this only turns it on for this lineage, mirroring
+    # 689i's own per-experiment enable. Does NOT touch the REEConfig class
+    # default (still False globally; the autopsy explicitly vetoed a default
+    # flip -- see its recommended_substrate_queue_entry).
+    e2_rollout_output_norm_clamp_enabled=True,
+    e2_rollout_output_norm_clamp_ratio=2.0,
 )
 
 # --- The OFF arm's own flags -------------------------------------------------
