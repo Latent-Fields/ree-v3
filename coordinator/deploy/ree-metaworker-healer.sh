@@ -24,27 +24,35 @@
 #      Do not "simplify" by moving this gate inside the skill: inside the
 #      skill, the floor has already been paid.
 #
-# DUAL-ROLE ARBITRATION (ree-cloud-4) LIVES HERE, NOT IN THE DISPATCHER,
-# since 2026-08-26 (chip-20260825-cloud4-arbitration-into-healer). Before the
-# 2026-08-25 Dispatcher/Healer split, `metaworker_role_verdict.py` +
+# DUAL-ROLE ARBITRATION (ree-cloud-4) MOVED OUT to its own unit,
+# ree-role-arbiter.service/.timer, on 2026-08-29
+# (chip-20260829-cloud4-runner-failsafe). It lived HERE from 2026-08-26
+# (chip-20260825-cloud4-arbitration-into-healer) through 2026-08-29: before
+# the 2026-08-25 Dispatcher/Healer split, `metaworker_role_verdict.py` +
 # `sudo systemctl start/stop ree-runner` ran inside ree-metaworker-dispatch.sh
-# on that wrapper's own resident timer, so the box's role was re-evaluated on
-# a steady cadence regardless of anything else. After the split the Dispatcher
-# runs ONLY while an Orchestrator session holds a run lease
-# (dispatcher_control.json) -- nothing grants ree-cloud-4 a standing one -- so
-# arbitration would go inert the moment nobody happens to lease it, unable to
-# even reverse a stale "runner owns the box" verdict when a real surge later
-# arrives (chip-20260825-cloud4-role-arbitration-lease-gap). Moving it here
-# fits the Healer's own charter above: role arbitration never spends the
-# token budget on new work (plain systemctl/python, no `claude` invocation),
-# so it costs nothing to keep resident and unleased, and "does this box's
-# role match reality right now" is inherently a resident-cadence question,
-# not a lease-gated-dispatch one. The Dispatcher keeps a narrow, read-only
-# safety net of its own -- see its "Runner-ownership guard" comment -- so a
-# lease granted to cloud-4 for an unrelated reason still never dispatches
-# chip work onto a box the runner already owns; it is not a second decision
-# maker, since it never calls the verdict script or touches systemctl beyond
-# a read-only `is-active` check.
+# on that wrapper's own resident timer; after the split the Dispatcher runs
+# ONLY while an Orchestrator session holds a run lease
+# (dispatcher_control.json) -- nothing grants ree-cloud-4 a standing one --
+# so moving arbitration here (resident, unleased) fixed the "never
+# re-evaluated at all" gap (chip-20260825-cloud4-role-arbitration-lease-gap).
+#
+# But it inherited THIS unit's hourly cadence, which was chosen for a
+# completely different reason (bounding the ~117k-token `claude` context
+# floor a repair cycle pays) and has nothing to do with what dual-role
+# arbitration itself costs (nothing -- no `claude` invocation, ever). Measured
+# live 2026-08-26 through 2026-08-29 (every "role:" line in
+# ~/ree_metaworker_healer.log across that window): the hourly check never
+# once actually issued a `systemctl start`/`stop` for ree-runner -- 0 actions
+# in ~70 ticks. Every real transition was instead caught by
+# ree-runner-failsafe.timer's 15-minute poll, which is supposed to be this
+# arbitration's rare backstop, not its only-ever-working implementation --
+# because a queue surge-to-drain-complete transition routinely completes well
+# inside an hour, the tighter cadence wins the race almost every time. See
+# ree-role-arbiter.sh's own header for the fix and the full measurement.
+#
+# The Dispatcher's own narrow, read-only safety net (its "Runner-ownership
+# guard" comment) is unaffected by this move -- it never called the verdict
+# script or touched systemctl beyond a read-only `is-active` check either way.
 #
 # Logs: journalctl -u ree-metaworker-healer -f  |  ~/ree_metaworker_healer.log
 set -uo pipefail
@@ -63,11 +71,6 @@ LOCK="${REE_HEALER_LOCK:-/tmp/ree_metaworker_healer.lock}"
 MAX_SEC="${REE_HEALER_MAX_SEC:-900}"
 MACHINE="${REE_MACHINE:-$(hostname)}"
 PY="$(command -v python3 || echo /usr/bin/python3)"
-# Own state dir, separate from the Dispatcher's ($HOME/.ree_metaworker) even
-# on a box that runs both wrappers -- the queue snapshot cache below is
-# per-wrapper scratch, not shared coordination state, and giving each wrapper
-# its own directory means neither can race the other's cache file.
-STATE_DIR="${REE_HEALER_STATE_DIR:-$HOME/.ree_metaworker_healer}"
 
 ts() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
 
@@ -103,87 +106,9 @@ fi
 
 cd "$REPO" || { echo "[$(ts)] healer: no repo at $REPO" >> "$LOG"; exit 1; }
 
-# --- Dual-role arbitration (ree-cloud-4) ------------------------------------
-# See the header comment for why this lives here rather than in the
-# Dispatcher. Runs UNCONDITIONALLY -- before GATE 1/2 below and regardless of
-# their verdicts -- mirroring the Dispatcher's own original placement: a
-# coordination-plane pause withholds new WORK, not the physical fact of which
-# process owns the box's CPU, and this block spends no token budget either
-# way (no `claude` invocation), so there is no cost to skip by gating it.
-#
-# Neither direction ever kills work: a hand-over to the runner waits for
-# in-flight chip workers to DRAIN, and the runner is only ever stopped when
-# it holds no claim, so a running experiment always finishes.
-VERDICT_SCRIPT="$REPO/scripts/metaworker_role_verdict.py"
-if [ "${REE_DUAL_ROLE:-0}" = "1" ] && [ -f "$VERDICT_SCRIPT" ]; then
-  mkdir -p "$STATE_DIR"
-  # Machine affinity for the verdict's --machine arg (e.g. "ree-cloud-4"),
-  # resolved through machine_identity.canonical_machine_name -- NOT a raw
-  # hostname compare (CLAUDE.md machine-identity note: a raw compare is what
-  # silently disarmed a different fleet feature for three weeks). Falls back
-  # to the short hostname if the resolver is unavailable, and strips a
-  # "-metaworker" suffix defensively in case REE_LEASE_AFFINITY or REE_MACHINE
-  # is ever set to the heartbeat-naming form by mistake (see
-  # ree-metaworker-dispatch.sh's own LEASE_AFFINITY for the same guard).
-  ROLE_AFFINITY="${REE_LEASE_AFFINITY:-}"
-  if [ -z "$ROLE_AFFINITY" ]; then
-    ROLE_AFFINITY=$("$PY" -c '
-import socket, sys
-sys.path.insert(0, sys.argv[1])
-raw = socket.gethostname()
-try:
-    from machine_identity import canonical_machine_name
-    print(canonical_machine_name(raw) or raw.split(".")[0])
-except Exception:
-    print(raw.split(".")[0])
-' "$REPO/ree-v3" 2>/dev/null)
-  fi
-  [ -n "$ROLE_AFFINITY" ] || ROLE_AFFINITY=$(hostname -s 2>/dev/null || echo unknown-metaworker)
-  case "$ROLE_AFFINITY" in *-metaworker) ROLE_AFFINITY="${ROLE_AFFINITY%-metaworker}" ;; esac
-
-  _runner_active=0
-  systemctl is-active --quiet ree-runner 2>/dev/null && _runner_active=1
-
-  # READ THE QUEUE FROM origin/main, NOT the working tree -- same reasoning
-  # as ree-metaworker-dispatch.sh's own comment: stopping ree-runner removes
-  # the only thing pulling ree-v3 on this box, so the working-tree queue file
-  # freezes the moment the box goes into metaworker mode, and the verdict
-  # would never see a surge again. Fetch + `git show` is read-only and immune
-  # to whatever divergence this checkout already has.
-  _qfile="$STATE_DIR/queue_snapshot.json"
-  if git -C "$REPO/ree-v3" fetch -q origin main 2>>"$LOG" \
-     && git -C "$REPO/ree-v3" show origin/main:experiment_queue.json > "$_qfile.tmp" 2>>"$LOG" \
-     && [ -s "$_qfile.tmp" ]; then
-    mv -f "$_qfile.tmp" "$_qfile"
-  else
-    rm -f "$_qfile.tmp"
-    echo "[$(ts)] role: WARN could not read queue from origin/main; falling back to the working-tree copy (may be stale)" >> "$LOG"
-    _qfile="$REPO/ree-v3/experiment_queue.json"
-  fi
-
-  _v=$("$PY" "$VERDICT_SCRIPT" \
-        --queue "$_qfile" \
-        --machine "$ROLE_AFFINITY" \
-        --in-flight "$(count_alive_dispatches)" \
-        --runner-active "$_runner_active" 2>>"$LOG")
-  if [ -n "$_v" ]; then
-    _role_state=$(printf '%s' "$_v" | "$PY" -c 'import json,sys; print(json.load(sys.stdin)["state"])' 2>/dev/null || echo dispatching)
-    _reason=$(printf '%s' "$_v" | "$PY" -c 'import json,sys; print(json.load(sys.stdin)["reason"])' 2>/dev/null || echo "")
-    _start=$(printf '%s' "$_v" | "$PY" -c 'import json,sys; print(int(json.load(sys.stdin)["start_runner"]))' 2>/dev/null || echo 0)
-    _stop=$(printf '%s' "$_v" | "$PY" -c 'import json,sys; print(int(json.load(sys.stdin)["stop_runner"]))' 2>/dev/null || echo 0)
-    echo "[$(ts)] role: $_role_state -- $_reason" >> "$LOG"
-    if [ "$_start" = "1" ]; then
-      sudo -n systemctl start ree-runner >>"$LOG" 2>&1 \
-        && echo "[$(ts)] role: started ree-runner (drain complete)" >> "$LOG"
-    fi
-    if [ "$_stop" = "1" ]; then
-      # Safe by construction: the verdict only requests this when the runner
-      # holds NO claim, so nothing is interrupted.
-      sudo -n systemctl stop ree-runner >>"$LOG" 2>&1 \
-        && echo "[$(ts)] role: stopped ree-runner (holds no claim)" >> "$LOG"
-    fi
-  fi
-fi
+# Dual-role arbitration (ree-cloud-4) no longer lives here -- see the header
+# comment above. It runs as its own unit, ree-role-arbiter.service/.timer,
+# every 2 minutes.
 
 # ---- GATE 1: is there anything to repair? (cheap, no claude) --------------
 FINDINGS=$("$PY" - <<'PYGATE' 2>/dev/null || echo -1

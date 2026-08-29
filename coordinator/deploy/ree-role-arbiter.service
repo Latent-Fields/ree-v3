@@ -1,0 +1,40 @@
+# REE role arbiter -- systemd unit template (dual-role boxes only, ree-cloud-4
+# today). Reference copy; sync by hand with the live file, same convention as
+# ree-metaworker-healer.service.
+#
+# Cheap by construction (git fetch + python + systemctl, never `claude`), so it
+# is safe to run on a fast, resident cadence -- see ree-role-arbiter.sh's own
+# header for why this is a SEPARATE unit from the Healer rather than folded
+# back into it.
+#
+# Installation (on the cloud VM, as the `ree` user with sudo):
+#   sudo cp ree-role-arbiter.service ree-role-arbiter.timer /etc/systemd/system/
+#   sudo cp ree-role-arbiter.sh /usr/local/bin/ree_role_arbiter.sh
+#   sudo chmod 755 /usr/local/bin/ree_role_arbiter.sh
+#   sudo mkdir -p /etc/systemd/system/ree-role-arbiter.service.d
+#   printf '[Service]\nEnvironment=REE_DUAL_ROLE=1\n' | sudo tee /etc/systemd/system/ree-role-arbiter.service.d/dual-role.conf
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now ree-role-arbiter.timer
+#
+# Logs: journalctl -u ree-role-arbiter -f  |  ~/ree_role_arbiter.log
+
+[Unit]
+Description=REE role arbiter: dual-role (metaworker/runner) arbitration for ree-cloud-4
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ree
+WorkingDirectory=/home/ree/REE_Working
+ExecStart=/usr/local/bin/ree_role_arbiter.sh
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ree-role-arbiter
+# Comfortably above a normal cycle (git fetch + a few python calls); bounds a
+# hung fetch so the flock is always released within one timer interval.
+TimeoutStartSec=90
+# KillMode=process: this unit's only children are short-lived git/python/
+# systemctl calls, none of which should survive a stop, but process mode keeps
+# it consistent with the Dispatcher/Healer convention (see their comments).
+KillMode=process

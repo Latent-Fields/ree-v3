@@ -1,0 +1,24 @@
+# Paces ree-role-arbiter.service. Reference copy -- see the .service header
+# for the sync convention and install steps.
+#
+# 2 MINUTES, not the Healer's hourly cadence -- deliberately, and that
+# difference IS the fix (see ree-role-arbiter.sh's own header for the
+# measurement that motivated it: 0 role transitions in ~70 hourly Healer
+# ticks, all of them instead caught by the 15-minute ree-runner-failsafe
+# backstop). This unit does no `claude` invocation and no LLM context load --
+# only a `git fetch` plus a few cheap python/systemctl calls -- so there is no
+# token-cost reason to throttle it, and every reason to run it often enough
+# that a queue surge-to-drain-complete transition (which routinely completes
+# well inside an hour) gets caught by the PRIMARY mechanism, not the
+# 15-minute backstop.
+
+[Unit]
+Description=Run the REE role arbiter every 2 minutes (dual-role boxes only)
+
+[Timer]
+OnBootSec=60s
+OnUnitActiveSec=2min
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target
