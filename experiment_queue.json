@@ -28,36 +28,6 @@
       "episodes_per_run": 150,
       "experiment_type": "v3_exq_955_mech440_armed_stack_raised_class_floor_falsifier",
       "seeds": 6
-    },
-    {
-      "queue_id": "V3-EXQ-957",
-      "title": "MECH-219 controllability-dissociation substrate-readiness diagnostic (INESCAPABLE vs ESCAPABLE, pure-arithmetic regulator)",
-      "script": "experiments/v3_exq_957_mech219_controllability_dissociation_substrate_readiness.py",
-      "priority": 60,
-      "machine_affinity": "any",
-      "estimated_minutes": 12,
-      "note": "W0 of the 2026-08-29 commit-sequencing campaign (chip-20260829-queue-three-stranded-exq-drivers). Driver committed+smoke-tested; append stranded by queue contention. validate_experiments --strict --paths OK 2026-08-29. Substrate-readiness diagnostic, claim_ids=[] per its design memo; the later evidence run tags MECH-219. episodes_per_run=180 = BOUT_STEPS 30 + RELIEF_STEPS 150 ticks per condition.",
-      "status": "pending",
-      "claim_ids": [],
-      "conditions": 2,
-      "episodes_per_run": 180,
-      "experiment_type": "mech219_controllability_dissociation_substrate_readiness",
-      "seeds": 5
-    },
-    {
-      "queue_id": "V3-EXQ-958",
-      "title": "MECH-290 backward trajectory credit sweep functional-signature confirmer (wall-independent, no training)",
-      "script": "experiments/v3_exq_958_mech290_backward_credit_sweep_functional_signature.py",
-      "priority": 60,
-      "machine_affinity": "any",
-      "estimated_minutes": 10,
-      "claim_id": "MECH-290",
-      "note": "W0 of the 2026-08-29 commit-sequencing campaign (chip-20260829-queue-three-stranded-exq-drivers). GOV-CONFIRM-1-style confirmer for MECH-290 (built substrate, lit-heavy/exp-light). Driver committed+smoke-tested; append stranded by queue contention. validate_experiments --strict --paths OK 2026-08-29. episodes_per_run=10 = TRAJ_LEN 5 + 2 + 3 S3 gammas.",
-      "status": "pending",
-      "conditions": 1,
-      "episodes_per_run": 10,
-      "experiment_type": "mech290_backward_credit_sweep_functional_signature",
-      "seeds": 5
     }
   ]
 }
