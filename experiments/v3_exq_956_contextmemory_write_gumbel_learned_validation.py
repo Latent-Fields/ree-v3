@@ -1,6 +1,6 @@
 #!/opt/local/bin/python3
 """
-V3-EXQ-953 -- ContextMemory write-address selection: real-agent validation of
+V3-EXQ-956 -- ContextMemory write-address selection: real-agent validation of
 the THIRD mechanism, `contextmemory_write_selection="gumbel_learned"`,
 against substrate_queue `contextmemory-write-path-addressing-degeneracy`
 (severity: corrupting).
@@ -297,8 +297,8 @@ from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
 from experiments._metrics import p0_readiness_gate, P0NotReady  # noqa: E402
 
 
-EXPERIMENT_TYPE = "v3_exq_953_contextmemory_write_gumbel_learned_validation"
-QUEUE_ID = "V3-EXQ-953"
+EXPERIMENT_TYPE = "v3_exq_956_contextmemory_write_gumbel_learned_validation"
+QUEUE_ID = "V3-EXQ-956"
 CLAIM_IDS: List[str] = []
 EXPERIMENT_PURPOSE = "diagnostic"
 ARCHITECTURE_EPOCH = "ree_hybrid_guardrails_v1"
