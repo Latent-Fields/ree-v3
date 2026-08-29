@@ -30,49 +30,34 @@
       "seeds": 6
     },
     {
-      "queue_id": "V3-EXQ-956",
-      "title": "ContextMemory write-address selection: real-agent validation of gumbel_learned (3rd mechanism) vs write-path addressing degeneracy",
-      "experiment_type": "contextmemory_write_gumbel_learned_validation",
-      "script": "experiments/v3_exq_956_contextmemory_write_gumbel_learned_validation.py",
-      "priority": 65,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 150,
-      "episodes_per_run": 100,
-      "seeds": 5,
-      "conditions": 3,
-      "note": "W0 of the 2026-08-29 commit-sequencing campaign (chip-20260829-queue-three-stranded-exq-drivers). Driver authored+smoke-tested by its own /queue-experiment session (chip-20260827-queueexp-contextmemory-gumbel-learned-validation); append was stranded by queue-file claim contention (median 81min holds, see queue_authoring_contention_and_id_collision_20260829.md). validate_experiments --strict --paths OK 2026-08-29. Diagnostic, claim_ids=[]: validates substrate_queue contextmemory-write-path-addressing-degeneracy (corrupting).",
-      "claim_ids": []
-    },
-    {
       "queue_id": "V3-EXQ-957",
       "title": "MECH-219 controllability-dissociation substrate-readiness diagnostic (INESCAPABLE vs ESCAPABLE, pure-arithmetic regulator)",
-      "experiment_type": "mech219_controllability_dissociation_substrate_readiness",
       "script": "experiments/v3_exq_957_mech219_controllability_dissociation_substrate_readiness.py",
       "priority": 60,
       "machine_affinity": "any",
-      "status": "pending",
       "estimated_minutes": 12,
-      "episodes_per_run": 180,
-      "seeds": 5,
-      "conditions": 2,
       "note": "W0 of the 2026-08-29 commit-sequencing campaign (chip-20260829-queue-three-stranded-exq-drivers). Driver committed+smoke-tested; append stranded by queue contention. validate_experiments --strict --paths OK 2026-08-29. Substrate-readiness diagnostic, claim_ids=[] per its design memo; the later evidence run tags MECH-219. episodes_per_run=180 = BOUT_STEPS 30 + RELIEF_STEPS 150 ticks per condition.",
-      "claim_ids": []
+      "status": "pending",
+      "claim_ids": [],
+      "conditions": 2,
+      "episodes_per_run": 180,
+      "experiment_type": "mech219_controllability_dissociation_substrate_readiness",
+      "seeds": 5
     },
     {
       "queue_id": "V3-EXQ-958",
       "title": "MECH-290 backward trajectory credit sweep functional-signature confirmer (wall-independent, no training)",
-      "experiment_type": "mech290_backward_credit_sweep_functional_signature",
       "script": "experiments/v3_exq_958_mech290_backward_credit_sweep_functional_signature.py",
       "priority": 60,
       "machine_affinity": "any",
-      "status": "pending",
       "estimated_minutes": 10,
-      "episodes_per_run": 10,
-      "seeds": 5,
-      "conditions": 1,
       "claim_id": "MECH-290",
-      "note": "W0 of the 2026-08-29 commit-sequencing campaign (chip-20260829-queue-three-stranded-exq-drivers). GOV-CONFIRM-1-style confirmer for MECH-290 (built substrate, lit-heavy/exp-light). Driver committed+smoke-tested; append stranded by queue contention. validate_experiments --strict --paths OK 2026-08-29. episodes_per_run=10 = TRAJ_LEN 5 + 2 + 3 S3 gammas."
+      "note": "W0 of the 2026-08-29 commit-sequencing campaign (chip-20260829-queue-three-stranded-exq-drivers). GOV-CONFIRM-1-style confirmer for MECH-290 (built substrate, lit-heavy/exp-light). Driver committed+smoke-tested; append stranded by queue contention. validate_experiments --strict --paths OK 2026-08-29. episodes_per_run=10 = TRAJ_LEN 5 + 2 + 3 S3 gammas.",
+      "status": "pending",
+      "conditions": 1,
+      "episodes_per_run": 10,
+      "experiment_type": "mech290_backward_credit_sweep_functional_signature",
+      "seeds": 5
     }
   ]
 }
