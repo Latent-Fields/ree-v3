@@ -6,28 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-955",
-      "title": "MECH-440 armed-stack falsifier at the raised candidate-diversity floor (708b design, class floor=action_dim, V3-EXQ-949 yoked divergence)",
-      "script": "experiments/v3_exq_955_mech440_armed_stack_raised_class_floor_falsifier.py",
-      "priority": 70,
-      "machine_affinity": "any",
-      "estimated_minutes": 1400,
-      "backlog_id": "EVB-0651",
-      "note": "GOV-REUSE-1 (Step 2.4): decisive readout is committed_class_entropy_fraction_of_ceiling at a RAISED support_preserving_min_first_action_classes (=action_dim=5, vs 708b's hardcoded 2), combined with V3-EXQ-949-style yoked per-tick committed-action divergence + authority_rel_deviation_mean. Checked 708/708a/708b manifests: all record only the pre-commit-shape/class-entropy scalar AT THE DEFAULT FLOOR (2 classes); none combine a raised floor with a yoked measurement. Not recoverable by reanalysis -> run. Step 2.5b re-derive brake: 0 substrate_ceiling-category autopsies for MECH-440 in the corpus (2026-08-28 check) -- NOT braked. Step 2.5c substrate-path overlap gate: two OPEN corrupting substrate_queue entries name files this driver imports at module level -- mode-governance-engagement (not in this driver's causal path, no mode-governance knob enabled) and contextmemory-write-path-addressing-degeneracy (e1_deep.py; potentially in path via E1 but applies identically to every arm and interacts with neither the injection-site nor authority factor, biasing toward the null not a false positive) -- both carved out per the 949/947 drivers' identical precedent. Two OPEN degrading entries (mech357-freeze-incompatible-pressure-mechanism, SD-MECH303-THRESHOLD-SOURCING) also overlap causal_grid_world.py/agent.py/config.py -- noted, non-blocking. DESIGN: V3-EXQ-708b's design (same 3 arms A0_OFF/ARM_TEMP/ARM_NOISE_SINGLE, same matched SOTA conversion stack incl. use_modulatory_selection_authority=True, same 6 seeds, same P0=100/P1=50 phased training) with support_preserving_min_first_action_classes raised from 2 to action_dim, PLUS the V3-EXQ-949 yoked-pair/private-RNG-stream mechanism for P2 (reference=A0_OFF's trained agent drives the env; ARM_TEMP/ARM_NOISE_SINGLE's trained agents step on the identical observation sequence) so the run measures whether a lever that moves the pre-commit distribution shape ever reaches the COMMITTED action -- closing 708b's own honest limit (\"the shape/entropy scalar cannot tell moved-the-shape from moved-the-outcome\"). ARMED-CONVERSION P1 (mean_distinct_first_action_classes >= 0.9 * action_dim, every arm) and P2 (authority_rel_deviation_mean > 0.05, lever-bearing arms) are MEASURED readiness gates, not assumptions; VACUITY RULE self-routes substrate_not_ready_requeue if either is unmet, per V3-EXQ-949's confirmed strict-AND precedent. CEILING-HEADROOM CHECK on A0_OFF (fraction-of-ceiling < 0.90) gates the falsifying branch. PASS: ARM_NOISE_SINGLE's committed_class_entropy_fraction_of_ceiling strictly above ARM_TEMP's AND its yoked divergence vs A0_OFF clears 0.02, both on >=2/3 of >=4 divergent seeds. SECONDARY state-conditioning/self-annealing checks (per-state noise magnitude covaries with state; per-parameter sigma anneals with confidence) are NOT measured by this run -- recorded honestly as secondary_checks_measured=false; a PASS here establishes propagation only, leaving two-thirds of MECH-440 untested. SCOPE: does not refute MECH-439 F-dominance or ARC-110's intrinsic-ceiling finding; both may still hold at a raised floor -- a null here is a genuine result for the first time. SMOKE: --dry-run PASS (run twice, under the ID renames forced by live concurrent-session ID collisions on V3-EXQ-953 and V3-EXQ-954 -- see completion_note). validate_experiments.py --strict clean (0 warnings). INSTRUMENT CONTROL self-yoke divergence = 0.000000 for all 3 arms (RNG isolation verified). z_goal_stream: writer_calls=273, active_frac=0.000 -- no writer defect (benefit gate correctly never opened on this tiny/short smoke). estimated_minutes calibrated directly from V3-EXQ-708b's OWN landed manifest (elapsed_seconds=58218.87 = 16.2h for the identical arms/seeds/P0/P1/P2 episode budget on ree-worker-1), +~40% for this design's added yoked-3-runner P2 pass + self-yoke control checks. Raised as GFLAG-0072 (evidence_discrepancy), 2026-08-28; proposal EXP-0593 / backlog_id EVB-0651 in manual_proposals.v1.json.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-08-28T22:58:00Z"
-      },
-      "claim_ids": [
-        "MECH-440"
-      ],
-      "conditions": 4,
-      "episodes_per_run": 150,
-      "experiment_type": "v3_exq_955_mech440_armed_stack_raised_class_floor_falsifier",
-      "seeds": 6
-    }
-  ]
+  "items": []
 }
