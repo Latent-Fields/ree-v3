@@ -100,6 +100,7 @@ DEFAULT_MODE = os.environ.get("REGISTRY_WRITER_MODE", "check")
 CLAIMS_REL_PATH = "TASK_CLAIMS.json"
 CHIPS_REL_PATH = "TASK_CHIPS.json"
 WORKSPACE_STATE_REL_PATH = "WORKSPACE_STATE.md"
+RECLOG_REL_PATH = "RECOMMENDATION_LOG.jsonl"
 RETAIN_HOURS = float(os.environ.get("COORDINATOR_TASK_CLAIM_RETAIN_HOURS", "24"))
 COMMIT_PREFIX = "phase2b-registry:"
 
@@ -392,6 +393,71 @@ def render_workspace_state(conn, source_text):
     return new_text, stats, carried_ids, [r["entry_id"] for r in splice_rows]
 
 
+def render_recommendation_log(conn, source_text):
+    """Compute the append-only RECOMMENDATION_LOG.jsonl render: append
+    pending DB records the file does not yet carry, byte-preserving
+    everything already there. The jsonl-trivial clone of
+    render_workspace_state (same carried/awaiting/splice trichotomy, same
+    only-after-proof marking contract for the caller); the structural
+    insertion point degenerates to end-of-file.
+
+    Returns (new_text, stats, carried_ids, appended_ids) with the same
+    caller contract as render_workspace_state: carried_ids are provably in
+    origin already (mark regardless of mode); appended_ids are marked ONLY
+    after the push carrying them succeeds; client_git_write=1 rows not yet
+    carried are watched, never appended.
+
+    A missing file (source_text None) with nothing to append is normal; with
+    rows pending append it warns and holds them, exactly like the WS render.
+    An existing file lacking a trailing newline gets one before the appended
+    block, so the append can never fuse two jsonl records into one line.
+    """
+    pending = db.pending_recommendation_log_entries(conn)
+    carried_ids = []
+    append_rows = []
+    awaiting = 0
+    for row in pending:
+        line = row["record"].strip()
+        present = source_text is not None and any(
+            ln.strip() == line for ln in source_text.splitlines())
+        if present:
+            carried_ids.append(row["entry_id"])
+        elif row["client_git_write"]:
+            awaiting += 1
+        else:
+            append_rows.append(row)
+    stats = {
+        "n_pending": len(pending),
+        "n_carried": len(carried_ids),
+        "n_awaiting_client": awaiting,
+        "n_appended": len(append_rows),
+        "guard_error": None,
+    }
+    if source_text is None or not append_rows:
+        stats["n_appended"] = 0
+        if source_text is None and append_rows:
+            sys.stderr.write("[registry-writer] WARN %s unreadable at origin "
+                             "with %d record(s) pending append -- holding "
+                             "them\n" % (RECLOG_REL_PATH, len(append_rows)))
+        return source_text, stats, carried_ids, []
+    base = source_text
+    if base and not base.endswith("\n"):
+        base = base + "\n"
+    block = "".join(r["record"].strip() + "\n" for r in append_rows)
+    new_text = base + block
+    # Append-only guard, the whole safety argument in two predicates: the
+    # render must START with the (newline-normalized) source byte-for-byte,
+    # and must add exactly the appended block. Anything else refuses.
+    if not new_text.startswith(base) or new_text[len(base):] != block:
+        stats["guard_error"] = "append_only"
+        stats["n_appended"] = 0
+        sys.stderr.write("[registry-writer] ERROR %s render failed the "
+                         "append_only guard -- refusing to write it this "
+                         "tick\n" % (RECLOG_REL_PATH,))
+        return source_text, stats, carried_ids, []
+    return new_text, stats, carried_ids, [r["entry_id"] for r in append_rows]
+
+
 def ingest(conn, claims_doc, chips_doc):
     """Reconcile origin's current content into the DB, one transaction.
     Upsert-only (the reconcilers never delete), no drift-log row -- see
@@ -512,6 +578,15 @@ def materialize_once(conn, repo_path, branch=None, mode=None, now_iso=None,
         if ws_carried:
             db.mark_workspace_state_entries_materialized(conn, ws_carried, sha)
 
+        # RECOMMENDATION_LOG.jsonl (PHASE-4 slice, 2026-08-29): same
+        # missing-file and carried-marking conventions as WS above.
+        reclog_text = _show_text(repo_path, sha, RECLOG_REL_PATH, warn=False)
+        reclog_render, reclog_stats, reclog_carried, reclog_append_ids = (
+            render_recommendation_log(conn, reclog_text))
+        if reclog_carried:
+            db.mark_recommendation_log_entries_materialized(
+                conn, reclog_carried, sha)
+
         claims_match = _texts_match(claims_text, claims_render)
         chips_match = _texts_match(chips_text, chips_render)
         # Record the render base for any file whose render already matches
@@ -528,6 +603,7 @@ def materialize_once(conn, repo_path, branch=None, mode=None, now_iso=None,
             "claims": claims_stats,
             "chips": chips_stats,
             "workspace_state": ws_stats,
+            "recommendation_log": reclog_stats,
             "committed": False,
         }
         if not claims_match:
@@ -538,8 +614,10 @@ def materialize_once(conn, repo_path, branch=None, mode=None, now_iso=None,
                 chips_doc, chips_render, ("chip_ref",))
 
         ws_needs_write = bool(ws_splice_ids)
+        reclog_needs_write = bool(reclog_append_ids)
         if mode != "write" or (claims_match and chips_match
-                               and not ws_needs_write):
+                               and not ws_needs_write
+                               and not reclog_needs_write):
             return result
 
         # -- write mode, something differs: materialize onto origin tip.
@@ -566,6 +644,11 @@ def materialize_once(conn, repo_path, branch=None, mode=None, now_iso=None,
                       encoding="utf-8") as fh:
                 fh.write(ws_render)
             wrote.append(WORKSPACE_STATE_REL_PATH)
+        if reclog_needs_write:
+            with open(os.path.join(repo_path, RECLOG_REL_PATH), "w",
+                      encoding="utf-8") as fh:
+                fh.write(reclog_render)
+            wrote.append(RECLOG_REL_PATH)
         msg = ("%s materialize %s (claims %d kept/%d aged-out, chips %d"
                % (COMMIT_PREFIX, "+".join(wrote),
                   claims_stats["n_rendered"],
@@ -573,6 +656,8 @@ def materialize_once(conn, repo_path, branch=None, mode=None, now_iso=None,
                   chips_stats["n_rendered"]))
         if ws_needs_write:
             msg += ", ws +%d" % len(ws_splice_ids)
+        if reclog_needs_write:
+            msg += ", reclog +%d" % len(reclog_append_ids)
         msg += ")"
         try:
             _git(repo_path, "add", "--", *wrote)
@@ -602,6 +687,14 @@ def materialize_once(conn, repo_path, branch=None, mode=None, now_iso=None,
                     head = sha
                 db.mark_workspace_state_entries_materialized(
                     conn, ws_splice_ids, head)
+            if reclog_append_ids:
+                try:
+                    head = _git(repo_path, "rev-parse",
+                                "HEAD").stdout.decode("utf-8").strip()
+                except Exception:  # noqa: BLE001
+                    head = sha
+                db.mark_recommendation_log_entries_materialized(
+                    conn, reclog_append_ids, head)
             return result
         sys.stderr.write("[registry-writer] push rejected (attempt %d/%d); "
                          "re-running tick\n"

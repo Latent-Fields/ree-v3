@@ -301,3 +301,24 @@ CREATE TABLE IF NOT EXISTS workspace_state_entries (
 CREATE INDEX IF NOT EXISTS idx_workspace_state_pending
     ON workspace_state_entries(materialized_at)
     WHERE materialized_at IS NULL;
+
+-- PHASE-4 slice (2026-08-29, fleet-wedge campaign endpoint batch):
+-- RECOMMENDATION_LOG.jsonl append intake. Same append-only contract as
+-- workspace_state_entries above -- clients POST /recommendation_log/append,
+-- the registry materializer APPENDS pending rows to the live jsonl
+-- (byte-preserving; a jsonl append is the trivial case of the WS splice)
+-- and marks them materialized once the line provably reached git. No
+-- ingest of existing lines, no edit/delete verb.
+CREATE TABLE IF NOT EXISTS recommendation_log_entries (
+    entry_id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    record           TEXT NOT NULL,      -- ONE jsonl line, exact client bytes (stripped)
+    session_id       TEXT NOT NULL DEFAULT '',
+    client_git_write INTEGER NOT NULL DEFAULT 0,  -- 1: client lands it itself; writer only watches
+    submitted_at     TEXT NOT NULL,
+    submitted_host   TEXT,
+    materialized_at  TEXT,
+    materialized_ref TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_recommendation_log_pending
+    ON recommendation_log_entries(materialized_at)
+    WHERE materialized_at IS NULL;

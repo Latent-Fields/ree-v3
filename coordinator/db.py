@@ -44,6 +44,7 @@ def connect(db_path):
     _migrate_heartbeat_log(conn)
     _migrate_task_claim_chip_tables(conn)
     _migrate_workspace_state_table(conn)
+    _migrate_recommendation_log_table(conn)
     return conn
 
 
@@ -1921,6 +1922,126 @@ def mark_workspace_state_entries_materialized(conn, entry_ids, ref, now=None):
         raise
 
 
+def _migrate_recommendation_log_table(conn):
+    """Create the RECOMMENDATION_LOG.jsonl append-intake table if missing.
+    Same idempotent contract as _migrate_workspace_state_table (called from
+    connect(), so a live DB picks it up without a rebuild)."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS recommendation_log_entries (
+            entry_id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            record           TEXT NOT NULL,
+            session_id       TEXT NOT NULL DEFAULT '',
+            client_git_write INTEGER NOT NULL DEFAULT 0,
+            submitted_at     TEXT NOT NULL,
+            submitted_host   TEXT,
+            materialized_at  TEXT,
+            materialized_ref TEXT
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_recommendation_log_pending "
+        "ON recommendation_log_entries(materialized_at) "
+        "WHERE materialized_at IS NULL"
+    )
+
+
+def submit_recommendation_log_entry(conn, record, session_id="",
+                                    client_git_write=False, host=None,
+                                    now=None):
+    """Record one RECOMMENDATION_LOG.jsonl line for materialization.
+
+    Append-only by design, mirroring submit_workspace_state_entry (the WS
+    slice is the reference implementation; a jsonl append is its trivial
+    case -- no insertion point, no section structure). Verdicts:
+      'ok'          -- inserted; payload carries entry_id.
+      'idempotent'  -- an identical record line already exists (client retry
+                       after a lost response, or a dual-write client's own
+                       earlier submit). Nothing written.
+      'empty'       -- record is empty/whitespace. Nothing written.
+      'bad_json'    -- record does not parse as a SINGLE-LINE JSON object
+                       (the file is jsonl; a multi-line or non-object record
+                       would corrupt every line-oriented reader). Nothing
+                       written.
+      'error'       -- sqlite failure.
+
+    `record` is stored stripped of surrounding whitespace, exactly the line
+    the client's own git path would append -- the materializer appends this
+    text + newline verbatim, so byte-fidelity here is what makes its
+    presence check exact.
+    """
+    now = now or utcnow()
+    if not isinstance(record, str) or not record.strip():
+        return ("empty", {})
+    record = record.strip()
+    if "\n" in record:
+        return ("bad_json", {"reason": "record must be a single line"})
+    try:
+        parsed = json.loads(record)
+    except ValueError:
+        return ("bad_json", {"reason": "record does not parse as JSON"})
+    if not isinstance(parsed, dict):
+        return ("bad_json", {"reason": "record must be a JSON object"})
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT entry_id FROM recommendation_log_entries "
+            "WHERE record=?", (record,)).fetchone()
+        if row is not None:
+            conn.execute("ROLLBACK")
+            return ("idempotent", {"entry_id": row["entry_id"]})
+        cur = conn.execute(
+            "INSERT INTO recommendation_log_entries "
+            "(record, session_id, client_git_write, submitted_at, "
+            "submitted_host) VALUES (?,?,?,?,?)",
+            (record, session_id or "", 1 if client_git_write else 0,
+             now, host))
+        entry_id = cur.lastrowid
+        conn.execute("COMMIT")
+        return ("ok", {"entry_id": entry_id})
+    except sqlite3.Error:
+        try:
+            conn.execute("ROLLBACK")
+        except sqlite3.Error:
+            pass
+        return ("error", {})
+
+
+def pending_recommendation_log_entries(conn):
+    """All not-yet-materialized records, oldest submission first (the file
+    is chronological-append, so the writer appends in this order)."""
+    return conn.execute(
+        "SELECT entry_id, record, session_id, client_git_write, "
+        "submitted_at FROM recommendation_log_entries "
+        "WHERE materialized_at IS NULL ORDER BY entry_id").fetchall()
+
+
+def mark_recommendation_log_entries_materialized(conn, entry_ids, ref,
+                                                 now=None):
+    """Flip records to materialized. Call ONLY once the line provably IS in
+    git -- same only-after-proof discipline as the WS counterpart."""
+    ids = [int(i) for i in (entry_ids or [])]
+    if not ids:
+        return 0
+    now = now or utcnow()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        cur = conn.executemany(
+            "UPDATE recommendation_log_entries "
+            "SET materialized_at=?, materialized_ref=? "
+            "WHERE entry_id=? AND materialized_at IS NULL",
+            [(now, ref, i) for i in ids])
+        conn.execute("COMMIT")
+        return cur.rowcount if cur.rowcount is not None else len(ids)
+    except sqlite3.Error:
+        try:
+            conn.execute("ROLLBACK")
+        except sqlite3.Error:
+            pass
+        raise
+
+
 def init_db(db_path):
     conn = connect(db_path)
     with open(SCHEMA_PATH, "r", encoding="utf-8") as fh:
@@ -1931,6 +2052,7 @@ def init_db(db_path):
     _migrate_heartbeat_log(conn)
     _migrate_task_claim_chip_tables(conn)
     _migrate_workspace_state_table(conn)
+    _migrate_recommendation_log_table(conn)
     conn.close()
 
 
