@@ -66,25 +66,6 @@
       ]
     },
     {
-      "queue_id": "V3-EXQ-951",
-      "title": "MECH-320 tonic-vigor selection-authority retest on ready scaffolded_sd054_onboarding (3-arm: baseline/additive/multiplicative)",
-      "script": "experiments/v3_exq_951_mech320_tonic_vigor_authority_sd054.py",
-      "priority": 55,
-      "machine_affinity": "any",
-      "estimated_minutes": 260,
-      "claim_id": "MECH-320",
-      "note": "MECH-320 tonic-vigor selection-authority retest. PREMISE CORRECTION: the originating chip (chip-20260827-queueexp-mech320-authority-retest) asked to re-run the 3-arm discriminative pair with use_modulatory_selection_authority=True on the premise that the authority substrate had never been exercised for MECH-320. That premise is FALSE: V3-EXQ-624c's manifest records config.use_modulatory_selection_authority=True in all arms (verified 2026-08-29). A bare re-queue would repeat 624c. RE-DERIVE BRAKE (skill Step 2.5b): FIRES at 4 counted substrate_ceiling/non_contributory hits for MECH-320 (failure_autopsy_604a-624a-630_2026-06-03, failure_autopsy_EXQ-572-573_2026-05-17, failure_autopsy_V3-EXQ-624b_2026-06-07, failure_autopsy_V3-EXQ-603g-624c-651a_2026-06-07) >= threshold 2. BRAKE RELEASED: the most recent counted autopsy (624c) named target_sd_id='scaffolded_sd054_onboarding' as the sole residual gate (user adjudication: block on foraging competence, do not re-queue a regime tweak); that substrate flipped ready=true 2026-06-11 (V3-EXQ-603n PASS) and no MECH-320 retest has used it. This entry is that retest, on the now-ready curriculum, not a regime tweak. GOV-REUSE-1 (Step 2.4): decisive readout = P2 action_density lift of vigor-ON vs vigor-OFF on a foraging-competent policy. No recorded manifest carries it -- the last MECH-320-tagged manifest is 624c (2026-06-07), which predates the ready substrate and measured on an ad-hoc regime whose positive control held only 2/5 seeds. Not recoverable -> run. SUBSTRATE-PATH OVERLAP GATE (Step 2.5c): three open corrupting entries (mode-governance-engagement, SD-082, contextmemory-write-path-addressing-degeneracy) list bare ree_core/agent.py, which every driver imports; their actual defect paths sit behind default-OFF knobs this script never enables (use_lateral_pfc_analog=False, sd016_writepath_mode='off', use_external_task_drive=False) -- nominal overlap only, not exercised. KNOWN LIMITATION (degrading, non-blocking): open entry 'mech357-freeze-incompatible-pressure-mechanism' (severity degrading, status validated_negative / implemented_pending_validation) lists experiments/scaffolded_sd054_onboarding.py and ree_core/environment/causal_grid_world.py, both of which this run does exercise; this run happens under that known limitation. DV-SYMMETRY (Step 3.5, per arm; DV = P2 action_density, derived from committed argmax selections): ARM_0 applies no manipulation (reference). ARM_1's additive bias is class-differential (-w_action*v_t on the four movement classes, +w_passive*v_t on noop_class=4), NOT a uniform broadcast scalar, so it is not invariant under argmax. ARM_2's multiplicative form scales that same class-differential bias by |score_i|, which is neither a uniform additive constant nor a single monotone rescale of all candidates, so it too is not invariant under argmax. Script authored + smoke-PASSed 2026-08-28 (ree-v3 18629e9) but its queue entry was never committed (git log -S on experiment_queue.json finds no V3-EXQ-951) -- a stranded append; this entry lands it. Re-smoked locally 2026-08-29 (dry-run end-to-end clean, no manifest written). ARC-068 Niv-vs-Salamone dissociation is explicitly OUT of scope here.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-4",
-        "claimed_at": "2026-08-29T18:54:34Z"
-      },
-      "conditions": 1,
-      "episodes_per_run": 265,
-      "experiment_type": "v3_exq_951_mech320_tonic_vigor_authority_sd054",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-965",
       "title": "SD-e1-item1 action-conditioning validation: ON-vs-OFF per-action divergence, C3/cr_ratio non-gating (queue-refill chip chip-20260829-sd-e1-item1-validation-exq-b)",
       "script": "experiments/v3_exq_965_sd_e1_item1_action_conditioning_validation.py",
