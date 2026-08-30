@@ -4166,12 +4166,25 @@ class REEConfig:
     #       per candidate (z0, a_i). REQUIRES a TRAINED head wired on the agent
     #       (self.e2_world_uncertainty via use_e2_world_uncertainty); the agent
     #       falls back to broadcast when the head is absent. An untrained head
-    #       yields a near-uniform vector -- gate on last_uncertainty_dev_range > 0
-    #       at readiness before scoring any 314b-dependent DV.
+    #       yields a near-uniform vector -- gate on
+    #       e2_world_uncertainty_last_pvar_relative_spread > 0 at readiness
+    #       before scoring any 314b-dependent DV. (CORRECTED 2026-08-23: the
+    #       earlier last_uncertainty_dev_range > 0 criterion was FALSIFIED --
+    #       it can read non-zero on an untrained head. See the ORNT-2 row of
+    #       evidence/planning/orienting_epistemic_deficit_v3_plan.md.)
     # curiosity_learning_progress_source:
     #   "broadcast" (default, bit-identical) -- lp_ema scalar.
-    #   "epistemic_deficit" -- reserved for MECH-482 (epistemic-deficit
-    #       accumulator, not yet built in V3); currently falls back to broadcast.
+    #   "epistemic_deficit" -- MECH-482 EpistemicDeficitAccumulator, BUILT and
+    #       wired 2026-08-29 (ree-v3 b69a1b8, SD-102). Selecting this value
+    #       instantiates the accumulator on the agent; "broadcast" stays the
+    #       default and remains bit-identical. Readiness-gated on
+    #       e2_world_uncertainty_last_pvar_relative_spread > 0; a refused
+    #       READOUT self-reports via mark_vacuous_readout(). NOTE V3-EXQ-964
+    #       (2026-08-29) showed the per-episode reset() keeps n_targets at 1 in
+    #       short episodes, making the readout a CONSTANT vector that cannot
+    #       move an argmax -- see substrate_queue.json
+    #       sd_epistemic_deficit_multitarget_readiness before scoring any
+    #       314c-dependent DV.
     curiosity_uncertainty_source: Literal[
         "broadcast", "e2_predictive_variance"
     ] = "broadcast"
