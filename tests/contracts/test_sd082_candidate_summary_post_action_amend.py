@@ -441,15 +441,29 @@ def _bias_range(lp: LateralPFCAnalog, summ: torch.Tensor, rule_seed: int = 0) ->
 
 def test_e1_collapsed_summary_reproduces_the_822c_zero_discrimination():
     """Sanity: the pre-fix input shape (collapsed proposer summary) still
-    produces EXACTLY zero cross-candidate bias range on the consumer-enabled
+    produces a near-zero cross-candidate bias range on the consumer-enabled
     head -- confirms this test file's fixtures reproduce the failure record's
     'carries ZERO candidate-discriminating information' signature, and that
-    the degeneracy guard (Section D) correctly flags the same input."""
+    the degeneracy guard (Section D) correctly flags the same input.
+
+    NOT an exact-equality check: `x - mean(x, x, ..., x)` for K bit-identical
+    rows is float32 CANCELLATION NOISE (the failure record's own term), not a
+    mathematical zero -- summing K identical values then dividing is not
+    guaranteed to round back to exactly the original value on every BLAS/CPU,
+    so the post-centering residual (and thus the bias range after passing
+    through the head) can be a tiny nonzero number that differs by platform.
+    An exact `== 0.0` assertion here previously passed locally (Mac,
+    darwin-arm64) and failed on a Linux cloud worker for exactly this reason.
+    The threshold below (1e-3, the same 'non-vacuity floor' scale used
+    elsewhere in this failure lineage for prop_delta) is the meaningful
+    contrast: near-zero vs. the ~0.17 range test_e2 measures for genuinely
+    differentiated input, three orders of magnitude apart."""
     lp = _make_head(consumer=True)
     rng = _bias_range(lp, _collapsed_summaries())
-    assert rng == 0.0, (
-        f"collapsed (constant) summaries must produce EXACTLY zero "
-        f"cross-candidate bias range -- got {rng}"
+    assert rng < 1e-3, (
+        f"collapsed (constant) summaries must produce a near-zero "
+        f"cross-candidate bias range (float32 cancellation noise, not a "
+        f"real signal) -- got {rng}"
     )
     assert lp.get_state()["candidate_summary_degenerate"] is True
 
