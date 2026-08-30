@@ -65,6 +65,20 @@
       "episodes_per_run": 160,
       "experiment_type": "v3_exq_965_sd_e1_item1_action_conditioning_validation",
       "seeds": 2
+    },
+    {
+      "queue_id": "V3-EXQ-966",
+      "title": "MECH-143/MECH-144 causal hippocampal value-sensitivity retest (real HippocampalModule/E3TrajectorySelector, FIXED vs SHUFFLED resource value)",
+      "script": "experiments/v3_exq_966_mech143_144_hippocampal_value_sensitivity_causal.py",
+      "priority": 60,
+      "machine_affinity": "any",
+      "estimated_minutes": 240,
+      "claim_ids": [
+        "MECH-143",
+        "MECH-144"
+      ],
+      "note": "VEHICLE-SUBSTITUTION RECORD: replaces the RETIRED V3-EXQ-165 driver as the designated MECH-144 retest vehicle -- full rationale in REE_assembly/evidence/planning/v3_exq_165_retirement_2026-08-30.md. V3-EXQ-165's hand-rolled HippocampalTerrainNavigator never received or used reward/value information at all, so its FIXED_VALUE vs SHUFFLED_VALUE conditions were architecturally guaranteed to behave identically -- a tautology that could confirm MECH-143 but could never falsify MECH-144. Governance 2026-08-30 Step 3 (user decision) ratified resolving MECH-144 by a properly-powered retest, sequenced after the landed singleton-degeneracy arity guard (ree-v3 bad6467722). This driver runs the REAL HippocampalModule.propose_trajectories()/E3TrajectorySelector pipeline (via REEAgent._e3_tick) against a CausalGridWorldV2 SD-049 two-resource-type environment. C1 (MECH-143, deterministic): confirms propose_trajectories() candidates are bit-identical under an RNG-reset repeat and differ under a wanting_weight flip (falsifier-premise check; the mechanism's own state is force-seeded via ResidueField.accumulate/update_valence since ordinary residue accumulation is harm-gated and NUM_HAZARDS=0 here). C2 (MECH-144, properly-powered, N=4 seeds): ecological FIXED_VALUE vs SHUFFLED_VALUE (one deterministic block-schedule swap, NOT the retired driver's Bernoulli(0.5) scheme that produced its coin-flip-fragile C4 gate) contact-tracking DV via IncentiveTokenBank/resource-contact tagging, wanting_weight=5.0 in both arms (the one confirmed-live value channel). PASS margin = max(2.0*pstdev(delta), 0.10), delta = FIXED-vs-SHUFFLED post-swap frac_high gap across seeds (repo effect-size convention: SD-of-delta plus absolute floor). Data-quality floor (min_contacts_per_block) derived post-hoc from this run's own measured mean contact count, not a pre-registered theoretical value -- the exact C4 mistake this retirement flags. GOV-REUSE-1: no prior causal/behavioral candidate-scoring design against the real pipeline exists (V3-EXQ-960/961 are representational-geometry designs); not recoverable, ran fresh. Re-derive brake (Step 2.5b): MECH-144 carries no substrate_ceiling brake; this retest is the governance-ratified resolution path, not a re-run against an unresolved ceiling. Smoke-tested via --dry-run: manifest + runner-signal sentinel written cleanly, C1 passed at all 4 seeds, C2 correctly read 'inconclusive' under dry-run's reduced episode/step counts (too few contacts to clear the data-quality floor -- expected, not a bug).",
+      "status": "pending"
     }
   ]
 }
