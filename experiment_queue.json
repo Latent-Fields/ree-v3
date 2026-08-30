@@ -65,26 +65,6 @@
       "episodes_per_run": 2400,
       "experiment_type": "v3_exq_963_mech063ii_tonic_phasic_dissociation_retest",
       "seeds": 5
-    },
-    {
-      "queue_id": "V3-EXQ-961",
-      "title": "MECH-144: ventral-analog spatially-graded valence gradient probe",
-      "script": "experiments/v3_exq_961_mech144_ventral_valence_spatial_gradient_probe.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "estimated_minutes": 90,
-      "claim_id": "MECH-144",
-      "backlog_id": "EVB-0599",
-      "note": "EXP-0459. GOV-REUSE-1: decisive readout (pearson correlation of HARM_DISCRIMINATIVE valence vs ground-truth distance-to-hazard, sampled continuously in P2) not recorded anywhere -- V3-EXQ-375/V3-EXQ-165 (existing MECH-073/MECH-143/MECH-144-adjacent runs) carry no per-step raw data and no substrate_hash (pre-standard); not recoverable -> ran fresh. Substrate readiness: MECH-144 carries no v3_pending/implementation_phase gate; SD-014 valence mechanism (ree_core/residue/field.py) already built+validated by V3-EXQ-375. ARC-040's dorsal/ventral module SEGREGATION is V4-scoped but MECH-144 itself only asserts spatial valence encoding, tested here via the single V3 ResidueField/RBF valence map as the undifferentiated ventral-analog approximation. Distinguishes MECH-144's graded/anxiety-cell-style prediction from V3-EXQ-375's binary-discrimination AUROC design and from V3-EXQ-165's navigation-robustness DV.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-08-29T16:00:46Z"
-      },
-      "conditions": 2,
-      "episodes_per_run": 200,
-      "experiment_type": "v3_exq_961_mech144_ventral_valence_spatial_gradient_probe",
-      "seeds": 3
     }
   ]
 }
