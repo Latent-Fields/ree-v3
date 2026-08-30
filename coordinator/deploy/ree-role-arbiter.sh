@@ -80,6 +80,65 @@ count_alive_dispatches() {
   echo "$n"
 }
 
+# PUBLISH THE VERDICT so something other than this box can check it
+# (added 2026-08-30, chip-20260830-role-arbitration-monitoring-drift).
+#
+# Until now the ONLY externally visible trace of arbitration was this
+# logfile, so the question "is arbitration alive and did it take effect"
+# could not be answered from anywhere except an interactive ssh, by a human
+# reading prose. That is why both times this machinery silently broke
+# (2026-08-23 timer-proxy, 2026-08-29 hourly-cadence) the thing that
+# eventually noticed was scripts/ree_runner_failsafe.py's FIRE COUNTER --
+# a symptom counter, days late. scripts/check_role_arbitration.py reads the
+# file this writes.
+#
+# WHAT IS RECORDED, and why it is the ENDORSED STATE rather than the action:
+# `wants_runner_running` is what this verdict says ree-runner SHOULD be
+# after this tick -- start_runner -> 1, stop_runner -> 0, neither -> the
+# state it already had (no change requested means the current state is
+# endorsed). A checker compares the LIVE runner state against that recorded
+# endorsement rather than recomputing a fresh verdict of its own, which is
+# what makes the check race-free: a surge arriving between this tick and the
+# probe would change a recomputed verdict but cannot change what this tick
+# actually endorsed and acted on. A `sudo systemctl start` that FAILED
+# therefore shows up as endorsed=1 / live=0, which is exactly the sudoers-
+# misconfigured shape the failsafe used to catch only by firing.
+#
+# DELIBERATELY NOT RECORDED: any notion of "did the arbiter act recently".
+# Measured on this box 2026-08-30: 336 verdicts, 0 transitions, over 11.5h
+# -- all correct, because the box held a claimed experiment throughout. A
+# monitor keyed on action frequency would have fired continuously on a
+# healthy box, which is how the 2026-08-19..22 orchestrator-STALE chip storm
+# (~16 chips in 72h, mostly non-fault) happened.
+publish_verdict() {
+  local status="$1" state="$2" reason="$3" start="$4" stop="$5"
+  local wants="$_runner_active"
+  [ "$start" = "1" ] && wants=1
+  [ "$stop" = "1" ] && wants=0
+  "$PY" - "$STATE_DIR/last_verdict.json" "$(ts)" "$ROLE_AFFINITY" "$status" \
+         "$state" "$reason" "$_runner_active" "$start" "$stop" "$wants" <<'PYPUB' 2>>"$LOG"
+import json, os, sys
+(path, ts, machine, status, state, reason,
+ runner_before, start, stop, wants) = sys.argv[1:11]
+payload = {
+    "ts": ts,
+    "machine": machine,
+    "status": status,
+    "state": state,
+    "reason": reason,
+    "runner_active_before": int(runner_before or 0),
+    "start_runner": int(start or 0),
+    "stop_runner": int(stop or 0),
+    "wants_runner_running": int(wants or 0),
+}
+tmp = path + ".tmp"
+with open(tmp, "w") as fh:
+    json.dump(payload, fh, sort_keys=True)
+    fh.write("\n")
+os.replace(tmp, path)
+PYPUB
+}
+
 # Non-reentrancy: a slow git fetch (network hiccup) must not pile a second
 # cycle on top of one still in flight. Own lock, separate from the Healer's
 # and the Dispatcher's -- this timer's cadence is independent of both.
@@ -166,6 +225,8 @@ if [ -n "$_v" ]; then
     sudo -n systemctl stop ree-runner >>"$LOG" 2>&1 \
       && echo "[$(ts)] role: stopped ree-runner (holds no claim)" >> "$LOG"
   fi
+  publish_verdict "ok" "$_role_state" "$_reason" "$_start" "$_stop"
 else
   echo "[$(ts)] arbiter: verdict script produced no output" >> "$LOG"
+  publish_verdict "verdict-script-produced-no-output" "" "" 0 0
 fi
