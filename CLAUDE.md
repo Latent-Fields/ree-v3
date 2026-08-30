@@ -16510,18 +16510,31 @@ claim says arousal amplifies rather than breaks), MECH-359, MECH-390, SD-011.
   Backward compatible: candidate_summary_source default stays "proposer" (every existing
     experiment, including 822/822a/822b/822c, is bit-identical); the degeneracy guard only
     ever sets new diagnostic get_state() fields, never the returned bias tensor.
-  28 new contracts in tests/contracts/test_sd082_candidate_summary_post_action_amend.py
-    (run alongside the existing 28-total test_sd082_rule_readout_consumer.py, both green):
+  CORRECTION (2026-08-30, chip-20260829-sd082-percandidate-summary-fix verify-and-land):
+    this entry originally claimed "28 new contracts in
+    tests/contracts/test_sd082_candidate_summary_post_action_amend.py" below, but the file
+    was never actually committed -- the build session that wrote this CLAUDE.md entry died
+    (spend-limit kill) before committing it. The verify-and-land session found the gap,
+    authored the missing coverage, and committed it as a separate follow-up commit on this
+    same branch (22 tests, not 28 -- see that commit's own message for the exact count and
+    rationale). Corrected in place below rather than left wrong.
+  22 new contracts in tests/contracts/test_sd082_candidate_summary_post_action_amend.py
+    (run alongside the existing 14-total test_sd082_rule_readout_consumer.py, both green):
     proposer_post_action summaries are candidate-discriminating (the regression test against
     the exact bug) vs. a baseline confirming the fixture reproduces the ws[0,0,:] constant
-    shape, zero-horizon degenerate fallback, empty-candidates None, dispatch-through-
-    _candidate_world_summaries parity, "proposer" default still returns None
+    shape, zero-horizon degenerate fallback, None-world_states fallback,
+    dispatch-through-_candidate_world_summaries parity (including the pre-existing
+    e2_world_forward branch, confirmed untouched), "proposer" default still returns None
     (backward-compat), REEConfig.from_dims reachability (+absent-default), the degeneracy
     guard fires on an exactly-constant summary and does NOT false-positive on a genuinely
-    differentiated one, degeneracy fields stay at default when rule_readout_consumer is OFF,
-    the guard never changes the returned bias, get_state() exposes the new fields, reset()
-    clears them, and the floor threshold is configurable (same fixture flagged under a
-    lenient floor, not flagged under the strict default).
+    differentiated one, degeneracy fields stay at default when rule_readout_consumer is OFF
+    or k<2, the guard never changes the returned bias, get_state() exposes the new fields,
+    reset() clears them, the floor threshold is configurable (same fixture flagged under a
+    lenient floor, not flagged under the strict default), and an end-to-end section
+    confirming the actual V3-EXQ-822c failure signature: collapsed proposer summaries drive
+    the cross-candidate bias RANGE to exactly 0.0 (zero discrimination, despite a nonzero
+    rule-state-ablation delta -- the corrupting defect is NOT bias-is-always-zero), and
+    proposer_post_action summaries restore a nonzero range.
   Phased training: unchanged from the SD-082 landing (P0/P1/P2 for the trainable head).
     MECH-094: N/A -- unchanged, pure forward read on the waking select_action path.
   Failure record: V3-EXQ-822c marked resolved (this fix); 822/822a/822b stay superseded per
@@ -16531,10 +16544,12 @@ claim says arousal amplifies rather than breaks), MECH-359, MECH-390, SD-011.
     Per the autopsy: SD-082's centering mechanism is NOT falsified by this history -- it was
     UNTESTED, because its input never carried the cross-candidate variance it was designed to
     preserve.
-  Validation experiment: V3-EXQ-822d queued (candidate_summary_source="proposer_post_action"
-    + rule_readout_consumer=True on both arms; asserts n_prop_samples > 0 as a readiness gate
-    BEFORE trusting any prop_delta aggregate -- the exact measurement-starvation gap
-    822/822a/822b fell into). See SD-078, SD-033a, ARC-063, SD-008,
+  Validation experiment: V3-EXQ-822d PLANNED but NOT YET QUEUED (corrected 2026-08-30 --
+    this entry originally said "queued"; experiment_queue.json carries no V3-EXQ-822d entry
+    as of the verify-and-land landing. A /queue-experiment follow-on session is needed):
+    candidate_summary_source="proposer_post_action" + rule_readout_consumer=True on both
+    arms; asserts n_prop_samples > 0 as a readiness gate BEFORE trusting any prop_delta
+    aggregate -- the exact measurement-starvation gap 822/822a/822b fell into. See SD-078, SD-033a, ARC-063, SD-008,
     REE_assembly/docs/architecture/sd_082_rule_selection_action_consumer.md (Amendment
     section), REE_assembly/evidence/planning/failure_autopsy_V3-EXQ-822c_2026-08-29.md.
   Does NOT queue a new experiment. Per the autopsy's own judgment (re-derive brake did not
