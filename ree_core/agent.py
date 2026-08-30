@@ -6223,11 +6223,21 @@ class REEAgent(nn.Module):
 
         The e2.world_forward read is no_grad on the waking select_action path
         (no replay / memory write surface; MECH-094 not implicated).
+
+        SD-082 AMEND (failure_autopsy_V3-EXQ-822c_2026-08-29): also handles
+        candidate_summary_source == "proposer_post_action" by delegating to
+        _proposer_post_action_summaries(), which is still proposer-rollout-based
+        (not e2.world_forward) but reads the POST-ACTION world_states instead of
+        the shared t=0 seed every "proposer" caller's manual fallback used to
+        read. See that method's docstring for the root cause. Returning non-None
+        here means every one of this method's callers (their `if ... is None:`
+        manual ws[0, 0, :] fallback loops) is bypassed uniformly, the same way
+        "e2_world_forward" already bypasses them.
         """
-        if (
-            getattr(self.config, "candidate_summary_source", "proposer")
-            != "e2_world_forward"
-        ):
+        source = getattr(self.config, "candidate_summary_source", "proposer")
+        if source == "proposer_post_action":
+            return self._proposer_post_action_summaries(candidates)
+        if source != "e2_world_forward":
             return None
         e2 = getattr(self, "e2", None)
         if e2 is None or self._current_latent is None or len(candidates) == 0:
@@ -6247,6 +6257,52 @@ class REEAgent(nn.Module):
         with torch.no_grad():
             preds = e2.world_forward(z0_K, actions_K)  # [K, world_dim]
         return preds.detach()
+
+    def _proposer_post_action_summaries(
+        self, candidates: List[Trajectory]
+    ) -> Optional[torch.Tensor]:
+        """SD-082 AMEND (failure_autopsy_V3-EXQ-822c_2026-08-29): candidate_summary_source
+        == "proposer_post_action".
+
+        The "proposer" default's manual fallback (duplicated at every call site
+        of _candidate_world_summaries: the gated_policy block, the lateral_pfc /
+        ofc / mech295 / tonic_vigor blocks below in select_action()) reads
+        trajectory.world_states[:, 0, :] -- but E2FastPredictor.rollout_with_world
+        seeds world_states=[initial_z_world], so index 0 is the rollout's SHARED
+        initial world state. Candidates differ only in the actions applied from
+        t>=1, so world_states[0] is bit-identical across all K candidates by
+        construction and carries zero candidate-discriminating information.
+        Measured consequence (V3-EXQ-822c): SD-082's compute_bias centering step
+        (subtract the cross-candidate mean) annihilates this constant to
+        float32 cancellation noise -- rule_summary_magnitude_ratio 2.8e6-4.5e6,
+        ~4000x its 1e3 in-range ceiling, in every cell of that run.
+
+        This aggregates the POST-ACTION world_states (t>=1, mean over the
+        horizon) instead, at zero extra model calls -- same rollout, different
+        read-out index -- so the summary reflects each candidate's own action
+        sequence. Falls back to world_states[:, 0, :] only for a degenerate
+        zero-horizon rollout (no post-action state exists; identical to the
+        "proposer" default in that edge case).
+
+        Mirrors the None-fallback structure of _candidate_world_summaries'
+        e2_world_forward branch (current_latent.z_world when a candidate lacks
+        world_states) so callers see the same [K, world_dim] contract.
+        """
+        if not candidates:
+            return None
+        summaries: List[torch.Tensor] = []
+        for c in candidates:
+            if c.world_states is not None:
+                ws = c.get_world_state_sequence()  # [batch, horizon+1, world_dim]
+                if ws.shape[1] > 1:
+                    summaries.append(ws[0, 1:, :].mean(dim=0))
+                else:
+                    summaries.append(ws[0, 0, :])
+            elif self._current_latent is not None:
+                summaries.append(self._current_latent.z_world[0].detach())
+            else:
+                return None
+        return torch.stack(summaries, dim=0).detach()
 
     def select_action(
         self,

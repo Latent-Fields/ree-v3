@@ -16460,6 +16460,83 @@ claim says arousal amplifies rather than breaks), MECH-359, MECH-390, SD-011.
   GOVERNANCE: PROMOTES NOTHING, DEMOTES NOTHING. SD-082 stays
     implemented_pending_validation / ready=false. claims.yaml untouched (substrate-only
     amend; the amend record lands in the SD-082 substrate_queue.json entry).
+
+## SD-082 AMEND: per-candidate summary was a shared constant, not per-candidate (the CORRUPTING defect V3-EXQ-822c confirmed) (2026-08-29)
+- SD-082 candidate-summary post-action fix -- IMPLEMENTED 2026-08-29. Routed by the
+  confirmed failure_autopsy_V3-EXQ-822c_2026-08-29 (Section 6, "Routing --
+  implement-substrate, amend SD-082"). HEADLINE: the "structural zero"
+  (on/off_prop_delta_mean == 0.0) that drove this whole lineage for a month was NEVER
+  measured -- it is the empty-list default of statistics.fmean(prop_deltas) if prop_deltas
+  else 0.0, n_prop_samples is 0 in ALL 18 cells across V3-EXQ-822/822a/822b, because the
+  drivers' _candidate_summaries() called only agent._candidate_world_summaries(candidates),
+  which returns None on the default candidate_summary_source="proposer" -- starving both
+  the P1 REINFORCE buffer and the P2 propagation measurement in every prior run.
+  ROOT CAUSE (now measured, V3-EXQ-822c): with the measurement gap fixed, compute_bias's
+  per-candidate summary is trajectory.world_states[:, 0, :] -- but
+  ree_core/predictors/e2_fast.py's rollout_with_world() seeds world_states=[initial_z_world],
+  so index 0 is the rollout's SHARED initial world state, bit-identical across all K
+  candidates by construction (candidates differ only in actions applied from t>=1). SD-082's
+  own centering step (summaries - summaries.mean(dim=0)) then annihilates this constant to
+  float32 cancellation noise: rule_summary_magnitude_ratio 2.8e6-4.5e6, ~4000x the driver's
+  own 1e3 in-range ceiling, in every 822c cell, both arms. SEVERITY CORRUPTING: on the
+  default config, prop_delta clears the 1e-3 non-vacuity floor (0.001662) while carrying
+  ZERO candidate-discriminating information -- an authentic-looking but meaningless number,
+  worse than the "0.0 vacuous" reading the prior autopsies (wrongly) took at face value.
+  THE FIX (both no-op default; bit-identical OFF; did NOT change the candidate_summary_source
+  DEFAULT, which the autopsy flagged as option (b) needing its own sweep -- out of scope
+  here):
+    ree_core/utils/config.py + ree_core/agent.py -- candidate_summary_source gains a THIRD
+      value, "proposer_post_action" (default stays "proposer"). Still proposer-rollout-based
+      (not "e2_world_forward", a different fix for a different problem -- see the field's own
+      docstring), but the new agent._proposer_post_action_summaries() reads
+      world_states[:, 1:, :].mean(0) (the POST-ACTION states, one per candidate, reflecting
+      that candidate's own action sequence) instead of world_states[:, 0, :], at zero extra
+      model calls -- same rollout, different read-out index. Falls back to world_states[0]
+      only for a degenerate zero-horizon rollout (no post-action state exists).
+      _candidate_world_summaries() dispatches to it and returns non-None, so EVERY caller's
+      manual ws[0, 0, :] fallback loop (gated_policy / lateral_pfc / ofc / mech295 /
+      tonic_vigor -- all consumers of the one SHARED cand_world_summaries, per the
+      ARC-065 GAP-A docstring) is bypassed uniformly when opted in -- exactly as
+      "e2_world_forward" already does, not a lateral_pfc-only patch.
+    ree_core/pfc/lateral_pfc_analog.py -- compute_bias() gains a centering-degeneracy guard.
+      New LateralPFCConfig.candidate_summary_degeneracy_floor (default 1e-4): whenever
+      rule_readout_consumer centers a >=2-candidate summary, unconditionally (independent of
+      capture_head_diagnostics) records candidate_summary_norm_pre_centering /
+      candidate_summary_norm_post_centering and sets candidate_summary_degenerate = True when
+      post_norm <= floor * pre_norm -- flags, never raises or refuses, so no existing run's
+      behaviour changes. get_state() exposes all three; reset() clears them. This makes the
+      exact 822c failure mode directly measurable going forward rather than only inferable
+      post hoc from rule_summary_magnitude_ratio.
+  Backward compatible: candidate_summary_source default stays "proposer" (every existing
+    experiment, including 822/822a/822b/822c, is bit-identical); the degeneracy guard only
+    ever sets new diagnostic get_state() fields, never the returned bias tensor.
+  28 new contracts in tests/contracts/test_sd082_candidate_summary_post_action_amend.py
+    (run alongside the existing 28-total test_sd082_rule_readout_consumer.py, both green):
+    proposer_post_action summaries are candidate-discriminating (the regression test against
+    the exact bug) vs. a baseline confirming the fixture reproduces the ws[0,0,:] constant
+    shape, zero-horizon degenerate fallback, empty-candidates None, dispatch-through-
+    _candidate_world_summaries parity, "proposer" default still returns None
+    (backward-compat), REEConfig.from_dims reachability (+absent-default), the degeneracy
+    guard fires on an exactly-constant summary and does NOT false-positive on a genuinely
+    differentiated one, degeneracy fields stay at default when rule_readout_consumer is OFF,
+    the guard never changes the returned bias, get_state() exposes the new fields, reset()
+    clears them, and the floor threshold is configurable (same fixture flagged under a
+    lenient floor, not flagged under the strict default).
+  Phased training: unchanged from the SD-082 landing (P0/P1/P2 for the trainable head).
+    MECH-094: N/A -- unchanged, pure forward read on the waking select_action path.
+  Failure record: V3-EXQ-822c marked resolved (this fix); 822/822a/822b stay superseded per
+    the autopsy's own routing (nothing was fixed there -- the reads were wrong).
+  GOVERNANCE: PROMOTES NOTHING, DEMOTES NOTHING. SD-078 and SD-082 both stay
+    candidate_substrate_landed / non_contributory / pending_retest_after_substrate=true.
+    Per the autopsy: SD-082's centering mechanism is NOT falsified by this history -- it was
+    UNTESTED, because its input never carried the cross-candidate variance it was designed to
+    preserve.
+  Validation experiment: V3-EXQ-822d queued (candidate_summary_source="proposer_post_action"
+    + rule_readout_consumer=True on both arms; asserts n_prop_samples > 0 as a readiness gate
+    BEFORE trusting any prop_delta aggregate -- the exact measurement-starvation gap
+    822/822a/822b fell into). See SD-078, SD-033a, ARC-063, SD-008,
+    REE_assembly/docs/architecture/sd_082_rule_selection_action_consumer.md (Amendment
+    section), REE_assembly/evidence/planning/failure_autopsy_V3-EXQ-822c_2026-08-29.md.
   Does NOT queue a new experiment. Per the autopsy's own judgment (re-derive brake did not
     formally fire -- R3 counts only substrate_ceiling readings, this is
     competence_implementation_gap -- but two consecutive identical-gate failures argue for
