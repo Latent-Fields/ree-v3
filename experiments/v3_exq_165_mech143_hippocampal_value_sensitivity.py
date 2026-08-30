@@ -1,5 +1,19 @@
 #!/opt/local/bin/python3
 """
+RETIRED -- DO NOT REPAIR. Decided 2026-08-30 (chip-20260830-exq165-dormant-driver-decision):
+this standalone analog cannot inform the MECH-144 question at any seed count, because its
+HippocampalTerrainNavigator structurally never receives goal reward value (see docstring
+below: "Does NOT receive or use reward values -- only goal positions"). Both FIXED_VALUE and
+SHUFFLED_VALUE conditions run the identical value-blind navigator, so C1-C3 are guaranteed to
+PASS by construction on every run (verified against both prior manifests f3319520/d2d314a9) --
+raising N only sharpens a foregone confirmation of MECH-143, never produces weakens/does_not_
+support evidence for MECH-144. It also exercises no ree_core (no HippocampalModule, no
+E3TrajectorySelector), so it cannot detect implicit value leakage the way a live-substrate
+probe could. Full rationale + the recommended real-substrate replacement design:
+REE_assembly/evidence/planning/v3_exq_165_retirement_2026-08-30.md. Do not re-queue this
+script or letter it (V3-EXQ-165a); a real MECH-144 retest needs a new EXQ number driving
+ree_core's actual trajectory-proposal machinery.
+
 V3-EXQ-165 -- MECH-143 / MECH-144: Hippocampal Value Sensitivity Probe
 
 Claims:   MECH-143, MECH-144
@@ -89,6 +103,13 @@ from experiments.pack_writer import write_flat_manifest  # noqa: E402
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
+
+DEGENERACY_SELFREPORT_EXEMPT = (
+    "RETIRED 2026-08-30 -- DO NOT REPAIR. This script is not queued and will never run "
+    "again (chip-20260830-exq165-dormant-driver-decision); see the module docstring and "
+    "REE_assembly/evidence/planning/v3_exq_165_retirement_2026-08-30.md. A degeneracy "
+    "self-report on dead code would be theater, not signal."
+)
 
 EXPERIMENT_TYPE   = "v3_exq_165_mech143_hippocampal_value_sensitivity"
 CLAIM_IDS         = ["MECH-143", "MECH-144"]
