@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-08-29 (T08:30Z nightly)
+**Last updated:** 2026-08-30 (T01:10Z nightly)
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -210,6 +210,7 @@ at V3 launch, not current state. The authoritative session guide is `ree-v3/CLAU
 | SD-MECH303-THRESHOLD-SOURCING: dedicated proximity signal for contextual-safety gate | mech303.contextual_safety_gate.dedicated_proximity_signal -- IMPLEMENTED 2026-08-14. Gives MECH-303's contextual-safety accumulate gate a DEDICATED anticipatory hazard-proximity signal, decoupled from SD-022's damage-sourced `z_harm_a`. V3-EXQ-917 found the gate cannot discriminate safe-vs-unsafe under damage-sourcing (AUC <=0.52, chance) at any of 18 thresholds, while a proximity signal reaches AUC 0.84-0.97; a single `z_harm_a` cannot serve both SD-022 (wants body/context decoupled) and MECH-303 (wants body/context coupled), so this adds a second signal for MECH-303's gate alone -- every other `z_harm_a` consumer is untouched. Env: CausalGridWorldV2(`safety_proximity_signal_enabled=False` default; True emits `obs_dict["safety_proximity_harm"]`, a scalar tau~20 EMA of hazard-proximity-at-agent, updated BEFORE Q-080 effort injection so it is decoupled from both SD-022 and Q-080). Config: `REEConfig.contextual_safety_gate_source` ("z_harm_a" default -> unchanged; "proximity_signal" -> dedicated signal) + `contextual_safety_proximity_threshold` (0.25). Both switches no-op default; env bit-identical OFF; gate reads `z_harm_a` by default. NO silent `z_harm_a` fallback when the signal is absent under `proximity_signal` mode. | Substrate landed 2026-08-14 (ree-v3 main; design doc `sd_mech303_threshold_sourcing.md`). Validation: V3-EXQ-930 queued (917-style AUC sweep; acceptance AUC >=~0.84 >> chance 0.52). Smoke: safe(nh=0) mean signal 0.00 vs unsafe(nh=8) 0.87; end-to-end proximity gate fires 150/150 safe vs 6/150 unsafe. |
 | SD-MECH267-CEM-SELECTION-FIX: Mode-Content Wash-Out Fix (H2 + H3) | hippocampal.cem_mode_selection -- IMPLEMENTED 2026-08-14. Adds MECH-267's THIRD (H2) and FOURTH (H3) facets, both targeting the mode-content wash-out V3-EXQ-869/869a/923 established (mode-conditioned proposal content present at `num_cem_iterations=1`, collapses by iters=2-3 because the CEM refit re-derives `ao_std` mode-blindly and `_score_trajectory`'s ranking criterion is mode-independent). Two INDEPENDENT deliberately-orthogonal fixes, each no-op at its default, both gated by the same `mode_conditioning_enabled` switch. H2: `HippocampalConfig.mode_value_weight` (Dict[str, List[float]], default {}) -- a mode-dependent term in the CEM elite-selection value function; keyed on mean z_world (NOT residue valence components -- the 869/923 wash-out regime builds a FRESH ResidueField whose valence head is identically zero); active independently of wanting_weight / curiosity_weight (both 0.0 in the wash-out experiments); keeps the RANKING mode-differentiated on every refit iteration. H3: `HippocampalConfig.mode_partitioned_cem` (bool, default False) -- re-applies the mode-conditioned noise scale to the freshly-refit `ao_std` once per CEM iteration in BOTH argsort-refit and SD-055 differentiable-refit branches, so each mode-conditioned proposal keeps its own persistent BREADTH; for a single mode-conditioned proposer call this is equivalent to a per-mode candidate pool whose elites never mix across modes. | Substrate landed 2026-08-14 (ree-v3 main; design doc `sd_mech267_cem_selection_fix.md`). Validation: V3-EXQ-928 queued (OFF control / H2-only / H3-only / BOTH arms, re-measuring V3-EXQ-869 C1 at num_cem_iterations=3; acceptance = mean pairwise raw_std mode gap >= 0.01 per arm; ARM OFF expected to FAIL as the washed-out control). Dry-run (3 seeds, OFF+H3): OFF gap ~-0.0004 (washed), H3 ~0.0246 (clears floor). MECH-267 stays candidate; PROMOTES NOTHING until 928 scores. |
 | contextmemory-write-path-addressing-degeneracy (usage-balancing + refractory) | e1.context_memory.write_usage_balancing + write_selection="refractory" -- BOTH IMPLEMENTED 2026-08-19 as ORTHOGONAL, co-landed mechanisms behind ONE substrate_queue entry (chip `chip-20260816-implsub-contextmemory-writepath-degeneracy` + `chip-20260819-contextmemory-add-refractory-mode` -- USER-AUTHORISED build of option (c) alongside the conscience bias, NOT a revert or replacement). `ContextMemory.write()` addressed by a hard `scores.mean(0).argmin()`, which under a near-constant query stream is a deterministic single-slot fixed point -- `failure_autopsy_V3-EXQ-436e` established a closed-form sign discriminator predicting lock-vs-rotate 5/5, V3-EXQ-436f confirmed live (n_occupied_slots = 1 of 16 in BOTH arms on 3/5 seeds despite 2,837-4,903 write() calls per arm). The write-side sibling of SD-016 (cue-indexed retrieval): the READ-path fix does not touch this -- write() runs entirely under `torch.no_grad()` and `compute_diversification_loss()` only ever trains `self.memory`, never the write-address selection itself. (1) Conscience bias `contextmemory_write_usage_balancing` (DeSieno 1988): a slot's re-selection eligibility is penalized in proportion to an EMA of how recently/often it has already won, scaled to `sqrt(memory_dim)` so a self-reinforcing lock cannot persist; pure selection-score adjustment (write() is no_grad -- no annealing schedule / straight-through estimator needed, unlike the SD-016 read-path Gumbel-softmax it is the write-side sibling of). (2) Refractory mode `contextmemory_write_selection="refractory"`: the k most-recently-written slots are ineligible (last-k window masked with +inf). The two are orthogonal by construction: one adjusts the SCORE, the other restricts the ELIGIBLE SET; all four combinations are legal and can compose. All four new config knobs threaded through `REEConfig.from_dims()` at all three sites. Refractory consumes NO RNG in any mode (fully deterministic); state_dict unchanged (slot_write_counts persistent=False). Default = legacy "argmin" + `write_usage_balancing=False` -> bit-identical. Legacy occupancy tracker in V3-EXQ-436f duplicated write()'s argmin expression internally and reports the wrong slot the moment the selection rule changes -- must be replaced by reading `.last_write_index` / `.slot_write_counts` / `.occupied_slots()` (pinned by `test_stale_reimplementation_of_the_old_rule_disagrees`). | Both landed 2026-08-19 (ree-v3 main). Both individually clear the >=2 occupied slots on >=3/5 seeds acceptance floor (contract-level verified; a broader 20-seed sweep: 11/20 seeds locked under legacy, 20/20 reached >= 2 under usage-balancing; refractory also 20/20 by construction). Substrate_queue entry `contextmemory-write-path-addressing-degeneracy` status stays `implemented_pending_validation`. Validation ablations chipped via `/queue-experiment` (chip `chip-20260819-queueexp-contextmemory-writesel-validation` covering both arms). Not adopted from a salvaged branch: "usage" (argmax with different sign convention -- confused with conscience-bias in commit archaeology) and "gumbel" (measured content-blind, cluster Jaccard 1.000 across all 5 seeds) modes explicitly rejected by config validator. Unblocks SD-017 / ARC-045 / MECH-166 for their own validation. |
+| SD-e1-rollout-consistency-training ITEM 1: E1 action-conditioned transition | e1.transition.action_conditioning -- IMPLEMENTED 2026-08-29 (ree-v3 `26557a3758` on main; REE_assembly `1f8870d290` on master). `E1Config.action_conditioned_transition` (default False, bit-identical off) widens `transition_rnn` to `input_size = total_dim + action_dim` (dedicated action channel, NOT a projection back down to total_dim -- an EXQ-449a-recorded failure mode in-file). Optional `action_cond_unzero_self_slot` (default True, INERT when master off) carries the real z_self into the LSTM seed on its own sub-flag so V3-EXQ-954's two named defects stay separately ablatable. `E1DeepPredictor.forward()` / `predict_long_horizon()` take an actions param; `REEAgent` gains `_action_experience_buffer` (sliced `[start+1:end]` for `compute_prediction_loss`), `record_executed_action()`, `e1_action_buffer_stats()`, online efference-copy conditioning at select_action, offline integrate_experience wiring. 23 contracts (harness runs E1 in eval() -- num_layers=3 dropout would let dropout noise fake distinctness in train mode). ITEM 2 (multi-step rollout-consistency objective) NOT built and explicitly not implied: V3-EXQ-954's red-team localises the dominant ~675x crush at LSTM+output_proj, untouched here. Measured at untrained init, eval mode, h=1: per-action pairwise L2 EXACTLY 0 with flag off (mathematically exact action-blindness) vs 2.6e-04 on, still ~100x under E2's trained 2.8e-2. | Substrate landed 2026-08-29 (ree-v3 `26557a3758`; REE_assembly `1f8870d290`). Design doc: `REE_assembly/docs/architecture/sd_e1_rollout_consistency_training.md`. Full local suite 5292 passed / 2 failed (both PRE-EXISTING on trunk, reproduced in a clean HEAD worktree; chipped as `chip-20260829-ree-v3-trunk-corpus-pins-red`). MECH-135 / INV-088 implementation_notes carry `pending_retest_after_substrate=True` deliberately -- ITEM 2 is required first. Validation experiment chipped not queued: `chip-20260829-sd-e1-item1-validation-exq-b`. |
 
 SD-003 (two-pass counterfactual self-attribution) was **superseded 2026-04-18** after 28
 accumulated FAILs across its two-pass counterfactual architecture. The successor layer is:
@@ -227,6 +228,65 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 `REE_assembly/docs/architecture/self_attribution_per_stream.md`.
 
 ### Experiment Status
+
+- **2026-08-30T01:10Z nightly attestation (scheduled `/update-docs`, bot
+  identity).** ~17h window since the 2026-08-29T08:30Z snapshot. Flat
+  `v3_exq_*` manifests on disk: **943** (+14 vs 929 at 2026-08-28); nested
+  per-run manifests under `evidence/experiments/*/runs/`: **2888** (+25 vs
+  2863). Aggregated cross-worker `runner_status/*.json`: 2470 completions --
+  PASS 873, FAIL 1313, ERROR 171, UNKNOWN 112, INCONCLUSIVE 1. **Currently
+  queued (`experiment_queue.json` items[]): 3 items** (up from 1 yesterday) --
+  V3-EXQ-959 (`MECH-440 legs (ii)/(iii): state-conditioning + self-annealing
+  second-order falsifier`, claim `MECH-440`, prio 65, CLAIMED `ree-cloud-1`;
+  routed by confirmed `failure_autopsy_V3-EXQ-955_2026-08-29` -- NOT a 955a
+  re-run, deliberately different mechanism per the autopsy), V3-EXQ-951
+  (`MECH-320 tonic-vigor selection-authority retest on scaffolded_sd054
+  substrate`, claim `MECH-320`, prio 55, CLAIMED `ree-cloud-4`), V3-EXQ-963
+  (`MECH-063 (ii) tonic/phasic dissociation RETEST -- SD-075 carry-over`,
+  prio 30, CLAIMED `DLAPTOP`). **Pending review (`pending_review.md`,
+  regenerated 2026-08-29T16:16:47Z): 1 item** -- V3-EXQ-936a MECH-439 PASS
+  (F-variance-share rollout clamp fix) awaiting normal governance close.
+  (a) **NEW SUBSTRATE LANDING in the window:** SD-e1-rollout-consistency-
+  training ITEM 1 (E1 action-conditioned transition) LANDED 2026-08-29T21:25Z
+  -- ree-v3 `26557a3758` on main + REE_assembly `1f8870d290` on master.
+  Widens `E1DeepPredictor.transition_rnn` to a dedicated action channel via
+  `action_conditioned_transition=True` (default OFF, bit-identical); optional
+  `action_cond_unzero_self_slot` (True default when master on) carries real
+  z_self into the LSTM seed on its own sub-flag so V3-EXQ-954's two named
+  defects stay separately ablatable. ITEM 2 (multi-step / rollout-
+  consistency objective) NOT built and explicitly not implied by ITEM 1's
+  landing. See spec table row above for full detail. (b) **New completions
+  in the window:** V3-EXQ-936a PASS (MECH-439 F-variance share rollout
+  clamp), V3-EXQ-954 PASS, V3-EXQ-957 PASS, V3-EXQ-958 PASS, V3-EXQ-962
+  PASS, V3-EXQ-642a FAIL (MECH-353 retest -- comparator-discriminability
+  fix under the now-ready scaffolded_sd054 substrate; queued 2026-08-29T18:26Z
+  and returned FAIL same day; needs `/failure-autopsy`). V3-EXQ-955 completed
+  (no longer in queue) and its confirmed autopsy routed the V3-EXQ-959
+  successor above. (c) **Governance apply cycle in the window:**
+  `governance-20260829-mac` session ratified the 955 autopsy same-day
+  (see V3-EXQ-959 queue entry note). (d) **Coordination-plane / infra work:**
+  W4 wedge-repair containment (REE_Working `6784e829`; `_reconcile_wedge_
+  repair` local-checkout guard + 3 ContainmentTest pins); root-caused
+  ree-cloud-5 REE_assembly ahead-commit accumulation and fixed via
+  `ree_metaworker_heartbeat.py` push-retry `_converge_after_heartbeat_push()`
+  (REE_Working `c76be68c5`); dispatch-plane fd-leak self-recovery (ree-v3
+  `7812199cfd` on main; db_session() contextmanager + AdamW watchdog +
+  spool for fail-open drops); queuefloor fleet-chip collapse from three
+  per-host refs to one fleet-wide `chip-queuefloor-fleet` (REE_Working
+  `46b0e30f8f`); chip-20260827-inv050-nonconverging-mel-env found STALE ON
+  ARRIVAL (5+ weeks after SD-MEL-PRODUCER was built and validated;
+  work_graph_debt_classification_20260827.md INV-050 row is stale and will
+  keep re-spawning duplicate chips until corrected in the next debt sweep).
+  **Bottleneck: shifting to the failure-autopsy queue** -- V3-EXQ-642a FAIL
+  (MECH-353) needs adjudication, V3-EXQ-936a PASS (MECH-439) awaits
+  governance close, and 3 in-flight cloud runs (959/951/963) will land
+  further completions before the next attestation window. Green-board target
+  2026-07-19 is now **42 days overdue**. **ETHICS-PERIMETER Phase 0 datum**
+  stays on the record (Phases 1-3 deferred; NON-BLOCKING).
+  Public-information-architecture impact: reviewed against
+  `docs/design/public_information_architecture.md` -- no `/api/*` surface,
+  generated visualization, or public export changed; new SD table row +
+  spec date bump + status entry only.
 
 - **2026-08-29T03:00Z nightly attestation (scheduled `/update-docs`, bot
   identity).** Short (~7.5h) window since the 2026-08-28T19:24Z snapshot;
