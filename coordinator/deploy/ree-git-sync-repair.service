@@ -1,0 +1,11 @@
+[Unit]
+Description=REE git-sync repair (wedge backstop, telemetry-only safe signature)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ree
+ExecStart=/usr/local/bin/ree_git_sync_repair.sh
+TimeoutStartSec=120
+Nice=10

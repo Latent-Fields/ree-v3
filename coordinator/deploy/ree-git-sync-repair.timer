@@ -1,0 +1,11 @@
+[Unit]
+Description=REE git-sync repair timer (every 30 min)
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=30min
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target
