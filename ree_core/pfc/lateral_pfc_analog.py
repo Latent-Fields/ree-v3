@@ -196,6 +196,18 @@ class LateralPFCConfig:
     # already performs internally, so the returned bias is bit-identical to OFF at
     # every tick (diagnostic-only, does not change any computed bias value).
     capture_head_diagnostics: bool = False
+    # SD-082 AMEND (failure_autopsy_V3-EXQ-822c_2026-08-29): degeneracy guard
+    # ratio floor. When rule_readout_consumer centers a per-candidate summary
+    # that is (near-)constant across candidates -- as agent.py's "proposer"
+    # candidate_summary_source default does by construction -- centering
+    # annihilates it to float32 cancellation noise (measured: post-centering
+    # norm ~1e-7 relative to pre-centering norm). compute_bias flags (never
+    # raises -- see the flag's own comment at its use site) when
+    # post_centering_norm <= this floor * pre_centering_norm. 1e-4 sits far
+    # above float32 cancellation noise (~1e-7) and far below any real
+    # cross-candidate spread, so it does not fire on genuinely differentiated
+    # input. Purely diagnostic: never changes the returned bias value.
+    candidate_summary_degeneracy_floor: float = 1e-4
 
 
 class LateralPFCAnalog(nn.Module):
@@ -271,6 +283,14 @@ class LateralPFCAnalog(nn.Module):
         # config.capture_head_diagnostics is True; stay at these defaults otherwise.
         self._last_hidden_dead_relu_frac: float = 0.0
         self._last_rule_summary_magnitude_ratio: float = 0.0
+        # SD-082 AMEND (failure_autopsy_V3-EXQ-822c_2026-08-29): centering
+        # degeneracy guard. Populated whenever rule_readout_consumer centers a
+        # >=2-candidate summary (independent of capture_head_diagnostics, which
+        # gates the heavier unrolled-forward diagnostics above); stay at these
+        # defaults otherwise.
+        self._last_summary_norm_pre_centering: float = 0.0
+        self._last_summary_norm_post_centering: float = 0.0
+        self._last_candidate_summary_degenerate: bool = False
 
     # ------------------------------------------------------------------
     # Update path
@@ -408,6 +428,26 @@ class LateralPFCAnalog(nn.Module):
         summaries = candidate_world_summaries
         if self.config.rule_readout_consumer and k >= 2:
             summaries = summaries - summaries.mean(dim=0, keepdim=True)
+            # SD-082 AMEND (failure_autopsy_V3-EXQ-822c_2026-08-29): degeneracy
+            # guard. Centering a per-candidate summary that is (near-)constant
+            # across candidates -- as happens by construction when the caller's
+            # candidate_summary_source is the "proposer" default, see agent.py
+            # _candidate_world_summaries -- annihilates it to float32
+            # cancellation noise. This FLAGS that condition; it never refuses
+            # or raises, so no existing run's behaviour changes (the returned
+            # bias value is untouched either way). Cheap: two norm() calls,
+            # independent of capture_head_diagnostics.
+            with torch.no_grad():
+                _pre_norm = float(
+                    candidate_world_summaries.norm(dim=-1).mean().item()
+                )
+                _post_norm = float(summaries.norm(dim=-1).mean().item())
+                self._last_summary_norm_pre_centering = _pre_norm
+                self._last_summary_norm_post_centering = _post_norm
+                self._last_candidate_summary_degenerate = (
+                    _post_norm
+                    <= self.config.candidate_summary_degeneracy_floor * _pre_norm
+                )
         # Broadcast rule_state across K candidates
         rule_repeated = self.rule_state.expand(k, -1)  # [K, rule_dim]
         joined = torch.cat([rule_repeated, summaries], dim=-1)
@@ -475,6 +515,9 @@ class LateralPFCAnalog(nn.Module):
         self._last_bias_abs_mean = 0.0
         self._last_hidden_dead_relu_frac = 0.0
         self._last_rule_summary_magnitude_ratio = 0.0
+        self._last_summary_norm_pre_centering = 0.0
+        self._last_summary_norm_post_centering = 0.0
+        self._last_candidate_summary_degenerate = False
 
     def get_state(self) -> dict:
         """Diagnostic snapshot for experiment manifests."""
@@ -511,5 +554,19 @@ class LateralPFCAnalog(nn.Module):
                 # stay at 0.0 otherwise.
                 "hidden_dead_relu_frac": self._last_hidden_dead_relu_frac,
                 "rule_summary_magnitude_ratio": self._last_rule_summary_magnitude_ratio,
+                # SD-082 AMEND (failure_autopsy_V3-EXQ-822c_2026-08-29): centering
+                # degeneracy guard. Only populated (non-default) when
+                # rule_readout_consumer centered a >=2-candidate summary on the
+                # last compute_bias() call; stay at these defaults otherwise.
+                # candidate_summary_degeneracy_floor doc'd on LateralPFCConfig.
+                "candidate_summary_norm_pre_centering": (
+                    self._last_summary_norm_pre_centering
+                ),
+                "candidate_summary_norm_post_centering": (
+                    self._last_summary_norm_post_centering
+                ),
+                "candidate_summary_degenerate": (
+                    self._last_candidate_summary_degenerate
+                ),
             }
         return state

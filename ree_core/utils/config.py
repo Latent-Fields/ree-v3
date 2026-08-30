@@ -4223,8 +4223,22 @@ class REEConfig:
     # (MECH-314a Phase-2, which fixed the curiosity channel only). Composes with
     # the modulatory-bias-selection-authority gate (V3-EXQ-643a) so the
     # now-divergent bias reaches the committed argmin.
+    # SD-082 AMEND (failure_autopsy_V3-EXQ-822c_2026-08-29): "proposer_post_action"
+    # is a THIRD option, still proposer-rollout-based (not e2.world_forward) but
+    # reading world_states[:, 1:, :].mean(0) (the POST-ACTION states) instead of
+    # world_states[:, 0, :]. world_states[0] is the rollout's shared initial
+    # z_world seed (E2FastPredictor.rollout_with_world: world_states=
+    # [initial_z_world]) -- bit-identical across every candidate by construction,
+    # so the "proposer" default carries zero candidate-discriminating information
+    # into any consumer that reads it (measured: SD-082's compute_bias centering
+    # step annihilates this constant to float32 cancellation noise,
+    # rule_summary_magnitude_ratio 2.8e6-4.5e6 in every V3-EXQ-822c cell, ~4000x
+    # the 1e3 in-range ceiling). "proposer_post_action" fixes this at zero extra
+    # model calls (same rollout, different read-out index) while still testing
+    # the collapsed-proposer regime "e2_world_forward" was built to bypass.
+    # Default stays "proposer" -- bit-identical backward compat.
     candidate_summary_source: Literal[
-        "proposer", "e2_world_forward"
+        "proposer", "e2_world_forward", "proposer_post_action"
     ] = "proposer"
 
     # ----------------------------------------------------------------
@@ -6919,8 +6933,10 @@ class REEConfig:
         epistemic_deficit_persistent_pe_weight: float = 1.0,
         # ARC-065 GAP-A: shared cand_world_summaries source for the E3-side
         # bias channels (lateral_pfc / ofc / mech295 / gated_policy / vigor).
+        # SD-082 AMEND: "proposer_post_action" third option -- see the field's
+        # own docstring above for the full rationale.
         candidate_summary_source: Literal[
-            "proposer", "e2_world_forward"
+            "proposer", "e2_world_forward", "proposer_post_action"
         ] = "proposer",
         # MECH-320 (ARC-066 child): tonic_vigor_coupling_score_bias
         # (mesolimbic-DA-vigor / avg-reward-rate / opportunity-cost regulator)
