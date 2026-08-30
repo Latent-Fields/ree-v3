@@ -716,8 +716,37 @@ class BurnDetectorKnownTruthTest(unittest.TestCase):
         the burned stint's add commit rather than from HEAD. Walking from
         HEAD measured 1.77 s -- same answers, 3x the cost.
 
-        NOTED, NOT ACTED ON: the noise cap below is at 17 of 20. Two or
-        three more burns and it fires, and someone has to decide whether
+        PIN UPDATE 2026-08-30: V3-EXQ-956 joined the LOST set. It is the
+        V3-EXQ-895 shape a FOURTH time -- a deliberate but blind repair
+        re-add of an already-terminal id -- with the 2026-08-09 (a)
+        reasoning applying unchanged. Mechanically genuine, all four legs:
+        first life appended at 01:18:31Z (ree-v3 580b1fd, "renamed from
+        tentative V3-EXQ-953 due to live ID collision"), ran to FAIL under
+        its OWN number at 01:45:24Z (v3_exq_956_contextmemory_write_gumbel_
+        learned_validation_20260829T014524Z_v3; a FAIL is a completed run
+        and terminal per the queue-completion rule); then the W0
+        stranded-drivers chip session (chip-20260829-queue-three-stranded-
+        exq-drivers) re-added it at 11:34:38Z believing the smoke-tested
+        driver had never been queued (ree-v3 c5a982a, blind to both the
+        DB-terminal row and the manifest), and the phase3-queue snapshot
+        (ed7bd75) swept it 58 SECONDS later. prior_stints=1,
+        minutes_alive=0.97, no manifest in the stint window. Why each route
+        is silent -- checked, not assumed:
+          supersedes  nothing anywhere declares `supersedes: V3-EXQ-956`;
+          same-stem   the stem's only manifest is 01:45:24Z, BEFORE the
+                      burned stint, so ran_after is False -- and the
+                      already_ran advisory fires instead (blob-identical
+                      driver, pinned in the partition below);
+          renumber    the slug contextmemory_write_gumbel_learned_validation
+                      exists under no other number.
+        NO SCIENCE WAS LOST: the run happened, 10 hours before the burn;
+        there was never a second run to lose. Sibling note: 957 and 958 from
+        the same W0 re-add commit do NOT appear here -- both genuinely ran
+        (PASS, per the 2026-08-30 nightly) in their re-add stints, so only
+        956, whose id was already terminal, burned.
+
+        NOTED, NOT ACTED ON: the noise cap below is at 18 of 20. One or
+        two more burns and it fires, and someone has to decide whether
         that is noise or growth.
         """
         self.assertLessEqual(len(self.ids), 20,
@@ -734,6 +763,10 @@ class BurnDetectorKnownTruthTest(unittest.TestCase):
                             # 08:16:06Z BEFORE the stint, so no route fires.
                             # Accidental re-add (stale working tree), not a
                             # re-queue -- see PIN UPDATE 2026-08-15.
+            "V3-EXQ-956",   # 895 shape again: own number ran (FAIL) at
+                            # 01:45:24Z BEFORE the stint; blind W0 re-add of
+                            # a terminal id, swept in 58s -- see PIN UPDATE
+                            # 2026-08-30.
             "V4-EXQ-001",
         ])
 
@@ -751,6 +784,7 @@ class BurnDetectorKnownTruthTest(unittest.TestCase):
         self.assertEqual(lost_already_ran, {
             "V3-EXQ-895": "2026-08-08T01:24:22Z",
             "V3-EXQ-929": "2026-08-14T08:16:06Z",
+            "V3-EXQ-956": "2026-08-29T01:45:24Z",
             "V4-EXQ-001": "2026-06-17T10:52:51Z",
         })
 

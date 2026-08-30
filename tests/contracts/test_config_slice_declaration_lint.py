@@ -700,7 +700,22 @@ def test_gate_is_warn_only_even_under_strict(tmp_path):
 # lineage module and declared in `off_path_config_slice()` per audit Addendum 3, so the
 # SCHEME-band true positive described above is resolved. It is also dropped from
 # `_CROSS_MODULE_CARRIERS`.
-_PINNED_CORPUS_FIRE_COUNT = 55
+# 2026-08-30: 55 -> 56. V3-EXQ-963 (v3_exq_963_mech063ii_tonic_phasic_dissociation_
+# retest.py, added at ree-v3 c08f2b4) is a GENUINE new carrier, adjudicated per
+# chip-20260829-ree-v3-trunk-corpus-pins-red: it emits cross-driver-reusable
+# fingerprints (include_driver_script_in_hash=False) while its config_slice omits 9
+# readout-affecting module constants (EVENT_LEVEL_FLOOR, NF_ALPHA, NF_MIN_T,
+# PHASIC_DECAY, PHASIC_EMA_DECAY, PHASIC_MIN_T, +3) -- the exact false-cache-HIT
+# exposure this lint exists for, so EXEMPT does not apply. The driver is TERMINAL
+# (ran 2026-08-29T02:30Z, FAILed, autopsied 2026-08-30 as a probe_warmup cache-clobber
+# -- its minted cells are suspect on independent grounds); retro-editing it cannot fix
+# the already-minted cells' recorded slices, so per the V3-EXQ-798 confirmed-carrier
+# precedent it joins the pinned backlog and the REAL fix is owed in its successor's
+# driver (declare all 9 in config_slice at authoring -- handed to the science lane
+# alongside the SD-PROBE-WARMUP repair). "Fix the script rather than re-pin" in the
+# assertion message below is the right instruction for a LIVE driver; a terminal
+# carrier is backlog, which is what this pin counts.
+_PINNED_CORPUS_FIRE_COUNT = 56
 
 
 def test_config_slice_corpus_fire_rate_is_pinned(corpus_scan):
