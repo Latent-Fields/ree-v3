@@ -592,13 +592,27 @@ def _run(dry_run: bool):
     )
 
     # Non-degeneracy scoring net (evidence run -- Step 3 "Non-degeneracy scoring net")
+    #
+    # c3_geom_distance_spread is ONE distance_std reading per seed -- a flat
+    # list of per-seed observations, not a set of paired/matched ON-vs-OFF
+    # comparisons. It must be passed as "values" (metric_is_degenerate), NOT
+    # wrapped as one-element "groups" (metric_groups_are_degenerate): a
+    # singleton group always has zero spread BY CONSTRUCTION (nothing to
+    # compare it against), so wrapping each seed's reading in its own
+    # one-element group made this check report ARM_GEOM's genuinely-graded,
+    # well-above-floor distance_std values (1.20998/1.09383/1.04082) as
+    # degenerate and silently dropped a sound run from scoring
+    # (build_experiment_indexes.py's non-degeneracy gate). Fixed alongside an
+    # arity guard added to metric_groups_are_degenerate itself
+    # (experiments/_metrics.py) so a future singleton-group misuse can never
+    # recur, on this driver or any other.
     geom_r_values    = [r["pearson_r_harm_vs_proximity"] for r in all_results if r["condition"] == "ARM_GEOM"]
-    geom_dist_groups = [
-        [r["distance_std"]] for r in all_results if r["condition"] == "ARM_GEOM"
+    geom_dist_values = [
+        r["distance_std"] for r in all_results if r["condition"] == "ARM_GEOM"
     ]
     degeneracy = check_degeneracy({
         "c1_geom_gradient_correlation": {"values": geom_r_values},
-        "c3_geom_distance_spread": {"groups": geom_dist_groups, "floor": 1e-6},
+        "c3_geom_distance_spread": {"values": geom_dist_values, "floor": 1e-6},
     })
 
     full_config = {

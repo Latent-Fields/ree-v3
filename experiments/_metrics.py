@@ -395,18 +395,57 @@ def metric_groups_are_degenerate(
     :func:`metric_is_degenerate` the per-group SEPARATION directly (e.g.
     [arm_on_i - arm_off_i for each seed i]); this helper exists for when the raw
     per-cell values are what was logged.
+
+    ARITY GUARD (do not remove): a group of length < 2 has no spread to
+    measure and is skipped rather than treated as pinned -- passing this
+    function a list of SINGLETON groups (e.g. one value per seed, wrapped as
+    `[[v] for v in values]` instead of a flat `values` list) used to make
+    every group read "zero spread" BY CONSTRUCTION and the whole metric
+    report degenerate regardless of genuine cross-seed variation
+    (V3-EXQ-961: a real, well-above-floor signal was reported degenerate this
+    way and silently dropped from scoring). If a flat, ungrouped list of
+    observations is what you have, call :func:`metric_is_degenerate` on it
+    directly instead of wrapping each value in its own singleton group.
     """
     groups = list(groups)
     if not groups:
         return True, "no groups"
     reasons = []
+    any_measurable = False
     for i, g in enumerate(groups):
+        g = list(g)
+        if len(g) < 2:
+            # A group of length < 2 carries NO spread information -- there is
+            # nothing to compare it against, so it can never be evidence of
+            # pinning. Without this guard metric_is_degenerate reads a
+            # singleton as "zero spread" and reports it pinned BY
+            # CONSTRUCTION, not by measurement -- the exact bug that made
+            # V3-EXQ-961 report a genuinely-graded metric (values
+            # 1.20998/1.09383/1.04082, well above both the 0.5 criterion
+            # floor and this function's own 1e-6 floor) as degenerate, which
+            # then silently excluded a sound run from scoring
+            # (build_experiment_indexes.py's non-degeneracy gate). Treat it
+            # as unmeasurable and skip -- never as pinned.
+            reasons.append(
+                f"group[{i}]: insufficient arity (n={len(g)}, need >=2 to "
+                f"measure spread) -- skipped, not treated as pinned")
+            continue
+        any_measurable = True
         is_deg, reason = metric_is_degenerate(
             g, eps=eps, floor=floor, ceiling=ceiling)
         if not is_deg:
             return False, ""
         reasons.append(f"group[{i}]: {reason}")
-    return True, "every group pinned -- " + "; ".join(reasons)
+    if not any_measurable:
+        # Every group was a singleton (or shorter): nothing here was ever
+        # measurable, so this is NOT a degenerate verdict -- it is an
+        # insufficient-arity finding. Reporting non_degenerate=False on this
+        # would still (correctly) mark it as not-genuinely-tested, but the
+        # DEGENERATE label specifically must never fire on arity alone.
+        return False, (
+            "no group had sufficient arity (>=2) to measure spread; " +
+            "; ".join(reasons))
+    return True, "every measurable group pinned -- " + "; ".join(reasons)
 
 
 def check_degeneracy(
