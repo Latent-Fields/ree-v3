@@ -8,27 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-959",
-      "title": "MECH-440 legs (ii)/(iii): state-conditioning + self-annealing second-order falsifier (armed raised-floor stack, ANNEAL vs NO_ANNEAL ablation)",
-      "script": "experiments/v3_exq_959_mech440_state_conditioning_self_annealing.py",
-      "priority": 65,
-      "machine_affinity": "any",
-      "estimated_minutes": 820,
-      "note": "Routed by failure_autopsy_V3-EXQ-955_2026-08-29 (confirmed, user-ratified 2026-08-29; ratified again at /governance same day, session governance-20260829-mac), section 7: \"Routing: /queue-experiment, NEW EXQ for state-conditioning + self-annealing (per-state noise-magnitude covariance with state; per-parameter sigma trajectory vs policy confidence), on the same armed raised-floor stack. Explicitly NOT a 955a same-question re-run.\" 955 confirmed MECH-440 leg (i) PROPAGATION only (secondary_checks_measured=false in its own manifest); legs (ii)/(iii) were never measured anywhere in the corpus. GOV-REUSE-1 (Step 2.4): decisive readouts (per-tick A0_OFF-referenced raw_score_range paired with lever-arm divergence, stratified by seed-median; ARM_ANNEAL-vs-ARM_NO_ANNEAL differential divergence suppression by stratum) recorded nowhere in the corpus -- not recoverable by reanalysis -> run. A0_OFF is NOT reused from 955 despite being config-slice-identical and reuse-eligible there: this driver's yoked pass needs a LIVE jointly-stepped A0_OFF agent, which the arm-reuse mechanism cannot supply. Step 2.5b re-derive brake: 0 substrate_ceiling-category autopsies for MECH-440 (955 resolved MEASURES FAILED, an adjudication-branch defect, not substrate_ceiling) -- NOT braked. Step 2.5c substrate-path overlap gate: same two OPEN corrupting substrate_queue entries as 955 (mode-governance-engagement, contextmemory-write-path-addressing-degeneracy) carved out per 949/955's identical precedent. DESIGN: 3 arms (A0_OFF / ARM_ANNEAL / ARM_NO_ANNEAL, the anneal-flag-only ablation of 955's ARM_NOISE_SINGLE), same matched armed-conversion stack, class floor raised to action_dim, same P0=100/P1=50 phased training, P2=100 yoked episodes. 955's ARM_TEMP dropped (propagation already confirmed, not re-tested). Seed 44 swapped for 48 (955's autopsy diagnoses 44 as a coupled near-saturation anomaly on this env/floor; avoided for a first measurement of the new per-tick stratification instrument). FIXES 955's own driver-fix note: the ceiling-headroom precondition now MEAN-aggregates (not max) across seeds. TWO LOAD-BEARING CRITERIA: C_STATE (leg ii, operationalized as impact concentration -- ARM_ANNEAL's divergence from A0_OFF concentrates in near-tie (low raw_score_range) states, not raw bias-magnitude covariance, which is close to tautological given the noise head's linear dependence on candidate features within a fixed-eps tick); C_ANNEAL (leg iii, causal ablation -- ARM_ANNEAL suppresses divergence in DECISIVE states relative to ARM_NO_ANNEAL while near-tie-state rates stay comparable, i.e. selective not uniform decay). PASS requires BOTH on >=2/3 of >=4 eligible seeds; one-of-two reads as mixed, naming which leg confirmed. VACUITY RULE unchanged from 955/949. SMOKE: --dry-run PASS on ree-cloud-1 (this box lacks torch; ree-v3 CLAUDE.md \"Running the test suite\" routing applied by proxy for a single smoke run over ssh). validate_experiments.py --strict clean (0 warnings after adding MIN_STATE_PAIRS to the config_slice). INSTRUMENT CONTROL self-yoke divergence = 0.000000 for all 3 arms. state_stratification instrumentation confirmed live (33 genuine (raw_score_range, diverged) pairs collected on a 3-episode/25-step dry-run, exceeding MIN_STATE_PAIRS=30 threshold behavior at the intended scale). estimated_minutes calibrated from 955's own measured elapsed (13.1h on ree-worker-1, same arm count/seed count/P0/P1/P2 budget), +modest margin for the added per-tick bookkeeping.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-1",
-        "claimed_at": "2026-08-29T16:21:03Z"
-      },
-      "claim_ids": [
-        "MECH-440"
-      ],
-      "conditions": 4,
-      "episodes_per_run": 150,
-      "experiment_type": "v3_exq_959_mech440_state_conditioning_self_annealing",
-      "seeds": 6
-    },
-    {
       "queue_id": "V3-EXQ-822d",
       "title": "SD-082 validation retest: proposer_post_action per-candidate summary restores candidate-discriminating propagation (ON>OFF contrast, 5 seeds)",
       "script": "experiments/v3_exq_822d_sd082_post_action_summary_validation.py",
