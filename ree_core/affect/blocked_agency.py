@@ -66,7 +66,41 @@ class BlockedAgencyConfig:
             intended outcome occurred) -- frustration dissipates on success.
         outcome_mismatch_floor: minimum normalised action-outcome comparator
             mismatch for a tick to count as a block (below this the action
-            produced roughly its predicted effect; not blocked).
+            produced roughly its predicted effect; not blocked). Used
+            verbatim only when outcome_mismatch_floor_mode == "absolute"
+            (the legacy, pre-2026-08-30 behaviour).
+        outcome_mismatch_floor_mode: "absolute" (default, bit-identical to
+            the original substrate) uses outcome_mismatch_floor as a fixed
+            constant. "baseline_relative" (MECH-353 V3-EXQ-642a repair)
+            instead compares mism against a floor calibrated off a running
+            EMA of the FREE-STEP (non-blocked) raw mismatch:
+                effective_floor = max(baseline_min_floor,
+                                       baseline_ema * floor_ratio)
+            This corrects the model-dependence bug the fixed absolute had:
+            outcome_mismatch is a raw normalised comparator whose free-step
+            (ordinary world-model error) baseline is set by encoder/dynamics
+            training, not by anything blocked_agency controls -- V3-EXQ-642a
+            measured it at ~0.38-0.50 on an untrained world model, four to
+            five times the 0.1 absolute floor, so the integrator accumulated
+            on ordinary error and both arms saturated at z_block_cap with no
+            discrimination. The very first observation unconditionally seeds
+            the EMA (there is no calibrated floor yet to classify it
+            against); every observation after that advances the EMA ONLY on
+            ticks classified free (external_block == False) THIS tick, so a
+            sustained block cannot drag its own detection floor upward.
+        outcome_mismatch_baseline_alpha: EMA rate for the free-step mismatch
+            baseline (default 0.02, ~50-step window). Only consulted in
+            baseline_relative mode.
+        outcome_mismatch_floor_ratio: multiplier applied to the free-step
+            baseline to get the calibrated floor (default 1.5 -- comfortably
+            above the measured ~0.38-0.50 free-step baseline while staying
+            well below genuinely-blocked mismatch, which V3-EXQ-642a measured
+            at ~0.997). Only consulted in baseline_relative mode.
+        outcome_mismatch_baseline_min_floor: absolute floor on the
+            calibrated floor itself, so a baseline near zero (e.g. a
+            near-perfect world model) cannot collapse the floor to
+            noise-level and manufacture spurious blocks. Only consulted in
+            baseline_relative mode.
         attribution_motor_floor: minimum motor_agency (z_self efference-copy
             agency signal in (0,1]) for the mismatch to be attributed to an
             EXTERNAL constraint rather than the agent's own motor error. Low
@@ -108,6 +142,10 @@ class BlockedAgencyConfig:
     accumulation_rate: float = 0.2
     leak_rate: float = 0.1
     outcome_mismatch_floor: float = 0.1
+    outcome_mismatch_floor_mode: str = "absolute"
+    outcome_mismatch_baseline_alpha: float = 0.02
+    outcome_mismatch_floor_ratio: float = 1.5
+    outcome_mismatch_baseline_min_floor: float = 0.02
     attribution_motor_floor: float = 0.5
     capacity_collapse_weight: float = 1.0
     require_goal_active: bool = True
@@ -134,6 +172,7 @@ class BlockedAgencyOutput:
     external_block_this_tick: bool = False
     consecutive_block_ticks: int = 0
     decommit_signal: bool = False
+    effective_outcome_mismatch_floor: float = 0.1
 
 
 class BlockedAgency:
@@ -171,12 +210,36 @@ class BlockedAgency:
                 "decommit_consecutive_ticks must be >= 1. "
                 f"Got {c.decommit_consecutive_ticks}."
             )
+        if c.outcome_mismatch_floor_mode not in ("absolute", "baseline_relative"):
+            raise ValueError(
+                "outcome_mismatch_floor_mode must be 'absolute' or "
+                f"'baseline_relative'. Got {c.outcome_mismatch_floor_mode!r}."
+            )
+        if not (0.0 <= c.outcome_mismatch_baseline_alpha <= 1.0):
+            raise ValueError(
+                "outcome_mismatch_baseline_alpha must be in [0, 1]. "
+                f"Got {c.outcome_mismatch_baseline_alpha}."
+            )
+        if c.outcome_mismatch_floor_ratio <= 0.0:
+            raise ValueError(
+                "outcome_mismatch_floor_ratio must be > 0. "
+                f"Got {c.outcome_mismatch_floor_ratio}."
+            )
+        if c.outcome_mismatch_baseline_min_floor < 0.0:
+            raise ValueError(
+                "outcome_mismatch_baseline_min_floor must be >= 0. "
+                f"Got {c.outcome_mismatch_baseline_min_floor}."
+            )
         # State.
         self._z_block: float = 0.0
         self._consecutive_block_ticks: int = 0
         self._consecutive_assert_above_bound: int = 0
         self._last_blocked_action_class: int = -1
         self._last_output: BlockedAgencyOutput = BlockedAgencyOutput()
+        # MECH-353 V3-EXQ-642a repair: running free-step mismatch baseline
+        # (baseline_relative mode only). None until the first free-step
+        # observation seeds it directly.
+        self._baseline_mismatch_ema: Optional[float] = None
         # Diagnostics.
         self._n_waking_updates: int = 0
         self._n_simulation_skips: int = 0
@@ -232,12 +295,48 @@ class BlockedAgency:
         mism = max(0.0, float(outcome_mismatch))
         motor = float(motor_agency)
 
+        # MECH-353 V3-EXQ-642a repair: in baseline_relative mode the floor is
+        # calibrated off the running free-step baseline captured on PRIOR
+        # ticks (never this tick's own mism), so there is no circularity --
+        # the floor used to classify this tick cannot itself have been moved
+        # by this tick's classification.
+        if c.outcome_mismatch_floor_mode == "baseline_relative":
+            if self._baseline_mismatch_ema is None:
+                effective_floor = c.outcome_mismatch_floor
+            else:
+                effective_floor = max(
+                    c.outcome_mismatch_baseline_min_floor,
+                    self._baseline_mismatch_ema * c.outcome_mismatch_floor_ratio,
+                )
+        else:
+            effective_floor = c.outcome_mismatch_floor
+
         goal_ok = goal_active or (not c.require_goal_active)
         external_block = (
             goal_ok
-            and mism >= c.outcome_mismatch_floor
+            and mism >= effective_floor
             and motor >= c.attribution_motor_floor
         )
+
+        # Advance the free-step baseline EMA. The very first observation
+        # unconditionally seeds the baseline: there is no calibrated floor
+        # yet to classify it against (this tick's own external_block was
+        # necessarily computed off the c.outcome_mismatch_floor absolute
+        # fallback, which -- exactly the bug being fixed -- may sit well
+        # below the real free-step mismatch and so misclassify tick one as
+        # blocked; gating the seed on "not external_block" would then leave
+        # the baseline permanently unseeded and the floor permanently stuck
+        # on the fallback). After the first tick, only ticks classified free
+        # THIS tick advance it, so a sustained block cannot drag its own
+        # detection threshold upward.
+        if c.outcome_mismatch_floor_mode == "baseline_relative":
+            if self._baseline_mismatch_ema is None:
+                self._baseline_mismatch_ema = mism
+            elif not external_block:
+                alpha = c.outcome_mismatch_baseline_alpha
+                self._baseline_mismatch_ema = (
+                    (1.0 - alpha) * self._baseline_mismatch_ema + alpha * mism
+                )
 
         if external_block:
             # Rise toward the (capped) accumulation target driven by mismatch.
@@ -250,7 +349,7 @@ class BlockedAgency:
             # Action succeeded (or no live goal / motor error): frustration leaks.
             self._z_block = max(0.0, self._z_block - c.leak_rate)
             self._consecutive_block_ticks = 0
-            if mism < c.outcome_mismatch_floor:
+            if mism < effective_floor:
                 # Genuine success clears the alternative-action target.
                 self._last_blocked_action_class = -1
 
@@ -285,6 +384,7 @@ class BlockedAgency:
             external_block_this_tick=external_block,
             consecutive_block_ticks=self._consecutive_block_ticks,
             decommit_signal=decommit_signal,
+            effective_outcome_mismatch_floor=effective_floor,
         )
         self._last_output = out
         return out
@@ -361,6 +461,10 @@ class BlockedAgency:
         self._n_simulation_skips = 0
         self._n_external_blocks = 0
         self._n_decommit_signals = 0
+        # MECH-353 V3-EXQ-642a repair: per-episode reset (same discipline as
+        # z_block itself and every other regulator this substrate resets);
+        # a fresh episode re-bootstraps its own free-step baseline.
+        self._baseline_mismatch_ema = None
 
     def get_state(self) -> dict:
         """Diagnostic snapshot for experiment manifests."""
@@ -378,4 +482,7 @@ class BlockedAgency:
             "n_simulation_skips": self._n_simulation_skips,
             "n_external_blocks": self._n_external_blocks,
             "n_decommit_signals": self._n_decommit_signals,
+            "outcome_mismatch_floor_mode": self.config.outcome_mismatch_floor_mode,
+            "baseline_mismatch_ema": self._baseline_mismatch_ema,
+            "last_effective_outcome_mismatch_floor": o.effective_outcome_mismatch_floor,
         }

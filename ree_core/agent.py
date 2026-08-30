@@ -1867,6 +1867,20 @@ class REEAgent(nn.Module):
                 accumulation_rate=config.blocked_agency_accumulation_rate,
                 leak_rate=config.blocked_agency_leak_rate,
                 outcome_mismatch_floor=config.blocked_agency_outcome_mismatch_floor,
+                outcome_mismatch_floor_mode=getattr(
+                    config, "blocked_agency_outcome_mismatch_floor_mode", "absolute"
+                ),
+                outcome_mismatch_baseline_alpha=getattr(
+                    config, "blocked_agency_outcome_mismatch_baseline_alpha", 0.02
+                ),
+                outcome_mismatch_floor_ratio=getattr(
+                    config, "blocked_agency_outcome_mismatch_floor_ratio", 1.5
+                ),
+                outcome_mismatch_baseline_min_floor=getattr(
+                    config,
+                    "blocked_agency_outcome_mismatch_baseline_min_floor",
+                    0.02,
+                ),
                 attribution_motor_floor=config.blocked_agency_attribution_motor_floor,
                 capacity_collapse_weight=config.blocked_agency_capacity_collapse_weight,
                 require_goal_active=config.blocked_agency_require_goal_active,

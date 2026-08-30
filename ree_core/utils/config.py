@@ -5104,6 +5104,17 @@ class REEConfig:
     # Minimum normalised action-outcome comparator mismatch for a tick to count
     # as a block (below this the action produced ~its predicted effect).
     blocked_agency_outcome_mismatch_floor: float = 0.1
+    # MECH-353 V3-EXQ-642a repair: "absolute" (default, bit-identical) uses
+    # blocked_agency_outcome_mismatch_floor as a fixed constant.
+    # "baseline_relative" instead calibrates the floor off a running EMA of
+    # the free-step (non-blocked) raw mismatch -- see
+    # ree_core/affect/blocked_agency.py BlockedAgencyConfig docstring for the
+    # full rationale (the fixed absolute saturates both arms on an untrained
+    # world model whose free-step mismatch baseline sits well above it).
+    blocked_agency_outcome_mismatch_floor_mode: str = "absolute"
+    blocked_agency_outcome_mismatch_baseline_alpha: float = 0.02
+    blocked_agency_outcome_mismatch_floor_ratio: float = 1.5
+    blocked_agency_outcome_mismatch_baseline_min_floor: float = 0.02
     # Minimum motor_agency (z_self efference-copy agency signal in (0,1]) for
     # the mismatch to be attributed to an EXTERNAL constraint rather than the
     # agent's own motor error (the attribution gate).
@@ -7148,6 +7159,10 @@ class REEConfig:
         blocked_agency_accumulation_rate: float = 0.2,
         blocked_agency_leak_rate: float = 0.1,
         blocked_agency_outcome_mismatch_floor: float = 0.1,
+        blocked_agency_outcome_mismatch_floor_mode: str = "absolute",
+        blocked_agency_outcome_mismatch_baseline_alpha: float = 0.02,
+        blocked_agency_outcome_mismatch_floor_ratio: float = 1.5,
+        blocked_agency_outcome_mismatch_baseline_min_floor: float = 0.02,
         blocked_agency_attribution_motor_floor: float = 0.5,
         blocked_agency_capacity_collapse_weight: float = 1.0,
         blocked_agency_require_goal_active: bool = True,
@@ -8583,6 +8598,18 @@ class REEConfig:
         config.blocked_agency_leak_rate = blocked_agency_leak_rate
         config.blocked_agency_outcome_mismatch_floor = (
             blocked_agency_outcome_mismatch_floor
+        )
+        config.blocked_agency_outcome_mismatch_floor_mode = (
+            blocked_agency_outcome_mismatch_floor_mode
+        )
+        config.blocked_agency_outcome_mismatch_baseline_alpha = (
+            blocked_agency_outcome_mismatch_baseline_alpha
+        )
+        config.blocked_agency_outcome_mismatch_floor_ratio = (
+            blocked_agency_outcome_mismatch_floor_ratio
+        )
+        config.blocked_agency_outcome_mismatch_baseline_min_floor = (
+            blocked_agency_outcome_mismatch_baseline_min_floor
         )
         config.blocked_agency_attribution_motor_floor = (
             blocked_agency_attribution_motor_floor

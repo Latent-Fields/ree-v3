@@ -14,6 +14,19 @@ Interface-level guarantees that should hold regardless of tuning:
   C8  env action-block knob: OFF bit-identical; ON cancels the move (agent
       stays put), emits info tags, inflicts no harm.
   C9  LatentState.z_block populated + survives detach() when ON.
+
+MECH-353 V3-EXQ-642a repair (calibrated outcome_mismatch_floor):
+  C10 default mode is "absolute", bit-identical to the pre-repair substrate.
+  C11 baseline_relative mode: a mismatch stream at the free-step baseline
+      accumulates ~zero z_block; a genuinely elevated stream still
+      accumulates once the baseline has calibrated.
+  C12 the V3-EXQ-642a saturation signature (z_block pinned at z_block_cap
+      under ordinary world-model error) reproduces in absolute mode with a
+      too-low floor, and does NOT occur in baseline_relative mode on the
+      identical stream.
+  C13 REEConfig.from_dims() threads the four new fields into the agent's
+      BlockedAgencyConfig.
+  C14 config validation for the four new fields (loud on bad values).
 """
 
 import torch
@@ -77,6 +90,12 @@ def test_c2_config_validation():
         {"z_block_cap": 0.0},
         {"assert_bias_scale": 0.0},
         {"decommit_consecutive_ticks": 0},
+        {"outcome_mismatch_floor_mode": "bogus"},
+        {"outcome_mismatch_baseline_alpha": -0.1},
+        {"outcome_mismatch_baseline_alpha": 1.1},
+        {"outcome_mismatch_floor_ratio": 0.0},
+        {"outcome_mismatch_floor_ratio": -1.0},
+        {"outcome_mismatch_baseline_min_floor": -0.01},
     ):
         try:
             BlockedAgency(BlockedAgencyConfig(use_blocked_agency=True, **bad))
@@ -221,3 +240,115 @@ def test_c9_latent_z_block_field():
     det = lat.detach()
     assert det.z_block is not None
     assert torch.allclose(det.z_block, lat.z_block)
+
+
+# --------------------------------------------------------------- C10
+def test_c10_default_mode_is_absolute_backward_compat():
+    cfg_default = BlockedAgencyConfig(use_blocked_agency=True)
+    assert cfg_default.outcome_mismatch_floor_mode == "absolute"
+    cfg_explicit = BlockedAgencyConfig(
+        use_blocked_agency=True, outcome_mismatch_floor_mode="absolute")
+    ba_default = BlockedAgency(cfg_default)
+    ba_explicit = BlockedAgency(cfg_explicit)
+    # Varied stream (blocked / free / motor-error / no-goal / capacity-collapse)
+    # -- default and explicit "absolute" must track identically tick for tick,
+    # and the classification floor consulted must always be the flat constant
+    # (never anything baseline-derived).
+    stream = [
+        (0.9, 0.9, True, 1.0), (0.05, 0.9, True, 1.0), (0.9, 0.2, True, 1.0),
+        (0.9, 0.9, False, 1.0), (0.9, 0.9, True, 0.3), (0.15, 0.9, True, 1.0),
+    ]
+    for om, ma, ga, cb in stream * 5:
+        out_d = ba_default.update(om, ma, ga, cb)
+        out_e = ba_explicit.update(om, ma, ga, cb)
+        assert out_d.z_block == out_e.z_block
+        assert out_d.external_block_this_tick == out_e.external_block_this_tick
+        assert out_d.effective_outcome_mismatch_floor == cfg_default.outcome_mismatch_floor
+        assert out_e.effective_outcome_mismatch_floor == cfg_default.outcome_mismatch_floor
+
+
+# --------------------------------------------------------------- C11
+def test_c11_baseline_relative_discriminates():
+    ba = BlockedAgency(BlockedAgencyConfig(
+        use_blocked_agency=True,
+        outcome_mismatch_floor_mode="baseline_relative",
+        outcome_mismatch_baseline_alpha=0.3,   # fast convergence for a tight test
+        outcome_mismatch_floor_ratio=1.5,
+        outcome_mismatch_baseline_min_floor=0.02,
+        accumulation_rate=0.2,
+    ))
+    FREE = 0.40      # V3-EXQ-642a's measured free-step (ordinary-error) mismatch
+    BLOCKED = 0.997  # V3-EXQ-642a's measured genuinely-blocked mismatch
+
+    # Warm-up: repeated free-step-level mismatch calibrates the baseline.
+    for _ in range(40):
+        out = ba.update(FREE, 0.9, True, 1.0)
+    assert abs(ba.get_state()["baseline_mismatch_ema"] - FREE) < 0.02
+
+    # A free-step-level mismatch stream keeps producing ~zero z_block: it is
+    # NOT misclassified as blocked once the baseline has calibrated.
+    for _ in range(20):
+        out = ba.update(FREE, 0.9, True, 1.0)
+    assert out.external_block_this_tick is False
+    assert ba.get_z_block() < 0.05
+
+    # A genuinely elevated (blocked) mismatch stream still accumulates --
+    # the calibration does not merely raise the floor until nothing fires.
+    for _ in range(20):
+        out = ba.update(BLOCKED, 0.9, True, 1.0)
+    assert out.external_block_this_tick is True
+    assert ba.get_z_block() > 0.5
+
+
+# --------------------------------------------------------------- C12
+def test_c12_no_saturation_under_calibrated_mode():
+    cap = 1.5
+    stream_mism = 0.40  # ordinary world-model error, matches V3-EXQ-642a
+
+    # ABSOLUTE mode with a floor well below the free-step baseline reproduces
+    # the exact V3-EXQ-642a saturation signature: every tick is classified
+    # blocked, and z_block pins at z_block_cap with no discrimination.
+    ba_abs = BlockedAgency(BlockedAgencyConfig(
+        use_blocked_agency=True, outcome_mismatch_floor_mode="absolute",
+        outcome_mismatch_floor=0.1, z_block_cap=cap, accumulation_rate=0.2))
+    out_abs = None
+    for _ in range(200):
+        out_abs = ba_abs.update(stream_mism, 0.9, True, 1.0)
+    assert out_abs.z_block == cap
+    assert out_abs.external_block_this_tick is True
+
+    # BASELINE_RELATIVE mode on the IDENTICAL stream: the floor calibrates to
+    # ~1.5x the free-step baseline it is itself measuring, so ordinary
+    # world-model error never crosses it once calibrated -- no saturation.
+    ba_rel = BlockedAgency(BlockedAgencyConfig(
+        use_blocked_agency=True, outcome_mismatch_floor_mode="baseline_relative",
+        outcome_mismatch_floor_ratio=1.5, outcome_mismatch_baseline_alpha=0.1,
+        z_block_cap=cap, accumulation_rate=0.2))
+    out_rel = None
+    for _ in range(200):
+        out_rel = ba_rel.update(stream_mism, 0.9, True, 1.0)
+    assert out_rel.z_block < 0.2
+    assert out_rel.z_block != cap
+    assert out_rel.external_block_this_tick is False
+
+
+# --------------------------------------------------------------- C13
+def test_c13_from_dims_wiring():
+    env = CausalGridWorldV2(size=8, seed=3)
+    cfg = _build(
+        env, use_blocked_agency=True,
+        blocked_agency_outcome_mismatch_floor_mode="baseline_relative",
+        blocked_agency_outcome_mismatch_baseline_alpha=0.05,
+        blocked_agency_outcome_mismatch_floor_ratio=2.0,
+        blocked_agency_outcome_mismatch_baseline_min_floor=0.03,
+    )
+    ag = REEAgent(cfg)
+    assert ag.blocked_agency is not None
+    ba_cfg = ag.blocked_agency.config
+    assert ba_cfg.outcome_mismatch_floor_mode == "baseline_relative"
+    assert ba_cfg.outcome_mismatch_baseline_alpha == 0.05
+    assert ba_cfg.outcome_mismatch_floor_ratio == 2.0
+    assert ba_cfg.outcome_mismatch_baseline_min_floor == 0.03
+    # Default-mode wiring stays "absolute" when unspecified.
+    ag_default = REEAgent(_build(env, use_blocked_agency=True))
+    assert ag_default.blocked_agency.config.outcome_mismatch_floor_mode == "absolute"
