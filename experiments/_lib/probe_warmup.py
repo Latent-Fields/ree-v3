@@ -205,7 +205,13 @@ __all__ = [
 # v2 (2026-08-15): the warm-start blob carries the WHOLE non-state_dict attribute
 # surface, not the four hand-listed E3 scalars of v1. The schema string is part of
 # the cache key, so every v1 blob auto-MISSes rather than restoring a partial agent.
-PROBE_WARMUP_SCHEMA = "probe_warmup.v2"
+#
+# v3 (2026-08-30, IGW-20260830-222 / SD-PROBE-WARMUP): fixes the V3-EXQ-963
+# cache-key + restore-clobber defect (see _warmup_key and _restore_cached_surface
+# below). Bumped so every v2 blob -- possibly minted under a DIFFERENT arm's
+# regulator config than the one now requesting it -- auto-MISSes rather than being
+# restored onto a mismatched live agent.
+PROBE_WARMUP_SCHEMA = "probe_warmup.v3"
 
 # Saturation bounds. Deliberately IDENTICAL to V3-EXQ-777a's D_SAT_LOW / D_SAT_HIGH
 # (script:246-247) so this substrate's success criterion is expressed in the SAME
@@ -841,7 +847,13 @@ def _cache_disabled() -> bool:
     )
 
 
-def _warmup_key(*, seed: int, recipe: WarmupRecipe, env_kwargs: Mapping[str, Any]) -> str:
+def _warmup_key(
+    *,
+    seed: int,
+    recipe: WarmupRecipe,
+    env_kwargs: Mapping[str, Any],
+    arm_key: Optional[Mapping[str, Any]] = None,
+) -> str:
     """Content-addressed cache key.
 
     DELIBERATELY OVER-INCLUSIVE, per maturation_curriculum's governing asymmetry:
@@ -849,6 +861,22 @@ def _warmup_key(*, seed: int, recipe: WarmupRecipe, env_kwargs: Mapping[str, Any
     substrate is hashed (scope=None) rather than a declared narrow closure -- the
     narrow form needs the scope-conservatism machinery to stay honest, and this
     warmup is cheap enough that the extra busting is not worth that risk.
+
+    `arm_key` (2026-08-30, IGW-20260830-222 / SD-PROBE-WARMUP fix): the CALLER's
+    arm-conditional regulator/config flags (e.g. {"use_noise_floor": True,
+    "use_phasic_burst": False}), folded into the hash so two arms that build
+    DIFFERENT root-level agent attributes (e.g. one constructs agent.noise_floor,
+    the other leaves it None) NEVER share a minted surface. V3-EXQ-963's defect
+    was exactly this: WarmupRecipe.as_dict() carries only the warmup TRAINING
+    schedule (num_episodes, steps_per_episode, ...), never the regulator flags the
+    CALLER used to build `agent` before warm_agent() was invoked, so all four arms
+    of a 2x2 hashed identically and only the first (T0P0, use_noise_floor=False)
+    ever minted -- every other arm silently cache-HIT and restored T0P0's surface,
+    including its `agent.noise_floor = None`, onto agents that had just constructed
+    a real regulator. Pass every regulator-affecting flag the AGENT's construction
+    (not the recipe) depends on. `None` (the default) is itself hashed as part of
+    the payload below, so this bump also invalidates every pre-fix (schema v2 and
+    earlier) cache entry regardless of whether a given caller opts in.
     """
     import hashlib
     import json
@@ -859,6 +887,7 @@ def _warmup_key(*, seed: int, recipe: WarmupRecipe, env_kwargs: Mapping[str, Any
     # fix closed in arm_fingerprint. Identical value on a stable run, so no cache is
     # invalidated by this change.
     sub = resolve_substrate_identity(scope=None)
+    arm_key_dict: Dict[str, Any] = dict(arm_key) if arm_key is not None else {}
     payload = {
         "schema": PROBE_WARMUP_SCHEMA,
         "substrate_hash": sub["substrate_hash"],
@@ -866,6 +895,7 @@ def _warmup_key(*, seed: int, recipe: WarmupRecipe, env_kwargs: Mapping[str, Any
         "seed": int(seed),
         "recipe": recipe.as_dict(),
         "env_kwargs": {k: env_kwargs[k] for k in sorted(env_kwargs)},
+        "arm_key": {k: arm_key_dict[k] for k in sorted(arm_key_dict)},
     }
     blob = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:32]
@@ -930,23 +960,80 @@ def _capture_cached_surface(agent: Any, logger: Callable[[str], None]) -> Dict[s
 
 def _restore_cached_surface(agent: Any, cached: Mapping[str, Any],
                             logger: Callable[[str], None]) -> None:
-    """Put a cached surface back onto a freshly-constructed agent (cache HIT path)."""
+    """Put a cached surface back onto a freshly-constructed agent (cache HIT path).
+
+    CLOBBER GUARD (2026-08-30, IGW-20260830-222 / SD-PROBE-WARMUP fix): a cached
+    attribute is applied ONLY when its TYPE matches whatever the freshly-
+    constructed HIT agent already built for that name (type(None) counts as a
+    type, so None-vs-None is a match). SYMMETRIC on purpose: a cached None is
+    never written over a live non-None value (would silently delete a regulator
+    the HIT agent's own config constructed), AND a cached non-None value is never
+    written over a live None (would silently install a regulator the HIT agent's
+    own config never asked for). This is what V3-EXQ-963 needed and did not have:
+    the mint arm (use_noise_floor=False) captured `agent.noise_floor = None`;
+    without this guard, restoring that surface onto a HIT agent built with
+    use_noise_floor=True (a real NoiseFloor instance already constructed by
+    __init__) silently overwrote the live regulator with None, skipping the
+    `if self.noise_floor is not None:` gate at every subsequent select_action()
+    tick for the rest of the run. Paired with the arm-conditional _warmup_key()
+    fix so mismatched-config arms should no longer cache-HIT each other in the
+    first place; this guard is what actually saves a mismatched HIT when they do
+    (e.g. a caller that never passes arm_key, or a stale pre-fix cache entry read
+    under a relaxed key) -- it is the primary defense for any existing driver that
+    is not updated to pass arm_key, since REEAgent.__init__ has already built each
+    arm's OWN regulator set, correctly, before warm_agent() is ever called; this
+    guard's whole job is to stop the cache restore from overwriting that. A
+    skipped attribute is counted and logged, never silent.
+    """
     payload = cached.get("attrs") or {}
     if not payload:
         logger("probe_warmup cache: blob carries NO attribute surface -- a HIT agent "
                "will differ from a MISS agent in every non-state_dict attribute")
         return
     modules = dict(agent.named_modules())
+    _MISSING = object()
     n_set = 0
+    n_clobber_skipped = 0
+    clobber_skipped_paths: List[str] = []
     missing_modules: List[str] = []
     for mpath, values in payload.items():
         module = modules.get(mpath)
         if module is None:
             missing_modules.append(mpath)
             continue
+        live_vars = vars(module)
         for name, value in values.items():
+            current = live_vars.get(name, _MISSING)
+            # Case 1: this instance never set the attribute at all (no __init__
+            # default, nothing lazily created yet) -- nothing live to protect,
+            # restore verbatim (matches pre-fix behaviour for genuinely-new
+            # attributes). Deliberately NOT `getattr(module, name, None)`: that
+            # would fall through to a same-named class-level method/attribute
+            # and misread "never set on this instance" as "set to None".
+            if current is _MISSING:
+                object.__setattr__(module, name, value)
+                n_set += 1
+                continue
+            # Case 2: the attribute IS live on this instance (e.g.
+            # `self.noise_floor: Optional[NoiseFloor] = None` in __init__, always
+            # present, sometimes None) but its TYPE disagrees with the cached
+            # value -- refuse. type(None) is type(None), so None-vs-None still
+            # matches and falls through to case 3.
+            if type(current) is not type(value):
+                n_clobber_skipped += 1
+                clobber_skipped_paths.append(("%s.%s" % (mpath, name)) if mpath else name)
+                continue
+            # Case 3: live and cached agree in kind -- restore the warmed value.
             object.__setattr__(module, name, value)
             n_set += 1
+    if clobber_skipped_paths:
+        logger(
+            "probe_warmup cache: %d attr(s) NOT restored -- cached value's type "
+            "disagreed with the HIT agent's own live value for that attribute "
+            "(protecting the HIT agent's own arm-conditional construction from "
+            "being clobbered by a differently-configured mint): %s"
+            % (n_clobber_skipped, ", ".join(sorted(clobber_skipped_paths)[:6]))
+        )
     if missing_modules:
         logger("probe_warmup cache: %d cached module path(s) absent on this substrate: %s"
                % (len(missing_modules), ", ".join(sorted(missing_modules)[:6])))
@@ -1018,6 +1105,7 @@ def warm_agent(
     seed: int,
     recipe: WarmupRecipe,
     env_kwargs: Mapping[str, Any],
+    arm_key: Optional[Mapping[str, Any]] = None,
     label: str = "",
     cache_dir: Optional[Path] = None,
     logger: Callable[[str], None] = print,
@@ -1032,6 +1120,19 @@ def warm_agent(
     either way. Building the agent inside a cache-miss branch only would silently
     desynchronise the two paths.
 
+    `arm_key` (2026-08-30, IGW-20260830-222 / SD-PROBE-WARMUP fix): pass every
+    regulator-affecting flag `agent`'s construction used (e.g.
+    {"use_noise_floor": agent_cfg.use_noise_floor, "use_phasic_burst":
+    agent_cfg.use_phasic_burst}) so that two arms whose agents differ in which
+    root-level attributes got constructed (some None, some real regulator
+    instances) mint SEPARATE cache entries instead of sharing one. See
+    `_warmup_key` and `_restore_cached_surface` for the full defect this closes
+    (V3-EXQ-963) -- the `_restore_cached_surface` type-matching guard is the
+    primary protection and applies even when `arm_key` is omitted (None, the
+    default); passing it additionally avoids the wasted MISS/retrain a caller
+    would otherwise pay every time the guard has to refuse a mismatched
+    attribute.
+
     Per the user-confirmed gate policy this RECORDS rather than aborts: a seed that
     stays saturated comes back with saturated=True and its realised mean. Only
     assert_any_informative() raises, and only when NO seed de-saturated.
@@ -1039,7 +1140,7 @@ def warm_agent(
     Returns a WarmupOutcome; emit .as_manifest_fields() into the run manifest so
     informative yield is auditable rather than inferred.
     """
-    key = _warmup_key(seed=seed, recipe=recipe, env_kwargs=env_kwargs)
+    key = _warmup_key(seed=seed, recipe=recipe, env_kwargs=env_kwargs, arm_key=arm_key)
     notes: List[str] = []
     blob = _cache_load(key, cache_dir, logger)
     cache_hit = blob is not None
