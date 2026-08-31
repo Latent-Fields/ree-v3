@@ -27,6 +27,9 @@ MECH-353 V3-EXQ-642a repair (calibrated outcome_mismatch_floor):
   C13 REEConfig.from_dims() threads the four new fields into the agent's
       BlockedAgencyConfig.
   C14 config validation for the four new fields (loud on bad values).
+  C15 the agent's no-history sense tick does not seed calibration with a
+      synthetic mismatch; the first real observation bootstraps the baseline
+      without being classified as a block.
 """
 
 import torch
@@ -352,3 +355,40 @@ def test_c13_from_dims_wiring():
     # Default-mode wiring stays "absolute" when unspecified.
     ag_default = REEAgent(_build(env, use_blocked_agency=True))
     assert ag_default.blocked_agency.config.outcome_mismatch_floor_mode == "absolute"
+
+
+# --------------------------------------------------------------- C15
+def test_c15_no_history_tick_does_not_poison_relative_baseline():
+    env = CausalGridWorldV2(size=8, seed=13)
+    ag = REEAgent(_build(
+        env,
+        use_blocked_agency=True,
+        z_goal_enabled=True,
+        blocked_agency_outcome_mismatch_floor_mode="baseline_relative",
+        blocked_agency_outcome_mismatch_baseline_alpha=0.02,
+        blocked_agency_outcome_mismatch_floor_ratio=1.5,
+        blocked_agency_outcome_mismatch_baseline_min_floor=0.02,
+    ))
+    _, od = env.reset()
+    _seed_goal(ag)
+
+    # No prior latent/action exists on the initial sense tick. It must only
+    # establish the comparator cache, not fabricate an observation for the
+    # calibration EMA.
+    lat = ag.sense(od["body_state"], od["world_state"])
+    assert lat.z_block is not None
+    assert lat.z_block.item() == 0.0
+    assert ag.blocked_agency.get_state()["baseline_mismatch_ema"] is None
+
+    # The first real comparator observation bootstraps the baseline and is not
+    # allowed to classify itself as a block. The next elevated observation is
+    # then judged against the calibrated floor.
+    first = ag.blocked_agency.update(0.40, 0.9, True, 1.0)
+    assert first.external_block_this_tick is False
+    assert abs(first.effective_outcome_mismatch_floor - 0.60) < 1e-12
+    assert ag.blocked_agency.get_state()["baseline_mismatch_ema"] == 0.40
+    assert ag.blocked_agency.get_z_block() == 0.0
+
+    blocked = ag.blocked_agency.update(0.997, 0.9, True, 1.0)
+    assert blocked.external_block_this_tick is True
+    assert ag.blocked_agency.get_z_block() > 0.0

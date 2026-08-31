@@ -3966,10 +3966,8 @@ class REEAgent(nn.Module):
             and self._last_action is not None
         )
 
-        if not have_history or sim:
-            # First waking tick of the episode (or a simulation tick): advance
-            # the integrator with a no-block / sim signal so z_block stays
-            # well-defined, then cache current latents.
+        if sim:
+            # Simulation ticks remain a regulator no-op (MECH-094).
             out = self.blocked_agency.update(
                 outcome_mismatch=0.0,
                 motor_agency=1.0,
@@ -3979,13 +3977,44 @@ class REEAgent(nn.Module):
                 ),
                 capacity_belief=1.0,
                 blocked_action_class=-1,
-                simulation_mode=sim,
+                simulation_mode=True,
             )
-            if not sim:
-                self._ba_prev_z_world = z_world_now.detach().clone()
-                self._ba_prev_z_self = z_self_now.detach().clone()
             new_latent.z_block = torch.tensor(
                 [[out.z_block]], dtype=z_world_now.dtype, device=z_world_now.device
+            )
+            return
+
+        if not have_history:
+            # The first waking tick has no action-outcome transition to
+            # compare. In baseline-relative mode, cache its latents without
+            # inventing a synthetic 0.0 mismatch: feeding that placeholder
+            # through update() would seed calibration at zero and make the
+            # first real free transition look blocked. Preserve the legacy
+            # absolute-mode update path bit-for-bit.
+            if (
+                self.blocked_agency.config.outcome_mismatch_floor_mode
+                == "absolute"
+            ):
+                out = self.blocked_agency.update(
+                    outcome_mismatch=0.0,
+                    motor_agency=1.0,
+                    goal_active=(
+                        self.goal_state is not None and self.goal_state.is_active()
+                        if self.goal_state is not None else False
+                    ),
+                    capacity_belief=1.0,
+                    blocked_action_class=-1,
+                    simulation_mode=False,
+                )
+                z_block = out.z_block
+            else:
+                z_block = self.blocked_agency.get_z_block()
+            self._ba_prev_z_world = z_world_now.detach().clone()
+            self._ba_prev_z_self = z_self_now.detach().clone()
+            new_latent.z_block = torch.tensor(
+                [[z_block]],
+                dtype=z_world_now.dtype,
+                device=z_world_now.device,
             )
             return
 

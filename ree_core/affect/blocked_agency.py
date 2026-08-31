@@ -83,9 +83,10 @@ class BlockedAgencyConfig:
             measured it at ~0.38-0.50 on an untrained world model, four to
             five times the 0.1 absolute floor, so the integrator accumulated
             on ordinary error and both arms saturated at z_block_cap with no
-            discrimination. The very first observation unconditionally seeds
-            the EMA (there is no calibrated floor yet to classify it
-            against); every observation after that advances the EMA ONLY on
+            discrimination. The first real action-outcome observation
+            bootstraps the EMA and is not itself classified as a block (there
+            is no calibrated floor yet to classify it against); every
+            observation after that advances the EMA ONLY on
             ticks classified free (external_block == False) THIS tick, so a
             sustained block cannot drag its own detection floor upward.
         outcome_mismatch_baseline_alpha: EMA rate for the free-step mismatch
@@ -295,44 +296,37 @@ class BlockedAgency:
         mism = max(0.0, float(outcome_mismatch))
         motor = float(motor_agency)
 
-        # MECH-353 V3-EXQ-642a repair: in baseline_relative mode the floor is
-        # calibrated off the running free-step baseline captured on PRIOR
-        # ticks (never this tick's own mism), so there is no circularity --
-        # the floor used to classify this tick cannot itself have been moved
-        # by this tick's classification.
+        # MECH-353 V3-EXQ-642a repair: in baseline_relative mode the first real
+        # action-outcome observation bootstraps the baseline. It cannot be
+        # classified as a block because no calibrated comparison exists yet.
+        # Thereafter the floor is computed from the running free-step baseline
+        # captured on PRIOR ticks, so the floor used to classify a tick cannot
+        # itself have been moved by that tick's classification.
+        baseline_seeded_this_tick = False
         if c.outcome_mismatch_floor_mode == "baseline_relative":
             if self._baseline_mismatch_ema is None:
-                effective_floor = c.outcome_mismatch_floor
-            else:
-                effective_floor = max(
-                    c.outcome_mismatch_baseline_min_floor,
-                    self._baseline_mismatch_ema * c.outcome_mismatch_floor_ratio,
-                )
+                self._baseline_mismatch_ema = mism
+                baseline_seeded_this_tick = True
+            effective_floor = max(
+                c.outcome_mismatch_baseline_min_floor,
+                self._baseline_mismatch_ema * c.outcome_mismatch_floor_ratio,
+            )
         else:
             effective_floor = c.outcome_mismatch_floor
 
         goal_ok = goal_active or (not c.require_goal_active)
         external_block = (
-            goal_ok
+            not baseline_seeded_this_tick
+            and goal_ok
             and mism >= effective_floor
             and motor >= c.attribution_motor_floor
         )
 
-        # Advance the free-step baseline EMA. The very first observation
-        # unconditionally seeds the baseline: there is no calibrated floor
-        # yet to classify it against (this tick's own external_block was
-        # necessarily computed off the c.outcome_mismatch_floor absolute
-        # fallback, which -- exactly the bug being fixed -- may sit well
-        # below the real free-step mismatch and so misclassify tick one as
-        # blocked; gating the seed on "not external_block" would then leave
-        # the baseline permanently unseeded and the floor permanently stuck
-        # on the fallback). After the first tick, only ticks classified free
-        # THIS tick advance it, so a sustained block cannot drag its own
-        # detection threshold upward.
+        # After bootstrap, only ticks classified free THIS tick advance the
+        # baseline, so a sustained block cannot drag its own detection
+        # threshold upward.
         if c.outcome_mismatch_floor_mode == "baseline_relative":
-            if self._baseline_mismatch_ema is None:
-                self._baseline_mismatch_ema = mism
-            elif not external_block:
+            if not baseline_seeded_this_tick and not external_block:
                 alpha = c.outcome_mismatch_baseline_alpha
                 self._baseline_mismatch_ema = (
                     (1.0 - alpha) * self._baseline_mismatch_ema + alpha * mism

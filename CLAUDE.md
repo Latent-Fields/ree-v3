@@ -12524,7 +12524,7 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
       caches in __init__; reset(); _update_blocked_agency() called from sense()
       after the MECH-095 TPJ update; ASSERT score-bias in select_action after the
       tonic_vigor block; ARC-016-gated DECOMMIT release beside the MECH-342 site).
-    ree_core/utils/config.py (REEConfig + from_dims: 17 no-op-default knobs).
+    ree_core/utils/config.py (REEConfig + from_dims: 20 no-op-default knobs).
     ree_core/environment/causal_grid_world.py (scheduled_action_block_enabled /
       _interval / _prob env-only kwargs; step() cancels the move on a block with
       no damage / no layout change, transition_type="action_blocked"; info tags;
@@ -12561,7 +12561,7 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
       SD-019b / z_harm_a / Q-036 withdraw machinery takes over (no forced write).
   Config: REEConfig.use_blocked_agency (default False; bit-identical OFF -> agent.
     blocked_agency is None, LatentState.z_block stays None, no consumer fires) +
-    16 sub-knobs (all no-op default). Env: scheduled_action_block_* (env-only,
+    19 sub-knobs (all no-op default). Env: scheduled_action_block_* (env-only,
     not in from_dims; bit-identical OFF, no RNG draws).
   Backward compatible: 803/803 ree-v3 contracts + bit-identical action stream with
     master OFF AND with use_blocked_agency=True but no env block (regulator uses no
@@ -12578,6 +12578,24 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
     measures block-vs-control discrimination in P1. A trained-substrate failure to
     discriminate is a substrate-ceiling finding (encoder/world_forward enrichment),
     NOT a falsification of the affective claim.
+  OUTCOME-MISMATCH-FLOOR CALIBRATION AMENDMENT -- IMPLEMENTED 2026-08-30
+    (ree-v3 d49db86f3e64670eb59d05eaccdfcda091ede52e; IGW-20260830-226).
+    V3-EXQ-642a cleared the trained-comparator readiness gate but made C1
+    unsatisfiable: the legacy fixed 0.1 floor sat below the measured free-step
+    mismatch baseline (~0.38-0.50), so ordinary world-model error accumulated
+    z_block and both arms pinned at z_block_cap=1.5. The new opt-in
+    blocked_agency_outcome_mismatch_floor_mode="baseline_relative" compares
+    against max(baseline_min_floor, free_step_baseline_ema * floor_ratio), with
+    defaults alpha=0.02, ratio=1.5, minimum=0.02. The initial no-history sense
+    tick does not advance calibration; the first real action-outcome observation
+    bootstraps the baseline without classifying itself, and later free ticks alone
+    advance it, so a sustained external block cannot raise its own floor.
+    "absolute" remains the default and is bit-identical to the pre-amendment path.
+    Contracts C10-C15 pin default-mode
+    compatibility, calibrated discrimination, direct reproduction/removal of the
+    642a saturation signature, from_dims wiring, and loud config validation.
+    V3-EXQ-642b is the opt-in post-build discriminative validation; MECH-353 stays
+    v3_pending until that run PASSes.
   Validation experiment: V3-EXQ blocked-action discriminative diagnostic
     (claim_ids=[]; env repeatedly blocks an intended predicted-to-succeed action,
     harm + goal-value held constant; measure z_block rise + assert-vs-withdraw +

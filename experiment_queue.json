@@ -6,5 +6,22 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-642b",
+      "title": "MECH-353 blocked-agency calibrated mismatch-floor post-build validation",
+      "script": "experiments/v3_exq_642b_blocked_agency_calibrated_floor_validation.py",
+      "priority": 300,
+      "machine_affinity": "any",
+      "estimated_minutes": 150,
+      "supersedes": "V3-EXQ-642a",
+      "note": "Post-build diagnostic validation of ree-v3 d49db86f3e64670 (IGW-20260830-226) plus its first-observation bootstrap correction in this queueing commit. V3-EXQ-642a cleared its trained-comparator readiness gate on 3/3 seeds but made C1/C2 unsatisfiable: legacy outcome_mismatch_floor=0.1 sat below the ordinary free-step mismatch baseline (~0.38-0.50), so z_block_peak pinned at 1.5 in BOTH arms and all three seeds, CONTROL z_block_mean was already 1.26-1.35, and peak separation was exactly 0.0. This successor reuses 642a's reviewed environment, P0a SD-070 encoder warmup, P0b SD-056 action-contrastive world-forward training, P0 readiness gate, seeds, budgets, arms, and pre-registered C0-C3 thresholds. SOLE CAUSAL CHANGE: enable the new opt-in baseline_relative floor with alpha=0.02, ratio=1.5, and minimum=0.02; legacy absolute mode remains the bit-identical default. PASS still requires C0/C1/C2/C3 on >=2/3 readiness-cleared seeds; a mere reduction in CONTROL saturation is insufficient. Existing-evidence check: not recoverable -- 642a predates d49db86f3e64670 and explicitly recorded the absolute-floor failure signature, so no existing manifest exercised this configuration. Re-derive brake: released by the landed calibration build; this is a claimless post-build readiness validation, not another run against the known-bad path. Substrate-path overlap: the exact corrupting entry sd_blocked_agency_mismatch_floor_calibration is now implementation_status=implemented/status=implemented_pending_validation, so it is closed as a forward block and this run is the validation it calls for. Smoke 2026-08-31: PyTorch 2.12.0 CPU --dry-run completed both arms, printed 2/2 verdict lines, wrote/deleted the dry manifest, emitted its sentinel, and exited 0; its toy 2-episode P0 budget failed the scientific criteria as expected and is non-evidentiary. z_goal_stream's writer-defect message is an acknowledged false positive because the protocol deliberately pins z_goal as a held-constant control. Adversarial review (gpt-5.5, high): initial BLOCKING finding identified synthetic mismatch=0.0 poisoning the relative baseline on the no-history sense tick; fixed by skipping that update only in baseline_relative mode, bootstrapping the first real observation without classifying it, and adding agent-level contract C15. Follow-up found the live scientific repair sound and only blocked publication because the fixed files had not yet been restaged; resolved by staging the complete atomic artifact and revalidating the cached diff. The claimless wrapper now forces evidence_direction=non_contributory.",
+      "status": "pending",
+      "conditions": 2,
+      "episodes_per_run": 60,
+      "experiment_type": "v3_exq_642b_blocked_agency_calibrated_floor_validation",
+      "seeds": 3,
+      "claim_ids": []
+    }
+  ]
 }
