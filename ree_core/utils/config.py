@@ -436,6 +436,40 @@ class E1Config:
     # "the flag".
     action_cond_unzero_self_slot: bool = True
 
+    # SD-e1-rollout-consistency-training, the doc's PRE-REGISTERED
+    # absolute-vs-residual branch (2026-09-01). E1's rollout step is
+    #     predicted = output_proj(lstm_out)
+    # i.e. output_proj predicts the ABSOLUTE next state, where E2's
+    # self_forward/world_forward both use a residual `z + delta(z, a)` form
+    # (e2_fast.py). V3-EXQ-954's red-team pass localised the dominant ~675x
+    # per-action divergence attenuation at exactly this LSTM + output_proj
+    # stage, and V3-EXQ-965 confirmed that ITEM 1 alone leaves cr_ratio(h=1)
+    # 25-37x short of the 0.1 evaluator bar. The design doc records the
+    # suspect verbatim: "output_proj predicts the absolute next state, where
+    # E2 uses a residual z + delta(z, a) parameterisation. If the item-1 ON
+    # arm still shows crushed per-action divergence at the E1 output, that
+    # parameterisation is the next thing to test." The ON arm IS still
+    # crushed, so the branch is live.
+    #
+    # When True, each rollout step becomes
+    #     predicted = state_i + output_proj(lstm_out)
+    # in BOTH rollout branches of predict_long_horizon (the action-conditioned
+    # one and the legacy one) -- output_proj then learns a DELTA, and a
+    # per-action difference in the delta survives instead of having to
+    # out-compete a full absolute-state reconstruction.
+    #
+    # INDEPENDENT of action_conditioned_transition on purpose: it is a
+    # parameterisation of the state recurrence, not of the action channel, and
+    # the discrimination this exists to run is an A/B on the ITEM 1 ON arm --
+    # which needs the two knobs separately settable.
+    #
+    # Default False = bit-identical to the legacy path. No module and no
+    # parameter is added, so construction-time RNG consumption is unchanged in
+    # BOTH settings (unlike action_encoder, which is constructed only under its
+    # master switch for exactly that reason).
+    # See REE_assembly/docs/architecture/sd_e1_rollout_consistency_training.md.
+    output_proj_residual: bool = False
+
     # SD-016: frontal cue-indexed integration circuit (MECH-150/151/152, ARC-041)
     sd016_enabled: bool = False
     action_object_dim: int = 16    # must match E2Config.action_object_dim
@@ -6718,6 +6752,8 @@ class REEConfig:
         # SD-e1-rollout-consistency-training ITEM 1: E1 action-conditioned transition
         action_conditioned_transition: bool = False,
         action_cond_unzero_self_slot: bool = True,
+        # SD-e1-rollout-consistency-training: residual output_proj parameterisation
+        output_proj_residual: bool = False,
         # MECH-216: E1 predictive wanting (schema readout)
         schema_wanting_enabled: bool = False,
         schema_wanting_threshold: float = 0.3,
@@ -7898,6 +7934,9 @@ class REEConfig:
         config.e1.action_conditioned_transition = action_conditioned_transition
         config.e1.action_cond_unzero_self_slot = action_cond_unzero_self_slot
         config.e1.action_dim = action_dim
+        # SD-e1-rollout-consistency-training: residual output_proj. Independent
+        # of the action-conditioning master switch (see the E1Config comment).
+        config.e1.output_proj_residual = output_proj_residual
 
         # E2
         config.e2.self_dim = self_dim

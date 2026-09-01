@@ -616,6 +616,19 @@ class E1DeepPredictor(nn.Module):
         self._action_cond_unzero_self_slot = bool(
             getattr(self.config, "action_cond_unzero_self_slot", True)
         )
+        # SD-e1-rollout-consistency-training, the design doc's PRE-REGISTERED
+        # absolute-vs-residual branch. When True, each rollout step predicts a
+        # DELTA off the current state (`state_i + output_proj(...)`, E2's
+        # self_forward/world_forward form) instead of the absolute next state.
+        # Independent of the action-conditioning master switch -- it is a
+        # parameterisation of the state recurrence, not of the action channel,
+        # and the discrimination it exists to run is an A/B on the ITEM 1 ON
+        # arm. No module and no parameter is added in either setting, so
+        # construction-time RNG consumption is identical both ways.
+        # See E1Config.output_proj_residual for the full rationale.
+        self._output_proj_residual = bool(
+            getattr(self.config, "output_proj_residual", False)
+        )
         # Instrumentation: counts predict_long_horizon calls that ran the
         # action-conditioned path with NO actions supplied (and therefore fell
         # back to a zero action). A validation experiment asserts this is 0 on
@@ -644,6 +657,10 @@ class E1DeepPredictor(nn.Module):
         else:
             self.action_encoder = None
 
+        # Rollout read-out. Predicts the ABSOLUTE next state by default; under
+        # E1Config.output_proj_residual it is read as a DELTA added to the
+        # current state. The module is identical either way -- only the two
+        # rollout branches in predict_long_horizon differ.
         self.output_proj = nn.Sequential(
             nn.Linear(self.config.hidden_dim, self.config.hidden_dim),
             nn.ReLU(),
@@ -879,6 +896,13 @@ class E1DeepPredictor(nn.Module):
 
         Returns:
             Predicted states [batch, horizon, self_dim+world_dim]
+
+        Note:
+            Under E1Config.output_proj_residual the per-step read-out is
+            `state_i + output_proj(...)` rather than `output_proj(...)` -- the
+            design doc's pre-registered absolute-vs-residual branch. Applies to
+            BOTH branches below; default False is bit-identical to the legacy
+            absolute form.
         """
         horizon = horizon or self.config.prediction_horizon
         batch_size = current_state.shape[0]
@@ -930,16 +954,29 @@ class E1DeepPredictor(nn.Module):
                 step_in = torch.cat([state_i, a_enc], dim=-1).unsqueeze(1)
                 output, hidden = self.transition_rnn(step_in, hidden)
                 predicted = self.output_proj(output.squeeze(1))
+                if self._output_proj_residual:
+                    # SD-e1: residual parameterisation, E2's z + delta(z, a)
+                    # form. output_proj is read as a delta off state_i.
+                    predicted = state_i + predicted
                 predictions.append(predicted)
                 state_i = predicted
         else:
-            input_state = prior_full.unsqueeze(1)  # [batch, 1, total_dim]
+            # state_i is [batch, total_dim]; the LSTM wants [batch, 1, total_dim].
+            # Carried at [batch, total_dim] and unsqueezed at the call site
+            # (rather than kept as a pre-shaped input_state) so the residual
+            # base is the same `state_i` the action-conditioned branch uses.
+            # unsqueeze is a view, so the OFF path stays bit-identical to the
+            # pre-2026-09-01 form.
+            state_i = prior_full
 
             for _ in range(horizon):
-                output, hidden = self.transition_rnn(input_state, hidden)
+                output, hidden = self.transition_rnn(state_i.unsqueeze(1), hidden)
                 predicted = self.output_proj(output.squeeze(1))
+                if self._output_proj_residual:
+                    # SD-e1: residual parameterisation (see above).
+                    predicted = state_i + predicted
                 predictions.append(predicted)
-                input_state = predicted.unsqueeze(1)
+                state_i = predicted
 
         self._hidden_state = (hidden[0].detach(), hidden[1].detach())
 
