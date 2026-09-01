@@ -1694,17 +1694,28 @@ def resolve_chip(conn, status, chip_ref=None, task_id=None, note=None,
 
 
 def attach_chip(conn, chip_ref, task_id, attached_by_session_id=None,
-                attached_at=None, now=None):
+                attached_at=None, now=None,
+                stale_hours=CHIP_CLAIM_STALE_HOURS_DEFAULT):
     """Attach a spawn_task task_id to an already-recorded chip.
 
-    Verdicts: 'ok' | 'not_found' | 'task_id_taken' | 'already_attached' |
-    'error'.
+    Verdicts: 'ok' | 'not_found' | 'not_open' | 'claimed_by_other' |
+    'task_id_taken' | 'already_attached' | 'error'.
 
     Does NOT claim the chip (chip_ledger.py's "RECORD/ATTACH DO NOT AUTO-CLAIM
     ON task_id"): a task_id means only that spawn_task created a clickable UI
     suggestion, not that anyone started it. Auto-claiming on attach is what
     left chips 40-60h old permanently marked claimed with no worktree and no
     process anywhere.
+
+    'not_open' / 'claimed_by_other' close the gap the git path (chip_ledger.py
+    cmd_attach's apply_fn) has always enforced locally: refuse to attach a UI
+    chip to already-resolved work, and refuse to attach a second task_id onto
+    a chip someone else is actively (non-stale-)claimed on. `stale_hours` uses
+    the same `claimed_at`-age test as try_claim_chip's own already-claimed
+    check above (`_is_stale_at`) -- the established convention in this file --
+    rather than reimplementing chip_ledger.py's separate `claim_is_live`
+    predicate; callers that want git-path parity (CLAIM_STALE_HOURS=3.0) pass
+    it explicitly, same as claim already does.
     """
     now = now or utcnow()
     stamp = attached_at or now
@@ -1715,6 +1726,10 @@ def attach_chip(conn, chip_ref, task_id, attached_by_session_id=None,
         if row is None:
             conn.execute("ROLLBACK")
             return ("not_found", {"chip_ref": chip_ref})
+        if row["status"] != "open":
+            conn.execute("ROLLBACK")
+            return ("not_open", {"chip_ref": chip_ref,
+                                 "status": row["status"]})
         if row["task_id"] and row["task_id"] != task_id:
             conn.execute("ROLLBACK")
             return ("already_attached", {"chip_ref": chip_ref,
@@ -1727,6 +1742,14 @@ def attach_chip(conn, chip_ref, task_id, attached_by_session_id=None,
             conn.execute("ROLLBACK")
             return ("task_id_taken", {"task_id": task_id,
                                       "chip_ref": other["chip_ref"]})
+        if row["claimed_by"]:
+            age_stale = _is_stale_at(row["claimed_at"], stale_hours, now)
+            if row["claimed_at"] and not age_stale:
+                conn.execute("ROLLBACK")
+                return ("claimed_by_other", {
+                    "chip_ref": chip_ref, "claimed_by": row["claimed_by"],
+                    "claimed_at": row["claimed_at"],
+                    "stale_after_hours": stale_hours})
         conn.execute(
             "UPDATE chip_ledger SET task_id=?, attached_by_session_id=?, "
             "attached_at=?, updated_at=? WHERE chip_ref=?",
@@ -1745,11 +1768,17 @@ def attach_chip(conn, chip_ref, task_id, attached_by_session_id=None,
 
 def amend_chip_prompt(conn, chip_ref, prompt, reason=None, now=None):
     """Replace a chip's stored prompt, preserving the original in
-    prompt_history. Verdicts: 'ok' | 'not_found' | 'missing_marker' | 'error'.
+    prompt_history. Verdicts: 'ok' | 'unchanged' | 'not_found' |
+    'missing_marker' | 'error'.
 
     Same marker requirement as record_chip: this verb exists to repair an
     entry recorded with a placeholder instead of the real spawn_task text, so
     accepting another marker-less prompt would defeat it.
+
+    'unchanged': `prompt` already equals the stored value. Mirrors the git
+    path's own apply_fn no-op branch ("already matches -- not re-amending") --
+    without this check every coordinator-suppressed amend of an unchanged
+    prompt would still append a content-free entry to prompt_history.
     """
     now = now or utcnow()
     marker = "[chip_ref: %s]" % chip_ref
@@ -1762,6 +1791,9 @@ def amend_chip_prompt(conn, chip_ref, prompt, reason=None, now=None):
         if row is None:
             conn.execute("ROLLBACK")
             return ("not_found", {"chip_ref": chip_ref})
+        if row["prompt"] == prompt:
+            conn.execute("ROLLBACK")
+            return ("unchanged", {"chip_ref": chip_ref})
         history = []
         if row["prompt_history_json"]:
             try:

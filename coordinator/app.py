@@ -418,10 +418,13 @@ def _chip_attach(conn, body, machine_tok):
         return 400, {"error": "chip_ref and task_id are both required"}
     verdict, payload = db.attach_chip(
         conn, chip_ref=chip_ref, task_id=task_id,
-        attached_by_session_id=body.get("attached_by_session_id"))
+        attached_by_session_id=body.get("attached_by_session_id"),
+        stale_hours=float(body.get("stale_after_hours")
+                          or db.CHIP_CLAIM_STALE_HOURS_DEFAULT))
     out = dict(payload)
     out["verdict"] = verdict
-    if verdict in ("task_id_taken", "already_attached"):
+    if verdict in ("task_id_taken", "already_attached", "not_open",
+                   "claimed_by_other"):
         return 409, out
     if verdict == "not_found":
         return 404, out

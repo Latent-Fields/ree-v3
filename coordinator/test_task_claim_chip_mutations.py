@@ -666,6 +666,38 @@ class TestChips(Base):
         verdict, _ = db.attach_chip(self.conn, "c1", "task_x", now=T1)
         self.assertEqual(verdict, "ok")
 
+    def test_attaching_to_an_already_resolved_chip_is_refused(self):
+        """Server-side parity with cmd_attach's apply_fn, which refuses to
+        attach a UI chip to already-resolved work -- previously only
+        enforced on the git path."""
+        db.record_chip(self.conn, _chip("c1"), now=T0)
+        db.resolve_chip(self.conn, "done", chip_ref="c1", note="n", now=T0)
+        verdict, payload = db.attach_chip(self.conn, "c1", "task_x", now=T1)
+        self.assertEqual(verdict, "not_open")
+        self.assertEqual(payload["status"], "done")
+
+    def test_attaching_onto_someone_elses_live_claim_is_refused(self):
+        """Server-side parity with cmd_attach's apply_fn claim_is_live guard:
+        a dispatcher may have claimed this chip_ref by chip_ref alone and be
+        about to launch its own worker -- attach must not create a second,
+        human-clickable chip for work already in flight."""
+        db.record_chip(self.conn, _chip("c1"), now=T0)
+        db.try_claim_chip(self.conn, chip_ref="c1", claimed_by="a",
+                          claimed_host="DLAPTOP", claimed_at=T0, now=T0)
+        verdict, payload = db.attach_chip(self.conn, "c1", "task_x", now=T1)
+        self.assertEqual(verdict, "claimed_by_other")
+        self.assertEqual(payload["claimed_by"], "a")
+        self.assertIsNone(self.chip_entry("c1")["task_id"])
+
+    def test_attaching_onto_a_stale_claim_is_allowed(self):
+        db.record_chip(self.conn, _chip("c1"), now=T0)
+        db.try_claim_chip(self.conn, chip_ref="c1", claimed_by="a",
+                          claimed_host="DLAPTOP", claimed_at=T0, now=T0)
+        verdict, _ = db.attach_chip(self.conn, "c1", "task_x",
+                                    now=T_STALE, stale_hours=6.0)
+        self.assertEqual(verdict, "ok")
+        self.assertEqual(self.chip_entry("c1")["task_id"], "task_x")
+
     def test_amend_prompt_keeps_the_broken_original(self):
         db.record_chip(self.conn, _chip("c1"), now=T0)
         verdict, _ = db.amend_chip_prompt(
@@ -681,6 +713,19 @@ class TestChips(Base):
         verdict, _ = db.amend_chip_prompt(self.conn, "c1", "no marker here",
                                           now=T1)
         self.assertEqual(verdict, "missing_marker")
+
+    def test_amend_prompt_is_a_no_op_when_the_prompt_already_matches(self):
+        """Server-side parity with apply_fn's local "already matches -- not
+        re-amending" no-op branch -- without this, a coordinator-suppressed
+        amend of an unchanged prompt still appended a content-free entry to
+        prompt_history."""
+        original = _chip("c1")["prompt"]
+        db.record_chip(self.conn, _chip("c1"), now=T0)
+        verdict, _ = db.amend_chip_prompt(self.conn, "c1", original, now=T1)
+        self.assertEqual(verdict, "unchanged")
+        e = self.chip_entry("c1")
+        self.assertEqual(e["prompt"], original)
+        self.assertNotIn("prompt_history", e)
 
     def test_an_unmodelled_field_survives_a_mutation(self):
         """Section 5.2.1 promises entry_json is LOSSLESS -- "a field this
