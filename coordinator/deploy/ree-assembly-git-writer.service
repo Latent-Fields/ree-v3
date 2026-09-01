@@ -1,0 +1,61 @@
+# ree-assembly-git-writer -- systemd unit template (PHASE-4 DB->git
+# materializer for REE_assembly's append-shaped intake: igw_routine_log.md).
+#
+# Reference copy, synced by hand from the live file on the box it runs on --
+# same convention as ree-task-claim-chip-git-writer.service in this
+# directory.
+#
+# WHAT THIS DOES: runs ree_assembly_git_writer.py's main() ONCE per
+# invocation (Type=oneshot; the paired .timer owns pacing). Each tick reads
+# origin/master's evidence/planning/igw_routine_log.md, appends any pending
+# /igw_log/append entries the file does not yet carry (byte-preserving), and
+# -- in write mode only -- commits + pushes when there is something new.
+# Commit-on-state-change only. See the module's own docstring and
+# REE_assembly/evidence/planning/phase4_commit_intake_design.md (section 5,
+# DP-6) for why this is a SEPARATE writer/clone from
+# ree-task-claim-chip-git-writer (that one is dedicated to REE_Working; this
+# one is dedicated to REE_assembly -- two timers pushing the same repo would
+# race each other).
+#
+# MODE IS THE GO-LIVE LEVER. ASSEMBLY_WRITER_MODE=check (the deployment
+# default below) renders + compares + reports and NEVER writes -- that is
+# the soak (phase4_commit_intake_design.md section 7). Flip to
+# ASSEMBLY_WRITER_MODE=write only once the soak criteria are met, alongside
+# flipping the igw_routine_tick.py client's igw_log_suppress_git_write flag.
+#
+# Installation (on the coordinator hub, as the `ree` user with sudo):
+#   1. Provision a WRITABLE clone of REE_assembly, DEDICATED to this writer
+#      (nothing else may edit it -- the writer resets it hard to origin each
+#      write tick; in particular this must NOT be the phase3 sync_daemon
+#      writers' checkout):
+#        git clone https://github.com/Latent-Fields/REE_assembly.git \
+#          /home/ree/REE_Working_assembly_writer
+#        git -C /home/ree/REE_Working_assembly_writer config \
+#          user.name  "REE Automation (Hub)"
+#        git -C /home/ree/REE_Working_assembly_writer config \
+#          user.email "nooarche@users.noreply.github.com"
+#   2. sudo cp ree-assembly-git-writer.service \
+#           ree-assembly-git-writer.timer /etc/systemd/system/
+#      sudo systemctl daemon-reload
+#      sudo systemctl enable --now ree-assembly-git-writer.timer
+#
+# Logs: journalctl -u ree-assembly-git-writer -f
+
+[Unit]
+Description=REE igw_routine_log.md DB->git materializer (PHASE-4)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ree
+WorkingDirectory=/home/ree/REE_Working/ree-v3/coordinator
+EnvironmentFile=/etc/ree-coordinator.env
+Environment=ASSEMBLY_WRITER_REPO_PATH=/home/ree/REE_Working_assembly_writer
+Environment=ASSEMBLY_WRITER_BRANCH=master
+Environment=ASSEMBLY_WRITER_MODE=check
+ExecStart=/usr/bin/python3 ree_assembly_git_writer.py
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ree-assembly-git-writer
+TimeoutStartSec=180

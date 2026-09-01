@@ -339,3 +339,47 @@ CREATE TABLE IF NOT EXISTS dispatcher_leases (
     updated_at   TEXT NOT NULL,
     updated_via  TEXT
 );
+
+-- PHASE-4 slice (2026-09-01, git-traffic-simplification sweep lane 2): the
+-- IGW routine tick's igw_routine_log.md heartbeat line. Same append-only
+-- contract as recommendation_log_entries above (a heartbeat line is the
+-- append-shaped trivial case), but rendered by a DEDICATED REE_assembly
+-- writer (ree_assembly_git_writer.py) rather than the umbrella registry
+-- writer -- this file lives in a different repo from every other table on
+-- this page. See db._migrate_igw_log_table.
+CREATE TABLE IF NOT EXISTS igw_log_entries (
+    entry_id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    line             TEXT NOT NULL,      -- ONE heartbeat line, exact client bytes (stripped)
+    session_id       TEXT NOT NULL DEFAULT '',
+    client_git_write INTEGER NOT NULL DEFAULT 0,  -- 1: client lands it itself; writer only watches
+    submitted_at     TEXT NOT NULL,
+    submitted_host   TEXT,
+    materialized_at  TEXT,
+    materialized_ref TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_igw_log_pending
+    ON igw_log_entries(materialized_at)
+    WHERE materialized_at IS NULL;
+
+-- PHASE-4 slice (2026-09-01): audit trail for POST /intent/replace, the
+-- generic whole-file CAS verb (phase4_commit_intake_design.md section 3.2).
+-- Purely observational -- the intent is applied (or refused) synchronously
+-- within the request that submits it (git_intent.apply_intent), so there is
+-- no 'pending' row shape here the way there is for the append tables above.
+CREATE TABLE IF NOT EXISTS git_intent_log (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    repo         TEXT NOT NULL,
+    path         TEXT NOT NULL,
+    base_sha     TEXT,
+    verdict      TEXT NOT NULL,
+    applied_sha  TEXT,
+    session_id   TEXT NOT NULL DEFAULT '',
+    machine      TEXT,
+    message      TEXT,
+    shadow       INTEGER NOT NULL DEFAULT 0,
+    size_before  INTEGER,
+    size_after   INTEGER,
+    created_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_git_intent_log_path
+    ON git_intent_log(repo, path, created_at);

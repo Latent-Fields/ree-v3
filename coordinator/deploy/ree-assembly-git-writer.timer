@@ -1,0 +1,21 @@
+# Paces ree-assembly-git-writer.service every 5 minutes. Reference copy --
+# see ree-assembly-git-writer.service's header for the sync convention and
+# install steps.
+#
+# 5 minutes, slower than the registry writer's 2: igw_routine_log.md gets
+# at most one new line per HOURLY igw_routine_tick.py run, so there is no
+# visibility argument for a tighter cadence the way there is for claims/
+# chips (every session reads those). Commits are state-change-only, so a
+# faster tick would only cost idle fetches, not history bloat -- 5 minutes
+# is a bandwidth choice, not a correctness one.
+
+[Unit]
+Description=Run ree-assembly-git-writer every 5 minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

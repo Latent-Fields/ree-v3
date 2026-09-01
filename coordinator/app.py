@@ -41,6 +41,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 import db
+import git_intent
 import manifest_spool
 
 # machine_identity.py lives in ree-v3/, one directory up from coordinator/.
@@ -500,6 +501,75 @@ def _reclog_append(conn, body, machine_tok):
     return 200, out
 
 
+def _igw_log_append(conn, body, machine_tok):
+    """POST /igw_log/append (PHASE-4 slice, 2026-09-01, git-traffic-
+    simplification sweep lane 2). Append-ONLY, the plain-text sibling of
+    _reclog_append: no edit or delete verb -- the file's git copy stays
+    authoritative for every line already in it; this endpoint only spools
+    NEW igw_routine_log.md heartbeat lines for the DEDICATED REE_assembly
+    writer (ree_assembly_git_writer.py, not the umbrella registry writer --
+    this file lives in a different repo) to append verbatim.
+    client_git_write=true declares the client will also land the line
+    itself (dual-write soak); the writer then only watches for it instead
+    of appending -- see db.submit_igw_log_entry."""
+    line = body.get("line")
+    verdict, payload = db.submit_igw_log_entry(
+        conn,
+        line=line,
+        session_id=body.get("session_id") or "",
+        client_git_write=bool(body.get("client_git_write")),
+        host=machine_tok)
+    out = dict(payload)
+    out["verdict"] = verdict
+    if verdict in ("empty", "multiline"):
+        return 400, out
+    if verdict == "error":
+        return 500, out
+    return 200, out
+
+
+def _intent_replace(conn, body, machine_tok):
+    """POST /intent/replace (PHASE-4 slice, 2026-09-01). The generic
+    whole-file CAS verb for editorial (non-append) routed files --
+    phase4_commit_intake_design.md section 3.2. See git_intent.apply_intent
+    for the full contract; this handler is a thin body-parsing wrapper
+    around it, mirroring the shape of every other handler in this dict."""
+    repo = body.get("repo")
+    path = body.get("path")
+    content = body.get("content")
+    message = body.get("message")
+    if not isinstance(repo, str) or not repo.strip():
+        return 400, {"error": "repo is required", "verdict": "bad_request"}
+    if not isinstance(path, str) or not path.strip():
+        return 400, {"error": "path is required", "verdict": "bad_request"}
+    if not isinstance(content, str):
+        return 400, {"error": "content is required and must be a string",
+                     "verdict": "bad_request"}
+    if not isinstance(message, str) or not message.strip():
+        return 400, {"error": "message is required", "verdict": "bad_request"}
+    verdict, payload = git_intent.apply_intent(
+        conn,
+        repo=repo,
+        path=path,
+        base_sha=body.get("base_sha"),
+        content=content,
+        message=message,
+        session_id=body.get("session_id") or "",
+        machine=machine_tok,
+        shadow=bool(body.get("shadow")),
+        allow_shrink=bool(body.get("allow_shrink")))
+    out = dict(payload)
+    out["verdict"] = verdict
+    if verdict == "base_moved":
+        return 409, out
+    if verdict in ("not_routed", "validation_failed", "suspicious_shrink"):
+        return 400, out
+    if verdict in ("repo_not_configured", "origin_unreadable",
+                   "push_failed", "error"):
+        return 500, out
+    return 200, out
+
+
 _DISPATCHER_LEASE_STATES = ("run", "stop")
 
 
@@ -593,6 +663,8 @@ _TASK_CLAIM_CHIP_POST = {
     # growing a parallel table).
     "/workspace_state/append": _ws_append,
     "/recommendation_log/append": _reclog_append,
+    "/igw_log/append": _igw_log_append,
+    "/intent/replace": _intent_replace,
     "/dispatcher/lease": _dispatcher_lease,
 }
 
@@ -999,6 +1071,25 @@ class Handler(BaseHTTPRequestHandler):
                     "client_git_write": bool(r["client_git_write"]),
                     "submitted_at": r["submitted_at"],
                     "record_head": (r["record"] or "")[:120],
+                })
+            self._send(200, {"n_pending": len(pending), "pending": pending})
+            return
+        if path == "/igw_log/pending":
+            # PHASE-4 observability, igw_routine_log.md sibling of the
+            # RECLOG spool above -- same shape, different repo/writer.
+            conn = db.connect(DB_PATH)
+            try:
+                rows = db.pending_igw_log_entries(conn)
+            finally:
+                conn.close()
+            pending = []
+            for r in rows:
+                pending.append({
+                    "entry_id": r["entry_id"],
+                    "session_id": r["session_id"],
+                    "client_git_write": bool(r["client_git_write"]),
+                    "submitted_at": r["submitted_at"],
+                    "line_head": (r["line"] or "")[:120],
                 })
             self._send(200, {"n_pending": len(pending), "pending": pending})
             return
@@ -1540,6 +1631,8 @@ class Handler(BaseHTTPRequestHandler):
         if (path.startswith("/task_claim/") or path.startswith("/chip/")
                 or path.startswith("/workspace_state/")
                 or path.startswith("/recommendation_log/")
+                or path.startswith("/igw_log/")
+                or path.startswith("/intent/")
                 or path.startswith("/dispatcher/")):
             if body is None:
                 self._send(400, {"error": "bad body"})

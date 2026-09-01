@@ -45,6 +45,8 @@ def connect(db_path):
     _migrate_task_claim_chip_tables(conn)
     _migrate_workspace_state_table(conn)
     _migrate_recommendation_log_table(conn)
+    _migrate_igw_log_table(conn)
+    _migrate_git_intent_log_table(conn)
     _migrate_dispatcher_leases_table(conn)
     return conn
 
@@ -2043,6 +2045,178 @@ def mark_recommendation_log_entries_materialized(conn, entry_ids, ref,
         raise
 
 
+def _migrate_igw_log_table(conn):
+    """Create the igw_routine_log.md append-intake table if missing.
+
+    PHASE-4 slice (2026-09-01, git-traffic-simplification sweep lane 2): the
+    IGW routine tick's heartbeat log, in REE_assembly rather than the
+    umbrella repo -- see ree_assembly_git_writer.py, the DEDICATED clone
+    materializer this table feeds (DP-6: one writer process per repo, never
+    piggybacked on the umbrella task_claim_chip_git_writer.py tick, which
+    only ever touches REE_Working). Same idempotent contract and same
+    append-only shape as _migrate_recommendation_log_table -- a heartbeat
+    line is the append-shaped trivial case exactly like a jsonl record."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS igw_log_entries (
+            entry_id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            line             TEXT NOT NULL,
+            session_id       TEXT NOT NULL DEFAULT '',
+            client_git_write INTEGER NOT NULL DEFAULT 0,
+            submitted_at     TEXT NOT NULL,
+            submitted_host   TEXT,
+            materialized_at  TEXT,
+            materialized_ref TEXT
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_igw_log_pending "
+        "ON igw_log_entries(materialized_at) "
+        "WHERE materialized_at IS NULL"
+    )
+
+
+def submit_igw_log_entry(conn, line, session_id="", client_git_write=False,
+                         host=None, now=None):
+    """Record one igw_routine_log.md heartbeat line for materialization.
+
+    Append-only, the plain-text sibling of submit_recommendation_log_entry
+    (no JSON validation -- the file is one free-text line per hourly tick,
+    not jsonl). Verdicts:
+      'ok'          -- inserted; payload carries entry_id.
+      'idempotent'  -- an identical line already exists (client retry after
+                       a lost response, or a dual-write client's own earlier
+                       submit).
+      'empty'       -- line is empty/whitespace. Nothing written.
+      'multiline'   -- line contains a newline (the file is one-line-per-tick;
+                       a multi-line entry would corrupt that convention).
+      'error'       -- sqlite failure.
+
+    `line` is stored stripped of surrounding whitespace, exactly the text
+    scripts/igw_routine_tick.py's append_log() writes -- byte-fidelity is
+    what makes the materializer's presence check exact.
+    """
+    now = now or utcnow()
+    if not isinstance(line, str) or not line.strip():
+        return ("empty", {})
+    line = line.strip()
+    if "\n" in line:
+        return ("multiline", {"reason": "line must be a single line"})
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT entry_id FROM igw_log_entries "
+            "WHERE line=?", (line,)).fetchone()
+        if row is not None:
+            conn.execute("ROLLBACK")
+            return ("idempotent", {"entry_id": row["entry_id"]})
+        cur = conn.execute(
+            "INSERT INTO igw_log_entries "
+            "(line, session_id, client_git_write, submitted_at, "
+            "submitted_host) VALUES (?,?,?,?,?)",
+            (line, session_id or "", 1 if client_git_write else 0,
+             now, host))
+        entry_id = cur.lastrowid
+        conn.execute("COMMIT")
+        return ("ok", {"entry_id": entry_id})
+    except sqlite3.Error:
+        try:
+            conn.execute("ROLLBACK")
+        except sqlite3.Error:
+            pass
+        return ("error", {})
+
+
+def pending_igw_log_entries(conn):
+    """All not-yet-materialized lines, oldest submission first (the file is
+    chronological-append, so the writer appends in this order)."""
+    return conn.execute(
+        "SELECT entry_id, line, session_id, client_git_write, "
+        "submitted_at FROM igw_log_entries "
+        "WHERE materialized_at IS NULL ORDER BY entry_id").fetchall()
+
+
+def mark_igw_log_entries_materialized(conn, entry_ids, ref, now=None):
+    """Flip lines to materialized. Call ONLY once the line provably IS in
+    git -- same only-after-proof discipline as the WS/RECLOG counterparts."""
+    ids = [int(i) for i in (entry_ids or [])]
+    if not ids:
+        return 0
+    now = now or utcnow()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        cur = conn.executemany(
+            "UPDATE igw_log_entries "
+            "SET materialized_at=?, materialized_ref=? "
+            "WHERE entry_id=? AND materialized_at IS NULL",
+            [(now, ref, i) for i in ids])
+        conn.execute("COMMIT")
+        return cur.rowcount if cur.rowcount is not None else len(ids)
+    except sqlite3.Error:
+        try:
+            conn.execute("ROLLBACK")
+        except sqlite3.Error:
+            pass
+        raise
+
+
+def _migrate_git_intent_log_table(conn):
+    """Create the /intent/replace audit-log table if missing. Records every
+    CAS intent this coordinator has seen applying (verdict included) --
+    PHASE-4 whole-file editorial routing (phase4_commit_intake_design.md
+    section 3.2). Purely an audit trail (DP-9 actor identity, section 7 soak
+    evidence); the intent APPLICATION itself is git_intent.apply_intent's
+    job, not this table's -- unlike the append tables above, there is no
+    'pending' state here because a CAS intent is applied (or refused)
+    synchronously within the one request that submitted it."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS git_intent_log (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            repo         TEXT NOT NULL,
+            path         TEXT NOT NULL,
+            base_sha     TEXT,
+            verdict      TEXT NOT NULL,
+            applied_sha  TEXT,
+            session_id   TEXT NOT NULL DEFAULT '',
+            machine      TEXT,
+            message      TEXT,
+            shadow       INTEGER NOT NULL DEFAULT 0,
+            size_before  INTEGER,
+            size_after   INTEGER,
+            created_at   TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_git_intent_log_path "
+        "ON git_intent_log(repo, path, created_at)"
+    )
+
+
+def record_git_intent(conn, *, repo, path, base_sha, verdict, applied_sha=None,
+                      session_id="", machine=None, message=None,
+                      shadow=False, size_before=None, size_after=None,
+                      now=None):
+    """Append one audit row for an /intent/replace application. Best-effort:
+    a logging failure must never fail the intent it is recording, so this
+    swallows sqlite errors rather than propagating them (unlike the
+    append-intake writers above, whose INSERT is the primary effect)."""
+    now = now or utcnow()
+    try:
+        conn.execute(
+            "INSERT INTO git_intent_log "
+            "(repo, path, base_sha, verdict, applied_sha, session_id, "
+            "machine, message, shadow, size_before, size_after, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (repo, path, base_sha, verdict, applied_sha, session_id or "",
+             machine, message, 1 if shadow else 0, size_before, size_after,
+             now))
+    except sqlite3.Error:
+        pass
+
+
 def _migrate_dispatcher_leases_table(conn):
     """Create the dispatcher run-lease table if missing. Same idempotent
     contract as the other _migrate_* helpers (called from connect())."""
@@ -2229,6 +2403,8 @@ def init_db(db_path):
     _migrate_task_claim_chip_tables(conn)
     _migrate_workspace_state_table(conn)
     _migrate_recommendation_log_table(conn)
+    _migrate_igw_log_table(conn)
+    _migrate_git_intent_log_table(conn)
     _migrate_dispatcher_leases_table(conn)
     conn.close()
 

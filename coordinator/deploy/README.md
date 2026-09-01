@@ -490,4 +490,17 @@ COORDINATOR_MODE=shadow
 COORDINATOR_QUEUE_FILE=/home/ree/REE_Working/ree-v3/experiment_queue.json
 SYNC_INTERVAL=60
 SYNC_MODE=shadow
+# PHASE-4 POST /intent/replace (git_intent.py): the coordinator process
+# itself (ree-coordinator.service, EnvironmentFile=/etc/ree-coordinator.env)
+# reads this at request time. Point it at a clone DEDICATED to intent
+# application -- NEVER the phase3 sync_daemon writers' checkout and NEVER
+# ree-assembly-git-writer's own clone (see ree-assembly-git-writer.service's
+# header for that one). Leaving it unset is safe: the endpoint answers
+# 'repo_not_configured' (500) and every caller degrades to git, same as any
+# other pre-activation PHASE-4 endpoint (DP-11).
+#   git clone https://github.com/Latent-Fields/REE_assembly.git \
+#     /home/ree/REE_Working_intent_ree_assembly
+#   git -C /home/ree/REE_Working_intent_ree_assembly config user.name  "REE Automation (Hub)"
+#   git -C /home/ree/REE_Working_intent_ree_assembly config user.email "nooarche@users.noreply.github.com"
+COORDINATOR_INTENT_REPO_REE_ASSEMBLY=/home/ree/REE_Working_intent_ree_assembly
 ```
