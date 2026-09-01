@@ -96,11 +96,20 @@ DEFAULT_CLEAR_FENCE_SCRIPT = "/usr/local/bin/coordinator_clear_claim_fence.sh"
 # heartbeat file. This is what let the sync_daemon retire its 30-minute
 # forced "liveness tick" commit -- the single biggest source of REE_assembly
 # git-history churn. The git heartbeat mirror is kept as a fallback when the
-# coordinator is unreachable (bit-identical to the pre-Phase-3 transport) and
-# is still the source for the recent_completed grace window. Both values are
-# read from the scaler's existing EnvironmentFile (/etc/ree-coordinator.env).
+# coordinator is unreachable (bit-identical to the pre-Phase-3 transport).
+# Both values are read from the scaler's existing EnvironmentFile
+# (/etc/ree-coordinator.env).
+#
+# 2026-09-01 (git-traffic simplification sweep): the recent_completed grace
+# window is now COORDINATOR-DB-PRIMARY too (MAX(received_at) from the
+# results table, read-only, hub-local sqlite) -- the git mirror's
+# recent_completed list stops being fed once the heartbeat materialisation
+# is retired (PHASE3_HEARTBEAT_GIT_MATERIALIZE=0), so it could no longer
+# protect the just-completed window. The git read stays as the fallback.
 DEFAULT_COORDINATOR_URL = "http://10.8.0.1:8787"
 COORDINATOR_FETCH_TIMEOUT_SECONDS = 6.0
+DEFAULT_COORDINATOR_DB = os.environ.get(
+    "COORDINATOR_DB", "/home/ree/REE_Working/ree-v3/coordinator/coordinator.db")
 
 
 # Defaults match cloud-scaler.yml env block exactly.
@@ -437,6 +446,27 @@ def _read_git_heartbeat(heartbeats_dir, affinity):
         return {"_unreadable": repr(exc)}
 
 
+def _last_completed_from_db(affinity, db_path=None):
+    """Coordinator-DB-primary source for the grace window: the newest
+    results.received_at for this machine. Read-only, hub-local sqlite.
+    Returns an ISO string or None on ANY failure (missing db, locked,
+    missing table) -- the caller falls back to the git mirror, so a broken
+    read degrades to the pre-2026-09-01 behaviour, never to a crash."""
+    path = db_path or DEFAULT_COORDINATOR_DB
+    try:
+        import sqlite3
+        conn = sqlite3.connect("file:%s?mode=ro" % path, uri=True, timeout=3)
+        try:
+            row = conn.execute(
+                "SELECT MAX(received_at) FROM results WHERE machine = ?",
+                (affinity,)).fetchone()
+        finally:
+            conn.close()
+        return row[0] if row else None
+    except Exception:  # noqa: BLE001 -- fail open to the git fallback
+        return None
+
+
 def evaluate_heartbeat(heartbeats_dir, affinity, idle_grace_min,
                        heartbeat_fresh_min, now=None, coord_row=None):
     """Return (idle_ok: 0|1, reason: str) describing whether the runner
@@ -479,18 +509,20 @@ def evaluate_heartbeat(heartbeats_dir, affinity, idle_grace_min,
         state = git_hb.get("state")
         current_exq = git_hb.get("current_exq")
 
-    # recent_completed grace window -- always from the git mirror. It is
-    # fed by result + state-change commits (which continue), and a
-    # completion timestamp does not go stale, so it stays correct even
-    # though the file's own last_tick no longer advances every 30 minutes.
-    completed = []
-    if git_hb and "_unreadable" not in git_hb:
-        completed = git_hb.get("recent_completed") or []
-    last_completed = None
-    for c in completed:
-        t = parse_utc(c.get("completed_at"))
-        if t and (last_completed is None or t > last_completed):
-            last_completed = t
+    # recent_completed grace window -- coordinator-DB-primary since
+    # 2026-09-01 (results.received_at; the git mirror's recent_completed
+    # list stops being fed once the heartbeat materialisation is retired).
+    # Git mirror stays as the fallback; a completion timestamp does not go
+    # stale, so frozen mirror data is still correct for OLD completions.
+    last_completed = parse_utc(_last_completed_from_db(affinity))
+    if last_completed is None:
+        completed = []
+        if git_hb and "_unreadable" not in git_hb:
+            completed = git_hb.get("recent_completed") or []
+        for c in completed:
+            t = parse_utc(c.get("completed_at"))
+            if t and (last_completed is None or t > last_completed):
+                last_completed = t
 
     if last_tick is None or (now - last_tick) > timedelta(hours=1):
         return 1, "heartbeat_stale"

@@ -131,12 +131,45 @@ class FixtureMixin:
         self.root = tempfile.mkdtemp()
         self.hb_dir = os.path.join(self.root, _HB_REL)
         os.makedirs(self.hb_dir)
+        self._snapshot_rows = {}
         self.addCleanup(shutil.rmtree, self.root, True)
 
     def write_hb(self, payload, affinity=_AFFINITY, raw=None):
+        # Git-file form: cloud-scaler.py's fallback transport (unchanged).
         path = os.path.join(self.hb_dir, "%s-metaworker.json" % affinity)
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(raw if raw is not None else json.dumps(payload))
+        # live-status snapshot form: the GHA workflow's transport since
+        # 2026-09-01 (fleet_status.json = coordinator /shadow/status rows;
+        # the orchestrator's POSTed heartbeat payload is the row's
+        # `progress` dict). A malformed git heartbeat corresponds to a
+        # malformed `progress` value in the snapshot row -- both degrade to
+        # the same fail-open verdict, which is what parity asserts.
+        if raw is not None:
+            try:
+                prog = json.loads(raw)
+            except Exception:  # noqa: BLE001 -- deliberate junk fixture
+                prog = raw
+        else:
+            prog = payload
+        last_seen = prog.get("last_tick_utc") if isinstance(prog, dict) \
+            else None
+        self._snapshot_rows["%s-metaworker" % affinity] = {
+            "machine": "%s-metaworker" % affinity,
+            "last_seen": last_seen,
+            "state": (prog.get("state")
+                      if isinstance(prog, dict) else None),
+            "progress": prog,
+        }
+        live_dir = os.path.join(self.root, "ree-assembly-live")
+        os.makedirs(live_dir, exist_ok=True)
+        doc = {"updated_utc": iso(datetime.now(timezone.utc)),
+               "coordinator_reachable": True,
+               "machines": sorted(self._snapshot_rows.values(),
+                                  key=lambda r: r["machine"])}
+        with open(os.path.join(live_dir, "fleet_status.json"), "w",
+                  encoding="utf-8") as fh:
+            json.dump(doc, fh)
         return path
 
     def hb(self, age_min=1, in_flight=0, open_work=0,

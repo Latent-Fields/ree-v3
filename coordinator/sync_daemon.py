@@ -522,7 +522,20 @@ PHASE3_REE_ASSEMBLY = _validate_abs_repo_path(
 # the per-runner runner_remote_control.push_heartbeat git push (the original
 # autostash-war bug source). Gated by its OWN flag so the heartbeat cutover
 # can stage separately from result + queue cutovers.
-PHASE3_HEARTBEAT_WRITER_READY = True
+#
+# RETIREMENT LEVER (2026-09-01, git-traffic simplification sweep): the git
+# materialisation of runner_heartbeats/ + runner_status/ is being retired --
+# the coordinator DB is the live authority (/shadow/status) and the
+# `live-status` branch (live-status-writer.py, orphan single-commit) is the
+# git-visible mirror for consumers that cannot reach the hub (the GHA scaler
+# backstop). Set PHASE3_HEARTBEAT_GIT_MATERIALIZE=0 in the hub
+# ree-sync-daemon drop-in to stop these commits entirely (the writer runs as
+# a stub; heartbeat POSTs keep landing in the DB untouched). Default "1"
+# keeps today's behaviour so this deploys as a no-op until the drop-in flips
+# it. Rollback = unset the env var.
+PHASE3_HEARTBEAT_WRITER_READY = (
+    os.environ.get("PHASE3_HEARTBEAT_GIT_MATERIALIZE", "1").strip().lower()
+    not in ("0", "false", "no", "off"))
 
 # Subdirectories (relative to REE_assembly) where the writer materialises
 # the per-machine files. Match the existing legacy layout that explorer
@@ -598,6 +611,7 @@ PHASE3_HEARTBEAT_RECOVERY_CONFIRM_TICKS = _validate_positive_int(
 # context) because the writer entry point is a free function called from
 # main()'s while-loop, matching the queue writer / git writer pattern.
 _PHASE3_HEARTBEAT_LAST_COMMITTED_STATE = {}   # machine -> state dict
+_PHASE3_HEARTBEAT_STUB_LOGGED = False   # once-per-process retirement notice
 _PHASE3_HEARTBEAT_LAST_TICK_UTC = {}          # machine -> (utc_str, monotonic_seen_at)
 _PHASE3_HEARTBEAT_LAST_COMMIT_TS = 0.0        # monotonic time of last commit
 _PHASE3_HEARTBEAT_INITIALIZED = False         # False until first commit lands
@@ -2948,9 +2962,14 @@ def phase3_heartbeat_writer(
     br = branch or PHASE3_ASSEMBLY_BRANCH
 
     if not PHASE3_HEARTBEAT_WRITER_READY:
-        sys.stderr.write(
-            "[phase3-heartbeats] writer stub "
-            "(PHASE3_HEARTBEAT_WRITER_READY=False); no git writes performed\n")
+        global _PHASE3_HEARTBEAT_STUB_LOGGED
+        if not _PHASE3_HEARTBEAT_STUB_LOGGED:
+            _PHASE3_HEARTBEAT_STUB_LOGGED = True
+            sys.stderr.write(
+                "[phase3-heartbeats] writer stub (git materialisation "
+                "retired via PHASE3_HEARTBEAT_GIT_MATERIALIZE=0); no git "
+                "writes performed -- read /shadow/status or the live-status "
+                "branch instead (logged once per process)\n")
         return False
 
     _record_writer_tick("heartbeat_writer")

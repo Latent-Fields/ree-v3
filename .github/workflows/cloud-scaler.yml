@@ -27,11 +27,13 @@ name: Cloud Worker Scaler
 #   (a) the pytest lease veto reads /home/ree/pytest_leases on the hub;
 #   (b) the hub timer's orchestrator veto is COORDINATOR-PRIMARY (2026-08-19)
 #       and its bootstrap wake hold reads hub-local state. Neither is
-#       reachable from here, so this path can only read the GIT heartbeat --
-#       the deliberately-stale channel that caused the 01:39Z shutdown above.
-#       The answer is NOT to trust it harder: this backstop simply holds no
-#       shutdown authority over a declared orchestrator box at all. See
-#       env.ORCHESTRATOR_AFFINITIES.
+#       reachable from here. Since 2026-09-01 this path reads the
+#       `live-status` branch snapshot (fleet_status.json -- the coordinator
+#       /shadow/status rows, republished every ~3 min), which replaced the
+#       retired master-branch heartbeat mirror and is far fresher; but it is
+#       still a hub-published mirror that freezes when the hub is down, so
+#       the asymmetry stands: this backstop holds no shutdown authority over
+#       a declared orchestrator box at all. See env.ORCHESTRATOR_AFFINITIES.
 # Divergence (a) is safe in the only direction that matters -- this backstop
 # can shut a box down that the hub would have kept up, never the reverse.
 # Divergence (b) is deliberately the OPPOSITE direction, and that asymmetry is
@@ -93,14 +95,14 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   IDLE_GRACE_MIN: 20          # min minutes since last completed before shutdown
-  # HEARTBEAT_FRESH_MIN was 5 (assumed every-tick file refresh). Under the
-  # phase3 sync_daemon heartbeat-writer redesign (2026-05-31), the heartbeat
-  # file on REE_assembly is refreshed on state-changes only with a 5-min
-  # debounce and a 30-min liveness floor; an idle-but-alive worker's file
-  # can legitimately lag 5-30 minutes behind reality. 5 was leaving idle
-  # workers in the "aging" zone for up to 60 min before the scaler would
-  # touch them, burning Hetzner hours. 35 sits just above the liveness floor.
-  HEARTBEAT_FRESH_MIN: 35     # heartbeat must be at most this many minutes stale
+  # HEARTBEAT_FRESH_MIN was 5 (assumed every-tick file refresh), then 35
+  # (tuned to the state-change-lagged master heartbeat mirror). Since
+  # 2026-09-01 the source is the live-status snapshot whose per-row
+  # last_seen is DB-fresh at publish time (~3-min republish cadence), so 35
+  # is now generous rather than tight -- kept as-is because it also absorbs
+  # live-status publish hiccups and GHA checkout lag, and loosening it has
+  # no cost (the hub timer is authoritative at 5-min cadence).
+  HEARTBEAT_FRESH_MIN: 35     # last_seen must be at most this many minutes stale
   SURGE_QUEUE_THRESHOLD: 2    # claimable items required before a surge-mode worker is powered on (lowered 3->2 on 2026-06-01: wake cloud-4 overflow before pulling in the laptop; sister-worker saturation pre-check still gates power-on)
   # The coordinator hub VM must NEVER be considered for shutdown by the scaler.
   # ree-worker-1 runs ree-coordinator + ree-sync-daemon at 10.8.0.1:8787 (the
@@ -158,11 +160,23 @@ jobs:
           sparse-checkout: experiment_queue.json
           path: ree-v3
 
+      # TELEMETRY SOURCE MIGRATED 2026-09-01 (git-traffic simplification
+      # sweep): the master-branch runner_heartbeats/ mirror is RETIRED
+      # (PHASE3_HEARTBEAT_GIT_MATERIALIZE=0 on the hub sync-daemon). This
+      # backstop now reads the `live-status` branch -- an orphan,
+      # force-updated single commit the hub's live-status-writer publishes
+      # every ~3 min from the coordinator DB (fleet_status.json carries the
+      # full /shadow/status machine rows). Same trust model as before (a
+      # hub-written git mirror), but sub-minute fresh instead of
+      # state-change-lagged, and zero permanent git history. When the hub is
+      # down the snapshot freezes -- exactly as the old mirror did (it was
+      # hub-written too), so per-row last_seen ages carry the same
+      # dead-vs-aging semantics as before.
       - uses: actions/checkout@v4
         with:
           repository: Latent-Fields/REE_assembly
-          sparse-checkout: evidence/experiments/runner_heartbeats
-          path: ree-assembly
+          ref: live-status
+          path: ree-assembly-live
 
       - name: Set up hub SSH key (best-effort shutdown_notify announcer)
         # Optional: when HUB_SSH_KEY is set, the scaler can SSH into the
@@ -298,7 +312,11 @@ jobs:
           from datetime import datetime, timezone
           aff = os.environ['AFFINITY']
           fresh = int(os.environ['ORCHESTRATOR_FRESH_MIN'])
-          path = f'ree-assembly/evidence/experiments/runner_heartbeats/{aff}-metaworker.json'
+          # 2026-09-01: source is the live-status branch snapshot (coordinator
+          # /shadow/status rows), not the retired master heartbeat mirror.
+          # The orchestrator's row is machine == '<aff>-metaworker'; its
+          # POSTed progress dict carries role / demand / last_tick_utc.
+          path = 'ree-assembly-live/fleet_status.json'
           now = datetime.now(timezone.utc)
 
           def out(veto, reason):
@@ -307,13 +325,23 @@ jobs:
 
           try:
               with open(path) as f:
-                  hb = json.load(f)
+                  doc = json.load(f)
           except FileNotFoundError:
-              out(0, 'no_orchestrator')
+              out(0, 'no_snapshot')
           except Exception as exc:
-              out(0, f'orchestrator_unreadable({type(exc).__name__})')
-          if not isinstance(hb, dict):
-              out(0, 'orchestrator_not_object')
+              out(0, f'snapshot_unreadable({type(exc).__name__})')
+          rows = doc.get('machines') if isinstance(doc, dict) else None
+          if not isinstance(rows, list):
+              out(0, 'snapshot_no_machines')
+          hb = None
+          for r in rows:
+              if isinstance(r, dict) and r.get('machine') == f'{aff}-metaworker':
+                  prog = r.get('progress')
+                  hb = dict(prog) if isinstance(prog, dict) else {}
+                  hb.setdefault('last_tick_utc', r.get('last_seen'))
+                  break
+          if hb is None:
+              out(0, 'no_orchestrator')
           if hb.get('role') != 'orchestrator':
               out(0, 'orchestrator_role_mismatch')
           try:
@@ -368,7 +396,18 @@ jobs:
           aff = os.environ['AFFINITY']
           grace = int(os.environ['IDLE_GRACE_MIN'])
           fresh = int(os.environ['HEARTBEAT_FRESH_MIN'])
-          path = f'ree-assembly/evidence/experiments/runner_heartbeats/{aff}.json'
+          # 2026-09-01: source is the live-status branch snapshot (coordinator
+          # /shadow/status rows), not the retired master heartbeat mirror.
+          # Per-row last_seen carries the same fresh/aging/dead semantics the
+          # old per-file last_tick_utc did; when the hub is down the snapshot
+          # freezes and rows age together, exactly as the old hub-written
+          # mirror froze. STRUCTURAL DIVERGENCE (c) vs the hub timer: the
+          # coordinator rows carry no recent_completed history, so the
+          # IDLE_GRACE_MIN window after a completion is NOT enforced here --
+          # the HELD_BY_SELF guard covers mid-claim workers, and the hub
+          # timer (fully authoritative, 5-min cadence, reads the DB directly)
+          # still enforces the grace window.
+          path = 'ree-assembly-live/fleet_status.json'
           now = datetime.now(timezone.utc)
 
           def parse_utc(s):
@@ -378,22 +417,33 @@ jobs:
               except Exception:
                   return None
 
-          if not os.path.exists(path):
-              # Never heartbeated -- treat as 'idle' (runner not running)
+          try:
+              with open(path) as f:
+                  doc = json.load(f)
+              rows = doc.get('machines') or []
+          except FileNotFoundError:
+              # No snapshot at all: transport failure, not evidence anything
+              # is dead. Conservative -- never shut down on a missing view.
+              print('idle_ok=0 reason=snapshot_missing')
+              sys.exit(0)
+          except Exception as exc:
+              print(f'idle_ok=0 reason=snapshot_unreadable_{type(exc).__name__}')
+              sys.exit(0)
+
+          hb = None
+          for r in rows:
+              if isinstance(r, dict) and r.get('machine') == aff:
+                  hb = r
+                  break
+          if hb is None:
+              # Machine has never heartbeated to the coordinator -- runner
+              # not running (parity with the old missing-file branch).
               print('idle_ok=1 reason=no_heartbeat')
               sys.exit(0)
 
-          with open(path) as f:
-              hb = json.load(f)
-          last_tick = parse_utc(hb.get('last_tick_utc'))
+          last_tick = parse_utc(hb.get('last_seen'))
           state = hb.get('state')
           current_exq = hb.get('current_exq')
-          completed = hb.get('recent_completed') or []
-          last_completed = None
-          for c in completed:
-              t = parse_utc(c.get('completed_at'))
-              if t and (last_completed is None or t > last_completed):
-                  last_completed = t
 
           # Heartbeat very stale -> runner dead; safe to shutdown
           if last_tick is None or (now - last_tick) > timedelta(hours=1):
@@ -406,11 +456,6 @@ jobs:
           # Runner says it's working
           if state != 'idle' or current_exq is not None:
               print(f'idle_ok=0 reason=state_{state}_current_{current_exq}')
-              sys.exit(0)
-          # Runner idle, but last completion is recent -> grace window not yet expired
-          if last_completed is not None and (now - last_completed) < timedelta(minutes=grace):
-              age_min = int((now - last_completed).total_seconds() // 60)
-              print(f'idle_ok=0 reason=grace_window_age={age_min}min')
               sys.exit(0)
           print('idle_ok=1 reason=clean_idle')
           ")
