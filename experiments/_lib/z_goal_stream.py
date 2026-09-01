@@ -133,6 +133,45 @@ outright (874b's actual bug -- the fix there, landed in V3-EXQ-940/941, is to ob
 stepping clone instead); it gives a driver that DOES know it is holding a training-only
 object a correct, explicit way to say so instead of silently mis-reporting.
 
+The pinned-goal false positive (V3-EXQ-642b, 2026-09-01)
+----------------------------------------------------------
+A second, distinct cause of ``writer_calls == 0`` with ``ticks_total > 0``: a driver that
+deliberately holds z_goal at a fixed magnitude as an experimental control, by writing
+``agent.goal_state._z_goal`` directly instead of going through ``update_z_goal``
+(V3-EXQ-642a/642b's ``_pin_goal``, called every tick before ``sense()``). This produces
+``active_frac == 1.0`` (``GoalState.is_active()`` is a plain nonzero-check on ``_z_goal``,
+so a constant nonzero pin reads active on every tick) alongside ``writer_calls == 0`` --
+by the letter of the inference above, ``writer_defect: true``, and it reached
+``pending_review.md`` as V3-EXQ-642b (failure_autopsy_V3-EXQ-642b_2026-09-01).
+
+**Why ``writer_calls == 0`` with ``active_frac == 1.0`` is NOT a safe auto-detection
+signature for "this was a deliberate pin", even though it is what a pin produces.**
+``update_z_goal`` is documented above as the sole writer, but it is not the only
+*entry point* that can move ``_z_goal``: ``REEAgent.cue_recall_wanting`` calls
+``GoalState.cue_pull`` directly and is driver-callable on its own (see
+``experiments/_harness.py``, ``scaffolded_sd054_onboarding.py`` and the SD-057
+cue-recall drivers) -- so a run driven purely by cue-recall wanting, never calling
+``update_z_goal`` at all, legitimately reads ``writer_calls == 0`` with a live,
+non-degenerate active fraction. That is not a pin and not a defect; it is a third
+shape the counter cannot distinguish from a pin by number alone. This is the same
+shape of problem as the training-phase case just above -- the signature is
+CONSISTENT with a pin, but not UNIQUE to one -- so the fix is the same: an explicit
+opt-in, never a heuristic on the counters.
+
+**The fix: an explicit ``goal_pinned`` flag on every observation entry point**
+(``z_goal_stream_stats``, ``ZGoalStreamAccumulator.observe``/``observe_stats``,
+``stamp_z_goal_stream``, ``stats_from_counts``), default ``False`` (unchanged
+behaviour for every existing call site). A driver that deliberately pins z_goal
+outside the writer passes ``goal_pinned=True``; the pooled ticks stay in the
+ordinary eval counters (they are real eval-loop activity, unlike the training-phase
+case, which is why this is pooled rather than moved to a side channel), but
+``writer_defect`` reports ``null`` -- unmeasured/not-applicable, exactly like
+``ticks_total: 0`` -- rather than a false ``true``, and the block carries
+``goal_pinned: true`` so a reader can tell the null apart from the "nothing
+measured" case. An unrecognised shape (the flag omitted) still reports the
+defect: fixing V3-EXQ-642b's false positive must not create a false negative for
+a driver that actually forgot the call.
+
 Duck-typed and stdlib-only, so it imports without torch/ree_core -- matching its sibling
 stampers (``inert_arm_knob``, ``dose_saturation``) and keeping ``manifest_core`` free of a
 substrate dependency. Every entry point is exception-safe: a missing or odd agent yields
@@ -199,6 +238,7 @@ def stats_from_counts(
     writer_calls: int = 0,
     goal_state_present: Optional[bool] = None,
     n_agents: int = 1,
+    goal_pinned: bool = False,
 ) -> Dict[str, Any]:
     """Build the recorded block from raw counts.
 
@@ -216,20 +256,37 @@ def stats_from_counts(
     gate never opened (correct wiring, no benefit encountered -- what a StepHarness run
     reads on an env where the agent meets no resource). True ONLY for the former. None
     when nothing was measured.
+
+    `goal_pinned=True` -- see the module docstring's "pinned-goal false positive"
+    section -- suppresses that inference for a driver that KNOWINGLY writes z_goal
+    outside `update_z_goal` as a deliberate experimental control. `writer_defect`
+    then reports None (not-applicable) rather than a false `true`, and the block
+    carries `goal_pinned: true` so a reader can tell this null apart from the
+    "nothing measured" one. Default False -- unchanged behaviour for every
+    existing call site; an unrecognised shape still reports the defect.
     """
     total_i = max(0, int(ticks_total))
     active_i = max(0, int(ticks_active))
     calls_i = max(0, int(writer_calls))
+    pinned = bool(goal_pinned)
+    if total_i <= 0:
+        defect: Optional[bool] = None
+    elif pinned:
+        defect = None
+    else:
+        defect = calls_i == 0
     block: Dict[str, Any] = {
         "ticks_total": total_i,
         "ticks_active": active_i,
         "writer_calls": calls_i,
         "active_frac": (float(active_i) / float(total_i)) if total_i > 0 else None,
-        "writer_defect": (total_i > 0 and calls_i == 0) if total_i > 0 else None,
+        "writer_defect": defect,
         "n_agents": int(n_agents),
     }
     if goal_state_present is not None:
         block["goal_state_present"] = bool(goal_state_present)
+    if pinned:
+        block["goal_pinned"] = True
     return block
 
 
@@ -263,7 +320,7 @@ def _training_phase_block(
 
 
 def z_goal_stream_stats(
-    agent: Any, *, eval_stepped: bool = True,
+    agent: Any, *, eval_stepped: bool = True, goal_pinned: bool = False,
 ) -> Optional[Dict[str, Any]]:
     """Pooled z_goal-liveness stats for one agent or an iterable of them.
 
@@ -277,6 +334,12 @@ def z_goal_stream_stats(
     ``clone_trained_agent``. The pooled counts are then reported under
     ``training_phase_*`` keys instead of ``ticks_total``/``writer_calls``, and
     ``writer_defect`` reports unmeasured rather than a false positive.
+
+    ``goal_pinned=True`` -- pass when the driver KNOWINGLY writes z_goal outside
+    ``update_z_goal`` as a deliberate experimental control (see the module
+    docstring's "pinned-goal false positive" section). Passed through to
+    ``stats_from_counts``; ignored when ``eval_stepped=False`` (a training-phase
+    observation is already excluded from ``writer_defect`` on its own terms).
     """
     agents = _iter_agents(agent)
     if not agents:
@@ -304,6 +367,7 @@ def z_goal_stream_stats(
     return stats_from_counts(
         total, active,
         writer_calls=calls, goal_state_present=present, n_agents=n,
+        goal_pinned=goal_pinned,
     )
 
 
@@ -345,7 +409,7 @@ class ZGoalStreamAccumulator:
     """
 
     __slots__ = (
-        "_total", "_active", "_calls", "_present", "_n",
+        "_total", "_active", "_calls", "_present", "_n", "_pinned",
         "_train_total", "_train_active", "_train_calls", "_train_n", "_train_present",
     )
 
@@ -355,6 +419,12 @@ class ZGoalStreamAccumulator:
         self._calls = 0
         self._present = False
         self._n = 0
+        # See the module docstring's "pinned-goal false positive" section.
+        # OR-reduced across observations, same idiom as `_present`: any
+        # pinned observation in the run suppresses `writer_defect` for the
+        # whole pooled tally, since the pooled counters cannot be split back
+        # apart by arm any more than `active_frac` can.
+        self._pinned = False
         # Training-phase-only tally -- see the module docstring's
         # "training-phase-agent false positive" section. Kept fully separate from
         # the eval tally above so a training-only observation can never contribute
@@ -365,7 +435,9 @@ class ZGoalStreamAccumulator:
         self._train_n = 0
         self._train_present = False
 
-    def observe(self, agent: Any, *, eval_stepped: bool = True) -> None:
+    def observe(
+        self, agent: Any, *, eval_stepped: bool = True, goal_pinned: bool = False,
+    ) -> None:
         """Fold one FINISHED cell's agent (or iterable of agents) into the tally.
 
         Exception-safe and duck-typed, matching the module's posture: a non-agent
@@ -376,6 +448,10 @@ class ZGoalStreamAccumulator:
         ``clone_trained_agent`` clone that actually stepped the eval loop -- the
         V3-EXQ-874b shape). Its counts are pooled into a separate training-phase
         tally that ``stats()`` reports but never folds into ``writer_defect``.
+
+        ``goal_pinned=True`` -- pass when this agent's z_goal was deliberately
+        pinned outside ``update_z_goal`` (see the module docstring's "pinned-goal
+        false positive" section). Ignored when ``eval_stepped=False``.
         """
         try:
             for one in _iter_agents(agent):
@@ -388,6 +464,7 @@ class ZGoalStreamAccumulator:
                     self._calls += c["writer_calls"]
                     self._present = self._present or bool(c["goal_state_present"])
                     self._n += 1
+                    self._pinned = self._pinned or bool(goal_pinned)
                 else:
                     self._train_total += c["ticks_total"]
                     self._train_active += c["ticks_active"]
@@ -398,14 +475,20 @@ class ZGoalStreamAccumulator:
             pass
 
     def observe_stats(
-        self, stats: Optional[Dict[str, Any]], *, eval_stepped: bool = True,
+        self,
+        stats: Optional[Dict[str, Any]],
+        *,
+        eval_stepped: bool = True,
+        goal_pinned: bool = False,
     ) -> None:
         """Fold one cell's precomputed block -- e.g. ``StepHarness.z_goal_stream_stats()``.
 
         ``n_agents`` is summed rather than counted as one, so a block that already
         pooled several agents keeps its weight in the run-level ``n_agents``.
         ``eval_stepped=False`` routes the block into the training-phase tally --
-        see ``observe()``.
+        see ``observe()``. ``goal_pinned=True`` marks the eval tally as pinned --
+        see ``observe()`` and the module docstring's "pinned-goal false positive"
+        section.
         """
         try:
             if not isinstance(stats, dict):
@@ -421,6 +504,7 @@ class ZGoalStreamAccumulator:
                 self._calls += calls
                 self._present = self._present or present
                 self._n += n
+                self._pinned = self._pinned or bool(goal_pinned)
             else:
                 self._train_total += total
                 self._train_active += active
@@ -453,6 +537,7 @@ class ZGoalStreamAccumulator:
                 writer_calls=self._calls,
                 goal_state_present=present,
                 n_agents=self._n,
+                goal_pinned=self._pinned,
             )
             if self._train_n > 0:
                 block["training_phase_ticks_total"] = self._train_total
@@ -473,6 +558,7 @@ def stamp_z_goal_stream(
     stats: Optional[Dict[str, Any]] = None,
     overwrite: bool = False,
     eval_stepped: bool = True,
+    goal_pinned: bool = False,
 ) -> Dict[str, Any]:
     """Merge the `z_goal_stream` block onto `manifest` in place; return the manifest.
 
@@ -483,8 +569,10 @@ def stamp_z_goal_stream(
 
     `eval_stepped=False` passes through to `z_goal_stream_stats` when `agent` is
     given -- see the module docstring's "training-phase-agent false positive"
-    section. Ignored when a precomputed `stats` block is passed directly; the
-    caller built that block itself and is responsible for its shape.
+    section. `goal_pinned=True` likewise passes through -- see the "pinned-goal
+    false positive" section. Both are ignored when a precomputed `stats` block is
+    passed directly; the caller built that block itself and is responsible for
+    its shape.
 
     Never raises: provenance stamping must not be able to crash an experiment at
     manifest-write time, when the compute is already spent.
@@ -496,7 +584,9 @@ def stamp_z_goal_stream(
             return manifest
         block = (
             stats if stats is not None
-            else z_goal_stream_stats(agent, eval_stepped=eval_stepped)
+            else z_goal_stream_stats(
+                agent, eval_stepped=eval_stepped, goal_pinned=goal_pinned,
+            )
         )
         if block:
             manifest[MANIFEST_KEY] = block

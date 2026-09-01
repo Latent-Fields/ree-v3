@@ -775,10 +775,18 @@ def _print_z_goal_stream_smoke(manifest: Mapping[str, Any], *, wired: bool) -> N
             verdict = ("WRITER DEFECT -- update_z_goal was never called, so z_goal sat "
                        "at zero-init and every consumer got None")
         elif defect is None:
-            # None is UNMEASURED, not exoneration: with ticks_total 0 there was no
-            # opportunity to observe the defect. Saying "no writer defect" here would
-            # read as a clean bill of health for a run that measured nothing.
-            verdict = "writer_defect not assessable (no ticks with goal_state present)"
+            # None is UNMEASURED-OR-NOT-APPLICABLE, not exoneration. Two causes:
+            # ticks_total == 0 (no opportunity to observe the defect -- "no ticks"
+            # below is literally true there), or `goal_pinned` (V3-EXQ-642b,
+            # z_goal_stream.py): the driver deliberately wrote z_goal outside
+            # update_z_goal, so ticks_total IS > 0 and "no ticks" would be wrong.
+            # Saying "no writer defect" for either would read as a clean bill of
+            # health for a run that had no opportunity (or no need) to show one.
+            if block.get("goal_pinned"):
+                verdict = ("writer_defect not assessable -- z_goal deliberately "
+                           "pinned outside update_z_goal (goal_pinned=True)")
+            else:
+                verdict = "writer_defect not assessable (no ticks with goal_state present)"
         else:
             verdict = "no writer defect"
         # training_phase_* (V3-EXQ-874b, z_goal_stream.py) holds ticks the driver

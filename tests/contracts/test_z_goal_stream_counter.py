@@ -75,6 +75,23 @@ Guarantees enforced here:
       a short note ("+N training-phase ticks, M writer calls, not counted toward
       writer_defect") whenever `training_phase_ticks_total` is present and nonzero, and
       omits it otherwise; the eval-facing verdict itself is unchanged.
+  Z14. THE PINNED-GOAL FALSE POSITIVE (V3-EXQ-642b). `writer_calls == 0` with
+      `ticks_total > 0` is Z4's defect signature -- but it is also exactly what a driver
+      reads when it deliberately pins z_goal at a fixed magnitude by writing
+      `agent.goal_state._z_goal` directly (V3-EXQ-642a/642b's `_pin_goal`), bypassing
+      `update_z_goal` entirely. `GoalState.is_active()` is a plain nonzero check, so a
+      constant nonzero pin reads `active_frac == 1.0` from the first pin onward --
+      unlike a genuine omission, which reads `active_frac == 0.0` for the whole run
+      because `_z_goal` never leaves its zero-init without going through the writer.
+      `goal_pinned=True` on every observation entry point (`z_goal_stream_stats`,
+      `ZGoalStreamAccumulator.observe`/`observe_stats`, `stamp_z_goal_stream`,
+      `stats_from_counts`) reports `writer_defect: None` (not-applicable) instead of a
+      false `True`, and stamps `goal_pinned: true` on the block. Unlike Z12's
+      training-phase carve-out, the pinned ticks stay IN the ordinary eval counters
+      (`ticks_total`/`ticks_active`/`active_frac`) rather than moving to a side
+      channel -- they are real eval-loop activity, just not attributable to the
+      writer. Default False -- unchanged behaviour for every existing call site,
+      and the real Z4 defect must still fire when the flag is not passed.
 """
 
 from __future__ import annotations
@@ -131,6 +148,19 @@ def _step(agent, env, obs_dict, *, write_z_goal: bool):
         action[0, 0] = 1.0
     _flat, _harm, _done, _info, next_obs = env.step(action)
     return next_obs, action
+
+
+def _pin_goal(agent, magnitude: float = 0.5) -> None:
+    """The V3-EXQ-642a/642b shape: write z_goal directly, bypassing the writer.
+
+    Mirrors experiments/v3_exq_642a_blocked_agency_zblock_discriminative.py's
+    `_pin_goal` exactly -- a direct `goal_state._z_goal` assignment, never
+    `update_z_goal`, so `z_goal_writer_calls` never increments no matter how
+    many times this runs."""
+    if agent.goal_state is not None:
+        agent.goal_state._z_goal = torch.ones(
+            1, agent.goal_state.config.goal_dim, device=agent.device
+        ) * magnitude
 
 
 def _run(agent, env, n_steps: int, *, write_z_goal: bool):
@@ -1056,3 +1086,205 @@ def test_z13_print_never_gates_or_raises(tmp_path, capsys):
     )
     assert Path(out_path).exists(), "a training-phase-only block must still write"
     assert "+7 training-phase ticks" in capsys.readouterr().out
+
+
+# ---- Z14: the pinned-goal false positive (V3-EXQ-642b) --------------------------------
+#
+# writer_calls == 0 with ticks_total > 0 is Z4's defect signature, and it is also exactly
+# what a driver reads when it pins z_goal at a fixed magnitude by writing
+# `agent.goal_state._z_goal` directly (V3-EXQ-642a/642b), bypassing update_z_goal
+# entirely. `goal_pinned=True` on every observation entry point reports
+# `writer_defect: None` instead of a false `True`. Unlike Z12's training-phase carve-out,
+# the pinned ticks stay in the ordinary eval counters -- these tests pin that shape
+# specifically, alongside the fail-safe regression: the flag must be OPT-IN, so a run
+# that pins z_goal without declaring it still reads as the Z4 defect.
+
+def _run_pinned(agent, env, n_steps: int, *, magnitude: float = 0.5):
+    """Steps the agent while pinning z_goal directly before each tick, mirroring
+    the driver's call order (`_pin_goal` called before `sense()`/`select_action`
+    on every tick, never `update_z_goal`)."""
+    _flat, obs_dict = env.reset()
+    agent.reset()
+    _pin_goal(agent, magnitude)
+    for _ in range(n_steps):
+        _pin_goal(agent, magnitude)
+        obs_dict, _ = _step(agent, env, obs_dict, write_z_goal=False)
+    return obs_dict
+
+
+def test_z14_pin_signature_matches_the_documented_shape():
+    """THE DISCRIMINATOR ITSELF: a direct-write pin reads writer_calls == 0 with
+    active_frac == 1.0 (every tick active from the first pin onward), unlike a
+    genuine omission's active_frac == 0.0 (Z4). This is what makes the two
+    distinguishable in principle -- and also why they cannot be told apart by the
+    counters alone without the driver's own declaration (see Z14's other tests):
+    a genuine omission and a pin both start from writer_calls == 0."""
+    agent, env = _agent(goal_on=True, seed=120)
+    _run_pinned(agent, env, 5)
+    assert agent.z_goal_writer_calls == 0
+    assert agent.z_goal_ticks_total == 5
+    assert agent.z_goal_ticks_active == 5
+    assert agent.z_goal_active_frac == 1.0
+    assert agent.goal_state.is_active()
+
+
+def test_z14_goal_pinned_true_suppresses_writer_defect():
+    agent, env = _agent(goal_on=True, seed=121)
+    _run_pinned(agent, env, 4)
+    stats = ZGS.z_goal_stream_stats(agent, goal_pinned=True)
+    assert stats["writer_defect"] is None, "a declared pin must not read as the defect"
+    assert stats["goal_pinned"] is True
+    assert stats["ticks_total"] == 4
+    assert stats["active_frac"] == 1.0
+    assert stats["writer_calls"] == 0
+
+
+def test_z14_default_false_still_flags_an_undeclared_pin_as_the_defect():
+    """FAIL-SAFE REGRESSION: the exact same pinned run, without goal_pinned=True,
+    must still read writer_defect: true. Fixing V3-EXQ-642b's false positive must
+    not create a blind spot for a driver that pins z_goal by accident (or a
+    genuine bug that happens to produce the same signature)."""
+    agent, env = _agent(goal_on=True, seed=122)
+    _run_pinned(agent, env, 4)
+    stats = ZGS.z_goal_stream_stats(agent)
+    assert stats["writer_defect"] is True
+    assert "goal_pinned" not in stats
+
+
+def test_z14_genuine_omission_is_unaffected_by_the_new_kwarg():
+    """The other half of "both directions": a true omission (Z4's shape) must
+    still read the defect when goal_pinned is left at its default False."""
+    agent, env = _agent(goal_on=True, seed=123)
+    _run(agent, env, 5, write_z_goal=False)
+    assert agent.z_goal_active_frac == 0.0, "sanity: this is the omission, not the pin"
+    stats = ZGS.z_goal_stream_stats(agent)
+    assert stats["writer_defect"] is True
+    assert "goal_pinned" not in stats
+
+
+def test_z14_real_defect_still_fires_when_a_different_arm_is_pinned():
+    """Regression guard mirroring Z12's z12_real_defect_still_fires test: pooling a
+    genuinely-broken arm alongside a correctly-declared pinned arm must not let the
+    pin's goal_pinned=True mask the broken arm's real defect."""
+    pinned, pinned_env = _agent(goal_on=True, seed=124)
+    _run_pinned(pinned, pinned_env, 4)
+
+    broken, broken_env = _agent(goal_on=True, seed=125)
+    _run(broken, broken_env, 4, write_z_goal=False)   # genuinely omitted, undeclared
+
+    acc = ZGS.ZGoalStreamAccumulator()
+    acc.observe(pinned, goal_pinned=True)
+    acc.observe(broken)   # goal_pinned defaults to False -- this arm is NOT declared
+    stats = acc.stats()
+    # The accumulator pools run-level, same limitation as goal_state_present (Z10) --
+    # ANY pinned observation suppresses the pooled writer_defect, exactly like ANY
+    # live goal_state_present masks a goal-OFF arm. Documented, not silently assumed:
+    # a mixed pinned/broken run cannot be split back apart by this pooled block, so a
+    # driver mixing a declared pin with an undeclared real bug must observe them
+    # through SEPARATE accumulators (or the real defect is invisible at this level).
+    assert stats["writer_defect"] is None
+    assert stats["goal_pinned"] is True
+    assert stats["ticks_total"] == 8
+    assert stats["writer_calls"] == 0
+
+
+def test_z14_stats_from_counts_reports_null_and_the_flag():
+    block = ZGS.stats_from_counts(6, 6, writer_calls=0, goal_state_present=True,
+                                   goal_pinned=True)
+    assert block["writer_defect"] is None
+    assert block["goal_pinned"] is True
+    assert block["active_frac"] == 1.0
+
+
+def test_z14_stats_from_counts_default_omits_the_flag_key():
+    """goal_pinned defaults to False, and the key itself is omitted rather than
+    written as `false` -- matching goal_state_present's own omit-when-not-given
+    convention, so an old manifest and a new non-pinned one are indistinguishable."""
+    block = ZGS.stats_from_counts(6, 0, writer_calls=0, goal_state_present=True)
+    assert block["writer_defect"] is True
+    assert "goal_pinned" not in block
+
+
+def test_z14_accumulator_observe_goal_pinned_suppresses_defect():
+    agent, env = _agent(goal_on=True, seed=126)
+    _run_pinned(agent, env, 3)
+    acc = ZGS.ZGoalStreamAccumulator()
+    acc.observe(agent, goal_pinned=True)
+    stats = acc.stats()
+    assert stats["writer_defect"] is None
+    assert stats["goal_pinned"] is True
+    assert stats["ticks_total"] == 3
+
+
+def test_z14_accumulator_observe_default_does_not_suppress():
+    agent, env = _agent(goal_on=True, seed=127)
+    _run_pinned(agent, env, 3)
+    acc = ZGS.ZGoalStreamAccumulator()
+    acc.observe(agent)   # goal_pinned omitted
+    stats = acc.stats()
+    assert stats["writer_defect"] is True
+    assert "goal_pinned" not in stats
+
+
+def test_z14_accumulator_observe_stats_goal_pinned():
+    acc = ZGS.ZGoalStreamAccumulator()
+    pinned_block = ZGS.stats_from_counts(5, 5, writer_calls=0, goal_state_present=True)
+    acc.observe_stats(pinned_block, goal_pinned=True)
+    stats = acc.stats()
+    assert stats["writer_defect"] is None
+    assert stats["goal_pinned"] is True
+    assert stats["ticks_total"] == 5
+
+
+def test_z14_stamp_z_goal_stream_goal_pinned():
+    agent, env = _agent(goal_on=True, seed=128)
+    _run_pinned(agent, env, 4)
+    manifest: dict = {}
+    ZGS.stamp_z_goal_stream(manifest, agent, goal_pinned=True)
+    block = manifest["z_goal_stream"]
+    assert block["writer_defect"] is None
+    assert block["goal_pinned"] is True
+    assert block["ticks_total"] == 4
+
+
+def test_z14_stamp_z_goal_stream_precomputed_stats_ignores_goal_pinned():
+    """A precomputed `stats=` block bypasses z_goal_stream_stats entirely, so
+    goal_pinned must have no effect on it, matching eval_stepped's Z12 contract."""
+    manifest: dict = {}
+    precomputed = ZGS.stats_from_counts(9, 9, writer_calls=0, goal_state_present=True)
+    ZGS.stamp_z_goal_stream(manifest, stats=precomputed, goal_pinned=True)
+    assert manifest["z_goal_stream"]["writer_defect"] is True, (
+        "goal_pinned only governs agent= observation, never a precomputed stats= block"
+    )
+
+
+def test_z14_dry_run_pinned_shows_the_pinned_note(tmp_path, capsys):
+    agent, env = _agent(goal_on=True, seed=129)
+    _run_pinned(agent, env, 4)
+    block = ZGS.z_goal_stream_stats(agent, goal_pinned=True)
+    out = _dry_write(tmp_path, capsys, dry_run=True, z_goal_stream_stats=block)
+    assert "not assessable" in out
+    assert "deliberately pinned" in out
+    assert "WRITER DEFECT" not in out
+
+
+def test_z14_dry_run_undeclared_pin_still_names_the_defect(tmp_path, capsys):
+    """The fail-safe case at the smoke layer too: an undeclared pin prints exactly
+    the same WRITER DEFECT line as a genuine omission -- the smoke cannot know the
+    driver's intent any more than the counters can."""
+    agent, env = _agent(goal_on=True, seed=130)
+    _run_pinned(agent, env, 4)
+    out = _dry_write(tmp_path, capsys, dry_run=True, agent=agent)
+    assert "WRITER DEFECT" in out
+    assert "deliberately pinned" not in out
+
+
+def test_z14_dry_run_ordinary_unmeasured_run_keeps_the_old_wording(tmp_path, capsys):
+    """A genuinely unmeasured run (goal-OFF) must keep the pre-existing "no ticks"
+    wording -- the new pinned clause must only fire when goal_pinned is actually
+    set, never leak into the other None-producing path."""
+    agent, env = _agent(goal_on=False, seed=131)
+    _run(agent, env, 3, write_z_goal=True)
+    out = _dry_write(tmp_path, capsys, dry_run=True, agent=agent)
+    assert "no ticks with goal_state present" in out
+    assert "deliberately pinned" not in out
