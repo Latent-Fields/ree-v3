@@ -72,6 +72,19 @@ own formulation ("E1 biases which action-objects rank highly, but E3 still
 selects") is satisfiable only where E3 does the selecting, and E3 currently
 has NO action-object input channel at all. That is the substrate gap.
 
+GAP CLOSED 2026-09-01 (GFLAG-0051 / ARC-007 option A, user-authorised build)
+-------------------------------------------------------------------
+Section 5 below ("The repair site") no longer pins a zero-occurrence count --
+E3 was given an action-object input channel:
+`ree_core/predictors/e3_selector.py::compute_action_object_alignment_bias`,
+composed into `agent.py`'s existing per-candidate `score_bias` chain, gated
+by `config.e3.use_action_object_bias_channel` (default False -- bit-identical
+OFF, so every assertion above this notice still holds exactly as measured).
+See the GFLAG-0051 paragraph in `ree-v3/CLAUDE.md`'s SD-016 section and
+`test_gflag0051_action_object_bias_channel.py` for the new channel's own
+contract. This is a BUILD, not a validated behavioural claim -- see that
+file's docstring for what remains untested.
+
 WHAT THIS DOES *NOT* SAY -- read before citing it against EXP-0155
 -------------------------------------------------------------------
 EXP-0155's premise was that "something downstream of cue_action_proj zeroes
@@ -385,22 +398,27 @@ def test_action_bias_does_steer_the_proposal_pool_across_iterations():
 # 5. The repair site (ARC-007 STRICT): E3 has no action-object channel.
 # --------------------------------------------------------------------------
 
-def test_e3_selector_has_no_action_object_channel():
-    """MECH-151 says 'E1 biases which action-objects rank highly, but E3 still
-    selects'. ARC-007 STRICT ('E3 introduces ALL weighting') means E3 is the
-    only place that bias may legitimately be consumed -- and E3 cannot see an
-    action-object at all. Pinning the count at zero makes the gap explicit;
-    when it is closed, delete this test rather than bumping the number."""
+def test_e3_selector_has_an_action_object_channel_now():
+    """GFLAG-0051 / ARC-007 option A (2026-09-01): the gap this test used to
+    pin (e3_selector.py had ZERO action_object/action_bias references) is
+    closed on purpose -- see the module docstring's "GAP CLOSED" section.
+    Rewritten rather than deleted (per this file's own instructions) to pin
+    the NEW shape: the channel exists, is named compute_action_object_alignment_bias,
+    and remains a plain module-level function (not baked into E3TrajectorySelector's
+    learned-channel registries) -- a deliberate scope choice for this build."""
     root = pathlib.Path(__file__).resolve().parents[2]
     src = (root / "ree_core" / "predictors" / "e3_selector.py").read_text()
-    assert "action_object" not in src
-    assert "action_bias" not in src
+    assert "action_object" in src
+    assert "action_bias" in src
+    assert "def compute_action_object_alignment_bias(" in src
 
 
-def test_action_objects_have_no_consumer_outside_producer_and_hippocampus():
-    """Corpus-level pin: only e2_fast.py (producer) and hippocampal/module.py
-    (CEM refit + storage copies) mention action_objects anywhere in ree_core.
-    A new file appearing here means a consumer was added -- re-adjudicate."""
+def test_action_objects_have_no_consumer_outside_producer_hippocampus_and_e3():
+    """Corpus-level pin, updated 2026-09-01 (GFLAG-0051): e2_fast.py (producer),
+    hippocampal/module.py (CEM refit + storage copies), and now
+    predictors/e3_selector.py (the ARC-007-compliant ranking channel) are the
+    three intentional consumers. A FOURTH file appearing here means a new
+    consumer was added -- re-adjudicate."""
     root = pathlib.Path(__file__).resolve().parents[2] / "ree_core"
     hits = sorted(
         p.relative_to(root).as_posix()
@@ -410,4 +428,5 @@ def test_action_objects_have_no_consumer_outside_producer_and_hippocampus():
     assert hits == [
         "hippocampal/module.py",
         "predictors/e2_fast.py",
+        "predictors/e3_selector.py",
     ], f"unexpected action_objects consumer(s): {hits}"

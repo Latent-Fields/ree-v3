@@ -3866,6 +3866,38 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
     satisfiable only where E3 selects, and E3 has NO action-object input channel at all.
     That is the substrate gap; it is a design decision for /implement-substrate under
     ARC-007, not a local patch.
+  GAP CLOSED (BUILD, NOT VALIDATION) 2026-09-01, GFLAG-0051 / ARC-007 option A
+    (user-authorised: "build the channel, even if it is just to test the idea";
+    chip-20260901-gflag0051-e3-action-object-channel, substrate_queue
+    mech151-action-bias-has-no-e3-ranking-channel flipped off DO_NOT_BUILD_YET).
+    E3 now has an action-object input channel:
+    `ree_core/predictors/e3_selector.py::compute_action_object_alignment_bias(candidates,
+    action_bias, weight)` computes, per candidate, the cosine similarity between that
+    candidate's OWN `Trajectory.get_action_object_sequence()` (genuinely per-candidate,
+    unlike the CEM proposal-mean shift above) and the SD-016 `action_bias` direction, and
+    returns `-weight * alignment` (lower-is-better convention, so an ELEVATED/aligned
+    candidate is favoured). REEAgent.select_action (agent.py, immediately before the
+    orienting-decision `_do_bias` block folds into `dacc_score_bias`) composes this
+    additively into the SAME score_bias chain every other E3 modulatory head uses, so the
+    computation of weight from action-objects happens in E3's own module (ARC-007 STRICT
+    satisfied) while composition follows the established agent.py convention. Gated by
+    `config.e3.use_action_object_bias_channel` (default False) and
+    `config.e3.action_object_bias_weight` (default 1.0) -- bit-identical OFF, so every
+    existing experiment and the EXP-0155 finding above is unaffected until a driver opts in.
+    Contract tests: `tests/contracts/test_gflag0051_action_object_bias_channel.py`.
+    `tests/contracts/test_exp0155_action_bias_no_scoring_authority.py`'s
+    `test_e3_selector_has_no_action_object_channel` was REWRITTEN (not deleted, per that
+    file's own instructions) to pin the new channel's default-off/opt-in shape instead of
+    the zero-occurrence finding, and its corpus-level consumer pin
+    (`test_action_objects_have_no_consumer_outside_producer_and_hippocampus`) now includes
+    `predictors/e3_selector.py` as an intentional third consumer.
+    STILL OPEN, NOT DONE HERE: this is a BUILD, not a validated behavioural claim -- no
+    experiment was queued (out of scope for this chip; report only). MECH-151's
+    "RANK HIGHLY"/"ELEVATED/SUPPRESSED" wording is now IMPLEMENTABLE end-to-end, but
+    whether it actually moves selection in a real rollout (and survives the still-live
+    ContextMemory write-path degeneracy and the action_bias_divergence~=0.0 upstream
+    issue below) is untested. Do not read this entry as resolving MECH-151's candidate
+    status or the GFLAG-0051 governance flag -- flag resolution is /governance's call.
   Standing guidance for sd016_enabled=True experiments (UNCHANGED in force, now with a
     cause): expect action_bias_divergence ~= 0.0 until the ContextMemory write-path
     degeneracy is fixed, and do not rely on cue_action_proj for candidate-RANKING effects

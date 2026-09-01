@@ -274,6 +274,82 @@ def variance_commit_threshold(config_threshold: float) -> float:
     return config_threshold
 
 
+def compute_action_object_alignment_bias(
+    candidates: List[Trajectory],
+    action_bias: Optional[torch.Tensor],
+    weight: float = 1.0,
+) -> Optional[torch.Tensor]:
+    """
+    GFLAG-0051 / MECH-151 (ARC-007 option A): the E3 RANKING channel for E1's
+    cue-derived action_bias (SD-016 extract_cue_context, action_bias =
+    E1.cue_action_proj(cue_context)).
+
+    Before this, action_bias reached only HippocampalModule's CEM proposal-mean
+    translation (o_t += action_bias, identical across every candidate) -- a
+    shift to the PROPOSAL pool, not a signal any scoring pass reads, and
+    e3_selector.py had zero action_object/action_bias references (GFLAG-0043
+    structural finding). ARC-007 STRICT forbids computing a value/weighting
+    inside HippocampalModule (value-flat proposals only: "No separate value
+    head ... E3 introduces ALL weighting"), so this function -- called from
+    E3's own module -- is where action_bias becomes a per-candidate ranking
+    term: MECH-151's registered wording, "action-objects consistent with the
+    cue are ELEVATED, contextually inappropriate ones SUPPRESSED".
+
+    Per candidate, the mean cosine similarity between that candidate's OWN
+    action-objects (SD-004, Trajectory.action_objects -- genuinely different
+    per candidate, unlike the proposal-mean translation) and the action_bias
+    direction is computed, then negated (REE E3 score convention: lower is
+    better, so an ELEVATED/aligned candidate must receive a MORE NEGATIVE
+    bias). Because each candidate's action_objects differ, this is per-
+    candidate by construction and therefore NOT argmin-invariant (the
+    V3-EXQ-571 lesson that a shared additive shift cannot move a ranking).
+
+    Args:
+        candidates:  list of Trajectory objects (as passed to E3.select()).
+        action_bias: [batch, action_object_dim] or None (SD-016 cache). None
+                     -> no direction to align against, returns None.
+        weight:      scales the returned bias (config.e3.action_object_bias_weight).
+
+    Returns:
+        [K] tensor (K = len(candidates)), lower-is-better, or None when
+        action_bias is None or no candidate carries action_objects.
+    """
+    if action_bias is None or not candidates:
+        return None
+    device = action_bias.device
+    dtype = action_bias.dtype
+    bias_vec = action_bias.detach().to(device=device, dtype=dtype)
+    if bias_vec.dim() > 1:
+        bias_vec = bias_vec.mean(dim=0)  # [ao_dim]: collapse batch to one direction
+    bias_norm = float(bias_vec.norm().item())
+    if bias_norm < 1e-8:
+        return None  # no direction to align against -- inert, not a fabricated 0 bias
+
+    alignments = []
+    any_action_objects = False
+    for cand in candidates:
+        ao_seq = cand.get_action_object_sequence() if hasattr(
+            cand, "get_action_object_sequence"
+        ) else None
+        if ao_seq is None:
+            alignments.append(torch.zeros((), device=device, dtype=dtype))
+            continue
+        any_action_objects = True
+        ao_seq = ao_seq.detach().to(device=device, dtype=dtype)  # [batch, horizon, ao_dim]
+        mean_ao = ao_seq.reshape(-1, ao_seq.shape[-1]).mean(dim=0)  # [ao_dim]
+        ao_norm = float(mean_ao.norm().item())
+        if ao_norm < 1e-8:
+            alignments.append(torch.zeros((), device=device, dtype=dtype))
+            continue
+        cos_sim = torch.dot(mean_ao / ao_norm, bias_vec / bias_norm)
+        alignments.append(cos_sim)
+
+    if not any_action_objects:
+        return None
+    alignment = torch.stack(alignments)  # [K], higher = more ELEVATED/aligned
+    return -float(weight) * alignment
+
+
 class E3TrajectorySelector(nn.Module):
     """
     E3 Trajectory Selector — V3.

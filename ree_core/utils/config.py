@@ -1852,6 +1852,34 @@ class E3Config:
     # chip-20260819-e3-last-scores-prearbitration-staleness.
     use_post_arbitration_last_scores: bool = False
 
+    # GFLAG-0051 / MECH-151 action-object ranking channel (2026-09-01,
+    # ARC-007 option A -- user-authorised build, substrate_queue
+    # mech151-action-bias-has-no-e3-ranking-channel). MECH-151 asserts E1's
+    # cue-derived action_bias (SD-016 extract_cue_context) causes E3 to rank
+    # cue-consistent action-objects highly and suppress inappropriate ones.
+    # Before this flag, action_bias reached only HippocampalModule's CEM
+    # proposal-mean translation (o_t += action_bias, identical across every
+    # candidate) -- a shift to the PROPOSAL pool, not a RANKING signal, and
+    # e3_selector.py had zero action_object/action_bias references (GFLAG-0043
+    # structural finding, pinned in test_exp0155_action_bias_no_scoring_authority.py).
+    # ARC-007 STRICT forbids computing this weighting inside HippocampalModule
+    # (value-flat proposals only), so the alignment between each candidate's
+    # OWN action-object trajectory (SD-004, Trajectory field) and action_bias
+    # is computed in ree_core.predictors.e3_selector.compute_action_object_alignment_bias
+    # and folded into E3's existing per-candidate score_bias chain (composed in
+    # REEAgent.select_action, agent.py, alongside dACC/OFC/lateral-PFC/etc.) --
+    # E3 remains the sole locus that turns it into a selection weighting.
+    # Per-candidate by construction (each candidate's own action-object
+    # trajectory differs), so unlike a shared additive shift this is NOT
+    # argmin-invariant (the V3-EXQ-571 lesson). Default False -> bit-identical
+    # (no kwarg reaches score_bias). See
+    # evidence/planning/mech151_affordance_set_instrumentation_design_blocked_20260818.md.
+    use_action_object_bias_channel: bool = False
+    # Scales the alignment bias before it is added into score_bias. Score
+    # convention is lower-is-better, so a positively-aligned (ELEVATED)
+    # candidate receives -weight * cosine_similarity.
+    action_object_bias_weight: float = 1.0
+
 
 @dataclass
 class EventSegmenterScaleConfig:
@@ -7743,6 +7771,10 @@ class REEConfig:
         # E3-last-scores-pre-arbitration-staleness repair (2026-08-20). No-op
         # default; bit-identical OFF.
         use_post_arbitration_last_scores: bool = False,
+        # GFLAG-0051 / MECH-151 action-object ranking channel (2026-09-01).
+        # No-op default; bit-identical OFF.
+        use_action_object_bias_channel: bool = False,
+        action_object_bias_weight: float = 1.0,
         # MECH-290: backward trajectory credit sweep
         use_backward_credit_sweep: bool = False,
         backward_sweep_gamma: float = 0.9,
@@ -9265,6 +9297,10 @@ class REEConfig:
 
         # E3-last-scores-pre-arbitration-staleness repair (2026-08-20).
         config.e3.use_post_arbitration_last_scores = use_post_arbitration_last_scores
+
+        # GFLAG-0051 / MECH-151 action-object ranking channel (2026-09-01).
+        config.e3.use_action_object_bias_channel = use_action_object_bias_channel
+        config.e3.action_object_bias_weight = action_object_bias_weight
 
         # MECH-290: backward trajectory credit sweep
         config.hippocampal.use_backward_credit_sweep = use_backward_credit_sweep

@@ -59,7 +59,11 @@ from ree_core.predictors.e3_score_diversity import (
     E3ScoreDiversity,
     build_from_ree_config as build_e3_score_diversity_from_ree_config,
 )
-from ree_core.predictors.e3_selector import E3TrajectorySelector, project_channel_range
+from ree_core.predictors.e3_selector import (
+    E3TrajectorySelector,
+    project_channel_range,
+    compute_action_object_alignment_bias,
+)
 from ree_core.residue.field import ResidueField
 from ree_core.hippocampal.ghost_goal_bank import PersistenceAppraisal
 from ree_core.hippocampal.module import HippocampalModule
@@ -8927,6 +8931,33 @@ class REEAgent(nn.Module):
                     dacc_score_bias = _do_bias
                 else:
                     dacc_score_bias = dacc_score_bias + _do_bias.to(
+                        dtype=dacc_score_bias.dtype, device=dacc_score_bias.device
+                    )
+
+        # GFLAG-0051 / MECH-151 (ARC-007 option A, 2026-09-01, user-authorised):
+        # E3's action-object ranking channel. self._cue_action_bias is the SAME
+        # SD-016 action_bias already fed to HippocampalModule's CEM proposal-mean
+        # translation above (agent.py:6059) -- this is the SECOND, previously-
+        # missing consumer that lets it change a RANKING rather than only the
+        # proposal pool. Composed additively with the other score_bias heads
+        # exactly like the orienting-decision bias above; folds into the
+        # "residual" finer-channel bucket (curiosity / blocked-agency / etc.)
+        # when use_finer_channel_gating is on, since this is not (yet) a
+        # separately-learnable named channel. Bit-identical when the flag is
+        # off or there is no cue action_bias to align against.
+        if getattr(self.config.e3, "use_action_object_bias_channel", False):
+            _aob_bias = compute_action_object_alignment_bias(
+                candidates,
+                self._cue_action_bias,
+                weight=float(
+                    getattr(self.config.e3, "action_object_bias_weight", 1.0)
+                ),
+            )
+            if _aob_bias is not None:
+                if dacc_score_bias is None:
+                    dacc_score_bias = _aob_bias
+                else:
+                    dacc_score_bias = dacc_score_bias + _aob_bias.to(
                         dtype=dacc_score_bias.dtype, device=dacc_score_bias.device
                     )
 
