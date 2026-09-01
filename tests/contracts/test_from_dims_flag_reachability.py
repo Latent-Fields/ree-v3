@@ -332,7 +332,22 @@ KNOWN_FROM_DIMS_DROP_SITES = {
             "correctly; the sweep reports PARTIAL only because a same-named field "
             "on an unrelated config does not move. Registered so that a later "
             "session does not 'repair' it by plumbing from_dims into the ghost "
-            "bank, which would silently couple two unrelated knobs."
+            "bank, which would silently couple two unrelated knobs. "
+            "v3_exq_966/967 (added 2026-08-30/2026-09-01, ree-v3 b06d3bdd/"
+            "0fa2959) were flagged here as a fresh RED on trunk "
+            "(chip-20260901-fromdims-wanting-weight-trunk-red) and checked "
+            "against MEASURED evidence, not just source-reading: both "
+            "recorded manifests read back the LIVE config post-construction "
+            "and confirm the value actually lands on "
+            "hippocampal.wanting_weight -- v3_exq_966's manifest records "
+            "orig_wanting_weight=5.0 read from agent.hippocampal.config."
+            "wanting_weight (script reads it back at that path, see the "
+            "driver's C1 flip-check), and v3_exq_967 goes further and adds "
+            "its own runtime landed-assertion for exactly this concern "
+            "(wanting_weight_live / wanting_weight_landed, both arms True "
+            "in the recorded manifest "
+            "v3_exq_967_..._20260901T062344Z_v3.json). Same negative "
+            "control as the rest of this entry; no evidence invalidated."
         ),
         "paths": {
             "experiments/v3_exq_259_wanting_gradient_navigation.py",
@@ -351,6 +366,8 @@ KNOWN_FROM_DIMS_DROP_SITES = {
             "experiments/v3_exq_560_goal_stream_selectivity_score_decomp.py",
             "experiments/v3_exq_914_mech236_hippocampal_zgoal_channel_ablation.py",
             "experiments/v3_exq_931_cem_wanting_weight_selection_authority.py",
+            "experiments/v3_exq_966_mech143_144_hippocampal_value_sensitivity_causal.py",
+            "experiments/v3_exq_967_mech144_shuffle_inertness_confirmer.py",
         },
     },
 }
