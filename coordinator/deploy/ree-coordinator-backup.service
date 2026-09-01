@@ -1,0 +1,10 @@
+[Unit]
+Description=REE coordinator DB backup (daily, weekday-rotated; runbook R6)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ree
+ExecStart=/usr/local/bin/ree_coordinator_backup.sh
+TimeoutStartSec=300
+Nice=15

@@ -1,0 +1,10 @@
+[Unit]
+Description=REE coordinator DB backup timer (daily 03:40 UTC, weekday-rotated)
+
+[Timer]
+OnCalendar=*-*-* 03:40:00 UTC
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
