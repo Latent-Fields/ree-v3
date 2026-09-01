@@ -47,9 +47,9 @@ name: Cloud Worker Scaler
 # Orchestrator veto: a scaler-managed box may ALSO run metaworker-dispatch.
 # That work creates no queue claim and no runner heartbeat, so every other
 # signal here reads clean_idle while live `claude -p` workers are mid-flight.
-# The box publishes a role=orchestrator heartbeat under
-# "<affinity>-metaworker.json" in the runner_heartbeats sparse checkout this
-# workflow already pulls. It vetoes shutdown when in_flight_dispatches > 0
+# The box publishes a role=orchestrator heartbeat that reaches this workflow
+# as the "<affinity>-metaworker" machine row inside the live-status branch's
+# fleet_status.json (since 2026-09-01; previously a runner_heartbeats file). It vetoes shutdown when in_flight_dispatches > 0
 # (strong: live workers) or chips_open_work > 0 (weak: backlog it would pick
 # up next tick). An orchestrator that is idle AND has an empty ledger does NOT
 # veto -- so the box is stopped only when BOTH planes (experiment queue and
