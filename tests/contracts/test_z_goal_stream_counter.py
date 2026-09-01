@@ -92,6 +92,27 @@ Guarantees enforced here:
       channel -- they are real eval-loop activity, just not attributable to the
       writer. Default False -- unchanged behaviour for every existing call site,
       and the real Z4 defect must still fire when the flag is not passed.
+  Z15. THE CUE-RECALL-ONLY FALSE POSITIVE, FIXED AT THE SOURCE (found 2026-09-01).
+      `REEAgent.cue_recall_wanting` (SD-057 L6, MECH-347) calls `GoalState.cue_pull`
+      directly, bypassing `update_z_goal` entirely -- so a driver whose z_goal moves
+      ONLY through cue-recall used to read `writer_calls == 0` with a live,
+      non-degenerate `active_frac`, indistinguishable from Z4's real defect. Unlike
+      Z12/Z14, the fix is not an opt-in flag: `cue_recall_wanting` now increments
+      `z_goal_writer_calls` itself, immediately after its own reachability gate
+      (`goal_state` present and `GoalConfig.use_cue_recall` set) -- mirroring
+      `update_z_goal`'s placement right after its own analogous gate
+      (`goal_state is None`). Pinned here: (a) a cue-recall-only run now correctly
+      reads `writer_defect` as not-True; (b) the counter still increments even when
+      the wanting-amplitude/token-match checks downstream find nothing to pull
+      (the cue-recall equivalent of Z4's "benefit gate never opened" reading); (c)
+      the real defect is unaffected -- with `use_cue_recall` off, or with
+      `simulation_mode=True` (MECH-094 replay safety), the call must NOT increment,
+      so a driver that never engages either writer still reads the unambiguous
+      `writer_calls == 0` signature. No landed driver currently hits the
+      cue-recall-only shape in isolation (every corpus caller of
+      `cue_recall_wanting` also calls `update_z_goal` on the same run -- see the
+      `_harness.py` / `scaffolded_sd054_onboarding.py` call sites), so this closes
+      a latent gap rather than an observed false positive.
 """
 
 from __future__ import annotations
@@ -1288,3 +1309,159 @@ def test_z14_dry_run_ordinary_unmeasured_run_keeps_the_old_wording(tmp_path, cap
     out = _dry_write(tmp_path, capsys, dry_run=True, agent=agent)
     assert "no ticks with goal_state present" in out
     assert "deliberately pinned" not in out
+
+
+# ---- Z15: the cue-recall-only false positive, fixed at the source ---------------------
+
+def _cue_recall_agent(seed: int = 0, *, use_cue_recall: bool = True):
+    """An agent with GoalState + a live SD-057 incentive bank, matching
+    test_flag_inertness.py::test_use_cue_recall_gates_cue_recall_wanting's recipe --
+    the minimal config that makes `cue_recall_wanting` reachable."""
+    set_all_seeds(seed)
+    env = make_tiny_env(seed=seed)
+    cfg = make_tiny_config(env, z_goal_enabled=True, goal_weight=0.5)
+    cfg.goal.use_incentive_token_bank = True
+    cfg.goal.use_cue_recall = use_cue_recall
+    return REEAgent(cfg), env
+
+
+def _seed_bank_token(agent, cue_type: int = 1) -> None:
+    """Populate the incentive bank with a real, positive-value token for
+    `cue_type` so `cue_recall_wanting` can find a match and actually pull."""
+    gs = agent.goal_state
+    z_obj = torch.randn(1, gs.config.goal_dim)
+    gs.incentive_bank.update(resource_type=cue_type, benefit=1.0, z_object=z_obj)
+
+
+def _step_cue_recall(agent, env, obs_dict, *, fire_cue: bool, cue_type: int = 1):
+    """One hand-rolled tick that writes z_goal ONLY via `cue_recall_wanting` --
+    `update_z_goal` is deliberately never called, mirroring the third
+    false-positive shape documented in `_lib/z_goal_stream.py`."""
+    latent = agent.sense(
+        obs_dict["body_state"], obs_dict["world_state"],
+        obs_harm=obs_dict.get("harm_obs"),
+        obs_harm_a=obs_dict.get("harm_obs_a"),
+        obs_harm_history=obs_dict.get("harm_history"),
+    )
+    ticks = agent.clock.advance()
+    e1_prior = torch.zeros(1, latent.z_world.shape[-1], device=agent.device)
+    candidates = agent.generate_trajectories(latent, e1_prior, ticks)
+    if fire_cue:
+        agent.cue_recall_wanting(cue_type=cue_type, drive_level=1.0)
+    action = agent.select_action(candidates, ticks, temperature=1.0)
+    if action is None:
+        action = torch.zeros(1, env.action_dim, device=agent.device)
+        action[0, 0] = 1.0
+    _flat, _harm, _done, _info, next_obs = env.step(action)
+    return next_obs
+
+
+def test_z15_cue_recall_only_driver_is_not_reported_as_the_defect():
+    """DIRECTION 1 -- the fix. A driver whose z_goal moves ONLY through
+    cue_recall_wanting, never calling update_z_goal, must read writer_calls > 0
+    and writer_defect is not True -- exactly like a driver correctly wired through
+    update_z_goal whose benefit gate never opened."""
+    agent, env = _cue_recall_agent(seed=200, use_cue_recall=True)
+    _seed_bank_token(agent, cue_type=1)
+    _flat, obs_dict = env.reset()
+    agent.reset()
+    for _ in range(5):
+        obs_dict = _step_cue_recall(agent, env, obs_dict, fire_cue=True, cue_type=1)
+
+    assert agent.z_goal_writer_calls > 0, (
+        "cue_recall_wanting must count as a writer call when its reachability "
+        "gate (goal_state present, use_cue_recall set) is satisfied"
+    )
+    assert agent.z_goal_active_frac is not None and agent.z_goal_active_frac > 0.0
+
+    stats = ZGS.z_goal_stream_stats(agent)
+    assert stats["writer_calls"] == agent.z_goal_writer_calls
+    assert stats["writer_defect"] is not True, (
+        "a cue-recall-only driver must not be flagged as the missing-call defect"
+    )
+
+
+def test_z15_writer_calls_not_incremented_when_use_cue_recall_is_off():
+    """DIRECTION 2 -- the real defect is unaffected. A driver that calls
+    cue_recall_wanting every tick but never enabled GoalConfig.use_cue_recall, and
+    never calls update_z_goal either, has genuinely never engaged a writer: the
+    reachability gate did not pass, so writer_calls must stay 0 and the run must
+    still read as the unambiguous Z4 defect signature."""
+    agent, env = _cue_recall_agent(seed=201, use_cue_recall=False)
+    _flat, obs_dict = env.reset()
+    agent.reset()
+    for _ in range(5):
+        obs_dict = _step_cue_recall(agent, env, obs_dict, fire_cue=True, cue_type=1)
+
+    assert agent.z_goal_writer_calls == 0
+    assert agent.z_goal_active_frac == 0.0
+    stats = ZGS.z_goal_stream_stats(agent)
+    assert stats["writer_defect"] is True
+
+
+def test_z15_writer_calls_increments_even_when_no_matching_token_fires():
+    """The cue-recall equivalent of Z4's benefit-gate-never-opened reading:
+    writer_calls increments as soon as cue-recall is configured and reachable,
+    even when the wanting-amplitude/token-match checks downstream find nothing to
+    pull (no bank entry seeded for this cue type) -- correctly wired, no signal
+    this tick, not a defect."""
+    agent, env = _cue_recall_agent(seed=202, use_cue_recall=True)
+    # Deliberately do NOT seed a token -- cue_type=1 has no matching bank entry.
+    _flat, obs_dict = env.reset()
+    agent.reset()
+    for _ in range(5):
+        obs_dict = _step_cue_recall(agent, env, obs_dict, fire_cue=True, cue_type=1)
+
+    assert agent.z_goal_writer_calls > 0
+    assert agent.z_goal_active_frac == 0.0  # never actually pulled -- no live goal
+
+
+def test_z15_simulation_mode_call_does_not_increment():
+    """MECH-094: simulation_mode=True is a no-op that must not move z_goal via a
+    cue -- and must not read as a writer call either, since replay is
+    deliberately not engaging the write pathway at all."""
+    agent, env = _cue_recall_agent(seed=203, use_cue_recall=True)
+    _seed_bank_token(agent, cue_type=1)
+    strength = agent.cue_recall_wanting(
+        cue_type=1, drive_level=1.0, simulation_mode=True
+    )
+    assert strength == 0.0
+    assert agent.z_goal_writer_calls == 0
+
+
+def test_z15_mixed_driver_update_z_goal_and_cue_recall_both_count():
+    """Regression: a driver combining both writers (the landed corpus shape --
+    every SD-057 cue-recall driver also calls update_z_goal on the same run, per
+    the module docstring) must pool both into the same counter rather than one
+    shadowing the other."""
+    agent, env = _cue_recall_agent(seed=204, use_cue_recall=True)
+    _seed_bank_token(agent, cue_type=1)
+    _flat, obs_dict = env.reset()
+    agent.reset()
+
+    obs_dict = _step_cue_recall(agent, env, obs_dict, fire_cue=True, cue_type=1)
+    assert agent.z_goal_writer_calls == 1
+
+    agent.update_z_goal(benefit_exposure=1.0, drive_level=1.0)
+    assert agent.z_goal_writer_calls == 2
+
+
+def test_z15_pin_shape_is_unaffected_by_the_cue_recall_fix():
+    """Regression against Z14: a driver that pins z_goal directly (never calling
+    cue_recall_wanting at all, even with use_cue_recall configured on) must still
+    read writer_calls == 0 -- this fix only touches the cue_recall_wanting entry
+    point, not the direct-write pin path, which still needs the explicit
+    `goal_pinned` opt-in."""
+    agent, env = _cue_recall_agent(seed=205, use_cue_recall=True)
+    _flat, obs_dict = env.reset()
+    agent.reset()
+    for _ in range(4):
+        _pin_goal(agent, magnitude=0.5)
+        obs_dict = _step_cue_recall(agent, env, obs_dict, fire_cue=False)
+
+    assert agent.z_goal_writer_calls == 0
+    assert agent.z_goal_active_frac == 1.0
+    stats = ZGS.z_goal_stream_stats(agent)
+    assert stats["writer_defect"] is True  # undeclared pin still reads as the defect
+    pinned_stats = ZGS.z_goal_stream_stats(agent, goal_pinned=True)
+    assert pinned_stats["writer_defect"] is None

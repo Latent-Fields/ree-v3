@@ -11247,11 +11247,16 @@ class REEAgent(nn.Module):
 
     @property
     def z_goal_writer_calls(self) -> int:
-        """Calls to `update_z_goal()` -- the SOLE z_goal writer -- so far.
+        """Calls to `update_z_goal()` or `cue_recall_wanting()` -- the two counted
+        z_goal writers -- so far.
 
-        Counted at the top of the method, so it records that the DRIVER made the
-        call regardless of whether goal_state exists or the benefit gate fired.
-        This is what disambiguates a zero `z_goal_active_frac`; see that property.
+        `update_z_goal` counts at the top of the method, so it records that the
+        DRIVER made the call regardless of whether goal_state exists or the benefit
+        gate fired. `cue_recall_wanting` counts immediately after its own analogous
+        reachability gate (goal_state present and cue-recall configured), regardless
+        of whether its wanting-amplitude/token-match checks end up firing -- the
+        SD-057 (MECH-347) equivalent of the benefit gate not opening. This is what
+        disambiguates a zero `z_goal_active_frac`; see that property.
         """
         return int(self._z_goal_writer_calls)
 
@@ -11266,7 +11271,8 @@ class REEAgent(nn.Module):
         driver is buggy -- read it together with `z_goal_writer_calls`:
 
           writer_calls == 0, ticks_total > 0  -> THE DEFECT. The driver never called
-              update_z_goal, so z_goal could not have moved (V3-EXQ-626, V3-EXQ-830).
+              update_z_goal or cue_recall_wanting, so z_goal could not have moved
+              (V3-EXQ-626, V3-EXQ-830).
           writer_calls > 0, ticks_active == 0 -> correctly wired, but GoalState.update's
               benefit gate never opened (benefit_exposure < goal.benefit_threshold,
               default 0.1) because the run met no resource. Real, and often expected:
@@ -11597,6 +11603,20 @@ class REEAgent(nn.Module):
         gs = self.goal_state
         if gs is None or not getattr(gs.config, "use_cue_recall", False):
             return 0.0
+        # Dead-z_goal-stream counter (see update_z_goal / __init__ for the full
+        # rationale): this is the SECOND entry point that can write z_goal --
+        # GoalState.cue_pull below is reached directly, bypassing update_z_goal
+        # entirely. Counted here, immediately after the gate above, mirroring
+        # update_z_goal's own placement right after its analogous reachability
+        # gate (`self.goal_state is None`): count as soon as cue-recall is
+        # configured and reachable, whether or not the wanting-amplitude /
+        # token-match checks below end up firing (those are this method's
+        # equivalent of update_z_goal's benefit gate not opening -- correctly
+        # wired, not a defect). Closes the false positive documented in
+        # z_goal_stream.py's "pinned-goal false positive" section: a driver
+        # whose z_goal moves ONLY through cue-recall (never calling
+        # update_z_goal) must not read writer_calls == 0.
+        self._z_goal_writer_calls += 1
         bank = getattr(gs, "incentive_bank", None)
         if bank is None:
             return 0.0

@@ -3,11 +3,14 @@ z_goal stream liveness -- the RUNTIME half of the dead-z_goal-stream backstop.
 
 The defect
 ----------
-``REEAgent.update_z_goal(...)`` is the SOLE writer of z_goal in the substrate.
-``sense()`` / ``generate_trajectories()`` / ``select_action()`` / ``update_residue()``
-all leave it untouched, and both ``GoalState`` mutators (``update`` / ``cue_pull``) are
-reached only from inside it. A driver that hand-rolls its inner loop and omits the call
-therefore runs with z_goal pinned at zero-init for the whole run: ``GoalState.is_active()``
+``REEAgent.update_z_goal(...)`` and ``REEAgent.cue_recall_wanting(...)`` (SD-057 L6,
+MECH-347) are the two counted writers of z_goal in the substrate -- both increment
+``agent.z_goal_writer_calls`` themselves (see each method's own comment) precisely
+because ``sense()`` / ``generate_trajectories()`` / ``select_action()`` /
+``update_residue()`` all leave it untouched, and ``GoalState``'s two mutators
+(``update`` / ``cue_pull``) are reached only from inside one of those two entry
+points. A driver that hand-rolls its inner loop and omits BOTH calls therefore runs
+with z_goal pinned at zero-init for the whole run: ``GoalState.is_active()``
 returns False, ``agent.py`` passes ``current_z_goal=None`` to every consumer, and the E3
 goal term, MECH-293 ghost probes, MECH-288's slow BOCPD scale, MECH-189 super-ordinal
 anchors, the SD-057 incentive bank, the MECH-295 liking->approach bridge and the
@@ -146,17 +149,31 @@ by the letter of the inference above, ``writer_defect: true``, and it reached
 
 **Why ``writer_calls == 0`` with ``active_frac == 1.0`` is NOT a safe auto-detection
 signature for "this was a deliberate pin", even though it is what a pin produces.**
-``update_z_goal`` is documented above as the sole writer, but it is not the only
-*entry point* that can move ``_z_goal``: ``REEAgent.cue_recall_wanting`` calls
-``GoalState.cue_pull`` directly and is driver-callable on its own (see
-``experiments/_harness.py``, ``scaffolded_sd054_onboarding.py`` and the SD-057
-cue-recall drivers) -- so a run driven purely by cue-recall wanting, never calling
-``update_z_goal`` at all, legitimately reads ``writer_calls == 0`` with a live,
-non-degenerate active fraction. That is not a pin and not a defect; it is a third
-shape the counter cannot distinguish from a pin by number alone. This is the same
-shape of problem as the training-phase case just above -- the signature is
-CONSISTENT with a pin, but not UNIQUE to one -- so the fix is the same: an explicit
-opt-in, never a heuristic on the counters.
+``update_z_goal`` is documented above as A sole-ish writer, but until 2026-09-01 it was
+not the only *entry point* that could move ``_z_goal`` without incrementing the
+counter: ``REEAgent.cue_recall_wanting`` calls ``GoalState.cue_pull`` directly and is
+driver-callable on its own (see ``experiments/_harness.py``,
+``scaffolded_sd054_onboarding.py`` and the SD-057 cue-recall drivers), so a run driven
+purely by cue-recall wanting, never calling ``update_z_goal`` at all, used to
+legitimately read ``writer_calls == 0`` with a live, non-degenerate active fraction --
+a third shape the counter could not distinguish from a pin by number alone.
+
+**Resolved at the source (2026-09-01), unlike the pin case below.** Because
+``cue_recall_wanting`` is itself a counted writer (it increments
+``agent.z_goal_writer_calls`` immediately after its own reachability gate -- see the
+method's comment in ``ree_core/agent.py``), a driver whose z_goal moves only through
+cue-recall now correctly reads ``writer_calls > 0``, exactly like a driver that only
+ever meets ``update_z_goal``'s benefit gate closed. This is NOT the same fix as the
+``goal_pinned`` opt-in below -- no landed driver currently hits the cue-recall-only
+shape in isolation (every corpus caller of ``cue_recall_wanting`` also calls
+``update_z_goal`` on the same run, per ``ree-v3/tests/contracts/
+test_z_goal_stream_counter.py``'s Z-series), so this was a latent gap rather than an
+observed false positive -- but the fix is general and holds for any future driver
+that hits the shape. The ``_pin_goal`` case immediately below is a genuinely
+DIFFERENT mechanism (a direct write to ``goal_state._z_goal``, bypassing every
+counted writer including ``cue_recall_wanting``) and still needs the explicit opt-in:
+no counter placement can distinguish "deliberately pinned" from "genuinely broken"
+when the write path itself is never called.
 
 **The fix: an explicit ``goal_pinned`` flag on every observation entry point**
 (``z_goal_stream_stats``, ``ZGoalStreamAccumulator.observe``/``observe_stats``,
