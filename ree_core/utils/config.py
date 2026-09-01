@@ -11,6 +11,7 @@ V3 changes vs V2:
 - REEConfig: added multi-rate clock params (SD-006)
 """
 
+import sys
 from dataclasses import dataclass, field
 from typing import Dict, List, Literal, Optional
 
@@ -3019,6 +3020,73 @@ class EnvironmentConfig:
     # SD-005: observation channel dimensions
     body_obs_dim: int = 10    # proprioceptive channels (position, health, energy, footprint)
     world_obs_dim: int = 54   # exteroceptive channels (local view, contamination)
+
+
+# --- observed-REEConfig registry (provenance recording) ----------------------
+# WHY THIS EXISTS. `enabled_default_off_flags` in
+# experiments/_lib/manifest_core.py records which default-off REEConfig knobs a
+# run genuinely turned on -- the field
+# substrate_stability_and_drift_detection_plan.md node `P1c-prospective-recording`
+# built, and the one a later drift analysis needs to decide whether a substrate
+# change could even have reached this run. It could only ever be computed when a
+# driver remembered to pass `agent=` to write_flat_manifest, and an AST census of
+# ree-v3/experiments on 2026-09-01 found that at 210 of 1046 driver files (20%),
+# against `config=` at 1046 of 1046 -- but `config=` carries a hand-built dict
+# summary, not a REEConfig, so it cannot be introspected for coded defaults.
+# Measured corpus coverage was ~30% of recent manifests and ~4% overall.
+#
+# The recording standard's stated goal is that a new experiment carries enough
+# provenance WITHOUT its author remembering a ritual. `agent=` is a ritual. This
+# registry removes it: every REEConfig built anywhere in the process announces
+# itself here, and the manifest stamper reads the registry when no agent was
+# passed. Nothing in an experiment script changes.
+#
+# WHY ON `sys`, AND NOT A MODULE GLOBAL. Exactly the reason arm_fingerprint's
+# snapshot state and manifest_core's _PINNED_COMMITS are: these modules get
+# imported under more than one name in a normal experiment process (package
+# import, path-relative import), and two module dicts would give two disagreeing
+# registries. It is also why manifest_core can read this WITHOUT importing
+# ree_core at all -- it keeps its stdlib-only guarantee and the two sides share
+# only an attribute name, documented on both.
+#
+# WHY STRONG REFS, AND WHY CAPPED. A REEConfig is a small tree of scalars, so
+# holding a few hundred costs nothing; agents, by contrast, hold torch tensors
+# and are deliberately NOT registered here. The cap bounds a pathological
+# many-arm run, and the overflow COUNT is kept so a truncated registry can say so
+# rather than silently under-reporting which knobs were on.
+#
+# NEVER RAISES. A provenance side effect must not be able to break config
+# construction, which is on the path of every experiment in the fleet.
+_OBSERVED_CONFIG_ATTR = "_ree_observed_reeconfigs"
+_OBSERVED_CONFIG_CAP = 512
+
+
+def _observed_config_registry() -> dict:
+    reg = getattr(sys, _OBSERVED_CONFIG_ATTR, None)
+    if not isinstance(reg, dict):
+        reg = {"configs": [], "overflow": 0, "suppressed": False}
+        setattr(sys, _OBSERVED_CONFIG_ATTR, reg)
+    return reg
+
+
+def _register_observed_config(cfg: object) -> None:
+    """Announce a freshly-built REEConfig to the process-wide registry."""
+    try:
+        reg = _observed_config_registry()
+        # `suppressed` is set by the READER while it constructs stock instances
+        # for comparison (enabled_default_off_flags does `type(config)()`).
+        # Without it, reading the registry would grow it by one stock config per
+        # entry -- harmless in content, since a stock config reports nothing
+        # enabled, but unbounded across repeated reads.
+        if reg.get("suppressed"):
+            return
+        configs = reg["configs"]
+        if len(configs) >= _OBSERVED_CONFIG_CAP:
+            reg["overflow"] = reg.get("overflow", 0) + 1
+            return
+        configs.append(cfg)
+    except Exception:
+        pass
 
 
 @dataclass
@@ -6496,6 +6564,12 @@ class REEConfig:
         # conjunction continues to work (passive diagnostic mode).
         if self.use_mech090_readiness_conjunction:
             self.use_commit_readiness = True
+
+        # Provenance recording -- see the _register_observed_config block above.
+        # LAST in __post_init__ on purpose: the resolvers above mutate flags, and
+        # the registry must observe the RESOLVED config (the one the run actually
+        # uses), not the pre-resolution literal the caller passed. Never raises.
+        _register_observed_config(self)
 
     def enable_sleep_aggregation_cluster(self) -> "REEConfig":
         """Enable the full Phase A-E sleep-aggregation cluster (GAP-3).

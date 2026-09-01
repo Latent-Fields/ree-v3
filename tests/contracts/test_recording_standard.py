@@ -19,6 +19,7 @@ ASCII-only. Run: pytest tests/contracts/test_recording_standard.py -q
 from __future__ import annotations
 
 import json
+import sys
 import tempfile
 from pathlib import Path
 
@@ -137,7 +138,20 @@ def test_mandatory_core_keys_is_a_subset_of_always_core_keys():
 
 
 def test_missing_mandatory_core_fields_reports_gaps():
-    assert set(mc.missing_mandatory_core_fields({})) == set(mc.MANDATORY_CORE_KEYS)
+    # substrate_commit is reported too, but CONDITIONALLY -- it is absent from
+    # MANDATORY_CORE_KEYS (a git-less checkout is legitimate) and is added by
+    # missing_mandatory_core_fields only when the manifest carries neither the
+    # commit nor `substrate_commit_unavailable`. An empty manifest carries
+    # neither, so it is reported here.
+    assert (set(mc.missing_mandatory_core_fields({}))
+            == set(mc.MANDATORY_CORE_KEYS) | {"substrate_commit"})
+    assert "substrate_commit" not in mc.MANDATORY_CORE_KEYS
+
+
+def test_missing_mandatory_core_fields_accepts_an_explained_commit_absence():
+    m = {k: "x" for k in mc.MANDATORY_CORE_KEYS}
+    m["substrate_commit_unavailable"] = {"reason": "no_git_checkout"}
+    assert mc.missing_mandatory_core_fields(m) == []
 
 
 def test_missing_mandatory_core_fields_empty_when_stamped():
@@ -274,12 +288,34 @@ def test_stamp_recording_core_records_enabled_flags_when_agent_given():
     assert m["enabled_default_off_flags"] == {"use_top": True}
 
 
-def test_stamp_recording_core_omits_enabled_flags_without_agent():
-    # Omitted, not {} -- presence must always mean "measured" (same convention as
-    # z_goal_stream), so a caller that never passed an agent must see the key absent.
-    m = {}
-    mc.stamp_recording_core(m, config={"a": 1})
+def test_stamp_recording_core_omits_enabled_flags_when_nothing_was_observed():
+    """Omitted, not {} -- presence must always mean "measured".
+
+    REWRITTEN 2026-09-01 (substrate_stability:P1c-central-propagation). The
+    original asserted the key was absent whenever no `agent=` was passed. That is
+    no longer the contract: stamp_recording_core now falls back to the
+    process-wide observed-REEConfig registry, precisely so a driver stops having
+    to remember a kwarg. The property that still holds, and that this test now
+    pins, is the one that mattered -- absent means NEVER MEASURED, so with
+    nothing observed AND no agent the key must still not appear.
+
+    The registry is swapped for an empty one rather than relied upon to be empty:
+    inside a shared pytest process any earlier test that built a REEConfig would
+    otherwise leave one in it, which is exactly how this test first failed.
+    """
+    prev = getattr(sys, mc._OBSERVED_CONFIG_ATTR, None)
+    setattr(sys, mc._OBSERVED_CONFIG_ATTR,
+            {"configs": [], "overflow": 0, "suppressed": False})
+    try:
+        m = {}
+        mc.stamp_recording_core(m, config={"a": 1})
+    finally:
+        if prev is None:
+            delattr(sys, mc._OBSERVED_CONFIG_ATTR)
+        else:
+            setattr(sys, mc._OBSERVED_CONFIG_ATTR, prev)
     assert "enabled_default_off_flags" not in m
+    assert "enabled_default_off_flags_source" not in m
 
 
 def test_stamp_recording_core_records_empty_dict_when_agent_given_but_nothing_differs():
@@ -349,12 +385,34 @@ def test_write_flat_manifest_passes_when_core_present():
         "substrate_hash": "0" * 64,
         "machine": "test-host",
         "machine_class": "test-class",
-        # substrate_commit deliberately absent -- it is NOT in MANDATORY_CORE_KEYS
-        # (needs a real git checkout; see that constant's docstring), so this must
-        # still pass without it.
+        # substrate_commit is still NOT in MANDATORY_CORE_KEYS -- a git-less
+        # environment must stay writable -- but since 2026-09-01 the absence must
+        # be EXPLAINED rather than silent. This fixture takes the explained-absence
+        # branch, which is the exact shape scripts/remote_pytest.sh's git-less
+        # staged tree produces via stamp_recording_core.
+        "substrate_commit_unavailable": {"reason": "no_git_checkout"},
     }
     out_path = pw.write_flat_manifest(manifest, tmp, stamp=False)
     assert out_path.is_file()
+
+
+def test_write_flat_manifest_refuses_a_silent_substrate_commit_gap():
+    """NEGATIVE CONTROL for the test above: neither field is a hard failure.
+
+    This is the case the conditional gate exists for -- a manifest that reaches
+    disk carrying no way at all to tell which substrate it ran. Before
+    2026-09-01 it was accepted silently.
+    """
+    tmp = Path(tempfile.mkdtemp())
+    manifest = {
+        "run_id": "wfm_silent_gap_v3", "outcome": "PASS",
+        "recording_schema": "rec/v1",
+        "substrate_hash": "0" * 64,
+        "machine": "test-host",
+        "machine_class": "test-class",
+    }
+    with pytest.raises(ValueError, match="substrate_commit"):
+        pw.write_flat_manifest(manifest, tmp, stamp=False)
 
 
 def test_write_flat_manifest_passes_when_stamped_from_real_repo():
@@ -388,6 +446,16 @@ def test_write_flat_manifest_escape_hatch_downgrades_to_warning(monkeypatch, cap
 _MANDATORY_CORE = {
     "recording_schema": "rec/v1", "substrate_hash": "0" * 64,
     "machine": "test-host", "machine_class": "test-class",
+    # substrate_commit is CONDITIONALLY mandatory since 2026-09-01 (closing
+    # substrate_stability:substrate-commit-coverage): a manifest must carry the
+    # commit OR the machine-readable reason it could not be taken -- silence is
+    # no longer accepted, because silence is exactly what a driver bypassing the
+    # stamper produces, and it made 69% of that plan's drift-candidate pairs
+    # permanently unassessable. These are stamp=False fixtures, so the stamper
+    # never runs and the fixture supplies it directly, as a real stamp=False
+    # driver's upstream stamp_recording_core call does (measured 2026-09-01:
+    # 21 of the 21 real stamp=False drivers already stamp upstream).
+    "substrate_commit": {"commit": "0" * 40, "dirty": False},
 }
 
 

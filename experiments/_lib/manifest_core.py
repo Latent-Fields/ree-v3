@@ -309,6 +309,49 @@ def _is_empty(value: Any) -> bool:
     return False
 
 
+# Coded-default reference instances, memoized per class. READ-ONLY BY CONTRACT --
+# every consumer only ever getattr()s them for comparison, and mutating one would
+# silently redefine "default" for every later call in the process.
+#
+# Two reasons this is memoized rather than built per call, and the SECOND is the
+# load-bearing one -- stated in that order because the first is the tempting
+# explanation and it turned out to be minor.
+#
+# (1) Cost, measured rather than assumed: with the observed-config registry at
+#     its 512 cap, a per-call build meant 512 REEConfig constructions per read.
+#     Memoizing them away moved one read from 0.264s to 0.230s -- i.e. the
+#     construction was ~13% of it and the recursive field walk is the rest. That
+#     residual walk is deliberately NOT optimised further: the read happens once
+#     per manifest write, at the end of a run that took hours, and a 512-entry
+#     registry only arises for a many-arm experiment in the first place.
+# (2) REGISTRY POLLUTION, which memoization actually fixes: constructing a stock
+#     REEConfig runs its __post_init__, which REGISTERS it -- so the act of
+#     reading the registry grew it, one entry per call, until it filled with
+#     nothing but comparison artifacts and began evicting real configs at the cap,
+#     silently under-reporting which knobs a run enabled. Suppression during
+#     construction (the `suppressed` flag) covers the first build per class; the
+#     cache means there is no second one.
+_STOCK_INSTANCES: Dict[Any, Any] = {}
+
+
+def _stock_instance(cls: Any) -> Any:
+    """A cached default-constructed instance of `cls`, for coded-default lookup."""
+    cached = _STOCK_INSTANCES.get(cls)
+    if cached is not None:
+        return cached
+    reg = _observed_config_registry()
+    prev = bool(reg.get("suppressed")) if reg is not None else False
+    if reg is not None:
+        reg["suppressed"] = True
+    try:
+        inst = cls()
+    finally:
+        if reg is not None:
+            reg["suppressed"] = prev
+    _STOCK_INSTANCES[cls] = inst
+    return inst
+
+
 def enabled_default_off_flags(config: Any, _stock: Any = None, _prefix: str = "") -> Dict[str, Any]:
     """{dotted_field_name: value} for every field of `config` whose CODED DEFAULT is
     False/0/0.0 and whose actual value differs from that default -- i.e. was genuinely
@@ -328,7 +371,10 @@ def enabled_default_off_flags(config: Any, _stock: Any = None, _prefix: str = ""
     import dataclasses
     if not dataclasses.is_dataclass(config) or isinstance(config, type):
         return {}
-    stock = _stock if _stock is not None else type(config)()
+    if _stock is not None:
+        stock = _stock
+    else:
+        stock = _stock_instance(type(config))
     out: Dict[str, Any] = {}
     for f in dataclasses.fields(config):
         try:
@@ -375,6 +421,85 @@ def enabled_default_off_flags_for_agents(agent: Any) -> Optional[Dict[str, Any]]
     for cfg in configs:
         merged.update(enabled_default_off_flags(cfg))
     return merged
+
+
+# Process-wide registry of every REEConfig built in this process, written by
+# ree_core/utils/config.py's REEConfig.__post_init__. Shared by ATTRIBUTE NAME
+# ONLY -- this module keeps its stdlib-only guarantee and never imports ree_core
+# (which pulls torch); the writer never imports this module. See that file's
+# `_register_observed_config` block for the full rationale. If the name changes
+# on one side, this degrades to "no observed configs" -- the pre-2026-09-01
+# behaviour -- and is pinned by tests/contracts/test_recording_standard.py.
+_OBSERVED_CONFIG_ATTR = "_ree_observed_reeconfigs"
+
+
+def _observed_config_registry() -> Optional[Dict[str, Any]]:
+    reg = getattr(sys, _OBSERVED_CONFIG_ATTR, None)
+    return reg if isinstance(reg, dict) else None
+
+
+def enabled_default_off_flags_from_observed() -> Optional[Dict[str, Any]]:
+    """enabled_default_off_flags() pooled over every REEConfig built in this process.
+
+    THE POINT: this needs NO kwarg from the driver. `agent=` was passed at 210 of
+    1046 driver call sites (AST census, 2026-09-01), so the field it gates was
+    recorded on ~30% of recent manifests and ~4% of the corpus; a config built
+    anywhere in the process is observable without the author doing anything, which
+    is what the recording standard's "no special ritual" goal actually requires.
+
+    Returns None -- distinct from {} -- when NO config was observed at all (a
+    scalar-only driver that never builds a REEConfig; a manifest written from a
+    different process). Returns a (possibly empty) dict otherwise, preserving the
+    never-measured / measured-nothing-enabled distinction
+    enabled_default_off_flags_for_agents' docstring insists on: an empty dict is
+    the positive statement "every other known default-off knob was confirmed off",
+    which a consumer cannot infer from an omission.
+
+    Union across observed configs, later ones winning a key collision -- the same
+    known simplification the agent path already documents, and the same reason: a
+    multi-arm run builds one config per arm and this is a run-level field.
+
+    SCOPE, STATED PLAINLY: this is PROCESS-wide, not run-wide, and the two coincide
+    only because an experiment driver process exists to execute one run. In a
+    long-lived multi-purpose process they do NOT coincide -- measured on the first
+    full contract-suite run, where a pytest process had built 2,063 REEConfigs for
+    unrelated tests and the pooled result was a meaningless union of all of them
+    (with `enabled_default_off_flags_truncated: 1551` correctly declaring it
+    incomplete). That is why `enabled_default_off_flags_source` is recorded: a
+    consumer must be able to tell a precise agent-scoped reading from this
+    process-scoped one, rather than inferring precision from the value. It is also
+    why the agent path keeps precedence -- when a driver DOES pass `agent=`, that
+    answer is strictly better and wins.
+    """
+    reg = _observed_config_registry()
+    if reg is None:
+        return None
+    configs = [c for c in (reg.get("configs") or []) if c is not None]
+    if not configs:
+        return None
+    merged: Dict[str, Any] = {}
+    for cfg in configs:
+        try:
+            merged.update(enabled_default_off_flags(cfg))
+        except Exception:
+            continue
+    return merged
+
+
+def observed_config_overflow() -> int:
+    """How many REEConfigs the registry had to DROP (cap reached), else 0.
+
+    Recorded beside the flags so a truncated observation is visible rather than
+    reading as a complete one -- the same reason substrate_commit() records
+    `dirty_count` beside its capped `dirty_paths`.
+    """
+    reg = _observed_config_registry()
+    if reg is None:
+        return 0
+    try:
+        return int(reg.get("overflow") or 0)
+    except Exception:
+        return 0
 
 
 def _coerce_seed_list(seeds: Any) -> Optional[List[int]]:
@@ -707,6 +832,65 @@ def substrate_commit(repo_root: Optional[Union[str, Path]] = None) -> Optional[D
     return out
 
 
+def substrate_commit_unavailable_reason(
+    repo_root: Optional[Union[str, Path]] = None
+) -> Dict[str, Any]:
+    """WHY substrate_commit() could not resolve -- a machine-readable reason.
+
+    WHY AN EXPLICIT REASON, RATHER THAN JUST OMITTING THE FIELD.
+    `substrate_commit` is not hard-enforced (see MANDATORY_CORE_KEYS) because a
+    git-less checkout is a LEGITIMATE environment: scripts/remote_pytest.sh rsyncs
+    its staged tree without `.git/` on purpose. But "legitimately absent" and
+    "the driver never went through the stamper" produced the IDENTICAL manifest --
+    no field at all -- so a later reader could not tell them apart, and neither
+    could a gate. Measured consequence, substrate_stability_and_drift_detection_
+    plan.md node `substrate-commit-coverage`: 185 of 269 remaining drift-candidate
+    pairs (69%) have no `substrate_commit` and therefore no diff any filter can
+    ever assess -- the single largest effect on that corpus, larger than every
+    static-analysis phase of that plan combined.
+
+    Recording the reason makes the absence SELF-DESCRIBING, which is what lets
+    write_flat_manifest treat a bare omission as an error while still accepting
+    the honest git-less case. Returns {"reason", "checked_at_utc", "repo_root"}.
+
+    Reasons: `repo_root_missing` (the resolved path does not exist),
+    `git_unavailable` (no git binary / it failed to run at all),
+    `no_git_checkout` (a real directory that is not inside a repo -- the staged
+    pytest tree), `head_unresolved` (a repo whose HEAD does not resolve, i.e. an
+    unborn branch), `unknown` (belt and braces; never fabricated as one of the
+    above).
+    """
+    root = Path(repo_root).resolve() if repo_root else getattr(
+        _afp, "_REPO_ROOT", Path(__file__).resolve().parents[2])
+    root = Path(root)
+    out: Dict[str, Any] = {
+        "checked_at_utc": _utc_now(),
+        "repo_root": str(root),
+    }
+    # A path that does not exist reports as itself, not as "git is missing":
+    # every git probe below runs with cwd=root and fails identically when the
+    # directory is absent, so without this the reason would be a small but real
+    # mis-report -- and the entire value of this block is that the recorded
+    # explanation is true.
+    if not root.is_dir():
+        out["reason"] = "repo_root_missing"
+        return out
+    # --version distinguishes "no git at all" from "git works, this is not a repo".
+    if _git_value(["--version"], root) is None:
+        out["reason"] = "git_unavailable"
+        return out
+    if _git_value(["rev-parse", "--git-dir"], root) is None:
+        out["reason"] = "no_git_checkout"
+        return out
+    if _git_value(["rev-parse", "HEAD"], root) is None:
+        out["reason"] = "head_unresolved"
+        return out
+    # HEAD resolves now: substrate_commit() should have succeeded. Do NOT invent a
+    # reason -- a wrong explanation is worse than an honest "unknown".
+    out["reason"] = "unknown"
+    return out
+
+
 # Pinned substrate COMMITs, keyed by resolved repo root. Anchored on `sys` rather
 # than on this module's globals for exactly the reason arm_fingerprint's snapshot
 # state is (see its _STATE_ATTR block): this file is imported under at least two
@@ -964,6 +1148,18 @@ def stamp_recording_core(
         except Exception:
             pass
 
+    # substrate_commit_unavailable -- the absence, made self-describing.
+    # Stamped ONLY when the commit is genuinely still missing after the attempt
+    # above, so a normal run (every production run: the runner pulls before
+    # executing) never carries it. See substrate_commit_unavailable_reason().
+    # Same never-crash posture as every other block here.
+    if _is_empty(manifest.get("substrate_commit")):
+        try:
+            _fill("substrate_commit_unavailable",
+                  substrate_commit_unavailable_reason(repo_root=repo_root))
+        except Exception:
+            pass
+
     # substrate_stable_across_run -- did the substrate hold still for the whole run?
     # Two independent tests, either of which can only ever prove INSTABILITY:
     #   (a) the run's own per-cell fingerprints disagree (cardinality > 1) -- this is
@@ -1123,11 +1319,31 @@ def stamp_recording_core(
     # enabled_default_off_flags_for_agents' own docstring for why this distinction is
     # load-bearing). Uses `is None`, not falsiness, on purpose -- `if flags:` would
     # silently collapse the "measured, empty" case back into an omission.
+    #
+    # TWO SOURCES, IN PRECEDENCE ORDER (2026-09-01, closing the adoption gap in
+    # substrate_stability:P1c-prospective-recording):
+    #   1. `agent=`, when the driver passed one -- the most precise source, since
+    #      it names the config of the agent that was actually stepped.
+    #   2. the process-wide observed-REEConfig registry -- needs NOTHING from the
+    #      driver, and is why coverage stops depending on an author remembering a
+    #      kwarg. See enabled_default_off_flags_from_observed().
+    # `enabled_default_off_flags_source` records WHICH, so a consumer is never
+    # left inferring precision from the value alone.
     if overwrite or manifest.get("enabled_default_off_flags") is None:
         try:
             flags = enabled_default_off_flags_for_agents(agent)
+            source = "agent"
+            if flags is None:
+                flags = enabled_default_off_flags_from_observed()
+                source = "process_observed_config"
             if flags is not None:
                 manifest["enabled_default_off_flags"] = flags
+                manifest["enabled_default_off_flags_source"] = source
+                overflow = observed_config_overflow()
+                if source == "process_observed_config" and overflow:
+                    # A truncated observation must say so; see
+                    # observed_config_overflow().
+                    manifest["enabled_default_off_flags_truncated"] = overflow
         except Exception:
             pass
 
@@ -1185,7 +1401,18 @@ def missing_mandatory_core_fields(manifest: Mapping[str, Any]) -> List[str]:
     missing_core_fields (a meaningful 0/False is not missing; not relevant here since
     every MANDATORY_CORE_KEYS value is a non-empty string or dict when present).
     """
-    return [k for k in MANDATORY_CORE_KEYS if _is_empty(manifest.get(k, None))]
+    missing = [k for k in MANDATORY_CORE_KEYS if _is_empty(manifest.get(k, None))]
+    # substrate_commit is CONDITIONALLY mandatory (2026-09-01, closing
+    # substrate_stability:substrate-commit-coverage prospectively). It is not in
+    # MANDATORY_CORE_KEYS because a git-less checkout is a legitimate environment
+    # -- but a manifest may no longer be SILENT about it: it must carry either the
+    # commit or the machine-readable reason it could not be taken. A driver that
+    # bypasses the stamper carries neither and is caught here, at write time, on
+    # its first run rather than months later in a drift audit that cannot proceed.
+    if _is_empty(manifest.get("substrate_commit")) and _is_empty(
+            manifest.get("substrate_commit_unavailable")):
+        missing.append("substrate_commit")
+    return missing
 
 
 __all__ = [
@@ -1197,6 +1424,10 @@ __all__ = [
     "pin_recording_substrate",
     "multi_arm_substrate_hashes",
     "substrate_commit",
+    "substrate_commit_unavailable_reason",
+    "enabled_default_off_flags",
+    "enabled_default_off_flags_for_agents",
+    "enabled_default_off_flags_from_observed",
     "stamp_recording_core",
     "missing_core_fields",
     "missing_mandatory_core_fields",

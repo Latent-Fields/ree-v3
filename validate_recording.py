@@ -180,6 +180,18 @@ def check_manifest(path: Path) -> Tuple[List[str], List[str]]:
     view = _merged_view(doc, path)
     missing = missing_core_fields(view)
 
+    # substrate_commit: an EXPLAINED absence is not a gap. A manifest carrying
+    # `substrate_commit_unavailable` has recorded WHY the commit could not be
+    # taken (git-less staged tree, unborn HEAD -- see
+    # manifest_core.substrate_commit_unavailable_reason), which is the honest
+    # answer for that environment and strictly more information than the field's
+    # presence would carry. WARNing on it would train readers to ignore the
+    # always-core WARN, which is the one signal that has to stay meaningful.
+    # A BARE omission -- neither field -- still WARNs, and is additionally a hard
+    # error at write time (missing_mandatory_core_fields).
+    if "substrate_commit" in missing and view.get("substrate_commit_unavailable"):
+        missing = [k for k in missing if k != "substrate_commit"]
+
     schema_warnings: List[str] = []
     rec = view.get("recording_schema")
     if isinstance(rec, str) and rec and rec != RECORDING_SCHEMA:
