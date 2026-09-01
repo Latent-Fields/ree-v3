@@ -1095,6 +1095,139 @@ def assert_state_dict_shareable(agents: Sequence[Any], labels: Optional[Sequence
 
 
 # ---------------------------------------------------------------------------
+# Post-warmup arm-conditional regulator assertion (hazard H2, detection layer).
+# ---------------------------------------------------------------------------
+
+class ArmRegulatorMismatch(RuntimeError):
+    """An arm-conditional regulator disagrees with the flag that governs it."""
+
+
+# A flag named `use_<attr>` governs construction of `agent.<attr>`. That convention
+# holds for every arm-conditional regulator in the read-only probe family --
+# use_noise_floor -> agent.noise_floor (agent.py:1159/1166), use_phasic_burst ->
+# agent.phasic_burst (:1180/1207), use_tonic_vigor -> agent.tonic_vigor
+# (:1886/1901) -- each declared `Optional[...] = None` in REEAgent.__init__ and
+# assigned a real instance only when its flag is set.
+_ARM_FLAG_PREFIX = "use_"
+
+
+def assert_arm_regulators_live(
+    agent: Any,
+    arm_key: Optional[Mapping[str, Any]],
+    *,
+    label: str = "",
+    logger: Callable[[str], None] = print,
+) -> Dict[str, Any]:
+    """Refuse an agent whose arm-conditional regulators contradict its arm flags.
+
+    THE THIRD LAYER of the SD-PROBE-WARMUP repair, and the one the V3-EXQ-963
+    autopsy asked for by name: "Add an assertion that every arm-conditional
+    regulator is non-None after restore when its flag is set."
+
+    Why a third layer when `_warmup_key(arm_key=...)` and the
+    `_restore_cached_surface` type guard already exist. Those two are PREVENTION
+    and they are keyed on assumptions that a future caller can fall outside of:
+
+      * the cache-key fix only separates arms for a caller that actually PASSES
+        `arm_key` -- a driver that does not (every driver at the time of writing,
+        including V3-EXQ-963's own) still shares one blob across its whole grid;
+      * the restore type guard is the primary defence and does hold without
+        `arm_key`, but it protects only attributes that are ALREADY LIVE on the
+        HIT agent. `_restore_cached_surface` Case 1 restores an attribute the HIT
+        instance never set VERBATIM and with no type check, by design -- so a
+        regulator that some future substrate creates lazily rather than declaring
+        in `__init__` is outside the guard's cover in the install direction.
+
+    This function is DETECTION instead, placed after the fact: it reads the agent
+    that warmup actually produced and asks whether it still matches the arm the
+    caller says it is running. It therefore fails loudly on any route to the
+    V3-EXQ-963 corruption, including routes that do not exist yet -- which is the
+    property the two preventive fixes cannot have. The 963 signature is a run that
+    completed, wrote a claim-tagged manifest, and looked valid while the entire
+    TONIC axis was silently absent (noise_floor_temp_lift_mean 0.0 on all 20
+    cells, including all 10 use_noise_floor=True cells). A run that cannot produce
+    the manipulation it claims should stop, not publish.
+
+    SYMMETRIC, matching the restore guard's own stated symmetry:
+      * flag SET but regulator is None    -> the regulator was deleted (963).
+      * flag CLEAR but regulator present  -> a regulator was installed that this
+        arm's config never asked for, which silently contaminates the OFF arm of
+        an ON/OFF contrast -- the same corruption pointing the other way.
+
+    DELIBERATELY SKIPS, rather than raising, two things a caller can legitimately
+    do -- an assertion that fires on correct usage gets switched off, and then
+    protects nothing:
+      * a flag not named `use_<attr>` (naming convention does not apply);
+      * a `use_<attr>` whose `<attr>` is not an attribute of this agent at all
+        (the flag gates behaviour rather than constructing a root-level object).
+    Both are counted and returned in the report so an unexpectedly-empty check is
+    visible rather than reading as a pass.
+
+    Returns a report dict; raises ArmRegulatorMismatch listing EVERY violation
+    (not just the first), because a corrupted 2x2 usually loses a whole axis.
+    """
+    report: Dict[str, Any] = {
+        "checked": [],
+        "skipped_not_use_prefixed": [],
+        "skipped_no_such_attribute": [],
+        "violations": [],
+    }
+    if not arm_key:
+        # No flags declared -> nothing to check. This is the bit-identical no-op
+        # path every pre-existing caller takes.
+        return report
+
+    for flag in sorted(arm_key):
+        if not str(flag).startswith(_ARM_FLAG_PREFIX):
+            report["skipped_not_use_prefixed"].append(flag)
+            continue
+        attr = str(flag)[len(_ARM_FLAG_PREFIX):]
+        if not attr or not hasattr(agent, attr):
+            report["skipped_no_such_attribute"].append(flag)
+            continue
+        wanted = bool(arm_key[flag])
+        value = getattr(agent, attr)
+        report["checked"].append(attr)
+        if wanted and value is None:
+            report["violations"].append({
+                "flag": flag, "attribute": attr, "expected": "a regulator instance",
+                "actual": "None",
+                "direction": "flag_set_but_regulator_absent",
+            })
+        elif (not wanted) and value is not None:
+            report["violations"].append({
+                "flag": flag, "attribute": attr, "expected": "None",
+                "actual": type(value).__name__,
+                "direction": "flag_clear_but_regulator_present",
+            })
+
+    if report["violations"]:
+        detail = "; ".join(
+            "%s=%r but agent.%s is %s (expected %s)"
+            % (v["flag"], v["flag"] in arm_key and bool(arm_key[v["flag"]]),
+               v["attribute"], v["actual"], v["expected"])
+            for v in report["violations"]
+        )
+        raise ArmRegulatorMismatch(
+            "probe_warmup: arm-conditional regulator(s) do NOT match this arm's "
+            "flags after warmup%s -- %s. This is the V3-EXQ-963 corruption shape: "
+            "the run would complete and write a claim-tagged manifest while the "
+            "manipulation it claims to test was silently absent. Do not suppress "
+            "this; find which stage changed the regulator (a cache restore from a "
+            "differently-configured mint arm is the known route -- see "
+            "_warmup_key and _restore_cached_surface)."
+            % ((" for %s" % label) if label else "", detail)
+        )
+
+    if report["checked"]:
+        logger(
+            "  [warmup] %sarm-conditional regulators verified against arm flags: %s"
+            % (("%s " % label) if label else "", ", ".join(report["checked"]))
+        )
+    return report
+
+
+# ---------------------------------------------------------------------------
 # Main entry point.
 # ---------------------------------------------------------------------------
 
@@ -1106,6 +1239,7 @@ def warm_agent(
     recipe: WarmupRecipe,
     env_kwargs: Mapping[str, Any],
     arm_key: Optional[Mapping[str, Any]] = None,
+    assert_arm_regulators: bool = True,
     label: str = "",
     cache_dir: Optional[Path] = None,
     logger: Callable[[str], None] = print,
@@ -1133,6 +1267,15 @@ def warm_agent(
     would otherwise pay every time the guard has to refuse a mismatched
     attribute.
 
+    `assert_arm_regulators` (default True) checks, AFTER warmup and on both the
+    HIT and MISS paths, that every `use_<attr>` flag in `arm_key` still agrees
+    with `agent.<attr>` -- see assert_arm_regulators_live for why this detection
+    layer is needed on top of the two preventive fixes. It is a strict no-op when
+    `arm_key` is None (there are no declared flags to check), so passing arm_key
+    is what buys the check. Set False only if your flag naming does not follow the
+    `use_<attr>` -> `agent.<attr>` convention; prefer omitting the offending flag
+    from arm_key over disabling the whole assertion.
+
     Per the user-confirmed gate policy this RECORDS rather than aborts: a seed that
     stays saturated comes back with saturated=True and its realised mean. Only
     assert_any_informative() raises, and only when NO seed de-saturated.
@@ -1151,6 +1294,22 @@ def warm_agent(
         notes.append("warmup restored from cache")
         logger("  [warmup] %s seed=%d HIT (%s eps, cached)"
                % (label, seed, recipe.num_episodes))
+        if not arm_key:
+            # Exactly the V3-EXQ-963 shape: a cache HIT on a key that does not
+            # carry this arm's regulator flags, so the blob may have been minted
+            # by a differently-configured arm. The _restore_cached_surface type
+            # guard is what actually protects the live regulators here; this line
+            # exists so the weaker configuration is visible in the run log rather
+            # than inferred later from a flat telemetry field. Logged, never
+            # noted: notes[] reaches the manifest, and this must not perturb the
+            # manifest of any pre-existing caller.
+            logger(
+                "  [warmup] %s seed=%d NOTE: cache HIT with no arm_key -- this "
+                "blob is shared across every arm at this (seed, recipe, env) and "
+                "may have been minted by an arm with different regulator flags. "
+                "Pass arm_key= to mint per-arm entries; the restore type guard "
+                "is the only protection until you do." % (label, seed)
+            )
     else:
         if recipe.regime != "target_env":
             raise ValueError(
@@ -1182,6 +1341,12 @@ def warm_agent(
             logger,
         )
         notes.append("warmup trained fresh")
+
+    # Post-warmup, both paths converged: the agent handed back must still be the
+    # arm the caller says it is. No-op when arm_key is None (every pre-fix
+    # caller), so this is bit-identical for them. See assert_arm_regulators_live.
+    if assert_arm_regulators:
+        assert_arm_regulators_live(agent, arm_key, label=label, logger=logger)
 
     if not measure:
         return WarmupOutcome(

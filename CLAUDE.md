@@ -3531,7 +3531,62 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
   NOTE the re-derive brake: a V3-EXQ-777b or any re-test of MECH-063 sub-claim (i)
   against an UNTRAINED agent is REFUSED (failure_autopsy_MECH-063-777a-779a-cluster_2026-07-18,
   user-confirmed). The 779 lineage / sub-claim (ii) is EXEMPT and NOT blocked on this.
-  See SD-074, MECH-063, MECH-320, MECH-313, ARC-066, and
+  CROSS-ARM CONTAMINATION REPAIR (SD-PROBE-WARMUP, three layers, two commits).
+  Confirmed by failure_autopsy_V3-EXQ-963_2026-08-30: `_warmup_key` excluded the
+  caller's arm-conditional flags, so a 2x2 sharing one (seed, recipe, env) hashed
+  IDENTICALLY across all four arms; the first arm to run always minted, and
+  `_restore_cached_surface` then stamped that mint's regulator presence over every
+  later arm's own, already-correct construction. V3-EXQ-963's T0P0
+  (use_noise_floor=False) minted `agent.noise_floor = None` onto T1P0/T1P1, whose
+  __init__ had just built a real NoiseFloor -- silently zeroing the whole TONIC
+  axis (noise_floor_temp_lift_mean 0.0 on all 20 cells, including all 10
+  use_noise_floor=True cells). Nothing raised and nothing logged it:
+  assert_state_dict_shareable passes because these regulators are zero-parameter
+  and non-nn.Module, and the restore's missing-module logging covers only cached
+  paths ABSENT here, never the reverse. ree_core is healthy; this is a harness
+  defect throughout.
+    (a) PREVENTION, cache key -- IMPLEMENTED 2026-08-30 (d614a9c). `_warmup_key`
+        accepts `arm_key` and folds it into the hashed payload; schema v2 -> v3, so
+        every pre-fix blob MISSes regardless of caller opt-in.
+    (b) PREVENTION, restore -- IMPLEMENTED 2026-08-30 (d614a9c). A cached attribute
+        is applied only when its TYPE matches the live HIT agent's own value for
+        that name (type(None) is a type, so None-vs-None still matches). SYMMETRIC:
+        a cached None never overwrites a live regulator, and a cached regulator is
+        never installed over a live None. PRIMARY defence -- it holds even for a
+        caller that never passes arm_key.
+    (c) DETECTION, post-warmup assertion -- IMPLEMENTED 2026-09-01.
+        `assert_arm_regulators_live(agent, arm_key)`, raising `ArmRegulatorMismatch`;
+        called by warm_agent itself via `assert_arm_regulators: bool = True`
+        (keyword-only), AFTER the HIT/MISS branches converge so both paths are
+        covered. Checks each `use_<attr>` flag against `agent.<attr>` in BOTH
+        directions (flag set + regulator None; flag clear + regulator present).
+        Not redundant with (a)/(b): (a) only separates arms for a caller that
+        actually passes arm_key -- no driver in the tree does yet -- and (b)
+        protects only attributes ALREADY LIVE on the HIT agent, since
+        `_restore_cached_surface` Case 1 restores a never-set attribute verbatim
+        with no type check by design. (c) reads the agent warmup actually produced
+        and asks whether it is still the arm the caller declared, so it fails on
+        any route to the corruption, including routes that do not exist yet.
+        The failure it stops is a run that COMPLETES and writes a claim-tagged
+        manifest that looks valid while the manipulation is silently absent.
+        Backward compatible: a STRICT no-op when arm_key is None (no declared
+        flags -> nothing checked, nothing raised), which is what every pre-fix
+        caller passes -- pinned as a contract, on a deliberately-corrupted agent.
+        Adds NO REEConfig field, so the from_dims three-site rule does not apply.
+        Skips, rather than raises on, a flag not named `use_<attr>` and a
+        `use_<attr>` with no such agent attribute; both are counted in the returned
+        report so an empty check cannot read as a pass.
+        Contracts: tests/contracts/test_probe_warmup_arm_regulator_assertion.py
+        (13) alongside test_probe_warmup_cache_key_restore.py (9, for (a)+(b)).
+  STILL OWED, driver-side, NOT done here (belongs to a NEW EXQ letter via
+  /queue-experiment -- V3-EXQ-963 is a burned id and its script must not be edited
+  in place): the 963-lineage driver must (i) pass arm_key= to warm_agent, (ii)
+  extend its `_fresh_regulator` post-warmup reinstall beyond `agent.phasic_burst`
+  to `agent.noise_floor` -- that asymmetry is exactly why the phasic axis survived
+  the restore and the tonic axis did not -- and (iii) record NoiseFloor.get_state()'s
+  n_waking_calls / last_n_simulation_skips, which the substrate was already
+  computing and which separate "never called" from "called under simulation_mode".
+  See SD-074, SD-PROBE-WARMUP, MECH-063, MECH-320, MECH-313, ARC-066, and
   REE_assembly/docs/architecture/sd_074_probe_warmup_trained_enough_agent.md.
 
 - SD-070 ADOPTION in the _train_all_on_agent driver family -- IMPLEMENTED 2026-07-20.
