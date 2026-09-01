@@ -4215,12 +4215,53 @@ class REEConfig:
     #     Default 1.0 each; final magnitude is governed downstream by the
     #     existing curiosity_learning_progress_weight and curiosity_bias_scale
     #     clamp -- this SD adds no new clamp.
+    #
+    # MULTI-TARGET READINESS (substrate_queue sd_epistemic_deficit_multitarget_
+    # readiness, from the ratified V3-EXQ-964 autopsy). All six default to the
+    # pre-readiness behaviour exactly, so an existing opted-in config is
+    # bit-identical without them. Full rationale + the measured z_world
+    # geometry that motivates each: EpistemicDeficitConfig's own docstring in
+    # ree_core/policy/epistemic_deficit.py.
+    #
+    # epistemic_deficit_match_radius_mode : "absolute" (default, literal L2
+    #     threshold) or "relative" (radius = frac x running z_world scale).
+    #     The 1.0 absolute default exceeds the ENTIRE measured z_world
+    #     manifold diameter (0.41), so every location falls in one target and
+    #     n_targets cannot exceed 1 at any episode length.
+    # epistemic_deficit_match_radius_relative_frac : that fraction. Inert
+    #     unless mode == "relative". Default 0.5.
+    # epistemic_deficit_center_update : "replace" (default -- matched target
+    #     re-centers onto the latest z, making it a random walk that absorbs
+    #     the manifold) or "ema" (anchored).
+    # epistemic_deficit_center_ema_beta : that beta. Inert unless
+    #     center_update == "ema". Default 0.1.
+    # epistemic_deficit_persist_targets_across_episodes : keep targets across
+    #     reset(). Default False. NECESSARY BUT NOT SUFFICIENT -- the 964
+    #     collapse is already intra-episode.
+    # epistemic_deficit_require_differentiated_readout : refuse a constant
+    #     (provably argmax-inert) per-candidate readout at runtime rather
+    #     than returning it. Default False.
+    # epistemic_deficit_target_frame : "realized" (default -- key targets on
+    #     the encoder's zw_prev) or "predicted" (key them on
+    #     e2.world_forward(zw_prev, a_taken), the SAME frame READOUT matches
+    #     candidates in). Measured centroid offset between those two frames
+    #     is 0.286 against an internal spread of ~0.05, so under "realized"
+    #     no radius can both separate targets and match candidates. Consumed
+    #     in REEAgent._update_epistemic_deficit, not by the accumulator.
     epistemic_deficit_max_targets: int = 16
     epistemic_deficit_match_radius: float = 1.0
     epistemic_deficit_ema_alpha: float = 0.1
     epistemic_deficit_uncertainty_weight: float = 1.0
     epistemic_deficit_disagreement_weight: float = 1.0
     epistemic_deficit_persistent_pe_weight: float = 1.0
+    epistemic_deficit_match_radius_mode: str = "absolute"
+    epistemic_deficit_match_radius_relative_frac: float = 0.5
+    epistemic_deficit_center_update: str = "replace"
+    epistemic_deficit_center_ema_beta: float = 0.1
+    epistemic_deficit_persist_targets_across_episodes: bool = False
+    epistemic_deficit_require_differentiated_readout: bool = False
+    epistemic_deficit_target_frame: str = "realized"
+    epistemic_deficit_readout_mode: str = "hard_match"
 
     # ARC-065 GAP-A (behavioral_diversity_isolation): source of the SHARED
     # per-candidate cand_world_summaries consumed by the E3-side bias channels
@@ -6944,6 +6985,15 @@ class REEConfig:
         epistemic_deficit_uncertainty_weight: float = 1.0,
         epistemic_deficit_disagreement_weight: float = 1.0,
         epistemic_deficit_persistent_pe_weight: float = 1.0,
+        # Multi-target readiness -- see the dataclass block for rationale.
+        epistemic_deficit_match_radius_mode: str = "absolute",
+        epistemic_deficit_match_radius_relative_frac: float = 0.5,
+        epistemic_deficit_center_update: str = "replace",
+        epistemic_deficit_center_ema_beta: float = 0.1,
+        epistemic_deficit_persist_targets_across_episodes: bool = False,
+        epistemic_deficit_require_differentiated_readout: bool = False,
+        epistemic_deficit_target_frame: str = "realized",
+        epistemic_deficit_readout_mode: str = "hard_match",
         # ARC-065 GAP-A: shared cand_world_summaries source for the E3-side
         # bias channels (lateral_pfc / ofc / mech295 / gated_policy / vigor).
         # SD-082 AMEND: "proposer_post_action" third option -- see the field's
@@ -8322,6 +8372,23 @@ class REEConfig:
         config.epistemic_deficit_persistent_pe_weight = (
             epistemic_deficit_persistent_pe_weight
         )
+        # Multi-target readiness.
+        config.epistemic_deficit_match_radius_mode = (
+            epistemic_deficit_match_radius_mode
+        )
+        config.epistemic_deficit_match_radius_relative_frac = (
+            epistemic_deficit_match_radius_relative_frac
+        )
+        config.epistemic_deficit_center_update = epistemic_deficit_center_update
+        config.epistemic_deficit_center_ema_beta = epistemic_deficit_center_ema_beta
+        config.epistemic_deficit_persist_targets_across_episodes = (
+            epistemic_deficit_persist_targets_across_episodes
+        )
+        config.epistemic_deficit_require_differentiated_readout = (
+            epistemic_deficit_require_differentiated_readout
+        )
+        config.epistemic_deficit_target_frame = epistemic_deficit_target_frame
+        config.epistemic_deficit_readout_mode = epistemic_deficit_readout_mode
         config.candidate_summary_source = candidate_summary_source
 
         # MECH-320 (ARC-066 child): tonic_vigor_coupling_score_bias

@@ -1803,6 +1803,56 @@ class REEAgent(nn.Module):
                             1.0,
                         )
                     ),
+                    # Multi-target readiness (substrate_queue
+                    # sd_epistemic_deficit_multitarget_readiness). Every
+                    # getattr default here reproduces the pre-readiness
+                    # behaviour, so a config predating these fields is
+                    # bit-identical.
+                    match_radius_mode=str(
+                        getattr(
+                            config,
+                            "epistemic_deficit_match_radius_mode",
+                            "absolute",
+                        )
+                    ),
+                    match_radius_relative_frac=float(
+                        getattr(
+                            config,
+                            "epistemic_deficit_match_radius_relative_frac",
+                            0.5,
+                        )
+                    ),
+                    center_update=str(
+                        getattr(
+                            config, "epistemic_deficit_center_update", "replace"
+                        )
+                    ),
+                    center_ema_beta=float(
+                        getattr(
+                            config, "epistemic_deficit_center_ema_beta", 0.1
+                        )
+                    ),
+                    persist_targets_across_episodes=bool(
+                        getattr(
+                            config,
+                            "epistemic_deficit_persist_targets_across_episodes",
+                            False,
+                        )
+                    ),
+                    require_differentiated_readout=bool(
+                        getattr(
+                            config,
+                            "epistemic_deficit_require_differentiated_readout",
+                            False,
+                        )
+                    ),
+                    readout_mode=str(
+                        getattr(
+                            config,
+                            "epistemic_deficit_readout_mode",
+                            "hard_match",
+                        )
+                    ),
                 )
             )
         # SD-102 P1-style one-tick-lag cache: the z_world observed BEFORE the
@@ -4398,8 +4448,35 @@ class REEAgent(nn.Module):
                     disagreement = float((point_pred - median_pred).norm().item())
                     uncertainty = float(pvar.reshape(-1)[0].item())
 
+                # TARGET FRAME (substrate_queue
+                # sd_epistemic_deficit_multitarget_readiness). "realized"
+                # (default) keys the target on zw_prev, an ENCODER output;
+                # READOUT, however, matches e2.world_forward PREDICTIONS.
+                # Measured on the V3-EXQ-964 config: those two point clouds
+                # are separated by a systematic centroid offset of 0.286
+                # while each has an internal spread of only ~0.05, i.e. the
+                # bias is ~5.6x the structure the radius must resolve. No
+                # single absolute radius can therefore both separate targets
+                # and let candidates match them -- 1.0 spans the offset and
+                # collapses every location into one target (the 964 result),
+                # while a correctly-scaled ~0.028 resolves structure but
+                # matches nothing. "predicted" keys the target on
+                # point_pred instead, putting UPDATE and READOUT in the SAME
+                # frame; it is also the more faithful attribution, since the
+                # deficit is a property of where the model's PREDICTION was
+                # inadequate.
+                _frame = str(
+                    getattr(
+                        self.config, "epistemic_deficit_target_frame", "realized"
+                    )
+                )
+                z_attr = (
+                    point_pred.reshape(-1)
+                    if _frame == "predicted"
+                    else zw_prev.reshape(-1)
+                )
                 accumulator.update(
-                    z_world_prev=zw_prev.reshape(-1),
+                    z_world_prev=z_attr,
                     uncertainty=uncertainty,
                     disagreement=disagreement,
                     persistent_pe=persistent_pe,
