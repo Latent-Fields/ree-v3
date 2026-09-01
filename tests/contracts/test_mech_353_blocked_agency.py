@@ -26,7 +26,8 @@ MECH-353 V3-EXQ-642a repair (calibrated outcome_mismatch_floor):
       identical stream.
   C13 REEConfig.from_dims() threads the four new fields into the agent's
       BlockedAgencyConfig.
-  C14 config validation for the four new fields (loud on bad values).
+  (validation of the four new fields is folded into C2 above, which was
+   extended with their bad-value cases; there is no separate C14 test.)
   C15 the agent's no-history sense tick does not seed calibration with a
       synthetic mismatch; the first real observation bootstraps the baseline
       without being classified as a block.
