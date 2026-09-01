@@ -1,0 +1,11 @@
+[Unit]
+Description=REE metaworker umbrella autosync (independent of dispatch cadence and scaler lease)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ree
+ExecStart=/usr/local/bin/ree_metaworker_autosync.sh
+TimeoutStartSec=120
+Nice=10

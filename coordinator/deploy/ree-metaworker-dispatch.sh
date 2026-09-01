@@ -85,30 +85,70 @@ ts() { date -u "+%Y-%m-%dT%H:%M:%SZ"; }
 LOCKFILE="$STATE_DIR/dispatch.lock"
 DISPATCH_MAX_SEC="${REE_DISPATCH_MAX_SEC:-1500}"
 
-# Auto-sync: pull the umbrella repo before each cycle, so a landed script or
-# SKILL.md fix reaches this box within one 5-minute tick instead of needing a
-# human to SSH in and pull by hand. Confirmed gap 2026-08-03: this box ran 47
-# cycles (~4h) on a since-fixed heartbeat-commit bug before anyone noticed,
-# because there was no mechanism to pick the fix up short of a manual pull --
-# and every cycle in between silently ran stale code with no signal that it
-# was stale. --ff-only refuses rather than silently diverging if this box has
-# unpushed local commits of its own (should not normally happen -- every
-# ree_commit.py call below already passes --push); a refusal is logged and
-# the cycle proceeds anyway on whatever code is already on disk, since a
-# dispatcher running stale code is still better than one blocked entirely by
-# a sync hiccup.
-if git -C "$REPO" pull --ff-only origin master >> "$LOG" 2>&1; then
-  echo "[$(ts)] autosync: ok ($(git -C "$REPO" rev-parse --short HEAD))" >> "$LOG"
-else
-  echo "[$(ts)] autosync: FAILED (git pull --ff-only) -- continuing this cycle on existing code" >> "$LOG"
-fi
+# Auto-sync: adopt the umbrella repo's origin/master before each cycle, so a
+# landed script or SKILL.md fix reaches this box within one dispatch tick
+# instead of needing a human to SSH in and pull by hand. Confirmed gap
+# 2026-08-03: this box ran 47 cycles (~4h) on a since-fixed heartbeat-commit
+# bug before anyone noticed, because there was no mechanism to pick the fix
+# up short of a manual pull -- and every cycle in between silently ran stale
+# code with no signal that it was stale.
+#
+# safe_adopt_ref.py, NOT `git pull --ff-only` (changed 2026-09-01,
+# chip-20260901-fleet-autosync-repair). `--ff-only` refuses PERMANENTLY the
+# moment this box holds any local commit origin does not have -- which is
+# the NORMAL residue of every ree_commit.py cherry-pick push retry, not an
+# exceptional case -- and a refused --ff-only never self-heals; every later
+# cycle refuses again forever. Measured live 2026-09-01: ree-cloud-5 was
+# failing 45% of autosync attempts (1686/3715), ree-cloud-4 22% (182/836),
+# both against that same permanent-refusal shape. safe_adopt_ref.py performs
+# the equivalent of the CLAUDE.md-documented manual pre-check + ref move +
+# skew repair as one command: it refuses (exit 3) ONLY when the move would
+# genuinely discard a local commit not already on origin, which is exactly
+# the case that should stop and be looked at rather than being silently
+# eaten by --ff-only's blanket refusal every single cycle thereafter. This
+# call passes no --allow-discard/--force -- an unattended cycle must never
+# auto-acknowledge a discard; per CLAUDE.md a refusal needs a per-commit
+# content audit, which is human/session judgement, not something to automate
+# here.
+#
+# This is the SCRIPT ref-move helper, not the reference-transaction ref-move
+# GUARD HOOK -- do not confuse the two. CLAUDE.md is explicit that the guard
+# hook must NOT be installed on the hub or cloud workers (their writers
+# legitimately do non-fast-forward moves); no hook is installed here, only
+# this script is invoked.
+SYNC_OUT="$(/opt/local/bin/python3 "$REPO/scripts/safe_adopt_ref.py" --repo "$REPO" --branch master 2>&1)"
+SYNC_RC=$?
+echo "$SYNC_OUT" >> "$LOG"
+case "$SYNC_RC" in
+  0)
+    echo "[$(ts)] autosync: ok ($(git -C "$REPO" rev-parse --short HEAD))" >> "$LOG"
+    ;;
+  1)
+    echo "[$(ts)] autosync: ADOPTED but the post-move skew repair needs a human -- see safe_adopt_ref.py output above; continuing this cycle on existing code" >> "$LOG"
+    ;;
+  3)
+    echo "[$(ts)] autosync: REFUSED -- this box holds local commit(s) not on origin/master (see safe_adopt_ref.py output above for the shas). This is NOT an ordinary sync hiccup: it means real local work is sitting on this box unpushed and needs a per-commit audit (CLAUDE.md 'A bare ref move also DISCARDS local COMMITS'), not a blind retry. Continuing this cycle on existing code." >> "$LOG"
+    ;;
+  *)
+    echo "[$(ts)] autosync: FAILED (safe_adopt_ref.py exit $SYNC_RC) -- continuing this cycle on existing code" >> "$LOG"
+    ;;
+esac
 
 # --- Executable-surface freshness gate --------------------------------------
-# The autosync above CANNOT be assumed to have worked, and on this box it
-# mostly has not: measured to 2026-08-16, 1299 FAILED against 853 ok. Once the
-# checkout carries any local commit origin does not have -- the normal residue
-# of every ree_commit.py cherry-pick push retry -- `--ff-only` refuses forever,
-# and the only trace is the log line above, in a file nobody reads.
+# The autosync above CANNOT be assumed to have worked. Historical record of
+# why this gate exists at all: under the OLD `git pull --ff-only` mechanism,
+# measured to 2026-08-16, 1299 FAILED against 853 ok on this box, and
+# re-measured 2026-09-01 fleet-wide (ree-cloud-5 1686/3715 FAILED, ree-cloud-4
+# 182/836 FAILED) -- because once the checkout carried any local commit
+# origin did not have -- the normal residue of every ree_commit.py
+# cherry-pick push retry -- `--ff-only` refused forever, with the only trace
+# being the log line above, in a file nobody reads. The autosync above was
+# switched to safe_adopt_ref.py on 2026-09-01
+# (chip-20260901-fleet-autosync-repair) specifically to stop that permanent-
+# refusal shape, but this gate stays: safe_adopt_ref.py can still (rarely)
+# refuse a genuinely unproven local commit (exit 3) or need a human for the
+# post-move skew repair (exit 1), and a box that has been off/paused/leased
+# away for a while is still stale until its next successful cycle either way.
 #
 # What that costs is not hypothetical. 2026-08-14: the orphaned-close push
 # guard was on origin all day; this box's scripts/task_claim.py was 399 lines

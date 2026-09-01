@@ -1,0 +1,11 @@
+[Unit]
+Description=REE metaworker umbrella autosync timer (every 10 min, independent of dispatch/lease)
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=10min
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target
