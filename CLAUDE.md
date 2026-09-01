@@ -18845,3 +18845,57 @@ Form B recommendation: a two-stage threat-modulated selection rule.
   SD-056 (E2 action-conditional divergence preservation -- the same interface standard on E2),
   MECH-116 (`goal_input_proj`, the in-file precedent for optional conditioning, whose
   project-back-down form was deliberately NOT copied here).
+
+- SD-e1-rollout-consistency-training ABSOLUTE-VS-RESIDUAL BRANCH: e1.rollout.output_proj_residual --
+  IMPLEMENTED 2026-09-01 (ree-v3 `b40139b3ed`). `E1DeepPredictor.predict_long_horizon` in
+  `ree_core/predictors/e1_deep.py`. Full design:
+  `REE_assembly/docs/architecture/sd_e1_rollout_consistency_training.md`.
+  Config: `E1Config.output_proj_residual` (default `False`; set `True` to enable).
+  Data flow: unchanged except the per-step read-out -- `transition_rnn` -> `output_proj` ->
+  `predicted = state_i + output_proj(...)` instead of `predicted = output_proj(...)`, in BOTH
+  rollout branches (the ITEM 1 action-conditioned one and the legacy one). `forward()` delegates
+  to `predict_long_horizon`, so the one change covers both of this SD's `substrate_paths`
+  (`::forward` and `::predict_long_horizon`); a contract pins that delegation rather than
+  assuming it.
+  Backward compatible: disabled by default. Unlike `action_encoder` this adds NO module and NO
+  parameter in either setting, so construction-time RNG consumption is identical both ways --
+  verified by loading the pre-change `e1_deep.py` alongside the new one from the same seed:
+  identical parameters and bit-identical rollouts (max abs diff 0.0) across three shapes (legacy
+  branch; ITEM 1 ON with a held action; ITEM 1 ON with `action_cond_unzero_self_slot=False`).
+  V3-EXQ-965 driver `--dry-run` after the change: PASS, `missing_action_calls=0`.
+  Phased training required: no -- no new head, no new parameter.
+  MECH-094: not applicable -- no new content-to-memory write path.
+
+  WHY THIS IS NOT ITEM 2, AND WHY IT IS NOT A GUESS. This is the design doc's OWN PRE-REGISTERED
+  branch, quoted in the ITEM 1 entry immediately above ("`output_proj` predicts the ABSOLUTE next
+  state where E2 uses a residual `z + delta(z, a)` parameterisation; if the ON arm still shows
+  crushed divergence, that is the next thing to test"). V3-EXQ-965 (2026-08-30, confirmed autopsy)
+  validated ITEM 1 and measured the ON arm still 25-37x short of the 0.1 `cr_ratio(h=1)` bar and
+  5-7 orders below the 0.002 `e1coe_score_var` bar, so the branch condition is MET. The form is
+  copied from `e2_fast.py`'s `self_forward` / `world_forward` -- no scaling, gate, or extra module
+  invented. ITEM 2 (the multi-step / rollout-consistency objective) is untouched and remains
+  `pending_implementation`; take this cheap discrimination BEFORE committing to that build, per
+  this lineage's own recorded lesson that a 49-second probe re-scoped ITEM 1.
+
+  DELIBERATELY INDEPENDENT OF `action_conditioned_transition`. It parameterises the state
+  recurrence, not the action channel, and the discrimination it exists to enable is an A/B ON the
+  ITEM 1 ON arm -- so both knobs must be separately settable. This is the OPPOSITE contract to
+  `action_cond_unzero_self_slot`, which is inert unless its master switch is on; both directions
+  are pinned by tests so neither can be "tidied" into the other.
+  Contracts: `tests/contracts/test_e1_output_proj_residual.py` (16, all pass). Same `eval()`-mode
+  harness discipline as the ITEM 1 file, and for the same reason. It pins OFF against a
+  HAND-ROLLED REPLICATION of the legacy loop rather than a frozen constant, parameter identity
+  across the flag, and the h=1 algebraic identity `ON == seed + OFF` -- that last one is what
+  catches a knob wired to the wrong residual base, which every looser "the numbers moved" check
+  passes. It deliberately does NOT assert that residual beats absolute; that is the experiment.
+  Validation experiment: OWED -- a cheap `/queue-experiment` diagnostic A/B on the ITEM 1 ON arm
+  (absolute vs residual `output_proj`) reading per-action divergence at the E1 output and
+  `cr_ratio(h=1)`. Chipped as follow-on.
+  DOES NOT unblock INV-088 / MECH-135. Both keep `pending_retest_after_substrate: true`: the bars
+  are still missed by 25-37x (`cr_ratio`) and 5-7 orders (`e1coe_score_var`), so a retest must NOT
+  be queued off the back of this build.
+  OPEN DECISION recorded, not taken: `E1Config.action_cond_unzero_self_slot` still defaults `True`
+  despite V3-EXQ-965 returning a NULL for it (C_both <= B_action on 3 of 4 h=1 comparisons). Inert
+  today because its master switch defaults `False`, but enabling ITEM 1 silently enables a second
+  unvalidated change alongside the one under test. Flipping a shipped default is a behaviour
+  change and is owed a user decision.
