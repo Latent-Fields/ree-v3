@@ -177,6 +177,18 @@ ALPHA_WORLD = 0.9  # SD-008: high-fidelity z_world (571 set this)
 
 CLAMP_RATIO = 2.0  # matches the 689i / 936a parity value
 
+# ENV SEEDING -- a DELIBERATE deviation from V3-EXQ-571's unseeded default.
+# 571 passes seed=None (OS entropy at construction), so two cells at "seed 42"
+# share an agent init but NOT a world layout. The load-bearing comparison here is
+# A0 vs A1 AT MATCHED SEED, and under 571's scheme that contrast is confounded by
+# layout: "matched seeds" would match the agent and not the world. The env seed is
+# therefore derived from the RUN seed ONLY and is arm-independent, so all four arms
+# at seed 42 see the identical layout and the clamp contrast is genuinely
+# within-layout. Cost, stated: the ABSOLUTE shares are no longer produced under
+# 571's exact env-sampling scheme, so the 0.886 comparison (already loose across
+# three months of substrate drift) is comparability-by-config, not by layout draw.
+ENV_SEED_BASE = 5710000
+
 # --- Pre-registered thresholds (constants, never derived from this run) ---
 F_MONOPOLY_THRESHOLD = 0.85   # 936a's own monopoly bar
 MIN_FRESH_SELECTIONS = 60     # 936a's established decomp-sample floor
@@ -248,7 +260,8 @@ def config_slice_for(arm: Dict[str, Any]) -> Dict[str, Any]:
             "size": GRID_SIZE,
             "num_hazards": NUM_HAZARDS,
             "use_proxy_fields": True,
-            "env_seed": None,
+            "env_seed_base": ENV_SEED_BASE,
+            "env_seed_scheme": "ENV_SEED_BASE + run_seed; arm-independent so arms share a layout",
         },
         "schedule": {
             "n_episodes": N_EPISODES,
@@ -293,7 +306,7 @@ def make_env_and_agent(seed: int, arm: Dict[str, Any]):
     np.random.seed(seed)
 
     env = CausalGridWorld(
-        seed=None,  # 571's landed default: OS entropy at construction
+        seed=ENV_SEED_BASE + int(seed),  # arm-INDEPENDENT: matches layout across arms
         size=GRID_SIZE,
         num_hazards=NUM_HAZARDS,
         use_proxy_fields=True,
@@ -585,6 +598,28 @@ def run_cell(arm: Dict[str, Any], seed: int, dry_run: bool = False) -> Dict[str,
 
         _ZG.observe(agent)
 
+        # FABLE RED-TEAM FINDING 1, resolved by MEASUREMENT rather than by assumption.
+        # V3-EXQ-936a -- the run in which residue_weighted took ~99.9998% of the
+        # variance -- calls agent.update_residue() every env step (936a driver:760).
+        # Neither V3-EXQ-571 nor this driver does (grep update_residue: 0/0/1). The
+        # reviewer inferred from that that the RBF half of phi is "exactly zero
+        # forever", which would make residue_weighted structurally unable to hold the
+        # monopoly in EITHER arm here -- i.e. this run could not tell "the clamp does
+        # not cause the residue inversion" from "this driver starved the channel".
+        # That inference is NOT safe as stated: residue_field.accumulate() is also
+        # reached from e3_selector.py:4083 whenever harm_occurred, and this config runs
+        # NUM_HAZARDS=1, so the accumulation path is live even with no update_residue
+        # call. Rather than assume either way, record the fact: active_mask.sum() is
+        # the number of RBF centers actually recruited, and it is what a later reader
+        # needs to know whether the residue channel was ever a candidate occupant.
+        try:
+            _rf = getattr(agent, "residue_field", None)
+            _rbf = getattr(_rf, "rbf_field", None) if _rf is not None else None
+            _mask = getattr(_rbf, "active_mask", None) if _rbf is not None else None
+            n_residue_active = int(_mask.sum().item()) if _mask is not None else -1
+        except Exception:
+            n_residue_active = -1
+
         # --- decompose, both component sets, both methods ---
         pool_f, pool_fr, pool_total_var = _pool_variance_share(
             pool_series, SCORE_COMPONENTS, F_COMPONENTS
@@ -653,6 +688,7 @@ def run_cell(arm: Dict[str, Any], seed: int, dry_run: bool = False) -> Dict[str,
                 float(max(max_over_ceiling_vals)) if max_over_ceiling_vals else 0.0
             ),
             "n_pin_samples": int(len(at_ceiling_vals)),
+            "residue_rbf_active_centers": int(n_residue_active),
             "lambda_eff_mean": (
                 float(statistics.fmean(lambda_eff_vals)) if lambda_eff_vals else 0.0
             ),
@@ -907,6 +943,33 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         ),
     }
 
+    # Whether the 936a monopolist channel was even RECRUITED in this run. If no RBF
+    # center was ever activated in any cell, residue_weighted could not have held the
+    # monopoly here regardless of the clamp -- so this run measures the monopoly in
+    # 571's regime but does NOT adjudicate the 936a residue inversion, and any
+    # governance reading must stop short of that. Stated from the measurement, not
+    # from a premise about the driver.
+    residue_active_max = max(
+        [int(r.get("residue_rbf_active_centers", -1)) for r in rows] or [-1]
+    )
+    residue_scope_caveat = (
+        " SCOPE LIMIT (residue channel never recruited): no RBF center was activated "
+        "in any cell, so residue_weighted -- the channel that held ~99.9998% in "
+        "V3-EXQ-936a -- was not an available occupant here at all. This run therefore "
+        "characterises the monopoly WITHIN 571's non-accumulating regime and does NOT "
+        "adjudicate whether the clamp causes the 936a residue inversion; that question "
+        "needs a residue-feeding arm and is explicitly NOT answered by this run."
+        if residue_active_max == 0
+        else (
+            f" Residue channel WAS recruited (max active RBF centers across cells = "
+            f"{residue_active_max}), so residue_weighted was an available occupant and "
+            f"the comparison against 936a's residue monopoly is meaningful."
+            if residue_active_max > 0
+            else " Residue recruitment UNMEASURED (probe unavailable); treat any "
+                 "comparison against 936a's residue monopoly as unsupported."
+        )
+    )
+
     outcome_note = (
         f"{label}: clamped top channel {lb_top_modal} at share {lb_top_share:.6g}; "
         f"unclamped reference top channel {ref_top_modal} at share {ref_top_share:.6g}; "
@@ -919,6 +982,7 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         f"above-ceiling fraction {_mean(lb_rows, 'rollout_above_ceiling_frac_mean'):.4f} "
         f"clamped vs {_mean(ref_rows, 'rollout_above_ceiling_frac_mean'):.4f} unclamped. "
         f"{note_map[label]}"
+        f"{residue_scope_caveat}"
     )
 
     return {
@@ -958,6 +1022,8 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
                 sum(1 for r in rows if r.get("pool_share_exceeds_unity"))
             ),
             "n_seed_flips": int(n_flip),
+            "residue_rbf_active_centers_max": int(residue_active_max),
+            "adjudicates_936a_residue_inversion": bool(residue_active_max > 0),
         },
         "diagnostics": {
             # NON-GATING readiness for the secondary (div-stack) arms. Recorded so a
@@ -1092,7 +1158,9 @@ if __name__ == "__main__":
         f"max/ceil on={s['clamped_max_over_ceiling_mean']:.4f} "
         f"off={s['unclamped_max_over_ceiling_mean']:.4f} "
         f"above_ceil on={s['clamped_above_ceiling_frac_mean']:.4f} "
-        f"off={s['unclamped_above_ceiling_frac_mean']:.4f}",
+        f"off={s['unclamped_above_ceiling_frac_mean']:.4f} "
+        f"residue_active_max={s['residue_rbf_active_centers_max']} "
+        f"adjudicates_936a_residue={s['adjudicates_936a_residue_inversion']}",
         flush=True,
     )
     print(f"LABEL: {result['interpretation']['label']}", flush=True)
