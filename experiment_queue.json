@@ -26,6 +26,21 @@
       "episodes_per_run": 2400,
       "experiment_type": "v3_exq_963a_mech063ii_tonic_phasic_dissociation_retest",
       "seeds": 5
+    },
+    {
+      "queue_id": "V3-EXQ-871b",
+      "title": "MECH-090/ARC-071 AT-tick commit-latch persistence -- E3-reselection short-circuit retest (owed validation, GFLAG-0079)",
+      "script": "experiments/v3_exq_871b_mech090_e3_reselection_shortcircuit_retest.py",
+      "priority": 20,
+      "machine_affinity": "any",
+      "estimated_minutes": 30,
+      "claim_id": "MECH-090",
+      "status": "pending",
+      "conditions": 1,
+      "episodes_per_run": 130,
+      "experiment_type": "v3_exq_871b_mech090_e3_reselection_shortcircuit_retest",
+      "seeds": 2,
+      "note": "Owed retest routed by failure_autopsy_V3-EXQ-871a_2026-08-03 (GFLAG-0079, evidence/planning/governance_flags.v1.json, status open): validates ree-v3 main 31ed78e (use_e3_reselection_shortcircuit, substrate_queue.json sd_id arc071_e3_reselection_on_committed_program, implemented_validated) against 871a's own prescribed tick-rate-normalised DV, not raw mean segment length. GOV-REUSE-1: checked reanalysis_query.py for n_genuine_commits on MECH-090 substrate_hash b43e0a46.../d10fb38f... (V3-EXQ-855/871a) -- both pre-date the short-circuit flag; decisive readout under use_e3_reselection_shortcircuit=True absent from every recorded manifest -> run. Re-derive brake (Step 2.5b): MECH-090 carries 11 counted substrate_ceiling hits, all SD-034 cluster (delayed-reward/decommit-hold, a different mechanism at a different granularity) -- 871a's own autopsy already made and recorded this exact distinction ('not the same question as this run'); this run continues that already-adjudicated lineage, brake does not apply, per the same precedent. Substrate-path overlap (Step 2.5c): two corrupting substrate_queue.json entries (mode-governance-engagement, SD-082) name bare ree_core/agent.py; both confirmed provably inert for this driver (gated on use_external_task_drive / use_lateral_pfc_analog, both default False and never set here) -- see script docstring for the verification. RED-TEAM (fable), two passes per skill's re-spawn-once-on-BLOCKING rule: pass 1 (design: chunk_max_size=2, replaying 871a exactly) returned BLOCKING -- the short-circuit's own continuation condition (_committed_step_idx < chunk_length-1) is mechanically unreachable at chunk_length=2 because the commit tick's own bookkeeping already advances the counter to 1 within the same tick (verified directly against ree_core/agent.py:9591,9757-9759,7214-7218) -- a working fix and an inert fix would read identically. Fixed: chunk_max_size 2->5 (A_HIER_S5, one of V3-EXQ-841's own dose arms, confirmed both seeds 101/505 form length-5 chunks on this schedule), plus a new shortcircuit_opportunity_present readiness precondition. Pass 2 (post-fix design) returned BLOCKING again -- the autopsy's own literal n_genuine_commits/n_e3_ticks denominates over ALL E3 ticks, most of which are not opportunity ticks (the fix's own motivating probe measured only 36.8% premature-reselection among chunk-committed decisions at this size), so even a perfectly working fix could leave the ratio inside the 'working' band -- fix-works and fix-inert would print identically. Fixed: verdict now routes on opportunity_continuation_rate, conditioned only on ticks where continuation was structurally possible (exactly 0.0 pre-fix by 871a's own exact-arithmetic finding); the autopsy's literal ratio is retained as a supplementary diagnostic only. Both findings independently verified against ree_core/agent.py source by this session before being applied (per skill's verify-before-acting instruction), not accepted on the reviewer's say-so. No third spawn -- per the skill's one-pass rule, the second fix was accepted on direct source verification. GOVERNANCE NOTE (report only, not applied by this queueing session): once this run lands, MECH-090's pending_retest_after_substrate (claims.yaml) and GFLAG-0079 are governance dispositions for /governance to apply."
     }
   ]
 }
