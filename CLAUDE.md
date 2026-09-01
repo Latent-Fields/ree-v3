@@ -3577,7 +3577,7 @@ the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_sur
         `use_<attr>` with no such agent attribute; both are counted in the returned
         report so an empty check cannot read as a pass.
         Contracts: tests/contracts/test_probe_warmup_arm_regulator_assertion.py
-        (13) alongside test_probe_warmup_cache_key_restore.py (9, for (a)+(b)).
+        (11) alongside test_probe_warmup_cache_key_restore.py (9, for (a)+(b)).
   STILL OWED, driver-side, NOT done here (belongs to a NEW EXQ letter via
   /queue-experiment -- V3-EXQ-963 is a burned id and its script must not be edited
   in place): the 963-lineage driver must (i) pass arm_key= to warm_agent, (ii)
