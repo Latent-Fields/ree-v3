@@ -3302,7 +3302,13 @@ class REEConfig:
     # MECH-205: minimum surprise magnitude to write to residue field. Filters out
     # negligible PE-EMA deltas that would accumulate as noise. Only active when
     # surprise_gated_replay=True.
-    pe_surprise_threshold: float = 0.001
+    # 0.001 (former default) was ~53x too high against an observed mean surprise
+    # of 1.86e-5 -- it gated every step closed, which is exactly why V3-EXQ-258a
+    # FAILed vacuously (root-caused on MECH-205's evidence_quality_note). V3-EXQ-258b
+    # PASSED using 1e-5 but that value was never promoted out of the experiment.
+    # GFLAG-0075 (2026-09-01): promoted 1e-5 to the default so surprise_gated_replay
+    # is not vacuously gated closed out of the box.
+    pe_surprise_threshold: float = 1e-5
 
     # MECH-120: SHY-analog synaptic homeostasis in SWS
     shy_enabled: bool = False          # master switch (default off for backward compat)
@@ -6934,7 +6940,7 @@ class REEConfig:
         # MECH-205: surprise-gated replay
         surprise_gated_replay: bool = False,
         pe_ema_alpha: float = 0.02,
-        pe_surprise_threshold: float = 0.001,
+        pe_surprise_threshold: float = 1e-5,  # GFLAG-0075: 0.001 was ~53x too high (see field default above)
         # MECH-120: SHY-analog synaptic homeostasis
         shy_enabled: bool = False,
         shy_decay_rate: float = 0.85,
