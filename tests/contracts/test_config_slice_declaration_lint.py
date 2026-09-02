@@ -715,7 +715,17 @@ def test_gate_is_warn_only_even_under_strict(tmp_path):
 # alongside the SD-PROBE-WARMUP repair). "Fix the script rather than re-pin" in the
 # assertion message below is the right instruction for a LIVE driver; a terminal
 # carrier is backlog, which is what this pin counts.
-_PINNED_CORPUS_FIRE_COUNT = 56
+# 2026-09-02: 56 -> 57. V3-EXQ-963a (v3_exq_963a_mech063ii_tonic_phasic_dissociation_
+# retest.py, ree-v3 577ca2f, 2026-09-01T19:03Z) is the driver-repair LETTER of 963 and
+# inherits the same 9 undeclared readout-affecting constants verbatim -- the 2026-08-30
+# entry above handed that fix to "its successor's driver", and 963a shipped without it.
+# 963a is now TERMINAL too (ran 2026-09-02T00:14Z, FAIL, in pending_review), so per the
+# same 798/963 confirmed-carrier precedent it joins the pinned backlog rather than
+# being retro-edited; the owed fix moves to the NEXT 963-family letter. Trunk had been
+# red on this pin since 577ca2f landed (the "1 pre-existing unrelated failure" noted in
+# WORKSPACE_STATE 2026-09-01T21:33Z), blocking every ree_core pre-commit gate; re-pinned
+# by session fable-queue-refill-20260902 while landing the SD-e1 ITEM 2 build.
+_PINNED_CORPUS_FIRE_COUNT = 57
 
 
 def test_config_slice_corpus_fire_rate_is_pinned(corpus_scan):

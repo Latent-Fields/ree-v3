@@ -1314,6 +1314,165 @@ class E1DeepPredictor(nn.Module):
 
         return {"integration_loss": total_loss / num_iterations}
 
+    def rollout_consistency_loss(
+        self,
+        initial_state: torch.Tensor,
+        targets: torch.Tensor,
+        actions: Optional[torch.Tensor] = None,
+        horizon: Optional[int] = None,
+        horizon_weights_decay: Optional[float] = None,
+        simulation_mode: bool = False,
+    ) -> torch.Tensor:
+        """SD-e1-rollout-consistency-training ITEM 2: multi-step rollout
+        consistency with per-step discounting (synthesis candidate 1,
+        TD-MPC-style multi-step latent consistency over an action-conditioned
+        transition).
+
+        Rolls the transition out autoregressively from `initial_state` under
+        `actions` and penalises the per-step deviation from the OBSERVED latent
+        trajectory, weighting step t by `horizon_weights_decay ** t`:
+
+            pred_t   = the t-th step of predict_long_horizon(initial, h, actions)
+            L_t      = mean_squared_error(pred_t, targets[:, t, :])
+            L        = sum_t (w_t * L_t) / sum_t w_t,   w_t = decay ** t
+
+        WHAT THIS ADDS OVER REEAgent.compute_prediction_loss(). That method
+        already rolls E1 out autoregressively to prediction_horizon and MSEs the
+        whole trajectory (and, post-ITEM-1, supplies the executed action
+        sequence), so the multi-step FORM is present on the agent-loop path.
+        Two things it does not have:
+          (i) `F.mse_loss` over the stacked rollout weights every horizon step
+              EQUALLY. Deep-step error is larger by construction under an
+              autoregressive rollout, so a flat mean lets the deepest steps
+              dominate the gradient. decay < 1.0 is TD-MPC's actual form.
+          (ii) It is only reachable through the agent loop. Every driver in this
+              SD's own lineage trains E1 directly and single-step teacher-forced
+              (`F.mse_loss(e1_pred[:, 0, :], ...)` -- V3-EXQ-954:312, 965:409,
+              968:431), so the multi-step objective has never once been
+              exercised in the lineage that motivated this SD.
+
+        At `horizon_weights_decay=1.0` the weights are uniform and this reduces
+        to `F.mse_loss(preds[:, :h, :], targets[:, :h, :])` -- the flat form --
+        so the decay is the only behavioural axis this adds.
+
+        That reduction is exact in ARITHMETIC but not in FLOATING POINT, and the
+        contract pins it at rtol=1e-6 rather than bit-identity for that reason:
+        this helper reduces per-step (batch and features first, then a weighted
+        mean over steps, because per-step weighting requires it) while
+        F.mse_loss reduces over all elements at once. Same value, different
+        float32 summation order. Measured 2026-09-01: bit-identical on the
+        legacy branch, 6.4e-08 RELATIVE on the action-conditioned one -- right
+        at float32 eps. An earlier contract revision asserted bit-identity and
+        was machine-class flaky, passing on ree-worker-4 and failing on
+        darwin-arm64.
+
+        Caller composes: this returns the UNWEIGHTED horizon-mean, and the
+        caller multiplies by `E1Config.e1_rollout_consistency_weight` before
+        adding to its total loss. Same contract as SD-056's
+        `world_forward_contrastive_loss` on E2.
+
+        Hidden state is saved, reset, and restored around the rollout -- the
+        same save/restore pattern REEAgent.compute_prediction_loss uses -- so
+        calling this during training does not disturb inference-time recurrence.
+
+        DEGENERATE RETURN DIFFERS FROM SD-056 ON PURPOSE. The E2 helpers return a
+        plain `torch.zeros(())`, which has `requires_grad=False`; a caller doing
+        `(w * loss).backward()` on a degenerate call would then raise "does not
+        require grad", and the degenerate case here is intermittent (a short
+        target window), which is the worst kind of trap. This returns the
+        grad-connected `next(self.parameters()).sum() * 0.0` idiom that
+        REEAgent.compute_prediction_loss already uses for the same reason.
+
+        Returns the zero loss when:
+            (a) simulation_mode=True (MECH-094 standard pattern -- replay / DMN
+                training paths cannot recruit the objective);
+            (b) the effective horizon is < 1;
+            (c) `targets` supplies no usable step.
+
+        Args:
+            initial_state: [batch, total_dim] rollout seed.
+            targets:       [batch, T, total_dim] OBSERVED latent trajectory;
+                           targets[:, t, :] is the state at rollout step t+1.
+                           The effective horizon is min(horizon, T).
+            actions:       [batch, action_dim] (held) or
+                           [batch, h, action_dim] (per-step), or None. Passed
+                           through to predict_long_horizon unchanged, so the
+                           ITEM 1 missing-action instrumentation applies: with
+                           the action-conditioned master switch on, actions=None
+                           increments _action_cond_missing_calls.
+            horizon:       optional override; falls back to
+                           E1Config.e1_rollout_consistency_horizon.
+            horizon_weights_decay: optional override; falls back to
+                           E1Config.e1_rollout_consistency_horizon_weights_decay.
+                           1.0 = uniform, <1.0 = earlier steps weight more.
+            simulation_mode: MECH-094 gate. True -> zero loss.
+
+        Returns:
+            0-d Tensor: unweighted horizon-mean consistency loss.
+        """
+        zero_loss = next(self.parameters()).sum() * 0.0
+
+        if simulation_mode:
+            return zero_loss
+
+        if targets.dim() != 3:
+            raise ValueError(
+                "targets must be [batch, T, total_dim]; got shape "
+                f"{tuple(targets.shape)}"
+            )
+        if initial_state.dim() != 2:
+            raise ValueError(
+                "initial_state must be [batch, total_dim]; got shape "
+                f"{tuple(initial_state.shape)}"
+            )
+        if targets.shape[0] != initial_state.shape[0]:
+            raise ValueError(
+                f"targets batch {targets.shape[0]} != initial_state batch "
+                f"{initial_state.shape[0]}"
+            )
+
+        h_cfg = horizon if horizon is not None else getattr(
+            self.config, "e1_rollout_consistency_horizon", 5
+        )
+        h = int(min(int(h_cfg), int(targets.shape[1])))
+        if h < 1:
+            return zero_loss
+
+        decay = horizon_weights_decay if horizon_weights_decay is not None else getattr(
+            self.config, "e1_rollout_consistency_horizon_weights_decay", 1.0
+        )
+        decay = float(decay)
+        if not (decay > 0.0):
+            # Fail closed. decay <= 0 makes the weight vector degenerate or
+            # sign-alternating and weights.sum() zero or negative, so the loss
+            # comes back NaN/inf SILENTLY -- the class of quiet failure this
+            # file already guards against elsewhere (see the unrecognised
+            # write-selection value raising at construction). A nonsensical
+            # discount is a config error, not something to average over.
+            raise ValueError(
+                "e1_rollout_consistency_horizon_weights_decay must be > 0; got "
+                f"{decay}"
+            )
+
+        saved_hidden = self._hidden_state
+        self.reset_hidden_state()
+        try:
+            preds = self.predict_long_horizon(
+                initial_state, horizon=h, actions=actions
+            )
+        finally:
+            self._hidden_state = saved_hidden
+
+        diff = preds[:, :h, :] - targets[:, :h, :]
+        per_step = (diff ** 2).mean(dim=(0, 2))  # [h]
+
+        steps = torch.arange(h, device=per_step.device, dtype=per_step.dtype)
+        weights = torch.pow(
+            torch.tensor(decay, device=per_step.device, dtype=per_step.dtype),
+            steps,
+        )
+        return (per_step * weights).sum() / weights.sum()
+
     def forward(
         self,
         current_state: torch.Tensor,

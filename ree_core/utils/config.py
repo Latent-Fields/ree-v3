@@ -471,6 +471,59 @@ class E1Config:
     # See REE_assembly/docs/architecture/sd_e1_rollout_consistency_training.md.
     output_proj_residual: bool = False
 
+    # SD-e1-rollout-consistency-training, ITEM 2 (2026-09-01): the multi-step
+    # rollout-consistency training objective. Candidate 1 of the commissioned
+    # synthesis's ranked list -- "strongest template; transposes to E1's
+    # deterministic MSE without reinterpretation" (TD-MPC-style multi-step
+    # latent consistency over an action-conditioned transition).
+    #
+    # WHY THIS IS NOT ALREADY COVERED BY compute_prediction_loss. REEAgent's
+    # compute_prediction_loss() DOES roll E1 out autoregressively to
+    # prediction_horizon and MSE the whole trajectory (and, post-ITEM-1,
+    # supplies the executed action sequence), so the multi-step form is
+    # structurally present on the agent-loop path. Two things are missing and
+    # this knob supplies them: (i) the per-step DISCOUNT weighting that is
+    # TD-MPC's actual form -- F.mse_loss over the stacked rollout weights every
+    # horizon step equally, which lets deep-step error dominate the objective;
+    # (ii) reachability from a driver that trains E1 directly rather than
+    # through the agent loop. That second point is not hypothetical: EVERY
+    # driver in this SD's own lineage trains single-step teacher-forced
+    # (`F.mse_loss(e1_pred[:, 0, :], ...)` -- V3-EXQ-954:312, 965:409,
+    # 968:431), so the multi-step objective has never once been exercised in
+    # the lineage that motivated this SD.
+    #
+    # WHY CANDIDATE 1 AND NOT THE CONTRASTIVE ALTERNATIVE. A rollout-endpoint
+    # contrastive over candidate action SEQUENCES was designed and deliberately
+    # NOT built here (2026-09-01). It is a different objective from the
+    # synthesis's de-prioritised #5 "contrastive next-state" -- it constrains
+    # the iterated map, not the one-step transition -- so #5's "TD-MPC went the
+    # other way" comparison does not settle it. But #5's OTHER objection, "no
+    # long-horizon anchor found", applies to it with MORE force rather than
+    # less, and the in-repo precedent (E2's SD-056 multi-step contrastive amend,
+    # e2_fast.py, 2026-05-31) is built-but-unvalidated: measured 2026-09-01,
+    # e2_action_contrastive_multistep_enabled is true in ZERO runs across the
+    # whole evidence corpus. The argument for preferring it over candidate 1 was
+    # intuition, not measurement -- so candidate 1, the doc's ranked-strongest
+    # and the untried one, goes first. A null on it narrows ITEM 2's real target
+    # and buys that departure with evidence.
+    #
+    # Default False/no-op. Nothing calls rollout_consistency_loss() unless a
+    # driver opts in, no module or parameter is constructed in either setting,
+    # and compute_prediction_loss is deliberately NOT rewired -- agent-loop
+    # wiring is held until the validation experiment reports.
+    # See REE_assembly/docs/architecture/sd_e1_rollout_consistency_training.md.
+    e1_rollout_consistency_enabled: bool = False
+    # Caller-side scaling for the helper's return value. The helper returns the
+    # UNWEIGHTED horizon-mean MSE; the caller multiplies. Mirrors SD-056's
+    # e2_action_contrastive_weight contract exactly.
+    e1_rollout_consistency_weight: float = 1.0
+    # Rollout depth the objective covers. Mirrors e2_action_contrastive_horizon.
+    e1_rollout_consistency_horizon: int = 5
+    # Per-step weight decay: horizon_weights[t] = decay ** t, t from 0.
+    # 1.0 = uniform (the flat form compute_prediction_loss already has);
+    # <1.0 = TD-MPC's discounting, earlier steps weight more.
+    e1_rollout_consistency_horizon_weights_decay: float = 1.0
+
     # SD-016: frontal cue-indexed integration circuit (MECH-150/151/152, ARC-041)
     sd016_enabled: bool = False
     action_object_dim: int = 16    # must match E2Config.action_object_dim
@@ -6862,6 +6915,11 @@ class REEConfig:
         action_cond_unzero_self_slot: bool = True,
         # SD-e1-rollout-consistency-training: residual output_proj parameterisation
         output_proj_residual: bool = False,
+        # SD-e1-rollout-consistency-training ITEM 2 (2026-09-01).
+        e1_rollout_consistency_enabled: bool = False,
+        e1_rollout_consistency_weight: float = 1.0,
+        e1_rollout_consistency_horizon: int = 5,
+        e1_rollout_consistency_horizon_weights_decay: float = 1.0,
         # MECH-216: E1 predictive wanting (schema readout)
         schema_wanting_enabled: bool = False,
         schema_wanting_threshold: float = 0.3,
@@ -8049,6 +8107,12 @@ class REEConfig:
         # SD-e1-rollout-consistency-training: residual output_proj. Independent
         # of the action-conditioning master switch (see the E1Config comment).
         config.e1.output_proj_residual = output_proj_residual
+        config.e1.e1_rollout_consistency_enabled = e1_rollout_consistency_enabled
+        config.e1.e1_rollout_consistency_weight = e1_rollout_consistency_weight
+        config.e1.e1_rollout_consistency_horizon = e1_rollout_consistency_horizon
+        config.e1.e1_rollout_consistency_horizon_weights_decay = (
+            e1_rollout_consistency_horizon_weights_decay
+        )
 
         # E2
         config.e2.self_dim = self_dim
