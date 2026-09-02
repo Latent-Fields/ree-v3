@@ -49,6 +49,23 @@
       "episodes_per_run": 265,
       "experiment_type": "v3_exq_951c_mech320_vt_floor_diagnostic_sd054",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-591h",
+      "title": "ARC-019 precondition: LIVE closed-loop validation of the 591f crossing-count Phase 0->1 curriculum gate (crossing-count vs legacy spike, matched seeds) -- 591g re-run after aggregation crash",
+      "experiment_type": "v3_exq_591h_isef005_phase01_gate_live",
+      "script": "experiments/v3_exq_591h_isef005_phase01_gate_live_v3.py",
+      "priority": 40,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 360,
+      "episodes_per_run": 160,
+      "seeds": 5,
+      "conditions": 2,
+      "supersedes": "V3-EXQ-591g",
+      "backlog_id": "EVB-1189",
+      "claim_id": "ARC-019",
+      "note": "RE-RUN of V3-EXQ-591g (ERROR 2026-09-02T20:17:44Z, ree-cloud-2) after a crash-before-manifest. SCIENTIFIC DESIGN IS UNCHANGED FROM 591g -- see that entry for the full design/red-team/scope record, which is inherited verbatim. ROOT CAUSE of the 591g ERROR: the F4 telemetry-dropout guard added during 591g's own pre-queue red-team pass DEFINED `dropout_bypassed` seven lines BELOW the `c_discriminates` expression that CONSUMES it, so the live run died with `UnboundLocalError: local variable 'dropout_bypassed' referenced before assignment` at line 590 after all 20 cells had run (5h46m) and before any manifest was written. WHY EVERY EXISTING GATE MISSED IT: `gate_green` is the leading conjunct and is always False under --dry-run (a 3-episode dry run cannot reach PHASE_EP_MIN[1]=100, so no seed advances and precondition P1 fails), so Python short-circuits before evaluating the undefined name -- the mandatory pre-queue smoke test, `validate_experiments --strict` (all 30 checks, including dry_run_unreachable_criterion), and py_compile all pass 591g clean. FIX: statement reordering only -- the F4 guard block moves ABOVE `c_discriminates`. No DV, criterion, threshold, seed, oracle, precondition or verdict-grid change; `c_discriminates` now computes exactly what 591g's own docstring, criteria_non_degenerate and label branch already specified. VERIFICATION (positive-control, not just a green run): an aggregation probe that stubs _run_cell with the frozen 591f reference cells to force gate_green=True -- the path --dry-run can never reach -- reproduces the exact 591g crash at line 590 and completes cleanly on 591h (outcome=PASS, dropout_bypassed=[], all 5 preconditions met); an AST use-before-def scan flags 591g at 590/597 and reports 591h clean; --dry-run smoke PASS (exit 0, [train] ep 3/3, verdict: per cell, label=substrate_not_ready_requeue as expected for a short dry run); validate_experiments --strict clean. red-team: SKIP (pure crash / statement-ordering re-queue; Step 4e2 does not fire -- the manipulation -> DV -> criterion -> verdict chain is untouched). CLAIM TAGS RE-EVALUATED, not inherited: ARC-019 / non_contributory confirmed by the user at the /diagnose-errors Step 7 gate -- 591h measures the identical per-seed live Phase 0->1 advance decision under the crossing-count gate, and env_kwargs() remains informational-only so this still validates the GATE rather than the staged curriculum. COST: estimated_minutes revised 1440 -> 360 on the MEASURED 591g wall-clock (5h46m for all 20 cells on ree-cloud-2), replacing 591g's Mac-extrapolated ~23h figure."
     }
   ]
 }
