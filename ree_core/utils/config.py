@@ -1622,6 +1622,35 @@ class E3Config:
     gap_scaled_commit_entropy_alpha: float = 1.0
     gap_scaled_commit_harm_floor: float = 0.25
 
+    # MECH-027 -- precision-scaled entropy-regularized commit (2026-09-02). Same
+    #   T_eff = base + alpha*(1 - x_norm) softening as Factor B above, but x_norm is
+    #   the PRECISION margin (how far the gating variance sits below the commit
+    #   threshold: precision_margin_norm = clamp(1 - commit_variance/effective_
+    #   threshold, 0, 1); 0 at the threshold (barely committed), 1 as commit_variance
+    #   -> 0 (maximally confident)) instead of the F-gap. Gives current_precision /
+    #   running_variance a genuine GRADED consumer of the committed branch: the
+    #   binary commit gate alone (committed = commit_variance < effective_threshold)
+    #   saturates in a trained baseline (running_variance empirically ~125x below
+    #   threshold) -- once committed, further lowering variance (e.g. an elevated-
+    #   gain/hypervigilance lever) had NO further behavioral effect. This lever
+    #   makes the DEGREE of confidence continuously modulate the committed pick's
+    #   stochasticity: a barely-committed tick commits HOTTER (softer argmax, more
+    #   exploratory); a maximally-confident tick commits COLD (T_eff -> base,
+    #   recovers the hard argmin -- rigid, narrow selection, the hypervigilance
+    #   direction). q is the F-dominated scores restricted to an F-eligibility
+    #   envelope (candidates within precision_scaled_commit_harm_floor *
+    #   raw_score_range of the best raw score) so a hot commit-T can NEVER softmax-
+    #   promote a clearly-harmful candidate. Wired ONLY at the standalone committed
+    #   branch (no active Factor-A shortlist); when use_gap_scaled_commit_temperature
+    #   is ALSO on, gap-scaling takes precedence (preserves existing Factor-B-first
+    #   composition semantics exactly). Default False -> the hard argmin path is
+    #   bit-identical. See MECH-027 (claims.yaml), sd_hypervigilance non-degeneracy
+    #   gap (failure_autopsy behind chip-20260902-mech027-precision-replay-eval-
+    #   substrate).
+    use_precision_scaled_commit_temperature: bool = False
+    precision_scaled_commit_entropy_alpha: float = 1.0
+    precision_scaled_commit_harm_floor: float = 0.25
+
     # MECH-448 / ARC-107 -- rank-preserving F->eligibility demotion (LEAD lever of
     # the basal-ganglia E3-selector constitution, 2026-06-20). The pallidal-permission
     # reading of the conversion ceiling: F (the primary harm/goal score) decides who is
@@ -3273,13 +3302,7 @@ class REEConfig:
     # MECH-205: minimum surprise magnitude to write to residue field. Filters out
     # negligible PE-EMA deltas that would accumulate as noise. Only active when
     # surprise_gated_replay=True.
-    # 0.001 (former default) was ~53x too high against an observed mean surprise
-    # of 1.86e-5 -- it gated every step closed, which is exactly why V3-EXQ-258a
-    # FAILed vacuously (root-caused on MECH-205's evidence_quality_note). V3-EXQ-258b
-    # PASSED using 1e-5 but that value was never promoted out of the experiment.
-    # GFLAG-0075 (2026-09-01): promoted 1e-5 to the default so surprise_gated_replay
-    # is not vacuously gated closed out of the box.
-    pe_surprise_threshold: float = 1e-5
+    pe_surprise_threshold: float = 0.001
 
     # MECH-120: SHY-analog synaptic homeostasis in SWS
     shy_enabled: bool = False          # master switch (default off for backward compat)
@@ -6911,7 +6934,7 @@ class REEConfig:
         # MECH-205: surprise-gated replay
         surprise_gated_replay: bool = False,
         pe_ema_alpha: float = 0.02,
-        pe_surprise_threshold: float = 1e-5,  # GFLAG-0075: 0.001 was ~53x too high (see field default above)
+        pe_surprise_threshold: float = 0.001,
         # MECH-120: SHY-analog synaptic homeostasis
         shy_enabled: bool = False,
         shy_decay_rate: float = 0.85,
@@ -7786,6 +7809,10 @@ class REEConfig:
         use_gap_scaled_commit_temperature: bool = False,
         gap_scaled_commit_entropy_alpha: float = 1.0,
         gap_scaled_commit_harm_floor: float = 0.25,
+        # MECH-027 precision-scaled commit temperature (2026-09-02):
+        use_precision_scaled_commit_temperature: bool = False,
+        precision_scaled_commit_entropy_alpha: float = 1.0,
+        precision_scaled_commit_harm_floor: float = 0.25,
         # MECH-448 / ARC-107 -- rank-preserving F->eligibility demotion (LEAD lever,
         # 2026-06-20). No-op default; bit-identical OFF.
         use_f_eligibility_demotion: bool = False,
@@ -9334,6 +9361,14 @@ class REEConfig:
         )
         config.e3.gap_scaled_commit_entropy_alpha = gap_scaled_commit_entropy_alpha
         config.e3.gap_scaled_commit_harm_floor = gap_scaled_commit_harm_floor
+        # MECH-027 precision-scaled commit temperature (2026-09-02)
+        config.e3.use_precision_scaled_commit_temperature = (
+            use_precision_scaled_commit_temperature
+        )
+        config.e3.precision_scaled_commit_entropy_alpha = (
+            precision_scaled_commit_entropy_alpha
+        )
+        config.e3.precision_scaled_commit_harm_floor = precision_scaled_commit_harm_floor
         # MECH-448 / ARC-107 rank-preserving F->eligibility demotion (2026-06-20)
         config.e3.use_f_eligibility_demotion = use_f_eligibility_demotion
         config.e3.f_eligibility_envelope_floor = f_eligibility_envelope_floor

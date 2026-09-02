@@ -2538,6 +2538,17 @@ PROBED = {
     # seeds) and recovers a decisive argmin at a large F-gap, with T_eff shown
     # load-bearing on the (1-gap_norm) scaling.
     "use_gap_scaled_commit_temperature",
+    # MECH-027 precision-scaled commit temperature (2026-09-02). Probed by
+    # test_mech027_precision_scaled_commit_temperature.py: OFF is the legacy
+    # hard argmin; ON softens the committed pick when barely-committed
+    # (precision_margin_norm near 0, spreads across candidates over seeds)
+    # and recovers a decisive argmin when maximally confident
+    # (precision_margin_norm near 1), with T_eff shown load-bearing on the
+    # (1-precision_margin_norm) scaling. Gives current_precision /
+    # running_variance a graded consumer beyond the binary ARC-016 commit
+    # gate, which MECH-027's hypervigilance falsifier needs (the gate alone
+    # saturates once committed).
+    "use_precision_scaled_commit_temperature",
     # MECH-448/ARC-107 F-eligibility demotion. Probed by
     # test_mech_448_f_eligibility_demotion.py: OFF is the legacy
     # argmin(F+bias); ON excludes a clearly-harmful-by-F candidate from the

@@ -1956,6 +1956,46 @@ class E3TrajectorySelector(nn.Module):
         probs = F.softmax(-cost.detach() / t_eff, dim=0)
         return int(torch.multinomial(probs, 1).item())
 
+    def _precision_scaled_commit_pick(
+        self,
+        cost: torch.Tensor,
+        precision_norm: float,
+        base_temperature: float,
+    ) -> int:
+        """MECH-027: precision-scaled entropy-regularized committed pick.
+
+        Same softening as ``_gap_scaled_commit_pick`` (MECH-439 Factor B), with
+        the conflict-gap quantity replaced by the PRECISION-margin quantity:
+        ``precision_norm`` in [0, 1], 0 = barely committed (commit_variance at
+        the threshold), 1 = maximally confident (commit_variance -> 0).
+        T_eff = base_temperature + precision_scaled_commit_entropy_alpha *
+        (1 - precision_norm): a barely-committed tick commits HOTTER (softer
+        argmax, more exploratory); a maximally-confident tick commits COLD
+        (T_eff -> base, recovers the hard argmin). This gives current_precision
+        / running_variance a genuine graded consumer of the committed branch --
+        the binary commit gate alone saturates once running_variance is far
+        below threshold (empirically ~125x in a trained baseline), at which
+        point further lowering variance (e.g. an elevated-gain/hypervigilance
+        lever) has no further effect through the gate alone. Kept as a separate
+        method (rather than reusing ``_gap_scaled_commit_pick`` with a renamed
+        argument) so its diagnostics are independently named/attributable.
+        Returns the index into ``cost`` of the sampled element.
+        """
+        alpha = float(
+            getattr(self.config, "precision_scaled_commit_entropy_alpha", 1.0)
+        )
+        t_eff = base_temperature + alpha * (1.0 - float(precision_norm))
+        t_eff = max(t_eff, 1e-6)
+        self.last_score_diagnostics["precision_scaled_commit_active"] = True
+        self.last_score_diagnostics["precision_scaled_commit_precision_norm"] = float(
+            precision_norm
+        )
+        self.last_score_diagnostics["precision_scaled_commit_temperature_eff"] = (
+            float(t_eff)
+        )
+        probs = F.softmax(-cost.detach() / t_eff, dim=0)
+        return int(torch.multinomial(probs, 1).item())
+
     def _lateral_settle(
         self,
         mod_eligible: torch.Tensor,
@@ -3354,6 +3394,15 @@ class E3TrajectorySelector(nn.Module):
             "gap_scaled_commit_active": False,
             "gap_scaled_commit_gap_norm": -1.0,
             "gap_scaled_commit_temperature_eff": -1.0,
+            # MECH-027 precision-scaled commit temperature (2026-09-02).
+            # precision_margin_norm is ALWAYS set (world-variance commit mode,
+            # effective_threshold > 0) regardless of which lever is active, so a
+            # per-tick precision regression falsifier can bin every tick uniformly
+            # -- mirrors conflict_gap_norm's always-set convention above.
+            "precision_margin_norm": -1.0,
+            "precision_scaled_commit_active": False,
+            "precision_scaled_commit_precision_norm": -1.0,
+            "precision_scaled_commit_temperature_eff": -1.0,
             # MECH-448 / ARC-107 rank-preserving F->eligibility demotion (2026-06-20).
             # Pre-seeded; overwritten at the selection site when the lever fires.
             # f_eligibility_excluded_count > 0 is the NON-DEGENERACY signal (the
@@ -3601,6 +3650,10 @@ class E3TrajectorySelector(nn.Module):
             if velocity_effort != 0.0:
                 effective_threshold = effective_threshold * (1.0 + velocity_effort)
 
+        # MECH-027: defined in both commit-mode branches below (world-variance
+        # mode sets it; harm-variance mode leaves it None) so the standalone
+        # committed-selection site can reference it unconditionally.
+        _precision_margin_norm: Optional[float] = None
         if use_harm_variance_commit and harm_bridge is not None:
             harm_scores = torch.stack([
                 self.compute_harm_stream_cost(t, harm_bridge).mean()
@@ -3621,6 +3674,20 @@ class E3TrajectorySelector(nn.Module):
                     and conditional_predictive_variance is not None):
                 commit_variance = float(conditional_predictive_variance)
             committed = commit_variance < effective_threshold
+            # MECH-027: normalized precision margin -- 0 at the threshold (barely
+            # committed), 1 as commit_variance -> 0 (maximally confident). The
+            # graded consumer for use_precision_scaled_commit_temperature below
+            # (a precision-scaled analog of MECH-439 Factor B's gap-scaled commit
+            # temperature). Always computed (not gated on the flag) so the
+            # pre-seeded diagnostic is populated on every world-variance-mode
+            # tick, mirroring conflict_gap_norm's always-set convention.
+            if effective_threshold > 0:
+                _precision_margin_norm = max(
+                    0.0, min(1.0, 1.0 - (commit_variance / effective_threshold))
+                )
+                self.last_score_diagnostics["precision_margin_norm"] = float(
+                    _precision_margin_norm
+                )
 
         # MECH-463: surface the commit-gate scalars. urgency_applied escapes only
         # as SelectionResult.urgency (:3151) and effective_threshold /
@@ -3955,6 +4022,33 @@ class E3TrajectorySelector(nn.Module):
                 else:
                     local = self._gap_scaled_commit_pick(
                         scores[env_idx], _conflict_gap_norm, temperature
+                    )
+                    selected_idx = int(env_idx[local].item())
+            elif (
+                getattr(self.config, "use_precision_scaled_commit_temperature", False)
+                and _precision_margin_norm is not None
+            ):
+                # MECH-027 standalone (no Factor-A shortlist active, gap-scaled
+                # commit temperature OFF or inapplicable): soften the committed
+                # argmin over the F-dominated scores, graded by PRECISION instead
+                # of the F-gap, restricted to the same kind of F-eligibility
+                # envelope as Factor B (candidates within
+                # precision_scaled_commit_harm_floor * raw_score_range of the
+                # best raw score) so a hot commit-T can NEVER softmax-promote a
+                # clearly-harmful candidate. Bit-identical OFF (hard argmin path).
+                harm_floor = float(
+                    getattr(self.config, "precision_scaled_commit_harm_floor", 0.25)
+                )
+                best_raw = float(raw_scores.min().item())
+                envelope = best_raw + harm_floor * raw_score_range
+                env_idx = torch.nonzero(
+                    raw_scores <= envelope, as_tuple=False
+                ).flatten()
+                if int(env_idx.numel()) <= 1:
+                    selected_idx = int(scores.argmin().item())
+                else:
+                    local = self._precision_scaled_commit_pick(
+                        scores[env_idx], _precision_margin_norm, temperature
                     )
                     selected_idx = int(env_idx[local].item())
             else:
