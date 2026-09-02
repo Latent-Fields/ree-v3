@@ -291,6 +291,7 @@ def _train_all_on_agent(
     zworld_p0_episodes: int = 0,
     zworld_p0_env: Optional[CausalGridWorldV2] = None,
     zworld_p0_dry_run: bool = False,
+    zworld_p0_resource_field_weight: float = 0.0,
 ) -> Dict[str, Any]:
     env = train_env
 
@@ -304,10 +305,15 @@ def _train_all_on_agent(
                 "see. Build a dedicated env with the same seed and kwargs."
                 % (zworld_p0_episodes,)
             )
+        # zworld_p0_resource_field_weight: SD-018 AMEND directional-field leg weight. Default
+        # 0.0 = leg OFF = bit-identical to every pre-2026-09-02 caller. Needs
+        # use_resource_field_head=True on the agent config as well; run_zworld_p0's
+        # p0a_used_resource_field_head reports whether the leg actually ran.
         zworld_p0_stats = run_zworld_p0(
             agent, zworld_p0_env, seed, zworld_p0_episodes, steps_per_episode,
             policy=RandomPolicy(seed), label=f"ree_allon rung={rung_id}",
             dry_run=zworld_p0_dry_run,
+            resource_field_weight=float(zworld_p0_resource_field_weight),
         )
     has_ofc = getattr(agent, "ofc", None) is not None
     has_lpfc = getattr(agent, "lateral_pfc", None) is not None

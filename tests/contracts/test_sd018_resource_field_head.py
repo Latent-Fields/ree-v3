@@ -173,3 +173,78 @@ def test_c5_width_mismatch_is_loud():
     lat = agent.sense(obs_body=body, obs_world=world)
     with pytest.raises(ValueError, match="resource_field_dim"):
         agent.compute_resource_field_loss(torch.rand(24), lat)
+
+
+# --- C6: the DRIVER SEAM -------------------------------------------------------------
+# C1-C5 pin the substrate. C6 pins the thing that makes the substrate REACHABLE from an
+# experiment driver, which it was not between the amend landing (ree-v3 028a625) and
+# 2026-09-02: ZWorldP0Config.resource_field_weight defaults to 0.0 (its scalar sibling
+# proximity_weight defaults to 0.5), and _lib/zworld_p0_warmup.run_zworld_p0 -- the ONLY
+# P0a path _train_all_on_agent uses -- built its config with no override. Since
+# _train_all_on_agent also calls neither compute_resource_proximity_loss nor
+# compute_resource_field_loss, the directional head received ZERO gradient steps from any
+# driver in the x734/737/808/948 family. An "ON" arm would have differed from its OFF
+# sibling only by an untrained randomly-initialised head that nothing reads: a manipulation
+# that cannot reach the DV, i.e. a silently vacuous experiment rather than a failing one.
+# Found while authoring the amend's own owed validation (V3-EXQ-978);
+# chip-20260902-sd018-p0a-field-weight-seam.
+import inspect  # noqa: E402
+
+from experiments._lib.allon_training import _train_all_on_agent  # noqa: E402
+from experiments._lib.capability_eval import RandomPolicy  # noqa: E402
+from experiments._lib.zworld_p0_warmup import run_zworld_p0  # noqa: E402
+
+
+def _p0a(agent, env, **kw):
+    return run_zworld_p0(agent, env, seed=0, episodes=6, steps_per_episode=40,
+                         policy=RandomPolicy(0), label="c6", dry_run=True, **kw)
+
+
+def test_c6_default_is_inert_field_leg_never_runs():
+    """The seam's default must leave every pre-existing caller bit-identical: no weight
+    passed -> the field leg does not run, even with the head present on the config."""
+    env, agent, _od, _b, _w = _agent_and_obs(use_resource_proximity_head=True,
+                                             use_resource_field_head=True)
+    out = _p0a(agent, env)
+    assert out["p0a_ran"] is True, out
+    assert out["p0a_resource_field_weight"] == 0.0
+    assert not out["p0a_used_resource_field_head"]
+    assert out["p0a_resource_field_holdout"] is None
+    # the scalar leg is untouched by the new parameter
+    assert out["p0a_used_proximity_head"] is True
+
+
+def test_c6_weight_plus_head_runs_the_leg_and_reports_the_holdout():
+    """The seam's whole purpose: weight > 0 AND the head present -> the leg runs and the
+    mechanism readout (held-out field MSE vs the constant-mean predictor) is recorded."""
+    env, agent, _od, _b, _w = _agent_and_obs(use_resource_proximity_head=True,
+                                             use_resource_field_head=True)
+    out = _p0a(agent, env, resource_field_weight=0.5)
+    assert out["p0a_ran"] is True, out
+    assert out["p0a_resource_field_weight"] == 0.5
+    assert out["p0a_used_resource_field_head"] is True
+    ho = out["p0a_resource_field_holdout"]
+    assert ho is not None and set(ho) >= {"mse", "mean_predictor_mse", "r2"}
+    assert ho["mse"] == ho["mse"] and ho["mse"] >= 0.0          # finite, not NaN
+    assert ho["mean_predictor_mse"] >= 0.0
+
+
+def test_c6_weight_without_the_head_reports_false_not_a_silent_assumption():
+    """Half-configured (weight but no head) must READ as not-run, so a driver cannot
+    believe its ON arm was manipulated when it was not -- the exact failure this seam
+    exists to make visible."""
+    env, agent, _od, _b, _w = _agent_and_obs(use_resource_proximity_head=True)
+    out = _p0a(agent, env, resource_field_weight=0.5)
+    assert out["p0a_ran"] is True, out
+    assert out["p0a_resource_field_weight"] == 0.5      # what was asked for
+    assert not out["p0a_used_resource_field_head"]      # what actually happened
+    assert out["p0a_resource_field_holdout"] is None
+
+
+def test_c6_train_all_on_agent_exposes_and_defaults_the_seam():
+    """The family trainer must carry the parameter through, defaulting OFF."""
+    sig = inspect.signature(_train_all_on_agent)
+    p = sig.parameters.get("zworld_p0_resource_field_weight")
+    assert p is not None, "the family trainer must expose the P0a field-weight seam"
+    assert p.default == 0.0, "default must keep every existing caller bit-identical"
+    assert "resource_field_weight" in inspect.signature(run_zworld_p0).parameters

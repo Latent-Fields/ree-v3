@@ -104,6 +104,7 @@ def run_zworld_p0(
     policy: Any,
     label: str = "",
     dry_run: bool = False,
+    resource_field_weight: float = 0.0,
 ) -> Dict[str, Any]:
     """Run the SD-070 P0a encoder warmup against `agent.latent_stack`.
 
@@ -119,6 +120,26 @@ def run_zworld_p0(
     Returns a diagnostic block for the manifest. Trains exactly `split_encoder.world_encoder`
     + `world_precision_logit` -- the parameter set the V3-EXQ-783 weight-delta readiness check
     and `zworld_encoder_guard.assert_world_encoder_trained` both watch.
+
+    `resource_field_weight` is the SD-018 AMEND directional-field leg's P0a loss weight
+    (`ZWorldP0Config.resource_field_weight`). DEFAULT 0.0 = leg OFF = bit-identical to the
+    pre-2026-09-02 behaviour for every existing caller; nothing changes unless a caller asks.
+
+    Why this parameter exists at all: `ZWorldP0Config.resource_field_weight` defaults to 0.0
+    while its scalar sibling `proximity_weight` defaults to 0.5, and this function is the ONLY
+    P0a path `allon_training._train_all_on_agent` uses -- which also calls neither
+    `agent.compute_resource_proximity_loss` nor `agent.compute_resource_field_loss`. So before
+    this seam existed the SD-018 amend's directional head (landed in ree-v3 `028a625`) received
+    ZERO gradient steps from any driver in the x734/737/808/948 family: an "ON" arm would have
+    differed from its OFF sibling only by an untrained randomly-initialised head that nothing
+    reads, i.e. a manipulation that cannot reach the DV. Measured + recorded 2026-09-02 while
+    authoring the amend's own owed validation (V3-EXQ-978); see
+    `chip-20260902-sd018-p0a-field-weight-seam`.
+
+    Requires `use_resource_field_head=True` on the agent's LatentStackConfig -- the weight
+    alone does nothing, because the trainer's leg is gated on the head existing as well.
+    `p0a_used_resource_field_head` in the returned block reports whether the leg ACTUALLY ran,
+    so a caller that set one half and not the other reads a False rather than assuming.
     """
     if episodes <= 0:
         return {"p0a_recipe": "sd070", "p0a_ran": False, "p0a_reason": "episodes<=0"}
@@ -128,8 +149,10 @@ def run_zworld_p0(
     # confident-looking result. Scale the batch down explicitly for the smoke path so it still
     # exercises the real training code, and never touch the real-run config.
     cfg = (
-        ZWorldP0Config(seed=int(seed), batch_size=8, epochs=2)
-        if dry_run else ZWorldP0Config(seed=int(seed))
+        ZWorldP0Config(seed=int(seed), batch_size=8, epochs=2,
+                       resource_field_weight=float(resource_field_weight))
+        if dry_run else ZWorldP0Config(seed=int(seed),
+                                       resource_field_weight=float(resource_field_weight))
     )
 
     out: Dict[str, Any] = {"p0a_recipe": "sd070", "p0a_ran": True}
@@ -183,6 +206,15 @@ def run_zworld_p0(
     out["p0a_covariance_term"] = stats.get("covariance_term")
     out["p0a_used_proximity_head"] = stats.get("used_proximity_head")
     out["p0a_used_reconstruction_head"] = stats.get("used_reconstruction_head")
+    # SD-018 AMEND directional-field leg. `p0a_used_resource_field_head` is the ground truth
+    # that the leg RAN (weight > 0 AND the head exists AND world_obs was wide enough), not
+    # merely that a weight was passed -- so a half-configured caller reads False here rather
+    # than assuming its ON arm was manipulated. The holdout block is the mechanism readout:
+    # held-out field MSE against a constant-mean predictor, i.e. it separates a decodable
+    # directional field from a fitted mean.
+    out["p0a_resource_field_weight"] = float(resource_field_weight)
+    out["p0a_used_resource_field_head"] = stats.get("used_resource_field_head")
+    out["p0a_resource_field_holdout"] = stats.get("resource_field_holdout")
     out["p0a_grounding_label_balance"] = stats.get("label_balance")
     # The discriminativeness readout, recorded because the anti-collapse gate can be satisfied
     # VACUOUSLY -- a regulariser can hold the participation ratio up while the encoder learns
