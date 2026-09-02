@@ -92,6 +92,24 @@
       "episodes_per_run": 160,
       "experiment_type": "v3_exq_980_sd_e1_h1c_readout_regime_e1_alone",
       "seeds": 4
+    },
+    {
+      "queue_id": "V3-EXQ-951c",
+      "title": "MECH-320 diagnostic: is v_t's floor-saturation (v_t_floor=0.05) gate-caused or v_raw-caused? (calmed P2 bed, seeds 42/43/45)",
+      "script": "experiments/v3_exq_951c_mech320_vt_floor_diagnostic_sd054.py",
+      "priority": 25,
+      "machine_affinity": "any",
+      "estimated_minutes": 1100,
+      "note": "diagnostic (not evidence): characterizes WHY v_t sits at v_t_floor=0.05 in V3-EXQ-951's regime -- gate suppression vs low v_raw -- via a per-tick joint classification on already-exposed TonicVigor.get_state() (no ree_core change). Calmed P2 bed (scaffold_p2_num_hazards=0, scaffold_p2_proximity_harm_scale=0.0, scaffold_p2_hazard_food_attraction_guard=0.0) + seeds [42,43,45], per chip-20260901-mech320-noop-margin-dv-substrate's design (reproduced independently here; does not depend on that chip's own driver landing). GOV-REUSE-1 (step 2.4): checked v3_exq_951_mech320_tonic_vigor_authority_sd054_20260830T125526Z_v3.json (uncalmed bed, seeds 42/43/44) -- seed 44's arms show v_t_mean=0.0500 with gate_product_mean=1.0000 (suggestive but not a per-tick joint test), while seeds 42/43 don't hit the floor at all (v_t_mean 1.3-2.6); that manifest records no per-tick series and is on the wrong bed/seed-set for this chip's question -- not recoverable, ran fresh. red-team (fable): CONTESTED, 4 findings (F1-F4), ALL FIXED prior to queueing, none waived. F1 -- a probe wrapping agent.select_action re-reads the SAME latched TonicVigor state on every non-E3 tick (agent.py:7138's short-circuit returns before compute_score_bias/update_score_receipt run at all), pseudo-replicating one real observation into many and silently inflating n_floor_hit past the sufficiency gate. F2 -- reading state post-select_action pairs v_raw (already advanced by update_score_receipt) against the PRIOR tick's last_v_t, a one-tick skew. Both fixed by wrapping tv.compute_score_bias directly instead: fires exactly once per genuine vigor computation, and reads state before update_score_receipt runs later in the same select_action call. F3 -- a pooled gate_caused_frac can mask cross-seed/cross-arm heterogeneity (one always-floored raw_caused seed swamping a rarely-floored gate_caused seed); now surfaced via heterogeneous_across_cells + a '_heterogeneous_across_cells' label suffix when any individual cell disagrees with the pooled classification. F4 -- P1 wasn't checked for .aborted like every earlier training phase, and the pool included seeds that failed the P1 survival gate (moribund-seed gate suppression leaking into a pool presented as survivors-only); fixed with a p1.aborted check routing to _fail, and _pool_p2_floor_stats now excludes unsurvived seeds (n_seeds_excluded_unsurvived reported). Re-smoke-tested post-fix (1 seed, --dry-run): rc=0, label=vt_floor_driven_by_low_v_raw, sufficient_floor_hit_sample met, heterogeneous=False. validate_experiments.py --strict: OK, 0 warnings across all checks. Spawned by chip-20260901-mech320-vt-floor-diagnostic; complementary/non-blocking to the DV-redesign chip-20260901-mech320-noop-margin-dv-substrate (V3-EXQ-951b) -- either can land first. RE-DERIVE BRAKE (step 2.5b): fires on MECH-320 (5 counted substrate_ceiling/non_contributory autopsies) but is EXEMPT here -- this is a diagnostic whose purpose is to discriminate WHY the v_t-floor ceiling holds (gate suppression vs low v_raw), not a same-granularity lettered evidence re-test of MECH-320's selection-authority claim (that is V3-EXQ-951/951a/951b's job, not this script's -- see EXPERIMENT_PURPOSE=\"diagnostic\" and evidence_direction=\"non_contributory\" by construction).",
+      "status": "pending",
+      "claimed_by": null,
+      "claim_ids": [
+        "MECH-320"
+      ],
+      "conditions": 1,
+      "episodes_per_run": 265,
+      "experiment_type": "v3_exq_951c_mech320_vt_floor_diagnostic_sd054",
+      "seeds": 3
     }
   ]
 }
