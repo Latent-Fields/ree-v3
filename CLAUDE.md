@@ -18905,9 +18905,9 @@ Form B recommendation: a two-stage threat-modulated selection rule.
   validated ITEM 1 and measured the ON arm still 25-37x short of the 0.1 `cr_ratio(h=1)` bar and
   5-7 orders below the 0.002 `e1coe_score_var` bar, so the branch condition is MET. The form is
   copied from `e2_fast.py`'s `self_forward` / `world_forward` -- no scaling, gate, or extra module
-  invented. ITEM 2 (the multi-step / rollout-consistency objective) is untouched and remains
-  `pending_implementation`; take this cheap discrimination BEFORE committing to that build, per
-  this lineage's own recorded lesson that a 49-second probe re-scoped ITEM 1.
+  invented. This cheap discrimination was taken BEFORE the ITEM 2 build, per this lineage's own
+  recorded lesson that a 49-second probe re-scoped ITEM 1 -- and it RETURNED A NULL (V3-EXQ-968,
+  below), after which ITEM 2's candidate-1 substrate landed the same day (next entry).
 
   DELIBERATELY INDEPENDENT OF `action_conditioned_transition`. It parameterises the state
   recurrence, not the action channel, and the discrimination it exists to enable is an A/B ON the
@@ -18920,9 +18920,17 @@ Form B recommendation: a two-stage threat-modulated selection rule.
   across the flag, and the h=1 algebraic identity `ON == seed + OFF` -- that last one is what
   catches a knob wired to the wrong residual base, which every looser "the numbers moved" check
   passes. It deliberately does NOT assert that residual beats absolute; that is the experiment.
-  Validation experiment: OWED -- a cheap `/queue-experiment` diagnostic A/B on the ITEM 1 ON arm
-  (absolute vs residual `output_proj`) reading per-action divergence at the E1 output and
-  `cr_ratio(h=1)`. Chipped as follow-on.
+  Validation experiment: DONE -- V3-EXQ-968 (2026-09-01,
+  `v3_exq_968_sd_e1_output_proj_residual_ab_20260901T162647Z_v3`, PASS, diagnostic,
+  `evidence_direction: non_contributory`). Result: `residual_no_material_difference`.
+  `cr_ratio(h=1)` absolute -> residual was seed42 2.673e-03 -> 5.909e-03 (2.21x) and seed123
+  2.717e-03 -> 9.227e-04 (0.34x). DO NOT COMPRESS THIS INTO A DIRECTION: the seeds disagree in
+  SIGN and NEITHER approaches the pre-registered `lift_factor_abs_floor` of 3.0 (absolute-arm
+  cross-seed noise ratio 1.016); `residual_materially_exceeds` and `residual_materially_below`
+  are both false on both seeds. It is not "residual is worse" and not "residual is better".
+  All five readiness preconditions were met, so the comparison is real, not vacuous. The knob
+  stays default-off as a CHARACTERISED NULL, not a recommendation -- and the ~675x
+  LSTM+output_proj crush is therefore not a mere parameterisation artefact.
   DOES NOT unblock INV-088 / MECH-135. Both keep `pending_retest_after_substrate: true`: the bars
   are still missed by 25-37x (`cr_ratio`) and 5-7 orders (`e1coe_score_var`), so a retest must NOT
   be queued off the back of this build.
@@ -18931,3 +18939,136 @@ Form B recommendation: a two-stage threat-modulated selection rule.
   today because its master switch defaults `False`, but enabling ITEM 1 silently enables a second
   unvalidated change alongside the one under test. Flipping a shipped default is a behaviour
   change and is owed a user decision.
+
+- SD-e1-rollout-consistency-training ITEM 2: e1.transition.rollout_consistency --
+  IMPLEMENTED 2026-09-01. `E1DeepPredictor.rollout_consistency_loss` in
+  `ree_core/predictors/e1_deep.py`. Full design:
+  `REE_assembly/docs/architecture/sd_e1_rollout_consistency_training.md`.
+  Config: `E1Config.e1_rollout_consistency_enabled` (default `False`; master switch),
+  `_weight` (1.0, caller-side scaling -- the helper returns the UNWEIGHTED horizon-mean),
+  `_horizon` (5), `_horizon_weights_decay` (1.0 = uniform; <1.0 = TD-MPC discounting).
+  Data flow: `initial_state` + `actions` -> `predict_long_horizon` (autoregressive rollout) ->
+  per-step MSE against the OBSERVED latent trajectory -> `L = sum_t (decay**t * L_t) / sum_t
+  decay**t`.
+  Backward compatible: disabled by default, and the flag gates an OBJECTIVE not the forward
+  path -- turning it on does not perturb prediction at all (contract-pinned, both action-
+  conditioned and legacy). Adds NO module and NO parameter in either setting, so
+  construction-time RNG is identical both ways -- verified against the pre-change `e1_deep.py`
+  from the same seed: identical parameters and bit-identical rollouts (max abs diff 0.0) across
+  legacy / ITEM 1 ON with a held action / ITEM 1 ON + `output_proj_residual`.
+  Phased training required: no -- no new head trains on a moving latent target.
+  MECH-094: carried anyway as a `simulation_mode` gate returning zero, matching SD-056's helper
+  convention -- replay / DMN paths cannot recruit the objective.
+
+  WHAT THIS ADDS OVER `REEAgent.compute_prediction_loss`, WHICH NEARLY STOPPED THIS BUILD. That
+  method ALREADY rolls E1 out autoregressively to `prediction_horizon` and MSEs the whole
+  trajectory, and post-ITEM-1 already supplies the executed action sequence -- so the multi-step
+  FORM was present on the agent-loop path and candidate 1 is NOT the greenfield build the ranked
+  list implies. Two real gaps: (i) `F.mse_loss` weights every horizon step EQUALLY, and under an
+  autoregressive rollout deep-step error is larger by construction, so a flat mean lets the
+  deepest steps dominate the gradient; `decay < 1.0` is TD-MPC's actual form, and at `decay=1.0`
+  the helper reduces to the flat form to within float32 reduction-order error (the helper reduces per-step then weights; F.mse_loss reduces over all elements at once -- mathematically equal, different summation order, measured 6.4e-08 RELATIVE at worst and bit-identical on the legacy branch), so the discount is the only axis
+  added. The contract pins that at `rtol=1e-6`, NOT bit-exactly -- an earlier revision
+  asserted bit-identity and passed on ree-worker-4 while failing on darwin-arm64, the
+  machine-class flakiness CLAUDE.md's test-suite note warns about. (ii) `compute_prediction_loss` is reachable only
+  through the agent loop, and EVERY driver in this SD's own lineage bypasses it, training E1
+  single-step teacher-forced -- `F.mse_loss(e1_pred[:, 0, :], ...)` at V3-EXQ-954:312, 965:409,
+  968:431. So the multi-step objective has never once been exercised in the lineage that
+  motivated this SD. The design doc's defect (a), "E1 is trained at `horizon=1`", is true of
+  those DRIVERS, not of the substrate.
+
+  `compute_prediction_loss` is DELIBERATELY NOT REWIRED to use the discount -- that path is
+  depended on by several hundred experiments and there is no consumer yet. Agent-loop wiring is
+  held until the validation experiment reports.
+
+  WHY CANDIDATE 1 AND NOT A ROLLOUT-ENDPOINT CONTRASTIVE. A contrastive over candidate action
+  SEQUENCES (`e1_rollout_sequence_divergence_*`) was designed and deliberately NOT built. It is
+  genuinely DISTINCT from the synthesis's de-prioritised #5 "contrastive next-state" -- #5
+  constrains the one-step transition, this would constrain the ITERATED MAP, which is what the C3
+  evaluator consumes (it scores 40 SEQUENCES) -- so #5's "TD-MPC went the other way" does not
+  settle it. It was rejected on #5's OTHER objection: "no long-horizon anchor found" applies to a
+  long-horizon contrastive with MORE force, not less. The in-repo precedent is not a warrant
+  either: E2's SD-056 multi-step contrastive amend (`e2_fast.py`, 2026-05-31) has
+  `e2_action_contrastive_multistep_enabled` true in ZERO runs across the whole evidence corpus
+  (measured 2026-09-01) -- built, never validated. The remaining argument for preferring it (that
+  an accuracy objective "already trains" the crushed weights so would not move them) was
+  INTUITION, not measurement, and is recorded as such: no experiment in this lineage has ever
+  trained E1 multi-step at all. Candidate 1 is both the doc's ranked-strongest and the untried
+  one; a null on it narrows ITEM 2's target and buys the contrastive with evidence.
+  Contracts: `tests/contracts/test_e1_rollout_consistency_loss.py` (24, all pass; 63 pass across
+  all three E1 contract files). Same `eval()`-mode discipline as its siblings and for the same
+  reason -- `transition_rnn` has `dropout=0.1` at `num_layers=3`, and a first A/B pass reported
+  spurious ~2.7e-03 diffs from dropout alone before the harness was corrected. It pins the
+  flat-form identity at `decay=1.0` (float32-eps tolerance, not bit-identity), the discount's SIGN (against error concentrated at the deep
+  end, so an inverted exponent fails), that gradient reaches BOTH `output_proj` and
+  `transition_rnn` (the ~675x crush's location -- an objective that cannot deliver gradient there
+  cannot move it), that deep-step-only error still produces gradient (otherwise this is a
+  single-step loss wearing a horizon argument), hidden-state save/restore, the MECH-094 gate,
+  grad-connected degenerate returns, horizon clamping, fail-closed shape validation, and all
+  three `from_dims` sites. It deliberately does NOT assert that multi-step beats single-step.
+  Validation experiment: OWED, chipped as follow-on. It must actually TRAIN with
+  `rollout_consistency_loss` rather than merely enable the flag -- enabling it changes nothing on
+  its own, BY DESIGN -- and should carry `decay=1.0` as the flat-form control.
+  DOES NOT unblock INV-088 / MECH-135. Both keep `pending_retest_after_substrate: true`: as of
+  V3-EXQ-965 the bars are still missed by 25-37x (`cr_ratio`) and 5-7 orders
+  (`e1coe_score_var`), and nothing here has moved them yet. Do NOT queue a retest off this build.
+
+## SD-018 AMEND: encoder.resource_field_supervision (directional resource-field head) -- IMPLEMENTED (2026-09-02)
+- SD-018 amend: encoder.resource_field_supervision -- IMPLEMENTED 2026-09-02. Design doc (new,
+  covers the original scalar head and this amend):
+  `REE_assembly/docs/architecture/sd_018_resource_proximity_supervision.md`.
+  Routed by confirmed `failure_autopsy_V3-EXQ-948_2026-08-25` (H-observation-interface CONFIRMED,
+  user-confirmed 2026-08-25; the one named un-owned build on the v3 critical path per
+  `cross_plan_root_cause_synthesis_20260902.md` section 0 / GFLAG-0114). 948's finding: with the
+  scalar SD-018 head ALREADY active (the x734/737/808/948 family base config), a PPO reader of
+  z_world alone forages 0.5 res/ep against the 1.0 D3 floor, while the same reader given z_world +
+  the full 25-dim `resource_field_view` clears it 3/3 (2.23). That field is `world_obs[225:250]`,
+  i.e. already INSIDE z_world's own input -- z_world discards it. A scalar `max(field)` target
+  supervises magnitude only; foraging needs the directional gradient.
+  Shape chosen (skill Step 3, user-confirmed 2026-09-02, recommendation-ledger entry): (a) a
+  DIRECTIONAL auxiliary head on z_world, generalising the scalar head from 1 to 25 dims -- NOT
+  (b) routing the raw field as a side-channel past z_world (large blast radius on every
+  world_dim consumer, and it bypasses the interface the synthesis says must carry direction
+  through E1/E2 rollouts). (b) stays the fallback if (a)'s validation nulls.
+  Config (LatentStackConfig; all three `from_dims` sites wired -- field, kwarg, assignment):
+  `use_resource_field_head` (bool, default False), `resource_field_weight` (float, 0.5; online
+  P1 loss weight), `resource_field_dim` (int, 25). P0: `ZWorldP0Config.resource_field_weight`
+  (float, default 0.0 = leg off).
+  SplitEncoder: `resource_field_head = Linear(world_dim, resource_field_dim) + Sigmoid`
+  (field is max-normalised, values in [0,1]); `RESOURCE_FIELD_SLICE = slice(225, 250)`
+  (mirrored by `zworld_p0.RESOURCE_FIELD_SLICE`, contract-pinned to the
+  CausalGridWorldV2 `use_proxy_fields=True` layout). `forward()` now returns an 8-tuple
+  (`..., resource_prox_pred, resource_field_pred`); the three in-module call sites updated.
+  LatentState: `resource_field_pred` [batch, 25], None when off; carried through `detach()`.
+  Agent: `compute_resource_field_loss(resource_field_target, latent_state)` -> MSE, zero-with-grad
+  when off, loud ValueError on a width mismatch; same pass-the-sense()-LatentState rule as the
+  scalar loss. P0: `ZWorldP0Trainer` derives the target from the buffered `world_obs` slice
+  itself (no `observe()` signature change), trains the head jointly with the world path when
+  `resource_field_weight > 0`, and reports `used_resource_field_head` + a held-out
+  `resource_field_holdout` {mse, mean_predictor_mse, r2} readout.
+  Data flow: world_obs[225:250] (target) -> resource_field_head(z_world) -> LatentState.
+  resource_field_pred -> MSE -> backprop INTO world_encoder. No downstream consumer reads the
+  prediction; the effect is on z_world itself (that is the hypothesis under test).
+  Backward compatible: bit-identical OFF -- verified by a same-seed sense() hash against HEAD in
+  a throwaway worktree (identical outputs, identical 51 state-dict keys). Phased training: yes,
+  same P0/P1 rule as the scalar head. MECH-094: N/A (waking supervision, no replay write).
+  ML note (skill Layer 7): plain auxiliary-task supervision; the hazard is a 25-dim target
+  dominating P0 and collapsing a 32-dim z_world onto the field -- mitigated by the existing
+  VICReg variance/covariance terms and the reconstruction head in P0; validation must report
+  P0 participation ratio + held-out accuracies (already in the trainer stats).
+  Contracts: `tests/contracts/test_sd018_resource_field_head.py` (C1 OFF inert incl.
+  state-dict/param-order identity + P0 leg skipped at weight 0; C2 ON shape/range + grad reaches
+  world_encoder; C3 from_dims plumbs all three knobs; C4 slice constants agree with the env layout
+  + P0 leg learns a decodable field, held-out r2 > 0; C5 width mismatch is loud);
+  `test_feature_flag_boot_matrix` row `resource_field_head`; `test_flag_inertness` probe
+  `test_use_resource_field_head_populates_resource_field_pred_only_when_enabled` + PROBED entry.
+  Evidence-staleness (Step 8.5): NOT triggered -- no-op-default flag; no dependent claim's
+  measured mechanism changed. KEEP all evidence.
+  Validation experiment: NOT queued here (per the routing chip); design reported for
+  /queue-experiment -- 948-shape diagnostic, shared P0 with `resource_field_weight > 0` on the
+  ON arm, arms = field head OFF vs ON (scalar head on in both, as in the x734 family), PPO reader
+  of z_world alone, DV res/ep vs the 1.0 D3 floor on a seed majority, plus held-out linear decode
+  of `resource_field_view` from z_world as the mechanism check; claims INV-088 + MECH-457
+  read-across; if it nulls, (b) is the next build.
+  See SD-018 (original), V3-EXQ-948, V3-EXQ-813, GFLAG-0114, INV-088, MECH-457, ARC-065,
+  `conversion_ceiling_root` (H-observation-interface).

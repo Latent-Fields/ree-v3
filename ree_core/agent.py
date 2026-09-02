@@ -11027,6 +11027,58 @@ class REEAgent(nn.Module):
         )
         return F.mse_loss(pred, target)
 
+    def compute_resource_field_loss(
+        self,
+        resource_field_target: torch.Tensor,
+        latent_state: "LatentState",
+    ) -> torch.Tensor:
+        """
+        SD-018 AMEND (V3-EXQ-948): directional resource-field regression loss on the
+        z_world encoder.
+
+        Trains SplitEncoder.resource_field_head to predict the FULL agent-centred
+        resource_field_view (5x5 = 25 dims, direction + magnitude) from z_world.
+        compute_resource_proximity_loss above supervises only max(resource_field_view);
+        948 showed that with that scalar head already active a downstream z_world reader
+        forages 0.5 res/ep against the 1.0 floor while the same reader given the full
+        field clears it 3/3 -- a scalar cannot tell a policy which way to move.
+
+        Requires use_resource_field_head=True in LatentStackConfig. Returns a
+        zero-with-grad otherwise (backward-compatible with all prior experiments).
+
+        IMPORTANT: pass the LatentState returned directly by sense(), NOT
+        agent._current_latent (which is detached). Gradient must flow from the MSE
+        loss back through the world encoder.
+
+        Args:
+            resource_field_target: [resource_field_dim] or [batch, resource_field_dim]
+                float tensor in [0, 1] -- obs_dict["resource_field_view"] from the
+                observation that produced this LatentState (world_obs[225:250] under
+                use_proxy_fields=True).
+            latent_state: LatentState from sense() with retained gradients.
+
+        Returns:
+            MSE loss scalar. Gradient flows through latent_stack encoder.
+        """
+        zero_loss = next(self.latent_stack.parameters()).sum() * 0.0
+        if not getattr(self.config.latent, "use_resource_field_head", False):
+            return zero_loss
+        if latent_state.resource_field_pred is None:
+            return zero_loss
+        pred = latent_state.resource_field_pred  # [batch, resource_field_dim]
+        if pred.dim() == 1:
+            pred = pred.unsqueeze(0)
+        target = torch.as_tensor(resource_field_target, dtype=torch.float32,
+                                 device=pred.device)
+        if target.dim() == 1:
+            target = target.unsqueeze(0)
+        if target.shape[-1] != pred.shape[-1]:
+            raise ValueError(
+                "compute_resource_field_loss: target width %d != resource_field_dim %d"
+                % (int(target.shape[-1]), int(pred.shape[-1]))
+            )
+        return F.mse_loss(pred, target)
+
     def compute_resource_encoder_loss(
         self,
         resource_proximity_target: float,

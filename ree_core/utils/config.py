@@ -220,6 +220,26 @@ class LatentStackConfig:
     # Auxiliary loss weight (scales MSE contribution to total loss).
     resource_proximity_weight: float = 0.5
 
+    # SD-018 AMEND (2026-09-02, routed by failure_autopsy_V3-EXQ-948_2026-08-25):
+    # DIRECTIONAL resource-field regression head on the z_world encoder.
+    # The scalar proximity head above supervises only max(resource_field_view)
+    # (magnitude); V3-EXQ-948 showed a z_world reader still forages 0.5 res/ep
+    # against the 1.0 floor with that head active, while the same reader given the
+    # full 25-dim agent-centred resource_field_view (world_obs[225:250], which IS
+    # already in z_world's own input) clears it 3/3. A scalar cannot tell a policy
+    # which way to move. When True, SplitEncoder.forward() returns
+    # resource_field_pred [batch, resource_field_dim] and the training loop can apply
+    # MSE against resource_field_view (REEAgent.compute_resource_field_loss; the
+    # SD-070 P0 trainer derives the target from the buffered world_obs itself).
+    # Default False: no head is constructed, forward output and every consumer are
+    # bit-identical to before.
+    use_resource_field_head: bool = False
+    # Auxiliary loss weight for the field head (online P1 loss; the P0 trainer has
+    # its own ZWorldP0Config.resource_field_weight, default 0.0).
+    resource_field_weight: float = 0.5
+    # Width of resource_field_view in world_obs (5x5 agent-centred grid).
+    resource_field_dim: int = 25
+
     # Q-007 / EXQ-051b: volatility (NE/LC) signal injection into beta_encoder.
     # When > 0, beta_encoder input becomes cat(z_self_init, z_world_init, volatility_signal)
     # where volatility_signal [batch, volatility_signal_dim] is a running estimate of E3's
@@ -6763,6 +6783,10 @@ class REEConfig:
         use_event_classifier: bool = False,
         use_resource_proximity_head: bool = False,
         resource_proximity_weight: float = 0.5,
+        # SD-018 amend: directional resource-field head (default off)
+        use_resource_field_head: bool = False,
+        resource_field_weight: float = 0.5,
+        resource_field_dim: int = 25,
         use_harm_stream: bool = False,
         harm_obs_dim: int = 51,
         z_harm_dim: int = 32,
@@ -8039,6 +8063,10 @@ class REEConfig:
         # SD-018: resource proximity supervision
         config.latent.use_resource_proximity_head = use_resource_proximity_head
         config.latent.resource_proximity_weight = resource_proximity_weight
+        # SD-018 amend: directional resource-field head
+        config.latent.use_resource_field_head = use_resource_field_head
+        config.latent.resource_field_weight = resource_field_weight
+        config.latent.resource_field_dim = resource_field_dim
 
         # SD-010: dedicated harm stream
         config.latent.use_harm_stream = use_harm_stream

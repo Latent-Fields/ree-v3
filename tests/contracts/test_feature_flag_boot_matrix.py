@@ -25,6 +25,8 @@ FLAG_MATRIX = [
     ("baseline", {}),
     ("resource_proximity_head",
      {"use_resource_proximity_head": True}),
+    ("resource_field_head",  # SD-018 amend (V3-EXQ-948): directional field head
+     {"use_resource_proximity_head": True, "use_resource_field_head": True}),
     ("harm_stream",
      {"use_harm_stream": True}),
     ("affective_harm_stream",

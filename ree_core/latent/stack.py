@@ -769,6 +769,7 @@ class LatentState:
     z_world_raw: Optional[torch.Tensor] = None   # SD-007 diagnostic [batch, world_dim]
     event_logits: Optional[torch.Tensor] = None  # SD-009 [batch, 3] for CE loss; None if not enabled
     resource_prox_pred: Optional[torch.Tensor] = None  # SD-018 [batch, 1] for MSE loss; None if not enabled
+    resource_field_pred: Optional[torch.Tensor] = None  # SD-018 AMEND [batch, resource_field_dim] directional field regression; None if use_resource_field_head is off
     z_resource: Optional[torch.Tensor] = None  # SD-015/MECH-112 object-type latent [batch, z_resource_dim]
     resource_prox_pred_r: Optional[torch.Tensor] = None  # SD-015 aux head [batch, 1]; None if disabled
     identity_logits: Optional[torch.Tensor] = None  # SD-049 Phase 2 identity-classifier raw logits [batch, n_resource_types]; None if not enabled
@@ -806,6 +807,7 @@ class LatentState:
             z_world_raw=self.z_world_raw.detach() if self.z_world_raw is not None else None,
             event_logits=self.event_logits.detach() if self.event_logits is not None else None,
             resource_prox_pred=self.resource_prox_pred.detach() if self.resource_prox_pred is not None else None,
+            resource_field_pred=self.resource_field_pred.detach() if self.resource_field_pred is not None else None,
             z_resource=self.z_resource.detach() if self.z_resource is not None else None,
             resource_prox_pred_r=self.resource_prox_pred_r.detach() if self.resource_prox_pred_r is not None else None,
             identity_logits=self.identity_logits.detach() if self.identity_logits is not None else None,
@@ -840,6 +842,10 @@ class SplitEncoder(nn.Module):
     # hazard is entity type index 3; for each of 25 cells, offset = cell*7 + 3
     HAZARD_INDICES = list(range(3, 175, 7))  # [3, 10, 17, ..., 171], length 25
     CONTAMINATION_SLICE = slice(175, 200)    # contamination_view within world_obs
+    # SD-018 amend: resource_field_view within world_obs (use_proxy_fields=True layout,
+    # CausalGridWorldV2 world_state[225:250]). The directional target the field head
+    # regresses onto; zworld_p0.RESOURCE_FIELD_SLICE mirrors this (contract-pinned).
+    RESOURCE_FIELD_SLICE = slice(225, 250)
 
     def __init__(
         self,
@@ -852,6 +858,8 @@ class SplitEncoder(nn.Module):
         harm_dim: int = 0,
         use_event_classifier: bool = False,
         use_resource_proximity_head: bool = False,
+        use_resource_field_head: bool = False,
+        resource_field_dim: int = 25,
     ):
         super().__init__()
         self.self_dim = self_dim
@@ -902,6 +910,22 @@ class SplitEncoder(nn.Module):
         else:
             self.resource_proximity_head = None
 
+        # SD-018 AMEND (V3-EXQ-948): directional resource-field regression head.
+        # Maps z_world -> [0,1]^resource_field_dim predicting the full agent-centred
+        # resource_field_view (direction + magnitude), not just its max. MSE
+        # auxiliary loss backprops through z_world, forcing the encoder to EXPOSE the
+        # directional gradient that is already present in its input but that E1
+        # prediction loss and the scalar head leave un-represented. Sigmoid because
+        # the field is normalised by its max (values in [0,1]).
+        self.resource_field_dim = int(resource_field_dim)
+        if use_resource_field_head:
+            self.resource_field_head = nn.Sequential(
+                nn.Linear(world_dim, self.resource_field_dim),
+                nn.Sigmoid(),
+            )
+        else:
+            self.resource_field_head = None
+
         # Top-down conditioning projections
         if topdown_dim > 0:
             self.self_topdown = nn.Linear(topdown_dim, self_dim)
@@ -920,12 +944,14 @@ class SplitEncoder(nn.Module):
         world_obs: torch.Tensor,
         topdown: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor,
+               Optional[torch.Tensor], Optional[torch.Tensor],
                Optional[torch.Tensor], Optional[torch.Tensor]]:
         """
         Encode body and world observations into latent streams.
 
         Returns:
-            (z_self, z_world, prec_self, prec_world, z_harm, event_logits)
+            (z_self, z_world, prec_self, prec_world, z_harm, event_logits,
+             resource_prox_pred, resource_field_pred)
 
             z_harm is None if lateral_head is not enabled (harm_dim == 0).
             event_logits is None if use_event_classifier is False (SD-009 disabled).
@@ -968,7 +994,13 @@ class SplitEncoder(nn.Module):
         if self.resource_proximity_head is not None:
             resource_prox_pred = self.resource_proximity_head(z_world)  # [batch, 1]
 
-        return z_self, z_world, prec_self, prec_world, z_harm, event_logits, resource_prox_pred
+        # SD-018 amend: directional resource-field regression (optional)
+        resource_field_pred = None
+        if self.resource_field_head is not None:
+            resource_field_pred = self.resource_field_head(z_world)  # [batch, resource_field_dim]
+
+        return (z_self, z_world, prec_self, prec_world, z_harm, event_logits,
+                resource_prox_pred, resource_field_pred)
 
 
 class SharedDepthEncoder(nn.Module):
@@ -1064,6 +1096,8 @@ class LatentStack(nn.Module):
             harm_dim=getattr(self.config, "harm_dim", 0),
             use_event_classifier=getattr(self.config, "use_event_classifier", False),
             use_resource_proximity_head=getattr(self.config, "use_resource_proximity_head", False),
+            use_resource_field_head=getattr(self.config, "use_resource_field_head", False),
+            resource_field_dim=int(getattr(self.config, "resource_field_dim", 25)),
         )
 
         # SD-007: optional ReafferencePredictor for perspective-shift correction.
@@ -1323,7 +1357,7 @@ class LatentStack(nn.Module):
         body_obs, world_obs = self._split_observation(observation)
 
         # First pass: no top-down (to get initial estimates for top-down computation)
-        z_self_init, z_world_init, _, _, _, _, _ = self.split_encoder(body_obs, world_obs)
+        z_self_init, z_world_init, _, _, _, _, _, _ = self.split_encoder(body_obs, world_obs)
         combined_init = torch.cat([z_self_init, z_world_init], dim=-1)
 
         # Q-007: append volatility signal (NE/LC unexpected-uncertainty analog) to beta input.
@@ -1354,8 +1388,9 @@ class LatentStack(nn.Module):
         topdown_split = self.beta_to_split(z_beta)
 
         # Second pass: split encoder with top-down from z_beta
-        # Returns (z_self, z_world, prec_self, prec_world, z_harm, event_logits, resource_prox_pred)
-        z_self, z_world, prec_self, prec_world, z_harm, event_logits, resource_prox_pred = self.split_encoder(
+        # Returns (z_self, z_world, prec_self, prec_world, z_harm, event_logits,
+        #          resource_prox_pred, resource_field_pred)
+        z_self, z_world, prec_self, prec_world, z_harm, event_logits, resource_prox_pred, resource_field_pred = self.split_encoder(
             body_obs, world_obs, topdown=topdown_split
         )
 
@@ -1388,7 +1423,7 @@ class LatentStack(nn.Module):
                 topdown_beta = self.theta_to_beta(z_theta)
                 z_beta, prec_beta = self.beta_encoder(combined_init, topdown_beta)
                 topdown_split = self.beta_to_split(z_beta)
-                z_self, z_world, prec_self, prec_world, z_harm, event_logits, resource_prox_pred = self.split_encoder(
+                z_self, z_world, prec_self, prec_world, z_harm, event_logits, resource_prox_pred, resource_field_pred = self.split_encoder(
                     body_obs, world_obs, topdown=topdown_split
                 )
                 z_delta, prec_delta = self.delta_encoder(z_theta)
@@ -1607,6 +1642,7 @@ class LatentStack(nn.Module):
             z_world_raw=z_world_raw,  # SD-007 diagnostic (uncorrected z_world)
             event_logits=event_logits,  # SD-009: None if event classifier not enabled
             resource_prox_pred=resource_prox_pred,  # SD-018: None if resource head not enabled
+            resource_field_pred=resource_field_pred,  # SD-018 amend: None if field head not enabled
             z_resource=z_resource,  # SD-015: None if resource encoder not enabled
             resource_prox_pred_r=resource_prox_pred_r,  # SD-015 aux head: None if disabled
             identity_logits=identity_logits,  # SD-049 Phase 2: None if identity classifier disabled

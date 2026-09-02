@@ -137,6 +137,9 @@ LOCAL_VIEW_CELLS = LOCAL_VIEW_GRID * LOCAL_VIEW_GRID
 LOCAL_VIEW_ENTITY_STRIDE = 7
 HAZARD_ENTITY_INDEX = 3
 RESOURCE_ENTITY_INDEX = 2
+# SD-018 amend: resource_field_view within world_obs (use_proxy_fields=True layout,
+# world_state[225:250]). Mirrors SplitEncoder.RESOURCE_FIELD_SLICE (contract-pinned).
+RESOURCE_FIELD_SLICE = slice(225, 250)
 
 
 def chebyshev_offsets() -> torch.Tensor:
@@ -296,6 +299,13 @@ class ZWorldP0Config:
     # SD-018 resource proximity, retained: it is the one leg of the old P0 that DOES learn
     # (held-out R2 0.794 from raw obs, 0.20-0.38 through the trained encoder).
     proximity_weight: float = 0.5
+    # SD-018 AMEND (V3-EXQ-948): directional resource-field regression leg. Target is
+    # world_obs[RESOURCE_FIELD_SLICE] taken from the buffered observations themselves
+    # (no new observe() argument). Used only when the stack was built with
+    # use_resource_field_head=True AND this weight > 0 AND the buffered world_obs is
+    # wide enough to contain the field. Default 0.0 so every existing P0 run is
+    # bit-identical.
+    resource_field_weight: float = 0.0
     # Structural anti-collapse: reconstructing world_obs cannot be served by a 1-D code.
     # 0.0 disables the head entirely.
     reconstruction_weight: float = 10.0
@@ -430,6 +440,16 @@ class ZWorldP0Trainer:
         )
         if use_prox:
             head_params += list(prox_head.parameters())
+        # SD-018 amend: directional field leg (see ZWorldP0Config.resource_field_weight).
+        field_head = getattr(self.split_encoder, "resource_field_head", None)
+        use_field = (
+            field_head is not None
+            and cfg.resource_field_weight > 0.0
+            and int(obs.shape[1]) >= RESOURCE_FIELD_SLICE.stop
+        )
+        field_target = obs[:, RESOURCE_FIELD_SLICE] if use_field else None
+        if use_field:
+            head_params += list(field_head.parameters())
         if cfg.reconstruction_weight > 0.0:
             self._recon_head = nn.Linear(self.world_dim, int(obs.shape[1])).to(device)
             head_params += list(self._recon_head.parameters())
@@ -464,6 +484,10 @@ class ZWorldP0Trainer:
                     loss = loss + cfg.proximity_weight * F.mse_loss(
                         prox_head(z[m]).reshape(-1), prox[sel][m]
                     )
+            if use_field:
+                loss = loss + cfg.resource_field_weight * F.mse_loss(
+                    field_head(z), field_target[sel]
+                )
             if self._recon_head is not None:
                 loss = loss + cfg.reconstruction_weight * F.mse_loss(
                     self._recon_head(z), obs[sel]
@@ -487,6 +511,7 @@ class ZWorldP0Trainer:
             "final_loss": losses[-1] if losses else None,
             "mean_loss": float(sum(losses) / len(losses)) if losses else None,
             "used_proximity_head": bool(use_prox),
+            "used_resource_field_head": bool(use_field),
             "used_reconstruction_head": self._recon_head is not None,
             "label_balance": {
                 k: (torch.bincount(targets[k], minlength=c).float() / float(n)).tolist()
@@ -495,6 +520,21 @@ class ZWorldP0Trainer:
         }
         stats.update(last)
         stats["holdout"] = self._holdout_report(obs, targets, n_classes, te_idx)
+        if use_field and int(te_idx.numel()) >= 8:
+            # SD-018 amend readout: held-out field MSE vs the constant-mean predictor,
+            # so a caller can tell a decodable directional field from a fitted mean.
+            with torch.no_grad():
+                z_te = self._z_world_path(obs[te_idx])
+                y_te = field_target[te_idx]
+                mse = float(F.mse_loss(field_head(z_te), y_te))
+                base = float(F.mse_loss(
+                    field_target[tr_idx].mean(dim=0, keepdim=True).expand_as(y_te), y_te
+                ))
+            stats["resource_field_holdout"] = {
+                "mse": mse,
+                "mean_predictor_mse": base,
+                "r2": (1.0 - mse / base) if base > 0.0 else None,
+            }
         return stats
 
     def _holdout_report(

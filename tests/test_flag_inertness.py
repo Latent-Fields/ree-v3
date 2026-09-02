@@ -1285,6 +1285,34 @@ def test_use_resource_proximity_head_populates_resource_prox_pred_only_when_enab
     assert on_state.resource_prox_pred.shape == (1, 1)
 
 
+def test_use_resource_field_head_populates_resource_field_pred_only_when_enabled():
+    """SD-018 AMEND (V3-EXQ-948): SplitEncoder.resource_field_head gates
+    resource_field_pred -- None when use_resource_field_head=False, [batch, 25]
+    (the full agent-centred resource_field_view) in [0, 1] when True. The scalar
+    SD-018 head is independent of it. Full behavioural contracts (bit-identical
+    OFF, gradient reaches world_encoder, P0 leg) in
+    tests/contracts/test_sd018_resource_field_head.py.
+    """
+    stack_off = _latent_stack(use_resource_proximity_head=True)
+    stack_on = _latent_stack(use_resource_proximity_head=True, use_resource_field_head=True)
+    assert stack_off.split_encoder.resource_field_head is None
+    assert stack_on.split_encoder.resource_field_head is not None
+
+    obs = torch.randn(1, stack_off.config.body_obs_dim + stack_off.config.world_obs_dim)
+    off_state = stack_off.encode(obs)
+    on_state = stack_on.encode(obs)
+
+    assert off_state.resource_field_pred is None
+    assert off_state.resource_prox_pred is not None
+    assert on_state.resource_field_pred is not None, (
+        "use_resource_field_head=True did not populate resource_field_pred "
+        "(inert flag)"
+    )
+    assert on_state.resource_field_pred.shape == (1, 25)
+    assert float(on_state.resource_field_pred.min()) >= 0.0
+    assert float(on_state.resource_field_pred.max()) <= 1.0
+
+
 def test_use_resource_encoder_populates_z_resource_only_when_enabled():
     """SD-015/MECH-112: ResourceEncoder produces z_resource independently of
     z_world only when use_resource_encoder=True. Also pins that the sibling
@@ -2745,6 +2773,17 @@ PROBED = {
     "use_harm_un",                  # test_use_harm_un_populates_z_harm_un_only_when_enabled
     "use_event_classifier",         # test_use_event_classifier_populates_event_logits_only_when_enabled
     "use_resource_proximity_head",  # test_use_resource_proximity_head_populates_resource_prox_pred_only_when_enabled
+    "use_resource_field_head",      # test_use_resource_field_head_populates_resource_field_pred_only_when_enabled (SD-018 amend, V3-EXQ-948)
+    # SD-e1 ITEM 2 (ree-v3 6447b45, 2026-09-02): E1Config.e1_rollout_consistency_enabled
+    # gates E1DeepPredictor.rollout_consistency_loss. Probed by
+    # tests/contracts/test_e1_rollout_consistency_loss.py (bit-identical OFF, ON
+    # trains the multi-step objective). Registered here 2026-09-02 by the SD-018
+    # amend session because the landing left test_flag_registry_is_current red.
+    "e1_rollout_consistency_enabled",
+    # GFLAG-0051 / MECH-151 (ree-v3 84e211a): E3 action-object ranking channel.
+    # Probed by tests/contracts/test_gflag0051_action_object_bias_channel.py (+
+    # test_exp0155_action_bias_no_scoring_authority.py). Same registration note.
+    "use_action_object_bias_channel",
     "use_e2_harm_s_forward",        # test_use_e2_harm_s_forward_constructs_agent_e2_harm_s_only_when_enabled
     "use_e2_world_uncertainty",     # test_use_e2_world_uncertainty_constructs_agent_head_only_when_enabled
     # SD-063 ONLINE head training (ARC-065 GAP-A keystone, 2026-08-22). Probed
