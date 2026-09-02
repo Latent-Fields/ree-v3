@@ -12552,6 +12552,60 @@ class REEAgent(nn.Module):
 
         return all_metrics
 
+    def force_sleep_cycle_at_eval_boundary(self) -> "Optional[Dict[str, float]]":
+        """
+        Sleep-aggregation cluster: force a sleep cycle at an EVAL SEGMENT
+        BOUNDARY without a full agent.reset().
+
+        A continuity-trajectory eval driver (a single continuous life across
+        multiple eval segments -- residue, goal state, and episode counters
+        persist across segments; see e.g. V3-EXQ-906b/909) never calls
+        agent.reset() at a segment boundary, so neither of reset()'s two
+        boundary side effects fires: the just-completed segment's waking
+        exploration trajectory is never flushed into the hippocampal replay
+        buffer, and SleepLoopManager.notify_episode_end()'s K-episode
+        cadence never advances. Interleaving a sleep cycle at a chosen eval
+        boundary (or at every boundary, regardless of the K-episode
+        cadence) therefore needs BOTH steps run manually, in this order:
+
+          1. self._flush_exploration_episode() -- so the segment that just
+             ended is present in the replay pool for THIS firing (matches
+             reset()'s own ordering: flush runs BEFORE the sleep-cycle
+             call).
+          2. self.sleep_loop.force_cycle(self) -- fires immediately,
+             bypassing the K-episode counter (see
+             SleepLoopManager.force_cycle's docstring); resets
+             episodes_since_sleep / steps_since_sleep on completion so the
+             K-cadence and the GAP-9 within-life trigger both stay
+             consistent afterward.
+
+        Sanctioned pattern (first used ad hoc in V3-EXQ-909's driver;
+        formalized here 2026-09-02 as Build 2 of
+        chip-20260902-mech027-precision-replay-eval-substrate): a driver
+        that wants sleep-cycle interleaving reachable DURING/BETWEEN eval
+        measurement segments, without corrupting the broader wake/sleep
+        state machine, should call THIS method at each chosen boundary
+        instead of hand-rolling the two-step sequence. It does NOT itself
+        call agent.reset() -- residue, goal state, latent state, and
+        episode counters are all left untouched (contrast with
+        agent.reset(), which additionally reinitializes those) -- and it
+        does not require a warmup-only calling context, which was the
+        ONLY documented convention for force_cycle() before this method
+        existed (every experiment driver surveyed 2026-09-02 called it
+        either during warmup or, in V3-EXQ-909 alone, via this exact
+        undocumented two-step sequence).
+
+        Returns None (no-op downstream call) when use_sleep_loop is False
+        (self.sleep_loop is None) -- mirrors notify_episode_end's
+        None-safe consumption pattern, so a driver need not guard the call
+        itself. Otherwise returns the fired cycle's merged metrics dict
+        (SleepLoopManager.force_cycle's own return value).
+        """
+        self._flush_exploration_episode()
+        if self.sleep_loop is None:
+            return None
+        return self.sleep_loop.force_cycle(self)
+
     def _assemble_control_vector(
         self,
         effective_temperature: float,
