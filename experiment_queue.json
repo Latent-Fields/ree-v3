@@ -30,26 +30,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-977",
-      "title": "ARC-052 harm-stream conditional precision (context-dependence antecedent)",
-      "script": "experiments/v3_exq_977_arc052_harm_stream_conditional_precision.py",
-      "priority": 40,
-      "machine_affinity": "any",
-      "estimated_minutes": 45,
-      "claim_id": "ARC-052",
-      "backlog_id": "EVB-1197",
-      "note": "ARC-052 half (B) empirical antecedent: is harm-stream precision context-dependent (clause 1: z_harm_s precision rises with forward-model accuracy; clause 2: z_harm_a precision rises with accumulation stability). Half (A) -- precision heads on HarmEncoder/AffectiveHarmEncoder plus E3 precision-weighting -- is NOT BUILT, is complicated (buildable), and is deliberately OUT OF SCOPE here; it routes to /implement-substrate. 6 arms x 5 seeds (seed 44 excluded: reef-config instability). DVs: precision_error_corr / precision_volatility_corr / crps_mean, against a permutation null; the point-head arm is the state-blind EMA analog for CRPS/calibration (C3) and is NOT the statistical null for C1/C2. GOV-REUSE-1 (step 2.4): 0/980 recorded manifests tag ARC-052; precision_volatility_corr is absent corpus-wide; precision_error_corr + crps_mean are carried only by v3_exq_712_distributional_world_forward_heads (SD-063) and v3_exq_716_sd063_conditional_uncertainty_validation -- both measure the z_world stream, not the harm streams, and both are substrate INCOMPATIBLE with this run's hash. Not recoverable -> run. Step 2.5c: the two open corrupting substrate_queue entries naming ree_core/agent.py (mode-governance-engagement, SD-082) carry their defects in ree_core/cingulate/salience_coordinator.py and ree_core/pfc/lateral_pfc_analog.py::compute_bias; this driver's path is agent.reset + agent.sense + env.step with NO select_action and both features default-off, so neither module executes (re-verified by import + call-site audit 2026-09-03). re-derive brake (2.5b): 0 counted autopsies on ARC-052. red-team (fable): CONTESTED -- one primary finding (the verdict read C1/C2 off raw per-cell metrics while gating only on the aggregate 'any arm green', so a red load-bearing quantile arm could still record 'weakens' on ARC-052), FIXED: every reading is now gated on the gate of the arm it is read off and a red clause arm is UNSCORED rather than a refutation; two minor findings also fixed; reviewer-verified CLEAN on the volatility IV alignment, the C2 sign algebra, and the point arm's structural zero. PROVENANCE: script was authored and smoke-tested green by IGW-20260902-239 (runner signal 2026-09-02T14:29:54Z, exit_reason=ok) but that session was reaped NO_OP at 2026-09-02T15:01:31Z before it could commit the script or append this entry, leaving the id reserved-but-unqueued. Recovered and independently re-verified by chip-20260903-reserved-unqueued-exq-slots on 2026-09-03: validate_experiments --strict clean (0 warnings across all check families), dry-run smoke green (FAIL/substrate_not_ready_requeue is the correct dry-run route off a 3-episode untrained substrate), always-core recorded (rec/v1, substrate_hash, machine_class, 6 arm_results).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-09-03T11:19:39Z"
-      },
-      "conditions": 1,
-      "episodes_per_run": 40,
-      "experiment_type": "v3_exq_977_arc052_harm_stream_conditional_precision",
-      "seeds": 5
-    },
-    {
       "queue_id": "V3-EXQ-991",
       "title": "EXT-004 claim probe: does prior harm experience carry its cost across a novel context boundary (paired EXPOSED/NAIVE Context A, shared Context B)",
       "script": "experiments/v3_exq_991_claim_probe_ext_004_residue_cross_context_penalty.py",
@@ -58,7 +38,11 @@
       "estimated_minutes": 660,
       "backlog_id": "EVB-1249",
       "note": "EXT-004 claim probe (EXP-0530/EVB-1249). Two arms: EXPOSED (Context A hazard-live, agent incurs real harm, residue field populates) vs NAIVE (Context A harm-neutralised -- hazard_harm=0, harm_gradient_scale=0, contamination_spread=0, proximity_harm_scale=0 -- all four harm sources in this substrate zeroed, empirically confirmed 0/200 harm events -- same hazard-object layout/count as EXPOSED so general world complexity is matched). rho_residue is IDENTICAL (0.5, substrate default) in both arms; both then face the SAME hazard-live Context B (never seen during Context A) and harm_rate_B is compared, paired by seed via deterministic env seeding. DV: harm_rate_B. C1 PASS (per seed): non-vacuous AND harm_rate_B(EXPOSED) <= 0.85 * harm_rate_B(NAIVE). Non-vacuity: EXPOSED residue mean_weight>1e-4 + coverage>0 after Context A, NAIVE Context-A n_harm_events==0 (control genuinely clean), NAIVE Context-B n_harm_events>=5. Overall PASS needs >=4/5 seeds C1 PASS. GOV-REUSE-1 (step 2.4): grepped evidence/experiments/*.json + failure_autopsy_*.json for EXT-004 -- zero hits, not recoverable, run required. Step 2.5c substrate-path overlap: two open corrupting-severity substrate_queue.json entries (mode-governance-engagement, SD-082) name agent.py as a bare substrate_path, but both defects are gated behind config flags (salience_affinity_input_cap=None, use_lateral_pfc_analog=False) this driver never sets -- confirmed not exercised. COMPUTE BUDGET: measured 3.46s/agent-tick on ree-cloud-5 CPU-only torch; full 697-precedent scale (17000 ticks/cell x10 cells) would be ~87h, infeasible for one slot, so episode/step counts are ~16x smaller than 697's (P0=12, eval=6, steps=60, ~1120 ticks/cell incl. probe, ~11200 total, ~10.8h estimated). red-team (fable), TWO PASSES (see script module docstring for full detail): Pass 1 CONTESTED on an earlier rho_residue-ablation design -- the HippocampalModule CEM (propose_trajectories, ARC-007-strict) reads the residue field unconditionally regardless of rho_residue, so zeroing rho_residue alone did not ablate residue's influence on candidate generation; fixed by a full redesign (content-of-the-field manipulation above, not a weight ablation). Pass 2, run against the redesign: CONTESTED, two findings -- (a) the EXPOSED/NAIVE manipulation differs the agent's whole experience stream, not only residue content (ARC-108 w_chan/V-hat_t and the MECH-165 exploration buffer also persist across episodes) -- addressed by narrowing the PASS/does_not_support labels to EXT-004's overall behavioural claim (not a residue-specific mechanism claim) plus a recorded attribution_caveat, rather than adding a third arm (~+1.7h/seed); (b) the Context-B reachability floor (was >=1 NAIVE hazard contact) let one event decide the whole eval-phase denominator -- fixed, raised to >=5 (B_HAZARDS_MIN_EVENTS).",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-3",
+        "claimed_at": "2026-09-03T11:21:37Z"
+      },
       "claim_ids": [
         "EXT-004"
       ],
