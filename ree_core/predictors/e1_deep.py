@@ -1473,6 +1473,233 @@ class E1DeepPredictor(nn.Module):
         )
         return (per_step * weights).sum() / weights.sum()
 
+    def rollout_sequence_divergence_loss(
+        self,
+        initial_state: torch.Tensor,
+        action_sequences: torch.Tensor,
+        endpoint_targets: torch.Tensor,
+        weight: Optional[float] = None,
+        temperature: Optional[float] = None,
+        min_batch_classes: Optional[int] = None,
+        horizon: Optional[int] = None,
+        simulation_mode: bool = False,
+    ) -> torch.Tensor:
+        """SD-e1-rollout-consistency-training ITEM 3: rollout-endpoint
+        contrastive objective (the candidate rollout_consistency_loss's own
+        landing note designed and deliberately withheld -- see
+        "why_not_contrastive" on E1Config.e1_rollout_consistency_enabled).
+        Licensed by the confirmed V3-EXQ-976 autopsy (user decision Q1,
+        2026-09-02): candidate 1 (trajectory accuracy) made NO absolute
+        progress on the evaluator bars and DAMPS per-action divergence growth
+        at depth on 8/8 ON cells -- an accuracy objective trained against
+        observed intermediate states works AGAINST the per-action divergence
+        the evaluator needs.
+
+        For K sibling candidate action SEQUENCES sharing one initial state,
+        enforces that the predicted rollout ENDPOINT of sequence i is closer
+        (InfoNCE, squared L2) to sequence i's own OBSERVED endpoint than to
+        any other sequence j's endpoint:
+
+            preds[i]  = rollout(initial_state, action_sequences[i])[-1]
+            logits[i, j] = -||preds[j] - endpoint_targets[i]||^2 / tau
+            L = cross_entropy(logits, label=arange(K))
+
+        Anchor-to-prediction asymmetric form, same convention as SD-056's
+        `E2FastPredictor.world_forward_contrastive_loss` (symmetric InfoNCE
+        doubles cost without architectural gain).
+
+        WHY THIS CONSTRAINS THE ITERATED MAP, NOT THE ONE-STEP TRANSITION.
+        SD-056 already constrains E2's one-step `world_forward`; the
+        synthesis's de-prioritised #5 ("contrastive next-state") is that same
+        one-step shape ported to E1. This is different: `action_sequences`
+        are full H-step sequences, and the contrastive pressure is applied
+        only at the rollout ENDPOINT after autoregressively composing all H
+        steps through `predict_long_horizon`. That endpoint is exactly what
+        the C3 evaluator scores (it compares 40 candidate-sequence endpoints
+        to each other, not 40 single next-states).
+
+        WHY THIS CANNOT BE MINIMISED BY THE COLLAPSE ITEM 2 EXHIBITS. This
+        loss carries NO per-step MSE against observed intermediate states --
+        it is purely a function of the final predicted state. A trajectory-
+        accuracy objective (ITEM 2) can lower its loss by letting deep
+        predictions drift toward a common, low-variance trajectory (smaller
+        per-step error on average, at the cost of losing per-action
+        discriminability -- the DAMPING V3-EXQ-976 measured). That move
+        actively HURTS this loss: if two sequences' predicted endpoints
+        collapse toward each other, every off-diagonal logit approaches the
+        diagonal one, InfoNCE saturates toward log(K) (its maximum, K
+        candidates indistinguishable), and the gradient pushes the
+        collapsed endpoints APART -- toward their own distinct observed
+        targets and away from each other. Collapse is exactly the
+        configuration this loss penalises hardest.
+
+        DEGENERACY GUARD: distinct action-SEQUENCE count, not distinct
+        first-action count. Two sequences that share a first action but
+        diverge later are still informative negatives for this objective
+        (they test whether the LATER divergence propagates to the endpoint),
+        so the floor counts unique full sequences (argmax per step, per
+        candidate), matching `min_batch_classes` sequences rather than
+        `min_batch_classes` first-action classes -- deliberately stricter
+        than SD-056's first-action-only floor, which this endpoint-level
+        objective would otherwise under-guard (a K=4 batch with 4 distinct
+        first actions but only 2 distinct FULL sequences is degenerate for
+        an endpoint contrastive even though SD-056's floor would pass it).
+
+        WHAT THIS DELIBERATELY DOES NOT DO. It does not condition on whether
+        `E1Config.action_conditioned_transition` is on. With it off,
+        `predict_long_horizon` ignores `action_sequences` entirely (ITEM 1's
+        own contract), so every candidate's rollout is identical regardless
+        of its action sequence and every logit is exactly equal by
+        construction -- the loss is well-defined (a finite, uniform log(K)),
+        and no USEFUL training signal reaches E1, but the mechanism is more
+        subtle than "the gradient is zero": a uniform softmax against a
+        one-hot label has an entirely ordinary nonzero per-logit gradient
+        (each row still pulls its own prediction toward its own target and
+        away from the others). What actually vanishes is the SUM of that
+        pull across the K candidates once they all share one computational
+        path -- with every candidate's endpoint an identical function of the
+        identical (action-blind) input, the K individual pulls are toward
+        each candidate's own target, and pulls toward K different targets
+        from one shared value sum to a pull toward their MEAN, which is
+        self-cancelling by construction. The gradient that actually reaches
+        the shared trunk (output_proj, the LSTM) is therefore exactly zero
+        in real arithmetic (empirically ~1e-6x the magnitude of the
+        informative ITEM-1-engaged case, i.e. float32 noise around an exact
+        cancellation), so no training signal reaches E1 either way. This
+        objective is therefore only informative WITH ITEM 1 engaged; it does
+        not raise or check that precondition itself, the same "flag gates an
+        objective, not the forward path" boundary ITEM 2 holds.
+
+        `compute_prediction_loss` is DELIBERATELY NOT REWIRED to call this
+        method, for the same reason ITEM 2 is not: that path is depended on
+        by several hundred experiments and there is no consumer yet.
+
+        DEGENERATE RETURN follows ITEM 2's convention, not SD-056's plain
+        `torch.zeros(())` (which has `requires_grad=False` and would raise on
+        a caller's `(w * loss).backward()` for what is an intermittent
+        condition -- a short batch or a same-sequence-heavy batch is not rare
+        in practice). Returns the grad-connected
+        `next(self.parameters()).sum() * 0.0` idiom instead.
+
+        Returns the zero loss when:
+            (a) simulation_mode=True (MECH-094 standard pattern -- replay /
+                DMN training paths cannot recruit the objective);
+            (b) K < 2 (no negatives);
+            (c) the effective horizon is < 1;
+            (d) fewer than min_batch_classes distinct action SEQUENCES in the
+                batch.
+
+        Args:
+            initial_state:    [total_dim] OR [1, total_dim] OR [K, total_dim]
+                               rollout seed shared across the K candidates.
+            action_sequences: [K, horizon, action_dim]. Passed through to
+                               `predict_long_horizon` unchanged, so ITEM 1's
+                               missing-action instrumentation applies.
+            endpoint_targets: [K, total_dim] -- OBSERVED endpoint (the state
+                               actually reached) for each candidate sequence.
+            weight:            optional override for caller-side scaling.
+                               The helper returns the UNWEIGHTED cross-
+                               entropy; caller multiplies by
+                               E1Config.e1_rollout_sequence_divergence_weight
+                               when composing into a total loss. Argument
+                               retained for API symmetry with SD-056; unused
+                               internally (matches that helper's own
+                               convention).
+            temperature:       optional InfoNCE tau override; falls back to
+                               E1Config.e1_rollout_sequence_divergence_temperature.
+            min_batch_classes: optional distinct-sequence-floor override;
+                               falls back to
+                               E1Config.e1_rollout_sequence_divergence_min_batch_classes.
+            horizon:           optional rollout-horizon override; falls back
+                               to E1Config.e1_rollout_sequence_divergence_horizon.
+                               Effective horizon is
+                               min(horizon, action_sequences.shape[1]).
+            simulation_mode:   MECH-094 gate. True -> zero loss.
+
+        Returns:
+            0-d Tensor: unweighted InfoNCE cross-entropy over rollout endpoints.
+        """
+        zero_loss = next(self.parameters()).sum() * 0.0
+
+        if simulation_mode:
+            return zero_loss
+
+        if action_sequences.dim() != 3:
+            raise ValueError(
+                "action_sequences must be [K, horizon, action_dim]; got "
+                f"shape {tuple(action_sequences.shape)}"
+            )
+        K = action_sequences.shape[0]
+        if K < 2:
+            return zero_loss
+        if endpoint_targets.dim() != 2 or endpoint_targets.shape[0] != K:
+            raise ValueError(
+                f"endpoint_targets must be [K, total_dim] with K={K}; got "
+                f"shape {tuple(endpoint_targets.shape)}"
+            )
+        if initial_state.dim() not in (1, 2):
+            raise ValueError(
+                "initial_state must be [total_dim] OR [1, total_dim] OR "
+                f"[K, total_dim]; got shape {tuple(initial_state.shape)}"
+            )
+
+        h_cfg = horizon if horizon is not None else getattr(
+            self.config, "e1_rollout_sequence_divergence_horizon", 5
+        )
+        h = int(min(int(h_cfg), int(action_sequences.shape[1])))
+        if h < 1:
+            return zero_loss
+
+        if temperature is None:
+            temperature = float(
+                getattr(self.config, "e1_rollout_sequence_divergence_temperature", 0.1)
+            )
+        if min_batch_classes is None:
+            min_batch_classes = int(
+                getattr(self.config, "e1_rollout_sequence_divergence_min_batch_classes", 2)
+            )
+
+        # Distinct-FULL-SEQUENCE floor (not first-action-only -- see the
+        # docstring's "DEGENERACY GUARD" section). argmax per step per
+        # candidate, then unique over the [K, h] integer-class rows.
+        seq_classes = action_sequences[:, :h, :].argmax(dim=-1)  # [K, h]
+        n_distinct = int(torch.unique(seq_classes, dim=0).shape[0])
+        if n_distinct < int(min_batch_classes):
+            return zero_loss
+
+        batch_size = K
+        if initial_state.dim() == 1:
+            init = initial_state.unsqueeze(0).expand(batch_size, -1)
+        elif initial_state.shape[0] == 1:
+            init = initial_state.expand(batch_size, -1)
+        elif initial_state.shape[0] == K:
+            init = initial_state
+        else:
+            raise ValueError(
+                "initial_state must be [total_dim] OR [1, total_dim] OR "
+                f"[K, total_dim]; got shape {tuple(initial_state.shape)} with K={K}"
+            )
+
+        saved_hidden = self._hidden_state
+        self.reset_hidden_state()
+        try:
+            preds = self.predict_long_horizon(
+                init, horizon=h, actions=action_sequences[:, :h, :]
+            )
+        finally:
+            self._hidden_state = saved_hidden
+
+        endpoints = preds[:, -1, :]  # [K, total_dim]
+
+        # logits[i, j] = -||endpoint_j - target_i||^2 / tau  (anchor = target
+        # i, prediction = endpoint j; same asymmetric convention SD-056 uses).
+        diffs = endpoints.unsqueeze(0) - endpoint_targets.unsqueeze(1)  # [K, K, total_dim]
+        sq_dists = diffs.pow(2).sum(dim=-1)  # [K, K]
+        logits = -sq_dists / float(temperature)
+
+        labels = torch.arange(K, device=logits.device)
+        return F.cross_entropy(logits, labels)
+
     def forward(
         self,
         current_state: torch.Tensor,

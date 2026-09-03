@@ -2791,6 +2791,16 @@ PROBED = {
     # trains the multi-step objective). Registered here 2026-09-02 by the SD-018
     # amend session because the landing left test_flag_registry_is_current red.
     "e1_rollout_consistency_enabled",
+    # SD-e1 ITEM 3 (2026-09-03): E1Config.e1_rollout_sequence_divergence_enabled
+    # gates E1DeepPredictor.rollout_sequence_divergence_loss, the rollout-
+    # endpoint contrastive objective ITEM 2's own landing note designed and
+    # deliberately withheld ("why_not_contrastive"). Probed by
+    # tests/contracts/test_e1_rollout_endpoint_contrastive.py (bit-identical
+    # OFF; ON is non-vacuous and its gradient concretely pushes each
+    # candidate's predicted endpoint toward its own observed target and away
+    # from sibling candidates' targets -- the property that distinguishes it
+    # from ITEM 2's per-step trajectory-accuracy objective).
+    "e1_rollout_sequence_divergence_enabled",
     # GFLAG-0051 / MECH-151 (ree-v3 84e211a): E3 action-object ranking channel.
     # Probed by tests/contracts/test_gflag0051_action_object_bias_channel.py (+
     # test_exp0155_action_bias_no_scoring_authority.py). Same registration note.

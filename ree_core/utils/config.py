@@ -544,6 +544,60 @@ class E1Config:
     # <1.0 = TD-MPC's discounting, earlier steps weight more.
     e1_rollout_consistency_horizon_weights_decay: float = 1.0
 
+    # SD-e1-rollout-consistency-training ITEM 3 (2026-09-03): the rollout-
+    # endpoint contrastive objective ITEM 2's own landing note designed and
+    # deliberately WITHHELD ("why_not_contrastive" above). Licensed by the
+    # confirmed V3-EXQ-976 autopsy (user decision Q1, 2026-09-02): candidate 1
+    # (trajectory accuracy) made NO absolute progress on the 0.1 cr_ratio /
+    # 0.002 e1coe_score_var bars and DAMPS per-action divergence growth at
+    # depth on 8/8 ON cells (h1->h5 OFF grows x2.6-3.8, ON grows only
+    # x0.5-1.75) -- an accuracy objective trained against OBSERVED
+    # intermediate states works AGAINST the per-action divergence the
+    # evaluator needs, because the easiest way to lower per-step MSE at depth
+    # is to let deep predictions collapse toward a common, low-variance
+    # trajectory.
+    #
+    # This objective constrains the ITERATED map under candidate action
+    # SEQUENCES -- what the C3 evaluator actually consumes (it scores 40
+    # sequences, not 40 single actions) -- rather than the one-step
+    # transition SD-056 already constrains on E2, and rather than per-step
+    # trajectory accuracy against observed intermediate states (ITEM 2). For
+    # K sibling candidate action sequences sharing one initial state, the
+    # predicted ENDPOINT of sequence i is trained to be closer (InfoNCE, L2)
+    # to sequence i's own OBSERVED endpoint than to any other sequence j's
+    # endpoint: endpoints from DISTINCT action sequences are pushed apart,
+    # same-sequence endpoints are pulled together. The loss is purely a
+    # function of rollout ENDPOINTS -- it carries no per-step MSE against
+    # intermediate observed states at all, so unlike ITEM 2 it cannot be
+    # minimised by letting the deep trajectory collapse toward a shared low-
+    # variance path; collapsed (indistinguishable) endpoints are exactly the
+    # configuration this loss penalises hardest (InfoNCE saturates toward
+    # log(K) when every prediction is equidistant from every target).
+    #
+    # Default False/no-op. Nothing calls rollout_sequence_divergence_loss()
+    # unless a driver opts in; no module or parameter is constructed in
+    # either setting (pure function of existing weights, exactly like ITEM 2
+    # and SD-056's E2 contrastive helpers); compute_prediction_loss is
+    # deliberately NOT rewired -- agent-loop wiring stays held for the same
+    # reason ITEM 2's does (several hundred experiments depend on that path
+    # and there is no consumer yet).
+    # See REE_assembly/docs/architecture/sd_e1_rollout_consistency_training.md.
+    e1_rollout_sequence_divergence_enabled: bool = False
+    # Caller-side scaling for the helper's return value. The helper returns
+    # the UNWEIGHTED InfoNCE cross-entropy; the caller multiplies. Mirrors
+    # e1_rollout_consistency_weight / SD-056's e2_action_contrastive_weight
+    # contract exactly.
+    e1_rollout_sequence_divergence_weight: float = 1.0
+    # Rollout depth to the scored endpoint. Mirrors e1_rollout_consistency_horizon.
+    e1_rollout_sequence_divergence_horizon: int = 5
+    # InfoNCE temperature. Mirrors SD-056's e2_action_contrastive_temperature.
+    e1_rollout_sequence_divergence_temperature: float = 0.1
+    # Minimum distinct action-SEQUENCE count (not merely distinct first-action
+    # count -- two sequences sharing a first action but diverging later still
+    # count as distinct) in the batch before the objective is considered
+    # non-degenerate. Mirrors SD-056's e2_action_contrastive_min_batch_classes.
+    e1_rollout_sequence_divergence_min_batch_classes: int = 2
+
     # SD-016: frontal cue-indexed integration circuit (MECH-150/151/152, ARC-041)
     sd016_enabled: bool = False
     action_object_dim: int = 16    # must match E2Config.action_object_dim
@@ -6973,6 +7027,13 @@ class REEConfig:
         e1_rollout_consistency_weight: float = 1.0,
         e1_rollout_consistency_horizon: int = 5,
         e1_rollout_consistency_horizon_weights_decay: float = 1.0,
+        # SD-e1-rollout-consistency-training ITEM 3 (2026-09-03): rollout-
+        # endpoint contrastive objective.
+        e1_rollout_sequence_divergence_enabled: bool = False,
+        e1_rollout_sequence_divergence_weight: float = 1.0,
+        e1_rollout_sequence_divergence_horizon: int = 5,
+        e1_rollout_sequence_divergence_temperature: float = 0.1,
+        e1_rollout_sequence_divergence_min_batch_classes: int = 2,
         # MECH-216: E1 predictive wanting (schema readout)
         schema_wanting_enabled: bool = False,
         schema_wanting_threshold: float = 0.3,
@@ -8173,6 +8234,22 @@ class REEConfig:
         config.e1.e1_rollout_consistency_horizon = e1_rollout_consistency_horizon
         config.e1.e1_rollout_consistency_horizon_weights_decay = (
             e1_rollout_consistency_horizon_weights_decay
+        )
+        # SD-e1-rollout-consistency-training ITEM 3: rollout-endpoint contrastive.
+        config.e1.e1_rollout_sequence_divergence_enabled = (
+            e1_rollout_sequence_divergence_enabled
+        )
+        config.e1.e1_rollout_sequence_divergence_weight = (
+            e1_rollout_sequence_divergence_weight
+        )
+        config.e1.e1_rollout_sequence_divergence_horizon = (
+            e1_rollout_sequence_divergence_horizon
+        )
+        config.e1.e1_rollout_sequence_divergence_temperature = (
+            e1_rollout_sequence_divergence_temperature
+        )
+        config.e1.e1_rollout_sequence_divergence_min_batch_classes = (
+            e1_rollout_sequence_divergence_min_batch_classes
         )
 
         # E2
