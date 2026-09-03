@@ -30,28 +30,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-991",
-      "title": "EXT-004 claim probe: does prior harm experience carry its cost across a novel context boundary (paired EXPOSED/NAIVE Context A, shared Context B)",
-      "script": "experiments/v3_exq_991_claim_probe_ext_004_residue_cross_context_penalty.py",
-      "priority": 40,
-      "machine_affinity": "any",
-      "estimated_minutes": 660,
-      "backlog_id": "EVB-1249",
-      "note": "EXT-004 claim probe (EXP-0530/EVB-1249). Two arms: EXPOSED (Context A hazard-live, agent incurs real harm, residue field populates) vs NAIVE (Context A harm-neutralised -- hazard_harm=0, harm_gradient_scale=0, contamination_spread=0, proximity_harm_scale=0 -- all four harm sources in this substrate zeroed, empirically confirmed 0/200 harm events -- same hazard-object layout/count as EXPOSED so general world complexity is matched). rho_residue is IDENTICAL (0.5, substrate default) in both arms; both then face the SAME hazard-live Context B (never seen during Context A) and harm_rate_B is compared, paired by seed via deterministic env seeding. DV: harm_rate_B. C1 PASS (per seed): non-vacuous AND harm_rate_B(EXPOSED) <= 0.85 * harm_rate_B(NAIVE). Non-vacuity: EXPOSED residue mean_weight>1e-4 + coverage>0 after Context A, NAIVE Context-A n_harm_events==0 (control genuinely clean), NAIVE Context-B n_harm_events>=5. Overall PASS needs >=4/5 seeds C1 PASS. GOV-REUSE-1 (step 2.4): grepped evidence/experiments/*.json + failure_autopsy_*.json for EXT-004 -- zero hits, not recoverable, run required. Step 2.5c substrate-path overlap: two open corrupting-severity substrate_queue.json entries (mode-governance-engagement, SD-082) name agent.py as a bare substrate_path, but both defects are gated behind config flags (salience_affinity_input_cap=None, use_lateral_pfc_analog=False) this driver never sets -- confirmed not exercised. COMPUTE BUDGET: measured 3.46s/agent-tick on ree-cloud-5 CPU-only torch; full 697-precedent scale (17000 ticks/cell x10 cells) would be ~87h, infeasible for one slot, so episode/step counts are ~16x smaller than 697's (P0=12, eval=6, steps=60, ~1120 ticks/cell incl. probe, ~11200 total, ~10.8h estimated). red-team (fable), TWO PASSES (see script module docstring for full detail): Pass 1 CONTESTED on an earlier rho_residue-ablation design -- the HippocampalModule CEM (propose_trajectories, ARC-007-strict) reads the residue field unconditionally regardless of rho_residue, so zeroing rho_residue alone did not ablate residue's influence on candidate generation; fixed by a full redesign (content-of-the-field manipulation above, not a weight ablation). Pass 2, run against the redesign: CONTESTED, two findings -- (a) the EXPOSED/NAIVE manipulation differs the agent's whole experience stream, not only residue content (ARC-108 w_chan/V-hat_t and the MECH-165 exploration buffer also persist across episodes) -- addressed by narrowing the PASS/does_not_support labels to EXT-004's overall behavioural claim (not a residue-specific mechanism claim) plus a recorded attribution_caveat, rather than adding a third arm (~+1.7h/seed); (b) the Context-B reachability floor (was >=1 NAIVE hazard contact) let one event decide the whole eval-phase denominator -- fixed, raised to >=5 (B_HAZARDS_MIN_EVENTS).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-09-03T11:21:37Z"
-      },
-      "claim_ids": [
-        "EXT-004"
-      ],
-      "conditions": 2,
-      "episodes_per_run": 18,
-      "experiment_type": "v3_exq_991_claim_probe_ext_004_residue_cross_context_penalty",
-      "seeds": 5
-    },
-    {
       "queue_id": "V3-EXQ-951c",
       "title": "MECH-320 diagnostic: is v_t's floor-saturation (v_t_floor=0.05) gate-caused or v_raw-caused? (calmed P2 bed, seeds 42/43/45)",
       "script": "experiments/v3_exq_951c_mech320_vt_floor_diagnostic_sd054.py",
