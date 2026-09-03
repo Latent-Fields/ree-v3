@@ -8,6 +8,59 @@
 # leaving a cloud worker dark for hours -- the failure mode that left
 # cloud-2/3 stale ~10h on 2026-05-18.
 #
+# ---------------------------------------------------------------------------
+# 2026-09-03 -- THE FALSE GREEN (same bug class as the Mac variant's)
+# (original fix: chip-20260819-gitsyncrepair-reports-ok-while-not-syncing,
+#  landed in the umbrella's scripts/ree_git_sync_repair.sh 2026-08-22)
+#
+# NOTE ON THE TWO VARIANTS: scripts/ree_git_sync_repair.sh (launchd, Mac) and
+# this file (systemd, cloud worker) are DELIBERATELY different scripts, not
+# copies -- ~416 diff lines, both correct as written; see
+# check_metaworker_wrapper_deploy.py's block comment, which warns that pairing
+# them by basename would report a false DRIFTED. So this is NOT a re-sync of a
+# stale fork. It is the same DEFECT, which happened to live in both variants
+# and was fixed in only one. The reasoning below is adapted from the Mac
+# variant's; the exempted path set differs (telemetry here, derived registry
+# artifacts there) because the recurring dirt differs per box role.
+#
+# The healthy (non-wedged) branch used to gate its fast-forward on an
+# ENTIRELY clean `git status --porcelain --untracked-files=no`, and fell
+# through to a single catch-all `log "$name OK (ahead=$ahead behind=$behind)"`
+# for everything else. So a repo that was behind AND dirty logged **OK** and
+# synced nothing: "OK" meant "I looked", not "you are in sync".
+#
+# That disarmed this job permanently on exactly the boxes it matters most on.
+# A worker running the runner writes its own heartbeat into
+# evidence/experiments/runner_heartbeats/<box>.json, so REE_assembly is
+# PERMANENTLY dirty there and the pre-fix gate declined forever. Measured on
+# ree-cloud-4, from this log, 2026-09-03:
+#     2026-09-03T04:50:56Z REE_assembly OK (ahead=0 behind=58)
+#     2026-09-03T05:54:37Z REE_assembly OK (ahead=0 behind=8)
+# 44 such lines in the last 200; the box had drifted 61 commits / ~7.5h.
+#
+# Two fixes, mirroring the Mac copy:
+#
+# (1) DISTINCT VERDICTS. Behind-but-not-synced is now BEHIND_NOT_SYNCED with
+#     the blocking paths named; unpushed local commits are AHEAD_UNPUSHED.
+#     Only genuinely in-sync logs OK. The refusal to fast-forward over
+#     uncommitted work was never the bug -- calling that refusal "OK" was.
+#
+# (2) TELEMETRY DIRT NO LONGER BLOCKS THE ATTEMPT. TELEMETRY_RE is now
+#     consulted on the fast-forward path, so heartbeat/status dirt stops
+#     being a reason not to TRY. This is NON-DESTRUCTIVE and that is the
+#     whole design: it does not `checkout --` anything and does not widen the
+#     clean-tree rule -- it just lets `git merge --ff-only` adjudicate. If the
+#     incoming commits do not touch those paths the ff succeeds and the
+#     working-tree copies are preserved untouched; if they DO touch them git
+#     refuses on its own and we log BEHIND_NOT_SYNCED. Nothing is ever
+#     discarded to make room.
+#
+#     SCOPED TO THE FAST-FORWARD PATH ONLY. The wedged safety gate below is
+#     deliberately left exactly as it was -- it is the one that runs
+#     `reset --hard`, and its own telemetry handling there is a separate,
+#     intentional design. Do not merge the two gates into one predicate:
+#     they are asymmetric on purpose.
+# ---------------------------------------------------------------------------
 # SAFETY ENVELOPE (identical to the Mac launchd repair):
 #   A repo is auto-repaired iff ALL of:
 #     (1) it is wedged: a .git/rebase-(merge|apply) dir exists, OR HEAD is
@@ -76,14 +129,44 @@ for entry in "${REPOS[@]}"; do
     fi
 
     if [ "$wedged" = 0 ]; then
-      if [ "$ahead" = 0 ] && [ "$behind" -gt 0 ] && [ -z "$("$GIT" status --porcelain --untracked-files=no)" ]; then
-        if "$GIT" merge --ff-only --quiet "origin/$branch" 2>/dev/null; then
-          log "$name SYNCED (ff-only, was behind $behind)"
+      # Tracked dirt, and the subset of it that actually BLOCKS a
+      # fast-forward (i.e. excluding regenerable telemetry). See the
+      # "THE FALSE GREEN" block comment at the top of this file.
+      dirty="$("$GIT" status --porcelain --untracked-files=no | sed 's/^...//')"
+      blocking="$(printf '%s\n' "$dirty" | grep -v '^$' | grep -Ev "$TELEMETRY_RE")"
+      blocking_list="$(printf '%s\n' "$blocking" | grep -v '^$' | head -5 | tr '\n' ' ')"
+      derived_list="$(printf '%s\n' "$dirty" | grep -v '^$' | grep -E "$TELEMETRY_RE" | head -5 | tr '\n' ' ')"
+
+      if [ "$behind" = 0 ]; then
+        if [ "$ahead" -gt 0 ]; then
+          # Not a failure of THIS tool -- it only ever syncs down, never
+          # pushes. Still not "OK": unpushed local commits are the strand
+          # hazard CLAUDE.md documents at length (see ref_convergence.py).
+          log "$name AHEAD_UNPUSHED (ahead=$ahead behind=0) -- $ahead local commit(s) not on origin/$branch; this job never pushes"
         else
-          log "$name NEEDS_HUMAN (behind $behind, ff-only refused)"
+          log "$name OK (ahead=0 behind=0)"
+        fi
+        exit 0
+      fi
+
+      # behind > 0. Not wedged, so ahead is necessarily 0 here.
+      if [ -n "$blocking_list" ]; then
+        log "$name BEHIND_NOT_SYNCED (ahead=$ahead behind=$behind) -- NOT synced; ff blocked by uncommitted tracked change(s): $blocking_list"
+        exit 0
+      fi
+
+      if "$GIT" merge --ff-only --quiet "origin/$branch" 2>/dev/null; then
+        if [ -n "$derived_list" ]; then
+          log "$name SYNCED (ff-only, was behind $behind; telemetry dirt kept untouched: $derived_list)"
+        else
+          log "$name SYNCED (ff-only, was behind $behind)"
         fi
       else
-        log "$name OK (ahead=$ahead behind=$behind)"
+        if [ -n "$derived_list" ]; then
+          log "$name BEHIND_NOT_SYNCED (ahead=$ahead behind=$behind) -- ff-only refused; incoming commits would overwrite telemetry dirt: $derived_list"
+        else
+          log "$name NEEDS_HUMAN (behind $behind, ff-only refused with a clean tree)"
+        fi
       fi
       exit 0
     fi
