@@ -1160,7 +1160,7 @@ if __name__ == "__main__":
 
     if episode_log is not None and not args.dry_run:
         episode_log["run_id"] = result["run_id"]
-        log_path = Path(out_path).parent / f"{EXPERIMENT_TYPE}_{ts}_episode_log.json"
+        log_path = Path(out_path).parent / f"{Path(out_path).stem}_episode_log.json"
         log_path.write_text(json.dumps(episode_log, indent=2) + "\n", encoding="utf-8")
         print(f"[fishtank] episode log -> {log_path}", flush=True)
 
