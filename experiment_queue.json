@@ -86,27 +86,6 @@
       "seeds": 3
     },
     {
-      "queue_id": "V3-EXQ-591h",
-      "title": "ARC-019 precondition: LIVE closed-loop validation of the 591f crossing-count Phase 0->1 curriculum gate (crossing-count vs legacy spike, matched seeds) -- 591g re-run after aggregation crash",
-      "script": "experiments/v3_exq_591h_isef005_phase01_gate_live_v3.py",
-      "priority": 40,
-      "machine_affinity": "any",
-      "estimated_minutes": 360,
-      "supersedes": "V3-EXQ-591g",
-      "claim_id": "ARC-019",
-      "backlog_id": "EVB-1189",
-      "note": "RE-RUN of V3-EXQ-591g (ERROR 2026-09-02T20:17:44Z, ree-cloud-2) after a crash-before-manifest. SCIENTIFIC DESIGN IS UNCHANGED FROM 591g -- see that entry for the full design/red-team/scope record, which is inherited verbatim. ROOT CAUSE of the 591g ERROR: the F4 telemetry-dropout guard added during 591g's own pre-queue red-team pass DEFINED `dropout_bypassed` seven lines BELOW the `c_discriminates` expression that CONSUMES it, so the live run died with `UnboundLocalError: local variable 'dropout_bypassed' referenced before assignment` at line 590 after all 20 cells had run (5h46m) and before any manifest was written. WHY EVERY EXISTING GATE MISSED IT: `gate_green` is the leading conjunct and is always False under --dry-run (a 3-episode dry run cannot reach PHASE_EP_MIN[1]=100, so no seed advances and precondition P1 fails), so Python short-circuits before evaluating the undefined name -- the mandatory pre-queue smoke test, `validate_experiments --strict` (all 30 checks, including dry_run_unreachable_criterion), and py_compile all pass 591g clean. FIX: statement reordering only -- the F4 guard block moves ABOVE `c_discriminates`. No DV, criterion, threshold, seed, oracle, precondition or verdict-grid change; `c_discriminates` now computes exactly what 591g's own docstring, criteria_non_degenerate and label branch already specified. VERIFICATION (positive-control, not just a green run): an aggregation probe that stubs _run_cell with the frozen 591f reference cells to force gate_green=True -- the path --dry-run can never reach -- reproduces the exact 591g crash at line 590 and completes cleanly on 591h (outcome=PASS, dropout_bypassed=[], all 5 preconditions met); an AST use-before-def scan flags 591g at 590/597 and reports 591h clean; --dry-run smoke PASS (exit 0, [train] ep 3/3, verdict: per cell, label=substrate_not_ready_requeue as expected for a short dry run); validate_experiments --strict clean. red-team: SKIP (pure crash / statement-ordering re-queue; Step 4e2 does not fire -- the manipulation -> DV -> criterion -> verdict chain is untouched). CLAIM TAGS RE-EVALUATED, not inherited: ARC-019 / non_contributory confirmed by the user at the /diagnose-errors Step 7 gate -- 591h measures the identical per-seed live Phase 0->1 advance decision under the crossing-count gate, and env_kwargs() remains informational-only so this still validates the GATE rather than the staged curriculum. COST: estimated_minutes revised 1440 -> 360 on the MEASURED 591g wall-clock (5h46m for all 20 cells on ree-cloud-2), replacing 591g's Mac-extrapolated ~23h figure.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-4",
-        "claimed_at": "2026-09-02T21:59:08Z"
-      },
-      "conditions": 2,
-      "episodes_per_run": 160,
-      "experiment_type": "v3_exq_591h_isef005_phase01_gate_live",
-      "seeds": 5
-    },
-    {
       "queue_id": "V3-EXQ-991",
       "title": "EXT-004 claim probe: does prior harm experience carry its cost across a novel context boundary (paired EXPOSED/NAIVE Context A, shared Context B)",
       "script": "experiments/v3_exq_991_claim_probe_ext_004_residue_cross_context_penalty.py",
@@ -133,7 +112,11 @@
       "estimated_minutes": 900,
       "backlog_id": "EVB-1396",
       "note": "MECH-027 hypervigilance signature falsifier (scoped single-signature probe per claim's what_would_answer + source proposal EXP-0761/EVB-1396 dispatch_mode=targeted_probe). GOV-REUSE-1 (step 2.4): 0/973+ manifests tag claim_ids containing MECH-027, 0 failure-autopsies mention MECH-027 (re-checked 2026-09-02 at queue time) -- no prior run to reuse/supersede, no re-derive brake. Adapted from a pre-existing untracked draft (authored as V3-EXQ-979) to consume two 2026-09-02 substrate builds landed on ree-v3 main (48f85f0e, de26949a; unrelated pe_surprise_threshold fix 26ae2a7e in the same range) via chip-20260902-mech027-precision-replay-eval-substrate: Build 1 (E3Config.use_precision_scaled_commit_temperature) gives the forced precision channel a graded downstream consumer instead of only the saturating binary ARC-016 commit gate; Build 2 (REEAgent.force_sleep_cycle_at_eval_boundary()) makes the forced replay-suppression channel an exercised lever by actually firing sleep cycles at eval episode boundaries in all three blocks (previously replay suppression during eval was a dead config knob nothing consulted). ID NOTE: renumbered from V3-EXQ-979 to V3-EXQ-981 at queue time -- V3-EXQ-979 was independently reserved by metaworker-chip-proposal-exp-0853-exq-979 (TASK_CLAIMS claimed_at 2026-09-02T18:41:22Z) for an unrelated MECH-157 script; this draft was never pushed before that reservation landed. P0 readiness gate extended with 7 new checks (6 for the two Build 1/2 mechanisms actually engaging -- not just configured -- plus a fatal-action-error gate) beyond the pre-existing precision/horizon/positive-control/bin-coverage checks; any unmet precondition routes to substrate_not_ready_requeue, never a claim verdict. red-team (fable): CONTESTED, 1 BLOCKING finding (F1: silent random-action substitution on _agent_tick exceptions was ungated -- fixed, new no_fatal_action_selection_errors P0 check). F3 (engagement floor was a raw count>=1, too weak to evidence reach) fixed -- now a >=5% fraction of real E3 selections. F6 (C2's per-seed recovered_fraction is an unbounded ratio that can sign-flip on a near-zero/negative per-seed elevation) fixed -- C2 now computed from pooled rates (pooled_recovered_fraction), not averaged per-seed ratios. F8 (docstring claimed a per-seed C1 gate; code only checks pooled) fixed -- docstring corrected. F2 (does replay suppression reach the DV via any path besides mech285 draws) VERIFIED AND DISMISSED: the cited SleepLoopManager offline_gradient_pass writeback path requires agent.e2_harm_s, built only when config.latent.use_e2_harm_s_forward is True (ree_core/agent.py:544-551) -- this script never sets that flag, so the path never fires here. F4 (fixed BASELINE->HV->REVERSION order with real per-episode sleep cycles firing in every block is an order-confound C1 cannot exclude) and F5 (EVAL_REVERSION restores precision_scale but not the compounded _running_variance value, biasing C2 conservatively) ACKNOWLEDGED, NOT MITIGATED -- both are direct, documented consequences of this adaptation's own mandate (real sleep-cycle interleave across all blocks) or deliberate design (natural- vs forced-reversion semantics); see the script's custom_information.red_team_disposition_note for full rationale. F7 (SAFE hazard bin may be structurally empty for a central hazard placement) ACKNOWLEDGED, OUT OF SCOPE -- pre-existing threshold-calibration design from the original draft, already self-guarded by the hazard_bin_sample_coverage P0 check (confirmed triggering in this dry-run smoke, at the cost of burned compute if it recurs on the real seed set). Smoke-tested (1 seed, --dry-run): rc=0, label=substrate_not_ready_requeue (expected for a 5-episode warmup smoke), all progress-instrumentation prints present, validate_experiments.py --strict: OK, 0 warnings across all checks.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-4",
+        "claimed_at": "2026-09-03T02:45:29Z"
+      },
       "claim_ids": [
         "MECH-027"
       ],
