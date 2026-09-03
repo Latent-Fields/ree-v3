@@ -1291,7 +1291,15 @@ class E1DeepPredictor(nn.Module):
             end_idx = min(start_idx + self.config.prediction_horizon, len(experience_buffer))
             sequence = torch.stack(experience_buffer[start_idx:end_idx])
             if sequence.dim() == 2:
+                # Legacy 1-D entries ([total_dim] each): [T, D] -> [1, T, D].
                 sequence = sequence.unsqueeze(0)
+            elif sequence.dim() == 3:
+                # Entries carrying a batch dim ([B, D] each, B=1 for the
+                # REEAgent experience buffers): stack gives [T, B, D]; the
+                # rollout below wants [B, T, D]. Without this, a batch-1
+                # buffer read as B=T rows of horizon 0 and the loss was
+                # silently degenerate (V3-EXQ-996 finding, 2026-09-03).
+                sequence = sequence.transpose(0, 1)
             initial = sequence[:, 0, :]
             # SD-e1-rollout-consistency-training ITEM 1: the action that carries
             # state_i -> state_{i+1} is the one recorded ALONGSIDE state_{i+1}

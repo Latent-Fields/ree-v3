@@ -12052,8 +12052,15 @@ class REEAgent(nn.Module):
         """Offline integration (residue contextualisation + E1 replay)."""
         metrics: Dict[str, float] = {}
         if len(self._world_experience_buffer) > 10:
+            # Concatenate on the FEATURE axis (dim=-1), exactly as total_state
+            # is built in sense() and as compute_prediction_loss() does. The
+            # buffers hold [1, D] tensors (leading batch dim), so the former
+            # default dim=0 produced a [2, D] tensor instead of [1, 2D] when
+            # self_dim == world_dim (E1 then crashed on a 2D-vs-D matmul once
+            # the buffer passed 10 entries) and raised outright when the two
+            # dims differed. Found by V3-EXQ-996 (2026-09-03).
             e1_metrics = self.e1.integrate_experience(
-                [torch.cat([s, w]) for s, w in
+                [torch.cat([s, w], dim=-1) for s, w in
                  zip(self._self_experience_buffer, self._world_experience_buffer)],
                 # SD-e1-rollout-consistency-training ITEM 1: pass the aligned
                 # action history so offline replay conditions on the actions
