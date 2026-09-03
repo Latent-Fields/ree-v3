@@ -273,29 +273,41 @@ BACKLOG_ID = "EVB-1247"
 # one that lets a residue manipulation reach behaviour on this substrate.
 
 # Hold-weighted-E3-readout gate (`validate_experiments.e3_hold_weighted_readout_lint`).
-# Fires on `executed.append(int(torch.argmax(action, dim=-1).item()))` inside
-# `_probe_candidate_score_range` below -- copied unchanged from V3-EXQ-800's helper of
-# the same name, which carries the identical construct and the identical exemption.
-# TRIAGED SAFE for the same exact reason: that list's ONLY reader is
-# `float(len(set(executed)))` (`executed_action_classes`, fed into P2's readiness
-# gate). Set CARDINALITY is exactly invariant under hold-duration replication --
-# replicating a held class can neither add a class nor remove one -- so hold
-# weighting cannot move this statistic. No magnitude or distribution-shape quantity
-# (entropy, variance, histogram mass) is derived from it, and it feeds no C1-C4
-# criterion.
+# DISCHARGED BY A TICK GUARD, not by a blanket marker. This file gates its
+# repeat-error accumulation on `ticks["e3_tick"]` in `run_cell` (the `is_fresh_select`
+# gate, whose counters are emitted as `n_fresh_select` / `n_latched` /
+# `fresh_select_yield`) -- one of the discharge paths that lint names for itself in
+# its own FIX prescription and in the backlog counter's message. So the blanket
+# opt-out marker this script originally carried was INERT -- the lint returned None on
+# the tick guard whether or not the marker was present -- and an inert marker is
+# exactly what `e3_exemption_backlog_lint` exists to surface, so it has been removed
+# rather than left standing. Per-site triage of the three constructs the lint's own
+# detector reaches in this file is preserved below.
 #
-# This exemption does NOT cover `run_cell`'s (cell,action) repeat-error tracking --
-# that accumulation is independently gated on `ticks["e3_tick"]` (fresh E3 selections
-# only) precisely so a single commitment held across a hazard-adjacent wall cannot be
-# double-counted as many identical revisits; see the `is_fresh_select` gate there.
-E3_HOLD_WEIGHTED_READOUT_EXEMPT = (
-    "_probe_candidate_score_range's executed-class list is consumed ONLY by "
-    "len(set(...)) (executed_action_classes, P2 readiness diagnostic); set "
-    "cardinality is exactly invariant under hold-duration replication, and no "
-    "magnitude or distribution-shape statistic is derived from it. run_cell's "
-    "repeat-error tracking is separately protected by the ticks['e3_tick'] fresh-"
-    "selection gate, not by this exemption."
-)
+# (1) `run_cell`'s (cell,action) repeat-error tracking -- GATED. Accumulates only on a
+#     fresh E3 selection tick, precisely so a single commitment held across a
+#     hazard-adjacent wall (agent pinned, cell unchanged for the whole hold) cannot be
+#     double-counted as many identical revisits. This is a RATE, so hold weighting
+#     would move it; see the `is_fresh_select` gate there.
+#
+# (2) `_probe_candidate_score_range`'s `executed.append(...)` -- SAFE BY CONSTRUCTION,
+#     no gate needed. Copied unchanged from V3-EXQ-800's helper of the same name, which
+#     carries the identical construct. That list's ONLY reader is
+#     `float(len(set(executed)))` (`executed_action_classes`, fed into P2's readiness
+#     gate). Set CARDINALITY is exactly invariant under hold-duration replication --
+#     replicating a held class can neither add a class nor remove one -- so hold
+#     weighting cannot move this statistic. No magnitude or distribution-shape quantity
+#     (entropy, variance, histogram mass) is derived from it, and it feeds no C1-C4
+#     criterion.
+#
+# (3) `run_cell`'s `current_episode_actions.append(action_idx)` -- SAFE, and correct at
+#     env-step granularity by design. This stream is the REALISED behaviour (a held
+#     action genuinely is the action taken at that step), and its only consumer,
+#     `_action_stream_divergence`, compares the two arms POSITIONALLY at the same seed
+#     and episode index. A held commitment replicates identically on both sides of that
+#     comparison, so it can neither manufacture nor mask a divergence. The resulting
+#     `family1_action_stream_divergence` is recorded-not-gated (no calibrated
+#     threshold), feeds no C1-C4 criterion, and is no distribution-shape statistic.
 
 ARM_INTACT = "A0_INTACT"
 ARM_FROZEN = "A1_RESIDUE_FROZEN"
@@ -737,10 +749,11 @@ def run_cell(
                 # double-counted as many identical (cell,action) revisits from ONE
                 # underlying decision -- exactly the hold-weighted-readout construct
                 # defect `validate_experiments.e3_hold_weighted_readout_lint` exists
-                # to catch (see the module-level EXEMPT comment for why the OTHER
-                # site in this file, `_probe_candidate_score_range`, does not need
-                # this same gate: its statistic is a cardinality, invariant under
-                # duplication -- this one is a RATE, which is not).
+                # to catch (see the module-level hold-weighted-readout triage note
+                # for why the OTHER sites in this file do not need this same gate:
+                # their statistics are a cardinality and a positional same-seed
+                # comparison, both invariant under hold duplication -- this one is a
+                # RATE, which is not).
                 is_fresh_select = bool(ticks.get("e3_tick", True))
                 if is_fresh_select:
                     n_fresh_select += 1
