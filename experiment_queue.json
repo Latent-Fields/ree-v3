@@ -49,6 +49,22 @@
       "episodes_per_run": 110,
       "experiment_type": "v3_exq_983a_ext002_residue_error_persistence_headroom",
       "seeds": 8
+    },
+    {
+      "queue_id": "V3-EXQ-822e",
+      "title": "SD-082 validation: raw pre-tanh candidate-discrimination index of the propagated action bias, absolute criteria applied to both arms (5 seeds x 2 arms)",
+      "experiment_type": "v3_exq_822e_sd082_candidate_discriminating_bias_spread",
+      "script": "experiments/v3_exq_822e_sd082_candidate_discriminating_bias_spread.py",
+      "priority": 45,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 210,
+      "episodes_per_run": 170,
+      "seeds": 5,
+      "conditions": 2,
+      "claim_id": "SD-082",
+      "supersedes": "V3-EXQ-822d",
+      "note": "Successor to V3-EXQ-822d under a new letter: same scientific question (is the propagated action bias candidate-DISCRIMINATING or candidate-UNIFORM), new dependent variable. The ratified cluster autopsy (REE_assembly 40dd17331e, governance 54dbe477be) withdrew 822d's per-claim directions on two grounds -- an ON-arm-only floor its own negative control cleared more strongly, and a magnitude DV that provably cannot separate uniform from discriminating. | DV: prop_ratio_raw, the cross-candidate range / mean-abs of the RAW PRE-TANH propagated bias. Read at the raw stage because the consumer's bias_scale*tanh(raw/bias_scale) output stage manufactures apparent cross-candidate range out of a perfectly uniform raw shift (uniform +0.01 at base raws 0.0 and 0.05 -> deltas 9.9668e-3 and 7.4932e-3), which is the candidate-uniform state the DV exists to exclude; the raw stage is recomputed from the substrate's own head (the module under validation is NOT edited) and cross-checked every tick against the substrate's real output inverted through atanh, with the residual gated as a readiness precondition. Post-tanh spread retained as diagnostic C5. | ATTRIBUTION: the arm axis is crf_cue_centering (SD-078's rule-pool knob) while SD-082's own fix is passed unconditionally in BOTH arms, so no ON/OFF contrast can attribute to SD-082. C1/C2 are ABSOLUTE criteria and SD-082's direction is computed with no contrast quantity in it; the ON-minus-OFF contrast is C4 and belongs to SD-078 alone, out of both the PASS conjunction and run-level readiness. | BARS MEASURED BEFORE PRE-REGISTRATION (dv_headroom declared for each load-bearing criterion): probe at 2 seeds x both arms, P0/P1/P2 = 10/25/10, K=32, 40-50 sampled ticks/cell gave per-cell median index 0.59 / 1.14 / 2.81 / 4.11 (per-tick 0.29-7.57), so the 1.0 floor sits inside the measured range and is two-sided (3 of 4 probed cells clear it, 1 does not). Index null is analytic (candidate-uniform -> 0), ceiling analytic (K=32), iid reference ~5.15. Pooled argmax-flip probe 14/181 = 0.077 against a 0.02 floor. | GOV-REUSE-1 (Step 2.4): decisive readout prop_ratio_raw -- and even the post-tanh prop_spread -- appear in NO manifest in evidence/experiments/; 822d recorded prop_delta magnitude and the summary spread ratio but never the bias spread at any stage. Not recoverable -> run. | red-team (claude-fable): CONTESTED -- 6 findings, all verified against source. 3 structural fixes applied: C1 no longer requires the floor in the pool-control arm (that handed SD-078's knob a veto over SD-082's direction; the identical floor is now applied and reported as non-gating C1b); C4's dv_headroom achievable moved from the across-all-cells range (the treatment effect certifying its own headroom) to the CONTROL arm's seed spread, and out of run-level readiness so an SD-078 null cannot void an SD-082 result; 'the bias head actually trained' promoted from a diagnostic flag to a readiness gate. 3 dismissed in writing: the index's scale-freeness (C2 is the functional backstop; re-adding a magnitude gate would reinstate the DV the autopsy withdrew), hr_c1's insensitivity (it certifies reachability, and says so), and the upstream-mask-starvation route into the weakens branch (caveat recorded at reads_uniform). | The SD-082 build is NOT re-opened: the per-candidate-summary amend is confirmed engaged and the substrate_queue entry stays implemented_pending_validation."
     }
   ]
 }
