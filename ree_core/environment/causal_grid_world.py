@@ -317,6 +317,47 @@ class CausalGridWorld:
         safety_cue_scale: float = 1.0,
         safety_cue_on_relief: bool = False,
         safety_cue_heal_floor: float = 0.05,
+        # SD-WAYPOINT-FIELD: directional waypoint proximity field view
+        # (chip-20260902-waypoint-proximity-field-observable, 2026-09-04).
+        # PROBLEM: in subgoal_mode the waypoints are visible to the agent ONLY
+        # as entity-type channel 6 of the 5x5 local view, so a waypoint more
+        # than 2 cells away is not observable at all. V3-EXQ-977 (INV-086)
+        # measured the consequence directly: with 3 waypoints on a 12x12 grid
+        # and 400 steps, the agent's own policy visited 0/0/1 waypoints and
+        # completed 0 sequences across seeds 42/43/44 -- indistinguishable from
+        # a random walk. Every navigation-dependent DV (goal maintenance,
+        # subgoal seeding, completion rate) is therefore pinned at chance, and
+        # the 27 existing subgoal_mode drivers work around it by scripting the
+        # walk or by using a wide Chebyshev tolerance band.
+        # SOLUTION: an env-level, default-OFF 25-dim field view of a monotone
+        # proximity gradient around the PENDING waypoint
+        # (self.waypoints[self._next_waypoint_idx]), following the same
+        # field-view pattern as the hazard / resource / SD-023 landmark /
+        # SD-065 cue channels. The gradient is what makes it DIRECTIONAL: the
+        # 5x5 patch is strictly increasing toward the target, so a policy can
+        # hill-climb it from anywhere on the grid.
+        # Kernel: 1 / (1 + decay * d), the same reciprocal decay
+        # _compute_proximity_fields() uses for the hazard field, with d the
+        # Manhattan distance (torus-aware when self.toroidal, so a wrapped
+        # world does not point the agent the long way round). Single source,
+        # so the field self-normalises: exactly 1.0 on the waypoint cell, and
+        # no episode-to-episode rescaling.
+        # Computed on demand from self.waypoints rather than cached as a grid
+        # array (as reef / landmark are): the source MOVES -- the pending index
+        # advances mid-step and _respawn_waypoints() relocates the set -- so a
+        # cached field would be a tick stale exactly when the target changes.
+        # Sourced from self.waypoints, NOT from self.grid, deliberately: the
+        # grid marker for a transited waypoint is erased unless
+        # subgoal_arrival_position_check is on (the SD-094 defect), so a
+        # grid-sourced field would inherit that bug.
+        # All env-only; NOT surfaced through REEConfig.from_dims (same
+        # convention as SD-065 / SD-023). Disabled by default -- bit-identical
+        # OFF: no channel, world_obs_dim unchanged, zero RNG draws. Appended
+        # LAST in world_state so no existing channel offset moves (the
+        # stack.py / zworld_p0.py slice constants are prefix slices).
+        # See sd_waypoint_proximity_field.md.
+        waypoint_proximity_field_enabled: bool = False,
+        waypoint_field_decay: float = 0.25,
         # MECH-353 (blocked-agency / z_block) external action-block curriculum.
         # Every scheduled_action_block_interval steps, with probability
         # scheduled_action_block_prob, the agent's chosen move is externally
@@ -920,6 +961,38 @@ class CausalGridWorld:
         # test presentation. Takes precedence over the relief-pairing path.
         self._safety_cue_manual_override: Optional[bool] = None
 
+        # SD-WAYPOINT-FIELD: directional waypoint proximity field view.
+        # Preconditions are loud-not-silent, mirroring the SD-065 guard above:
+        # the channel rides world_state (proxy mode only), and it has no source
+        # set at all without subgoal_mode (self.waypoints stays empty), so an
+        # experiment that enabled it outside subgoal_mode would observe an
+        # all-zero channel and silently measure nothing.
+        if waypoint_proximity_field_enabled and not use_proxy_fields:
+            raise ValueError(
+                "waypoint_proximity_field_enabled=True requires "
+                "use_proxy_fields=True (the SD-WAYPOINT-FIELD channel rides "
+                "world_state, which only carries the proxy-field views in "
+                "proxy mode)."
+            )
+        if waypoint_proximity_field_enabled and not subgoal_mode:
+            raise ValueError(
+                "waypoint_proximity_field_enabled=True requires "
+                "subgoal_mode=True (the field is sourced from self.waypoints, "
+                "which is only populated in subgoal mode; outside it the "
+                "channel would be identically zero)."
+            )
+        if not (waypoint_field_decay > 0.0):
+            raise ValueError(
+                "waypoint_field_decay must be > 0.0 (got %r); a non-positive "
+                "decay makes the field constant and therefore non-directional."
+                % (waypoint_field_decay,)
+            )
+        self.waypoint_proximity_field_enabled = bool(waypoint_proximity_field_enabled)
+        self.waypoint_field_decay = float(waypoint_field_decay)
+        # Per-episode SD-WAYPOINT-FIELD observability tags (info-dict only).
+        self._waypoint_field_at_agent: float = 0.0
+        self._waypoint_field_target_idx: int = -1
+
         # MECH-353 external action-block curriculum state.
         self.scheduled_action_block_enabled = bool(scheduled_action_block_enabled)
         self.scheduled_action_block_interval = int(scheduled_action_block_interval)
@@ -1439,6 +1512,11 @@ class CausalGridWorld:
             # SD-065: conditioned-safety cue channel (+25 dims when enabled).
             if self.safety_cue_enabled:
                 proxy_base = proxy_base + 25
+            # SD-WAYPOINT-FIELD: waypoint proximity gradient (+25 when enabled).
+            # Appended LAST -- keep this arm last, and keep it in the same order
+            # as the world_parts.append() calls in _get_observation_dict().
+            if self.waypoint_proximity_field_enabled:
+                proxy_base = proxy_base + 25
             return proxy_base
         return base                                      # 200
 
@@ -1674,6 +1752,10 @@ class CausalGridWorld:
         # PERSISTS across reset() until set_safety_cue() changes it.
         self._safety_cue_active = False
         self._safety_cue_event_count = 0
+        # SD-WAYPOINT-FIELD: per-episode observability tags reset (the field
+        # itself is stateless -- recomputed from self.waypoints every tick).
+        self._waypoint_field_at_agent = 0.0
+        self._waypoint_field_target_idx = -1
         # MECH-353 external action-block per-episode counters.
         self._action_block_event_count = 0
         self._action_block_blocked_this_step = False
@@ -2029,6 +2111,9 @@ class CausalGridWorld:
         # SD-065: per-episode cue dynamics reset (manual override persists).
         self._safety_cue_active = False
         self._safety_cue_event_count = 0
+        # SD-WAYPOINT-FIELD: per-episode observability tags reset.
+        self._waypoint_field_at_agent = 0.0
+        self._waypoint_field_target_idx = -1
         # MECH-353 external action-block per-episode counters.
         self._action_block_event_count = 0
         self._action_block_blocked_this_step = False
@@ -3233,6 +3318,12 @@ class CausalGridWorld:
             "safety_cue_enabled": bool(self.safety_cue_enabled),
             "safety_cue_active": bool(self._safety_cue_active),
             "safety_cue_event_count": int(self._safety_cue_event_count),
+            # SD-WAYPOINT-FIELD tags (always present; 0 / -1 / False when disabled).
+            "waypoint_proximity_field_enabled": bool(
+                self.waypoint_proximity_field_enabled
+            ),
+            "waypoint_field_at_agent": float(self._waypoint_field_at_agent),
+            "waypoint_field_target_idx": int(self._waypoint_field_target_idx),
             # MECH-353 external action-block tags (always present; 0 / False OFF).
             "scheduled_action_block_enabled": bool(self.scheduled_action_block_enabled),
             "action_blocked_this_step": bool(self._action_block_blocked_this_step),
@@ -3798,6 +3889,53 @@ class CausalGridWorld:
                 safety_cue_flat = torch.full((25,), float(self.safety_cue_scale))
             world_parts.append(safety_cue_flat)
 
+        # SD-WAYPOINT-FIELD: directional proximity gradient toward the PENDING
+        # waypoint. 5x5 patch centred on the agent of the global field
+        #     f(cell) = 1 / (1 + waypoint_field_decay * d(cell, target))
+        # with d the Manhattan distance (torus-aware when self.toroidal). The
+        # kernel is strictly decreasing in d, so the patch is monotone toward
+        # the target from anywhere on the grid -- that is the directional
+        # signal the local view cannot provide beyond 2 cells. Exactly 1.0 on
+        # the target cell (single source, so no normalisation pass is needed).
+        # All-zero when there is no pending waypoint (sequence exhausted before
+        # a respawn); out-of-bounds cells stay 0.0 in the non-toroidal case,
+        # matching the hazard / resource view convention above.
+        # Appended LAST so it never shifts an existing channel offset.
+        waypoint_field_flat = torch.zeros(25)
+        if self.use_proxy_fields and self.waypoint_proximity_field_enabled:
+            _wp_target = None
+            if self.waypoints and 0 <= self._next_waypoint_idx < len(self.waypoints):
+                _wp_target = self.waypoints[self._next_waypoint_idx]
+            if _wp_target is not None:
+                _tx, _ty = int(_wp_target[0]), int(_wp_target[1])
+                self._waypoint_field_target_idx = int(self._next_waypoint_idx)
+                _wp_view = torch.zeros(5, 5)
+                for di in range(-2, 3):
+                    for dj in range(-2, 3):
+                        if self.toroidal:
+                            ni, nj = (ax + di) % self.size, (ay + dj) % self.size
+                        else:
+                            ni, nj = ax + di, ay + dj
+                            if not (0 <= ni < self.size and 0 <= nj < self.size):
+                                continue
+                        ddx = abs(ni - _tx)
+                        ddy = abs(nj - _ty)
+                        if self.toroidal:
+                            # Shortest wrap-around distance on each axis, so a
+                            # target across the seam reads as near, not far.
+                            ddx = min(ddx, self.size - ddx)
+                            ddy = min(ddy, self.size - ddy)
+                        _dist = float(ddx + ddy)
+                        _wp_view[di + 2, dj + 2] = 1.0 / (
+                            1.0 + self.waypoint_field_decay * _dist
+                        )
+                waypoint_field_flat = _wp_view.reshape(-1)  # [25]
+                self._waypoint_field_at_agent = float(_wp_view[2, 2])
+            else:
+                self._waypoint_field_target_idx = -1
+                self._waypoint_field_at_agent = 0.0
+            world_parts.append(waypoint_field_flat)
+
         world_state = torch.cat(world_parts)
 
         result = {
@@ -3835,6 +3973,10 @@ class CausalGridWorld:
             # mech090 precedent -- backward compat is bit-identical when off).
             if self.safety_cue_enabled:
                 result["safety_cue_field_view"] = safety_cue_flat.float()
+            # SD-WAYPOINT-FIELD: waypoint proximity field view
+            # (absent-when-disabled, same mech090 precedent as SD-065).
+            if self.waypoint_proximity_field_enabled:
+                result["waypoint_proximity_field_view"] = waypoint_field_flat.float()
             # SD-010: dedicated harm_obs for HarmEncoder (nociceptive separation).
             # Sensory-discriminative stream (z_harm_s, Adelta-pathway analog):
             # Layout: hazard_field_view[25] + resource_field_view[25] + harm_exposure[1]
