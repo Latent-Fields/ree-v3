@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-09-03 (T19:00Z nightly)
+**Last updated:** 2026-09-04 (T01:10Z nightly)
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -228,6 +228,79 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 `REE_assembly/docs/architecture/self_attribution_per_stream.md`.
 
 ### Experiment Status
+
+- **2026-09-04T01:10Z nightly attestation (scheduled `/update-docs`, bot
+  identity).** ~5d window since the 2026-08-30T01:10Z snapshot (four nightly
+  slots elapsed with no attestation entry; consolidated here). Flat `v3_exq_*`
+  manifests on disk: **976** (+33 vs 943 at 2026-08-30); nested per-run
+  manifests under `evidence/experiments/*/runs/`: **2911** (+23 vs 2888).
+  Aggregated cross-worker `runner_status/*.json`: 2474 completions -- PASS 877,
+  FAIL 1313, ERROR 171, UNKNOWN 112, INCONCLUSIVE 1 (delta is small because
+  Phase-3 authority is the coordinator DB; `runner_status/*.json` no longer
+  updates when a runner is off, and the hub runner ree-cloud-1 was retired
+  2026-08-30 per CLAUDE.md -- see substrate/infra note below).
+  **Currently queued (`experiment_queue.json` items[]): 6 items** (up from 3
+  five days ago). Three CLAIMED and running: V3-EXQ-978 (`SD-018 directional
+  field fishtank`, `ree-cloud-3`), V3-EXQ-983 (`EXT-002 residue error
+  persistence claim probe`, `ree-cloud-4`), V3-EXQ-951c (`MECH-320 vt_floor
+  diagnostic on scaffolded_sd054`, `ree-cloud-2`). Three PENDING and freshly
+  appended by the 2026-09-03 daily-science orchestrator: V3-EXQ-977 (`ARC-052
+  harm-stream conditional precision`), V3-EXQ-991 (`EXT-004 residue cross-
+  context claim probe`), V3-EXQ-995 (`EXT-005 SD-031 comparator causal-
+  signature claim probe`). **Pending review (`pending_review.md`, regenerated
+  2026-09-03T20:49:24Z): 0 items** -- the /failure-autopsy walk at
+  2026-09-03T20:17Z adjudicated all seven outstanding targets non_contributory
+  (V3-EXQ-978/981/983/991/993/994/951c cluster), zeroing the review queue.
+  (a) **NEW SUBSTRATE LANDING in the window: SD-e1-rollout-consistency-
+  training ITEM 3** (rollout-endpoint contrastive objective) landed
+  2026-09-03T20:07Z on ree-v3 `df551f38fe` (main) + REE_assembly `fccbc47a35`
+  (master, design-doc amend). `E1DeepPredictor.rollout_sequence_divergence_loss`
+  with five default-OFF `e1_rollout_sequence_divergence_*` knobs; byte-identical
+  OFF; targeted remote contracts 153 PASS on the hub; full remote suite
+  4545 PASS / 24 skipped / 1 xfailed on ree-worker-4. Validation experiment
+  V3-EXQ-1000 (OFF / 968 stateful anchor / ITEM 2 rc_decay / ITEM 3 contrastive
+  arms x 6 seeds, priority 60, ree-v3 `7859730be7`) queued 2026-09-03T20:52Z
+  and CLAIMED at that time -- not in the current queue snapshot above because
+  the coordinator/queue-writer had already picked it up before this attestation
+  fired. (b) **Substrate/coordination amendments in the window:** REEAgent
+  `offline_integration` `torch.cat` axis defect fixed (dim=-1) + `E1.integrate_
+  experience` batch-dim normalisation + contract
+  `tests/contracts/test_offline_integration_cat_dim.py` -- ree-v3 `2b345217c7`
+  (found by the V3-EXQ-996 probe; a driver-side workaround in 996 is removable
+  by a successor, GFLAG-0130 filed on ARC-011/INV-010). ITEM 2 (multi-step
+  rollout consistency) landed earlier in the SD-e1 program; ITEM 3 here
+  completes the design-doc's three-item substrate scope. (c) **New completions
+  in the window (post-2026-08-30):** V3-EXQ-995 PASS (EXT-005 SD-031 causal
+  signature; label `causal_signature_present`; ran ree-cloud-2, ~4 min), plus
+  the seven autopsy-adjudicated runs above. (d) **Governance apply cycle in
+  the window:** `governance-20260903T2013` opened 20:13Z and is still active
+  at attestation time (holds `REE_assembly/evidence/` + `docs/claims/` +
+  `substrate_queue.json` + `experiment_proposals.v1.json` + `TASK_CLAIMS.json`
+  + `WORKSPACE_STATE.md`); several proposal/registry writes deferred by the
+  daily-science orchestrator wait on that lock lifting (chip-20260903-daily-
+  science-deferred-registry-writes). (e) **Infra/topology change:** hub runner
+  on `ree-cloud-1` **RETIRED 2026-08-30** (user decision; durability-review
+  finding F4 -- hub load degrades every coordination-plane service at once).
+  `ree-runner.service.d/zz-retire.conf` sets `Restart=no`; the service is
+  disabled; scaler powers on workers 2/3/4 for queue demand. Recorded in
+  CLAUDE.md "Coordinator" section. Also 2026-09-03: fleet CLI login switched
+  to `daniel.delaharpe.golden@gmail.com` on Mac + ree-cloud-4 + ree-cloud-5
+  (`nooarche@pm.me` drained; weekly reset 2026-09-08). **Bottleneck: SD-e1
+  ITEM 3 validation (V3-EXQ-1000)** -- the live front's critical-path
+  contrastive-rollout validation is now running; result gates
+  `SD-e1-rollout-consistency-training.status` transition from
+  `item3_rollout_endpoint_contrastive_substrate_landed_validation_owed` back
+  to `active`. Green-board target 2026-07-19 remains overdue.
+  **ETHICS-PERIMETER Phase 0 datum** stays on the record (Phases 1-3 deferred;
+  NON-BLOCKING). Public-information-architecture impact: reviewed against
+  `docs/design/public_information_architecture.md` -- no `/api/*` surface,
+  generated visualization, or public export changed; spec date bump + status
+  entry only. **/update-docs deferrals this run:** roadmap.md snapshot skipped
+  (under active `governance-sh-DLAPTOP-4` scope claim on `REE_assembly/docs/`
+  + `evidence/` since 20:17Z, ~5h); Step 5b nav/status/goblin regen skipped
+  for the same reason -- governance.sh Steps 9/10 will run those on its own
+  close. Will be picked up by the next nightly if governance closes first,
+  else deferred another cycle.
 
 - **2026-08-30T01:10Z nightly attestation (scheduled `/update-docs`, bot
   identity).** ~17h window since the 2026-08-29T08:30Z snapshot. Flat
