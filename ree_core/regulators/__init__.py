@@ -7,6 +7,8 @@ Currently hosts:
     subscribing to MECH-288 BoundaryEvents.
   - BroadcastOverrideRegulator (SD-037): orexin-analog broadcast override
     driven by drive_level + sustained-threat magnitude.
+  - SelectionEntropyFloor (SD-105): tonic behavioural-variability set-point
+    holding E3 selection entropy above a floor on a warmed (confident) agent.
 """
 
 from ree_core.regulators.gabaergic_decay import (
@@ -36,6 +38,11 @@ from ree_core.regulators.mech295_liking_bridge import (
     MECH295LikingBridgeConfig,
     MECH295LikingBridgeOutput,
 )
+from ree_core.regulators.selection_entropy_floor import (
+    SelectionEntropyFloor,
+    SelectionEntropyFloorConfig,
+    normalized_entropy,
+)
 from ree_core.regulators.simulation_mode_rule_gate import (
     SimulationModeRuleGate,
     SimulationModeRuleGateConfig,
@@ -55,6 +62,9 @@ __all__ = [
     "BroadcastOverrideRegulator",
     "PhasicSurpriseBurst",
     "PhasicSurpriseBurstConfig",
+    "SelectionEntropyFloor",
+    "SelectionEntropyFloorConfig",
+    "normalized_entropy",
     "LPBInteroceptiveRoutingConfig",
     "LPBInteroceptiveRoutingOutput",
     "LPBInteroceptiveRouter",

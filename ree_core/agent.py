@@ -202,6 +202,9 @@ from ree_core.regulators import (
     MECH295LikingBridgeConfig,
     PhasicSurpriseBurst,
     PhasicSurpriseBurstConfig,
+    SelectionEntropyFloor,
+    SelectionEntropyFloorConfig,
+    normalized_entropy as selection_normalized_entropy,
     SimulationModeRuleGate,
     SimulationModeRuleGateConfig,
     SITE_GATED_POLICY,
@@ -1207,8 +1210,52 @@ class REEAgent(nn.Module):
                     config, "phasic_burst_baseline_continuity", "reset"
                 ),
                 warmup_ticks=getattr(config, "phasic_burst_warmup_ticks", 0),
+                # SD-104: refractory + extinction. Both getattr-defaulted to
+                # the SD-069/SD-075 no-op values, so an older config object
+                # still constructs and behaves bit-identically.
+                refractory_ticks=getattr(
+                    config, "phasic_burst_refractory_ticks", 0
+                ),
+                extinction_level=getattr(
+                    config, "phasic_burst_extinction_level", 0.0
+                ),
             )
             self.phasic_burst = PhasicSurpriseBurst(config=pb_cfg)
+
+        # SD-105: control_plane.selection_entropy_headroom_floor. TONIC
+        # behavioural-variability set-point on the SAME E3 softmax-temperature
+        # channel as MECH-313 noise_floor (constant lift) and SD-069
+        # phasic_burst (event-locked transient). Where noise_floor adds a
+        # state-INDEPENDENT constant, this raises the temperature only as far
+        # as needed to hold realised selection entropy at a floor -- the
+        # state-dependent form, and the one that survives a warmup that has
+        # made the policy confident (V3-EXQ-963a: T0P0 baseline entropy
+        # 0.0195-0.153 against 779a's 0.152-0.610, pinning the R5 headroom
+        # gate at its 0.02 floor). Not instantiated when the flag is False,
+        # and the call site adds nothing -- bit-identical when off. See
+        # ree_core/regulators/selection_entropy_floor.py.
+        self.selection_entropy_floor: Optional[SelectionEntropyFloor] = None
+        if getattr(config, "use_selection_entropy_floor", False):
+            self.selection_entropy_floor = SelectionEntropyFloor(
+                config=SelectionEntropyFloorConfig(
+                    enabled=True,
+                    target=getattr(
+                        config, "selection_entropy_floor_target", 0.15
+                    ),
+                    gain=getattr(config, "selection_entropy_floor_gain", 0.5),
+                    max_temperature_ratio=getattr(
+                        config,
+                        "selection_entropy_floor_max_temperature_ratio",
+                        8.0,
+                    ),
+                    ema_decay=getattr(
+                        config, "selection_entropy_floor_ema_decay", 0.2
+                    ),
+                    deadband=getattr(
+                        config, "selection_entropy_floor_deadband", 0.05
+                    ),
+                )
+            )
 
         # MECH-090 R-c conjunction: commit-entry readiness signal. Adds a
         # readiness_above_floor conjunction to the rv-only BetaGate commit-
@@ -3524,6 +3571,13 @@ class REEAgent(nn.Module):
         # re-add a baseline clear here -- it would defeat "carry" silently.
         if self.phasic_burst is not None:
             self.phasic_burst.reset()
+        # SD-105: clears PER-EPISODE diagnostics only. The entropy EMA and the
+        # integrator deliberately SURVIVE the boundary -- a set-point that
+        # re-converges from cold every episode measures episode LENGTH rather
+        # than the policy's confidence, which is the V3-EXQ-779b confound on a
+        # new axis. Do NOT add a state clear here.
+        if self.selection_entropy_floor is not None:
+            self.selection_entropy_floor.reset()
         # MECH-314 (ARC-065): reset structured-curiosity diagnostics + 314c
         # learning-progress EMA buffer on episode boundary. Per-episode
         # because a fresh task/environment carries a fresh learning curve;
@@ -8684,6 +8738,51 @@ class REEAgent(nn.Module):
         else:
             tonic_effective_temperature = temperature
 
+        # SD-105: selection-entropy headroom floor. Applied AFTER the MECH-313
+        # tonic lift and BEFORE the SD-069 phasic delta, because it is itself
+        # a TONIC mechanism and the phasic contribution must stay an ADDITIVE
+        # delta in absolute temperature units on top of the lifted baseline
+        # (rescaling it would compress the event-locked transient the MECH-063
+        # (ii) readout is measuring).
+        #
+        # It reads the PREVIOUS waking tick's realised selection entropy --
+        # the current tick's distribution does not exist yet, since this
+        # temperature is an input to it. One tick of lag, deliberately slow.
+        #
+        # `tonic_effective_temperature` is NOT overwritten: the
+        # noise_floor_temp control-vector field keeps reporting the
+        # pre-multiplier tonic value so the MECH-313 readout stays
+        # uncontaminated, and the multiplier is reported separately below.
+        # Bit-identical when self.selection_entropy_floor is None.
+        entropy_floor_multiplier = 1.0
+        entropy_floor_observed = 0.0
+        if self.selection_entropy_floor is not None:
+            _sef_probs = getattr(self.e3, "last_precommit_probs", None)
+            _sef_h = (
+                selection_normalized_entropy(_sef_probs)
+                if _sef_probs is not None
+                else None
+            )
+            if _sef_h is not None:
+                entropy_floor_observed = float(_sef_h)
+                entropy_floor_multiplier = float(
+                    self.selection_entropy_floor.observe(
+                        _sef_h, simulation_mode=False
+                    )
+                )
+            else:
+                # No usable distribution yet (first tick of a lifetime, or a
+                # single-candidate select). Hold the cached multiplier rather
+                # than integrating against a number that does not exist.
+                entropy_floor_multiplier = float(
+                    self.selection_entropy_floor.temperature_multiplier
+                )
+            headroom_effective_temperature = (
+                float(tonic_effective_temperature) * entropy_floor_multiplier
+            )
+        else:
+            headroom_effective_temperature = tonic_effective_temperature
+
         # SD-069 (MECH-063 sub-claim ii): phasic_surprise_burst. PHASIC
         # complement to the MECH-313 tonic lift above, on the SAME softmax
         # temperature channel. Reads the current per-tick surprise and -- on a
@@ -8717,12 +8816,12 @@ class REEAgent(nn.Module):
             )
             phasic_temp_delta = self.phasic_burst.temperature_delta
             effective_temperature = self.phasic_burst.apply_to_temperature(
-                tonic_effective_temperature
+                headroom_effective_temperature
             )
         else:
             phasic_burst_level = 0.0
             phasic_temp_delta = 0.0
-            effective_temperature = tonic_effective_temperature
+            effective_temperature = headroom_effective_temperature
 
         # MECH-489 (SD-099): defensive-orienting gate tick. Composed LAST in
         # the additive score-bias chain (after SD-069 phasic burst above),
@@ -9010,6 +9109,9 @@ class REEAgent(nn.Module):
                 "tonic_vigor": _bdc_mean(_bdc_vigor),
                 "forced": _bdc_mean(_bdc_forced),
                 "noise_floor_temp": float(tonic_effective_temperature),
+                # SD-105. 1.0 and 0.0 when the floor is off.
+                "entropy_floor_temp_mult": float(entropy_floor_multiplier),
+                "entropy_floor_observed_entropy": float(entropy_floor_observed),
                 "phasic_burst_level": float(phasic_burst_level),
                 "phasic_burst_temp_delta": float(phasic_temp_delta),
                 "total_bias": _bdc_mean(self._last_e3_score_bias),
@@ -9358,6 +9460,8 @@ class REEAgent(nn.Module):
                 tonic_effective_temperature=float(tonic_effective_temperature),
                 phasic_temp_delta=float(phasic_temp_delta),
                 phasic_burst_level=float(phasic_burst_level),
+                entropy_floor_multiplier=float(entropy_floor_multiplier),
+                entropy_floor_observed_entropy=float(entropy_floor_observed),
             )
 
         action = result.selected_action
@@ -12619,6 +12723,8 @@ class REEAgent(nn.Module):
         baseline_temperature: float,
         tonic_effective_temperature: "Optional[float]" = None,
         phasic_temp_delta: float = 0.0,
+        entropy_floor_multiplier: float = 1.0,
+        entropy_floor_observed_entropy: float = 0.0,
         phasic_burst_level: float = 0.0,
     ) -> None:
         """Assemble the read-only ControlVector telemetry (recommendation B).
@@ -12705,6 +12811,27 @@ class REEAgent(nn.Module):
                 phasic_burst_level != 0.0 or phasic_temp_delta != 0.0
             ),
         }
+        # SD-105: the TONIC headroom multiplier, logged separately from both
+        # the MECH-313 tonic lift and the SD-069 phasic transient. All three
+        # act on the same softmax-temperature channel, so a manifest that
+        # cannot tell them apart cannot attribute an entropy change to any of
+        # them. temp_mult is 1.0 and `present` False when the floor is off.
+        _sef_reg = getattr(self, "selection_entropy_floor", None)
+        entropy_floor = {
+            "temp_mult": float(entropy_floor_multiplier),
+            "temp_lift": float(_tonic_T) * (float(entropy_floor_multiplier) - 1.0),
+            "observed_entropy": float(entropy_floor_observed_entropy),
+            "entropy_ema": (
+                float(_sef_reg.entropy_ema) if _sef_reg is not None else 0.0
+            ),
+            "headroom_met": (
+                bool(_sef_reg.headroom_met) if _sef_reg is not None else None
+            ),
+            "saturated": (
+                bool(_sef_reg.saturated) if _sef_reg is not None else None
+            ),
+            "present": bool(_sef_reg is not None),
+        }
         if cv is not None:
             c_time = {
                 "potential": cv["C_time_potential"],
@@ -12779,6 +12906,7 @@ class REEAgent(nn.Module):
             "C_time": c_time,
             "G_vigor": g_vigor,
             "phasic_burst": phasic_burst,
+            "entropy_floor": entropy_floor,
             "shared": shared,
             "authority": authority,
         }

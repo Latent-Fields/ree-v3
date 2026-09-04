@@ -4353,6 +4353,99 @@ class REEConfig:
     phasic_burst_warmup_ticks: int = 0
 
     # ----------------------------------------------------------------
+    # SD-104: phasic.burst_refractory_duty_bound. LEG (a) of the
+    # sd_phasic_burst_decay_and_warmup_headroom repair (confirmed autopsy
+    # failure_autopsy_V3-EXQ-963a_2026-09-02). Both knobs are no-op by
+    # default, so SD-069/SD-075 behaviour is bit-identical.
+    #
+    # THE DEFECT. `tick()` re-arms the envelope with max(decayed, drive) on
+    # EVERY firing tick. On a WARMED agent (SD-074 probe warmup) with
+    # signal_source "instantaneous_pe" the raw per-tick PE exceeds
+    # trigger_ratio * EMA on most ticks, so the burst is re-armed before it
+    # can decay: V3-EXQ-963a measured a burst-active duty cycle of
+    # 0.390-0.884 of E3 selections (V3-EXQ-779a, same burst config on a
+    # colder agent: 0.007-0.136; seed 23 T1P1 fired on 1489 of 1684
+    # selections). A "transient" occupying up to 88% of ticks is a
+    # quasi-sustained regime, so the MECH-063 (ii) tonic-vs-phasic
+    # dissociation has no separable transient to measure at all.
+    #
+    # refractory_ticks: after an event fires, event firing is SUPPRESSED for
+    # this many subsequent waking ticks. The envelope keeps decaying
+    # throughout (carry-mode decay), so the burst is allowed to complete.
+    # 0 (default) = no refractory = SD-069 behaviour.
+    phasic_burst_refractory_ticks: int = 0
+    # extinction_level: when the decayed envelope falls strictly BELOW this,
+    # it snaps to exactly 0.0 and the burst is over. This is what makes
+    # "active" a crisp predicate inside the regulator rather than a threshold
+    # each consumer picks for itself (V3-EXQ-963a's driver used
+    # EVENT_LEVEL_FLOOR = 0.05). 0.0 (default) = no extinction: the envelope
+    # decays geometrically toward, but never reaches, zero.
+    #
+    # TOGETHER these two make the realised burst duty cycle bounded BY
+    # CONSTRUCTION, which is what the autopsy asked to be ASSERTED rather
+    # than hoped for:
+    #     A     = 1 + floor(ln(extinction_level) / ln(1 - decay))
+    #             (max consecutive active ticks per event, since the drive
+    #              is capped at 1.0)
+    #     duty <= min(1.0, A / (refractory_ticks + 1))
+    # get_state() reports burst_duty_cycle_bound alongside the realised
+    # duty cycle and a within-bound flag, so a manifest records both.
+    phasic_burst_extinction_level: float = 0.0
+
+    # ----------------------------------------------------------------
+    # SD-105: control_plane.selection_entropy_headroom_floor. LEG (b) of the
+    # same repair. Default OFF -> bit-identical.
+    #
+    # THE DEFECT. The SD-074 probe warmup produces a confident policy, and a
+    # confident policy has almost no E3 selection entropy left to move:
+    # V3-EXQ-963a's T0P0 baseline sat at 0.0195-0.153 normalized entropy
+    # against 779a's 0.152-0.610 -- a 3-26x collapse on EVERY seed, pinning
+    # the R5 headroom gate at its 0.02 floor reproducibly. The phasic lever
+    # SHARPENS (temp_delta negative), so a baseline at 0.0195 leaves ~2% of
+    # the readout's range for the manipulation to move: any null is
+    # uninterpretable.
+    #
+    # WHY A FLOOR AND NOT A RE-DERIVED R5 BAND. Lowering E_SAT_LOW to admit a
+    # 0.0195 baseline would let the gate pass while the dynamic-range problem
+    # it exists to detect is untouched -- converting an artifact into a
+    # citable result (the warning experiments/_lib/precondition_gate.py
+    # already carries). And the collapse is a property of ANY sufficiently
+    # trained policy, not of one warmup recipe, so repairing it inside the
+    # warmup would be a per-experiment band-aid the next lineage rediscovers.
+    # It belongs in the substrate.
+    #
+    # THE MECHANISM. A one-sided integral controller in log-temperature:
+    # read the realised normalized entropy of the PREVIOUS waking tick's E3
+    # pre-commit selection distribution, smooth it, and raise a multiplier on
+    # the tonic effective softmax temperature while the smoothed entropy sits
+    # below the target. The multiplier never falls below 1.0 (the floor can
+    # only ADD exploration, never remove it) and is capped by
+    # max_temperature_ratio so it cannot run away.
+    #
+    # Biological reading: a tonic behavioural-variability SET-POINT. MECH-313
+    # noise_floor adds a CONSTANT temperature lift regardless of how peaked
+    # the scores are; this is the state-dependent form that holds variability
+    # at a floor even after learning has sharpened the policy (preserved
+    # motor/behavioural variability in the trained animal).
+    use_selection_entropy_floor: bool = False
+    # Target normalized selection entropy (H / ln K) in [0, 1]. 0.15 sits
+    # comfortably inside the R5 band (0.02, 0.98) and inside 779a's own
+    # healthy baseline range (0.152-0.610).
+    selection_entropy_floor_target: float = 0.15
+    # Integral gain on log-temperature per tick, applied to the entropy
+    # error. Larger converges faster and overshoots more.
+    selection_entropy_floor_gain: float = 0.5
+    # Hard cap on the temperature multiplier, so the controller cannot run
+    # away when the scores are so peaked the target is unreachable.
+    selection_entropy_floor_max_temperature_ratio: float = 8.0
+    # EMA rate for the realised-entropy estimate the controller reads.
+    selection_entropy_floor_ema_decay: float = 0.2
+    # One-sided deadband ABOVE the target: the multiplier relaxes only once
+    # the smoothed entropy exceeds target + deadband, so the controller does
+    # not chatter around the set-point.
+    selection_entropy_floor_deadband: float = 0.05
+
+    # ----------------------------------------------------------------
     # MECH-314 (ARC-065): structured_curiosity_bonus. Frontopolar
     # exploration / EFE analog. Sibling to MECH-313 stochastic_noise_floor.
     # Three sub-flavours registered separately (Pull 1 SYNTHESIS R3 +
@@ -7259,6 +7352,16 @@ class REEConfig:
         phasic_burst_signal_source: str = "running_variance",
         phasic_burst_baseline_continuity: str = "reset",
         phasic_burst_warmup_ticks: int = 0,
+        # SD-104 (leg a) / SD-105 (leg b) of
+        # sd_phasic_burst_decay_and_warmup_headroom. All no-op by default.
+        phasic_burst_refractory_ticks: int = 0,
+        phasic_burst_extinction_level: float = 0.0,
+        use_selection_entropy_floor: bool = False,
+        selection_entropy_floor_target: float = 0.15,
+        selection_entropy_floor_gain: float = 0.5,
+        selection_entropy_floor_max_temperature_ratio: float = 8.0,
+        selection_entropy_floor_ema_decay: float = 0.2,
+        selection_entropy_floor_deadband: float = 0.05,
         # MECH-314 (ARC-065): structured_curiosity_bonus (frontopolar /
         # EFE analog) + 3 sub-flavour switches (314a/b/c)
         use_structured_curiosity: bool = False,
@@ -8684,6 +8787,17 @@ class REEConfig:
         # SD-075.
         config.phasic_burst_baseline_continuity = phasic_burst_baseline_continuity
         config.phasic_burst_warmup_ticks = phasic_burst_warmup_ticks
+        # SD-104 / SD-105
+        config.phasic_burst_refractory_ticks = phasic_burst_refractory_ticks
+        config.phasic_burst_extinction_level = phasic_burst_extinction_level
+        config.use_selection_entropy_floor = use_selection_entropy_floor
+        config.selection_entropy_floor_target = selection_entropy_floor_target
+        config.selection_entropy_floor_gain = selection_entropy_floor_gain
+        config.selection_entropy_floor_max_temperature_ratio = (
+            selection_entropy_floor_max_temperature_ratio
+        )
+        config.selection_entropy_floor_ema_decay = selection_entropy_floor_ema_decay
+        config.selection_entropy_floor_deadband = selection_entropy_floor_deadband
 
         # MECH-314 (ARC-065): structured_curiosity_bonus
         config.use_structured_curiosity = use_structured_curiosity

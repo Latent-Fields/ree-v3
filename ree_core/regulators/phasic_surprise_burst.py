@@ -139,6 +139,66 @@ SD-075: EPISODE-BOUNDARY BASELINE CONTINUITY + CONVERGENCE-GATED ACCOUNTING
   precondition otherwise treats a starved cell as a real measurement, which is
   precisely how 779b was withheld.
 
+SD-104: REFRACTORY DUTY BOUND -- THE BURST MUST ACTUALLY DECAY
+
+  THE DEFECT (confirmed autopsy failure_autopsy_V3-EXQ-963a_2026-09-02,
+  pillar 1). tick() re-arms the envelope with max(decayed, drive) on EVERY
+  firing tick. On a WARMED agent (SD-074 probe warmup) with signal_source
+  "instantaneous_pe", the raw per-tick PE clears trigger_ratio * EMA on most
+  ticks, so a fresh event lands before the previous one has decayed and the
+  envelope never returns to zero. V3-EXQ-963a measured a burst-active duty
+  cycle of 0.390-0.884 of E3 selections against V3-EXQ-779a's 0.007-0.136 on
+  the identical burst config (seed 23 T1P1: 1489 of 1684 selections). A
+  "transient" occupying 88% of ticks is a quasi-sustained regime, and the
+  MECH-063 (ii) dissociation then has no separable transient to measure --
+  which is why C2's dominance clause failed by 5-13x and why the single
+  quiescent-tick shortfall existed at all.
+
+  This is REGULATOR BEHAVIOUR, not sampling. Raising the step cap cannot
+  reach it, and the autopsy's re-derive brake REFUSES a 963-lineage successor
+  that tries.
+
+  LEG (a) -- refractory_ticks. After an event fires, event firing is
+  SUPPRESSED for that many subsequent waking ticks. The envelope keeps
+  decaying throughout ("carry-mode decay"): the burst is allowed to complete
+  rather than being re-armed on top of itself. Suppressed firings are counted
+  in n_events_refractory_suppressed, so a manifest can see how much surprise
+  was arriving during the refractory window instead of that traffic vanishing.
+
+  LEG (b) -- extinction_level. When the decayed envelope falls strictly below
+  this level it snaps to exactly 0.0. This makes "the burst is active" a crisp
+  predicate INSIDE the regulator, instead of a floor each consumer picks for
+  itself (963a's driver used EVENT_LEVEL_FLOOR = 0.05 and could not know
+  whether the regulator agreed).
+
+  WHY BOTH, AND WHAT THEY BUY. Together the realised duty cycle is bounded BY
+  CONSTRUCTION, which is the property the autopsy asked to be ASSERTED:
+
+      A     = 1 + floor(ln(extinction_level) / ln(1 - decay))
+              -- the most consecutive active ticks one event can produce,
+                 since the injection drive is capped at 1.0
+      duty <= min(1.0, A / (refractory_ticks + 1))
+              -- at most one event per (refractory_ticks + 1) ticks, each
+                 contributing at most A active ticks
+
+  Neither knob alone suffices: a refractory without extinction still leaves a
+  geometrically-decaying tail that never reaches zero (so "active" depends on
+  the consumer's floor and the bound is unprovable), and extinction without a
+  refractory still permits re-arming on the very next tick. get_state()
+  reports burst_duty_cycle_bound, realised_burst_duty_cycle and
+  burst_duty_cycle_within_bound so a run records the guarantee rather than
+  assuming it.
+
+  DELIBERATELY NOT BUILT: a duty-cycle TARGET with a controller that tunes the
+  refractory to hit it. The bound above is a hard ceiling with a closed form,
+  which is what an assertion needs; a controller would make the realised duty
+  cycle a function of the surprise stream again -- the exact property that
+  made 963a unmeasurable.
+
+  BLAST RADIUS. Both knobs are no-op by default (refractory_ticks 0 = no
+  suppression; extinction_level 0.0 = the level can never be strictly below
+  it), so SD-069/SD-075 behaviour is bit-identical.
+
   BLAST RADIUS. Both fields are no-op by default, so every existing consumer
   of phasic_surprise_burst is bit-identical. Note separately that ANY edit to
   ree_core busts every experiments/_lib/probe_warmup.py cache, because
@@ -195,6 +255,16 @@ class PhasicSurpriseBurstConfig:
             warmup; the event counts are merely split into pre-warmup and
             converged so a consumer can report honestly or declare the cell
             uninformative. See the SD-075 block for why it does not suppress.
+        refractory_ticks : SD-104 leg (a). Waking ticks after an event during
+            which further events cannot fire. The envelope still decays
+            throughout, so the burst completes instead of being re-armed on
+            top of itself. 0 (default, no-op) = SD-069 behaviour.
+        extinction_level : SD-104 leg (b). Envelope level strictly below which
+            the burst snaps to exactly 0.0, ending it. 0.0 (default, no-op) =
+            geometric decay that never reaches zero. With both set, the
+            realised burst duty cycle is bounded by
+            min(1, (1 + floor(ln(extinction_level)/ln(1-decay))) /
+                   (refractory_ticks + 1)).
     """
 
     enabled: bool = True
@@ -208,6 +278,9 @@ class PhasicSurpriseBurstConfig:
     # SD-075. Both no-op by default -> SD-069 behaviour is bit-identical.
     baseline_continuity: str = "reset"
     warmup_ticks: int = 0
+    # SD-104. Both no-op by default -> SD-069/SD-075 behaviour is bit-identical.
+    refractory_ticks: int = 0
+    extinction_level: float = 0.0
 
 
 class PhasicSurpriseBurst:
@@ -278,6 +351,23 @@ class PhasicSurpriseBurst:
         if wt == -1:
             wt = int(math.ceil(3.0 / float(c.surprise_ema_decay)))
         self._resolved_warmup_ticks: int = wt
+        # SD-104 leg (a).
+        rt = int(c.refractory_ticks)
+        if rt < 0:
+            raise ValueError(
+                "refractory_ticks must be >= 0 (waking ticks after an event "
+                f"during which further events cannot fire). Got {rt}."
+            )
+        self._refractory_ticks: int = rt
+        # SD-104 leg (b).
+        el = float(c.extinction_level)
+        if not (0.0 <= el < 1.0):
+            raise ValueError(
+                "extinction_level must be in [0, 1) (0 = no extinction; the "
+                "envelope is capped at 1.0, so a level of 1.0 or more would "
+                f"extinguish every burst immediately). Got {el}."
+            )
+        self._extinction_level: float = el
         # SD-075: LIFETIME counters -- these survive reset() in BOTH continuity
         # modes, because the convergence question is about the regulator's
         # whole history, not the current episode.
@@ -285,6 +375,13 @@ class PhasicSurpriseBurst:
         self._lifetime_episodes: int = 0
         self._n_events_converged: int = 0
         self._n_events_prewarmup: int = 0
+        # SD-104 lifetime accounting (survives reset() like the SD-075
+        # counters -- the duty-cycle guarantee is about the whole history).
+        self._n_burst_active_ticks: int = 0
+        self._n_events_refractory_suppressed: int = 0
+        # SD-104: ticks of refractory still owed. LIFETIME, and this is
+        # load-bearing rather than incidental -- see the reset() docstring.
+        self._refractory_remaining: int = 0
         # Per-episode state.
         self._surprise_ema: float = 0.0
         self._ema_initialized: bool = False
@@ -332,12 +429,28 @@ class PhasicSurpriseBurst:
         # a prior burst decay toward zero).
         decayed = float(self._burst_level) * (1.0 - float(self.config.decay))
 
+        # SD-104 leg (a): consume one tick of any refractory owed. The verdict
+        # for THIS tick is taken BEFORE the decrement, so a refractory of R
+        # suppresses exactly the R ticks following the firing tick and the
+        # next event can fire at t+R+1 (period R+1 -- the denominator of the
+        # duty-cycle bound).
+        refractory_active = self._refractory_remaining > 0
+        if self._refractory_remaining > 0:
+            self._refractory_remaining -= 1
+
         # Event test against the CURRENT baseline (before folding s_t in).
         baseline = self._surprise_ema if self._ema_initialized else 0.0
         eff_baseline = max(float(baseline), float(self.config.trigger_floor))
         threshold = float(self.config.trigger_ratio) * eff_baseline
 
-        event_fired = self._ema_initialized and s_t >= threshold
+        event_detected = self._ema_initialized and s_t >= threshold
+        # SD-104: a detected event inside the refractory window does NOT
+        # re-arm the envelope. It is counted rather than discarded, so a
+        # manifest can see how much surprise arrived while the burst was
+        # completing instead of that traffic vanishing from the record.
+        event_fired = event_detected and not refractory_active
+        if event_detected and refractory_active:
+            self._n_events_refractory_suppressed += 1
         if event_fired:
             # Normalized surprise excess -> injection drive in [0, 1].
             # excess = s_t / eff_baseline - trigger_ratio, saturating at
@@ -363,6 +476,21 @@ class PhasicSurpriseBurst:
             new_level = decayed
 
         self._burst_level = max(0.0, min(1.0, new_level))
+        # SD-104 leg (b): extinction. Applied to the FINAL level (after the
+        # event's own injection), so the invariant a consumer can rely on is
+        # `burst_level == 0.0 or burst_level >= extinction_level` -- there is
+        # never an "active" burst sitting below the level the regulator itself
+        # calls extinct.
+        if self._extinction_level > 0.0 and self._burst_level < self._extinction_level:
+            self._burst_level = 0.0
+        if event_fired:
+            # Arm the refractory only after the level is final. Arming on any
+            # FIRED event (even one whose drive was extinguished immediately)
+            # is the conservative direction for the bound: it can only reduce
+            # the number of events, never increase it.
+            self._refractory_remaining = self._refractory_ticks
+        if self._burst_level > 0.0:
+            self._n_burst_active_ticks += 1
         self._temperature_delta = float(self.config.temp_delta) * self._burst_level
         self._last_event_fired = bool(event_fired)
 
@@ -376,6 +504,52 @@ class PhasicSurpriseBurst:
             self._surprise_ema = (1.0 - a) * float(self._surprise_ema) + a * s_t
 
         return float(self._burst_level)
+
+    # ------------------------------------------------------------------
+    # SD-104: the duty-cycle guarantee
+    # ------------------------------------------------------------------
+    def max_active_ticks_per_event(self) -> "Optional[int]":
+        """Most consecutive active ticks ONE event can produce, or None.
+
+        The injection drive is capped at 1.0, so the envelope after an event
+        is at most 1.0 and decays as (1 - decay)^k. It stays active while that
+        is >= extinction_level, i.e. for k <= ln(extinction)/ln(1 - decay).
+
+        Returns None when extinction_level is 0 (the default): without
+        extinction the envelope decays toward zero without reaching it, so
+        "active" has no regulator-side definition and no finite bound exists.
+        """
+        ext = float(self._extinction_level)
+        if ext <= 0.0:
+            return None
+        d = float(self.config.decay)
+        if d >= 1.0:
+            # The envelope is zeroed on the tick after the event.
+            return 1
+        return 1 + int(math.floor(math.log(ext) / math.log(1.0 - d)))
+
+    def duty_cycle_bound(self) -> "Optional[float]":
+        """Upper bound on the realised burst-active duty cycle, or None.
+
+        Over any window of N ticks at most N / (refractory_ticks + 1) events
+        can fire, and each contributes at most `max_active_ticks_per_event()`
+        active ticks (overlaps only shrink the union), so
+
+            duty <= min(1.0, A / (refractory_ticks + 1))
+
+        None when no finite bound exists (extinction_level 0).
+        """
+        a = self.max_active_ticks_per_event()
+        if a is None:
+            return None
+        return min(1.0, float(a) / float(self._refractory_ticks + 1))
+
+    @property
+    def realised_burst_duty_cycle(self) -> float:
+        """Fraction of LIFETIME waking ticks on which the burst was active."""
+        if self._lifetime_ticks <= 0:
+            return 0.0
+        return float(self._n_burst_active_ticks) / float(self._lifetime_ticks)
 
     def apply_to_temperature(self, tonic_temperature: float) -> float:
         """Return the combined effective temperature, floored strictly > 0.
@@ -421,6 +595,18 @@ class PhasicSurpriseBurst:
         they measure the regulator's whole history, which is what the
         convergence gate is a question about. Use a fresh instance for a fresh
         lifetime.
+
+        SD-104: the refractory counter is LIFETIME too, and CARRIES across the
+        boundary. This is not a detail. Clearing it would let every episode
+        boundary re-arm immediate firing, so on short episodes the realised
+        duty cycle would again be a function of episode LENGTH -- the exact
+        V3-EXQ-779b confound SD-075 exists to close, reappearing on a new axis
+        -- and the closed-form bound, which is a statement about LIFETIME
+        ticks, would be false. Measured: with the counter cleared here, a
+        refractory of 29 and extinction 0.05 (bound 0.167) produced a realised
+        duty cycle of 0.311 across 61 lifetime ticks of short episodes. The
+        envelope itself IS cleared above, so no in-flight burst leaks across
+        the boundary; only the refractory owed does.
         """
         self._lifetime_episodes += 1
         if str(self.config.baseline_continuity) == "reset":
@@ -467,6 +653,29 @@ class PhasicSurpriseBurst:
             # unsplit total and is retained only for SD-069 continuity.
             "n_events_converged": int(self._n_events_converged),
             "n_events_prewarmup": int(self._n_events_prewarmup),
+            # ---- SD-104 ----
+            # Config echo + the duty-cycle guarantee, so a manifest records
+            # the bound rather than a later reader having to re-derive it.
+            "refractory_ticks": int(self._refractory_ticks),
+            "extinction_level": float(self._extinction_level),
+            "refractory_remaining": int(self._refractory_remaining),
+            "n_events_refractory_suppressed": int(
+                self._n_events_refractory_suppressed
+            ),
+            "n_burst_active_ticks": int(self._n_burst_active_ticks),
+            "max_active_ticks_per_event": self.max_active_ticks_per_event(),
+            "burst_duty_cycle_bound": self.duty_cycle_bound(),
+            "realised_burst_duty_cycle": float(self.realised_burst_duty_cycle),
+            # None (not True) when no finite bound exists -- an unbounded
+            # regulator must not read as "within bound".
+            "burst_duty_cycle_within_bound": (
+                None
+                if self.duty_cycle_bound() is None
+                else bool(
+                    self.realised_burst_duty_cycle
+                    <= self.duty_cycle_bound() + 1e-12
+                )
+            ),
         }
 
     # Alias for parity with broadcast_override's `.diagnostics` property.
