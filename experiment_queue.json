@@ -8,32 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-1001",
-      "title": "EXT-005/SD-031 out-of-distribution attribution robustness under causal-structure shift",
-      "script": "experiments/v3_exq_1001_ext005_sd031_attribution_causal_shift.py",
-      "priority": 45,
-      "machine_affinity": "any",
-      "estimated_minutes": 15,
-      "claim_id": "SD-031",
-      "backlog_id": "EVB-1250",
-      "note": "GOV-REUSE-1 (Step 2.4): reanalysis_query.py query --readout auroc_move_ok --claim EXT-005 -> exactly one manifest carries this readout (V3-EXQ-995, substrate_hash 4a1f8a270610f897...), IN-DISTRIBUTION ONLY, no causal-structure shift applied -> decisive OOD readout NOT RECOVERABLE from any existing manifest -> run. Substrate readiness (Step 2.5/2.5a): SD-031's E2WorldForward comparator CONFIRMED implemented and live (V3-EXQ-995 PASSED 2026-09-03T19:44:56Z on the identical construction this driver reuses; e2world_action_pathway_live measured 0.283 at init). The one new substrate dependency (CausalGridWorld._action_map as an instance-level override point, causal_grid_world.py:789-792/2287-2299) was read from source AND empirically probed at authoring time (Step 2.5a): overwriting env._action_map after construction with world_rule_shift_enabled left at its default False (so the periodic SD-MEL-PRODUCER schedule never fires) correctly rewires realised displacement -- action 0 pre-shift (-1,0) produced (1,0) post-shift exactly as specified, confirmed by a live one-tick probe, not by reading the docstring alone. Re-derive brake (Step 2.5b): only one autopsy names EXT-005/SD-031 (failure_autopsy_V3-EXQ-783_2026-07-18, already REFUTED by its own prescribed retest per V3-EXQ-995's own docstring) -- count 1 < threshold 2, brake does not fire; this experiment is in any case a NEW manipulation (causal-structure shift) on a different design axis from V3-EXQ-995, not a re-derive of its design. Substrate-path overlap (Step 2.5c): driver footprint identical to V3-EXQ-995's plus the _action_map override (already inside causal_grid_world.py, V3-EXQ-995's own footprint). Two open CORRUPTING substrate_queue entries overlap this footprint (mode-governance-engagement: agent.py/utils/config.py; SD-082: agent.py) -- both gated off, VERIFIED LIVE on this driver's own REEConfig.from_dims(...) construction (not merely assumed from V3-EXQ-995's check): salience_affinity_input_cap=None, use_lateral_pfc_analog=False. Open DEGRADING entries recorded, identical to V3-EXQ-995's own known_substrate_limitations list (SD-018, mech357-freeze-incompatible-pressure-mechanism, SD-MECH303-THRESHOLD-SOURCING). Default-off flag audit: ENV_KWARGS identical to V3-EXQ-995 (contamination_spread=0.0 per the V3-EXQ-513 precedent; reef_enabled/hazard_agent_pursuit/hazard_food_attraction all off/0.0 by construction). red-team (Step 4.5, DIFFERENT model, model=fable, TWO independent passes, 2026-09-04): PASS 1 verdict BLOCKING on the pre-fix design -- the original D1/D2 (gap-vs-bare only) criterion was satisfiable by a chance-level comparator (995's own bare MOVE_OK AUROC sits below chance, 0.42-0.45) and separately by a comparator that had lost its action-conditioning entirely (995's own action-shuffled control already beats bare by 0.08-0.10, above the old 0.05 floor), plus no readiness gate on PRE_BASE's own in-distribution signature and no non-vacuity check on the readapt budget. Fixed: D1/D2 are now TRIPLE-gated (gap-vs-bare AND gap-vs-chance AND gap-vs-shuffled-action, each noise-aware), plus three new readiness preconditions (pre_base_in_distribution_signature, shift_degrades_frozen_forward_fit, readapt_does_not_regress_frozen_fit) and a per-claim evidence_direction fix (only SD-031 is actually exercised; ARC-037/MECH-095/EXT-005 now unconditionally non_contributory, matching the run's own attribution_caveat). PASS 2 (same model, fresh session, fix-verification only) verdict CONTESTED: all 8 findings' fixes verified correctly wired to the right arm/quantity and non-inverted; two non-fatal gaps (readapt non-vacuity gate admitted an exact-zero recovery; the narrowed causal-claim scope lived only in the docstring, not claim_scope) were both closed in a third, non-red-teamed follow-up pass. One documented, deliberately-NOT-fixed residual limitation: no scratch-model / unshifted-env positive control establishes what MAGNITUDE of D2 recovery the readapt budget should achieve (only that it achieves SOME, degradation-scaled, recovery) -- recorded as an OPEN RESIDUAL LIMITATION in the module docstring and the session report, out of scope for this pass (roughly doubles post-shift compute/arm-count). validate_experiments.py --strict passes clean (0 warnings, ~30 categories) and the --dry-run smoke test runs end-to-end with the new preconditions computing correctly (pre_base_in_distribution_signature and causal_class_events_sufficient both correctly self-route substrate_not_ready_requeue at toy dry-run scale, as expected; the other 9 preconditions pass). Full reasoning trace in the session report. Cross-machine-class safe: rank-statistic AUROC readouts over deterministic forward passes, no torch.multinomial-dependent assertions.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-09-04T03:24:17Z"
-      },
-      "claim_ids": [
-        "SD-031",
-        "ARC-037",
-        "MECH-095",
-        "EXT-005"
-      ],
-      "conditions": 2,
-      "episodes_per_run": 250,
-      "experiment_type": "v3_exq_1001_ext005_sd031_attribution_causal_shift",
-      "seeds": 5
-    },
-    {
       "queue_id": "V3-EXQ-996",
       "title": "GAP-14 successor: LIVE phase-gate validation via env_kwargs() (crossing-count vs legacy spike), with a raw-trajectory-divergence precondition -- 591h vacuity fix",
       "script": "experiments/v3_exq_996_isef005_phase_gate_live_channels.py",
