@@ -46,6 +46,7 @@ CHECK_NAMES = ("conformance", "readiness", "arm_fingerprint", "degeneracy", "man
                "dead_z_goal_stream", "hardcoded_dry_run", "emit_outcome_dry_run",
                "write_pack_dry_run", "dry_run_unreachable_criterion",
                "dry_run_sweep_excludes_keyed_point",
+               "criterion_exceeds_achievable_range",
                "config_slice_declaration", "inert_salience_dacc_bias",
                "dacc_last_bundle", "agent_seed_order", "zworld_p0_warmup",
                "fishtank_episode_log_seeds", "disjunctive_criteria_load_bearing",
@@ -3797,6 +3798,330 @@ def dry_run_unreachable_criterion_lint(path: Path) -> Optional[str]:
     )
 
 
+_CRITERION_ACHIEVABLE_RANGE_EXEMPT_MARKER = "CRITERION_ACHIEVABLE_RANGE_EXEMPT"
+
+# Names whose value is structurally confined to the unit interval. A criterion
+# demanding a MULTIPLE of a baseline on one of these is unsatisfiable as soon as
+# the baseline exceeds 1/K -- V3-EXQ-981's C1 required `mean_hv_rate >= 2 *
+# mean_base_rate` with a realised baseline of 0.5771, i.e. 1.154 on a DV that
+# cannot exceed 1.0. Name-scan, with the same accepted blindness as every other
+# heuristic in this file (a bound assembled at runtime is invisible).
+_UNIT_INTERVAL_NAME_TOKENS = (
+    "rate", "fraction", "frac_", "_frac", "proportion", "probability", "_prob",
+    "prob_", "share", "accuracy", "pct", "percent", "occupancy", "coverage",
+    "recall", "precision", "hit_", "_ratio_of",
+)
+
+# Statistics whose achievable range is DERIVED from other variables' realised
+# range rather than being a property of the measurement itself. An absolute floor
+# on one of these is a claim about how far apart two quantities can get -- which
+# nothing in a driver certifies unless it measures it. Four of the seven
+# 2026-09-03 runs failed exactly here (983 decline_gap, 993 calibration_gap, 994
+# retention spread, 981 precision-margin elevation).
+_DERIVED_RANGE_NAME_TOKENS = (
+    "gap", "delta", "_diff", "diff_", "spread", "elevation", "margin", "lift",
+    "excursion", "separation", "dispersion", "contrast", "advantage",
+    "improvement", "reduction", "increase", "decrement", "increment",
+)
+
+
+def _num_const(node: Optional[ast.AST]) -> Optional[float]:
+    """A float/int literal (incl. unary minus). None if not a numeric constant."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)) \
+            and not isinstance(node.value, bool):
+        return float(node.value)
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+        inner = _num_const(node.operand)
+        return None if inner is None else -inner
+    return None
+
+
+def _module_num_constants(tree: ast.AST) -> Dict[str, float]:
+    """Module-level `NAME = <numeric literal>` bindings. Float sibling of
+    _module_int_constants -- thresholds in this corpus are overwhelmingly floats
+    (0.15, 0.02, 0.01), which the int-only resolver cannot see."""
+    out: Dict[str, float] = {}
+    for st in getattr(tree, "body", []):
+        if isinstance(st, ast.Assign) and len(st.targets) == 1 \
+                and isinstance(st.targets[0], ast.Name):
+            v = _num_const(st.value)
+            if v is not None:
+                out[st.targets[0].id] = v
+    return out
+
+
+def _is_criterion_target(name: str) -> bool:
+    """Does this assignment target hold a CRITERION verdict? Corpus convention:
+    `c1`, `c1_pass`, `c2_pass`, `..._passed`. Deliberately narrow -- the point is
+    to look only at the comparisons the driver adjudicates on, not at every
+    inequality in the file."""
+    n = name.lower()
+    return bool(re.match(r"^c\d+(_|$)", n) or n.endswith("_pass")
+                or n.endswith("_passed"))
+
+
+def _load_bearing_and_precondition_dicts(
+    tree: ast.Module,
+) -> Tuple[List[str], List[Tuple[int, str, ast.AST, ast.AST]]]:
+    """ONE walk yielding both dict-literal scans this lint needs:
+
+      [0] lowercased `name` strings of criteria dicts tagged `load_bearing: True`
+      [1] (lineno, name, measured, threshold) per readiness-kind precondition
+
+    Merged deliberately. Both scans iterate `ast.Dict` nodes, and this file's own
+    history is explicit that per-gate `ast.walk(tree)` repetition is the O(corpus)
+    creep the 2026-07-28 scan-sharing work removed (the sibling
+    dry_run_unreachable_criterion lint measured 36.9s over the corpus in its naive
+    form against the family's ~11-14s band). Two walks here would be the same
+    mistake at smaller scale.
+
+    On [0] -- the corpus's own explicit `load_bearing` tag is used rather than a
+    name heuristic because the 2026-09-03 autopsy's finding is specifically that
+    "the LOAD-BEARING comparison was never adjudicated". Restricting to the tagged
+    set narrows the fire rate from 210 drivers to 112 while KEEPING both known
+    carriers (981, 983): it removes noise, not signal.
+    """
+    lb_names: List[str] = []
+    preconditions: List[Tuple[int, str, ast.AST, ast.AST]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Dict):
+            continue
+        keys = {}
+        for k, v in zip(node.keys, node.values):
+            if isinstance(k, ast.Constant) and isinstance(k.value, str):
+                keys[k.value] = v
+        nm = keys.get("name")
+        name = nm.value if isinstance(nm, ast.Constant) and isinstance(nm.value, str) \
+            else ""
+        lb = keys.get("load_bearing")
+        is_criterion = ("load_bearing" in keys) or ("passed" in keys)
+        if isinstance(lb, ast.Constant) and lb.value is True and name:
+            lb_names.append(name.lower())
+        if is_criterion or "measured" not in keys or "threshold" not in keys:
+            continue
+        # An UPPER-bound precondition is a ceiling ("stayed below the explosion
+        # limit"); headroom is a floor question, so it is not this lint's shape.
+        d = keys.get("direction")
+        if isinstance(d, ast.Constant) and isinstance(d.value, str) \
+                and d.value.strip().lower() in ("upper", "ceiling", "max", "upper_bound"):
+            continue
+        preconditions.append((node.lineno, name, keys["measured"], keys["threshold"]))
+    return lb_names, preconditions
+
+
+def _criterion_is_load_bearing(target: str, lb_names: Sequence[str]) -> bool:
+    """Link an assignment target (`c1`, `c1_pass`) to a load_bearing criteria
+    entry (`C1_decline_gap`, `C1 (HV ambiguous-band ...)`). Matches on the
+    leading `c<N>` stem, which is how this corpus spells the correspondence."""
+    t = target.lower()
+    m = re.match(r"^(c\d+)", t)
+    stem = m.group(1) if m else t
+    return any(n == t or n == stem or n.startswith(stem + "_") or n.startswith(stem + " ")
+               for n in lb_names)
+
+
+# Why preconditions are scanned at all (scan 2 below): V3-EXQ-981's OWN instance
+# of sub-case (b) is a PRECONDITION, not a criterion. Its
+# `precision_margin_norm_elevated_under_hv` entry set a 0.01 floor on an
+# elevation whose arithmetic ceiling was 0.000195 -- the 51x shortfall. Its
+# `control` string even names the hazard ("guards against a baseline already
+# saturated near precision_margin_norm~1, leaving HV no room to differ") and the
+# run failed on it anyway, because MEASURING the elevation is not the same as
+# checking that the FLOOR is REACHABLE. A criteria-only scan would miss the very
+# case this substrate entry was written from.
+
+
+def _compare_legs(cj: ast.AST) -> Optional[Tuple[ast.AST, ast.AST, bool]]:
+    """Normalise a single-op Compare to (measured_side, threshold_side, strict)
+    for the FLOOR direction only (`m >= t` / `m > t`, or the mirrored `t <= m`).
+    None for anything else -- a ceiling criterion is a different shape and this
+    lint makes no claim about it."""
+    if not (isinstance(cj, ast.Compare) and len(cj.ops) == 1):
+        return None
+    op = cj.ops[0]
+    if isinstance(op, (ast.GtE, ast.Gt)):
+        return cj.left, cj.comparators[0], isinstance(op, ast.Gt)
+    if isinstance(op, (ast.LtE, ast.Lt)):
+        return cj.comparators[0], cj.left, isinstance(op, ast.Lt)
+    return None
+
+
+def criterion_exceeds_achievable_range_lint(path: Path) -> Optional[str]:
+    """Criterion threshold outside the DV's achievable range. Issue string, or None.
+
+    THE FAILURE. Every readiness gate in this corpus certifies the INTERVENTION --
+    was the channel perturbed, did the head train, were there enough samples --
+    and none certifies that the DEPENDENT VARIABLE had room to move. Across the
+    seven 2026-09-03 pending-review runs, SIX passed all their preconditions and
+    still could not discriminate, because the registered pass threshold lay
+    outside the range the configuration could produce (autopsy:
+    REE_assembly/evidence/planning/failure_autopsy_ext-claim-probe-cluster_2026-09-03.md
+    section 2). The compute was spent; the load-bearing comparison was never
+    adjudicated.
+
+    Two sub-cases, both keyed on a LOAD-BEARING criterion (an assignment to
+    `c1` / `c1_pass` / `..._passed`) whose comparison is a FLOOR:
+
+      (a) MULTIPLICATIVE-ON-BOUNDED. `<unit-interval DV> >= K * <baseline>` with
+          K > 1. Unsatisfiable as soon as the baseline exceeds 1/K, and nothing
+          in the driver bounds it there. V3-EXQ-981's C1 needed 2 x 0.5771 =
+          1.154 from a DV that cannot exceed 1.0 -- no policy could have passed
+          it.
+
+      (b) ABSOLUTE-FLOOR-ON-A-DERIVED-RANGE. `<gap|spread|elevation|margin...>
+          >= T` with T a positive constant. A difference statistic's achievable
+          range is set by the realised range of the variables underneath it, so
+          an absolute floor on one is a claim about the substrate's dynamic
+          range -- the claim that went unchecked in 983 (decline_gap realised
+          0.0468 vs 0.15), 993 (max |calibration_gap| 0.00152 vs 0.02), 994
+          (retention spread 0.00078 vs 0.02) and 981's precision-margin
+          elevation (0.000195 available vs a 0.01 floor, 51x).
+
+    THE FIX, and why this lint and the runtime gate are one feature: declare a
+    `dv_headroom` precondition (experiments/_metrics.py `dv_headroom_check()` ->
+    `p0_readiness_gate()`), which measures the control arm's realised range and
+    self-routes to substrate_not_ready_requeue when the threshold is out of
+    reach. A driver that mentions `dv_headroom` at ALL is spared -- deliberately
+    generous, because the lint's purpose is to make the author ANSWER the
+    question, not to police how. V3-EXQ-777a, which hand-rolled the same guard
+    locally ("the guard V3-EXQ-777 lacked"), is spared on exactly that basis.
+
+    NEVER BLOCKING, and it does not claim the criterion IS unreachable -- it
+    cannot: the baseline is a runtime quantity. It claims the driver adjudicates
+    on a threshold whose feasibility nothing establishes. That is a WARN by
+    construction, and it is why the gate does not attempt an arithmetic verdict
+    it has no data for. Exempt with
+    CRITERION_ACHIEVABLE_RANGE_EXEMPT = "<reason>" when the DV's range is
+    guaranteed by construction elsewhere. Do NOT retro-edit a LANDED driver
+    whose run is complete -- adjudicate the affected RESULT instead.
+    """
+    try:
+        src = path.read_text(encoding="utf-8")
+        tree = ast.parse(src)
+    except (OSError, SyntaxError, UnicodeDecodeError):
+        return None
+    if _CRITERION_ACHIEVABLE_RANGE_EXEMPT_MARKER in src:
+        return None
+    # The opt-in escape. Any mention -- dv_headroom_check(), "kind":
+    # "dv_headroom", or a hand-rolled *_dv_headroom_* precondition name -- means
+    # the author has engaged with the question this lint asks.
+    if "dv_headroom" in src:
+        return None
+
+    mod_nums = _module_num_constants(tree)
+    lb_names, precondition_entries = _load_bearing_and_precondition_dicts(tree)
+
+    def resolve(e: ast.AST) -> Optional[float]:
+        v = _num_const(e)
+        if v is not None:
+            return v
+        return mod_nums.get(e.id) if isinstance(e, ast.Name) else None
+
+    def leaf_names(e: ast.AST) -> List[str]:
+        return [n.id for n in ast.walk(e) if isinstance(n, ast.Name)]
+
+    findings: List[Tuple[int, str, str]] = []
+
+    # --- scan 1: LOAD-BEARING criteria -- sub-cases (a) and (b) --------------
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        targets = [t.id for t in node.targets if isinstance(t, ast.Name)]
+        crits = [t for t in targets if _is_criterion_target(t)]
+        if not crits or not _criterion_is_load_bearing(crits[0], lb_names):
+            continue
+        crit = crits[0]
+        for cj in ast.walk(node.value):
+            legs = _compare_legs(cj)
+            if legs is None:
+                continue
+            measured, thr_node, _strict = legs
+            m_names = leaf_names(measured)
+            if not m_names:
+                continue
+            try:
+                text = ast.unparse(cj)
+            except Exception:                     # pragma: no cover - py<3.9
+                text = f"<{crit} comparison>"
+
+            # (a) multiplicative threshold on a unit-interval DV
+            if isinstance(thr_node, ast.BinOp) and isinstance(thr_node.op, ast.Mult):
+                k = resolve(thr_node.left)
+                other = thr_node.right
+                if k is None:
+                    k, other = resolve(thr_node.right), thr_node.left
+                if k is not None and k > 1.0 and any(
+                        _name_has(n, _UNIT_INTERVAL_NAME_TOKENS) for n in m_names):
+                    base = ", ".join(sorted(set(leaf_names(other)))) or "the baseline"
+                    findings.append((
+                        cj.lineno, crit,
+                        f"line {cj.lineno}: load-bearing `{crit}` -- `{text}` demands "
+                        f"{k:g}x a baseline on a unit-interval DV ({m_names[0]}), so "
+                        f"it is unsatisfiable whenever {base} exceeds {1.0 / k:.4g}, "
+                        f"and nothing here bounds it there"))
+                    continue
+
+            # (b) absolute floor on a derived-range statistic
+            t = resolve(thr_node)
+            if t is not None and t > 0 and any(
+                    _name_has(n, _DERIVED_RANGE_NAME_TOKENS) for n in m_names):
+                stat = next(n for n in m_names
+                            if _name_has(n, _DERIVED_RANGE_NAME_TOKENS))
+                findings.append((
+                    cj.lineno, crit,
+                    f"line {cj.lineno}: load-bearing `{crit}` -- `{text}` puts an "
+                    f"absolute floor of {t:g} on `{stat}`, a derived-range statistic "
+                    f"whose achievable range is set by the realised range of the "
+                    f"variables underneath it, which nothing here measures"))
+
+    # --- scan 2: READINESS PRECONDITIONS -- sub-case (b) only ---------------
+    # 981's own instance of (b) lives here, not in a criterion.
+    for lineno, pname, measured, thr_node in precondition_entries:
+        t = resolve(thr_node)
+        if t is None or t <= 0:
+            continue
+        candidates = [pname] + leaf_names(measured) if pname else leaf_names(measured)
+        hit = [n for n in candidates if _name_has(n, _DERIVED_RANGE_NAME_TOKENS)]
+        if not hit:
+            continue
+        findings.append((
+            lineno, pname or f"<precondition@{lineno}>",
+            f"line {lineno}: precondition `{pname or hit[0]}` puts a floor of {t:g} "
+            f"on `{hit[0]}`, a derived-range statistic -- the floor is reachable only "
+            f"if the baseline sits at least {t:g} away from the bound, which nothing "
+            f"here establishes"))
+
+    if not findings:
+        return None
+    seen: Set[Tuple[int, str]] = set()
+    parts = []
+    for lineno, crit, msg in findings:
+        if (lineno, crit) in seen:
+            continue
+        seen.add((lineno, crit))
+        parts.append(msg)
+    where = "; ".join(parts)
+    return (
+        f"adjudicates a load-bearing criterion on a threshold whose FEASIBILITY is "
+        f"never established -- {where}. This is the 2026-09-03 cluster's shape: six "
+        f"of seven runs passed every precondition and still discriminated nothing, "
+        f"because the readiness gates certified that the INTERVENTION was applied "
+        f"and none certified that the DEPENDENT VARIABLE had room to move "
+        f"(shortfalls 3.2x, 13.1x, 25.6x, 51x). Fix by declaring a `dv_headroom` "
+        f"precondition -- experiments/_metrics.py `dv_headroom_check(...)` into "
+        f"`p0_readiness_gate(...)` -- which measures the control arm's realised "
+        f"range against this same threshold and self-routes to "
+        f"substrate_not_ready_requeue when it is out of reach, instead of spending "
+        f"the compute and reporting a FAIL that means nothing. Any mention of "
+        f"dv_headroom in the file silences this. Exempt with "
+        f"{_CRITERION_ACHIEVABLE_RANGE_EXEMPT_MARKER} = \"<reason>\" when the DV's "
+        f"range is guaranteed by construction elsewhere. Full write-up: "
+        f"REE_assembly/evidence/planning/"
+        f"failure_autopsy_ext-claim-probe-cluster_2026-09-03.md section 2. Do NOT "
+        f"retro-edit a LANDED driver whose run is complete."
+    )
+
+
 _DRY_RUN_SWEPT_POINT_EXEMPT_MARKER = "DRY_RUN_SWEPT_POINT_EXEMPT"
 _POINT_EPS = 1e-9
 _SLICE_UNRESOLVED = object()
@@ -7414,6 +7739,7 @@ def main() -> int:
     write_pack_dry_run_warnings: List[Tuple[Path, str]] = []
     dry_unreachable_criterion_warnings: List[Tuple[Path, str]] = []
     dry_sweep_excludes_point_warnings: List[Tuple[Path, str]] = []
+    criterion_range_warnings: List[Tuple[Path, str]] = []
     config_slice_warnings: List[Tuple[Path, str]] = []
     inert_dacc_bias_warnings: List[Tuple[Path, str]] = []
     dacc_last_bundle_warnings: List[Tuple[Path, str]] = []
@@ -7574,6 +7900,16 @@ def main() -> int:
                 # the static scan, and the landed carrier's run is complete, so hardening
                 # would block commits on history).
                 dry_sweep_excludes_point_warnings.append((p, dsp))
+        if "criterion_exceeds_achievable_range" in selected:
+            cear = criterion_exceeds_achievable_range_lint(p)
+            if cear:
+                # WARN-only in BOTH modes -- see criterion_exceeds_achievable_range_lint()
+                # for why this one never hardens under --paths. It cannot prove the
+                # criterion IS unreachable (the baseline is a runtime quantity); it
+                # reports that nothing establishes the threshold's FEASIBILITY. A
+                # warning that rests on an unprovable premise must never block a
+                # commit, and the 112 landed carriers' runs are complete.
+                criterion_range_warnings.append((p, cear))
         if "config_slice_declaration" in selected:
             csd = config_slice_under_declaration_lint(p)
             if csd:
@@ -7684,6 +8020,7 @@ def main() -> int:
           f"{len(write_pack_dry_run_warnings)} write_pack-dry_run-warning(s), "
           f"{len(dry_unreachable_criterion_warnings)} dry_run-unreachable-criterion-warning(s), "
           f"{len(dry_sweep_excludes_point_warnings)} dry_run-sweep-excludes-keyed-point-warning(s), "
+          f"{len(criterion_range_warnings)} criterion-exceeds-achievable-range-warning(s), "
           f"{len(config_slice_warnings)} config_slice-declaration-warning(s), "
           f"{len(inert_dacc_bias_warnings)} inert-salience-dacc_bias-warning(s), "
           f"{len(dacc_last_bundle_warnings)} dacc-_last_bundle-warning(s), "
@@ -7861,6 +8198,28 @@ def main() -> int:
         print("", flush=True)
         print("[validate_experiments] CONFIG_SLICE-DECLARATION WARNINGS (advisory, non-blocking):", flush=True)
         for p, warn in config_slice_warnings:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
+            print(f"  - {rel}: {warn}", flush=True)
+    if criterion_range_warnings:
+        # Advisory in BOTH modes (never hardens). A fire here means the driver
+        # adjudicates a LOAD-BEARING criterion (or gates on a readiness
+        # precondition) whose threshold's FEASIBILITY nothing establishes: the DV
+        # may have no room to reach it, in which case the run spends its compute
+        # and reports a FAIL that means nothing. This is the 2026-09-03 EXT-cluster
+        # shape -- six of seven runs passed every precondition and still
+        # discriminated nothing (shortfalls 3.2x, 13.1x, 25.6x, 51x). Triage each:
+        # declare a `dv_headroom` precondition (experiments/_metrics.py
+        # dv_headroom_check -> p0_readiness_gate), which measures the control arm's
+        # realised range against the same threshold and self-routes to
+        # substrate_not_ready_requeue when it is out of reach. A driver whose DV
+        # range is guaranteed by construction elsewhere should carry
+        # CRITERION_ACHIEVABLE_RANGE_EXEMPT rather than be left to re-fire. Do NOT
+        # retro-edit a LANDED driver whose run is complete -- adjudicate the
+        # affected RESULT instead.
+        print("", flush=True)
+        print("[validate_experiments] CRITERION-EXCEEDS-ACHIEVABLE-RANGE WARNINGS "
+              "(advisory, non-blocking):", flush=True)
+        for p, warn in criterion_range_warnings:
             rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
             print(f"  - {rel}: {warn}", flush=True)
     if dry_unreachable_criterion_warnings:

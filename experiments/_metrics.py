@@ -36,7 +36,7 @@ All extractors:
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
@@ -565,6 +565,255 @@ def _readiness_is_upper(direction: str, comparator: str) -> bool:
     return direction.strip().lower() in _UPPER_DIRECTIONS
 
 
+# -- DV-headroom preconditions (dv-dynamic-range-precondition-class) --------- #
+#
+# Every readiness gate in this corpus certifies the INTERVENTION -- was the channel
+# perturbed, did the head train, were there enough samples -- and NONE certifies
+# that the DEPENDENT VARIABLE had room to move. Across the seven 2026-09-03
+# pending-review runs, six passed all their preconditions and still could not
+# discriminate, because the registered pass threshold lay outside the range the
+# configuration could produce:
+#
+#   V3-EXQ-981  C1 threshold 1.154 on a DV bounded in [0,1]        (unsatisfiable)
+#   V3-EXQ-981  precision-margin elevation 0.000195 vs floor 0.01        (51x)
+#   V3-EXQ-951c gate_caused with zero reachable ticks                (no support)
+#   V3-EXQ-983  decline_gap realised range 0.0468 vs C1 0.15            (3.2x)
+#   V3-EXQ-993  max |calibration_gap| 0.00152 vs floor 0.02            (13.1x)
+#   V3-EXQ-994  retention spread 0.00078 vs 0.02                       (25.6x)
+#   V3-EXQ-978  arm-mean difference one third of the DV's 0.05 quantum
+#
+# A `dv_headroom` check answers one question the other kinds never ask: CAN this
+# DV, in THIS configuration, produce a value the registered threshold would
+# accept? It is expressed in the gate's existing single-bound shape --
+#
+#     measured  = what the DV can actually achieve here (the CONTROL arm's
+#                 realised dynamic range, or the arithmetic room left above a
+#                 saturated baseline)
+#     threshold = what the criterion requires (its registered threshold, times an
+#                 optional safety margin)
+#     direction = "lower"  ->  met iff achievable >= required
+#
+# -- so an unmet entry raises P0NotReady like any other and the caller writes the
+# substrate_not_ready_requeue manifest it already writes. Nothing downstream
+# changes: the REE_assembly indexer recomputes `met` from (measured, threshold,
+# direction) and is kind-agnostic, so an unmet dv_headroom entry adjudicates as
+# `precondition_unmet` with no indexer change. That is deliberate -- governance
+# governance-20260903T2013 scoped this build to the HARNESS (validate_experiments.py
+# + p0_readiness_gate) precisely so it could not perturb the 1,201 drivers that
+# import the substrate.
+#
+# OPT-IN, and byte-identical when not opted into. A driver acquires a dv_headroom
+# entry only by building one; every existing driver's `kind` is "readiness" or one
+# of the dozen bespoke labels, so the validation below cannot fire on shipped code.
+#
+# PRECEDENT, and why this is a harness abstraction rather than a per-driver idiom:
+# V3-EXQ-777a hand-rolled exactly this guard as two local precondition entries
+# (`baseline_entropy_headroom`, `score_dv_headroom_seeds` -- the latter's own
+# `control` string calls it "the guard V3-EXQ-777 lacked"). One driver having
+# invented it locally, after a run was lost for want of it, is the argument for
+# putting it where the next driver inherits it instead of re-deriving it.
+DV_HEADROOM_KIND = "dv_headroom"
+
+# How "what the DV can achieve" is measured. The four statistics are not
+# interchangeable -- each matches a different one of the corpus failures above,
+# and picking the wrong one produces a gate that passes while the DV is pinned.
+DV_HEADROOM_STATISTICS = ("range", "max_abs", "ceiling_headroom", "floor_headroom",
+                          "explicit")
+
+
+def dv_achievable(
+    control_values: Sequence[float],
+    statistic: str = "range",
+    dv_bounds: Optional[Tuple[float, float]] = None,
+) -> float:
+    """Measure what a DV actually achieved in the CONTROL arm. Returns a float.
+
+    `statistic` selects the measurement, and the choice is scientific, not
+    stylistic:
+
+      "range"            max - min over the control arm's realised values. The
+                         DV's demonstrated dynamic range. Use when the criterion
+                         reads a SPREAD or a between-arm difference (983's
+                         decline_gap 0.0468 vs 0.15; 994's retention spread).
+      "max_abs"          max |v|. The largest magnitude the control arm produced.
+                         Use when the criterion reads a signed deviation against
+                         an absolute floor (993's max |calibration_gap| 0.00152
+                         vs SEPARATED_SIGNAL_FLOOR 0.02).
+      "ceiling_headroom" dv_bounds[1] - max(v). The arithmetic room left ABOVE a
+                         saturated baseline. Use for an ELEVATION criterion on a
+                         bounded DV (981's precision-margin: 0.000195 available
+                         against a 0.01 floor, a 51x shortfall that no
+                         intervention could have closed).
+      "floor_headroom"   min(v) - dv_bounds[0]. The mirror, for a SUPPRESSION
+                         criterion against a floored baseline.
+      "explicit"         refused here -- pass `achievable=` to dv_headroom_check
+                         instead, for a DV whose ceiling is analytic rather than
+                         sampled (e.g. 951c's "zero reachable ticks", where the
+                         achievable count is a property of the schedule).
+
+    A non-finite value anywhere in `control_values` yields NaN rather than an
+    order-dependent max: the measurement is broken, and NaN is routed to UNMET by
+    p0_readiness_gate's existing sentinel substitution. That is the honest
+    outcome -- a headroom gate that cannot measure the DV must not certify it.
+    """
+    if statistic not in DV_HEADROOM_STATISTICS:
+        raise ValueError(
+            f"dv_achievable: statistic {statistic!r}; expected one of "
+            f"{DV_HEADROOM_STATISTICS}.")
+    if statistic == "explicit":
+        raise ValueError(
+            "dv_achievable: the 'explicit' statistic has nothing to measure; "
+            "pass achievable=<float> to dv_headroom_check() instead.")
+    vals = [float(v) for v in control_values]
+    if not vals:
+        # A headroom gate over an EMPTY control arm is the vacuity it exists to
+        # catch, arriving one level up. Refuse loudly rather than certify it.
+        raise ValueError(
+            "dv_achievable: control_values is empty; there is no realised range "
+            "to measure. Fix the caller (the control arm produced no readings) "
+            "rather than gating on nothing.")
+    if any(v != v or v in (float("inf"), float("-inf")) for v in vals):
+        return float("nan")
+    if statistic == "range":
+        return max(vals) - min(vals)
+    if statistic == "max_abs":
+        return max(abs(v) for v in vals)
+    if dv_bounds is None:
+        raise ValueError(
+            f"dv_achievable: statistic {statistic!r} needs dv_bounds=(low, high) "
+            "-- headroom against a bound is undefined without the bound.")
+    low, high = float(dv_bounds[0]), float(dv_bounds[1])
+    if not high > low:
+        raise ValueError(
+            f"dv_achievable: dv_bounds=({low}, {high}) is not an interval.")
+    if statistic == "ceiling_headroom":
+        return high - max(vals)
+    return min(vals) - low          # floor_headroom
+
+
+def dv_headroom_check(
+    name: str,
+    *,
+    dv_name: str,
+    criterion_threshold: float,
+    control_values: Optional[Sequence[float]] = None,
+    achievable: Optional[float] = None,
+    statistic: str = "range",
+    dv_bounds: Optional[Tuple[float, float]] = None,
+    margin: float = 1.0,
+    **extra: Any,
+) -> Dict[str, Any]:
+    """Build one `dv_headroom` check for p0_readiness_gate. Returns a check dict.
+
+    `criterion_threshold` is the threshold the LOAD-BEARING criterion actually
+    registers -- pass the same module constant the criterion reads, never a
+    re-typed literal, so the gate cannot drift away from the science it guards.
+
+    `margin` (>= 1.0) requires headroom to EXCEED the threshold by a factor
+    rather than merely reach it. The default 1.0 asserts bare feasibility: the DV
+    could, in principle, produce a passing value. A margin of 2.0 asserts the
+    threshold sits at most half the achievable range away -- the honest setting
+    when the criterion needs room to resolve an effect, not just to touch the
+    bound. Both are defensible; the default is the weaker claim.
+
+    Supply EITHER `control_values` (measured via `statistic`) or `achievable`
+    (an analytic ceiling, for a DV whose reachable range is a property of the
+    schedule rather than a sample -- 951c's zero reachable ticks).
+
+    The returned dict is a plain check; it does not gate anything until it is
+    passed to p0_readiness_gate(), which is where an unmet entry raises
+    P0NotReady and the caller self-routes to substrate_not_ready_requeue.
+    """
+    if (control_values is None) == (achievable is None):
+        raise ValueError(
+            f"dv_headroom_check: check {name!r} must supply exactly one of "
+            "control_values= (measured) or achievable= (analytic).")
+    if achievable is None:
+        measured = dv_achievable(control_values, statistic=statistic,
+                                 dv_bounds=dv_bounds)
+        n_control = len(list(control_values))
+    else:
+        measured = float(achievable)
+        statistic = "explicit"
+        n_control = 0
+    margin = float(margin)
+    if not margin >= 1.0:
+        # A margin below 1 would certify a DV that CANNOT reach the threshold --
+        # it inverts the gate's meaning rather than loosening it.
+        raise ValueError(
+            f"dv_headroom_check: check {name!r} has margin {margin}; the margin "
+            "scales the REQUIRED headroom and must be >= 1.0.")
+    required = float(criterion_threshold) * margin
+    entry: Dict[str, Any] = dict(extra)
+    entry.update({
+        "name": str(name),
+        "kind": DV_HEADROOM_KIND,
+        "measured": measured,
+        "threshold": required,
+        "direction": "lower",
+        "dv_name": str(dv_name),
+        "achievable_statistic": statistic,
+        "criterion_threshold": float(criterion_threshold),
+        "headroom_margin": margin,
+        "n_control_values": n_control,
+    })
+    # The shortfall the autopsy table reports ("13.1x", "25.6x") is 1/ratio.
+    # Recorded so a reader of the manifest sees HOW FAR out of range the
+    # criterion was, not merely that it was.
+    if required > 0 and measured == measured:
+        entry["headroom_ratio"] = measured / required
+    if dv_bounds is not None:
+        entry["dv_bounds"] = [float(dv_bounds[0]), float(dv_bounds[1])]
+    return entry
+
+
+def _validate_dv_headroom_check(name: str, check: dict, is_upper: bool) -> None:
+    """Refuse a malformed `dv_headroom` entry. Returns None; raises ValueError.
+
+    Only ever called for an entry whose `kind` IS "dv_headroom", so it cannot
+    touch a driver that has not opted in.
+
+    Two refusals, both because the failure they prevent is SILENT:
+
+    (1) An UPPER bound inverts the gate. "Achievable must be at most the
+        threshold" certifies exactly the runs this class exists to stop -- it
+        passes when the DV is pinned and fails when it has room. A floor is not a
+        stylistic preference here; it is the whole semantics.
+
+    (2) A missing `dv_name` / `achievable_statistic` leaves the manifest entry
+        unreadable after the fact. "measured 0.0468 vs threshold 0.15" does not
+        say WHICH variable had no room, or what "achievable" was taken to mean --
+        and the four statistics are not interchangeable. The 2026-09-03 cluster
+        cost seven runs precisely because nothing recorded this; an entry that
+        cannot be recomputed by a later reader repeats that.
+
+    Both are author errors at wiring time, caught on the first run rather than in
+    the next autopsy.
+    """
+    if is_upper:
+        raise ValueError(
+            f"p0_readiness_gate: dv_headroom check {name!r} resolves to an UPPER "
+            "bound; headroom is a FLOOR (achievable >= required). An upper bound "
+            "inverts the gate -- it would pass a pinned DV and fail a live one. "
+            "Drop the direction/comparator override, or build a plain readiness "
+            "check if you meant something else.")
+    dv_name = check.get("dv_name")
+    if not (isinstance(dv_name, str) and dv_name.strip()):
+        raise ValueError(
+            f"p0_readiness_gate: dv_headroom check {name!r} is missing a "
+            "non-empty `dv_name`. Name the dependent variable whose range is "
+            "being certified -- the manifest entry is not interpretable without "
+            "it. dv_headroom_check() sets this for you.")
+    stat = check.get("achievable_statistic")
+    if stat not in DV_HEADROOM_STATISTICS:
+        raise ValueError(
+            f"p0_readiness_gate: dv_headroom check {name!r} has "
+            f"achievable_statistic {stat!r}; expected one of "
+            f"{DV_HEADROOM_STATISTICS}. The statistics are not interchangeable "
+            "(a range, a max-abs and a ceiling-headroom answer different "
+            "questions), so the entry must say which was measured.")
+
+
 def p0_readiness_gate(checks: list) -> list:
     """Pre-registered P0 abort gate -- assert the substrate is trained enough to
     make the measurement non-vacuous BEFORE burning compute on P1/P2.
@@ -591,6 +840,17 @@ def p0_readiness_gate(checks: list) -> list:
     non-bound diagnostics (counts, per-seed detail, notes) in the same dict
     instead of re-attaching them after the call. `kind` defaults to "readiness"
     but may be overridden by the caller.
+
+    DV_HEADROOM. `kind: "dv_headroom"` (build it with dv_headroom_check(), see
+    above) certifies that the DEPENDENT VARIABLE has room to reach its own
+    registered threshold -- the one thing every other kind in this corpus leaves
+    unchecked, and the cause of six of the seven 2026-09-03 pending-review runs
+    passing all preconditions and still discriminating nothing. It rides the
+    ordinary single-bound path (measured = achievable, threshold = required,
+    floor), so an unmet entry raises P0NotReady and self-routes exactly like any
+    other; the only added behaviour is a wiring-time refusal of a malformed
+    entry (see _validate_dv_headroom_check). Opt-in per driver: a caller that
+    does not set this kind is unaffected, bit-identically.
 
     NON-FINITE measurements are sentinel-substituted -- see NON_FINITE_*_SENTINEL
     above for the mechanism and why it is needed.
@@ -628,6 +888,11 @@ def p0_readiness_gate(checks: list) -> list:
         direction = str(c.get("direction", "lower"))
         is_upper = _readiness_is_upper(direction, comparator)
         strict = comparator in (">", "<")
+
+        # DV-headroom entries carry extra structure the generic path cannot check.
+        # Gated on the kind, so a driver that has not opted in is untouched.
+        if str(c.get("kind", "")) == DV_HEADROOM_KIND:
+            _validate_dv_headroom_check(name, c, is_upper)
 
         m = float(c["measured"])
         t = float(c["threshold"])

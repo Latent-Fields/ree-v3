@@ -6,7 +6,10 @@ described in `REE_assembly/evidence/planning/experiment_verification_harness_pla
 (Gap 2). Check this table before recommending a new lint: the bug class you
 found may already be covered.
 
-**Count as of 2026-08-04: 20 files.** (A prior plan-doc draft said 47 — that
+**Count as of 2026-09-04: 28 files.** (Recounted on this date; the previous
+"20 as of 2026-08-04" had gone stale — eight lint files landed without the
+count being updated, which is the failure mode the recount command below
+exists to make cheap. A prior plan-doc draft said 47 — that
 figure counted `.pyc` cache variants and nested `.claude/worktrees/` copies
 alongside the source files; corrected here. Recount with:
 `find . -iname "test_*_lint.py" -not -path "*__pycache__*" -not -path "*/.claude/worktrees/*" | wc -l`
@@ -25,6 +28,7 @@ fails `validate_experiments.py --strict --paths <script>` and therefore blocks
 | `test_anchor_reachability_lint.py` | `anchor_reachability` | A readiness-anchor precondition's hand-written predicate is narrower than the state it anchors to — unmeetable by construction, so it reports `met=false` forever. | Warn | V3-EXQ-778d; `failure_autopsy_SD-068-rem-fanout-cluster_2026-07-18.md` sec 2. |
 | `test_arm_fingerprint_lint.py` | n/a (own selector) | Multi-arm script (writes `arm_results`) omits the per-cell RNG reset + fingerprint emission required for arm-reuse determinism. | **Hard** under `--strict --paths` (advisory in full-glob backlog mode) | Design gate ratified 2026-06-07, `arm_reuse_fingerprint_plan.md`. |
 | `test_config_slice_declaration_lint.py` | `config_slice_declaration` | A cross-driver-reusable arm cell's `config_slice` omits a numeric constant its own call graph reads — a false-cache-HIT risk (worse than a false miss). | Warn | `arm_reuse_fingerprint_plan.md` sec 7b. |
+| `test_criterion_exceeds_achievable_range_lint.py` | `criterion_exceeds_achievable_range` | A load-bearing criterion (or a readiness precondition) is adjudicated against a threshold whose FEASIBILITY nothing establishes — a multiplicative threshold on a unit-interval DV, or an absolute floor on a derived-range statistic. The DV may have no room to reach it, so the run spends its compute and reports a FAIL that means nothing. | Warn | Cluster autopsy `failure_autopsy_ext-claim-probe-cluster_2026-09-03.md` sec 2 (substrate entry `dv-dynamic-range-precondition-class`): six of seven pending-review runs passed every precondition and still discriminated nothing — shortfalls 3.2x (983), 13.1x (993), 25.6x (994), 51x (981). Paired with the runtime `dv_headroom` precondition kind in `experiments/_metrics.py`, which is the lint's stated remedy and silences it. |
 | `test_dacc_last_bundle_lint.py` | `dacc_last_bundle` | Driver reads the dACC bundle via the wrong attribute path (`dacc._last_bundle` instead of `agent._dacc_last_bundle`); the wrong `getattr` default silently returns `None`, pinning dACC metrics at 0.0. | Warn | Found 2026-07-29; V3-EXQ-687 self-routed `substrate_not_ready_requeue` on the resulting fake zero. 15 landed carriers are record-frozen but still counted by the corpus pin. |
 | `test_dead_z_goal_stream_lint.py` | `dead_z_goal_stream` | Driver enables a `z_goal`-dependent config but never calls the sole writer (`REEAgent.update_z_goal`) — every goal-gated branch silently no-ops for the whole run. | Warn | Confirmed twice, opposite orders: V3-EXQ-626 (2026-06-01) and a later recurrence. |
 | `test_dose_saturation_lint.py` | n/a (manifest-local, `dose_saturation.stamp_dose_saturation`) | Two declared dose levels produce values identical beyond float noise — the manipulation never moved the readout. | Never raises (manifest-stamped WARN) | V3-EXQ-794 (SD-076); `failure_autopsy_V3-EXQ-794_2026-07-22.md` sec 6 item 2. Both SD-076 and MECH-204 went untested while appearing tested. |
