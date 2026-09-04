@@ -521,10 +521,44 @@ def test_dv_headroom_validation_never_fires_on_a_foreign_kind():
     assert out[0]["met"] is True and out[0]["kind"] == "capability"
 
 
-def test_no_shipped_driver_currently_declares_the_new_kind():
-    """Opt-in means opt-in: at build time nothing in the corpus sets this kind, so the
-    landing cannot change any existing driver's behaviour. If this ever fails it is
-    because a driver adopted the kind -- expected, and the assertion should move."""
-    hits = [p.name for p in EXPERIMENTS_DIR.glob("*.py")
-            if '"kind": "dv_headroom"' in p.read_text(encoding="utf-8", errors="ignore")]
-    assert hits == [], f"drivers now declare the kind: {hits}"
+# The first adopter of the dv_headroom kind. The assertion below was
+# `hits == []` at build time (governance-20260903T2013), with its own docstring
+# saying: "If this ever fails it is because a driver adopted the kind --
+# expected, and the assertion should move." It has now moved, exactly once, to
+# an explicit allowlist -- which still catches an UNREVIEWED adoption while
+# recording the reviewed one.
+KNOWN_DV_HEADROOM_ADOPTERS = {
+    # V3-EXQ-993a: the ARC-021/MECH-069 redesign the dv_headroom class was
+    # minted for. Its predecessor V3-EXQ-993 burned a 12-cell grid before
+    # discovering its control arm produced no signal; H1/H2 are what refuse
+    # that run before the compute (see the driver's docstring).
+    "v3_exq_993a_arc021_merged_channel_action_conditioned_harm.py",
+}
+
+
+def test_only_reviewed_drivers_declare_the_new_kind():
+    """Opt-in means opt-in: a driver may adopt this kind only deliberately.
+
+    Adoption is not forbidden -- it is the point of the class -- but it must be
+    a reviewed change rather than a copy-paste side effect, because a
+    dv_headroom entry GATES the run (an unmet one raises P0NotReady and
+    self-routes to substrate_not_ready_requeue). Add the filename above in the
+    same commit that adopts the kind."""
+    hits = {p.name for p in EXPERIMENTS_DIR.glob("*.py")
+            if '"kind": "dv_headroom"' in p.read_text(encoding="utf-8", errors="ignore")}
+    unreviewed = sorted(hits - KNOWN_DV_HEADROOM_ADOPTERS)
+    assert unreviewed == [], (
+        f"drivers declare kind=dv_headroom without being listed in "
+        f"KNOWN_DV_HEADROOM_ADOPTERS: {unreviewed}")
+
+
+def test_the_adopter_allowlist_has_no_stale_entries():
+    """A listed adopter that no longer declares the kind (renamed, reverted,
+    deleted) must be removed, or the allowlist silently grows into a rubber
+    stamp that permits any future file of that name."""
+    present = {p.name for p in EXPERIMENTS_DIR.glob("*.py")}
+    stale = sorted(n for n in KNOWN_DV_HEADROOM_ADOPTERS
+                   if n not in present
+                   or '"kind": "dv_headroom"' not in (EXPERIMENTS_DIR / n).read_text(
+                       encoding="utf-8", errors="ignore"))
+    assert stale == [], f"allowlist entries no longer declaring the kind: {stale}"
