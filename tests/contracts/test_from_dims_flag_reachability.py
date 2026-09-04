@@ -347,7 +347,19 @@ KNOWN_FROM_DIMS_DROP_SITES = {
             "(wanting_weight_live / wanting_weight_landed, both arms True "
             "in the recorded manifest "
             "v3_exq_967_..._20260901T062344Z_v3.json). Same negative "
-            "control as the rest of this entry; no evidence invalidated."
+            "control as the rest of this entry; no evidence invalidated. "
+            "v3_exq_997 (added 2026-09-04, ree-v3 8d53fdb by "
+            "daily-science-20260903) recurred as the SAME trunk red and was "
+            "checked the same way -- MEASURED, not source-read: "
+            "REEConfig.from_dims(..., wanting_weight=7.5).hippocampal."
+            "wanting_weight reads back 7.5, so the value LANDS on the "
+            "hippocampal knob, while hippocampal.ghost_goal_bank_config."
+            "wanting_weight stays at its 1.0 default -- which is precisely "
+            "the same-named-field-on-an-unrelated-config PARTIAL this entry "
+            "describes. 997 passes wanting_weight=0.0, equal to the "
+            "hippocampal default, so the knob is doubly inert there and its "
+            "FAIL outcome cannot be an artefact of this. Registered by "
+            "campaign-c3-20260904 (chip-20260904-fromdims-drop-wantingweight-997)."
         ),
         "paths": {
             "experiments/v3_exq_259_wanting_gradient_navigation.py",
@@ -368,6 +380,7 @@ KNOWN_FROM_DIMS_DROP_SITES = {
             "experiments/v3_exq_931_cem_wanting_weight_selection_authority.py",
             "experiments/v3_exq_966_mech143_144_hippocampal_value_sensitivity_causal.py",
             "experiments/v3_exq_967_mech144_shuffle_inertness_confirmer.py",
+            "experiments/v3_exq_997_mech162_zresource_zworld_planning_reconvergence.py",
         },
     },
 }
