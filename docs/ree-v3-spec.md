@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-09-05 (T01:10Z nightly)
+**Last updated:** 2026-09-06 (T12:55Z nightly)
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -234,6 +234,97 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 `REE_assembly/docs/architecture/self_attribution_per_stream.md`.
 
 ### Experiment Status
+
+- **2026-09-06T12:55Z nightly attestation (scheduled `/update-docs`, bot
+  identity).** ~36h window since the 2026-09-05T01:10Z snapshot. Flat
+  `v3_exq_*` manifests on disk: **985** (+2 vs 983 at 2026-09-05); nested
+  per-run manifests under `evidence/experiments/*/runs/`: **2920** (+2 vs
+  2918). **Currently queued (`experiment_queue.json` items[]): 0 items**
+  (drained from 2 at the 2026-09-05T01:10Z read -- both CLAIMED entries
+  completed in-window). **Pending review (`pending_review.md`, regenerated
+  2026-09-05T11:08:01Z): 0 items** -- "All experiments reviewed. Nothing
+  pending" (unchanged; the two in-window completions were adjudicated
+  inline in the `governance-20260905` cycle below, not left for a separate
+  review pass). (a) **NO new substrate landings in the window** -- the
+  three named in the 2026-09-05T01:10Z snapshot (SD-104 + SD-105
+  co-landed, SD-WAYPOINT-FIELD, DV-headroom class) all landed on
+  2026-09-04 and are not carried forward here. (b) **New completions in
+  the window (2 flat manifests, both were CLAIMED at the 2026-09-05T01:10Z
+  read)**: V3-EXQ-822e (`SD-082 raw pre-tanh candidate-discrimination
+  index DV`, adjudicated in-cycle instrument-voided by a SIGNED-norm
+  trainedness gate at -0.0038 -- a norm shrink that certifies movement;
+  the run is a bit-for-bit replay of 822d with 28/28 per-cell stats
+  identical; C1/C2 PASS uncreditable; non_contributory both; byte-identical
+  822f REFUSED, design-changed 822f with trained-vs-init index + new seeds
+  owed; brake released on the ground that only 822c is a genuine ceiling
+  hit) + V3-EXQ-983a (`EXT-002 residue error-persistence redesign` --
+  headroom-derived C1 bar plus runtime `dv_headroom` precondition plus
+  training-completion gate before seed pooling; landed but not scored as
+  supporting evidence pending the design-changed 822f context, per the
+  autopsy walk's inline route A). (c) **Governance apply cycle in the
+  window**: `governance-20260905` (Mac DLAPTOP, main checkout, user
+  present; REE_assembly commits `fe3cab91eb` cycle applies +
+  `03597a8f57` autopsies + `8d9fe1c714` derive-only regen + follow-ups)
+  applied FIVE autopsies INLINE via Step 1.5 route A (V3-EXQ-993a
+  ARC-021+MECH-069 evidence FAIL -> mixed with retest cleared and
+  pending_retest_after_substrate lifted, dv-headroom entry's 993 record
+  resolved; V3-EXQ-642c MECH-353 diagnostic PASS -> vacuous_pass flag
+  upheld and broadened, WITHDRAW UNREPRESENTABLE across the 642 family,
+  MECH-353 v3_pending held by user judgment, 642d owed; V3-EXQ-1004
+  INV-086+MECH-428 diagnostic PASS -> non_contributory but corrupting gate
+  RELEASED to degrading on `causal_grid_world.py`, 977 record resolved
+  with caveats, MECH-428 retest = two-kwarg edit to the 884 driver
+  requeued as 884a; V3-EXQ-1002 diagnostic FAIL, claim-free -> H-B
+  ELIMINATED, H-C CONFIRMED with a comparator caveat, H-D re-cut as
+  labelled fan-out, H-E respecified against the full 250-dim world_state,
+  SD-018 shape (b) stays held); resolved SIX GFLAGs (0129 ARC-137 v3
+  CONFIRMED, 0132 ContextMemory field fix, 0133 MECH-151 mechanism
+  QUALIFIED, 0134 ARC-130 routed to claim-synthesis, 0136 MECH-465
+  warmup-budget sweep chipped, 0137 ARC-021 pending_retest_after_substrate
+  cleared); the 8 GOV-EDGE-1 cycle-break edges RATIFIED coupled_with;
+  MECH-095 parked at 12 hits, SD-047 valid-retest DESIGN chipped;
+  EXT-005 GOV-APPLY-1 row cleared by live_status stamp (9 -> 8
+  actionable, remaining 8 = GFLAG-0107 already-applied shape); C5 schema:
+  `experiment_gate` + `external_evidence_expected` adopted in the
+  claims.yaml header, ARC-113 migrated to the structured gate,
+  IMPL-026/027 re-typed reference_note (+gate); registry +4 questions +2
+  legs (labelled fan-out on `zworld_actor_adequacy_locus` 2 -> 4);
+  6a-vi 3 amends + 1 wontfix + SD-018 / MECH-465 notes; ceiling audit
+  32 (11 mapped / 21 parked / 0 orphaned / 0 lifted / 0 exhausted);
+  closure drift 0; 7b dangling citations 0; frontmatter lint OK;
+  recommendation-agreement ledger 16 questions logged / 16 matched.
+  Also in the window: two IGW-routine `blocked_substrate` marks (IMPL-016
+  EVB-1303 E3 commit predicate saturated, IMPL-019 EVB-1306 no Stage-4
+  social substrate in `ree_core`), with both lane-blind retire misfires
+  caught and restored (LIT-0621 for IMPL-016 restored `0a24d6235d`,
+  LIT-0627 for IMPL-019 restored `cb414acb06`; SECOND confirmed instance
+  of the already-open `chip-20260902-igwtick-retire-proposal-lane-displacement`);
+  AM scheduled lit-pull `ree-lit-pull-am` landed 7 literature_evidence/v1
+  entries for two claims with zero prior literature coverage
+  (`targeted_review_arc_012` 3 entries and `targeted_review_connectome_arc_015`
+  4 entries; ARC-012 lit_conf 0 -> 0.58 with dormant_high_conflict due to
+  a deliberate Achiam counterweight, ARC-015 lit_conf 0 -> 0.87). (d)
+  **Coordination-plane / infra work in the window**: EXT-008
+  meta-agent evaluation-boundary-exploitation lit-pull added 5 entries
+  (lit_conf 0.83, quadrant `plausible_unproven`; the MAC anchor
+  `lu2026` is graded and captioned to prevent origin-source-self-corroboration);
+  GFLAG-0138 raised on EXT-008 + INV-077 for governance rewording of
+  "despite anti-reward-hacking protections" (source says isolation
+  neutralized the exploit attempt, favourable for INV-077's structural-
+  enforcement stance); `chip-20260905-inv077-reaudit` chipped to re-run
+  INV-077's live-repository write-path audit reporting structural vs
+  procedural enforcement separately. **Bottleneck: unchanged from
+  2026-09-05T01:10Z** -- convergence root remains the H-observation-
+  interface axis (SD-018 AMEND landed 2026-09-02, SD-e1 ITEM 2 candidate-1
+  landed 2026-09-01; V3-EXQ-978 SD-018 AMEND validation was walked to
+  `mixed` in the 2026-09-05 cycle so the AMEND's own validation is not
+  yet a clean support). Green-board target 2026-07-19 is now **49 days
+  overdue**. **ETHICS-PERIMETER Phase 0 datum** stays on the record
+  (Phases 1-3 deferred; NON-BLOCKING). **Public-information-architecture
+  impact:** reviewed against `docs/design/public_information_architecture.md`
+  -- no `/api/*` surface, generated visualization, or public export
+  changed; nightly snapshot + spec date bump only (same category as the
+  2026-09-05 attestation).
 
 - **2026-09-05T01:10Z nightly attestation (scheduled `/update-docs`, bot
   identity).** ~24h window since the 2026-09-04T01:10Z snapshot. Flat
