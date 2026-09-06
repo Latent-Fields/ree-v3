@@ -23,7 +23,7 @@ stage" under Preconditions below and the Status entry for 2026-08-18.
 |------|-----------------|------------------|
 | Claims | Coordinator authoritative | Unchanged |
 | Results / status / queue file on git | Runners `git_push_*` + `--auto-sync` | Coordinator ingest; **sync_daemon** commits/pushes |
-| Heartbeats on git | `runner_remote_control.push_heartbeat` every tick | sync_daemon writes derived `runner_heartbeats/*.json`; runner git heartbeat push **off** |
+| Heartbeats on git | `runner_remote_control.push_heartbeat` every tick | sync_daemon writes derived `runner_heartbeats/*.json`; runner git heartbeat push **off** (the derived git render itself was retired 2026-09-06 -- coordinator DB only) |
 | Hub `SYNC_MODE` | `coordinator` | `authoritative` + `--i-understand-phase3` |
 | Autostash incident class | Still possible via heartbeat/status pushes | **Retired** for coordination paths |
 
@@ -95,7 +95,9 @@ items missing from the file are NOT deleted from the DB (the DB row's
 `status='completed'` is the authoritative "this was done" record and must
 survive the writeback round-trip).
 
-Step 6 (**derived heartbeats + runner_status writeback**) LANDED 2026-05-27.
+Step 6 (**derived heartbeats + runner_status writeback**) LANDED 2026-05-27; the git
+render it introduced was RETIRED 2026-09-06 (`PHASE3_HEARTBEAT_GIT_MATERIALIZE=0`, dirs
+removed from `REE_assembly` master; verify check `derived_heartbeats` removed with it).
 `phase3_heartbeat_writer` materialises `evidence/experiments/runner_heartbeats/
 <machine>.json` AND `evidence/experiments/runner_status/<machine>.json` from
 `heartbeat_payload_json` and `status_payload_json` columns on the `heartbeats`
@@ -186,7 +188,6 @@ git-pushing results/heartbeats):
 | **fleet** | `heartbeat_git_retired` | When step 6 has landed: every worker has `PHASE3_DISABLE_RUNNER_HEARTBEAT_PUSH=1`; recent `runner_remote_control` logs show the gate-active line. SKIP until step 6 is wired. |
 | **data** | `results_drained` | `results.committed_at` populated for pending rows (no stuck spool) |
 | **data** | `queue_snapshot_fresh` | `experiment_queue.json` on origin matches coordinator removals |
-| **explorer** | `derived_heartbeats` | `runner_heartbeats/*.json` updating without per-runner git push |
 | **soak** | `claims_still_healthy` | `check_shadow.py` exit 0 (claim path unchanged) |
 
 Checks marked **SKIP** in `phase3_verify.py` until the corresponding code

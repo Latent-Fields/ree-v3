@@ -245,10 +245,11 @@ Phase 2: coordinator owns claims; git remains result/status transport until Phas
 ### D-hub. Hub runner only (ree-cloud-1 / `ree-worker-1`, Phase 3)
 
 The hub shares its `REE_assembly` checkout with `ree-sync-daemon`. **Fleet
-telemetry on GitHub (`runner_heartbeats/`, `runner_status/`) is owned by
-`sync_daemon.phase3_heartbeat_writer`** -- it materialises files from the
-coordinator DB (fed by every worker's `POST /heartbeat`). The hub runner
-must not write those paths locally.
+telemetry has no git path since 2026-09-06** (`runner_heartbeats/`, `runner_status/`
+removed from master; `sync_daemon.phase3_heartbeat_writer` off via
+`PHASE3_HEARTBEAT_GIT_MATERIALIZE=0`); the coordinator DB (fed by every worker's
+`POST /heartbeat`) is the only source. The hub runner is itself retired
+(2026-08-30) and must not write those paths locally.
 
 Template: `shadow.conf.hub.example` in this directory.
 
@@ -276,7 +277,8 @@ this gate landed; re-enable with `sudo systemctl enable --now ree-runner`.
 Expect journal: `phase3 gate active: heartbeat + commands FILE WRITES will be
 skipped`. If telemetry-only dirt blocks writers, `sync_daemon` auto-reverts
 `runner_heartbeats/` + `runner_status/` when no other paths are dirty
-(2026-06-01). Do not remove `_HEARTBEAT_WRITE` to "fix" stale explorer data.
+(2026-06-01; dormant since the 2026-09-06 retirement -- nothing writes those
+paths by default). Do not remove `_HEARTBEAT_WRITE` to "fix" stale explorer data.
 
 ### E. Post-start verification
 

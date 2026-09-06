@@ -414,10 +414,10 @@ Look for which key it's trying. Ensure `~/.ssh/id_ed25519` exists on your Mac.
 
 ### Runner says "No new items" but queue has entries
 
-The queue_id may already be in runner_status.json (previously run). Check:
+The queue_id may already have run. The completion record is the coordinator DB (the git
+`runner_status/` split left `REE_assembly` master on 2026-09-06). Check:
 ```bash
-ssh ree@<YOUR_SERVER_IP>
-cat ~/Documents/GitHub/REE_Working/REE_assembly/evidence/experiments/runner_status/ree-cloud-1.json
+ssh ree@<HUB_IP> 'python3 -c "import sqlite3; c=sqlite3.connect(\"/home/ree/REE_Working/ree-v3/coordinator/coordinator.db\"); print(c.execute(\"SELECT queue_id, outcome, received_at FROM results WHERE queue_id=?\", (\"V3-EXQ-XXX\",)).fetchall())"'
 ```
 
 ### git push fails on the cloud server

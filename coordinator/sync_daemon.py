@@ -1194,6 +1194,9 @@ def _rel_path_under_heartbeat_writer_guards(relpath):
 def _maybe_revert_exclusive_telemetry_dirt(repo, log_prefix):
     """Recover hub checkout when ONLY heartbeat-writer paths are dirty.
 
+    No-op in practice while PHASE3_HEARTBEAT_GIT_MATERIALIZE=0 (the writer is
+    retired 2026-09-06); kept for the writer-re-armed case.
+
     On the hub VM, runner_heartbeats/ and runner_status/ on disk are
     materialised exclusively by phase3_heartbeat_writer from the coordinator
     DB (runners POST /heartbeat; hub runner must not write these files --

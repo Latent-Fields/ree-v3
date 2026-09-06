@@ -119,6 +119,11 @@ as a *derived view* from the DB so the explorer needs zero changes during
 migration. Cutting serve.py over to the coordinator API is optional Phase-4
 cleanup, not migration-critical.
 
+**Retired 2026-09-06:** sync_daemon no longer writes that derived view
+(`PHASE3_HEARTBEAT_GIT_MATERIALIZE=0`) and the directories left master;
+serve.py `/machines` and the governance generators read coordinator
+`/shadow/status` directly.
+
 ## File map
 
 | File | Role |

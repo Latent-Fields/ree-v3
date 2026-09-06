@@ -64,7 +64,6 @@ HUB_QUEUE_REF = "origin/main"
 
 # How fresh "recent" must be (seconds) for tick / heartbeat-file checks.
 DEFAULT_TICK_LOOKBACK_SEC = 300
-DEFAULT_HEARTBEAT_LOOKBACK_SEC = 600
 
 # How many recent REE_assembly commits the hub_git_writer_only check
 # inspects. Small enough that operator-fingered foreign commits show up
@@ -395,55 +394,6 @@ def check_queue_snapshot_fresh(hub_ssh, ssh_user, *, ssh):
     return "FAIL", "snapshot stale -- " + "; ".join(parts)
 
 
-def check_derived_heartbeats(hub_ssh, ssh_user, *, ssh,
-                             lookback_sec=DEFAULT_HEARTBEAT_LOOKBACK_SEC,
-                             now=None):
-    """Heartbeat + status files on origin/master updated recently AND
-    only by writer-authored commits."""
-    if now is None:
-        now = int(datetime.now(timezone.utc).timestamp())
-    # 1) Most recent commit time touching either subtree.
-    paths = (
-        "evidence/experiments/runner_heartbeats/",
-        "evidence/experiments/runner_status/",
-    )
-    cmd = (
-        "git -C %s fetch --quiet origin master 2>/dev/null && "
-        "git -C %s log -1 --format=%%ct origin/master -- %s %s"
-    ) % (HUB_REE_ASSEMBLY, HUB_REE_ASSEMBLY, paths[0], paths[1])
-    ok, out, err = ssh(hub_ssh, ssh_user, cmd, dry_run=False)
-    if not ok:
-        return "FAIL", "ssh/git log failed: %s" % (err or "?")
-    epoch_str = (out or "").strip().splitlines()[:1]
-    if not epoch_str:
-        return "FAIL", (
-            "no commits ever touched runner_heartbeats/ or runner_status/")
-    if not _is_fresh(epoch_str[0], now, lookback_sec):
-        try:
-            age = now - int(epoch_str[0])
-        except ValueError:
-            age = "?"
-        return "FAIL", (
-            "latest heartbeat/status commit is %ss old (> %ds)"
-            % (age, lookback_sec))
-    # 2) The N most recent commits touching these subtrees must all be
-    #    writer-authored. A runner-pushed commit there means the gate
-    #    is leaking.
-    cmd2 = ("git -C %s log -10 --format=%%s origin/master -- %s %s"
-            % (HUB_REE_ASSEMBLY, paths[0], paths[1]))
-    ok, out, err = ssh(hub_ssh, ssh_user, cmd2, dry_run=False)
-    if not ok:
-        return "FAIL", "ssh/git log subjects failed: %s" % (err or "?")
-    writer, foreign = _classify_commits((out or "").splitlines())
-    if foreign:
-        return "FAIL", (
-            "%d non-writer commit(s) touched heartbeat/status files: %r"
-            % (len(foreign), foreign[:3]))
-    return "PASS", (
-        "heartbeat/status fresh (latest commit within %ds, "
-        "%d writer-authored)" % (lookback_sec, len(writer)))
-
-
 # --------------------------------------------------------------------------
 # Runner: orchestrates the above into a structured summary.
 # --------------------------------------------------------------------------
@@ -466,8 +416,6 @@ def _stub_category(cid):
         return "fleet"
     if cid in ("results_drained", "queue_snapshot_fresh"):
         return "data"
-    if cid == "derived_heartbeats":
-        return "explorer"
     return "hub"
 
 
@@ -554,7 +502,6 @@ def run_verify(
             "heartbeat_git_retired",
             "results_drained",
             "queue_snapshot_fresh",
-            "derived_heartbeats",
         ):
             if mock:
                 msg = "mock: skip live signal"
@@ -585,9 +532,6 @@ def run_verify(
         # 6. queue_snapshot_fresh
         st, msg = check_queue_snapshot_fresh(hub_ssh, ssh_user, ssh=ssh)
         add("queue_snapshot_fresh", "data", st, msg)
-        # 7. derived_heartbeats
-        st, msg = check_derived_heartbeats(hub_ssh, ssh_user, ssh=ssh)
-        add("derived_heartbeats", "explorer", st, msg)
 
     # Claims path should stay healthy (same as Phase 2).
     if mock:

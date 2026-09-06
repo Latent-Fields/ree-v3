@@ -290,6 +290,9 @@ def find_ree_assembly_path() -> Path | None:
     return None
 
 
+# DEGRADED PATH since 2026-09-06: workers no longer write the telemetry paths
+# (PHASE3_RUNNER_TELEMETRY_OFF_GIT=1) and the hub no longer materialises them,
+# so this conflict class only arises with those gates off.
 # Paths that the worker writes locally but where origin is the canonical
 # source of truth under Phase 3 (the hub's sync_daemon writers publish the
 # authoritative version). When `git pull --rebase --autostash` leaves UU
@@ -1766,6 +1769,9 @@ def _run_v3_parity_gate(force: bool = False) -> None:
 def git_pull(repo_path: Path, label: str) -> None:
     """Pull latest changes. Retries on transient lock errors. Never raises.
 
+    (Heartbeat/status JSON dirt is a degraded-path case since 2026-09-06 --
+    see runner_remote_control's module docstring.)
+
     Uses --rebase --autostash so that local edits to heartbeat / status JSONs
     don't block the pull with "Your local changes would be overwritten by merge"
     (the cloud-1 stall we hit 2026-05-10, where the runner couldn't pull
@@ -2923,8 +2929,8 @@ def _phase3_hub_local_ree_assembly_writes_gated() -> bool:
              or _rrc._phase3_telemetry_file_write_gated())
     if gated and not _PHASE3_HUB_FILE_WRITE_GATE_LOGGED:
         print("[runner] phase3 gate: skipping local runner_status file "
-              "writes (coordinator POST is transport; sync_daemon "
-              "materialises git from the coordinator DB)",
+              "writes (coordinator POST is transport; git render "
+              "retired 2026-09-06)",
               flush=True)
         _PHASE3_HUB_FILE_WRITE_GATE_LOGGED = True
     return gated
@@ -3452,11 +3458,12 @@ def acquire_claim(queue_file: Path, queue_id: str, machine: str) -> str:
 
     claim_result = attempt_claim(queue_file, queue_id, machine)
     # SHADOW: report the git verdict so the coordinator can compare its
-    # own atomic-claim logic against git's. Under Phase 3 the local
-    # heartbeat files that drive _is_stale_claim are materialised by the
-    # hub's sync_daemon and can lag the DB by minutes; the legacy git
-    # path can then take a "stale" claim that the writer-authoritative
-    # DB still considers active. When the shadow report comes back with
+    # own atomic-claim logic against git's. The local heartbeat files
+    # that drive _is_stale_claim are no longer materialised at all (hub
+    # git writer retired 2026-09-06, dirs removed from REE_assembly master),
+    # so in git mode they are permanently absent/stale rather than
+    # lagging; the legacy git path can then take a "stale" claim that
+    # the writer-authoritative DB still considers active. When the shadow report comes back with
     # coord_verdict="already_claimed" against our local "ok", believe
     # the coordinator and release the local claim before the runner
     # spawns a duplicate experiment process.

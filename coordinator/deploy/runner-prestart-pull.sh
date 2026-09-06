@@ -68,7 +68,8 @@ main() {
 
     # --rebase --autostash matches experiment_runner.git_pull's own idiom, and
     # for the same reason: a worker tree legitimately carries ephemeral dirt
-    # (runner_heartbeats/<host>.json, runner_status/<host>.json, the queue
+    # (runner_heartbeats/<host>.json, runner_status/<host>.json -- dormant
+    # since 2026-09-06, workers no longer write them -- and the queue
     # file's claim flag). Plain --ff-only refuses on those even when a
     # fast-forward would not conflict at content level -- it would fail open on
     # exactly the boxes this is meant to protect, which is no fix at all.

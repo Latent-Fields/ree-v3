@@ -1,5 +1,13 @@
 """Cross-machine remote-control surface for the V3 experiment runner.
 
+STATUS (2026-09-06): the coordinator is the live transport for everything
+below (POST /heartbeat, /status; GET /commands + POST /commands/ack). The git
+file paths described in Phase 1/2 are the DEGRADED PATH only -- off on every
+worker (PHASE3_RUNNER_TELEMETRY_OFF_GIT, PHASE3_DISABLE_RUNNER_HEARTBEAT_PUSH,
+PHASE3_COMMANDS_OFF_GIT), the hub git writer retired, and the three
+directories removed from REE_assembly master. Levers + history: REE_Working
+docs/skill_archaeology/claude-md-concurrency/a-93-retired-telemetry-git-path-fallback.md.
+
 Phase 1: heartbeats.
   - write_heartbeat() emits a JSON snapshot of this runner's state to
     REE_assembly/evidence/experiments/runner_heartbeats/<hostname>.json
@@ -83,9 +91,9 @@ VALID_COMMAND_KINDS = (
     #   note      (str, optional) -- free-text added to result_summary
     # Effect: in-memory status["completed"] entry is mutated, local
     # runner_status.json is rewritten atomically, the next heartbeat tick
-    # POSTs the corrected status_payload_json to the coordinator, the hub's
-    # phase3_heartbeat_writer materialises the corrected per-machine file
-    # on origin/master.
+    # POSTs the corrected status_payload_json to the coordinator (the DB
+    # update is the only durable effect -- the hub git render is
+    # retired 2026-09-06).
     "reclassify",
 )
 
@@ -174,11 +182,10 @@ def write_heartbeat(
 
     Phase 3 _WRITE gate (hub co-location + worker pull-conflict): when
     PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE=1, skip the local file write
-    (the conflict path with the hub's sync_daemon.phase3_heartbeat_writer-
-    materialised version). The coordinator POST is NEVER gated here --
-    the writer materialises the canonical runner_heartbeats/<host>.json
-    from the heartbeats table, which is only populated by POST /heartbeat.
-    Suppressing the POST would leave the writer with nothing to publish.
+    (the old conflict path with the hub-materialised version; that git
+    render is retired 2026-09-06). The coordinator POST is NEVER gated here --
+    the heartbeats table is only populated by POST /heartbeat and is now
+    the sole live telemetry. Suppressing the POST would blind the fleet.
 
     History: this gate previously short-circuited the whole function
     (including the coordinator POST). That caused fleet-wide stale
@@ -253,8 +260,8 @@ def write_heartbeat(
     # SHADOW / COORDINATOR: mirror the heartbeat to the coordinator. Best-
     # effort. `payload=payload` is the PLAN.md step 6 wiring: the same dict
     # that (would have been) written to runner_heartbeats/<machine>.json
-    # travels to the coordinator so sync_daemon.phase3_heartbeat_writer can
-    # materialise the file in REE_assembly from the heartbeats table. This
+    # travels to the coordinator's heartbeats table (the live source; the
+    # hub git render of it is retired 2026-09-06). This
     # POST is NEVER gated by PHASE3_DISABLE_RUNNER_HEARTBEAT_WRITE -- under
     # that flag, the local write is skipped but the coordinator POST is
     # the sole transport, so suppressing it would leave the writer with
@@ -878,10 +885,10 @@ def _phase3_telemetry_file_write_gated() -> bool:
     persistence is preserved and there is no restart loop. Safe on any worker.
 
     The coordinator POST (/heartbeat, /status) is NEVER gated here -- it is the
-    canonical transport. Skip-completed and peer-dedup keep reading the in-tree
-    runner_status/ dir, which is populated by pull (hub materialisation), so they
-    are unaffected; the worker's own completions arrive via coordinator -> hub ->
-    pull (lag tolerated; the coordinator /claim is authoritative against dupes).
+    canonical transport. Skip-completed and peer-dedup formerly read the in-tree
+    runner_status/ dir (pull-populated from the hub render); that render is
+    retired 2026-09-06 and the dir is gone from master, so the coordinator
+    /claim is the only dupe guard and the DB the only completion record.
 
     Env: PHASE3_RUNNER_TELEMETRY_OFF_GIT=1|true|yes. No hostname restriction.
     """
@@ -1086,7 +1093,9 @@ def push_commands(ree_assembly_path: Path, path: Path, label: str = "commands") 
 
     Phase 3: gated by the same PHASE3_DISABLE_RUNNER_HEARTBEAT_PUSH env
     var as push_heartbeat (commands and heartbeats live in the same
-    runner_commands / runner_heartbeats layer, both retired by step 6).
+    runner_commands / runner_heartbeats layer, both superseded by the
+    coordinator transport at step 6; the hub-side git render of both is
+    retired 2026-09-06).
     """
     if _phase3_heartbeat_gated():
         return

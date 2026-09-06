@@ -157,9 +157,9 @@ def report_heartbeat(machine, state, current_exq, progress, gpu, *,
     """Report a heartbeat tick to the coordinator.
 
     `payload` (optional) is the full runner-side dict written to
-    `runner_heartbeats/<machine>.json`. Send it under PLAN.md step 6
-    so sync_daemon can materialise the rich file from the coordinator
-    DB and the runner can stop git-pushing it directly. None is the
+    `runner_heartbeats/<machine>.json`. Send it under PLAN.md step 6;
+    it feeds the coordinator DB / live-status branch (the hub git render
+    of it is retired 2026-09-06). None is the
     legacy path: the structured fields still flow, only the rich
     payload is missing (lifecycle_state remains derivable from the
     structured columns).

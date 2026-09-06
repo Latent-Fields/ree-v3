@@ -341,55 +341,6 @@ def test_queue_snapshot_fresh_fail_bad_json():
     assert status == "FAIL"
 
 
-def test_derived_heartbeats_pass():
-    now = 2_000_000
-    ssh = FakeSSH([
-        ("--format=%ct origin/master --",
-         (True, str(now - 60) + "\n", "")),
-        ("--format=%s origin/master --",
-         (True, "phase3-heartbeats: 4 files 2026-05-28\n", "")),
-    ])
-    status, msg = pv.check_derived_heartbeats(
-        "10.8.0.1", "ree", ssh=ssh, lookback_sec=600, now=now)
-    assert status == "PASS", msg
-
-
-def test_derived_heartbeats_fail_stale():
-    now = 2_000_000
-    ssh = FakeSSH([
-        ("--format=%ct origin/master --",
-         (True, str(now - 99999) + "\n", "")),
-        ("--format=%s origin/master --",
-         (True, "phase3-heartbeats: stale\n", "")),
-    ])
-    status, msg = pv.check_derived_heartbeats(
-        "10.8.0.1", "ree", ssh=ssh, lookback_sec=600, now=now)
-    assert status == "FAIL"
-    assert "old" in msg
-
-
-def test_derived_heartbeats_fail_foreign_commit():
-    now = 2_000_000
-    log_subjects = (
-        "phase3-heartbeats: 4 files 2026-05-28\n"
-        "operator: hand-edited runner_status\n"
-    )
-    ssh = FakeSSH([
-        ("--format=%ct origin/master --",
-         (True, str(now - 60) + "\n", "")),
-        ("--format=%s origin/master --",
-         (True, log_subjects, "")),
-    ])
-    status, msg = pv.check_derived_heartbeats(
-        "10.8.0.1", "ree", ssh=ssh, lookback_sec=600, now=now)
-    assert status == "FAIL"
-    assert "operator" in msg
-
-
-# --------------------------------------------------------------------------
-# CLI + run_verify wiring tests
-# --------------------------------------------------------------------------
-
 def test_help_exits_zero():
     script = HERE / "phase3_verify.py"
     proc = subprocess.run(
@@ -407,18 +358,17 @@ def test_mock_json_structure_and_skip():
     assert proc.returncode == 0, proc.stdout + proc.stderr
     data = json.loads(proc.stdout)
     ids = {c["id"] for c in data["checks"]}
-    # All 7 stub-replaced checks must appear...
+    # All 6 stub-replaced checks must appear (derived_heartbeats was retired
+    # with the heartbeat git render, 2026-09-06)...
     for cid in ("sync_daemon_phase3_tick", "hub_git_writer_only",
                 "workers_no_result_git_push", "heartbeat_git_retired",
-                "results_drained", "queue_snapshot_fresh",
-                "derived_heartbeats"):
+                "results_drained", "queue_snapshot_fresh"):
         assert cid in ids, cid
     # ...and all SKIP under --mock.
     by_id = {c["id"]: c["status"] for c in data["checks"]}
     for cid in ("sync_daemon_phase3_tick", "hub_git_writer_only",
                 "workers_no_result_git_push", "heartbeat_git_retired",
-                "results_drained", "queue_snapshot_fresh",
-                "derived_heartbeats"):
+                "results_drained", "queue_snapshot_fresh"):
         assert by_id[cid] == "SKIP", "%s: %s" % (cid, by_id[cid])
     assert data["ok"] is True
 
@@ -487,7 +437,7 @@ def test_run_verify_expect_cutover_uses_ssh():
     for cid in ("sync_daemon_phase3_tick", "hub_git_writer_only",
                 "workers_no_result_git_push", "heartbeat_git_retired",
                 "results_drained", "queue_snapshot_fresh",
-                "derived_heartbeats", "hub_sync_mode_authoritative"):
+                "hub_sync_mode_authoritative"):
         assert by_id[cid] == "PASS", "%s: %s" % (cid, by_id[cid])
 
 

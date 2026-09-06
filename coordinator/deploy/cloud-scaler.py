@@ -656,6 +656,7 @@ def _orchestrator_from_coordinator(coord_status, affinity):
 
     The demand fields ride in the row's `progress` blob rather than in a
     POSTed `payload`, deliberately: sync_daemon's phase3_heartbeat_writer
+    (dormant since 2026-09-06, PHASE3_HEARTBEAT_GIT_MATERIALIZE=0)
     materialises runner_heartbeats/<machine>.json from every row whose
     heartbeat_payload_json is non-NULL, so sending a payload would hand the
     orchestrator's git heartbeat a second writer racing the metaworker's own.

@@ -30,6 +30,9 @@
 # synced nothing: "OK" meant "I looked", not "you are in sync".
 #
 # That disarmed this job permanently on exactly the boxes it matters most on.
+# (Since 2026-09-06 workers no longer write these paths at all --
+# PHASE3_RUNNER_TELEMETRY_OFF_GIT=1 fleet-wide -- and the dirs are gone from
+# origin, so this repair class is dormant; kept for the gates-off case.)
 # A worker running the runner writes its own heartbeat into
 # evidence/experiments/runner_heartbeats/<box>.json, so REE_assembly is
 # PERMANENTLY dirty there and the pre-fix gate declined forever. Measured on

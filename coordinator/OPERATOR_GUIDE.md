@@ -64,7 +64,7 @@ Each of the three writer rows reports:
 
 | Field | Meaning |
 |-------|---------|
-| `sha10` | First 10 chars of the most recent writer commit on the relevant branch (`origin/master` for git_writer + heartbeat_writer; `origin/main` for queue_writer). Searched by commit-message prefix: `phase3:`, `phase3-queue:`, `phase3-heartbeats:`. |
+| `sha10` | First 10 chars of the most recent writer commit on the relevant branch (`origin/master` for git_writer; `origin/main` for queue_writer). Searched by commit-message prefix: `phase3:`, `phase3-queue:`. The heartbeat_writer's `phase3-heartbeats:` stream is retired (2026-09-06) -- its sha10 is frozen at `c0c6e00aa2` by design. |
 | `committed_at` / `age_s` | Author timestamp of that commit; age in seconds since now. |
 | `color` | **green** = age < 5 min (writer ticked recently). **yellow** = 5-15 min (worth a glance; idle queue is fine here, but heartbeat_writer should never be this old). **red** = > 15 min (something is wrong; see trouble-tree below). |
 | `status` | Derived from the last few lines of `sudo journalctl -u ree-sync-daemon -n 3` on the hub. One of: `idle` (nothing to commit this tick), `committing` (mid-tick), `push-rejected` (non-FF push to origin; writer is wedged), `refusing` (clean-tree check tripped -- dirty REE_assembly working tree on the hub), `rebase-conflict` (the autostash failure mode -- there should be no autostash under Phase 3, but operator-side rebases can still leave the tree wedged). |
@@ -86,7 +86,7 @@ Outside the three rows:
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
 | `git_writer` or `queue_writer` SHA stale (red), spool_pending climbing | Writer wedged in **push-rejected loop** -- operator-side IGW commits landed between writer ticks, so the hub's local writer commits no longer fast-forward onto origin. The Phase-3 writer deliberately does **not** `git pull --rebase --autostash`, so it just keeps failing the push. NOTE: with `PHASE3_QUEUE_CONFLICT_RECOVERY=1` (see the subsection below) the `queue_writer` now **self-heals** this and the conflict variant within one tick; a stale `queue_writer` with that flag on means something else (network, dirty tree). | All writers already absorb *non-conflicting* operator races by rebasing writer-authored commits onto refreshed origin (`_sync_to_origin`). If a writer is still stale: SSH to the hub and FF-rebase by hand: `git -C ~/REE_Working/REE_assembly pull --rebase origin master` (and `git -C ~/REE_Working/ree-v3 pull --rebase origin main` for `queue_writer`). Writers resume on the next tick (~60s). |
-| Persistent `rebase-conflict` status | Autostash-style wedge -- a manual rebase on the hub hit a conflict (e.g. the runner_heartbeats/*.json collision class CLAUDE.md describes). The writer cannot commit until the working tree is clean. | SSH to the hub, **inspect the conflict** -- do NOT blindly `git checkout --ours` or `--theirs`. The heartbeat-file collision is usually safe to resolve in favour of the newer runner-written snapshot (the runner overwrites it on next tick), but other paths (claims.yaml, planning docs, manifests) can hide real edits. Resolve, `git rebase --continue`, then leave the tree clean. |
+| Persistent `rebase-conflict` status | Autostash-style wedge -- a manual rebase on the hub hit a conflict (historically the runner_heartbeats/*.json collision class; that path is retired 2026-09-06). The writer cannot commit until the working tree is clean. | SSH to the hub, **inspect the conflict** -- do NOT blindly `git checkout --ours` or `--theirs`. The heartbeat-file collision is usually safe to resolve in favour of the newer runner-written snapshot (the runner overwrites it on next tick), but other paths (claims.yaml, planning docs, manifests) can hide real edits. Resolve, `git rebase --continue`, then leave the tree clean. |
 | `refusing` status with clean `journal_tail` | Hub's `REE_assembly` working tree is dirty -- something (an interactive session, or a hub runner using the SHARED `~/REE_Working` checkout) left files modified. Phase 3 writer refuses rather than autostashing. | SSH to the hub, `git -C ~/REE_Working/REE_assembly status`. Find the source. If a hub runner is the cause, it must run from the ISOLATED `~/REE_Working_runner` checkout (`WorkingDirectory` drop-in), NOT `~/REE_Working` -- see rule 1 above. Recovery: back up + clean the dirty files (`mv` untracked manifests aside, `git checkout`/`git pull --rebase` the queue); writers resume within ~10s. |
 | `spool_pending` elevated but writer SHA is recent | Writer is committing but falling behind -- batch size too small for the inbound rate, or the hub is doing one-commit-per-manifest. | Check `journal_tail`; usually self-corrects. If sustained, raise `PHASE3_BATCH_SIZE` on the hub (default 32). |
 | `hub_reachable: false` | WireGuard down on the Mac, or the SSH key is no longer accepted by `ree@91.98.130.117`. | `wg show` on the Mac (`wg-quick up wg0` if down); `ssh ree@10.8.0.1 true` to test the key; check `coordinator.env` for the hub host override. |
@@ -232,7 +232,7 @@ None of that means you operated it wrong.
 | System | What it does today | When it goes away |
 |--------|-------------------|-------------------|
 | **A. Git claiming** | `experiment_queue.json` + push race = who runs which EXQ | Phase 2: claims move to coordinator |
-| **B. Git heartbeats** | `runner_heartbeats/*.json` pushed to `REE_assembly` every ~60s | Phase 3: sync_daemon writes derived files; heartbeats stop |
+| **B. Git heartbeats** | `runner_heartbeats/*.json` pushed to `REE_assembly` every ~60s | Phase 3: sync_daemon wrote derived files; **retired 2026-09-06** (writer off, dirs removed) -- coordinator DB + `live-status` branch only |
 | **C. Coordinator** | SQLite mutex + shadow compare + (later) sole writer | Stays; becomes authoritative |
 
 During **Phase 1 shadow**, A and B are still **authoritative**. C only **observes**
@@ -376,7 +376,7 @@ Three hub-local pieces govern how fleet telemetry reaches git / GitHub. The
 units/script are version-controlled in `deploy/`, but the systemd files +
 drop-in live in `/etc` and are **not auto-applied** -- re-apply on a hub rebuild.
 
-1. **Liveness-tick retired (git-churn fix).** The heartbeat writer used to force
+1. **Heartbeat git writer RETIRED (2026-09-06: `PHASE3_HEARTBEAT_GIT_MATERIALIZE=0` in `heartbeat-retire.conf`; `runner_heartbeats/` `runner_status/` `runner_commands/` removed from master). Nothing in this item applies unless it is re-armed.** Earlier, the liveness-tick retirement (git-churn fix): the heartbeat writer used to force
    a `phase3-heartbeats: liveness tick` commit every 30 min even when nothing
    changed -- the dominant source of `REE_assembly` git-history bloat. Retired via
    a drop-in raising the floor to once-daily:

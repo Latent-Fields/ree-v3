@@ -3310,8 +3310,9 @@ def record_status_payload(conn, machine, payload_json):
     """Store the runner's full status-file payload for `machine`.
 
     PLAN.md step 6: replaces experiment_runner.git_push_status as the
-    transport for runner_status/<machine>.json. Sync_daemon materialises
-    the file from this column on each authoritative tick.
+    transport for runner_status/<machine>.json. Sync_daemon materialised
+    the file from this column until the git render was retired 2026-09-06;
+    the column now feeds only the DB / live-status branch.
 
     Like record_shutdown_notice, creates a heartbeat row if none exists
     yet (the runner might post status from a machine that hasn't sent
