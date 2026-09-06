@@ -82,15 +82,87 @@
 set -u
 export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin"
 GIT=/usr/bin/git
-LOG=/home/ree/ree_git_sync_repair.log
-LOCKDIR=/tmp/ree_git_sync_repair.lock
+LOG="${REE_SYNC_REPAIR_LOG:-/home/ree/ree_git_sync_repair.log}"
+LOCKDIR="${REE_SYNC_REPAIR_LOCKDIR:-/tmp/ree_git_sync_repair.lock}"
 TELEMETRY_RE='^evidence/experiments/runner_(heartbeats|status|commands)/'
+# Where an untracked local file that DIFFERS from origin's incoming copy is
+# moved (never deleted) by the untracked-collision pre-flight below.
+ASIDE_ROOT="${REE_SYNC_REPAIR_ASIDE_ROOT:-$HOME/ree_untracked_aside}"
 
 # repo|branch
 REPOS=(
   "/home/ree/REE_Working/REE_assembly|master"
   "/home/ree/REE_Working/ree-v3|main"
 )
+# Test-harness override: REE_SYNC_REPAIR_REPOS="path|branch;path|branch".
+if [ -n "${REE_SYNC_REPAIR_REPOS:-}" ]; then
+  REPOS=()
+  _rest="$REE_SYNC_REPAIR_REPOS"
+  while [ -n "$_rest" ]; do
+    _one="${_rest%%;*}"
+    [ -n "$_one" ] && REPOS+=("$_one")
+    [ "$_rest" = "$_one" ] && break
+    _rest="${_rest#*;}"
+  done
+fi
+
+# --- untracked-collision pre-flight (2026-09-06) ------------------------------
+# Option B of chip-20260903-untracked-manifest-collision-recurring-class, user-
+# authorised 2026-09-06. THE CLASS: a worker's driver writes an evidence
+# manifest into its LOCAL REE_assembly tree; the hub's phase3 writer commits
+# THE SAME PATH to origin (enriched with queue_id), so the local UNTRACKED copy
+# collides with the incoming tracked addition and `merge --ff-only` refuses
+# forever ("untracked working tree file would be overwritten"). Measured
+# 2026-09-03: three fresh collisions within ~15 min of a clear on any box
+# running experiments, and a 61-commit / 7.5 h silent lag before detection
+# existed (detection -- the NEEDS_HUMAN clean-tree verdict -- landed 09-03).
+#
+# THE PREDICATE IS "LOCAL IS A SUBSET OF ORIGIN", NOT DEEP- OR BYTE-EQUALITY.
+# The runner writes the manifest BEFORE the coordinator attaches queue_id, so
+# local copies are routinely queue_id-poorer while carrying zero unique
+# content; they are also pretty-printed (20-25% larger), so byte-equality is
+# far too strict and deep-equality rejects safe cases (measured on 5 real
+# files 2026-09-03). Subset = no key present only locally AND no differing
+# value on a shared key (recursively for nested dicts; lists must be equal).
+# A local copy that is a subset is information-free and is removed so the
+# fast-forward can proceed.
+#
+# STILL A GATE, NOT A LICENCE. Anything that is not a subset -- a differing
+# value, a local-only key, a non-JSON file, an origin copy that cannot be read
+# -- is MOVED ASIDE under $ASIDE_ROOT/<utc>/<path>, never deleted, and logged
+# as UNTRACKED_ASIDE for a human. The ree-cloud-3 stashed-manifest case
+# (2026-09-03, NOT identical to origin) is the standing reminder.
+#
+# Only files that are (a) ADDED by the incoming range, (b) present on disk and
+# (c) untracked are considered. Tracked dirt is still adjudicated by ff-only
+# exactly as before; the wedged path is untouched. Functional test:
+# test_ree_git_sync_repair_untracked.sh beside this file.
+untracked_subset_verdict() {
+  # $1 = repo-relative path (exists, untracked); $2 = origin ref
+  # prints SUBSET | DIFFERS | NOTJSON | NOORIGIN
+  python3 - "$1" "$2" <<'PYEOF'
+import json, subprocess, sys
+p, ref = sys.argv[1], sys.argv[2]
+try:
+    with open(p, encoding="utf-8") as fh:
+        local = json.load(fh)
+except Exception:
+    print("NOTJSON"); sys.exit(0)
+try:
+    out = subprocess.run(["git", "show", "%s:%s" % (ref, p)],
+                         capture_output=True, text=True, check=True).stdout
+    origin = json.loads(out)
+except Exception:
+    print("NOORIGIN"); sys.exit(0)
+def subset(a, b):
+    if isinstance(a, dict) and isinstance(b, dict):
+        return all(k in b and subset(v, b[k]) for k, v in a.items())
+    if isinstance(a, list) and isinstance(b, list):
+        return len(a) == len(b) and all(subset(x, y) for x, y in zip(a, b))
+    return a == b
+print("SUBSET" if subset(local, origin) else "DIFFERS")
+PYEOF
+}
 
 ts() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
 log() { echo "$(ts) $*" >> "$LOG"; }
@@ -153,6 +225,29 @@ for entry in "${REPOS[@]}"; do
       if [ -n "$blocking_list" ]; then
         log "$name BEHIND_NOT_SYNCED (ahead=$ahead behind=$behind) -- NOT synced; ff blocked by uncommitted tracked change(s): $blocking_list"
         exit 0
+      fi
+
+      # Untracked-collision pre-flight (see the block comment near the top).
+      cleared=""; aside=""
+      incoming_added="$("$GIT" diff --name-only --diff-filter=A "HEAD..origin/$branch" 2>/dev/null)"
+      if [ -n "$incoming_added" ]; then
+        while IFS= read -r p; do
+          [ -n "$p" ] || continue
+          [ -e "$p" ] || continue
+          "$GIT" ls-files --error-unmatch -- "$p" >/dev/null 2>&1 && continue
+          verdict="$(untracked_subset_verdict "$p" "origin/$branch")"
+          if [ "$verdict" = "SUBSET" ]; then
+            rm -f -- "$p" && cleared="$cleared $p"
+          else
+            asd="$ASIDE_ROOT/$(date -u +%Y%m%dT%H%M%SZ)"
+            mkdir -p "$asd/$(dirname "$p")"
+            mv -- "$p" "$asd/$p" && aside="$aside $p($verdict)"
+          fi
+        done <<EOF_INCOMING
+$incoming_added
+EOF_INCOMING
+        [ -n "$cleared" ] && log "$name UNTRACKED_CLEARED (local copies were a subset of origin's incoming file; removed):$cleared"
+        [ -n "$aside" ] && log "$name UNTRACKED_ASIDE (local copies differ from origin; moved under $ASIDE_ROOT, NOT deleted):$aside"
       fi
 
       if "$GIT" merge --ff-only --quiet "origin/$branch" 2>/dev/null; then
