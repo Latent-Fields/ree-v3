@@ -511,6 +511,17 @@ RE_DERIVE_BRAKE_THRESHOLD = 2
 # recommended_substrate_queue_entry names the current upstream substrate).
 RE_AUTOPSY_DATE = re.compile(r"_(\d{4}-\d{2}-\d{2})\.json$")
 
+# Autopsy `status` values that are NOT yet an adjudication and must not advance the
+# brake. Deliberately an EXCLUSION list, not an allowlist of "confirmed": the corpus
+# carries `confirmed_revised`, `applied` and `resolved` -- all MORE settled than a bare
+# `confirmed` -- plus grandfathered artifacts with no `status` field at all, and an
+# allowlist would silently stop counting every one of them. Unknown / new statuses
+# therefore COUNT by default; only a positively-unsettled one is skipped.
+# (User decision 2026-09-07, at the same gate that adopted R1/R2 below. The
+# /failure-autopsy Step 7 recipe's literal `!= 'confirmed'` was amended to this shape
+# in the same commit -- keep the two in lockstep.)
+UNSETTLED_AUTOPSY_STATUSES = frozenset({"proposed", "awaiting_human_confirmation"})
+
 # Epistemic-category markers for an INSTRUMENT / MEASUREMENT defect -- a run that
 # failed to MEASURE its DV, not a claim that hit a substrate ceiling. Such an autopsy
 # almost always carries recommended_evidence_direction "non_contributory" (the run
@@ -782,41 +793,92 @@ def _scan_substrate_ceiling_autopsies() -> "dict[str, list[tuple[str, str, dict]
 
     Counting predicate: `_autopsy_counts_toward_brake` (genuine substrate_ceiling, or a
     non_contributory reading that is neither an instrument/measurement defect owing no
-    build nor an explicit producer release).
+    build nor an explicit producer release), evaluated PER CLAIM.
+
+    SCAN SHAPE -- the R1/R2 counting convention, matching the /failure-autopsy Step 7
+    and /queue-experiment Step 2.5b snippets. Reconciled with them 2026-09-07 by user
+    decision; before that this function used a THIRD shape of its own (one hit per
+    FILE per claim, taking the first matching target and ``break``ing, with no status
+    filter and no supersession) and its docstring described that superseded recipe.
+
+      * status  -- a positively-UNSETTLED artifact is skipped
+                   (`UNSETTLED_AUTOPSY_STATUSES`); everything else counts, including
+                   `applied` / `confirmed_revised` / `resolved` / no-status.
+      * R1      -- the unit is the RUN, not the file: NO break, every matching target
+                   counts, keyed by `run_id` or `queue_id`, falling back to
+                   ``<file>#<index>`` so id-less targets in one CLUSTER file cannot
+                   collide into a single hit.
+      * R2      -- latest adjudication WINS and supersedes: per run, only the most
+                   recent artifact's verdict counts, so a re-adjudication that
+                   withdraws a ceiling reading DECREMENTS rather than adding.
+                   Recency is `generated_utc`, falling back to the filename date.
+      * dry-run -- a target whose run is listed in its OWN artifact's
+                   `excluded_dry_run_ids` is skipped. That field is the declared
+                   output of the /failure-autopsy Step 2a dry-run gate: a `--dry-run`
+                   smoke writes a real manifest with a real run_id and is NOT evidence,
+                   so counting one toward a ceiling brake inverts the gate's purpose.
+                   Reading the field is the counterpart of the skill's "record it in
+                   the ARTIFACT, never by special-casing the counter" rule -- no
+                   filename heuristic is used, only what the autopsy author declared.
 
     Returns claim_id -> list of (autopsy_filename, date_str, matching_target_dict),
-    one entry per (file, claim) using the first matching target in that file --
-    EXACTLY the count the /queue-experiment Step 2.5b + /failure-autopsy Step 7
-    snippet produces (it appends the filename once per claim and ``break``s at the
-    first matching target). Fail-soft to {} if the planning dir is missing.
+    one entry per COUNTED RUN -- so `len()` is the brake count, and the entries carry
+    the winning adjudication's file/date/target for the consumer's most-recent lookup.
+    Fail-soft to {} if the planning dir is missing.
+
+    MEASURED over the 488-file corpus at the reconciliation: 70 claims change count and
+    14 cross the threshold of 2 -- 12 tighten (a grandfathered cluster file adjudicating
+    N runs is now N hits, not 1) and 2 release via R2 (MECH-140, MECH-471). The dry-run
+    gate then moves 4 claims and releases one of those 12: MECH-216 6 -> 0, whose entire
+    tightening was six runs its own artifact had already declared excluded (MECH-163
+    5 -> 4, SD-012 11 -> 5, SD-015 18 -> 11 do not cross). 10 artifacts declare the field.
     """
     planning = _find_planning_dir()
     if planning is None:
         return {}
-    out: "dict[str, list[tuple[str, str, dict]]]" = {}
+    # claim -> run_key -> list of (recency, filename, date_str, target, counted)
+    occ: "dict[str, dict[str, list]]" = {}
     for f in sorted(planning.glob("failure_autopsy_*.json")):
         try:
             data = json.loads(f.read_text(encoding="utf-8"))
         except Exception:
             continue
+        status = data.get("status")
+        if isinstance(status, str) and status.strip().lower() in UNSETTLED_AUTOPSY_STATUSES:
+            continue
         m = RE_AUTOPSY_DATE.search(f.name)
         date_str = m.group(1) if m else ""
-        # First matching target per claim in this file (mirrors the skill's break).
-        first_match: "dict[str, dict]" = {}
-        for t in data.get("targets", []) or []:
+        gen = data.get("generated_utc")
+        recency = str(gen) if isinstance(gen, str) and gen.strip() else date_str
+        excluded = data.get("excluded_dry_run_ids")
+        excluded = frozenset(
+            x for x in excluded if isinstance(x, str)
+        ) if isinstance(excluded, list) else frozenset()
+        for i, t in enumerate(data.get("targets", []) or []):
             if not isinstance(t, dict):
                 continue
+            run_key = t.get("run_id") or t.get("queue_id")
+            if isinstance(run_key, str) and run_key in excluded:
+                continue   # the artifact's own Step 2a gate says this run is smoke
+            if not isinstance(run_key, str) or not run_key.strip():
+                run_key = f"{f.name}#{i}"
             # The predicate is evaluated PER CLAIM, not once per target: step 0
             # can exclude one claim_id of a target while the others still count.
             # Hoisting it out of this loop (as it was until 2026-09-07) is what
             # made step 0 unreachable here.
             for claim in t.get("claim_ids", []) or []:
-                if not isinstance(claim, str) or claim in first_match:
+                if not isinstance(claim, str):
                     continue
-                if _autopsy_counts_toward_brake(t, claim):
-                    first_match[claim] = t
-        for claim, t in first_match.items():
-            out.setdefault(claim, []).append((f.name, date_str, t))
+                occ.setdefault(claim, {}).setdefault(run_key, []).append(
+                    (recency, f.name, date_str, t, _autopsy_counts_toward_brake(t, claim))
+                )
+    out: "dict[str, list[tuple[str, str, dict]]]" = {}
+    for claim, runs in occ.items():
+        for _run_key, entries in runs.items():
+            entries.sort(key=lambda e: e[0])   # R2: ascending -- last is most recent
+            _rec, fname, date_str, target, counted = entries[-1]
+            if counted:
+                out.setdefault(claim, []).append((fname, date_str, target))
     return out
 
 
@@ -1148,9 +1210,17 @@ def validate(queue_path: Path = QUEUE_FILE) -> list[str]:
                     _upstream = _upstream_substrate_from_target(_recent[2])
                     if _upstream and _substrate_is_built(_upstream, _brake_claude_md):
                         continue  # brake released -- substrate now built
-                    _slugs = ", ".join(
-                        e[0].replace(".json", "") for e in sorted(_counted, key=lambda e: e[1])[-3:]
-                    )
+                    # DEDUPE the slugs: since 2026-09-07 `_counted` has one entry per
+                    # counted RUN, so a cluster artifact adjudicating six runs would
+                    # otherwise name the same file three times in "recent:".
+                    _seen_slugs: list[str] = []
+                    for _e in sorted(_counted, key=lambda e: e[1], reverse=True):
+                        _slug = _e[0].replace(".json", "")
+                        if _slug not in _seen_slugs:
+                            _seen_slugs.append(_slug)
+                        if len(_seen_slugs) == 3:
+                            break
+                    _slugs = ", ".join(reversed(_seen_slugs))
                     _sub_txt = (
                         f"the named upstream substrate '{_upstream}' is not yet "
                         f"IMPLEMENTED/VALIDATED in ree-v3/CLAUDE.md"
@@ -1160,8 +1230,10 @@ def validate(queue_path: Path = QUEUE_FILE) -> list[str]:
                     _LAST_WARNINGS.append(
                         f"{prefix}: re-derive brake -- claim '{_claim}' has "
                         f"{len(_counted)} counted substrate_ceiling/non_contributory "
-                        f"autopsies on record (instrument-repair autopsies owing no "
-                        f"substrate build are excluded) "
+                        f"RUNS on record (the unit is the run, not the autopsy file: a "
+                        f"cluster artifact adjudicating N runs is N hits. Instrument-repair "
+                        f"readings owing no substrate build, runs an artifact declared in "
+                        f"excluded_dry_run_ids, and superseded adjudications are excluded) "
                         f"(recent: {_slugs}) and {_sub_txt}. A same-granularity "
                         f"lettered re-test re-derives the ceiling; build the upstream "
                         f"substrate via /implement-substrate first (see /queue-experiment "
