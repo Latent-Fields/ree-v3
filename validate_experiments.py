@@ -51,7 +51,8 @@ CHECK_NAMES = ("conformance", "readiness", "arm_fingerprint", "degeneracy", "man
                "dacc_last_bundle", "agent_seed_order", "zworld_p0_warmup",
                "fishtank_episode_log_seeds", "disjunctive_criteria_load_bearing",
                "route_reason_consistency", "multi_arm_default_off_flags_collapse",
-               "sd056_training_without_rollout_clamp")
+               "sd056_training_without_rollout_clamp",
+               "precondition_index_read")
 
 # Readiness-gate static lint (proposal_trivial_prediction_readiness_gate_2026-06-06).
 # A diagnostic/baseline script whose interpretation grid self-routes to one of
@@ -7669,6 +7670,140 @@ def route_reason_consistency_lint(path: Path) -> Optional[str]:
     )
 
 
+# --------------------------------------------------------------------------- #
+# precondition_index_read -- a precondition list read BY POSITION
+# --------------------------------------------------------------------------- #
+# THE INCIDENT (V3-EXQ-993a, found by the fable red-team of
+# failure_autopsy_V3-EXQ-993a_2026-09-05, hygiene H1). The driver recorded
+# `metrics.worst_harm_action_sensitivity` from `preconditions[0]["measured"]`.
+# That index was CORRECT when written. Red-team fix F6, applied to the same
+# driver before the run, inserted a new `control_arm_coverage_complete` check at
+# index 0 -- and nothing re-pointed the read. The landed manifest therefore
+# records 8.0 (the coverage COUNT) under the sensitivity key, while the true
+# value 0.11382 sat one slot along. No exception, no failing test, no smoke-test
+# signal: a positional read stays silently correct until someone reorders the
+# list, and reordering a precondition list is a ROUTINE red-team repair.
+#
+# WHY THIS IS A CLASS AND NOT A ONE-OFF. Precondition lists in this corpus are
+# built by appending dicts in a helper and are read back in two places that are
+# far apart in the file -- the gate call and the manifest's metrics block. The
+# author of the reordering edit and the author of the read are frequently the
+# same person in the same session, which is exactly when the coupling is
+# invisible. `by name` costs one helper and cannot go silently wrong.
+#
+# WARN-ONLY IN BOTH MODES, deliberately. A positional read is not WRONG at the
+# moment it is written -- it is FRAGILE -- so a fire is a request to re-read, not
+# proof of a defect. The one landed carrier below is a case in point. Hardening
+# would also block commits on history, which this corpus's lint family
+# consistently refuses to do.
+#
+# CORPUS FIRE COUNT, measured 2026-09-07 over 1465 experiments/*.py (633 of them
+# mention "precondition" at all): 2 files before this session's fix, 1 after.
+#   - v3_exq_993a_...py  -- the incident; FIXED forward in the same commit as this
+#     lint (both sites now go through a by-name helper that raises on a miss).
+#   - v3_exq_865_q081_zgoal_reach_preflight_scan.py:256 -- `preconditions[-1]["met"]`
+#     read immediately after appending that very check. Correct today and NOT
+#     retro-edited (landed driver, run complete -- this corpus does not rewrite
+#     history to silence a warning); it is the honest standing carrier, and the
+#     contract uses it as the non-vacuity anchor.
+#
+# WHAT IT DOES NOT CATCH, stated rather than implied: a precondition list held in
+# a variable whose name does not contain "precondition" (e.g. `checks = _build(...)`
+# then `checks[0]`). Widening the container test to every list-shaped name would
+# fire on ordinary sequence indexing across the whole corpus and make the check
+# worthless. The narrow name-keyed form catches the idiom this corpus actually
+# writes.
+_PRECONDITION_INDEX_READ_EXEMPT_MARKER = "PRECONDITION_INDEX_READ_EXEMPT"
+
+
+def _precondition_int_index(node: ast.Subscript) -> Optional[int]:
+    """The integer literal in `x[<int>]`, or None. Handles `[-1]` (a UnaryOp)."""
+    s = node.slice
+    if isinstance(s, ast.Constant) and isinstance(s.value, int) and not isinstance(s.value, bool):
+        return s.value
+    if (isinstance(s, ast.UnaryOp) and isinstance(s.op, ast.USub)
+            and isinstance(s.operand, ast.Constant)
+            and isinstance(s.operand.value, int)
+            and not isinstance(s.operand.value, bool)):
+        return -s.operand.value
+    return None
+
+
+def _is_precondition_container(node: ast.AST) -> bool:
+    """Does this expression name a precondition list, by its own text?
+
+    Four shapes, all of which the corpus writes:
+      preconditions[0]                 -- Name
+      self.preconditions[0]            -- Attribute
+      interpretation["preconditions"][0] -- Subscript with a string key
+      _build_preconditions(rows)[0]    -- Call
+    """
+    if isinstance(node, ast.Name):
+        return "precondition" in node.id.lower()
+    if isinstance(node, ast.Attribute):
+        return "precondition" in node.attr.lower()
+    if isinstance(node, ast.Subscript):
+        s = node.slice
+        return (isinstance(s, ast.Constant) and isinstance(s.value, str)
+                and "precondition" in s.value.lower())
+    if isinstance(node, ast.Call):
+        fn = node.func
+        name = fn.attr if isinstance(fn, ast.Attribute) else getattr(fn, "id", "")
+        return "precondition" in str(name).lower()
+    return False
+
+
+def precondition_index_read_lint(path: Path) -> Optional[str]:
+    """A precondition list indexed by an integer literal instead of looked up by name.
+
+    Fires on `<precondition-named expression>[<int literal>]` anywhere in the
+    file. See the block comment above for the incident, the measured corpus
+    count, and what this deliberately does not catch. Never blocking.
+    """
+    try:
+        src = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    if _PRECONDITION_INDEX_READ_EXEMPT_MARKER in src:
+        return None
+    # Cheap substring pre-filter BEFORE any tree work: 633 of the 1465-file corpus
+    # mention the word at all, so this skips more than half the parses. A source
+    # without the substring cannot match _is_precondition_container, so it cannot
+    # change any verdict.
+    if "precondition" not in src.lower():
+        return None
+    try:
+        tree = ast.parse(src, filename=str(path))
+    except SyntaxError:
+        return None
+
+    findings: List[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Subscript):
+            continue
+        idx = _precondition_int_index(node)
+        if idx is None or not _is_precondition_container(node.value):
+            continue
+        seg = ast.get_source_segment(src, node) or ""
+        findings.append(f"line {node.lineno}: {seg.strip()[:80]}")
+    if not findings:
+        return None
+    return (
+        f"{len(findings)} positional read(s) of a precondition list: "
+        + "; ".join(findings[:5])
+        + (" ..." if len(findings) > 5 else "")
+        + ". A precondition list's ORDER is not part of its contract -- inserting a "
+        "check (a routine red-team repair) silently re-points every positional read, "
+        "with no error and no failing test. V3-EXQ-993a recorded a coverage COUNT "
+        "under its sensitivity metric key exactly this way. Fix by looking the entry "
+        "up BY NAME through a helper that RAISES on a miss. Do NOT retro-edit a "
+        "LANDED driver whose run is complete -- fix it forward on the next letter and "
+        f"adjudicate the RESULT. Exempt with {_PRECONDITION_INDEX_READ_EXEMPT_MARKER} "
+        "= \"<reason>\" when the position genuinely is guaranteed (e.g. a "
+        "single-element list built and read in the same expression)."
+    )
+
+
 def _candidate_paths(paths: Sequence[str]) -> List[Path]:
     if paths:
         return [Path(p).resolve() for p in paths]
@@ -7740,6 +7875,7 @@ def main() -> int:
     dry_unreachable_criterion_warnings: List[Tuple[Path, str]] = []
     dry_sweep_excludes_point_warnings: List[Tuple[Path, str]] = []
     criterion_range_warnings: List[Tuple[Path, str]] = []
+    precondition_index_read_warnings: List[Tuple[Path, str]] = []
     config_slice_warnings: List[Tuple[Path, str]] = []
     inert_dacc_bias_warnings: List[Tuple[Path, str]] = []
     dacc_last_bundle_warnings: List[Tuple[Path, str]] = []
@@ -7910,6 +8046,15 @@ def main() -> int:
                 # warning that rests on an unprovable premise must never block a
                 # commit, and the 112 landed carriers' runs are complete.
                 criterion_range_warnings.append((p, cear))
+        if "precondition_index_read" in selected:
+            pir = precondition_index_read_lint(p)
+            if pir:
+                # WARN-only in BOTH modes -- see precondition_index_read_lint() and the
+                # block comment above it. A positional read is FRAGILE, not wrong at the
+                # moment it is written, so a fire is a request to re-read rather than
+                # proof of a defect; and the standing carrier is a landed driver whose
+                # run is complete, so hardening would block commits on history.
+                precondition_index_read_warnings.append((p, pir))
         if "config_slice_declaration" in selected:
             csd = config_slice_under_declaration_lint(p)
             if csd:
@@ -8031,7 +8176,8 @@ def main() -> int:
           f"disjunctive-criteria-load_bearing-warning(s), "
           f"{len(route_reason_consistency_warnings)} route_reason-consistency-warning(s), "
           f"{len(multi_arm_edof_warnings)} multi_arm-default_off_flags-collapse-warning(s), "
-          f"{len(sd056_rollout_clamp_warnings)} sd056-training-without-rollout-clamp-warning(s)",
+          f"{len(sd056_rollout_clamp_warnings)} sd056-training-without-rollout-clamp-warning(s), "
+          f"{len(precondition_index_read_warnings)} precondition-index-read-warning(s)",
           flush=True)
     if sd056_rollout_clamp_warnings:
         # Advisory in BOTH modes (never hardens). A fire here means the driver calls
@@ -8198,6 +8344,22 @@ def main() -> int:
         print("", flush=True)
         print("[validate_experiments] CONFIG_SLICE-DECLARATION WARNINGS (advisory, non-blocking):", flush=True)
         for p, warn in config_slice_warnings:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
+            print(f"  - {rel}: {warn}", flush=True)
+    if precondition_index_read_warnings:
+        # Advisory in BOTH modes (never hardens). A fire means a precondition list is
+        # read by POSITION somewhere in the file. The list's order is not part of its
+        # contract: inserting a check -- a routine red-team repair -- silently
+        # re-points every positional read, with no error and no failing test. That is
+        # how V3-EXQ-993a recorded its control-arm coverage COUNT (8.0) under
+        # metrics.worst_harm_action_sensitivity while the real value (0.11382) sat one
+        # slot along. Triage each: look the entry up BY NAME through a helper that
+        # RAISES on a miss. Do NOT retro-edit a LANDED driver whose run is complete --
+        # fix it forward on the next letter and adjudicate the RESULT.
+        print("", flush=True)
+        print("[validate_experiments] PRECONDITION-INDEX-READ WARNINGS "
+              "(advisory, non-blocking):", flush=True)
+        for p, warn in precondition_index_read_warnings:
             rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
             print(f"  - {rel}: {warn}", flush=True)
     if criterion_range_warnings:

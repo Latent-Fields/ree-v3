@@ -407,6 +407,20 @@ diffs recorded so it is visible). The three arm/DV repairs raised the control
 arm's demonstrated signal 3.3x (0.129 -> 0.466 mean), which is why the bars above
 are re-derived rather than carried over.
 
+FORWARD FIX 2026-09-07 (post-run, recording only -- the landed manifest is NOT
+edited). The fable red-team of failure_autopsy_V3-EXQ-993a_2026-09-05 (hygiene
+H1) found that both `worst_harm_action_sensitivity` metric sites read the
+precondition list BY INDEX (`preconditions[0]["measured"]`). That index was
+correct when written and was invalidated by red-team fix F6 above, which
+inserted `control_arm_coverage_complete` at index 0 -- so the landed run
+recorded the coverage COUNT (8.0) under the sensitivity key, with the true
+value (0.11382) one slot along. Both sites now go through
+`_precondition_measured(..., "harm_head_action_sensitivity_present")`, a
+by-name lookup that RAISES on a miss. The defect stays on record in the
+autopsy's `recording_defects`; this fix only changes what a successor letter
+would record. A WARN-only corpus lint (`precondition_index_read`, added the
+same day in validate_experiments.py) now catches the class.
+
 SLEEP DRIVER: not applicable -- no sleep loop used in this probe.
 """
 from __future__ import annotations
@@ -1217,6 +1231,38 @@ def _build_preconditions(rows: List[Dict[str, Any]], stage: str) -> List[Dict[st
     return [precondition_0, precondition_1, precondition_2] + headroom
 
 
+def _precondition_measured(preconditions: List[Dict[str, Any]], name: str) -> float:
+    """Look a precondition's `measured` up BY NAME. Never index this list.
+
+    RECORDING DEFECT, fixed forward 2026-09-07 (chip-20260905-exq993a-
+    recording-defect-precondition-index; found by the fable red-team of
+    failure_autopsy_V3-EXQ-993a_2026-09-05, hygiene H1). Both metric sites
+    below previously read `preconditions[0]["measured"]`, written when the
+    sensitivity check WAS first in the list. Red-team fix F6 then inserted
+    `control_arm_coverage_complete` at index 0, and nothing re-pointed the
+    reads -- so the landed run recorded metrics.worst_harm_action_sensitivity
+    = 8.0, which is the coverage COUNT, while the true sensitivity (0.11382)
+    sat one slot along. No error, no test: a positional read is silently
+    correct until someone reorders the list, and reordering a precondition
+    list is a routine red-team repair.
+
+    The landed manifest is NOT edited -- the defect is on record in the
+    autopsy's `recording_defects`. This fix is forward-only, so any successor
+    letter records the right value.
+
+    Raises rather than defaulting: a missing precondition means the list shape
+    changed, and silently substituting a default is how the original defect
+    survived a run.
+    """
+    for p in preconditions:
+        if p.get("name") == name:
+            return float(p["measured"])
+    raise KeyError(
+        "no precondition named %r (have: %s)"
+        % (name, ", ".join(repr(p.get("name")) for p in preconditions))
+    )
+
+
 def _mean_or_none(rows: List[Dict[str, Any]], condition: str, arm: str) -> Optional[float]:
     vals = [
         r["calibration_gap"] for r in rows
@@ -1286,7 +1332,8 @@ def run_experiment() -> Dict[str, Any]:
                 "mean_calibration_gap_sparse_merged": None,
                 "dense_n_seed_pairs": 0,
                 "sparse_n_seed_pairs": 0,
-                "worst_harm_action_sensitivity": control_preconditions[0]["measured"],
+                "worst_harm_action_sensitivity": _precondition_measured(
+                    control_preconditions, "harm_head_action_sensitivity_present"),
                 "dense_harm_events": sum(r["p1_harm_events"] for r in rows if r["condition"] == "DENSE"),
                 "sparse_harm_events": sum(r["p1_harm_events"] for r in rows if r["condition"] == "SPARSE"),
                 "n_finite_violations_total": sum(r["fatal_errors"] for r in rows),
@@ -1333,7 +1380,8 @@ def run_experiment() -> Dict[str, Any]:
         readiness_met = True
     except P0NotReady:
         readiness_met = False
-    worst_harm_sensitivity = preconditions[0]["measured"]
+    worst_harm_sensitivity = _precondition_measured(
+        preconditions, "harm_head_action_sensitivity_present")
     dense_harm_events = sum(r["p1_harm_events"] for r in rows if r["condition"] == "DENSE")
     sparse_harm_events = sum(r["p1_harm_events"] for r in rows if r["condition"] == "SPARSE")
 
