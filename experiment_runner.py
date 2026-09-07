@@ -318,6 +318,35 @@ _EPHEMERAL_WORKER_PATH_PREFIXES = (
     "evidence/experiments/runner_commands/",          # REE_assembly
 )
 
+# DERIVE-ONLY REGENERATED PATHS (2026-09-07). Kept SEPARATE from the tuple
+# above deliberately: that one is marked DEGRADED (its telemetry paths stopped
+# being written on 2026-09-06), whereas these are live, so folding them in
+# under that comment would misdescribe both. `_path_is_ephemeral_worker_owned`
+# checks both tuples.
+#
+# Provenance differs too. The tuple above is worker-writes / hub-publishes.
+# These are regenerated from evidence/planning/igw_routine_ledger.json by
+# scripts/igw_routine_tick.py on EVERY tick, on BOTH the Mac and the hub, and
+# both boxes commit them with the identical subject line ("igw-workset: regen
+# -- N items, ..."). When one box has local regen commits and origin carries
+# the other box's newer regen of the SAME derived state, every replay
+# conflicts. Taking origin's bytes loses nothing whatsoever: the next tick
+# regenerates the file from the ledger regardless, so the local copy is never
+# the authority -- and igw_routine_tick's own workset_materially_changed()
+# gate means an immaterial regen is not even committed.
+#
+# NOT A REPLACEMENT FOR THE STRUCTURAL FIX. Phase-4 CAS commit-intake already
+# routes these exact two paths through the coordinator
+# (igw_routine_tick._CAS_ROUTED_PATHS -> suppress_igw_workset_git_write),
+# which removes the second writer entirely once that soak-gated flag flips.
+# This entry is what keeps the runner from abort-looping in the meantime, and
+# stays correct either way: after the flip there is simply no local regen
+# commit left to conflict.
+_DERIVE_ONLY_REGENERATED_PATHS = (
+    "evidence/planning/inter_governance_workset.v1.json",   # REE_assembly
+    "evidence/planning/inter_governance_workset.md",        # REE_assembly
+)
+
 # Untracked paths safe to stash before REE_assembly pull (Phase 3 hub writer
 # is canonical once phase3: lands). Run-pack dirs under v<N>_exq_* are NOT
 # matched -- only flat manifests and per-EXQ runner signals.
@@ -558,11 +587,48 @@ def _git_commit(cwd: str, message: str, timeout: int = 15):
     return result
 
 
+# Upper bound on resolve-and-advance passes through a single in-flight rebase
+# (see _recover_ephemeral_pull_conflict). Sized well above the observed worst
+# case -- the 2026-09-07 REE_assembly incident had 3 local regen commits to
+# replay -- because the cost of a too-low budget is a spurious abort, while the
+# budget's real job is only to guarantee termination.
+_MAX_REBASE_RESOLVE_STEPS = 20
+
+
+def _git_dir(repo_path: Path) -> Path:
+    """The repo's real git directory. Handles a LINKED WORKTREE, where `.git`
+    is a FILE containing `gitdir: <path>` rather than a directory -- a plain
+    `repo_path / ".git" / x` test silently answers False there.
+
+    Deliberately pure-filesystem (no `git rev-parse`): the sole caller sits
+    inside _recover_ephemeral_pull_conflict, which promises never to raise and
+    is invoked in a bounded loop, so a subprocess timeout here would be both a
+    new failure mode and a new cost. Degrades to the plain path on anything
+    unexpected.
+    """
+    dot = repo_path / ".git"
+    try:
+        if dot.is_file():
+            for line in dot.read_text().splitlines():
+                if line.startswith("gitdir:"):
+                    p = Path(line.split(":", 1)[1].strip())
+                    return p if p.is_absolute() else (repo_path / p).resolve()
+    except OSError:
+        pass
+    return dot
+
+
+def _rebase_in_flight(repo_path: Path) -> bool:
+    """True while git has a rebase stopped mid-flight in this repo."""
+    g = _git_dir(repo_path)
+    return (g / "rebase-merge").exists() or (g / "rebase-apply").exists()
+
+
 def _path_is_ephemeral_worker_owned(rel_path: str) -> bool:
     rel_path = rel_path.strip().strip('"')
     if not rel_path:
         return False
-    for p in _EPHEMERAL_WORKER_PATH_PREFIXES:
+    for p in _EPHEMERAL_WORKER_PATH_PREFIXES + _DERIVE_ONLY_REGENERATED_PATHS:
         if rel_path == p.rstrip("/") or rel_path.startswith(p):
             return True
     return False
@@ -627,26 +693,44 @@ def _recover_ephemeral_pull_conflict(repo_path: Path, label: str) -> bool:
         f"{ephemeral} (origin / hub writer is authoritative)",
         flush=True,
     )
-    # Always take the upstream-tracking ref's version. We deliberately
-    # do NOT use `git checkout --theirs/--ours` because the orientation
-    # changes between merge / rebase / stash-pop conflicts (a stash-pop
-    # conflict's --theirs is the STASHED, i.e. worker-mutated, side --
-    # the opposite of what we want here). `@{u}` resolves to whichever
-    # origin/<branch> this clone tracks and gives us the canonical bytes
-    # regardless of in-progress operation state.
-    ub = _git_run(
-        ["git", "rev-parse", "--abbrev-ref",
-         "--symbolic-full-name", "@{u}"],
-        cwd=str(repo_path), capture_output=True, text=True, timeout=10,
-    )
-    upstream = ub.stdout.strip() if ub.returncode == 0 else ""
-    if not upstream:
-        print(
-            f"[runner] git pull {label}: no upstream-tracking ref "
-            f"resolvable, cannot recover: {ub.stderr.strip()}",
-            flush=True,
+    # WHERE "ORIGIN'S VERSION" COMES FROM depends on what is in flight, and
+    # getting this wrong is why the helper never recovered a rebase-replay
+    # conflict before 2026-09-07.
+    #
+    # MID-REBASE, HEAD IS DETACHED, so `@{u}` does not resolve at all -- git
+    # answers "fatal: HEAD does not point to a branch" and the old code took
+    # its `no upstream-tracking ref resolvable` early return every single
+    # time. The helper was therefore only ever effective for the stash-pop
+    # case, which is exactly why the mid-rebase branch below was written off
+    # as "rare" and never exercised.
+    #
+    # During a rebase, HEAD *is* the upstream side: git replays your commits
+    # ON TOP of the new base, so HEAD is that base (plus any commits already
+    # applied in this rebase) while your conflicting change is the incoming
+    # side. `git checkout HEAD -- <paths>` therefore takes precisely origin's
+    # bytes, and stays correct across a multi-commit replay as HEAD advances.
+    #
+    # Outside a rebase (the autostash-pop case) HEAD is back on the branch and
+    # `@{u}` is the right answer -- unchanged. We still deliberately avoid
+    # `--ours/--theirs`, whose orientation flips between merge / rebase /
+    # stash-pop (a stash-pop's --theirs is the STASHED, worker-mutated side --
+    # the opposite of what we want).
+    if _rebase_in_flight(repo_path):
+        upstream = "HEAD"
+    else:
+        ub = _git_run(
+            ["git", "rev-parse", "--abbrev-ref",
+             "--symbolic-full-name", "@{u}"],
+            cwd=str(repo_path), capture_output=True, text=True, timeout=10,
         )
-        return False
+        upstream = ub.stdout.strip() if ub.returncode == 0 else ""
+        if not upstream:
+            print(
+                f"[runner] git pull {label}: no upstream-tracking ref "
+                f"resolvable, cannot recover: {ub.stderr.strip()}",
+                flush=True,
+            )
+            return False
     co = _git_run(
         ["git", "checkout", upstream, "--"] + ephemeral,
         cwd=str(repo_path), capture_output=True, text=True, timeout=10,
@@ -664,18 +748,75 @@ def _recover_ephemeral_pull_conflict(repo_path: Path, label: str) -> bool:
     # If a rebase is mid-flight (rare: failure occurred mid-rebase rather
     # than mid-stash-pop), finish it. GIT_EDITOR=true skips the commit
     # message editor on the auto-continue.
-    if (repo_path / ".git" / "rebase-merge").exists() or \
-       (repo_path / ".git" / "rebase-apply").exists():
-        cont = _git_run(
-            ["git", "rebase", "--continue"],
+    # ADVANCE THE REBASE TO COMPLETION (2026-09-07 -- was a single --continue).
+    #
+    # Two things make one --continue insufficient, and both are present in the
+    # incident this was rewritten for (REE_assembly, 2026-09-07 19:15-19:49Z):
+    #
+    #   MULTI-COMMIT REPLAY. That box held THREE local igw-workset regen
+    #   commits. Resolving the first and continuing simply stops at the
+    #   second's conflict, still mid-rebase, with fresh UU markers -- so the
+    #   old code's single pass ended with the final verification below finding
+    #   UU, returning False, and the caller aborting. The loop, again.
+    #
+    #   EMPTY PATCHES. Taking origin's bytes leaves a commit that touched ONLY
+    #   derived paths with no content at all, and `git rebase --continue`
+    #   REFUSES an empty patch ("No changes ... you might want to skip this
+    #   patch"). --skip is the correct verb in exactly that case, and it is
+    #   safe in exactly that case: the commit's whole content WAS the
+    #   superseded derived state we just replaced. Emptiness is decided by
+    #   asking git (`diff --cached --quiet HEAD` exits 0 iff the index matches
+    #   the new base), never by parsing its English. A patch with any
+    #   remaining content takes --continue, so a commit carrying a
+    #   non-derived change is never silently dropped.
+    #
+    # A rebase step's non-zero exit does NOT mean failure here -- git also
+    # exits non-zero when it stops cleanly at the NEXT commit's conflict. So
+    # the loop re-reads the actual state each pass rather than trusting the
+    # return code, and gives up (abort) the moment a conflict is not confined
+    # to derive-only paths. The step budget is a hard stop: a pass that
+    # neither finishes nor produces a resolvable conflict must never spin.
+    for _ in range(_MAX_REBASE_RESOLVE_STEPS):
+        if not _rebase_in_flight(repo_path):
+            break
+        empty = _git_run(
+            ["git", "diff", "--cached", "--quiet", "HEAD"],
+            cwd=str(repo_path), capture_output=True, timeout=10,
+        )
+        verb = "--skip" if empty.returncode == 0 else "--continue"
+        _git_run(
+            ["git", "rebase", verb],
             cwd=str(repo_path), capture_output=True, text=True,
             env={**os.environ, "GIT_EDITOR": "true"}, timeout=15,
         )
-        if cont.returncode != 0:
-            _git_run(
-                ["git", "rebase", "--abort"], cwd=str(repo_path),
-                capture_output=True, timeout=10,
-            )
+        if not _rebase_in_flight(repo_path):
+            break
+        # Still mid-rebase: it stopped at another commit. Recoverable only if
+        # that stop is a conflict confined to derive-only paths.
+        nxt = _list_unmerged_paths(repo_path)
+        if nxt is None or nxt[1] or not nxt[0]:
+            _git_run(["git", "rebase", "--abort"], cwd=str(repo_path),
+                     capture_output=True, timeout=10)
+            break
+        co2 = _git_run(
+            ["git", "checkout", upstream, "--"] + nxt[0],
+            cwd=str(repo_path), capture_output=True, text=True, timeout=10,
+        )
+        if co2.returncode != 0:
+            _git_run(["git", "rebase", "--abort"], cwd=str(repo_path),
+                     capture_output=True, timeout=10)
+            break
+        _git_run(["git", "add", "--"] + nxt[0], cwd=str(repo_path),
+                 capture_output=True, timeout=10)
+    else:
+        # Budget exhausted with the rebase still in flight -- leave no
+        # rebase-merge directory behind to wedge the next tick.
+        if _rebase_in_flight(repo_path):
+            print(f"[runner] git pull {label}: rebase still in flight after "
+                  f"{_MAX_REBASE_RESOLVE_STEPS} resolve steps, aborting",
+                  flush=True)
+            _git_run(["git", "rebase", "--abort"], cwd=str(repo_path),
+                     capture_output=True, timeout=10)
     # Drop the autostash entry that pull --rebase --autostash created and
     # left behind because its pop conflicted. Matching on "autostash"
     # avoids touching unrelated stashes the operator may have left.
@@ -1844,6 +1985,58 @@ def git_pull(repo_path: Path, label: str) -> None:
                           f"({attempt + 1}/2)...", flush=True)
                     time.sleep(2)
                     continue
+                # RESOLVE BEFORE ABORTING -- the abort below destroys the very
+                # evidence the recovery needs (2026-09-07, REBASE ABORT LOOP).
+                #
+                # `git rebase --abort` restores the pre-rebase state, which also
+                # clears the UU markers. _recover_ephemeral_pull_conflict is
+                # driven ENTIRELY by those markers, so calling it only AFTER the
+                # abort (as this did until 2026-09-07) always found a clean tree,
+                # took its `if not ephemeral and not other: return True` early
+                # exit, and reported success without having recovered anything.
+                # The caller then re-ran the identical pull, which hit the
+                # identical conflict. That is the loop: two `pull --rebase
+                # --autostash` starts and two aborts per tick, forever. Measured
+                # on this Mac's REE_assembly 2026-09-07 19:15-19:49Z (4 aborts,
+                # all returning to the same sha 4fac0dc165) and chipped as a LIVE
+                # abort loop repeatedly since 2026-08-08 across REE_assembly,
+                # ree-v3 and REE_Working without the mechanism ever being fixed.
+                #
+                # WHY THE GATE IS THIS NARROW. We only pre-empt the abort for a
+                # conflict confined ENTIRELY to derive-only paths:
+                #   split[0] non-empty -> there really is an unmerged path (so a
+                #     network/auth failure, which leaves no UU markers, still
+                #     falls through to the legacy abort rather than silently
+                #     skipping it and stranding a .git/rebase-merge directory);
+                #   not split[1]      -> no non-derive-only path is conflicted.
+                # Anything else -- including an unreadable status (None) -- takes
+                # the original abort path unchanged. Never generalise this to a
+                # path whose local copy could be authoritative.
+                #
+                # WHY take-origin-and-CONTINUE rather than `rebase --skip`.
+                # --skip drops the whole replayed commit, so it is only safe if
+                # that commit touches nothing outside the derived set. Taking
+                # origin's bytes for the conflicted derived paths and continuing
+                # keeps every other hunk of the same commit, so it needs no such
+                # assumption and is strictly the safer of the two.
+                split = _list_unmerged_paths(repo_path)
+                if split is not None and split[0] and not split[1]:
+                    if _recover_ephemeral_pull_conflict(repo_path, label):
+                        r4 = _git_run(
+                            ["git", "pull", "--rebase", "--autostash"],
+                            cwd=str(repo_path), capture_output=True, text=True,
+                            timeout=30,
+                        )
+                        if r4.returncode == 0:
+                            msg = (r4.stdout.strip().splitlines()[-1]
+                                   if r4.stdout.strip() else "ok")
+                            print(f"[runner] git pull {label}: {msg} "
+                                  f"(derive-only conflict resolved pre-abort)",
+                                  flush=True)
+                        else:
+                            print(f"[runner] git pull {label} pre-abort-recovery "
+                                  f"warn: {r4.stderr.strip()}", flush=True)
+                        return
                 # A failed --rebase pull may stop mid-rebase and leave
                 # .git/rebase-merge behind, which wedges EVERY later git op on
                 # this repo ("there is already a rebase-merge directory") until
@@ -1876,7 +2069,24 @@ def git_pull(repo_path: Path, label: str) -> None:
                 # If the failure left UU markers on ephemeral worker-owned
                 # paths (the 2026-05-31 cloud-3 wedge), auto-resolve by taking
                 # origin's version and retry the pull once.
-                if _recover_ephemeral_pull_conflict(repo_path, label):
+                #
+                # GUARDED ON THERE ACTUALLY BEING SOMETHING TO RECOVER
+                # (2026-09-07). _recover_ephemeral_pull_conflict returns True
+                # for a tree with NO unmerged paths -- "nothing to do", which
+                # reads identically to "recovered". The `rebase --abort` just
+                # above clears the UU markers, so on the mid-rebase path this
+                # was ALWAYS the vacuous True: no recovery happened, yet the
+                # caller then re-ran the identical pull, which hit the identical
+                # conflict and left a fresh rebase-merge directory behind. That
+                # is the second `pull --rebase --autostash` start in each cycle
+                # of the 2026-09-07 abort loop (the reflog shows them in pairs),
+                # and the reason a non-derived conflict ended a tick still
+                # wedged. The genuine case -- a pop conflict where the abort was
+                # a no-op because no rebase was in progress -- still has its UU
+                # markers here and still recovers.
+                post = _list_unmerged_paths(repo_path)
+                if post is not None and (post[0] or post[1]) and \
+                        _recover_ephemeral_pull_conflict(repo_path, label):
                     r2 = _git_run(
                         ["git", "pull", "--rebase", "--autostash"],
                         cwd=str(repo_path), capture_output=True, text=True,

@@ -414,3 +414,181 @@ def test_c7_ree_assembly_heartbeat_stall_recovers(tmp_path):
     # Subsequent pulls must continue to succeed (no wedge across ticks).
     experiment_runner.git_pull(local, "REE_assembly")
     assert _porcelain_uu(local) == []
+
+
+# ---------------------------------------------------------------------------
+# C8 / C9: the 2026-09-07 IGW-workset REBASE ABORT LOOP
+#
+# Incident: REE_assembly on the Mac, 19:15-19:49Z -- 4 `rebase (abort)` reflog
+# entries all returning to the SAME sha (4fac0dc165), i.e. four full cycles
+# that changed nothing. Cause: scripts/igw_routine_tick.py regenerates
+# evidence/planning/inter_governance_workset.{md,v1.json} from the IGW ledger
+# on EVERY tick, on BOTH the Mac and the hub, and both boxes commit them with
+# the identical subject line. With local regen commits and a newer hub regen
+# of the same derived state on origin, every replay conflicts.
+#
+# The defect was ORDERING, not detection: git_pull ran `git rebase --abort`
+# BEFORE calling _recover_ephemeral_pull_conflict. The abort restores the
+# pre-rebase state and therefore clears the UU markers the recovery is driven
+# by, so it found a clean tree, took its early `return True`, and reported
+# success without recovering anything -- and the caller re-ran the identical
+# pull. audit_stashes.py detected this correctly and chipped it as a LIVE
+# abort loop repeatedly from 2026-08-08 across three repos; nothing fixed the
+# mechanism.
+# ---------------------------------------------------------------------------
+_WORKSET_MD = "evidence/planning/inter_governance_workset.md"
+_WORKSET_JSON = "evidence/planning/inter_governance_workset.v1.json"
+
+
+def test_c8_igw_workset_paths_are_derive_only():
+    f = experiment_runner._path_is_ephemeral_worker_owned
+    assert f(_WORKSET_MD)
+    assert f(_WORKSET_JSON)
+    # Siblings in the SAME directory must NOT match -- these are authored /
+    # coordination state, not regenerated derivations, and taking origin's
+    # version of one would discard real work.
+    assert not f("evidence/planning/substrate_queue.json")
+    assert not f("evidence/planning/igw_routine_ledger.json")
+    assert not f("evidence/planning/igw_assignments.json")
+    assert not f("evidence/planning/hypothesis_space_registry.v1.json")
+    assert not f("evidence/planning/sleep_substrate_plan.md")
+
+
+def _seed_workset(repo: Path, text: str) -> None:
+    p = repo / _WORKSET_MD
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(text)
+
+
+def _build_igw_regen_divergence(local: Path, other: Path, n_local: int) -> None:
+    """Both boxes regenerate the same derived workset; neither has the other's.
+
+    Leaves `local` with `n_local` un-pushed regen commits and origin one
+    commit ahead with a DIFFERENT regen of the same state -- a clean tree,
+    diverged, every replay conflicting on the same path.
+    """
+    _seed_workset(local, "regen baseline\n")
+    _run(["git", "add", "-A"], local)
+    _run(["git", "commit", "-m", "igw-workset: seed"], local)
+    assert _run(["git", "push", "origin", "HEAD:master"], local).returncode == 0
+    _run(["git", "fetch", "origin"], other)
+    _run(["git", "reset", "--hard", "origin/master"], other)
+
+    # Hub regen lands on origin first.
+    _seed_workset(other, "regen HUB -- 247 items, 29 ready, 0 in flight\n")
+    _run(["git", "add", "-A"], other)
+    _run(["git", "commit", "-m", "igw-workset: regen -- 247 items, 29 ready, 0 in flight"], other)
+    assert _run(["git", "push", "origin", "HEAD:master"], other).returncode == 0
+
+    # Mac's own regen commits, never pushed -- identical subject line.
+    for i in range(n_local):
+        _seed_workset(local, "regen MAC pass %d -- 247 items, 29 ready, 0 in flight\n" % i)
+        _run(["git", "add", "-A"], local)
+        _run(["git", "commit", "-m",
+              "igw-workset: regen -- 247 items, 29 ready, 0 in flight"], local)
+
+    _run(["git", "fetch", "origin"], local)
+    st = _run(["git", "rev-list", "--left-right", "--count",
+               "HEAD...origin/master"], local).stdout.split()
+    assert st == [str(n_local), "1"], f"expected {n_local} ahead / 1 behind, got {st}"
+
+
+@pytest.mark.parametrize("n_local", [1, 3])
+def test_c9_igw_workset_rebase_loop_converges(tmp_path, n_local):
+    """git_pull must CONVERGE on a derive-only replay conflict, not abort-loop.
+
+    n_local=3 is the incident's own shape (three local regen commits) and is
+    the case a single --continue could not have handled: resolving the first
+    commit merely stops at the second.
+    """
+    local, other = _make_repos(tmp_path)
+    _build_igw_regen_divergence(local, other, n_local)
+
+    before = _run(["git", "rev-parse", "HEAD"], local).stdout.strip()
+
+    experiment_runner.git_pull(local, "REE_assembly")
+
+    # No conflict markers, and no rebase left wedging the next tick.
+    assert _porcelain_uu(local) == [], f"UU left behind: {_porcelain_uu(local)}"
+    assert not experiment_runner._rebase_in_flight(local), \
+        "rebase still in flight -- next tick will wedge on rebase-merge"
+
+    # THE LOOP SIGNATURE: an abort returns HEAD to exactly where it started
+    # and leaves the repo still behind origin. Converged means neither.
+    after = _run(["git", "rev-parse", "HEAD"], local).stdout.strip()
+    assert after != before, (
+        "HEAD did not move -- this is the abort-loop signature (the 2026-09-07 "
+        "reflog showed 4 aborts all returning to the same sha)"
+    )
+    counts = _run(["git", "rev-list", "--left-right", "--count",
+                   "HEAD...origin/master"], local).stdout.split()
+    assert counts[1] == "0", f"still behind origin after pull: {counts}"
+
+    # Origin's regen is what survived; the superseded local regens are gone.
+    assert "HUB" in (local / _WORKSET_MD).read_text()
+
+    # And the next tick is clean -- the wedge must not reappear.
+    experiment_runner.git_pull(local, "REE_assembly")
+    assert _porcelain_uu(local) == []
+    assert not experiment_runner._rebase_in_flight(local)
+
+
+def test_c10_non_derived_commit_in_replay_is_not_dropped(tmp_path):
+    """A replayed commit touching a NON-derived path must survive the recovery.
+
+    This is why the fix resolves-and-continues instead of `rebase --skip`ping
+    the whole commit: --skip would be correct only if the commit touched
+    nothing outside the derived set, and silently discards real work when it
+    does. Here one commit carries BOTH a workset regen and a real file.
+    """
+    local, other = _make_repos(tmp_path)
+    _build_igw_regen_divergence(local, other, 0)
+
+    # One local commit: superseded workset regen + a genuine change.
+    _seed_workset(local, "regen MAC -- 247 items, 29 ready, 0 in flight\n")
+    (local / "REAL.md").write_text("work that must not be lost\n")
+    _run(["git", "add", "-A"], local)
+    _run(["git", "commit", "-m",
+          "igw-workset: regen -- 247 items, 29 ready, 0 in flight"], local)
+    _run(["git", "fetch", "origin"], local)
+
+    experiment_runner.git_pull(local, "REE_assembly")
+
+    assert _porcelain_uu(local) == []
+    assert not experiment_runner._rebase_in_flight(local)
+    assert (local / "REAL.md").read_text() == "work that must not be lost\n", \
+        "the non-derived half of the replayed commit was dropped"
+    # Origin still wins on the derived path.
+    assert "HUB" in (local / _WORKSET_MD).read_text()
+
+
+def test_c11_non_derived_conflict_still_aborts(tmp_path):
+    """A replay conflict on a NON-derived path keeps the legacy abort path.
+
+    The pre-abort recovery must never generalise beyond derive-only paths:
+    when README.md itself conflicts, git_pull must leave the tree clean of UU
+    markers and the local commit intact for a human, not resolve it.
+    """
+    local, other = _make_repos(tmp_path)
+
+    _run(["git", "fetch", "origin"], other)
+    _run(["git", "reset", "--hard", "origin/master"], other)
+    (other / "README.md").write_text("origin side\n")
+    _run(["git", "add", "-A"], other)
+    _run(["git", "commit", "-m", "origin readme"], other)
+    assert _run(["git", "push", "origin", "HEAD:master"], other).returncode == 0
+
+    (local / "README.md").write_text("local side\n")
+    _run(["git", "add", "-A"], local)
+    _run(["git", "commit", "-m", "local readme"], local)
+    _run(["git", "fetch", "origin"], local)
+
+    experiment_runner.git_pull(local, "REE_assembly")
+
+    # Not auto-resolved, and not left mid-rebase for the next tick to trip on.
+    assert not experiment_runner._rebase_in_flight(local)
+    assert _porcelain_uu(local) == []
+    # The local commit is still there for a human to merge by hand.
+    subjects = _run(["git", "log", "--format=%s", "-3"], local).stdout
+    assert "local readme" in subjects, \
+        "the operator's non-derived commit was discarded"
