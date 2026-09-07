@@ -47,6 +47,7 @@ CHECK_NAMES = ("conformance", "readiness", "arm_fingerprint", "degeneracy", "man
                "write_pack_dry_run", "dry_run_unreachable_criterion",
                "dry_run_sweep_excludes_keyed_point",
                "criterion_exceeds_achievable_range",
+               "dv_headroom_statistic_mismatch",
                "config_slice_declaration", "inert_salience_dacc_bias",
                "dacc_last_bundle", "agent_seed_order", "zworld_p0_warmup",
                "fishtank_episode_log_seeds", "disjunctive_criteria_load_bearing",
@@ -4124,6 +4125,427 @@ def criterion_exceeds_achievable_range_lint(path: Path) -> Optional[str]:
     )
 
 
+_DV_HEADROOM_STATISTIC_EXEMPT_MARKER = "DV_HEADROOM_STATISTIC_EXEMPT"
+
+# The three statistics in experiments/_metrics.DV_HEADROOM_STATISTICS that reduce
+# the control sample through a SINGLE ORDER STATISTIC: `ceiling_headroom` is
+# `bound_hi - max(v)`, `floor_headroom` is `min(v) - bound_lo`, `max_abs` is
+# `max |v|`. "range" is deliberately ABSENT -- it is `max - min`, the documented
+# pairing for a SPREAD or between-arm difference criterion (983's decline_gap),
+# so pairing it with a mean is not by itself evidence of a mismatch.
+_DV_HEADROOM_ORDER_STATISTICS = ("ceiling_headroom", "floor_headroom", "max_abs")
+_DV_HEADROOM_MEAN_FUNCS = ("mean", "fmean", "_mean", "average", "nanmean")
+# Names that carry no metric identity, so a shared/absent one proves nothing.
+_DV_HEADROOM_GENERIC_SYMBOLS = frozenset({
+    "c", "r", "s", "v", "x", "d", "n", "lab", "arm", "seed", "seeds", "vals", "val",
+    "values", "mean", "float", "int", "len", "max", "min", "sum", "abs", "sorted",
+    "list", "self", "row", "rows", "cell", "cells", "k", "i", "j", "e", "p", "t",
+    "statistics", "np", "math", "by_cell", "by_arm", "res", "results", "out", "get",
+    "bool", "items", "name", "kind", "threshold", "measured",
+})
+# Stripped before comparing metric keys, so `delta_dbar_mean` and `delta_dbar_per_seed`
+# are recognised as the SAME metric measured two ways -- the lint asks whether the two
+# sides read the same QUANTITY, not whether they spell it identically.
+_DV_HEADROOM_SYMBOL_SUFFIXES = (
+    "_mean", "_means", "_per_seed", "_per_cell", "_by_cell", "_by_arm", "_vals",
+    "_values", "_value", "_all", "_list", "_arr", "_seed", "_seeds")
+# An expression mentioning one of these is reading the headroom entry back, not
+# adjudicating the science -- 972a's own `t3_headroom_met = measured > PROBE_MARGIN`
+# is the shape. Excluded so the gate is never compared against itself.
+_DV_HEADROOM_SELF_TOKENS = ("headroom", "achievable", "dv_headroom")
+_DV_HEADROOM_RESOLVE_HOPS = 3
+
+
+def _dv_headroom_norm_symbol(sym: str) -> str:
+    """Lowercase and strip aggregation/shape suffixes, repeatedly."""
+    s = sym.lower()
+    changed = True
+    while changed:
+        changed = False
+        for suf in _DV_HEADROOM_SYMBOL_SUFFIXES:
+            if s.endswith(suf) and len(s) > len(suf) + 2:
+                s = s[: -len(suf)]
+                changed = True
+    return s
+
+
+def _dv_headroom_metric_keys(node: Optional[ast.AST]) -> Set[str]:
+    """NAMED metric keys read by an expression: constant-string subscripts only.
+
+    Deliberately NOT bare Names. A headroom call's `control_values=` is normally a
+    plain local (`control`, `base_rates`, `erased_vals`) whose name describes the
+    ARM, while the criterion names the derived STATISTIC (`decline_gap`) -- those
+    two disagreeing is the documented-correct pairing, not a defect, and keying on
+    Names fires on 10 of the 15 adopters. A constant-string subscript is a
+    different thing: it names a metric inside a per-cell/per-seed record, so two
+    disjoint key sets mean the two sides are reading DIFFERENT recorded metrics
+    out of the SAME structure. That is 1009's shape and it is what this detects.
+    """
+    out: Set[str] = set()
+    if node is None:
+        return out
+    for n in ast.walk(node):
+        if isinstance(n, ast.Subscript):
+            sl = n.slice
+            if isinstance(sl, ast.Constant) and isinstance(sl.value, str) \
+                    and len(sl.value) > 2 \
+                    and sl.value.lower() not in _DV_HEADROOM_GENERIC_SYMBOLS:
+                out.add(_dv_headroom_norm_symbol(sl.value))
+    out.discard("")
+    return out
+
+
+def _dv_headroom_unique_assigns(tree: ast.Module) -> Dict[str, ast.AST]:
+    """`NAME -> value` for every Name assigned EXACTLY ONCE in the file.
+
+    Single-assignment only, on purpose: a name rebound in two branches has no one
+    expression to reason about, and guessing between them is how a static scan
+    starts inventing findings. Names with more than one binding are simply dropped
+    and the lint stays silent about them.
+    """
+    seen: Dict[str, ast.AST] = {}
+    multi: Set[str] = set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Assign):
+            for t in n.targets:
+                if isinstance(t, ast.Name):
+                    if t.id in seen:
+                        multi.add(t.id)
+                    seen[t.id] = n.value
+    return {k: v for k, v in seen.items() if k not in multi}
+
+
+def _dv_headroom_resolve(node: ast.AST, assigns: Dict[str, ast.AST],
+                         depth: int = 0) -> ast.AST:
+    """Follow a bare Name through its unique binding, up to a few hops.
+
+    LOAD-BEARING for the confirmed 972a case, and the reason a naive version of
+    this lint misses it entirely. 972a's criterion reads `m3 >= PROBE_MARGIN`;
+    the mean is one line earlier in `m3 = _mean(d_vals)`. Without this the
+    comparison looks like a bare Name against a constant and nothing is visible.
+    """
+    if depth >= _DV_HEADROOM_RESOLVE_HOPS or not isinstance(node, ast.Name):
+        return node
+    nxt = assigns.get(node.id)
+    return _dv_headroom_resolve(nxt, assigns, depth + 1) if nxt is not None else node
+
+
+def _dv_headroom_mean_aggregator(node: ast.AST,
+                                 assigns: Dict[str, ast.AST]) -> Optional[str]:
+    """Name of the MEAN aggregation a criterion's measured leg reduces through.
+
+    Three spellings, because the corpus uses all three: a call to a mean function
+    (`statistics.fmean`, `_mean`), a name that says so (`c1_mean`, `mean_sep`),
+    and a record key that says so (`c["projected_lineage_increment_mean"]`).
+    """
+    target = _dv_headroom_resolve(node, assigns)
+    for n in ast.walk(target):
+        if isinstance(n, ast.Call):
+            f = n.func
+            nm = f.attr if isinstance(f, ast.Attribute) else \
+                (f.id if isinstance(f, ast.Name) else "")
+            if nm in _DV_HEADROOM_MEAN_FUNCS:
+                return nm
+        if isinstance(n, ast.Name):
+            inner = _dv_headroom_resolve(n, assigns, _DV_HEADROOM_RESOLVE_HOPS - 1)
+            if inner is not n:
+                for m in ast.walk(inner):
+                    if isinstance(m, ast.Call):
+                        f = m.func
+                        nm = f.attr if isinstance(f, ast.Attribute) else \
+                            (f.id if isinstance(f, ast.Name) else "")
+                        if nm in _DV_HEADROOM_MEAN_FUNCS:
+                            return f"{n.id} = {nm}(...)"
+            low = n.id.lower()
+            if low.endswith("_mean") or low.startswith("mean_"):
+                return n.id
+        if isinstance(n, ast.Subscript):
+            sl = n.slice
+            if isinstance(sl, ast.Constant) and isinstance(sl.value, str) \
+                    and sl.value.lower().endswith("_mean"):
+                return sl.value
+    return None
+
+
+def _dv_headroom_const_str(node: Optional[ast.AST]) -> Optional[str]:
+    return node.value if isinstance(node, ast.Constant) \
+        and isinstance(node.value, str) else None
+
+
+def _dv_headroom_entries(
+    tree: ast.Module,
+) -> List[Tuple[int, Optional[str], str, str, Optional[ast.AST]]]:
+    """(lineno, entry_name_if_literal, threshold_symbol, statistic, achievable_expr).
+
+    TWO FORMS, and the second is not optional: 1009's headroom is a hand-rolled
+    `custom_information["dv_headroom"]` dict with `floor` / `achievable_by_cell`
+    keys and no `dv_headroom_check()` call anywhere. A call-only scan sees an
+    adopter with no entries and stays silent on one of the two confirmed cases.
+
+    Only entries whose `criterion_threshold` is a NAME are returned. That name is
+    the join key -- the criterion this entry certifies is the one reading the same
+    threshold constant. A re-typed literal threshold cannot be joined to anything
+    and is skipped; dv_headroom_check's own docstring already tells authors to
+    pass the criterion's module constant rather than a literal, so this costs
+    little and keeps the join honest rather than guessed.
+    """
+    entries: List[Tuple[int, Optional[str], str, str, Optional[ast.AST]]] = []
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) \
+                and n.func.id == "dv_headroom_check":
+            kw = {k.arg: k.value for k in n.keywords if k.arg}
+            thr = kw.get("criterion_threshold")
+            if not isinstance(thr, ast.Name):
+                continue
+            entries.append((
+                n.lineno,
+                _dv_headroom_const_str(n.args[0] if n.args else None)
+                or _dv_headroom_const_str(kw.get("name")),
+                thr.id,
+                _dv_headroom_const_str(kw.get("statistic")) or "range",
+                kw.get("control_values") or kw.get("achievable")))
+            continue
+        if not isinstance(n, ast.Dict):
+            continue
+        keys = {k.value: v for k, v in zip(n.keys, n.values)
+                if isinstance(k, ast.Constant) and isinstance(k.value, str)}
+        has_achievable = any(kk.startswith("achievable")
+                             or kk.startswith("headroom_ratio") for kk in keys)
+        if _dv_headroom_const_str(keys.get("kind")) != "dv_headroom" and not (
+                has_achievable and ("floor" in keys or "threshold" in keys)):
+            continue
+        thr = keys.get("criterion_threshold") or keys.get("floor") or keys.get("threshold")
+        if not isinstance(thr, ast.Name):
+            continue
+        achievable = None
+        for kk, vv in keys.items():
+            if kk.startswith("achievable") or kk.startswith("headroom_ratio"):
+                achievable = vv
+                break
+        entries.append((
+            n.lineno, _dv_headroom_const_str(keys.get("name")), thr.id,
+            _dv_headroom_const_str(keys.get("achievable_statistic")) or "", achievable))
+    # One logical entry is often written twice -- a dv_headroom_check() call plus a
+    # hand-built NaN fallback dict on the else branch (972a lines 1067/1073). Collapse
+    # on the literal name where there is one, else on (threshold, statistic), so a
+    # driver is not told the same thing twice about the same entry.
+    out = []
+    seen: Set[Tuple[Any, ...]] = set()
+    for lineno, name, thr, stat, achievable in entries:
+        key: Tuple[Any, ...] = (name,) if name else ("~", thr, stat)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append((lineno, name, thr, stat, achievable))
+    return out
+
+
+def _dv_headroom_adjudicating_compares(
+    tree: ast.Module,
+) -> List[Tuple[int, ast.AST, str]]:
+    """(lineno, measured_leg, threshold_name) for FLOOR compares the driver
+    ADJUDICATES on -- inside a `c1`/`..._pass`/`..._passed` assignment, or a
+    criterion dict's `passed` value.
+
+    The narrowing is the noise control, exactly as in the sibling lint. Every
+    inequality in the file against the same constant is not a criterion; scanning
+    them all pairs a headroom entry with sanity checks, guards, and the headroom
+    gate's own comparison. 993a's `non_degenerate = mean_sep >= FLOOR` is
+    excluded here on purpose -- it is a degeneracy guard, not the adjudication,
+    and its author documented the `max_abs` choice against the autopsy's own table.
+    """
+    out: List[Tuple[int, ast.AST, str]] = []
+
+    def harvest(expr: ast.AST) -> None:
+        for n in ast.walk(expr):
+            legs = _compare_legs(n)
+            if legs is None:
+                continue
+            measured, thr_node, _strict = legs
+            if not isinstance(thr_node, ast.Name):
+                continue
+            try:
+                if any(tok in ast.unparse(measured).lower()
+                       for tok in _DV_HEADROOM_SELF_TOKENS):
+                    continue
+            except Exception:                     # pragma: no cover - py<3.9
+                pass
+            out.append((n.lineno, measured, thr_node.id))
+
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Assign):
+            if any(isinstance(t, ast.Name) and _is_criterion_target(t.id)
+                   for t in n.targets):
+                harvest(n.value)
+        elif isinstance(n, ast.Dict):
+            for k, v in zip(n.keys, n.values):
+                if isinstance(k, ast.Constant) and k.value in ("passed", "pass"):
+                    harvest(v)
+    return out
+
+
+def dv_headroom_statistic_mismatch_lint(path: Path) -> Optional[str]:
+    """WARN-only: a `dv_headroom` entry certifying a criterion it does not measure.
+
+    Sibling of criterion_exceeds_achievable_range_lint() above, and the second
+    half of the same story. That lint asks whether a driver certifies its DV's
+    range AT ALL, and any mention of `dv_headroom` silences it -- deliberately
+    generous, because its purpose is to make the author ANSWER the question. This
+    one asks the next question: having answered it, did the entry measure the
+    quantity the criterion actually gates?
+
+    THE DEFECT, measured 2026-09-07 across four diagnostics (confirmed cluster
+    autopsy, REE_assembly cb4a71fbd9,
+    evidence/planning/failure_autopsy_dv-headroom-diagnostics-cluster_2026-09-07.md).
+    TWO of the class's three firings that day were computed on a quantity other
+    than the one the criterion gates:
+
+      V3-EXQ-972a -- a FALSE POSITIVE, and the expensive direction. Criterion T3
+        tests the MEAN paired difference against a 0.15 margin. Its entry
+        `dv_headroom_T3_above_lineage_accuracy` used `ceiling_headroom`, i.e.
+        `1 - MAX(per-seed control accuracy)` = 0.0806. The MEAN-matched ceiling is
+        `1 - mean(acc)` = 0.155563 -- ratio 1.037, ADEQUATE. A genuine, adequately
+        ranged null was presented as an instrument failure. The decisive tell was
+        in the run's own data: 2 of the 8 observed paired diffs (0.16135, 0.09297)
+        EXCEEDED the asserted 0.0806 ceiling, one of them clearing the 0.15
+        threshold outright. See dv_headroom_observation_check() in
+        experiments/_metrics.py, which catches exactly that at runtime.
+      V3-EXQ-1009 -- the wrong statistic outright.
+        `custom_information.dv_headroom.headroom_ratio_by_cell` is computed on
+        `delta_dbar`, while criterion C1 gates
+        `projected_lineage_increment = sqrt(B^2 + d^2) - B`. The cell the headroom
+        table makes look closest (GROUNDED/floor0.2, ratio 0.9973) is 8.69x short
+        on C1's own statistic, and the true marginal cell (FROZEN/floor0.0, 2.31x)
+        is never named.
+
+    TWO DETECTABLE SHAPES, both static:
+
+      (a) ORDER-STATISTIC MISMATCH. The entry's statistic reduces the control
+          sample through a single max/min (`ceiling_headroom`, `floor_headroom`,
+          `max_abs`) while the criterion it certifies aggregates with a MEAN. A
+          max-based ceiling UNDER-states the ceiling on a mean and a min-based one
+          over-states it; either way the certified quantity is not the gated one.
+      (b) STATISTIC MISMATCH. Entry and criterion both read NAMED metric keys out
+          of a per-cell/per-seed record, and the key sets are disjoint -- they are
+          reading different recorded metrics out of the same structure.
+
+    WHAT IT CANNOT SEE, and it is a lot -- this is a scan, not a proof:
+      - A threshold passed as a LITERAL rather than the criterion's own module
+        constant. The join key is that constant; without it nothing links the
+        entry to a criterion and the file is silent.
+      - A criterion assembled across function boundaries, or through a name
+        rebound more than once (_dv_headroom_unique_assigns drops those rather
+        than guess between bindings).
+      - Whether a mean-vs-max pairing is actually WRONG for this DV. It cannot:
+        the answer depends on runtime distributions. It reports that the entry
+        certifies one statistic while the criterion reads another, and asks.
+      - `statistic="range"`, excluded entirely -- it is the documented pairing for
+        a spread/difference criterion, so pairing it with a mean is not evidence.
+      - `achievable=` (analytic) entries, which have no sample to take an order
+        statistic of.
+      - Anything in a driver that never mentions `dv_headroom`: this lint is
+        scoped to adopters of the class, so a non-adopter cannot fire.
+
+    BIASED TO UNDER-FIRE, and measured that way rather than asserted: 5 of the 15
+    driver adopters fire, with BOTH confirmed carriers among them. The tightenings
+    that got it there -- named-metric-keys-on-both-sides for (b), the
+    adjudicating-comparison narrowing, `range` excluded -- each removed real noise
+    without dropping a carrier; the naive form fired on 10 of 15 while MISSING
+    972a. Do not loosen one without re-measuring the other.
+
+    NEVER BLOCKING. Like every sibling in this family it is WARN-only in both
+    modes: a mismatch it reports may be a deliberate choice it cannot see, and the
+    landed carriers' runs are complete. Exempt a headroom entry deliberately
+    measured on a different quantity with
+    DV_HEADROOM_STATISTIC_EXEMPT = "<reason>". Do NOT retro-edit a LANDED driver
+    whose run is complete -- adjudicate the affected RESULT instead (972a and 1009
+    are already adjudicated in the autopsy above).
+    """
+    try:
+        src = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    # Scoped to adopters, and checked BEFORE the parse: of the ~1465 files under
+    # experiments/, only 16 mention the class at all (15 drivers plus _metrics.py,
+    # which defines it). Everything else does no AST work here whatsoever -- 0.84s
+    # for the whole corpus, measured 2026-09-07.
+    if "dv_headroom" not in src or _DV_HEADROOM_STATISTIC_EXEMPT_MARKER in src:
+        return None
+    try:
+        tree = ast.parse(src)
+    except (SyntaxError, ValueError):
+        return None
+
+    entries = _dv_headroom_entries(tree)
+    if not entries:
+        return None
+    compares = _dv_headroom_adjudicating_compares(tree)
+    if not compares:
+        return None
+    assigns = _dv_headroom_unique_assigns(tree)
+    by_threshold: Dict[str, List[Tuple[int, ast.AST]]] = {}
+    for lineno, measured, thr_name in compares:
+        by_threshold.setdefault(thr_name, []).append((lineno, measured))
+
+    findings: List[str] = []
+    for lineno, name, thr, stat, achievable in entries:
+        label = name or f"<dv_headroom entry at line {lineno}>"
+        # At most ONE finding per entry: several criteria can read the same threshold
+        # constant, and repeating the same message for each trains the reader to skim.
+        for clineno, measured in by_threshold.get(thr, []):
+            agg = _dv_headroom_mean_aggregator(measured, assigns)
+            if stat in _DV_HEADROOM_ORDER_STATISTICS and agg:
+                findings.append(
+                    f"line {lineno}: `{label}` measures the control arm with "
+                    f"statistic {stat!r} -- a single max/min order statistic -- while "
+                    f"the criterion it certifies (the comparison against `{thr}` at "
+                    f"line {clineno}) aggregates with a MEAN (`{agg}`). A max-based "
+                    f"ceiling UNDER-states the ceiling on a mean and a min-based one "
+                    f"over-states it, so the entry certifies a quantity the criterion "
+                    f"does not read. This is V3-EXQ-972a's shape: 1 - max(acc) = "
+                    f"0.0806 was reported where the mean-matched 1 - mean(acc) = "
+                    f"0.155563 was adequate")
+                break
+            h_keys = _dv_headroom_metric_keys(achievable)
+            c_keys = _dv_headroom_metric_keys(measured) \
+                | _dv_headroom_metric_keys(_dv_headroom_resolve(measured, assigns))
+            if h_keys and c_keys and not (h_keys & c_keys):
+                findings.append(
+                    f"line {lineno}: `{label}` measures "
+                    f"{sorted(h_keys)} while the criterion it certifies (the "
+                    f"comparison against `{thr}` at line {clineno}) gates on "
+                    f"{sorted(c_keys)} -- different recorded metrics out of the same "
+                    f"record, so the headroom table does not describe the gated "
+                    f"statistic. This is V3-EXQ-1009's shape: headroom on "
+                    f"`delta_dbar` against a C1 gating "
+                    f"`projected_lineage_increment`, which made the closest-looking "
+                    f"cell 8.69x short and never named the true marginal one")
+                break
+    if not findings:
+        return None
+    return (
+        "declares a `dv_headroom` precondition that is not measured on the "
+        "criterion's own statistic -- " + "; ".join(findings) + ". A headroom entry "
+        "certifies that the DEPENDENT VARIABLE can reach the threshold the criterion "
+        "registers, so it must be computed on the SAME statistic and the SAME order "
+        "statistic that criterion reads; otherwise it answers a question nobody "
+        "asked and its verdict -- adequate or inadequate -- carries over to the real "
+        "one only by luck. Fix by measuring the control arm the way the criterion "
+        "aggregates it (for a mean criterion on a bounded DV, pass the mean-matched "
+        "ceiling via `achievable=` rather than an order statistic), or by gating the "
+        "criterion on the statistic the headroom entry actually measures. Stronger "
+        "than any static check and worth wiring regardless: "
+        "experiments/_metrics.dv_headroom_observation_check(entry, observed) at "
+        "manifest-emit time, which falsifies a mis-specified ceiling from the run's "
+        "OWN data -- an observed value above the asserted ceiling is proof, not "
+        "suspicion. Exempt an entry deliberately measured on a different quantity "
+        f"with {_DV_HEADROOM_STATISTIC_EXEMPT_MARKER} = \"<reason>\". Full write-up: "
+        "REE_assembly/evidence/planning/"
+        "failure_autopsy_dv-headroom-diagnostics-cluster_2026-09-07.md. Do NOT "
+        "retro-edit a LANDED driver whose run is complete."
+    )
+
+
 _DRY_RUN_SWEPT_POINT_EXEMPT_MARKER = "DRY_RUN_SWEPT_POINT_EXEMPT"
 _POINT_EPS = 1e-9
 _SLICE_UNRESOLVED = object()
@@ -8011,6 +8433,7 @@ def main() -> int:
     dry_unreachable_criterion_warnings: List[Tuple[Path, str]] = []
     dry_sweep_excludes_point_warnings: List[Tuple[Path, str]] = []
     criterion_range_warnings: List[Tuple[Path, str]] = []
+    dv_headroom_mismatch_warnings: List[Tuple[Path, str]] = []
     precondition_index_read_warnings: List[Tuple[Path, str]] = []
     ctxmem_enablement_warnings: List[Tuple[Path, str]] = []
     config_slice_warnings: List[Tuple[Path, str]] = []
@@ -8183,6 +8606,18 @@ def main() -> int:
                 # warning that rests on an unprovable premise must never block a
                 # commit, and the 112 landed carriers' runs are complete.
                 criterion_range_warnings.append((p, cear))
+        if "dv_headroom_statistic_mismatch" in selected:
+            dhm = dv_headroom_statistic_mismatch_lint(p)
+            if dhm:
+                # WARN-only in BOTH modes -- see dv_headroom_statistic_mismatch_lint()
+                # for why this one never hardens under --paths. It cannot decide whether
+                # a mean-vs-max pairing is wrong for this DV (that depends on runtime
+                # distributions it has no access to); it reports that the entry certifies
+                # one statistic while the criterion reads another. A warning resting on a
+                # question rather than a proof must never block a commit, and both
+                # confirmed carriers are landed drivers whose runs are complete and
+                # already adjudicated in the 2026-09-07 cluster autopsy.
+                dv_headroom_mismatch_warnings.append((p, dhm))
         if "precondition_index_read" in selected:
             pir = precondition_index_read_lint(p)
             if pir:
@@ -8311,6 +8746,7 @@ def main() -> int:
           f"{len(dry_unreachable_criterion_warnings)} dry_run-unreachable-criterion-warning(s), "
           f"{len(dry_sweep_excludes_point_warnings)} dry_run-sweep-excludes-keyed-point-warning(s), "
           f"{len(criterion_range_warnings)} criterion-exceeds-achievable-range-warning(s), "
+          f"{len(dv_headroom_mismatch_warnings)} dv_headroom-statistic-mismatch-warning(s), "
           f"{len(config_slice_warnings)} config_slice-declaration-warning(s), "
           f"{len(inert_dacc_bias_warnings)} inert-salience-dacc_bias-warning(s), "
           f"{len(dacc_last_bundle_warnings)} dacc-_last_bundle-warning(s), "
@@ -8540,6 +8976,30 @@ def main() -> int:
         print("[validate_experiments] CRITERION-EXCEEDS-ACHIEVABLE-RANGE WARNINGS "
               "(advisory, non-blocking):", flush=True)
         for p, warn in criterion_range_warnings:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
+            print(f"  - {rel}: {warn}", flush=True)
+    if dv_headroom_mismatch_warnings:
+        # Advisory in BOTH modes (never hardens). A fire here means the driver HAS
+        # declared a `dv_headroom` precondition -- so its sibling
+        # criterion_exceeds_achievable_range gate is silenced -- but the entry is
+        # measured on a different statistic, or a different order statistic, than the
+        # criterion it certifies. Both directions cost real compute: V3-EXQ-972a's
+        # max-based ceiling reported 0.0806 where the mean-matched 0.155563 was
+        # ADEQUATE, presenting a genuine null as an instrument failure; V3-EXQ-1009's
+        # headroom table ranked cells on `delta_dbar` while C1 gated
+        # `projected_lineage_increment`, making the closest-looking cell 8.69x short.
+        # Triage each: measure the control arm the way the criterion aggregates it, or
+        # gate the criterion on the statistic the entry measures. Wire
+        # experiments/_metrics.dv_headroom_observation_check() at emit time regardless
+        # -- an observed value above the asserted ceiling falsifies it outright, which
+        # no static scan can do. An entry deliberately measured on a different quantity
+        # should carry DV_HEADROOM_STATISTIC_EXEMPT rather than be left to re-fire. Do
+        # NOT retro-edit a LANDED driver whose run is complete -- adjudicate the
+        # affected RESULT instead.
+        print("", flush=True)
+        print("[validate_experiments] DV_HEADROOM-STATISTIC-MISMATCH WARNINGS "
+              "(advisory, non-blocking):", flush=True)
+        for p, warn in dv_headroom_mismatch_warnings:
             rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
             print(f"  - {rel}: {warn}", flush=True)
     if dry_unreachable_criterion_warnings:

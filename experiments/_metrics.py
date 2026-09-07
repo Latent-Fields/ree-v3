@@ -36,7 +36,7 @@ All extractors:
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
@@ -851,6 +851,151 @@ def dv_headroom_check(
     entry["headroom_reason"] = _dv_headroom_reason(entry)
     if dv_bounds is not None:
         entry["dv_bounds"] = [float(dv_bounds[0]), float(dv_bounds[1])]
+    return entry
+
+
+DV_HEADROOM_OBSERVATION_FLAG = "headroom_ceiling_exceeded_by_observation"
+# Float-noise guard. An observation must EXCEED the ceiling by more than this to
+# count; a value equal to it (a DV that touched its own bound) is not evidence of
+# a mis-specification.
+DV_HEADROOM_OBSERVATION_TOLERANCE = 1e-12
+
+
+def dv_headroom_observation_check(
+    entry: Dict[str, Any],
+    observed: Optional[Sequence[float]],
+    *,
+    observed_name: Optional[str] = None,
+    tolerance: float = DV_HEADROOM_OBSERVATION_TOLERANCE,
+) -> Dict[str, Any]:
+    """Falsify a headroom ceiling with the run's OWN observations. Returns `entry`.
+
+    Call this at MANIFEST-EMIT time, once the test statistic has actually been
+    observed, passing the observed values of the SAME statistic the load-bearing
+    criterion reads, in the criterion's own orientation. It annotates `entry`
+    in place with `headroom_ceiling_exceeded_by_observation` and returns it, so it
+    can wrap an existing preconditions[] entry without restructuring the emit.
+
+    WHY THIS IS STRONGER THAN THE STATIC LINT, and why it is the generalisable
+    lesson rather than a second guard. A headroom entry asserts a CEILING: the
+    largest value the DV could produce in this configuration. That is a universal
+    claim, so a single observation above it REFUTES it outright -- no distributional
+    assumption, no judgement about which statistic was the right one, no access to
+    the driver's source. validate_experiments.dv_headroom_statistic_mismatch_lint
+    can only ask whether the entry and the criterion look like they read the same
+    quantity; this KNOWS, from data the run already has, and it catches mismatches
+    the static scan cannot see at all -- a threshold passed as a literal, a
+    criterion assembled across functions, a statistic that is subtly wrong for
+    reasons no name reveals.
+
+    THE CONFIRMED CASE. V3-EXQ-972a's T3 entry asserted an achievable ceiling of
+    0.0806 (`1 - max(per-seed control accuracy)`) on the mean paired difference.
+    Two of the eight observed paired diffs were 0.16135 and 0.09297 -- both ABOVE
+    the asserted ceiling, one of them clearing the criterion's own 0.15 threshold.
+    The ceiling was not a ceiling. Nothing in the run said so, the entry was read
+    as an instrument failure, and an adequately ranged null (the mean-matched
+    ceiling is 0.155563, ratio 1.037) was adjudicated as a substrate limit. This
+    check turns that into a recorded flag on the entry at the moment the manifest
+    is written. (Confirmed cluster autopsy, REE_assembly cb4a71fbd9,
+    evidence/planning/failure_autopsy_dv-headroom-diagnostics-cluster_2026-09-07.md.)
+
+    IT NEVER RAISES, and that is deliberate. By emit time the compute is spent;
+    an exception here would cost the manifest to report a problem WITH the
+    manifest. It records and returns. The flag's `exceeded` boolean is what a
+    reader, an autopsy, or a later gate reads.
+
+    ORIENTATION IS THE CALLER'S JOB, and it is the one thing to get right. Pass
+    the statistic as the CRITERION reads it (`mean_diff`'s per-seed inputs for a
+    mean criterion, the per-cell values for a per-cell criterion). Headroom is a
+    floor gate on a ceiling quantity -- both `achievable` and the criterion's
+    statistic run in the same direction -- so the test is a plain `observed >
+    achievable`. Passing magnitudes against a signed ceiling, or the wrong arm's
+    values, produces a flag that means nothing.
+
+    NON-FINITE observations are dropped and counted rather than compared; a NaN
+    ceiling (`measured` is NaN) is INDETERMINATE, not met and not exceeded, and is
+    recorded as such -- the same asymmetry dv_headroom_check applies, for the same
+    reason: a measurement that failed must not certify anything.
+    """
+    if not isinstance(entry, dict):
+        return entry
+    flag: Dict[str, Any] = {
+        "checked": True,
+        "exceeded": False,
+        "statistic_observed": str(observed_name) if observed_name
+        else str(entry.get("dv_name") or "<unnamed>"),
+    }
+    try:
+        ceiling = float(entry.get("measured"))
+    except (TypeError, ValueError):
+        flag.update({"checked": False,
+                     "reason": ("no finite `measured` on this entry, so there is no "
+                                "asserted ceiling to falsify")})
+        entry[DV_HEADROOM_OBSERVATION_FLAG] = flag
+        return entry
+    vals_all = list(observed) if observed is not None else []
+    vals: List[float] = []
+    n_dropped = 0
+    for v in vals_all:
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            n_dropped += 1
+            continue
+        if f != f or f in (float("inf"), float("-inf")):
+            n_dropped += 1
+            continue
+        vals.append(f)
+    flag["n_observed"] = len(vals)
+    if n_dropped:
+        flag["n_observed_nonfinite_dropped"] = n_dropped
+    if ceiling != ceiling:
+        flag.update({"checked": False, "asserted_ceiling": None,
+                     "reason": ("asserted ceiling is NaN, so no observation can "
+                                "exceed it -- INDETERMINATE, not met. Find out why "
+                                "the headroom input was non-finite.")})
+        entry[DV_HEADROOM_OBSERVATION_FLAG] = flag
+        return entry
+    flag["asserted_ceiling"] = ceiling
+    if not vals:
+        flag.update({"checked": False,
+                     "reason": ("no finite observations of the test statistic were "
+                                "supplied, so the ceiling was not tested")})
+        entry[DV_HEADROOM_OBSERVATION_FLAG] = flag
+        return entry
+    tol = float(tolerance)
+    over = [v for v in vals if (v - ceiling) > tol]
+    flag["max_observed"] = max(vals)
+    if not over:
+        flag["reason"] = (
+            "%d observed value(s) of %s, max %.6g, all at or below the asserted "
+            "ceiling %.6g -- the ceiling is not contradicted by this run's data."
+            % (len(vals), flag["statistic_observed"], max(vals), ceiling))
+        entry[DV_HEADROOM_OBSERVATION_FLAG] = flag
+        return entry
+    flag["exceeded"] = True
+    flag["n_exceeding"] = len(over)
+    flag["exceeding_values"] = [float(v) for v in sorted(over, reverse=True)[:8]]
+    crit = entry.get("criterion_threshold")
+    over_crit = None
+    try:
+        if crit is not None:
+            over_crit = sum(1 for v in over if v >= float(crit))
+    except (TypeError, ValueError):
+        over_crit = None
+    tail = ""
+    if over_crit:
+        tail = (" %d of them also clear the criterion's own threshold %.6g, so this "
+                "run produced passing values of a statistic the gate called out of "
+                "reach." % (over_crit, float(crit)))
+    flag["reason"] = (
+        "HEADROOM CEILING CONTRADICTED BY OBSERVATION: %d of %d observed value(s) of "
+        "%s exceed the asserted achievable ceiling %.6g (largest %.6g). A ceiling is "
+        "a universal claim, so this refutes it -- the entry is measuring a different "
+        "quantity, a different order statistic, or the wrong arm, and its verdict "
+        "should not be read as a substrate limit.%s"
+        % (len(over), len(vals), flag["statistic_observed"], ceiling, max(over), tail))
+    entry[DV_HEADROOM_OBSERVATION_FLAG] = flag
     return entry
 
 
