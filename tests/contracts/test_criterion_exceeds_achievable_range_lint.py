@@ -533,6 +533,16 @@ KNOWN_DV_HEADROOM_ADOPTERS = {
     # discovering its control arm produced no signal; H1/H2 are what refuse
     # that run before the compute (see the driver's docstring).
     "v3_exq_993a_arc021_merged_channel_action_conditioned_harm.py",
+    # V3-EXQ-970a (2026-09-07): the ContextMemory content-half instrument
+    # redesign. Its predecessor V3-EXQ-970's Regime A never produced its DV
+    # (a fixed held-out N unreachable in 12/12 cells) and its Regime B
+    # readout was pinned by a near-binary set-Jaccard; the redesign's
+    # substrate-entry spec REQUIRES the DV's achievable range to be measured
+    # at probe scale before the bar is pre-registered, and the dv_headroom
+    # entry (ceiling_headroom above the seed-matched UNTRAINED control) is how
+    # that requirement is enforced at run time, per regime, through the
+    # regime-conditioned gate rather than a whole-run P0NotReady.
+    "v3_exq_970a_contextmemory_write_content_h1_mi_instrument.py",
 }
 
 
