@@ -62,33 +62,49 @@ The refit clamp gates on `use_support_preserving_cem AND _std_floor > 0.0`
 and leaves the other two behaviours identical across the axis.
 
 DV -- and a SECOND SUBSTANTIATED DEPARTURE from the record's specification.
-The record (section 6) specifies the DV as delta_dbar = dbar(ORACLE) - dbar(CTRL),
-the archived probe-C statistic. That statistic was measured, by this spike's own
-red-team pass, to be UNFIT to carry the ceiling gate, and the departure is recorded
-here rather than made silently:
+The record (section 6) specifies the DV as delta_dbar = dbar(ORACLE) - dbar(CTRL) and
+the gate as delta_dbar >= 0.02. BOTH ARE KEPT. What changed, and had to change, is the
+SAMPLING-SEED REGIME the statistic is computed under -- and the reason is measured, not
+argued.
 
-  dbar is a BETWEEN-MODE separation, and each mode's oracle direction is an
-  independent random draw. An oracle displacement therefore enters dbar only to
-  SECOND order (d^2/2R for a random direction, against 2d for an aligned one) and
-  can as easily REDUCE the separation as raise it. Measured: delta_dbar is NEGATIVE
-  on the production reference cell itself (-0.000485 at n=5, -0.000009 at n=1) and
-  on GROUNDED/floor0.2 (-0.004784 at n=5). A quantity described as a CEILING or an
-  upper BOUND cannot be negative. Gating on it would route a bench whose channel
-  genuinely widened to "no clear" because the random directions happened not to
-  separate the modes.
+  THE DEFECT. dbar is a BETWEEN-MODE separation. Under the lineage's per-mode seed
+  convention (offset 7919, from 869/923/928/1005) the four CTRL centroids already differ
+  by ~0.10-0.13 standardised units of pure sampling noise, randomly oriented, while the
+  oracle's centroid displacement is ~0.001-0.003 raw. delta_dbar therefore measures the
+  PROJECTION of a tiny displacement onto a large randomly-oriented baseline: random-signed,
+  and measured NEGATIVE on the production reference cell itself. A quantity that is
+  supposed to be a ceiling cannot be negative.
 
-PRIMARY DV (gated):
-    relocation_ratio = mean over modes of  ||mu_ORACLE - mu_CTRL|| / mean_spread(CTRL)
-the per-mode centroid relocation the STRONGEST content-selective re-ranker achieves,
-expressed in that cell's own sampling-noise units. This is what "can elite choice
-relocate the proposal centroid above the sampling floor" actually asks. It is also
-self-normalising against the spread collapse the floor0.0 level induces -- that level
-shrinks numerator and denominator together -- which is what stops a collapsed CEM
-from manufacturing an apparent clear.
+  WHAT DID NOT FIX IT. Making the oracle directions maximally separating (a regular
+  simplex, all six pairwise distances equal) was tried FIRST, on the theory that aligning
+  the displacements would put them in the same subspace dbar measures. It did not work,
+  and it is worth stating why since the reasoning is seductive: aligning the displacements
+  with EACH OTHER does nothing about their projection onto the BASELINE, which is what
+  actually carries the sign. Measured at n=2, the simplex made the reference cell MORE
+  negative, not less (-0.005285 against -0.000728 for independent random directions).
 
-delta_dbar is RETAINED as a recorded secondary on every cell, so this run stays
-directly comparable with the archived probe-C numbers and with the 869/923/928
-lineage. It is reported, never gated.
+  WHAT DID FIX IT. Collapse the baseline. Mode conditioning is disabled in every cell of
+  this spike -- the oracle IS the content manipulation here -- so giving every mode the
+  SAME sampling draw makes the four CTRL runs bit-identical and dbar(CTRL) exactly 0.
+  Measured: 0.000000 in all 12 pilot cells, and carried as the readiness precondition
+  ctrl_arm_mode_blind_under_shared_seed. delta_dbar = dbar(ORACLE) - 0 is then a pure,
+  NON-NEGATIVE, FIRST-ORDER measure of the separation elite selection alone can create --
+  positive in all 12 pilot cells -- on exactly the standardised scale the 0.02 floor was
+  pre-registered against. The simplex directions are RETAINED, because with the baseline
+  gone they now do the job they were meant to: every mode pair is equally separated, so no
+  pair is privileged in the six-pair average.
+
+BOTH SEED REGIMES ARE RUN on every cell. "shared" carries the gate. "per_mode" is recorded
+as the 1005-comparable secondary and is what the archived-probe-C reproduction precondition
+reads, so the link to the record that commissioned this spike is preserved rather than
+traded away. custom_information.seed_regime_comparison holds both side by side.
+
+relocation_ratio (per-mode centroid displacement in that cell's own sampling-noise units)
+is retained as a further recorded secondary. It is a useful cross-check on the same
+question in a different form, but it is NOT gated: on the previous iteration it was tried
+as the gated statistic and the inherited 0.02 floor turned out to be vacuous on its scale
+(every cell, including the production null, cleared it), which is precisely the gate-fitting
+trap this design must not fall into.
 
 The centroid is computed INJECTION-FREE. _inject_support_preserving_candidates runs
 after the CEM (module.py:2356) on the pool final_summary reads (:2325, :2494), and its
@@ -100,33 +116,59 @@ trajectories carry source="support_preserving_cem_injected" (:1489) and are filt
 out; the centroid is then recomputed exactly as _summarize_action_tensor does
 (:748-750). Arm-symmetry of injection is additionally a readiness precondition.
 
-TWO PRE-REGISTERED CRITERIA, BOTH ON relocation_ratio.
+TWO PRE-REGISTERED CRITERIA.
 
-  C1: relocation_ratio >= CONTENT_FLOOR_ABS = 0.02 in at least one cell. The floor
-      VALUE is inherited from the 1005 design and is NOT moved -- moving it to admit
-      a measured number would be fitting the gate to the data. What changed is the
-      statistic it is applied to, for the reason given under DV above.
+  C1: projected_lineage_increment >= CONTENT_FLOOR_ABS = 0.02 in at least one scorable
+      cell, where
 
-  C2: that cell must also BEAT THE PRODUCTION REFERENCE cell (FROZEN/floor0.2 -- the
-      1005 bench itself) on the same statistic. A cell that merely reaches the
-      absolute floor without improving on production has not shown that either
-      manipulation lifts the channel.
+          projected_lineage_increment = sqrt(B^2 + d^2) - B
 
-Both criteria read the SAME statistic on the SAME scale, so they cannot pull in
-opposite directions -- which the first draft of this design did, and which its
-red-team pass identified as close to fatal: C1 on delta_dbar was inflated by the
-floor0.0 collapse while a raw-displacement C2 was reduced by it, leaving the cleared
-branch nearly dead. The resolved tension is recorded per cell under
-custom_information.joint_satisfiability_of_c1_and_c2 so a no-clear verdict stays
-readable: "the channel is capped" and "the criteria were in tension" are different
-findings and only the first is a fact about the substrate.
+      with d the clean displacement measured under the gated (shared) seed regime and B
+      that cell's own sampling-noise baseline, measured directly as dbar(CTRL) under the
+      lineage regime.
+
+  C2 (attribution guard): that cell must also show a raw, UNSTANDARDISED centroid
+      displacement ||mu_ORACLE - mu_CTRL|| at least equal to the FROZEN/floor0.2
+      production reference cell's.
+
+WHY C1 IS A PROJECTION AND NOT delta_dbar ITSELF -- the third thing this iteration had to
+get right, and the one its own red-team caught. The 1005 gate is an INCREMENT over a
+per-mode-seeded sampling-noise baseline of B ~ 0.11-0.13. An arm adding a displacement d
+that is generically ORTHOGONAL to that baseline -- and it is, because B is sampling noise,
+which nothing in the manipulation is aligned with -- moves dbar by sqrt(B^2 + d^2) - B,
+which for d << B is d^2/(2B), NOT by d. The shared regime measures d cleanly (baseline 0),
+so gating 0.02 on d directly would apply the record's number to a differently-scaled
+quantity and make the floor about 8x EASIER. That is the mirror image of the previous
+iteration, where restating the DV as relocation_ratio made the same floor vacuous. Neither
+is inheriting a threshold; both are quietly moving it.
+
+So the statistic is measured where it can be measured cleanly and then projected onto the
+scale the threshold belongs to, using each cell's own measured B. The exact form is used,
+not the d^2/(2B) expansion. The directly-measured lineage increment is carried alongside
+every cell as the noisy empirical cross-check on the orthogonality assumption; on the
+pilot the two agree to the same order (GROUNDED/floor0.2: projected 0.0025 from d=0.0242
+and B=0.114, measured +0.00045).
+
+C2 is load-bearing and not redundant. The projection is standardised by the pooled sample
+spread, and the ao_std_floor=0.0 level COLLAPSES that spread, so a cell can post a larger
+projected increment while its centroid moved LESS in absolute terms. Measured: the
+floor0.0 cells post raw displacements of 0.000239 and 0.000982 against the production
+reference's 0.000967 -- C2 is what stops the collapsed-CEM route being read as a clear,
+which is the unattributability that blocked V3-EXQ-1005.
+
+Both criteria are evaluated only on SCORABLE cells (see the injection handling below), and
+the pair is jointly satisfiable: a cell with a genuinely larger channel posts both a larger
+projected increment and a larger raw displacement, as GROUNDED/floor0.2 does on the pilot.
 
 DECISION RULE (pre-registered, per the record's section 6):
   * a cell clearing C1 AND C2 -> the 1005 design IS runnable in that regime;
     author successor V3-EXQ-1005a on that bench.
-  * a cell clearing C1 but failing C2 -> the absolute floor was cleared by the
-    bench's baseline behaviour rather than by either manipulation; report, do not build.
-  * NO cell clearing C1 -> MECH-267's content assertion is not measurable by
+  * a cell clearing C1 but failing C2 -> the lift came from the collapsed CEM spread
+    shrinking the standardisation denominator, not from the elite channel relocating the
+    centroid; report, do not build.
+  * NO cell clearing C1 -> the elite-selection channel cannot, even at its oracle
+    ceiling, produce the increment the 1005 design needs; MECH-267's content assertion is
+    not measurable by
     proposal-output centroid at production CEM settings on any bench tested here;
     route to /governance to either narrow what_would_answer to the breadth channel
     or register a complicated (buildable) entry in substrate_queue.json (ao_std
@@ -135,14 +177,15 @@ DECISION RULE (pre-registered, per the record's section 6):
     fact is the complicated-before-complex inversion the work-graph vocabulary
     warns against, and the record is explicit about it.
 
-POSITIVE CONTROL ON THE INSTRUMENT ITSELF. The FROZEN/floor0.2 cell is the 1005
-bench's configuration, and its delta_dbar must stay in the archived probe-C band
-(|delta| <= 0.005) -- carried as a readiness precondition, so a bench that does not
-behave like the one that produced the refusal cannot be read as a ceiling
-measurement. Stated precisely, because it is a bound and not a point match: this
-driver rebuilds the residue terrain on its own RNG stream, so it reproduces the
-archived MAGNITUDE (order 1e-5..1e-3, sign varying) rather than the archived digits.
-That is what the precondition asserts and all it asserts.
+POSITIVE CONTROL ON THE INSTRUMENT ITSELF. The FROZEN/floor0.2 cell is the 1005 bench's
+configuration, and under the LINEAGE (per-mode) seed regime its delta_dbar must stay in the
+archived probe-C band (|delta| <= 0.005) -- carried as a readiness precondition, so a bench
+that does not behave like the one that produced the refusal cannot be read as a ceiling
+measurement. Stated precisely, because it is a bound and not a point match: this driver
+rebuilds the residue terrain on its own RNG stream, so it reproduces the archived MAGNITUDE
+(order 1e-5..1e-3, sign varying) rather than the archived digits. That is what the
+precondition asserts and all it asserts. It reads the LINEAGE regime deliberately: that is
+the configuration probe C measured, and it is the reason both regimes are run.
 
 WHAT A NULL HERE WOULD AND WOULD NOT MEAN. It would mean: the elite-selection
 channel cannot relocate the proposal centroid above the pre-registered floor on
@@ -252,6 +295,21 @@ GROUND_LR = 1e-3
 GROUND_BATCH = 256
 GROUND_N_TRANSITIONS = 2048
 
+# Seed for the fixed orthonormal frame the oracle simplex is expressed in. A
+# constant, never derived from a run.
+ORACLE_FRAME_SEED = 4242
+
+# Both are run every cell. GATED_REGIME carries C1/C2; the other is the
+# 1005-comparable secondary. See _cell_sampling_seed for why.
+SEED_REGIMES = ["shared", "per_mode"]
+GATED_REGIME = "shared"
+LINEAGE_REGIME = "per_mode"
+CTRL_MODE_BLIND_TOL = 1e-9   # dbar(CTRL) under the shared regime must be 0
+# Minimum injection-clean seeds a cell must retain to be scorable. Contaminated
+# (seed, cell) rows are EXCLUDED from that cell's aggregate rather than vacating
+# the whole run -- CLAUDE.md forbids AND-ing a precondition across arms.
+MIN_CLEAN_SEEDS_PER_CELL = 3
+
 AO_HEADS = ["FROZEN", "GROUNDED"]
 CEM_FLOORS = ["floor0.2", "floor0.0"]
 CELLS: List[Tuple[str, str]] = [(h, f) for h in AO_HEADS for f in CEM_FLOORS]
@@ -277,6 +335,19 @@ def _pred_spread(v: float) -> bool:
 
 def _pred_elite_calls(v: float) -> bool:
     return float(v) >= float(NUM_CEM_ITERATIONS)
+
+
+def _pred_ctrl_mode_blind(v: float) -> bool:
+    return abs(float(v)) <= CTRL_MODE_BLIND_TOL
+
+
+def _pred_clean_seeds(v: float) -> bool:
+    return float(v) >= float(MIN_CLEAN_SEEDS_PER_CELL)
+
+
+def _pred_simplex_uniform(v: float) -> bool:
+    # max-minus-min pairwise direction distance; a regular simplex has 0 spread.
+    return abs(float(v)) <= 1e-6
 
 
 # Frozen positive-control literals, measured at Step 2.5a on this bench (and, for the
@@ -306,6 +377,21 @@ _ANCHOR_REFERENCES: Dict[str, Dict[str, Any]] = {
         "score_fn": _pred_elite_calls,
         "source": "1009 Step 2.5a Q3 probe, floor0.2 and floor0.0",
     },
+    "ctrl_arm_mode_blind_under_shared_seed": {
+        "cells": [0.0, 0.0, 0.0, 0.0],
+        "score_fn": _pred_ctrl_mode_blind,
+        "source": "1009 iter3 shared-seed pilot: dbar_ctrl measured exactly 0.000000 in all 12 cells",
+    },
+    "at_least_two_scorable_cells": {
+        "cells": [4, 3, 2],
+        "score_fn": lambda v: float(v) >= 2.0,
+        "source": "scorable-cell counts reachable at n=5; the n=3 pilot left 3 of 4 scorable",
+    },
+    "oracle_directions_maximally_separating": {
+        "cells": [0.0],
+        "score_fn": _pred_simplex_uniform,
+        "source": "regular simplex: all 6 pairwise distances equal sqrt(8/3), spread 0 by construction",
+    },
 }
 
 
@@ -324,16 +410,42 @@ def _assert_anchors_reachable() -> Dict[str, Any]:
     return payloads
 
 
-def _cell_sampling_seed(seed: int, mode: str) -> int:
-    """Per-(seed, mode) CEM sampling seed, SHARED across cells and across the
-    CTRL/ORACLE contrast -- common random numbers.
+def _cell_sampling_seed(seed: int, mode: str, seed_regime: str) -> int:
+    """CEM sampling seed, SHARED across cells and across the CTRL/ORACLE contrast.
 
-    Retained at the 869/923/928/1005 value (7919) so per-mode sampling stays
-    comparable with the lineage. The CTRL and ORACLE runs of a cell consume the
-    identical standard-normal sequence (the oracle changes which indices are
-    returned, never how many draws are taken), so their difference isolates elite
-    choice rather than sampling noise.
+    Common random numbers throughout: the CTRL and ORACLE runs of a cell consume the
+    identical standard-normal sequence (the oracle changes which indices are returned,
+    never how many draws are taken), so their difference isolates elite choice rather
+    than sampling noise.
+
+    TWO REGIMES, and the difference between them is the whole third iteration.
+
+    "per_mode" (the 869/923/928/1005 convention, offset 7919) gives each mode its own
+    draw. That is right for the LINEAGE, whose arms had mode conditioning ON and needed a
+    sampling-noise null to beat -- but it is fatal to an ORACLE CEILING measurement. The
+    per-mode draws give the four CTRL centroids a baseline between-mode separation of
+    ~0.10-0.13 standardised units, randomly oriented, while the oracle's displacement is
+    ~0.001-0.003 raw. dbar then moves by the PROJECTION of a tiny displacement onto a
+    large randomly-oriented baseline -- random-signed, and measured negative on the
+    production reference cell itself under BOTH independent-random and maximally-
+    separating oracle directions (-0.000728 and -0.005285 at n=2). No choice of oracle
+    direction repairs that, because the baseline, not the directions, is what makes the
+    sign a coin flip.
+
+    "shared" gives every mode the SAME draw. Mode conditioning is disabled in every cell
+    of this spike (the oracle IS the manipulation), so under a shared draw the four CTRL
+    runs are BIT-IDENTICAL and dbar(CTRL) is exactly 0 -- verified, and carried as a
+    readiness precondition. delta_dbar = dbar(ORACLE) - 0 is then a pure, non-negative,
+    FIRST-ORDER measure of the separation elite selection alone can create, which is
+    exactly the ceiling the spike is after, and it is on the same standardised scale the
+    0.02 floor was pre-registered against.
+
+    Both regimes are run. "shared" carries the gate; "per_mode" is recorded as the
+    1005-comparable secondary and is what the archived-probe-C reproduction precondition
+    reads, so the link to the record that commissioned this spike is not lost.
     """
+    if seed_regime == "shared":
+        return seed * 104_729
     return seed * 104_729 + _MODE_OFFSET[mode]
 
 
@@ -520,6 +632,85 @@ def _config_slice(ao_head: str, cem_floor: str) -> Dict[str, Any]:
     }
 
 
+def _maximally_separating_directions() -> List[torch.Tensor]:
+    """One unit direction per mode, arranged as a REGULAR SIMPLEX.
+
+    THIS IS THE FIX THAT MAKES delta_dbar A GENUINE UPPER BOUND, and it is the whole
+    reason the pre-registered 0.02 floor can be inherited honestly.
+
+    The DV is a BETWEEN-MODE separation. If the oracle displaces mode m's centroid by
+    d*u_m, the pair (a, b) separation moves by d*||u_a - u_b||. With INDEPENDENT RANDOM
+    u_m -- the previous construction -- E[u_a . u_b] = 0, so the displacement is
+    orthogonal to the existing separation in expectation and enters dbar only to SECOND
+    order (~d^2/2R), and its sign is a coin flip: measured NEGATIVE on the production
+    reference cell (-0.000485 at n=5) and on GROUNDED/floor0.2 (-0.004784). A quantity
+    that is supposed to be a ceiling cannot be negative, which is exactly why the
+    previous iteration could not carry the gate.
+
+    Arranging the directions to be maximally separating makes the displacement ALIGNED
+    with the quantity dbar measures, so it enters at FIRST order (d*||u_a - u_b||) and
+    is non-negative in expectation for every pair simultaneously.
+
+    Why a regular simplex specifically, over the obvious alternative of two antipodal
+    pairs (+u, -u, +v, -v): with 4 modes not all 6 pairs can be antipodal, so the choice
+    is which pairwise structure to maximise. Antipodal pairs give 2 pairs at ||.||=2 and
+    4 pairs at sqrt(2), mean 1.609, and privileges two pairs over the other four. The
+    regular simplex gives ALL SIX pairs ||u_a - u_b|| = sqrt(8/3) ~ 1.633 -- a higher
+    mean AND uniform, so no mode pair is privileged and dbar (which averages the six
+    pairs) is maximised without being dominated by a favoured subset.
+
+    Construction: the standard tetrahedron vertices (+-1, +-1, +-1) with an even number
+    of minus signs, normalised, then embedded in the ACTION_DIM space through a fixed
+    seed-stable random orthonormal frame so that no action dimension is privileged. The
+    frame is drawn from a LOCAL generator, so the global RNG stream is untouched.
+    """
+    tetra = torch.tensor([
+        [1.0, 1.0, 1.0],
+        [1.0, -1.0, -1.0],
+        [-1.0, 1.0, -1.0],
+        [-1.0, -1.0, 1.0],
+    ]) / math.sqrt(3.0)
+    if len(MODES) != 4:
+        raise ValueError(
+            f"the simplex construction is written for exactly 4 modes, got {len(MODES)}"
+        )
+    gen = torch.Generator().manual_seed(ORACLE_FRAME_SEED)
+    # A random orthonormal 3-frame in R^ACTION_DIM: QR of a random ACTION_DIM x 3.
+    q, _ = torch.linalg.qr(torch.randn(ACTION_DIM, 3, generator=gen))  # [action_dim, 3]
+    dirs = [(q @ tetra[i]) for i in range(len(MODES))]
+    return [d / d.norm() for d in dirs]
+
+
+def _archived_probe_c_directions() -> List[torch.Tensor]:
+    """Independent random per-mode directions -- the ARCHIVED probe-C construction.
+
+    Used ONLY for the lineage (per-mode seed) regime, whose entire job is to reproduce
+    the measurement that produced the V3-EXQ-1005 refusal. That probe drew one
+    independent random direction per mode (exq1005_probe_elite_channel.py section C), so
+    reproducing it requires the same draw, not this spike's simplex: swapping the oracle
+    construction under the reproduction check compares two different measurements and
+    the check correctly fails, which is how this was caught.
+
+    Same generator seed and normalisation as the archived probe.
+    """
+    gen = torch.Generator().manual_seed(ORACLE_FRAME_SEED)
+    dirs = [torch.randn(ACTION_DIM, generator=gen) for _ in MODES]
+    return [d / d.norm() for d in dirs]
+
+
+def _direction_separation_stats(dirs: List[torch.Tensor]) -> Dict[str, float]:
+    """Pairwise geometry of the oracle directions -- the readiness evidence that the
+    construction is actually maximally separating rather than silently degenerate."""
+    dists = [float((dirs[i] - dirs[j]).norm())
+             for i, j in itertools.combinations(range(len(dirs)), 2)]
+    return {
+        "mean_pairwise_distance": statistics.fmean(dists),
+        "min_pairwise_distance": min(dists),
+        "max_pairwise_distance": max(dists),
+        "regular_simplex_reference": math.sqrt(8.0 / 3.0),
+    }
+
+
 def _oracle_chooser(direction: torch.Tensor):
     """The STRONGEST content-selective re-ranker: at every CEM iteration, pick the
     elites whose decoded action mean projects furthest along `direction`.
@@ -538,7 +729,7 @@ def _oracle_chooser(direction: torch.Tensor):
 
 def _propose(
     e2: E2FastPredictor, cem_floor: str, seed: int, mode: str,
-    oracle: Optional[Any],
+    oracle: Optional[Any], seed_regime: str,
 ) -> Dict[str, Any]:
     """One proposer evaluation. Returns the final-iteration decoded-action stats."""
     torch.manual_seed(seed + 77_000)
@@ -564,7 +755,7 @@ def _propose(
     torch.manual_seed(seed + 900_000)
     z_world = torch.randn(1, WORLD_DIM)
     z_self = torch.randn(1, SELF_DIM)
-    torch.manual_seed(_cell_sampling_seed(seed, mode))
+    torch.manual_seed(_cell_sampling_seed(seed, mode, seed_regime))
     trajectories = hip.propose_trajectories(z_world, z_self,
                                             num_candidates=NUM_CANDIDATES,
                                             operating_mode={mode: 1.0})
@@ -623,13 +814,15 @@ def _propose(
 
 def _run_cell(
     seed: int, ao_head: str, cem_floor: str, directions: List[torch.Tensor],
+    archived_directions: List[torch.Tensor],
     ground_steps: int, cell_index: int, n_cells: int,
 ) -> Dict[str, Any]:
     """One (seed x cell) unit: CTRL and ORACLE proposer runs over all 4 modes."""
     label = f"{ao_head}/{cem_floor}"
     print(f"Seed {seed} Condition {label}", flush=True)
 
-    total_units = len(MODES) * 2   # each mode contributes a CTRL and an ORACLE run
+    # each mode contributes a CTRL and an ORACLE run, in each of the two seed regimes
+    total_units = len(MODES) * 2 * len(SEED_REGIMES)
 
     with arm_cell(seed, config_slice=_config_slice(ao_head, cem_floor),
                   script_path=Path(__file__)) as cell:
@@ -654,22 +847,36 @@ def _run_cell(
         acs_after = _across_candidate_ao_std(e2, seed)
         acs_sf_after = _across_candidate_ao_std_scale_free(e2, seed)
 
-        ctrl: Dict[str, Dict[str, Any]] = {}
-        orc: Dict[str, Dict[str, Any]] = {}
+        # BOTH seed regimes. "shared" carries the gate (pure oracle bound); "per_mode"
+        # is the 1005-comparable secondary and feeds the archived-reproduction check.
+        by_regime: Dict[str, Dict[str, Dict[str, Any]]] = {}
         elite_calls: List[int] = []
         unit = 0
-        for mode_index, mode in enumerate(MODES):
-            ctrl[mode] = _propose(e2, cem_floor, seed, mode, oracle=None)
-            unit += 1
-            print(f"  [train] {label} seed={seed} ep {unit}/{total_units} "
-                  f"mode={mode} arm=CTRL", flush=True)
-            orc[mode] = _propose(e2, cem_floor, seed, mode,
-                                 oracle=_oracle_chooser(directions[mode_index]))
-            unit += 1
-            print(f"  [train] {label} seed={seed} ep {unit}/{total_units} "
-                  f"mode={mode} arm=ORACLE", flush=True)
-            elite_calls.append(ctrl[mode]["elite_fn_calls"])
-            elite_calls.append(orc[mode]["elite_fn_calls"])
+        for regime in SEED_REGIMES:
+            # The gated regime uses the maximally-separating simplex; the lineage
+            # regime uses the archived probe-C construction it must reproduce.
+            regime_dirs = (directions if regime == GATED_REGIME
+                           else archived_directions)
+            ctrl_r: Dict[str, Dict[str, Any]] = {}
+            orc_r: Dict[str, Dict[str, Any]] = {}
+            for mode_index, mode in enumerate(MODES):
+                ctrl_r[mode] = _propose(e2, cem_floor, seed, mode, oracle=None,
+                                        seed_regime=regime)
+                unit += 1
+                print(f"  [train] {label} seed={seed} ep {unit}/{total_units} "
+                      f"regime={regime} mode={mode} arm=CTRL", flush=True)
+                orc_r[mode] = _propose(e2, cem_floor, seed, mode,
+                                       oracle=_oracle_chooser(regime_dirs[mode_index]),
+                                       seed_regime=regime)
+                unit += 1
+                print(f"  [train] {label} seed={seed} ep {unit}/{total_units} "
+                      f"regime={regime} mode={mode} arm=ORACLE", flush=True)
+                elite_calls.append(ctrl_r[mode]["elite_fn_calls"])
+                elite_calls.append(orc_r[mode]["elite_fn_calls"])
+            by_regime[regime] = {"ctrl": ctrl_r, "oracle": orc_r}
+
+        ctrl = by_regime[GATED_REGIME]["ctrl"]
+        orc = by_regime[GATED_REGIME]["oracle"]
 
         def dbar(cells: Dict[str, Dict[str, Any]]) -> Optional[float]:
             vals = [
@@ -724,8 +931,60 @@ def _run_cell(
         min_spread = min(float(s) for s in all_spreads) if all_spreads else None
         mean_spread = statistics.fmean(float(s) for s in all_spreads) if all_spreads else None
 
+        # Per-regime summary, so the gated bound and the 1005-comparable secondary are
+        # both auditable side by side.
+        regime_stats: Dict[str, Any] = {}
+        for regime, arms in by_regime.items():
+            c_, o_ = arms["ctrl"], arms["oracle"]
+            dc_, do_ = dbar(c_), dbar(o_)
+            rds = [_raw_displacement(c_[m]["mean_by_action_dim"],
+                                     o_[m]["mean_by_action_dim"]) for m in MODES]
+            regime_stats[regime] = {
+                "dbar_ctrl": dc_,
+                "dbar_oracle": do_,
+                "delta_dbar": (do_ - dc_) if (dc_ is not None and do_ is not None) else None,
+                "raw_centroid_displacement": (
+                    statistics.fmean([r for r in rds if r is not None])
+                    if all(r is not None for r in rds) else None),
+            }
+
+        # ---- THE GATED STATISTIC: the clean displacement, projected onto the scale
+        # the 0.02 floor was actually pre-registered against.
+        #
+        # delta_dbar under the shared regime is the raw standardised displacement d that
+        # the elite channel can produce (baseline 0, so it is measured directly and
+        # cleanly). But the V3-EXQ-1005 gate is an INCREMENT over a per-mode-seeded
+        # sampling-noise baseline B ~ 0.11-0.13: an arm adding a displacement d that is
+        # generically ORTHOGONAL to that baseline moves dbar by sqrt(B^2 + d^2) - B, not
+        # by d. Gating 0.02 on d directly would apply the record's number to a
+        # differently-scaled quantity and make the floor ~8x EASIER -- the mirror image of
+        # the previous iteration, where a different restatement made it vacuous. Neither
+        # is inheriting a threshold.
+        #
+        # So: measure d cleanly (shared regime), measure B directly (lineage regime's own
+        # CTRL arm), and project. The exact form is used, not the d^2/2B expansion.
+        # Orthogonality is generic here because B is sampling noise, which nothing in the
+        # manipulation is aligned with; the directly-measured lineage increment is carried
+        # alongside as the noisy empirical cross-check on exactly this assumption.
+        d_shared = regime_stats[GATED_REGIME]["delta_dbar"]
+        b_lineage = regime_stats[LINEAGE_REGIME]["dbar_ctrl"]
+        projected = (
+            math.sqrt(b_lineage ** 2 + d_shared ** 2) - b_lineage
+            if (d_shared is not None and b_lineage is not None and b_lineage > 0)
+            else None
+        )
+
         row: Dict[str, Any] = {
             "arm_id": label,
+            "projected_lineage_increment": projected,
+            "clean_displacement_d": d_shared,
+            "lineage_baseline_B": b_lineage,
+            "measured_lineage_increment": regime_stats[LINEAGE_REGIME]["delta_dbar"],
+            "seed_regime_stats": regime_stats,
+            "gated_regime": GATED_REGIME,
+            "dbar_ctrl_gated_regime_abs": (
+                abs(regime_stats[GATED_REGIME]["dbar_ctrl"])
+                if regime_stats[GATED_REGIME]["dbar_ctrl"] is not None else None),
             "ao_head": ao_head,
             "cem_floor": cem_floor,
             "seed": seed,
@@ -773,7 +1032,7 @@ def _run_cell(
         }
         cell.stamp(row)
 
-    clears_c1 = relocation_ratio is not None and relocation_ratio >= CONTENT_FLOOR_ABS
+    clears_c1 = projected is not None and projected >= CONTENT_FLOOR_ABS
     print(f"verdict: {'PASS' if clears_c1 else 'FAIL'}", flush=True)
     return row
 
@@ -798,11 +1057,13 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
     seeds = SEEDS[:1] if dry_run else SEEDS
     ground_steps = 40 if dry_run else GROUND_STEPS
 
-    # Per-mode oracle directions, drawn from a LOCAL stream so the global RNG is
-    # untouched; shared across every cell so all cells face the identical oracle.
-    gen = torch.Generator().manual_seed(4242)
-    directions = [torch.randn(ACTION_DIM, generator=gen) for _ in MODES]
-    directions = [d / d.norm() for d in directions]
+    # Per-mode oracle directions: a MAXIMALLY SEPARATING regular simplex, shared
+    # across every cell so all cells face the identical oracle. See
+    # _maximally_separating_directions for why this, and not independent random draws,
+    # is what makes delta_dbar a genuine first-order upper bound.
+    directions = _maximally_separating_directions()
+    direction_stats = _direction_separation_stats(directions)
+    archived_directions = _archived_probe_c_directions()
 
     rows: List[Dict[str, Any]] = []
     n_cells = len(seeds) * len(CELLS)
@@ -810,26 +1071,54 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
     for seed in seeds:
         for ao_head, cem_floor in CELLS:
             rows.append(_run_cell(seed, ao_head, cem_floor, directions,
-                                  ground_steps, idx, n_cells))
+                                  archived_directions, ground_steps, idx, n_cells))
             idx += 1
 
     # ---- per-cell aggregation across seeds ------------------------------------
     by_cell: Dict[str, Dict[str, Any]] = {}
     for ao_head, cem_floor in CELLS:
         label = f"{ao_head}/{cem_floor}"
-        sel = [r for r in rows if r["arm_id"] == label]
+        sel_all = [r for r in rows if r["arm_id"] == label]
+        # Scoring uses only rows where injection fired symmetrically between the CTRL and
+        # ORACLE arms. An asymmetric firing does not merely add synthetic candidates (those
+        # are already filtered from the centroid) -- it REPLACES real ones
+        # (module.py:1501 keep_n = total_budget - len(injected)), so the two arms were
+        # selected from differently-composed pools and the contrast is not clean.
+        sel = [r for r in sel_all if r["injection_arm_symmetric"]]
+        dropped = [f"seed{r['seed']}" for r in sel_all if not r["injection_arm_symmetric"]]
         deltas = [r["delta_dbar"] for r in sel if r["delta_dbar"] is not None]
         relocs = [r["relocation_ratio"] for r in sel if r["relocation_ratio"] is not None]
+        projs = [r["projected_lineage_increment"] for r in sel
+                 if r["projected_lineage_increment"] is not None]
+        bases = [r["lineage_baseline_B"] for r in sel if r["lineage_baseline_B"] is not None]
         disps = [r["raw_centroid_displacement"] for r in sel
                  if r["raw_centroid_displacement"] is not None]
         by_cell[label] = {
             "arm_id": label, "ao_head": ao_head, "cem_floor": cem_floor,
             "n_seeds": len(sel),
+            "n_seeds_attempted": len(sel_all),
+            "n_seeds_dropped_injection_asymmetric": len(dropped),
+            "seeds_dropped_injection_asymmetric": dropped,
+            "scorable": len(sel) >= MIN_CLEAN_SEEDS_PER_CELL,
+            "projected_lineage_increment_per_seed": [
+                r["projected_lineage_increment"] for r in sel],
+            "projected_lineage_increment_mean": statistics.fmean(projs) if projs else None,
+            "lineage_baseline_B_mean": statistics.fmean(bases) if bases else None,
+            "shortfall_factor_vs_floor": (
+                CONTENT_FLOOR_ABS / statistics.fmean(projs)
+                if projs and statistics.fmean(projs) > 0 else None),
             "relocation_ratio_per_seed": [r["relocation_ratio"] for r in sel],
             "relocation_ratio_mean": statistics.fmean(relocs) if relocs else None,
             "relocation_ratio_max": max(relocs) if relocs else None,
-            "injection_arm_symmetric_all_seeds": all(
-                bool(r["injection_arm_symmetric"]) for r in sel),
+            "injection_arm_symmetric_all_seeds": len(dropped) == 0,
+            "delta_dbar_lineage_regime_mean": statistics.fmean(
+                [r["seed_regime_stats"][LINEAGE_REGIME]["delta_dbar"] for r in sel
+                 if r["seed_regime_stats"][LINEAGE_REGIME]["delta_dbar"] is not None]
+                or [float("nan")]),
+            "dbar_ctrl_gated_regime_max_abs": max(
+                (abs(r["seed_regime_stats"][GATED_REGIME]["dbar_ctrl"]) for r in sel
+                 if r["seed_regime_stats"][GATED_REGIME]["dbar_ctrl"] is not None),
+                default=None),
             "n_injected_total": sum(sum(r["n_injected_ctrl"]) + sum(r["n_injected_oracle"])
                                     for r in sel),
             "delta_dbar_per_seed": [r["delta_dbar"] for r in sel],
@@ -842,7 +1131,7 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
                 [r["mean_per_dim_spread"] for r in sel
                  if r["mean_per_dim_spread"] is not None]) or None,
             "across_candidate_ao_std_after_mean": statistics.fmean(
-                [r["across_candidate_ao_std_after"] for r in sel]),
+                [r["across_candidate_ao_std_after"] for r in sel]) if sel else None,
         }
 
     ref_label = f"{REFERENCE_CELL[0]}/{REFERENCE_CELL[1]}"
@@ -852,7 +1141,10 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
 
     # ---- readiness preconditions ----------------------------------------------
     ref_delta_mean = ref["delta_dbar_mean"]
-    reproduces = ref_delta_mean is not None and _pred_reproduces_ceiling(ref_delta_mean)
+    ref_lineage_delta = ref["delta_dbar_lineage_regime_mean"]
+    reproduces = (ref_lineage_delta is not None
+                  and not math.isnan(ref_lineage_delta)
+                  and _pred_reproduces_ceiling(ref_lineage_delta))
 
     grounded_rows = [r for r in rows if r["ao_head"] == "GROUNDED"]
     worst_acs_ratio, worst_acs_cell = _worst_cell(
@@ -860,10 +1152,12 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
     worst_spread, worst_spread_cell = _worst_cell(rows, "min_per_dim_spread", "min")
     worst_elite_calls, worst_elite_cell = _worst_cell(rows, "elite_fn_calls_min", "min")
 
-    asym_rows = [r for r in rows if not r["injection_arm_symmetric"]]
-    n_asym = len(asym_rows)
-    asym_cell = (f"{asym_rows[0]['arm_id']}@seed{asym_rows[0]['seed']}"
-                 if asym_rows else None)
+    worst_ctrl_blind, worst_ctrl_blind_cell = _worst_cell(
+        rows, "dbar_ctrl_gated_regime_abs", "max")
+    dir_spread = (direction_stats["max_pairwise_distance"]
+                  - direction_stats["min_pairwise_distance"])
+
+    n_scorable = sum(1 for c in by_cell.values() if c["scorable"])
 
     preconditions: List[Dict[str, Any]] = [
         {
@@ -872,7 +1166,9 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
                 "FROZEN/floor0.2 IS the V3-EXQ-1005 bench, so its oracle ceiling must "
                 "reproduce the archived probe-C value (+0.0001..+0.001). If it does not, "
                 "this spike is not measuring the instrument that produced the refusal."),
-            "measured": abs(ref_delta_mean) if ref_delta_mean is not None else None,
+            "measured": (abs(ref_lineage_delta)
+                         if (ref_lineage_delta is not None
+                             and not math.isnan(ref_lineage_delta)) else None),
             "threshold": ARCHIVED_CEILING_ABS_CEIL,
             "direction": "upper",
             "control": "the refused 1005 bench itself, re-instantiated unchanged",
@@ -920,28 +1216,62 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
         "met": bool(worst_elite_calls is not None and _pred_elite_calls(worst_elite_calls)),
         },
         {
-            "name": "post_cem_injection_arm_symmetric",
+            "name": "ctrl_arm_mode_blind_under_shared_seed",
             "description": (
-                "The post-CEM synthetic-candidate injection (module.py:2356) fires "
-                "conditionally on the final pool's first-action class count, which the "
-                "ORACLE arm changes by construction. Its scaffolds are excluded from the "
-                "DV by source tag, but an arm-ASYMMETRIC firing also perturbs the pool the "
-                "kept candidates were selected from, so symmetry is required for the "
-                "CTRL/ORACLE contrast to be clean. Worst cell reported."),
-            "measured": float(n_asym),
-            "threshold": 0.0,
+                "Under the gated (shared) seed regime with mode conditioning disabled in "
+                "every cell, the four CTRL proposer runs must be bit-identical, so "
+                "dbar(CTRL) is exactly 0 and delta_dbar is a PURE oracle-induced "
+                "separation rather than a difference against a randomly-oriented "
+                "sampling-noise baseline. A non-zero value means something mode-dependent "
+                "is leaking into the CTRL arm and the bound is not pure. Worst cell "
+                "reported."),
+            "measured": worst_ctrl_blind,
+            "threshold": CTRL_MODE_BLIND_TOL,
             "direction": "upper",
-            "control": "count of (seed, cell, mode) triples where CTRL and ORACLE injected different counts",
-            "offending_cell": asym_cell,
-            "met": bool(n_asym == 0),
+            "control": "max |dbar(CTRL)| over all cells and seeds, gated regime",
+            "offending_cell": worst_ctrl_blind_cell,
+            "met": bool(worst_ctrl_blind is not None
+                        and _pred_ctrl_mode_blind(worst_ctrl_blind)),
+        },
+        {
+            "name": "oracle_directions_maximally_separating",
+            "description": (
+                "The oracle directions must form a regular simplex -- all six pairwise "
+                "distances equal -- so no mode pair is privileged and the induced "
+                "separation enters dbar at first order for every pair simultaneously. "
+                "Measured as the max-minus-min pairwise distance, which is 0 for a regular "
+                "simplex. A non-zero spread means the construction degenerated."),
+            "measured": dir_spread,
+            "threshold": 1e-6,
+            "direction": "upper",
+            "control": "sqrt(8/3) reference; see _maximally_separating_directions",
+            "met": bool(_pred_simplex_uniform(dir_spread)),
+        },
+        {
+            "name": "at_least_two_scorable_cells",
+            "description": (
+                "Injection-contaminated (seed, cell) rows are dropped per CELL, and a cell "
+                "retaining fewer than MIN_CLEAN_SEEDS_PER_CELL clean seeds is marked "
+                "unscorable and excluded from C1/C2 -- it does NOT fail the run. This gate "
+                "asks only whether ENOUGH cells survived to discriminate at all. Making it "
+                "a run-level AND over every cell's retention would let one contaminated "
+                "cell vacate three clean ones, which is exactly the multi-arm gate defect "
+                "CLAUDE.md forbids (and which this precondition previously committed)."),
+            "measured": float(n_scorable),
+            "threshold": 2.0,
+            "direction": "lower",
+            "control": "count of cells retaining >= MIN_CLEAN_SEEDS_PER_CELL injection-clean seeds",
+            "offending_cell": (
+                ",".join(lab for lab, c in by_cell.items() if not c["scorable"]) or None),
+            "met": bool(n_scorable >= 2),
         },
     ]
     all_preconditions_met = all(bool(p["met"]) for p in preconditions)
 
     # ---- criteria ---------------------------------------------------------------
     c1_cells = [lab for lab, c in by_cell.items()
-                if c["relocation_ratio_mean"] is not None
-                and c["relocation_ratio_mean"] >= CONTENT_FLOOR_ABS]
+                if c["scorable"] and c["projected_lineage_increment_mean"] is not None
+                and c["projected_lineage_increment_mean"] >= CONTENT_FLOOR_ABS]
     c1_pass = len(c1_cells) > 0
 
     def clears_c2(label: str) -> bool:
@@ -952,21 +1282,22 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
         the manipulation lifts the channel, whatever absolute number it reaches.
         The reference cell IS the production condition, so this is a within-run
         contrast and needs no external calibration."""
-        if label == ref_label:
+        if label == ref_label or not by_cell[label]["scorable"]:
             return False
-        r = by_cell[label]["relocation_ratio_mean"]
-        return (r is not None and ref_reloc is not None
-                and r >= RAW_DISPLACEMENT_MIN_RATIO * ref_reloc)
+        d = by_cell[label]["raw_centroid_displacement_mean"]
+        return (d is not None and ref_disp is not None
+                and d >= RAW_DISPLACEMENT_MIN_RATIO * ref_disp)
 
     c2_cells = [lab for lab in c1_cells if clears_c2(lab)]
     c2_pass = len(c2_cells) > 0
     c1_only_cells = [lab for lab in c1_cells if lab not in c2_cells]
 
-    deltas_all = [c["relocation_ratio_mean"] for c in by_cell.values()
-                  if c["relocation_ratio_mean"] is not None]
+    deltas_all = [c["projected_lineage_increment_mean"] for c in by_cell.values()
+                  if c["scorable"] and c["projected_lineage_increment_mean"] is not None]
+    # Non-degenerate requires at least two SCORABLE cells that actually differ -- a run
+    # in which injection contamination left one scorable cell cannot discriminate.
     c1_non_degenerate = (
-        len(deltas_all) == len(CELLS)
-        and (max(deltas_all) - min(deltas_all)) > 1e-9
+        len(deltas_all) >= 2 and (max(deltas_all) - min(deltas_all)) > 1e-9
     )
     # C2 can only discriminate if there is a C1-clearing cell to test it on.
     c2_non_degenerate = bool(c1_pass)
@@ -974,23 +1305,32 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
     criteria = [
         {"name": "C1_any_cell_clears_content_floor", "load_bearing": True,
          "passed": bool(c1_pass), "threshold": CONTENT_FLOOR_ABS,
-         "clearing_cells": c1_cells, "statistic": "relocation_ratio",
-         "note": ("floor value 0.02 inherited from the refused V3-EXQ-1005 design; applied "
-                  "to relocation_ratio, which is displacement in sampling-noise units -- "
-                  "see the docstring for why delta_dbar could not carry it")},
+         "clearing_cells": c1_cells,
+         "statistic": "projected_lineage_increment = sqrt(B^2 + d^2) - B",
+         "unscorable_cells": [lab for lab, c in by_cell.items() if not c["scorable"]],
+         "note": ("statistic AND threshold both the record's own. The clean displacement d "
+                  "is measured under the shared regime and projected onto the lineage scale "
+                  "the 0.02 was pre-registered against, sqrt(B^2+d^2)-B, using each cell's "
+                  "own measured baseline B. Gating 0.02 on d directly would make the floor "
+                  "~8x easier; see the docstring.")},
         {"name": "C2_manipulation_beats_production_reference", "load_bearing": True,
          "passed": bool(c2_pass), "clearing_cells": c2_cells,
-         "reference_cell": ref_label, "reference_relocation_ratio": ref_reloc,
-         "statistic": "relocation_ratio",
-         "note": ("same statistic and scale as C1, so the two criteria cannot pull in "
-                  "opposite directions; a cell must both clear the absolute floor and "
-                  "improve on the production bench")},
+         "reference_cell": ref_label, "reference_raw_displacement": ref_disp,
+         "statistic": "raw_centroid_displacement",
+         "note": ("attribution guard on the UNSTANDARDISED numerator: a cell whose "
+                  "projected increment rises only because its standardisation denominator "
+                  "collapsed has not relocated anything. Measured on the pilot, this is "
+                  "what separates the floor0.0 cells (raw displacement 0.000239/0.000982) "
+                  "from the production reference (0.000967).")},
     ]
     combination_rule = (
-        "A cell clears the elite-channel ceiling only if it satisfies C1 AND C2, both read "
-        "off relocation_ratio. C1 is the absolute floor inherited from the 1005 design; C2 "
-        "requires the manipulation to beat the production reference cell on the same "
-        "statistic. Both are evaluated on an injection-free centroid."
+        "A cell clears the elite-channel ceiling only if it satisfies C1 AND C2. C1 gates the "
+        "record's own 0.02 on the record's own scale, reached by measuring the elite channel's "
+        "displacement cleanly (shared seed regime, zero baseline) and projecting it onto the "
+        "per-mode-seeded lineage scale via sqrt(B^2+d^2)-B with each cell's measured B. C2 is "
+        "an attribution guard on the unstandardised numerator, so a collapsed standardisation "
+        "denominator cannot manufacture a clear. Both are evaluated on an injection-free "
+        "centroid, over injection-clean seeds only, on cells that retained enough clean seeds."
     )
 
     # ---- verdict ------------------------------------------------------------------
@@ -1009,7 +1349,7 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
         summary = (
             f"Cell(s) {sorted(c2_cells)} clear the pre-registered {CONTENT_FLOOR_ABS} "
             f"oracle-elite relocation floor AND beat the {ref_label} production reference "
-            f"({ref_reloc}) on the same statistic, on an injection-free centroid. The "
+            f"(raw displacement {ref_disp}) on an injection-free centroid. The "
             f"V3-EXQ-1005 design is runnable on that bench."
         )
         routing = ("author successor V3-EXQ-1005a on the clearing bench "
@@ -1020,7 +1360,7 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
         summary = (
             f"Cell(s) {sorted(c1_only_cells)} clear the absolute {CONTENT_FLOOR_ABS} "
             f"relocation floor but do NOT beat the {ref_label} production reference "
-            f"({ref_reloc}) on the same statistic -- so the floor is cleared by the bench's "
+            f"(raw displacement {ref_disp}) -- so the floor is cleared by the bench's "
             f"baseline behaviour rather than by either manipulation, and neither grounding "
             f"nor removing the ao_std floor lifted the elite channel."
         )
@@ -1032,7 +1372,9 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
         outcome = "PASS"
         summary = (
             f"No cell clears the pre-registered {CONTENT_FLOOR_ABS} oracle-elite relocation "
-            f"floor (production reference {ref_label} = {ref_reloc}). "
+            f"floor on the lineage scale (production reference {ref_label} = "
+            f"{ref['projected_lineage_increment_mean']}; shortfall factors "
+            f"{ {lab: c['shortfall_factor_vs_floor'] for lab, c in by_cell.items()} }). "
             f"Neither grounding E2's action-object head into genuine action-dependence nor "
             f"removing the support-preserving ao_std floor lets the STRONGEST possible "
             f"content-selective re-ranker relocate the proposal centroid above the floor. "
@@ -1101,14 +1443,90 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
                     "design regardless of the manipulation chosen."),
                 "floor": CONTENT_FLOOR_ABS,
                 "achievable_by_cell": {
-                    lab: c["relocation_ratio_mean"] for lab, c in by_cell.items()},
-                "headroom_ratio_by_cell": {
-                    lab: (c["relocation_ratio_mean"] / CONTENT_FLOOR_ABS
-                          if c["relocation_ratio_mean"] is not None else None)
-                    for lab, c in by_cell.items()},
-                "secondary_delta_dbar_by_cell": {
                     lab: c["delta_dbar_mean"] for lab, c in by_cell.items()},
+                "headroom_ratio_by_cell": {
+                    lab: (c["delta_dbar_mean"] / CONTENT_FLOOR_ABS
+                          if c["delta_dbar_mean"] is not None else None)
+                    for lab, c in by_cell.items()},
+                "secondary_relocation_ratio_by_cell": {
+                    lab: c["relocation_ratio_mean"] for lab, c in by_cell.items()},
                 "margin": 1.0,
+            },
+            "red_team_dispositions_iter3": {
+                "description": (
+                    "Findings from the third-iteration adversarial design review (verdict "
+                    "CONTESTED) that were NOT repaired in code, each with its disposition. "
+                    "Recorded so a reader adjudicating this run sees the same limitations "
+                    "the design did. The three that WERE repaired -- the C1 scale mismatch, "
+                    "the run-level AND on cell scorability, and manifest notes describing a "
+                    "superseded criterion -- are not listed here; they are gone."),
+                "oracle_is_greedy_not_exhaustive": (
+                    "The oracle ranks candidates in ACTION space while the refit averages in "
+                    "action-object space, so it is a greedy chooser, not an argmax over all "
+                    "C(16,3)=560 elite subsets; and the final pool descends from the "
+                    "iteration-1 refit, so one of its three firings does not affect the "
+                    "measured centroid. The measured ceiling is therefore a LOWER bound on "
+                    "the true oracle ceiling. THIS IS THE LIMITATION THAT MOST CONSTRAINS A "
+                    "NULL: a no-clear verdict means the channel is short at THIS oracle's "
+                    "strength, and the shortfall factors (recorded per cell) are what say "
+                    "whether a stronger oracle could plausibly close the gap -- a 1.7x "
+                    "shortfall is not the same finding as a 41x one."),
+                "injection_drop_is_dv_conditioned": (
+                    "Rows dropped for arm-asymmetric injection are selected on the final "
+                    "pool's first-action class diversity, which the ORACLE arm changes by "
+                    "construction, so the surviving aggregate is conditioned on something "
+                    "correlated with the DV. Mitigated (per-cell drop, minimum clean-seed "
+                    "retention, drop counts recorded per cell) but NOT eliminated: read "
+                    "n_seeds_dropped_injection_asymmetric alongside any cell's result."),
+                "c2_compares_across_the_injection_boundary": (
+                    "Injection fires under floor0.2 and not under floor0.0, so the two levels "
+                    "score centroids over differently-composed candidate pools even after the "
+                    "synthetic scaffolds are filtered out. C2's cross-level comparison "
+                    "inherits that. It is recorded rather than repaired because removing it "
+                    "would mean disabling support-preserving CEM, which is the three-factor "
+                    "change this iteration exists to avoid."),
+                "two_anchors_cannot_fail_by_construction": (
+                    "ctrl_arm_mode_blind_under_shared_seed and "
+                    "oracle_directions_maximally_separating are structural: their references "
+                    "are exactly 0 because the property is guaranteed by construction (all "
+                    "operating_mode compute-readers gate on mode_conditioning_enabled; the "
+                    "simplex is uniform by definition). They are LEAK CHECKS, not powered "
+                    "gates -- they earn their place by failing loudly if a future substrate "
+                    "change breaks the guarantee, not by discriminating between benches."),
+                "simplex_embedded_in_a_fixed_3_slice": (
+                    "The tetrahedron spans a 3-D subspace of the 4-D action space, chosen by "
+                    "a fixed seeded frame. 'Maximally separating' is therefore exact within "
+                    "that slice, and per-dimension standardisation means it is not exactly "
+                    "distance-preserving in the standardised metric the DV uses. Recorded; "
+                    "the effect is second-order relative to the shortfall factors measured."),
+            },
+            "oracle_direction_geometry": {
+                "description": (
+                    "The oracle directions form a regular simplex so all six mode pairs are "
+                    "equally separated. This is what lets delta_dbar be a first-order "
+                    "non-negative bound -- but only in combination with the shared seed "
+                    "regime: see seed_regime_comparison, where the SAME simplex directions "
+                    "give a negative delta_dbar under per-mode seeds."),
+                **direction_stats,
+                "frame_seed": ORACLE_FRAME_SEED,
+                "lineage_regime_uses_archived_probe_c_directions": True,
+            },
+            "seed_regime_comparison": {
+                "description": (
+                    "The measured justification for gating on the shared regime. Under "
+                    "per-mode seeds the four CTRL centroids carry a large, randomly-oriented "
+                    "baseline separation and the oracle's tiny displacement enters dbar as a "
+                    "random-signed projection onto it -- delta_dbar goes NEGATIVE, and no "
+                    "choice of oracle direction repairs that (measured under both "
+                    "independent-random and maximally-separating directions). Under shared "
+                    "seeds dbar(CTRL)=0 exactly and delta_dbar is the pure oracle-induced "
+                    "separation. Both are recorded per cell; only the shared regime is gated."),
+                "gated_regime": GATED_REGIME,
+                "lineage_regime": LINEAGE_REGIME,
+                "delta_dbar_gated_by_cell": {
+                    lab: c["delta_dbar_mean"] for lab, c in by_cell.items()},
+                "delta_dbar_lineage_by_cell": {
+                    lab: c["delta_dbar_lineage_regime_mean"] for lab, c in by_cell.items()},
             },
             "joint_satisfiability_of_c1_and_c2": {
                 "description": (
@@ -1125,23 +1543,24 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
                     "findings, and only the first is a fact about the substrate."),
                 "per_cell": {
                     lab: {
-                        "relocation_ratio_mean": c["relocation_ratio_mean"],
                         "delta_dbar_mean": c["delta_dbar_mean"],
+                        "relocation_ratio_mean": c["relocation_ratio_mean"],
                         "raw_centroid_displacement_mean": c["raw_centroid_displacement_mean"],
                         "mean_per_dim_spread_mean": c["mean_per_dim_spread_mean"],
-                        "clears_c1": bool(c["relocation_ratio_mean"] is not None
-                                          and c["relocation_ratio_mean"] >= CONTENT_FLOOR_ABS),
+                        "clears_c1": bool(c["delta_dbar_mean"] is not None
+                                          and c["delta_dbar_mean"] >= CONTENT_FLOOR_ABS),
                         "clears_c2_beats_production": bool(
-                            lab != ref_label and c["relocation_ratio_mean"] is not None
-                            and ref_reloc is not None
-                            and c["relocation_ratio_mean"]
-                            >= RAW_DISPLACEMENT_MIN_RATIO * ref_reloc),
+                            lab != ref_label and c["raw_centroid_displacement_mean"] is not None
+                            and ref_disp is not None
+                            and c["raw_centroid_displacement_mean"]
+                            >= RAW_DISPLACEMENT_MIN_RATIO * ref_disp),
                     }
                     for lab, c in by_cell.items()
                 },
                 "any_cell_would_clear_c2_independently": bool(any(
-                    c["relocation_ratio_mean"] is not None and ref_reloc is not None
-                    and c["relocation_ratio_mean"] >= RAW_DISPLACEMENT_MIN_RATIO * ref_reloc
+                    c["raw_centroid_displacement_mean"] is not None and ref_disp is not None
+                    and c["raw_centroid_displacement_mean"]
+                    >= RAW_DISPLACEMENT_MIN_RATIO * ref_disp
                     for lab, c in by_cell.items() if lab != ref_label)),
                 "note": (
                     "any_cell_would_clear_c2_independently=false alongside a no-clear verdict "
@@ -1238,10 +1657,14 @@ if __name__ == "__main__":
     print(f"routing: {result['interpretation']['routing']}")
     print("--- per-cell (mean over seeds) ---")
     for lab, c in result["cell_summary"].items():
-        print(f"  {lab:22s} reloc={c['relocation_ratio_mean']!s:>22s}  "
-              f"delta_dbar={c['delta_dbar_mean']!s:>22s}  "
-              f"raw_disp={c['raw_centroid_displacement_mean']!s:>22s}  "
-              f"spread={c['mean_per_dim_spread_mean']!s:>22s}")
+        _pi = c["projected_lineage_increment_mean"]
+        _sf = c["shortfall_factor_vs_floor"]
+        print(f"  {lab:22s} C1_projected={_pi if _pi is None else round(_pi, 6)!s:>10s}  "
+              f"(d={c['delta_dbar_mean'] if c['delta_dbar_mean'] is None else round(c['delta_dbar_mean'], 5)!s:>8s} "
+              f"B={c['lineage_baseline_B_mean'] if c['lineage_baseline_B_mean'] is None else round(c['lineage_baseline_B_mean'], 5)!s:>8s})  "
+              f"shortfall={_sf if _sf is None else round(_sf, 1)!s:>7s}x  "
+              f"raw_disp={c['raw_centroid_displacement_mean'] if c['raw_centroid_displacement_mean'] is None else round(c['raw_centroid_displacement_mean'], 6)!s:>9s}  "
+              f"scorable={c['scorable']}")
     print(f"manifest: {out_path}")
 
     _outcome_raw = str(result["outcome"]).upper()
