@@ -25,22 +25,6 @@
       "episodes_per_run": 350,
       "experiment_type": "v3_exq_1008_zworld_adequacy_portfolio_ws250_rebasis",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-1009",
-      "title": "MECH-267 elite-channel ceiling: 2x2 (E2 action-object grounding x CEM ao_std floor), proposer-only diagnostic",
-      "script": "experiments/v3_exq_1009_mech267_elite_channel_ceiling_spike.py",
-      "priority": 55,
-      "machine_affinity": "any",
-      "estimated_minutes": 45,
-      "note": "SPIKE commissioned by the V3-EXQ-1005 refusal record (REE_assembly evidence/planning/exq1005_mech267_location_dv_redteam_blocking_20260907.md sec 6). Separates the two entangled causes of the 1005 elite-channel ceiling: E2's action-object head being a frozen random projection (SD-080, CONFIRMED by V3-EXQ-809 -- no loss in ree_core trains it, so this is PRODUCTION, not a bench artifact) and the support-preserving ao_std floor. Proposer-only, no rollout/env/agent. claim_ids deliberately EMPTY: a clear and a null are both statements about what a proposal-output-centroid instrument can SEE, neither is evidence for or against MECH-267. GOV-REUSE-1 (Step 2.4): decisive readout is the oracle-elite centroid ceiling under a monkeypatched elite chooser -- computed by no recorded manifest (the archived probes wrote nothing under evidence/); checked reanalysis surface + the 869/869a/923/928/1005 lineage, not recoverable -> run. RE-DERIVE BRAKE: MECH-267 counts 4 braking autopsies, but this is the explicit not-braked exemption -- a diagnostic on a NEW EXQ number whose purpose is to discriminate WHY the ceiling holds, not a lettered re-test at the same granularity. STEP 2.5c: open corrupting entry mode-governance-engagement co-lists ree_core/utils/config.py; its defect is the SalienceCoordinator affinity clamp and this bench builds no agent/coordinator/regime gate -- not reachable. Degrading/unset overlaps (SD-MECH303-THRESHOLD-SOURCING, mech203-valence-pool-admissibility, mech142-no-valence-arousal-orthogonal-axis-substrate) noted, non-blocking. dv_headroom DECLARED: the oracle is the strongest content-selective re-ranker at the elite-selection call site, so the DV is an upper BOUND on any real mode-conditioned content arm (breadth-matched); recorded per cell with shortfall factors. THREE DESIGN ITERATIONS, two red-team passes. Iteration 2 was REFUSED BLOCKING and its record (evidence/planning/exq1009_mech267_elite_channel_ceiling_spike_redteam_blocking_20260907.md, REE_assembly 126014a460) is superseded by this queued design; it remains the write-up of the two substrate findings that outlive the spike -- the post-CEM injection contaminating action_object_decoder_raw_output_stats, and the legacy opt-out triple being a three-factor change. Both are repaired here (source-tag filtering; floor-only with the flag left True). red-team iteration 3 (session model, Opus 5; fable attempted first and returned HTTP 429 out-of-credits, re-spawned once per Step 4.5): CONTESTED. Headline finding CONFIRMED by independent arithmetic and FIXED -- gating 0.02 on the shared-regime displacement d would have made the record's floor ~8x easier, because the 1005 gate is an increment over a sampling-noise baseline B (sqrt(B^2+d^2)-B, not d); C1 now measures d cleanly and projects it onto that scale using each cell's measured B. Two further findings fixed (a run-level AND on cell scorability that violated CLAUDE.md's multi-arm rule; manifest notes describing a superseded criterion). Five findings not repaired carry written dispositions in custom_information.red_team_dispositions_iter3 -- most importantly that the oracle is greedy rather than exhaustive, so the measured ceiling is a LOWER bound and a null must be read against the per-cell shortfall factors.",
-      "status": "pending",
-      "claim_ids": [],
-      "conditions": 4,
-      "episodes_per_run": 16,
-      "experiment_purpose": "diagnostic",
-      "experiment_type": "v3_exq_1009_mech267_elite_channel_ceiling_spike",
-      "seeds": 5
     }
   ]
 }
