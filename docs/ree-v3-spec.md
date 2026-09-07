@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-09-06 (T12:55Z nightly)
+**Last updated:** 2026-09-07 (T02:12Z nightly)
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -235,6 +235,70 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 
 ### Experiment Status
 
+- **2026-09-07T02:12Z nightly attestation (scheduled `/update-docs`, bot
+  identity).** ~13h window since the 2026-09-06T12:55Z snapshot. Flat
+  `v3_exq_*` manifests on disk: **986** (+1 vs 985 at 2026-09-06); nested
+  per-run manifests under `evidence/experiments/*/runs/`: **2921** (+1 vs
+  2920). **Currently queued (`experiment_queue.json` items[]): 1 item** --
+  V3-EXQ-1007 (`MECH-536 eval-time action-persistence discriminator on the
+  frozen 978-OFF z_world reader`, claims `MECH-536` + `MECH-535`, prio 80,
+  PENDING, ~11h ~700min estimated). **Pending review (`pending_review.md`,
+  regenerated 2026-09-06T16:56:54Z): 0 items** -- "All experiments
+  reviewed. Nothing pending". (a) **NO new substrate landings in the
+  window.** (b) **One new completion**: V3-EXQ-1006 (`SD-e1 var-bar
+  portfolio: OFF / RSD / RSD+anchor(EP) / RSD+anchor(RC)`) landed PASS
+  2026-09-06T19:51Z; the SD-e1 ITEM 2 4-arm portfolio queued this window
+  (2026-09-06 pre-cutoff) as the ITEM 2 validation follow-on. (c)
+  **Governance work in the window** (no full `/governance` walk): AM
+  lit-pull `chip-20260906-mech535-catatonia-ambitendency-litpull` landed
+  12 verified literature entries for MECH-535 (primary) + MECH-536
+  (secondary) with a Q2 NULL on a goal-direction locus, phenotype match
+  only (Bush 1996 BFCRS item), and Girard 2003 as the Q3 highest-confidence
+  support that persistence prevents dithering (REE_assembly `d7b7fc7d6e`);
+  the thought-digestion v3-closure campaign APPLIED 47 user-approved
+  `what_would_answer` falsifiers + 21 `epistemic_category` changes + 7
+  `digestion_notes` + minted EXP-1379..EXP-1401 (23 proposals) + rebuilt
+  `claims.json` (missing-wwa 585 -> 538, REE_assembly `ada5d97af0`);
+  raised 80 governance flags GFLAG-0139..GFLAG-0218 from that campaign
+  (stale_note 36, evidence_discrepancy 21, contested_disposition 18,
+  promotion_review 5; REE_assembly `c8bb5f6b3f`); MECH-057b + MECH-489
+  both re-adjudicated DO-NOT-QUEUE via `/queue-experiment` step-2.5
+  substrate-readiness gates (IGW-20260906-240 raised GFLAG-0219 stale-note
+  on MECH-057b + ARC-065 for the CONFIRMED 672-series autopsy's
+  unowned substrate-side half; IGW-20260906-241 was the SECOND
+  adjudicated DO-NOT-QUEUE on MECH-489 -- re-fired despite
+  chip-20260826-sd099-diagnostic-adjudicated-flag being resolved done
+  because the workset generator never learned about the new flag, cause
+  re-chipped as chip-20260906-confirmer-lane-diagnostic-adjudicated-flag);
+  raised GFLAG-0219 (MECH-057b + ARC-065, stale_note; REE_assembly
+  `ba41f42d15`). (d) **Coordination-plane / infra work in the window**:
+  landed the doctrine shrink for the retired telemetry git path
+  (ree-v3 `fccf81c`, REE_assembly `5db1841520` + `c3e754fb62`;
+  `chip-20260901-doctrine-shrink-retired-telemetry` -- 12 skills mirrored,
+  new archaeology note A-93, retired-mode-only tests removed) closing the
+  final item of the shadow-cutover close-out; landed ree-v3 `bdb5166`
+  git-sync-repair cloud variant with an untracked-collision pre-flight
+  (option B of `chip-20260903-untracked-manifest-collision-recurring-class`,
+  user-authorised 2026-09-06); ran through a thought-digestion campaign
+  session-land closing three chips including
+  `chip-20260902-arc113-stage-implementation-audit`; thought-ingestion for
+  the direction-blind reactive ambitendency thought minted MECH-535 +
+  MECH-536 as candidates (REE_assembly `4c7a07319a`); thought_sweep now
+  recognises the four back-link forms (Intake, frontmatter, Superseded by,
+  legacy Processed in) so the sweep report is no longer false-positive
+  (REE_assembly `094d120d47`). **Bottleneck: unchanged from
+  2026-09-06T12:55Z** -- convergence root remains the H-observation-interface
+  axis (SD-018 AMEND landed 2026-09-02, SD-e1 ITEM 2 candidate-1 landed
+  2026-09-01 with V3-EXQ-1006 as the just-queued 4-arm portfolio
+  validation follow-on); V3-EXQ-978 SD-018 AMEND validation was walked to
+  `mixed` in the 2026-09-05 cycle so the AMEND's own validation is not yet
+  a clean support. Green-board target 2026-07-19 is now **50 days
+  overdue**. **ETHICS-PERIMETER Phase 0 datum** stays on the record
+  (Phases 1-3 deferred; NON-BLOCKING). Public-information-architecture
+  impact: reviewed against `docs/design/public_information_architecture.md`
+  -- no `/api/*` surface, generated visualization, or public export
+  changed; nightly snapshot + spec date bump only (same category as the
+  2026-09-06 attestation).
 - **2026-09-06T12:55Z nightly attestation (scheduled `/update-docs`, bot
   identity).** ~36h window since the 2026-09-05T01:10Z snapshot. Flat
   `v3_exq_*` manifests on disk: **985** (+2 vs 983 at 2026-09-05); nested
