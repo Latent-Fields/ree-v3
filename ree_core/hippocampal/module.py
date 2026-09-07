@@ -78,6 +78,40 @@ from ree_core.hippocampal.staleness_accumulator import StalenessAccumulator
 _MIN_CEM_ELITES = 2
 
 
+# Metadata `source` tags for SYNTHETIC candidates -- trajectories that are not
+# samples from the proposal distribution at all, but hand-built scaffolds: one
+# one-hot first action followed by exact zeros
+# (_build_action_class_scaffold_candidates). They exist to keep first-action
+# SUPPORT wide; they are not evidence about where the decoder's mass sits.
+#
+# Why this matters (2026-09-07): the propose diagnostics' headline
+# `action_object_decoder_raw_output_stats` is computed over the FINAL pool, which
+# by then contains any injected scaffolds. Each one drags an action dimension's
+# mean by ~1/(num_candidates * horizon) -- for a 16-candidate, 4-step pool that is
+# ~0.0156, an order of magnitude above the centroid DISPLACEMENTS some drivers
+# measure as their DV. Worse, `_inject_support_preserving_candidates` fires
+# CONDITIONALLY on the pool's first-action class count, so it is NOT
+# arm-independent for any design whose arms change elite selection: it can fire
+# asymmetrically between two arms of a matched pair and manufacture an apparent
+# displacement, and because it REPLACES real candidates (keep_n = budget -
+# len(injected)) an asymmetric firing also changes which real candidates survive.
+#
+# The headline field keeps its exact meaning -- landed manifests depend on it --
+# and the injection-free companions below are emitted ALONGSIDE it.
+_SP_INJECTED_SOURCE = "support_preserving_cem_injected"
+_ACTION_CLASS_SCAFFOLD_SOURCE = "action_class_scaffold"
+
+# Both tags above are the SAME synthetic construct; only the tag differs. A
+# consumer that excludes one but not the other still reads a contaminated
+# centroid whenever use_action_class_scaffold_candidates is on (24 experiment
+# drivers set it), which is why `_excluding_synthetic` exists beside
+# `_excluding_injected` rather than only the latter.
+_SYNTHETIC_CANDIDATE_SOURCES = (
+    _SP_INJECTED_SOURCE,
+    _ACTION_CLASS_SCAFFOLD_SOURCE,
+)
+
+
 class HippocampalModule(nn.Module):
     """
     HippocampalModule — action-object space trajectory proposal.
@@ -780,6 +814,39 @@ class HippocampalModule(nn.Module):
             }
         actions = torch.stack([t.actions.detach() for t in trajectories], dim=0)
         return self._summarize_action_tensor(actions)
+
+    @staticmethod
+    def _trajectory_source(trajectory: Trajectory) -> Optional[str]:
+        """The metadata `source` provenance tag, or None when untagged.
+
+        Untagged trajectories are ordinary proposal-distribution samples --
+        only the injectors set `source` -- so a None here must NEVER be
+        treated as synthetic.
+        """
+        metadata = getattr(trajectory, "metadata", None) or {}
+        source = metadata.get("source")
+        return str(source) if source is not None else None
+
+    def _summarize_trajectories_excluding_sources(
+        self,
+        trajectories: List[Trajectory],
+        exclude_sources: Sequence[str],
+    ) -> Tuple[Dict[str, Any], int]:
+        """Summarize the pool with the named `source` tags filtered out.
+
+        Returns (summary, n_kept). The summary is computed by exactly the same
+        path as `_summarize_trajectories` -- same reshape to [-1, action_dim],
+        same mean/std(unbiased=False)/min/max -- so the only difference from the
+        headline field is WHICH trajectories entered it. An all-excluded pool
+        degrades to `_summarize_trajectories`'s empty shape rather than raising,
+        so a caller never has to special-case it.
+        """
+        excluded = set(exclude_sources)
+        kept = [
+            traj for traj in trajectories
+            if self._trajectory_source(traj) not in excluded
+        ]
+        return self._summarize_trajectories(kept), len(kept)
 
     def set_chunk_source(self, chunk_source) -> None:
         """Register the ARC-071 chunk library that supplies chunk candidates.
@@ -2492,6 +2559,20 @@ class HippocampalModule(nn.Module):
         ))
 
         final_summary = self._summarize_trajectories(all_trajectories)
+        # Injection-free companions to the headline centroid. See
+        # _SYNTHETIC_CANDIDATE_SOURCES for why the headline field alone is not a
+        # safe DV: a conditionally-firing, arm-dependent injector contributes
+        # synthetic one-hot-then-zeros rows to it.
+        _summary_ex_injected, _n_ex_injected = (
+            self._summarize_trajectories_excluding_sources(
+                all_trajectories, (_SP_INJECTED_SOURCE,)
+            )
+        )
+        _summary_ex_synthetic, _n_ex_synthetic = (
+            self._summarize_trajectories_excluding_sources(
+                all_trajectories, _SYNTHETIC_CANDIDATE_SOURCES
+            )
+        )
         self._last_propose_diagnostics.update({
             # --- modulatory-bias-selection-authority AMEND (2026-08-19) ---
             # AUTHORITY (half a): did the elite-stage rescale fire, and how hard.
@@ -2552,6 +2633,24 @@ class HippocampalModule(nn.Module):
             "action_object_decoder_raw_output_stats": final_summary[
                 "raw_output_stats"
             ],
+            # Same statistic, over the pool with support-preserving INJECTED
+            # scaffolds removed. Differs from the headline field exactly when
+            # support_preserving_injected_candidates > 0. Prefer this over the
+            # headline field for any DV that reads the centroid.
+            "action_object_decoder_raw_output_stats_excluding_injected": (
+                _summary_ex_injected["raw_output_stats"]
+            ),
+            # Stricter still: removes the action-class scaffold as well, which is
+            # the identical synthetic construct under a different tag. This is
+            # the field to read when use_action_class_scaffold_candidates may be
+            # on -- _excluding_injected does NOT filter that source.
+            "action_object_decoder_raw_output_stats_excluding_synthetic": (
+                _summary_ex_synthetic["raw_output_stats"]
+            ),
+            # Denominators, so a consumer can see how much of the pool each
+            # companion field was computed over without recounting.
+            "candidate_samples_excluding_injected": int(_n_ex_injected),
+            "candidate_samples_excluding_synthetic": int(_n_ex_synthetic),
             # How much of the action survives a -> E2.action_object -> decoder.
             # roundtrip_unique_classes == 1 while true_unique_classes > 1 means
             # any driver selecting via the decoder round trip is inert. See
