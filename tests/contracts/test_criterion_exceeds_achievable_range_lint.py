@@ -521,12 +521,55 @@ def test_dv_headroom_validation_never_fires_on_a_foreign_kind():
     assert out[0]["met"] is True and out[0]["kind"] == "capability"
 
 
-# The first adopter of the dv_headroom kind. The assertion below was
-# `hits == []` at build time (governance-20260903T2013), with its own docstring
-# saying: "If this ever fails it is because a driver adopted the kind --
-# expected, and the assertion should move." It has now moved, exactly once, to
-# an explicit allowlist -- which still catches an UNREVIEWED adoption while
-# recording the reviewed one.
+# --------------------------------------------------------------------------- #
+# (6) the adopter registry -- gated on COMMITTED content
+# --------------------------------------------------------------------------- #
+#
+# The first adopter of the dv_headroom kind. The assertion below was `hits == []`
+# at build time (governance-20260903T2013), with its own docstring saying: "If
+# this ever fails it is because a driver adopted the kind -- expected, and the
+# assertion should move." It has moved twice: first onto the explicit allowlist
+# below (which still catches an UNREVIEWED adoption while recording the reviewed
+# ones), and then -- 2026-09-07, chip-20260904-dvheadroom-corpuslint-disposition
+# -- off the WORKING TREE and onto COMMITTED content.
+#
+# WHY THE SOURCE OF THE FILE LIST IS LOAD-BEARING. The rule, and the thing to keep
+# if this is ever touched: HEAD IS THE ONLY THING THAT CAN FAIL YOU; THE WORKING
+# TREE CAN ONLY EXCUSE YOU.
+#
+# These two tests run inside a COMMIT GATE -- scripts/precommit_contracts.sh Block
+# 1c fires them whenever a staged experiments/*.py outside _lib/ is committed --
+# and ree-v3 is a SHARED CHECKOUT that several sessions edit at once. A glob over
+# experiments/ therefore reads other sessions' untracked and staged scratch files:
+# work that belongs to no commit, and cannot be any commit's business. Measured
+# consequences while the glob stood:
+#   2026-09-04  a campaign-C2 session's untracked 993a driver blocked an unrelated
+#               session from committing v3_exq_1004_*, a driver that does not
+#               mention the kind at all (1 failed, 688 passed in 311.98s).
+#   2026-09-07  three further hits in one day. One of them -- session
+#               hopeful-solomon-01a60c, committing a V3-EXQ-1005 refusal archive
+#               that touches nothing related -- was resolved with --no-verify
+#               (ree-v3 8132312). That is the gate being ROUTED AROUND rather than
+#               satisfied, which is strictly worse than the check not existing.
+# The repo's own doctrine already settles this shape of question: CLAUDE.md Session
+# Startup Protocol step 7a, on the vendored-copy audit -- "The gate is on COMMITTED
+# content ... A worktree difference is a NOTE, not a finding."
+#
+# WHAT THIS COSTS, stated rather than papered over: the failing direction is now
+# POST-HOC. An unreviewed adopter is caught on the commit AFTER it lands, not at
+# the moment it lands. That is the right trade because the two failures are not
+# equivalent. A red against HEAD is legible and shared -- every session sees the
+# same failure, and one commit adding one allowlist line clears it for everyone. A
+# red against the working tree is invisible, per-session, and names a file the
+# blocked session must not touch. Only the second kind produces a --no-verify.
+#
+# The PERMISSIVE direction deliberately still consults the working tree (see
+# test_the_adopter_allowlist_has_no_stale_entries): the commit that adopts the kind
+# and the commit that registers the adopter are the SAME commit, so at gate time
+# the new driver is in neither HEAD nor the index (ree_commit.py stages into a
+# PRIVATE index). Excusing an allowlist entry on working-tree evidence is safe
+# precisely because a foreign session's file can only ever ADD an excuse there --
+# never a failure.
 KNOWN_DV_HEADROOM_ADOPTERS = {
     # V3-EXQ-993a: the ARC-021/MECH-069 redesign the dv_headroom class was
     # minted for. Its predecessor V3-EXQ-993 burned a 12-cell grid before
@@ -553,6 +596,71 @@ KNOWN_DV_HEADROOM_ADOPTERS = {
     "v3_exq_972a_sd070_write_stream_heldout_linear_probe.py",
 }
 
+_DV_HEADROOM_LITERAL = '"kind": "dv_headroom"'
+
+
+def _require_git():
+    """Skip when this tree has no git, rather than failing closed.
+
+    remote_pytest.sh rsyncs the tree WITHOUT `.git` (see its RSYNC_EXCLUDES and
+    CLAUDE.md "Running the test suite"), so anything shelling out to git there
+    sees "not a git repository". Failing closed on that is the documented
+    `validate_queue._is_tracked` trap -- a phantom contract failure that looks
+    exactly like a real one.
+
+    Skipping costs nothing that matters: this pair gates a COMMIT, and the commit
+    gate (precommit_contracts.sh Block 1c) runs pytest locally in the checkout,
+    where git is present. The fleet suite adds no adopters of its own.
+    """
+    if not (REPO_ROOT / ".git").exists():
+        pytest.skip("no .git in this tree (remote_pytest.sh stages without it); "
+                    "this pair gates commits and runs for real in "
+                    "precommit_contracts.sh Block 1c, which executes locally")
+
+
+def _git(*args):
+    """git in the ree-v3 checkout, or None if it could not be run at all."""
+    try:
+        return subprocess.run(["git", "-C", str(REPO_ROOT), *args],
+                              capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def _committed_experiment_scripts():
+    """`experiments/*.py` filenames as COMMITTED at HEAD.
+
+    Top level only -- the non-recursive shape the working-tree glob had, so
+    experiments/_lib/** stays out of scope.
+    """
+    _require_git()
+    r = _git("ls-tree", "-r", "--name-only", "HEAD", "--", "experiments/")
+    if r is None or r.returncode != 0:
+        pytest.skip("git ls-tree unavailable in this tree")
+    return {line.rsplit("/", 1)[-1] for line in r.stdout.splitlines()
+            if line.endswith(".py") and line.count("/") == 1}
+
+
+def _committed_dv_headroom_declarers():
+    """Filenames of top-level experiment scripts declaring the kind AT HEAD."""
+    _require_git()
+    r = _git("grep", "-l", "--fixed-strings", _DV_HEADROOM_LITERAL,
+             "HEAD", "--", ":(glob)experiments/*.py")
+    if r is None or r.returncode not in (0, 1):  # 1 == no match, not an error
+        pytest.skip("git grep unavailable in this tree")
+    names = set()
+    for line in r.stdout.splitlines():
+        _, _, path = line.partition(":")          # "HEAD:experiments/foo.py"
+        if path:
+            names.add(path.rsplit("/", 1)[-1])
+    return names
+
+
+def _worktree_dv_headroom_declarers():
+    """The same set as it stands ON DISK. Only ever used to EXCUSE, never to fail."""
+    return {p.name for p in EXPERIMENTS_DIR.glob("*.py")
+            if _DV_HEADROOM_LITERAL in p.read_text(encoding="utf-8", errors="ignore")}
+
 
 def test_only_reviewed_drivers_declare_the_new_kind():
     """Opt-in means opt-in: a driver may adopt this kind only deliberately.
@@ -560,23 +668,62 @@ def test_only_reviewed_drivers_declare_the_new_kind():
     Adoption is not forbidden -- it is the point of the class -- but it must be
     a reviewed change rather than a copy-paste side effect, because a
     dv_headroom entry GATES the run (an unmet one raises P0NotReady and
-    self-routes to substrate_not_ready_requeue). Add the filename above in the
-    same commit that adopts the kind."""
-    hits = {p.name for p in EXPERIMENTS_DIR.glob("*.py")
-            if '"kind": "dv_headroom"' in p.read_text(encoding="utf-8", errors="ignore")}
-    unreviewed = sorted(hits - KNOWN_DV_HEADROOM_ADOPTERS)
+    self-routes to substrate_not_ready_requeue). Add the filename to
+    KNOWN_DV_HEADROOM_ADOPTERS in the same commit that adopts the kind.
+
+    Reads HEAD, not the working tree -- see the block comment above the allowlist.
+    """
+    unreviewed = sorted(_committed_dv_headroom_declarers() - KNOWN_DV_HEADROOM_ADOPTERS)
     assert unreviewed == [], (
-        f"drivers declare kind=dv_headroom without being listed in "
+        f"committed drivers declare kind=dv_headroom without being listed in "
         f"KNOWN_DV_HEADROOM_ADOPTERS: {unreviewed}")
 
 
 def test_the_adopter_allowlist_has_no_stale_entries():
     """A listed adopter that no longer declares the kind (renamed, reverted,
     deleted) must be removed, or the allowlist silently grows into a rubber
-    stamp that permits any future file of that name."""
-    present = {p.name for p in EXPERIMENTS_DIR.glob("*.py")}
-    stale = sorted(n for n in KNOWN_DV_HEADROOM_ADOPTERS
-                   if n not in present
-                   or '"kind": "dv_headroom"' not in (EXPERIMENTS_DIR / n).read_text(
-                       encoding="utf-8", errors="ignore"))
-    assert stale == [], f"allowlist entries no longer declaring the kind: {stale}"
+    stamp that permits any future file of that name.
+
+    An entry is stale only if it declares the kind in NEITHER HEAD nor the
+    working tree. The working-tree half is what lets the adopting commit and the
+    registering commit be one commit; it can only excuse an entry, so a foreign
+    session's file can never make this test fail.
+    """
+    declaring = _committed_dv_headroom_declarers() | _worktree_dv_headroom_declarers()
+    stale = sorted(n for n in KNOWN_DV_HEADROOM_ADOPTERS if n not in declaring)
+    assert stale == [], (
+        f"allowlist entries declare the kind in neither HEAD nor the working "
+        f"tree: {stale}")
+
+
+def test_a_foreign_uncommitted_declarer_cannot_fail_either_test():
+    """The regression pin for the defect this pair was rebuilt to close.
+
+    Stands in for another session's in-flight driver sitting untracked in the
+    shared checkout. Before 2026-09-07 such a file failed
+    test_only_reviewed_drivers_declare_the_new_kind and blocked that session's
+    unrelated commit; four measured occurrences, one forcing --no-verify.
+    """
+    _require_git()
+    probe = EXPERIMENTS_DIR / f"v3_zz_probe_foreign_dv_headroom_{os.getpid()}.py"
+    probe.write_text(
+        '"""Stand-in for a FOREIGN session\'s untracked in-flight driver."""\n'
+        'PRECONDITIONS = [{"name": "dv_headroom_x", ' + _DV_HEADROOM_LITERAL + '}]\n',
+        encoding="utf-8")
+    try:
+        # non-vacuity: the probe really is on disk and really does declare the kind
+        assert probe.name in _worktree_dv_headroom_declarers()
+        # ... and is invisible to the failing direction, so nobody is blocked by it
+        assert probe.name not in _committed_dv_headroom_declarers()
+        assert sorted(_committed_dv_headroom_declarers()
+                      - KNOWN_DV_HEADROOM_ADOPTERS) == []
+    finally:
+        probe.unlink(missing_ok=True)
+
+
+def test_the_committed_corpus_enumeration_is_not_empty():
+    """`_committed_experiment_scripts` going empty would make any future caller
+    vacuously green. Named separately so that failure cannot hide inside one."""
+    names = _committed_experiment_scripts()
+    assert len(names) > 100, f"only {len(names)} committed experiments/*.py at HEAD"
+    assert KNOWN_DV_HEADROOM_ADOPTERS <= names, sorted(KNOWN_DV_HEADROOM_ADOPTERS - names)
