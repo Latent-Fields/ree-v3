@@ -52,7 +52,8 @@ CHECK_NAMES = ("conformance", "readiness", "arm_fingerprint", "degeneracy", "man
                "fishtank_episode_log_seeds", "disjunctive_criteria_load_bearing",
                "route_reason_consistency", "multi_arm_default_off_flags_collapse",
                "sd056_training_without_rollout_clamp",
-               "precondition_index_read")
+               "precondition_index_read",
+               "contextmemory_write_enablement")
 
 # Readiness-gate static lint (proposal_trivial_prediction_readiness_gate_2026-06-06).
 # A diagnostic/baseline script whose interpretation grid self-routes to one of
@@ -7804,6 +7805,141 @@ def precondition_index_read_lint(path: Path) -> Optional[str]:
     )
 
 
+# --------------------------------------------------------------------------- #
+# contextmemory_write_enablement -- measuring the bank without choosing a write
+# selection mode
+# --------------------------------------------------------------------------- #
+# THE USER DECISION (2026-09-06, recorded verbatim in the `decision_2026_09_06`
+# field of substrate entry `contextmemory-write-path-addressing-degeneracy` in
+# REE_assembly/evidence/planning/substrate_queue.json). ContextMemory.write()'s
+# hard-argmin addressing has a deterministic single-slot fixed point under a
+# low-variance query stream. Until the CONTENT half validates, every driver whose
+# DV reads bank occupancy, slot content, or a sleep/consolidation contrast on the
+# bank MUST set `E1Config.contextmemory_write_selection='refractory'` with
+# `contextmemory_write_refractory_k=2` -- an analytically-guaranteed k+1 occupancy
+# floor, deterministic, consuming no RNG, leaving content-determined selection
+# intact outside the k most recent slots. `usage_balancing` is NOT the interim
+# choice (99.9% a content-blind LRU period-16 cycle). `gumbel_learned` is reserved
+# for content-discrimination experiments and only with
+# `contextmemory_write_addressing_loss_weight > 0`. THE LIBRARY DEFAULT STAYS
+# `argmin` -- corpus byte-identity is not traded for this, which is exactly why
+# the enforcement is a driver-side lint and not a default change.
+#
+# WHY A LINT AT ALL: V3-EXQ-994. The default-off fix landed and drivers still hit
+# the defect, because a default-off knob nobody knows about is not a fix -- it is
+# a knob. This check exists to make a driver AUTHOR aware at authoring time.
+#
+# WHAT IT ACTUALLY ASSERTS, and this is a DELIBERATE NARROWING of the chip's
+# literal wording -- read this before "tightening" it. The brief said to fire when
+# a driver does not SET the flag to refractory/gumbel_learned, and in the same
+# breath named V3-EXQ-943 and V3-EXQ-436g as required NEGATIVES. Those two cannot
+# both hold: 436g deliberately KEEPS the `argmin` default (its line 319 says so in
+# terms) and 943 is the write-selection validation experiment, which SWEEPS the
+# mode across arms including argmin. A value-checking rule would fire on both of
+# the brief's own negatives. Beyond that, the value is routinely set through an
+# arm table, a config dict or a helper, none of which a static scan resolves.
+#
+# So the firing condition is AWARENESS, not compliance: the driver carries a bank
+# READOUT and never mentions `contextmemory_write_selection` anywhere. That is a
+# driver whose author has not made the choice at all -- which is precisely the
+# 994 shape -- and it leaves a deliberate, documented choice (436g) silent.
+#
+# The one COMPLIANCE clause kept from the brief is checkable and unambiguous:
+# a driver electing `gumbel_learned` must also mention
+# `contextmemory_write_addressing_loss_weight`, since gumbel selection without an
+# addressing objective is untrained selection wearing a learned label. It has
+# ZERO corpus carriers today (all five gumbel drivers set it), so it is pinned by
+# a synthetic fixture in the contract rather than by the corpus -- a clause whose
+# only evidence is "nothing fires" is a clause that has not been tested. It keys
+# on an ELECTION (the assignment/keyword form), not on the substring: a bare
+# `"gumbel_learned" in src` fired on v3_exq_436g, one of the brief's own required
+# negatives, whose only two occurrences are a docstring listing the modes.
+#
+# TRIGGER TOKENS are the READOUT names, not the class name. Measured 2026-09-07
+# over 1465 experiments/*.py: matching on `ContextMemory` anywhere selects 96
+# drivers and would warn on 83 -- mostly docstring mentions in unrelated history,
+# which is noise, not signal. The four readout tokens select 11, of which 8 are
+# already aware and 3 warn:
+#   v3_exq_994_claim_probe_ext_007_consolidation_retention.py  -- the incident
+#   v3_exq_436e_sd017_mech166_occupied_slot_retest.py          -- occupancy DV
+#   v3_exq_436f_sd017_mech166_sd016_armed_retest.py            -- occupancy DV
+# All three are landed drivers whose runs are complete and are NOT retro-edited.
+#
+# WARN-ONLY, never ERROR (the decision says so in terms).
+_CTXMEM_ENABLEMENT_EXEMPT_MARKER = "CONTEXTMEMORY_WRITE_ENABLEMENT_EXEMPT"
+_CTXMEM_READOUT_TOKENS = (
+    "n_occupied_slots",
+    "n_encode_written_slots",
+    "occupied_slots",
+    "slot_cosine",
+)
+_CTXMEM_SELECTION_FLAG = "contextmemory_write_selection"
+_CTXMEM_ADDRESSING_LOSS_FLAG = "contextmemory_write_addressing_loss_weight"
+_CTXMEM_READOUT_RE = re.compile(
+    r"\b(" + "|".join(_CTXMEM_READOUT_TOKENS) + r")\b")
+# An ELECTION, not a mention. A bare `"gumbel_learned" in src` fires on prose that
+# merely LISTS the available modes -- measured on v3_exq_436g, whose only two
+# occurrences are "(argmin / refractory / gumbel_learned / BIAS-adjusted argmin)"
+# in a docstring, and which the brief names as a required NEGATIVE. Requiring the
+# assignment/keyword form keeps the clause on drivers that actually choose it.
+# The optional closing quote before the separator is load-bearing: the corpus's
+# most common spelling is a CONFIG-DICT KEY, `"contextmemory_write_selection":
+# "gumbel_learned"`, which a bare `flag\s*[=:]` pattern misses entirely (caught by
+# this check's own contract, not by review).
+_CTXMEM_GUMBEL_ELECTION_RE = re.compile(
+    _CTXMEM_SELECTION_FLAG + r"""["']?\s*[=:]\s*["']gumbel_learned["']""")
+
+
+def contextmemory_write_enablement_lint(path: Path) -> Optional[str]:
+    """A driver reads the ContextMemory bank without choosing a write-selection mode.
+
+    See the block comment above for the user decision this enforces, why the
+    trigger is the READOUT tokens rather than the class name, and why the firing
+    condition is awareness rather than compliance. Never blocking.
+    """
+    try:
+        src = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    if _CTXMEM_ENABLEMENT_EXEMPT_MARKER in src:
+        return None
+    hit = _CTXMEM_READOUT_RE.search(src)
+    if not hit:
+        return None
+    remedy = (
+        "Set E1Config.contextmemory_write_selection='refractory' with "
+        "contextmemory_write_refractory_k=2 (the interim default per the USER "
+        "DECISION 2026-09-06 in substrate_queue.json entry "
+        "contextmemory-write-path-addressing-degeneracy, field "
+        "decision_2026_09_06), or state the deliberate alternative in the driver "
+        f"so the choice is on the record. Exempt with "
+        f"{_CTXMEM_ENABLEMENT_EXEMPT_MARKER} = \"<reason>\" when the DV provably "
+        "does not depend on write addressing."
+    )
+    if _CTXMEM_SELECTION_FLAG not in src:
+        return (
+            f"reads the ContextMemory bank ({hit.group(1)}) but never mentions "
+            f"{_CTXMEM_SELECTION_FLAG}. Under the hard-argmin default the write "
+            "path has a deterministic single-slot fixed point on a low-variance "
+            "query stream, so an occupancy or slot-content DV can be measuring "
+            "the addressing degeneracy rather than the effect. V3-EXQ-994 hit "
+            "the 1-slot bank again AFTER the default-off fix landed, which is "
+            f"why this is a lint and not a default change. {remedy}"
+        )
+    if (_CTXMEM_GUMBEL_ELECTION_RE.search(src)
+            and _CTXMEM_ADDRESSING_LOSS_FLAG not in src):
+        return (
+            "elects contextmemory_write_selection='gumbel_learned' but never "
+            f"mentions {_CTXMEM_ADDRESSING_LOSS_FLAG}. Gumbel selection with no "
+            "addressing objective is UNTRAINED selection wearing a learned "
+            "label: the decision reserves gumbel_learned for "
+            "content-discrimination experiments and only with that weight above "
+            "zero, through real SGD steps. Set the weight, or use 'refractory' "
+            "for an interim run."
+        )
+    return None
+
+
 def _candidate_paths(paths: Sequence[str]) -> List[Path]:
     if paths:
         return [Path(p).resolve() for p in paths]
@@ -7876,6 +8012,7 @@ def main() -> int:
     dry_sweep_excludes_point_warnings: List[Tuple[Path, str]] = []
     criterion_range_warnings: List[Tuple[Path, str]] = []
     precondition_index_read_warnings: List[Tuple[Path, str]] = []
+    ctxmem_enablement_warnings: List[Tuple[Path, str]] = []
     config_slice_warnings: List[Tuple[Path, str]] = []
     inert_dacc_bias_warnings: List[Tuple[Path, str]] = []
     dacc_last_bundle_warnings: List[Tuple[Path, str]] = []
@@ -8055,6 +8192,14 @@ def main() -> int:
                 # proof of a defect; and the standing carrier is a landed driver whose
                 # run is complete, so hardening would block commits on history.
                 precondition_index_read_warnings.append((p, pir))
+        if "contextmemory_write_enablement" in selected:
+            cme = contextmemory_write_enablement_lint(p)
+            if cme:
+                # WARN-only in BOTH modes -- the 2026-09-06 user decision says so in
+                # terms ("Enforcement: WARN-only lint in validate_experiments"), and
+                # the three standing carriers are landed drivers whose runs are
+                # complete.
+                ctxmem_enablement_warnings.append((p, cme))
         if "config_slice_declaration" in selected:
             csd = config_slice_under_declaration_lint(p)
             if csd:
@@ -8177,7 +8322,8 @@ def main() -> int:
           f"{len(route_reason_consistency_warnings)} route_reason-consistency-warning(s), "
           f"{len(multi_arm_edof_warnings)} multi_arm-default_off_flags-collapse-warning(s), "
           f"{len(sd056_rollout_clamp_warnings)} sd056-training-without-rollout-clamp-warning(s), "
-          f"{len(precondition_index_read_warnings)} precondition-index-read-warning(s)",
+          f"{len(precondition_index_read_warnings)} precondition-index-read-warning(s), "
+          f"{len(ctxmem_enablement_warnings)} contextmemory-write-enablement-warning(s)",
           flush=True)
     if sd056_rollout_clamp_warnings:
         # Advisory in BOTH modes (never hardens). A fire here means the driver calls
@@ -8344,6 +8490,18 @@ def main() -> int:
         print("", flush=True)
         print("[validate_experiments] CONFIG_SLICE-DECLARATION WARNINGS (advisory, non-blocking):", flush=True)
         for p, warn in config_slice_warnings:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
+            print(f"  - {rel}: {warn}", flush=True)
+    if ctxmem_enablement_warnings:
+        # Advisory in BOTH modes (never hardens). A fire means a driver's DV reads
+        # the ContextMemory bank while its write-selection mode was never chosen.
+        # Interim default per the 2026-09-06 user decision: 'refractory' with k=2.
+        # Do NOT retro-edit a LANDED driver whose run is complete -- adjudicate the
+        # affected RESULT instead.
+        print("", flush=True)
+        print("[validate_experiments] CONTEXTMEMORY-WRITE-ENABLEMENT WARNINGS "
+              "(advisory, non-blocking):", flush=True)
+        for p, warn in ctxmem_enablement_warnings:
             rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
             print(f"  - {rel}: {warn}", flush=True)
     if precondition_index_read_warnings:
