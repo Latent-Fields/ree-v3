@@ -548,6 +548,70 @@ def multi_arm_substrate_hashes(manifest: Mapping[str, Any]) -> List[str]:
     return out
 
 
+DISAGREEMENT_NONE = "none"
+DISAGREEMENT_DRIVER_FOLD_ONLY = "driver_fold_only"
+DISAGREEMENT_SAME_SCOPE = "same_scope"
+
+
+def multi_arm_substrate_disagreement(manifest: Mapping[str, Any]) -> str:
+    """Classify per-cell substrate_hash disagreement by LIKE SCOPE.
+
+    Returns one of DISAGREEMENT_NONE / DISAGREEMENT_DRIVER_FOLD_ONLY /
+    DISAGREEMENT_SAME_SCOPE.
+
+    THE FALSE TRIP THIS CLOSES (chip-20260904-substrate-stability-flag-mint-scope).
+    An experiment that mints its OFF arm cross-driver reusable -- the CLAUDE.md
+    standing default, `include_driver_script_in_hash=(arm != OFF_ARM)` -- produces
+    TWO per-cell substrate hashes BY CONSTRUCTION: the OFF cells hash the substrate
+    globs only, the ON cells hash globs + driver. A bare cardinality test
+    (`len(multi_arm_substrate_hashes(manifest)) > 1`) then stamped
+    `substrate_stable_across_run: false` with `process_snapshot_drift: []` --
+    nothing moved on disk -- and arm_reuse refused to serve the minted OFF arm,
+    defeating the point of minting it. Confirmed on V3-EXQ-976 (its autopsy,
+    learning #6: "compare like scopes, or have the manifest say which it was")
+    and V3-EXQ-1000 (failure_autopsy_V3-EXQ-1000_2026-09-04.json,
+    provenance_notes.substrate_stable_across_run_false); both hash pairs
+    reproduce exactly from origin with and without the driver folded.
+
+    So the cardinality test is taken PER SCOPE, where a cell's scope is its
+    `driver_script_in_substrate_hash` flag. A cell that predates the flag (absent)
+    is read as True -- that was the only behaviour before the flag existed, and
+    every cell of one run comes from one library version, so a run never mixes
+    flagged and unflagged cells. Two hashes inside ONE scope is genuine
+    disagreement (the D3 signature; 42 of 164 runs in the 2026-07-20 sweep) and
+    stays `same_scope`. Two hashes that differ only across scopes is
+    `driver_fold_only`: an artefact of the reuse convention, not a moved tree.
+    `process_snapshot_drift` is untouched by this -- it is the other, independent
+    instability test and still wins on its own.
+    """
+    by_scope: Dict[bool, List[str]] = {}
+    arm_results = manifest.get("arm_results")
+    if not isinstance(arm_results, list):
+        return DISAGREEMENT_NONE
+    distinct: List[str] = []
+    for cell in arm_results:
+        if not isinstance(cell, dict):
+            continue
+        fp = cell.get("arm_fingerprint")
+        if not isinstance(fp, dict):
+            continue
+        sh = fp.get("substrate_hash")
+        if not (isinstance(sh, str) and sh):
+            continue
+        flag = fp.get("driver_script_in_substrate_hash")
+        scope = True if flag is None else bool(flag)
+        bucket = by_scope.setdefault(scope, [])
+        if sh not in bucket:
+            bucket.append(sh)
+        if sh not in distinct:
+            distinct.append(sh)
+    if any(len(v) > 1 for v in by_scope.values()):
+        return DISAGREEMENT_SAME_SCOPE
+    if len(distinct) > 1:
+        return DISAGREEMENT_DRIVER_FOLD_ONLY
+    return DISAGREEMENT_NONE
+
+
 def _first_cell_identity_resolved_at(manifest: Mapping[str, Any]) -> Optional[str]:
     """`substrate_identity_resolved_at` off the first arm cell that recorded one.
 
@@ -1173,19 +1237,25 @@ def stamp_recording_core(
     # event it is, and arm_reuse refuses to serve a cell out of such a run. Stamped
     # unconditionally (not only when empty) is WRONG -- an author who explicitly set it
     # must win, so it goes through _fill like everything else.
+    # (a) compares LIKE SCOPES: cells that differ only because the OFF arm was minted
+    # without the driver folded into its hash (`driver_script_in_substrate_hash`
+    # False vs True) are the reuse convention at work, not a moved tree -- see
+    # multi_arm_substrate_disagreement. The manifest says WHICH kind it saw.
     stability_report: Optional[Dict[str, Any]] = None
     if overwrite or _is_empty(manifest.get("substrate_stable_across_run")):
         try:
-            cells_disagree = len(multi_arm_substrate_hashes(manifest)) > 1
+            disagreement_kind = multi_arm_substrate_disagreement(manifest)
+            cells_disagree = disagreement_kind == DISAGREEMENT_SAME_SCOPE
             report = _afp.substrate_stability_report()
             stability_report = report
             stable = bool(report.get("substrate_stable_across_run", True)) and not cells_disagree
             # _fill() skips a meaningful False? No -- _is_empty treats False as present,
             # so assign directly rather than via _fill, which would refuse to write it.
             manifest["substrate_stable_across_run"] = stable
-            if not stable:
+            if not stable or disagreement_kind != DISAGREEMENT_NONE:
                 manifest["substrate_stability_detail"] = {
                     "per_cell_hashes_disagree": cells_disagree,
+                    "disagreement_kind": disagreement_kind,
                     "distinct_cell_substrate_hashes": multi_arm_substrate_hashes(manifest),
                     "process_snapshot_drift": report.get("drift", []),
                     "checked_utc": report.get("checked_utc"),

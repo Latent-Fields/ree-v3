@@ -173,6 +173,38 @@ def _distinct_cell_substrate_hashes(manifest: Mapping[str, Any]) -> List[str]:
     return out
 
 
+def _same_scope_cell_disagreement(manifest: Mapping[str, Any]) -> bool:
+    """True iff two cells in the SAME hash scope carry different substrate hashes.
+
+    Mirror of manifest_core.multi_arm_substrate_disagreement == "same_scope"
+    (duplicated for the same stdlib-only reason as _distinct_cell_substrate_hashes;
+    tests/contracts/test_substrate_stability_like_scope.py pins the two agree).
+    A cell's scope is its `driver_script_in_substrate_hash` flag, absent read as
+    True (the only pre-flag behaviour). The OFF arm minted WITHOUT the driver
+    folded (CLAUDE.md standing default) legitimately hashes differently from the
+    ON arms -- that is the reuse convention, not a moved tree, and refusing on it
+    defeated the mint (V3-EXQ-976, V3-EXQ-1000).
+    """
+    by_scope: Dict[bool, List[str]] = {}
+    arm_results = manifest.get("arm_results")
+    if not isinstance(arm_results, list):
+        return False
+    for row in arm_results:
+        if not isinstance(row, dict):
+            continue
+        fp = row.get("arm_fingerprint")
+        if not isinstance(fp, dict):
+            continue
+        sh = fp.get("substrate_hash")
+        if not (isinstance(sh, str) and sh):
+            continue
+        flag = fp.get("driver_script_in_substrate_hash")
+        bucket = by_scope.setdefault(True if flag is None else bool(flag), [])
+        if sh not in bucket:
+            bucket.append(sh)
+    return any(len(v) > 1 for v in by_scope.values())
+
+
 def source_run_substrate_unstable(manifest: Mapping[str, Any]) -> bool:
     """True iff the source run provably did not hold one substrate for its whole life.
 
@@ -218,7 +250,11 @@ def source_run_substrate_unstable(manifest: Mapping[str, Any]) -> bool:
     """
     if manifest.get("substrate_stable_across_run") is False:
         return True
-    return len(_distinct_cell_substrate_hashes(manifest)) > 1
+    # Test 2 compares LIKE SCOPES (2026-09-07): the OFF arm minted without the driver
+    # folded into its hash is a different scope, not a different substrate. A bare
+    # cardinality test refused every mint-as-you-go run (976, 1000). Same-scope
+    # disagreement -- the 42 legacy runs, all pre-flag -- still refuses.
+    return _same_scope_cell_disagreement(manifest)
 
 
 def _find_cell_in_manifest(manifest: Mapping[str, Any], fingerprint: str) -> Optional[Dict[str, Any]]:
