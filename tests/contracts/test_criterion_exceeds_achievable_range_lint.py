@@ -543,6 +543,14 @@ KNOWN_DV_HEADROOM_ADOPTERS = {
     # that requirement is enforced at run time, per regime, through the
     # regime-conditioned gate rather than a whole-run P0NotReady.
     "v3_exq_970a_contextmemory_write_content_h1_mi_instrument.py",
+    # V3-EXQ-972a (2026-09-07): the SD-070 write-stream held-out linear probe.
+    # Two entries, both reviewed at the Step 4.5 red-team pass: one per arm
+    # certifying the DV has room above that arm's own label-shuffle null, and
+    # one (dv_headroom_T3_above_lineage_accuracy) certifying the paired
+    # routing contrast has room above the LINEAGE arm's REALISED accuracy --
+    # the second exists because the DV of a difference is bounded by
+    # 1 - acc(baseline), which a null-referenced headroom gate cannot see.
+    "v3_exq_972a_sd070_write_stream_heldout_linear_probe.py",
 }
 
 
