@@ -170,6 +170,20 @@ REACHABLE_BY_ALTERNATIVE_IDIOM = {
         "directly alongside it by the same 7 call sites (see that entry)."
     ),
     "e3_include_untrained_fallback_scorers": "e3; 2 drivers + 4 tests",
+    "use_e3_channel_commensurability": (
+        "e3; f_dominance_conversion_ceiling rung 3 (MECH-439) channel-"
+        "commensurability operator, landed 2026-09-07. Set by direct attribute "
+        "assignment on E3Config (cfg.e3.use_e3_channel_commensurability = X), "
+        "the SAME idiom f_weight and e3_include_untrained_fallback_scorers "
+        "already use and which config.py documents on all three as the "
+        "convention for E3 scoring knobs -- deliberately NOT a from_dims "
+        "signature entry. Proving call site: tests/contracts/"
+        "test_e3_channel_commensurability.py::_selector, which sets it both "
+        "ways and asserts the ON/OFF behavioural difference. NO DRIVER YET: the "
+        "regime-level validation experiment was pacing-gated at build time and "
+        "is carried by chip-20260907-e3-commensurability-validation; expect a "
+        "v3_exq_* driver call site to appear here when that lands."
+    ),
     "ewc_enabled": "residue; 5 tests + 1 ree_core site",
     "gaba_harm_state_recurrence": "latent; ree_core-internal only",
     "gated_policy_use_differential_heads": (

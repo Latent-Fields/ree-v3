@@ -2324,6 +2324,17 @@ PROBED = {
     # content -- stronger than "fires", since V3-EXQ-246's naive single
     # post-hoc consolidation_summary() write measured zero effect.
     "use_mech122_spindle_content_selection",
+    # f_dominance_conversion_ceiling rung 3 (MECH-439): E3 channel-
+    # commensurability operator, landed 2026-09-07. Probed by
+    # tests/contracts/test_e3_channel_commensurability.py, not by a probe in
+    # this file: test_monopoly_is_reproduced_with_the_operator_off (OFF holds
+    # the V3-EXQ-571c monopoly -- exactly 1 live channel, top cross-candidate
+    # variance share >0.98) and test_operator_meets_readiness_target (ON lifts
+    # it to >=2 channels above the 1e-3 relative share floor). The OFF case is
+    # a NEGATIVE CONTROL for the whole contract file, so the ON!=OFF difference
+    # cannot pass vacuously. OFF is additionally pinned bit-identical
+    # (test_off_path_touches_no_operator_state / _is_the_plain_additive_sum).
+    "use_e3_channel_commensurability",
     # ARC-071 chunking. Probed by tests/contracts/test_arc071_policy_chunking.py
     # (C1 OFF-is-inert / C6 accumulator fires / C7 formation-only dissociation /
     # C9 proposer injection), not by a probe in this file.

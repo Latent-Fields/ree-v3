@@ -1009,6 +1009,79 @@ class E3Config:
     # this flag. See docs/architecture/sd_e3_scorer_completion.md.
     e3_include_untrained_fallback_scorers: bool = False
 
+    # ------------------------------------------------------------------ #
+    # f_dominance_conversion_ceiling (MECH-439): E3 channel commensurability
+    # ------------------------------------------------------------------ #
+    # PROBLEM (confirmed failure_autopsy_V3-EXQ-571c_2026-09-02, ratified by
+    # /governance 2026-09-02, REE_assembly 0ade914d46). score_trajectory sums
+    # its channels in their NATIVE units, so "which channel holds authority"
+    # is decided by units rather than by content. 571c's within-tick
+    # CROSS-CANDIDATE partition measured a single channel holding 0.98-0.99999
+    # of the variance in 15 of 16 cells -- residue_weighted in all 8
+    # residue-FED cells (F's share 4e-06 to 1.1e-05), and F/harm_weighted in 7
+    # of 8 residue-STARVED cells (0.994-0.9998). The load-bearing observation
+    # is that EVERY competing channel clears the 1e-12 ABSOLUTE variance floor
+    # and fails only the 1e-3 RELATIVE share floor: the monopoly is a SCALE
+    # phenomenon, not dead channels. A bound on F alone would simply hand the
+    # monopoly to residue, which is why the operator is specified against the
+    # JOINT channel scale.
+    #
+    # OPERATOR. Per-channel divisive normalisation against a RUNNING scale
+    # estimate: each declared additive channel's per-candidate term is divided
+    # by an EMA of that channel's own cross-candidate standard deviation before
+    # entering the sum. Running (cross-tick) rather than within-tick because
+    # score_trajectory scores ONE candidate at a time -- the tick's
+    # cross-candidate spread does not exist yet at scoring time.
+    #
+    # WHY PER-CHANNEL AND NOT A POOLED DENOMINATOR. A single pooled scalar
+    # denominator shared by all channels is a uniform positive rescale of the
+    # score, hence argmin-invariant -- it cannot move the shares at all (the
+    # same "uniform scalar shift is argmin-invariant" lesson recorded on the
+    # deleted MECH-111 broadcast branch, e3_selector.py score_trajectory). A
+    # per-candidate pooled (Carandini-Heeger) form varies across candidates but
+    # still leaves a channel six orders of magnitude larger dominant. Only
+    # per-channel standardisation reaches the readiness target.
+    #
+    # RANK-PRESERVING. Within a tick each channel is scaled by a POSITIVE
+    # constant, so each channel's own ordering over candidates is preserved;
+    # what changes is the relative authority BETWEEN channels, which is the
+    # intent ("rank-preserving renormalisation vs the competing field",
+    # substrate_queue f_dominance_conversion_ceiling implementation_hint).
+    #
+    # SUCCESS TARGET (the readiness condition 571c could not meet): >= 2 E3
+    # score channels simultaneously above a 1e-3 relative cross-candidate share
+    # in the 936 regime, so that channel authority is a contest rather than a
+    # restatement of units.
+    #
+    # Master switch. False is BIT-IDENTICAL: no term capture, no EMA update,
+    # no division -- score_trajectory takes exactly its pre-operator path.
+    # Follows f_weight's precedent of NOT being wired through
+    # REEConfig.from_dims(); set directly per-arm (cfg.e3.<field> = X).
+    # See docs/architecture/sd_e3_channel_commensurability.md.
+    use_e3_channel_commensurability: bool = False
+
+    # EMA decay for the per-channel cross-candidate scale estimate. Matches
+    # precision_ema_alpha (~20-tick effective window), which is also the
+    # warmup length below, so normalisation engages once the estimate has seen
+    # roughly one full window.
+    e3_commensurability_ema_alpha: float = 0.05
+
+    # Ticks of estimate-only accumulation before normalisation ENGAGES. Until
+    # then every channel keeps unit scale and selection is unchanged. Dividing
+    # by a one-sample standard-deviation estimate would be wildly unstable;
+    # this is the same "gate a not-yet-usable quantity out of selection"
+    # idiom as _BENEFIT_WARMUP_SAMPLES.
+    e3_commensurability_warmup_ticks: int = 20
+
+    # ABSOLUTE scale floor. A channel whose scale estimate falls below this
+    # keeps unit scale rather than being divided by a near-zero denominator --
+    # which is what structurally-dead channels (novelty_weighted is hardcoded
+    # 0.0; benefit_weighted is warmup-gated behind a method with no callers)
+    # would otherwise do. Deliberately set to 571c's own
+    # MIN_LIVE_CHANNEL_VARIANCE so the operator's floor and the instrument's
+    # liveness floor agree.
+    e3_commensurability_floor: float = 1e-12
+
     # Dynamic precision (ARC-016): precision derived from prediction error variance
     # commit_threshold is in VARIANCE SPACE: committed when running_variance < threshold.
     # Recalibrated 2026-03-20: EXQ-038 shows running_variance converges to ~0.33 in

@@ -132,6 +132,26 @@ class SelectionResult:
     urgency: float = 0.0  # SD-011: z_harm_a urgency applied to commit threshold
 
 
+# f_dominance_conversion_ceiling (MECH-439): the declared additive channels the
+# channel-commensurability operator normalises. EXACTLY the V3 additive channels
+# of score_trajectory that V3-EXQ-571c's cross-candidate partition declares, so
+# the operator's scope and the instrument's partition are the same set.
+#
+# DELIBERATELY EXCLUDED, and why:
+#   novelty_weighted  -- hardcoded 0.0 (the MECH-111 broadcast branch was deleted
+#                        2026-05-25 as argmin-invariant); there is no term to scale.
+#   pe_confidence / self_viability -- generation:v4 penalties, default-OFF and
+#                        outside 571c's declared partition. Normalising them would
+#                        redefine the partition a successor measures against.
+_COMMENSURABILITY_CHANNELS = (
+    "f_weighted",
+    "harm_weighted",
+    "residue_weighted",
+    "benefit_weighted",
+    "goal_weighted",
+)
+
+
 def project_channel_range(features: torch.Tensor) -> torch.Tensor:
     """
     modulatory-bias-selection-authority AMEND (route-range, 569f/661/654a).
@@ -601,6 +621,30 @@ class E3TrajectorySelector(nn.Module):
         # agent.py:6816-6845 does) loses channel-F covariance. Written only when
         # e3_score_decomp_enabled is True; empty otherwise.
         self.last_channel_terms: dict = {}
+
+        # f_dominance_conversion_ceiling (MECH-439): channel-commensurability
+        # running scale state. All inert unless
+        # config.use_e3_channel_commensurability is True.
+        #
+        # _chan_scale_ema  -- per-channel EMA of that channel's CROSS-CANDIDATE
+        #                     standard deviation, updated once per select() tick
+        #                     from the RAW (pre-normalisation) terms. Estimating
+        #                     it from post-normalisation values would be a
+        #                     self-referential feedback loop that drives every
+        #                     scale to 1.0 and makes the estimate meaningless.
+        # _chan_scale_n    -- ticks folded in; gates the warmup.
+        # last_channel_scale_estimates -- the SPEC-MANDATED exposure, so a
+        #                     successor can VERIFY commensurability was achieved
+        #                     rather than assume it (autopsy V3-EXQ-571c).
+        self._chan_scale_ema: Dict[str, float] = {}
+        self._chan_scale_n: int = 0
+        self.last_channel_scale_estimates: dict = {}
+        # Per-candidate RAW channel terms of the most recent score_trajectory
+        # call. Written ONLY when the operator is on -- deliberately NOT reusing
+        # _last_traj_components, which is gated on the e3_score_decomp_enabled
+        # DIAGNOSTIC flag: a live selection-path behaviour must not depend on
+        # whether a diagnostic happens to be switched on.
+        self._last_commensurability_raw: dict = {}
 
         # ARC-030: benefit_eval warmup gate.
         # benefit_eval_head starts at random init — scoring with it before training
@@ -1311,6 +1355,76 @@ class E3TrajectorySelector(nn.Module):
         # default: linear (penalty == self-viability cost)
         return sv_mag
 
+    # ------------------------------------------------------------------ #
+    # f_dominance_conversion_ceiling (MECH-439): channel commensurability      #
+    # ------------------------------------------------------------------ #
+
+    def _commensurability_scale(self, name: str) -> float:
+        """
+        Divisor for channel `name` on this tick. Returns 1.0 (no-op) while the
+        estimate is still warming up, and for any channel whose scale estimate
+        sits at or below the absolute floor -- a structurally-dead channel
+        divided by its own near-zero spread would otherwise explode.
+
+        Positive by construction, so dividing a channel's per-candidate term by
+        it is RANK-PRESERVING within that channel.
+        """
+        if self._chan_scale_n < int(self.config.e3_commensurability_warmup_ticks):
+            return 1.0
+        s = self._chan_scale_ema.get(name, 0.0)
+        if not (s > float(self.config.e3_commensurability_floor)):
+            return 1.0
+        return float(s)
+
+    def _update_channel_scale_estimates(self, raw_terms: List[dict]) -> None:
+        """
+        Fold one tick's CROSS-CANDIDATE spread into the per-channel running
+        scale estimates. Called once per select(), AFTER every candidate has
+        been scored -- so a tick is always scored against the estimate built
+        from PRIOR ticks, never from itself.
+
+        `raw_terms` is one dict of RAW (pre-normalisation) channel terms per
+        candidate. A single candidate carries no cross-candidate spread, so
+        that tick contributes nothing rather than a spurious zero.
+
+        DELIBERATELY FED FROM THE MAIN CANDIDATE LOOP ONLY. score_trajectory
+        has a SECOND caller inside this class -- _arbitrate_dual_system's
+        habit-system loop (SD-081 / MECH-477), which re-scores the same
+        candidates at a shallower _score_depth_limit. Those calls are
+        normalised too (consistent scale across both systems, which is what
+        commensurability means), but they do NOT contribute to the estimate:
+        their shallower depth gives them different channel magnitudes, and
+        mixing the two would make the estimate track neither. The habit loop
+        runs AFTER this update within a select() tick, so it can only overwrite
+        _last_commensurability_raw once this tick's terms are already
+        collected -- and the next tick rewrites that dict per candidate before
+        reading it, so nothing stale is ever folded in.
+        """
+        if raw_terms is None or len(raw_terms) < 2:
+            return
+        alpha = float(self.config.e3_commensurability_ema_alpha)
+        n = float(len(raw_terms))
+        for name in _COMMENSURABILITY_CHANNELS:
+            vals = [float(d.get(name, 0.0)) for d in raw_terms]
+            mu = sum(vals) / n
+            var = sum((v - mu) * (v - mu) for v in vals) / n
+            sd = math.sqrt(var) if var > 0.0 else 0.0
+            prev = self._chan_scale_ema.get(name)
+            self._chan_scale_ema[name] = (
+                sd if prev is None else (1.0 - alpha) * prev + alpha * sd
+            )
+        self._chan_scale_n += 1
+        warm = int(self.config.e3_commensurability_warmup_ticks)
+        self.last_channel_scale_estimates = {
+            "scales": dict(self._chan_scale_ema),
+            "n_updates": self._chan_scale_n,
+            "engaged": self._chan_scale_n >= warm,
+            "warmup_ticks": warm,
+            "floor": float(self.config.e3_commensurability_floor),
+            "ema_alpha": alpha,
+            "channels": list(_COMMENSURABILITY_CHANNELS),
+        }
+
     def score_trajectory(
         self,
         trajectory: Trajectory,
@@ -1383,7 +1497,34 @@ class E3TrajectorySelector(nn.Module):
             w_harm = terrain_weight[:, 0]  # [batch]
             m = m * w_harm
 
-        score = self.config.f_weight * f + lambda_eff * m + self.config.rho_residue * phi
+        # f_dominance_conversion_ceiling (MECH-439): channel commensurability.
+        # The three always-present channels become named terms so the operator
+        # can scale each one independently. With the operator OFF the sum below
+        # is the SAME operations in the SAME order as the pre-operator
+        # expression, so it is bit-identical.
+        _t_f = self.config.f_weight * f
+        _t_m = lambda_eff * m
+        _t_phi = self.config.rho_residue * phi
+
+        _comm_on = bool(getattr(self.config, "use_e3_channel_commensurability", False))
+        if _comm_on:
+            # RAW terms drive the running scale estimate (never the normalised
+            # ones -- that would be a self-referential feedback loop). The
+            # benefit / goal entries are filled in by their branches below and
+            # stay 0.0 when those channels are inactive, which is also their
+            # true contribution to the score.
+            self._last_commensurability_raw = {
+                "f_weighted": float(_t_f.detach().mean().item()),
+                "harm_weighted": float(_t_m.detach().mean().item()),
+                "residue_weighted": float(_t_phi.detach().mean().item()),
+                "benefit_weighted": 0.0,
+                "goal_weighted": 0.0,
+            }
+            _t_f = _t_f / self._commensurability_scale("f_weighted")
+            _t_m = _t_m / self._commensurability_scale("harm_weighted")
+            _t_phi = _t_phi / self._commensurability_scale("residue_weighted")
+
+        score = _t_f + _t_m + _t_phi
 
         # ARC-030 / MECH-112: Go channel — subtract benefit from cost.
         # Gated until _benefit_samples_seen >= _BENEFIT_WARMUP_SAMPLES to prevent
@@ -1396,9 +1537,15 @@ class E3TrajectorySelector(nn.Module):
             if terrain_weight is not None:
                 w_goal = terrain_weight[:, 1]  # [batch]
                 b = b * w_goal
-            score = score - self.config.benefit_weight * b
+            _t_b = self.config.benefit_weight * b
+            if _comm_on:
+                self._last_commensurability_raw["benefit_weighted"] = float(
+                    _t_b.detach().mean().item()
+                )
+                _t_b = _t_b / self._commensurability_scale("benefit_weighted")
+            score = score - _t_b
             if self.e3_score_decomp_enabled:
-                _dc_benefit_w = float((self.config.benefit_weight * b).detach().mean().item())
+                _dc_benefit_w = float(_t_b.detach().mean().item())
 
         # MECH-112 / MECH-117: wanting signal via z_goal distance
         if (goal_state is not None
@@ -1409,9 +1556,15 @@ class E3TrajectorySelector(nn.Module):
             if terrain_weight is not None:
                 w_goal = terrain_weight[:, 1]  # [batch]
                 g = g * w_goal
-            score = score - self.config.goal_weight * g
+            _t_g = self.config.goal_weight * g
+            if _comm_on:
+                self._last_commensurability_raw["goal_weighted"] = float(
+                    _t_g.detach().mean().item()
+                )
+                _t_g = _t_g / self._commensurability_scale("goal_weighted")
+            score = score - _t_g
             if self.e3_score_decomp_enabled:
-                _dc_goal_w = float((self.config.goal_weight * g).detach().mean().item())
+                _dc_goal_w = float(_t_g.detach().mean().item())
 
         # DR-12 (self_model_v4:SELF-4, FIRST V4 substrate build): E2 forward-PE
         # confidence down-weight. score is a COST (lower is better), so a positive
@@ -1449,9 +1602,13 @@ class E3TrajectorySelector(nn.Module):
         if self.e3_score_decomp_enabled:
             self._last_traj_components = {
                 "f": float(f.detach().mean().item()),
-                "f_weighted": float((self.config.f_weight * f).detach().mean().item()),
-                "harm_weighted": float((lambda_eff * m).detach().mean().item()),
-                "residue_weighted": float((self.config.rho_residue * phi).detach().mean().item()),
+                # EFFECTIVE (post-commensurability) terms -- what actually
+                # entered the score, which is what channel authority is a
+                # partition OF. Bit-identical to the raw terms when the
+                # operator is off, since then no scaling was applied.
+                "f_weighted": float(_t_f.detach().mean().item()),
+                "harm_weighted": float(_t_m.detach().mean().item()),
+                "residue_weighted": float(_t_phi.detach().mean().item()),
                 "benefit_weighted": _dc_benefit_w,
                 "novelty_weighted": _dc_novelty_w,
                 "goal_weighted": _dc_goal_w,
@@ -2896,6 +3053,12 @@ class E3TrajectorySelector(nn.Module):
 
         _score_list = []
         _cand_components = [] if self.e3_score_decomp_enabled else None
+        # f_dominance_conversion_ceiling (MECH-439): collect this tick's RAW
+        # per-channel terms so the running scale estimate can be updated from
+        # the cross-candidate spread once every candidate has been scored.
+        # Gated on the operator itself, NOT on e3_score_decomp_enabled.
+        _comm_on_sel = bool(getattr(self.config, "use_e3_channel_commensurability", False))
+        _comm_raw_terms = [] if _comm_on_sel else None
         for _i, _cand_t in enumerate(candidates):
             # DR-12 (self_model_v4:SELF-4): per-candidate E2 forward-PE so the
             # confidence down-weight can change the committed argmin. None ->
@@ -2927,6 +3090,14 @@ class E3TrajectorySelector(nn.Module):
             _score_list.append(_s)
             if self.e3_score_decomp_enabled:
                 _cand_components.append(dict(self._last_traj_components))
+            if _comm_on_sel:
+                _comm_raw_terms.append(dict(self._last_commensurability_raw))
+        # f_dominance_conversion_ceiling (MECH-439): fold this tick's
+        # cross-candidate spread in AFTER scoring, so a tick is always scored
+        # against the estimate accumulated from PRIOR ticks -- causal, and never
+        # self-referential.
+        if _comm_on_sel:
+            self._update_channel_scale_estimates(_comm_raw_terms)
         scores = torch.stack(_score_list)
         scores = scores.mean(dim=-1)
 
