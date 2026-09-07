@@ -101,19 +101,17 @@ Three-layer test suite in `tests/`:
   `python3 scripts/run_regression_suite.py --changed <subsystem>` (~1-4s).
 - Before committing a cross-cutting change: `pytest tests/contracts -q` or
   `python3 scripts/run_regression_suite.py --contracts` (~14s).
-- **The FULL suite (`pytest tests/`, ~1800 tests, ~6 min) goes to a cloud worker,
-  not the Mac:** `/Users/dgolden/REE_Working/scripts/remote_pytest.sh`. It ships
-  your uncommitted edits and holds a cross-session lock. The targeted runs above
-  are seconds long -- keep those local; it is only the full suite, run by several
-  parallel sessions at once, that drives the laptop to load 25-30. Workers may
-  need waking -- the scaler will not wake one for a pytest run (it queues no
-  claimable work), and the wrapper both wakes it and holds a lease so the scaler
-  does not shut it down mid-suite (`cloud-scaler.py:read_lease`, fc0ee74024;
-  without it a woken worker was killed 43s in). A worker-green suite is a
-  reasonable gate, EXCEPT for any test asserting an exact committed action:
-  `torch.multinomial` picks a different category on the fleet than on the Mac
-  from the same seed and probabilities (6fa4624a5c) -- assert upstream of the
-  sampled argmax instead. See REE_Working/CLAUDE.md "Running the test suite".
+- **The FULL suite goes to a cloud worker, not the Mac:**
+  `/Users/dgolden/REE_Working/scripts/remote_pytest.sh` (it ships your
+  uncommitted edits). The targeted runs above are seconds long -- keep those
+  local; it is only the full suite, run by several parallel sessions at once,
+  that drives the laptop to load 25-30. A worker-green suite is a reasonable
+  gate, EXCEPT for any test asserting an exact committed action -- assert
+  upstream of the sampled action, never on it. Test counts, timings, routing /
+  wake / lease mechanics and the `torch.multinomial` reasoning are canonical in
+  REE_Working/CLAUDE.md "Running the test suite" and
+  `REE_Working/docs/reference/ree-v3-test-suite-routing.md` -- read them there
+  rather than restating any figure here, which is how this bullet went stale.
 - Preflight + contracts together:
   `python3 scripts/run_regression_suite.py --preflight && \
    python3 scripts/run_regression_suite.py --contracts`.
