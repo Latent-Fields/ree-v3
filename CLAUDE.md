@@ -303,75 +303,19 @@ V3 experiments: V3-EXQ-001 onward.
 
 ## Remote Control (--remote-control flag)
 
-> **Telemetry is coordinator-only** (Phase 3, 2026-05-29; git render retired 2026-09-06): the runner `POST`s heartbeat/status to `/heartbeat` + `/status` (`heartbeats` table). The runner-side git file/push code is the degraded path behind the worker `shadow.conf` gates (`PHASE3_DISABLE_RUNNER_HEARTBEAT_PUSH`, `PHASE3_RUNNER_TELEMETRY_OFF_GIT`, `PHASE3_COMMANDS_OFF_GIT`; template `coordinator/deploy/shadow.conf.worker.example`). Levers, reversal recipe and the retired doctrine verbatim: `REE_Working/docs/skill_archaeology/claude-md-concurrency/a-93-retired-telemetry-git-path-fallback.md` (A-93).
->
-> **Live progress:** the `live-status` branch `FLEET_STATUS.md` or coordinator `/shadow/status` (explorer `/machines`). Do not re-enable the hub git writer or its liveness tick to get git-side progress files back (A-93).
->
-> **Worker telemetry-off-git gate:** `PHASE3_RUNNER_TELEMETRY_OFF_GIT=1` suppresses ONLY the per-tick in-tree telemetry FILE writes; the coordinator POST stays the transport. Unlike `_HEARTBEAT_WRITE` (hub-only; also gates the command-file writeback and restart-loops a worker, incident 2026-05-30) it is command-channel-safe. Contract: `tests/contracts/test_phase3_telemetry_off_git_gate.py`.
->
-> **Command channel is the coordinator:** `POST /commands/issue` (insert), `GET /commands?machine=` (pending = `acked_at IS NULL`), `POST /commands/ack`; db helpers `db.insert_command` / `fetch_pending_commands` / `ack_command`; client helpers `coordinator_client.issue_command` / `fetch_commands` / `ack_command`; `serve.py` issues via `POST /commands/issue`. `PHASE3_COMMANDS_OFF_GIT=1` on every worker makes it the sole channel (it self-guards: with no coordinator URL/token it refuses and falls back to the git command-file, so a worker is never uncontrollable); `PHASE3_COMMANDS_VIA_COORDINATOR=1` is the dual-read canary form. Every command kind is idempotent, so double delivery is harmless. The staged-rollout history and the `_HEARTBEAT_WRITE` interaction are in A-93.
+When started with `--remote-control`, the runner emits a per-machine heartbeat each loop tick (coordinator `POST /heartbeat`) and processes pending commands (coordinator `GET /commands`). **Default-off; behaviour is bit-identical when the flag is omitted.** Six command kinds: `stop` (graceful drain), `force_stop`, `pause`, `resume`, `kick:<EXQ>`, `release_claim:<EXQ>`. `start` is intentionally NOT in this channel -- a stopped runner cannot read its own commands; use `/api/runner/v3/start` locally or SSH for remote.
 
-When started with `--remote-control`, the runner emits a per-machine heartbeat each loop tick (coordinator `POST /heartbeat`) and processes pending commands (coordinator `GET /commands`). Default-off; bit-identical when omitted. Helper module: `runner_remote_control.py` (sibling of `experiment_runner.py`).
+**Telemetry is coordinator-only** (Phase 3; the git render was retired 2026-09-06). **Do not re-enable the hub git writer or its liveness tick to get git-side progress files back** (A-93). For live progress read the `live-status` branch `FLEET_STATUS.md`, coordinator `/shadow/status`, or explorer `/machines`.
 
-**`_active_claim_on_evidence_dir()` guard** (contract `tests/contracts/test_active_claim_evidence_guard.py`, C9 covers the `docs/claims/` clause) stays for any runner-side path that calls `_push_telemetry_file`; the three autostash-revert incidents that motivated it are in A-93.
-
-Six command kinds: `stop` (graceful drain), `force_stop` (SIGKILL current proc + exit), `pause` / `resume` (skip new experiments), `kick:<EXQ>` (move to head of queue), `release_claim:<EXQ>` (clear stuck `claimed_by`). `start` is intentionally not in this channel (a stopped runner cannot read its own command file) — use `/api/runner/v3/start` locally or SSH for remote.
-
-When developing the runner: command processing happens at the **top of each pass** in the main `while True:` loop (before the experiment-picking `for item in items:` loop) so `pause` / `stop` / `kick` / `release_claim` take effect before the next claim attempt. Heartbeat write happens at the **bottom**, just before `time.sleep(args.loop_interval)`, with state in `{starting, idle, paused, draining}`.
-
-Multi-machine dashboard: `/machines` in serve.py. POST `/api/machines/<host>/command {kind, args}` to enqueue commands. Trust model: GitHub push access = command-issue access.
+**The transport details, the `shadow.conf` gates, the command-channel API and the runner-loop placement rules are in [`docs/reference/remote-control.md`](docs/reference/remote-control.md)** (~1,500 tok): which gate suppresses what (`PHASE3_RUNNER_TELEMETRY_OFF_GIT` is worker-safe, `_HEARTBEAT_WRITE` is hub-only and restart-loops a worker), the `POST /commands/issue` / `GET /commands` / `POST /commands/ack` endpoints and their client helpers, the `_active_claim_on_evidence_dir()` guard, and **where in the `while True:` loop command processing and the heartbeat must sit** (top and bottom respectively) so `pause`/`stop`/`kick` take effect before the next claim attempt. Read it before changing the runner's heartbeat or command handling, adding a command kind, or touching a telemetry gate.
 
 ## Troubleshooting Runner
 
-**Runner log location**: `REE_assembly/runner.log` (NOT `ree-v3/runner.log`).
-serve.py redirects runner stdout/stderr there. `ree-v3/runner.log` is only written when
-the runner is started manually from the command line with `nohup ... > runner.log`.
+**Runner log location**: `REE_assembly/runner.log` (NOT `ree-v3/runner.log`) -- serve.py redirects runner stdout/stderr there. `ree-v3/runner.log` is written only when the runner is started manually with `nohup ... > runner.log`.
 
-**Runner says "No new items" despite pending items in queue**:
-The runner skips any queue item whose `queue_id` already appears in `runner_status.json`
-completed list. If an experiment was previously run (PASS/FAIL/ERROR) and then re-queued
-with the same ID, the runner will silently skip it. Fix: rename the queue ID (e.g., append
-`b`, `c`, etc.) before re-queueing.
+**The four canonical runner-stuck diagnoses now live in the `/diagnose-errors` skill** (`.claude/skills/diagnose-errors/SKILL.md`, "Canonical runner-stuck diagnoses", ~1,150 tok): "No new items" from a re-used queue_id already in `runner_status.json` (the 2026-03-23 six-experiment incident) and from a missing `title` field (2026-03-24); `fatal: bad object refs/remotes/origin/main 2`; and the 2026-05-09 manifest-leak in conflict-recovery that cost five runs their manifests. Invoke that skill when a runner is stuck or a run errored -- it is the mandatory path for ERROR-fix re-queues anyway (`REE_Working/CLAUDE.md`, "Experiment Scripts").
 
-**How this happens in practice (2026-03-23 incident):** Six experiments errored or failed,
-were removed from the queue normally, then were re-queued by a subsequent session with the
-same IDs to re-run them after script fixes or design tweaks. The runner had no way to
-distinguish a re-run intent from a stale entry -- it only checks queue_id against the
-completed list. Affected IDs: EXQ-075, EXQ-074b, EXQ-076, EXQ-084 (all ERROR exit 1),
-EXQ-085 and EXQ-047g (FAIL). Fix was to rename to 075b, 074c, 076b, 084b, 085b, 047h.
-Diagnosis: check `runner_status.json` completed list for the stuck queue IDs.
-
-**Runner says "No new items" due to missing `title` field (2026-03-24 incident)**:
-Queue items without a `title` field cause `run_experiment()` to crash with `KeyError: 'title'`
-(the runner does a hard dict access at the "Starting:" log line). The UNEXPECTED ERROR handler
-adds the item to in-memory `completed_ids` (not persisted to runner_status.json), so the
-runner permanently skips it until restarted. Symptom: log shows "UNEXPECTED ERROR in EXQ-XXX:
-'title'" once, then "No new items" forever.
-Fix: add `"title": "..."` to the queue item, run `validate_queue.py`, then restart the runner.
-Note: `title` is optional per schema but the runner required it -- fixed 2026-03-24 to use
-`item.get('title', item['queue_id'])`. All new queue entries should still include a title.
-
-**git pull fails with `fatal: bad object refs/remotes/origin/main 2`**:
-Run `git remote prune origin` in ree-v3. This cleans up a spurious remote tracking ref.
-Verify with `git fetch` (should return silently).
-
-**Manifest-leak in conflict-recovery (fixed 2026-05-09)**:
-`experiment_runner._git_push_with_retry` previously lost the manifest when a per-experiment
-results push hit a non-fast-forward followed by a `pull --rebase` failure. Root cause: the
-recovery path stashed only the WORKING TREE, then `git reset --hard origin/<branch>` destroyed
-the manifest-bearing local commit; the followup `git add <manifest_path>` was a silent no-op
-because the file no longer existed on disk, and `subprocess.run(..., capture_output=True)`
-swallowed the `did not match any files` stderr. The recovery commit captured stashed
-sentinel/heartbeat/status only, and the manifest never reached REE_assembly master. Five real
-runs lost their manifest this way (V3-EXQ-433f, 537, 537c, 538, 541; V3-EXQ-541 reproduced
-with reflog evidence on ree-cloud-1, 2026-05-08T23:43Z). Fix: capture pre-reset HEAD SHA,
-restore each `result_files` path via `git checkout <pre_reset_sha> -- <rel>` after the
-reset+pop, resolve any stash-pop unmerged paths via `--ours` (taking the post-reset remote
-version), and emit a WARN if the post-recovery selective add stages none of the expected
-files. Also closes a sibling bug: `git_push_results` was not passing `result_files` through
-to `_git_push_with_retry`, so the recovery branch always saw `result_files=None` and fell into
-the broad-add fallback. Contract test: `tests/contracts/test_runner_manifest_survives_conflict_recovery.py`
-(C1 single manifest, C2 multi manifest, C3 broad-add fallback).
+**The rule those incidents produced, kept here because it binds anyone touching the queue: never re-queue a failed or completed experiment under the same EXQ ID** -- the runner silently skips any `queue_id` already in `runner_status.json`. Append a letter instead.
 
 ---
 
