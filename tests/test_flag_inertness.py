@@ -2314,6 +2314,20 @@ PROBED = {
     "use_bla_analog",       #   (gated by use_amygdala_analog; default True)
     "dacc_saturation_enabled",  # F-C3 wiring spy
     "use_phasic_burst",  # SD-069 fires-and-propagates probe (instantaneous_pe)
+    # SD-105 selection-entropy headroom floor (ree-v3 ba95c43, 2026-09-04,
+    # co-landed with SD-104). Gates construction of the SelectionEntropyFloor
+    # regulator at ree_core/agent.py. Probed by
+    # tests/contracts/test_sd104_sd105_burst_decay_and_entropy_headroom.py,
+    # not by a probe in this file: test_b1_defaults_are_no_op_at_the_agent
+    # (OFF leaves agent.selection_entropy_floor None and reports temp_mult
+    # exactly 1.0) against test_b9_agent_wiring_lifts_tonic_and_keeps_phasic_additive
+    # (ON over 25 live agent steps constructs the regulator and drives
+    # temperature_multiplier > 1.0 with temp_lift > 0.0). SD-104's own knobs
+    # are numeric (phasic_burst_refractory_ticks / _decay), which is why only
+    # this leg of that landing reached the use_*/-enabled scan. Registered
+    # 2026-09-07 by chip-20260902-preexisting-corpus-reds-repin, which found
+    # test_flag_registry_is_current red on trunk.
+    "use_selection_entropy_floor",
     "sws_enabled",  # SD-017 schema pass: writes -> E1 ContextMemory
     "rem_enabled",  # SD-017 attribution pass: rollouts -> HippocampalModule.replay
     # MECH-122 content-packaging half (V3 proxy, IGW-20260801-197). Probed by
