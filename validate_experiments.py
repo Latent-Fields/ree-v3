@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import builtins
 import re
 import sys
 from pathlib import Path
@@ -54,7 +55,8 @@ CHECK_NAMES = ("conformance", "readiness", "arm_fingerprint", "degeneracy", "man
                "route_reason_consistency", "multi_arm_default_off_flags_collapse",
                "sd056_training_without_rollout_clamp",
                "precondition_index_read",
-               "contextmemory_write_enablement")
+               "contextmemory_write_enablement",
+               "use_before_def")
 
 # Readiness-gate static lint (proposal_trivial_prediction_readiness_gate_2026-06-06).
 # A diagnostic/baseline script whose interpretation grid self-routes to one of
@@ -8362,6 +8364,263 @@ def contextmemory_write_enablement_lint(path: Path) -> Optional[str]:
     return None
 
 
+
+# ---------------------------------------------------------------------------------------
+# use_before_def -- a name is READ on a line above the line that first binds it.
+#
+# V3-EXQ-591g ran 5h46m on ree-cloud-2 (2026-09-02 14:31Z-20:17Z), completed all 20 cells,
+# then died in its aggregation block with
+#     UnboundLocalError: local variable 'dropout_bypassed' referenced before assignment
+# at line 590, where the guard is first BOUND at line 597 -- seven lines below its use. The
+# crash preceded the manifest write, so the entire run was lost. The fix (V3-EXQ-591h,
+# ree-v3 32004c8) was a pure statement reordering.
+#
+# WHY A NEW GATE -- every existing one passes 591g clean:
+#   - The mandatory --dry-run smoke test PASSES. The crashing expression is
+#         gate_green and not dropout_bypassed and all(per_seed_agreement.values())
+#     and `gate_green` is the LEADING conjunct, always False under --dry-run (a 3-episode
+#     dry run cannot reach PHASE_EP_MIN[1]=100, so precondition P1 fails). Python
+#     SHORT-CIRCUITS and never evaluates the undefined name. That is the general shape:
+#     ANY guard consumed inside a boolean expression behind a precondition conjunct is
+#     structurally invisible to dry-run smoke testing.
+#   - validate_experiments --strict reported OK on all 34 checks that predate this one.
+#   - py_compile passes, and there is no pyflakes in the /opt/local/bin/python3 env.
+#
+# THE TRAP that made the first prototype vacuous, guarded by an explicit contract test:
+# when collecting module-level names to exclude, do NOT ast.walk() into a top-level
+# FunctionDef/ClassDef. Doing so adds every function LOCAL to the exclusion set, and the
+# check then reports EVERY file clean -- including 591g. Add only the def/class NAME.
+#
+# TWO SEVERITIES, measured rather than assumed. Scanned over the 1437-script corpus this
+# reports exactly ONE provable finding (591g itself) plus five LOOP-CARRIED ones:
+#   - PROVABLE: no loop encloses both the read and the binding, so the read precedes the
+#     binding on every path through that region. This is the 591g shape. HARD under
+#     --paths (the /queue-experiment authoring path and the precommit gate), advisory in
+#     full-glob mode -- the same policy as arm_fingerprint / degeneracy / manifest_writer.
+#     The corpus carries ZERO legacy carriers of this shape, so hardening blocks nothing
+#     historical.
+#   - LOOP-CARRIED: a common enclosing loop contains both, so a previous iteration's
+#     binding can legitimately satisfy the read. ALWAYS advisory, never blocking. The five
+#     carriers (v3_exq_089, v3_exq_320 x4) are all the guarded accumulator shape -- e.g.
+#     320's `a_prev` is read at 149 under `if z_prev is not None:` and bound at 170, safe
+#     only because a CORRELATED variable gates it. That is real fragility worth a re-read,
+#     but it is not a defect, and a static scan cannot prove it either way.
+#
+# KNOWN LIMITS, stated rather than papered over. Deliberately conservative -- a lint that
+# blocks commits must not guess:
+#   - An augmented assignment (`x += 1`) with no prior binding is a genuine
+#     UnboundLocalError this check does NOT report: the target is Store-context only, so
+#     the read and the binding share a line and `load < store` is false.
+#   - A name bound in a comprehension target, or declared global/nonlocal, is never judged.
+#   - A name that shadows a module-level binding is excluded, which trades away the
+#     genuine "assigned anywhere in the function makes it local" shape for a much lower
+#     false-positive rate on a 1437-script corpus.
+# ---------------------------------------------------------------------------------------
+_USE_BEFORE_DEF_EXEMPT_MARKER = "USE_BEFORE_DEF_EXEMPT"
+_UBD_BUILTINS = frozenset(dir(builtins))
+_UBD_DEF_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+_UBD_COMP_NODES = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+
+
+def _ubd_import_names(node: ast.AST) -> Set[str]:
+    """Names an import statement binds in its enclosing scope."""
+    out: Set[str] = set()
+    if isinstance(node, ast.Import):
+        for alias in node.names:
+            out.add((alias.asname or alias.name).split(".")[0])
+    elif isinstance(node, ast.ImportFrom):
+        for alias in node.names:
+            out.add(alias.asname or alias.name)
+    return out
+
+
+def _ubd_module_level_names(tree: ast.Module) -> Set[str]:
+    """Names bound at MODULE level.
+
+    THE TRAP (see the block comment above): this must never descend into a top-level
+    def/class BODY. `ast.walk(tree)` would add every function local to the returned set
+    and make the whole check vacuous. Only the def/class NAME is taken.
+    """
+    out: Set[str] = set()
+
+    def visit(node: ast.AST) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, _UBD_DEF_NODES):
+                out.add(child.name)          # the NAME only -- never the body
+                continue
+            if isinstance(child, ast.Lambda):
+                continue
+            if isinstance(child, (ast.Import, ast.ImportFrom)):
+                out.update(_ubd_import_names(child))
+                continue
+            if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Store):
+                out.add(child.id)
+            elif isinstance(child, ast.ExceptHandler) and child.name:
+                out.add(child.name)
+            visit(child)
+
+    visit(tree)
+    return out
+
+
+def _ubd_params(node: ast.AST) -> Set[str]:
+    """Every parameter name of a function/lambda -- these are bound on entry."""
+    if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+        return set()
+    a = node.args
+    names = {p.arg for p in list(a.posonlyargs) + list(a.args) + list(a.kwonlyargs)}
+    if a.vararg:
+        names.add(a.vararg.arg)
+    if a.kwarg:
+        names.add(a.kwarg.arg)
+    return names
+
+
+def _ubd_loop_spans(node: ast.AST) -> List[Tuple[int, int]]:
+    """Line spans of every loop in THIS scope (nested function scopes excluded)."""
+    spans: List[Tuple[int, int]] = []
+
+    def visit(n: ast.AST) -> None:
+        for child in ast.iter_child_nodes(n):
+            if isinstance(child, _UBD_DEF_NODES) or isinstance(child, ast.Lambda):
+                continue
+            if isinstance(child, (ast.For, ast.AsyncFor, ast.While)):
+                end = getattr(child, "end_lineno", None)
+                if end is not None:
+                    spans.append((child.lineno, end))
+            visit(child)
+
+    visit(node)
+    return spans
+
+
+def _ubd_analyze_scope(node: ast.AST) -> List[Tuple[str, int, int, bool]]:
+    """Return (name, first_load_line, first_store_line, loop_carried) for this scope.
+
+    Scope-correct by construction: a nested def/lambda/comprehension is a DIFFERENT
+    scope, so its body is not walked here and its parameters/targets never leak into
+    this scope's bindings. Both facts were false-positive sources when this was first
+    prototyped -- a nested helper's parameters read as unbound reads of the parent
+    (~180 spurious findings), and a comprehension nested inside another expression
+    read its own target as a late binding (~17 more).
+    """
+    first_load: Dict[str, int] = {}
+    first_store: Dict[str, int] = {}
+    declared_global: Set[str] = set()
+    shadowed: Set[str] = set()      # comprehension targets: bound in their own scope
+
+    def note(table: Dict[str, int], name: str, line: int) -> None:
+        if name not in table or line < table[name]:
+            table[name] = line
+
+    def walk(child: ast.AST) -> None:
+        # A nested def/class binds its NAME here; its body is another scope.
+        if isinstance(child, _UBD_DEF_NODES):
+            note(first_store, child.name, child.lineno)
+            for dec in child.decorator_list:
+                walk(dec)                       # decorators evaluate in THIS scope
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for d in list(child.args.defaults) + [x for x in child.args.kw_defaults if x]:
+                    walk(d)                     # so do defaults
+            return
+        if isinstance(child, ast.Lambda):
+            for d in list(child.args.defaults) + [x for x in child.args.kw_defaults if x]:
+                walk(d)
+            return
+        # A comprehension is its own scope in py3: the target binds there, not here.
+        if isinstance(child, _UBD_COMP_NODES):
+            for gen in child.generators:
+                for sub in ast.walk(gen.target):
+                    if isinstance(sub, ast.Name):
+                        shadowed.add(sub.id)
+                walk(gen.iter)
+                for cond in gen.ifs:
+                    walk(cond)
+            for field in ("elt", "key", "value"):
+                expr = getattr(child, field, None)
+                if expr is not None:
+                    walk(expr)
+            return
+        if isinstance(child, (ast.Global, ast.Nonlocal)):
+            declared_global.update(child.names)
+            return
+        if isinstance(child, (ast.Import, ast.ImportFrom)):
+            for nm in _ubd_import_names(child):
+                note(first_store, nm, child.lineno)
+            return
+        if isinstance(child, ast.ExceptHandler) and child.name:
+            note(first_store, child.name, child.lineno)
+        if isinstance(child, ast.Name):
+            if isinstance(child.ctx, ast.Store):
+                note(first_store, child.id, child.lineno)
+            elif isinstance(child.ctx, ast.Load):
+                note(first_load, child.id, child.lineno)
+            return
+        for sub in ast.iter_child_nodes(child):
+            walk(sub)
+
+    body = [node.body] if isinstance(node, ast.Lambda) else list(getattr(node, "body", []))
+    for stmt in body:
+        walk(stmt)
+
+    params = _ubd_params(node)
+    loops = _ubd_loop_spans(node)
+    out: List[Tuple[str, int, int, bool]] = []
+    for name, load_line in sorted(first_load.items(), key=lambda kv: kv[1]):
+        if name in params or name in declared_global or name in shadowed:
+            continue
+        if name in _UBD_BUILTINS:
+            continue
+        store_line = first_store.get(name)
+        if store_line is None or load_line >= store_line:
+            continue
+        carried = any(lo <= load_line and store_line <= hi for lo, hi in loops)
+        out.append((name, load_line, store_line, carried))
+    return out
+
+
+def use_before_def_lint(path: Path) -> Optional[Dict[str, Any]]:
+    """A local name is read above the line that first binds it.
+
+    See the block comment above for the V3-EXQ-591g incident this enforces, why every
+    existing gate (including the mandatory --dry-run smoke test) passes it clean, the
+    module-level-exclusion trap, and the known limits.
+
+    Returns None, or a dict with `hard` (provable: no enclosing loop, blocking under
+    --paths) and `carried` (loop-carried: advisory always) lists of message strings.
+    """
+    try:
+        src = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    if _USE_BEFORE_DEF_EXEMPT_MARKER in src:
+        return None
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return None      # the conformance check already reports an unparseable script
+    module_names = _ubd_module_level_names(tree)
+    hard: List[str] = []
+    carried: List[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for name, load_line, store_line, is_carried in _ubd_analyze_scope(node):
+            if name in module_names:
+                continue
+            msg = (f"{node.name}(): '{name}' is read at line {load_line} but first bound "
+                   f"at line {store_line}")
+            if is_carried:
+                carried.append(msg + " (both inside one loop -- a previous iteration may "
+                                     "bind it; verify the first-iteration path)")
+            else:
+                hard.append(msg + " -- UnboundLocalError on every path that reaches the "
+                                  "read. Move the binding above the use")
+    if not hard and not carried:
+        return None
+    return {"hard": hard, "carried": carried}
+
+
 def _candidate_paths(paths: Sequence[str]) -> List[Path]:
     if paths:
         return [Path(p).resolve() for p in paths]
@@ -8408,6 +8667,14 @@ def main() -> int:
     # write instead of routing through pack_writer.write_flat_manifest is a real error;
     # the same gap on a historical script is the pre-2026-07-12 migration backlog.
     manifest_writer_hard = bool(args.paths)
+    # use-before-def enforcement: same hard-under-`--paths` / advisory-in-full-glob
+    # policy, and ONLY for the PROVABLE shape (no loop encloses both the read and the
+    # binding). A NEW script the author is queuing that reads a local above its binding
+    # is V3-EXQ-591g repeating -- 5h46m of cloud compute lost to an UnboundLocalError the
+    # dry-run smoke test structurally cannot see. The corpus carries zero legacy carriers
+    # of the provable shape, so this blocks nothing historical. Loop-carried findings are
+    # advisory in BOTH modes -- a previous iteration may legitimately bind the name.
+    use_before_def_hard = bool(args.paths)
 
     n_ok = 0
     n_exempt = 0
@@ -8436,6 +8703,7 @@ def main() -> int:
     dv_headroom_mismatch_warnings: List[Tuple[Path, str]] = []
     precondition_index_read_warnings: List[Tuple[Path, str]] = []
     ctxmem_enablement_warnings: List[Tuple[Path, str]] = []
+    use_before_def_warnings: List[Tuple[Path, str]] = []
     config_slice_warnings: List[Tuple[Path, str]] = []
     inert_dacc_bias_warnings: List[Tuple[Path, str]] = []
     dacc_last_bundle_warnings: List[Tuple[Path, str]] = []
@@ -8635,6 +8903,16 @@ def main() -> int:
                 # the three standing carriers are landed drivers whose runs are
                 # complete.
                 ctxmem_enablement_warnings.append((p, cme))
+        if "use_before_def" in selected:
+            ubd = use_before_def_lint(p)
+            if ubd:
+                # The PROVABLE bucket hardens under --paths (see use_before_def_hard
+                # above). Loop-carried findings never harden in either mode.
+                if ubd["hard"] and use_before_def_hard:
+                    failures.append((p, "; ".join(ubd["hard"])))
+                else:
+                    use_before_def_warnings.append(
+                        (p, "; ".join(ubd["hard"] + ubd["carried"])))
         if "config_slice_declaration" in selected:
             csd = config_slice_under_declaration_lint(p)
             if csd:
@@ -8759,7 +9037,8 @@ def main() -> int:
           f"{len(multi_arm_edof_warnings)} multi_arm-default_off_flags-collapse-warning(s), "
           f"{len(sd056_rollout_clamp_warnings)} sd056-training-without-rollout-clamp-warning(s), "
           f"{len(precondition_index_read_warnings)} precondition-index-read-warning(s), "
-          f"{len(ctxmem_enablement_warnings)} contextmemory-write-enablement-warning(s)",
+          f"{len(ctxmem_enablement_warnings)} contextmemory-write-enablement-warning(s), "
+          f"{len(use_before_def_warnings)} use-before-def-warning(s)",
           flush=True)
     if sd056_rollout_clamp_warnings:
         # Advisory in BOTH modes (never hardens). A fire here means the driver calls
@@ -8938,6 +9217,19 @@ def main() -> int:
         print("[validate_experiments] CONTEXTMEMORY-WRITE-ENABLEMENT WARNINGS "
               "(advisory, non-blocking):", flush=True)
         for p, warn in ctxmem_enablement_warnings:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
+            print(f"  - {rel}: {warn}", flush=True)
+    if use_before_def_warnings:
+        # Advisory HERE means one of two things: a full-glob sweep (where the provable
+        # shape is reported rather than blocking, so a legacy carrier does not wedge a
+        # corpus run), or a LOOP-CARRIED finding, which never hardens in either mode
+        # because a previous iteration may legitimately bind the name. Triage: read the
+        # first-iteration path. Do NOT retro-edit a LANDED driver whose run is complete --
+        # fix it forward on the next letter. Exempt with USE_BEFORE_DEF_EXEMPT.
+        print("", flush=True)
+        print("[validate_experiments] USE-BEFORE-DEF WARNINGS "
+              "(advisory, non-blocking):", flush=True)
+        for p, warn in use_before_def_warnings:
             rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
             print(f"  - {rel}: {warn}", flush=True)
     if precondition_index_read_warnings:
