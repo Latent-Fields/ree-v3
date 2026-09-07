@@ -677,7 +677,7 @@ def _autopsy_owes_substrate_build(target: dict) -> bool:
     return action in RE_DERIVE_BUILD_OWING_ACTIONS
 
 
-def _autopsy_counts_toward_brake(target: dict) -> bool:
+def _autopsy_counts_toward_brake(target: dict, claim: "str | None" = None) -> bool:
     """Does this autopsy target count toward the MOVE-3 re-derive brake?
 
     The brake exists to stop a claim being re-tested letter after letter against a
@@ -687,7 +687,21 @@ def _autopsy_counts_toward_brake(target: dict) -> bool:
     braking it is the opposite of the brake's purpose (see
     RE_DERIVE_INSTRUMENT_CATEGORY_MARKERS).
 
+    `claim` is OPTIONAL and, when given, selects the PER-CLAIM epistemic category
+    if the target declares one. See step 0. It is optional so that the many
+    existing single-argument callers and contracts keep their exact meaning:
+    without a claim there is no per-claim value to consult and the blanket
+    category applies, which is what this function has always done.
+
     Order matters:
+      0. A PER-CLAIM category, when the target declares one for `claim`, WINS over
+         the blanket one and short-circuits to False unless it is itself a ceiling
+         reading. This is the peripheral-co-tag case (2026-07-21): a run that did
+         not exercise one of its claim_ids declares
+         `recommended_epistemic_category_per_claim: {THAT_CLAIM: standard}`, and
+         that claim's brake must not be advanced by a run that never tested it.
+         Absent a per-claim value the blanket one applies, so pre-existing
+         artifacts count exactly as before.
       1. A GENUINE substrate_ceiling reading always counts (a category that merely
          negates a ceiling in prose does not qualify).
       2. Otherwise an INSTRUMENT/MEASUREMENT category that owes NO build does not count.
@@ -700,8 +714,37 @@ def _autopsy_counts_toward_brake(target: dict) -> bool:
          brake. Measured 2026-07-20: 42 counted targets carry `fired: false`, exactly
          ONE carries `literal_count_meets_threshold`.
       4. Otherwise fall back to the direction reading.
+
+    THREE PREDICATES, ONE SEMANTICS -- keep them in lockstep, INCLUDING step 0.
+    The other two are the `counts(t, claim)` recipe in
+    `.claude/skills/failure-autopsy/SKILL.md` Step 7 (mirrored byte-identically in
+    `.agents/skills/`) and the same recipe in
+    `.claude/skills/queue-experiment/SKILL.md` Step 2.5b. Step 0 landed in those
+    two on 2026-07-21 and NOT here, so from then until 2026-09-07 the commit hook
+    and the skills disagreed: an artifact declaring
+    `recommended_epistemic_category_per_claim: {X: standard}` with a blanket
+    `standard` and direction `non_contributory` counted toward X's brake here and
+    not there. Found by the fable red-team of failure_autopsy_V3-EXQ-983a
+    (REE_assembly 71694d5b01, recorded in that artifact's red_team_pass and
+    learning_extracted). Resolved 2026-09-07 by USER DECISION -- the per-claim
+    value wins, which is the documented intent, so the tool was brought to the
+    written rule rather than the rule to the tool.
+
+    MEASURED CONSEQUENCE of adding step 0, over the whole autopsy corpus (56
+    targets carry a per-claim stamp): 36 claims change hit count and 9 cross the
+    threshold of 2, i.e. stop being braked -- ARC-070, ARC-107, MECH-122,
+    MECH-135, MECH-303, MECH-342, MECH-428, MECH-449, Q-040. That is a real
+    loosening and it was put to the user with those names before landing; it is
+    not a silent side effect of a consistency fix.
     """
-    cat = str(target.get("recommended_epistemic_category") or "")
+    per_claim = target.get("recommended_epistemic_category_per_claim")
+    declared = ""
+    if claim is not None and isinstance(per_claim, dict):
+        declared = str(per_claim.get(claim) or "")
+    # (0) The per-claim category wins, and a non-ceiling one ends it here.
+    if declared and "substrate_ceiling" not in declared.lower():
+        return False
+    cat = str(declared or target.get("recommended_epistemic_category") or "")
     direction = str(target.get("recommended_evidence_direction") or "")
     if not ("substrate_ceiling" in cat or "non_contributory" in direction):
         return False
@@ -763,10 +806,14 @@ def _scan_substrate_ceiling_autopsies() -> "dict[str, list[tuple[str, str, dict]
         for t in data.get("targets", []) or []:
             if not isinstance(t, dict):
                 continue
-            if not _autopsy_counts_toward_brake(t):
-                continue
+            # The predicate is evaluated PER CLAIM, not once per target: step 0
+            # can exclude one claim_id of a target while the others still count.
+            # Hoisting it out of this loop (as it was until 2026-09-07) is what
+            # made step 0 unreachable here.
             for claim in t.get("claim_ids", []) or []:
-                if isinstance(claim, str) and claim not in first_match:
+                if not isinstance(claim, str) or claim in first_match:
+                    continue
+                if _autopsy_counts_toward_brake(t, claim):
                     first_match[claim] = t
         for claim, t in first_match.items():
             out.setdefault(claim, []).append((f.name, date_str, t))
