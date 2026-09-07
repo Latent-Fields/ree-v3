@@ -378,6 +378,114 @@ def test_dv_achievable_refuses_an_empty_control_arm():
         M.dv_achievable([], "range")
 
 
+# --------------------------------------------------------------------------- #
+# (5b) the REFUSAL TEXT -- composed from what was measured, never from a
+#      caller's separate metadata
+# --------------------------------------------------------------------------- #
+#
+# THE INCIDENT (V3-EXQ-983a; fable red-team of failure_autopsy_V3-EXQ-983a_
+# 2026-09-06, hygiene finding 6, REE_assembly 71694d5b01). The driver
+# hand-composed its own refusal string at the call site, from the CONTROL-ARM
+# NAME and the full POOLED-SEED LIST -- "RANGE of the A1_RESIDUE_FROZEN control
+# arm over pooled seeds [456, 31]". The check had actually measured the range
+# over every FINITE pooled cell of BOTH arms, which after dropping seed 31's
+# non-finite declines was seed 456's two arms. So the manifest's human-readable
+# reason misdescribed both the arm scope AND the seed count while the run's own
+# `preconditions[...]` entry was correct: two descriptions of one measurement,
+# from two different sources, free to disagree. The landed manifest is NOT
+# edited. The composition now lives in dv_headroom_check(), fed only by values
+# the check itself used.
+#
+# THE INVARIANT THESE PIN: the reason may name a scope ONLY when the caller
+# supplied it. Given nothing, it says how many finite values it measured and
+# stops -- an honest count beats a confident misdescription.
+
+def _headroom(**kw):
+    kw.setdefault("dv_name", "decline_gap")
+    kw.setdefault("criterion_threshold", 0.15)
+    return M.dv_headroom_check("dv_headroom_probe", **kw)
+
+
+def test_reason_names_the_surviving_cells_and_the_drop_count():
+    """The 983a shape: two arms of one seed survive, one seed's two cells drop."""
+    c = _headroom(control_values=[0.0, 0.0], statistic="range",
+                  measured_cells=["A0_RESIDUE_LIVE/seed456", "A1_RESIDUE_FROZEN/seed456"],
+                  n_dropped_nonfinite=2)
+    r = c["headroom_reason"]
+    assert "A0_RESIDUE_LIVE/seed456" in r and "A1_RESIDUE_FROZEN/seed456" in r
+    assert "2 non-finite cell(s) dropped" in r
+    assert c["measured_cells"] == ["A0_RESIDUE_LIVE/seed456", "A1_RESIDUE_FROZEN/seed456"]
+    assert c["n_dropped_nonfinite"] == 2
+
+
+def test_reason_invents_no_scope_when_the_caller_supplies_none():
+    """The actual repair. Without cell metadata the text must claim nothing about
+    arms or seeds -- the failure mode was a confident sentence about a scope the
+    check could not see."""
+    c = _headroom(control_values=[0.0, 0.05], statistic="range")
+    r = c["headroom_reason"]
+    assert "2 finite value(s)" in r
+    assert "cells:" not in r and "dropped" not in r
+    assert "arm" not in r.lower() and "seed" not in r.lower()
+
+
+def test_a_dv_that_cannot_move_says_so_instead_of_an_absurd_ratio():
+    """983a's realised case: control_values [0.0, 0.0] -> range 0. The old
+    call-site text divided by max(1e-12, ratio) and reported a 1000000000000.0x
+    shortfall, which is arithmetic, not information."""
+    r = _headroom(control_values=[0.0, 0.0], statistic="range")["headroom_reason"]
+    assert "does not move at all" in r
+    assert "e+" not in r and "1000000000000" not in r
+
+
+def test_a_partial_shortfall_reports_the_multiple():
+    r = _headroom(control_values=[0.0, 0.05], statistic="range", margin=2.0)["headroom_reason"]
+    assert "6.0x shortfall" in r          # required 0.30 / achievable 0.05
+    assert "margin 2" in r
+
+
+def test_a_met_check_says_met_rather_than_unmet():
+    r = _headroom(control_values=[0.0, 0.5], criterion_threshold=0.01,
+                  statistic="range")["headroom_reason"]
+    assert r.startswith("DV headroom met:")
+    assert "UNMET" not in r
+
+
+def test_an_analytic_ceiling_is_not_described_as_a_measured_sample():
+    """`achievable=` is 951c's shape -- no sample exists, so "over 0 finite
+    value(s)" would be a lie in the other direction."""
+    r = _headroom(achievable=0.0, criterion_threshold=1.0)["headroom_reason"]
+    assert "analytic ceiling" in r
+    assert "finite value(s)" not in r
+
+
+def test_a_nan_range_is_indeterminate_not_a_range_refusal():
+    """A NaN says the INPUT was bad, not that the DV has no room; conflating the
+    two sends the reader looking for the wrong problem."""
+    r = _headroom(control_values=[0.1, float("nan")], statistic="range")["headroom_reason"]
+    assert "INDETERMINATE" in r
+    assert "shortfall" not in r
+
+
+def test_the_reason_is_ascii_only():
+    """It reaches stdout and lands in manifests (CLAUDE.md ASCII-Only rule)."""
+    for kw in ({"control_values": [0.0, 0.0], "statistic": "range"},
+               {"control_values": [0.0, 0.05], "statistic": "range"},
+               {"achievable": 0.0, "criterion_threshold": 1.0}):
+        r = _headroom(**kw)["headroom_reason"]
+        assert all(ord(ch) < 128 for ch in r), r
+
+
+def test_every_dv_headroom_check_carries_a_reason():
+    """Non-vacuity: a consumer reading `headroom_reason` must never find it
+    absent, whichever construction path built the entry."""
+    for kw in ({"control_values": [0.0, 0.0], "statistic": "range"},
+               {"control_values": [0.999805], "statistic": "ceiling_headroom",
+                "dv_bounds": (0.0, 1.0)},
+               {"achievable": 0.0, "criterion_threshold": 1.0}):
+        assert _headroom(**kw)["headroom_reason"]
+
+
 def test_dv_achievable_refuses_headroom_without_bounds():
     with pytest.raises(ValueError, match="dv_bounds"):
         M.dv_achievable([0.5], "ceiling_headroom")

@@ -691,6 +691,66 @@ def dv_achievable(
     return min(vals) - low          # floor_headroom
 
 
+def _dv_headroom_scope_phrase(entry: Dict[str, Any]) -> str:
+    """How the achievable value was obtained -- said in terms the check can see.
+
+    Deliberately does NOT name an arm, a seed set, or anything else the check was
+    not given. A caller that filtered its own cells can pass `measured_cells` /
+    `n_dropped_nonfinite` and have them named; a caller that does not gets an
+    honest count instead of a confident misdescription. That asymmetry is the
+    whole repair -- see dv_headroom_check's docstring.
+    """
+    stat = entry.get("achievable_statistic")
+    if stat == "explicit":
+        return "analytic ceiling supplied by the caller, not measured from a sample"
+    n = int(entry.get("n_control_values") or 0)
+    parts = ["%s over %d finite value(s)" % (stat, n)]
+    cells = entry.get("measured_cells")
+    if cells:
+        shown = ", ".join(str(c) for c in cells[:8])
+        if len(cells) > 8:
+            shown += ", ..."
+        parts.append("cells: %s" % shown)
+    dropped = entry.get("n_dropped_nonfinite")
+    if dropped:
+        parts.append("%d non-finite cell(s) dropped" % int(dropped))
+    return "; ".join(parts)
+
+
+def _dv_headroom_reason(entry: Dict[str, Any]) -> str:
+    """One sentence saying what was measured, over what, and against what.
+
+    ASCII only (CLAUDE.md): this reaches stdout and lands in manifests.
+    """
+    dv = entry.get("dv_name")
+    measured = float(entry.get("measured"))
+    required = float(entry.get("threshold"))
+    scope = _dv_headroom_scope_phrase(entry)
+    against = ("against a required %.6g (criterion threshold %.6g x margin %g)"
+               % (required, float(entry.get("criterion_threshold")),
+                  float(entry.get("headroom_margin"))))
+    if measured != measured:  # NaN
+        return ("DV HEADROOM INDETERMINATE: %s achievable range is NaN (%s), %s. "
+                "A NaN cannot be compared to the bar, so this is not a refusal on "
+                "the DV's range -- find out why the input was non-finite."
+                % (dv, scope, against))
+    if measured >= required:
+        return ("DV headroom met: %s can reach %.6g (%s), %s."
+                % (dv, measured, scope, against))
+    if measured <= 0.0:
+        # The V3-EXQ-983a case. A ratio-based shortfall here divides by ~zero and
+        # prints an absurd figure (983a's hand-rolled string said "1000000000000.0x");
+        # say the true thing instead.
+        return ("DV HEADROOM UNMET: %s does not move at all in this configuration "
+                "-- achievable %.6g (%s), %s. No outcome of this run could have "
+                "shown the registered effect."
+                % (dv, measured, scope, against))
+    return ("DV HEADROOM UNMET: %s can only reach %.6g in this configuration (%s), "
+            "%s -- a %.1fx shortfall. No outcome of this run could have shown the "
+            "registered effect."
+            % (dv, measured, scope, against, required / measured))
+
+
 def dv_headroom_check(
     name: str,
     *,
@@ -701,6 +761,8 @@ def dv_headroom_check(
     statistic: str = "range",
     dv_bounds: Optional[Tuple[float, float]] = None,
     margin: float = 1.0,
+    measured_cells: Optional[Sequence[str]] = None,
+    n_dropped_nonfinite: Optional[int] = None,
     **extra: Any,
 ) -> Dict[str, Any]:
     """Build one `dv_headroom` check for p0_readiness_gate. Returns a check dict.
@@ -723,6 +785,26 @@ def dv_headroom_check(
     The returned dict is a plain check; it does not gate anything until it is
     passed to p0_readiness_gate(), which is where an unmet entry raises
     P0NotReady and the caller self-routes to substrate_not_ready_requeue.
+
+    THE HUMAN-READABLE REASON IS COMPOSED HERE, FROM THE VALUES THE CHECK
+    ACTUALLY USED -- never from a caller's separate metadata. That is the point
+    of moving it (2026-09-07, chip-20260906-dv-headroom-reason-string).
+    V3-EXQ-983a hand-composed its own refusal text at the call site, from the
+    control-arm NAME and the pooled-seed LIST, while the check had measured the
+    range over every finite pooled cell of BOTH arms -- which, after dropping one
+    seed's non-finite declines, was one seed's two arms. The landed manifest
+    therefore describes the wrong arm scope and the wrong seed count while its
+    own `preconditions[...]` entry is correct. The two could disagree because
+    they had two different sources; now they have one. (Found by the fable
+    red-team of failure_autopsy_V3-EXQ-983a_2026-09-06, hygiene finding 6;
+    REE_assembly 71694d5b01. The landed manifest is NOT edited.)
+
+    `measured_cells` and `n_dropped_nonfinite` are OPTIONAL and exist so a caller
+    that filtered its own input can say what survived and what it dropped -- the
+    check receives already-filtered floats and cannot otherwise know. When they
+    are omitted the reason says only how many finite values it measured: it
+    never invents an arm or seed scope it cannot see. That restraint is the
+    actual fix, not the extra fields.
     """
     if (control_values is None) == (achievable is None):
         raise ValueError(
@@ -762,6 +844,11 @@ def dv_headroom_check(
     # criterion was, not merely that it was.
     if required > 0 and measured == measured:
         entry["headroom_ratio"] = measured / required
+    if measured_cells is not None:
+        entry["measured_cells"] = [str(c) for c in measured_cells]
+    if n_dropped_nonfinite is not None:
+        entry["n_dropped_nonfinite"] = int(n_dropped_nonfinite)
+    entry["headroom_reason"] = _dv_headroom_reason(entry)
     if dv_bounds is not None:
         entry["dv_bounds"] = [float(dv_bounds[0]), float(dv_bounds[1])]
     return entry

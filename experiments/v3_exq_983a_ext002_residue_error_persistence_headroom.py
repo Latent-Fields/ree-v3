@@ -1264,10 +1264,19 @@ def dv_headroom_gate(rows: List[Dict[str, Any]],
     # effect WIDENS this range, so the gate now moves with the effect rather than
     # against it, and a DV pinned in both arms -- the V3-EXQ-983 pathology -- is
     # still refused.
-    control = [
-        float(r["decline"]) for r in rows
-        if int(r["seed"]) in set(pooled_seeds) and math.isfinite(r["decline"])
-    ]
+    # FORWARD FIX 2026-09-07 (chip-20260906-dv-headroom-reason-string): keep the
+    # surviving CELLS, not just their values, and count what was dropped. The
+    # check receives already-filtered floats and so cannot describe its own
+    # scope; without these two it can only say "N finite value(s)", and this
+    # driver's hand-composed refusal text filled that gap from the WRONG source
+    # (the control-arm name and the full pooled-seed list). See _metrics.
+    # dv_headroom_check's docstring. The landed manifest is NOT edited.
+    pooled = {int(s) for s in pooled_seeds}
+    candidate_rows = [r for r in rows if int(r["seed"]) in pooled]
+    finite_rows = [r for r in candidate_rows if math.isfinite(r["decline"])]
+    control = [float(r["decline"]) for r in finite_rows]
+    measured_cells = [f"{r['arm_id']}/seed{int(r['seed'])}" for r in finite_rows]
+    n_dropped_nonfinite = len(candidate_rows) - len(finite_rows)
     if len(control) < 2:
         return {
             "available": False,
@@ -1303,7 +1312,9 @@ def dv_headroom_gate(rows: List[Dict[str, Any]],
         predecessor_run_id=PREDECESSOR_RUN_ID,
         predecessor_control_range=PREDECESSOR_CONTROL_RANGE,
         pooled_seeds=[int(x) for x in pooled_seeds],
-        measured_over="all pooled cells, both arms",
+        measured_over="every FINITE pooled cell, both arms",
+        measured_cells=measured_cells,
+        n_dropped_nonfinite=n_dropped_nonfinite,
     )
     return {
         "available": True,
@@ -1648,15 +1659,20 @@ def run(
             headroom_preconditions = list(exc.preconditions)
             headroom_met = False
             _c = headroom["check"]
+            # FORWARD FIX 2026-09-07 (chip-20260906-dv-headroom-reason-string).
+            # This used to hand-compose the refusal text here, naming the
+            # CONTROL ARM and the full pooled-seed list -- neither of which is
+            # what dv_headroom_gate() above measures (every FINITE pooled cell
+            # of BOTH arms). The landed manifest therefore carries a reason that
+            # misdescribes both the arm scope and the seed count while its own
+            # preconditions entry is correct; the two disagreed because they had
+            # two sources. The text now comes from the check itself, composed
+            # from the values the check used. The landed manifest is NOT edited
+            # (its evidence_direction_note already annotates the mis-generated
+            # string).
             headroom_reason = (
-                f"DV HEADROOM UNMET: {DV_HEADROOM_DV_NAME} can only reach "
-                f"{_c['measured']:.6g} in this configuration (RANGE of the "
-                f"{DV_HEADROOM_CONTROL_ARM} control arm over pooled seeds "
-                f"{pooled_seeds}), against a required {_c['threshold']:.6g} "
-                f"(C1 {THRESH_C1_DECLINE_GAP} x margin {DV_HEADROOM_MARGIN}) -- "
-                f"a {1.0 / max(1e-12, _c.get('headroom_ratio', 0.0)):.1f}x "
-                f"shortfall. No outcome of this run could have shown the "
-                f"registered effect, so nothing is concluded about EXT-002."
+                _c["headroom_reason"]
+                + " Nothing is concluded about EXT-002."
             )
     print(
         f"[V3-EXQ-983a] dv_headroom: available={headroom['available']} "
@@ -1808,7 +1824,15 @@ def run(
             "available": headroom["available"],
             "met": headroom_met,
             "reason": headroom_reason,
+            # KEPT for consumers, but read `measured_cells` for the real scope:
+            # `control_arm` names the arm this DV's C1 contrast is referenced
+            # against, NOT the set the achievable range was measured over --
+            # which is every FINITE pooled cell of BOTH arms (see
+            # dv_headroom_gate above). Conflating the two is the 2026-09-06
+            # red-team's hygiene finding 6.
             "control_arm": DV_HEADROOM_CONTROL_ARM,
+            "measured_cells": (headroom["check"] or {}).get("measured_cells", []),
+            "n_dropped_nonfinite": (headroom["check"] or {}).get("n_dropped_nonfinite"),
             "control_values": headroom.get("control_values", []),
             "achievable": headroom.get("achievable_recomputed"),
             "required": THRESH_C1_DECLINE_GAP * DV_HEADROOM_MARGIN,
