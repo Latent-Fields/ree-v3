@@ -170,6 +170,74 @@ PYEOF
 ts() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
 log() { echo "$(ts) $*" >> "$LOG"; }
 
+# --- DEFECT A port (2026-09-07) ----------------------------------------------
+# Ported from the Mac variant (REE_Working/scripts/ree_git_sync_repair.sh); the
+# design record is REE_assembly/evidence/planning/checkoutdiverged_automated_exit_20260907.md.
+#
+# THE DEFECT, and it is worse here than it looks: the wedged gate below used to
+# demand that every ahead commit be TELEMETRY-ONLY. TELEMETRY_RE matches only
+# evidence/experiments/runner_(heartbeats|status|commands)/, and those three
+# directories now hold ZERO files on origin -- the runner telemetry git path was
+# retired fleet-wide (PHASE3_RUNNER_TELEMETRY_OFF_GIT=1; CLAUDE.md A-93), as the
+# comment at the top of this file already notes. So the gate is unsatisfiable:
+# no wedged checkout on a cloud box can ever self-repair, `behind` grows without
+# bound, and the box silently serves stale coordination state. Measured on
+# ree-cloud-4 2026-09-07: 60 wedged events, 274 NEEDS_HUMAN.
+#
+# THE WIDENING invents no proof of its own. It asks reconcile_wedge_content.py
+# -- the module that already adjudicates exactly this question for the human
+# path -- whether every ahead commit's content is already upstream. The ORDER is
+# the safety property: exit 3 means content IS stranded, so LAND it with --apply
+# (which pushes a reconstruction from a throwaway worktree and never moves a
+# ref) and only then re-check. Landing before discarding is what makes the
+# `reset --hard` below non-destructive.
+#
+# FAILS CLOSED, and on cloud-1/cloud-3 that is the ONLY outcome: those boxes have
+# no ~/REE_Working checkout, so the module is absent, this returns non-zero, and
+# their behaviour is byte-identical to before this change. Only ree-cloud-4
+# (which has the checkout) can actually take the new path. A false "not proven"
+# costs one skipped repair; a false "proven" discards work.
+PY_BIN="${REE_SYNC_REPAIR_PYTHON:-/usr/bin/python3}"
+SCRIPTS_DIR="${REE_SYNC_REPAIR_SCRIPTS_DIR:-/home/ree/REE_Working/scripts}"
+RECONCILE_TIMEOUT="${REE_SYNC_REPAIR_RECONCILE_TIMEOUT:-180}"
+# GNU coreutils `timeout` exists on every cloud box (this script's only
+# deployment target) but NOT on macOS, where the sibling Mac variant is
+# developed and this file's test is run. Resolve it once rather than assume:
+# an unresolved `timeout` would make every prover call exit 127, which is
+# non-zero, which fails closed -- SAFE, but it would silently disable the whole
+# widening while every negative-control test still passed for the wrong reason.
+# That is exactly how this bug was found, so the guard stays.
+TIMEOUT_BIN="$(command -v timeout 2>/dev/null || true)"
+
+ahead_content_upstream() {
+  # $1 = repo path, $2 = branch. Exit 0 ONLY on positive proof.
+  [ -x "$PY_BIN" ] || return 1
+  [ -f "$SCRIPTS_DIR/reconcile_wedge_content.py" ] || return 1
+  _rw_rc=0
+  _rw_run() {  # $1 repo, $2 branch, $3 mode-flag
+    if [ -n "$TIMEOUT_BIN" ]; then
+      "$TIMEOUT_BIN" "$RECONCILE_TIMEOUT" "$PY_BIN" "$SCRIPTS_DIR/reconcile_wedge_content.py" \
+        --repo "$1" --branch "$2" "$3" --no-fetch >/dev/null 2>&1
+    else
+      "$PY_BIN" "$SCRIPTS_DIR/reconcile_wedge_content.py" \
+        --repo "$1" --branch "$2" "$3" --no-fetch >/dev/null 2>&1
+    fi
+  }
+  _rw_run "$1" "$2" --check; _rw_rc=$?
+  if [ "$_rw_rc" = "3" ]; then
+    log "$name reconcile: content IS stranded -- landing it before any discard"
+    _rw_run "$1" "$2" --apply; _rw_rc=$?
+    if [ "$_rw_rc" != "0" ]; then
+      log "$name reconcile: --apply did not succeed (rc=$_rw_rc); keeping NEEDS_HUMAN"
+      return 1
+    fi
+    "$GIT" fetch --quiet origin "$2" 2>/dev/null
+    _rw_run "$1" "$2" --check; _rw_rc=$?
+  fi
+  [ "$_rw_rc" = "0" ] || log "$name reconcile: no positive proof the ahead content is upstream (rc=$_rw_rc)"
+  [ "$_rw_rc" = "0" ]
+}
+
 # Single-instance lock (mkdir is atomic). Stale lock >30min is reclaimed.
 if ! mkdir "$LOCKDIR" 2>/dev/null; then
   if [ -d "$LOCKDIR" ] && [ "$(find "$LOCKDIR" -maxdepth 0 -mmin +30 2>/dev/null)" ]; then
@@ -277,15 +345,26 @@ EOF_INCOMING
       | grep -Ev "$TELEMETRY_RE" | head -1)"
     [ -n "$precious" ] && reason="uncommitted non-telemetry change: $precious"
 
+    # Every ahead commit must be DISCARDABLE -- telemetry-only (a dead class
+    # since the telemetry git path was retired), or provably already upstream.
+    # See ahead_content_upstream() above for why the second clause exists.
     if [ -z "$reason" ] && [ "$ahead" -gt 0 ]; then
+      nonteleme=""
       for sha in $("$GIT" rev-list "origin/$branch..HEAD" 2>/dev/null); do
-        nonteleme="$("$GIT" diff-tree --no-commit-id --name-only -r "$sha" 2>/dev/null \
+        hit="$("$GIT" diff-tree --no-commit-id --name-only -r "$sha" 2>/dev/null \
           | grep -Ev "$TELEMETRY_RE" | head -1)"
-        if [ -n "$nonteleme" ]; then
-          reason="ahead commit ${sha:0:9} touches non-telemetry: $nonteleme"
+        if [ -n "$hit" ]; then
+          nonteleme="ahead commit ${sha:0:9} touches non-telemetry: $hit"
           break
         fi
       done
+      if [ -n "$nonteleme" ]; then
+        if ahead_content_upstream "$repo" "$branch"; then
+          log "$name reconcile: ahead content is provably upstream -- discard is lossless"
+        else
+          reason="$nonteleme"
+        fi
+      fi
     fi
 
     if [ -n "$reason" ]; then
