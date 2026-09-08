@@ -63,9 +63,12 @@ imported from x734/x808/x724 exactly as 1002 did). That is the same warmup FAMIL
 not a new one; it is the one unavoidable cost of the corroborator and it is paid once per seed
 and shared by every leg-2 arm. "No new rollouts" in the campaign plan is an over-compression;
 "no new warmup family and no ree_core change" (the autopsy's own cost statement) is exact.
-The frozen latent is a REPRODUCTION of 1002's, not a bit-identical replay: the adapter init
-draw and the machine class differ (red-team F8), so the in-run zworld_off_diag baseline is
-expected NEAR 0.648-0.674, not AT it, and every leg-2 threshold is applied to the in-run
+The frozen latent's dataset and warmup reproduce 1002's bit-exactly (verified on landing:
+warmup scalars match to full double precision on 3/3 seeds, held-out split identical,
+machine_class identical in both manifests -- linux-x86_64-py3.10-torch2.12.0+cpu; the
+"machine class differ" clause in red-team F8 was wrong and is corrected here). Only the
+adapter initialisation draw is re-drawn per this run, so the in-run zworld_off_diag baseline
+is expected NEAR 0.648-0.674, not AT it, and every leg-2 threshold is applied to the in-run
 baseline, never to 1002's numbers.
 
 === THE INPUT LEG 1 COMPRESSES, MEASURED AT AUTHORING TIME ===
@@ -2099,10 +2102,11 @@ Bar: agreement >= %.2f AND elevation >= %.2f over the strongest trivial predicto
             "queue_id": "V3-EXQ-978", "via": "V3-EXQ-1002",
             "reproduced_not_loaded": ("978 and 1002 saved no checkpoint; the OFF latent is "
                                       "reproduced by re-running 978's warmup with every constant "
-                                      "imported from x734/x808/x724, exactly as 1002 did. A "
-                                      "reproduction, not a bit-identical replay (init draw and "
-                                      "machine class differ); every leg-2 threshold is applied "
-                                      "to the IN-RUN baseline."),
+                                      "imported from x734/x808/x724, exactly as 1002 did -- "
+                                      "bit-exact through the warmup (machine_class identical in "
+                                      "both manifests: linux-x86_64-py3.10-torch2.12.0+cpu); "
+                                      "only the adapter init draw differs; every leg-2 threshold "
+                                      "is applied to the IN-RUN baseline."),
             "dataset_reproduced_not_loaded": ("1002 persisted no observations; its deterministic "
                                               "recipe (_collect_episodes) is re-run per seed."),
         },
