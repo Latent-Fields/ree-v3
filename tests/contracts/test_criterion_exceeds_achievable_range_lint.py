@@ -600,6 +600,166 @@ def test_dv_headroom_refuses_an_unknown_statistic_label():
 
 
 # --------------------------------------------------------------------------- #
+# (5c) dv_floor_control_check -- sub-direction (2b): does an information-free
+#      FLOOR ARM already satisfy the criterion, without the manipulation doing
+#      anything at all. Design doc:
+#      dv_headroom_floor_control_direction_20260907.md section 6; GOV-HELDOUT-1
+#      record section 7 (four non-degenerate historical cases + one negative
+#      control -- pinned below as arithmetic, not narrative).
+# --------------------------------------------------------------------------- #
+
+def _floor_control(**kw):
+    kw.setdefault("dv_name", "d")
+    kw.setdefault("name", "dv_floor_control_probe")
+    return M.dv_floor_control_check(**kw)
+
+
+def test_floor_control_criterion_sense_is_required_and_has_no_default():
+    """No safe default -- the two senses invert which floor value is dangerous."""
+    with pytest.raises(TypeError):
+        M.dv_floor_control_check("x", dv_name="d", criterion_threshold=0.1,
+                                 floor_values=[0.0])
+
+
+def test_floor_control_refuses_an_unknown_sense():
+    with pytest.raises(ValueError, match="criterion_sense"):
+        _floor_control(criterion_threshold=0.1, floor_values=[0.0], criterion_sense="vibes")
+
+
+def test_floor_control_refuses_empty_floor_values():
+    with pytest.raises(ValueError, match="empty"):
+        _floor_control(criterion_threshold=0.1, floor_values=[], criterion_sense="floor")
+
+
+def test_floor_control_direction_is_always_lower():
+    """Expressed as a signed separation so the upper-bound inversion
+    `_validate_dv_headroom_check` refuses for dv_headroom_check cannot arise
+    here either -- this constructor never exposes the choice."""
+    c = _floor_control(criterion_threshold=0.1, floor_values=[0.0], criterion_sense="floor")
+    assert c["direction"] == "lower"
+    assert c["kind"] == "dv_headroom"
+    assert c["achievable_statistic"] == "floor_separation"
+
+
+def test_floor_control_622_collapsed_zgoal_already_clears_the_bar():
+    """V3-EXQ-622: approach_commit_rate >= 0.01, but a collapsed z_goal already
+    yields 1.0. floor sense: separation = 0.01 - 1.0 = -0.99, well below the
+    default 0.0 margin -- MUST fire."""
+    c = _floor_control(dv_name="approach_commit_rate", criterion_threshold=0.01,
+                       floor_values=[1.0], criterion_sense="floor")
+    assert c["measured"] == pytest.approx(-0.99)
+    with pytest.raises(M.P0NotReady) as ei:
+        M.p0_readiness_gate([c])
+    assert ei.value.preconditions[0]["met"] is False
+
+
+def test_floor_control_723_both_conjuncts_cleared_by_a_weak_linear_map():
+    """V3-EXQ-723: compactness < 0.10 (ceiling) AND retention >= 0.80 (floor);
+    any weak linear map clears both. Two independent checks, both MUST fire."""
+    compactness = _floor_control(
+        dv_name="compactness", criterion_threshold=0.10,
+        floor_values=[0.03, 0.04], criterion_sense="ceiling")
+    assert compactness["measured"] == pytest.approx(0.03 - 0.10)
+    with pytest.raises(M.P0NotReady):
+        M.p0_readiness_gate([compactness])
+
+    retention = _floor_control(
+        dv_name="retention", criterion_threshold=0.80,
+        floor_values=[0.91, 0.88], criterion_sense="floor")
+    assert retention["measured"] == pytest.approx(0.80 - 0.91)
+    with pytest.raises(M.P0NotReady):
+        M.p0_readiness_gate([retention])
+
+
+def test_floor_control_884_two_credits_already_clears_a_strict_floor():
+    """V3-EXQ-884: n_subgoal_credits > 0, and the floor arm already produces 2
+    credits. separation = 0 - 2 = -2 -- MUST fire."""
+    c = _floor_control(dv_name="n_subgoal_credits", criterion_threshold=0.0,
+                       floor_values=[2.0], criterion_sense="floor")
+    assert c["measured"] == pytest.approx(-2.0)
+    with pytest.raises(M.P0NotReady):
+        M.p0_readiness_gate([c])
+
+
+def test_floor_control_1002_negative_control_stays_silent():
+    """V3-EXQ-1002's untrained_control + UNTRAINED_CONTROL_MARGIN conjunct: an
+    untrained floor of 0.695 against a 0.80 bar, a genuine 0.105 separation.
+    The proposed check MUST NOT fire on the design that already solved this."""
+    c = _floor_control(dv_name="agreement", criterion_threshold=0.80,
+                       floor_values=[0.695], criterion_sense="floor")
+    assert c["measured"] == pytest.approx(0.105, abs=1e-9)
+    out = M.p0_readiness_gate([c])
+    assert out[0]["met"] is True
+
+
+def test_floor_control_separation_margin_demands_real_daylight():
+    """A positive separation_margin (V3-EXQ-1002's own UNTRAINED_CONTROL_MARGIN
+    shape) requires more than a boundary touch."""
+    c = _floor_control(dv_name="d", criterion_threshold=0.80, floor_values=[0.79],
+                       criterion_sense="floor", separation_margin=0.05)
+    # separation = 0.80 - 0.79 = 0.01, below the required 0.05 margin
+    assert c["measured"] == pytest.approx(0.01, abs=1e-9)
+    with pytest.raises(M.P0NotReady):
+        M.p0_readiness_gate([c])
+
+
+def test_floor_control_a_boundary_touch_is_met_at_default_margin():
+    """Default separation_margin=0.0: exactly-at-the-bar floor is inclusive-safe,
+    matching p0_readiness_gate's own inclusive convention elsewhere."""
+    c = _floor_control(dv_name="d", criterion_threshold=0.80, floor_values=[0.80],
+                       criterion_sense="floor")
+    assert c["measured"] == pytest.approx(0.0, abs=1e-12)
+    out = M.p0_readiness_gate([c])
+    assert out[0]["met"] is True
+
+
+def test_floor_control_nan_floor_value_is_indeterminate():
+    c = _floor_control(dv_name="d", criterion_threshold=0.1,
+                       floor_values=[0.05, float("nan")], criterion_sense="floor")
+    assert c["measured"] != c["measured"]
+    assert "INDETERMINATE" in c["headroom_reason"]
+
+
+def test_floor_control_reason_says_already_satisfies_not_a_shortfall():
+    """The already-satisfies case must read distinctly from dv_headroom_check's
+    'does not move at all' phrasing -- the failure mode here is the opposite
+    (too much movement in the floor arm, not too little)."""
+    r = _floor_control(dv_name="d", criterion_threshold=0.01, floor_values=[1.0],
+                       criterion_sense="floor")["headroom_reason"]
+    assert "already SATISFIES" in r
+    assert "UNMET" in r
+
+
+def test_floor_control_reason_is_ascii_only():
+    for kw in (
+        {"criterion_threshold": 0.01, "floor_values": [1.0], "criterion_sense": "floor"},
+        {"criterion_threshold": 0.10, "floor_values": [0.03], "criterion_sense": "ceiling"},
+        {"criterion_threshold": 0.80, "floor_values": [0.695], "criterion_sense": "floor"},
+    ):
+        r = _floor_control(**kw)["headroom_reason"]
+        assert all(ord(ch) < 128 for ch in r), r
+
+
+def test_dv_achievable_refuses_floor_separation_like_it_refuses_explicit():
+    with pytest.raises(ValueError, match="floor_separation"):
+        M.dv_achievable([0.5], "floor_separation")
+
+
+def test_floor_control_statistic_is_registered_and_recomputable_by_the_indexer():
+    """Same recomputability contract as dv_headroom_check's own pin: the
+    indexer derives `met` from (measured, threshold, direction) alone."""
+    c = _floor_control(dv_name="d", criterion_threshold=0.02, floor_values=[0.5],
+                       criterion_sense="floor")
+    assert c["achievable_statistic"] in M.DV_HEADROOM_STATISTICS
+    with pytest.raises(M.P0NotReady) as ei:
+        M.p0_readiness_gate([c])
+    e = ei.value.preconditions[0]
+    # floor semantics: unmet iff measured < threshold
+    assert (e["measured"] < e["threshold"]) is (e["met"] is False)
+    assert e["direction"] == "lower"
+
+
+# --------------------------------------------------------------------------- #
 # (6) the default-off guarantee -- the governance boundary
 # --------------------------------------------------------------------------- #
 

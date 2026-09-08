@@ -618,7 +618,7 @@ DV_HEADROOM_KIND = "dv_headroom"
 # interchangeable -- each matches a different one of the corpus failures above,
 # and picking the wrong one produces a gate that passes while the DV is pinned.
 DV_HEADROOM_STATISTICS = ("range", "max_abs", "ceiling_headroom", "floor_headroom",
-                          "explicit")
+                          "explicit", "floor_separation")
 
 
 def dv_achievable(
@@ -650,6 +650,13 @@ def dv_achievable(
                          instead, for a DV whose ceiling is analytic rather than
                          sampled (e.g. 951c's "zero reachable ticks", where the
                          achievable count is a property of the schedule).
+      "floor_separation" refused here -- this label belongs to
+                         `dv_floor_control_check`, not this function. It answers
+                         a different question ("does an information-free floor
+                         arm already satisfy the criterion") and computes its
+                         own signed separation directly from the caller's
+                         floor_values; there is nothing here for dv_achievable
+                         to measure.
 
     A non-finite value anywhere in `control_values` yields NaN rather than an
     order-dependent max: the measurement is broken, and NaN is routed to UNMET by
@@ -664,6 +671,11 @@ def dv_achievable(
         raise ValueError(
             "dv_achievable: the 'explicit' statistic has nothing to measure; "
             "pass achievable=<float> to dv_headroom_check() instead.")
+    if statistic == "floor_separation":
+        raise ValueError(
+            "dv_achievable: the 'floor_separation' statistic has nothing for "
+            "dv_achievable to measure; call dv_floor_control_check(floor_values=...) "
+            "instead -- it computes the signed separation directly.")
     vals = [float(v) for v in control_values]
     if not vals:
         # A headroom gate over an EMPTY control arm is the vacuity it exists to
@@ -782,6 +794,20 @@ def dv_headroom_check(
     (an analytic ceiling, for a DV whose reachable range is a property of the
     schedule rather than a sample -- 951c's zero reachable ticks).
 
+    GUIDANCE (dv_headroom_floor_control_direction_20260907.md sub-direction
+    2a): when a criterion's PASSING side requires movement AWAY FROM an
+    information-free configuration (a collapsed latent, a random projection,
+    an untrained head), `control_values` must be THAT CONFIGURATION'S OWN
+    REALISED VALUES -- never a null. Passing a null control arm here answers
+    "can the DV move at all", not "can it move far enough from the floor it
+    would sit at by default", and the two questions have different answers
+    (H2's motivating case: a random 275->32 projection already retains 78%
+    of the raw decodability lift, so a null-control headroom check passes
+    while the actual, floor-relative headroom is unsatisfiable). If the
+    question is instead "does an information-free floor ALREADY satisfy the
+    criterion" (a distinct defect -- the floor need not move at all to
+    pass), use `dv_floor_control_check` below, not this constructor.
+
     The returned dict is a plain check; it does not gate anything until it is
     passed to p0_readiness_gate(), which is where an unmet entry raises
     P0NotReady and the caller self-routes to substrate_not_ready_requeue.
@@ -851,6 +877,167 @@ def dv_headroom_check(
     entry["headroom_reason"] = _dv_headroom_reason(entry)
     if dv_bounds is not None:
         entry["dv_bounds"] = [float(dv_bounds[0]), float(dv_bounds[1])]
+    return entry
+
+
+def _dv_floor_control_reason(entry: Dict[str, Any]) -> str:
+    """One sentence saying whether the FLOOR ARM already satisfies the
+    load-bearing criterion, and by how much. ASCII only (CLAUDE.md): this
+    reaches stdout and lands in manifests.
+
+    Mirrors `_dv_headroom_reason`'s shape (composed here, from the values
+    the check itself used -- the 983a lesson dv_headroom_check's own
+    docstring records) but describes a different quantity: that function
+    asks whether the DV CAN REACH the bar; this asks whether an
+    INFORMATION-FREE floor arm has ALREADY CLEARED it.
+    """
+    dv = entry.get("dv_name")
+    measured = float(entry.get("measured"))   # signed separation, larger = safer
+    margin = float(entry.get("threshold"))    # required separation_margin
+    bar = float(entry.get("criterion_threshold"))
+    sense = entry.get("criterion_sense")
+    scope = _dv_headroom_scope_phrase(entry)
+    if measured != measured:  # NaN
+        return ("DV FLOOR CONTROL INDETERMINATE: %s floor-arm separation from the "
+                "%s bar %.6g is NaN (%s). A NaN cannot be compared to the required "
+                "separation -- find out why the input was non-finite."
+                % (dv, sense, bar, scope))
+    if measured >= margin:
+        return ("DV floor control met: %s floor arm (%s) sits %.6g away from the "
+                "%s bar %.6g, clearing the required separation %.6g -- the design "
+                "can discriminate the manipulation from the information-free floor."
+                % (dv, scope, measured, sense, bar, margin))
+    if measured <= 0.0:
+        return ("DV FLOOR CONTROL UNMET: %s floor arm (%s) already SATISFIES the "
+                "%s bar %.6g by itself (separation %.6g) -- no outcome of this run "
+                "could distinguish the manipulation from the information-free floor."
+                % (dv, scope, sense, bar, measured))
+    return ("DV FLOOR CONTROL UNMET: %s floor arm (%s) sits only %.6g away from "
+            "the %s bar %.6g, short of the required separation %.6g -- the design "
+            "leaves too little room to distinguish the manipulation from the floor."
+            % (dv, scope, measured, sense, bar, margin))
+
+
+def dv_floor_control_check(
+    name: str,
+    *,
+    dv_name: str,
+    criterion_threshold: float,
+    floor_values: Sequence[float],
+    criterion_sense: str,
+    separation_margin: float = 0.0,
+    measured_cells: Optional[Sequence[str]] = None,
+    n_dropped_nonfinite: Optional[int] = None,
+    **extra: Any,
+) -> Dict[str, Any]:
+    """Build one `dv_headroom` check certifying that an information-free FLOOR
+    ARM does NOT already satisfy the load-bearing criterion by itself --
+    sub-direction (2b) of the DV-headroom class
+    (REE_assembly/evidence/planning/dv_headroom_floor_control_direction_20260907.md
+    section 6). The sibling to `dv_headroom_check`, which asks the OPPOSITE
+    question -- "can the DV reach the bar" -- rather than this function's
+    "has an information-free configuration already cleared it, without the
+    manipulation under test doing anything at all".
+
+    Four historical corpus cases this answers, none of which the existing
+    `dv_headroom_check` / `criterion_exceeds_achievable_range_lint` catch
+    (design doc section 4, GOV-HELDOUT-1 record section 7): V3-EXQ-622
+    (collapsed z_goal already yields `approach_commit_rate` 1.0 against a
+    0.01 bar), V3-EXQ-723 (any weak linear map clears both the compactness
+    and retention conjuncts), V3-EXQ-884 (2 credits already clears
+    `n_subgoal_credits > 0`), V3-EXQ-920a (a criterion that cannot fail when
+    the mechanism it monitors never fires). The reference design that got
+    this right on its own, and must NOT trip this check: V3-EXQ-1002's
+    `untrained_control + UNTRAINED_CONTROL_MARGIN` conjunct, which puts its
+    untrained floor at a genuine 0.105 separation from its 0.80 bar.
+
+    `criterion_sense` says which side of the ORIGINAL criterion is a pass.
+    REQUIRED, never inferred -- the two senses invert which floor-arm value
+    (max vs min) is the dangerous one, and there is no safe default:
+
+      "floor"    the criterion passes when measured >= criterion_threshold
+                 (622's and 884's shape). Separation =
+                 criterion_threshold - max(floor_values): POSITIVE means the
+                 floor's best-case value still falls short of the bar
+                 (safe); NEGATIVE means the floor already clears it (the
+                 defect).
+      "ceiling"  the criterion passes when measured <= criterion_threshold
+                 (723's compactness conjunct). Separation =
+                 min(floor_values) - criterion_threshold, same sign
+                 convention (positive = safe).
+
+    `separation_margin` (default 0.0) is the minimum signed separation the
+    floor arm must keep from the bar. 0.0 asks only that the floor not
+    already clear it; a positive value (as V3-EXQ-1002's own
+    UNTRAINED_CONTROL_MARGIN does, hand-rolled) demands real daylight, not a
+    boundary touch.
+
+    `direction` is always "lower" (met iff separation >= separation_margin)
+    -- expressing the check as a SIGNED SEPARATION rather than as a raw
+    bound on the floor arm's value is what keeps this on the same
+    floor-only rail `_validate_dv_headroom_check` already enforces for
+    `dv_headroom_check` (an upper bound there would invert the gate's
+    meaning; the same inversion risk exists here, so this constructor never
+    exposes the choice).
+
+    `kind` stays "dv_headroom" so the lint and the runtime gate remain ONE
+    feature and the REE_assembly indexer -- which recomputes `met` from
+    (measured, threshold, direction) and is kind-agnostic -- needs no
+    change. `achievable_statistic` is the "floor_separation" label, refused
+    by `dv_achievable()` exactly as "explicit" already is: there is nothing
+    for `dv_achievable` to measure here either, since the caller supplies
+    the floor arm's own realised values directly and this function computes
+    the signed separation itself.
+
+    THE REASON IS COMPOSED HERE, FROM THE VALUES THIS CHECK ACTUALLY USED --
+    never re-derived by a caller from separate metadata (the 983a lesson;
+    see `dv_headroom_check`'s own docstring for the incident this
+    generalises from).
+
+    Refuses an empty `floor_values`: a floor-control gate over no floor-arm
+    readings is the vacuity this class exists to catch, arriving one level
+    up -- fix the caller rather than gate on nothing.
+    """
+    if criterion_sense not in ("floor", "ceiling"):
+        raise ValueError(
+            f"dv_floor_control_check: check {name!r} has criterion_sense "
+            f"{criterion_sense!r}; expected 'floor' or 'ceiling'. There is no "
+            "safe default -- the two senses invert which floor-arm value (max "
+            "vs min) is the dangerous one.")
+    vals = [float(v) for v in floor_values]
+    if not vals:
+        raise ValueError(
+            f"dv_floor_control_check: check {name!r} has empty floor_values; "
+            "there is no floor-arm value to compare against the bar. Fix the "
+            "caller (the floor arm produced no readings) rather than gating "
+            "on nothing.")
+    bar = float(criterion_threshold)
+    if any(v != v or v in (float("inf"), float("-inf")) for v in vals):
+        measured = float("nan")
+    elif criterion_sense == "floor":
+        measured = bar - max(vals)
+    else:
+        measured = min(vals) - bar
+    margin = float(separation_margin)
+    entry: Dict[str, Any] = dict(extra)
+    entry.update({
+        "name": str(name),
+        "kind": DV_HEADROOM_KIND,
+        "measured": measured,
+        "threshold": margin,
+        "direction": "lower",
+        "dv_name": str(dv_name),
+        "achievable_statistic": "floor_separation",
+        "criterion_threshold": bar,
+        "criterion_sense": criterion_sense,
+        "headroom_margin": margin,
+        "n_control_values": len(vals),
+    })
+    if measured_cells is not None:
+        entry["measured_cells"] = [str(c) for c in measured_cells]
+    if n_dropped_nonfinite is not None:
+        entry["n_dropped_nonfinite"] = int(n_dropped_nonfinite)
+    entry["headroom_reason"] = _dv_floor_control_reason(entry)
     return entry
 
 
