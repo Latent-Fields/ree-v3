@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-09-07 (T02:12Z nightly)
+**Last updated:** 2026-09-08 (T01:15Z nightly)
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -193,6 +193,7 @@ at V3 launch, not current state. The authoritative session guide is `ree-v3/CLAU
 | ARC-108 x ARC-110 coupling: LEARNED (dopamine-gated) CROSS-LOOP arbitration (the named V3 attack on the F-dominance conversion ceiling MECH-439 after the 707b decisive weakens-NARROW) | selection.parallel_segregated_loops.learned_cross_loop_arbitration -- IMPLEMENTED 2026-07-01. After V3-EXQ-707b decisively weakened the single-arena-artefact sub-hypothesis (loop segregation is a STRUCTURAL fix but not a sufficient conversion lever on its own), the substrate needed a LEARNED cross-loop arbitration to replace the fixed-arithmetic `loop_segregation_spiral_gain_*` weights. New no-op-default flag `E3Config.use_learned_cross_loop_arbitration` swaps the static Haber-spiral scalar sum for `W_cross = I + M_cross` where `M_cross` is a learned [n_loops, n_loops] cross-loop influence matrix updated by the ARC-108 signed-RPE three-factor rule (Hebbian-coactivation x delta_t x D1/D2-asymmetric-gain). At init M_cross = 0 => W_cross = I => bit-identical to the STATIC arithmetic combine byte-for-byte. Composes STRICTLY INSIDE the MECH-448/449 eligible set (raw scores / F untouched; safety envelope inherited). Waking-only (mirrors JOB-1 simulation_mode gate). Diagnostics: `m_cross_range_peak` + `n_cross_updates` + per-loop `w_cross_effective_column`. | Substrate landed 2026-07-01 (ree-v3 main 832afd1; design doc `docs/architecture/learned_cross_loop_arbitration.md`). **V3-EXQ-709** (learned/DA-gated cross-loop arbitration validation; `claim_ids=[MECH-439, ARC-108, ARC-110]`; 2 arms x 6 seeds `A1_LOOPS_STATIC` vs `A1_LOOPS_LEARNED`, matched envelope on both arms; single-variable factor `use_learned_cross_loop_arbitration`; priority 100) FAILed 2026-07-03 `non_contributory substrate_not_ready_requeue` -- mechanism ENGAGED (M_cross moved 0.116 > 1e-6; limbic routed range 1.414; 4/4 divergent seeds) but the deeper `limbic_loop_can_win` precondition UNMET (limbic reached >= motor effective weight on only 1/4 divergent seeds, M_cross[motor,limbic] peak ~0.03 -- a NEW loop-effective-weight ceiling BEYOND the 707b static-arithmetic diagnosis). Confirmed `failure_autopsy_V3-EXQ-709_2026-07-03` routed AMEND `v4_loop_segregation` (Haber ascending-spiral gain repair). ARC-108 + ARC-110 stay candidate / substrate_conditional / v3 / pending_retest_after_substrate. PROMOTES NOTHING. |
 | MECH-140 x MECH-450: disinhibitory soft-competitive settling (parameter-free lateral-inhibition kernel over the F-bounded eligible set) | selection.disinhibitory_soft_competitive_settling -- IMPLEMENTED 2026-07-02. E3TrajectorySelector `_soft_competitive_settle` -- parameter-free graded lateral-inhibition settling over the F + MECH-448/449 within-eligible field, on both the single-arena and segregated-loop paths. Structured class-surround kernel (Mink 1996 divisive-normalisation form) reconfigures within-eligible competition BEFORE the `_modulatory_accum` arbitration; does NOT touch raw scores / F rank / envelope inclusion. New no-op-default config knobs `use_soft_competitive_settling` + `_gain` (0.0 default = exact byte-identical OFF) + `_rounds` + `_temperature` + `_cross_class` + `from_dims`. Uniform kernel (`cross_class=1.0`) reproduces OFF byte-identically. Waking-only. 11 contracts + full-suite green. Grounded in the Rungratsameetaweemana PLOS Biology 2026 disinhibition / cognitive-flexibility lit + Keller Neuron 2020 VIP->SOM disinhibition (lit-pull entries added 2026-07-02 to targeted_review_connectome_mech_140 / arc_108 / mech_450). | Substrate landed 2026-07-02 (ree-v3 main 8cc42bc; REE_assembly master 16a2455e2a: design doc `docs/architecture/soft_competitive_disinhibition_settling.md` + claims.yaml MECH-140 + MECH-450 implementation_notes). **V3-EXQ-710** (`claim_ids=[MECH-140, MECH-450, MECH-439]`; 3 arms A0_OFF / A1_INTACT cross_class=0.25 / A2_ABLATED cross_class=1.0 uniform; C1 A1>A0 + C2 PLOS ablation A1>A2) FAILed 2026-07-03 `non_degenerate=True` decisive self-route weakens MECH-140/MECH-450 + supports MECH-439 -- but the confirmed `failure_autopsy_V3-EXQ-710_2026-07-03` REJECTED the decisive read: settling is BUILT + LIVE (scs_mean_round_delta 5-8) but over the single F-collapsed within-eligible field it SHARPENS F on 2/3 divergent seeds (VIP->SOM disinhibition reconfigures competition BETWEEN differentiated loops; single-arena is the WRONG LOCUS, symbol-not-functional-role). Same single-arena F-dominance ceiling as 709 / 707b / 700-lineage, third distinct mechanism. Governance applied 2026-07-03 (REE_assembly master 12d32a7337): MECH-140 + MECH-450 + MECH-439 non_contributory (MECH-439 narrow corroboration only, single-arena cannot decide intrinsic-vs-liftable), MECH-140 flipped `epistemic_category` -> `substrate_ceiling` + `pending_retest_after_substrate` (strong first-lit 0.695 -> strong-lit / substrate-blocked, NOT under-supported); v4_loop_segregation substrate_queue entry AMENDED (+710 failure_record; MECH-140 unblocks). PROMOTES NOTHING. |
 | ARC-110 x ARC-108: ascending-spiral gain (Haber asymmetric striato-nigro-striatal ascending spiral; loop-effective-weight repair routed by BOTH V3-EXQ-709 and V3-EXQ-710 autopsies) | selection.parallel_segregated_loops.ascending_spiral_gain -- IMPLEMENTED 2026-07-03. Both the 709 and 710 autopsies named the same load-bearing gap: the limbic loop cannot reach the motor loop's effective weight, so LEARNED cross-loop arbitration or a settling kernel cannot flip the within-eligible winner on divergent seeds. Ascending-spiral gain scales ONLY the ASCENDING strict-upper-triangle entries of `M_cross` (limbic -> associative -> motor pressure direction) in BOTH the forward `W_cross` and the three-factor update, so `w_eff[limbic]` rises without touching `w_eff[motor]` (implicit motor de-pin; asymmetric Haber spiral). Map stays LINEAR; byte-identical OFF and at gain=1.0. New no-op-default config knobs `E3Config.use_ascending_spiral_gain` + `loop_segregation_ascending_spiral_gain` (1.0 forward default) + `_plasticity_gain` (1.0 maturation default). Reclassified the loop-segregation cluster V4 -> V3 in the same window (MECH-140 `implementation_phase: v3` in claims.yaml; substrate_queue `v4_loop_segregation` reframed V3-closure-required + ARC-109 + MECH-452 as V3 built co-requisites -- phase-follows-dependency invariant; lifting the F-dominance single-arena conversion ceiling is a V3-closure requirement, a substrate_ceiling is NEVER grounds to defer to V4). 8 new contracts `test_ascending_spiral_gain.py` + full-suite green (1320 + 8, 3 pre-existing residuals). | Substrate landed 2026-07-03 (ree-v3 main 6b660a6; REE_assembly master 9e843a7fdf: design doc `learned_cross_loop_arbitration.md` Addendum + `sd_v4_loop_segregation.md` Status pointer + befa74bd8c V4->V3 reclassify). **V3-EXQ-711** (`claim_ids=[MECH-439]`; 2 arms `A_ASCENDING_OFF` vs `A_ASCENDING_ON` on GAP-A reef-bipartite; 6 seeds; swept factor `use_ascending_spiral_gain` ONLY, learned cross-loop arbitration ON on both arms; priority 1) claimed ree-cloud-1 2026-07-03T15:54:06Z, in flight. Load-bearing precondition: on `A_ASCENDING_ON` the limbic loop reaches >= motor effective weight on >=3/4 divergent seeds; unmet -> `substrate_not_ready_requeue` (non_contributory, NEVER a false weakens). Then C1: `A_ASCENDING_ON` committed-class entropy strict-above `A_ASCENDING_OFF`. PASS -> MECH-439 weakens / ARC-108 + ARC-110 supports; decisive FAIL (limbic wins but no conversion) -> MECH-439 supports / ARC-108 + ARC-110 weakens. Substrate unblocks_claims: MECH-439, ARC-108, ARC-110, MECH-450, MECH-140. Smoke --dry-run PASS: ascending gain live (ON-arm strict_exceed_ticks=36 / m_range 8.38 vs 709 ~0.05). PROMOTES NOTHING until it scores. |
+| f_dominance_conversion_ceiling RUNG 3 / MECH-439: E3 channel-commensurability operator | e3_selector.channel_commensurability -- IMPLEMENTED 2026-09-07 (ree-v3 main `c47b885`; ratified /governance 2026-09-02 `0ade914d46`; rung assigned by `governance_2026_09_04` to `chip-20260902-e3-channel-commensurability`). Per-channel divisive normalisation against a RUNNING scale estimate so cross-candidate channel authority is a scored contest rather than a restatement of units. Each declared channel's per-candidate term is divided by an EMA of that channel's own cross-candidate standard deviation before `score_trajectory`'s additive sum; `select()` folds the tick's spread in AFTER the candidate loop, so a tick is always scored against PRIOR ticks' estimate -- causal, never self-referential. Running rather than within-tick because `score_trajectory` scores ONE candidate at a time, so the tick's spread does not exist at scoring time; supplying that decomposition is what V3-EXQ-571c contributed and what made this rung tractable. Addresses confirmed `failure_autopsy_V3-EXQ-571c_2026-09-02`: 571c's within-tick cross-candidate partition found ONE channel holding 0.98-0.99999 of the variance in 15 of 16 cells -- `residue_weighted` in all 8 residue-fed cells (F's share 4e-06 to 1.1e-05), `F`/`harm_weighted` in 7 of 8 starved cells (0.994-0.9998). Load-bearing observation: every competing channel cleared the 1e-12 ABSOLUTE variance floor and failed only the 1e-3 RELATIVE share floor -- the monopoly is a SCALE phenomenon, not dead channels. `n_live_channels=1` therefore red-gated all four arms before criteria evaluation. A bound on F alone would merely hand the monopoly to residue, hence the JOINT channel scale. Default-off + bit-identical when off. | Substrate landed 2026-09-07 (ree-v3 main `c47b885`; owning chip `chip-20260902-e3-channel-commensurability`). Validation branch: rung-3 validation not yet queued this window. MECH-439 stays candidate; this is the third rung of the conversion-ceiling campaign following rung-1 (Factor A/B) and the rung-6 duration face. PROMOTES NOTHING until it scores. |
 | SD-080 (E2.action_object_head zero-gradient scoping) | e2.action_object_head_frozen_at_init -- registered 2026-07-22 (candidate; v3). Scoping spike (session `epic-burnell-995d28`) measured on the live substrate that E2.action_object_head receives ZERO gradient from every REE training path: 99.5% of action-object variance is explained by the action LABEL alone; the 5-action pairwise-distance matrix varies <1% across 120 world states; within-action-pair consequence correlation ~0; and the head's parameters are bit-identical (delta L2 exactly 0.0) after 40 warmup episodes. So the action-object space O that SD-004's hippocampal map backbone navigates is a frozen random projection fixed at initialisation, not the learned state-conditioned consequence O the spec presupposes. Companion of the same-day action-object round-trip defect (see ree-v3/CLAUDE.md top matter): argmax(action_object_decoder(traj.get_action_object_sequence()[:,0,:])) is a CONSTANT -> a driver selecting that way has an action stream INVARIANT under every candidate manipulation (arithmetic no-op); the 6 in-repo action_object_selection lint fires (EXQ-114, 120, 266, 266a, 800, 801) were dispositioned same-day (800/801 false-positives + exempted; 114/120/266/266a CONFIRMED invalidated + replaced by V3-EXQ-114a/120a/266b). | Claim registered 2026-07-22 (REE_assembly master with SD-080 register). V3-EXQ-809 (`SD-080 prior probe -- action-object init invariance of EXQ-003 TERRAIN-vs-RANDOM`; ree-v3 main `d21b4c6`; smoke PASS) queued. Neither SD-080 nor SD-004 status changes yet; PROMOTES NOTHING pending the probe. |
 | SD-081 (e3.dualsystem_uncertainty_arbitration) | e3.dualsystem_uncertainty_arbitration -- SUBSTRATE LANDED 2026-07-22 (candidate; v3). Explicit arbitration weight over the HABIT pathway (myopic, depth-limited read of the E3 scorer) vs the PLANNED pathway (full-horizon read of the SAME scorer), driven by the two pathways' relative predictive uncertainty and applied to the E3 selection score upstream of every downstream consumer. Built to make MECH-477 (dual_system_uncertainty_arbitration; registered same day) falsifiable: the pre-SD-081 substrate scored candidates with an unconditional full-horizon J(zeta), so NO weight existed anywhere between the myopic and the deep read and nothing COULD respond to context novelty. Consequence for the falsifier: the OFF arm cannot be V3-EXQ-786a as-run -- BOTH arms need the two-pathway reads present with only the arbitration weight ablated (a raw MECH-786a control conflates presence-of-pathways with active-arbitration). Registered in the same day as the two-pathway-existence framing correction of MECH-163 (which conflated ARCHITECTURE with DYNAMICS). | Substrate landed 2026-07-22 (REE_assembly master with SD-081 register + landing note; the substrate ships as a runtime knob on the E3 read path). MECH-477 registered same day as the control-allocation mechanism MECH-163 presupposed but never named. SD-081 stays candidate; PROMOTES NOTHING until the corrected 786a-successor falsifier (BOTH-pathways-present, only arbitration ablated) scores. |
 | SD-091 / MECH-481: Coalition/Topology Control Substrate (steps 1-6 of 7 landed) | control_plane.coalition_topology_control -- Steps 1-3 landed 2026-08-02 (chip `chip-20260802-sd091-implement-mvp`; module `ree_core/claustrum/` with `CoalitionRequest` + `SENSORY_RESAMPLE` / `PROVENANCE_CHECK` templates + `CoalitionController` dispatch). Steps 4-5 (agent-loop mount-point + `REEAgent.select_action` consumer wiring across the 8 named target sites: `e1_sensory_encoder` / `e2_fast_forward_model` / `e3_candidate_count` / `hippocampal_anchor_set` / `hippocampal_persistence_appraisal` / `e3_commitment_monitor` + `motor_commitment` / `hippocampal_write_consolidation`) + step 6 (live-tick smoke test) landed 2026-08-03 (chip `chip-20260802-sd091-live-wiring`; ree-v3 main `87a7e21` + REE_assembly master `88375d0126`). ONE-DIRECTIONAL mode isolation preserved (never writes into `SalienceCoordinator`); attenuation-only (`write_gate()<=1.0` clamped in `CoalitionState.__post_init__`); only `channel_gain()` on `e3_candidate_count` can exceed 1.0 per the doc's parametric-side-effect carve-out. `use_coalition_controller=False` default -> bit-identical OFF; enabled-but-inactive also bit-identical (contract W2 verified via live 8-tick action-sequence comparison, not just gate-formula inspection). | Substrate landed 2026-08-02 -> 2026-08-03. **Step 7 remains: `/queue-experiment` the MECH-481 4-arm falsifier** (ARM_1 monitoring-only vs ARM_2 parametric-only vs ARM_3 untyped-coalition vs ARM_4 typed-coalition; V3-EXQ-886 authored 2026-08-03 as the 4-arm INSTRUMENT strict-validated, smoke PASS, but NOT queued -- blocked at Step 2.5a on the competence/adaptation harness prerequisite premise probe per commit `e7dfa8e`). SD-091 + MECH-481 stay candidate / v3_pending / substrate_conditional. PROMOTES NOTHING. |
@@ -235,6 +236,128 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 
 ### Experiment Status
 
+- **2026-09-08T01:15Z nightly attestation (scheduled `/update-docs`, bot
+  identity).** ~23h window since the 2026-09-07T02:12Z snapshot. Flat
+  `v3_exq_*` manifests on disk: **991** (+5 vs 986 at 2026-09-07); nested
+  per-run manifests under `evidence/experiments/*/runs/`: **2925** (+4 vs
+  2921). **Currently queued (`experiment_queue.json` items[]): 0 items**
+  (drained from 1 at the 2026-09-07T02:12Z read -- V3-EXQ-1007 completed
+  PASS in-window). **Pending review (`pending_review.md`, regenerated
+  2026-09-07T18:51:36Z): 5 items** -- 5 PASS + 0 FAIL, all diagnostic
+  runs awaiting `/failure-autopsy` before governance walks them
+  (V3-EXQ-1006 SD-e1 var-bar portfolio, V3-EXQ-1007 MECH-536 eval-time
+  action-persistence discriminator, V3-EXQ-970a ContextMemory content-half
+  H1 MI instrument, V3-EXQ-972a SD-070 write-stream heldout linear probe,
+  V3-EXQ-1009 MECH-267 elite-channel ceiling spike; 1 flagged
+  `vacuous_pass` on V3-EXQ-1009 elite_channel_ceiling_confirmed_all_benches).
+  Coordinator-DB 30-day rolling: 74 PASS / 74 FAIL / 4 ERROR, ERROR rate
+  2.6%. (a) **ONE new substrate landing in the window**:
+  **f_dominance_conversion_ceiling RUNG 3 / MECH-439** landed 2026-09-07
+  (ree-v3 `c47b885` "E3 channel-commensurability operator") -- per-channel
+  divisive normalisation against a RUNNING scale estimate so
+  cross-candidate channel authority is a scored contest rather than a
+  restatement of units; addresses confirmed `failure_autopsy_V3-EXQ-571c_
+  2026-09-02` (one channel holding 0.98-0.99999 of variance in 15 of 16
+  cells with every other channel clearing the 1e-12 ABSOLUTE variance
+  floor but failing the 1e-3 RELATIVE share floor). Default-off, bit-
+  identical when off; select() folds the tick's spread in AFTER the
+  candidate loop so scoring is causal not self-referential. Ratified by
+  /governance 2026-09-02 (REE_assembly `0ade914d46`) and assigned this
+  rung to `chip-20260902-e3-channel-commensurability` by
+  `governance_2026_09_04`. Unblocks the MECH-439 rung-3 validation branch
+  of the conversion-ceiling attack (not yet queued). (b) **New completions
+  in the window (5 flat manifests, all PASS per coordinator DB 24h read)**:
+  V3-EXQ-1007 (MECH-536 eval-time action-persistence discriminator on the
+  frozen 978-OFF z_world reader; the 2026-09-07T02:12Z snapshot's queued
+  entry), V3-EXQ-970a (ContextMemory content-half H1 contrastive leg on
+  the redesigned K=8 contingency-NMI shuffle-corrected instrument;
+  supersedes V3-EXQ-970), V3-EXQ-972a (SD-070 held-out linear probe of
+  the ContextMemory write stream on untrained/lineage/SD-070-warmed
+  encoders; supersedes V3-EXQ-972), V3-EXQ-1009 (MECH-267 elite-channel
+  ceiling 2x2 spike; the queue-experiment step-5c re-derive-brake was
+  BYPASSED for this one after a same-day driver review and the run
+  self-reported `elite_channel_ceiling_confirmed_all_benches` but was
+  flagged `vacuous_pass` by the indexer -- adjudication required), and
+  a late-writeback of V3-EXQ-1006 (SD-e1 var-bar portfolio; the 2026-09-06
+  in-window completion carried forward). All five carry
+  `experiment_purpose: diagnostic` and require confirmed `/failure-
+  autopsy` before governance marks them reviewed. (c) **Governance work
+  in the window** (no full `/governance` walk): IGW-20260908-232 INV-063
+  literature-proposal was adjudicated NOT queued -- leg B of INV-063's C1
+  (across-sleep world-forward PE improvement on a frozen battery) has no
+  clean instrument; a live one-tick probe found `run_sleep_cycle()`
+  leaves `max|delta|` over `agent.e2.parameters()` at 0.0 EXACTLY under
+  INV-063's pre-registered flag set, so leg B's DV is structurally 0.0
+  in every arm at every seed. EXP-1398 + EVB-1349/experimental marked
+  `blocked_substrate` (REE_assembly `570ca8900f`; LIT-0688 deliberately
+  NOT retired -- it is the `out_of_domain` epidemiological lane and the
+  IGW tick's retire step is lane-blind). INV-063's own recording carries
+  P1-P4 verdicts inline so a successor does not re-derive. Also: AM
+  lit-pull `IGW-20260908-232` landed 5 literature entries for INV-063
+  (EVB-1349 / LIT-0688; REE_assembly `09c24b7127`); IGW-20260907-233
+  landed 4 entries for INV-040 on cue-sufficiency for terrain activation
+  (LIT-0683 / EVB-1345; REE_assembly `9c6a81707f`). (d) **Coordination-
+  plane / infra work in the window**: LARGE documentation reshape --
+  **ree-v3/CLAUDE.md rewritten as a thin per-feature index** (WI-1 slices
+  1-4/4 landed 2026-09-07 as `f36e23d` / `a53827a` / `d3b78f9` / `8955fee`;
+  final slice `89907e3` replaces the CLAUDE.md body). Substrate-feature
+  records that previously lived inline (1,478,619 chars / ~370,000
+  tokens, injected whole into every ree-v3 session; median session
+  referenced 2 of 139 feature IDs, 9 of 25 referenced none) now live one
+  per file under `docs/substrate/` with a linked index at the bottom of
+  CLAUDE.md and a "when to follow a pointer" rule at the top. Related
+  WI-2 slices 5b/5c (`f8151fe` + `a3cd923`) moved 'Remote Control' and
+  'Troubleshooting Runner' behind pointers to `docs/reference/remote-
+  control.md` (~1,500 tok) keeping the standing rules inline and the
+  transport / gate / API detail behind the pointer. WI-2 follow-on
+  `bd76479` dropped stale figures from the 'Regression Suite' full-suite
+  bullet. Also landed: `dv_headroom` adopter registry now gates on
+  COMMITTED content not the working tree (ree-v3 `620b485`, closes the
+  fleet-wide commit blocker); `validate_experiments` `use_before_def`
+  lint (ree-v3 `ceea428`, catches the V3-EXQ-591g `UnboundLocalError`
+  class at commit time); `dv_headroom` statistic-mismatch WARN-only lint
+  + runtime ceiling falsifier (ree-v3 `fcb3f16`); brake SCAN SHAPE
+  brought to the R1/R2 recipe (ree-v3 `fd31c49`); runner converges on
+  derive-only rebase conflicts instead of abort-looping (ree-v3
+  `495381a`); re-derive-brake ports the per-claim epistemic-category
+  branch into `validate_queue` and evaluates PER CLAIM (ree-v3
+  `2890607`); `contextmemory_write_enablement` WARN when a driver reads
+  the bank without choosing a write-selection mode (ree-v3 `14f9b6b`);
+  `sync-repair` cloud variant lands (ree-v3 `40f5340`); flag registry
+  registers `use_selection_entropy_floor` (SD-105) as PROBED (ree-v3
+  `59936e9`). REE_assembly side: token-split measurement lands as
+  `token_split_measure.py` (`c3834245bc` + `feea8739aa` fix keying
+  nested_memory injections by real path); indexer tests subcase B
+  negative-control chip closed (`64994e6f0e`); Closure Dashboard moved
+  up the sidebar beside Research Status (`52c6113cc0`); home-page
+  evidence strip now derived from the governance pipeline (`2d6e958872`);
+  worktree graveyard triage found 51 removable / 21 held after a full
+  per-commit content audit and executed a GC (67 -> 29 worktrees, 35
+  removed, 16 skipped, no commit destroyed; `4ab427016b` triage +
+  `d7984dd9fa` GC); queue-floor detector respec generation 9 landed --
+  root cause is silence-read-as-remedy, not the threshold, per
+  `evidence/planning/queue_floor_detector_respec_staged_20260907.md`
+  (`c9f8a504d8`); the generation-8 W6 fix (episodic hysteresis needing
+  OBSERVATIONS not elapsed time) is bracketed by a per-(class,subject)
+  clean-observation streak under `logs/hygiene_episodic_clean_streak.
+  json` and 8 -> 25 tests including the g7 outage regression + positive
+  control (REE_Working `49f1a6a57` per WORKSPACE_STATE 2026-09-08T00:18:
+  45Z); pre-existing red on `test_test_provenance` chipped as `chip-
+  20260908-provenance-pins-two-test-files`; live IGW workset holds 246
+  items / 29 ready / 0 in flight. **Bottleneck: unchanged from
+  2026-09-07T02:12Z** -- convergence root remains the H-observation-
+  interface axis (SD-018 AMEND landed 2026-09-02 with V3-EXQ-978 walked
+  `mixed` in the 2026-09-05 cycle so the AMEND's own validation is not
+  yet a clean support; SD-e1 ITEM 2 candidate-1 landed 2026-09-01 with
+  V3-EXQ-1006's just-completed PASS the ITEM 2 var-bar portfolio
+  validation follow-on, adjudication pending). Green-board target
+  2026-07-19 is now **51 days overdue**. **ETHICS-PERIMETER Phase 0
+  datum** stays on the record (Phases 1-3 deferred; NON-BLOCKING).
+  Public-information-architecture impact: reviewed against
+  `docs/design/public_information_architecture.md` -- no `/api/*`
+  surface, generated visualization, or public export changed; nightly
+  snapshot + spec date bump + one new SD table row (MECH-439 rung 3)
+  only (same category as the 2026-09-07 attestation).
 - **2026-09-07T02:12Z nightly attestation (scheduled `/update-docs`, bot
   identity).** ~13h window since the 2026-09-06T12:55Z snapshot. Flat
   `v3_exq_*` manifests on disk: **986** (+1 vs 985 at 2026-09-06); nested
