@@ -194,6 +194,26 @@ class VetoIsWiredIntoTheDecisionLoopTest(unittest.TestCase):
             json.dump({"items": []}, fh)          # claimable=0, held=0
         self.hb = os.path.join(self.tmp, "hb")
         os.makedirs(self.hb)
+        # ISOLATED state_dir for orchestrator_wake_hold's bootstrap-grace
+        # bookkeeping (chip-20260907-cloud-scaler-veto-test-not-hermetic).
+        # run_once()'s state_dir defaults to DEFAULTS["SCALER_STATE_DIR"]
+        # ("/home/ree/scaler_state" -- the REAL production directory the live
+        # scaler on the hub reads/writes) when not given explicitly, so
+        # without this every test in this class was silently sharing wake
+        # state with whatever the hub's actual fleet was doing at run time.
+        # Confirmed live 2026-09-07: ree-worker-4 genuinely powered on during
+        # a hub suite run, orchestrator_wake_hold saw "up=1min<=12min since
+        # first seen running" from that REAL state file, and vetoed the
+        # shutdown test_box_with_idle_metaworker_and_empty_ledger_IS_shut_down
+        # asserts -- an intermittent failure with zero relationship to the
+        # code under test. test_cloud_scaler_orchestrator_unknown.py already
+        # establishes the correct pattern (its own isolated self.state_dir,
+        # passed to run_once); this class was the one omission. The wake-hold
+        # mechanism itself has thorough, dedicated coverage in
+        # test_cloud_scaler_orchestrator_transport.py, so isolating it here
+        # removes accidental cross-talk, not real coverage of an interaction
+        # this class was never testing in the first place.
+        self.state_dir = os.path.join(self.tmp, "state")
         self.shutdowns = []
         self._orig_status = cs.hcloud_describe_status
         self._orig_shutdown = cs.hcloud_shutdown
@@ -215,7 +235,7 @@ class VetoIsWiredIntoTheDecisionLoopTest(unittest.TestCase):
             hub_name="ree-worker-1",
             workers=workers or [("ree-worker-4", "ree-cloud-4", "surge")],
             dry_run=True, lease_dir=os.path.join(self.tmp, "noleases"),
-            clear_fence_script="/bin/true")
+            clear_fence_script="/bin/true", state_dir=self.state_dir)
 
     def test_idle_box_with_no_orchestrator_is_shut_down(self):
         # NEGATIVE CONTROL -- proves the test can observe a shutdown at all,
@@ -261,6 +281,26 @@ class VetoIsWiredIntoTheDecisionLoopTest(unittest.TestCase):
     def test_box_with_idle_metaworker_and_empty_ledger_IS_shut_down(self):
         # Both planes empty -- experiments (queue has no items) and chip ledger.
         # This is the path the old freshness-only veto made unreachable.
+        #
+        # Isolating state_dir (setUp, above) is not by itself enough: on a
+        # FRESH state_dir, orchestrator_wake_hold's "first sighting" branch
+        # sets running_since = now in the same call that computes age_min,
+        # so age_min is always exactly 0.0 and the bootstrap hold ALWAYS
+        # fires regardless of grace_min -- turning the old intermittent
+        # failure (real production wake state, sometimes recent) into a
+        # deterministic one (fresh test state, always "just booted"). This
+        # test's premise is a box that has been running and genuinely idle
+        # for a while, not one that just woke up, so it pre-seeds a
+        # long-since-expired wake-hold record -- the same isolation
+        # technique test_cloud_scaler_orchestrator_transport.py's own
+        # orchestrator_wake_hold tests already use for the "hold expired"
+        # case, applied here at the run_once() integration level.
+        os.makedirs(self.state_dir, exist_ok=True)
+        with open(cs.wake_state_path(self.state_dir, "ree-cloud-4"),
+                  "w", encoding="utf-8") as fh:
+            json.dump({"status": "running",
+                       "running_since": "2020-01-01T00:00:00Z",
+                       "observed_at": "2020-01-01T00:00:00Z"}, fh)
         _hb(self.hb, "ree-cloud-4", state="idle", in_flight_dispatches=0,
             chips_open_work=0,
             last_tick_utc=datetime.now(timezone.utc).strftime(
