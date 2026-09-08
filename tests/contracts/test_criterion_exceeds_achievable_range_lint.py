@@ -702,6 +702,14 @@ KNOWN_DV_HEADROOM_ADOPTERS = {
     # the second exists because the DV of a difference is bounded by
     # 1 - acc(baseline), which a null-referenced headroom gate cannot see.
     "v3_exq_972a_sd070_write_stream_heldout_linear_probe.py",
+    # V3-EXQ-1011 (2026-09-08, ree-v3 ebf2174): the ARC-021 H3 paired 96-seed
+    # CI re-pose (campaign W5 fresh-fill session w5-freshfill-20260908; queue
+    # note records its Step 4.5 red-team, fable, BLOCKING -> all applied). Its
+    # adopting commit omitted this registration and left the corpus lint RED
+    # for every ree-v3 commit on the Mac; registered here by the S2b session
+    # (angry-pascal-6fd799) to clear the trunk, on the adopting session's
+    # behalf -- the adoption itself was reviewed in that session's red-team.
+    "v3_exq_1011_arc021_h3_submargin_paired_ci.py",
 }
 
 _DV_HEADROOM_LITERAL = '"kind": "dv_headroom"'
