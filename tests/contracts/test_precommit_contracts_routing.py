@@ -300,3 +300,70 @@ def test_r14_stale_lock_is_stolen_not_wedged_forever(tmp_path):
     assert "stealing stale race lock" in p.stderr, p.stderr
     assert local_marker.exists(), "the stale lock must have been stolen so local could race"
     assert "race winner: local" in p.stderr, p.stderr
+
+
+# -------------------------------------------------------------------------- WT1
+# chip-20260907-precommit-remote-pytest-worktree-resolution. REPO is
+# already worktree-aware (git rev-parse --show-toplevel, tier 1 near the top
+# of the gate), but the OLD REMOTE_PYTEST default
+# ("$REPO/../scripts/remote_pytest.sh") assumed REPO sits directly next to
+# REE_Working/scripts -- true for the main checkout, false for a
+# `git worktree add` checkout elsewhere on disk (the pattern CLAUDE.md
+# mandates for rebases and for landing against a busy shared checkout:
+# "Rebase via throwaway worktree"). From a real worktree the router was
+# simply not found, and the deliberate fail-safe silently routed a gate that
+# had just decided "remote" (because the Mac was memory-constrained) back
+# onto the Mac anyway (observed live 2026-09-07, session
+# nifty-chebyshev-227274: ~12min / 1% of tests/contracts before the session
+# killed it and routed by hand). The fix un-worktrees via
+# `git rev-parse --git-common-dir` (MAIN_REPO, resolved once near the top of
+# the gate) before deriving REMOTE_PYTEST's default -- this test builds a
+# REAL throwaway worktree, off a repo whose router-adjacent sibling
+# directory the worktree itself is nowhere near, and asserts the router
+# still resolves without the fail-safe firing. A test that only drove the
+# main checkout (every other test in this file) would pass both before and
+# after the fix and pin nothing -- this is the one that would have caught
+# the regression.
+def test_wt1_worktree_resolves_router_via_main_checkout(tmp_path, tmp_path_factory):
+    env = {**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"}
+    repo = tmp_path / "ree-v3"
+    (repo / "ree_core").mkdir(parents=True)
+    (repo / "tests" / "contracts").mkdir(parents=True)
+    (repo / "scripts").mkdir(parents=True)
+    # Empty directories are not tracked by git -- a worktree checkout of HEAD
+    # would otherwise omit ree_core/ and tests/contracts/ entirely, and
+    # is_ree_v3_repo() would then reject the worktree before REMOTE_PYTEST
+    # resolution is ever reached, defeating the test.
+    (repo / "ree_core" / "__init__.py").write_text("# seed\n")
+    (repo / "tests" / "contracts" / "__init__.py").write_text("# seed\n")
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True, env=env)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=repo, check=True, env=env)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=repo, check=True, env=env)
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True, env=env)
+    subprocess.run(["git", "commit", "-q", "-m", "seed"], cwd=repo, check=True, env=env)
+
+    # The router lives next to the MAIN checkout only -- never next to a
+    # worktree. This is exactly what MAIN_REPO's un-worktreed resolution
+    # must find; the worktree cut below is deliberately far away from it.
+    router = tmp_path / "scripts" / "remote_pytest.sh"
+    router.parent.mkdir(parents=True, exist_ok=True)
+    router.write_text("#!/usr/bin/env bash\nexit 0\n")
+    router.chmod(0o755)
+
+    wt = tmp_path_factory.mktemp("precommit_wt_far_away") / "ree-v3-worktree"
+    subprocess.run(["git", "worktree", "add", "--detach", str(wt), "HEAD"],
+                   cwd=repo, check=True, env=env, capture_output=True, text=True)
+    try:
+        trigger = wt / "experiments" / "_lib" / "x.py"
+        trigger.parent.mkdir(parents=True, exist_ok=True)
+        trigger.write_text("# staged\n")
+        subprocess.run(["git", "add", "experiments/_lib/x.py"], cwd=wt, check=True, env=env)
+
+        p = _run(wt, {"REE_PRECOMMIT_CONTRACTS_FREE_MB": "100"})  # << floor -> target=remote
+        assert p.returncode == 0, p.stderr
+        assert "target=remote" in p.stderr, p.stderr
+        assert "FALLING BACK to local" not in p.stderr, (
+            "the router must resolve via the un-worktreed main checkout, not "
+            "fall back to local from a worktree:\n%s" % p.stderr)
+    finally:
+        subprocess.run(["git", "worktree", "remove", "--force", str(wt)], cwd=repo, env=env)

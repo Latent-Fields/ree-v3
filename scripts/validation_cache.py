@@ -97,6 +97,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -105,18 +106,48 @@ from pathlib import Path
 # [2]=REE_Working. Fixed regardless of the --repo-root being hashed (which may
 # be a throwaway test fixture) -- the machine-class/commit-tooling imports
 # below always come from the REAL, adjacent checkouts, never from repo-root.
+#
+# THAT ASSUMPTION BREAKS FROM A REE-V3 WORKTREE (chip-20260907-precommit-
+# remote-pytest-worktree-resolution, same root cause as the sibling fix in
+# precommit_contracts.sh's REMOTE_PYTEST resolution). precommit_contracts.sh
+# invokes THIS module as "$REPO/scripts/validation_cache.py" -- deliberately
+# the worktree's own copy, so __file__ resolves under the worktree there, not
+# under REE_Working/ree-v3. parent.parent.parent then lands on the
+# WORKTREE'S PARENT directory, not REE_Working, and the task_claim import
+# below fails with ModuleNotFoundError (observed live 2026-09-07 alongside
+# the REMOTE_PYTEST symptom). _resolve_umbrella_root un-worktrees via
+# `git rev-parse --git-common-dir`, the same idiom used there and documented
+# in CLAUDE.md "Worktree / Chipped Sessions" point 4; it returns the SAME
+# .git for a non-worktree checkout, so this is a no-op for the main checkout.
+def _resolve_umbrella_root(script_dir: Path) -> Path:
+    fallback = script_dir.parent.parent
+    try:
+        p = subprocess.run(
+            ["git", "-C", str(script_dir), "rev-parse",
+             "--path-format=absolute", "--git-common-dir"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except Exception:
+        return fallback
+    if p.returncode != 0 or not p.stdout.strip():
+        return fallback
+    candidate = Path(p.stdout.strip()).parent.parent
+    if (candidate / "scripts" / "task_claim.py").is_file():
+        return candidate
+    return fallback
+
+
 _SCRIPT_DIR = Path(__file__).resolve().parent
 _REE_V3_ROOT = _SCRIPT_DIR.parent
-_UMBRELLA_ROOT = _REE_V3_ROOT.parent
+_UMBRELLA_ROOT = _resolve_umbrella_root(_SCRIPT_DIR)
 
 # Shared atomic-replace / CAS-retry / commit-landed-locally primitives,
 # IMPORTED rather than restated -- see chip_ledger.py for the identical
 # reasoning and the 2026-08-09 TASK_CLAIMS.json incident that motivated it.
 # Cross-repo (ree-v3/scripts -> REE_Working/scripts) by path, matching the
 # existing precedent in precommit_contracts.sh itself
-# ($REPO/../scripts/remote_pytest.sh) -- this module only ever runs on the
-# Mac (a git hook), where REE_Working/scripts is always present at this fixed
-# relative location; it is never shipped to a cloud worker or the hub.
+# ($MAIN_REPO/../scripts/remote_pytest.sh) -- this module only ever runs on
+# the Mac (a git hook); it is never shipped to a cloud worker or the hub.
 sys.path.insert(0, str(_UMBRELLA_ROOT / "scripts"))
 from task_claim import (  # noqa: E402
     CommitLandedLocally,

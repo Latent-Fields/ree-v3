@@ -84,6 +84,37 @@ if ! is_ree_v3_repo "$REPO"; then
     exit 0
 fi
 
+# MAIN_REPO: the MAIN ree-v3 checkout, un-worktreed, distinct from REPO above.
+# REPO is deliberately worktree-aware (tier 1 above) so Block 1/2 validate
+# whatever tree is actually staged -- correct. But some paths are derived
+# relative to REPO assuming it sits at REE_Working/ree-v3 with
+# REE_Working/scripts/ as an adjacent sibling (chip-20260907-precommit-
+# remote-pytest-worktree-resolution): from a ree-v3 WORKTREE (the pattern
+# CLAUDE.md mandates for rebases and for landing against a busy shared
+# checkout -- "Rebase via throwaway worktree"), REPO is the worktree
+# directory, so "$REPO/../scripts/..." lands one level above the worktree,
+# not at REE_Working/scripts/, and a fail-safe silently routes a gate that
+# had just decided "remote" back onto the Mac instead (observed live
+# 2026-09-07, session nifty-chebyshev-227274: 1% of tests/contracts in
+# ~12min before the session killed it, on a box the gate had itself just
+# measured as too memory-constrained to run locally).
+#
+# `git rev-parse --path-format=absolute --git-common-dir` un-worktrees
+# correctly -- the SAME idiom CLAUDE.md already documents for the harness
+# hook ("Worktree / Chipped Sessions" point 4: "The PreToolUse hook ...
+# un-worktrees $CLAUDE_PROJECT_DIR before locating ... precommit_contracts.sh
+# ... Do not 'simplify' that resolution back to a bare $CLAUDE_PROJECT_DIR").
+# For a non-worktree checkout it returns the same .git REPO already sits
+# next to, so MAIN_REPO == REPO there and nothing changes.
+MAIN_REPO="$REPO"
+GIT_COMMON_DIR="$(git -C "$REPO" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
+if [ -n "$GIT_COMMON_DIR" ]; then
+    MAIN_REPO_CANDIDATE="$(cd "$(dirname "$GIT_COMMON_DIR")" && pwd)"
+    if is_ree_v3_repo "$MAIN_REPO_CANDIDATE"; then
+        MAIN_REPO="$MAIN_REPO_CANDIDATE"
+    fi
+fi
+
 # Pick a python with torch. /opt/local/bin/python3 is the project default;
 # fall back to PATH.
 PY="/opt/local/bin/python3"
@@ -334,7 +365,10 @@ fi
 # ---------------------------------------------------------------------------
 TARGET="${REE_PRECOMMIT_CONTRACTS_TARGET:-auto}"
 FLOOR_MB="${REE_PRECOMMIT_CONTRACTS_LOCAL_FLOOR_MB:-3000}"
-REMOTE_PYTEST="${REE_PRECOMMIT_REMOTE_PYTEST:-$REPO/../scripts/remote_pytest.sh}"
+# Resolved against MAIN_REPO (un-worktreed above), not REPO -- see the
+# MAIN_REPO comment near the top of this file. REE_Working/scripts/ only
+# sits next to the MAIN ree-v3 checkout, never next to a worktree.
+REMOTE_PYTEST="${REE_PRECOMMIT_REMOTE_PYTEST:-$MAIN_REPO/../scripts/remote_pytest.sh}"
 
 # Available (reclaimable) memory in MB on macOS: free + speculative + inactive
 # pages x page size. Returns -1 on any non-macOS / unparseable state, which the
