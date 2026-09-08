@@ -93,7 +93,14 @@ SPECIMEN_ORDER_STATISTIC = "v3_exq_972a_sd070_write_stream_heldout_linear_probe.
 SPECIMEN_WRONG_STATISTIC = "v3_exq_1009_mech267_elite_channel_ceiling_spike.py"
 # Measured 2026-09-07 over the 1465-driver corpus. See the module docstring for the
 # tightenings that produced it and the naive baseline (10 of 15 adopters, 972a missed).
-EXPECTED_CORPUS_FIRES = 5
+# RE-PINNED 2026-09-08 (V3-EXQ-1015 landing): the 5 was measured on a WORKING TREE carrying
+# uncommitted drivers. The COMMITTED corpus fires 3 -- at fcb3f16 (the commit that pinned
+# 5) itself and at origin/main 976db83 alike: 1009 (wrong statistic), 642c, 972a (order
+# statistic). Every full-suite run since the pin therefore failed this test on a tree with
+# no lint-relevant change (first caught by the V3-EXQ-1015 pre-commit run, hub
+# DLAPTOP-4-26576-20260908T184831Z: 1 failed / 4790 passed, this test). A pin must be
+# measured on the committed tree, never on a checkout that also holds drafts.
+EXPECTED_CORPUS_FIRES = 3
 
 
 def _run(*args):
