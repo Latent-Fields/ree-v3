@@ -108,6 +108,16 @@ def _run(repo, shim, *args):
     env = dict(os.environ)
     env.pop("CLAUDE_PROJECT_DIR", None)
     env["PATH"] = "%s:%s" % (shim, env.get("PATH", ""))
+    # These tests are about Block 1c/2 TRIGGER SCOPE, not the memory-gated
+    # local-vs-remote ROUTING decision (pinned separately in
+    # test_precommit_contracts_routing.py) -- pin TARGET=local so they run
+    # deterministically regardless of the ambient test-runner Mac's actual
+    # free memory. Without this, a box below
+    # REE_PRECOMMIT_CONTRACTS_LOCAL_FLOOR_MB (2026-09-08) auto-routes remote,
+    # finds no router in this synthetic fake_repo, and hits the new
+    # below-floor-blocks-the-commit path these tests were never written to
+    # expect.
+    env.setdefault("REE_PRECOMMIT_CONTRACTS_TARGET", "local")
     return subprocess.run(
         ["bash", str(repo / "scripts" / "precommit_contracts.sh"), *args],
         capture_output=True, text=True, env=env, cwd=str(repo),

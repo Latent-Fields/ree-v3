@@ -145,6 +145,16 @@ def _run(repo, shim, *args, cwd=None):
     env = dict(os.environ)
     env.pop("CLAUDE_PROJECT_DIR", None)  # force script-location resolution
     env["PATH"] = "%s:%s" % (shim, env.get("PATH", ""))
+    # These tests are about Block 1/2 TRIGGER SCOPE and REPO resolution, not
+    # the memory-gated local-vs-remote ROUTING decision (pinned separately in
+    # test_precommit_contracts_routing.py) -- pin TARGET=local so they run the
+    # real in-process suite deterministically regardless of the ambient
+    # test-runner Mac's actual free memory. Without this, a test-runner box
+    # sitting below REE_PRECOMMIT_CONTRACTS_LOCAL_FLOOR_MB now (2026-09-08)
+    # auto-routes remote, finds no router in this synthetic fake_repo (none is
+    # ever set up here), and hits the new below-floor-blocks-the-commit path
+    # these tests were never written to expect.
+    env.setdefault("REE_PRECOMMIT_CONTRACTS_TARGET", "local")
     return subprocess.run(
         ["bash", str(repo / "scripts" / "precommit_contracts.sh"), *args],
         capture_output=True, text=True, env=env, cwd=str(cwd or repo),
@@ -315,6 +325,10 @@ def test_cwd_outside_ree_v3_falls_back_to_claude_project_dir(fake_repo, py_shim,
     env = dict(os.environ)
     env["CLAUDE_PROJECT_DIR"] = str(fake_repo.parent)
     env["PATH"] = "%s:%s" % (py_shim, env.get("PATH", ""))
+    # See the comment in _run() above: this is a REPO-resolution test, not a
+    # routing test, and must not depend on the ambient test-runner Mac's
+    # actual free memory (2026-09-08 below-floor-blocks-the-commit change).
+    env.setdefault("REE_PRECOMMIT_CONTRACTS_TARGET", "local")
     r = subprocess.run(
         ["bash", str(fake_repo / "scripts" / "precommit_contracts.sh")],
         capture_output=True, text=True, env=env, cwd=str(elsewhere),

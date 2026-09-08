@@ -11,8 +11,22 @@ ree-v3 repo, so nothing real (pytest / a worker) runs and the tests are determin
   R3 auto + a flush Mac (high available MB) -> target=local.
   R4 remote path invokes the router and PASSES its exit through on green (exit 0).
   R5 remote path BLOCKS the commit on a red router run (exit 2).
-  R6 FAIL-SAFE: remote chosen but the router is missing -> fall back to local, never skip.
+  R6 FAIL-SAFE, at/above the memory floor: remote chosen but the router is missing -> fall
+     back to local, never skip (unchanged, 2026-09-08).
   R7 the header documents routing (guards against a silent revert to unconditional local pytest).
+
+FAIL-CLOSED BELOW THE FLOOR (2026-09-08, user decision recorded in the recommendation ledger):
+a081ff3616 fixed the common missing-router cause (worktree resolution) but left open whether the
+gate should still silently run the full suite on the Mac in the remaining missing-router cases --
+the old fall-back-to-local-always behaviour tied up the laptop for hours twice on 2026-09-08. Below
+the memory floor, missing router now means BLOCK, not silently run locally; at/above the floor
+(R6) and whenever the router IS present (R2/R4/R5/...), behaviour is unchanged.
+
+  R15 below the floor + router missing -> BLOCKS the commit (exit 2) with a reason naming the
+      measured memory, the floor, the router path it looked for, and both remedies.
+  R16 R15's --no-block variant: still falls back to local (advisory mode), never blocks.
+  R17 below the floor + router PRESENT (explicit TARGET=remote) -> routes to the router as
+      normal, no block -- the new BLOCKING branch must never fire when the router resolves.
 
 STAGGERED LOCAL-RACE FALLBACK (2026-08-01): when remote is chosen but is still running after
 RACE_AFTER seconds, the gate re-checks the SAME memory floor and, if it clears and no other
@@ -64,7 +78,7 @@ def _fake_repo(tmp_path, staged_rel):
     return repo
 
 
-def _run(repo, extra_env, decide_only=True):
+def _run(repo, extra_env, decide_only=True, extra_args=None):
     env = {**os.environ}
     # Isolate git so the fake repo's toplevel is what the gate resolves.
     env.pop("GIT_INDEX_FILE", None)
@@ -82,7 +96,8 @@ def _run(repo, extra_env, decide_only=True):
     if decide_only:
         env["REE_PRECOMMIT_CONTRACTS_DECIDE_ONLY"] = "1"
     env.update(extra_env)
-    p = subprocess.run(["bash", str(GATE)], cwd=repo, capture_output=True, text=True, env=env)
+    cmd = ["bash", str(GATE)] + list(extra_args or [])
+    p = subprocess.run(cmd, cwd=repo, capture_output=True, text=True, env=env)
     return p
 
 
@@ -118,8 +133,16 @@ def test_r1_self_gate_no_relevant_path(tmp_path):
 
 # --------------------------------------------------------------------------- R2
 def test_r2_auto_loaded_mac_routes_remote(tmp_path):
+    """A present (never-invoked, since decide_only exits first) router stub is
+    supplied explicitly so this test probes the auto MEMORY decision only --
+    without it, the fake repo's default router path resolves to nothing, and
+    since 2026-09-08 (R15) a below-floor + missing-router combination is a
+    BLOCKING decision in its own right, which would make this test exercise
+    R15's path instead of the auto-resolution it means to pin."""
     repo = _fake_repo(tmp_path, "experiments/_lib/x.py")
-    p = _run(repo, {"REE_PRECOMMIT_CONTRACTS_FREE_MB": "100"})   # 100MB << 3000 floor
+    stub, _marker = _stub_router(tmp_path, 0)
+    p = _run(repo, {"REE_PRECOMMIT_CONTRACTS_FREE_MB": "100",   # 100MB << 3000 floor
+                    "REE_PRECOMMIT_REMOTE_PYTEST": str(stub)})
     assert p.returncode == 0, p.stderr
     assert "target=remote" in p.stderr, p.stderr
 
@@ -167,12 +190,19 @@ def test_r5_remote_blocks_on_red(tmp_path):
 
 # --------------------------------------------------------------------------- R6
 def test_r6_failsafe_missing_router_falls_back_to_local(tmp_path):
+    """At/above the memory floor, a missing router still falls back to local,
+    unchanged by the 2026-09-08 fail-closed revision below. FREE_MB is set
+    explicitly (rather than left to the real vm_stat measurement) so this test
+    does not become flaky-below-the-floor on a loaded test-runner box now that
+    below-the-floor takes a different (blocking) path -- see R15."""
     repo = _fake_repo(tmp_path, "experiments/_lib/x.py")
     p = _run(repo, {"REE_PRECOMMIT_CONTRACTS_TARGET": "remote",
-                    "REE_PRECOMMIT_REMOTE_PYTEST": str(tmp_path / "does_not_exist.sh")})
+                    "REE_PRECOMMIT_REMOTE_PYTEST": str(tmp_path / "does_not_exist.sh"),
+                    "REE_PRECOMMIT_CONTRACTS_FREE_MB": "99999"})   # well above floor
     assert p.returncode == 0, p.stderr
     assert "FALLING BACK to local" in p.stderr, p.stderr
     assert "target=local" in p.stderr, "must not skip the gate when the router is missing"
+    assert "BLOCKING COMMIT" not in p.stderr, "must not block above the memory floor"
 
 
 # --------------------------------------------------------------------------- R7
@@ -180,6 +210,64 @@ def test_r7_header_documents_routing():
     src = GATE.read_text()
     assert "ROUTING" in src and "remote_pytest" in src, "Block 2 routing header missing"
     assert "OUT-OF-MEMORY" in src or "OOM" in src, "the OOM rationale must stay documented"
+
+
+# -------------------------------------------------------------------------- R15
+def test_r15_below_floor_missing_router_blocks_commit(tmp_path):
+    """The 2026-09-08 fail-closed revision: below the memory floor, a missing
+    router now BLOCKS the commit (exit 2) instead of silently running the full
+    suite on the Mac -- the old behaviour tied up the laptop for hours twice on
+    2026-09-08. The reason text must name the measured memory vs the floor, the
+    router path it looked for, and both remedies (route to the fleet directly,
+    or commit from the main checkout)."""
+    repo = _fake_repo(tmp_path, "experiments/_lib/x.py")
+    missing_router = tmp_path / "does_not_exist.sh"
+    p = _run(repo, {"REE_PRECOMMIT_CONTRACTS_TARGET": "remote",
+                    "REE_PRECOMMIT_REMOTE_PYTEST": str(missing_router),
+                    "REE_PRECOMMIT_CONTRACTS_FREE_MB": "100"})   # 100MB << 3000 floor
+    assert p.returncode == 2, f"below-floor + missing router must BLOCK the commit (got {p.returncode})\n{p.stderr}"
+    assert "BLOCKING COMMIT" in p.stderr, p.stderr
+    assert "mac_available=100MB" in p.stderr and "local_floor=3000MB" in p.stderr, p.stderr
+    assert str(missing_router) in p.stderr, "reason must name the router path it looked for"
+    assert "remote_pytest.sh tests/contracts -q" in p.stderr, "reason must name remedy 1 (route to the fleet)"
+    assert "main checkout" in p.stderr, "reason must name remedy 2 (commit from the main checkout)"
+    assert "FALLING BACK to local" not in p.stderr, "must not silently fall back to local below the floor"
+
+
+# -------------------------------------------------------------------------- R16
+def test_r16_below_floor_missing_router_no_block_falls_back_to_local(tmp_path):
+    """--no-block (CI/advisory use) downgrades R15's block to advisory: still
+    falls back to local, loudly logged, never exits non-zero. A local-pytest
+    stub (rather than a real `pytest tests/contracts` on the empty fake repo)
+    keeps this deterministic and fast -- what matters here is the routing
+    decision, not the local run's own result."""
+    repo = _fake_repo(tmp_path, "experiments/_lib/x.py")
+    local_stub, local_marker = _stub_sleeper(tmp_path, "local", 0, sleep_sec=0.0)
+    p = _run(repo, {"REE_PRECOMMIT_CONTRACTS_TARGET": "remote",
+                    "REE_PRECOMMIT_REMOTE_PYTEST": str(tmp_path / "does_not_exist.sh"),
+                    "REE_PRECOMMIT_CONTRACTS_FREE_MB": "100",
+                    "REE_PRECOMMIT_CONTRACTS_LOCAL_PYTEST": str(local_stub)},
+              decide_only=False, extra_args=["--no-block"])
+    assert p.returncode == 0, p.stderr
+    assert "BLOCKING COMMIT" in p.stderr, "reason must still be logged loudly"
+    assert "--no-block set -- falling back to local anyway" in p.stderr, p.stderr
+    assert local_marker.exists(), "must actually fall back to running local, not just skip"
+
+
+# -------------------------------------------------------------------------- R17
+def test_r17_below_floor_router_present_routes_normally(tmp_path):
+    """The new BLOCKING branch is gated on the router being MISSING -- below
+    the floor with a real (present) router must route to it exactly as before,
+    never block. (R2 covers the auto-resolution side of this; this pins the
+    explicit-TARGET=remote path against a real stub, matching R4/R5's shape.)"""
+    repo = _fake_repo(tmp_path, "experiments/_lib/x.py")
+    stub, marker = _stub_router(tmp_path, 0)
+    p = _run(repo, {"REE_PRECOMMIT_CONTRACTS_TARGET": "remote",
+                    "REE_PRECOMMIT_REMOTE_PYTEST": str(stub),
+                    "REE_PRECOMMIT_CONTRACTS_FREE_MB": "100"}, decide_only=False)   # << floor
+    assert marker.exists(), "router was not invoked"
+    assert p.returncode == 0, p.stderr
+    assert "BLOCKING COMMIT" not in p.stderr, "must not block when the router is present"
 
 
 def _race_env(tmp_path, remote_stub, local_stub, race_after_sec, free_mb, lock_dir=None):

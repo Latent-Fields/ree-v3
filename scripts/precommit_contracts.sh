@@ -343,9 +343,20 @@ fi
 #   REE_PRECOMMIT_REMOTE_PYTEST          path to the fleet router (default resolved)
 #   REE_PRECOMMIT_CONTRACTS_DECIDE_ONLY  1 -> print the resolved target and exit 0
 #                                        WITHOUT running (tests only)
-# FAIL-SAFE: if remote is chosen but the router is missing/not executable, fall
-# back to LOCAL rather than skip the gate -- a skipped gate is the dangerous
-# direction, and local is exactly today's behaviour.
+# FAIL-SAFE, revised 2026-09-08 (user decision, chip-20260907-precommit-remote-
+# pytest-worktree-resolution's open design question): if remote is chosen but
+# the router is missing/not executable, the response now DEPENDS on whether the
+# Mac clears FLOOR_MB at that moment --
+#   * at/above the floor: unchanged -- fall back to LOCAL (the Mac has a real
+#     margin, so running here is safe; a skipped gate is the dangerous direction).
+#   * BELOW the floor: fail LOUDLY and BLOCK the commit (exit 2) instead of
+#     falling back to local. The old fall-back-to-local-always behaviour tied up
+#     the laptop for hours twice on 2026-09-08 (a081ff3616's worktree-resolution
+#     fix made the missing-router case rare but not impossible, e.g. a genuinely
+#     unreachable REE_Working/scripts sibling) -- running the full suite on an
+#     already memory-constrained Mac is worse than blocking the commit and
+#     telling the operator to route explicitly. --no-block still downgrades this
+#     to advisory (falls back to local anyway, loudly logged) for CI/advisory use.
 #
 # STAGGERED LOCAL-RACE FALLBACK (2026-08-01): when TARGET=remote is chosen,
 # remote_pytest's OWN "expect roughly 2x" hub-contention advisory is a single
@@ -399,7 +410,22 @@ if [ "$TARGET" = "auto" ]; then
 fi
 
 if [ "$TARGET" = "remote" ] && [ ! -x "$REMOTE_PYTEST" ]; then
-    echo "[precommit_contracts] remote_pytest not executable ($REMOTE_PYTEST) -- FALLING BACK to local (gate never skipped)" >&2
+    ROUTER_MISSING_AVAIL=$(mac_available_mb)
+    if [ "${ROUTER_MISSING_AVAIL:-0}" -lt "$FLOOR_MB" ] 2>/dev/null; then
+        echo "[precommit_contracts] BLOCKING COMMIT: below the memory floor with no cloud router available (user decision 2026-09-08)" >&2
+        echo "[precommit_contracts]   mac_available=${ROUTER_MISSING_AVAIL}MB < local_floor=${FLOOR_MB}MB" >&2
+        echo "[precommit_contracts]   looked for the router at: $REMOTE_PYTEST (missing or not executable)" >&2
+        echo "[precommit_contracts]   remedy 1: run the contracts on the fleet directly, then retry the commit --" >&2
+        echo "[precommit_contracts]     scripts/remote_pytest.sh tests/contracts -q   (from the main checkout)" >&2
+        echo "[precommit_contracts]   remedy 2: commit from the main checkout (/Users/dgolden/REE_Working), where the router resolves" >&2
+        if [ "$NO_BLOCK" = "1" ]; then
+            echo "[precommit_contracts] --no-block set -- falling back to local anyway (advisory mode)" >&2
+        else
+            exit 2
+        fi
+    else
+        echo "[precommit_contracts] remote_pytest not executable ($REMOTE_PYTEST) -- FALLING BACK to local (mac_available=${ROUTER_MISSING_AVAIL}MB >= ${FLOOR_MB}MB, gate never skipped)" >&2
+    fi
     TARGET="local"
 fi
 
