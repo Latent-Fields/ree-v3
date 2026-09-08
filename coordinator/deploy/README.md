@@ -289,27 +289,18 @@ expiring on its timer.
 
 V1 above gives the scaler SSH key full shell access to the ree user.
 Lock it down to ONLY the announcer with a wrapper that parses
-`$SSH_ORIGINAL_COMMAND`, validates the argument, and exec's the helper:
+`$SSH_ORIGINAL_COMMAND`, validates the argument, and exec's the helper
+(`scaler_announce_wrapper.sh`, tracked here):
 
 ```
-sudo tee /usr/local/bin/scaler_announce_wrapper.sh <<'WRAP'
-#!/bin/bash
-# Forced-command wrapper. Accepts only:
-#   /usr/local/bin/coordinator_announce_shutdown.sh <affinity>
-# Anything else exits non-zero.
-set -eu
-cmd=${SSH_ORIGINAL_COMMAND:-}
-case "$cmd" in
-  "/usr/local/bin/coordinator_announce_shutdown.sh '"*"'")
-    aff=${cmd#"/usr/local/bin/coordinator_announce_shutdown.sh '"}
-    aff=${aff%"'"}
-    case "$aff" in
-      *[!A-Za-z0-9._-]*) echo "bad affinity" >&2; exit 2 ;;
-    esac
-    exec /usr/local/bin/coordinator_announce_shutdown.sh "$aff" ;;
-  *) echo "unauthorized command: $cmd" >&2; exit 1 ;;
-esac
-WRAP
+# scaler_announce_wrapper.sh is TRACKED in this directory (vendored
+# byte-identical from the hub 2026-09-08; sha256 212646e4...). Install
+# the tracked copy -- do not hand-type a second version: the fleet-wide
+# deployed-script drift detector (REE_Working
+# scripts/check_metaworker_wrapper_deploy.py --fleet, hygiene tick
+# source 29) pairs /usr/local/bin/scaler_*.sh with coordinator/deploy/
+# by identity and reports DRIFTED on any divergence.
+sudo cp scaler_announce_wrapper.sh /usr/local/bin/
 sudo chmod 755 /usr/local/bin/scaler_announce_wrapper.sh
 
 # Replace the plain authorized_keys line with a forced-command one.
