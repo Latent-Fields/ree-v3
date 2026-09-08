@@ -1,12 +1,12 @@
 {
   "records": {
-    "8d479f105f02cdc71303f4271aaa45542c14417bba1a08296e57ffb11b35735d": {
+    "616de792884963d1d7388da7431dd555a9a6dd8b4f21d377848531a823605531": {
       "machine_class": "darwin-arm64-py3.13-torch2.12.0",
-      "n_files": 202,
-      "recorded_at": "2026-09-07T18:11:54Z",
-      "recorded_by_commit": "880a82f21ddb9835af6879fb4f7ea170ce00bbaf",
+      "n_files": 203,
+      "recorded_at": "2026-09-08T19:53:36Z",
+      "recorded_by_commit": "46dbd9d8a1dbf75ddec42aaff6b4d59c1fac8661",
       "recorded_by_session_id": null,
-      "relevant_hash": "cfd63b03d421f22522485ca41033e2ae91ff91a032178ad80d16f6278594a067",
+      "relevant_hash": "8eaab572a15fd160b3540d176bd711a0a83a51c1c73b02a7eb3c19936dbdf622",
       "result": "pass",
       "tier": "ree-v3-contracts-full-suite"
     }
