@@ -206,7 +206,7 @@ from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
 from experiment_protocol import emit_outcome  # noqa: E402
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 from experiments._lib.arm_fingerprint import arm_cell  # noqa: E402
 from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
 from experiments._metrics import check_degeneracy, p0_readiness_gate, P0NotReady  # noqa: E402
@@ -1172,7 +1172,69 @@ def run(dry_run: bool = False) -> Tuple[dict, ZGoalStreamAccumulator]:
     print(f"  Non-degenerate: {degeneracy.get('non_degenerate')} "
           f"({degeneracy.get('degeneracy_reason', '')})")
 
+    # Flat scalar readout -- the pack's metrics.values source (REE_assembly
+    # evidence/planning/flat_scalar_readout_recording_gap_20260909.md).
+    # pass_criteria_summary is keyed by criterion, per_seed_diff by seed, and
+    # arm_results is a list, so the pack scored with no numeric metrics.values: no
+    # fail_if stop threshold could fire, the duplicate-emission supersession
+    # fingerprint was skipped, and the index carried no deltas.
+    #
+    # C1 is the SOLE gate and C4 is explicitly non-gating, so they are recorded under
+    # names that keep that asymmetry legible rather than as two peers in a pass count.
+    # C1 is a per-seed DIRECTIONAL comparison (SWS_THEN_REM strictly below
+    # WAKING_ONLY), so the decisive extremum is the WORST per-seed signed difference --
+    # the least negative one -- and the paired arm means are recorded beside it. The
+    # ARC-045 absolute cosine reference is recorded too: it is a separate, absolute
+    # reading of the same quantity that the per-seed block already reports.
+    # flat_readout() enforces the two encoding rules (bools -> 0/1 ints;
+    # non-finite/None dropped). Recording-only: the verdict grid, criteria, thresholds
+    # and DVs are unchanged.
+    _diffs = list(per_seed_diff.values())
+    readout = flat_readout({
+        # C1 -- the SOLE pass/fail gate
+        "C1_slot_cosine_sim_directional": c1_pass,
+        "c1_n_seeds_passed": c1_count,
+        "c1_n_seeds_required": C1_N_SEEDS_REQUIRED,
+        "overall_pass_flag": outcome == "PASS",
+        # C1's decisive per-seed extremum (worst = least negative signed diff)
+        "slot_cosine_sim_signed_diff_worst": max(
+            (d["slot_cosine_sim_signed_diff"] for d in _diffs), default=None),
+        "slot_cosine_sim_signed_diff_best": min(
+            (d["slot_cosine_sim_signed_diff"] for d in _diffs), default=None),
+        "waking_slot_cosine_sim_mean": (
+            sum(d["waking_slot_cosine_sim"] for d in _diffs) / len(_diffs)
+            if _diffs else None),
+        "sws_then_rem_slot_cosine_sim_mean": (
+            sum(d["sws_then_rem_slot_cosine_sim"] for d in _diffs) / len(_diffs)
+            if _diffs else None),
+        # ARC-045's separate ABSOLUTE reading of the same quantity
+        "arc045_abs_cosine_reference": ARC045_ABS_COSINE_REFERENCE,
+        "n_seeds_below_arc045_reference": sum(
+            1 for d in _diffs if d["arc045_sws_then_rem_below_reference"]),
+        # C4 -- SECONDARY, explicitly never gating
+        "C4_slot_separation_secondary_non_gating": c4_pass,
+        "c4_n_seeds_passed": c4_count,
+        "c4_n_seeds_required": C4_N_SEEDS_REQUIRED,
+        "c4_slot_separation_threshold": C4_SLOT_SEPARATION_THRESHOLD,
+        "slot_separation_signed_diff_worst": min(
+            (d["slot_separation_signed_diff"] for d in _diffs), default=None),
+        # harm-rate diffs: recorded, never gating
+        "harm_rate_dangerous_signed_diff_worst": max(
+            (d["harm_rate_dangerous_signed_diff"] for d in _diffs), default=None),
+        "harm_rate_safe_signed_diff_worst": max(
+            (d["harm_rate_safe_signed_diff"] for d in _diffs), default=None),
+        # non-degeneracy: the 436/436a failure mode this run exists to avoid
+        "non_degenerate_flag": degeneracy.get("non_degenerate"),
+        "n_degenerate_metrics": len(degeneracy.get("degenerate_metrics") or []),
+        "slot_cosine_sim_spread": (
+            max(all_cosine_values) - min(all_cosine_values) if all_cosine_values else None),
+        "action_class_entropy_min": min(all_action_entropy, default=None),
+        "n_seed_pairs": len(_diffs),
+        "n_cells": len(arm_results),
+    })
+
     result = {
+        "readout": readout,
         "queue_id": QUEUE_ID,
         "supersedes": SUPERSEDES,
         "claim_ids": CLAIM_IDS,
