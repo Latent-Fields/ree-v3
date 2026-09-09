@@ -271,7 +271,7 @@ from experiments._lib.baselines.mech439_f_variance_share import (  # noqa: E402
     make_env,
     off_path_config_slice,
 )
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 
 EXPERIMENT_PURPOSE = "diagnostic"
 EXPERIMENT_TYPE = "v3_exq_571c_e3_variance_monopoly_presence_936_regime"
@@ -1629,7 +1629,59 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         f"{lb['score_range_mean']:.4g}. {note_map[label]}"
     )
 
+    # Flat scalar readout -- the pack's metrics.values source (REE_assembly
+    # evidence/planning/flat_scalar_readout_recording_gap_20260909.md). arm_results is a
+    # list and criteria / summary / interpretation are nested, so the pack scored with no
+    # numeric metrics.values: no fail_if stop threshold could fire, the duplicate-emission
+    # supersession fingerprint was skipped, and the index carried no deltas.
+    #
+    # C1 ALONE routes the verdict; C2 refines it; C3 and C5 are WIRING CHECKS
+    # (overdetermined by the residue-protocol manipulation) and C4 is the one OPEN
+    # contrast. Each criterion is therefore recorded under a name carrying its role, and
+    # none of them is summed into a single pass count -- an aggregate would imply C3/C5
+    # can override C1, which the combination rule explicitly forbids. C1's routed
+    # statistic is the MODAL channel's cross-candidate share, so both its mean and its
+    # per-seed MINIMUM are recorded against the monopoly bar, along with the unanimity
+    # flag that gates the whole reading. flat_readout() enforces the two encoding rules
+    # (bools -> 0/1 ints; non-finite/None dropped). Recording-only: the verdict grid,
+    # criteria, thresholds and DVs are unchanged.
+    readout = flat_readout({
+        # C1 -- the verdict-routing criterion
+        "C1_monopoly_present_936_regime": c1_monopoly_present,
+        "C2_monopoly_occupant_is_f_refines_c1": c2_occupant_is_f,
+        "overall_pass_flag": outcome == "PASS",
+        "non_degenerate_flag": bool(gate["non_degenerate"]),
+        "load_bearing_arm_gate_green": bool(lb_gate["gate_green"]),
+        # C1's routed statistic against the monopoly bar
+        "f_monopoly_threshold": F_MONOPOLY_THRESHOLD,
+        "xcand_modal_channel_share_mean": lb["xcand_modal_channel_share_mean"],
+        "xcand_modal_channel_share_min": lb["xcand_modal_channel_share_min"],
+        "b1_seeds_unanimous_on_top_channel": lb_unanimous,
+        # C6 -- the RECORDED stage check (explicitly not routing)
+        "C6_final_commit_decided_at_primary_stage": c6["passed"],
+        "final_commit_by_primary_frac_min": lb["final_commit_by_primary_frac_min"],
+        "final_commit_by_primary_frac_mean": lb["final_commit_by_primary_frac_mean"],
+        "final_commit_primary_floor": float(FINAL_COMMIT_PRIMARY_FLOOR),
+        "modulatory_shortlist_active_frac_mean": lb["modulatory_shortlist_active_frac_mean"],
+        "modulatory_shortlist_size_mean": lb["modulatory_shortlist_size_mean"],
+        # C3 / C5 wiring checks and C4, the one OPEN contrast -- kept distinct by role
+        "C3_residue_protocol_wiring_check": c3["passed"],
+        "C4_warmup_flips_occupant_open_contrast": c4["passed"],
+        "C5_both_dimensions_wiring_check": c5["passed"],
+        "c3_n_matched_decidable_pairs": c3["n_matched_decidable_pairs"],
+        "c4_n_matched_decidable_pairs": c4["n_matched_decidable_pairs"],
+        "c5_n_matched_decidable_pairs": c5["n_matched_decidable_pairs"],
+        # liveness floors the channel readings rest on
+        "min_live_channel_variance": float(MIN_LIVE_CHANNEL_VARIANCE),
+        "min_live_channel_share": float(MIN_LIVE_CHANNEL_SHARE),
+        # census
+        "n_load_bearing_cells": len(lb_rows),
+        "n_cells": len(rows),
+        "n_arms_green": len(green),
+    })
+
     return {
+        "readout": readout,
         "outcome": outcome,
         "outcome_note": outcome_note,
         "arm_results": rows,
@@ -1771,6 +1823,7 @@ if __name__ == "__main__":
         "per_seed_results": result["arm_results"],
         "interpretation": result["interpretation"],
         "criteria": result["criteria"],
+        "readout": result["readout"],
         "summary": result["summary"],
         "diagnostics": result["diagnostics"],
         "custom_information": {

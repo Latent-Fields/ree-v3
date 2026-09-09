@@ -128,7 +128,7 @@ from ree_core.utils.config import REEConfig
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from experiment_protocol import emit_outcome  # noqa: E402
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 from experiments._lib.capability_eval import RandomPolicy  # noqa: E402
 from experiments._lib.zworld_p0_warmup import run_zworld_p0  # noqa: E402
 from experiments._lib.zworld_encoder_guard import (  # noqa: E402
@@ -637,6 +637,21 @@ def run_experiment(seeds: List[int], conditions: List[str],
                 {"name": "C2_dissociation_from_z_harm_a", "load_bearing": True, "passed": False},
                 {"name": "C3_assert_not_withdraw", "load_bearing": True, "passed": False},
             ],
+            "readout": flat_readout({
+                # This branch writes a pack too; a not-ready run scoring with no numeric
+                # metrics.values is exactly as unscorable as a completed one.
+                "substrate_not_ready_flag": True,
+                "C0_detector_readiness": False,
+                "C1_z_block_rises": False,
+                "C2_dissociation_from_z_harm_a": False,
+                "C3_assert_not_withdraw": False,
+                "n_criteria_passed": 0,
+                "n_criteria_total": 4,
+                "n_ready_seeds": 0,
+                "n_seeds": len(per_seed),
+                "n_runs_completed": n_runs_completed,
+                "n_total_runs": n_total_runs,
+            }),
             "per_seed": per_seed,
             "n_runs_completed": n_runs_completed,
             "n_total_runs": n_total_runs,
@@ -687,7 +702,54 @@ def run_experiment(seeds: List[int], conditions: List[str],
 
     all_preconditions = [p for s in per_seed for p in (s.get("preconditions") or [])]
 
+    # Flat scalar readout -- the pack's metrics.values source (REE_assembly
+    # evidence/planning/flat_scalar_readout_recording_gap_20260909.md). per_seed is a
+    # list and interpretation / criteria are nested, so the pack scored with no numeric
+    # metrics.values: no fail_if stop threshold could fire, the duplicate-emission
+    # supersession fingerprint was skipped, and the index carried no deltas.
+    #
+    # The non-degeneracy flags are recorded beside the criteria, not folded into them,
+    # because of this lineage's own history: C3 passed VACUOUSLY in 642 when z_block
+    # stayed identically 0 in both arms, and a flat surface carrying only pass flags
+    # would reproduce exactly that reading. The z_block peak that all three of C1/C2/C3's
+    # non-degeneracy hangs on is recorded as a number, so a later reader can see whether
+    # the signal moved at all. flat_readout() enforces the two encoding rules (bools ->
+    # 0/1 ints; non-finite/None dropped). Recording-only: the verdict grid, criteria,
+    # thresholds and DVs are unchanged.
+    readout = flat_readout({
+        "C0_detector_readiness": c0_pass,
+        "C1_z_block_rises": c1_pass,
+        "C2_dissociation_from_z_harm_a": c2_pass,
+        "C3_assert_not_withdraw": c3_pass,
+        "n_criteria_passed": sum(1 for x in (c0_pass, c1_pass, c2_pass, c3_pass) if x),
+        "n_criteria_total": 4,
+        "overall_pass_flag": overall_pass,
+        "substrate_not_ready_flag": False,
+        # per-criterion seed counts against the shared bar
+        "seeds_needed": need,
+        "seed_pass_fraction": SEED_PASS_FRACTION,
+        "c0_seeds_pass": c0n,
+        "c1_seeds_pass": c1n,
+        "c2_seeds_pass": c2n,
+        "c3_seeds_pass": c3n,
+        "n_ready_seeds": n_ready,
+        "n_seeds": len(per_seed),
+        "n_seeds_skipped_not_ready": len(per_seed) - n_ready,
+        # non-degeneracy -- the 642 vacuous-C3 failure mode this run exists to avoid
+        "nd_c0_comparator_read": criteria_non_degenerate["C0"],
+        "nd_any_nonzero_z_block_peak": any_nonzero_block_peak,
+        "z_block_peak_max": max(
+            (s["ARM_BLOCK"]["z_block_peak"] for s in ready_seeds), default=None),
+        "z_block_peak_min": min(
+            (s["ARM_BLOCK"]["z_block_peak"] for s in ready_seeds), default=None),
+        "n_runs_completed": n_runs_completed,
+        "n_total_runs": n_total_runs,
+        "n_preconditions_met": sum(1 for pc in all_preconditions if pc.get("met")),
+        "n_preconditions_total": len(all_preconditions),
+    })
+
     return {
+        "readout": readout,
         "outcome": "PASS" if overall_pass else "FAIL",
         "interpretation": {
             "label": interp,
@@ -736,6 +798,7 @@ def _build_manifest(result: Dict, timestamp_utc: str, dry_run: bool) -> Dict:
             "SEED_PASS_FRACTION": SEED_PASS_FRACTION,
         },
         "criteria": result["criteria"],
+        "readout": result["readout"],
         "interpretation": result["interpretation"],
         "per_seed": result["per_seed"],
         "n_runs_completed": result["n_runs_completed"],
