@@ -140,7 +140,7 @@ from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
 from ree_core.predictors.e2_harm_a import E2HarmAConfig, E2HarmAForward  # noqa: E402
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 from experiments._lib.arm_fingerprint import arm_cell  # noqa: E402
 from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
 from experiments._metrics import check_degeneracy  # noqa: E402
@@ -533,9 +533,54 @@ def _evaluate(rows_by_arm: Dict[str, List[Dict]]) -> Dict:
 
     overall_pass = bool(arm2_pass and arm0_c4_pass)
 
+    # Flat scalar readout -- the pack's metrics.values source. Every quantitative block
+    # this driver emits (per_arm, arm_results) is a list or a dict keyed by arm, so the
+    # pack scored with no numeric metrics.values: no fail_if stop threshold could fire,
+    # the duplicate-emission supersession fingerprint was skipped, and the index carried
+    # no deltas. These are the pre-registered scalars the pass rule (ARM_2 C1 AND C2, plus
+    # ARM_0's C4 sanity) and the inverted-U label grid turn on, per arm, plus the
+    # peak-arm indicators recorded as 0/1 flags so the non-monotonicity reading survives
+    # into a numeric surface. flat_readout() enforces the two encoding rules (bools -> 0/1
+    # ints; non-finite/None dropped). Recording-only: the verdict grid, criteria,
+    # thresholds and DVs are unchanged.
+    _readout = {
+        "overall_pass_flag": overall_pass,
+        "arm2_pass_c1_and_c2": arm2_pass,
+        "arm0_pass_c4_sanity": arm0_c4_pass,
+        "arm0_pass_c1_trivial_check": arm0_c1_pass,
+        "any_on_arm_pass": any_on_arm_pass,
+        "n_seeds": n,
+        "min_seeds_required": required,
+        "pass_fraction_required": PASS_FRACTION_REQUIRED,
+        # pre-registered thresholds
+        "c1_min_selectivity_gap": C1_MIN_SELECTIVITY_GAP,
+        "c2_min_quiet_gap": C2_MIN_QUIET_GAP,
+        "c4_min_r2_arm_0": C4_MIN_R2_ARM_0,
+        # peak-arm detection, as flags (the direct inverted-U test)
+        "peak_selectivity_gap_is_arm2": peak_selectivity_arm == "ARM_2",
+        "peak_quiet_gap_is_arm2": peak_quiet_gap_arm == "ARM_2",
+    }
+    for _aid in (a["arm_id"] for a in ARMS):
+        _pa = per_arm[_aid]
+        _readout.update({
+            f"{_aid}_noise_scale": _pa["noise_scale"],
+            f"{_aid}_c1_pass": _pa["c1_pass"],
+            f"{_aid}_c2_pass": _pa["c2_pass"],
+            f"{_aid}_c4_pass": _pa["c4_pass"],
+            f"{_aid}_c1_seeds_pass": _pa["c1_seeds_pass"],
+            f"{_aid}_c2_seeds_pass": _pa["c2_seeds_pass"],
+            f"{_aid}_c4_seeds_pass": _pa["c4_seeds_pass"],
+            f"{_aid}_mean_selectivity_gap": _pa["mean_selectivity_gap"],
+            f"{_aid}_mean_quiet_gap": _pa["mean_quiet_gap"],
+            f"{_aid}_mean_selectivity_ratio": _pa["mean_selectivity_ratio"],
+            f"{_aid}_mean_forward_r2": _pa["mean_forward_r2"],
+            f"{_aid}_mean_n_body_noise_steps": _pa["mean_n_body_noise_steps"],
+        })
+
     return {
         "n_seeds": n,
         "min_seeds_required": required,
+        "readout": flat_readout(_readout),
         "per_arm": per_arm,
         "peak_selectivity_gap_arm": peak_selectivity_arm,
         "peak_quiet_gap_arm": peak_quiet_gap_arm,
@@ -642,6 +687,7 @@ def main() -> Dict:
         "outcome": outcome,
         "evidence_direction": direction,
         "criteria": criteria,
+        "readout": criteria["readout"],
         "registered_thresholds": {
             "C1_MIN_SELECTIVITY_GAP": C1_MIN_SELECTIVITY_GAP,
             "C2_MIN_QUIET_GAP": C2_MIN_QUIET_GAP,

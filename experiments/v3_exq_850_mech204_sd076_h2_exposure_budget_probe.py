@@ -198,7 +198,7 @@ from experiments._lib.precondition_gate import (  # noqa: E402
     assert_no_structurally_unsatisfiable_gate,
     evaluate_arm_gate,
 )
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 
 QUEUE_ID = "V3-EXQ-853"
 EXPERIMENT_TYPE = "v3_exq_850_mech204_sd076_h2_exposure_budget_probe"
@@ -722,7 +722,62 @@ def _analyse(cells: List[Dict], seeds: List[int]) -> Dict:
 
     per_claim = {"SD-076": direction if readiness_ok else "unknown"}
 
+    # Flat scalar readout -- the pack's metrics.values source.
+    #
+    # NOTE ON PLACEMENT: this is merged into the existing top-level `aggregates` key in
+    # the manifest below, NOT emitted as a sibling `readout`. The runpack converter takes
+    # the FIRST non-empty of metrics / aggregates / summary_metrics / readout, and this
+    # driver's `aggregates` is already populated -- but only with dicts keyed by arm or
+    # by inflation level, so it harvested zero NUMERIC entries and a `readout` sibling
+    # would never be reached. The nested per-arm/per-level blocks stay unchanged
+    # alongside these scalars; build_experiment_indexes reads only the numeric entries,
+    # so they are simply ignored by the indexer while remaining the readable record.
+    #
+    # Without this the pack scored with no numeric metrics.values: no fail_if stop
+    # threshold could fire, the duplicate-emission supersession fingerprint was skipped,
+    # and the index carried no deltas. These are the pre-registered scalars C1/C2/C3 turn
+    # on -- both doses' closure fractions (C1 and C2 are ANDs over LO and HI, so each
+    # dose's own value is decisive and both are recorded rather than an extremum), their
+    # support floor and plateau ceiling, and the two rv_final values C3's monotonicity
+    # compares. flat_readout() enforces the two encoding rules (bools -> 0/1 ints;
+    # non-finite/None dropped). Recording-only: the verdict grid, criteria, thresholds and
+    # DVs are unchanged.
+    readout = flat_readout({
+        "C1_extended_exposure_closes_smoke_gap": c1_h2_supported,
+        "C2_extended_exposure_plateaus": c2_h2_plateau,
+        "C3_dose_response_monotone": c3_dose_response_monotone,
+        "n_criteria_passed": sum(1 for c in criteria if c["passed"]),
+        "n_criteria_total": len(criteria),
+        "readiness_ok_flag": readiness_ok,
+        "both_arms_green_flag": both_green,
+        # C1 / C2 -- per-dose closure fractions against their two bars
+        "h2_closure_support_floor": H2_CLOSURE_SUPPORT_FLOOR,
+        "h2_closure_plateau_ceiling": H2_CLOSURE_PLATEAU_CEILING,
+        "closure_fraction_lo": per_level["LO"]["closure_fraction"],
+        "closure_fraction_hi": per_level["HI"]["closure_fraction"],
+        "closure_fraction_worst": min(per_level["LO"]["closure_fraction"],
+                                      per_level["HI"]["closure_fraction"]),
+        # C3 -- the two rv_final values the monotonicity test compares
+        "rv_final_lo": per_level["LO"]["rv_final"],
+        "rv_final_hi": per_level["HI"]["rv_final"],
+        "rv_final_hi_minus_lo": per_level["HI"]["rv_final"] - per_level["LO"]["rv_final"],
+        # the two reference points the closure fraction is measured between
+        "rv_final_794a_lo": per_level["LO"]["rv_final_794a"],
+        "rv_final_794a_hi": per_level["HI"]["rv_final_794a"],
+        "rv_final_smoke_lo": per_level["LO"]["rv_final_smoke"],
+        "rv_final_smoke_hi": per_level["HI"]["rv_final_smoke"],
+        # overconfidence census per dose
+        "n_seeds_overconfident_lo": per_level["LO"]["n_seeds_overconfident"],
+        "n_seeds_overconfident_hi": per_level["HI"]["n_seeds_overconfident"],
+        "infl_score_lo": per_level["LO"]["infl_score"],
+        "infl_score_hi": per_level["HI"]["infl_score"],
+        "n_seeds": len(seeds),
+        "n_arms_green": len(gate["per_arm_gate"].get("green_arms") or []),
+        "n_arms_red": len(gate["per_arm_gate"].get("red_arms") or []),
+    })
+
     return {
+        "readout": readout,
         "outcome": outcome,
         "label": label,
         "evidence_direction": direction,
@@ -870,6 +925,7 @@ def main(dry_run: bool = False) -> Dict:
         "non_degenerate": adj["gate"]["non_degenerate"],
         "degeneracy_reason": adj["gate"]["degeneracy_reason"],
         "aggregates": {
+            **adj["readout"],
             "arm_overconfidence_score": adj["arm_overconfidence_score"],
             "arm_calibration_ratio": adj["arm_calibration_ratio"],
             "arm_true_error_ref": adj["arm_true_error_ref"],

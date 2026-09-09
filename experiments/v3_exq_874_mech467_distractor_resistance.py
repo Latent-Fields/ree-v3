@@ -139,7 +139,7 @@ from experiments.committed_mode_curriculum import (  # noqa: E402
     run_p0_warmup,
 )
 from experiments._lib.arm_fingerprint import arm_cell  # noqa: E402
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_874_mech467_distractor_resistance"
@@ -581,6 +581,60 @@ def build_manifest(seed_results: list, smoke: bool, started_at: float) -> dict:
             else "legs_covary_no_dissociation"
         )
 
+    # Flat scalar readout -- the pack's metrics.values source.
+    #
+    # NOTE ON PLACEMENT: this block is merged into the existing top-level `metrics` key
+    # below, NOT emitted as a sibling `readout`. The runpack converter takes the FIRST
+    # non-empty of metrics / aggregates / summary_metrics / readout, so this driver's
+    # already-populated `metrics` (which holds only the nested per_seed list) would
+    # shadow a `readout` key entirely and the pack would keep scoring empty. The nested
+    # per_seed block is kept unchanged alongside these scalars -- build_experiment_indexes
+    # reads only the NUMERIC entries of the harvested dict, so the nested sibling is
+    # simply ignored by the indexer while staying the human-readable record.
+    #
+    # Without this the pack scored with no numeric metrics.values: no fail_if stop
+    # threshold could fire, the duplicate-emission supersession fingerprint was skipped,
+    # and the index carried no deltas. These are the pre-registered scalars the PASS rule
+    # turns on -- the dissociation is an ANY over arms, so the BEST arm's conditioned
+    # wrong-target rate against its elevation bar and the LOWEST mean rule drift against
+    # the floor are the decisive extrema -- plus the three non-degeneracy checks.
+    # flat_readout() enforces the two encoding rules (bools -> 0/1 ints; non-finite/None
+    # dropped). Recording-only: the verdict grid, criteria, thresholds and DVs are
+    # unchanged.
+    _pooled_live = [p for p in pooled.values() if p is not None]
+    readout = flat_readout({
+        "dissociation_found_flag": (not substrate_not_ready) and outcome == "PASS",
+        "substrate_not_ready_flag": substrate_not_ready,
+        "non_degenerate_flag": non_degenerate,
+        # the three non-degeneracy checks, individually
+        "nd_any_sensory_capture_flag": any_sensory_capture,
+        "nd_any_leg_moves_flag": any_leg_moves,
+        "nd_conditioning_vacuous_flag": conditioning_vacuous,
+        # pre-registered thresholds
+        "rule_drift_floor": RULE_DRIFT_FLOOR,
+        "wrong_target_elevated_min": WRONG_TARGET_ELEVATED_MIN,
+        "min_intact_ticks": MIN_INTACT_TICKS,
+        # decisive extrema across arms (the PASS rule is an ANY over arms)
+        "wrong_target_rate_conditioned_best_arm": max(
+            (p["wrong_target_rate_conditioned_pooled"] for p in _pooled_live), default=None),
+        "wrong_target_rate_conditioned_worst_arm": min(
+            (p["wrong_target_rate_conditioned_pooled"] for p in _pooled_live), default=None),
+        "mean_final_rule_drift_lowest_arm": min(
+            (p["mean_final_rule_drift"] for p in _pooled_live), default=None),
+        "mean_final_rule_drift_highest_arm": max(
+            (p["mean_final_rule_drift"] for p in _pooled_live), default=None),
+        "sensory_capture_rate_mean_best_arm": max(
+            (p["sensory_capture_rate_mean"] for p in _pooled_live), default=None),
+        "n_intact_ticks_total_best_arm": max(
+            (p["n_intact_ticks_total"] for p in _pooled_live), default=None),
+        # arm census
+        "n_arms_pooled": len(_pooled_live),
+        "n_arms_rule_at_floor": sum(1 for p in _pooled_live if p["rule_at_floor"]),
+        "n_seeds": len(seed_results),
+        "n_seeds_pass": sum(1 for r in seed_results if r.get("pass")),
+        "smoke_flag": smoke,
+    })
+
     n_seeds = len(seed_results)
     run_id = f"{EXPERIMENT_TYPE}_{_utc_stamp()}_v3"
     elapsed = time.perf_counter() - started_at
@@ -655,7 +709,7 @@ def build_manifest(seed_results: list, smoke: bool, started_at: float) -> dict:
         "smoke": smoke,
         "arm_results": arm_results,
         "pooled_by_arm": pooled,
-        "metrics": {"per_seed": seed_results},
+        "metrics": {"per_seed": seed_results, **readout},
         "elapsed_seconds": elapsed,
         "notes": (
             "MECH-467 three-leg distractor battery: sensory capture "
