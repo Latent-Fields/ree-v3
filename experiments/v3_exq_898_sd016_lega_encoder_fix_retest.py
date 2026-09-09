@@ -163,7 +163,7 @@ from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
 from experiment_protocol import emit_outcome
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 from experiments._lib.arm_fingerprint import arm_cell
 from experiments._lib.capability_eval import RandomPolicy
 from experiments._lib.zworld_p0_warmup import run_zworld_p0
@@ -741,6 +741,74 @@ def main(dry_run: bool = False) -> Dict:
             "criteria_non_degenerate": criteria_non_degenerate,
         },
         "acceptance_checks": acceptance,
+        # Flat scalar readout -- the pack's metrics.values source (REE_assembly
+        # evidence/planning/flat_scalar_readout_recording_gap_20260909.md).
+        # acceptance_checks is a dict keyed by criterion, per_arm_summaries is keyed by
+        # arm, and arm_results is a list, so the pack scored with no numeric
+        # metrics.values: no fail_if stop threshold could fire, the duplicate-emission
+        # supersession fingerprint was skipped, and the index carried no deltas. These are
+        # the pre-registered scalars C1/C1b/C2 turn on -- each criterion's ready-seed count
+        # against the ready-seed majority, plus the decisive per-arm extremum each
+        # threshold is applied to (C1 and C2 bracket ON's selection entropy from above and
+        # OFF's from below, so the ON MAXIMUM and the OFF MINIMUM are what move them) --
+        # and the readiness gate that decides whether any of them is scored at all.
+        # flat_readout() enforces the two encoding rules (bools -> 0/1 ints;
+        # non-finite/None dropped -- so a substrate_not_ready run, where `acceptance` is
+        # None, correctly records the readiness census and NO criterion values rather than
+        # a row of zeros). Recording-only: the verdict grid, criteria, thresholds and DVs
+        # are unchanged.
+        "readout": flat_readout({
+            "overall_pass_flag": bool(acceptance and acceptance["overall_pass"]),
+            "substrate_not_ready_flag": acceptance is None,
+            # the readiness gate the whole run is conditional on
+            "n_seeds_ready": n_ready,
+            "n_seeds_total": n_seeds_total,
+            "seed_majority_required": seed_majority,
+            # per-criterion pass flags and ready-seed counts
+            "C1_tagger_breaks_saddle": (
+                acceptance["C1_tagger_breaks_saddle"]["pass"] if acceptance else None),
+            "C1b_selection_context_dependent": (
+                acceptance["C1b_selection_context_dependent"]["pass"] if acceptance else None),
+            "C2_off_arm_on_saddle": (
+                acceptance["C2_off_arm_on_saddle"]["pass"] if acceptance else None),
+            "n_criteria_passed": (
+                sum(1 for k in ("C1_tagger_breaks_saddle",
+                                "C1b_selection_context_dependent",
+                                "C2_off_arm_on_saddle") if acceptance[k]["pass"])
+                if acceptance else None),
+            "n_criteria_total": 3,
+            "c1_seeds_pass": (
+                acceptance["C1_tagger_breaks_saddle"]["seeds_pass"] if acceptance else None),
+            "c1b_seeds_pass": (
+                acceptance["C1b_selection_context_dependent"]["seeds_pass"] if acceptance else None),
+            "c2_seeds_pass": (
+                acceptance["C2_off_arm_on_saddle"]["seeds_pass"] if acceptance else None),
+            "ready_seed_majority": (
+                acceptance["C1_tagger_breaks_saddle"]["majority"] if acceptance else None),
+            # pre-registered thresholds and the decisive per-arm extrema
+            "sel_entropy_c1_threshold": SEL_ENTROPY_C1_THRESHOLD,
+            "sel_context_div_threshold": SEL_CONTEXT_DIV_THRESHOLD,
+            "sel_entropy_c2_floor": SEL_ENTROPY_C2_FLOOR,
+            "uniform_reference": UNIFORM_REFERENCE,
+            "on_sel_entropy_mean_worst": (summaries.get("A1_ON") or {}).get(
+                "sel_entropy_mean_max"),
+            "on_sel_entropy_mean_best": (summaries.get("A1_ON") or {}).get(
+                "sel_entropy_mean_min"),
+            "on_sel_context_divergence_worst": (summaries.get("A1_ON") or {}).get(
+                "sel_context_divergence_min"),
+            "on_sel_context_divergence_mean": (summaries.get("A1_ON") or {}).get(
+                "sel_context_divergence_mean"),
+            "off_sel_entropy_mean_worst": (summaries.get("A0_OFF") or {}).get(
+                "sel_entropy_mean_min"),
+            "off_sel_entropy_mean_mean": (summaries.get("A0_OFF") or {}).get(
+                "sel_entropy_mean_mean"),
+            # readiness floors carried through
+            "world_encoder_weight_move_floor": WORLD_ENCODER_WEIGHT_MOVE_FLOOR,
+            "z_world_spread_lift_floor": Z_WORLD_SPREAD_LIFT_FLOOR,
+            "n_preconditions_met": sum(1 for pc in flat_preconditions if pc.get("met")),
+            "n_preconditions_total": len(flat_preconditions),
+            "n_cells": len(all_cells),
+        }),
         "n_seeds_total": n_seeds_total,
         "n_seeds_ready": n_ready,
         "ready_seeds": ready_seeds,

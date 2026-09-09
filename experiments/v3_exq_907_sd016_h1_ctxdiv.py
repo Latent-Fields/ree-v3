@@ -217,7 +217,7 @@ from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
 from experiment_protocol import emit_outcome
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 from experiments._lib.arm_fingerprint import arm_cell
 from experiments._lib.capability_eval import RandomPolicy
 from experiments._lib.zworld_p0_warmup import run_zworld_p0
@@ -929,6 +929,86 @@ def main(dry_run: bool = False) -> Dict:
             "criteria_non_degenerate": criteria_non_degenerate,
         },
         "acceptance_checks": acceptance,
+        # Flat scalar readout -- the pack's metrics.values source (REE_assembly
+        # evidence/planning/flat_scalar_readout_recording_gap_20260909.md).
+        # acceptance_checks is keyed by criterion (with a per_a2_arm sub-dict),
+        # per_arm_summaries is keyed by arm, and arm_results is a list, so the pack scored
+        # with no numeric metrics.values: no fail_if stop threshold could fire, the
+        # duplicate-emission supersession fingerprint was skipped, and the index carried
+        # no deltas.
+        #
+        # The C1/C1b AND is enforced WITHIN one lambda arm and OR-ed across the three, so
+        # a single "n_criteria_passed" would erase the structure the verdict actually
+        # turns on: each lambda arm's own C1/C1b counts are recorded separately, plus the
+        # number of arms that broke the saddle. The two SUB-TYPING signals are recorded
+        # too (any_c1b_pass without any_c1_pass is the Step-2.5a prediction -- the drive
+        # conditions but does not sparsify -- and is what makes a FAIL discriminating
+        # rather than flat), as is attribution_clean, which depends on the matched-budget
+        # A1 baseline NOT breaking the saddle. flat_readout() enforces the two encoding
+        # rules (bools -> 0/1 ints; non-finite/None dropped -- so a substrate_not_ready
+        # run, where `acceptance` is None, records the readiness census and no criterion
+        # values rather than a row of zeros). Recording-only: the verdict grid, criteria,
+        # thresholds and DVs are unchanged.
+        "readout": flat_readout(dict(
+            {
+                "overall_pass_flag": bool(acceptance and acceptance["overall_pass"]),
+                "substrate_not_ready_flag": acceptance is None,
+                # readiness gate
+                "n_seeds_ready": n_ready,
+                "n_seeds_total": n_seeds_total,
+                "seed_majority_required": seed_majority,
+                # the two load-bearing criteria
+                "C1_C1b_any_lambda_breaks_saddle": (
+                    acceptance["C1_C1b_any_lambda_breaks_saddle"]["pass"]
+                    if acceptance else None),
+                "C2_off_arm_on_saddle": (
+                    acceptance["C2_off_arm_on_saddle"]["pass"] if acceptance else None),
+                "n_lambda_arms_breaking_saddle": (
+                    len(acceptance["C1_C1b_any_lambda_breaks_saddle"]["breaking_lambda_arms"])
+                    if acceptance else None),
+                "n_lambda_arms": len(A2_LABELS),
+                "c2_seeds_pass": (
+                    acceptance["C2_off_arm_on_saddle"]["seeds_pass"] if acceptance else None),
+                "ready_seed_majority": (
+                    acceptance["C2_off_arm_on_saddle"]["majority"] if acceptance else None),
+                # sub-typing signals: C1b-pass with C1-fail is the Step-2.5a prediction
+                "any_c1b_pass": acceptance["any_c1b_pass"] if acceptance else None,
+                "any_c1_pass": acceptance["any_c1_pass"] if acceptance else None,
+                # attribution: the matched-budget A1 baseline must NOT break the saddle
+                "attribution_clean": acceptance["attribution_clean"] if acceptance else None,
+                "a1_breaks_saddle": (
+                    acceptance["a1_matched_budget_baseline"]["breaks_saddle"]
+                    if acceptance else None),
+                "a1_c1_seeds_pass": (
+                    acceptance["a1_matched_budget_baseline"]["c1_seeds_pass"]
+                    if acceptance else None),
+                "a1_c1b_seeds_pass": (
+                    acceptance["a1_matched_budget_baseline"]["c1b_seeds_pass"]
+                    if acceptance else None),
+                # pre-registered thresholds
+                "sel_entropy_c1_threshold": SEL_ENTROPY_C1_THRESHOLD,
+                "sel_context_div_threshold": SEL_CONTEXT_DIV_THRESHOLD,
+                "sel_entropy_c2_floor": SEL_ENTROPY_C2_FLOOR,
+                "uniform_reference": UNIFORM_REFERENCE,
+                "n_preconditions_met": sum(
+                    1 for pc in flat_preconditions if pc.get("met")),
+                "n_preconditions_total": len(flat_preconditions),
+                "n_cells": len(all_cells),
+            },
+            # per-lambda-arm C1/C1b counts -- the AND is within an arm, so the per-arm
+            # numbers are what a later reader needs to see which lambda carried it
+            **({
+                f"{_lab}_{_k}": _v
+                for _lab, _blk in (acceptance["per_a2_arm"] if acceptance else {}).items()
+                for _k, _v in _blk.items()
+            }),
+            # per-arm selectivity extrema, in the direction each threshold binds
+            **({
+                f"{_arm}_{_k}": _v
+                for _arm, _s in summaries.items()
+                for _k, _v in _s.items()
+            }),
+        )),
         "n_seeds_total": n_seeds_total,
         "n_seeds_ready": n_ready,
         "ready_seeds": ready_seeds,

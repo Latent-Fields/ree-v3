@@ -187,7 +187,7 @@ from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
 from experiment_protocol import emit_outcome
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 from experiments._lib.arm_fingerprint import arm_cell
 from experiments._lib.capability_eval import RandomPolicy
 from experiments._lib.zworld_p0_warmup import run_zworld_p0
@@ -827,6 +827,74 @@ def main(dry_run: bool = False) -> Dict:
             "criteria_non_degenerate": criteria_non_degenerate,
         },
         "acceptance_checks": acceptance,
+        # Flat scalar readout -- the pack's metrics.values source (REE_assembly
+        # evidence/planning/flat_scalar_readout_recording_gap_20260909.md).
+        # acceptance_checks is keyed by criterion and by arm, per_arm_summaries is keyed
+        # by arm, and arm_results is a list, so the pack scored with no numeric
+        # metrics.values: no fail_if stop threshold could fire, the duplicate-emission
+        # supersession fingerprint was skipped, and the index carried no deltas.
+        #
+        # The rule is a PORTFOLIO ANY over ON arms, not a plain AND, so per-arm detail is
+        # what carries the finding and is recorded per arm rather than collapsed. The
+        # CONSTANT_PEAKY_DEGENERATE verdict is counted separately from a plain fail: it is
+        # the scope doc's named degeneracy (C1 passes, C1b does not -- peaky but not
+        # context-dependent), and reducing it to "not passed" would erase exactly the
+        # distinction the per-arm verdict exists to make. flat_readout() enforces the two
+        # encoding rules (bools -> 0/1 ints; non-finite/None dropped -- so a
+        # substrate_not_ready run, where `acceptance` is None, records the readiness
+        # census and no criterion values rather than a row of zeros). Recording-only: the
+        # verdict grid, criteria, thresholds and DVs are unchanged.
+        "readout": flat_readout(dict(
+            {
+                "overall_pass_flag": bool(acceptance and acceptance["overall_pass"]),
+                "substrate_not_ready_flag": acceptance is None,
+                # readiness gate
+                "n_seeds_ready": n_ready,
+                "n_seeds_total": n_seeds_total,
+                "seed_majority_required": seed_majority,
+                # the shared control and the portfolio ANY
+                "C2_off_arm_on_saddle": (
+                    acceptance["C2_off_arm_on_saddle"]["pass"] if acceptance else None),
+                "c2_seeds_pass": (
+                    acceptance["C2_off_arm_on_saddle"]["seeds_pass"] if acceptance else None),
+                "ready_seed_majority": (
+                    acceptance["C2_off_arm_on_saddle"]["majority"] if acceptance else None),
+                "any_on_arm_pass": acceptance["any_on_arm_pass"] if acceptance else None,
+                "n_on_arms": len(ON_ARM_LABELS),
+                "n_on_arms_pass": (
+                    sum(1 for v in acceptance["per_arm"].values() if v["verdict"] == "pass")
+                    if acceptance else None),
+                "n_on_arms_constant_peaky_degenerate": (
+                    sum(1 for v in acceptance["per_arm"].values()
+                        if v["verdict"] == "constant_peaky_degenerate")
+                    if acceptance else None),
+                "n_on_arms_fail": (
+                    sum(1 for v in acceptance["per_arm"].values() if v["verdict"] == "fail")
+                    if acceptance else None),
+                # pre-registered thresholds
+                "sel_entropy_c1_threshold": SEL_ENTROPY_C1_THRESHOLD,
+                "sel_context_div_threshold": SEL_CONTEXT_DIV_THRESHOLD,
+                "sel_entropy_c2_floor": SEL_ENTROPY_C2_FLOOR,
+                "n_preconditions_met": sum(
+                    1 for pc in flat_preconditions if pc.get("met")),
+                "n_preconditions_total": len(flat_preconditions),
+                "n_cells": len(all_cells),
+            },
+            # per-ON-arm C1/C1b counts and flags -- the portfolio ANY means the arm-level
+            # numbers, not an aggregate, are what a later reader needs
+            **({
+                f"{_lab}_{_c}_{_k}": _v
+                for _lab, _blk in (acceptance["per_arm"] if acceptance else {}).items()
+                for _c in ("C1_breaks_saddle", "C1b_context_dependent")
+                for _k, _v in _blk[_c].items()
+            }),
+            # per-arm selectivity extrema, in the direction each threshold binds
+            **({
+                f"{_arm}_{_k}": _v
+                for _arm, _s in summaries.items()
+                for _k, _v in _s.items()
+            }),
+        )),
         "n_seeds_total": n_seeds_total,
         "n_seeds_ready": n_ready,
         "ready_seeds": ready_seeds,

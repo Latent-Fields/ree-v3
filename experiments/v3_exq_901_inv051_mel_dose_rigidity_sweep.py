@@ -284,7 +284,7 @@ from ree_core.utils.config import REEConfig
 from experiment_protocol import emit_outcome
 from experiments._lib.arm_fingerprint import arm_cell
 from experiments._lib.z_goal_stream import ZGoalStreamAccumulator
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_901_inv051_mel_dose_rigidity_sweep"
 QUEUE_ID = "V3-EXQ-901"
@@ -1183,10 +1183,68 @@ def run_experiment(steps: int, conv_eps: int, meas_cycles: int,
          "passed": bool(c2_frac >= SEED_PASS_FRAC) if c2_evaluable else False},
     ]
 
+    # Flat scalar readout -- the pack's metrics.values source (REE_assembly
+    # evidence/planning/flat_scalar_readout_recording_gap_20260909.md). The top-level
+    # scalars this driver already emits sit under keys the runpack converter does not
+    # harvest (it reads only metrics / aggregates / summary_metrics / readout), and
+    # per_seed / arm_results / thresholds are lists or nested dicts, so the pack scored
+    # with no numeric metrics.values: no fail_if stop threshold could fire, the
+    # duplicate-emission supersession fingerprint was skipped, and the index carried no
+    # deltas. C1 is CONJUNCTIVE over the two arms of the U (a single elevated extreme is
+    # partial, not confirmed), so BOTH sides are recorded separately rather than reduced
+    # to one number -- along with each side's NOISE-SCALED margin and both of that
+    # margin's inputs, since the margin is a max of two terms and which one binds is
+    # itself a finding. The falsifying-monotonic fraction is recorded too: it is what
+    # separates a weakens from a mixed. flat_readout() enforces the two encoding rules
+    # (bools -> 0/1 ints; non-finite/None dropped). Recording-only: the verdict grid,
+    # criteria, thresholds and DVs are unchanged.
+    readout = flat_readout({
+        "C1_ushape_conjunctive": c1_pass,
+        "C1_low_side": c1_low_pass,
+        "C1_high_side": c1_high_pass,
+        "n_criteria_passed": sum(1 for c in criteria if c.get("passed")),
+        "n_criteria_total": len(criteria),
+        "overall_pass_flag": outcome == "PASS",
+        "falsifying_monotonic_flag": falsifying_monotonic,
+        # readiness gate (R1-R4), each fraction against the shared seed bar
+        "readiness_ok_flag": readiness_ok,
+        "readiness_frac": readiness_frac,
+        "seed_pass_frac": SEED_PASS_FRAC,
+        "r1_frac": r1_frac, "r2_frac": r2_frac, "r3_frac": r3_frac, "r4_frac": r4_frac,
+        "n_ready_seeds": len(ready_seeds),
+        "n_seeds": len(seeds),
+        # C1's two conjuncts, each with its noise-scaled margin and both margin inputs
+        "clears_low_frac": clears_low_frac,
+        "clears_high_frac": clears_high_frac,
+        "margin_low": margin_low,
+        "margin_high": margin_high,
+        "rigidity_sd_mult": RIGIDITY_SD_MULT,
+        "rigidity_min_effect_floor": RIGIDITY_MIN_EFFECT_FLOOR,
+        "delta_low_worst": min(deltas_low, default=None),
+        "delta_low_best": max(deltas_low, default=None),
+        "delta_high_worst": min(deltas_high, default=None),
+        "delta_high_best": max(deltas_high, default=None),
+        # the falsifier the weakens branch routes on
+        "monotone_frac": monotone_frac,
+        "n_monotone_seeds": len(monotone_seeds),
+        # C2 control (non-load-bearing)
+        "c2_consumer_reduces_rigidity_frac": c2_frac,
+        "c2_hits": c2_hits,
+        "c2_evaluable_seeds": c2_evaluable,
+        # DV non-degeneracy
+        "c1_gradient_present_flag": c1_gradient_present,
+        "c1_dv_spread_nonzero_flag": c1_dv_spread_nonzero,
+        "n_preconditions_met": sum(
+            1 for pc in interpretation["preconditions"] if pc.get("met")),
+        "n_preconditions_total": len(interpretation["preconditions"]),
+        "n_cells": len(arm_results),
+    })
+
     return {
         "outcome": outcome,
         "evidence_direction": direction,
         "interpretation": interpretation,
+        "readout": readout,
         "criteria": criteria,
         "readiness_ok": readiness_ok,
         "readiness_frac": readiness_frac,
@@ -1253,6 +1311,7 @@ def write_manifest(result: Dict[str, Any], *, dry_run: bool = False,
         "outcome": result["outcome"],
         "evidence_direction": result["evidence_direction"],
         "interpretation": result["interpretation"],
+        "readout": result["readout"],
         "criteria": result["criteria"],
         "readiness_ok": result["readiness_ok"],
         "readiness_frac": result["readiness_frac"],
