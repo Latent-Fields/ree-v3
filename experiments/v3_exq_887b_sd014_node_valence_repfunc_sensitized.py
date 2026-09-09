@@ -245,7 +245,7 @@ from ree_core.residue.field import (
 )
 from ree_core.utils.config import REEConfig
 
-from experiments.pack_writer import write_flat_manifest
+from experiments.pack_writer import write_flat_manifest, flat_readout
 from experiments._metrics import check_degeneracy, p0_readiness_gate, P0NotReady
 from experiments._lib.z_goal_stream import ZGoalStreamAccumulator
 from experiment_protocol import emit_outcome
@@ -1198,6 +1198,71 @@ def _run(dry_run: bool):
             "composite_null_reference_identity_ok": composite_identity_ok,
             "readiness_gate_green": gate_unmet is None,
         },
+        # Flat scalar readout -- the pack's metrics.values source (REE_assembly
+        # evidence/planning/flat_scalar_readout_recording_gap_20260909.md).
+        # `acceptance` is scalar-shaped but sits under a key the runpack converter does
+        # not harvest (it reads only metrics / aggregates / summary_metrics / readout),
+        # and per_seed_results / instrument_control are a list and a nested dict, so the
+        # pack scored with no numeric metrics.values: no fail_if stop threshold could
+        # fire, the duplicate-emission supersession fingerprint was skipped, and the index
+        # carried no deltas.
+        #
+        # Every criterion is an ALL over seeds, so for each one the WORST seed's statistic
+        # is the decisive extremum, and the direction differs per criterion: C1 and C3 are
+        # upper bounds (tau, Jaccard), so their worst seed is the MAXIMUM; C2's node count
+        # is a floor, so its worst is the MINIMUM. The COMPOSITE control is recorded
+        # explicitly as a design self-check -- it is an arithmetic identity and never
+        # evidence -- so a reader of the flat surface cannot mistake it for a result.
+        # flat_readout() enforces the two encoding rules (bools -> 0/1 ints;
+        # non-finite/None dropped -- and tau is genuinely non-finite when a seed has too
+        # few comparable pairs, so dropping it is correct). Recording-only: the verdict
+        # grid, criteria, thresholds and DVs are unchanged.
+        "readout": flat_readout({
+            "C1_functional_drive_gating": all_c1,
+            "C2_representational_separability": all_c2,
+            "C3_replay_set_selectivity": all_c3,
+            "composite_null_reference_identity_ok": composite_identity_ok,
+            "n_criteria_passed": sum(1 for x in (all_c1, all_c2, all_c3) if x),
+            "n_criteria_total": 3,
+            "overall_pass_flag": outcome == "PASS",
+            "readiness_gate_green": gate_unmet is None,
+            "n_preconditions_met": sum(1 for pc in preconditions if pc.get("met")),
+            "n_preconditions_total": len(preconditions),
+            # pre-registered bars
+            "tau_max": TAU_MAX,
+            "rho_max": RHO_MAX,
+            "jaccard_max": JACCARD_MAX,
+            "node_floor": NODE_FLOOR,
+            "channel_nodes_floor": CHANNEL_NODES_FLOOR,
+            "comparable_pairs_floor": COMPARABLE_PAIRS_FLOOR,
+            "tau_control_ceil": TAU_CONTROL_CEIL,
+            # per-criterion worst seed, each in the direction its bar binds
+            "mean_pairwise_tau_dissociated_worst": max(
+                (r["mean_pairwise_tau_dissociated"] for r in per_seed), default=None),
+            "max_abs_channel_spearman_worst": max(
+                (r["max_abs_channel_spearman"] for r in per_seed), default=None),
+            "abs_spearman_wanting_liking_worst": max(
+                (r["abs_spearman_wanting_liking"] for r in per_seed), default=None),
+            "mean_pairwise_topk_jaccard_worst": max(
+                (r["mean_pairwise_topk_jaccard"] for r in per_seed), default=None),
+            "n_valence_nodes_worst": min(
+                (r["n_valence_nodes"] for r in per_seed), default=None),
+            "min_channel_nonzero_nodes_worst": min(
+                (r["min_channel_nonzero_nodes"] for r in per_seed), default=None),
+            "min_comparable_pairs_worst": min(
+                (r["min_comparable_pairs"] for r in per_seed), default=None),
+            # the COMPOSITE control -- an arithmetic identity, never evidence
+            "mean_pairwise_tau_composite_control_worst": max(
+                (r["mean_pairwise_tau_composite_control"] for r in per_seed), default=None),
+            "instrument_control_mean_pairwise_tau": control["mean_pairwise_tau"],
+            "instrument_control_n_nodes": control["n_control_nodes"],
+            # per-seed criterion census
+            "n_seeds": len(per_seed),
+            "n_seeds_c1": sum(1 for r in per_seed if r["c1_functional_drive_gating"]),
+            "n_seeds_c2": sum(1 for r in per_seed if r["c2_representational_separability"]),
+            "n_seeds_c3": sum(1 for r in per_seed if r["c3_replay_set_selectivity"]),
+            "n_seeds_pass": sum(1 for r in per_seed if r["seed_pass"]),
+        }),
         "instrument_control": control,
         "per_seed_results": per_seed,
         "dv_symmetry_note": (
