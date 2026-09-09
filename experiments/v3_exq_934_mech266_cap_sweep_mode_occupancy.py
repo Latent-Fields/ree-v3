@@ -163,7 +163,7 @@ from scaffolded_sd054_onboarding import (  # noqa: E402
     _sense_with_optional_harm,
     stage_plan,
 )
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
 from experiments._lib.regime_occupancy_gate import (  # noqa: E402
     OccupancyCell,
@@ -974,10 +974,60 @@ def run_experiment(dry_run: bool = False,
     # fail is an instrument artefact, not a genuine null.
     crit_non_degenerate = bool(contact_non_vacuity_met and margin_ready_met and manipulation_landed)
 
+    # Flat scalar readout -- the pack's metrics.values source (REE_assembly
+    # evidence/planning/flat_scalar_readout_recording_gap_20260909.md). `acceptance`
+    # mixes scalars with per-seed lists AND sits under a key the runpack converter does
+    # not harvest (it reads only metrics / aggregates / summary_metrics / readout), and
+    # every other quantitative block is nested, so the pack scored with no numeric
+    # metrics.values: no fail_if stop threshold could fire, the duplicate-emission
+    # supersession fingerprint was skipped, and the index carried no deltas.
+    #
+    # H1's non-degeneracy turns on whether the cap manipulation LANDED at all, so both
+    # of its disjuncts are recorded separately (occupancy_varies, margin_varies): if
+    # neither moved, the H1 fail is an instrument artefact rather than the structural
+    # null (H2), and collapsing them to one flag would hide which. The winning cap band
+    # is recorded as a count and as its extremes -- that band IS the calibration answer
+    # this leg exists to produce. flat_readout() enforces the two encoding rules (bools
+    # -> 0/1 ints; non-finite/None dropped -- so an empty winning band records no
+    # endpoints rather than a zero cap, which is a real point on the sweep).
+    # Recording-only: the verdict grid, criteria, thresholds and DVs are unchanged.
+    readout = flat_readout({
+        "H1_symmetric_arm_graded_regime_reachable": h1_supported,
+        "n_criteria_passed": sum(1 for c in criteria if c["passed"]),
+        "n_criteria_total": len(criteria),
+        "criteria_non_degenerate_flag": crit_non_degenerate,
+        # readiness: the two preconditions, each against the shared seed bar
+        "min_fraction": MIN_FRACTION,
+        "contact_non_vacuity_met": contact_non_vacuity_met,
+        "guard_fraction": guard_frac,
+        "n_guard_passing_seeds": len(guard_passing),
+        "margin_ready_met": margin_ready_met,
+        "margin_ready_fraction": margin_frac,
+        "margin_floor": MARGIN_FLOOR,
+        # the H1 DV itself
+        "sym_graded_fraction": sym_graded_frac,
+        "any_graded_fraction": any_graded_frac,
+        "n_seeds": n,
+        # did the cap manipulation land at all -- both disjuncts, separately
+        "manipulation_landed": manipulation_landed,
+        "occupancy_varies_across_caps": occupancy_varies,
+        "margin_varies_across_caps": margin_varies,
+        # the calibration answer: the winning cap band on the symmetric arm
+        "n_winning_caps_symmetric": len(winning_caps),
+        "winning_cap_min_symmetric": min(winning_caps) if winning_caps else None,
+        "winning_cap_max_symmetric": max(winning_caps) if winning_caps else None,
+        "n_caps_swept": len(CAP_SWEEP),
+        "cap_sweep_min": min(CAP_SWEEP),
+        "cap_sweep_max": max(CAP_SWEEP),
+        "n_preconditions_met": sum(1 for pc in preconditions if pc["met"]),
+        "n_preconditions_total": len(preconditions),
+    })
+
     return {
         "outcome": outcome,
         "evidence_direction": overall_direction,
         "evidence_direction_per_claim": direction_map,
+        "readout": readout,
         "acceptance": acceptance,
         "interpretation": {
             "label": readiness_route,
