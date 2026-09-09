@@ -285,7 +285,7 @@ from experiments._lib.precondition_gate import (  # noqa: E402
     evaluate_arm_gate,
 )
 from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 
 QUEUE_ID = "V3-EXQ-864a"
 EXPERIMENT_TYPE = "v3_exq_864a_sd076_wci_rv_trajectory_crossover_diagnostic"
@@ -819,7 +819,61 @@ def _analyse(cells: List[Dict], seeds: List[int]) -> Dict:
 
     per_claim = {"SD-076": "unknown"}  # instrumentation only -- see module docstring
 
+    # Flat scalar readout -- the pack's metrics.values source (REE_assembly
+    # evidence/planning/flat_scalar_readout_recording_gap_20260909.md).
+    #
+    # NOTE ON PLACEMENT: merged into the existing top-level `aggregates` key in the
+    # manifest below, NOT emitted as a sibling `readout`. The converter takes the FIRST
+    # non-empty of metrics / aggregates / summary_metrics / readout, and this driver's
+    # `aggregates` is already populated -- but only with per_cell / per_arm_bracket dicts
+    # plus a bool, so it harvested zero NUMERIC entries and a `readout` sibling would
+    # never be reached. The nested blocks stay unchanged beside these scalars.
+    #
+    # The CROSSOVER BRACKET is this diagnostic's deliverable, and it is a pair of sweep
+    # points rather than a scalar, so it is recorded as its two endpoints per arm plus a
+    # found-flag: a bracket that exists but sits outside the swept range is a different
+    # finding from no sign change at all, and the endpoints are what distinguish them.
+    # flat_readout() enforces the two encoding rules (bools -> 0/1 ints; non-finite/None
+    # dropped -- so an arm with no bracket records no endpoints rather than a zero
+    # steps_per_ep, which is not a point on the sweep). Recording-only: the verdict grid,
+    # criteria, thresholds and DVs are unchanged.
+    _readout = {
+        "C0_trajectory_data_usable": c0_data_usable,
+        "C1_crossover_bracketed_in_swept_range": c1_crossover_bracketed,
+        "n_criteria_passed": sum(1 for c in criteria if c["passed"]),
+        "n_criteria_total": len(criteria),
+        "readiness_ok_flag": readiness_ok,
+        "all_arms_green_flag": both_green,
+        "n_cells": len(per_cell),
+        "n_arms": len(ARMS),
+        "n_steps_per_ep_swept": len(STEPS_PER_EP_SWEEP),
+        "steps_per_ep_min": min(STEPS_PER_EP_SWEEP),
+        "steps_per_ep_max": max(STEPS_PER_EP_SWEEP),
+        "n_arms_with_crossover_bracket": sum(
+            1 for (a, _) in ARMS
+            if per_arm_bracket[a]["crossover_bracket_steps_per_ep"] is not None),
+        "n_cells_with_sign_flip": sum(
+            1 for c in per_cell.values() if c["any_seed_sign_flip"]),
+        "diff_final_mean_min_over_cells": min(
+            (c["diff_final_mean"] for c in per_cell.values()), default=None),
+        "diff_final_mean_max_over_cells": max(
+            (c["diff_final_mean"] for c in per_cell.values()), default=None),
+        "n_arms_green": len(gate["per_arm_gate"].get("green_arms") or []),
+        "n_arms_red": len(gate["per_arm_gate"].get("red_arms") or []),
+    }
+    for (_a, _asym) in ARMS:
+        _b = per_arm_bracket[_a]["crossover_bracket_steps_per_ep"]
+        _readout[f"{_a}_asymmetry"] = _asym
+        _readout[f"{_a}_crossover_bracket_found"] = _b is not None
+        _readout[f"{_a}_crossover_bracket_low"] = _b[0] if _b else None
+        _readout[f"{_a}_crossover_bracket_high"] = _b[1] if _b else None
+        for _s in STEPS_PER_EP_SWEEP:
+            _readout[f"{_a}_diff_final_mean_steps{_s}"] = per_arm_bracket[_a][
+                "diff_final_by_steps"][str(_s)]
+    readout = flat_readout(_readout)
+
     return {
+        "readout": readout,
         "outcome": outcome,
         "label": label,
         "evidence_direction": "unknown",
@@ -1008,6 +1062,7 @@ def main(dry_run: bool = False) -> Dict:
         "non_degenerate": adj["gate"]["non_degenerate"],
         "degeneracy_reason": adj["gate"]["degeneracy_reason"],
         "aggregates": {
+            **adj["readout"],
             "per_cell": adj["per_cell"],
             "per_arm_bracket": adj["per_arm_bracket"],
             "readiness_ok": adj["readiness_ok"],
