@@ -281,6 +281,80 @@ class FieldMappingProvenance(unittest.TestCase):
         _m, metrics_doc, _s = sync_v3_results.build_runpack_docs(data, "v3_exq_s")
         self.assertEqual(metrics_doc["values"], {"some_metric": 1.25, "n_seeds": 3})
 
+    def test_readout_folded_when_no_other_metrics_spelling(self):
+        """1014-style manifest: scalar readouts under `readout`, paired with
+        `pre_registered_thresholds` and with none of metrics/aggregates/
+        summary_metrics present -> metrics.values carries the readout rather
+        than staying empty. An empty values block is not cosmetic: the indexer
+        reads only numeric metrics.values, so with none of them no `fail_if`
+        stop threshold can fire and the duplicate-emission fingerprint is
+        skipped."""
+        import sync_v3_results
+        data = _make_flat("v3_exq_t_20260606T120000Z_v3", "v3_exq_t")
+        data.pop("metrics", None)
+        data["readout"] = {"latched_fraction": 0.25,
+                           "casualty_latched_fraction": 0.1667}
+        _m, metrics_doc, _s = sync_v3_results.build_runpack_docs(data, "v3_exq_t")
+        self.assertEqual(metrics_doc["values"]["latched_fraction"], 0.25)
+        self.assertEqual(
+            metrics_doc["values"]["casualty_latched_fraction"], 0.1667)
+
+    def test_readout_is_last_in_the_metrics_precedence_chain(self):
+        """`metrics` / `aggregates` / `summary_metrics` all outrank `readout`;
+        the readout fallback only fills the otherwise-empty case."""
+        import sync_v3_results
+        for winner in ("metrics", "aggregates", "summary_metrics"):
+            data = _make_flat("v3_exq_u_20260606T120000Z_v3", "v3_exq_u")
+            data.pop("metrics", None)
+            data[winner] = {"chosen": 1.0}
+            data["readout"] = {"ignored": 9.9}
+            _m, metrics_doc, _s = sync_v3_results.build_runpack_docs(
+                data, "v3_exq_u")
+            self.assertEqual(metrics_doc["values"], {"chosen": 1.0},
+                             f"{winner} must outrank readout")
+
+    def test_always_core_carried_into_pack(self):
+        """recording_schema / elapsed_seconds / config / seeds are the non-
+        provenance members of manifest_core.ALWAYS_CORE_KEYS. pack_writer
+        stamps them into the manifest, so the flat->pack converter must too --
+        otherwise validate_recording.check_manifest reports an always-core gap
+        on every converted pack in the corpus (2929 of 2931, measured
+        2026-09-09)."""
+        import sync_v3_results
+        data = _make_flat("v3_exq_v_20260606T120000Z_v3", "v3_exq_v")
+        data["recording_schema"] = "rec/v1"
+        data["elapsed_seconds"] = 26.7259195
+        data["config"] = {"world_dim": 16, "num_centers": 256}
+        data["seeds"] = [0, 1, 2, 3]
+        manifest, _m, _s = sync_v3_results.build_runpack_docs(data, "v3_exq_v")
+        self.assertEqual(manifest["recording_schema"], "rec/v1")
+        self.assertEqual(manifest["elapsed_seconds"], 26.7259195)
+        self.assertEqual(manifest["config"], {"world_dim": 16, "num_centers": 256})
+        self.assertEqual(manifest["seeds"], [0, 1, 2, 3])
+
+    def test_absent_always_core_omitted_not_nulled(self):
+        """A flat carrying none of them produces a pack WITHOUT those keys, so
+        ABSENT keeps meaning unmeasured rather than measured-empty."""
+        import sync_v3_results
+        data = _make_flat("v3_exq_w_20260606T120000Z_v3", "v3_exq_w")
+        manifest, _m, _s = sync_v3_results.build_runpack_docs(data, "v3_exq_w")
+        for key in ("recording_schema", "elapsed_seconds", "config", "seeds"):
+            self.assertNotIn(key, manifest)
+
+    def test_empty_always_core_values_are_carried_not_dropped(self):
+        """`is not None`, not truthiness: config {} / seeds [] /
+        elapsed_seconds 0 are MEASUREMENTS and must survive, the same
+        distinction enabled_default_off_flags needs."""
+        import sync_v3_results
+        data = _make_flat("v3_exq_x_20260606T120000Z_v3", "v3_exq_x")
+        data["config"] = {}
+        data["seeds"] = []
+        data["elapsed_seconds"] = 0
+        manifest, _m, _s = sync_v3_results.build_runpack_docs(data, "v3_exq_x")
+        self.assertEqual(manifest["config"], {})
+        self.assertEqual(manifest["seeds"], [])
+        self.assertEqual(manifest["elapsed_seconds"], 0)
+
 
 class FlagDefault(unittest.TestCase):
 

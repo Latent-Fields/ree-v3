@@ -118,9 +118,37 @@ def _merged_view(manifest: Dict[str, Any], path: Path) -> Dict[str, Any]:
 # them is the 2026-07-16 thin-pack recording-provenance bug: the index-scored
 # runs/ artifact reads machine_class=null / substrate_hash="" even though the
 # provenance was recorded (in the flat manifest + coordinator DB). Kept narrow
-# (NOT the full always-core) because recording_schema/config/seeds/elapsed_seconds
-# live in the flat manifest + metrics.json by design and are absent from the pack
-# schema for reasons unrelated to this bug.
+# (NOT the full always-core) because this tuple names one specific producer
+# regression, and widening it would conflate that regression with the ordinary
+# always-core gap check_manifest already reports.
+#
+# CORRECTED 2026-09-09. This comment previously asserted that
+# recording_schema/config/seeds/elapsed_seconds "live in the flat manifest +
+# metrics.json by design and are absent from the pack schema". That was wrong in
+# both halves and cost an autopsy a re-discovery (V3-EXQ-1014 / V3-EXQ-1015):
+#   * They are NOT absent from the pack schema. The sanctioned writer
+#     (experiments/pack_writer.write_pack, via stamp_recording_core /
+#     MANDATORY_CORE_KEYS) stamps all four into the pack MANIFEST.
+#   * They did not live in metrics.json either. _manifest_view below merges
+#     metrics.json's config/timing/seeds sections into the presence check
+#     precisely because pack_writer CAN store them there -- but the flat->pack
+#     converter (sync_v3_results.build_runpack_docs), which produced 2915 of the
+#     2931 packs in the tree, emitted only `values` and never those sections. So
+#     the fields reached NO pack surface at all, and check_manifest's always-core
+#     arm was red on 2929 of 2931 packs -- a check that could never pass.
+# The converter now carries all four into the pack manifest (REE_assembly
+# sync_v3_results.py, 2026-09-09), matching pack_writer. A residual always-core
+# gap on a pack is therefore now a real finding again, not this known blind spot.
+#
+# What the converter still deliberately does NOT project into the pack manifest,
+# so it does not get re-litigated: arm_results, readout, criteria,
+# control_policies, bears_on, stage2_routing and the other per-run rich blocks.
+# build_experiment_indexes reads arm_results from the FLAT manifests by its own
+# glob (the arm-fingerprint index visits top-level *.json as well as pack
+# manifests), and reads the rest nowhere at all -- so projecting them would
+# inflate every pack with bytes no consumer reads. The scalar readouts do need to
+# reach the pack, and their channel is metrics.json `values`, which the converter
+# harvests from metrics / aggregates / summary_metrics / readout.
 _PACK_PROVENANCE_KEYS = ("machine", "machine_class", "substrate_hash")
 
 
