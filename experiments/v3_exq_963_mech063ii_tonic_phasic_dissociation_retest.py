@@ -282,7 +282,7 @@ from experiments._lib.sample_driven_rollout import (  # noqa: E402
 from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
 from experiments._lib.entropy_headroom import per_arm_headroom  # noqa: E402
 from experiment_protocol import emit_outcome  # noqa: E402
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_963_mech063ii_tonic_phasic_dissociation_retest"
 EXPERIMENT_PURPOSE = "evidence"
@@ -1004,6 +1004,65 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         "non_degenerate": non_degenerate,
         "interpretation": interpretation,
         "ethics_preflight": ethics_preflight,
+        # Flat scalar readout -- the pack's metrics.values source (REE_assembly
+        # evidence/planning/flat_scalar_readout_recording_gap_20260909.md). `acceptance`
+        # and `sampling_summary` are scalar-shaped but sit under keys the runpack
+        # converter does not harvest (it reads only metrics / aggregates /
+        # summary_metrics / readout), and per_seed / arm_results / diagnostics are lists
+        # or keyed dicts, so the pack scored with no numeric metrics.values: no fail_if
+        # stop threshold could fire, the duplicate-emission supersession fingerprint was
+        # skipped, and the index carried no deltas.
+        #
+        # The DOUBLE dissociation is a conjunction of two independent claims, each of
+        # which is itself a conjunction of a margin test AND a dominance ratio, so all
+        # four contrasts are recorded, not just the two the criteria are named after:
+        # C1 needs |dS_tonic| over its margin AND over DOMINANCE_K * |dR_tonic|, and
+        # C2 the mirror image. Without dR_tonic and dS_phasic a reader cannot recompute
+        # either dominance test. The two-stage seed rule (per-seed count AND the
+        # cross-seed robustness margin |mean| - sd > 0) is recorded in both halves for
+        # the same reason. flat_readout() enforces the two encoding rules (bools -> 0/1
+        # ints; non-finite/None dropped). Recording-only: the verdict grid, criteria,
+        # thresholds and DVs are unchanged.
+        "readout": flat_readout({
+            "double_dissociation_flag": dissociation,
+            "readiness_met_flag": readiness_met,
+            "non_degenerate_flag": non_degenerate,
+            "n_sample_preconditions_unmet": len(sample_unmet),
+            "n_capability_preconditions_unmet": len(capability_unmet),
+            # the four contrasts: each criterion is a margin test AND a dominance ratio
+            "mean_dS_tonic": mean_dS_tonic,
+            "mean_dR_phasic": mean_dR_phasic,
+            "mean_dR_tonic": (
+                statistics.fmean([a["dR_tonic"] for a in per_seed]) if per_seed else None),
+            "mean_dS_phasic": (
+                statistics.fmean([a["dS_phasic"] for a in per_seed]) if per_seed else None),
+            "sustained_margin": SUSTAINED_MARGIN,
+            "transient_margin": TRANSIENT_MARGIN,
+            "dominance_k": DOMINANCE_K,
+            # the two-stage seed rule: per-seed count, then cross-seed robustness
+            "diss_seed_count": seeds_diss,
+            "min_seeds_required": min(MIN_SEEDS, len(seeds)),
+            "n_seeds": len(per_seed),
+            "n_seeds_c1_tonic_owns_sustained": sum(
+                1 for a in per_seed if a["C1_tonic_owns_sustained"]),
+            "n_seeds_c2_phasic_owns_transient": sum(
+                1 for a in per_seed if a["C2_phasic_owns_transient"]),
+            "robust_flag": robust,
+            "sd_dS_tonic": _pooled_std(dS_tonic_all),
+            "sd_dR_phasic": _pooled_std(dR_phasic_all),
+            "robustness_margin_dS_tonic": abs(mean_dS_tonic) - _pooled_std(dS_tonic_all),
+            "robustness_margin_dR_phasic": abs(mean_dR_phasic) - _pooled_std(dR_phasic_all),
+            # sampling adequacy -- the sample-driven stopping rule's own floors
+            "n_cells": len(rows),
+            "n_cells_floors_met": sum(1 for r in rows if r["rollout_floors_met"]),
+            "min_n_e3_selects": (min(r["n_e3_selects"] for r in rows) if rows else None),
+            "target_selects": TARGET_SELECTS,
+            "min_n_event_ticks_phasic_on": (
+                min(r["n_event_ticks"] for r in p1_rows) if p1_rows else None),
+            "target_event_ticks": TARGET_EVENT_TICKS,
+            "target_quiescent_ticks": TARGET_QUIESCENT_TICKS,
+            "total_env_steps": sum(r["n_env_steps"] for r in rows),
+        }),
         "acceptance": {
             "readiness_met": readiness_met,
             "double_dissociation": dissociation,

@@ -237,7 +237,7 @@ from _lib.precondition_gate import (  # noqa: E402
 from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_894a_mech074d_bla_remap_attribution_selectivity"
 QUEUE_ID = "V3-EXQ-894a"
@@ -1144,7 +1144,72 @@ def _evaluate(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         "calibration artifact)."
     )
 
+    # Flat scalar readout -- the pack's metrics.values source (REE_assembly
+    # evidence/planning/flat_scalar_readout_recording_gap_20260909.md). `acceptance`
+    # sits under a key the runpack converter does not harvest (it reads only metrics /
+    # aggregates / summary_metrics / readout), and per_arm / dose_response / arm_results
+    # are lists or keyed dicts, so the pack scored with no numeric metrics.values: no
+    # fail_if stop threshold could fire, the duplicate-emission supersession fingerprint
+    # was skipped, and the index carried no deltas.
+    #
+    # This is a SIGMA SWEEP whose verdict is an OR over arms, so the per-arm criterion
+    # counts are recorded per arm as well as OR-ed: WHICH sigma recovered the attribution
+    # gate is the deliverable, and an aggregate alone would lose it. The two routes to a
+    # `mixed` direction are recorded separately (any_gate_half, the categorical recovery;
+    # attribution_dose_recovers, the monotone dose-response route) since they are
+    # different findings that the single `attribution_recovers` flag merges.
+    # flat_readout() enforces the two encoding rules (bools -> 0/1 ints; non-finite/None
+    # dropped -- so a sweep with no passing arm records no best sigma rather than a zero,
+    # which is not a point on the sweep). Recording-only: the verdict grid, criteria,
+    # thresholds and DVs are unchanged.
+    _ro = {
+        "C1_attribution_selectivity_any_arm": c1_met_any,
+        "C2_context_differentiated_addressing_any_arm": c2_met_any,
+        "C3_partial_not_wholesale_any_arm": c3_met_any,
+        "C4_pe_spike_sparsity_any_arm": c4_met_any,
+        "n_criteria_passed": sum(
+            1 for x in (c1_met_any, c2_met_any, c3_met_any, c4_met_any) if x),
+        "n_criteria_total": 4,
+        "overall_pass_flag": outcome_pass,
+        # the sweep's deliverable: which sigma recovered, and by which route
+        "n_passing_arms": len(passing_arms),
+        "n_arms": len(per_arm),
+        "best_arm_sigma": best_arm["remap_sigma"] if best_arm else None,
+        "attribution_recovers": attribution_recovers,
+        "any_attribution_gate_half_met": any_gate_half,
+        "attribution_dose_recovers": attribution_dose_recovers,
+        "any_partiality_half_met": any_partial_half,
+        # dose-response statistics
+        "spearman_mass_excess_vs_sigma": spearman_mass_vs_sigma,
+        "spearman_fire_fraction_vs_sigma": spearman_fire_vs_sigma,
+        # seed arithmetic + pre-registered bars
+        "seeds_needed": int(seeds_needed),
+        "seeds_pass_min": SEEDS_PASS_MIN,
+        "n_seeds": n_seeds_run,
+        "attr_mass_excess_margin": ATTR_MASS_EXCESS_MARGIN,
+        "context_jaccard_gap_margin": CONTEXT_JACCARD_GAP_MARGIN,
+        "slot_diff_ratio_floor": SLOT_DIFF_RATIO_FLOOR,
+        "fire_frac_ceil": FIRE_FRAC_CEIL,
+    }
+    for _a in per_arm:
+        _p = f"sigma{str(_a['remap_sigma']).replace('.', '_')}"
+        _ro.update({
+            f"{_p}_arm_pass": _a["arm_pass"],
+            f"{_p}_n_green_seeds": _a["n_green_seeds"],
+            f"{_p}_c1_seeds_ok": _a["c1_seeds_ok"],
+            f"{_p}_c2_seeds_ok": _a["c2_seeds_ok"],
+            f"{_p}_c3_seeds_ok": _a["c3_seeds_ok"],
+            f"{_p}_c4_seeds_ok": _a["c4_seeds_ok"],
+            f"{_p}_attribution_gate_half_met": _a["attribution_gate_half_met"],
+            f"{_p}_partiality_half_met": _a["partiality_half_met"],
+            f"{_p}_mean_attr_mass_excess": _a["mean_attr_mass_excess"],
+            f"{_p}_mean_jaccard_gap": _a["mean_jaccard_gap"],
+            f"{_p}_mean_slot_diff_ratio": _a["mean_slot_diff_ratio"],
+            f"{_p}_mean_fire_fraction": _a["mean_fire_fraction"],
+        })
+
     return {
+        "readout": flat_readout(_ro),
         "outcome": "PASS" if outcome_pass else "FAIL",
         "evidence_direction": direction,
         "evidence_direction_per_claim": {"MECH-074d": direction},
@@ -1377,6 +1442,7 @@ def main() -> Dict[str, Any]:
             "no downstream wall can gate the result."
         ),
         "acceptance": ev,
+        "readout": ev["readout"],
         "arm_results": rows,
         "per_seed_results": ev["per_seed"],
         "per_arm_results": ev["per_arm"],

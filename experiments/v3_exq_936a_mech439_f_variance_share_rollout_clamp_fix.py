@@ -247,7 +247,7 @@ from experiments._lib.baselines.mech439_f_variance_share import (  # noqa: E402
     off_path_config_slice,
     sd056_training_slice,
 )
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 
 # The clamp IS set -- e2_rollout_output_norm_clamp_enabled=True lives in
 # experiments/_lib/baselines/mech439_f_variance_share.py's CONFIG_FLAGS,
@@ -1169,8 +1169,76 @@ def _evaluate(rows: List[Dict[str, Any]], seeds: List[int]) -> Dict[str, Any]:
         ),
     }
 
+    # Flat scalar readout -- the pack's metrics.values source (REE_assembly
+    # evidence/planning/flat_scalar_readout_recording_gap_20260909.md). per_arm_conversion
+    # and per_arm_f_variance_share are dicts keyed by arm (with per-seed sub-dicts) and
+    # arm_results is a list, so the pack scored with no numeric metrics.values: no fail_if
+    # stop threshold could fire, the duplicate-emission supersession fingerprint was
+    # skipped, and the index carried no deltas.
+    #
+    # C2 FALSE while C1 TRUE is MECH-439's own registered falsifying signature, so the two
+    # flags are recorded independently and never collapsed into a single pass count: a
+    # numeric surface that could not separate "converted and rebalanced" from "converted
+    # WITHOUT rebalancing" would lose the entire direction of the finding. C2 is a
+    # PER-SEED PAIRED contrast, which is what makes it scale-free, so the paired
+    # reductions -- not the raw shares -- carry the criterion, and the WORST paired
+    # reduction across converting arms is the decisive extremum. The absolute
+    # monopoly-bar reading is recorded alongside but is explicitly never routed.
+    # flat_readout() enforces the two encoding rules (bools -> 0/1 ints; non-finite/None
+    # dropped -- so C2 when C1 never fired records nothing rather than a false zero).
+    # Recording-only: the verdict grid, criteria, thresholds and DVs are unchanged.
+    _conv_arms = [per_arm_conversion[a] for a in converting_arms]
+    _conv_shares = [per_arm_share[a] for a in converting_arms]
+    _all_paired = [v for s in per_arm_share.values()
+                   for v in s["paired_reduction_vs_off_per_seed"].values()]
+    _conv_paired = [v for s in _conv_shares
+                    for v in s["paired_reduction_vs_off_per_seed"].values()]
+    readout = flat_readout({
+        "C1_a_treatment_arm_converts": c1_pass,
+        "C2_converting_arm_reduces_f_variance_share": (
+            c2_reduced_in_converting if c1_pass else None),
+        "n_criteria_passed": sum(1 for c in criteria if c["passed"]),
+        "n_criteria_total": len(criteria),
+        "non_degenerate_flag": non_degenerate,
+        "readiness_all_met_flag": readiness_all_met,
+        "n_preconditions_met": sum(1 for pc in preconditions if pc["met"]),
+        "n_preconditions_total": len(preconditions),
+        # C1 -- conversion census across treatment arms
+        "min_seeds_converting": MIN_SEEDS_CONVERTING,
+        "n_converting_arms": len(converting_arms),
+        "n_treatment_arms": len(TREATMENT_ARMS),
+        "n_seeds": len(seeds),
+        "best_arm_n_converting_seeds": max(
+            (v["n_converting"] for v in per_arm_conversion.values()), default=None),
+        "entropy_delta_vs_off_best": max(
+            (d for v in per_arm_conversion.values() for d in v["entropy_deltas_vs_off"]),
+            default=None),
+        "entropy_delta_vs_off_worst": min(
+            (d for v in per_arm_conversion.values() for d in v["entropy_deltas_vs_off"]),
+            default=None),
+        # C2 -- the PER-SEED PAIRED reduction that actually carries the criterion
+        "min_f_share_reduction": MIN_F_SHARE_REDUCTION,
+        "paired_reduction_worst_over_converting_arms": min(_conv_paired, default=None),
+        "paired_reduction_best_over_converting_arms": max(_conv_paired, default=None),
+        "paired_reduction_worst_all_arms": min(_all_paired, default=None),
+        "paired_reduction_best_all_arms": max(_all_paired, default=None),
+        "n_reducing_seeds_best_arm": max(
+            (v["n_reducing"] for v in per_arm_share.values()), default=None),
+        # absolute reading against the claim's stated confirming signature (never routed)
+        "off_arm_mean_f_variance_share": off_share_mean,
+        "f_monopoly_threshold": F_MONOPOLY_THRESHOLD,
+        "reference_571_baseline_f_share": F_SHARE_REFERENCE_571,
+        "n_arms_mean_share_above_monopoly_bar": sum(
+            1 for v in per_arm_share.values() if v["mean_share_above_monopoly_bar"]),
+        "mean_f_variance_share_min_over_arms": min(
+            (v["mean_f_variance_share"] for v in per_arm_share.values()), default=None),
+        "mean_f_variance_share_max_over_arms": max(
+            (v["mean_f_variance_share"] for v in per_arm_share.values()), default=None),
+    })
+
     return {
         "label": label,
+        "readout": readout,
         "outcome": outcome,
         "evidence_direction": evidence_direction,
         "non_degenerate": non_degenerate,
@@ -1292,6 +1360,7 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
             "f_monopoly_threshold": F_MONOPOLY_THRESHOLD,
             "reference_571_baseline": F_SHARE_REFERENCE_571,
         },
+        "readout": summary["readout"],
         "per_seed_results": rows,
         "arm_results": rows,
         "custom_information": {

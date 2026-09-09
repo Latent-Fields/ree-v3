@@ -213,7 +213,7 @@ from _lib.precondition_gate import (  # noqa: E402
 from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_894_mech074d_bla_remap_attribution_selectivity"
 QUEUE_ID = "V3-EXQ-894"
@@ -994,7 +994,60 @@ def _evaluate(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     else:
         label = "mech074d_remap_attribution_inconclusive"
 
+    # Flat scalar readout -- the pack's metrics.values source (REE_assembly
+    # evidence/planning/flat_scalar_readout_recording_gap_20260909.md). `acceptance`
+    # carries these counts but sits under a key the runpack converter does not harvest
+    # (it reads only metrics / aggregates / summary_metrics / readout), and per_seed /
+    # arm_results are lists, so the pack scored with no numeric metrics.values: no
+    # fail_if stop threshold could fire, the duplicate-emission supersession fingerprint
+    # was skipped, and the index carried no deltas.
+    #
+    # The claim has TWO load-bearing halves -- the attribution gate (C1+C2) and
+    # partiality (C3+C4) -- and the direction routes on which half held, so both halves
+    # are recorded as their own flags alongside the four criteria. Each criterion is a
+    # per-seed count, so its decisive extremum is the worst seed, and the direction
+    # differs: C1/C2/C3 are lower bounds (worst = minimum), C4 is a sparsity CEILING
+    # (worst = maximum). flat_readout() enforces the two encoding rules (bools -> 0/1
+    # ints; non-finite/None dropped). Recording-only: the verdict grid, criteria,
+    # thresholds and DVs are unchanged.
+    readout = flat_readout({
+        "C1_attribution_selectivity": c1_met,
+        "C2_context_differentiated_addressing": c2_met,
+        "C3_partial_not_wholesale": c3_met,
+        "C4_pe_spike_sparsity": c4_met,
+        "n_criteria_passed": sum(1 for x in (c1_met, c2_met, c3_met, c4_met) if x),
+        "n_criteria_total": 4,
+        "overall_pass_flag": outcome_pass,
+        # the two load-bearing halves the direction routes on
+        "attribution_gate_half_held": gate_half,
+        "partiality_half_held": partial_half,
+        # per-criterion seed counts against the bar
+        "seeds_needed": int(seeds_needed),
+        "seeds_pass_min": SEEDS_PASS_MIN,
+        "n_seeds": n_seeds,
+        "c1_seeds_ok": c1_ok,
+        "c2_seeds_ok": c2_ok,
+        "c3_seeds_ok": c3_ok,
+        "c4_seeds_ok": c4_ok,
+        "n_seeds_all_criteria": sum(1 for r in per_seed if r["seed_pass"]),
+        # decisive per-seed extrema, each in the direction its bar binds
+        "attr_mass_excess_margin": ATTR_MASS_EXCESS_MARGIN,
+        "attr_mass_excess_worst": min(
+            (r["attr_mass_excess_on"] for r in per_seed), default=None),
+        "context_jaccard_gap_margin": CONTEXT_JACCARD_GAP_MARGIN,
+        "jaccard_gap_worst": min((r["jaccard_gap_on"] for r in per_seed), default=None),
+        "slot_diff_ratio_floor": SLOT_DIFF_RATIO_FLOOR,
+        "slot_diff_ratio_worst": min(
+            (r["slot_diff_ratio_on_over_off"] for r in per_seed), default=None),
+        "fire_frac_ceil": FIRE_FRAC_CEIL,
+        "fire_fraction_worst": max((r["fire_fraction_on"] for r in per_seed), default=None),
+        # remap-event census (the manipulation actually firing)
+        "n_remap_events_on_total": sum(r["n_remap_events_on"] for r in per_seed),
+        "n_remap_events_off_total": sum(r["n_remap_events_off"] for r in per_seed),
+    })
+
     return {
+        "readout": readout,
         "outcome": "PASS" if outcome_pass else "FAIL",
         "evidence_direction": direction,
         "evidence_direction_per_claim": {"MECH-074d": direction},
@@ -1177,6 +1230,7 @@ def main() -> Dict[str, Any]:
             "read, so no downstream wall can gate the result."
         ),
         "acceptance": ev,
+        "readout": ev["readout"],
         "arm_results": rows,
         "per_seed_results": ev["per_seed"],
         "thresholds": full_config["thresholds"],
