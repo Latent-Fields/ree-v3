@@ -451,6 +451,32 @@ def _chip_amend_prompt(conn, body, machine_tok):
     return 200, out
 
 
+def _chip_amend_note(conn, body, machine_tok):
+    """POST /chip/amend-note -- APPEND to a resolved chip's resolution_note.
+
+    Deliberately a separate verb from /chip/resolve rather than a relaxation of
+    it: resolve's equal-status freeze on a real note is what stops a routine
+    tick clobbering a worker's report, so it stays exactly as it is. See
+    db.amend_chip_note for why the semantics are append-only.
+    """
+    chip_ref = body.get("chip_ref")
+    addendum = body.get("addendum")
+    if not chip_ref or not addendum:
+        return 400, {"error": "chip_ref and addendum are both required"}
+    verdict, payload = db.amend_chip_note(
+        conn, chip_ref=chip_ref, addendum=addendum,
+        reason=body.get("reason"), session_id=body.get("session_id"))
+    out = dict(payload)
+    out["verdict"] = verdict
+    if verdict == "not_resolved":
+        return 409, out
+    if verdict == "not_found":
+        return 404, out
+    if verdict == "error":
+        return 500, out
+    return 200, out
+
+
 def _ws_append(conn, body, machine_tok):
     """POST /workspace_state/append (PHASE-4 first slice). Append-ONLY: there
     is deliberately no edit or delete verb for WORKSPACE_STATE entries --
@@ -660,6 +686,7 @@ _TASK_CLAIM_CHIP_POST = {
     "/chip/resolve": _chip_resolve,
     "/chip/attach": _chip_attach,
     "/chip/amend-prompt": _chip_amend_prompt,
+    "/chip/amend-note": _chip_amend_note,
     "/chip/episode": _chip_episode,
     # PHASE-4 (append-only; the name of this dict predates it -- same
     # dispatch, same auth, same body plumbing, so it rides here rather than

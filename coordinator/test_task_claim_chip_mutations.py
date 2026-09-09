@@ -597,6 +597,94 @@ class TestChips(Base):
         self.assertEqual(self.chip_entry("c1")["resolution_note"],
                          "worker report")
 
+    # ---- amend_chip_note (2026-09-09) -------------------------------------
+    # The counterpart to test_a_human_note_is_never_overwritten_at_equal_status
+    # directly above: that freeze is correct and STAYS, so a resolved note
+    # needed a separate, append-only verb to become correctable at all.
+
+    def test_amend_note_appends_to_a_resolved_human_note(self):
+        db.record_chip(self.conn, _chip("c1"), now=T0)
+        db.resolve_chip(self.conn, "done", chip_ref="c1", note="worker report",
+                        now=T0)
+        verdict, payload = db.amend_chip_note(
+            self.conn, chip_ref="c1", addendum="CORRECTION: the real finding",
+            reason="measurement contradicted it", now=T1, session_id="s9")
+        self.assertEqual(verdict, "ok")
+        e = self.chip_entry("c1")
+        # BOTH survive: the original report is still legible, the correction
+        # sits after it. That is the whole contract -- an addendum can only add.
+        self.assertIn("worker report", e["resolution_note"])
+        self.assertIn("CORRECTION: the real finding", e["resolution_note"])
+        self.assertLess(e["resolution_note"].index("worker report"),
+                        e["resolution_note"].index("CORRECTION"))
+        self.assertFalse(e["resolution_note_auto"])
+        hist = e["resolution_note_history"][0]
+        self.assertEqual(hist["resolution_note"], "worker report")
+        self.assertEqual(hist["amended_by"], "s9")
+        self.assertEqual(hist["reason"], "measurement contradicted it")
+
+    def test_amend_note_never_touches_status_or_resolver(self):
+        """Status/resolved_at/resolver record a LANDING and must not drift --
+        the same rule task_claim.py amend already applies to a closed claim."""
+        db.record_chip(self.conn, _chip("c1"), now=T0)
+        db.resolve_chip(self.conn, "done", chip_ref="c1", note="n",
+                        resolved_by_session_id="orig", now=T0)
+        before = self.chip_entry("c1")
+        db.amend_chip_note(self.conn, chip_ref="c1", addendum="more",
+                           now=T1, session_id="other")
+        after = self.chip_entry("c1")
+        for field in ("status", "resolved_at", "resolved_by_session_id"):
+            self.assertEqual(before[field], after[field], field)
+
+    def test_amend_note_refuses_an_open_chip(self):
+        """An open chip has no resolution to correct, and accepting one would
+        be a back door to writing a resolution note without resolving."""
+        db.record_chip(self.conn, _chip("c1"), now=T0)
+        verdict, payload = db.amend_chip_note(
+            self.conn, chip_ref="c1", addendum="x", now=T1)
+        self.assertEqual(verdict, "not_resolved")
+        self.assertEqual(payload["status"], "open")
+
+    def test_amend_note_is_idempotent_on_the_same_addendum(self):
+        """A retried call must not append the same correction twice."""
+        db.record_chip(self.conn, _chip("c1"), now=T0)
+        db.resolve_chip(self.conn, "done", chip_ref="c1", note="n", now=T0)
+        db.amend_chip_note(self.conn, chip_ref="c1", addendum="dup", now=T1)
+        first = self.chip_entry("c1")["resolution_note"]
+        verdict, _ = db.amend_chip_note(self.conn, chip_ref="c1",
+                                        addendum="dup", now=T1)
+        self.assertEqual(verdict, "unchanged")
+        self.assertEqual(self.chip_entry("c1")["resolution_note"], first)
+        self.assertEqual(first.count("dup"), 1)
+
+    def test_amend_note_not_found(self):
+        verdict, _ = db.amend_chip_note(self.conn, chip_ref="nope",
+                                        addendum="x", now=T1)
+        self.assertEqual(verdict, "not_found")
+
+    def test_amend_note_works_on_a_withdrawn_chip_too(self):
+        db.record_chip(self.conn, _chip("c1"), now=T0)
+        db.resolve_chip(self.conn, "withdrawn", chip_ref="c1", note="stale",
+                        now=T0)
+        verdict, _ = db.amend_chip_note(self.conn, chip_ref="c1",
+                                        addendum="why it was stale", now=T1)
+        self.assertEqual(verdict, "ok")
+        self.assertIn("why it was stale",
+                      self.chip_entry("c1")["resolution_note"])
+
+    def test_resolve_still_freezes_a_human_note_after_amend_exists(self):
+        """Guard against a future 'simplification' that routes resolve through
+        amend: the freeze and the append verb must stay SEPARATE, or a routine
+        tick's resolve can clobber a worker's report again."""
+        db.record_chip(self.conn, _chip("c1"), now=T0)
+        db.resolve_chip(self.conn, "done", chip_ref="c1", note="worker report",
+                        now=T0)
+        _v, payload = db.resolve_chip(self.conn, "done", chip_ref="c1",
+                                      note="clobber attempt", now=T1)
+        self.assertFalse(payload["changed"])
+        self.assertEqual(self.chip_entry("c1")["resolution_note"],
+                         "worker report")
+
     def test_a_different_terminal_status_refuses_without_force(self):
         """The 2026-08-25 guard: a session called resolve --status withdrawn on
         a chip that was already legitimately done, with a long note describing

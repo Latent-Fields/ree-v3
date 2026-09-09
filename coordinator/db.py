@@ -1817,6 +1817,91 @@ def amend_chip_prompt(conn, chip_ref, prompt, reason=None, now=None):
         return ("error", {})
 
 
+
+def amend_chip_note(conn, chip_ref, addendum, reason=None, now=None,
+                    session_id=None):
+    """APPEND information to a RESOLVED chip's resolution_note.
+
+    Verdicts: 'ok' | 'unchanged' | 'not_found' | 'not_resolved' | 'error'.
+
+    WHY THIS EXISTS (2026-09-09). `resolve_chip` deliberately freezes a real
+    (non-auto) resolution_note at equal status: it returns changed=False and
+    keeps the stored text. That freeze is load-bearing -- it is what stopped
+    the 2026-08-14 defect where a routine tick's resolve clobbered a worker's
+    own report -- so it must NOT be relaxed. But it also meant a note found to
+    be WRONG after the fact could never be corrected: the resolving session had
+    exactly one shot, and a factual error in it was permanent. That is the gap
+    this closes, and the sibling verbs already establish the shape
+    (`task_claim.py amend` for completion_note, `amend_chip_prompt` for the
+    prompt, both history-preserving).
+
+    APPEND-ONLY, and that is the whole point rather than an implementation
+    shortcut. Replacing the note would reintroduce exactly the hazard the
+    freeze protects against -- a later caller silently erasing a worker's
+    report -- whereas an addendum can only ever ADD information: the original
+    report stays legible and the correction sits under it, so a reader sees
+    both and can tell which came later. A caller wanting the corrected text to
+    read first should say so in the addendum, not ask for a replace verb.
+
+    Status, resolved_at and resolved_by_session_id are NEVER touched: those
+    record a landing and must not drift (the rule `task_claim.py amend` already
+    applies to closed claims). Only an already-terminal chip can be amended --
+    an open chip has no report to correct, and accepting one would be a way to
+    write a resolution note without resolving.
+
+    'unchanged': the addendum text is already present in the stored note.
+    Mirrors amend_chip_prompt's no-op branch, so a retried call does not append
+    the same correction twice.
+    """
+    now = now or utcnow()
+    addendum = (addendum or "").strip()
+    if not addendum:
+        return ("unchanged", {"chip_ref": chip_ref, "reason": "empty addendum"})
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT * FROM chip_ledger WHERE chip_ref=?",
+                           (chip_ref,)).fetchone()
+        if row is None:
+            conn.execute("ROLLBACK")
+            return ("not_found", {"chip_ref": chip_ref})
+        if row["status"] not in CHIP_TERMINAL_STATUSES:
+            conn.execute("ROLLBACK")
+            return ("not_resolved", {"chip_ref": chip_ref,
+                                     "status": row["status"]})
+        existing = row["resolution_note"] or ""
+        if addendum in existing:
+            conn.execute("ROLLBACK")
+            return ("unchanged", {"chip_ref": chip_ref})
+        history = []
+        if row["resolution_note_history_json"]:
+            try:
+                history = json.loads(row["resolution_note_history_json"]) or []
+            except (TypeError, ValueError):
+                history = []
+        history.append({
+            "resolution_note": existing,
+            "resolution_note_auto": bool(row["resolution_note_auto"]),
+            "amended_at": now,
+            "amended_by": session_id,
+            "reason": reason or "",
+        })
+        merged = ("%s\n\n[AMENDED %s] %s" % (existing, now, addendum)
+                  if existing else addendum)
+        conn.execute(
+            "UPDATE chip_ledger SET resolution_note=?, "
+            "resolution_note_auto=0, resolution_note_history_json=?, "
+            "updated_at=? WHERE chip_ref=?",
+            (merged, json.dumps(history), now, chip_ref))
+        entry = _reserialise_chip_row(conn, chip_ref)
+        conn.execute("COMMIT")
+        return ("ok", {"chip_ref": chip_ref, "entry": entry})
+    except sqlite3.Error:
+        try:
+            conn.execute("ROLLBACK")
+        except sqlite3.Error:
+            pass
+        return ("error", {})
+
 # ---------------------------------------------------------------------------
 # WORKSPACE_STATE.md append intake (PHASE-4, first slice).
 #

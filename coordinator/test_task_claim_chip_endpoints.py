@@ -254,7 +254,7 @@ class TestEndpoints(unittest.TestCase):
                      "/task_claim/renew", "/task_claim/amend",
                      "/task_claim/dedupe", "/chip/record", "/chip/claim",
                      "/chip/unclaim", "/chip/resolve", "/chip/attach",
-                     "/chip/amend-prompt"):
+                     "/chip/amend-prompt", "/chip/amend-note"):
             status, payload = _http("POST", self._url(path), token=TOKEN,
                                     body={})
             self.assertNotEqual(status, 404,
