@@ -269,7 +269,7 @@ from scaffolded_sd054_onboarding import (  # noqa: E402
     _sense_with_optional_harm,
     stage_plan,
 )
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
 from experiments._lib.regime_occupancy_gate import (  # noqa: E402
     OccupancyCell,
@@ -1305,10 +1305,76 @@ def run_experiment(dry_run: bool = False,
         "C3_beats_best_absolute_cap": base_non_degenerate,
     }
 
+    # Flat scalar readout -- the pack's metrics.values source (REE_assembly
+    # evidence/planning/flat_scalar_readout_recording_gap_20260909.md). `acceptance`
+    # mixes scalars with per-seed lists AND sits under a key the runpack converter does
+    # not harvest (it reads only metrics / aggregates / summary_metrics / readout), and
+    # every other quantitative block is nested, so the pack scored with no numeric
+    # metrics.values: no fail_if stop threshold could fire, the duplicate-emission
+    # supersession fingerprint was skipped, and the index carried no deltas.
+    #
+    # Three things here are recorded deliberately rather than reduced. (1) C2's
+    # SCOPED-OUT flag is separate from its pass flag: a scoped-out C2 is not a failed
+    # C2, and a numeric surface that could not tell them apart would misread the run.
+    # (2) The ALIASING CONTROL statistic graded_at_some_r_fraction is carried even
+    # though it is explicitly NOT load-bearing -- it is what separates H-KNIFE (right
+    # rule, narrow window) from H-IDIO (no rule at all), and nothing else in a flat
+    # surface distinguishes them. (3) C3 compares the normalised rule against the best
+    # ABSOLUTE cap, so both graded counts are recorded, not just their difference.
+    # flat_readout() enforces the two encoding rules (bools -> 0/1 ints; non-finite/None
+    # dropped). Recording-only: the verdict grid, criteria, thresholds and DVs are
+    # unchanged.
+    readout = flat_readout({
+        "C1_rule_grades_at_r_star": c1_passed,
+        "C2_rule_generalises_out_of_sample": c2_passed,
+        "C2_scoped_out": c2_scoped_out,
+        "C3_beats_best_absolute_cap": c3_passed,
+        "n_criteria_passed": sum(1 for c in criteria if c["passed"]),
+        "n_criteria_total": len(criteria),
+        "rule_supported_flag": rule_supported,
+        "base_non_degenerate_flag": base_non_degenerate,
+        # readiness: four preconditions, each against the shared seed bar
+        "min_fraction": MIN_FRACTION,
+        "contact_non_vacuity_met": contact_non_vacuity_met,
+        "guard_fraction": guard_frac,
+        "n_guard_passing_seeds": len(guard_passing),
+        "margin_ready_met": margin_ready_met,
+        "margin_ready_fraction": margin_frac,
+        "margin_floor": MARGIN_FLOOR,
+        "calib_ready_met": calib_ready_met,
+        "calib_ready_fraction": calib_frac,
+        "r_star_measured_met": r_star_measured_met,
+        "r_star_measured_fraction": r_star_frac,
+        "n_testable_seeds": n_testable,
+        # C1 -- the rule at the pre-registered r
+        "r_star": R_STAR,
+        "c1_fraction": c1_frac,
+        "c1_n_graded": n_graded_norm,
+        # C2 -- out-of-sample generalisation
+        "c2_fraction": oos_frac,
+        "c2_n_out_of_sample_testable": len(oos_testable),
+        # C3 -- normalised rule vs the best absolute cap
+        "c3_n_graded_normalised": n_graded_norm,
+        "c3_n_graded_absolute": n_graded_abs,
+        "c3_absolute_fraction": abs_frac,
+        "c3_normalised_minus_absolute_n_graded": n_graded_norm - n_graded_abs,
+        # aliasing control: separates H-KNIFE from H-IDIO (info only, never gating)
+        "graded_at_some_r_fraction_info_only": some_r_frac,
+        "n_r_swept": len(R_SWEEP),
+        "r_sweep_min": min(R_SWEEP),
+        "r_sweep_max": max(R_SWEEP),
+        # did the normalised cap manipulation land at all -- both disjuncts, separately
+        "manipulation_landed": manipulation_landed,
+        "occupancy_varies_across_r": occupancy_varies,
+        "margin_varies_across_r": margin_varies,
+        "n_seeds": len(per_seed),
+    })
+
     return {
         "outcome": outcome,
         "evidence_direction": overall_direction,
         "evidence_direction_per_claim": direction_map,
+        "readout": readout,
         "acceptance": acceptance,
         "interpretation": {
             "label": readiness_route,
