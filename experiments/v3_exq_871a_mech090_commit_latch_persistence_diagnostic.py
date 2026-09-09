@@ -259,7 +259,7 @@ from experiments._lib.arm_fingerprint import arm_cell  # noqa: E402
 from experiments._lib.baselines import arc071_chunking as base  # noqa: E402
 from experiments._harness import StepHarness  # noqa: E402
 from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 
 # z_goal liveness (code-review requirement -- see /queue-experiment skill Step
 # 3.5 "Output contract": every driver that steps an agent must record the
@@ -852,9 +852,56 @@ def run_experiment(*, n_train: int, n_probe: int,
         "met": readiness_met,
     }]
 
+    # Flat scalar readout -- the pack's metrics.values source (REE_assembly
+    # evidence/planning/flat_scalar_readout_recording_gap_20260909.md). Every
+    # quantitative block this driver emits is a per-seed row list, so the pack scored
+    # with no numeric metrics.values: no fail_if stop threshold could fire, the
+    # duplicate-emission supersession fingerprint was skipped, and the index carried no
+    # deltas. These are the pre-registered scalars C1/C2 turn on -- the readiness floor at
+    # its WORST seed (C1 is a min over seeds, so that minimum is decisive), and the
+    # official readout mean realised length that each cell's verdict routes on, at both
+    # extrema against the two thresholds that bracket it. flat_readout() enforces the two
+    # encoding rules (bools -> 0/1 ints; non-finite/None dropped). Recording-only: the
+    # verdict grid, criteria, thresholds and DV are unchanged.
+    _mrl = [r["official_readout_mean_realised_length"] for r in rows]
+    readout = flat_readout({
+        "C1_sufficient_commitments_observed": c1_sufficient_commitments,
+        "C2_discrimination_reached": c2_discrimination_reached,
+        "n_criteria_passed": sum(1 for c in criteria if c["passed"]),
+        "n_criteria_total": len(criteria),
+        "overall_pass_flag": overall_pass,
+        "readiness_met_flag": readiness_met,
+        # C1 -- the chunk-commitment floor at its worst seed
+        "min_persistent_present_ticks": float(min_persistent_present),
+        "min_persistent_present_ticks_floor": float(MIN_PERSISTENT_PRESENT_TICKS),
+        # the statistic each cell verdict routes on, against the two bracketing bars
+        "persistence_restored_mean_length_floor": PERSISTENCE_RESTORED_MEAN_LENGTH_FLOOR,
+        "persistence_still_pinned_mean_length_ceil": PERSISTENCE_STILL_PINNED_MEAN_LENGTH_CEIL,
+        "official_mean_realised_length_worst": min(_mrl, default=None),
+        "official_mean_realised_length_best": max(_mrl, default=None),
+        # per-seed verdict census
+        "n_seeds": len(rows),
+        "n_seeds_persistence_restored": sum(
+            1 for v in verdicts if v == "persistence_restored_post_fix"),
+        "n_seeds_persistence_still_broken": sum(
+            1 for v in verdicts if v == "persistence_still_broken_post_fix"),
+        "n_seeds_insufficient_commitments": sum(
+            1 for v in verdicts if v == "insufficient_commitments"),
+        "n_seeds_inconclusive": sum(1 for v in verdicts if v == "inconclusive"),
+        "n_distinct_cell_verdicts": len(set(verdicts)),
+        # supplementary diagnostics (recorded, never verdict inputs)
+        "frac_post_teardown_still_present_worst": max(
+            (r["frac_post_teardown_still_present"] for r in rows), default=None),
+        "mean_true_dwell_ticks_worst": min(
+            (r["mean_true_dwell_ticks"] for r in rows), default=None),
+        "n_genuine_commits_identity_based_total": sum(
+            r["n_genuine_commits_identity_based"] for r in rows),
+    })
+
     return {
         "rows": rows,
         "label": label,
+        "readout": readout,
         "criteria": criteria,
         "overall_pass": overall_pass,
         "preconditions": preconditions,
@@ -938,6 +985,7 @@ def main() -> Tuple[str, Path, bool]:
             "decision": "allow",
         },
         "arm_results": res["rows"],
+        "readout": res["readout"],
         "evidence_direction": "mixed" if res["overall_pass"] else "non_contributory",
         "evidence_direction_per_claim": {
             "MECH-090": direction_mech090,

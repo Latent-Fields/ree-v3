@@ -269,7 +269,7 @@ from experiments._lib.arm_fingerprint import arm_cell  # noqa: E402
 from experiments._lib.baselines import arc071_chunking as base  # noqa: E402
 from experiments._harness import StepHarness  # noqa: E402
 from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 
 # z_goal liveness -- each seed cell builds a FRESH agent inside `_run_cell`,
 # so the accumulator (not a single `agent=` kwarg) is correct, same pattern
@@ -874,9 +874,67 @@ def run_experiment(*, n_train: int, n_probe: int,
         "met": opportunity_readiness_met,
     }]
 
+    # Flat scalar readout -- the pack's metrics.values source (REE_assembly
+    # evidence/planning/flat_scalar_readout_recording_gap_20260909.md). Every
+    # quantitative block this driver emits is a per-seed row list, so the pack scored
+    # with no numeric metrics.values: no fail_if stop threshold could fire, the
+    # duplicate-emission supersession fingerprint was skipped, and the index carried no
+    # deltas. These are the pre-registered scalars C1/C2 turn on -- BOTH readiness floors
+    # at their worst seed (commitments AND opportunities; the opportunity gate is the
+    # compounding defect the Step 4.5 review added, and conflating its absence with a
+    # confirmed-inert substrate is exactly the misattribution the label grid guards
+    # against), and the opportunity continuation rate each cell verdict routes on at both
+    # extrema against the two thresholds that bracket it. flat_readout() enforces the two
+    # encoding rules (bools -> 0/1 ints; non-finite/None dropped -- so a cell with no
+    # opportunity contributes no rate rather than a zero, which would read as a working
+    # short-circuit). Recording-only: the verdict grid, criteria, thresholds and DV are
+    # unchanged.
+    _rates = [r["opportunity_continuation_rate"] for r in rows
+              if r["opportunity_continuation_rate"] is not None]
+    readout = flat_readout({
+        "C1_sufficient_commitments_observed": c1_sufficient_commitments,
+        "C2_discrimination_reached": c2_discrimination_reached,
+        "n_criteria_passed": sum(1 for c in criteria if c["passed"]),
+        "n_criteria_total": len(criteria),
+        "overall_pass_flag": overall_pass,
+        "readiness_met_flag": readiness_met,
+        # the two readiness floors, each at its worst seed
+        "commitments_readiness_met_flag": commitments_readiness_met,
+        "min_persistent_present_ticks": float(min_persistent_present),
+        "min_persistent_present_ticks_floor": float(MIN_PERSISTENT_PRESENT_TICKS),
+        "opportunity_readiness_met_flag": opportunity_readiness_met,
+        "min_shortcircuit_opportunities": float(min_opportunities),
+        # the DV each cell verdict routes on, against its two bracketing bars
+        "opportunity_continuation_rate_working_floor":
+            OPPORTUNITY_CONTINUATION_RATE_WORKING_FLOOR,
+        "opportunity_continuation_rate_inert_ceil":
+            OPPORTUNITY_CONTINUATION_RATE_INERT_CEIL,
+        "opportunity_continuation_rate_min": min(_rates, default=None),
+        "opportunity_continuation_rate_max": max(_rates, default=None),
+        "n_seeds_with_measurable_rate": len(_rates),
+        # per-seed verdict census
+        "n_seeds": len(rows),
+        "n_seeds_shortcircuit_working": sum(
+            1 for v in verdicts if v == "shortcircuit_working_post_fix"),
+        "n_seeds_shortcircuit_inert": sum(
+            1 for v in verdicts if v == "shortcircuit_inert_still_broken"),
+        "n_seeds_no_opportunity": sum(
+            1 for v in verdicts if v == "no_shortcircuit_opportunity"),
+        "n_seeds_insufficient_commitments": sum(
+            1 for v in verdicts if v == "insufficient_commitments"),
+        "n_seeds_inconclusive": sum(1 for v in verdicts if v == "inconclusive"),
+        "n_distinct_cell_verdicts": len(set(verdicts)),
+        # totals behind the rate
+        "n_shortcircuit_opportunities_total": sum(
+            r["n_shortcircuit_opportunities"] for r in rows),
+        "n_opportunity_ticks_continued_total": sum(
+            r["n_opportunity_ticks_continued"] for r in rows),
+    })
+
     return {
         "rows": rows,
         "label": label,
+        "readout": readout,
         "criteria": criteria,
         "overall_pass": overall_pass,
         "preconditions": preconditions,
@@ -954,6 +1012,7 @@ def main() -> Tuple[str, Path, bool]:
             "decision": "allow",
         },
         "arm_results": res["rows"],
+        "readout": res["readout"],
         "evidence_direction": "mixed" if res["overall_pass"] else "non_contributory",
         "evidence_direction_per_claim": {
             "MECH-090": direction_mech090,

@@ -191,7 +191,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from experiment_protocol import emit_outcome
 
-from experiments.pack_writer import write_flat_manifest
+from experiments.pack_writer import write_flat_manifest, flat_readout
 
 from experiments._lib.arm_fingerprint import arm_cell
 from experiments._lib.capability_eval import LocalViewGreedyPolicy, RandomPolicy
@@ -923,6 +923,51 @@ def _self_route(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
             % (MAJORITY_SEEDS, len(paired_seeds), EVENT_DECODABILITY_FLOOR,
                EVENT_CE_DELTA_MIN, EVENT_DECODABILITY_FLOOR)
         ),
+        # Flat scalar readout -- the pack's metrics.values source (REE_assembly
+        # evidence/planning/flat_scalar_readout_recording_gap_20260909.md). per_seed and
+        # arm_results are lists and thresholds/label_balance are nested, so the pack scored
+        # with no numeric metrics.values: no fail_if stop threshold could fire, the
+        # duplicate-emission supersession fingerprint was skipped, and the index carried no
+        # deltas. The combination rule here is a MAJORITY + PAIRED-DELTA rule, not a plain
+        # AND, so both halves are recorded: the supporting-seed count against
+        # MAJORITY_SEEDS, and the decisive per-seed extrema of BOTH conjuncts a seed must
+        # satisfy (the minimum on_margin against the decodability floor, and the minimum
+        # paired delta against EVENT_CE_DELTA_MIN). mean_on_margin is recorded too because
+        # the WEAKENS branch routes on it specifically rather than on the seed count.
+        # flat_readout() enforces the two encoding rules (bools -> 0/1 ints;
+        # non-finite/None dropped -- so a seed whose probe produced no margin contributes
+        # nothing rather than a zero, which would read as chance). Recording-only: the
+        # verdict grid, criteria, thresholds and DV are unchanged.
+        "readout": flat_readout({
+            "C1_event_ce_on_clears_floor_and_beats_off_majority_seeds": bool(
+                readiness_ok and supports_count >= MAJORITY_SEEDS),
+            "n_criteria_passed": sum(1 for c in criteria if c["passed"]),
+            "n_criteria_total": len(criteria),
+            "readiness_ok_flag": readiness_ok,
+            "n_preconditions_met": sum(1 for pc in preconditions if pc["met"]),
+            "n_preconditions_total": len(preconditions),
+            # the majority half of the rule
+            "supports_count": supports_count,
+            "majority_seeds": MAJORITY_SEEDS,
+            "n_paired_seeds": len(paired_seeds),
+            "n_seeds_with_measurable_delta": sum(
+                1 for pp in per_seed if pp["delta"] is not None),
+            # the two per-seed conjuncts, each at its decisive extremum
+            "event_decodability_floor": EVENT_DECODABILITY_FLOOR,
+            "on_margin_worst": min(on_margins, default=None),
+            "on_margin_best": max(on_margins, default=None),
+            "mean_on_margin": mean_on_margin,
+            "event_ce_delta_min": EVENT_CE_DELTA_MIN,
+            "paired_delta_worst": min(
+                (pp["delta"] for pp in per_seed if pp["delta"] is not None), default=None),
+            "paired_delta_best": max(
+                (pp["delta"] for pp in per_seed if pp["delta"] is not None), default=None),
+            # readiness thresholds carried through
+            "hazard_positive_control_floor": HAZARD_POSITIVE_CONTROL_FLOOR,
+            "min_changed_world_tensors": MIN_CHANGED_WORLD_TENSORS,
+            "min_changed_world_tensors_measured": min_changed,
+            "primary_criterion_non_degenerate_flag": criteria_non_degenerate["primary"],
+        }),
         "per_seed": per_seed,
         "supports_count": supports_count,
         "n_seeds": len(paired_seeds),
@@ -1014,6 +1059,7 @@ def _build_manifest(result: Dict[str, Any], timestamp_utc: str,
         "dry_run": bool(dry_run),
         "evidence_direction": interp["direction"],
         "interpretation": interp,
+        "readout": interp["readout"],
         "arm_results": result["arm_results"],
         "label_balance": result["label_balance"],
         "custom_information": {

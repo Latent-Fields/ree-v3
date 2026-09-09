@@ -172,7 +172,7 @@ from experiment_protocol import emit_outcome
 from experiments._lib.arm_fingerprint import arm_cell
 from experiments._lib.z_goal_stream import ZGoalStreamAccumulator
 from experiments._metrics import check_degeneracy
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
@@ -769,6 +769,57 @@ def main(argv=None):
         "non_degenerate": non_degenerate,
         "degeneracy_reason": degeneracy.get("degeneracy_reason", ""),
         "pass_criteria_summary": summary,
+        # Flat scalar readout -- the pack's metrics.values source (REE_assembly
+        # evidence/planning/flat_scalar_readout_recording_gap_20260909.md).
+        # pass_criteria_summary is a dict keyed by criterion with a nested per_seed_deltas
+        # block, and per_seed_results/arm_results are lists, so the pack scored with no
+        # numeric metrics.values: no fail_if stop threshold could fire, the
+        # duplicate-emission supersession fingerprint was skipped, and the index carried
+        # no deltas. These are the pre-registered scalars C1/C2 turn on -- each seed-hit
+        # count against MIN_PASS_SEEDS, plus the decisive per-seed extremum for each
+        # (C1 is a lower bound on the outcome-sensitivity delta so its worst seed is the
+        # MINIMUM; C2 is an equivalence upper bound on |ON-OFF| execution strength so its
+        # worst seed is the MAXIMUM) -- and the cross-seed variance floor the whole verdict
+        # is gated on. flat_readout() enforces the two encoding rules (bools -> 0/1 ints;
+        # non-finite/None dropped -- which matters here: a seed with a NaN execution
+        # strength yields inf, and dropping it is correct, since an inf delta would
+        # otherwise pollute the extremum). Recording-only: the verdict grid, criteria,
+        # thresholds and DVs are unchanged.
+        "readout": flat_readout({
+            "C1_outcome_sensitivity_shift": c1,
+            "C2_execution_strength_equivalence": c2,
+            "n_criteria_passed": sum(1 for x in (c1, c2) if x),
+            "n_criteria_total": 2,
+            "overall_pass_flag": outcome == "PASS",
+            "non_degenerate_flag": non_degenerate,
+            # the cross-seed variance floor the verdict is gated on
+            "arm_off_execution_strength_range_across_seeds": off_margin_range,
+            "margin_variance_floor": MARGIN_VARIANCE_FLOOR,
+            # C1 / C2 seed-hit counts against the shared bar
+            "min_pass_seeds": MIN_PASS_SEEDS,
+            "c1_seed_hits": c1_seed_hits,
+            "c2_seed_hits": c2_seed_hits,
+            "n_seeds": len(seeds),
+            "n_seeds_with_both_arms": len(per_seed_deltas),
+            # decisive per-seed extrema against their margins
+            "outcome_sensitivity_margin": OUTCOME_SENSITIVITY_MARGIN,
+            "outcome_sensitivity_delta_worst": min(
+                (d["outcome_sensitivity_delta"] for d in per_seed_deltas.values()),
+                default=None),
+            "outcome_sensitivity_delta_best": max(
+                (d["outcome_sensitivity_delta"] for d in per_seed_deltas.values()),
+                default=None),
+            "execution_strength_equivalence_margin": EXECUTION_STRENGTH_EQUIVALENCE_MARGIN,
+            "execution_strength_abs_delta_worst": max(
+                (d["execution_strength_abs_delta"] for d in per_seed_deltas.values()
+                 if math.isfinite(d["execution_strength_abs_delta"])), default=None),
+            "execution_strength_abs_delta_best": min(
+                (d["execution_strength_abs_delta"] for d in per_seed_deltas.values()
+                 if math.isfinite(d["execution_strength_abs_delta"])), default=None),
+            "n_seeds_execution_strength_measurable": sum(
+                1 for d in per_seed_deltas.values()
+                if math.isfinite(d["execution_strength_abs_delta"])),
+        }),
         "per_seed_results": all_rows,
         "arm_results": arm_results,
         "config": {
