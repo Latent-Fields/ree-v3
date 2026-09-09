@@ -146,7 +146,7 @@ from experiments._lib.precondition_gate import (  # noqa: E402
     assert_no_structurally_unsatisfiable_gate,
     evaluate_arm_gate,
 )
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 import experiments._lib.baselines.mech457_retention as baselines  # noqa: E402
 import experiments._lib.mech457_fanout as fan  # noqa: E402
 import experiments.v3_exq_734_env_difficulty_competence_recovery_sweep as x734  # noqa: E402
@@ -513,9 +513,61 @@ def run_experiment(seeds: Tuple[int, ...], doses: Tuple[int, ...], *,
         ],
     }
 
+    # Flat scalar readout -- the pack's metrics.values source. Every quantitative block
+    # this driver emits (dose_response, leave_one_out, per_arm, per_arm_gate, arm_results)
+    # is a list or a dict keyed by arm / dose / seed, so the pack scored with no numeric
+    # metrics.values: no fail_if stop threshold could fire, the duplicate-emission
+    # supersession fingerprint was skipped, and the index carried no deltas. These are the
+    # pre-registered scalars the load-bearing dose-response criterion turns on -- the mean
+    # paired (max_dose - min_dose) delta against the NOISE-SCALED effective floor (and both
+    # of that floor's inputs, since the floor is a max of two terms and which one binds is
+    # itself a finding), the monotonicity flag, the scorable-arm count against its minimum,
+    # and the leave-one-out stability. flat_readout() enforces the two encoding rules
+    # (bools -> 0/1 ints; non-finite/None dropped -- so an UNMEASURABLE run correctly
+    # records no delta rather than a zero). Recording-only: the verdict grid, criterion,
+    # thresholds and DV are unchanged.
+    _pag = gate_agg["per_arm_gate"]
+    readout = flat_readout({
+        "C1_resistance_grows_with_dose": supported,
+        "n_criteria_passed": int(bool(supported)),
+        "n_criteria_total": 1,
+        "measurable_flag": measurable,
+        "non_degenerate_flag": non_degenerate,
+        "verdict_supported_flag": supported,
+        "verdict_weakened_flag": weakened,
+        "verdict_non_monotone_flag": non_monotone,
+        # the load-bearing comparison and both inputs to its noise-scaled floor
+        "mean_paired_delta": mean_delta,
+        "effective_dose_margin": effective_floor,
+        "sd_delta": sd_delta,
+        "effect_size_k": EFFECT_SIZE_K,
+        "effect_size_abs_floor": EFFECT_SIZE_ABS_FLOOR,
+        "retained_fraction_spread": spread,
+        "monotone_non_decreasing": monotone,
+        # scorable-arm census against its minimum
+        "n_scorable_arms": n_scorable,
+        "min_scorable_arms": MIN_SCORABLE_ARMS,
+        "n_doses": len(doses),
+        "n_seeds": len(seeds),
+        "install_took_majority": INSTALL_TOOK_MAJORITY,
+        # the dose axis extrema the paired delta is taken between
+        "min_scorable_dose": dose_axis[0] if dose_axis else None,
+        "max_scorable_dose": dose_axis[-1] if dose_axis else None,
+        "retained_fraction_at_min_dose": retained_axis[0] if retained_axis else None,
+        "retained_fraction_at_max_dose": retained_axis[-1] if retained_axis else None,
+        # leave-one-out robustness
+        "leave_one_out_applicable": leave_one_out.get("applicable"),
+        "leave_one_out_stable": leave_one_out.get("stable"),
+        "leave_one_out_n_folds": leave_one_out.get("n_folds"),
+        # per-arm gate census
+        "n_arms_green": len(_pag.get("green_arms") or []),
+        "n_arms_red": len(_pag.get("red_arms") or []),
+    })
+
     return {
         "outcome": outcome,
         "interpretation_label": label,
+        "readout": readout,
         "evidence_direction": evidence_direction,
         "non_degenerate": non_degenerate,
         "degeneracy_reason": degeneracy_reason,
@@ -561,6 +613,7 @@ def _build_manifest(result: Dict[str, Any], timestamp_utc: str, *, dry_run: bool
         "degeneracy_reason": result["degeneracy_reason"],
         "interpretation": result["interpretation"],
         "interpretation_label": result["interpretation_label"],
+        "readout": result["readout"],
         "dose_response": result["dose_response"],
         "leave_one_out": result["leave_one_out"],
         "per_arm": result["per_arm"],

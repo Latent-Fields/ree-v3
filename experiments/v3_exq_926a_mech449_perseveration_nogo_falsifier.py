@@ -142,7 +142,7 @@ from experiments._lib.arm_fingerprint import (  # noqa: E402
     compute_arm_fingerprint,
     reset_all_rng,
 )
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 from ree_core.cingulate.dacc import DACCAdaptiveControl, DACCConfig  # noqa: E402
 from ree_core.predictors.e2_fast import Trajectory  # noqa: E402
 from ree_core.predictors.e3_selector import E3Config, E3TrajectorySelector  # noqa: E402
@@ -656,6 +656,60 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         },
         "arm_results": arm_results,
         "criteria": criteria,
+        # Flat scalar readout -- the pack's metrics.values source. Every quantitative block
+        # this driver emits (arm_results, criteria with its per-seed `measured` dict,
+        # summary, interpretation) is a list or a dict keyed by seed/arm, so the pack
+        # scored with no numeric metrics.values: no fail_if stop threshold could fire, the
+        # duplicate-emission supersession fingerprint was skipped, and the index carried
+        # no deltas. These are the pre-registered scalars C1 (load-bearing), C2 and C3
+        # turn on -- C1's seed count against the majority bar plus the WORST per-seed
+        # conversion rate against the floor (C1 is a per-seed count, so the extremum is
+        # what moves it), C2's specificity gap and both means, and C3's empty-eligible
+        # total against its zero ceiling -- plus the four non-degeneracy statistics
+        # against their floors. flat_readout() enforces the two encoding rules (bools ->
+        # 0/1 ints; non-finite/None dropped). Recording-only: the verdict grid, criteria,
+        # thresholds and DV are unchanged.
+        "readout": flat_readout({
+            "C1_perseveration_conversion": c1,
+            "C2_recency_content_specificity": c2,
+            "C3_safety_failopen": c3,
+            "n_criteria_passed": sum(1 for x in (c1, c2, c3) if x),
+            "n_criteria_total": 3,
+            "overall_pass_flag": outcome == "PASS",
+            "readiness_ok_flag": readiness_ok,
+            "n_preconditions_met": sum(1 for pc in preconditions if pc.get("met")),
+            "n_preconditions_total": len(preconditions),
+            # C1 -- seed count against the majority bar, and the decisive extrema
+            "conversion_floor": CONVERSION_FLOOR,
+            "n_seeds_clearing_conversion_floor": n_seeds_clearing,
+            "seed_majority_required": SEED_MAJORITY,
+            "conversion_rate_worst": min(
+                (c["conversion_rate"] for c in on_cells), default=None),
+            "conversion_rate_best": max(
+                (c["conversion_rate"] for c in on_cells), default=None),
+            # C2 -- the specificity gap against its floor, with both means
+            "specificity_gap": specificity_gap,
+            "specificity_gap_floor": SPECIFICITY_GAP_FLOOR,
+            "mean_conversion_constitution": mean_on,
+            "mean_conversion_shuffled": mean_shuf,
+            # C3 -- fail-open safety, an upper bound at zero
+            "total_empty_eligible": total_empty,
+            "total_empty_eligible_ceiling": 0,
+            # non-degeneracy statistics against their floors
+            "gate_ever_active_flag": gate_ever_active,
+            "worst_suppression_range": worst_supp_range,
+            "suppression_range_floor": SUPPRESSION_RANGE_FLOOR,
+            "worst_envelope_size": worst_env_size,
+            "envelope_size_floor": ENVELOPE_SIZE_FLOOR,
+            "n_converted_on_arm": on_conv,
+            "n_converted_off_arm": off_conv,
+            "c1_non_degenerate_flag": c1_non_degenerate,
+            # cell census
+            "n_cells": len(arm_results),
+            "n_on_cells": len(on_cells),
+            "n_off_cells": len(off_cells),
+            "n_shuffled_cells": len(shuf_cells),
+        }),
         "combination_rule": combination_rule,
         "interpretation": {
             "label": label,

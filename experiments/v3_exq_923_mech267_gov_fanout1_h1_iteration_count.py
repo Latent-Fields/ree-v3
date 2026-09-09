@@ -161,7 +161,7 @@ from ree_core.predictors.e2_fast import E2FastPredictor
 from ree_core.residue.field import ResidueField
 from ree_core.utils.config import E2Config, HippocampalConfig, ResidueConfig
 from experiment_protocol import emit_outcome  # noqa: E402
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 
 EVIDENCE_ROOT = REPO_ROOT.parent / "REE_assembly" / "evidence" / "experiments"
 
@@ -579,6 +579,44 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
             "substrate build not performed by this run."
         ),
         "outcome": outcome,
+        # Flat scalar readout -- the pack's metrics.values source. Every quantitative block
+        # this driver emits (mean_gaps, per_seed_gaps, persistence_fractions,
+        # interpretation.criteria) is a dict keyed by condition / mode pair / seed, so the
+        # pack scored with no numeric metrics.values: no fail_if stop threshold could fire,
+        # the duplicate-emission supersession fingerprint was skipped, and the index
+        # carried no deltas. These are the pre-registered scalars the criteria turn on --
+        # each condition's WORST (minimum) pairwise mode gap, which is exactly the
+        # statistic the `all(g >= FLOOR)` tests reduce to, against the floor that condition
+        # is judged by. flat_readout() enforces the two encoding rules (bools -> 0/1 ints;
+        # non-finite/None dropped -- so a criterion that is None under --dry-run correctly
+        # reads as unmeasured rather than as a zero). Recording-only: the verdict grid,
+        # criteria, thresholds and DV are unchanged.
+        "readout": flat_readout({
+            "C_mechanism_activation_check": mechanism_activation["both_mechanisms_active"],
+            "C0_diagnostic_manipulation_check_iters1": c0_diagnostic_manipulation_check,
+            "C_H1_iteration_count_probe_iters2": c_h1_load_bearing,
+            "C1_context_production_iters3": c1_context_iters3,
+            "C2_seed_majority_ordering": c2_seed_majority_ordering,
+            "non_degenerate_flag": non_degenerate,
+            # the decisive per-condition extremum: `all(g >= FLOOR)` reduces to min(g)
+            "floor_diagnostic": FLOOR_DIAGNOSTIC,
+            "floor_production": FLOOR_PRODUCTION,
+            "diagnostic_min_mean_gap": min(diag_gaps.values(), default=None),
+            "diagnostic_max_mean_gap": max(diag_gaps.values(), default=None),
+            "h1_probe_min_mean_gap": min(
+                (mean_gaps.get("h1_probe") or {}).values(), default=None),
+            "h1_probe_max_mean_gap": max(
+                (mean_gaps.get("h1_probe") or {}).values(), default=None),
+            "production_min_mean_gap": min(
+                (mean_gaps.get("production_default") or {}).values(), default=None),
+            "production_max_mean_gap": max(
+                (mean_gaps.get("production_default") or {}).values(), default=None),
+            # C2 seed-ordering majority
+            "n_seeds_full_order": n_seeds_full_order,
+            "seed_order_majority_fraction": _SEED_ORDER_MAJORITY_FRACTION,
+            "n_seeds": len(seeds),
+            "n_mode_pairs": len(diag_gaps),
+        }),
         "mechanism_activation": mechanism_activation,
         "interpretation": {
             "label": interpretation_label,

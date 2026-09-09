@@ -162,7 +162,7 @@ from ree_core.utils.config import REEConfig
 from ree_core.agent import REEAgent
 from ree_core.residue.field import VALENCE_HARM_DISCRIMINATIVE, VALENCE_LIKING
 
-from experiments.pack_writer import write_flat_manifest
+from experiments.pack_writer import write_flat_manifest, flat_readout
 from experiments._metrics import check_degeneracy
 from experiments._lib.arm_fingerprint import arm_cell
 from experiments._lib.z_goal_stream import ZGoalStreamAccumulator
@@ -653,6 +653,52 @@ def _run(dry_run: bool):
             "min_seeds_pass": MIN_SEEDS_PASS,
         },
         "criteria": criteria,
+        # Flat scalar readout -- the pack's metrics.values source. `criteria` above mixes
+        # scalars with per-seed lists AND sits under a key the runpack converter does not
+        # harvest (it reads only metrics / aggregates / summary_metrics / readout), and
+        # arm_results is a list, so the pack scored with no numeric metrics.values: no
+        # fail_if stop threshold could fire, the duplicate-emission supersession
+        # fingerprint was skipped, and the index carried no deltas. This projects the same
+        # pre-registered quantities C1/C2/C3 turn on, plus the decisive per-seed extremum
+        # for each: C1 is a lower bound on the GEOM arm's r so its worst seed is the
+        # MINIMUM r, C2 an upper bound on the ABLATED arm's |r| so its worst is the
+        # MAXIMUM |r|, and C3 a pair of floors so its worst is each minimum.
+        # flat_readout() enforces the two encoding rules (bools -> 0/1 ints;
+        # non-finite/None dropped). Recording-only: the verdict grid, criteria,
+        # thresholds and DV are unchanged.
+        "readout": flat_readout({
+            "C1_geom_gradient_correlation": criteria["c1_geom_gradient_pass"],
+            "C2_ablated_null": criteria["c2_ablated_null_pass"],
+            "C3_readiness_non_degenerate": criteria["c3_readiness_pass"],
+            "n_criteria_passed": sum(1 for c in criteria["criteria"] if c["passed"]),
+            "n_criteria_total": len(criteria["criteria"]),
+            "overall_pass_flag": criteria["overall_pass"],
+            # per-seed pass counts against the shared seed-majority bar
+            "min_seeds_pass_bar": MIN_SEEDS_PASS,
+            "c1_seeds_pass": criteria["c1_seeds_pass"],
+            "c2_seeds_pass": criteria["c2_seeds_pass"],
+            "c3_seeds_pass": criteria["c3_seeds_pass"],
+            "n_seeds": len(SEEDS),
+            # decisive extrema against the pre-registered correlation thresholds
+            "c1_r_geom_min_bar": R_GEOM_MIN,
+            "c1_geom_r_worst": min(criteria["c1_geom_r_values"], default=None),
+            "c1_geom_r_best": max(criteria["c1_geom_r_values"], default=None),
+            "c2_r_null_max_bar": R_NULL_MAX,
+            "c2_ablated_abs_r_worst": max(
+                (abs(v) for v in criteria["c2_ablated_r_values"]), default=None),
+            "c2_ablated_abs_r_best": min(
+                (abs(v) for v in criteria["c2_ablated_r_values"]), default=None),
+            # C3 readiness floors, each at its worst seed
+            "c3_min_active_centers_bar": MIN_ACTIVE_CENTERS,
+            "c3_geom_active_centers_worst": min(
+                criteria["c3_geom_active_centers"], default=None),
+            "c3_min_distance_std_bar": MIN_DISTANCE_STD,
+            "c3_geom_distance_std_worst": min(
+                criteria["c3_geom_distance_std"], default=None),
+            "non_degenerate_flag": degeneracy["non_degenerate"],
+            "n_degenerate_metrics": len(degeneracy["degenerate_metrics"] or []),
+            "n_cells": len(all_results),
+        }),
         "arm_results": arm_results,
         "summary": (
             f"MECH-144 ventral-analog spatial-gradient valence probe. "

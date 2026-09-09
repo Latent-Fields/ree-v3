@@ -141,7 +141,7 @@ from experiments._lib.arm_fingerprint import (  # noqa: E402
     compute_arm_fingerprint,
     reset_all_rng,
 )
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 from ree_core.cingulate.dacc import DACCAdaptiveControl, DACCConfig  # noqa: E402
 from ree_core.predictors.e2_fast import Trajectory  # noqa: E402
 from ree_core.predictors.e3_selector import E3Config, E3TrajectorySelector  # noqa: E402
@@ -774,6 +774,67 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         },
         "arm_results": arm_results,
         "criteria": criteria,
+        # Flat scalar readout -- the pack's metrics.values source. Every quantitative block
+        # this driver emits (arm_results, criteria whose `measured` fields are a per-seed
+        # dict and a per-step list, interpretation) is a list or a keyed dict, so the pack
+        # scored with no numeric metrics.values: no fail_if stop threshold could fire, the
+        # duplicate-emission supersession fingerprint was skipped, and the index carried no
+        # deltas. These are the pre-registered scalars C1 (load-bearing), C2 and C3 turn on
+        # -- C1's seed count against the majority bar plus the WORST per-seed lift against
+        # DOSE_LIFT_FLOOR (C1 is a per-seed count, so the extremum is what moves it), C2's
+        # worst ladder step against the monotonicity slack, and C3's empty-eligible total
+        # against its zero ceiling -- plus the KNEE FLOOR, which the combination rule calls
+        # this run's actual deliverable and which no nested block exposes as a scalar.
+        # flat_readout() enforces the two encoding rules (bools -> 0/1 ints;
+        # non-finite/None dropped -- so "no knee found" correctly records no floor rather
+        # than a zero). Recording-only: the verdict grid, criteria, thresholds and DV are
+        # unchanged.
+        "readout": flat_readout({
+            "C1_envelope_width_dose_response": c1,
+            "C2_conversion_monotone_in_envelope_width": c2,
+            "C3_safety_failopen": c3,
+            "n_criteria_passed": sum(1 for x in (c1, c2, c3) if x),
+            "n_criteria_total": 3,
+            "overall_pass_flag": outcome == "PASS",
+            "readiness_ok_flag": readiness_ok,
+            "n_preconditions_met": sum(1 for pc in preconditions if pc.get("met")),
+            "n_preconditions_total": len(preconditions),
+            # C1 -- seed count against the majority bar, and the decisive lift extrema
+            "dose_lift_floor": DOSE_LIFT_FLOOR,
+            "n_seeds_clearing_dose_lift": n_seeds_clearing,
+            "seed_majority_required": SEED_MAJORITY,
+            "per_seed_lift_worst": min(per_seed_lift.values(), default=None),
+            "per_seed_lift_best": max(per_seed_lift.values(), default=None),
+            # C2 -- the worst ladder step against the monotonicity slack
+            "monotone_tol": MONOTONE_TOL,
+            "monotone_step_delta_worst": min(
+                (s["delta"] for s in steps), default=None),
+            "n_ladder_steps_ok": sum(1 for s in steps if s["ok"]),
+            "n_ladder_steps": len(steps),
+            # C3 -- fail-open safety, an upper bound at zero
+            "total_empty_eligible": total_empty,
+            "total_empty_eligible_ceiling": 0,
+            # the deliverable: the narrowest envelope at which conversion first clears half
+            "knee_floor": knee_floor,
+            "conversion_at_widest_floor": conv_by_floor.get(widest),
+            "conversion_at_stock_floor": conv_by_floor.get(stock),
+            "widest_floor": widest,
+            "stock_floor": stock,
+            # non-degeneracy statistics against their floors
+            "gate_ever_active_flag": gate_ever_active,
+            "worst_suppression_range": worst_supp_range,
+            "suppression_range_floor": SUPPRESSION_RANGE_FLOOR,
+            "envelope_dose_separation": env_dose_separation,
+            "envelope_dose_separation_floor": ENVELOPE_DOSE_SEPARATION_FLOOR,
+            "n_distinct_envelope_levels": distinct_env,
+            "c1_non_degenerate_flag": c1_non_degenerate,
+            # cell census
+            "n_cells": len(arm_results),
+            "n_on_cells": len(on_cells),
+            "n_off_cells": len(off_cells),
+            "n_floors": len(floors),
+            "n_seeds": len(seeds),
+        }),
         "combination_rule": combination_rule,
         "interpretation": {
             "label": label,

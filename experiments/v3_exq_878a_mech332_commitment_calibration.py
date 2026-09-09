@@ -150,7 +150,7 @@ from experiment_protocol import emit_outcome  # noqa: E402
 from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E402
 from ree_core.utils.config import REEConfig, HeartbeatConfig  # noqa: E402
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 from experiments._lib.arm_fingerprint import arm_cell  # noqa: E402
 from experiments._lib.manifest_core import stamp_recording_core  # noqa: E402
 from experiments._lib.baselines import (  # noqa: E402
@@ -689,6 +689,63 @@ def run_experiment(dry_run: bool) -> Dict[str, Any]:
         ),
         "arm_results": rows,
         "analysis": analysis,
+        # Flat scalar readout -- the pack's metrics.values source. Every quantitative block
+        # this driver emits (arm_results, analysis.per_schedule with its per-seed sub-dicts,
+        # interpretation) is a list or a dict keyed by schedule / arm / seed, so the pack
+        # scored with no numeric metrics.values: no fail_if stop threshold could fire, the
+        # duplicate-emission supersession fingerprint was skipped, and the index carried no
+        # deltas. These are the pre-registered scalars the load-bearing criterion turns on
+        # -- whether ANY schedule cleared N_COMMITTED_FLOOR in BOTH arms on a seed majority,
+        # the winning schedule's train-episode budget (the calibration answer this pilot
+        # exists to produce), and the per-schedule/per-arm clearing counts -- plus the
+        # measurement-adequacy floor: min n_fresh_select_ticks is the decisive extremum,
+        # since a single starved cell makes every n_committed reading uninformative.
+        # flat_readout() enforces the two encoding rules (bools -> 0/1 ints; non-finite/None
+        # dropped -- so "no winning schedule" correctly records no budget rather than a
+        # zero). Recording-only: the verdict grid, criterion, thresholds and DV are
+        # unchanged.
+        "readout": flat_readout(dict(
+            {
+                "C1_winning_commitment_schedule_found": winning_found,
+                "n_criteria_passed": int(bool(winning_found)),
+                "n_criteria_total": 1,
+                "measurement_live_flag": analysis["measurement_live"],
+                # measurement-adequacy: the decisive extremum against its floor
+                "min_n_fresh_select_ticks": min_fresh,
+                "fresh_floor": FRESH_FLOOR,
+                "n_preconditions_met": sum(1 for pc in preconditions if pc["met"]),
+                "n_preconditions_total": len(preconditions),
+                # the calibration answer: the winning schedule's budget
+                "winning_schedule_train_eps": next(
+                    (b["train_eps"] for b in analysis["per_schedule"]
+                     if b["schedule_id"] == analysis["winning_schedule"]), None),
+                "n_schedules_clearing_both_arms": sum(
+                    1 for b in analysis["per_schedule"] if b["both_arms_clear"]),
+                "n_schedules": len(analysis["per_schedule"]),
+                # pre-registered thresholds + seed arithmetic
+                "n_committed_floor": N_COMMITTED_FLOOR,
+                "pass_fraction_required": PASS_FRACTION_REQUIRED,
+                "seed_clear_floor_required": analysis["seed_clear_floor_required"],
+                "n_seeds": len(analysis["seeds"]),
+                "n_cells": len(rows),
+                "n_cells_clearing_floor": sum(
+                    1 for r in rows if r["cell_clears_floor"]),
+                "nd_budget_sweep_non_trivial": criteria_non_degenerate[
+                    "budget_sweep_non_trivial"],
+            },
+            **{
+                f"{b['schedule_id']}_{_k}": _v
+                for b in analysis["per_schedule"]
+                for _k, _v in [
+                    ("train_eps", b["train_eps"]),
+                    ("both_arms_clear", b["both_arms_clear"]),
+                    *[(f"{_arm}_seeds_clearing_floor", _blk["seeds_clearing_floor"])
+                      for _arm, _blk in b["arms"].items()],
+                    *[(f"{_arm}_clears", _blk["arm_clears"])
+                      for _arm, _blk in b["arms"].items()],
+                ]
+            },
+        )),
         "interpretation": {
             "label": label,
             "route_note": route_note,

@@ -229,7 +229,7 @@ from experiment_protocol import emit_outcome  # noqa: E402
 from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E402
 from ree_core.utils.config import REEConfig, HeartbeatConfig  # noqa: E402
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 from experiments._lib.arm_fingerprint import arm_cell  # noqa: E402
 from experiments._lib.manifest_core import stamp_recording_core  # noqa: E402
 from experiments._lib.baselines import (  # noqa: E402
@@ -716,8 +716,72 @@ def _analyse(rows: List[Dict[str, Any]], target_trials: int) -> Dict[str, Any]:
     )
     overall_pass = seeds_passing >= PASS_MIN_SEEDS
 
+    # Flat scalar readout -- the pack's metrics.values source. Every quantitative block
+    # this driver emits (arm_results, analysis.per_seed) is a list of per-seed / per-arm
+    # rows, so the pack scored with no numeric metrics.values: no fail_if stop threshold
+    # could fire, the duplicate-emission supersession fingerprint was skipped, and the
+    # index carried no deltas. These are the pre-registered scalars the D1/D2/D3
+    # dissociation criteria turn on -- the seed-level pass counts against PASS_MIN_SEEDS,
+    # plus the WORST per-seed value of each quantity a tolerance is applied to (D1 and D2
+    # are near-equality tests, so the largest absolute gap is what decides them; D2's
+    # discrimination and the two readiness floors are lower bounds, so their minima
+    # decide). flat_readout() enforces the two encoding rules (bools -> 0/1 ints;
+    # non-finite/None dropped -- so a seed where self_other_discrimination_ratio is None
+    # correctly contributes no value rather than a zero). Recording-only: the verdict
+    # grid, criteria, thresholds and DVs are unchanged.
+    _d1_gaps = [abs(r["ratio_aic_only"] - r["ratio_both"]) for r in per_seed]
+    _d1_atten_aic = [r["ratio_neither"] - r["ratio_aic_only"] for r in per_seed]
+    _d1_atten_both = [r["ratio_neither"] - r["ratio_both"] for r in per_seed]
+    _so_pairs = [r for r in per_seed
+                 if r["self_other_both"] is not None and r["self_other_e2_only"] is not None]
+    _d2_gaps = [abs(r["self_other_e2_only"] - r["self_other_both"]) for r in _so_pairs]
+    _so_all = ([r["self_other_both"] for r in _so_pairs]
+               + [r["self_other_e2_only"] for r in _so_pairs])
+    readout = flat_readout({
+        "overall_pass_flag": overall_pass,
+        "overall_non_degenerate_flag": overall_non_degenerate,
+        "seeds_passing": seeds_passing,
+        "pass_min_seeds": PASS_MIN_SEEDS,
+        "n_seeds": n_seeds,
+        "seeds_non_degenerate": seeds_non_degenerate,
+        "pass_fraction_required": PASS_FRACTION_REQUIRED,
+        # per-criterion seed counts (recorded as PASSES, not fails, for the index)
+        "d1_pass_seeds": n_seeds - d1_fail_seeds,
+        "d2_pass_seeds": n_seeds - d2_fail_seeds,
+        "d3_pass_seeds": n_seeds - d3_fail_seeds,
+        "d1_fail_seeds": d1_fail_seeds,
+        "d2_fail_seeds": d2_fail_seeds,
+        "d3_fail_seeds": d3_fail_seeds,
+        # D1 -- near-equality gap (worst = largest) and the attenuation margins (worst = smallest)
+        "d1_near_equal_tol": D1_NEAR_EQUAL_TOL,
+        "d1_ratio_gap_worst": max(_d1_gaps, default=None),
+        "d1_attenuation_margin": D1_ATTENUATION_MARGIN,
+        "d1_attenuation_aic_only_worst": min(_d1_atten_aic, default=None),
+        "d1_attenuation_both_worst": min(_d1_atten_both, default=None),
+        # D2 -- near-equality gap and the discrimination floor (worst = smallest ratio)
+        "d2_near_equal_tol": D2_NEAR_EQUAL_TOL,
+        "d2_self_other_gap_worst": max(_d2_gaps, default=None),
+        "d2_discrim_floor": D2_DISCRIM_FLOOR,
+        "d2_self_other_ratio_worst": min(_so_all, default=None),
+        "n_seeds_self_other_measurable": len(_so_pairs),
+        # D3 -- non-interference tolerance
+        "d3_tol": D3_TOL,
+        # readiness floors, at their worst seed
+        "n_committed_floor": N_COMMITTED_FLOOR,
+        "n_committed_worst": min(
+            ([r["n_committed_aic_only"] for r in per_seed]
+             + [r["n_committed_both"] for r in per_seed]), default=None),
+        "n_event_floor": n_event_floor,
+        "n_causal_trials_worst": min(
+            ([r["n_agent_caused_e2_only"] for r in per_seed]
+             + [r["n_env_caused_e2_only"] for r in per_seed]
+             + [r["n_agent_caused_both"] for r in per_seed]
+             + [r["n_env_caused_both"] for r in per_seed]), default=None),
+    })
+
     return {
         "per_seed": per_seed,
+        "readout": readout,
         "n_seeds": n_seeds,
         "seeds_passing": seeds_passing,
         "pass_min_seeds": PASS_MIN_SEEDS,
@@ -807,6 +871,7 @@ def run_experiment(dry_run: bool) -> Dict[str, Any]:
         "non_degenerate": analysis["overall_non_degenerate"],
         "arm_results": rows,
         "analysis": analysis,
+        "readout": analysis["readout"],
         "interpretation": {"label": label},
         "pre_registered_thresholds": {
             "D1_NEAR_EQUAL_TOL": D1_NEAR_EQUAL_TOL,
