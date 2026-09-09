@@ -233,7 +233,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from experiment_protocol import emit_outcome
-from experiments.pack_writer import write_flat_manifest
+from experiments.pack_writer import write_flat_manifest, flat_readout
 from experiments._lib.arm_fingerprint import arm_cell
 from experiments._lib.readiness_anchor import assert_anchor_reachable
 
@@ -1401,6 +1401,49 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
         "arm_results": rows,
         "cell_summary": by_cell,
         "criteria": criteria,
+        # Flat scalar readout -- the pack's metrics.values source (REE_assembly
+        # evidence/planning/flat_scalar_readout_recording_gap_20260909.md). cell_summary
+        # is keyed by cell, criteria carry per-cell clearing lists, and arm_results is a
+        # list, so the pack scored with no numeric metrics.values: no fail_if stop
+        # threshold could fire, the duplicate-emission supersession fingerprint was
+        # skipped, and the index carried no deltas.
+        #
+        # C1 and C2 measure DIFFERENT quantities on purpose and both are recorded with
+        # their own statistic named: C1 gates the PROJECTED lineage increment
+        # sqrt(B^2+d^2)-B against the record's own 0.02, while C2 is an attribution guard
+        # on the UNSTANDARDISED raw displacement -- a cell whose projected increment rises
+        # only because its standardisation denominator collapsed has relocated nothing.
+        # Recording only C1's number would let exactly that artefact read as a clear. The
+        # unscorable-cell count is recorded too, since injection contamination reducing
+        # the scorable set below two is what makes C1 undiscriminating rather than failed.
+        # flat_readout() enforces the two encoding rules (bools -> 0/1 ints;
+        # non-finite/None dropped). Recording-only: the verdict grid, criteria, thresholds
+        # and DVs are unchanged.
+        "readout": flat_readout({
+            "C1_any_cell_clears_content_floor": c1_pass,
+            "C2_manipulation_beats_production_reference": c2_pass,
+            "n_criteria_passed": sum(1 for x in (c1_pass, c2_pass) if x),
+            "n_criteria_total": 2,
+            "overall_pass_flag": outcome == "PASS",
+            "all_preconditions_met": all_preconditions_met,
+            "n_preconditions_met": sum(1 for pc in preconditions if pc.get("met")),
+            "n_preconditions_total": len(preconditions),
+            # C1: the PROJECTED lineage increment against the record's own floor
+            "content_floor_abs": CONTENT_FLOOR_ABS,
+            "n_cells_clearing_c1": len(c1_cells),
+            "projected_lineage_increment_max": max(deltas_all, default=None),
+            "projected_lineage_increment_min": min(deltas_all, default=None),
+            # C2: the attribution guard, on the UNSTANDARDISED numerator
+            "n_cells_clearing_c2": len(c2_cells),
+            "n_cells_c1_only_failed_attribution": len(c1_only_cells),
+            "reference_raw_displacement": ref_disp,
+            # scorability -- injection contamination is what makes C1 undiscriminating
+            "n_scorable_cells": len(deltas_all),
+            "n_unscorable_cells": sum(1 for c in by_cell.values() if not c["scorable"]),
+            "n_cells": len(by_cell),
+            "c1_non_degenerate_flag": c1_non_degenerate,
+            "c2_non_degenerate_flag": c2_non_degenerate,
+        }),
         "combination_rule": combination_rule,
         "interpretation": {
             "label": label,

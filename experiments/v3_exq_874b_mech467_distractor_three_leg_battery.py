@@ -218,7 +218,7 @@ from experiments._lib.precondition_gate import (  # noqa: E402
     evaluate_arm_gate,
 )
 from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_874b_mech467_distractor_three_leg_battery"
@@ -1086,6 +1086,59 @@ def build_manifest(seed_results, smoke: bool, started_at: float) -> dict:
     criteria_by_arm = {arm: [f"{arm}::dissociation"] for arm in ARMS}
     criteria_nd = arm_criteria_non_degenerate(criteria_by_arm, aggregate)
 
+    # Flat scalar readout -- the pack's metrics.values source (REE_assembly
+    # evidence/planning/flat_scalar_readout_recording_gap_20260909.md).
+    #
+    # NOTE ON PLACEMENT: merged into the existing top-level `metrics` key below, NOT
+    # emitted as a sibling `readout`. The converter takes the FIRST non-empty of
+    # metrics / aggregates / summary_metrics / readout, and this driver's `metrics`
+    # already holds a nested per_seed list, so a `readout` sibling would be shadowed and
+    # the pack would keep scoring empty. The nested block stays unchanged beside these
+    # scalars; the indexer reads only the numeric entries.
+    #
+    # The dissociation predicate is a FIVE-WAY conjunction per arm, evaluated only on
+    # GREEN arms, so the per-arm components are recorded individually rather than as one
+    # flag: which conjunct failed is the finding, and in particular BOTH rule reads
+    # (storage-site and selection-path) are recorded, since the whole redesign exists so
+    # leg 2 cannot wear leg 3's clothes. The leg-(c) elevation is an EXCESS over the
+    # measured chance baseline, so the baseline is recorded beside it. flat_readout()
+    # enforces the two encoding rules (bools -> 0/1 ints; non-finite/None dropped).
+    # Recording-only: the verdict grid, criteria, thresholds and DVs are unchanged.
+    _ro = {
+        "dissociation_found_flag": dissociation_found,
+        "n_dissociating_arms": len(dissociating),
+        "aggregate_non_degenerate_flag": aggregate["non_degenerate"],
+        "wrong_target_excess_min": WRONG_TARGET_EXCESS_MIN,
+        "n_arms": len(ARMS),
+        "n_arms_green": len(green_arms),
+        "n_arms_red": len(aggregate.get("red_arms") or []),
+        "n_seeds": len(seed_results),
+        "smoke_flag": smoke,
+        # decisive extrema across GREEN arms (the predicate is an ANY over them)
+        "wrong_target_excess_best_green_arm": max(
+            (pooled[a]["wrong_target_excess_both_intact"] for a in ARMS if a in green_arms),
+            default=None),
+        "n_both_reads_intact_events_best_green_arm": max(
+            (pooled[a]["n_both_reads_intact_events"] for a in ARMS if a in green_arms),
+            default=None),
+    }
+    for _arm in ARMS:
+        _p = pooled[_arm]
+        _ro.update({
+            f"{_arm}_gate_green": _arm in green_arms,
+            f"{_arm}_storage_rule_at_floor": _p["storage_rule_at_floor"],
+            f"{_arm}_selection_path_rule_intact": _p["selection_path_rule_intact"],
+            f"{_arm}_n_both_reads_intact_events": _p["n_both_reads_intact_events"],
+            f"{_arm}_wrong_target_excess_both_intact": _p["wrong_target_excess_both_intact"],
+            f"{_arm}_chance_baseline_mean_intact": _p["chance_baseline_mean_intact"],
+            f"{_arm}_encoding_index_mean": _p["encoding_index_mean"],
+            f"{_arm}_n_events": _p["n_events"],
+            f"{_arm}_n_fidelity_samples": _p["n_fidelity_samples"],
+            f"{_arm}_operative_rule_fidelity_control_mean": _p[
+                "operative_rule_fidelity_control_mean"],
+        })
+    readout = flat_readout(_ro)
+
     run_id = f"{EXPERIMENT_TYPE}_{_utc_stamp()}_v3"
     arm_results = []
     for r in seed_results:
@@ -1140,7 +1193,7 @@ def build_manifest(seed_results, smoke: bool, started_at: float) -> dict:
         "smoke": smoke,
         "arm_results": arm_results,
         "pooled_by_arm": pooled,
-        "metrics": {"per_seed": seed_results},
+        "metrics": {"per_seed": seed_results, **readout},
         "notes": (
             "MECH-467 three-leg distractor battery, REDESIGN superseding V3-EXQ-874 "
             "(0/0 leg-(c) denominator in all 6 cells). Three changes, each traceable: "

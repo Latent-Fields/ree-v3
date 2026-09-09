@@ -225,7 +225,7 @@ from experiments._lib.precondition_gate import (  # noqa: E402
 from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_840b_mech294_theta_packet_binding_committed_action_falsifier"
@@ -1015,7 +1015,70 @@ def _evaluate(arm_results: List[Dict[str, Any]]) -> Dict[str, Any]:
             "weight MECH-294 confidence -- it self-routes substrate_not_ready_requeue."
         )
 
+    # Flat scalar readout -- the pack's metrics.values source (REE_assembly
+    # evidence/planning/flat_scalar_readout_recording_gap_20260909.md). Every
+    # quantitative block here (readiness, c1_/c2_ contrasts with their per-seed TV
+    # lists, the per-arm route dicts) is nested or keyed by arm, and arm_results is a
+    # list, so the pack scored with no numeric metrics.values: no fail_if stop threshold
+    # could fire, the duplicate-emission supersession fingerprint was skipped, and the
+    # index carried no deltas.
+    #
+    # Each contrast's mean TV is recorded against BOTH bars it is judged by -- the
+    # pre-registered TV floor and the CROSS-SEED BASELINE TV. The baseline is what
+    # separates a real distributional difference from ordinary seed-to-seed variation,
+    # so a surface carrying only the floor comparison would overstate both criteria. The
+    # route-range mode-distinctness check is recorded as the DIAGNOSTIC it is (explicitly
+    # not a hard gate, since SHUF ~0 is a structural control), and per-arm rather than as
+    # its single comparison flag. flat_readout() enforces the two encoding rules (bools
+    # -> 0/1 ints; non-finite/None dropped). Recording-only: the verdict grid, criteria,
+    # thresholds and DVs are unchanged.
+    readout = flat_readout({
+        "C1_joint_committed_dist_differs_from_alternation": c1_pass,
+        "C2_joint_committed_dist_differs_from_shuffled": c2_pass,
+        "n_criteria_passed": sum(1 for x in (c1_pass, c2_pass) if x),
+        "n_criteria_total": 2,
+        "overall_pass_flag": overall_pass,
+        "readiness_ok_flag": readiness_ok,
+        "non_degenerate_flag": non_degenerate,
+        # each contrast against BOTH bars: the TV floor and the cross-seed baseline
+        "tv_floor": C_TV_FLOOR,
+        "cross_seed_baseline_tv": round(baseline_tv, 4),
+        "c1_mean_tv": round(c1_mean_tv, 4),
+        "c1_seeds_above_floor": int(c1_seeds_above_floor),
+        "c1_exceeds_baseline": bool(c1_mean_tv > baseline_tv),
+        "c2_mean_tv": round(c2_mean_tv, 4),
+        "c2_seeds_above_floor": int(c2_seeds_above_floor),
+        "c2_exceeds_baseline": bool(c2_mean_tv > baseline_tv),
+        "min_seeds_for_pass": MIN_SEEDS_FOR_PASS,
+        # arm gates
+        "joint_gate_green": joint_green,
+        "alt_gate_green": alt_green,
+        "shuf_gate_green": shuf_green,
+        # readiness floors, each at its worst cell
+        "joint_route_range_mean": round(_mean_key(joint, "route_range_mean"), 6),
+        "joint_kth_route_range": round(joint_kth_route, 6),
+        "c0_route_floor": C0_ROUTE_FLOOR,
+        "joint_kth_n_fresh_select": int(joint_kth_fresh),
+        "fresh_select_floor": FRESH_SELECT_FLOOR,
+        "diversity_floor": DIVERSITY_FLOOR,
+        "worst_diversity_joint": round(_worst_div(joint)[0], 4),
+        "worst_diversity_alt": round(_worst_div(alt)[0], 4),
+        "worst_diversity_shuf": round(_worst_div(shuf)[0], 4),
+        "committed_window_floor": COMMITTED_WINDOW_FLOOR,
+        "worst_committed_joint": int(_worst_committed(joint)[0]),
+        "worst_committed_alt": int(_worst_committed(alt)[0]),
+        "worst_committed_shuf": int(_worst_committed(shuf)[0]),
+        # route-range mode-distinctness -- RECORDED diagnostic, never a hard gate
+        "route_range_mean_off": route_range_by_arm["ARM_0_OFF"],
+        "route_range_mean_joint": route_range_by_arm["ARM_1_JOINT"],
+        "route_range_mean_alt": route_range_by_arm["ARM_2_ALT"],
+        "route_range_mean_shuf": route_range_by_arm["ARM_3_SHUF"],
+        "joint_route_range_gt_shuffled": joint_gt_shuf_range,
+        "n_cells": len(arm_results),
+    })
+
     return {
+        "readout": readout,
         "readiness_ok": readiness_ok,
         "joint_gate_green": joint_green,
         "alt_gate_green": alt_green,
@@ -1211,6 +1274,11 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
             "scalar the 661 run showed. This run does NOT resolve the primary lit "
             "falsifier (Kay-2020 cross-cycle theta), which is out-of-substrate for V3."
         ),
+        # TOP-LEVEL, deliberately: the runpath converter harvests only a TOP-LEVEL
+        # metrics / aggregates / summary_metrics / readout. A readout nested under
+        # `interpretation` is exactly as invisible as the nested blocks this backfill
+        # exists to fix.
+        "readout": summary["readout"],
         "interpretation": {
             "label": summary["label"],
             "preconditions": summary["preconditions"],
