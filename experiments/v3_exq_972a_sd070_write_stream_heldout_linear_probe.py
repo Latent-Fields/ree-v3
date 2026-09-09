@@ -309,7 +309,7 @@ from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
 from experiment_protocol import emit_outcome  # noqa: E402
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 from experiments._lib.arm_fingerprint import arm_cell  # noqa: E402
 from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
 from experiments._lib.precondition_gate import (  # noqa: E402
@@ -1200,6 +1200,60 @@ def run(dry_run: bool = False) -> Tuple[Dict[str, Any], ZGoalStreamAccumulator]:
         "per_seed_cosine_separability_972_style": {a: [r["cosine_separability_972_style"]["separability_score"] for r in by_arm[a]] for a in by_arm},
         "per_seed_class_latent_norms": {a: [r["class_latent_norms"] for r in by_arm[a]] for a in by_arm},
         "tests": tests, "descriptive": descriptive, "dv_headroom_entries": headroom_entries, "gate_audit": gate_audit,
+        # Flat scalar readout, MERGED INTO this `metrics` dict rather than emitted as a
+        # sibling `readout` (REE_assembly evidence/planning/
+        # flat_scalar_readout_recording_gap_20260909.md). The runpack converter takes the
+        # FIRST non-empty of metrics / aggregates / summary_metrics / readout, so this
+        # already-populated `metrics` would shadow a `readout` sibling entirely -- and
+        # every entry above is keyed by arm, feature set or test, so it harvested zero
+        # NUMERIC entries and the pack scored empty: no fail_if stop threshold could fire,
+        # the duplicate-emission supersession fingerprint was skipped, and the index
+        # carried no deltas. The nested per-arm/per-test blocks are kept unchanged beside
+        # these scalars.
+        #
+        # PASS is carried by T1 alone, but the SD-070 evidence direction is routed by T3,
+        # so both are recorded independently -- a run can be FAIL on T1 and still
+        # `supports` SD-070 via T3, and a single pass bit would lose that. Each test's
+        # gate_green is recorded beside its pass flag for the same reason the labels
+        # distinguish them: an ungated test is UNSCORED, not refuted. T3's two red-team
+        # preconditions (headroom above the LINEAGE's realised accuracy, not above the
+        # null; and the paired count keeping the sign-flip floor under alpha) are recorded
+        # too, since T3 green depends on both. flat_readout() enforces the two encoding
+        # rules (bools -> 0/1 ints; non-finite/None dropped -- and mean_diff / p_value are
+        # genuinely NaN when a test had no adequate pairs, so dropping them is correct).
+        # Recording-only: the verdict grid, criteria, thresholds and DVs are unchanged.
+        **flat_readout(dict(
+            {
+                "T1_lineage_zworld32_passed": t1["passed"],
+                "T2_sd070_warmed_zworld32_passed": t2["passed"],
+                "T3_recipe_raises_decodability_passed": t3["passed"],
+                "T4_untrained_encoder_zworld32_passed": t4["passed"],
+                "overall_pass_flag": overall_pass,
+                "sd070_supports_flag": t3["passed"],
+                "non_degenerate_flag": non_degenerate,
+                "lineage_arm_gate_green": g_lin,
+                "routing_arm_gate_green": g_wrm,
+                "probe_margin": PROBE_MARGIN,
+                "alpha_corrected": ALPHA_CORRECTED,
+                "min_adequate_seeds": MIN_ADEQUATE_SEEDS,
+                # T3's two red-team preconditions
+                "t3_headroom_above_lineage_accuracy_met": t3_headroom_met,
+                "t3_pairs_floor_ok": t3_pairs_ok,
+                # lineage identity control
+                "lineage_untrained_latent_n_identical": n_identical,
+                "lineage_untrained_latent_n_seeds": len(lin_hash),
+                "lineage_untrained_latent_n_warmed_differs": n_warmed_differs,
+                "shared_observation_set_verified": shared_obs_ok,
+                "n_cells": len(rows),
+            },
+            **{
+                f"{_k}_{_f}": _t[_f]
+                for _k, _t in tests.items()
+                for _f in ("mean_excess", "mean_diff", "p_value", "n_paired_seeds",
+                           "gate_green", "passed", "non_degenerate")
+                if _f in _t
+            },
+        )),
     }
 
     lines = [f"# {QUEUE_ID} -- SD-070 held-out linear probe of the ContextMemory write stream (972 successor)", "",

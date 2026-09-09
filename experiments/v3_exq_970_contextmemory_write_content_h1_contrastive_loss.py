@@ -382,7 +382,7 @@ from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
 from experiment_protocol import emit_outcome  # noqa: E402
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 from experiments._lib.arm_fingerprint import arm_cell  # noqa: E402
 from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
 from experiments._lib.precondition_gate import (  # noqa: E402
@@ -1673,6 +1673,59 @@ def run(dry_run: bool = False) -> Tuple[Dict[str, Any], ZGoalStreamAccumulator]:
             "n_paired_seeds_regime_a": len(diffs_a),
             "n_paired_seeds_regime_b": len(diffs_b),
         },
+        # Flat scalar readout, MERGED INTO this `metrics` dict rather than emitted as a
+        # sibling `readout` (REE_assembly evidence/planning/
+        # flat_scalar_readout_recording_gap_20260909.md). The runpack converter takes the
+        # FIRST non-empty of metrics / aggregates / summary_metrics / readout, so this
+        # already-populated `metrics` would shadow a `readout` sibling entirely -- and
+        # every entry above is a dict keyed by arm or by regime, so it harvested zero
+        # NUMERIC entries and the pack scored empty: no fail_if stop threshold could
+        # fire, the duplicate-emission supersession fingerprint was skipped, and the
+        # index carried no deltas. The nested per-arm/per-regime blocks are kept
+        # unchanged beside these scalars; the indexer reads only the numeric entries.
+        #
+        # The verdict is an OR ACROSS REGIMES, each regime gated on its own permutation
+        # test, so both regimes' pass flags, means and p-values are recorded separately
+        # rather than reduced to the winning one -- which regime carried the result is
+        # the finding. The bare-margin reading is recorded as the explicitly SECONDARY,
+        # non-permutation-gated statistic it is. flat_readout() enforces the two encoding
+        # rules (bools -> 0/1 ints; non-finite/None dropped). Recording-only: the verdict
+        # grid, criteria, thresholds and DVs are unchanged.
+        **flat_readout({
+            "H1_content_referencing_objective_succeeds_in_either_regime": overall_pass,
+            "overall_bare_margin_pass_secondary": overall_bare_margin_pass,
+            "regime_a_h1_pass": regime_a_h1_pass,
+            "regime_b_h1_pass": regime_b_h1_pass,
+            "regime_a_directional_pass": regime_a_directional_pass,
+            "regime_b_directional_pass": regime_b_directional_pass,
+            "regime_a_bare_margin_pass": regime_a_bare_margin_pass,
+            "regime_b_bare_margin_pass": regime_b_bare_margin_pass,
+            "n_regimes_passing": sum(1 for x in (regime_a_h1_pass, regime_b_h1_pass) if x),
+            "n_regimes": 2,
+            # permutation gate, per regime, against the Bonferroni-corrected alpha
+            "p_value_regime_a": p_value_a,
+            "p_value_regime_b": p_value_b,
+            "alpha_corrected": ALPHA_CORRECTED,
+            "n_paired_seeds_regime_a": len(diffs_a),
+            "n_paired_seeds_regime_b": len(diffs_b),
+            # the load-bearing probe means each regime's direction is read from
+            "mean_jaccard_untrained_regime_a": mean_jaccard_untrained_a,
+            "mean_jaccard_trained_regime_a": mean_jaccard_trained_a,
+            "jaccard_delta_regime_a": mean_jaccard_trained_a - mean_jaccard_untrained_a,
+            "mean_jaccard_untrained_regime_b": mean_jaccard_untrained_b,
+            "mean_jaccard_trained_regime_b": mean_jaccard_trained_b,
+            "jaccard_delta_regime_b": mean_jaccard_trained_b - mean_jaccard_untrained_b,
+            # secondary / non-gating probes, recorded as such
+            "mean_jaccard_untrained_regime_a_synthetic": mean_jaccard_untrained_a_synthetic,
+            "mean_jaccard_trained_regime_a_synthetic": mean_jaccard_trained_a_synthetic,
+            "mean_jaccard_untrained_regime_b_fresh": mean_jaccard_untrained_b_fresh,
+            "mean_jaccard_trained_regime_b_fresh": mean_jaccard_trained_b_fresh,
+            # arm gate census
+            "regime_a_gate_green": gate_a["gate_green"],
+            "regime_b_gate_green": gate_b["gate_green"],
+            "non_degenerate_flag": gate["non_degenerate"],
+            "n_cells": len(rows_a) + len(rows_b),
+        }),
     }
 
     summary_markdown = (

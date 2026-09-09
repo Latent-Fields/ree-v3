@@ -310,7 +310,7 @@ from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
 from experiment_protocol import emit_outcome  # noqa: E402
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 from experiments._lib.arm_fingerprint import arm_cell  # noqa: E402
 from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
 from experiments._lib.precondition_gate import (  # noqa: E402
@@ -1452,6 +1452,53 @@ def run(dry_run: bool = False) -> Tuple[Dict[str, Any], ZGoalStreamAccumulator]:
         "dv_headroom_entries": headroom_entries,
         "convergence_by_unit": convergence_by_unit,
         "gate_audit": gate_audit,
+        # Flat scalar readout, MERGED INTO this `metrics` dict rather than emitted as a
+        # sibling `readout` (REE_assembly evidence/planning/
+        # flat_scalar_readout_recording_gap_20260909.md). The runpack converter takes the
+        # FIRST non-empty of metrics / aggregates / summary_metrics / readout, so this
+        # already-populated `metrics` would shadow a `readout` sibling entirely -- and
+        # every entry above is keyed by regime, arm or unit, so it harvested zero NUMERIC
+        # entries and the pack scored empty: no fail_if stop threshold could fire, the
+        # duplicate-emission supersession fingerprint was skipped, and the index carried
+        # no deltas. The nested per-unit blocks are kept unchanged beside these scalars.
+        #
+        # Three distinctions are recorded rather than collapsed, all of them red-team
+        # findings this driver already encodes in its label grid: (F2) H1 is the
+        # load-bearing arm, so h1_any_green is recorded separately -- a run where neither
+        # H1 unit was scorable is instrument-not-ready, whatever DIVERSITY did; (F1) the
+        # necessity sub-claim is EVALUABLE only where the content-blind control was
+        # itself gate-green, so required_evaluable and required_holds are separate
+        # scalars and a gate-red control records as unscored rather than as a refutation;
+        # and each unit's gate_green is recorded beside its pass flag. flat_readout()
+        # enforces the two encoding rules (bools -> 0/1 ints; non-finite/None dropped --
+        # which matters here: mean_diff and p_value are genuinely NaN for a unit with no
+        # paired seeds, and dropping them is correct). Recording-only: the verdict grid,
+        # criteria, thresholds and DVs are unchanged.
+        **flat_readout(dict(
+            {
+                "H1_raises_content_conditioning_in_either_regime": overall_pass,
+                "n_h1_regimes_passing": len(h1_regimes),
+                "n_regimes": 2,
+                "h1_any_green": h1_any_green,
+                "required_evaluable": required_evaluable,
+                "required_holds": required_holds,
+                "nmi_margin": NMI_MARGIN,
+                "alpha_corrected": ALPHA_CORRECTED,
+                "non_degenerate_flag": gate["non_degenerate"],
+                "n_units": len(units),
+                "n_units_green": sum(
+                    1 for u in units if gates[u["id"]]["gate_green"]),
+                "n_cells": len(rows_a) + len(rows_b),
+            },
+            # per-unit statistics: which unit carried (or vacated) the result
+            **{
+                f"{_u['id'].replace('::', '_')}_{_k}": tests[_u["id"]][_k]
+                for _u in units
+                for _k in ("mean_untrained", "mean_arm", "mean_diff", "p_value",
+                           "n_paired_seeds", "n_tied_pairs", "attainable_p_floor",
+                           "gate_green", "passed", "non_degenerate")
+            },
+        )),
     }
 
     lines = [f"# {QUEUE_ID} -- ContextMemory write-content H1 on the redesigned MI instrument (supersedes {SUPERSEDES})",
