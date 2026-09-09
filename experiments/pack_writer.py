@@ -477,6 +477,11 @@ def write_flat_manifest(
     stamp-validate-write wrapper, not a schema projector; the pack projection stays
     the job of sync_v3_results.build_runpack_docs.
 
+    ``dry_run=True`` ALSO sets top-level ``dry_run: true`` in the manifest itself,
+    not just the filename prefix: the exclusion nets that keep a smoke out of
+    evidence key on the FIELD, so the prefix alone leaves it invisible to them (see
+    the GFLAG-0244 comment at the prefix branch). A real run never gains the key.
+
     Invariants enforced (the sync ``_is_flat_v3`` + coordinator ``POST /result`` +
     scoring hard constraints):
       * ``run_id`` present, a non-empty string, ending ``_v3`` (or carrying the
@@ -606,6 +611,30 @@ def write_flat_manifest(
             f"run_id '{run_id}' collides with reserved plumbing filename '{fname}'"
         )
     if dry_run:
+        # Dry-run self-identification at the FLAT writer (2026-09-09, GFLAG-0244;
+        # mirrors the write_pack block above, which got this on 2026-07-28 and left
+        # the flat path behind). The two independent nets that exclude a smoke from
+        # evidence -- generate_pending_review.load_dry_run_run_ids() and the GOV-DRY-1
+        # sweep (check_dry_run_adjudication_leak.py) -- BOTH key on this top-level
+        # field, so a manifest that gets only the filename marker is invisible to
+        # both at once, and an ASSERTING evidence_direction sitting in it reads as
+        # real scored evidence. Set the field HERE rather than in each driver: this
+        # is the sanctioned chokepoint, the caller has already told us it is a dry
+        # run, and drivers demonstrably forget (V3-EXQ-918a wrote the _dry_-PREFIXED
+        # shape, V3-EXQ-324d writes the _dry-SUFFIXED one -- both thread dry_run=True
+        # to this call and neither sets the field itself). Set BEFORE the filename
+        # marker and before the write, so the on-disk artifact always carries it.
+        #
+        # NOT a filename heuristic in the consumers, deliberately: the corpus holds
+        # both a _dry_ prefix and a _dry suffix convention, plus 78 manifests that
+        # carry dry_run:true with no filename marker at all. The field is the only
+        # reliable carrier, which is exactly why it must be written at the source.
+        #
+        # Never clobber an explicit caller value (a driver that already sets it), and
+        # never ADD the key on a real run -- write_pack's "conditional add on a truthy
+        # value" posture, which keeps every non-dry manifest byte-identical.
+        if manifest.get("dry_run") is None:
+            manifest["dry_run"] = True
         fname = f"_dry_{fname}"
     out_path = out_dir / fname
     # json_default mirrors json.dump's ``default=`` (e.g. ``str``) for the small
