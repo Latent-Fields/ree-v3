@@ -204,6 +204,17 @@ Step 2.4 GOV-REUSE-1: the decisive readout `rv_iqr_over_med` is carried by NO re
 
 Runs on cloud `machine_affinity: any`. Continuous dispersion statistics, not sampled discrete
 actions, so not exposed to the torch.multinomial cross-machine-class divergence.
+
+RECORDING (2026-09-09, recording-only amendment; no science change, verdict grid untouched):
+this driver emits a flat scalar `readout` block alongside the nested blocks. Every quantitative
+block it wrote before -- cell_summary, ladder_by_seed, trend, per_arm_gate -- is keyed by arm or
+seed, and the runpack converter harvests metrics.json `values` only from a FLAT scalar dict under
+one of metrics / aggregates / summary_metrics / readout, so the 20260908T202858Z pack scored with
+values={}. build_experiment_indexes reads only numeric metrics.values entries, so that pack could
+fire no `fail_if` stop threshold, skipped the duplicate-emission supersession fingerprint, and
+carried no deltas or key-metrics columns. The nested blocks are unchanged and remain the
+human-readable record; `readout` is its machine-readable projection. The already-emitted
+20260908T202858Z manifest is NOT retro-fixed by this -- it only affects future emissions.
 """
 
 from __future__ import annotations
@@ -1071,6 +1082,77 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
                       and _finite(by[(a, s)]["rv_iqr_over_med"])]
         achievable_by_cell[a] = max(green_vals) if green_vals else None
 
+    # --- flat scalar readout: the pack's metrics.values source -------------------------------
+    # The runpack converter (REE_assembly evidence/experiments/scripts/sync_v3_results.py)
+    # harvests metrics.json `values` from ONE of four flat spellings -- metrics / aggregates /
+    # summary_metrics / readout -- and build_experiment_indexes reads ONLY the numeric entries
+    # of that block. Every quantitative block this driver emitted before now (cell_summary,
+    # ladder_by_seed, trend, per_arm_gate) is a dict keyed by arm or seed, so NONE of them is
+    # harvestable and the 20260908T202858Z pack scored with values={}. That is not cosmetic:
+    # with no numeric values (a) no `fail_if` stop threshold can fire -- the lookup returns
+    # None, the check is skipped, and final_status falls back to the manifest's self-declared
+    # status, which is what claim_evidence.v1.json records; (b) the duplicate-emission
+    # supersession fingerprint is skipped entirely, so a byte-identical re-emission is never
+    # auto-superseded and both copies score; (c) the index carries no deltas and no key-metrics
+    # columns. This block is the flat scalar projection of the quantities the verdict grid
+    # actually turns on. The nested blocks above are kept unchanged -- they are the
+    # human-readable record; this is the machine-readable one, and they are not redundant.
+    #
+    # Two encoding rules, both forced by the consumer:
+    #  - booleans are emitted as 0/1 ints. `_is_number()` in build_experiment_indexes excludes
+    #    bool (an int subclass) on purpose, so a raw True would be silently inert here.
+    #  - non-finite and None values are DROPPED rather than emitted as nan/null. A nan would be
+    #    numeric to the indexer and would pollute a delta; an absent key correctly reads as
+    #    unmeasured.
+    # C1 routes on the MAXIMUM sweep DV (the bar is a floor -- the question is whether ANY arm
+    # reaches it), so max_sweep_dv, not a minimum, is the decisive extremum for this design.
+    non_degenerate_overall = bool(agg["non_degenerate"] and degen["non_degenerate"]
+                                  and c1_non_degenerate)
+    _pag = agg["per_arm_gate"]
+
+    def _flat_scalar(v: Any) -> Optional[float]:
+        if isinstance(v, bool):
+            return float(int(v))
+        if isinstance(v, (int, float)) and _finite(v):
+            return float(v)
+        return None
+
+    _readout_raw: Dict[str, Any] = {
+        # C1 -- the load-bearing criterion
+        "max_sweep_dv": max_sweep_dv,
+        "p2_bar": P2_BAR,
+        "n_seeds_clearing_bar": n_clear,
+        "n_scorable_seeds": n_scorable,
+        "seed_majority_required": majority,
+        # C2 / C2b -- the pooled trend the plateau/climb branches route on
+        "pooled_log_slope_per_doubling": pooled_slope,
+        "pooled_log_slope_ci95_low": pooled_ci[0],
+        "pooled_log_slope_ci95_high": pooled_ci[1],
+        "plateau_bar_log_gain": PLATEAU_LOG_GAIN,
+        "plateau_flag": plateau,
+        "climbing_flag": climbing,
+        "mean_ln_dv_warm800": mean_ln_d800,
+        "projected_doublings_to_bar": doublings_to_bar,
+        # C3 / C4 -- recorded readouts
+        "n_seeds_phased_lever": n_phased_lever,
+        "n_seeds_phased_measured": n_phased_measured,
+        "n_green_sweep_cells": sum(1 for r in rows
+                                   if r["arm_id"] in SWEEP_ARMS and r["gate_green"]),
+        "n_green_sweep_cells_all_levels_in_band": sum(
+            1 for r in rows if r["arm_id"] in SWEEP_ARMS and r["gate_green"]
+            and r["all_levels_in_p1_band"]),
+        # per-arm gate census (the nested per_arm_gate block, as counts)
+        "n_arms_green": len(_pag.get("green_arms") or []),
+        "n_arms_red": len(_pag.get("red_arms") or []),
+        "n_arms_structurally_vacuous": len(_pag.get("structurally_vacuous_arms") or []),
+        # criteria + degeneracy census
+        "n_criteria_passed": sum(1 for c in criteria if c["passed"]),
+        "n_criteria_total": len(criteria),
+        "non_degenerate_flag": non_degenerate_overall,
+    }
+    readout = {k: v for k, v in ((k, _flat_scalar(v)) for k, v in _readout_raw.items())
+               if v is not None}
+
     manifest: Dict[str, Any] = {
         "run_id": make_run_id(EXPERIMENT_TYPE),
         "experiment_type": EXPERIMENT_TYPE,
@@ -1093,6 +1175,7 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
         "criteria": criteria,
         "combination_rule": combination_rule,
         "per_arm_gate": agg["per_arm_gate"],
+        "readout": readout,
         "interpretation": {
             "label": label,
             "summary": summary,
@@ -1114,7 +1197,7 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
                 "headroom regime exists; it is not evidence FOR MECH-465 either -- the residual-DV "
                 "experiment has not run."),
         },
-        "non_degenerate": bool(agg["non_degenerate"] and degen["non_degenerate"] and c1_non_degenerate),
+        "non_degenerate": non_degenerate_overall,
         "degeneracy_reason": "; ".join(x for x in (agg["degeneracy_reason"], degen["degeneracy_reason"],
                                                   "" if c1_non_degenerate else
                                                   "sweep DV flat or fewer than 2 scorable seeds") if x),
