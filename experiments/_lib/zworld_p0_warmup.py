@@ -51,14 +51,15 @@ See `REE_assembly/docs/architecture/sd_070_zworld_p0_anticollapse_recipe.md`,
 from __future__ import annotations
 
 import contextlib
-from typing import Any, Dict, Optional
+import dataclasses
+from typing import Any, Callable, Dict, Optional
 
 import numpy as np
 import torch
 
 from ree_core.latent.zworld_p0 import ZWorldP0Config, ZWorldP0Trainer
 
-__all__ = ["resource_prox_target", "run_zworld_p0"]
+__all__ = ["resource_prox_target", "run_zworld_p0", "resolve_p0a_config", "resolve_target_fn"]
 
 
 @contextlib.contextmanager
@@ -95,6 +96,60 @@ def resource_prox_target(obs_dict: Dict[str, Any]) -> Optional[float]:
         return None
 
 
+def resolve_p0a_config(
+    seed: int,
+    dry_run: bool,
+    resource_field_weight: float = 0.0,
+    config: Optional[ZWorldP0Config] = None,
+) -> ZWorldP0Config:
+    """The ZWorldP0Config a warmup runs with. Factored out so the LEGACY construction stays
+    byte-for-byte what every pre-2026-09-09 caller got (contract-tested), while a caller that
+    passes `config=` gets its own objective weights / seed-stamped.
+
+    `config=None` (every existing caller): the legacy construction -- seed + resource_field_weight
+    only, plus the dry-run batch/epoch shrink. `config=<ZWorldP0Config>`: that config, with `seed`
+    overwritten to the warmup seed (the recipe seeds its own shuffling/batching from it) and, under
+    `dry_run`, the same batch/epoch shrink applied on top. Passing BOTH a config and a non-zero
+    `resource_field_weight` is refused rather than silently resolved in either direction: the
+    config carries its own `resource_field_weight`, and two sources for one weight is exactly the
+    ambiguity V3-EXQ-978's seam note warns about.
+    """
+    if config is None:
+        return (
+            ZWorldP0Config(seed=int(seed), batch_size=8, epochs=2,
+                           resource_field_weight=float(resource_field_weight))
+            if dry_run else ZWorldP0Config(seed=int(seed),
+                                           resource_field_weight=float(resource_field_weight))
+        )
+    if float(resource_field_weight) != 0.0:
+        raise ValueError(
+            "run_zworld_p0: pass resource_field_weight EITHER as the kwarg OR inside config=, "
+            "not both (config.resource_field_weight=%r, kwarg=%r)"
+            % (config.resource_field_weight, resource_field_weight)
+        )
+    cfg = dataclasses.replace(config, seed=int(seed))
+    if dry_run:
+        cfg = dataclasses.replace(cfg, batch_size=8, epochs=2)
+    return cfg
+
+
+def resolve_target_fn(
+    target_fn: Optional[Callable[[Dict[str, Any]], Optional[float]]] = None,
+) -> Callable[[Dict[str, Any]], Optional[float]]:
+    """The per-step scalar regression target fed to `trainer.observe(world_obs, target)`.
+
+    `None` (every existing caller) = `resource_prox_target`, the SD-018 resource-proximity target,
+    unchanged. A caller may supply any `obs_dict -> Optional[float]` -- this is the seam that makes
+    the GOV-MATCHAUX-1 matched arbitrary-auxiliary control constructible WITHOUT a substrate change:
+    the same `resource_proximity_head`, the same MSE, the same `proximity_weight`, the same
+    cadence and examples, differing only in what the scalar MEANS. Before this seam existed the
+    target was a hardcoded call inside the rollout loop (IGW-20260908-233 blocked EXP-1397 on
+    exactly that; `experiment_proposals.v1.json` EVB-1712 `gating_reason`). Return `None` from the
+    callable for an unlabelled step; the trainer masks it out rather than reading it as zero.
+    """
+    return resource_prox_target if target_fn is None else target_fn
+
+
 def run_zworld_p0(
     agent: Any,
     warmup_env: Any,
@@ -105,6 +160,8 @@ def run_zworld_p0(
     label: str = "",
     dry_run: bool = False,
     resource_field_weight: float = 0.0,
+    config: Optional[ZWorldP0Config] = None,
+    target_fn: Optional[Callable[[Dict[str, Any]], Optional[float]]] = None,
 ) -> Dict[str, Any]:
     """Run the SD-070 P0a encoder warmup against `agent.latent_stack`.
 
@@ -140,6 +197,14 @@ def run_zworld_p0(
     alone does nothing, because the trainer's leg is gated on the head existing as well.
     `p0a_used_resource_field_head` in the returned block reports whether the leg ACTUALLY ran,
     so a caller that set one half and not the other reads a False rather than assuming.
+
+    `config` / `target_fn` (2026-09-09, V3-EXQ-1017 seam; see `resolve_p0a_config` and
+    `resolve_target_fn`): DEFAULT None = the legacy construction and the SD-018 proximity target,
+    bit-identical for every existing caller. A driver that needs a P0a objective other than the
+    SD-070 default (a generic-only compression, a matched arbitrary-auxiliary control) passes
+    them here instead of re-implementing this loop. The resolved config and target name are
+    recorded in the returned block (`p0a_config`, `p0a_target`) so the manifest says what
+    actually trained.
     """
     if episodes <= 0:
         return {"p0a_recipe": "sd070", "p0a_ran": False, "p0a_reason": "episodes<=0"}
@@ -148,14 +213,12 @@ def run_zworld_p0(
     # statistics -- the trainer refuses such a buffer BY DESIGN rather than returning a
     # confident-looking result. Scale the batch down explicitly for the smoke path so it still
     # exercises the real training code, and never touch the real-run config.
-    cfg = (
-        ZWorldP0Config(seed=int(seed), batch_size=8, epochs=2,
-                       resource_field_weight=float(resource_field_weight))
-        if dry_run else ZWorldP0Config(seed=int(seed),
-                                       resource_field_weight=float(resource_field_weight))
-    )
+    cfg = resolve_p0a_config(seed, dry_run, resource_field_weight, config)
+    target = resolve_target_fn(target_fn)
 
     out: Dict[str, Any] = {"p0a_recipe": "sd070", "p0a_ran": True}
+    out["p0a_config"] = dataclasses.asdict(cfg)
+    out["p0a_target"] = str(getattr(target, "name", None) or getattr(target, "__name__", "custom"))
 
     with _rng_neutral():
         trainer = ZWorldP0Trainer(agent.latent_stack, cfg)
@@ -166,7 +229,7 @@ def run_zworld_p0(
 
             for _step in range(int(steps_per_episode)):
                 world_obs = obs_dict["world_state"].float()
-                trainer.observe(world_obs, resource_prox_target(obs_dict))
+                trainer.observe(world_obs, target(obs_dict))
 
                 action = policy.act(warmup_env, obs_dict)
                 with torch.no_grad():
@@ -212,7 +275,7 @@ def run_zworld_p0(
     # than assuming its ON arm was manipulated. The holdout block is the mechanism readout:
     # held-out field MSE against a constant-mean predictor, i.e. it separates a decodable
     # directional field from a fitted mean.
-    out["p0a_resource_field_weight"] = float(resource_field_weight)
+    out["p0a_resource_field_weight"] = float(cfg.resource_field_weight)
     out["p0a_used_resource_field_head"] = stats.get("used_resource_field_head")
     out["p0a_resource_field_holdout"] = stats.get("resource_field_holdout")
     out["p0a_grounding_label_balance"] = stats.get("label_balance")
