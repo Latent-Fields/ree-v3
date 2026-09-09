@@ -56,6 +56,7 @@ CHECK_NAMES = ("conformance", "readiness", "arm_fingerprint", "degeneracy", "man
                "sd056_training_without_rollout_clamp",
                "precondition_index_read",
                "contextmemory_write_enablement",
+               "flat_scalar_readout",
                "use_before_def")
 
 # Readiness-gate static lint (proposal_trivial_prediction_readiness_gate_2026-06-06).
@@ -1997,6 +1998,136 @@ def manifest_writer_lint(path: Path) -> Optional[str]:
             "MANIFEST_WRITER_EXEMPT = \"<reason>\". See "
             "experimental_recording_standard_2026-07-12.md sec 4 + "
             "pack_writer_single_writer_migration_plan.md.")
+
+
+# The four flat spellings the runpack converter harvests metrics.json `values`
+# from (REE_assembly evidence/experiments/scripts/sync_v3_results.build_runpack_docs).
+# Listed in the converter's own resolution order (it takes the FIRST non-empty
+# and never looks further); order is immaterial HERE, since this lint only asks
+# whether ANY of them is mentioned, but the tuple is kept identical to
+# validate_recording._READOUT_SPELLINGS -- where the order IS load-bearing -- and
+# pinned by test_flat_scalar_readout_lint.py so the two cannot drift.
+_READOUT_SPELLINGS = ("metrics", "aggregates", "summary_metrics", "readout")
+_FLAT_SCALAR_READOUT_EXEMPT_MARKER = "FLAT_SCALAR_READOUT_EXEMPT"
+
+
+def _dict_key_and_kwarg_names(tree: ast.Module) -> set:
+    """String keys of every dict literal, string subscripts, keyword-argument
+    names, and bare local names. Deliberately WIDER than a dict-key-only scan:
+    a driver may build the block as `readout = {...}` and splice it in later, or
+    pass it as `readout=` to a writer, and every one of those is a genuine
+    discharge. Wider means MORE false NEGATIVES (a mention discharges the lint),
+    which is the sound direction for a WARN -- it under-reports rather than
+    crying wolf on a compliant driver."""
+    out: set = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Dict):
+            for k in node.keys:
+                if isinstance(k, ast.Constant) and isinstance(k.value, str):
+                    out.add(k.value)
+        elif isinstance(node, ast.Subscript):
+            sl = node.slice
+            if isinstance(sl, ast.Constant) and isinstance(sl.value, str):
+                out.add(sl.value)
+        elif isinstance(node, ast.keyword) and node.arg:
+            out.add(node.arg)
+        elif isinstance(node, ast.Name):
+            out.add(node.id)
+    return out
+
+
+def flat_scalar_readout_lint(path: Path) -> Optional[str]:
+    """Flat-scalar-readout check. Return a warning string, or None.
+
+    Experimental Recording Standard 3b "Machine-readable verdict readout" (added
+    2026-09-09). A manifest-writing driver MUST emit a top-level FLAT dict of
+    SCALARS under one of `readout` / `metrics` / `aggregates` / `summary_metrics`
+    -- the pre-registered quantities the verdict turns on. The runpack converter
+    (sync_v3_results.build_runpack_docs) harvests metrics.json `values` from
+    exactly those four FLAT spellings, and build_experiment_indexes reads only
+    the NUMERIC entries of that block (`_is_number`, l.315, which excludes bool).
+
+    A readout recorded only as a dict keyed by arm or by seed -- `arm_results`,
+    `per_seed_*`, `cell_summary`, `per_arm_gate`, the shape nearly every
+    multi-arm driver emits -- matches none of the four, so the pack scores with
+    `values == {}`. That is not cosmetic: no `fail_if` stop threshold can fire
+    (the lookup returns None, the check is skipped, and final_status falls back
+    to the manifest's own self-declared status, which is what
+    claim_evidence.v1.json records), the duplicate-emission supersession
+    fingerprint is skipped entirely (so a byte-identical re-emission is never
+    auto-superseded and both copies score), and the index carries no deltas.
+
+    Fires only on a script that WRITES A RESULT MANIFEST -- same predicate as
+    manifest_writer_lint (a `__main__` entry point plus the manifest-identity
+    tokens `run_id` AND `evidence_direction` as strings), except that here a
+    script routing through the sanctioned writer is NOT discharged: pack_writer
+    stamps the provenance always-core, but it structurally cannot invent a
+    readout, since only the driver knows which scalars its verdict turns on.
+
+    Opt-out: FLAT_SCALAR_READOUT_EXEMPT = "<reason>" -- for a driver whose
+    verdict genuinely turns on nothing scalar.
+
+    WARN-ONLY IN BOTH MODES -- it never hardens under `--paths`, unlike the
+    arm-fingerprint / degeneracy / manifest-writer gates. Measured 2026-09-09:
+    703 of 1358 manifest-writing drivers in experiments/ would trip it, and 802
+    of 1008 flat manifests lack the field. A gate firing on the majority of
+    ordinary work gets disabled, which is worse than no gate (CLAUDE.md). Its
+    value is the AUTHORING moment: /queue-experiment Step 3.5 surfaces it before
+    compute is spent, which is where a ~50-line projection is free and a re-run
+    is not.
+
+    Static name-scan only -- same limitation class as manifest_writer_lint /
+    arm_fingerprint_lint. It can MISS (a spelling mentioned for an unrelated
+    purpose discharges it; a block assembled under a runtime-computed key is
+    invisible), which is the sound direction for an advisory. It cannot see
+    whether the block is genuinely FLAT, genuinely SCALAR, or whether its
+    booleans are encoded as 0/1 ints -- those are manifest-level facts, checked
+    by validate_recording.check_flat_scalar_readout on the written artifact.
+    """
+    try:
+        src = path.read_text(encoding="utf-8")
+        tree = ast.parse(src, filename=str(path))
+    except (OSError, UnicodeDecodeError, SyntaxError):
+        return None  # check_script already reports unreadable / syntax errors
+
+    if _has_main_block(tree) is None:
+        return None  # library-style helper, no entry point -- exempt
+
+    strings = {n.value for n in ast.walk(tree)
+               if isinstance(n, ast.Constant) and isinstance(n.value, str)}
+    names = _dict_key_and_kwarg_names(tree)
+
+    if (_FLAT_SCALAR_READOUT_EXEMPT_MARKER in names
+            or _FLAT_SCALAR_READOUT_EXEMPT_MARKER in strings):
+        return None
+
+    if not all(t in strings for t in _MANIFEST_IDENTITY_TOKENS):
+        return None  # no result-manifest write to gate
+
+    if any(sp in names for sp in _READOUT_SPELLINGS):
+        return None  # a recognised flat spelling is present
+
+    return ("writes a result manifest but emits NO flat scalar readout block "
+            "under any of readout / metrics / aggregates / summary_metrics. The "
+            "runpack converter harvests metrics.json `values` from exactly those "
+            "four FLAT spellings, and build_experiment_indexes reads only their "
+            "NUMERIC entries -- so a readout kept only in arm_results / "
+            "per_seed_* / cell_summary / per_arm_gate (keyed by arm or seed) "
+            "reaches the scored pack as values={}. Consequence: no `fail_if` "
+            "stop threshold can fire (final_status silently falls back to this "
+            "manifest's own self-declared status), the duplicate-emission "
+            "supersession fingerprint is skipped so a byte-identical re-emission "
+            "is never auto-superseded, and the index carries no deltas. Add a "
+            "top-level `readout` dict of the pre-registered scalars the verdict "
+            "turns on -- booleans as 0/1 ints (_is_number excludes bool), "
+            "non-finite and None DROPPED rather than emitted (a nan is numeric "
+            "to the indexer). Keep the nested blocks unchanged; the flat block "
+            "is their machine-readable projection, not a replacement. Reference: "
+            "experiments/v3_exq_1015_mech465_zworld_warmup_budget_dispersion_"
+            "sweep.py (_flat_scalar + readout). Exempt with "
+            "FLAT_SCALAR_READOUT_EXEMPT = \"<reason>\". See "
+            "experimental_recording_standard_2026-07-12.md sec 3b + "
+            "flat_scalar_readout_recording_gap_20260909.md.")
 
 
 # All SEVEN are assigned ONLY inside `E3Selector.select()` -- verified by AST scan of
@@ -8770,6 +8901,7 @@ def main() -> int:
     arm_fp_warnings: List[Tuple[Path, str]] = []
     degen_warnings: List[Tuple[Path, str]] = []
     manifest_writer_warnings: List[Tuple[Path, str]] = []
+    flat_readout_warnings: List[Tuple[Path, str]] = []
     anchor_warnings: List[Tuple[Path, str]] = []
     specimen_warnings: List[Tuple[Path, str]] = []
     n_anchor_superseded = 0
@@ -8841,6 +8973,13 @@ def main() -> int:
                     failures.append((p, mw))
                 else:
                     manifest_writer_warnings.append((p, mw))
+        if "flat_scalar_readout" in selected:
+            fsr = flat_scalar_readout_lint(p)
+            if fsr:
+                # WARN-only in BOTH modes -- never routes to `failures`, even
+                # under --paths. See flat_scalar_readout_lint() for why (705 of
+                # 1355 manifest-writing drivers would trip a hard gate).
+                flat_readout_warnings.append((p, fsr))
         if "anchor_reachability" in selected:
             anch = anchor_reachability_lint(p)
             if anch:
@@ -9095,6 +9234,7 @@ def main() -> int:
           f"{len(arm_fp_warnings)} arm-fingerprint-backlog, "
           f"{len(degen_warnings)} degeneracy-self-report-backlog, "
           f"{len(manifest_writer_warnings)} manifest-writer-backlog, "
+          f"{len(flat_readout_warnings)} flat-scalar-readout-backlog, "
           f"{len(anchor_warnings)} anchor-reachability-warning(s)"
           + (f" ({n_anchor_superseded} superseded)" if n_anchor_superseded else "") + ", "
           f"{len(recomput_warnings)} precondition-recomputability-warning(s), "
@@ -9574,6 +9714,16 @@ def main() -> int:
         print("", flush=True)
         print("[validate_experiments] Manifest-writer chokepoint BACKLOG (advisory; hard under --paths):", flush=True)
         for p, warn in manifest_writer_warnings:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
+            print(f"  - {rel}: {warn}", flush=True)
+    if flat_readout_warnings:
+        # WARN-only in BOTH modes -- NEVER hardens under --paths, unlike the three
+        # backlog sections around it. Standard 3b "Machine-readable verdict
+        # readout" (2026-09-09); 703 of 1358 manifest-writing drivers trip it, so
+        # a hard gate would fire on the majority of ordinary work.
+        print("", flush=True)
+        print("[validate_experiments] FLAT-SCALAR-READOUT WARNINGS (advisory, non-blocking in BOTH modes):", flush=True)
+        for p, warn in flat_readout_warnings:
             rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
             print(f"  - {rel}: {warn}", flush=True)
     if degen_warnings:

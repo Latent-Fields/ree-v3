@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -194,6 +195,153 @@ def check_pack_provenance(path: Path) -> List[str]:
     return dropped
 
 
+# The four flat spellings the runpack converter harvests metrics.json `values`
+# from (REE_assembly evidence/experiments/scripts/sync_v3_results.build_runpack_docs).
+#
+# THE ORDER IS THE CONVERTER'S OWN AND IS LOAD-BEARING, not cosmetic. The converter
+# takes the FIRST non-empty of metrics -> aggregates -> summary_metrics -> readout
+# and never looks at the rest. So a manifest carrying BOTH a nested, non-scalar
+# `metrics` block AND a good flat `readout` scores from the `metrics` one and lands
+# values with no numeric entries -- a checker that searched in any other order would
+# find the healthy block first and report the manifest clean, which is precisely the
+# false negative this check exists to prevent. Mirror the consumer, do not re-rank it.
+#
+# `readout` is nonetheless the spelling to PREFER in a new driver (it is the one name
+# with no other meaning in the corpus); the other three are historical and are read
+# identically once chosen.
+_READOUT_SPELLINGS = ("metrics", "aggregates", "summary_metrics", "readout")
+
+
+def _numeric_entry_count(block: Any) -> int:
+    """Count the entries of `block` that build_experiment_indexes would actually
+    read: `_is_number` (l.315) is `isinstance(v, (int, float)) and not
+    isinstance(v, bool)`. Applied here with the extra non-finite exclusion the
+    standard's second encoding rule requires -- a nan IS numeric to the indexer,
+    which is exactly why emitting one is a defect rather than a neutral filler."""
+    if not isinstance(block, dict):
+        return 0
+    n = 0
+    for value in block.values():
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, (int, float)) and math.isfinite(value):
+            n += 1
+    return n
+
+
+def _readout_encoding_notes(block: Any) -> List[str]:
+    """Entries that are PRESENT but inert or harmful under the standard's two
+    encoding rules (3b "Machine-readable verdict readout"). Never a gap on its
+    own -- reported alongside whichever verdict check_flat_scalar_readout gives."""
+    notes: List[str] = []
+    if not isinstance(block, dict):
+        return notes
+    bools = [k for k, v in block.items() if isinstance(v, bool)]
+    nonfinite = [k for k, v in block.items()
+                 if isinstance(v, float) and not math.isfinite(v)]
+    nulls = [k for k, v in block.items() if v is None]
+    if bools:
+        notes.append(f"raw bool (emit as 0/1 int -- _is_number excludes bool): "
+                     f"{', '.join(sorted(bools)[:6])}")
+    if nonfinite:
+        notes.append(f"non-finite (DROP the key -- nan is numeric to the indexer "
+                     f"and pollutes deltas): {', '.join(sorted(nonfinite)[:6])}")
+    if nulls:
+        notes.append(f"null (DROP the key -- absent correctly reads as unmeasured): "
+                     f"{', '.join(sorted(nulls)[:6])}")
+    return notes
+
+
+def check_flat_scalar_readout(path: Path) -> Optional[Tuple[str, str, List[str]]]:
+    """Return (verdict, detail, encoding_notes) when the manifest lacks a usable
+    flat scalar readout, else None.
+
+    Standard 3b "Machine-readable verdict readout" (added 2026-09-09). The
+    converter harvests metrics.json `values` from ONE of four FLAT spellings, and
+    build_experiment_indexes reads only the NUMERIC entries of that block. A
+    readout recorded only as a dict keyed by arm or by seed matches none of the
+    four, so the pack scores with values=={} -- and then no `fail_if` stop
+    threshold can fire (final_status silently falls back to the manifest's own
+    self-declared status, which is what claim_evidence.v1.json records), the
+    duplicate-emission supersession fingerprint is skipped entirely (both copies
+    of a byte-identical re-emission score), and the index carries no deltas and
+    no key-metrics columns. Measurement: REE_assembly evidence/planning/
+    flat_scalar_readout_recording_gap_20260909.md.
+
+    Verdicts:
+      "absent"       -- none of the four spellings carries a non-empty dict.
+      "no_numeric"   -- a spelling IS present but no entry survives _is_number.
+                        This is usually the bool-only shape (82 flat manifests
+                        measured 2026-09-09): recorded, and invisible.
+      "encoding_only" -- the block DOES score, so this is not a gap; it just
+                        also carries entries that are inert (raw bools) or
+                        harmful (nan/inf, which _is_number happily accepts and
+                        which then pollute a delta). Reported so the encoding
+                        rules are actionable on a manifest that otherwise looks
+                        healthy -- V3-EXQ-484 (4 numerics + 4 bool criterion
+                        verdicts) and V3-EXQ-165 (16 numerics + 2 nan) are both
+                        this shape, and both hide the defect behind a passing
+                        presence check.
+
+    ADVISORY IN EVERY MODE, INCLUDING --strict -- deliberately, and not an
+    oversight to be tidied up later. /queue-experiment Step 3.5 runs this linter
+    with --strict on the smoke-test manifest, and 802 of 1008 flat manifests
+    (703 of 1358 manifest-writing drivers) lack the field today; blocking there
+    would gate every new driver on a corpus-wide gap, and CLAUDE.md's standing
+    guidance is that a gate firing on ordinary work gets disabled -- which is
+    worse than no gate. It is likewise NOT added to manifest_core.
+    ALWAYS_CORE_KEYS: that constant feeds missing_core_fields, which IS the
+    --strict-blocking arm, and it is also the list stamp_recording_core is
+    responsible for -- but this is the one always-core field the stamper
+    structurally CANNOT compute, since only the driver knows which scalars its
+    verdict turns on.
+
+    Exempt (they record no verdict, so they have no scalars to pre-register --
+    this exemption came out of the GOV-HELDOUT-1 check on the rule, which found
+    the first draft WARNed on both):
+      - a crash report: outcome == "ERROR", or a `*_runner_error_*` run_id;
+      - a dry-run manifest: dry_run truthy.
+    Non-manifest JSON (no `run_id`) is not gated at all.
+    """
+    doc = _load_json(path)
+    if not isinstance(doc, dict):
+        return None
+    if not doc.get("run_id"):
+        return None  # not a result manifest -- index/tracker/config JSON
+    if doc.get("dry_run"):
+        return None
+    if doc.get("outcome") == "ERROR" or "_runner_error_" in str(doc.get("run_id")):
+        return None
+
+    # For a PACK manifest the readout does not live on the manifest at all -- the
+    # converter has already projected it into the sibling metrics.json `values`,
+    # which IS the surface build_experiment_indexes scores. Check that surface
+    # directly rather than the pack manifest, or every pack reads as a false gap.
+    metrics_path = path.parent / "metrics.json"
+    if path.name == "manifest.json" and metrics_path.is_file():
+        metrics = _load_json(metrics_path)
+        values = metrics.get("values") if isinstance(metrics, dict) else None
+        notes = _readout_encoding_notes(values)
+        if _numeric_entry_count(values) > 0:
+            return None if not notes else ("encoding_only", "metrics.json values", notes)
+        if isinstance(values, dict) and values:
+            return ("no_numeric", "metrics.json values", notes)
+        return ("absent", "metrics.json values", notes)
+
+    # Resolve exactly as the converter does: FIRST non-empty spelling wins, and
+    # the others are never consulted -- see _READOUT_SPELLINGS on why searching
+    # for the healthiest block instead would hide the very defect being checked.
+    for spelling in _READOUT_SPELLINGS:
+        block = doc.get(spelling)
+        if not isinstance(block, dict) or not block:
+            continue
+        notes = _readout_encoding_notes(block)
+        if _numeric_entry_count(block) > 0:
+            return None if not notes else ("encoding_only", spelling, notes)
+        return ("no_numeric", spelling, notes)
+    return ("absent", "|".join(_READOUT_SPELLINGS), [])
+
+
 def check_manifest(path: Path) -> Tuple[List[str], List[str]]:
     """Return (missing_fields, schema_warnings) for one manifest JSON.
 
@@ -273,9 +421,13 @@ def main() -> int:
     gaps: List[Tuple[Path, List[str]]] = []
     warns: List[Tuple[Path, List[str]]] = []
     thin_packs: List[Tuple[Path, List[str]]] = []
+    readout_gaps: List[Tuple[Path, str, str, List[str]]] = []
     for p in paths:
         missing, schema_warnings = check_manifest(p)
         thin = check_pack_provenance(p)
+        readout = check_flat_scalar_readout(p)
+        if readout is not None:
+            readout_gaps.append((p, readout[0], readout[1], readout[2]))
         rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents else p
         if schema_warnings:
             warns.append((p, schema_warnings))
@@ -292,6 +444,7 @@ def main() -> int:
     print(f"[validate_recording] checked {len(paths)} manifest(s): "
           f"{n_ok} complete, {len(gaps)} with always-core gaps, "
           f"{len(thin_packs)} thin-pack provenance drop(s), "
+          f"{len(readout_gaps)} flat-scalar-readout finding(s), "
           f"{len(warns)} schema-warning(s)", flush=True)
 
     if warns:
@@ -320,6 +473,34 @@ def main() -> int:
         for p, missing in gaps:
             rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents else p
             print(f"  - {rel}: missing {', '.join(missing)}", flush=True)
+
+    if readout_gaps:
+        print("", flush=True)
+        # ADVISORY IN EVERY MODE -- see check_flat_scalar_readout's docstring for
+        # why this one does NOT harden under --strict while the two sections
+        # above do.
+        print("[validate_recording] FLAT-SCALAR-READOUT findings "
+              "(advisory in ALL modes, including --strict) -- standard 3b "
+              "\"Machine-readable verdict readout\": with no NUMERIC "
+              "metrics.values, no `fail_if` stop threshold can fire (final_status "
+              "falls back to the manifest's self-declared status), the "
+              "duplicate-emission supersession fingerprint is skipped, and the "
+              "index carries no deltas:", flush=True)
+        for p, verdict, where, notes in readout_gaps:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents else p
+            if verdict == "absent":
+                print(f"  - {rel}: NO flat scalar readout under any of "
+                      f"{where} -- add one (see "
+                      f"experiments/v3_exq_1015_mech465_zworld_warmup_budget_"
+                      f"dispersion_sweep.py for the reference block)", flush=True)
+            elif verdict == "no_numeric":
+                print(f"  - {rel}: `{where}` present but NO entry survives "
+                      f"_is_number -- recorded and invisible", flush=True)
+            else:
+                print(f"  - {rel}: `{where}` scores, but carries inert/harmful "
+                      f"entries", flush=True)
+            for n in notes:
+                print(f"      * {n}", flush=True)
 
     if args.strict and (gaps or thin_packs):
         return 1
