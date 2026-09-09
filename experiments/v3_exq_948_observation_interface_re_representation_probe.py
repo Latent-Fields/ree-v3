@@ -179,7 +179,7 @@ import numpy as np  # noqa: E402
 import torch  # noqa: E402
 
 from experiment_protocol import emit_outcome  # noqa: E402
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 from experiments._lib.capability_eval import (  # noqa: E402
     COMPETENCE_RESOURCE_FLOOR,
     LocalViewGreedyPolicy,
@@ -834,9 +834,55 @@ def run_experiment(
         ],
     }
 
+    # Flat scalar readout -- the pack's metrics.values source (REE_assembly
+    # evidence/planning/flat_scalar_readout_recording_gap_20260909.md). per_arm,
+    # per_anchor, per_seed_arms and diagnostics are all keyed by arm/anchor/seed, so the
+    # pack scored with no numeric metrics.values: no fail_if stop threshold could fire,
+    # the duplicate-emission supersession fingerprint was skipped, and the index carried
+    # no deltas.
+    #
+    # PASS here is carried by ONE criterion, not a conjunction, and the other three are
+    # REPLICATION ANCHORS whose expected values are false / false / true. So a plain
+    # "n_criteria_passed" would be actively misleading on this design -- the pre-registered
+    # PASS shape is three false criteria and one true. Each criterion is therefore recorded
+    # as its own flag alongside its measured competence, and the carrying criterion is
+    # marked separately. flat_readout() enforces the two encoding rules (bools -> 0/1
+    # ints; non-finite/None dropped). Recording-only: the verdict grid, criteria,
+    # thresholds and DVs are unchanged.
+    readout = flat_readout({
+        # THE criterion that carries PASS
+        "C_latent_plus_localfield_clears_floor": clears[ARM_LATENT_FIELD],
+        "pass_carrying_criterion_passed": clears[ARM_LATENT_FIELD],
+        # the interference discriminator (under-exposure vs active obstruction)
+        "C_localfield_only_clears_floor": clears[ARM_FIELD],
+        # the two 813 replication anchors (expected false / true respectively)
+        "C_latent_clears_floor": clears[ARM_LATENT],
+        "C_raw_obs_clears_floor": clears[ARM_RAW],
+        "n_criteria_true": sum(1 for v in clears.values() if v),
+        "n_criteria_total": len(clears),
+        "overall_pass_flag": outcome == "PASS",
+        "non_degenerate_flag": bool(agg["non_degenerate"]),
+        # the shared floor and each arm's measured competence against it
+        "competence_resource_floor": float(COMPETENCE_RESOURCE_FLOOR),
+        "latent_plus_localfield_foraging_competence": field_forage,
+        "localfield_only_foraging_competence": per_arm[ARM_FIELD][
+            "foraging_competence_mean"],
+        "latent_foraging_competence": latent_forage,
+        "raw_obs_foraging_competence": per_arm[ARM_RAW]["foraging_competence_mean"],
+        # the encoder guard the two latent-reading arms are gated on
+        "zworld_encoder_guard_worst_cell_max_abs_delta": round(guard_measured, 9),
+        "n_guard_cells": len(guards),
+        # arm gate census
+        "n_arms": len(ARM_IDS),
+        "n_arms_green": len((agg.get("per_arm_gate") or {}).get("green_arms") or []),
+        "n_arms_red": len((agg.get("per_arm_gate") or {}).get("red_arms") or []),
+        "n_seeds": len(seed_rows),
+    })
+
     return {
         "outcome": outcome,
         "agents": [r["agent"] for r in seed_rows],
+        "readout": readout,
         "interpretation": interpretation,
         "non_degenerate": bool(agg["non_degenerate"]),
         "degeneracy_reason": agg["degeneracy_reason"],
@@ -934,6 +980,7 @@ def _build_manifest(result: Dict[str, Any], timestamp_utc: str, cfg: Dict[str, A
         "dry_run": bool(dry_run),
         "outcome": result["outcome"],
         "interpretation": result["interpretation"],
+        "readout": result["readout"],
         "interpretation_label": result["interpretation"]["label"],
         "non_degenerate": result["non_degenerate"],
         "degeneracy_reason": result["degeneracy_reason"],

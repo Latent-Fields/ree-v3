@@ -142,7 +142,7 @@ from experiments._lib.precondition_gate import (  # noqa: E402
     evaluate_arm_gate,
 )
 from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_940_mech467_energy_window_decoupling"
@@ -872,6 +872,53 @@ def build_manifest(seed_results, smoke: bool, started_at: float,
         },
         "arms": list(ARMS),
         "seeds": list(SEEDS),
+        # Flat scalar readout -- the pack's metrics.values source (REE_assembly
+        # evidence/planning/flat_scalar_readout_recording_gap_20260909.md).
+        # per_arm_pooled is keyed by arm and per_seed_results is a list, so the pack
+        # scored with no numeric metrics.values: no fail_if stop threshold could fire,
+        # the duplicate-emission supersession fingerprint was skipped, and the index
+        # carried no deltas.
+        #
+        # C1's NON-DEGENERACY is recorded as its own scalar alongside its pass flag,
+        # because the two carry opposite findings that a pass flag alone aliases
+        # together: C1 false with n_truncated_cells == 0 means "there was no truncation
+        # to explain", while C1 false with n_truncated_cells > 0 means "contamination
+        # was not what truncated the window". That aliasing is exactly what the Step 2.5b
+        # adversarial design audit found, and a flat surface that dropped
+        # n_truncated_cells would reintroduce it. flat_readout() enforces the two
+        # encoding rules (bools -> 0/1 ints; non-finite/None dropped -- so C2's rate
+        # ratio is absent, not zero, when the stock arm produced no events at all).
+        # Recording-only: the verdict grid, criteria, thresholds and DVs are unchanged.
+        "readout": flat_readout({
+            "C1_window_completeness_lifts_when_contamination_gated": c1_pass,
+            "C2_event_rate_lifts_when_window_decoupled": c2_pass,
+            "n_criteria_passed": sum(1 for x in (c1_pass, c2_pass) if x),
+            "n_criteria_total": 2,
+            "c1_non_degenerate_flag": c1_non_degenerate,
+            "c2_non_degenerate_flag": c2_non_degenerate,
+            "aggregate_non_degenerate_flag": aggregate["non_degenerate"],
+            # C1 -- the lift against its floor, plus the truncation census its
+            # non-degeneracy is keyed to
+            "window_completeness_lift": window_lift,
+            "window_completeness_lift_min": WINDOW_COMPLETENESS_LIFT_MIN,
+            "stock_n_truncated_cells": stock["n_truncated_cells"],
+            "stock_window_completeness_mean": stock["window_completeness_mean"],
+            "gated_window_completeness_mean": gated["window_completeness_mean"],
+            "decoupled_window_completeness_mean": decoupled["window_completeness_mean"],
+            # C2 -- the rate ratio against its floor, with both rates
+            "event_rate_lift_ratio": rate_lift_ratio,
+            "event_rate_lift_min": EVENT_RATE_LIFT_MIN,
+            "stock_events_per_realised_tick": stock_rate,
+            "best_decoupled_events_per_realised_tick": best_decoupled_rate,
+            "total_consumption_events_all_arms": total_events_all_arms,
+            # arm/seed census
+            "n_arms": len(ARMS),
+            "n_seeds": len(SEEDS),
+            "n_arms_green": len(
+                (aggregate.get("per_arm_gate") or {}).get("green_arms") or []),
+            "n_arms_red": len(
+                (aggregate.get("per_arm_gate") or {}).get("red_arms") or []),
+        }),
         "per_arm_pooled": pooled,
         "per_seed_results": seed_results,
         "criteria": [

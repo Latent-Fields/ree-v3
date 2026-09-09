@@ -166,7 +166,7 @@ from _lib.precondition_gate import (  # noqa: E402
 from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_888_mech074_readwrite_head_route_dissociation"
 QUEUE_ID = "V3-EXQ-888"
@@ -844,6 +844,62 @@ def _evaluate(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
             "load-bearing criterion for the PARENT claim MECH-074; C3 alone is "
             "MECH-074a and C2 alone is MECH-074b."
         ),
+        # Flat scalar readout -- the pack's metrics.values source (REE_assembly
+        # evidence/planning/flat_scalar_readout_recording_gap_20260909.md). `acceptance`
+        # carries these counts but sits under a key the runpack converter does not harvest
+        # (it reads only metrics / aggregates / summary_metrics / readout), and per_seed /
+        # arm_results are lists, so the pack scored with no numeric metrics.values: no
+        # fail_if stop threshold could fire, the duplicate-emission supersession
+        # fingerprint was skipped, and the index carried no deltas. These are the
+        # pre-registered scalars C1-C4 turn on -- each criterion's seed count against
+        # seeds_needed, plus the WORST per-seed arm-vs-OFF delta for each of the three
+        # routes against AOR_Z_MARGIN (each criterion is a per-seed count, so the extremum
+        # is what moves it) and the OFF arm's largest |z| against its flatness ceiling.
+        # Each of the three claims this run splits between (MECH-074 parent via C4,
+        # 074a via C3, 074b via C2) gets its own scalar, so a later reader can see which
+        # route carried the result without re-deriving it. flat_readout() enforces the two
+        # encoding rules (bools -> 0/1 ints; non-finite/None dropped). Recording-only: the
+        # verdict grid, criteria, thresholds and DVs are unchanged.
+        "readout": flat_readout({
+            "C1_head_authority": c1_met,
+            "C2_address_route_authority": c2_met,
+            "C3_strength_route_authority": c3_met,
+            "C4_separability": c4_met,
+            "n_criteria_passed": sum(1 for x in (c1_met, c2_met, c3_met, c4_met) if x),
+            "n_criteria_total": 4,
+            "overall_pass_flag": outcome_pass,
+            # per-criterion seed counts against the bar
+            "seeds_needed": int(seeds_needed),
+            "seeds_pass_min": SEEDS_PASS_MIN,
+            "n_seeds": n_seeds,
+            "c1_seeds_ok": c1_ok,
+            "c2_seeds_ok": c2_ok,
+            "c3_seeds_ok": c3_ok,
+            "off_flat_seeds_ok": off_flat_ok,
+            "n_seeds_all_three_routes": sum(1 for r in per_seed if r["seed_pass"]),
+            # decisive per-seed extrema against the shared z-margin
+            "aor_z_margin": AOR_Z_MARGIN,
+            "delta_full_vs_off_worst": min(
+                (r["delta_full_vs_off"] for r in per_seed), default=None),
+            "delta_full_vs_off_best": max(
+                (r["delta_full_vs_off"] for r in per_seed), default=None),
+            "delta_gain_flat_vs_off_worst": min(
+                (r["delta_gain_flat_vs_off"] for r in per_seed), default=None),
+            "delta_gain_flat_vs_off_best": max(
+                (r["delta_gain_flat_vs_off"] for r in per_seed), default=None),
+            "delta_tag_off_vs_off_worst": min(
+                (r["delta_tag_off_vs_off"] for r in per_seed), default=None),
+            "delta_tag_off_vs_off_best": max(
+                (r["delta_tag_off_vs_off"] for r in per_seed), default=None),
+            # the OFF arm's flatness check, at its worst seed
+            "off_aor_z_flat_max": OFF_AOR_Z_FLAT_MAX,
+            "off_abs_aor_z_worst": max(
+                (abs(r["aor_z_off"]) for r in per_seed), default=None),
+            # the standardisation's own denominator, at its worst seed
+            "buffer_std_gt_arousal_worst": min(
+                (r["buffer_std_gt_arousal"] for r in per_seed), default=None),
+            "gt_arousal_std_floor": GT_AROUSAL_STD_FLOOR,
+        }),
         "per_seed": per_seed,
     }
 
@@ -963,6 +1019,7 @@ def main() -> int:
             "child mechanism. See combination_rule."
         ),
         "acceptance": ev,
+        "readout": ev["readout"],
         "arm_results": rows,
         "per_seed_results": ev["per_seed"],
         "thresholds": full_config["thresholds"],

@@ -245,7 +245,7 @@ from experiments._lib.manifest_core import stamp_recording_core  # noqa: E402
 from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
 from experiments._lib.zworld_p0_warmup import run_zworld_p0  # noqa: E402
 from experiments._metrics import check_degeneracy  # noqa: E402
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 import experiments.v3_exq_724_competence_localization_diagnostic as x724  # noqa: E402
 from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E402
@@ -865,6 +865,65 @@ def run_experiment(
             "trivial_activity_floor_ticks": round(trivial_activity_floor, 4),
         },
         "hypothesis_signal": hypothesis_signal,
+        # Flat scalar readout -- the pack's metrics.values source (REE_assembly
+        # evidence/planning/flat_scalar_readout_recording_gap_20260909.md). readiness,
+        # hypothesis_signal and interpretation are all nested dicts (keyed by hypothesis
+        # and by checkpoint) and arm_results is a list, so the pack scored with no numeric
+        # metrics.values: no fail_if stop threshold could fire, the duplicate-emission
+        # supersession fingerprint was skipped, and the index carried no deltas. These are
+        # the pre-registered scalars the sequential precondition chain turns on -- the
+        # activity precondition's cross-seed MAXIMUM against the trivial-activity floor
+        # (a maximum, because the check is "not EVERY seed is pinned"), and the bimodal
+        # split's SMALLER group against MIN_SPLIT_GROUP_SIZE (the min, because both groups
+        # must be populated) -- plus H1's divergence gaps and H2's difficulty-correlate
+        # difference, which are the findings the PASS label is drawn from. flat_readout()
+        # enforces the two encoding rules (bools -> 0/1 ints; non-finite/None dropped, so
+        # a hypothesis block that was never computed reads as unmeasured). Recording-only:
+        # the verdict grid, criteria, thresholds and DVs are unchanged.
+        "readout": flat_readout({
+            "C1_bimodal_split_present_for_discrimination": bimodal_split_ok,
+            "n_criteria_passed": int(bool(bimodal_split_ok)),
+            "n_criteria_total": 1,
+            "overall_pass_flag": outcome == "PASS",
+            "non_degenerate_flag": non_degenerate,
+            # precondition 1: activity, cross-seed MAXIMUM against the trivial floor
+            "activity_ok_flag": activity_ok,
+            "final_windowed_survival_ticks_max": (
+                round(max(final_values), 4) if final_values else 0.0),
+            "trivial_activity_floor_ticks": round(trivial_activity_floor, 4),
+            # precondition 2: the bimodal split, SMALLER group against its floor
+            "bimodal_split_ok_flag": bimodal_split_ok,
+            "smaller_split_group_size": min(n_cleared, n_not_cleared),
+            "min_split_group_size": MIN_SPLIT_GROUP_SIZE,
+            "n_cleared": n_cleared,
+            "n_not_cleared": n_not_cleared,
+            "n_seeds": len(rows),
+            "survival_floor_ticks": round(survival_floor, 4),
+            "random_margin_floor_ticks": round(random_margin_floor, 4),
+            # H1 -- the divergence-timing finding the PASS label is drawn from
+            "h1_early_gap": (hypothesis_signal.get("h1_early_divergence") or {}).get(
+                "early_gap"),
+            "h1_final_gap": (hypothesis_signal.get("h1_early_divergence") or {}).get(
+                "final_gap"),
+            "h1_early_frac": (hypothesis_signal.get("h1_early_divergence") or {}).get(
+                "early_frac"),
+            "h1_min_final_group_gap_ticks": (
+                hypothesis_signal.get("h1_early_divergence") or {}).get(
+                    "min_final_group_gap_ticks"),
+            # H2 -- the difficulty correlate, against its notability bar
+            "h2_diff_ticks": (hypothesis_signal.get("h2_hazard_layout_difficulty") or {}
+                              ).get("diff_ticks"),
+            "h2_diff_frac": (hypothesis_signal.get("h2_hazard_layout_difficulty") or {}
+                             ).get("diff_frac"),
+            "h2_notable_diff_frac_bar": H2_NOTABLE_DIFF_FRAC,
+            "h2_random_walk_survival_mean_cleared": (
+                hypothesis_signal.get("h2_hazard_layout_difficulty") or {}).get(
+                    "random_walk_survival_mean_cleared_group"),
+            "h2_random_walk_survival_mean_not_cleared": (
+                hypothesis_signal.get("h2_hazard_layout_difficulty") or {}).get(
+                    "random_walk_survival_mean_not_cleared_group"),
+            "n_degenerate_metrics": len(degeneracy["degenerate_metrics"] or []),
+        }),
         "arm_results": rows,
         "non_degenerate": non_degenerate,
         "degeneracy_reason": degeneracy_reason,
@@ -893,6 +952,7 @@ def _build_manifest(result: Dict[str, Any], timestamp_utc: str, dry_run: bool,
         "criteria": result["criteria"],
         "readiness": result["readiness"],
         "hypothesis_signal": result["hypothesis_signal"],
+        "readout": result["readout"],
         "arm_results": result["arm_results"],
         "non_degenerate": result["non_degenerate"],
         "degeneracy_reason": result["degeneracy_reason"],
