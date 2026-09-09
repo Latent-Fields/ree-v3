@@ -83,6 +83,93 @@ RANGE_NAME_TOKENS = (
 )
 
 
+# Read by committed_driver_names() as its git-unavailable fallback; written by
+# scripts/remote_pytest.sh (REE_Working, umbrella repo) right after sync_tree(),
+# from the SOURCE checkout's `git ls-tree`, before the staged copy loses `.git`.
+# The literal name is duplicated in that script's own comment next to the write
+# -- keep the two in sync if this ever moves; there is no shared import across
+# the bash/python boundary to enforce it structurally.
+COMMITTED_DRIVER_NAMES_MANIFEST = ".committed_experiment_drivers_manifest.txt"
+
+
+def committed_driver_names(repo_root: Optional[Path] = None) -> Optional[Set[str]]:
+    """Filenames of top-level experiments/*.py scripts as COMMITTED at HEAD.
+
+    Test-support helper, not used by any production check above: the corpus-wide
+    lint pin tests (`tests/contracts/test_dv_headroom_statistic_mismatch.py`,
+    `test_config_slice_declaration_lint.py`, and any future one built the same
+    way) enumerate `EXPERIMENTS_DIR.glob("*.py")`, which reads the WORKING TREE.
+    In this repo that tree routinely carries other sessions' uncommitted draft
+    drivers (see CLAUDE.md "Concurrency Rules" / "Claim-first, edit-last") that
+    were never reviewed onto the pinned corpus and can move a pinned fire count
+    for a reason that has nothing to do with the lint under test. Filtering the
+    glob's result down to this function's return value restores "pinned against
+    the committed corpus" without changing what the glob itself walks or
+    duplicating the walk.
+
+    Same shape as `_committed_experiment_scripts()` in
+    tests/contracts/test_criterion_exceeds_achievable_range_lint.py (top level
+    only -- `experiments/_lib/**` and other subdirectories stay out of scope,
+    matching `EXPERIMENTS_DIR.glob("*.py")`'s own non-recursive shape) -- kept
+    here, alongside the lints both pin tests already import as `V`, rather than
+    duplicated a third time.
+
+    TWO SOURCES, git preferred. `scripts/remote_pytest.sh` rsyncs the staged
+    tree WITHOUT `.git` (see CLAUDE.md "Running the test suite"), so on a
+    worker this would otherwise always return None and every pin silently
+    reverts to unfiltered -- the exact false-red-on-the-worker gap this
+    function exists to close. That script now also drops a MANIFEST
+    (COMMITTED_DRIVER_NAMES_MANIFEST, generated from the real `.git` on the
+    Mac before the tree is staged) alongside it; when `.git` is absent this
+    reads that instead, with a printed WARNING, because it is a weaker
+    guarantee than live git -- generated at sync time, so a commit landed by
+    another session between sync and this test run is invisible to it. Still
+    strictly better than no filter at all, which is "every draft counts".
+
+    Returns `None`, never an empty set, when NEITHER source is usable (no
+    `.git` AND no manifest, or the git binary is missing, or `git ls-tree`
+    errors or times out). `None` is deliberately NOT "empty": a caller must
+    treat it as "could not filter, fall back to the working-tree glob
+    unfiltered" per `validate_queue._is_tracked`'s documented fail-open
+    (returning an empty set here would read as "nothing is committed" and
+    zero every pinned count instead).
+    """
+    if repo_root is None:
+        repo_root = REPO_ROOT
+    repo_root = Path(repo_root)
+    if (repo_root / ".git").exists():
+        import subprocess
+        try:
+            result = subprocess.run(
+                ["git", "ls-tree", "-r", "--name-only", "HEAD", "--", "experiments/"],
+                cwd=str(repo_root), capture_output=True, text=True, timeout=120,
+            )
+        except (OSError, subprocess.SubprocessError):
+            result = None
+        if result is not None and result.returncode == 0:
+            return {line.rsplit("/", 1)[-1] for line in result.stdout.splitlines()
+                    if line.endswith(".py") and line.count("/") == 1}
+        # Fall through to the manifest rather than returning None outright --
+        # a `.git` present but a failing/timing-out `ls-tree` is exactly the
+        # kind of transient the manifest is there to survive too.
+
+    manifest = repo_root / COMMITTED_DRIVER_NAMES_MANIFEST
+    if not manifest.exists():
+        return None
+    try:
+        text = manifest.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return None
+    names = {line.strip() for line in text.splitlines() if line.strip()}
+    if not names:
+        return None
+    print(f"WARNING: committed_driver_names() has no .git at {repo_root} -- "
+          f"falling back to the sync-time manifest {COMMITTED_DRIVER_NAMES_MANIFEST} "
+          f"({len(names)} names). This tree was likely staged by "
+          f"scripts/remote_pytest.sh.", file=sys.stderr)
+    return names
+
+
 def _has_main_block(tree: ast.Module) -> Optional[ast.If]:
     """Return the `if __name__ == "__main__":` block, or None."""
     for node in tree.body:

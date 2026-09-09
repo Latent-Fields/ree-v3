@@ -366,12 +366,49 @@ def test_dhsm_reports_the_carrier_under_the_selector():
 def test_dhsm_corpus_fire_count_is_pinned():
     """A pinned integer alone goes vacuously green if the gate stops firing, so both
     carriers are named. If this drifts UP, a tightening was loosened -- re-measure
-    before re-pinning; the whole point of the number is the under-firing bias."""
-    fired = [p.name for p in sorted(EXPERIMENTS_DIR.glob("*.py"))
-             if V.dv_headroom_statistic_mismatch_lint(p)]
+    before re-pinning; the whole point of the number is the under-firing bias.
+
+    COMMITTED-ONLY (2026-09-09): filtered through `V.committed_driver_names()` so
+    another session's uncommitted draft driver sitting in this shared checkout
+    cannot move the pin -- see that function's docstring and the RE-PINNED
+    2026-09-08 note on EXPECTED_CORPUS_FIRES above, which is exactly this failure
+    mode caught once already and re-pinned rather than fixed at the root. When
+    git is unavailable, `committed_driver_names()` returns None and this falls
+    back to the unfiltered working-tree glob, unchanged from before."""
+    tracked = V.committed_driver_names()
+    candidates = sorted(EXPERIMENTS_DIR.glob("*.py"))
+    if tracked is not None:
+        candidates = [p for p in candidates if p.name in tracked]
+    fired = [p.name for p in candidates if V.dv_headroom_statistic_mismatch_lint(p)]
     assert SPECIMEN_ORDER_STATISTIC in fired, fired
     assert SPECIMEN_WRONG_STATISTIC in fired, fired
     assert len(fired) == EXPECTED_CORPUS_FIRES, fired
+
+
+def test_dhsm_corpus_pin_ignores_an_untracked_specimen():
+    """Regression for the failure mode above: an untracked file dropped into
+    `experiments/` -- exactly what another session's in-progress draft looks
+    like from here -- must not move the pinned count, whether or not it would
+    itself fire the lint. Uses the ORDER_MISMATCH shape (a genuine firer) as the
+    specimen precisely because that is the case that would otherwise move the
+    number; a specimen that never fires would not exercise the filter at all."""
+    if V.committed_driver_names() is None:
+        pytest.skip("no .git in this tree -- filter has nothing to prove here "
+                    "(see committed_driver_names()'s docstring)")
+    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False,
+                                     dir=str(EXPERIMENTS_DIR)) as f:
+        f.write(_ORDER_MISMATCH)
+        specimen = Path(f.name)
+    try:
+        assert specimen.name not in V.committed_driver_names(), (
+            "specimen leaked into git's index -- fix the test, not the filter")
+        tracked = V.committed_driver_names()
+        candidates = [p for p in sorted(EXPERIMENTS_DIR.glob("*.py")) if p.name in tracked]
+        assert specimen.name not in {p.name for p in candidates}
+        fired = [p.name for p in candidates if V.dv_headroom_statistic_mismatch_lint(p)]
+        assert len(fired) == EXPECTED_CORPUS_FIRES, fired
+    finally:
+        specimen.unlink()
 
 
 def test_dhsm_fires_on_a_minority_of_adopters():
