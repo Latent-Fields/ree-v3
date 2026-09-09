@@ -57,6 +57,7 @@ CHECK_NAMES = ("conformance", "readiness", "arm_fingerprint", "degeneracy", "man
                "precondition_index_read",
                "contextmemory_write_enablement",
                "flat_scalar_readout",
+               "criteria_threshold",
                "use_before_def")
 
 # Readiness-gate static lint (proposal_trivial_prediction_readiness_gate_2026-06-06).
@@ -2128,6 +2129,194 @@ def flat_scalar_readout_lint(path: Path) -> Optional[str]:
             "FLAT_SCALAR_READOUT_EXEMPT = \"<reason>\". See "
             "experimental_recording_standard_2026-07-12.md sec 3b + "
             "flat_scalar_readout_recording_gap_20260909.md.")
+
+
+# Threshold-family tokens, kept identical in meaning to
+# validate_recording._THRESHOLD_TOKENS and pinned by
+# test_validate_recording.CriteriaSpellingsAgree so the two cannot drift. See
+# that constant for why this is a TOKEN family and not a literal spelling list
+# (a literal list flagged 26 criteria across 14 genuinely-compliant manifests).
+_CRITERION_THRESHOLD_TOKENS = frozenset((
+    "threshold", "thresholds", "thr", "bar", "requirement", "required",
+    "floor", "tol", "tolerance", "cutoff", "minimum", "target",
+))
+_CRITERIA_THRESHOLD_EXEMPT_MARKER = "CRITERIA_THRESHOLD_EXEMPT"
+
+
+def _dict_string_keys(node: ast.Dict) -> set:
+    return {k.value for k in node.keys
+            if isinstance(k, ast.Constant) and isinstance(k.value, str)}
+
+
+def _is_criterion_dict(node: ast.Dict) -> bool:
+    """A dict literal that is statically recognisable as ONE criterion entry.
+
+    Keyed off the two shapes the corpus actually writes: an explicit
+    `load_bearing` marker, or the `name` + `passed` pair every list-form
+    criterion carries (`met` is the dict-form spelling). Deliberately narrow --
+    a false POSITIVE here would warn about a dict that is not a criterion at
+    all, which is the crying-wolf direction this check must avoid.
+    """
+    keys = _dict_string_keys(node)
+    if "load_bearing" in keys:
+        return True
+    return bool({"passed", "met"} & keys) and "name" in keys
+
+
+def _dict_marks_load_bearing(node: ast.Dict) -> bool:
+    """True when the literal carries `load_bearing` set to a literal True."""
+    for key, value in zip(node.keys, node.values):
+        if (isinstance(key, ast.Constant) and key.value == "load_bearing"
+                and isinstance(value, ast.Constant) and value.value is True):
+            return True
+    return False
+
+
+def _dict_has_threshold_key(node: ast.Dict) -> bool:
+    """True when any of the dict's own string keys carries a threshold-family
+    token. Only this dict's keys -- a bar recorded on a DIFFERENT criterion
+    does not discharge this one."""
+    for key in _dict_string_keys(node):
+        if set(key.lower().split("_")) & _CRITERION_THRESHOLD_TOKENS:
+            return True
+    return False
+
+
+def criteria_threshold_lint(path: Path) -> Optional[str]:
+    """Criteria re-derivability check. Return a warning string, or None.
+
+    Experimental Recording Standard 3b "Re-derivable criteria" (added
+    2026-09-09). A driver that records a `criteria` block MUST record, for every
+    load-bearing criterion, the MEASURED value and the THRESHOLD it was compared
+    against -- as separate machine-readable numbers, not inside a prose `note` /
+    `detail` / `description`.
+
+    A criterion recorded `passed: true` and nothing else is an ASSERTION, not a
+    record. `/governance` Step 2b's mandatory driver skim carries a
+    threshold-arithmetic clause -- "given the magnitudes this run actually
+    measured, is the bar attainable in both directions, or does one branch fire
+    BY CONSTRUCTION" -- and that clause cannot be discharged from such an
+    artifact at all; it forces a driver read every time. V3-EXQ-936a's absolute
+    bar, ~7,900x above the maximum attainable effect, was logged clean for three
+    consecutive governance cycles on exactly this shape.
+
+    Fires only on a script that WRITES A RESULT MANIFEST (the manifest-identity
+    tokens `run_id` AND `evidence_direction` as strings, plus a `__main__` entry
+    point -- same predicate as manifest_writer_lint / flat_scalar_readout_lint)
+    AND mentions `criteria`. A driver that records no criteria block is not
+    gated: it makes no criterion claim to re-derive.
+
+    Discharged by the mere MENTION of any threshold-family key -- `threshold`,
+    `threshold_rho`, `requirement`, `seeds_required`, `rho_floor`, `bar`, `tol`.
+    That is deliberately generous: a static name scan cannot tell whether the bar
+    is recorded on the right criterion, or beside a measured value, or as a
+    number rather than prose. Those are manifest-level facts, checked by
+    validate_recording.check_criteria_thresholds on the written artifact. This
+    lint's job is the AUTHORING moment -- surfacing the obligation in
+    /queue-experiment Step 3.5 before compute is spent, where adding the two
+    fields is free and a re-run is not. Under-reporting is the sound direction
+    for an advisory (same posture as flat_scalar_readout_lint).
+
+    Opt-out: CRITERIA_THRESHOLD_EXEMPT = "<reason>" -- for a driver whose
+    criteria are genuinely count-based negative existentials ("0 occurrences
+    across N calls"), where a bar is not the right shape. A single criterion can
+    instead carry `threshold_not_applicable: "<reason>"` in the manifest.
+
+    WARN-ONLY IN BOTH MODES -- it never hardens under `--paths`, exactly like
+    flat_scalar_readout_lint and unlike the arm-fingerprint / degeneracy /
+    manifest-writer gates. Measured 2026-09-09: this lint warns on 461 of 1474
+    drivers in experiments/ (31.3%), and the artifact-side check it pairs with
+    finds 184 of 216 flat manifests carrying load-bearing criteria record NONE
+    that is re-derivable (85.2%). A gate firing on that share of ordinary work
+    gets disabled, which is worse than no gate (CLAUDE.md).
+
+    The two rates differ because the two checks catch DIFFERENT halves, and the
+    difference is the useful finding: a driver can compute both numbers and drop
+    them on the way to the manifest (v3_exq_936a interpolates its bars into a
+    `description` string), or build its criteria dynamically so no literal is
+    statically visible at all (v3_exq_642b -- zero criterion literals, manifest
+    flagged). Neither is reachable from source alone. Run both.
+    """
+    try:
+        src = path.read_text(encoding="utf-8")
+        tree = ast.parse(src, filename=str(path))
+    except (OSError, UnicodeDecodeError, SyntaxError):
+        return None  # check_script already reports unreadable / syntax errors
+
+    if _has_main_block(tree) is None:
+        return None  # library-style helper, no entry point -- exempt
+
+    strings = {n.value for n in ast.walk(tree)
+               if isinstance(n, ast.Constant) and isinstance(n.value, str)}
+    names = _dict_key_and_kwarg_names(tree)
+
+    if (_CRITERIA_THRESHOLD_EXEMPT_MARKER in names
+            or _CRITERIA_THRESHOLD_EXEMPT_MARKER in strings):
+        return None
+
+    if not all(t in strings for t in _MANIFEST_IDENTITY_TOKENS):
+        return None  # no result-manifest write to gate
+
+    if "criteria" not in names and "criteria" not in strings:
+        return None  # records no criteria block -- nothing to re-derive
+
+    # Scan the CRITERION DICT LITERALS, not the whole file. Scanning file-wide
+    # for a threshold-family token was the first cut and it is effectively
+    # inert: measured over experiments/, it warned on 4 of 1474 drivers while
+    # 85% of the manifests they write are defective, because almost every
+    # driver says "threshold" or "bar" or "target" SOMEWHERE (v3_exq_936a --
+    # whose two load-bearing criteria record neither half -- mentions `bar`,
+    # `threshold`, `thresholds`, `required` and `target_met` in unrelated
+    # code). The question is not whether the file knows the word; it is whether
+    # the CRITERION carries the field.
+    criterion_dicts = [d for d in ast.walk(tree)
+                       if isinstance(d, ast.Dict) and _is_criterion_dict(d)]
+    if not criterion_dicts:
+        return None  # no statically-visible criterion literal to judge
+
+    # Scope to the LOAD-BEARING literals, mirroring
+    # validate_recording._effective_load_bearing: explicitly-marked ones win, and
+    # when no literal carries the marker at all every one of them counts (the
+    # driver declined to narrow). A criterion marked load_bearing=False needs no
+    # bar -- it is not what the verdict turns on.
+    #
+    # Discharging the file when ANY criterion carries a bar was the second cut
+    # and it still missed the motivating case: v3_exq_936a builds a SEPARATE
+    # verdict-grid dict carrying `measured`/`threshold` while its two actual
+    # load-bearing criteria carry only `passed` + a `description` with the bars
+    # interpolated into the PROSE. Each load-bearing criterion needs its own bar.
+    load_bearing = [d for d in criterion_dicts if _dict_marks_load_bearing(d)]
+    if not load_bearing:
+        if any("load_bearing" in _dict_string_keys(d) for d in criterion_dicts):
+            return None  # every literal positively marked not-load-bearing
+        load_bearing = criterion_dicts
+    if all(_dict_has_threshold_key(d) for d in load_bearing):
+        return None  # every load-bearing criterion records a bar
+
+    return ("has LOAD-BEARING criterion literals that carry no threshold-family "
+            "field (threshold / requirement / required / floor / bar / tol / "
+            "cutoff / target) -- a bar mentioned elsewhere in the file, or on a "
+            "criterion that is not load-bearing, does not discharge this. "
+            "A load-bearing criterion recorded `passed: true` "
+            "with no measured value and no bar is an ASSERTION, not a record: "
+            "nothing in the manifest says what was measured or what it was "
+            "compared against, so the verdict cannot be re-checked without "
+            "opening this driver. /governance Step 2b's threshold-arithmetic "
+            "clause -- is the bar attainable in BOTH directions, or does one "
+            "branch fire BY CONSTRUCTION? -- then cannot be discharged from the "
+            "artifact at all. V3-EXQ-936a's absolute bar sat ~7,900x above the "
+            "maximum attainable effect and was logged clean for three "
+            "consecutive governance cycles on this exact shape. Record, per "
+            "load-bearing criterion, the MEASURED value AND its THRESHOLD as "
+            "separate numeric fields (`measured` / `threshold`, or the "
+            "`measured_rho` / `threshold_rho` family) -- NOT inside a prose "
+            "`note` / `detail` / `description`, which no consumer and no "
+            "governance skim can read. With more than one load-bearing "
+            "criterion also record `combination_rule` (which had to hold). "
+            "Exempt with CRITERIA_THRESHOLD_EXEMPT = \"<reason>\", or per "
+            "criterion with `threshold_not_applicable`. See "
+            "experimental_recording_standard_2026-07-12.md sec 3b "
+            "\"Re-derivable criteria\".")
 
 
 # All SEVEN are assigned ONLY inside `E3Selector.select()` -- verified by AST scan of
@@ -8902,6 +9091,7 @@ def main() -> int:
     degen_warnings: List[Tuple[Path, str]] = []
     manifest_writer_warnings: List[Tuple[Path, str]] = []
     flat_readout_warnings: List[Tuple[Path, str]] = []
+    criteria_threshold_warnings: List[Tuple[Path, str]] = []
     anchor_warnings: List[Tuple[Path, str]] = []
     specimen_warnings: List[Tuple[Path, str]] = []
     n_anchor_superseded = 0
@@ -8980,6 +9170,14 @@ def main() -> int:
                 # under --paths. See flat_scalar_readout_lint() for why (705 of
                 # 1355 manifest-writing drivers would trip a hard gate).
                 flat_readout_warnings.append((p, fsr))
+        if "criteria_threshold" in selected:
+            ct = criteria_threshold_lint(p)
+            if ct:
+                # WARN-only in BOTH modes -- never routes to `failures`, even
+                # under --paths. See criteria_threshold_lint() for why (184 of
+                # 216 flat manifests with load-bearing criteria record none
+                # that is re-derivable).
+                criteria_threshold_warnings.append((p, ct))
         if "anchor_reachability" in selected:
             anch = anchor_reachability_lint(p)
             if anch:
@@ -9235,6 +9433,7 @@ def main() -> int:
           f"{len(degen_warnings)} degeneracy-self-report-backlog, "
           f"{len(manifest_writer_warnings)} manifest-writer-backlog, "
           f"{len(flat_readout_warnings)} flat-scalar-readout-backlog, "
+          f"{len(criteria_threshold_warnings)} criteria-threshold-backlog, "
           f"{len(anchor_warnings)} anchor-reachability-warning(s)"
           + (f" ({n_anchor_superseded} superseded)" if n_anchor_superseded else "") + ", "
           f"{len(recomput_warnings)} precondition-recomputability-warning(s), "
@@ -9724,6 +9923,17 @@ def main() -> int:
         print("", flush=True)
         print("[validate_experiments] FLAT-SCALAR-READOUT WARNINGS (advisory, non-blocking in BOTH modes):", flush=True)
         for p, warn in flat_readout_warnings:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
+            print(f"  - {rel}: {warn}", flush=True)
+    if criteria_threshold_warnings:
+        # WARN-only in BOTH modes -- NEVER hardens under --paths, exactly like the
+        # flat-scalar-readout section above. Standard 3b "Re-derivable criteria"
+        # (2026-09-09); 85.2% of flat manifests carrying load-bearing criteria
+        # record none that is re-derivable, so a hard gate would fire on the large
+        # majority of ordinary work.
+        print("", flush=True)
+        print("[validate_experiments] CRITERIA-THRESHOLD WARNINGS (advisory, non-blocking in BOTH modes):", flush=True)
+        for p, warn in criteria_threshold_warnings:
             rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
             print(f"  - {rel}: {warn}", flush=True)
     if degen_warnings:

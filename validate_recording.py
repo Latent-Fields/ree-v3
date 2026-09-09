@@ -342,6 +342,239 @@ def check_flat_scalar_readout(path: Path) -> Optional[Tuple[str, str, List[str]]
     return ("absent", "|".join(_READOUT_SPELLINGS), [])
 
 
+# --- criteria measured+threshold check (standard 3b, added 2026-09-09) -------
+#
+# Tokens that name the BAR half of a criterion. Matched as underscore-separated
+# TOKENS, not as whole key names, and this is the part that took a held-out
+# check to get right. The corpus spells the bar `threshold`, `threshold_rho`,
+# `threshold_gap`, `threshold_log10_gap`, `threshold_delta`, `threshold_hold`,
+# `requirement`, `required`, `seeds_required`, `rho_floor`, `bar`, `tol` -- a
+# literal spelling LIST (the first draft: measured|measured_rho|measured_value|
+# value x threshold|thr|bar) flagged 26 criteria across 14 manifests that record
+# both halves perfectly well, e.g. V3-EXQ-1001's `mean`/`requirement` and
+# V3-EXQ-950's `bar`/`measured_auc`. Crying wolf on compliant work is how a
+# check gets ignored (CLAUDE.md), so match the family, not the spelling.
+_THRESHOLD_TOKENS = frozenset((
+    "threshold", "thresholds", "thr", "bar", "requirement", "required",
+    "floor", "tol", "tolerance", "cutoff", "minimum", "target",
+))
+
+# Per-CRITERION opt-out, mirroring FLAT_SCALAR_READOUT_EXEMPT's role on the
+# driver side. For a genuine count-based negative existential ("0 occurrences
+# across 2400 calls") a threshold is not the right shape, and forcing a fake
+# bar onto it would be worse recording, not better. The driver DECLARES the
+# exemption with a reason rather than the checker guessing from key names --
+# a guess here would be a heuristic on prose, and its false negatives would be
+# silent.
+_CRITERION_EXEMPT_KEY = "threshold_not_applicable"
+
+
+def _is_number(value: Any) -> bool:
+    """Numeric to build_experiment_indexes._is_number: bool excluded (it is an
+    int subclass and the indexer drops it), non-finite excluded here as well."""
+    if isinstance(value, bool):
+        return False
+    return isinstance(value, (int, float)) and math.isfinite(value)
+
+
+def _criterion_entries(criteria: Any) -> List[Dict[str, Any]]:
+    """Normalise the TWO container shapes the corpus actually uses into one
+    list of criterion dicts, each carrying a `name`.
+
+    Both shapes are live and neither is rare (measured 2026-09-09 over flat
+    manifests): 116 record `criteria` as a LIST of dicts, 104 as a DICT keyed by
+    criterion name. The dict form has two sub-shapes -- values that are dicts
+    (V3-EXQ-1004: {"C1_visit_lift": {"met":.., "load_bearing":.., "threshold":..}})
+    and values that are bare booleans (V3-EXQ-149b: {"C1_fast_wins": false}).
+    The bare-bool form is the WORST recorded shape in the corpus and a checker
+    that only understood the list form would miss it entirely, so it is
+    normalised to a dict with no numeric fields -- which is exactly what it is.
+
+    `*_per_seed` sibling keys are skipped: they are the per-seed expansion of a
+    criterion already counted, not criteria of their own.
+    """
+    out: List[Dict[str, Any]] = []
+    if isinstance(criteria, list):
+        for item in criteria:
+            if isinstance(item, dict):
+                out.append(item)
+    elif isinstance(criteria, dict):
+        for key, value in criteria.items():
+            if key.endswith("_per_seed"):
+                continue
+            if isinstance(value, dict):
+                entry = dict(value)
+                entry.setdefault("name", key)
+                out.append(entry)
+            else:
+                # bare `"C1_x": true` -- a criterion with a verdict and nothing else
+                out.append({"name": key, "passed": value})
+    return out
+
+
+def _effective_load_bearing(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """The criteria the verdict turns on.
+
+    Explicitly marked `load_bearing: true` wins when ANY entry carries the key.
+    When NO entry carries it at all, every entry is treated as load-bearing --
+    the manifest declined to narrow, so by its own record the verdict turns on
+    all of them. That branch is not a technicality: it is what makes the check
+    reach the 101 flat manifests whose `criteria` is a bare name->bool map, and
+    those are strictly the worst-recorded shape in the corpus (V3-EXQ-149b is
+    PASS with `evidence_direction: supports` on three bare booleans, one of them
+    FALSE, and no `combination_rule` saying how they combine). A rule scoped to
+    `load_bearing: true` alone would exempt the worst shape BY CONSTRUCTION --
+    which is what the GOV-HELDOUT-1 check on this rule found.
+
+    A block that DOES carry the key but marks nothing true yields an empty list
+    (the manifest positively says no criterion is load-bearing) -- believed, not
+    second-guessed.
+    """
+    marked = [e for e in entries if e.get("load_bearing") is True]
+    if marked:
+        return marked
+    if any("load_bearing" in e for e in entries):
+        return []
+    return entries
+
+
+def _criterion_is_rederivable(entry: Dict[str, Any]) -> bool:
+    """True when the criterion records a BAR and a MEASURED value as separate
+    machine-readable numbers, so a reader can re-derive the verdict from the
+    manifest alone.
+
+    The test is: at least one NUMERIC field whose name carries a threshold-family
+    token, AND at least one OTHER numeric field. The measured half is deliberately
+    NOT name-matched -- the corpus names it `measured`, `mean`, `measured_rho`,
+    `measured_max`, `measured_auc`, `n_seeds`, `seeds_clearing`, `deciles_scored`,
+    `anchor_decay_mean`, `var_total_fold` and a dozen more, and any allowlist of
+    those is a false-positive generator. The bar is the reliably-named half; once
+    it is present, a second number beside it is the measurement. This
+    UNDER-reports (an incidental second numeric discharges the check), which is
+    the sound direction for an advisory -- same posture as
+    validate_experiments.flat_scalar_readout_lint.
+
+    A number recorded only inside a prose `note` / `detail` / `description` does
+    NOT count, and that is the point rather than a limitation: V3-EXQ-967 records
+    "max |energy_A - energy_B| over 2400 matched steps = 0.99 vs tol 1e-09" in
+    `detail`, and V3-EXQ-1014 records `measured: 0.25` with its three bars
+    (>= 0.95, >= 0.5, >= 3) only in `description`. Both are unreadable to every
+    consumer, and to a governance skim that has to trust the artifact.
+    """
+    if entry.get(_CRITERION_EXEMPT_KEY):
+        return True
+    threshold_keys = [k for k, v in entry.items()
+                      if _is_number(v) and (set(k.lower().split("_")) & _THRESHOLD_TOKENS)]
+    if not threshold_keys:
+        return False
+    return any(_is_number(v) and k not in threshold_keys for k, v in entry.items())
+
+
+def check_criteria_thresholds(
+        path: Path) -> Optional[Tuple[str, List[str], int, bool]]:
+    """Return (verdict, unrederivable_names, n_load_bearing, combination_rule_missing)
+    when a manifest's load-bearing criteria cannot be re-checked from the
+    manifest, else None.
+
+    Standard 3b "Re-derivable criteria" (added 2026-09-09). A criterion recorded
+    `passed: true` with no measured value and no bar is an ASSERTION, not a
+    record: nothing in the artifact says what was measured or what it was
+    compared against, so the verdict cannot be checked without opening the
+    driver source.
+
+    That is not hypothetical bookkeeping -- it is the mechanism behind a
+    specific governance failure. `/governance` Step 2b's mandatory driver skim
+    carries a threshold-arithmetic clause ("given the magnitudes this run
+    actually measured, is the bar attainable in both directions, or does one
+    branch fire BY CONSTRUCTION"), and that clause simply CANNOT be discharged
+    from an artifact recording only `passed`. V3-EXQ-936a's absolute bar sat
+    ~7,900x above the maximum attainable effect and was logged clean for three
+    consecutive governance cycles. In the 2026-09-09 cycle alone the gap forced
+    three separate driver reads, each of which found something the manifest
+    could not have shown (V3-EXQ-900's PASS label asserting a functional half no
+    criterion tests; V3-EXQ-642b's C1/C2 reading a DV clamped at 1.5 in both
+    arms, so separation is 0.0 by construction; V3-EXQ-231a's C2 being an
+    arithmetic consequence of C1 under the driver's own linear map).
+
+    Verdicts:
+      "none_rederivable"    -- no load-bearing criterion carries both halves.
+      "partial"             -- some do, some do not.
+      "criteria_unrecorded" -- a `combination_rule` names criteria the manifest
+                               does not record at all. V3-EXQ-900 is this shape:
+                               `criteria` is null while `combination_rule` reads
+                               "PASS iff C1 AND C2 AND C4 hold ...". The rule
+                               refers to something the artifact never wrote down.
+
+    `combination_rule_missing` is reported alongside (never on its own) when more
+    than one criterion is load-bearing: with two or more, "which ones had to hold"
+    is a fact about the verdict that only the driver knows. Measured 2026-09-09:
+    133 of 216 flat manifests with load-bearing criteria have more than one and no
+    `combination_rule`.
+
+    ADVISORY IN EVERY MODE, INCLUDING --strict -- deliberately, for the same
+    reason and by the same precedent as check_flat_scalar_readout above.
+    /queue-experiment Step 3.5 runs this linter with --strict on the smoke-test
+    manifest, and 184 of 216 flat manifests carrying load-bearing criteria record
+    NONE that is re-derivable (85.2%); blocking would gate every new driver on a
+    corpus-wide legacy gap, and CLAUDE.md's standing guidance is that a gate
+    firing on ordinary work gets disabled, which is worse than no gate. It is
+    likewise NOT added to manifest_core.ALWAYS_CORE_KEYS: that constant feeds
+    missing_core_fields, which IS the --strict-blocking arm, and like the flat
+    scalar readout this is a field the stamper structurally cannot compute --
+    only the driver knows what its criteria measured and what bar they were held
+    to.
+
+    Exempt (they record no verdict, so they have no criteria to re-derive --
+    same exemption set the flat-scalar-readout check settled on):
+      - a crash report: outcome == "ERROR", or a `*_runner_error_*` run_id;
+      - a dry-run manifest: `dry_run` truthy, or a `_dry_`-prefixed filename
+        (BOTH are needed -- 24 dry manifests in the corpus and not all of them
+        set the field);
+      - a manifest recording no criteria at all AND no combination_rule (it makes
+        no criterion claim to check).
+    A single criterion may additionally opt out with
+    `threshold_not_applicable: "<reason>"` -- for a genuine count-based negative
+    existential ("0 occurrences across N calls"), where a bar is not the right
+    shape and inventing one would be worse recording.
+    Non-manifest JSON (no `run_id`) is not gated at all.
+    """
+    doc = _load_json(path)
+    if not isinstance(doc, dict):
+        return None
+    if not doc.get("run_id"):
+        return None  # not a result manifest -- index/tracker/config JSON
+    if doc.get("dry_run") or path.name.startswith("_dry_"):
+        return None
+    if doc.get("outcome") == "ERROR" or "_runner_error_" in str(doc.get("run_id")):
+        return None
+
+    criteria = doc.get("criteria")
+    entries = _criterion_entries(criteria)
+    has_combination_rule = bool(doc.get("combination_rule"))
+
+    if not entries:
+        # A combination_rule with no criteria recorded is a live finding: the
+        # manifest states a rule over names it never wrote down.
+        if has_combination_rule:
+            return ("criteria_unrecorded", [], 0, False)
+        return None
+
+    load_bearing = _effective_load_bearing(entries)
+    if not load_bearing:
+        return None  # the manifest positively says nothing is load-bearing
+
+    unrederivable = [str(e.get("name", "<unnamed>"))
+                     for e in load_bearing if not _criterion_is_rederivable(e)]
+    combination_rule_missing = len(load_bearing) > 1 and not has_combination_rule
+
+    if not unrederivable:
+        if combination_rule_missing:
+            return ("combination_rule_only", [], len(load_bearing), True)
+        return None
+    verdict = "none_rederivable" if len(unrederivable) == len(load_bearing) else "partial"
+    return (verdict, unrederivable, len(load_bearing), combination_rule_missing)
+
+
 def check_manifest(path: Path) -> Tuple[List[str], List[str]]:
     """Return (missing_fields, schema_warnings) for one manifest JSON.
 
@@ -422,12 +655,16 @@ def main() -> int:
     warns: List[Tuple[Path, List[str]]] = []
     thin_packs: List[Tuple[Path, List[str]]] = []
     readout_gaps: List[Tuple[Path, str, str, List[str]]] = []
+    criteria_gaps: List[Tuple[Path, str, List[str], int, bool]] = []
     for p in paths:
         missing, schema_warnings = check_manifest(p)
         thin = check_pack_provenance(p)
         readout = check_flat_scalar_readout(p)
         if readout is not None:
             readout_gaps.append((p, readout[0], readout[1], readout[2]))
+        criteria = check_criteria_thresholds(p)
+        if criteria is not None:
+            criteria_gaps.append((p, criteria[0], criteria[1], criteria[2], criteria[3]))
         rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents else p
         if schema_warnings:
             warns.append((p, schema_warnings))
@@ -445,6 +682,7 @@ def main() -> int:
           f"{n_ok} complete, {len(gaps)} with always-core gaps, "
           f"{len(thin_packs)} thin-pack provenance drop(s), "
           f"{len(readout_gaps)} flat-scalar-readout finding(s), "
+          f"{len(criteria_gaps)} criteria-re-derivability finding(s), "
           f"{len(warns)} schema-warning(s)", flush=True)
 
     if warns:
@@ -501,6 +739,40 @@ def main() -> int:
                       f"entries", flush=True)
             for n in notes:
                 print(f"      * {n}", flush=True)
+
+    if criteria_gaps:
+        print("", flush=True)
+        # ADVISORY IN EVERY MODE -- see check_criteria_thresholds' docstring for
+        # why this one does NOT harden under --strict, exactly as the
+        # flat-scalar-readout arm above does not.
+        print("[validate_recording] CRITERIA RE-DERIVABILITY findings "
+              "(advisory in ALL modes, including --strict) -- standard 3b "
+              "\"Re-derivable criteria\": a load-bearing criterion recorded "
+              "`passed` with no measured value and no bar is an ASSERTION, not "
+              "a record -- /governance Step 2b's threshold-arithmetic clause "
+              "(is the bar attainable in both directions, or does one branch "
+              "fire BY CONSTRUCTION?) cannot be discharged without opening the "
+              "driver source:", flush=True)
+        for p, verdict, names, n_lb, comb_missing in criteria_gaps:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents else p
+            shown = ", ".join(names[:6]) + ("..." if len(names) > 6 else "")
+            if verdict == "criteria_unrecorded":
+                print(f"  - {rel}: `combination_rule` names criteria the "
+                      f"manifest does NOT record (criteria absent/empty)",
+                      flush=True)
+            elif verdict == "none_rederivable":
+                print(f"  - {rel}: NONE of {n_lb} load-bearing criteria carries "
+                      f"both a bar and a measured value ({shown})", flush=True)
+            elif verdict == "partial":
+                print(f"  - {rel}: {len(names)} of {n_lb} load-bearing criteria "
+                      f"lack a bar + measured value ({shown})", flush=True)
+            else:  # combination_rule_only
+                print(f"  - {rel}: criteria are re-derivable, but {n_lb} are "
+                      f"load-bearing with no `combination_rule`", flush=True)
+            if comb_missing and verdict != "combination_rule_only":
+                print(f"      * also: {n_lb} load-bearing criteria and no "
+                      f"`combination_rule` -- which had to hold is unrecorded",
+                      flush=True)
 
     if args.strict and (gaps or thin_packs):
         return 1

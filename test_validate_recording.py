@@ -287,5 +287,238 @@ class SpellingsAgreeWithConverter(unittest.TestCase):
         self.assertEqual(set(ve._READOUT_SPELLINGS), set(vr._READOUT_SPELLINGS))
 
 
+class CheckCriteriaThresholds(unittest.TestCase):
+    """Experimental Recording Standard 3b "Re-derivable criteria" (2026-09-09).
+
+    A load-bearing criterion recorded `passed` with no measured value and no bar
+    cannot be re-checked from the manifest, so /governance Step 2b's
+    threshold-arithmetic clause forces a driver read every cycle. V3-EXQ-936a's
+    absolute bar sat ~7,900x above the maximum attainable effect and was logged
+    clean for three consecutive cycles on exactly this shape.
+    """
+
+    def setUp(self):
+        self.tmp = pathlib.Path(tempfile.mkdtemp(prefix="validate_crit_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def _write(self, doc, name="v3_exq_1_x_20260909T000000Z_v3.json"):
+        p = self.tmp / name
+        p.write_text(json.dumps(doc), encoding="utf-8")
+        return p
+
+    def _verdict(self, doc, name="v3_exq_1_x_20260909T000000Z_v3.json"):
+        return vr.check_criteria_thresholds(self._write(doc, name))
+
+    # --- the gap shapes -------------------------------------------------
+
+    def test_bare_passed_is_none_rederivable(self):
+        """The V3-EXQ-642b / 936a shape: name + load_bearing + passed, nothing else."""
+        v = self._verdict({"run_id": "r_v3", "outcome": "FAIL", "criteria": [
+            {"name": "C1", "load_bearing": True, "passed": False}]})
+        self.assertEqual(v[0], "none_rederivable")
+        self.assertEqual(v[1], ["C1"])
+
+    def test_threshold_without_measured_is_flagged(self):
+        """A bar with nothing measured against it: you cannot tell how far off it landed."""
+        v = self._verdict({"run_id": "r_v3", "criteria": [
+            {"name": "C1", "load_bearing": True, "passed": False, "threshold": 0.02}]})
+        self.assertEqual(v[0], "none_rederivable")
+
+    def test_measured_without_threshold_is_flagged(self):
+        v = self._verdict({"run_id": "r_v3", "criteria": [
+            {"name": "C1", "load_bearing": True, "passed": True, "measured": 0.25}]})
+        self.assertEqual(v[0], "none_rederivable")
+
+    def test_numbers_only_in_prose_do_not_count(self):
+        """V3-EXQ-967 records "= 0.99 vs tol 1e-09" in `detail`; V3-EXQ-1014 puts
+        its three bars in `description`. Unreadable to every consumer."""
+        v = self._verdict({"run_id": "r_v3", "criteria": [
+            {"name": "C1", "load_bearing": True, "passed": True,
+             "detail": "max |a-b| over 2400 steps = 0.99 vs tol 1e-09"}]})
+        self.assertEqual(v[0], "none_rederivable")
+
+    def test_partial_when_only_some_carry_both(self):
+        v = self._verdict({"run_id": "r_v3", "combination_rule": "C1 AND C2",
+                           "criteria": [
+            {"name": "C1", "load_bearing": True, "passed": True,
+             "measured": 0.7, "threshold": 0.5},
+            {"name": "C2", "load_bearing": True, "passed": True}]})
+        self.assertEqual(v[0], "partial")
+        self.assertEqual(v[1], ["C2"])
+
+    def test_combination_rule_without_criteria_is_flagged(self):
+        """V3-EXQ-900: `criteria` is null while `combination_rule` reads
+        "PASS iff C1 AND C2 AND C4 hold". The rule names what was never written down."""
+        v = self._verdict({"run_id": "r_v3", "outcome": "PASS", "criteria": None,
+                           "combination_rule": "PASS iff C1 AND C2 AND C4 hold"})
+        self.assertEqual(v[0], "criteria_unrecorded")
+
+    # --- the compliant shapes (no false positives) ----------------------
+
+    def test_measured_and_threshold_is_clean(self):
+        self.assertIsNone(self._verdict({"run_id": "r_v3", "criteria": [
+            {"name": "C1", "load_bearing": True, "passed": True,
+             "measured": 0.78, "threshold": 0.5}]}))
+
+    def test_threshold_family_spellings_discharge(self):
+        """The corpus does not use one spelling. A literal spelling list flagged
+        26 criteria across 14 genuinely-compliant manifests -- these are real
+        pairs from those manifests."""
+        for meas, thr in (("mean", "requirement"),          # V3-EXQ-1001, 1013
+                          ("measured_rho", "threshold_rho"),  # V3-EXQ-785
+                          ("measured_auc", "bar"),            # V3-EXQ-950
+                          ("measured_max", "threshold"),      # V3-EXQ-895
+                          ("n_seeds", "required"),            # V3-EXQ-1004
+                          ("seeds_clearing", "seeds_required"),
+                          ("measured_gap", "threshold_gap"),
+                          ("mean_rho_rv_vs_commit", "rho_floor")):  # V3-EXQ-818
+            with self.subTest(measured=meas, threshold=thr):
+                self.assertIsNone(self._verdict({"run_id": "r_v3", "criteria": [
+                    {"name": "C1", "load_bearing": True, "passed": True,
+                     meas: 0.7, thr: 0.5}]}))
+
+    def test_non_load_bearing_criteria_need_no_bar(self):
+        self.assertIsNone(self._verdict({"run_id": "r_v3", "criteria": [
+            {"name": "C1", "load_bearing": True, "passed": True,
+             "measured": 0.7, "threshold": 0.5},
+            {"name": "C2", "load_bearing": False, "passed": False}]}))
+
+    def test_explicitly_nothing_load_bearing_is_believed(self):
+        """A block that carries the marker but sets nothing true is taken at its
+        word -- it says no criterion is load-bearing."""
+        self.assertIsNone(self._verdict({"run_id": "r_v3", "criteria": [
+            {"name": "C1", "load_bearing": False, "passed": True}]}))
+
+    def test_bool_is_not_a_number(self):
+        """`_is_number` excludes bool, matching build_experiment_indexes -- a
+        `threshold: true` records no bar."""
+        v = self._verdict({"run_id": "r_v3", "criteria": [
+            {"name": "C1", "load_bearing": True, "passed": True,
+             "threshold": True, "measured": True}]})
+        self.assertEqual(v[0], "none_rederivable")
+
+    def test_nan_threshold_is_not_a_number(self):
+        v = self._verdict({"run_id": "r_v3", "criteria": [
+            {"name": "C1", "load_bearing": True, "passed": True,
+             "threshold": float("nan"), "measured": 0.5}]})
+        self.assertEqual(v[0], "none_rederivable")
+
+    # --- container shapes ------------------------------------------------
+
+    def test_criteria_as_dict_of_dicts(self):
+        """V3-EXQ-1004's shape: criteria keyed by name, values are dicts."""
+        self.assertIsNone(self._verdict({"run_id": "r_v3", "criteria": {
+            "C1_visit_lift": {"met": True, "load_bearing": True,
+                              "n_seeds": 5, "required": 3, "threshold": 15.0}}}))
+
+    def test_criteria_as_bare_bool_map_is_flagged(self):
+        """V3-EXQ-149b / 193: `{"C1_fast_wins": false, ...}` with no load_bearing
+        marker anywhere. The worst-recorded shape in the corpus (101 flat
+        manifests) -- and a rule scoped to `load_bearing: true` alone would
+        exempt it BY CONSTRUCTION, which is what the GOV-HELDOUT-1 check found."""
+        v = self._verdict({"run_id": "r_v3", "outcome": "PASS", "criteria": {
+            "C1_fast_wins": False, "C2_slow_wins": True, "C3_default_ranked": True}})
+        self.assertEqual(v[0], "none_rederivable")
+        self.assertEqual(sorted(v[1]),
+                         ["C1_fast_wins", "C2_slow_wins", "C3_default_ranked"])
+
+    def test_per_seed_siblings_are_not_criteria(self):
+        """`C1_per_seed` is a criterion's per-seed expansion, not a criterion."""
+        v = self._verdict({"run_id": "r_v3", "criteria": {
+            "C1_x": True, "C1_per_seed": [True, True, False]}})
+        self.assertEqual(v[1], ["C1_x"])
+
+    # --- combination_rule -------------------------------------------------
+
+    def test_multi_load_bearing_without_combination_rule(self):
+        v = self._verdict({"run_id": "r_v3", "criteria": [
+            {"name": "C1", "load_bearing": True, "passed": True,
+             "measured": 0.7, "threshold": 0.5},
+            {"name": "C2", "load_bearing": True, "passed": True,
+             "measured": 0.9, "threshold": 0.5}]})
+        self.assertEqual(v[0], "combination_rule_only")
+        self.assertTrue(v[3])
+
+    def test_single_load_bearing_needs_no_combination_rule(self):
+        self.assertIsNone(self._verdict({"run_id": "r_v3", "criteria": [
+            {"name": "C1", "load_bearing": True, "passed": True,
+             "measured": 0.7, "threshold": 0.5}]}))
+
+    # --- exemptions -------------------------------------------------------
+
+    def test_error_outcome_is_exempt(self):
+        self.assertIsNone(self._verdict({"run_id": "r_v3", "outcome": "ERROR",
+                                         "criteria": [{"name": "C1",
+                                                       "load_bearing": True,
+                                                       "passed": False}]}))
+
+    def test_runner_error_run_id_is_exempt(self):
+        self.assertIsNone(self._verdict(
+            {"run_id": "v3_x_runner_error_20260909T0_v3",
+             "criteria": [{"name": "C1", "load_bearing": True, "passed": False}]}))
+
+    def test_dry_run_field_is_exempt(self):
+        self.assertIsNone(self._verdict({"run_id": "r_v3", "dry_run": True,
+                                         "criteria": [{"name": "C1",
+                                                       "load_bearing": True,
+                                                       "passed": False}]}))
+
+    def test_dry_prefixed_filename_is_exempt(self):
+        """24 dry manifests in the corpus and not all set the field -- the
+        `_dry_` filename prefix is the other half of that signal."""
+        self.assertIsNone(self._verdict(
+            {"run_id": "r_v3",
+             "criteria": [{"name": "C1", "load_bearing": True, "passed": False}]},
+            name="_dry_v3_exq_1_x_20260909T000000Z_v3.json"))
+
+    def test_criterion_opt_out_marker(self):
+        """A genuine count-based negative existential: a bar is not the right
+        shape and inventing one would be worse recording."""
+        self.assertIsNone(self._verdict({"run_id": "r_v3", "criteria": [
+            {"name": "C1_no_leakage", "load_bearing": True, "passed": True,
+             "occurrences": 0, "calls": 2400,
+             "threshold_not_applicable": "count-based negative existential"}]}))
+
+    def test_no_criteria_and_no_rule_is_not_gated(self):
+        self.assertIsNone(self._verdict({"run_id": "r_v3", "outcome": "PASS"}))
+
+    def test_non_manifest_json_is_not_gated(self):
+        self.assertIsNone(self._verdict({"criteria": [
+            {"name": "C1", "load_bearing": True, "passed": False}]}))
+
+
+class CriteriaNeverBlocksUnderStrict(unittest.TestCase):
+    """Advisory in EVERY mode, by the same precedent as the readout arm: 184 of
+    216 flat manifests carrying load-bearing criteria record none that is
+    re-derivable, and /queue-experiment Step 3.5 runs this linter with --strict.
+    Pinned so a later tidy-up cannot fold it into the --strict exit path."""
+
+    def test_strict_exit_ignores_criteria_findings(self):
+        import inspect
+        src = inspect.getsource(vr.main)
+        self.assertIn("if args.strict and (gaps or thin_packs):", src)
+        tail = src.split("if args.strict")[1]
+        self.assertNotIn("criteria_gaps)", tail)
+
+
+class CriteriaThresholdTokensAgree(unittest.TestCase):
+    """The threshold-family token set must match validate_experiments' copy.
+    A drift silently un-gates a whole recording shape on one side only."""
+
+    def test_matches_validate_experiments(self):
+        import pathlib as _p
+        import sys as _s
+        root = _p.Path(vr.__file__).resolve().parent
+        if str(root) not in _s.path:
+            _s.path.insert(0, str(root))
+        import validate_experiments as ve
+        self.assertEqual(set(ve._CRITERION_THRESHOLD_TOKENS),
+                         set(vr._THRESHOLD_TOKENS))
+
+    def test_core_spellings_present(self):
+        for token in ("threshold", "requirement", "required", "bar", "floor", "tol"):
+            self.assertIn(token, vr._THRESHOLD_TOKENS)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
