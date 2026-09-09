@@ -213,7 +213,7 @@ import torch.optim as optim
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
-from experiments.pack_writer import write_flat_manifest, resolve_evidence_experiments_dir
+from experiments.pack_writer import write_flat_manifest, resolve_evidence_experiments_dir, flat_readout
 from experiments._lib.arm_fingerprint import arm_cell
 from experiments._metrics import check_degeneracy
 from experiment_protocol import emit_outcome
@@ -861,6 +861,53 @@ def main(dry_run: bool = False) -> Dict[str, Any]:
             "readiness_ok": readiness_ok,
             "non_degenerate": non_degenerate,
         },
+        # Flat scalar readout -- the pack's metrics.values source (REE_assembly
+        # evidence/planning/flat_scalar_readout_recording_gap_20260909.md).
+        # acceptance_checks is scalar-shaped but sits under a key the runpack converter
+        # does not harvest (it reads only metrics / aggregates / summary_metrics /
+        # readout), and per_seed_comparisons / arm_results are lists, so the pack scored
+        # with no numeric metrics.values: no fail_if stop threshold could fire, the
+        # duplicate-emission supersession fingerprint was skipped, and the index carried
+        # no deltas. These are the pre-registered scalars C1 turns on -- the per-seed win
+        # count against its 2-of-3 threshold, plus the paired retention scores and their
+        # worst per-seed margin -- and BOTH preconditions with their measured values: the
+        # write-path positive control (a lower bound at its worst cell) and the
+        # interference manipulation check (an UPPER bound on the WITHOUT arm's mean, so a
+        # low value is what passes it). flat_readout() enforces the two encoding rules
+        # (bools -> 0/1 ints; non-finite/None dropped). Recording-only: the verdict grid,
+        # criteria, thresholds and DV are unchanged.
+        "readout": flat_readout({
+            "C1_retention_score_2of3_seeds": c1_pass,
+            "n_criteria_passed": int(bool(c1_pass)),
+            "n_criteria_total": 1,
+            "readiness_ok_flag": readiness_ok,
+            "non_degenerate_flag": non_degenerate,
+            # C1 -- the paired per-seed win count against its threshold
+            "c1_wins": wins,
+            "c1_wins_threshold": threshold,
+            "n_seed_pairs": len(per_seed_comparisons),
+            "retention_margin_worst": min(
+                (c["with_retention_score"] - c["without_retention_score"]
+                 for c in per_seed_comparisons), default=None),
+            "retention_margin_best": max(
+                (c["with_retention_score"] - c["without_retention_score"]
+                 for c in per_seed_comparisons), default=None),
+            "with_retention_score_mean": (
+                sum(r["retention_score"] for r in with_rows) / len(with_rows)
+                if with_rows else None),
+            "without_retention_score_mean": mean_without,
+            # precondition 1: the shared write path (lower bound, worst cell)
+            "write_floor_met_flag": write_floor_met,
+            "worst_write_frac": worst_write_frac,
+            "write_floor_frac": WRITE_FLOOR_FRAC,
+            # precondition 2: the interference manipulation check (UPPER bound)
+            "disturbance_confirmed_flag": disturbance_confirmed,
+            "disturbance_ceiling": DISTURBANCE_CEILING,
+            "n_preconditions_met": sum(1 for pc in preconditions if pc["met"]),
+            "n_preconditions_total": len(preconditions),
+            "n_degenerate_metrics": len(degeneracy.get("degenerate_metrics") or []),
+            "n_cells": len(arm_results),
+        }),
         "per_seed_comparisons": per_seed_comparisons,
         "arm_results": arm_results,
         "reuse_check_note": (

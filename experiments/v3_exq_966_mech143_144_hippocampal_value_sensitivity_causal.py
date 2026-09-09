@@ -189,7 +189,7 @@ from ree_core.agent import REEAgent
 from ree_core.residue.field import VALENCE_WANTING
 
 from experiments._harness import StepHarness
-from experiments.pack_writer import write_flat_manifest
+from experiments.pack_writer import write_flat_manifest, flat_readout
 from experiments._metrics import metric_groups_are_degenerate, check_degeneracy
 from experiments._lib.arm_fingerprint import arm_cell, reset_all_rng
 from experiments._lib.z_goal_stream import ZGoalStreamAccumulator
@@ -614,7 +614,59 @@ def evaluate_criteria(all_results: List[Dict]) -> Dict:
         "supports", "weakens"
     )
 
+    # Flat scalar readout -- the pack's metrics.values source (REE_assembly
+    # evidence/planning/flat_scalar_readout_recording_gap_20260909.md). This criteria
+    # dict mixes scalars with per-seed lists and sits under a key the runpack converter
+    # does not harvest (it reads only metrics / aggregates / summary_metrics / readout),
+    # and arm_results is a list, so the pack scored with no numeric metrics.values: no
+    # fail_if stop threshold could fire, the duplicate-emission supersession fingerprint
+    # was skipped, and the index carried no deltas.
+    #
+    # C2's verdict is TERNARY (supports / weakens / inconclusive) and the two non-
+    # inconclusive branches are BOTH acceptable outcomes, so it is recorded as two
+    # independent flags rather than a single pass bit: "weakens" here means a measured
+    # adaptation cost, not a failed run, and a flat surface that collapsed them would
+    # lose the direction. Its margin is noise-scaled (max of K_EFFECT * sd_delta and an
+    # absolute floor), so both inputs are recorded -- which of the two binds is itself a
+    # finding. flat_readout() enforces the two encoding rules (bools -> 0/1 ints;
+    # non-finite/None dropped -- so a run with too few usable seeds records no delta
+    # rather than a zero, which would read as "no adaptation cost measured").
+    # Recording-only: the verdict grid, criteria, thresholds and DVs are unchanged.
+    readout = flat_readout({
+        "C1_architectural_confirmation": c1_pass,
+        "C1_repeat_identical": c1_repeat_pass,
+        "C1_flip_differs": c1_flip_pass,
+        "C2_readiness_pass": c2_readiness_pass,
+        "C2_verdict_supports": c2_verdict == "supports",
+        "C2_verdict_weakens": c2_verdict == "weakens",
+        "C2_verdict_inconclusive": c2_verdict == "inconclusive",
+        "overall_pass_flag": overall_pass,
+        "is_degenerate_flag": is_degen,
+        # C2's noise-scaled margin and both of its inputs
+        "mean_delta": mean_delta,
+        "sd_delta": sd_delta,
+        "margin": margin,
+        "k_effect": K_EFFECT,
+        "abs_floor": ABS_FLOOR,
+        "delta_worst": min(deltas, default=None),
+        "delta_best": max(deltas, default=None),
+        # the two arms the delta is taken between
+        "fixed_post_frac_high_mean": (
+            statistics.mean(fixed_vals) if fixed_vals else None),
+        "shuffled_post_frac_high_mean": (
+            statistics.mean(shuffled_vals) if shuffled_vals else None),
+        # the data-quality floor, derived from THIS run's own measured contacts
+        "observed_mean_contacts_per_block": observed_mean_contacts,
+        "min_contacts_per_block_floor": min_contacts_per_block,
+        "n_usable_seeds": len(usable_seeds),
+        "n_reachable_seeds": len(reachable_seeds),
+        "min_seeds_needed": min_seeds_needed,
+        "n_cells": len(all_results),
+        "n_cells_reachable": len(reachable),
+    })
+
     return {
+        "readout": readout,
         "c1_pass": c1_pass,
         "c1_repeat_pass": c1_repeat_pass,
         "c1_flip_pass": c1_flip_pass,
@@ -747,6 +799,7 @@ def _run(dry_run: bool):
             "min_contacts_per_block_floor": criteria["min_contacts_per_block_floor"],
         },
         "criteria": criteria,
+        "readout": criteria["readout"],
         "arm_results": arm_results,
         "supersedes": None,
         "vehicle_substitution_record": (

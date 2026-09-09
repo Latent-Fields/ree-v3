@@ -259,7 +259,7 @@ from experiment_protocol import emit_outcome  # noqa: E402
 from experiments._lib.arm_fingerprint import arm_cell  # noqa: E402
 from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
 from experiments._metrics import check_degeneracy, p0_readiness_gate, P0NotReady  # noqa: E402
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_997_mech162_zresource_zworld_planning_reconvergence"
 QUEUE_ID = "V3-EXQ-997"
@@ -866,6 +866,42 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         "evidence_direction": evidence_direction,
         "timestamp_utc": datetime.utcnow().strftime("%Y%m%dT%H%M%SZ"),
         "arm_results": rows,
+        # Flat scalar readout -- the pack's metrics.values source (REE_assembly
+        # evidence/planning/flat_scalar_readout_recording_gap_20260909.md). arm_results
+        # is a list and r0_sanity_leg / interpretation / criteria are nested, so the pack
+        # scored with no numeric metrics.values: no fail_if stop threshold could fire, the
+        # duplicate-emission supersession fingerprint was skipped, and the index carried
+        # no deltas. C1 is a CONJUNCTION of an effect-size floor on the mean paired delta
+        # AND a seed-fraction floor, so both are recorded against their own thresholds
+        # rather than reduced to one flag -- clearing one and missing the other is a
+        # different finding from missing both. The worst per-seed delta is recorded too,
+        # since that is what the seed fraction is actually counting over. flat_readout()
+        # enforces the two encoding rules (bools -> 0/1 ints; non-finite/None dropped).
+        # Recording-only: the verdict grid, criterion, thresholds and DV are unchanged.
+        "readout": flat_readout({
+            "C1_discrimination_delta_floor": c1_met,
+            "n_criteria_passed": int(bool(c1_met)),
+            "n_criteria_total": 1,
+            "overall_pass_flag": outcome == "PASS",
+            "readiness_ok_flag": readiness_ok,
+            "n_preconditions_met": sum(
+                1 for pc in readiness_checks if pc.get("met")),
+            "n_preconditions_total": len(readiness_checks),
+            # C1's two conjuncts, each against its own threshold
+            "mean_c1_delta": mean_c1_delta,
+            "effect_floor": EFFECT_FLOOR,
+            "seed_fraction_zresource_gt": seed_fraction_zr_gt,
+            "seed_pass_fraction": SEED_PASS_FRACTION,
+            "n_seeds_zresource_gt": n_seed_zresource_gt,
+            "n_seeds": len(seeds),
+            # the per-seed deltas the seed fraction counts over
+            "seed_delta_worst": min(seed_deltas, default=None),
+            "seed_delta_best": max(seed_deltas, default=None),
+            "non_degenerate_flag": degeneracy.get("non_degenerate"),
+            "n_degenerate_metrics": len(degeneracy.get("degenerate_metrics") or []),
+            "n_arms": len(ARMS),
+            "n_cells": len(rows),
+        }),
         "r0_sanity_leg": r0,
         "interpretation": {
             "label": label,

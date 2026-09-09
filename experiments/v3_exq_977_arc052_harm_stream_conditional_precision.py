@@ -216,7 +216,7 @@ from experiments._lib.precondition_gate import (
     assert_no_structurally_unsatisfiable_gate,
     evaluate_arm_gate,
 )
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.predictors.e2_world_uncertainty import (
@@ -969,6 +969,65 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         "timestamp_utc": datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"),
         "non_degenerate": non_degenerate,
         "summary": summary,
+        # Flat scalar readout -- the pack's metrics.values source (REE_assembly
+        # evidence/planning/flat_scalar_readout_recording_gap_20260909.md).
+        # arm_results / per_seed_results are lists and per_arm_gate / c2_specificity are
+        # keyed dicts, so the pack scored with no numeric metrics.values: no fail_if stop
+        # threshold could fire, the duplicate-emission supersession fingerprint was
+        # skipped, and the index carried no deltas.
+        #
+        # SCORABILITY is recorded separately from PASS for each clause, because this
+        # driver's whole verdict grid turns on the difference: a red arm is UNSCORED, not
+        # refuted, and a numeric surface that recorded only C1/C2 pass flags would let a
+        # never-measured clause read as `weakens` on ARC-052 -- exactly the false null the
+        # R1 precondition was pre-registered to catch. The z_world POSITIVE CONTROL is
+        # recorded on the same footing, since both instrument gates precede any ARC-052
+        # reading. flat_readout() enforces the two encoding rules (bools -> 0/1 ints;
+        # non-finite/None dropped). Recording-only: the verdict grid, criteria, thresholds
+        # and DVs are unchanged.
+        "readout": flat_readout({
+            "C1_harm_s_precision_error": C1,
+            "C2_harm_a_precision_volatility": C2,
+            "R2_zworld_control_reproduced": R2_MET,
+            "n_criteria_passed": sum(1 for x in (C1, C2) if x),
+            "n_criteria_total": 2,
+            "overall_pass_flag": outcome == "PASS",
+            "non_degenerate_flag": non_degenerate,
+            # scorability: which clauses were entitled to answer at all
+            "control_arm_green": control_arm_green,
+            "control_ok": control_ok,
+            "c1_scorable": scorable_c1,
+            "c2_scorable": scorable_c2,
+            "n_clauses_scorable": sum(1 for x in (scorable_c1, scorable_c2) if x),
+            # per-seed criterion counts against the majority bar
+            "seed_majority_required": maj,
+            "n_seeds": n_seeds,
+            "n_seeds_r2_met": n_r2,
+            "n_seeds_c1_met": n_c1,
+            "n_seeds_c2_met": n_c2,
+            "n_seeds_pass": sum(1 for s in per_seed if s["seed_pass"]),
+            # pre-registered thresholds and the decisive per-seed extrema
+            "r2_zworld_control_corr_floor": R2_ZWORLD_CONTROL_CORR_FLOOR,
+            "c1_corr_floor": C1_CORR_FLOOR,
+            "c2_precision_vol_corr_max": C2_PRECISION_VOL_CORR_MAX,
+            "c3_crps_improve_frac": C3_CRPS_IMPROVE_FRAC,
+            "zworld_precision_error_corr_worst": min(
+                (s["zworld_precision_error_corr"] for s in per_seed), default=None),
+            "harm_s_precision_error_corr_worst": min(
+                (s["harm_s_precision_error_corr"] for s in per_seed), default=None),
+            "harm_s_precision_error_corr_best": max(
+                (s["harm_s_precision_error_corr"] for s in per_seed), default=None),
+            "harm_a_precision_volatility_corr_worst": max(
+                (s["harm_a_precision_volatility_corr"] for s in per_seed), default=None),
+            "harm_a_precision_volatility_corr_best": min(
+                (s["harm_a_precision_volatility_corr"] for s in per_seed), default=None),
+            "min_n_transitions": min((s["n_transitions"] for s in per_seed), default=None),
+            "r0_min_test_transitions": R0_MIN_TEST_TRANSITIONS,
+            # arm gate census
+            "n_arms_green": len(aggregate.get("green_arms") or []),
+            "n_arms_red": len(aggregate.get("red_arms") or []),
+            "n_cells": len(arm_results),
+        }),
         "arm_results": arm_results,
         "per_seed_results": per_seed,
         "collection_diagnostics": collection_diag,

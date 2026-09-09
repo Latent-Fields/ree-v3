@@ -229,7 +229,7 @@ from experiments._metrics import (  # noqa: E402
     p0_readiness_gate,
     P0NotReady,
 )
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
@@ -868,6 +868,19 @@ def run_experiment(seeds: List[int], dry_run: bool) -> Dict[str, Any]:
         manifest["degeneracy_reason"] = (
             f"P0 readiness unmet at seed {p0_not_ready['seed']}: {p0_not_ready['reason']}"
         )
+        # This branch writes a pack too, and a substrate_not_ready run whose pack carries
+        # no numeric metrics.values is exactly as unscorable as a completed one. The
+        # readiness census IS the measurement here, so it is what this branch records.
+        manifest["metrics"] = flat_readout({
+            "substrate_not_ready_flag": True,
+            "C1_interior_max_margin": False,
+            "non_degenerate_flag": False,
+            "n_preconditions_met": sum(
+                1 for pc in p0_not_ready["preconditions"] if pc.get("met")),
+            "n_preconditions_total": len(p0_not_ready["preconditions"]),
+            "n_heartbeat_levels": len(HEARTBEAT_LEVELS),
+            "n_seeds": len(seeds),
+        })
         print(
             f"verdict: FAIL  substrate_not_ready_requeue  seed={p0_not_ready['seed']}"
             f"  reason={p0_not_ready['reason']}", flush=True,
@@ -957,14 +970,55 @@ def run_experiment(seeds: List[int], dry_run: bool) -> Dict[str, Any]:
     manifest["evidence_direction"] = evidence_direction
     manifest["non_degenerate"] = non_degenerate
     manifest["degeneracy_reason"] = degeneracy_reason
+    # Flat scalar readout, MERGED INTO the existing `metrics` key rather than emitted
+    # as a sibling `readout` (REE_assembly evidence/planning/
+    # flat_scalar_readout_recording_gap_20260909.md). The runpack converter takes the
+    # FIRST non-empty of metrics / aggregates / summary_metrics / readout, so this
+    # driver's own `metrics` would shadow a `readout` sibling entirely -- and as written
+    # it was almost all nested (per_level_* and margins_vs_extremes are keyed by
+    # heartbeat level) plus a raw `is_interior` BOOL, which _is_number excludes as an int
+    # subclass, so the decisive interiority flag was silently invisible to the indexer.
+    # The nested blocks are kept unchanged beside the scalars; the indexer reads only the
+    # numeric entries.
+    #
+    # C1 is a CONJUNCTION of interiority and a noise-scaled margin over BOTH extremes, so
+    # the interiority flag, both margins, and both inputs to the required margin are
+    # recorded separately -- an interior best level that misses the margin is a different
+    # finding from a monotone one. flat_readout() enforces the two encoding rules (bools
+    # -> 0/1 ints; non-finite/None dropped). Recording-only: the verdict grid, criterion,
+    # thresholds and DV are unchanged.
     manifest["metrics"] = {
         "per_level_mean_sensitivity": per_level_mean,
         "per_level_sd_sensitivity": per_level_sd,
-        "best_level": best_level,
-        "is_interior": is_interior,
-        "required_margin": required_margin,
         "margins_vs_extremes": margins,
-        "sensitivity_range": sensitivity_range,
+        **flat_readout({
+            "C1_interior_max_margin": c1_pass,
+            "n_criteria_passed": int(bool(c1_pass)),
+            "n_criteria_total": 1,
+            "non_degenerate_flag": non_degenerate,
+            "substrate_not_ready_flag": False,
+            # C1's two conjuncts
+            "best_level": best_level,
+            "is_interior": is_interior,
+            "beats_both_extremes": beats_both_extremes,
+            "margin_vs_worst_extreme": min(margins.values()) if margins else None,
+            "margin_vs_best_extreme": max(margins.values()) if margins else None,
+            # the noise-scaled required margin and both of its inputs
+            "required_margin": required_margin,
+            "margin_abs_floor": MARGIN_ABS_FLOOR,
+            "margin_sd_mult": MARGIN_SD_MULT,
+            "pooled_sd": pooled_sd,
+            # DV movement + coverage adequacy, the two readiness gates
+            "sensitivity_range": sensitivity_range,
+            "dv_movement_floor": DV_MOVEMENT_FLOOR,
+            "dv_moved_flag": dv_moved,
+            "coverage_ok_all_flag": coverage_ok_all,
+            "min_bin_coverage_steps": MIN_BIN_COVERAGE_STEPS,
+            "positive_control_margin": POSITIVE_CONTROL_MARGIN,
+            "best_level_mean_sensitivity": per_level_mean[best_level],
+            "n_heartbeat_levels": len(HEARTBEAT_LEVELS),
+            "n_cells": len(arm_rows),
+        }),
     }
     manifest["interpretation"] = {
         "label": label,
