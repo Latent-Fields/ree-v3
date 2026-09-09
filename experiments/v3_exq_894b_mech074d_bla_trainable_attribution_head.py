@@ -177,7 +177,7 @@ from _lib.precondition_gate import (  # noqa: E402
 from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_894b_mech074d_bla_trainable_attribution_head"
 QUEUE_ID = "V3-EXQ-894b"
@@ -1236,6 +1236,80 @@ def _evaluate(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         direction = "weakens"
         label = "mech074d_trainable_head_does_not_recover_attribution_gate"
 
+    # Flat scalar readout -- the pack's metrics.values source (REE_assembly
+    # evidence/planning/flat_scalar_readout_recording_gap_20260909.md). `acceptance`
+    # sits under a key the runpack converter does not harvest (it reads only metrics /
+    # aggregates / summary_metrics / readout), and per_arm / head_contrast /
+    # arm_results are lists or keyed dicts, so the pack scored with no numeric
+    # metrics.values: no fail_if stop threshold could fire, the duplicate-emission
+    # supersession fingerprint was skipped, and the index carried no deltas.
+    #
+    # Two things are recorded that no aggregate could carry. (1) The WITHIN-RUN
+    # REPLICATION status of the fixed arm: a run where ARM_HEAD_FIXED unexpectedly
+    # passes the attribution half has an UNINTERPRETABLE trained-vs-fixed delta, and the
+    # driver reports that explicitly rather than folding it into the verdict -- so
+    # fixed_replicates_894a and fixed_unexpectedly_passed are their own scalars. (2)
+    # training_budget_helps, which separates 'the head FORM is wrong' (both trained arms
+    # flat) from 'the training BUDGET was wrong' (long arm clearly better) -- two
+    # different nulls that a single fail flag merges. flat_readout() enforces the two
+    # encoding rules (bools -> 0/1 ints; non-finite/None dropped -- so an
+    # un-computable training_budget_helps records as unmeasured, not as False).
+    # Recording-only: the verdict grid, criteria, thresholds and DVs are unchanged.
+    _ro = {
+        "C1_attribution_selectivity_any_arm": c1_met_any,
+        "C2_context_differentiated_addressing_any_arm": c2_met_any,
+        "C3_partial_not_wholesale_any_arm": c3_met_any,
+        "C4_pe_spike_sparsity_any_arm": c4_met_any,
+        "n_criteria_passed": sum(
+            1 for x in (c1_met_any, c2_met_any, c3_met_any, c4_met_any) if x),
+        "n_criteria_total": 4,
+        "overall_pass_flag": outcome_pass,
+        # PASS requires a TRAINABLE arm; the fixed arm passing is not this hypothesis
+        "n_passing_trainable_arms": len(passing_arms),
+        "n_trained_arms": len(trained_arms),
+        "n_arms": len(per_arm),
+        "fixed_arm_passed": fixed_arm_passed,
+        "fixed_replicates_894a": fixed_replicates_894a,
+        "fixed_unexpectedly_passed": fixed_unexpectedly_passed,
+        # the two halves + the two routes to `mixed`
+        "any_trained_gate_half_met": any_trained_gate_half,
+        "any_attribution_gate_half_met": any_gate_half,
+        "any_partiality_half_met": any_partial_half,
+        "attribution_recovers": attribution_recovers,
+        "beats_fixed_on_both": beats_fixed_on_both,
+        # form-vs-budget discriminator
+        "training_budget_helps": training_budget_helps,
+        # seed arithmetic + pre-registered bars
+        "seeds_needed": int(seeds_needed),
+        "seeds_pass_min": SEEDS_PASS_MIN,
+        "n_seeds": n_seeds_run,
+        "remap_sigma_on": REMAP_SIGMA_ON,
+        "attr_mass_excess_margin": ATTR_MASS_EXCESS_MARGIN,
+        "context_jaccard_gap_margin": CONTEXT_JACCARD_GAP_MARGIN,
+        "slot_diff_ratio_floor": SLOT_DIFF_RATIO_FLOOR,
+        "fire_frac_ceil": FIRE_FRAC_CEIL,
+    }
+    for _a in per_arm:
+        _p = _a["arm"].lower()
+        _ro.update({
+            f"{_p}_arm_pass": _a["arm_pass"],
+            f"{_p}_n_green_seeds": _a["n_green_seeds"],
+            f"{_p}_c1_seeds_ok": _a["c1_seeds_ok"],
+            f"{_p}_c2_seeds_ok": _a["c2_seeds_ok"],
+            f"{_p}_c3_seeds_ok": _a["c3_seeds_ok"],
+            f"{_p}_c4_seeds_ok": _a["c4_seeds_ok"],
+            f"{_p}_attribution_gate_half_met": _a["attribution_gate_half_met"],
+            f"{_p}_partiality_half_met": _a["partiality_half_met"],
+            f"{_p}_mean_attr_mass_excess": _a["mean_attr_mass_excess"],
+            f"{_p}_mean_jaccard_gap": _a["mean_jaccard_gap"],
+            f"{_p}_mean_slot_diff_ratio": _a["mean_slot_diff_ratio"],
+            f"{_p}_mean_fire_fraction": _a["mean_fire_fraction"],
+        })
+    for _hid, _hc in head_contrast.items():
+        _ro[f"{_hid.lower()}_mass_excess_delta_vs_fixed"] = _hc["mass_excess_delta_vs_fixed"]
+        _ro[f"{_hid.lower()}_jaccard_gap_delta_vs_fixed"] = _hc["jaccard_gap_delta_vs_fixed"]
+    readout = flat_readout(_ro)
+
     combination_rule = (
         "ARM AXIS = the attribution implementation feeding the MECH-074d remap gate, at "
         f"a FIXED bla_remap_pe_sigma_threshold of {REMAP_SIGMA_ON} (894a already swept "
@@ -1257,6 +1331,7 @@ def _evaluate(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     )
 
     return {
+        "readout": readout,
         "outcome": "PASS" if outcome_pass else "FAIL",
         "evidence_direction": direction,
         "evidence_direction_per_claim": {"MECH-074d": direction},
@@ -1569,6 +1644,7 @@ def main() -> Dict[str, Any]:
             "no downstream wall can gate the result."
         ),
         "acceptance": ev,
+        "readout": ev["readout"],
         "arm_results": rows,
         "per_seed_results": ev["per_seed"],
         "per_arm_results": ev["per_arm"],

@@ -203,7 +203,7 @@ from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
 from experiment_protocol import emit_outcome
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 from experiments._lib.arm_fingerprint import arm_cell
 from experiments._lib.capability_eval import RandomPolicy
 from experiments._lib.zworld_p0_warmup import run_zworld_p0
@@ -945,6 +945,74 @@ def _evaluate(per_arm_ready: Dict[str, List[Dict]], n_ready_seeds: int) -> Dict:
             "substantial_recovery": substantial_recovery,
         },
         "mech151_action_bias_div_informative": ab_div_context,
+        # Flat scalar readout -- the pack's metrics.values source (REE_assembly
+        # evidence/planning/flat_scalar_readout_recording_gap_20260909.md). Everything
+        # above is a dict keyed by arm or by criterion (with per-seed sub-lists), and
+        # arm_results is a list, so the pack scored with no numeric metrics.values: no
+        # fail_if stop threshold could fire, the duplicate-emission supersession
+        # fingerprint was skipped, and the index carried no deltas.
+        #
+        # This driver deliberately separates its LOAD-BEARING PREMISE (A2_SOFTSEL
+        # retrieval selective AND its terrain series non-degenerate) from CONTEXT arms
+        # (the A0 control and A1's reproduce-922 read) so a non-reproducing A1 does NOT
+        # vacate the A2 result -- 785-class regime conditioning. The flat surface keeps
+        # that separation: A2's premise flags are recorded under their own names, and
+        # A1/A0 are recorded as context. The GRADED discrimination readout (recovery
+        # magnitude A2 vs A1, against its margin) is recorded too, since the
+        # substantial_recovery bit alone would hide how far the arms actually moved.
+        # The MECH-151 action_bias figures are carried as INFORMATIVE ONLY, matching
+        # their own note -- MECH-151 is not a scored claim here. flat_readout() enforces
+        # the two encoding rules (bools -> 0/1 ints; non-finite/None dropped).
+        # Recording-only: the verdict grid, criteria, thresholds and DVs are unchanged.
+        "readout": flat_readout({
+            # the load-bearing premise
+            "a2_retrieval_selective": a2_retrieval_selective,
+            "a2_terrain_nondegenerate": a2_terrain_nondegenerate,
+            "a2_c1_seeds_pass": selectivity["A2_SOFTSEL"]["c1_seeds_pass"],
+            "a2_c1b_seeds_pass": selectivity["A2_SOFTSEL"]["c1b_seeds_pass"],
+            "a2_sel_entropy_mean": selectivity["A2_SOFTSEL"]["sel_entropy_mean"],
+            "a2_sel_context_divergence_mean": selectivity["A2_SOFTSEL"][
+                "sel_context_divergence_mean"],
+            "a2_sel_entropy_majority_stat": selectivity["A2_SOFTSEL"][
+                "sel_entropy_majority_stat"],
+            "a2_sel_ctxdiv_majority_stat": selectivity["A2_SOFTSEL"][
+                "sel_ctxdiv_majority_stat"],
+            # A2's MECH-152 read (the question this ablation exists to answer)
+            "a2_mech152_pass": mech152_a2["pass"],
+            "a2_mech152_C1_r_w_harm": mech152_a2["C1_r_w_harm"]["pass"],
+            "a2_mech152_C2_r_w_goal": mech152_a2["C2_r_w_goal"]["pass"],
+            "a2_r_w_harm_mean": mech152_a2["r_w_harm_mean"],
+            "a2_r_w_goal_mean": mech152_a2["r_w_goal_mean"],
+            "a2_terrain_nondegenerate_seeds": mech152_a2["terrain_nondegenerate_seeds"],
+            # the graded discrimination readout, against its margin
+            "harm_recovery_a2_minus_a1": harm_recovery,
+            "goal_recovery_a1_minus_a2": goal_recovery,
+            "recovery_margin": RECOVERY_MARGIN,
+            "substantial_recovery": substantial_recovery,
+            # CONTEXT arms -- reported, never adjudication-gating
+            "a1_context_mech152_pass": mech152_a1["pass"],
+            "a1_context_r_w_harm_mean": mech152_a1["r_w_harm_mean"],
+            "a1_context_r_w_goal_mean": mech152_a1["r_w_goal_mean"],
+            "a1_context_retrieval_selective": bool(
+                selectivity["A1_PRODUCTION"]["c1_pass"]
+                and selectivity["A1_PRODUCTION"]["c1b_pass"]),
+            "a1_terrain_nondegenerate": a1_terrain_nondegenerate,
+            "a0_control_c2_on_saddle": selectivity["A0_OFF_C2_on_saddle"]["pass"],
+            "a0_control_sel_entropy_mean": selectivity["A0_OFF_C2_on_saddle"][
+                "sel_entropy_mean"],
+            # MECH-151 action_bias -- INFORMATIVE ONLY, not a scored claim here
+            "informative_action_bias_div_a0": ab_div_context["A0_OFF_mean"],
+            "informative_action_bias_div_a1": ab_div_context["A1_PRODUCTION_mean"],
+            "informative_action_bias_div_a2": ab_div_context["A2_SOFTSEL_mean"],
+            # seed arithmetic + pre-registered thresholds
+            "n_ready_seeds": n_ready_seeds,
+            "ready_seed_majority": majority,
+            "sel_entropy_c1_threshold": SEL_ENTROPY_C1_THRESHOLD,
+            "sel_context_div_threshold": SEL_CONTEXT_DIV_THRESHOLD,
+            "sel_entropy_c2_floor": SEL_ENTROPY_C2_FLOOR,
+            "r_w_harm_threshold": R_W_HARM_THRESHOLD,
+            "r_w_goal_threshold": R_W_GOAL_THRESHOLD,
+        }),
     }
 
 
@@ -1187,6 +1255,19 @@ def main(dry_run: bool = False) -> Dict:
             "cell_readiness": cell_readiness,
         },
         "acceptance_checks": acceptance,
+        # On the substrate-not-ready path `acceptance` is None, so fall back to the
+        # readiness census. A not-ready run that emitted NO harvestable block at all
+        # would score exactly as blind as the gap this backfill exists to close -- an
+        # unready run is a real, scorable outcome, not an absence.
+        "readout": ((acceptance or {}).get("readout") or flat_readout({
+            "substrate_not_ready_flag": True,
+            "n_seeds_ready": n_ready,
+            "n_seeds_total": n_seeds_total,
+            "seed_majority_required": seed_majority,
+            "n_preconditions_met": sum(1 for pc in preconditions if pc.get("met")),
+            "n_preconditions_total": len(preconditions),
+            "n_cells": len(all_cells),
+        })),
         "n_seeds_total": n_seeds_total,
         "n_seeds_ready": n_ready,
         "ready_seeds": ready_seeds,

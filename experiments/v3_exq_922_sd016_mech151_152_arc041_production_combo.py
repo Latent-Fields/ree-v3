@@ -328,7 +328,7 @@ from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
 from experiment_protocol import emit_outcome
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 from experiments._lib.arm_fingerprint import arm_cell
 from experiments._lib.capability_eval import RandomPolicy
 from experiments._lib.zworld_p0_warmup import run_zworld_p0
@@ -1214,6 +1214,83 @@ def main(dry_run: bool = False) -> Dict:
             "criteria_non_degenerate": criteria_non_degenerate,
         },
         "acceptance_checks": acceptance,
+        # Flat scalar readout -- the pack's metrics.values source (REE_assembly
+        # evidence/planning/flat_scalar_readout_recording_gap_20260909.md).
+        # acceptance_checks is a dict keyed by claim (mech150 / mech151 / mech152, each
+        # with per-criterion sub-dicts and per-seed pair lists) and arm_results is a list,
+        # so the pack scored with no numeric metrics.values: no fail_if stop threshold
+        # could fire, the duplicate-emission supersession fingerprint was skipped, and the
+        # index carried no deltas.
+        #
+        # The structure here is SEQUENTIALLY GATED across three claims -- MECH-151 and
+        # MECH-152 are not even computed unless MECH-150 is confirmed -- so each claim's
+        # criteria are recorded under their own names and left ABSENT (not zero) when the
+        # gate above them did not open. flat_readout()'s None-dropping is what makes that
+        # work: a not-computed criterion reads as unmeasured, which is what it is, rather
+        # than as a failure. The ARC-041 dissociation label distinguishes 'both pathways'
+        # from each single-pathway falsification, so the two component passes are recorded
+        # separately rather than as one dissociation bit. flat_readout() also converts
+        # bools to 0/1 ints. Recording-only: the verdict grid, criteria, thresholds and
+        # DVs are unchanged.
+        "readout": flat_readout({
+            "overall_pass_flag": bool(acceptance and acceptance.get("overall_pass")),
+            "substrate_not_ready_flag": acceptance is None,
+            "mech150_confirmed": (
+                acceptance.get("mech150_confirmed") if acceptance else None),
+            # readiness gate
+            "n_seeds_ready": n_ready,
+            "n_seeds_total": n_seeds_total,
+            "seed_majority_required": seed_majority,
+            # MECH-150 gate (always computed when ready)
+            "mech150_C1_entropy_breaks_saddle": (
+                acceptance["mech150"]["C1_entropy_breaks_saddle"]["pass"] if acceptance else None),
+            "mech150_C1b_context_divergence": (
+                acceptance["mech150"]["C1b_context_divergence"]["pass"] if acceptance else None),
+            "mech150_C2_off_arm_on_saddle": (
+                acceptance["mech150"]["C2_off_arm_on_saddle"]["pass"] if acceptance else None),
+            "mech150_c1_seeds_pass": (
+                acceptance["mech150"]["C1_entropy_breaks_saddle"]["seeds_pass"] if acceptance else None),
+            "mech150_c1b_seeds_pass": (
+                acceptance["mech150"]["C1b_context_divergence"]["seeds_pass"] if acceptance else None),
+            "mech150_c2_seeds_pass": (
+                acceptance["mech150"]["C2_off_arm_on_saddle"]["seeds_pass"] if acceptance else None),
+            # MECH-151 / MECH-152 -- absent when MECH-150 did not confirm
+            "mech151_action_bias_div_beats_off": (
+                (acceptance.get("mech151") or {}).get(
+                    "action_bias_div_beats_off_control", {}).get("pass")
+                if acceptance else None),
+            "mech151_seeds_pass": (
+                (acceptance.get("mech151") or {}).get(
+                    "action_bias_div_beats_off_control", {}).get("seeds_pass")
+                if acceptance else None),
+            "mech152_pass": (
+                (acceptance.get("mech152") or {}).get("pass") if acceptance else None),
+            "mech152_C1_r_w_harm": (
+                (acceptance.get("mech152") or {}).get("C1_r_w_harm", {}).get("pass")
+                if acceptance else None),
+            "mech152_C2_r_w_goal": (
+                (acceptance.get("mech152") or {}).get("C2_r_w_goal", {}).get("pass")
+                if acceptance else None),
+            "mech152_c1_seeds_pass": (
+                (acceptance.get("mech152") or {}).get("C1_r_w_harm", {}).get("seeds_pass")
+                if acceptance else None),
+            "mech152_c2_seeds_pass": (
+                (acceptance.get("mech152") or {}).get("C2_r_w_goal", {}).get("seeds_pass")
+                if acceptance else None),
+            # ARC-041 dissociation, as its two components
+            "arc041_dual_pathway_confirmed": (
+                acceptance.get("arc041_label") == "confirmed_dual_pathway"
+                if acceptance else None),
+            # pre-registered thresholds
+            "sel_entropy_c1_threshold": SEL_ENTROPY_C1_THRESHOLD,
+            "sel_context_div_threshold": SEL_CONTEXT_DIV_THRESHOLD,
+            "sel_entropy_c2_floor": SEL_ENTROPY_C2_FLOOR,
+            "r_w_harm_threshold": R_W_HARM_THRESHOLD,
+            "r_w_goal_threshold": R_W_GOAL_THRESHOLD,
+            "n_preconditions_met": sum(1 for pc in flat_preconditions if pc.get("met")),
+            "n_preconditions_total": len(flat_preconditions),
+            "n_cells": len(all_cells),
+        }),
         "n_seeds_total": n_seeds_total,
         "n_seeds_ready": n_ready,
         "ready_seeds": ready_seeds,

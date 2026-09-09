@@ -251,7 +251,7 @@ from experiments._lib.arm_fingerprint import compute_arm_fingerprint, reset_all_
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_847_arc062_pd_context_modeswitch_committed_class_divergence"
@@ -2016,7 +2016,79 @@ def run_experiment(
     total_seeds = len(ARMS) * len(seeds)
     total_completed = len(off_rows) + len(on_rows)
 
+    # Flat scalar readout -- the pack's metrics.values source (REE_assembly
+    # evidence/planning/flat_scalar_readout_recording_gap_20260909.md). Every
+    # quantitative block this driver emits (arm_results, the per-seed paired-lift dicts,
+    # interpretation) is a list or a dict keyed by seed, so the pack scored with no
+    # numeric metrics.values: no fail_if stop threshold could fire, the duplicate-
+    # emission supersession fingerprint was skipped, and the index carried no deltas.
+    #
+    # The seven C1 readiness sub-gates are recorded INDIVIDUALLY, not as one c1_holds
+    # bit. That is the point of the gate structure here: each sub-gate names a different
+    # way the substrate can be unable to answer, and the whole outcome map's first branch
+    # is 'C1 did not hold', so which sub-gate failed is the actionable content. The
+    # PRIMARY discriminator (C2-CONTEXT, the tv_context_divergence lift) and the
+    # SECONDARY inherited DV (pooled committed-class entropy lift) are recorded under
+    # distinct names with their own margins and seed floors -- the secondary is 654j's
+    # own primary and is explicitly NOT load-bearing here, so conflating them would
+    # misattribute the finding. flat_readout() enforces the two encoding rules (bools ->
+    # 0/1 ints; non-finite/None dropped). Recording-only: the verdict grid, criteria,
+    # thresholds and DVs are unchanged.
+    readout = flat_readout({
+        # PRIMARY (H4 discriminator) and SECONDARY (inherited 654j DV), kept distinct
+        "C2_context_divergence_lift": c2_context_holds,
+        "C2_pooled_committed_class_entropy_lift": pooled_lift_holds,
+        "n_criteria_passed": sum(
+            1 for x in (c2_context_holds, pooled_lift_holds) if x),
+        "n_criteria_total": 2,
+        "overall_pass_flag": outcome == "PASS",
+        # PRIMARY: paired tv_context_divergence lift
+        "n_tv_lift_seeds": n_tv_lift_seeds,
+        "tv_min_lift_seeds": TV_MIN_LIFT_SEEDS,
+        "tv_lift_margin": TV_LIFT_MARGIN,
+        "tv_lift_worst": min(paired_tv_lifts.values(), default=None),
+        "tv_lift_best": max(paired_tv_lifts.values(), default=None),
+        "n_paired_tv_seeds": len(paired_tv_lifts),
+        "off_tv_context_divergence_mean": off_tv_mean,
+        "on_tv_context_divergence_mean": on_tv_mean,
+        # SECONDARY: paired committed-class entropy lift
+        "n_pooled_lift_seeds": n_lift_seeds,
+        "c2_min_lift_seeds": C2_MIN_LIFT_SEEDS,
+        "c2_lift_margin_nats": C2_LIFT_MARGIN_NATS,
+        "pooled_lift_worst": min(paired_lifts.values(), default=None),
+        "pooled_lift_best": max(paired_lifts.values(), default=None),
+        "n_paired_pooled_seeds": len(paired_lifts),
+        "off_committed_class_entropy_mean": off_mean_dv,
+        "on_committed_class_entropy_mean": on_mean_dv,
+        # the seven C1 readiness sub-gates, individually
+        "c1_holds": c1_holds,
+        "c1a_class_axis_exercisable": c1a_holds,
+        "c1b_gapa_divergence": c1b_holds,
+        "c1c_arm_on_differentiated_matured": c1c_holds,
+        "c1d_propagation_non_vacuity": c1d_holds,
+        "c1e_mech448_demotion_live_and_excluding": c1e_holds,
+        "c1f_mech449_active_nogo_live_and_suppressing": c1f_holds,
+        "c1g_context_partition_adequate": c1g_holds,
+        "n_c1_subgates_held": sum(1 for x in (c1a_holds, c1b_holds, c1c_holds,
+                                              c1d_holds, c1e_holds, c1f_holds,
+                                              c1g_holds) if x),
+        "n_c1_subgates_total": 7,
+        "min_seeds_for_pass": MIN_SEEDS_FOR_PASS,
+        "n_off_context_scorable": int(n_off_context),
+        "n_on_context_scorable": int(n_on_context),
+        "n_off_nogo_non_vacuous": int(n_off_nogo),
+        "n_on_nogo_non_vacuous": int(n_on_nogo),
+        "n_on_prop_counterfactual_nonzero": int(n_on_prop_cf_nonzero),
+        "prop_nonvac_floor": PROP_NONVAC_FLOOR,
+        # census
+        "n_arms": len(ARMS),
+        "n_seeds": len(seeds),
+        "total_seeds_attempted": int(len(ARMS) * len(seeds)),
+        "total_seeds_completed": int(len(off_rows) + len(on_rows)),
+    })
+
     return {
+        "readout": readout,
         "outcome": outcome,
         "overall_direction": direction,
         # claim_ids=[] (diagnostic) -> no per-claim direction to report; kept as an
@@ -2238,6 +2310,7 @@ def _build_manifest(
         # failure_autopsy_V3-EXQ-654f_2026-06-18 Section 4.
         "interpretation_label": result["interpretation_label"],
         "interpretation": result["interpretation"],
+        "readout": result["readout"],
         "evidence_direction_note": (
             f"V3-EXQ-847 ARC-062 GOV-FANOUT-1 Leg P-D (H4: measurement aliasing --"
             f"context-conditioned mode-switch). DIAGNOSTIC, claim_ids=[]; brake-exempt "

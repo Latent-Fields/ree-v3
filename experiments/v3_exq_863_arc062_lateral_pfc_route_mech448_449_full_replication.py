@@ -153,7 +153,7 @@ from experiments._lib.arm_fingerprint import compute_arm_fingerprint, reset_all_
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 from experiments._lib.z_goal_stream import ZGoalStreamAccumulator
 
 
@@ -970,11 +970,61 @@ def run_experiment(
         }.get(label, ""),
     }
 
+    # Flat scalar readout -- the pack's metrics.values source (REE_assembly
+    # evidence/planning/flat_scalar_readout_recording_gap_20260909.md). arm_results is a
+    # list and interpretation / thresholds are nested, so the pack scored with no numeric
+    # metrics.values: no fail_if stop threshold could fire, the duplicate-emission
+    # supersession fingerprint was skipped, and the index carried no deltas.
+    #
+    # The verdict here is a 2x2 over (LPFC engaged, NONE engaged), and every cell of that
+    # square is a DIFFERENT scientific reading -- route confirmed causal, route ruled out,
+    # 851 not replicated at this dose, or an unexpected reversal. So both arms' engagement
+    # flags are recorded rather than a single pass bit, along with the four per-mechanism
+    # live counts underneath them. The two mech448/449 AGREEMENT flags are recorded
+    # separately for the same reason the driver refuses to fold them into `engaged`: a
+    # within-arm disagreement routes to needs_full_replication, which is not the same
+    # finding as either arm being cleanly dead. flat_readout() enforces the two encoding
+    # rules (bools -> 0/1 ints; non-finite/None dropped). Recording-only: the verdict
+    # grid, criteria, thresholds and DVs are unchanged.
+    readout = flat_readout({
+        "C1_sample_adequate": sample_adequate,
+        "n_criteria_passed": int(bool(sample_adequate)),
+        "n_criteria_total": 1,
+        "overall_pass_flag": outcome == "PASS",
+        # the 2x2 the verdict routes on
+        "arm_lpfc_engaged": arm_lpfc_engaged,
+        "arm_none_engaged": arm_none_engaged,
+        "arm_lpfc_448_live_majority": arm_lpfc_448_live_majority,
+        "arm_lpfc_449_live_majority": arm_lpfc_449_live_majority,
+        "arm_none_448_live_majority": arm_none_448_live_majority,
+        "arm_none_449_live_majority": arm_none_449_live_majority,
+        "n_lpfc_448_live": n_lpfc_448_live,
+        "n_lpfc_449_live": n_lpfc_449_live,
+        "n_none_448_live": n_none_448_live,
+        "n_none_449_live": n_none_449_live,
+        "min_seeds_for_live": MIN_SEEDS_FOR_LIVE,
+        # within-arm mechanism agreement -- routes to needs_full_replication
+        "mech448_449_agree_lpfc": mech448_449_agree_lpfc,
+        "mech448_449_agree_none": mech448_449_agree_none,
+        # the one readiness gate, at its worst cell
+        "min_p2_fresh_select": float(min_fresh_select),
+        "fresh_select_floor": float(FRESH_SELECT_FLOOR),
+        # census
+        "n_cells": len(arm_results),
+        "n_lpfc_cells": len(lpfc_rows),
+        "n_none_cells": len(none_rows),
+        "n_seeds": len(seeds),
+        "p0_episodes": int(p0_episodes),
+        "p2_episodes": int(p2_episodes),
+        "steps_per_episode": int(steps_per_episode),
+    })
+
     return {
         "outcome": outcome,
         "evidence_direction": "non_contributory",
         "interpretation_label": label,
         "interpretation": interpretation,
+        "readout": readout,
         "arm_results": arm_results,
         "seeds": seeds,
         "p0_episodes": int(p0_episodes),
@@ -1010,6 +1060,7 @@ def _build_manifest(result: Dict[str, Any], timestamp_utc: str, dry_run: bool) -
         "evidence_direction": result["evidence_direction"],
         "interpretation_label": result["interpretation_label"],
         "interpretation": result["interpretation"],
+        "readout": result["readout"],
         "evidence_direction_note": (
             f"V3-EXQ-863: FULL-TRAINING-BUDGET replication of V3-EXQ-859's "
             f"modulatory_channel_route_source ('lateral_pfc' vs 'none') ablation, "
