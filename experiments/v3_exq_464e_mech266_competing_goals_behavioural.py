@@ -129,7 +129,7 @@ from scaffolded_sd054_onboarding import (  # noqa: E402
     _sense_with_optional_harm,
     stage_plan,
 )
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_464e_mech266_competing_goals_behavioural"
@@ -752,7 +752,49 @@ def run_experiment(dry_run: bool = False,
 
     crit_non_degenerate = bool(contact_non_vacuity_met and occupancy_non_vacuity_met)
 
+    # Flat scalar readout -- the pack's metrics.values source. The `acceptance` block above
+    # mixes scalars with per-seed lists AND sits under a key the runpack converter does not
+    # harvest (it reads only metrics / aggregates / summary_metrics / readout), and every
+    # other quantitative block is nested, so the pack scored with no numeric
+    # metrics.values: no fail_if stop threshold could fire, the duplicate-emission
+    # supersession fingerprint was skipped, and the index carried no deltas. These are the
+    # pre-registered scalars C1/C2 and the two readiness gates turn on -- each fraction
+    # against MIN_FRACTION, plus the seed counts behind them. flat_readout() enforces the
+    # two encoding rules (bools -> 0/1 ints; non-finite/None dropped). Recording-only: the
+    # verdict grid, criteria, thresholds and DVs are unchanged.
+    readout = flat_readout({
+        "C1_asym_task_occupancy_exceeds_sym": _all_guard("C1"),
+        "C2_asym_switches_le_sym": _all_guard("C2"),
+        "n_criteria_passed": sum(1 for k in ("C1", "C2") if _all_guard(k)),
+        "n_criteria_total": 2,
+        "overall_pass_flag": acceptance["overall_pass"],
+        "overall_criteria_pass_flag": overall_criteria_pass,
+        "criteria_non_degenerate_flag": crit_non_degenerate,
+        # the shared seed-majority bar every fraction below is compared against
+        "min_fraction": MIN_FRACTION,
+        # readiness gate 1: foraging contact guard
+        "contact_non_vacuity_met": contact_non_vacuity_met,
+        "guard_fraction": guard_frac,
+        "n_guard_passing_seeds": len(guard_passing),
+        # readiness gate 2: external_task occupancy (the SAME statistic C1 routes on)
+        "occupancy_non_vacuity_met": occupancy_non_vacuity_met,
+        "occupancy_non_vacuity_fraction": occ_frac,
+        # criteria pass rate over guard-passing seeds
+        "criteria_pass_fraction": pass_frac,
+        "n_seeds_criteria_pass": n_pass,
+        "n_seeds": n,
+        # pre-registered gate constants
+        "occupancy_floor": OCCUPANCY_FLOOR,
+        "c1_occupancy_margin": C1_OCCUPANCY_MARGIN,
+        "p2_zgoal_gate": P2_ZGOAL_GATE,
+        "contact_gate": CONTACT_GATE,
+        "sticky_exit": STICKY_EXIT,
+        "loose_exit": LOOSE_EXIT,
+        "affinity_input_cap": AFFINITY_INPUT_CAP,
+    })
+
     return {
+        "readout": readout,
         "outcome": outcome,
         "evidence_direction": overall_direction,
         "evidence_direction_per_claim": direction_map,
