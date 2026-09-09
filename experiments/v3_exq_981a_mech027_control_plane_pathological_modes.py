@@ -38,7 +38,11 @@ B2 (WAS: channel (c) inert -- draws_per_cycle only reaches the waking agent
     returning None at every HV boundary -- the recorded suppression
     signature. Nothing is rebuilt; the lever is runtime-revertible.
     THE PATH TO THE DV IS OPEN AND MEASURED (Step 2.5a probe, seed 11,
-    8 x 30-step warmup, scratchpad item1/probe_sws_lever_981a.py): a forced
+    8 x 30-step warmup; REPRO, no external file needed: build_config() +
+    _train_warmup() as below, then snapshot (cm.memory, cm.read(q),
+    e1.generate_prior(q)) for a fixed random query q of width
+    cm.latent_dim around each agent.force_sleep_cycle_at_eval_boundary()
+    call, toggling agent.config.sws_enabled/rem_enabled between them): a forced
     eval-boundary cycle with the passes enabled reports sws_n_writes = 5
     (= sws_consolidation_steps, DETERMINISTIC given a populated
     _world_experience_buffer, which survives agent.reset(): 237 before and
