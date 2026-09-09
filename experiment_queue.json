@@ -57,6 +57,25 @@
       "experiment_type": "v3_exq_999a_mech161_vigilance_inverted_u_heartbeat",
       "registry_question": "mech161_vigilance_arousal_shape_vs_readout",
       "seeds": 1
+    },
+    {
+      "queue_id": "V3-EXQ-981a",
+      "title": "MECH-027 hypervigilance signature: elevated precision + shortened horizon + suppressed offline replay, forced and reverted within-run on ONE trained agent per seed (supersedes V3-EXQ-981; 2026-09-09 repair of the 2026-09-04 blocked draft)",
+      "experiment_type": "v3_exq_981a_mech027_control_plane_pathological_modes",
+      "script": "experiments/v3_exq_981a_mech027_control_plane_pathological_modes.py",
+      "priority": 60,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 220,
+      "episodes_per_run": 200,
+      "seeds": 3,
+      "conditions": 1,
+      "backlog_id": "EVB-1396",
+      "supersedes": "V3-EXQ-981",
+      "note": "TWO-STAGE: Stage A = warmup(200 ep x 120 steps) + commit-threshold calibration + EVAL_BASELINE (25 ep) per seed, then Gate A (positive control on avoidance LIFT HIGH-vs-SAFE; per-seed coverage floor 30; pooled positive-control-band floor 150; baseline offline replay engaged via sws_n_writes>=1 on every firing; C1 and precision-margin dv_headroom, mean-matched); Stage B = EVAL_HYPERVIGILANT + EVAL_REVERSION only if Gate A met. C1 (load-bearing): pooled AMBIGUOUS-band avoidant RATE elevation HV-BASELINE >= 0.10 absolute on a [0,1] DV; C2: >= 50% of that elevation reverts. Channel (c) 'suppressed replay' is the SD-017 offline passes (config.sws_enabled/rem_enabled per block, draws_per_cycle 0 in HV) -- NOT the mech285 draw count, whose only consumer is sign-inverted for suppression and whose pool is intermittently empty (driver docstring B1/B2, both verified at source 2026-09-09; Step 2.5a probe: SWS write moves E1.ContextMemory/read/generate_prior, disabled pass moves nothing, revertible). GOV-REUSE-1: decisive readout (AMBIGUOUS-band availability-normalised avoidance rate under forced precision/short-horizon/suppressed-offline-replay) recorded in no manifest -- V3-EXQ-981 (the only MECH-027 run) used the single-argmax DV, old band cutpoints, an empty anchor pool and an uncalibrated commit threshold; not recoverable, run required. DV-symmetry: per-tick binary membership DV, manipulation is a discrete selection-level change of membership (not a broadcast constant, not a relabelling) -- driver docstring. Gated on nothing: node is complex (probe-gated) -> this run converts it. Dry-run: exit 0, Stage B exercised as forced code-path positive control (gate_a_forced_for_smoke stamped). red-team (fable, 2026-09-09): CONTESTED -- 6 findings, none BLOCKING, ALL SIX FIXED (none dismissed): F1 C1/C2 now read the AMBIGUOUS-band availability-normalised LIFT (within-band chance shifted 0.329->0.378 BASE->HV in the smoke, half the bar); F2 Gate B floors the pooled AMBIGUOUS n in HV/REVERSION/HV_AB (150 scaled) and per-block E3 selections (30 scaled), unscorable_in_safe recorded; F3 per-episode AMBIGUOUS lift series per block, |BASELINE half-drift|>=0.05 routes the C1-and-not-C2 cell to non_contributory; F4 NEW PAIRED BLOCK EVAL_HV_AB_PAIRED on a deep copy of the post-Stage-A agent+env from the same RNG state ((a)+(b) forced, offline passes ON) so lift(HV)-lift(HV_AB) is the paired contribution of suppressing replay; PASS with |contrast|<0.02 routes to 'mixed' (channels a+b only, c inert); F5 BASELINE non-argmin fraction of precision-scaled graded picks recorded, weakens null under <0.10 routes to non_contributory (channel (a) range-limited), engagement gate per block; F6 positive control on pooled counts (the statistic the 150 floor was derived for). Smoke after fixes: exit 0, Stage B + paired block exercised, validate_experiments --strict 0 warnings, validate_recording complete. Four eval blocks now (25 ep each): est 220 min (981 measured 165 for three). Step 2.5c: open corrupting entries mode-governance-engagement and SD-082 overlap only via ree_core/agent.py; both default-off flags unset here (grep 0). Re-derive brake MECH-027: 1 counted autopsy (981) < 2. Design node: complex (probe-gated) -> this run.",
+      "claim_ids": [
+        "MECH-027"
+      ]
     }
   ]
 }
