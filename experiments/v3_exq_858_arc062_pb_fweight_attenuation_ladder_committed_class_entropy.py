@@ -191,7 +191,7 @@ from experiments._lib.z_goal_stream import ZGoalStreamAccumulator
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_858_arc062_pb_fweight_attenuation_ladder_committed_class_entropy"
@@ -1577,7 +1577,63 @@ def run_experiment(
         ),
     }
 
+    # Flat scalar readout -- the pack's metrics.values source (REE_assembly
+    # evidence/planning/flat_scalar_readout_recording_gap_20260909.md). arm_results and
+    # the per-seed paired-lift dict are a list and a seed-keyed dict, and interpretation
+    # / decision_rule_thresholds are nested, so the pack scored with no numeric
+    # metrics.values: no fail_if stop threshold could fire, the duplicate-emission
+    # supersession fingerprint was skipped, and the index carried no deltas.
+    #
+    # The eight C1 readiness sub-gates are recorded INDIVIDUALLY rather than as one bit:
+    # each names a distinct way the substrate can be unable to answer, and this leg adds
+    # C1h (the f_weight knob is actually live) specifically because a dead knob would
+    # otherwise read as an F-dominance refutation. flat_readout() enforces the two
+    # encoding rules (bools -> 0/1 ints; non-finite/None dropped). Recording-only: the
+    # verdict grid, criteria, thresholds and DVs are unchanged.
+    readout = flat_readout({
+        "C2_committed_class_entropy_lift_f000_vs_f100": c2_holds,
+        "n_criteria_passed": int(bool(c2_holds)),
+        "n_criteria_total": 1,
+        "overall_pass_flag": outcome == "PASS",
+        # C2: the paired-by-seed lift across the f_weight ladder endpoints
+        "n_lift_seeds": n_lift_seeds,
+        "c2_min_lift_seeds": int(C2_MIN_LIFT_SEEDS),
+        "c2_lift_margin_nats": float(C2_LIFT_MARGIN_NATS),
+        "paired_lift_worst": min(paired_lifts.values(), default=None),
+        "paired_lift_best": max(paired_lifts.values(), default=None),
+        "n_paired_seeds": len(paired_lifts),
+        "f100_mean_committed_class_entropy": (
+            _mean(list(f100_by_seed.values())) if f100_by_seed else None),
+        "f000_mean_committed_class_entropy": (
+            _mean(list(f000_by_seed.values())) if f000_by_seed else None),
+        # the eight C1 readiness sub-gates, individually
+        "c1_holds": c1_holds,
+        "c1a_class_axis_exercisable": c1a_holds,
+        "c1b_gapa_divergence": c1b_holds,
+        "c1c_crf_differentiated_matured": c1c_holds,
+        "c1d_propagation_non_vacuity": c1d_holds,
+        "c1e_mech448_demotion_live_and_excluding": c1e_holds,
+        "c1f_mech449_active_nogo_live_and_suppressing": c1f_holds,
+        "c1g_route_range_supra_floor_and_sample_adequate": c1g_holds,
+        "c1h_f_weight_knob_live": c1h_holds,
+        "n_c1_subgates_held": sum(1 for x in (c1a_holds, c1b_holds, c1c_holds, c1d_holds,
+                                              c1e_holds, c1f_holds, c1g_holds,
+                                              c1h_holds) if x),
+        "n_c1_subgates_total": 8,
+        # pre-registered decision-rule thresholds
+        "frac_pre_ge2_floor": float(FRAC_PRE_GE2_FLOOR),
+        "consumed_spread_floor": float(CONSUMED_SPREAD_FLOOR),
+        "consumed_magnitude_ceil": float(CONSUMED_MAGNITUDE_CEIL),
+        "crf_min_minted": int(CRF_MIN_MINTED),
+        # ladder census
+        "n_rungs": len(RUNGS),
+        "n_seeds": len(seeds),
+        "total_cells_attempted": int(len(RUNGS) * len(seeds)),
+        "total_cells_completed": int(sum(len(rung_rows[a]) for a in RUNG_IDS)),
+    })
+
     return {
+        "readout": readout,
         "outcome": outcome,
         "overall_direction": direction,
         "interpretation_label": label,
@@ -1713,6 +1769,7 @@ def _build_manifest(
         "evidence_direction": result["overall_direction"],
         "interpretation_label": result["interpretation_label"],
         "interpretation": result["interpretation"],
+        "readout": result["readout"],
         "evidence_direction_note": (
             f"V3-EXQ-858 ARC-062 conversion-fanout GOV-FANOUT-1 Leg P-B (H2: "
             f"F-dominance, downstream of selection). claim_ids=[] (diagnostic; "

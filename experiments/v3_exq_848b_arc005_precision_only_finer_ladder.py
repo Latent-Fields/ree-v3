@@ -216,7 +216,7 @@ from experiment_protocol import emit_outcome  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
 from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.environment.causal_grid_world import CausalGridWorld  # noqa: E402
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 from experiments._lib.arm_fingerprint import arm_cell  # noqa: E402
 from experiments._lib.manifest_core import stamp_recording_core  # noqa: E402
 from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
@@ -972,6 +972,49 @@ def run_experiment(dry_run: bool) -> Tuple[Dict[str, Any], ZGoalStreamAccumulato
         "non_degenerate": non_degenerate,
         "degeneracy_reason": degeneracy_reason,
         "criteria": criteria,
+        # Flat scalar readout -- the pack's metrics.values source (REE_assembly
+        # evidence/planning/flat_scalar_readout_recording_gap_20260909.md). `analysis`
+        # carries a per-(content, seed) units list and sits under a key the runpack
+        # converter does not harvest (it reads only metrics / aggregates /
+        # summary_metrics / readout); arm_results is a list; so the pack scored with no
+        # numeric metrics.values: no fail_if stop threshold could fire, the
+        # duplicate-emission supersession fingerprint was skipped, and the index carried
+        # no deltas.
+        #
+        # all_near_zero_null is recorded as its own flag beside the criterion. It is what
+        # separates the two FAIL branches -- an EXPECTED null (every unit's |rho| inside
+        # the null band, i.e. the channel genuinely carries no authority) from a WEAK
+        # result (some units moved but not enough) -- and those route to different
+        # evidence directions, non_contributory versus mixed. A pass bit alone merges
+        # them. The decisive extremum is the largest |rho| across units, since the
+        # criterion counts units clearing an absolute-rho floor. flat_readout() enforces
+        # the two encoding rules (bools -> 0/1 ints; non-finite/None dropped).
+        # Recording-only: the verdict grid, criterion, thresholds and DV are unchanged.
+        "readout": flat_readout({
+            "C_precision_monotonicity": analysis["criterion_pass"],
+            "n_criteria_passed": int(bool(analysis["criterion_pass"])),
+            "n_criteria_total": 1,
+            "overall_pass_flag": overall_pass,
+            "non_degenerate_flag": non_degenerate,
+            "scorable_flag": scorable,
+            # the criterion: units clearing the absolute-rho floor, against its bar
+            "n_satisfied_units": analysis["n_satisfied"],
+            "n_units": analysis["n_units"],
+            "c_min_units": C_MIN_UNITS,
+            "c_rho_abs_floor": C_RHO_ABS_FLOOR,
+            "abs_rho_best": max(
+                (abs(u["rho_log10_precision"]) for u in analysis["units"]), default=None),
+            "abs_rho_worst": min(
+                (abs(u["rho_log10_precision"]) for u in analysis["units"]), default=None),
+            # the branch discriminator: expected null vs weak authority
+            "all_near_zero_null": analysis["all_near_zero_null"],
+            "c_null_band": C_NULL_BAND,
+            # cell gate census
+            "n_cells_green": len(green),
+            "n_cells": len(contexts),
+            "n_seeds": len(seeds),
+            "n_levels": len(LEVELS),
+        }),
         "analysis": analysis,
         "per_arm_gate": gate["per_arm_gate"],
         "diagnostics": {

@@ -166,7 +166,7 @@ from experiments._lib.arm_fingerprint import compute_arm_fingerprint, reset_all_
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 
 
 EXPERIMENT_TYPE = "v3_exq_851_arc062_pa_lateral_pfc_route_source_gapfanout"
@@ -1866,7 +1866,64 @@ def run_experiment(
     total_seeds = len(ARMS) * len(seeds)
     total_completed = len(off_rows) + len(on_rows)
 
+    # Flat scalar readout -- the pack's metrics.values source (REE_assembly
+    # evidence/planning/flat_scalar_readout_recording_gap_20260909.md). arm_results and
+    # the per-seed paired-lift dict are a list and a seed-keyed dict, and interpretation
+    # is nested, so the pack scored with no numeric metrics.values: no fail_if stop
+    # threshold could fire, the duplicate-emission supersession fingerprint was skipped,
+    # and the index carried no deltas.
+    #
+    # The seven C1 readiness sub-gates are recorded INDIVIDUALLY rather than as one
+    # c1_holds bit: each names a different way the substrate can be unable to answer, the
+    # outcome map's first branch is 'C1 did not hold', and which sub-gate failed is the
+    # actionable content. flat_readout() enforces the two encoding rules (bools -> 0/1
+    # ints; non-finite/None dropped). Recording-only: the verdict grid, criteria,
+    # thresholds and DVs are unchanged.
+    readout = flat_readout({
+        "C2_committed_class_entropy_lift": c2_holds,
+        "n_criteria_passed": int(bool(c2_holds)),
+        "n_criteria_total": 1,
+        "overall_pass_flag": outcome == "PASS",
+        # C2: the paired-by-seed lift against its margin and seed floor
+        "n_lift_seeds": n_lift_seeds,
+        "c2_min_lift_seeds": C2_MIN_LIFT_SEEDS,
+        "c2_lift_margin_nats": C2_LIFT_MARGIN_NATS,
+        "paired_lift_worst": min(paired_lifts.values(), default=None),
+        "paired_lift_best": max(paired_lifts.values(), default=None),
+        "n_paired_seeds": len(paired_lifts),
+        "off_committed_class_entropy_mean": off_mean_dv,
+        "on_committed_class_entropy_mean": on_mean_dv,
+        # the seven C1 readiness sub-gates, individually
+        "c1_holds": c1_holds,
+        "c1a_class_axis_exercisable": c1a_holds,
+        "c1b_gapa_divergence": c1b_holds,
+        "c1c_arm_on_differentiated_matured": c1c_holds,
+        "c1d_propagation_non_vacuity": c1d_holds,
+        "c1e_mech448_demotion_live_and_excluding": c1e_holds,
+        "c1f_mech449_active_nogo_live_and_suppressing": c1f_holds,
+        "c1g_route_range_supra_floor_and_sample_adequate": c1g_holds,
+        "n_c1_subgates_held": sum(1 for x in (c1a_holds, c1b_holds, c1c_holds,
+                                              c1d_holds, c1e_holds, c1f_holds,
+                                              c1g_holds) if x),
+        "n_c1_subgates_total": 7,
+        "min_seeds_for_pass": MIN_SEEDS_FOR_PASS,
+        "n_off_nogo_non_vacuous": int(n_off_nogo),
+        "n_on_nogo_non_vacuous": int(n_on_nogo),
+        "n_on_prop_counterfactual_nonzero": int(n_on_prop_cf_nonzero),
+        "prop_nonvac_floor": PROP_NONVAC_FLOOR,
+        "fresh_select_floor": float(FRESH_SELECT_FLOOR),
+        "fresh_select_yield_floor": float(FRESH_SELECT_YIELD_FLOOR),
+        "min_route_sample_yield": float(
+            min([r["route_sample_yield"] for r in (off_rows + on_rows)] or [0.0])),
+        # census
+        "n_arms": len(ARMS),
+        "n_seeds": len(seeds),
+        "total_seeds_attempted": int(total_seeds),
+        "total_seeds_completed": int(total_completed),
+    })
+
     return {
+        "readout": readout,
         "outcome": outcome,
         "overall_direction": direction,
         "evidence_direction_per_claim": evidence_direction_per_claim,
@@ -2082,6 +2139,7 @@ def _build_manifest(
         # failure_autopsy_V3-EXQ-654f_2026-06-18 Section 4.
         "interpretation_label": result["interpretation_label"],
         "interpretation": result["interpretation"],
+        "readout": result["readout"],
         "evidence_direction_note": (
             f"V3-EXQ-851 ARC-062 conversion-fanout GOV-FANOUT-1 Leg P-A (H1: "
             f"selection-authority coupling gap; MECH-309 / ARC-062). Design of record: "
