@@ -303,7 +303,7 @@ def test_route_precedence_is_the_arc130_ladder_order():
 def test_non_load_bearing_plasticity_cannot_trigger_nonplastic_misfire():
     """Declaring what a run ALLOWED to change is not declaring what it DEPENDED on."""
     contract = _contract(requires_plasticity=[
-        PlasticityRequirement(mode="residue_ema_state", load_bearing=False,
+        PlasticityRequirement(mode="residue_affective", load_bearing=False,
                               requires_gradients=True)])
     run = _plastic_run(learning_mode=learning_mode_snapshot(grad_enabled=False))
     result = verify_capability_contract(contract, **run)
@@ -311,7 +311,7 @@ def test_non_load_bearing_plasticity_cannot_trigger_nonplastic_misfire():
     assert ROUTE_NONPLASTIC_MISFIRE not in result["routes_triggered"]
     assert result["interpretation_route"] == ROUTE_INTERPRETABLE
     check = _check_named(result,
-                         "plasticity::residue_ema_state::gradients_enabled")
+                         "plasticity::residue_affective::gradients_enabled")
     assert check["status"] == STATUS_UNMET, "still reported, just not fatal"
 
 
@@ -649,52 +649,59 @@ def test_contract_exposes_no_per_arm_concept():
     assert not any("arm" in str(k) for k in result["manifest_block"])
 
 
-# --- 9. the plasticity vocabulary is a STUB, and advisory -------------------- #
+# --- 9. the plasticity vocabulary is the within-life inventory, and advisory - #
 
 
-def test_plasticity_modes_is_the_registered_claim_enumeration():
-    """Transcribed from the claim title, NOT invented here.
-
-    TODO(chip-20260827-plasticity-inventory): replace with the real within-life
-    plasticity inventory once REE_assembly/evidence/planning/
-    within_life_plasticity_inventory_*.md exists.
-    """
+def test_plasticity_modes_is_the_within_life_inventory_vocabulary():
+    """The real nine-class vocabulary (within_life_plasticity_inventory_2026-08-27.md
+    section 2), superseding the original six-mode claim-title transcription --
+    chip-20260827-capability-contract-plasticity-vocab. Re-pointed at the
+    inventory as the source of truth; update this pin only alongside a new
+    inventory revision, never by hand-guessing a mode name."""
     assert PLASTICITY_MODES == (
         "parameters",
         "policy_value",
-        "e1_e2_representations",
-        "memory_state",
-        "residue_ema_state",
-        "offline_updates",
+        "e1_representations",
+        "e2_action_conditional",
+        "context_memory",
+        "hippocampal_buffers",
+        "residue_affective",
+        "ema_control_state",
+        "offline_sleep_updates",
     )
 
 
 def test_an_unrecognised_plasticity_mode_is_surfaced_not_refused():
-    """A stub must never be able to refuse the declarations the inventory adds."""
+    """Validation must never be able to refuse a mode outside even the real
+    inventory -- a later audit revision must still be free to introduce one."""
     contract = _contract(requires_plasticity=[
-        PlasticityRequirement(mode="hippocampal_buffers",
+        PlasticityRequirement(mode="synaptic_tagging_state",
                               requires_gradients=False,
                               requires_optimizer=False,
                               requires_delta_witness=False)])
     result = verify_capability_contract(contract, **_plastic_run())
 
-    assert result["unrecognised_plasticity_modes"] == ["hippocampal_buffers"]
+    assert result["unrecognised_plasticity_modes"] == ["synaptic_tagging_state"]
+    assert "synaptic_tagging_state" not in PLASTICITY_MODES
     assert result["satisfied"] is True
     assert result["interpretation_route"] == ROUTE_INTERPRETABLE
 
 
-def test_manifest_block_declares_the_vocabulary_as_provisional():
+def test_manifest_block_declares_the_vocabulary_source():
     block = verify_capability_contract(_contract(),
                                        **_plastic_run())["manifest_block"]
     status = block["plasticity_vocabulary_status"]
-    assert "PROVISIONAL" in status
+    assert "within_life_plasticity_inventory_2026-08-27" in status
     assert "chip-20260827-plasticity-inventory" in status
+    assert "advisory" in status.lower()
 
 
 def test_non_gradient_plasticity_mode_is_not_faulted_under_no_grad():
-    """A memory-state driver correctly running under no_grad is not a misfire."""
+    """A context_memory driver correctly running under no_grad is not a misfire
+    -- inventory section 3.5: the ContextMemory write is a `.data` mutation
+    under the module's own no_grad, unaffected by the driver's."""
     contract = _contract(requires_plasticity=[
-        PlasticityRequirement(mode="memory_state", requires_gradients=False,
+        PlasticityRequirement(mode="context_memory", requires_gradients=False,
                               requires_optimizer=False,
                               requires_delta_witness=False)])
     run = _plastic_run(learning_mode=learning_mode_snapshot(grad_enabled=False))
@@ -702,6 +709,69 @@ def test_non_gradient_plasticity_mode_is_not_faulted_under_no_grad():
 
     assert result["satisfied"] is True
     assert result["interpretation_route"] == ROUTE_INTERPRETABLE
+
+
+def test_split_pair_context_memory_vs_hippocampal_buffers_can_differ():
+    """The point of the split (inventory section 2): in every driver audited,
+    context_memory and hippocampal_buffers have OPPOSITE answers to 'can it
+    change during a life'. Pin that the two modes are independently
+    verifiable and CAN disagree in one contract's results -- the old single
+    memory_state mode could not express this at all.
+
+    Both resolve requires_gradients=False / requires_optimizer=False by mode
+    default here (neither driver overrides them), so under gradients-disabled
+    neither is faulted for the gradient/optimizer checks at all -- ONLY the
+    parameter-delta witness fires, and the two witnesses disagree exactly as
+    the inventory records (context_memory changed via the SWS pass;
+    hippocampal_buffers did not, in this fixture)."""
+    contract = _contract(requires_plasticity=[
+        PlasticityRequirement(mode="context_memory", load_bearing=False),
+        PlasticityRequirement(mode="hippocampal_buffers", load_bearing=False),
+    ])
+    run = _plastic_run(learning_mode=learning_mode_snapshot(grad_enabled=False))
+    result = verify_capability_contract(contract, **run)
+
+    names = {c["name"] for c in result["checks"]}
+    assert "plasticity::context_memory::gradients_enabled" not in names
+    assert "plasticity::hippocampal_buffers::gradients_enabled" not in names
+    assert "plasticity::context_memory::optimizer_membership" not in names
+    assert "plasticity::hippocampal_buffers::optimizer_membership" not in names
+    assert "plasticity::context_memory::parameter_delta_witness" in names
+    assert "plasticity::hippocampal_buffers::parameter_delta_witness" in names
+    for req in contract.requires_plasticity:
+        assert req.requires_gradients is False
+        assert req.requires_optimizer is False
+        assert req.requires_delta_witness is True
+
+
+def test_split_pair_residue_affective_vs_ema_control_state_defaults_match():
+    """The second split pair (inventory section 2) resolves the same
+    non-gradient defaults (section 3.6), independently of each other."""
+    residue = PlasticityRequirement(mode="residue_affective")
+    ema = PlasticityRequirement(mode="ema_control_state")
+    assert residue.requires_gradients is False and residue.requires_optimizer is False
+    assert ema.requires_gradients is False and ema.requires_optimizer is False
+
+
+def test_gradient_trained_modes_keep_the_original_true_default():
+    """policy_value, e1_representations and e2_action_conditional are the
+    standard gradient-trained case the original defaults were written for --
+    the inventory does not contradict that, so they must NOT have been
+    swept into the non-gradient override table."""
+    for mode in ("parameters", "policy_value", "e1_representations",
+                "e2_action_conditional", "offline_sleep_updates"):
+        req = PlasticityRequirement(mode=mode)
+        assert req.requires_gradients is True, mode
+        assert req.requires_optimizer is True, mode
+
+
+def test_explicit_override_wins_over_the_mode_default():
+    """An author declaring an unusual run must still be able to override the
+    resolved default in either direction."""
+    forced_on = PlasticityRequirement(mode="context_memory", requires_gradients=True)
+    forced_off = PlasticityRequirement(mode="parameters", requires_optimizer=False)
+    assert forced_on.requires_gradients is True
+    assert forced_off.requires_optimizer is False
 
 
 # --- 10. organism identity --------------------------------------------------- #

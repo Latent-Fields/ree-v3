@@ -123,16 +123,19 @@ MOST UPSTREAM unmet stage is the one named:
 Every triggered route is listed in `routes_triggered`; `interpretation_route`
 names the most upstream. Nothing is hidden by the precedence.
 
-PLASTICITY VOCABULARY IS A STUB -- SEE `PLASTICITY_MODES`
----------------------------------------------------------
-GOV-CAPCONTRACT-1's own notes name its precondition: "a within-life plasticity
+PLASTICITY VOCABULARY -- `PLASTICITY_MODES`
+--------------------------------------------
+GOV-CAPCONTRACT-1's own notes named its precondition: "a within-life plasticity
 inventory across the existing long-life drivers ... Without that inventory the
 `requires_plasticity` field has no vocabulary to declare against." That inventory
-(`REE_assembly/evidence/planning/within_life_plasticity_inventory_*.md`,
-chip `chip-20260827-plasticity-inventory`) did NOT exist when this module was
-written, and was NOT invented here. `PLASTICITY_MODES` transcribes the claim
-title's own enumeration as a PROVISIONAL placeholder and validation against it is
-ADVISORY, never a gate -- see that constant's comment.
+(`REE_assembly/evidence/planning/within_life_plasticity_inventory_2026-08-27.md`,
+chip `chip-20260827-plasticity-inventory`) has since landed and its section 2
+supplies the real nine-class vocabulary, superseding the six-mode placeholder
+this module originally shipped with (`chip-20260827-capability-contract-
+plasticity-vocab`). `PLASTICITY_MODES` now names those nine classes. Validation
+against it remains ADVISORY, never a gate -- see that constant's comment: the
+inventory is better-grounded than the stub, but the same "unrecognised mode is
+surfaced, not refused" property is preserved on purpose.
 
 USAGE
 -----
@@ -273,38 +276,97 @@ ROUTED_OUTCOME = "DIAGNOSTIC"
 # faculty", and using it here would misattribute the exclusion.
 _EXCLUDED_DIRECTIONS = frozenset({"non_contributory", "inconclusive"})
 
-# PROVISIONAL STUB -- TODO(chip-20260827-plasticity-inventory).
+# REAL INVENTORY (landed 2026-08-27) -- supersedes the original six-mode stub.
 #
-# GOV-CAPCONTRACT-1's notes make the within-life plasticity inventory a
+# GOV-CAPCONTRACT-1's notes made the within-life plasticity inventory a
 # PRECONDITION FOR ITS OWN IMPLEMENTATION: "Without that inventory the
 # `requires_plasticity` field has no vocabulary to declare against." That
-# inventory -- REE_assembly/evidence/planning/within_life_plasticity_inventory_*.md,
-# owed by chip-20260827-plasticity-inventory -- did not exist when this module
-# was written and NOTHING here invents it.
+# inventory --
+# REE_assembly/evidence/planning/within_life_plasticity_inventory_2026-08-27.md,
+# chip chip-20260827-plasticity-inventory -- audited all 19 ree-v3 long-life /
+# observational / Fishtank drivers against ARC-135's four-way continuity
+# decomposition and section 2 supplies the mapping this tuple applies:
 #
-# The tuple below is a verbatim transcription of the enumeration in the
-# REGISTERED claim title ("which forms of change were permitted (parameters,
-# policy/value, E1/E2 representations, memory state, residue/EMA state, offline
-# updates)"), quoted so `requires_plasticity` has something to name today. It is
-# NOT the inventory, and it is certainly not complete: ARC-135's four-way
-# continuity decomposition (cognitive/affective/mnemonic, parameter/plasticity,
-# body/homeostatic, ecological/world) is the other vocabulary this field must
-# eventually compose with, and the inventory is expected to enumerate hippocampal
-# buffers and sleep-dependent updates separately.
+#   parameters            -> parameters (unchanged)
+#   policy_value          -> policy_value (unchanged)
+#   e1_e2_representations -> split -> e1_representations + e2_action_conditional
+#   memory_state          -> split -> context_memory + hippocampal_buffers
+#   residue_ema_state     -> split -> residue_affective + ema_control_state
+#   offline_updates       -> offline_sleep_updates (renamed)
 #
-# VALIDATION AGAINST IT IS THEREFORE ADVISORY, NEVER A GATE: an unrecognised mode
-# is accepted and surfaced in `unrecognised_plasticity_modes`, not rejected.
-# Hardening a stub into a gate is how a placeholder becomes a permanent, wrong
-# standard -- and it would refuse exactly the declarations the real inventory is
-# expected to introduce.
+# THE SPLITS ARE NOT COSMETIC. The inventory's audit found that in every driver
+# examined, context_memory and hippocampal_buffers have OPPOSITE answers to "can
+# it change during a life" (section 5's 19x9 matrix), and so do residue_affective
+# and ema_control_state -- a single memory_state / residue_ema_state mode cannot
+# express what those runs actually permit.
+#
+# VALIDATION AGAINST IT REMAINS ADVISORY, NEVER A GATE: an unrecognised mode is
+# accepted and surfaced in `unrecognised_plasticity_modes`, not rejected. The
+# inventory is far better-grounded than the stub it replaces (every cell is a
+# file:line citation or an explicit UNDETERMINED), but it is still an audit
+# artifact, not a closed standard -- hardening it into a gate would refuse
+# exactly the refinements a later audit might introduce.
 PLASTICITY_MODES = (
     "parameters",
     "policy_value",
-    "e1_e2_representations",
-    "memory_state",
-    "residue_ema_state",
-    "offline_updates",
+    "e1_representations",
+    "e2_action_conditional",
+    "context_memory",
+    "hippocampal_buffers",
+    "residue_affective",
+    "ema_control_state",
+    "offline_sleep_updates",
 )
+
+# PER-MODE DEFAULTS for PlasticityRequirement.requires_gradients /
+# requires_optimizer, keyed to inventory facts. A mode absent from this dict (or
+# an unrecognised mode string) keeps the class-level default (True for both) --
+# the pre-existing, gradient-based-training assumption the original six-mode
+# stub always applied. Only modes the inventory affirmatively establishes as
+# NOT gradient-based / NOT optimizer-mediated are overridden here; every entry
+# cites the section that establishes it. `requires_delta_witness` is NOT
+# overridden anywhere: whether a mode changed is exactly as meaningful to check
+# for a non-gradient mechanism as for a trained one, so its True default is
+# correct across the whole vocabulary and untouched by this table.
+#
+#   context_memory     -- section 3.5: "The write itself is a `.data` mutation
+#                          under the module's own no_grad ... unaffected by a
+#                          driver's no_grad and by agent.eval()". No optimizer
+#                          is involved in a ContextMemory write at all.
+#   residue_affective  -- section 3.6: "The residue field is plastic under any
+#                          grad mode ... Pure arithmetic; no gradient involved."
+#                          Same section: the MECH-357 gate is "a plain Python
+#                          float" and the MECH-358 bridge is explicitly
+#                          "Non-trainable: pure arithmetic".
+#   hippocampal_buffers -- sections 3.2/3.3/3.7: no ree_core module re-enables
+#                          gradient inside a driver's no_grad block, none of the
+#                          six modules that own an optimizer correspond to
+#                          buffer/anchor/V_s/staleness state, and the
+#                          exploration buffer's sole writer is a plain
+#                          `.append()` (agent.py:3687) with no gradient or
+#                          optimizer path.
+#   ema_control_state  -- section 3.6 (by example: gates and credit tables,
+#                          this mode's own constituents, are cited there as
+#                          "plain Python float" / "Non-trainable: pure
+#                          arithmetic") plus the same 3.2/3.3 absence of any
+#                          EMA/gate/counter optimizer tree-wide.
+#
+# NOT overridden, and left at the True/True class default because the
+# inventory does not establish a single answer: policy_value, e1_representations
+# and e2_action_conditional are the standard gradient-trained case the original
+# defaults were written for (no inventory finding contradicts that). offline_
+# sleep_updates is a genuine MIX -- section 3.8 records both a non-gradient
+# ContextMemory write AND (when reachable) SelfModelAggregator.offline_
+# gradient_pass, "the one genuine offline parameter update" -- so a single
+# default would misdescribe whichever sub-mechanism it does not name; a driver
+# declaring this mode should set requires_gradients explicitly for the
+# sub-mechanism it actually means.
+_PLASTICITY_MODE_DEFAULTS: Dict[str, Dict[str, bool]] = {
+    "context_memory": {"requires_gradients": False, "requires_optimizer": False},
+    "residue_affective": {"requires_gradients": False, "requires_optimizer": False},
+    "hippocampal_buffers": {"requires_gradients": False, "requires_optimizer": False},
+    "ema_control_state": {"requires_gradients": False, "requires_optimizer": False},
+}
 
 
 class CapabilityContractDeclarationError(ValueError):
@@ -413,10 +475,11 @@ class CapabilityRequirement:
 class PlasticityRequirement:
     """One form of within-life change the hypothesis requires to be POSSIBLE.
 
-    `mode` should name a `PLASTICITY_MODES` entry, but an unrecognised value is
-    ACCEPTED and surfaced rather than refused -- see that constant's comment: the
-    real vocabulary is owed by chip-20260827-plasticity-inventory and a stub must
-    not be able to refuse the declarations that inventory introduces.
+    `mode` should name a `PLASTICITY_MODES` entry (the within-life plasticity
+    inventory's nine classes), but an unrecognised value is ACCEPTED and
+    surfaced rather than refused -- see that constant's comment: the inventory
+    is well-grounded but still an audit artifact, and a stub-turned-gate would
+    refuse exactly the refinements a later audit might introduce.
 
     `load_bearing=False` declares a mode that is permitted but whose absence is
     not fatal to the interpretation: it is verified and reported, and it cannot
@@ -425,16 +488,24 @@ class PlasticityRequirement:
     a broken continuity is not developmental opportunity applies to both, but only
     the second invalidates a null.
 
-    `requires_gradients` should be False for a mode that is not gradient-based
-    (memory state, residue/EMA state), so a driver correctly running under
-    `torch.no_grad()` is not routed `nonplastic_misfire` for it.
+    `requires_gradients` / `requires_optimizer` default to True (the standard
+    gradient-trained-parameter case) UNLESS `mode` is one of the four inventory
+    established as not gradient-based / not optimizer-mediated
+    (`_PLASTICITY_MODE_DEFAULTS` -- see that dict's comment for the per-mode
+    citations). Pass either explicitly to override the resolved default for an
+    unusual declaration; an explicit `True`/`False` always wins over the
+    mode-keyed default, which only fills in when the field is left unset
+    (`None`). Getting this right matters: a mode wrongly left at
+    requires_gradients=True routes a driver correctly running under
+    `torch.no_grad()` to `nonplastic_misfire` for a form of change that was
+    never gradient-based in the first place.
     """
 
     mode: str
     description: str = ""
     load_bearing: bool = True
-    requires_gradients: bool = True
-    requires_optimizer: bool = True
+    requires_gradients: Optional[bool] = None
+    requires_optimizer: Optional[bool] = None
     requires_delta_witness: bool = True
     claim_ids: Sequence[str] = ()
     note: str = ""
@@ -443,6 +514,11 @@ class PlasticityRequirement:
         if not str(self.mode).strip():
             raise CapabilityContractDeclarationError(
                 "PlasticityRequirement.mode must be a non-empty string")
+        mode_defaults = _PLASTICITY_MODE_DEFAULTS.get(self.mode, {})
+        if self.requires_gradients is None:
+            self.requires_gradients = bool(mode_defaults.get("requires_gradients", True))
+        if self.requires_optimizer is None:
+            self.requires_optimizer = bool(mode_defaults.get("requires_optimizer", True))
 
 
 @dataclass
@@ -1092,10 +1168,12 @@ def _manifest_block(contract: CapabilityContract,
         "unrecognised_plasticity_modes": list(
             result["unrecognised_plasticity_modes"]),
         "plasticity_vocabulary_status": (
-            "PROVISIONAL -- the within-life plasticity inventory owed by "
-            "chip-20260827-plasticity-inventory does not exist yet; "
-            "PLASTICITY_MODES transcribes the GOV-CAPCONTRACT-1 claim title's own "
-            "enumeration and validation against it is advisory, not a gate"),
+            "PLASTICITY_MODES is the nine-class within-life plasticity inventory "
+            "(REE_assembly/evidence/planning/within_life_plasticity_inventory_"
+            "2026-08-27.md, chip-20260827-plasticity-inventory), which supersedes "
+            "the module's original six-mode placeholder "
+            "(chip-20260827-capability-contract-plasticity-vocab); validation "
+            "against it remains advisory, not a gate"),
         "scope_note": (
             "WHOLE-ORGANISM, whole-run by construction: every check here is a "
             "property of the single organism instantiated for this run and cannot "
