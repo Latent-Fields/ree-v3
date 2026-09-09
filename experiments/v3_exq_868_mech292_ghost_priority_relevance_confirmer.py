@@ -133,7 +133,7 @@ from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.hippocampal.ghost_goal_bank import GhostGoalBankEntry
 from ree_core.utils.config import REEConfig
 from experiment_protocol import emit_outcome  # noqa: E402
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
 
 EVIDENCE_ROOT = REPO_ROOT.parent / "REE_assembly" / "evidence" / "experiments"
@@ -552,6 +552,39 @@ def main(dry_run: bool = False) -> int:
             f"{min_comparable} floor"
         ),
         "per_seed_results": per_seed_results,
+        # Flat scalar readout -- the pack's metrics.values source. The per-criterion
+        # counts below sit under `interpretation`, and the top-level n_* scalars sit
+        # under keys the runpack converter does not harvest (it reads only metrics /
+        # aggregates / summary_metrics / readout), so the pack scored with no numeric
+        # metrics.values: no fail_if stop threshold could fire, the duplicate-emission
+        # supersession fingerprint was skipped, and the index carried no deltas. This
+        # projects the same pre-registered quantities C1 (load-bearing) and the C2
+        # secondary turn on -- each count against the bar it is compared with -- plus the
+        # comparable-seed floor the whole run is gated on. flat_readout() enforces the
+        # two encoding rules (bools -> 0/1 ints; non-finite/None dropped). Recording-
+        # only: the verdict grid, criteria, thresholds and DV are unchanged.
+        "readout": flat_readout({
+            "C1_relevant_majority_wins": c1_majority_relevant_wins,
+            "C2_goal_match_dominant_on_direct_wins": c2_goal_match_dominant_majority,
+            "n_criteria_passed": sum(
+                1 for x in (c1_majority_relevant_wins, c2_goal_match_dominant_majority)
+                if x),
+            "n_criteria_total": 2,
+            "non_degenerate_flag": non_degenerate,
+            # C1: wins against the proportional >=4/7 bar
+            "n_relevant_wins": n_wins,
+            "win_threshold": win_threshold,
+            "prereg_win_fraction": _PREREG_WIN_FRACTION,
+            # the substrate-engagement floor the run is gated on
+            "n_comparable_seeds": n_comparable,
+            "min_comparable_seeds": min_comparable,
+            "n_attempted_seeds": n_attempted,
+            # C2: goal-match dominance among direct (both-admitted) wins
+            "n_direct_comparison_wins": n_direct_wins,
+            "n_goal_match_dominant_wins": n_goal_match_dominant,
+            "goal_match_dominant_threshold": (
+                max(1, round(n_direct_wins / 2.0)) if n_direct_wins > 0 else None),
+        }),
         "n_comparable_seeds": n_comparable,
         "n_attempted_seeds": n_attempted,
         "n_relevant_wins": n_wins,

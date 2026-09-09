@@ -114,7 +114,7 @@ from ree_core.residue.field import (
     VALENCE_HARM_DISCRIMINATIVE,
 )
 
-from experiments.pack_writer import write_flat_manifest
+from experiments.pack_writer import write_flat_manifest, flat_readout
 from experiments._metrics import check_degeneracy
 from experiments._lib.z_goal_stream import ZGoalStreamAccumulator
 from experiment_protocol import emit_outcome
@@ -505,6 +505,47 @@ def _run(dry_run: bool):
             "max_distinct_benefit_values": max_distinct,
         },
         "per_seed_results": per_seed,
+        # Flat scalar readout -- the pack's metrics.values source. The `acceptance` block
+        # above is scalar-shaped but sits under a key the runpack converter does not
+        # harvest (it reads only metrics / aggregates / summary_metrics / readout), and
+        # per_seed_results is a list, so the pack scored with no numeric metrics.values:
+        # no fail_if stop threshold could fire, the duplicate-emission supersession
+        # fingerprint was skipped, and the index carried no deltas. This projects the same
+        # pre-registered quantities C1/C2/C3 and the sign-consistency check turn on, plus
+        # the decisive per-seed margin extremum (sign_consistent is an ALL over margins,
+        # so the MINIMUM margin is what decides it) and the C3 admissibility statistics
+        # against their bars. flat_readout() enforces the two encoding rules (bools -> 0/1
+        # ints; non-finite/None dropped). Recording-only: the verdict grid, criteria,
+        # thresholds and DV are unchanged.
+        "readout": flat_readout({
+            "C1_benefit_dose_response_all_seeds": all_c1,
+            "C2_harm_complement_all_seeds": all_c2,
+            "C3_admissible": c3_admissible,
+            "sign_consistent": sign_consistent,
+            "n_criteria_passed": sum(
+                1 for x in (all_c1, all_c2, c3_admissible, sign_consistent) if x),
+            "n_criteria_total": 4,
+            "non_degenerate_flag": non_degenerate,
+            "n_degenerate_metrics": len(degeneracy.get("degenerate_metrics") or []),
+            # C3 admissibility statistics against their bars
+            "mean_discriminating_window_fraction": mean_discrim_all,
+            "min_discrim_bar": MIN_DISCRIM,
+            "max_distinct_benefit_values": max_distinct,
+            "distinct_benefit_values_bar": 3,
+            "n_admissible_seeds": len(admissible_seeds),
+            "n_seeds": len(SEEDS),
+            # per-seed criterion census + the decisive margin extremum
+            "n_seeds_c1_benefit_dose_response": sum(
+                1 for r in per_seed if r["c1_benefit_dose_response"]),
+            "n_seeds_c2_harm_complement": sum(
+                1 for r in per_seed if r["c2_harm_complement"]),
+            "margin_min_over_admissible_seeds": min(
+                (r["margin"] for r in admissible_seeds), default=None),
+            "margin_max_over_admissible_seeds": max(
+                (r["margin"] for r in admissible_seeds), default=None),
+            "margin_bar": MARGIN,
+            "n_doses": len(DOSE_GRID),
+        }),
         "dv_symmetry_note": (
             "manipulation = drive-weight vector [t5ht,0.5,1-t5ht,surprise], a non-uniform "
             "reweighting; the argmax start-selection DV is NOT invariant under it (not a "

@@ -101,7 +101,7 @@ from experiment_protocol import emit_outcome
 from ree_core.environment.causal_grid_world import CausalGridWorld
 from ree_core.agent import REEAgent
 from ree_core.utils.config import REEConfig
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 from experiments._lib.manifest_core import stamp_recording_core
 from experiments._lib.arm_fingerprint import arm_cell
 from experiments._lib.z_goal_stream import ZGoalStreamAccumulator
@@ -503,9 +503,54 @@ def run_experiment(dry_run=False, started_at=None):
         f"See scorer_fix_deltas for the full per-arm, per-component comparison."
     )
 
+    # Flat scalar readout -- the pack's metrics.values source. Every quantitative block
+    # this driver emits (cell_summaries, scorer_fix_deltas, per_seed_results) is a dict
+    # keyed by arm/scorer_state/seed, so the pack scored with no numeric metrics.values:
+    # no fail_if stop threshold could fire, the duplicate-emission supersession
+    # fingerprint was skipped, and the index carried no deltas. These are the pre-
+    # registered scalars the outcome turns on -- the per-cell fresh-tick FLOOR the PASS
+    # is an ALL over (so the MINIMUM is the decisive extremum), the collection totals,
+    # and the headline fixed-vs-legacy temporal_fraction[f] comparison this remeasurement
+    # exists to make. flat_readout() enforces the two encoding rules (bools -> 0/1 ints;
+    # non-finite/None dropped). Recording-only: the outcome rule, thresholds and DVs are
+    # unchanged.
+    _all_rows = [r for results in all_results.values() for r in results]
+    _readout = {
+        "all_cells_collected_flag": all_cells_collected,
+        "min_fresh_ticks_per_cell": min((r["n_fresh_ticks"] for r in _all_rows),
+                                        default=None),
+        "min_fresh_ticks_bar": 10,
+        "n_cells": n_cells,
+        "n_cells_meeting_fresh_tick_floor": sum(
+            1 for r in _all_rows if r["n_fresh_ticks"] >= 10),
+        "total_fresh_ticks": total_fresh,
+        "total_latched_ticks": total_latched,
+        "total_env_steps": sum(r["n_env_steps"] for r in _all_rows),
+        "n_arms": len(ARM_NAMES),
+        "n_scorer_states": len(SCORER_STATES),
+        "n_seeds": len(SEEDS),
+        # the headline fixed-vs-legacy comparison this remeasurement exists to make
+        "arm0_fixed_temporal_fraction_f": fixed_f_arm0,
+        "arm0_legacy_temporal_fraction_f": legacy_f_arm0,
+        "arm0_delta_temporal_fraction_f_fixed_minus_legacy": fixed_f_arm0 - legacy_f_arm0,
+        # non-degeneracy of the load-bearing readout
+        "non_degenerate_flag": degeneracy["non_degenerate"],
+        "n_degenerate_metrics": len(degeneracy["degenerate_metrics"] or []),
+        "temporal_fraction_f_min_across_cells": min(f_frac_values, default=None),
+        "temporal_fraction_f_max_across_cells": max(f_frac_values, default=None),
+        "n_substrate_state_flips_fixed_vs_legacy": sum(
+            len(d["substrate_state_flips_fixed_vs_legacy"])
+            for d in scorer_fix_deltas.values()),
+    }
+    for _arm in ARM_NAMES:
+        for _c in SCORE_COMPONENTS:
+            _readout[f"{_arm}_delta_temporal_fraction_{_c}_fixed_minus_legacy"] = (
+                scorer_fix_deltas[_arm][f"delta_temporal_fraction_{_c}_fixed_minus_legacy"])
+
     return {
         "outcome": outcome,
         "outcome_note": outcome_note,
+        "readout": flat_readout(_readout),
         "cell_summaries": cell_summaries,
         "scorer_fix_deltas": scorer_fix_deltas,
         "per_seed_results": all_results,
@@ -549,6 +594,7 @@ if __name__ == "__main__":
         "score_components": SCORE_COMPONENTS,
         "temporal_fraction_components": TEMPORAL_FRACTION_COMPONENTS,
         "per_channel_bias_components": PER_CHANNEL_BIAS_COMPONENTS,
+        "readout": result["readout"],
         "cell_summaries": result["cell_summaries"],
         "scorer_fix_deltas": result["scorer_fix_deltas"],
         "per_seed_results": result["per_seed_results"],

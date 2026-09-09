@@ -126,7 +126,7 @@ import torch.optim as optim
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
 from ree_core.agent import REEAgent
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
 from experiments._metrics import check_degeneracy  # noqa: E402
 
@@ -522,6 +522,56 @@ def main():
             "min_dispersion": MIN_DISPERSION,
         },
         "criteria": criteria,
+        # Flat scalar readout -- the pack's metrics.values source. `criteria` above mixes
+        # scalars with per-seed lists AND sits under a key the runpack converter does not
+        # harvest (it reads only metrics / aggregates / summary_metrics / readout), and
+        # results_per_arm is a list, so the pack scored with no numeric metrics.values:
+        # no fail_if stop threshold could fire, the duplicate-emission supersession
+        # fingerprint was skipped, and the index carried no deltas. This projects the same
+        # pre-registered quantities C1/C2/C3 turn on, plus the decisive per-seed extremum
+        # for each: C1 is an upper bound so its WORST seed is the maximum value drift,
+        # C2 a lower bound so its worst is the minimum location drift, and C3 a paired
+        # ordering so its worst is the minimum location-minus-value delta. flat_readout()
+        # enforces the two encoding rules (bools -> 0/1 ints; non-finite/None dropped).
+        # Recording-only: the verdict grid, criteria, thresholds and DV are unchanged.
+        "readout": flat_readout({
+            "C1_value_stable_pass": criteria["c1_value_stable_pass"],
+            "C2_location_sensitive_pass": criteria["c2_location_sensitive_pass"],
+            "C3_paired_ordering_pass": criteria["c3_paired_ordering_pass"],
+            "n_criteria_passed": sum(1 for k in ("c1_value_stable_pass",
+                                                 "c2_location_sensitive_pass",
+                                                 "c3_paired_ordering_pass")
+                                     if criteria[k]),
+            "n_criteria_total": 3,
+            "overall_pass_flag": criteria["overall_pass"],
+            # per-seed pass counts against the shared seed-majority bar
+            "min_seeds_pass_bar": MIN_SEEDS_PASS,
+            "c1_seeds_pass": criteria["c1_seeds_pass"],
+            "c2_seeds_pass": criteria["c2_seeds_pass"],
+            "c3_seeds_pass": criteria["c3_seeds_pass"],
+            "n_seeds": len(SEEDS),
+            # decisive extrema against the pre-registered drift thresholds
+            "c1_value_drift_max_bar": C1_VALUE_DRIFT_MAX,
+            "c1_value_drift_worst": max(criteria["c1_value_drifts"], default=None),
+            "c1_value_drift_best": min(criteria["c1_value_drifts"], default=None),
+            "c2_location_drift_min_bar": C2_LOCATION_DRIFT_MIN,
+            "c2_location_drift_worst": min(criteria["c2_location_drifts"], default=None),
+            "c2_location_drift_best": max(criteria["c2_location_drifts"], default=None),
+            "c3_pairwise_delta_worst": min(
+                (d["location_minus_value_drift"] for d in criteria["pairwise_deltas"]),
+                default=None),
+            "c3_pairwise_delta_best": max(
+                (d["location_minus_value_drift"] for d in criteria["pairwise_deltas"]),
+                default=None),
+            "n_paired_seeds": len(criteria["pairwise_deltas"]),
+            # non-degeneracy: the probe dispersion floor the whole readout rests on
+            "min_dispersion_floor": MIN_DISPERSION,
+            "pre_dispersion_min": min((r["pre_dispersion"] for r in all_results),
+                                      default=None),
+            "non_degenerate_flag": degeneracy["non_degenerate"],
+            "n_degenerate_metrics": len(degeneracy["degenerate_metrics"] or []),
+            "n_cells": len(all_results),
+        }),
         "results_per_arm": all_results,
         "interpretation": {
             "label": interpretation_label,

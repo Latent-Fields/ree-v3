@@ -111,7 +111,7 @@ from experiments._lib.goal_pipeline_tier1 import warmup_train  # noqa: E402
 from experiments._lib.q081_profile import q081_profile_kwargs  # noqa: E402
 from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
 from experiments._metrics import check_degeneracy, p0_readiness_gate, P0NotReady  # noqa: E402
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
@@ -411,6 +411,25 @@ def main(dry_run: bool) -> Dict[str, Any]:
         manifest["per_seed"] = per_seed
         manifest["non_degenerate"] = False
         manifest["degeneracy_reason"] = e.reason
+        # Flat scalar readout on the NOT-READY path too -- this branch also writes a pack,
+        # and a substrate_not_ready run whose pack carries no numeric metrics.values is
+        # exactly as unscorable as a completed one. The readiness statistics ARE the
+        # measurement here, so they are what this branch records. See the main path below
+        # for the full rationale.
+        manifest["readout"] = flat_readout({
+            "substrate_not_ready_flag": True,
+            "C1_monotonic_ordering_confirmed": False,
+            "non_degenerate_flag": False,
+            "n_seeds": len(seeds),
+            "min_steps_per_seed": float(min_n),
+            "min_steps_per_seed_floor": float(MIN_STEPS_PER_SEED),
+            "min_var_dz_world": float(min_var_world),
+            "min_var_dz_self": float(min_var_self),
+            "min_var_d_precision": float(min_var_prec),
+            "delta_variance_floor": float(DELTA_VARIANCE_FLOOR),
+            "n_preconditions_met": sum(1 for pc in e.preconditions if pc.get("met")),
+            "n_preconditions_total": len(e.preconditions),
+        })
         out_path = write_flat_manifest(
             manifest, config={"env_kwargs": _env_kwargs(), "warmup_episodes": warmup_episodes,
                                "eval_episodes": eval_episodes, "steps_per_episode": steps_per_episode},
@@ -475,6 +494,46 @@ def main(dry_run: bool) -> Dict[str, Any]:
         ),
         "per_seed": per_seed,
         "monotonicity_verdict": verdict,
+        # Flat scalar readout -- the pack's metrics.values source. Every quantitative block
+        # this driver emits (per_seed, monotonicity_verdict, realised_tick_ratio_per_seed,
+        # interpretation) is a list or a dict keyed by seed, so the pack scored with no
+        # numeric metrics.values: no fail_if stop threshold could fire, the duplicate-
+        # emission supersession fingerprint was skipped, and the index carried no deltas.
+        # These are the pre-registered scalars C1 turns on -- the three tau means and the
+        # two adjacent-rung delta means with their SDs and the SD-margin bar that decides
+        # each rung, plus the readiness minima against their floors. flat_readout()
+        # enforces the two encoding rules (bools -> 0/1 ints; non-finite/None dropped).
+        # Recording-only: the verdict grid, criterion, thresholds and DV are unchanged.
+        "readout": flat_readout({
+            "C1_monotonic_ordering_confirmed": verdict["monotonic_ordering_confirmed"],
+            "n_criteria_passed": int(bool(verdict["monotonic_ordering_confirmed"])),
+            "n_criteria_total": 1,
+            "non_degenerate_flag": degeneracy["non_degenerate"],
+            "n_degenerate_metrics": len(degeneracy["degenerate_metrics"] or []),
+            "substrate_not_ready_flag": False,
+            # the ladder itself
+            "tau_e1_mean": verdict["tau_e1_mean"], "tau_e1_sd": verdict["tau_e1_sd"],
+            "tau_e2_mean": verdict["tau_e2_mean"], "tau_e2_sd": verdict["tau_e2_sd"],
+            "tau_e3_mean": verdict["tau_e3_mean"], "tau_e3_sd": verdict["tau_e3_sd"],
+            # the two rung comparisons C1 is the AND of, each against the SD-margin bar
+            "halflife_sd_margin_bar": HALFLIFE_SD_MARGIN,
+            "e1_to_e2_delta_mean": verdict["e1_to_e2_delta_mean"],
+            "e1_to_e2_delta_sd": verdict["e1_to_e2_delta_sd"],
+            "e1_to_e2_margin_met": verdict["e1_to_e2_margin_met"],
+            "e2_to_e3_delta_mean": verdict["e2_to_e3_delta_mean"],
+            "e2_to_e3_delta_sd": verdict["e2_to_e3_delta_sd"],
+            "e2_to_e3_margin_met": verdict["e2_to_e3_margin_met"],
+            # readiness minima against their floors (worst cell across seeds)
+            "min_steps_per_seed": float(min_n),
+            "min_steps_per_seed_floor": float(MIN_STEPS_PER_SEED),
+            "min_var_dz_world": float(min_var_world),
+            "min_var_dz_self": float(min_var_self),
+            "min_var_d_precision": float(min_var_prec),
+            "delta_variance_floor": float(DELTA_VARIANCE_FLOOR),
+            "n_preconditions_met": sum(1 for pc in preconditions if pc.get("met")),
+            "n_preconditions_total": len(preconditions),
+            "n_seeds": len(seeds),
+        }),
         "designed_tick_ratio": {"e1": 1, "e2": 3, "e3": 10},
         "realised_tick_ratio_per_seed": tick_ratio_report,
         "structural_findings": structural_findings,

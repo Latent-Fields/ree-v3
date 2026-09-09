@@ -80,7 +80,7 @@ from ree_core.agent import REEAgent  # noqa: E402
 
 from _lib.arm_fingerprint import arm_cell  # noqa: E402
 from _lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
-from pack_writer import write_flat_manifest  # noqa: E402
+from pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 from experiment_protocol import emit_outcome  # noqa: E402
 
 _ZG = ZGoalStreamAccumulator()
@@ -362,6 +362,67 @@ def run_experiment(seeds, episode_ticks):
 
     non_degenerate = readiness_met and all(criteria_non_degenerate.values())
 
+    # Flat scalar readout -- the pack's metrics.values source. Every quantitative block
+    # this driver emits (arm_results, analysis_by_signal, readiness, interpretation) is a
+    # list or a dict keyed by signal / threshold / density, so the pack scored with no
+    # numeric metrics.values: no fail_if stop threshold could fire, the duplicate-
+    # emission supersession fingerprint was skipped, and the index carried no deltas.
+    # These are the pre-registered scalars C1 (load-bearing) and the C2 control turn on
+    # -- per signal the BEST AUC across thresholds (the decisive extremum, since
+    # `recommended` is the max-AUC qualifying entry) against AUC_BAR and the separate
+    # acceptance target, plus both readiness statistics against their floors.
+    # flat_readout() enforces the two encoding rules (bools -> 0/1 ints;
+    # non-finite/None dropped). Recording-only: the verdict grid, criteria, thresholds
+    # and DV are unchanged.
+    _readout = {
+        "C1_dedicated_proximity_signal_discriminates": bool(c1),
+        "C2_damage_sourced_zharma_discriminates_control": bool(c2),
+        "n_criteria_passed": sum(1 for x in (c1, c2) if x),
+        "n_criteria_total": 2,
+        "overall_pass_flag": bool(overall_pass),
+        "non_degenerate_flag": bool(non_degenerate),
+        # C1's decisive extremum against both bars
+        "dedicated_signal_best_auc": dedicated_best_auc,
+        "auc_bar": AUC_BAR,
+        "acceptance_auc_target": ACCEPTANCE_AUC_TARGET,
+        "meets_acceptance_target_flag": meets_acceptance_target,
+        "reach_floor": REACH_FLOOR,
+        # readiness -- both preconditions, each against its floor
+        "apparatus_valid_frac": apparatus_valid_frac,
+        "apparatus_valid_frac_floor": APPARATUS_VALID_FRAC_FLOOR,
+        "apparatus_met_flag": apparatus_met,
+        "dedicated_density_spread_std": dedicated_spread,
+        "density_spread_floor": DENSITY_SPREAD_FLOOR,
+        "spread_met_flag": spread_met,
+        "readiness_met_flag": readiness_met,
+        "total_ticks": total_ticks,
+        "total_valid_apparatus_ticks": total_valid,
+        # non-degeneracy
+        "nd_dedicated_density_battery": criteria_non_degenerate[
+            "dedicated_density_battery_nondegenerate"],
+        "nd_dedicated_auc_computation": criteria_non_degenerate[
+            "dedicated_auc_computation_nondegenerate"],
+        "n_cells": len(per_cell),
+        "n_density_levels": len(DENSITY_LEVELS),
+        "n_sweep_thresholds": len(SWEEP_THRESHOLDS),
+    }
+    for _sig in SIGNALS:
+        _a = analysis[_sig]
+        _best = _a["recommended"]
+        _readout.update({
+            f"{_sig}_recommended_found": _best is not None,
+            f"{_sig}_recommended_threshold": _best["threshold"] if _best else None,
+            f"{_sig}_recommended_auc": _best["auc_safe_vs_unsafe"] if _best else None,
+            f"{_sig}_recommended_reachability": (
+                _best["reachability_safe_group"] if _best else None),
+            f"{_sig}_best_auc_any_threshold": _a["best_auc_any_threshold"],
+            f"{_sig}_n_qualifying_thresholds": sum(
+                1 for e in _a["per_threshold"] if e["qualifies"]),
+            f"{_sig}_density_spread_std": _a["density_spread_std"],
+            f"{_sig}_middle_condition_mean": _a["middle_condition_mean"],
+        })
+    readout = flat_readout(_readout)
+
     manifest = {
         "run_id": None,
         "experiment_type": EXPERIMENT_TYPE,
@@ -375,6 +436,7 @@ def run_experiment(seeds, episode_ticks):
             "substrate_not_ready" if not readiness_met else "zero_spread_or_auc"),
         "timestamp_utc": datetime.utcnow().strftime("%Y%m%dT%H%M%SZ"),
         "arm_results": per_cell,
+        "readout": readout,
         "analysis_by_signal": analysis,
         "dedicated_signal_best_auc": dedicated_best_auc,
         "acceptance_auc_target": ACCEPTANCE_AUC_TARGET,

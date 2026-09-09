@@ -169,7 +169,7 @@ from experiments._lib.probe_warmup import WarmupRecipe, warm_agent  # noqa: E402
 from experiments._lib.arm_fingerprint import arm_cell  # noqa: E402
 from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
 from experiment_protocol import emit_outcome  # noqa: E402
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_952_sd075_phasic_warmup_rescue_diagnostic"
 EXPERIMENT_PURPOSE = "diagnostic"
@@ -514,6 +514,45 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         "interpretation": interpretation,
         "ethics_preflight": ethics_preflight,
         "arm_results": rows,
+        # Flat scalar readout -- the pack's metrics.values source. Every quantitative block
+        # this driver emits (arm_results, interpretation.criteria/.preconditions) is a list
+        # or a nested dict, so the pack scored with no numeric metrics.values: no fail_if
+        # stop threshold could fire, the duplicate-emission supersession fingerprint was
+        # skipped, and the index carried no deltas. These are the pre-registered scalars
+        # the load-bearing rescue criterion turns on -- the WORST warmed cell's converged
+        # event count (the criterion is a min over the warmed arm, so that minimum is the
+        # decisive extremum) against MIN_EVENT_TICKS, the warmup=0 control's range that
+        # non-degeneracy is judged on, and R0's max burst against its floor.
+        # flat_readout() enforces the two encoding rules (bools -> 0/1 ints;
+        # non-finite/None dropped). Recording-only: the verdict grid, criterion,
+        # thresholds and DV are unchanged.
+        "readout": flat_readout({
+            "C1_phasic_warmup_rescues_event_convergence": rescue_confirmed,
+            "n_criteria_passed": int(bool(rescue_confirmed)),
+            "n_criteria_total": 1,
+            "non_degenerate_flag": non_degenerate,
+            # the decisive extremum against its bar
+            "min_warmed_n_events_converged": min_warmed,
+            "min_event_ticks_bar": MIN_EVENT_TICKS,
+            # the warmup=0 control range non-degeneracy is judged against
+            "control_n_events_converged_min": min_control,
+            "control_n_events_converged_max": max_control,
+            # R0 capability precondition
+            "r0_regulator_fires_flag": r0_fires,
+            "burst_level_max": max_burst,
+            "event_level_floor": EVENT_LEVEL_FLOOR,
+            "n_preconditions_met": sum(
+                1 for pc in interpretation["preconditions"] if pc["met"]),
+            "n_preconditions_total": len(interpretation["preconditions"]),
+            # cell census
+            "n_cells": len(rows),
+            "n_warmed_cells": len(warmed_rows),
+            "n_control_cells": len(control_rows),
+            "n_seeds": len(seeds),
+            "max_warmup_episodes": max(WARMUP_CONDITIONS),
+            "n_cells_meeting_min_event_ticks": sum(
+                1 for r in rows if r["meets_min_event_ticks_converged"]),
+        }),
         "seeds": seeds,
         "notes": (
             "Answers the SD-075 (sd_phasic_ema_episode_continuity) retest-design question "
