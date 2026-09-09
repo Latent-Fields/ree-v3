@@ -88,7 +88,7 @@ from ree_core.residue.field import (  # noqa: E402
 from ree_core.utils.config import ResidueConfig  # noqa: E402
 
 from _lib.arm_fingerprint import arm_cell  # noqa: E402
-from pack_writer import write_flat_manifest  # noqa: E402
+from pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 from experiment_protocol import emit_outcome  # noqa: E402
 
 EXPERIMENT_PURPOSE = "diagnostic"
@@ -300,6 +300,60 @@ def run_experiment(seeds):
 
     non_degenerate = readiness_met and all(criteria_non_degenerate.values())
 
+    # Flat scalar readout -- the pack's metrics.values source. Every quantitative block
+    # this driver emits (arm_results, readiness, interpretation, criteria) is a list or a
+    # nested dict, so the pack scored with no numeric metrics.values: no fail_if stop
+    # threshold could fire, the duplicate-emission supersession fingerprint was skipped,
+    # and the index carried no deltas. These are the pre-registered scalars the four
+    # criteria above turn on -- the decisive per-arm extrema against their bars (C1 is a
+    # floor on the OFF arm's MINIMUM, C2 a ceiling on the ON arm's MAXIMUM), the
+    # readiness fraction, and the non-degeneracy separation statistics. flat_readout()
+    # enforces the two encoding rules (bools -> 0/1 ints; non-finite/None dropped).
+    # Recording-only: the verdict grid, criteria, thresholds and DV are unchanged.
+    _off_vals = [r["final_abs_value"] for r in off_rows]
+    _on_vals = [r["final_abs_value"] for r in on_rows]
+    _c3_rows = [r for r in off_rows if r["exact_match_to_naive_sum"] is not None]
+    readout = flat_readout({
+        # criterion flags
+        "C1_off_arm_reproduces_unbounded_growth": bool(c1),
+        "C2_on_arm_stays_bounded": bool(c2),
+        "C3_off_arm_bit_identical_to_pre_fix": bool(c3),
+        "C4_mech094_hypothesis_gate_unaffected": bool(c4),
+        "n_criteria_passed": sum(1 for x in (c1, c2, c3, c4) if x),
+        "n_criteria_total": 4,
+        "overall_pass_flag": bool(overall_pass),
+        "non_degenerate_flag": bool(non_degenerate),
+        # C1 / C2 -- the decisive extrema against their pre-registered bars
+        "c1_unbounded_bar": float(UNBOUNDED_FRAC * WRITES_PER_CELL * VALUE),
+        "off_final_abs_value_min": float(min(_off_vals)) if _off_vals else None,
+        "off_final_abs_value_mean": float(np.mean(_off_vals)) if _off_vals else None,
+        "c2_clamp_bar": float(CLAMP_ABS + EPS),
+        "on_final_abs_value_max": float(max(_on_vals)) if _on_vals else None,
+        "on_final_abs_value_mean": float(np.mean(_on_vals)) if _on_vals else None,
+        # readiness precondition
+        "active_center_exists_frac": active_center_exists_frac,
+        "readiness_threshold": 1.0,
+        "readiness_met_flag": bool(readiness_met),
+        # non-degeneracy separation statistics
+        "off_final_abs_value_std": float(np.std(_off_vals)) if _off_vals else None,
+        "on_minus_off_mean_abs_gap": (
+            abs(float(np.mean(_on_vals)) - float(np.mean(_off_vals)))
+            if _on_vals and _off_vals else None),
+        "nd_off_arm_values_vary_by_channel_flag":
+            criteria_non_degenerate["off_arm_values_vary_by_channel"],
+        "nd_on_vs_off_final_values_differ_flag":
+            criteria_non_degenerate["on_vs_off_final_values_differ"],
+        # cell census
+        "n_cells": len(per_cell),
+        "n_off_cells": len(off_rows),
+        "n_on_cells": len(on_rows),
+        "n_off_cells_exact_match_to_naive_sum": sum(
+            1 for r in _c3_rows if r["exact_match_to_naive_sum"]),
+        "n_off_cells_exact_match_assessable": len(_c3_rows),
+        "n_cells_hypothesis_tag_stayed_zero": sum(
+            1 for r in per_cell if r["hypothesis_tag_stayed_zero"]),
+    })
+
     manifest = {
         "run_id": None,
         "experiment_type": EXPERIMENT_TYPE,
@@ -313,6 +367,7 @@ def run_experiment(seeds):
             "substrate_not_ready" if not readiness_met else "off_on_indistinguishable"),
         "timestamp_utc": datetime.utcnow().strftime("%Y%m%dT%H%M%SZ"),
         "arm_results": per_cell,
+        "readout": readout,
         "readiness": {
             "active_center_exists_frac": active_center_exists_frac,
             "readiness_met": bool(readiness_met),

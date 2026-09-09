@@ -109,7 +109,7 @@ sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "experiments"))
 
 from experiment_protocol import emit_outcome  # noqa: E402
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 from experiments._lib.q081_pair_reach_check import (  # noqa: E402
     SALIENCE_SIGNAL_NAMES,
     run_pair_specific_reach_probe,
@@ -280,12 +280,48 @@ def adjudicate(cells: List[Dict[str, Any]]) -> Dict[str, Any]:
             "(z_world, operating_mode)."
         )
 
+    # Flat scalar readout -- the pack's metrics.values source. Every quantitative block
+    # this driver emits (reach_scan_results, criteria, interpretation.preconditions) is a
+    # list or a nested dict, so the pack scored with no numeric metrics.values: no fail_if
+    # stop threshold could fire, the duplicate-emission supersession fingerprint was
+    # skipped, and the index carried no deltas. These are the pre-registered scalars the
+    # adjudication above turns on -- C1's measured count against its bar, the
+    # non-degeneracy precondition's count against its bar, and the boundary-event
+    # extrema that decide degeneracy. flat_readout() enforces the two encoding rules
+    # (bools -> 0/1 ints; non-finite/None dropped). Recording-only: the verdict grid,
+    # criteria, thresholds and DV are unchanged.
+    boundaries = [c["n_boundaries_true_total"] for c in cells]
+    readout = flat_readout({
+        # C1 -- the load-bearing criterion
+        "C1_any_lever_shows_precursor_reach": bool(len(reach_cells) > 0),
+        "c1_measured_n_reach_cells": len(reach_cells),
+        "c1_threshold": 1.0,
+        "n_criteria_passed": sum(1 for c in criteria if c["passed"]),
+        "n_criteria_total": len(criteria),
+        # precondition -- the non-degeneracy gate the whole scan is conditional on
+        "precondition_measured_n_non_degenerate_cells": n_non_degenerate,
+        "precondition_threshold": 1.0,
+        "all_preconditions_met_flag": all_preconditions_met,
+        "n_preconditions_met": sum(1 for pc in preconditions if pc["met"]),
+        "n_preconditions_total": len(preconditions),
+        "non_degenerate_flag": non_degenerate,
+        # cell census + the boundary-event extrema degeneracy is decided on
+        "n_cells": len(cells),
+        "n_degenerate_cells": len(cells) - n_non_degenerate,
+        "min_boundary_events_bar": float(MIN_BOUNDARY_EVENTS),
+        "boundaries_true_total_sum": sum(boundaries) if boundaries else None,
+        "boundaries_true_total_max": max(boundaries) if boundaries else None,
+        "boundaries_true_total_min": min(boundaries) if boundaries else None,
+        "n_levers": len(LEVERS),
+    })
+
     return {
         "label": label, "outcome": outcome, "evidence_direction": evidence_direction,
         "non_degenerate": non_degenerate, "degeneracy_reason": degeneracy_reason,
         "summary": summary, "preconditions": preconditions, "criteria": criteria,
         "criteria_non_degenerate": criteria_non_degenerate,
         "n_non_degenerate": n_non_degenerate, "n_reach_cells": len(reach_cells),
+        "readout": readout,
     }
 
 
@@ -346,6 +382,7 @@ def main(dry_run: bool = False) -> Any:
             ),
         },
         "criteria": verdict["criteria"],
+        "readout": verdict["readout"],
         "elapsed_seconds": elapsed,
         "levers_tested": list(LEVERS),
         "salience_signal_names_checked": sorted(SALIENCE_SIGNAL_NAMES),

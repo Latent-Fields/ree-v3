@@ -96,7 +96,7 @@ from ree_core.agent import REEAgent  # noqa: E402
 
 from _lib.arm_fingerprint import arm_cell  # noqa: E402
 from _lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
-from pack_writer import write_flat_manifest  # noqa: E402
+from pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 from experiment_protocol import emit_outcome  # noqa: E402
 
 _ZG = ZGoalStreamAccumulator()
@@ -363,6 +363,61 @@ def run_experiment(seeds, episode_ticks):
 
     non_degenerate = readiness_met and all(criteria_non_degenerate.values())
 
+    # Flat scalar readout -- the pack's metrics.values source. Every quantitative block
+    # this driver emits (arm_results, analysis_by_sourcing_mode, readiness,
+    # interpretation) is a list or a dict keyed by sourcing mode / threshold, so the
+    # pack scored with no numeric metrics.values: no fail_if stop threshold could fire,
+    # the duplicate-emission supersession fingerprint was skipped, and the index carried
+    # no deltas. These are the pre-registered scalars C1/C2 turn on -- per mode, the
+    # BEST AUC and its reachability against the two qualifying bars (the decisive
+    # extremum, since `recommended` is the max-AUC qualifying threshold), plus the
+    # readiness fraction and the density-spread non-degeneracy statistics.
+    # flat_readout() enforces the two encoding rules (bools -> 0/1 ints;
+    # non-finite/None dropped). Recording-only: the verdict grid, criteria, thresholds
+    # and DV are unchanged.
+    _readout = {
+        "C1_damage_sourced_threshold_found": bool(c1),
+        "C2_proximity_ema_sourced_threshold_found": bool(c2),
+        "n_criteria_passed": sum(1 for x in (c1, c2) if x),
+        "n_criteria_total": 2,
+        "overall_pass_flag": bool(overall_pass),
+        "non_degenerate_flag": bool(non_degenerate),
+        # readiness precondition
+        "apparatus_valid_frac": apparatus_valid_frac,
+        "apparatus_valid_frac_floor": APPARATUS_VALID_FRAC_FLOOR,
+        "readiness_met_flag": bool(readiness_met),
+        "total_ticks": total_ticks,
+        "total_valid_apparatus_ticks": total_valid,
+        # the two qualifying bars every per-threshold entry is judged against
+        "reach_floor": REACH_FLOOR,
+        "auc_bar": AUC_BAR,
+        "n_sweep_thresholds": len(SWEEP_THRESHOLDS),
+        "n_cells": len(per_cell),
+    }
+    for _mode in SOURCING_MODES:
+        _a = analysis_by_mode[_mode]
+        _best = _a["recommended"]
+        _aucs = [e["auc_safe_vs_unsafe"] for e in _a["per_threshold"]]
+        _reaches = [e["reachability_safe_group"] for e in _a["per_threshold"]]
+        _readout.update({
+            f"{_mode}_recommended_found": _best is not None,
+            f"{_mode}_recommended_threshold": _best["threshold"] if _best else None,
+            f"{_mode}_recommended_auc": _best["auc_safe_vs_unsafe"] if _best else None,
+            f"{_mode}_recommended_reachability": (
+                _best["reachability_safe_group"] if _best else None),
+            f"{_mode}_auc_max": max(_aucs) if _aucs else None,
+            f"{_mode}_reachability_max": max(_reaches) if _reaches else None,
+            f"{_mode}_n_qualifying_thresholds": sum(
+                1 for e in _a["per_threshold"] if e["qualifies"]),
+            f"{_mode}_density_spread_std": _a["density_spread_std"],
+            f"{_mode}_middle_condition_mean_norm": _a["middle_condition_mean_norm"],
+            f"nd_density_battery_{_mode}": criteria_non_degenerate[
+                f"density_battery_nondegenerate_{_mode}"],
+            f"nd_auc_computation_{_mode}": criteria_non_degenerate[
+                f"auc_computation_nondegenerate_{_mode}"],
+        })
+    readout = flat_readout(_readout)
+
     manifest = {
         "run_id": None,
         "experiment_type": EXPERIMENT_TYPE,
@@ -376,6 +431,7 @@ def run_experiment(seeds, episode_ticks):
             "substrate_not_ready" if not readiness_met else "zero_battery_or_auc_spread"),
         "timestamp_utc": datetime.utcnow().strftime("%Y%m%dT%H%M%SZ"),
         "arm_results": per_cell,
+        "readout": readout,
         "analysis_by_sourcing_mode": analysis_by_mode,
         "readiness": {
             "apparatus_valid_frac": apparatus_valid_frac,

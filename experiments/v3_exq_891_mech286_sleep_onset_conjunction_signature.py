@@ -80,7 +80,7 @@ from experiment_protocol import emit_outcome  # noqa: E402
 from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
 from ree_core.sleep.sleep_onset_gate import evaluate_sleep_onset_permit  # noqa: E402
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 from experiments._lib.arm_fingerprint import arm_cell  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_891_mech286_sleep_onset_conjunction_signature"
@@ -263,8 +263,50 @@ def evaluate(results: List[Dict[str, Any]]) -> Dict[str, Any]:
         degeneracy_reason = "; ".join(bad)
 
     passed = non_degenerate and all(checks.values())
+
+    # Flat scalar readout -- the pack's metrics.values source. Every quantitative block
+    # this driver emits (arm_results, interpretation.checks, thresholds) is nested or
+    # non-numeric, so the pack scored with no numeric metrics.values: no fail_if stop
+    # threshold could fire, the duplicate-emission supersession fingerprint was skipped,
+    # and the index carried no deltas. These are the pre-registered scalars the verdict
+    # above actually turns on -- the five criterion flags, the non-degeneracy straddle
+    # extrema against their thresholds, and the cell census. flat_readout() enforces the
+    # two encoding rules (bools -> 0/1 ints; non-finite/None dropped). Recording-only:
+    # the verdict grid, criteria and thresholds are unchanged.
+    readout = flat_readout({
+        # criterion flags (C5 is the load-bearing one)
+        "C5_conjunction_exact": checks["C5_conjunction_exact"],
+        "C1_override_necessity_falsifier": checks["C1_override_necessity_falsifier"],
+        "C2_staleness_necessity": checks["C2_staleness_necessity"],
+        "C3_threat_necessity_novel": checks["C3_threat_necessity_novel"],
+        "C4_conjunction_sufficiency": checks["C4_conjunction_sufficiency"],
+        "n_criteria_passed": sum(1 for v in checks.values() if v),
+        "n_criteria_total": len(checks),
+        "non_degenerate_flag": non_degenerate,
+        "passed_flag": passed,
+        # non-degeneracy straddle: the decisive extrema and their pre-registered bars
+        "theta_sleep_permit": THETA_SLEEP_PERMIT,
+        "theta_sleep_recruit": THETA_SLEEP_RECRUIT,
+        "threat_tonic_threshold": THREAT_TONIC_THRESHOLD,
+        "override_permit_max": max(ov_permit) if ov_permit else None,
+        "override_block_min": min(ov_block) if ov_block else None,
+        "staleness_recruit_min": min(st_recruit) if st_recruit else None,
+        "staleness_norecruit_max": max(st_norecruit) if st_norecruit else None,
+        "threat_safe_max": max(th_safe) if th_safe else None,
+        "threat_threat_min": min(th_threat) if th_threat else None,
+        "nd_override_flag": nd_override,
+        "nd_staleness_flag": nd_staleness,
+        "nd_threat_flag": nd_threat,
+        # cell census
+        "n_cells": len(results),
+        "n_cells_permitted": sum(1 for r in results if r["permitted"] == 1.0),
+        "n_cells_matching_prediction": sum(
+            1 for r in results if r["permitted"] == r["predicted_permitted"]),
+    })
+
     return {
         "checks": checks,
+        "readout": readout,
         "criteria": [
             {"name": "C5_conjunction_exact", "load_bearing": True, "passed": checks["C5_conjunction_exact"]},
             {"name": "C1_override_necessity_falsifier", "load_bearing": False, "passed": checks["C1_override_necessity_falsifier"]},
@@ -332,6 +374,7 @@ def main(dry_run: bool = False, seeds: List[int] | None = None) -> Dict[str, Any
             "combination_rule": verdict["combination_rule"],
         },
         "arm_results": results,
+        "readout": verdict["readout"],
         "custom_information": {
             "supersedes_note": "New question (three-term conjunction signature); NOT a lettered fix to V3-EXQ-599/599a (those were substrate smoke).",
             "prior_diagnostic": "v3_exq_599a_mech286_sleep_onset_gate_validation (experiment_purpose=diagnostic, scored 0)",

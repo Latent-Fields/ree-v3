@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -946,6 +947,58 @@ def _coerce_numeric(value: Any) -> Union[float, int]:
             return item_value
     raise TypeError(f"metrics values must be int/float, got {type(value)!r}")
 
+
+def flat_readout(raw: Mapping[str, Any]) -> dict:
+    """Project a driver's decisive quantities into the FLAT SCALAR block the score
+    surface actually reads.
+
+    The runpack converter (REE_assembly evidence/experiments/scripts/sync_v3_results.py)
+    builds a pack's metrics.json `values` from the FIRST non-empty of four flat
+    spellings -- metrics / aggregates / summary_metrics / readout -- and
+    build_experiment_indexes then reads ONLY the numeric entries of that block
+    (`_is_number`). A readout recorded as a dict keyed by arm or by seed matches none
+    of the four, so the pack scores with no numeric values. That is not cosmetic: with
+    none, (a) no `fail_if` stop threshold can fire -- the lookup returns None, the
+    check is skipped, and final_status falls back to the manifest's self-declared
+    status, which is what claim_evidence.v1.json records; (b) the duplicate-emission
+    supersession fingerprint is skipped entirely, so a byte-identical re-emission is
+    never auto-superseded and both copies score; (c) the index carries no deltas and
+    no key-metrics columns. Measured 2026-09-09: 527 of 2917 packs were nested-only
+    (REE_assembly evidence/planning/flat_scalar_readout_recording_gap_20260909.md).
+
+    Only the producer can decide WHICH scalars the verdict turns on -- that is a
+    design-time judgement a converter cannot infer -- so this helper does not choose
+    them. It enforces the two encoding rules the consumer forces, which are easy to
+    get wrong per-driver and silent when got wrong:
+
+      - booleans are emitted as 0/1 ints. `_is_number` excludes bool (an int
+        subclass) on purpose, so a raw True would be present in the manifest and
+        invisible to the indexer.
+      - non-finite (nan/inf) and None values are DROPPED, not emitted. A nan IS
+        numeric to the indexer and would pollute a delta; an ABSENT key correctly
+        reads as unmeasured.
+
+    Strings, sequences and nested dicts are dropped too -- they belong in the nested
+    human-readable blocks, which this never replaces. Values are coerced to plain
+    python int/float, so numpy scalars survive json.dump.
+    """
+    out: dict = {}
+    for key, value in raw.items():
+        if value is None or isinstance(value, (str, bytes)):
+            continue
+        if isinstance(value, bool):
+            out[key] = int(value)
+            continue
+        if isinstance(value, (list, tuple, set, frozenset, dict)):
+            continue
+        try:
+            as_float = float(value)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(as_float):
+            continue
+        out[key] = int(value) if isinstance(value, int) else as_float
+    return out
 
 def _dedupe_strings(values: list) -> list:
     seen: set = set()

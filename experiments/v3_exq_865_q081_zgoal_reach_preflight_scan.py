@@ -104,7 +104,7 @@ sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "experiments"))
 
 from experiment_protocol import emit_outcome  # noqa: E402
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 from experiments._lib.q081_pair_reach_check_stream import (  # noqa: E402
     run_pair_specific_stream_reach_probe,
 )
@@ -357,11 +357,49 @@ def adjudicate(zgoal_leg: Dict[str, Any], zharm_a_leg: Dict[str, Any] | None) ->
             "decision, out of scope for this probe."
         )
 
+    # Flat scalar readout -- the pack's metrics.values source. Every quantitative block
+    # this driver emits (the per-leg cells lists, criteria, interpretation.preconditions)
+    # is a list or a dict keyed by leg, so the pack scored with no numeric
+    # metrics.values: no fail_if stop threshold could fire, the duplicate-emission
+    # supersession fingerprint was skipped, and the index carried no deltas. These are
+    # the pre-registered scalars the adjudication above turns on -- C1's combined reach
+    # count against its bar, the load-bearing combined non-degeneracy precondition, and
+    # the per-leg census that decides which branch was taken. flat_readout() enforces
+    # the two encoding rules (bools -> 0/1 ints; non-finite/None dropped). Recording-
+    # only: the verdict grid, criteria, thresholds and DV are unchanged.
+    readout = flat_readout({
+        # C1 -- the load-bearing criterion, combined across the leg(s) actually run
+        "C1_any_target_shows_precursor_reach": criteria[0]["passed"],
+        "c1_measured_total_reach_cells": criteria[0]["measured"],
+        "c1_threshold": criteria[0]["threshold"],
+        "n_criteria_passed": sum(1 for c in criteria if c["passed"]),
+        "n_criteria_total": len(criteria),
+        # the load-bearing combined precondition
+        "precondition_measured_total_non_degenerate_cells": float(total_non_degenerate),
+        "precondition_threshold": 1.0,
+        "all_preconditions_met_flag": all_preconditions_met,
+        "n_preconditions_met": sum(1 for pc in preconditions if pc["met"]),
+        "n_preconditions_total": len(preconditions),
+        "non_degenerate_flag": non_degenerate,
+        # per-leg census -- which leg ran, and what each found
+        "n_legs_run": len(legs),
+        "zharm_a_fallback_leg_ran": zharm_a_leg is not None,
+        "zgoal_n_cells": len(zgoal_leg["cells"]),
+        "zgoal_n_non_degenerate": zgoal_leg["n_non_degenerate"],
+        "zgoal_n_reach_cells": zgoal_leg["n_reach_cells"],
+        "zharm_a_n_cells": len(zharm_a_leg["cells"]) if zharm_a_leg is not None else None,
+        "zharm_a_n_non_degenerate": (
+            zharm_a_leg["n_non_degenerate"] if zharm_a_leg is not None else None),
+        "zharm_a_n_reach_cells": (
+            zharm_a_leg["n_reach_cells"] if zharm_a_leg is not None else None),
+    })
+
     return {
         "label": label, "outcome": outcome, "evidence_direction": evidence_direction,
         "non_degenerate": non_degenerate, "degeneracy_reason": degeneracy_reason,
         "summary": summary, "preconditions": preconditions, "criteria": criteria,
         "criteria_non_degenerate": criteria_non_degenerate,
+        "readout": readout,
     }
 
 
@@ -430,6 +468,7 @@ def main(dry_run: bool = False) -> Any:
             ),
         },
         "criteria": verdict["criteria"],
+        "readout": verdict["readout"],
         "elapsed_seconds": elapsed,
         "levers_tested": list(LEVERS),
         "zgoal_leg": zgoal_leg,

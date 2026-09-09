@@ -125,7 +125,7 @@ from _lib.goal_pipeline_tier1 import (  # noqa: E402
 )
 from experiments._metrics import check_degeneracy  # noqa: E402
 from experiments._harness import StepHarness, StepHooks  # noqa: E402
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 from ree_core.agent import REEAgent  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_475b_q040c_dacc_pe_weight_delta_correlation"
@@ -357,6 +357,49 @@ def evaluate_q040c(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         "corr_null_thresh": CORR_NULL_THRESH,
         "seeds_pass_min": SEEDS_PASS_MIN,
         **degeneracy,
+        # Flat scalar readout -- the pack's metrics.values source. The `acceptance`
+        # block below is scalar-shaped but sits under a key the runpack converter does
+        # not harvest (it reads only metrics / aggregates / summary_metrics / readout),
+        # and every other quantitative block here (per_run) is a list, so the pack
+        # scored with no numeric metrics.values: no fail_if stop threshold could fire,
+        # the duplicate-emission supersession fingerprint was skipped, and the index
+        # carried no deltas. This projects the same pre-registered quantities the C3/C4
+        # criteria and the P1/P2 preconditions turn on, plus the decisive |rho| extrema
+        # each threshold is compared against. flat_readout() enforces the two encoding
+        # rules (bools -> 0/1 ints; non-finite/None dropped). Recording-only: the
+        # verdict grid, criteria, thresholds and DV are unchanged.
+        "readout": flat_readout({
+            "verdict_pass": verdict_pass,
+            "preconditions_met": preconditions_met,
+            "p1_gate_firing_pass": p1_pass,
+            "p1_on_gate_fired_seeds": on_gate_fired_seeds,
+            "p2_dacc_engagement_pass": p2_pass,
+            "p2_on_dacc_fired_seeds": on_dacc_fired_seeds,
+            "p2_off_dacc_fired_seeds": off_dacc_fired_seeds,
+            "c3_on_detects_correlation": c3_on_detects,
+            "c4_off_correlation_null": c4_off_null,
+            "n_criteria_passed": sum(1 for x in (c3_on_detects, c4_off_null) if x),
+            "n_criteria_total": 2,
+            # decisive |rho| extrema against their pre-registered thresholds:
+            # C3 asks whether the ON arm's LARGEST |rho| clears the detect bar,
+            # C4 whether the OFF arm's LARGEST |rho| stays under the null bar.
+            "corr_detect_thresh": CORR_DETECT_THRESH,
+            "corr_null_thresh": CORR_NULL_THRESH,
+            "on_abs_rho_max": max((abs(r) for r in on_valid), default=None),
+            "on_abs_rho_min": min((abs(r) for r in on_valid), default=None),
+            "off_abs_rho_max": max((abs(r) for r in off_valid), default=None),
+            "off_abs_rho_min": min((abs(r) for r in off_valid), default=None),
+            # seed census the >= SEEDS_PASS_MIN comparisons are made on
+            "seeds_pass_min": SEEDS_PASS_MIN,
+            "on_valid_rho_seeds": len(on_valid),
+            "off_valid_rho_seeds": len(off_valid),
+            "on_detect_seeds": on_detect_seeds,
+            "off_null_seeds": off_null_seeds,
+            "n_on_rows": len(on_rows),
+            "n_off_rows": len(off_rows),
+            "non_degenerate": degeneracy.get("non_degenerate"),
+            "n_degenerate_metrics": len(degeneracy.get("degenerate_metrics") or []),
+        }),
     }
 
 
@@ -426,6 +469,7 @@ def main(dry_run: bool = False) -> Tuple[str, Path] | int:
         "outcome": outcome,
         "evidence_direction": evidence_direction,
         "acceptance": acceptance,
+        "readout": acceptance["readout"],
         "per_run": per_run_rows,
         "elapsed_seconds": elapsed,
     }
