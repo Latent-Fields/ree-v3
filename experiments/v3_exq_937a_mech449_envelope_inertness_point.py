@@ -174,7 +174,7 @@ from experiments._lib.arm_fingerprint import (  # noqa: E402
     compute_arm_fingerprint,
     reset_all_rng,
 )
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 from ree_core.cingulate.dacc import DACCAdaptiveControl, DACCConfig  # noqa: E402
 from ree_core.predictors.e2_fast import Trajectory  # noqa: E402
 from ree_core.predictors.e3_selector import E3Config, E3TrajectorySelector  # noqa: E402
@@ -946,6 +946,76 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         },
         "arm_results": arm_results,
         "criteria": criteria,
+        # Flat scalar readout -- the pack's metrics.values source. Every quantitative block
+        # this driver emits (arm_results, criteria whose `measured` fields are a per-seed
+        # dict and a per-step list, interpretation) is a list or a keyed dict, so the pack
+        # scored with no numeric metrics.values: no fail_if stop threshold could fire, the
+        # duplicate-emission supersession fingerprint was skipped, and the index carried no
+        # deltas. These are the pre-registered scalars C1 (load-bearing), C2, C3 and the
+        # reported C4 turn on -- C1's seed count against the majority bar plus the WORST
+        # per-seed protect-min lift against DOSE_LIFT_FLOOR, C2's worst realized-envelope
+        # step against the monotonicity slack, C3's empty-eligible total against its zero
+        # ceiling -- plus the two REPORTED deliverables this run exists to locate: the knee
+        # (narrowest envelope still converting above half) and the INERTNESS POINT
+        # (narrowest envelope at or below the ceiling), neither of which any nested block
+        # exposes as a scalar. flat_readout() enforces the two encoding rules (bools -> 0/1
+        # ints; non-finite/None dropped -- so "no inert regime reached" correctly records
+        # no envelope rather than a zero, which would read as the narrowest possible one).
+        # Recording-only: the verdict grid, criteria, thresholds and DV are unchanged.
+        "readout": flat_readout({
+            "C1_envelope_width_dose_response": c1,
+            "C2_conversion_monotone_in_envelope_width": c2,
+            "C3_safety_failopen": c3,
+            "C4_inert_regime_reached_on_ladder": c4,
+            "n_criteria_passed": sum(1 for x in (c1, c2, c3, c4) if x),
+            "n_criteria_total": 4,
+            "overall_pass_flag": outcome == "PASS",
+            "readiness_ok_flag": readiness_ok,
+            "n_preconditions_met": sum(1 for pc in preconditions if pc.get("met")),
+            "n_preconditions_total": len(preconditions),
+            # C1 -- seed count against the majority bar, and the decisive lift extrema
+            "dose_lift_floor": DOSE_LIFT_FLOOR,
+            "n_seeds_clearing_dose_lift": n_seeds_clearing,
+            "seed_majority_required": SEED_MAJORITY,
+            "per_seed_lift_worst": min(per_seed_lift.values(), default=None),
+            "per_seed_lift_best": max(per_seed_lift.values(), default=None),
+            # the two regimes C1 contrasts
+            "conversion_pinned_regime": conv_pinned,
+            "conversion_open_regime": conv_open,
+            "n_pinned_cells": len(pinned_cells),
+            "n_open_cells": len(open_cells),
+            # C2 -- worst step in REALIZED envelope size against the slack
+            "monotone_tol": MONOTONE_TOL,
+            "monotone_step_delta_worst": min(
+                (st["delta"] for st in steps), default=None),
+            "n_ladder_steps_ok": sum(1 for st in steps if st["ok"]),
+            "n_ladder_steps": len(steps),
+            "n_realized_envelope_levels": len(env_levels),
+            # C3 -- fail-open safety, an upper bound at zero
+            "total_empty_eligible": total_empty,
+            "total_empty_eligible_ceiling": 0,
+            # the reported deliverables: the knee and the inertness point
+            "knee_envelope_first_clearing_half": knee_envelope,
+            "knee_floor_first_clearing_half": knee_floor,
+            "inertness_ceiling": INERTNESS_CEILING,
+            "inert_envelope_first_at_or_below_ceiling": inert_envelope,
+            "inert_floor_first_at_or_below_ceiling": inert_floor,
+            "narrowest_floor_on_ladder": max(ordered) if ordered else None,
+            "narrowest_floor_required": NARROWEST_FLOOR,
+            # non-degeneracy statistics against their floors
+            "gate_ever_active_flag": gate_ever_active,
+            "worst_suppression_range": worst_supp_range,
+            "suppression_range_floor": SUPPRESSION_RANGE_FLOOR,
+            "envelope_dose_separation": env_dose_separation,
+            "envelope_dose_separation_floor": ENVELOPE_DOSE_SEPARATION_FLOOR,
+            "n_distinct_envelope_levels": distinct_env,
+            "c1_non_degenerate_flag": c1_non_degenerate,
+            # cell census
+            "n_cells": len(arm_results),
+            "n_on_cells": len(on_cells),
+            "n_off_cells": len(off_cells),
+            "n_seeds": len(seeds),
+        }),
         "combination_rule": combination_rule,
         "interpretation": {
             "label": label,

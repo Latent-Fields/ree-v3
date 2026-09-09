@@ -127,7 +127,7 @@ from experiments._lib.arm_fingerprint import arm_cell  # noqa: E402
 from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
 from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E402
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_703a_mech276_scientist_attribution_readiness"
 QUEUE_ID = "V3-EXQ-703a"
@@ -474,9 +474,61 @@ def _score(rows_by_arm: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]:
         ],
     }
 
+    # Flat scalar readout -- the pack's metrics.values source. Every quantitative block
+    # this driver emits (criteria_results, interpretation, arm rows) is a list or a dict
+    # keyed by seed, so the pack scored with no numeric metrics.values: no fail_if stop
+    # threshold could fire, the duplicate-emission supersession fingerprint was skipped,
+    # and the index carried no deltas. These are the pre-registered scalars the
+    # load-bearing discrimination criterion and the two readiness gates turn on -- R1's
+    # need-th largest per-seed R2 (deliberately the need-th largest, not the mean: that
+    # was 703's bug, and it is the statistic that recomputes the >=need gate exactly),
+    # R2's ready-seed count, and the posterior-delta extrema against their floor.
+    # flat_readout() enforces the two encoding rules (bools -> 0/1 ints; non-finite/None
+    # dropped). Recording-only: the verdict grid, criteria, thresholds and DV are
+    # unchanged.
+    readout = flat_readout({
+        "C1_posterior_discrimination_cf_vs_correlational": bool(
+            discrimination and criterion_non_degenerate),
+        "n_criteria_passed": int(bool(discrimination and criterion_non_degenerate)),
+        "n_criteria_total": 1,
+        "discrimination_flag": discrimination,
+        "criterion_non_degenerate_flag": criterion_non_degenerate,
+        "readiness_met_flag": readiness_met,
+        # seed arithmetic every gate below is compared against
+        "n_seeds": n_seeds,
+        "need_seeds": need,
+        "pass_fraction": PASS_FRACTION,
+        # R1 readiness -- the need-th largest per-seed R2 against the floor
+        "r1_nth_largest_world_forward_r2": float(r1_nth),
+        "r1_r2_floor": R2_FLOOR,
+        "r1_n_pass": n_r1_pass,
+        "r1_met_flag": r1_met,
+        "r1_world_forward_r2_max": max(r1_by_seed.values(), default=None),
+        "r1_world_forward_r2_min": min(r1_by_seed.values(), default=None),
+        # R2 readiness -- ready seeds against the same need bar
+        "r2_n_ready_seeds": n_ready,
+        "r2_met_flag": r2_met,
+        "n_seeds_straddling_cf_margin": sum(1 for v in straddle_by_seed.values() if v),
+        "cf_margin": CF_MARGIN,
+        # discrimination -- posterior deltas against their floor, on READY seeds
+        "posterior_delta_floor": POSTERIOR_DELTA_FLOOR,
+        "n_ready_seeds_discriminating": n_discr,
+        "posterior_delta_ready_max": max(posterior_deltas_ready, default=None),
+        "posterior_delta_ready_min": min(posterior_deltas_ready, default=None),
+        "posterior_delta_all_max": max(posterior_deltas_all, default=None),
+        "posterior_delta_all_min": min(posterior_deltas_all, default=None),
+        # non-degeneracy of the discrimination criterion
+        "nd_feedstock_differs_flag": nd_feedstock_differs,
+        "nd_aggregator_updated_flag": nd_aggregator_updated,
+        "n_preconditions_met": sum(
+            1 for pc in interpretation["preconditions"] if pc["met"]),
+        "n_preconditions_total": len(interpretation["preconditions"]),
+    })
+
     return {
         "outcome": outcome,
         "interpretation": interpretation,
+        "readout": readout,
         "readiness_met": readiness_met,
         "discrimination": discrimination,
         "criterion_non_degenerate": criterion_non_degenerate,
@@ -589,6 +641,7 @@ def main(*, dry_run: bool = False) -> Tuple[str, Path]:
             "discrimination": (f"|posterior_mean(CF) - posterior_mean(CORR)| >= {POSTERIOR_DELTA_FLOOR} "
                                "on >=2/3 READY (R1-pass-and-straddle) seeds"),
         },
+        "readout": result["readout"],
         "criteria_results": result["criteria_results"],
         "arm_results": result["arm_results"],
         "notes": (

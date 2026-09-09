@@ -199,7 +199,7 @@ from experiments._lib.arm_fingerprint import (  # noqa: E402
     compute_arm_fingerprint,
     reset_all_rng,
 )
-from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 from ree_core.cingulate.dacc import DACCAdaptiveControl, DACCConfig  # noqa: E402
 from ree_core.predictors.e2_fast import Trajectory  # noqa: E402
 from ree_core.predictors.e3_selector import E3Config, E3TrajectorySelector  # noqa: E402
@@ -1159,6 +1159,88 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         },
         "arm_results": arm_results,
         "criteria": criteria,
+        # Flat scalar readout -- the pack's metrics.values source. Every quantitative block
+        # this driver emits (arm_results, the per-bank crosstabs, k_strata, criteria whose
+        # `measured` fields are per-seed/per-step) is a list or a dict keyed by seed, K or
+        # envelope size, so the pack scored with no numeric metrics.values: no fail_if stop
+        # threshold could fire, the duplicate-emission supersession fingerprint was
+        # skipped, and the index carried no deltas.
+        #
+        # EVERY scalar here is read off the PER-BANK JOINT, never off a cell-level
+        # conversion rate -- the aggregation_warning below is the whole point of this run,
+        # and a flat readout built from the mixing proportions would reintroduce exactly
+        # the error the autopsy found. These are the pre-registered quantities C1
+        # (load-bearing) through C6 turn on, plus the sharpness pair (rate_pinned,
+        # rate_open) the PASS label branches on. flat_readout() enforces the two encoding
+        # rules (bools -> 0/1 ints; non-finite/None dropped -- so "no inert regime reached"
+        # correctly records no envelope rather than a zero). Recording-only: the verdict
+        # grid, criteria, thresholds and DVs are unchanged.
+        "readout": flat_readout({
+            "C1_per_bank_envelope_conversion_lift": c1,
+            "C2_per_bank_conversion_monotone_in_envelope": c2,
+            "C3_safety_failopen": c3,
+            "C4_inert_regime_reached": c4,
+            "C5_content_specificity": c5,
+            "C6_step_location_invariant_in_k": c6,
+            "n_criteria_passed": sum(1 for x in (c1, c2, c3, c4, c5, c6) if x),
+            "n_criteria_total": 6,
+            "overall_pass_flag": outcome == "PASS",
+            "step_is_sharp_flag": step_is_sharp,
+            "readiness_ok_flag": readiness_ok,
+            "n_preconditions_met": sum(1 for pc in preconditions if pc.get("met")),
+            "n_preconditions_total": len(preconditions),
+            # C1 -- per-bank lift at the K anchor: seed count against the majority bar,
+            # plus the decisive per-seed extrema
+            "dose_lift_floor": DOSE_LIFT_FLOOR,
+            "n_seeds_clearing_dose_lift": n_seeds_clearing,
+            "seed_majority_required": SEED_MAJORITY,
+            "per_seed_lift_worst": min(per_seed_lift.values(), default=None),
+            "per_seed_lift_best": max(per_seed_lift.values(), default=None),
+            "k_anchor": K_ANCHOR,
+            # the sharpness pair the PASS label branches on (per-bank rates, pooled)
+            "per_bank_rate_envelope_pinned": rate_pinned,
+            "per_bank_rate_envelope_open": rate_open,
+            "n_banks_envelope_pinned": n_pinned,
+            "n_banks_envelope_open": n_open,
+            "n_converted_envelope_pinned": c_pinned,
+            "n_converted_envelope_open": c_open,
+            "inertness_ceiling": INERTNESS_CEILING,
+            # C2 -- worst monotonicity step against the slack
+            "monotone_tol": MONOTONE_TOL,
+            "monotone_step_delta_worst": min(
+                (st["delta"] for st in steps), default=None),
+            "n_ladder_steps_ok": sum(1 for st in steps if st["ok"]),
+            "n_ladder_steps": len(steps),
+            "n_envelope_levels": len(env_levels),
+            # C3 -- fail-open safety, an upper bound at zero
+            "total_empty_eligible": total_empty,
+            "total_empty_eligible_ceiling": 0,
+            # C4 -- where the inert regime starts
+            "inert_envelope_first_at_or_below_ceiling": inert_envelope,
+            # C5 -- content specificity: the WORST (max) shuffled per-bank rate
+            "specificity_ceiling": SPECIFICITY_CEILING,
+            "shuffled_worst_per_bank_rate": shuf_worst_rate,
+            "shuffled_worst_envelope": shuf_worst_env,
+            # C6 -- step-location invariance across K strata
+            "n_k_strata": len(k_strata),
+            "n_k_strata_with_step_at_2": sum(
+                1 for v in k_strata.values() if v["step_at_2"]),
+            "c6_worst_stratum_n": c6_worst_stratum_n,
+            "c6_stratum_floor": c6_stratum_floor,
+            # non-degeneracy statistics against their floors
+            "gate_ever_active_flag": gate_ever_active,
+            "worst_suppression_range": worst_supp_range,
+            "suppression_range_floor": SUPPRESSION_RANGE_FLOOR,
+            "core_non_degenerate_flag": core_non_degenerate,
+            "on_off_differ_flag": on_off_differ,
+            "strata_min": strata_min,
+            "stratum_floor": stratum_floor,
+            # cell census
+            "n_cells": len(arm_results),
+            "n_on_cells": len(on_cells),
+            "n_shuffled_cells": len(shuf_cells),
+            "n_seeds": len(seeds),
+        }),
         "combination_rule": combination_rule,
         "interpretation": {
             "label": label,
