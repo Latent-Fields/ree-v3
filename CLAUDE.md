@@ -584,7 +584,9 @@ When started with `--remote-control`, the runner emits a per-machine heartbeat e
 - **INFANT-CURRICULUM-SCHEDULER** — 2 records, ~3,150 tok total.
     - [InfantCurriculumScheduler Phase 0->1 H_pos Floor Recalibration (2026-05-31)](docs/substrate/INFANT-CURRICULUM-SCHEDULER-infantcurriculumscheduler-phase-0-to-1.md) *(~1,825 tok)*
     - [InfantCurriculumScheduler Phase 0->1 crossing-count criterion (V3-EXQ-591f; GAP-14 c-2) (2026-06-19)](docs/substrate/INFANT-CURRICULUM-SCHEDULER-infantcurriculumscheduler-phase-0-to-1-2.md) *(~1,324 tok)*
-- **[mode-governance-engagement](docs/substrate/mode-governance-engagement-external-task-salience-source-for.md)** — external_task salience source for SalienceCoordinator (2026-06-13) *(~1,634 tok)*
+- **mode-governance-engagement** — 2 records, ~3,114 tok total.
+    - [external_task salience source for SalienceCoordinator (2026-06-13)](docs/substrate/mode-governance-engagement-external-task-salience-source-for.md) *(~1,634 tok)*
+    - [regime-occupancy gradedness is a REPRODUCIBILITY test, not an existential one (2026-09-11)](docs/substrate/mode-governance-engagement-regime-occupancy-reproducibility.md) *(~1,480 tok)*
 - **modulatory-bias-selection-authority** — 6 records, ~10,455 tok total.
     - [gap-relative E3.select authority (2026-06-03)](docs/substrate/modulatory-bias-selection-authority-gap-relative-e3-select-authority.md) *(~1,169 tok)*
     - [AMEND: float32 catastrophic-cancellation fix (V3-EXQ-643a, 2026-06-06)](docs/substrate/modulatory-bias-selection-authority-amend-float32-catastrophic-cancellation.md) *(~1,333 tok)*
