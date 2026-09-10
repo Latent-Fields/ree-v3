@@ -171,6 +171,7 @@ from ree_core.environment.causal_grid_world import CausalGridWorld  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
 from experiment_protocol import emit_outcome  # noqa: E402
 from experiments._lib.arm_fingerprint import arm_cell  # noqa: E402
+from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
 from experiments._metrics import (  # noqa: E402
     check_degeneracy,
     dv_headroom_check,
@@ -191,22 +192,34 @@ SEEDS = [42, 43, 45, 46, 47]          # 44 excluded (per-seed instability, CLAUD
 ARMS = ["ARM_RESID_ON", "ARM_RESID_OFF", "ARM_SHAM_RESID"]
 
 GRID_SIZE = 10
-NUM_HAZARDS = 3
+# Operating point CALIBRATED at Step 4 (2026-09-10), not chosen by taste. At the
+# env defaults a single hazard moving one cell in a 100-cell grid is far too small
+# an exogenous perturbation to be decodable at all (measured: probe AUC 0.53-0.57,
+# i.e. chance). At the other extreme (>=15 hazards, interval 1) the drift base rate
+# hits 0.85-0.93 and the probe AUC pins at EXACTLY 1.000 -- saturated, zero headroom
+# for C1, and rejected on that basis. This point sits between: base rate ~0.46, the
+# stationary positive control at ~0.62-0.88, and the DV at ~0.62 with ~0.38 of
+# headroom left for C1's registered gap.
+NUM_HAZARDS = 8
 NUM_RESOURCES = 5
-ENV_DRIFT_INTERVAL = 3                # tightened from default 5 (Step 2.5a: raises
-ENV_DRIFT_PROB = 0.6                  # the real-movement base rate ~0.13 -> ~0.31)
+ENV_DRIFT_INTERVAL = 2
+ENV_DRIFT_PROB = 0.8
 ALPHA_WORLD = 0.9                     # SD-008: >=0.9 for z_world fidelity
 SELF_DIM = 32
 WORLD_DIM = 32
 
-P0_EPISODES = 40                      # reafference predictor training
-EVAL_EPISODES = 30                    # measurement
+P0_EPISODES = 100                     # reafference predictor training
+EVAL_EPISODES = 40                    # measurement
 STEPS_PER_EPISODE = 60
 EPISODES_PER_RUN = P0_EPISODES + EVAL_EPISODES   # == queue entry episodes_per_run
 
 REAF_LR = 1e-3
-REAF_BATCH = 64
-REAF_STEPS_PER_EP = 4
+REAF_BATCH = 128
+# Calibrated at Step 4: the original 4-steps-per-episode schedule left held-out R2
+# at -0.04 (the predictor learned nothing, so ARM_RESID_ON would have been ARM_OFF
+# plus noise and the whole contrast vacuous). A dedicated post-collection fit of
+# 4000 steps over the full buffer reaches R2 ~0.25 and is still climbing.
+REAF_TRAIN_STEPS = 4000
 REAF_TEST_FRAC = 0.25
 
 PROBE_EPOCHS = 400
@@ -216,9 +229,15 @@ PROBE_TEST_FRAC = 0.30
 
 # readiness floors / bounds
 R1_REAF_TEST_R2_FLOOR = 0.05
-R2_CONTROL_AUC_FLOOR = 0.60
-R3_BASE_RATE_LOW = 0.05
-R3_BASE_RATE_HIGH = 0.95
+# SAME STATISTIC as C1 (probe AUC over the downstream dz_world), measured on the
+# STATIONARY stratum of the UNCORRECTED (ARM_RESID_OFF) stream. On a stationary
+# step there is no self-motion to subtract, so residualization is irrelevant there
+# -- which makes it the correct positive control for a claim about MASKING BY
+# SELF-MOTION: it asks "is the exogenous event decodable from z_world at all, when
+# it is not being masked?". Below floor = the DV is starved, not falsified.
+R2_CONTROL_AUC_FLOOR = 0.55
+R3_BASE_RATE_LOW = 0.15
+R3_BASE_RATE_HIGH = 0.85
 
 # load-bearing thresholds
 C1_AUC_GAP = 0.05
@@ -392,102 +411,120 @@ def _config_slice() -> Dict[str, Any]:
         "steps_per_episode": STEPS_PER_EPISODE,
         "reaf_lr": REAF_LR,
         "reaf_batch": REAF_BATCH,
-        "reaf_steps_per_ep": REAF_STEPS_PER_EP,
+        "reaf_train_steps": REAF_TRAIN_STEPS,
         "reaf_test_frac": REAF_TEST_FRAC,
     }
 
 
 # --------------------------------------------------------------------- cell
-def _run_cell(arm: str, seed: int, n_p0: int, n_eval: int, n_steps: int) -> Dict[str, Any]:
-    """One (arm, seed) cell: P0 predictor training, then P2 measurement."""
-    dev_env = _make_env(seed)
-    agent = _make_agent(dev_env)
+def _run_cell(arm: str, seed: int, n_p0: int, n_eval: int, n_steps: int,
+              zg_acc=None) -> Dict[str, Any]:
+    """One (arm, seed) cell: P0 predictor training, then P2 stratified measurement.
+
+    DELTA/LABEL ALIGNMENT (this is the part that is easy to get wrong, and was
+    wrong in the first draft -- caught at Step 4 calibration): the downstream
+    change `z_{t+1} - z_t` is PRODUCED BY the transition taken at t, so it must
+    carry t's `moved` / `drifted` labels and t's efference copy
+    `pred(z_raw_t, a_t)`. Emitting a row at time t using t's labels but the
+    t-1 -> t delta is an off-by-one that pushes every AUC to chance. The
+    `pending` tuple below is what enforces the correct pairing.
+    """
+    env = _make_env(seed)
+    agent = _make_agent(env)
     agent.train()
     dev = agent.device
-    action_dim = dev_env.action_dim
+    action_dim = env.action_dim
     rng = random.Random(seed)
 
     predictor = agent.latent_stack.reafference_predictor
     assert predictor is not None, "reafference predictor must exist in P0 for every arm"
-    reaf_opt = torch.optim.Adam(predictor.parameters(), lr=REAF_LR)
 
-    # ---------------- P0: train the reafference predictor (encoder frozen) ---
-    # Samples are collected ONLY on steps where the agent genuinely moved and no
-    # exogenous drift occurred, so the target is pure self-caused perspective
-    # shift -- the quantity MECH-221 says must be subtracted.
-    train_pairs: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = []
-    test_pairs: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = []
     total_eps = n_p0 + n_eval
 
+    # ---------------- P0: collect pure self-motion transitions ---------------
+    # Target is the z_world change caused ONLY by the agent's own locomotion, so
+    # samples are restricted to steps where the agent genuinely moved AND no
+    # exogenous drift occurred. That is exactly the quantity MECH-221 says must
+    # be subtracted.
+    train_pairs: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = []
+    test_pairs: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = []
+
     for ep in range(n_p0):
-        _, obs = dev_env.reset()
+        _, obs = env.reset()
         agent.reset()
-        z_raw_prev: Optional[torch.Tensor] = None
-        a_prev: Optional[torch.Tensor] = None
+        pending = None
         for _ in range(n_steps):
             lat = agent.sense(obs["body_state"], obs["world_state"])
             agent.clock.advance()
-            z_raw_cur = lat.z_world_raw.detach() if lat.z_world_raw is not None else lat.z_world.detach()
+            z_raw_cur = (
+                lat.z_world_raw.detach() if lat.z_world_raw is not None else lat.z_world.detach()
+            )
+            if pending is not None:
+                z_raw_0, a_0, moved_0, drift_0 = pending
+                if moved_0 and not drift_0:
+                    sample = (z_raw_0.cpu(), a_0.cpu(), (z_raw_cur - z_raw_0).cpu())
+                    (test_pairs if rng.random() < REAF_TEST_FRAC else train_pairs).append(sample)
 
             a_i = rng.randrange(action_dim)
             a_vec = _onehot(a_i, action_dim, dev)
             agent._last_action = a_vec
-
-            pos_before = (dev_env.agent_x, dev_env.agent_y)
-            haz_before = [tuple(h[:2]) for h in dev_env.hazards]
-            _, _, done, _info, obs = dev_env.step(a_vec)
-            moved = (dev_env.agent_x, dev_env.agent_y) != pos_before
-            drifted = [tuple(h[:2]) for h in dev_env.hazards] != haz_before
-
-            if z_raw_prev is not None and a_prev is not None and moved and not drifted:
-                sample = (z_raw_prev.cpu(), a_prev.cpu(), (z_raw_cur - z_raw_prev).cpu())
-                (test_pairs if rng.random() < REAF_TEST_FRAC else train_pairs).append(sample)
-
-            z_raw_prev, a_prev = z_raw_cur, a_vec
+            pos_b = (env.agent_x, env.agent_y)
+            haz_b = [tuple(h[:2]) for h in env.hazards]
+            _, _, done, _info, obs = env.step(a_vec)
+            pending = (
+                z_raw_cur,
+                a_vec,
+                (env.agent_x, env.agent_y) != pos_b,
+                [tuple(h[:2]) for h in env.hazards] != haz_b,
+            )
             if done:
                 break
 
-        # gradient steps on the accumulated buffer
-        if len(train_pairs) >= REAF_BATCH:
-            for _ in range(REAF_STEPS_PER_EP):
-                idx = [rng.randrange(len(train_pairs)) for _ in range(REAF_BATCH)]
-                zb = torch.cat([train_pairs[i][0] for i in idx]).to(dev)
-                ab = torch.cat([train_pairs[i][1] for i in idx]).to(dev)
-                tb = torch.cat([train_pairs[i][2] for i in idx]).to(dev)
-                loss = F.mse_loss(predictor(zb, ab), tb)
-                if loss.requires_grad:
-                    reaf_opt.zero_grad()
-                    loss.backward()
-                    torch.nn.utils.clip_grad_norm_(predictor.parameters(), 0.5)
-                    reaf_opt.step()
-
-        if (ep + 1) % 10 == 0:
+        if (ep + 1) % 25 == 0:
             print(
-                f"  [train] p0 seed={seed} arm={arm} ep {ep + 1}/{total_eps} "
+                f"  [train] p0-collect seed={seed} arm={arm} ep {ep + 1}/{total_eps} "
                 f"train_n={len(train_pairs)} test_n={len(test_pairs)}",
                 flush=True,
             )
 
-    # held-out R2 of the residualization mechanism (readiness R1)
+    # ---------------- P0 fit: dedicated pass over the whole buffer ------------
     reaf_test_r2 = 0.0
-    if len(test_pairs) >= 16:
+    if len(train_pairs) >= REAF_BATCH and len(test_pairs) >= 16:
+        reaf_opt = torch.optim.Adam(predictor.parameters(), lr=REAF_LR)
+        Ztr = torch.cat([b[0] for b in train_pairs]).to(dev)
+        Atr = torch.cat([b[1] for b in train_pairs]).to(dev)
+        Ttr = torch.cat([b[2] for b in train_pairs]).to(dev)
+        for gstep in range(REAF_TRAIN_STEPS):
+            idx = torch.randint(0, Ztr.shape[0], (REAF_BATCH,))
+            loss = F.mse_loss(predictor(Ztr[idx], Atr[idx]), Ttr[idx])
+            if loss.requires_grad:
+                reaf_opt.zero_grad()
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(predictor.parameters(), 0.5)
+                reaf_opt.step()
+            if (gstep + 1) % 1000 == 0:
+                print(
+                    f"  [train] p0-fit seed={seed} arm={arm} ep {n_p0}/{total_eps} "
+                    f"grad_step {gstep + 1}/{REAF_TRAIN_STEPS} mse={float(loss):.6f}",
+                    flush=True,
+                )
         with torch.no_grad():
-            zb = torch.cat([p[0] for p in test_pairs]).to(dev)
-            ab = torch.cat([p[1] for p in test_pairs]).to(dev)
-            tb = torch.cat([p[2] for p in test_pairs]).to(dev)
-            pred = predictor(zb, ab)
-            ss_res = float(((tb - pred) ** 2).sum().item())
-            ss_tot = float(((tb - tb.mean(0, keepdim=True)) ** 2).sum().item())
+            Zte = torch.cat([b[0] for b in test_pairs]).to(dev)
+            Ate = torch.cat([b[1] for b in test_pairs]).to(dev)
+            Tte = torch.cat([b[2] for b in test_pairs]).to(dev)
+            pred_te = predictor(Zte, Ate)
+            ss_res = float(((Tte - pred_te) ** 2).sum().item())
+            ss_tot = float(((Tte - Tte.mean(0, keepdim=True)) ** 2).sum().item())
         reaf_test_r2 = float(1.0 - ss_res / ss_tot) if ss_tot > 1e-12 else 0.0
 
-    # ---------------- ARM MANIPULATION (applied after P0, before P2) --------
+    # ---------------- ARM MANIPULATION (after P0, before P2) -----------------
     trained_predictor = predictor          # retained OUT of band for analysis
-    for p in trained_predictor.parameters():
-        p.requires_grad_(False)
+    for prm in trained_predictor.parameters():
+        prm.requires_grad_(False)
     if arm == "ARM_RESID_ON":
-        pass                                # correction stays live
+        pass                                                  # correction stays live
     elif arm == "ARM_RESID_OFF":
-        agent.latent_stack.reafference_predictor = None      # MECH-221 failure
+        agent.latent_stack.reafference_predictor = None       # MECH-221 failure
     elif arm == "ARM_SHAM_RESID":
         agent.latent_stack.reafference_predictor = ShamReafference(
             trained_predictor, action_dim, seed
@@ -495,101 +532,113 @@ def _run_cell(arm: str, seed: int, n_p0: int, n_eval: int, n_steps: int) -> Dict
     else:
         raise ValueError("unknown arm: " + str(arm))
 
-    # ---------------- P2: measurement (no gradients anywhere) ---------------
+    # ---------------- P2: measurement (no gradients) -------------------------
     agent.eval()
-    dz_down: List[torch.Tensor] = []
-    dz_obs: List[torch.Tensor] = []
-    drift_lbl: List[int] = []
-    ep_ids: List[int] = []
-    cos_vals: List[float] = []
-    foot_vals: List[float] = []
+    rows_moved: List[Dict[str, Any]] = []
+    rows_stat: List[Dict[str, Any]] = []
     n_moved = 0
-    n_obs_steps = 0
 
     for ep in range(n_eval):
-        _, obs = dev_env.reset()
+        _, obs = env.reset()
         agent.reset()
-        z_down_prev: Optional[torch.Tensor] = None
-        z_raw_prev = None
-        a_prev = None
-        obs_prev: Optional[torch.Tensor] = None
-
+        pending = None
         for _ in range(n_steps):
             with torch.no_grad():
                 lat = agent.sense(obs["body_state"], obs["world_state"])
             agent.clock.advance()
-            z_down_cur = lat.z_world.detach()
-            z_raw_cur = lat.z_world_raw.detach() if lat.z_world_raw is not None else z_down_cur
-            obs_cur = torch.as_tensor(obs["world_state"]).detach().float().flatten()
+            z_down_cur = lat.z_world.detach().flatten()
+            z_raw_cur = (
+                lat.z_world_raw.detach() if lat.z_world_raw is not None
+                else lat.z_world.detach()
+            )
+            if pending is not None:
+                z_down_0, z_raw_0, a_0, moved_0, drift_0 = pending
+                with torch.no_grad():
+                    dz_hat = trained_predictor(z_raw_0, a_0).detach().flatten()
+                d_down = z_down_cur - z_down_0
+                row = {
+                    "dz": d_down.cpu(),
+                    "cos": _cos(d_down, dz_hat),
+                    "drift": int(drift_0),
+                    "ep": ep,
+                }
+                (rows_moved if moved_0 else rows_stat).append(row)
 
             a_i = rng.randrange(action_dim)
             a_vec = _onehot(a_i, action_dim, dev)
             agent._last_action = a_vec
-
-            pos_before = (dev_env.agent_x, dev_env.agent_y)
-            haz_before = [tuple(h[:2]) for h in dev_env.hazards]
-            _, _, done, _info, obs = dev_env.step(a_vec)
-            moved = (dev_env.agent_x, dev_env.agent_y) != pos_before
-            drifted = [tuple(h[:2]) for h in dev_env.hazards] != haz_before
+            pos_b = (env.agent_x, env.agent_y)
+            haz_b = [tuple(h[:2]) for h in env.hazards]
+            _, _, done, _info, obs = env.step(a_vec)
+            moved = (env.agent_x, env.agent_y) != pos_b
             n_moved += int(moved)
-
-            # A measurement row needs the PREVIOUS step's raw latent + action to
-            # form the efference copy dz_hat, and the previous downstream latent
-            # to form dz_down. Both available from step 2 of each episode on.
-            if z_down_prev is not None and z_raw_prev is not None and a_prev is not None:
-                with torch.no_grad():
-                    dz_hat = trained_predictor(z_raw_prev, a_prev).detach()
-                d_down = (z_down_cur - z_down_prev)
-                c = _cos(d_down, dz_hat)
-                dz_down.append(d_down.cpu())
-                dz_obs.append((obs_cur - obs_prev).cpu())
-                drift_lbl.append(int(drifted))
-                ep_ids.append(ep)
-                cos_vals.append(c)
-                foot_vals.append(c * c)          # share of ||dz_down||^2 on dz_hat
-                n_obs_steps += 1
-
-            z_down_prev, z_raw_prev, a_prev, obs_prev = z_down_cur, z_raw_cur, a_vec, obs_cur
+            pending = (
+                z_down_cur,
+                z_raw_cur,
+                a_vec,
+                moved,
+                [tuple(h[:2]) for h in env.hazards] != haz_b,
+            )
             if done:
                 break
 
         if (ep + 1) % 10 == 0:
             print(
                 f"  [train] p2 seed={seed} arm={arm} ep {n_p0 + ep + 1}/{total_eps} "
-                f"rows={n_obs_steps} drift={sum(drift_lbl)}",
+                f"moved_rows={len(rows_moved)} stat_rows={len(rows_stat)}",
                 flush=True,
             )
 
-    n_drift = int(sum(drift_lbl))
-    base_rate = float(n_drift / len(drift_lbl)) if drift_lbl else 0.0
+    if zg_acc is not None:
+        zg_acc.observe(agent)
 
-    drift_auc, n_tr, n_te = _probe_auc(dz_down, drift_lbl, ep_ids, seed)
-    control_auc, _, _ = _probe_auc(dz_obs, drift_lbl, ep_ids, seed)
+    def _probe_on(rs: List[Dict[str, Any]]) -> Tuple[Optional[float], int, int]:
+        if not rs:
+            return None, 0, 0
+        return _probe_auc([r["dz"] for r in rs], [r["drift"] for r in rs],
+                          [r["ep"] for r in rs], seed)
 
-    drift_cos = [c for c, y in zip(cos_vals, drift_lbl) if y == 1]
-    fsar = float(sum(1 for c in drift_cos if c > FSAR_COS_TAU) / len(drift_cos)) if drift_cos else 0.0
-    self_footprint_frac = float(sum(foot_vals) / len(foot_vals)) if foot_vals else 0.0
+    # LOAD-BEARING stratum: steps where the agent MOVED. That is the only stratum
+    # where a self-motion footprint exists to mask anything, so it is where
+    # residualization can matter at all.
+    drift_auc_moved, n_tr, n_te = _probe_on(rows_moved)
+    # POSITIVE-CONTROL stratum: stationary steps -- no self-motion to subtract.
+    drift_auc_stat, _, _ = _probe_on(rows_stat)
 
-    row: Dict[str, Any] = {
+    drift_cos = [r["cos"] for r in rows_moved if r["drift"] == 1]
+    fsar = (
+        float(sum(1 for c in drift_cos if c > FSAR_COS_TAU) / len(drift_cos))
+        if drift_cos else 0.0
+    )
+    foot = [r["cos"] ** 2 for r in rows_moved]
+    self_footprint_frac = float(sum(foot) / len(foot)) if foot else 0.0
+    n_drift_moved = int(sum(r["drift"] for r in rows_moved))
+    base_rate = float(n_drift_moved / len(rows_moved)) if rows_moved else 0.0
+
+    return {
         "arm": arm,
         "seed": seed,
-        "drift_auc": drift_auc,
-        "drift_auc_control": control_auc,
+        "drift_auc_moved": drift_auc_moved,
+        "drift_auc_stationary": drift_auc_stat,
         "fsar": fsar,
         "self_footprint_frac": self_footprint_frac,
         "reaf_test_r2": reaf_test_r2,
-        "drift_base_rate": base_rate,
-        "n_rows": len(drift_lbl),
-        "n_drift_rows": n_drift,
+        "drift_base_rate_moved": base_rate,
+        "n_rows_moved": len(rows_moved),
+        "n_rows_stationary": len(rows_stat),
+        "n_drift_rows_moved": n_drift_moved,
         "n_probe_train": n_tr,
         "n_probe_test": n_te,
         "n_reaf_train": len(train_pairs),
         "n_reaf_test": len(test_pairs),
         "moved_frac": float(n_moved / max(1, n_eval * n_steps)),
-        "mean_cos_all": float(sum(cos_vals) / len(cos_vals)) if cos_vals else 0.0,
-        "mean_cos_drift": float(sum(drift_cos) / len(drift_cos)) if drift_cos else 0.0,
+        "mean_cos_moved": (
+            float(sum(r["cos"] for r in rows_moved) / len(rows_moved)) if rows_moved else 0.0
+        ),
+        "mean_cos_drift_moved": (
+            float(sum(drift_cos) / len(drift_cos)) if drift_cos else 0.0
+        ),
     }
-    return row
 
 
 # ---------------------------------------------------------------- aggregate
@@ -605,10 +654,11 @@ def _by_arm(rows: List[Dict[str, Any]], arm: str, key: str) -> List[Optional[flo
 def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
     t0 = time.perf_counter()
     seeds = SEEDS[:1] if dry_run else SEEDS
-    n_p0 = 3 if dry_run else P0_EPISODES
-    n_eval = 3 if dry_run else EVAL_EPISODES
-    n_steps = 20 if dry_run else STEPS_PER_EPISODE
+    n_p0 = 4 if dry_run else P0_EPISODES
+    n_eval = 4 if dry_run else EVAL_EPISODES
+    n_steps = 25 if dry_run else STEPS_PER_EPISODE
 
+    zg = ZGoalStreamAccumulator()
     rows: List[Dict[str, Any]] = []
     for seed in seeds:
         for arm in ARMS:
@@ -619,24 +669,37 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
                 script_path=Path(__file__),
                 config_slice_declared=True,
             ) as cell:
-                row = _run_cell(arm, seed, n_p0, n_eval, n_steps)
+                row = _run_cell(arm, seed, n_p0, n_eval, n_steps, zg_acc=zg)
                 cell.stamp(row)
             rows.append(row)
-            print(f"verdict: {'PASS' if row.get('drift_auc') is not None else 'FAIL'}", flush=True)
+            print(
+                f"verdict: {'PASS' if row.get('drift_auc_moved') is not None else 'FAIL'}",
+                flush=True,
+            )
 
     # ---- aggregates -------------------------------------------------------
-    auc_on = _mean(_by_arm(rows, "ARM_RESID_ON", "drift_auc"))
-    auc_off = _mean(_by_arm(rows, "ARM_RESID_OFF", "drift_auc"))
-    auc_sham = _mean(_by_arm(rows, "ARM_SHAM_RESID", "drift_auc"))
+    auc_on = _mean(_by_arm(rows, "ARM_RESID_ON", "drift_auc_moved"))
+    auc_off = _mean(_by_arm(rows, "ARM_RESID_OFF", "drift_auc_moved"))
+    auc_sham = _mean(_by_arm(rows, "ARM_SHAM_RESID", "drift_auc_moved"))
     fsar_on = _mean(_by_arm(rows, "ARM_RESID_ON", "fsar"))
     fsar_off = _mean(_by_arm(rows, "ARM_RESID_OFF", "fsar"))
+    fsar_sham = _mean(_by_arm(rows, "ARM_SHAM_RESID", "fsar"))
     foot_on = _mean(_by_arm(rows, "ARM_RESID_ON", "self_footprint_frac"))
     foot_off = _mean(_by_arm(rows, "ARM_RESID_OFF", "self_footprint_frac"))
     foot_sham = _mean(_by_arm(rows, "ARM_SHAM_RESID", "self_footprint_frac"))
     reaf_r2 = _mean([r["reaf_test_r2"] for r in rows])
-    control_auc = _mean([r["drift_auc_control"] for r in rows])
-    base_rate = _mean([r["drift_base_rate"] for r in rows])
-    min_drift_rows = min([r["n_drift_rows"] for r in rows]) if rows else 0
+    base_rate = _mean([r["drift_base_rate_moved"] for r in rows])
+    min_drift_rows = min([r["n_drift_rows_moved"] for r in rows]) if rows else 0
+
+    # The readiness CONTROL is measured on the UNCORRECTED (ARM_RESID_OFF) stream's
+    # STATIONARY stratum -- "is the exogenous event in z_world at all before we do
+    # anything to it, when no self-motion is masking it".
+    off_stat = [
+        r["drift_auc_stationary"]
+        for r in rows
+        if r["arm"] == "ARM_RESID_OFF" and r["drift_auc_stationary"] is not None
+    ]
+    control_auc = _mean(off_stat)
 
     def _gap(a: Optional[float], b: Optional[float]) -> Optional[float]:
         return None if (a is None or b is None) else float(a - b)
@@ -646,70 +709,75 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
     c3_measured = _gap(auc_on, auc_sham)
 
     # ---- readiness preconditions -----------------------------------------
-    # WORST-CELL reporting where met is a worst-case claim (skill Step 3):
-    # reaf_test_r2 and control AUC are floors that must hold for EVERY cell.
-    worst_r2 = min([r["reaf_test_r2"] for r in rows]) if rows else 0.0
+    # WORST-CELL reporting: both floors are worst-case claims over cells, so the
+    # reported `measured` is the extremum, not the mean (skill Step 3).
     worst_r2_cell = min(rows, key=lambda r: r["reaf_test_r2"]) if rows else None
-    ctrl_vals = [r["drift_auc_control"] for r in rows if r["drift_auc_control"] is not None]
-    worst_ctrl = min(ctrl_vals) if ctrl_vals else 0.0
+    worst_r2 = float(worst_r2_cell["reaf_test_r2"]) if worst_r2_cell else 0.0
+    off_stat_cells = [
+        r for r in rows
+        if r["arm"] == "ARM_RESID_OFF" and r["drift_auc_stationary"] is not None
+    ]
     worst_ctrl_cell = (
-        min([r for r in rows if r["drift_auc_control"] is not None],
-            key=lambda r: r["drift_auc_control"])
-        if ctrl_vals else None
+        min(off_stat_cells, key=lambda r: r["drift_auc_stationary"]) if off_stat_cells else None
     )
+    worst_ctrl = float(worst_ctrl_cell["drift_auc_stationary"]) if worst_ctrl_cell else 0.0
 
     precondition_specs = [
         {
             "name": "reafference_predictor_test_r2_supra_floor",
             "kind": "readiness",
-            "measured": float(worst_r2),
+            "measured": worst_r2,
             "threshold": R1_REAF_TEST_R2_FLOOR,
             "direction": "lower",
-            "control": "held-out R2 of the trained ReafferencePredictor on pure "
+            "control": "held-out R2 of the trained ReafferencePredictor on PURE "
                        "self-caused perspective-shift transitions (agent moved, no "
-                       "exogenous drift) -- the positive control that the "
-                       "residualization mechanism predicts anything at all",
+                       "exogenous drift). If this is at/below zero the predictor "
+                       "subtracts noise, ARM_RESID_ON is ARM_RESID_OFF plus noise, "
+                       "and C1/C3 are vacuous rather than falsified.",
             "offending_cell": (
                 f"{worst_r2_cell['arm']}::seed{worst_r2_cell['seed']}" if worst_r2_cell else None
             ),
         },
         {
-            "name": "drift_label_detectable_from_raw_obs_control_auc",
+            "name": "exogenous_event_decodable_from_zworld_stationary_control",
             "kind": "readiness",
-            "measured": float(worst_ctrl),
+            "measured": worst_ctrl,
             "threshold": R2_CONTROL_AUC_FLOOR,
             "direction": "lower",
-            "control": "SAME STATISTIC as C1 (AUC of the same held-out linear probe "
-                       "class) measured on the RAW world-observation delta, where the "
-                       "exogenous event definitionally is. Below floor means the label "
-                       "is unlearnable and C1 is STARVED, not falsified.",
+            "control": "SAME STATISTIC as C1 -- held-out AUC of the SAME linear probe "
+                       "class over the SAME downstream dz_world feature -- measured on "
+                       "the STATIONARY stratum of the UNCORRECTED (ARM_RESID_OFF) "
+                       "stream, where there is no self-motion to mask the event. "
+                       "Below floor means the DV is STARVED (the event is not in "
+                       "z_world at all), NOT that residualization does not matter.",
             "offending_cell": (
-                f"{worst_ctrl_cell['arm']}::seed{worst_ctrl_cell['seed']}" if worst_ctrl_cell else None
+                f"{worst_ctrl_cell['arm']}::seed{worst_ctrl_cell['seed']}"
+                if worst_ctrl_cell else None
             ),
         },
-        # HEADROOM AS A FLOOR (achievable >= required), the only non-inverting
-        # form: the AUC gap C1 can still physically reach on top of the OFF arm
-        # is (1.0 - drift_auc_off), and C1 registers C1_AUC_GAP of it. An OFF
-        # arm pinned near the 1.0 AUC ceiling leaves less than that, and C1
-        # would then fire negative BY CONSTRUCTION rather than on the science.
+        # HEADROOM AS A FLOOR (achievable >= required): the AUC gap C1 can still
+        # physically reach above the OFF arm is (1.0 - drift_auc_moved_off), and
+        # C1 registers C1_AUC_GAP of it. An OFF arm pinned near the 1.0 ceiling
+        # leaves less, and C1 would fire negative BY CONSTRUCTION. (The >=15-hazard
+        # regimes rejected at Step 4 pinned exactly there.)
         dv_headroom_check(
             "c1_auc_gap_headroom_above_off_arm",
-            dv_name="drift_auc_gap_on_minus_off",
+            dv_name="drift_auc_moved_gap_on_minus_off",
             criterion_threshold=C1_AUC_GAP,
             achievable=(float(1.0 - auc_off) if auc_off is not None else 0.0),
             statistic="range",
             dv_bounds=(0.0, 1.0),
-            control="achievable = 1.0 - mean(drift_auc, ARM_RESID_OFF); "
+            control="achievable = 1.0 - mean(drift_auc_moved, ARM_RESID_OFF); "
                     "required = C1's own registered gap constant.",
         ),
     ]
 
-    # The base-rate check is TWO-SIDED, and p0_readiness_gate is single-bound
-    # only, so build that entry directly (the indexer honours threshold_low /
-    # threshold_high and prefers the interval over any single `threshold`).
+    # The base-rate check is TWO-SIDED and p0_readiness_gate is single-bound only,
+    # so build that entry directly (the indexer honours threshold_low/high and
+    # prefers the interval over any single `threshold`).
     _br = float(base_rate if base_rate is not None else 0.0)
     interval_precondition = {
-        "name": "drift_base_rate_in_band",
+        "name": "drift_base_rate_moved_in_band",
         "kind": "readiness",
         "measured": _br,
         "threshold_low": R3_BASE_RATE_LOW,
@@ -718,9 +786,10 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         "comparator_high": "<=",
         "direction": "interval",
         "met": bool(R3_BASE_RATE_LOW <= _br <= R3_BASE_RATE_HIGH),
-        "control": "ground-truth exogenous-event rate (a hazard actually changed "
-                   "cell), snapshot-compared around env.step. Two-sided: too few "
-                   "positives starves the probe, too many leaves no negatives.",
+        "control": "ground-truth exogenous-event rate on the MOVED stratum (a hazard "
+                   "actually changed cell), snapshot-compared around env.step. "
+                   "Two-sided: too few positives starves the probe, too many leaves "
+                   "no negatives and saturates the AUC.",
     }
 
     try:
@@ -728,7 +797,7 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
     except P0NotReady as exc:
         preconditions = exc.preconditions
     preconditions = list(preconditions) + [interval_precondition]
-    readiness_met = all(bool(p.get("met")) for p in preconditions)
+    readiness_met = all(bool(pc.get("met")) for pc in preconditions)
 
     # ---- criteria ---------------------------------------------------------
     def _passed(measured: Optional[float], thr: float) -> bool:
@@ -745,8 +814,8 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
             "passed": bool(c1),
             "measured": c1_measured,
             "threshold": C1_AUC_GAP,
-            "detail": "mean drift-detection AUC (held-out linear probe on downstream "
-                      "dz_world), ARM_RESID_ON minus ARM_RESID_OFF",
+            "detail": "mean held-out drift-detection AUC (linear probe on downstream "
+                      "dz_world, MOVED stratum), ARM_RESID_ON minus ARM_RESID_OFF",
         },
         {
             "name": "C2_contamination_raises_false_self_confirmation",
@@ -754,7 +823,7 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
             "passed": bool(c2),
             "measured": c2_measured,
             "threshold": C2_FSAR_GAP,
-            "detail": f"fraction of GROUND-TRUTH exogenous steps whose downstream "
+            "detail": f"fraction of GROUND-TRUTH exogenous MOVED steps whose downstream "
                       f"dz_world reads as confirming the agent's own action "
                       f"(cos(dz_world, dz_hat) > {FSAR_COS_TAU}), OFF minus ON",
         },
@@ -764,9 +833,10 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
             "passed": bool(c3),
             "measured": c3_measured,
             "threshold": C3_SHAM_GAP,
-            "detail": "ARM_RESID_ON minus ARM_SHAM_RESID drift AUC. SHAM subtracts a "
-                      "same-magnitude mis-paired-action vector, so this isolates "
-                      "correct self-content from 'subtracting any vector of that size'",
+            "detail": "ARM_RESID_ON minus ARM_SHAM_RESID drift AUC (MOVED stratum). "
+                      "SHAM subtracts a same-magnitude mis-paired-action vector, so "
+                      "this isolates correct self-content from 'subtracting any "
+                      "vector of that size'",
         },
         {
             "name": "MANIPULATION_CHECK_self_footprint_removed",
@@ -775,17 +845,20 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
                 foot_off is not None and foot_on is not None and foot_off > foot_on
             ),
             "measured": _gap(foot_off, foot_on),
-            "threshold": 0.0,
             "threshold_not_applicable": "NOT load-bearing and NEAR-TAUTOLOGICAL: the ON "
                                         "arm subtracts exactly dz_hat, so this is close "
                                         "to the predictor's own R2 restated. Recorded as "
                                         "evidence the manipulation reached the DV, never "
                                         "as evidence for the claim.",
-            "detail": "mean cos^2(dz_world, dz_hat), OFF minus ON",
+            "detail": "mean cos^2(dz_world, dz_hat) on the MOVED stratum, OFF minus ON",
         },
     ]
 
-    combination_rule = "C1 AND C2 AND C3 (all three load-bearing criteria must hold)"
+    combination_rule = (
+        "C1 AND C2 AND C3 -- all three load-bearing criteria must hold, on top of "
+        "every readiness precondition being met. C3 is an attribution control, not "
+        "an effect: without it C1+C2 could be produced by subtracting any vector."
+    )
     overall_pass = bool(readiness_met and c1 and c2 and c3)
 
     # ---- non-degeneracy ---------------------------------------------------
@@ -794,24 +867,20 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         arms_identical = (
             abs(auc_on - auc_off) < 1e-9 and abs(auc_on - auc_sham) < 1e-9
         )
+    auc_saturated = bool(
+        auc_off is not None and auc_on is not None
+        and min(auc_off, auc_on) > 0.999
+    )
     enough_drift = min_drift_rows >= (4 if dry_run else MIN_DRIFT_SAMPLES)
+    non_degen = bool(readiness_met and not arms_identical and not auc_saturated and enough_drift)
     criteria_non_degenerate = {
-        "C1_residualization_improves_exogenous_event_visibility": bool(
-            readiness_met and not arms_identical and enough_drift
-        ),
-        "C2_contamination_raises_false_self_confirmation": bool(
-            readiness_met and enough_drift
-        ),
-        "C3_effect_attributable_to_correct_residualization": bool(
-            readiness_met and not arms_identical and enough_drift
-        ),
+        "C1_residualization_improves_exogenous_event_visibility": non_degen,
+        "C2_contamination_raises_false_self_confirmation": bool(readiness_met and enough_drift),
+        "C3_effect_attributable_to_correct_residualization": non_degen,
     }
 
     # ---- interpretation self-route ---------------------------------------
-    if not readiness_met:
-        label = "substrate_not_ready_requeue"
-        direction = "non_contributory"
-    elif not enough_drift or arms_identical:
+    if not readiness_met or not enough_drift or arms_identical or auc_saturated:
         label = "substrate_not_ready_requeue"
         direction = "non_contributory"
     elif c1 and c2 and c3:
@@ -829,7 +898,9 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
 
     degeneracy = check_degeneracy(
         {
-            "drift_auc": [r["drift_auc"] for r in rows if r["drift_auc"] is not None],
+            "drift_auc_moved": [
+                r["drift_auc_moved"] for r in rows if r["drift_auc_moved"] is not None
+            ],
             "fsar": [r["fsar"] for r in rows],
         }
     )
@@ -852,9 +923,7 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         "evidence_direction_per_claim": {"MECH-222": direction, "MECH-221": direction},
         "combination_rule": combination_rule,
         "criteria": criteria,
-        "non_degenerate": bool(degeneracy.get("non_degenerate", True))
-        and not arms_identical
-        and enough_drift,
+        "non_degenerate": bool(degeneracy.get("non_degenerate", True)) and non_degen,
         "degeneracy_reason": degeneracy.get("degeneracy_reason"),
         "interpretation": {
             "label": label,
@@ -862,29 +931,49 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
             "criteria_non_degenerate": criteria_non_degenerate,
         },
         "arm_results": rows,
+        "per_seed_rows": rows,
         "aggregates_by_arm": {
-            "drift_auc": {"ARM_RESID_ON": auc_on, "ARM_RESID_OFF": auc_off,
-                          "ARM_SHAM_RESID": auc_sham},
+            "drift_auc_moved": {"ARM_RESID_ON": auc_on, "ARM_RESID_OFF": auc_off,
+                                "ARM_SHAM_RESID": auc_sham},
+            "drift_auc_stationary": {
+                a: _mean(_by_arm(rows, a, "drift_auc_stationary")) for a in ARMS
+            },
             "fsar": {"ARM_RESID_ON": fsar_on, "ARM_RESID_OFF": fsar_off,
-                     "ARM_SHAM_RESID": _mean(_by_arm(rows, "ARM_SHAM_RESID", "fsar"))},
+                     "ARM_SHAM_RESID": fsar_sham},
             "self_footprint_frac": {"ARM_RESID_ON": foot_on, "ARM_RESID_OFF": foot_off,
                                     "ARM_SHAM_RESID": foot_sham},
+            "reaf_test_r2": {a: _mean(_by_arm(rows, a, "reaf_test_r2")) for a in ARMS},
         },
-        "per_seed_rows": rows,
         "label_balance": {
-            "drift_base_rate": base_rate,
-            "min_drift_rows_per_cell": min_drift_rows,
-            "n_rows_per_cell": [r["n_rows"] for r in rows],
+            "drift_base_rate_moved": base_rate,
+            "min_drift_rows_per_cell_moved": min_drift_rows,
+            "n_rows_moved_per_cell": [r["n_rows_moved"] for r in rows],
+            "n_rows_stationary_per_cell": [r["n_rows_stationary"] for r in rows],
+            "n_reaf_train_per_cell": [r["n_reaf_train"] for r in rows],
+            "n_reaf_test_per_cell": [r["n_reaf_test"] for r in rows],
         },
         "custom_information": {
             "scoping_note": "Random-action policy in both phases: this measures the "
                             "REPRESENTATIONAL half of MECH-222 (contamination of "
-                            "z_world and loss of exogenous-event visibility), not the "
-                            "behavioural/clinical half. A PASS does not license the "
-                            "referential-delusion reading directly.",
+                            "z_world and the resulting loss of exogenous-event "
+                            "visibility), NOT its behavioural/clinical half. A PASS "
+                            "does not license the referential-delusion reading "
+                            "directly. Random actions are also what makes the arms "
+                            "exactly matched: same action sequence, same env "
+                            "trajectory, only the residualization differs.",
+            "alignment_note": "delta z_{t+1}-z_t is labelled with the transition at t "
+                              "(the one that produced it). An off-by-one here pushes "
+                              "every AUC to chance; caught at Step 4 calibration.",
             "z_world_raw_note": "z_world_raw is PRE-EMA as well as pre-correction "
-                                "(Step 2.5a probe, 2026-09-10), so it is not a valid "
-                                "within-run uncorrected counterpart to z_world.",
+                                "(Step 2.5a probe, 2026-09-10), so it is NOT a valid "
+                                "within-run uncorrected counterpart to z_world -- the "
+                                "arms are the only valid contrast.",
+            "operating_point_calibration": "num_hazards/env_drift_* were calibrated at "
+                                           "Step 4, not chosen by taste: at env "
+                                           "defaults the DV is at chance (0.53-0.57); "
+                                           "at >=15 hazards the AUC pins at exactly "
+                                           "1.000 with base rate 0.85-0.93 (saturated, "
+                                           "no C1 headroom). See docstring.",
             "substrate_defect_gate": "substrate_queue 'mode-governance-engagement' "
                                      "(corrupting, ree_core/agent.py) does NOT apply: "
                                      "its defect is the salience-coordinator affinity "
@@ -905,29 +994,32 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
 
     manifest["readout"] = flat_readout(
         {
-            "drift_auc_on": auc_on,
-            "drift_auc_off": auc_off,
-            "drift_auc_sham": auc_sham,
-            "drift_auc_control": control_auc,
+            "drift_auc_moved_on": auc_on,
+            "drift_auc_moved_off": auc_off,
+            "drift_auc_moved_sham": auc_sham,
+            "drift_auc_stationary_control_off": control_auc,
             "c1_auc_gap_on_minus_off": c1_measured,
             "c2_fsar_gap_off_minus_on": c2_measured,
             "c3_auc_gap_on_minus_sham": c3_measured,
             "fsar_on": fsar_on,
             "fsar_off": fsar_off,
+            "fsar_sham": fsar_sham,
             "self_footprint_frac_on": foot_on,
             "self_footprint_frac_off": foot_off,
-            "reaf_test_r2": reaf_r2,
-            "drift_base_rate": base_rate,
-            "min_drift_rows_per_cell": min_drift_rows,
+            "reaf_test_r2_mean": reaf_r2,
+            "reaf_test_r2_worst_cell": worst_r2,
+            "drift_base_rate_moved": base_rate,
+            "min_drift_rows_per_cell_moved": min_drift_rows,
             "c1_passed": int(bool(c1)),
             "c2_passed": int(bool(c2)),
             "c3_passed": int(bool(c3)),
             "readiness_met": int(bool(readiness_met)),
+            "non_degenerate": int(bool(non_degen)),
             "overall_pass": int(bool(overall_pass)),
         }
     )
-    manifest["_elapsed"] = time.perf_counter() - t0
     manifest["_t0"] = t0
+    manifest["_zg"] = zg
     return manifest
 
 
@@ -938,7 +1030,7 @@ if __name__ == "__main__":
 
     result = run_experiment(dry_run=args.dry_run)
     t0 = result.pop("_t0")
-    result.pop("_elapsed", None)
+    _zg = result.pop("_zg")
 
     out_path = write_flat_manifest(
         result,
@@ -947,6 +1039,7 @@ if __name__ == "__main__":
         seeds=SEEDS[:1] if args.dry_run else SEEDS,
         script_path=Path(__file__),
         started_at=t0,
+        z_goal_stream_stats=_zg.stats(),
     )
     print(f"manifest: {out_path}", flush=True)
     print(f"outcome: {result['outcome']}  label: {result['interpretation']['label']}", flush=True)
