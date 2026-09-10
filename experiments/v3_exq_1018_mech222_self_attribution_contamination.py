@@ -1,4 +1,27 @@
-"""V3-EXQ-1018: MECH-222 self-attribution contamination -- does failure of
+"""STATUS 2026-09-10: NOT QUEUED -- DO NOT QUEUE AS-IS. EXP-0893 was routed
+`blocked_substrate` and the V3-EXQ-1018 reservation was released.
+
+The MANIPULATION in this driver is sound and verified (the SD-007
+ReafferencePredictor trains to held-out R2 0.34-0.40 and is genuinely
+action-sensitive: mis-pairing the action drops R2 to -2.94, cos(real, sham) = 0.59).
+What does not exist is the DEPENDENT VARIABLE. `z_world` carries no decodable
+exogenous-world-event signal in this substrate -- measured at chance across four
+rounds (frozen and trained encoder; binary and graded DV; clock-locked and
+clock-independent exogenous channel), and independently recorded in
+`ree_core/latent/zworld_p0.py`, which measures transition-type information in the
+`world_obs` channel at or below chance because `z_world` is a STATIC SINGLE-FRAME
+encoding and SD-005 routes the informative body delta to `z_self`.
+
+Two known defects are NOT fixed here because the run was stopped before they
+mattered; fix both before any future use:
+  (a) the interpretation grid's `elif not c1:` fires ahead of any C3 consideration,
+      so a FAILED ATTRIBUTION CONTROL records `weakens` rather than not-ready;
+  (b) `moved_frac` uses the INTENDED denominator `n_eval * n_steps` while episodes
+      terminate on health depletion at a mean length of ~21-47 of a nominal 60.
+Full evidence, red-team dispositions and what is owed first:
+`REE_assembly/evidence/planning/mech222_zworld_event_channel_blocked_staged_20260910.md`
+
+V3-EXQ-1018: MECH-222 self-attribution contamination -- does failure of
 continuous z_world residualization degrade the downstream visibility of
 EXOGENOUS world events? (DIAGNOSTIC)
 
@@ -209,7 +232,13 @@ SELF_DIM = 32
 WORLD_DIM = 32
 
 P0_EPISODES = 100                     # reafference predictor training
-EVAL_EPISODES = 40                    # measurement
+EVAL_EPISODES = 80                    # measurement (raised from 40 at Step 4 on a
+                                      # VARIANCE argument, not an effect estimate: at
+                                      # 40 eps the per-cell probe test split gives an
+                                      # AUC SE ~0.045, so C1's registered 0.05 gap sits
+                                      # at only ~2.5 sigma after the 5-seed average.
+                                      # 80 eps takes that to ~3.5 sigma for ~2 extra
+                                      # minutes of cloud time.)
 STEPS_PER_EPISODE = 60
 EPISODES_PER_RUN = P0_EPISODES + EVAL_EPISODES   # == queue entry episodes_per_run
 
