@@ -10,18 +10,18 @@
     {
       "queue_id": "V3-EXQ-1019",
       "title": "MECH-464: ARC-109 D1/D2 opponent-gain reorder-vs-straddle probe",
-      "experiment_type": "v3_exq_1019_mech464_d1d2_reorder_dagain_sweep",
       "script": "experiments/v3_exq_1019_mech464_d1d2_reorder_dagain_sweep.py",
       "priority": 5,
       "machine_affinity": "any",
-      "status": "pending",
       "estimated_minutes": 170,
-      "episodes_per_run": 2000,
-      "seeds": 8,
-      "conditions": 1,
-      "backlog_id": "EVB-1579",
       "claim_id": "MECH-464",
-      "note": "GOV-REUSE-1: decisive readout (per-tick D1/D2 reorder-vs-da0 conditioned on pre-split straddle fraction) never recorded by any prior manifest -- GateDVRecorder (which reads loop_assoc_straddle_frac/loop_limbic_straddle_frac/loop_d1_d2_reorder_vs_da0) had zero prior consumers; not recoverable by reanalysis, must run. Substrate readiness: straddle-fraction non-vacuity gate + da=0 shadow argmin instrumentation confirmed present in e3_selector.py (built for MECH-464 but never previously consumed by a queued script) and empirically reachable via a live one-tick probe (2026-09-10) that also found and worked around an undocumented substrate gap: use_loop_segregation=True alone never reaches _segregated_loop_arbitrate without also setting use_f_eligibility_demotion (or use_modulatory_shortlist_then_modulate). red-team (same-model fallback, sonnet-5; fable spawn hit an account spend limit mid-review): CONTESTED -> FIXED -- C2 confinement criterion lacked a minimum-N floor on its straddle==0 comparison bucket; added straddle_zero_bucket_scorable precondition mirroring the existing straddle>0 tercile floor. Dispatching chip prompt named a nonexistent proposal_id (EXP-1069); the real, matching, unqueued proposal for MECH-464 was EXP-1067 (backlog_id EVB-1579) -- used that instead."
+      "backlog_id": "EVB-1579",
+      "note": "GOV-REUSE-1: decisive readout (per-tick D1/D2 reorder-vs-da0 conditioned on pre-split straddle fraction) never recorded by any prior manifest -- GateDVRecorder (which reads loop_assoc_straddle_frac/loop_limbic_straddle_frac/loop_d1_d2_reorder_vs_da0) had zero prior consumers; not recoverable by reanalysis, must run. Substrate readiness: straddle-fraction non-vacuity gate + da=0 shadow argmin instrumentation confirmed present in e3_selector.py (built for MECH-464 but never previously consumed by a queued script) and empirically reachable via a live one-tick probe (2026-09-10) that also found and worked around an undocumented substrate gap: use_loop_segregation=True alone never reaches _segregated_loop_arbitrate without also setting use_f_eligibility_demotion (or use_modulatory_shortlist_then_modulate). red-team (same-model fallback, sonnet-5; fable spawn hit an account spend limit mid-review): CONTESTED -> FIXED -- C2 confinement criterion lacked a minimum-N floor on its straddle==0 comparison bucket; added straddle_zero_bucket_scorable precondition mirroring the existing straddle>0 tercile floor. Dispatching chip prompt named a nonexistent proposal_id (EXP-1069); the real, matching, unqueued proposal for MECH-464 was EXP-1067 (backlog_id EVB-1579) -- used that instead.",
+      "status": "pending",
+      "conditions": 1,
+      "episodes_per_run": 2000,
+      "experiment_type": "v3_exq_1019_mech464_d1d2_reorder_dagain_sweep",
+      "seeds": 8
     }
   ]
 }
