@@ -171,7 +171,12 @@ from ree_core.environment.causal_grid_world import CausalGridWorld  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
 from experiment_protocol import emit_outcome  # noqa: E402
 from experiments._lib.arm_fingerprint import arm_cell  # noqa: E402
-from experiments._metrics import check_degeneracy, p0_readiness_gate, P0NotReady  # noqa: E402
+from experiments._metrics import (  # noqa: E402
+    check_degeneracy,
+    dv_headroom_check,
+    p0_readiness_gate,
+    P0NotReady,
+)
 from experiments.pack_writer import write_flat_manifest, flat_readout  # noqa: E402
 
 EXPERIMENT_PURPOSE = "diagnostic"
@@ -214,7 +219,6 @@ R1_REAF_TEST_R2_FLOOR = 0.05
 R2_CONTROL_AUC_FLOOR = 0.60
 R3_BASE_RATE_LOW = 0.05
 R3_BASE_RATE_HIGH = 0.95
-R4_OFF_AUC_CEILING = 0.90
 
 # load-bearing thresholds
 C1_AUC_GAP = 0.05
@@ -683,34 +687,48 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
                 f"{worst_ctrl_cell['arm']}::seed{worst_ctrl_cell['seed']}" if worst_ctrl_cell else None
             ),
         },
-        {
-            "name": "drift_base_rate_in_band",
-            "kind": "readiness",
-            "measured": float(base_rate if base_rate is not None else 0.0),
-            "threshold_low": R3_BASE_RATE_LOW,
-            "threshold_high": R3_BASE_RATE_HIGH,
-            "direction": "interval",
-            "control": "ground-truth exogenous-event rate (a hazard actually changed "
-                       "cell), snapshot-compared around env.step",
-        },
-        {
-            "name": "drift_auc_off_headroom_for_c1",
-            "kind": "dv_headroom",
-            "measured": float(auc_off if auc_off is not None else 0.0),
-            "threshold": R4_OFF_AUC_CEILING,
-            "direction": "upper",
-            "control": "C1 requires drift_auc_on - drift_auc_off >= 0.05 and AUC is "
-                       "bounded above by 1.0; an OFF arm above 0.90 leaves under 0.10 "
-                       "of headroom and C1 could fire negative BY CONSTRUCTION",
-        },
+        # HEADROOM AS A FLOOR (achievable >= required), the only non-inverting
+        # form: the AUC gap C1 can still physically reach on top of the OFF arm
+        # is (1.0 - drift_auc_off), and C1 registers C1_AUC_GAP of it. An OFF
+        # arm pinned near the 1.0 AUC ceiling leaves less than that, and C1
+        # would then fire negative BY CONSTRUCTION rather than on the science.
+        dv_headroom_check(
+            "c1_auc_gap_headroom_above_off_arm",
+            dv_name="drift_auc_gap_on_minus_off",
+            criterion_threshold=C1_AUC_GAP,
+            achievable=(float(1.0 - auc_off) if auc_off is not None else 0.0),
+            statistic="range",
+            dv_bounds=(0.0, 1.0),
+            control="achievable = 1.0 - mean(drift_auc, ARM_RESID_OFF); "
+                    "required = C1's own registered gap constant.",
+        ),
     ]
+
+    # The base-rate check is TWO-SIDED, and p0_readiness_gate is single-bound
+    # only, so build that entry directly (the indexer honours threshold_low /
+    # threshold_high and prefers the interval over any single `threshold`).
+    _br = float(base_rate if base_rate is not None else 0.0)
+    interval_precondition = {
+        "name": "drift_base_rate_in_band",
+        "kind": "readiness",
+        "measured": _br,
+        "threshold_low": R3_BASE_RATE_LOW,
+        "threshold_high": R3_BASE_RATE_HIGH,
+        "comparator_low": ">=",
+        "comparator_high": "<=",
+        "direction": "interval",
+        "met": bool(R3_BASE_RATE_LOW <= _br <= R3_BASE_RATE_HIGH),
+        "control": "ground-truth exogenous-event rate (a hazard actually changed "
+                   "cell), snapshot-compared around env.step. Two-sided: too few "
+                   "positives starves the probe, too many leaves no negatives.",
+    }
 
     try:
         preconditions = p0_readiness_gate(precondition_specs)
-        readiness_met = all(bool(p.get("met")) for p in preconditions)
     except P0NotReady as exc:
         preconditions = exc.preconditions
-        readiness_met = False
+    preconditions = list(preconditions) + [interval_precondition]
+    readiness_met = all(bool(p.get("met")) for p in preconditions)
 
     # ---- criteria ---------------------------------------------------------
     def _passed(measured: Optional[float], thr: float) -> bool:
