@@ -9,12 +9,21 @@ MECH-349 FALSIFYING(3) says the claim is falsified if "the 666c signature reappe
 SD-078-centered key with maintenance ON -- high crf_n_minted_total with crf_n_retired_total of
 comparable magnitude and crf_max_pairwise_rule_dist at or near 0 ... it mints tokens, not slots."
 
-V3-EXQ-1024 could not test it. Under the stack MECH-349 names -- crf_mature_pool_dynamics=True
-+ crf_availability_maintenance=True with the default crf_maintenance_decay=0.0 -- retirement is
-STRUCTURALLY UNREACHABLE, so crf_n_retired_total is pinned at 0 and FALSIFYING(3) cannot occur
-whatever the mechanism does. 1024 recorded that as a structural fact (its DESIGN HISTORY pass-1
-F2) and explicitly disclaimed bearing on FALSIFYING(3). Governance flag GFLAG-0265 recorded the
-residual. THIS RUN IS THAT RESIDUAL: it makes retirement genuinely reachable and then asks
+No run has ever been able to test it. Under the stack MECH-349 names --
+crf_mature_pool_dynamics=True + crf_availability_maintenance=True with the default
+crf_maintenance_decay=0.0 -- retirement is STRUCTURALLY UNREACHABLE, so crf_n_retired_total is
+pinned at 0 and FALSIFYING(3) cannot occur whatever the mechanism does. That structural fact is
+recorded in governance flag GFLAG-0265 and is RE-MEASURED HERE from scratch by ARM_FROZEN (12
+minted, 0 retired, every seed) rather than being taken on trust.
+
+PROVENANCE, stated precisely because it is easy to get wrong: the id V3-EXQ-1024 was RESERVED on
+2026-09-11 for MECH-349's owed GFLAG-0198 validation run and then RELEASED WITHOUT EVER BEING
+QUEUED. Four successive designs were each killed by adversarial design review, no manifest was
+written, no queue entry ever reached origin or the coordinator DB, and the driver was retired to
+experiments/_scratch/mech349_crf_harness_NOT_QUEUEABLE.py. So there is NO V3-EXQ-1024 RUN and no
+1024 manifest to cite; the harness conventions this driver reuses come from that retired script,
+and every empirical figure below was measured by this driver. THIS RUN IS THE GFLAG-0265
+RESIDUAL: it makes retirement genuinely reachable and then asks
 whether churn is SELECTIVE (a structural creator that forgets what is gone and keeps what is
 present) or INDISCRIMINATE (a token-minter -- the 666c treadmill).
 
@@ -99,7 +108,7 @@ ADVERSARIAL DESIGN REVIEW (CONTESTED) -- four further defects, all fixed:
  owes, not an independent discriminating test. See the seeds/power note below.
 
 === ARMS (one axis only: crf_maintenance_decay) ===
-  ARM_FROZEN            decay 0.00  ANCHOR. The V3-EXQ-1024 stack. Retirement structurally
+  ARM_FROZEN            decay 0.00  ANCHOR. The claim's named default stack. Retirement structurally
                                     unreachable; re-measures the GFLAG-0265 structural fact in
                                     this ecology. NOT SCORED.
   ARM_LEAK_LO           decay 0.02  SCORED.
@@ -114,8 +123,9 @@ shift the SD-078 common-mode EMA, which would have confounded the control agains
 on the very quantity (the centered context key) the claim is about.
 
 === THE ECOLOGY ===
-Reuses the V3-EXQ-1024 direct-drive harness and both of the properties its two BLOCKING
-adversarial reviews forced (do not re-derive these; see that script's DESIGN HISTORY):
+Reuses the direct-drive harness conventions of the retired V3-EXQ-1024 design
+(experiments/_scratch/mech349_crf_harness_NOT_QUEUEABLE.py) and both of the properties its
+BLOCKING adversarial reviews forced -- do not re-derive these:
   * SETTLED COMMON-MODE BASELINE. BASELINE_WARMUP_TICKS of observe()-only ticks advance the
     SD-078 EMA without minting and without touching any recurrence counter. Without it the
     opening phase is effectively single-regime, cue-centering annihilates the regime, and the
@@ -210,6 +220,20 @@ The seed requirement therefore certifies REPRODUCIBILITY; it is not evidence of 
 and no criterion here should be read as a significance test. The discrimination this run rests on
 is BETWEEN ARMS (0 vs 6 vs 222), where the separation is three orders of magnitude.
 
+=== OPEN GOVERNANCE QUESTION THIS RUN DOES NOT SETTLE (GFLAG-0268) ===
+GFLAG-0268 (contested_disposition, OPEN, raised 2026-09-11T17:37Z) asks whether MECH-349 is an
+EMPIRICAL claim at all: its CREATE-face clauses (i) recurrence-gating and (ii) novelty-gating are
+argued to restate CandidateRuleField._maybe_mint rather than to predict anything it could fail to
+do, leaving only parameter sensitivity testable. THIS RUN DOES NOT ADDRESS THAT and must not be
+read as answering it. It targets FALSIFYING(3), the CHURN face, which GFLAG-0268's tautology
+argument does not reach: whether a rule whose regularity is still recurring keeps its slot is a
+dynamical property of credit()'s leak-versus-refresh balance, not an arithmetic property of
+_maybe_mint -- and it is demonstrably falsifiable here, since the positive-control arm fails C1
+outright (94-95 persistent re-mints). The honest caveat is the other side of the same coin: what
+C1 establishes is that the selective-forgetting basin CONTAINS the operating point, which is a
+parameter fact of exactly the kind GFLAG-0268 says is all that remains. Governance should read
+this run as evidence about the churn face only, and should settle GFLAG-0268 on its own terms.
+
 SLEEP DRIVER: not applicable (no SleepLoopManager; this driver steps the CandidateRuleField
 directly and never constructs an agent).
 """
@@ -249,7 +273,7 @@ EXPERIMENT_TYPE = "v3_exq_1025_mech349_crf_churn_retirement"
 EXPERIMENT_PURPOSE = "evidence"
 ARCHITECTURE_EPOCH = "ree_hybrid_guardrails_v1"
 CLAIM_IDS = ["MECH-349"]
-RELATED_EXQ = ["V3-EXQ-1024", "V3-EXQ-666c", "V3-EXQ-806"]
+RELATED_EXQ = ["V3-EXQ-666c", "V3-EXQ-806"]   # NOT V3-EXQ-1024: reserved, never queued, no manifest
 
 SEEDS = [0, 1, 2, 3, 4]
 
@@ -273,7 +297,7 @@ REGIME_MAGNITUDE = 2.0    # regime residual scale, far above OBS_NOISE
 COMMON_MODE_SCALE = 3.0   # SD-008 geometry: every context sits in one narrow cone
 OBS_NOISE = 0.005
 BASELINE_WARMUP_TICKS = 300   # observe()-only; no minting, no recurrence counting
-OUTCOME_SIGNAL = 0.1          # mild positive credit, as in V3-EXQ-1024
+OUTCOME_SIGNAL = 0.1          # mild positive credit (the retired 1024 design used the same)
 
 # --- substrate stack under test (the claim's named operating point) ----------
 N_SLOTS = 64
@@ -323,7 +347,7 @@ def _regime_direction(k: int) -> torch.Tensor:
 def _build_config(*, maintenance_decay: float, n_slots: int) -> CandidateRuleFieldConfig:
     """The SD-078-centered, mature-pool + maintenance stack the claim names.
 
-    Identical to the V3-EXQ-1024 stack except for maintenance_decay, the one
+    Identical to the claim's named default stack except for maintenance_decay, the one
     manipulated knob. Every other field is left at its default on purpose, so the
     arms differ from 1024 and from each other on exactly one axis.
     """
@@ -649,7 +673,7 @@ def _preconditions() -> List[PreconditionSpec]:
             name="retirement_reachable",
             description=("Worst cell in the arm retires >= 1 rule. Without this, churn is "
                          "pinned at 0 by the substrate and FALSIFYING(3) cannot occur whatever "
-                         "the mechanism does -- the exact V3-EXQ-1024 blocker."),
+                         "the mechanism does -- the exact blocker GFLAG-0265 records."),
             control="the arm's own worst cell under its maintenance_decay dose",
             threshold=0.0,
             direction="lower",
