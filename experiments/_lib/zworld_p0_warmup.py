@@ -278,6 +278,17 @@ def run_zworld_p0(
     out["p0a_resource_field_weight"] = float(cfg.resource_field_weight)
     out["p0a_used_resource_field_head"] = stats.get("used_resource_field_head")
     out["p0a_resource_field_holdout"] = stats.get("resource_field_holdout")
+    # SD-106 generic bottleneck variance preservation. `p0a_used_preservation_head` is the
+    # ground truth that the leg RAN, not merely that a weight was passed, and
+    # `p0a_used_world_encoder_skip` that the zero-init bypass module exists at all -- both
+    # read False on a half-configured caller rather than letting it assume its ON arm was
+    # manipulated. The holdout block is the mechanism readout: held-out R^2 of world_obs from
+    # the 32-dim code, directly comparable with the PCA-32 anchor SD-106's acceptance target
+    # names. Without these three the flag can read as enabled while the leg is inert.
+    out["p0a_preservation_weight"] = float(getattr(cfg, "preservation_weight", 0.0))
+    out["p0a_used_preservation_head"] = stats.get("used_preservation_head")
+    out["p0a_used_world_encoder_skip"] = stats.get("used_world_encoder_skip")
+    out["p0a_preservation_holdout"] = stats.get("preservation_holdout")
     out["p0a_grounding_label_balance"] = stats.get("label_balance")
     # The discriminativeness readout, recorded because the anti-collapse gate can be satisfied
     # VACUOUSLY -- a regulariser can hold the participation ratio up while the encoder learns

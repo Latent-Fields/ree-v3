@@ -1313,6 +1313,54 @@ def test_use_resource_field_head_populates_resource_field_pred_only_when_enabled
     assert float(on_state.resource_field_pred.max()) <= 1.0
 
 
+def test_use_world_encoder_skip_is_bit_identical_off_and_live_on():
+    """SD-106: the zero-initialised linear bypass around SplitEncoder.world_encoder.
+
+    Three properties, and the FIRST TWO are the ones that make the flag safe to ship
+    default-off:
+
+      OFF   the module is not constructed at all -- so `state_dict` gains no key and an
+            existing checkpoint still loads. A probe that only checked the forward pass
+            would miss that, and a silently-grown state_dict is how a default-off flag
+            breaks every saved agent in the fleet.
+      ON    at construction the bypass is ZERO-INITIALISED, so enabling the flag is a
+            NO-OP AT STEP 0 -- flipping it cannot perturb a forward pass until training
+            has moved the weights. This is what makes an ON/OFF arm pair comparable at
+            init rather than confounded by it.
+      ON    the parameter nonetheless EXISTS and is wired additively, so training can
+            move it. Asserted by perturbing the weight and requiring z_world to change:
+            a bypass that were wired but never summed would pass the zero-init check
+            vacuously and read as enabled while inert.
+    """
+    stack_off = _latent_stack()
+    stack_on = _latent_stack(use_world_encoder_skip=True)
+
+    assert stack_off.split_encoder.world_encoder_skip is None
+    skip = stack_on.split_encoder.world_encoder_skip
+    assert skip is not None, "use_world_encoder_skip=True built no bypass (inert flag)"
+    assert not any("world_encoder_skip" in k for k in stack_off.split_encoder.state_dict()), (
+        "OFF arm grew a world_encoder_skip state_dict key -- existing checkpoints would "
+        "no longer load"
+    )
+    assert bool(torch.all(skip.weight == 0)), "SD-106 bypass must be ZERO-initialised"
+
+    obs = torch.randn(1, stack_off.config.body_obs_dim + stack_off.config.world_obs_dim)
+    off_state = stack_off.encode(obs)
+    on_state = stack_on.encode(obs)
+    assert torch.equal(off_state.z_world, on_state.z_world), (
+        "enabling use_world_encoder_skip changed z_world at step 0 -- the bypass is not "
+        "zero-initialised, so ON and OFF arms are confounded at init"
+    )
+
+    with torch.no_grad():
+        skip.weight.add_(0.1)
+    moved_state = stack_on.encode(obs)
+    assert not torch.equal(off_state.z_world, moved_state.z_world), (
+        "perturbing the bypass weight did not move z_world -- the module exists but is "
+        "not summed into the encoder output (enabled-but-inert)"
+    )
+
+
 def test_use_resource_encoder_populates_z_resource_only_when_enabled():
     """SD-015/MECH-112: ResourceEncoder produces z_resource independently of
     z_world only when use_resource_encoder=True. Also pins that the sibling
@@ -2810,6 +2858,7 @@ PROBED = {
     "use_event_classifier",         # test_use_event_classifier_populates_event_logits_only_when_enabled
     "use_resource_proximity_head",  # test_use_resource_proximity_head_populates_resource_prox_pred_only_when_enabled
     "use_resource_field_head",      # test_use_resource_field_head_populates_resource_field_pred_only_when_enabled (SD-018 amend, V3-EXQ-948)
+    "use_world_encoder_skip",       # test_use_world_encoder_skip_is_bit_identical_off_and_live_on (SD-106, V3-EXQ-1023)
     # SD-e1 ITEM 2 (ree-v3 6447b45, 2026-09-02): E1Config.e1_rollout_consistency_enabled
     # gates E1DeepPredictor.rollout_consistency_loss. Probed by
     # tests/contracts/test_e1_rollout_consistency_loss.py (bit-identical OFF, ON

@@ -836,6 +836,12 @@ class SplitEncoder(nn.Module):
       Total lateral input dim = 50
 
     The lateral head is optional (harm_dim=0 disables it).
+
+    SD-106 (generic bottleneck variance preservation): `use_world_encoder_skip` adds a
+    zero-initialised linear bypass around the world encoder's ReLU stack, so the encoder
+    family CONTAINS the linear variance-preserving map rather than approximating it. Default
+    False -- no module, no state_dict entry, forward bit-identical. See
+    `ree_core/latent/zworld_p0.py`'s SD-106 section for the measurement that motivates it.
     """
 
     # Indices of hazard channel within local_view (5×5×7 one-hot, entity type 3)
@@ -860,6 +866,7 @@ class SplitEncoder(nn.Module):
         use_resource_proximity_head: bool = False,
         use_resource_field_head: bool = False,
         resource_field_dim: int = 25,
+        use_world_encoder_skip: bool = False,
     ):
         super().__init__()
         self.self_dim = self_dim
@@ -877,6 +884,7 @@ class SplitEncoder(nn.Module):
             nn.ReLU(),
             nn.Linear(hidden_dim, world_dim),
         )
+
 
         # MECH-099: lateral head for harm-salient features (hazard + contamination)
         if harm_dim > 0:
@@ -938,6 +946,45 @@ class SplitEncoder(nn.Module):
         self.self_precision_logit = nn.Parameter(torch.zeros(self_dim))
         self.world_precision_logit = nn.Parameter(torch.zeros(world_dim))
 
+        # SD-106: zero-initialised linear bypass around the world encoder's ReLU stack.
+        # WHY: the stack is Linear(world_obs_dim, hidden) -> ReLU -> Linear(hidden, world_dim),
+        # and a ReLU MLP can only APPROXIMATE the linear variance-preserving map that PCA-32
+        # realises exactly. V3-EXQ-1008's consumer-rung decomposition attributes -0.0779 of the
+        # 0.1998 PCA-to-trained oracle-agreement gap to precisely that architectural cost,
+        # measured at RANDOM INIT. Adding W_skip . world_obs makes the family contain the
+        # linear map. Zero-init (ReZero, Bachlechner et al. 2021) so enabling it is a no-op at
+        # step 0 and only training moves it off zero.
+        #
+        # CONSTRUCTED LAST, AND THAT PLACEMENT IS LOAD-BEARING -- NOT TIDINESS. Every
+        # nn.Module built here consumes torch RNG draws, so a module inserted EARLIER shifts
+        # the random init of every module built after it: an ON/OFF arm pair differing only in
+        # this flag would then also differ in the init of lateral_head, event_classifier,
+        # resource_proximity_head, resource_field_head and both topdown projections -- a
+        # confound across the whole encoder, not a bypass. (Same hazard x1002._make_agent
+        # documents for resource_field_head.) Built last, enabling the flag perturbs nothing
+        # else, which is what tests/test_flag_inertness.py's
+        # test_use_world_encoder_skip_is_bit_identical_off_and_live_on asserts by requiring
+        # z_world to be torch.equal across the ON/OFF pair at step 0. That test FAILED on the
+        # first draft of this code, which built the bypass immediately after world_encoder.
+        #
+        # None (not an identity module) when disabled, so no parameter enters state_dict and
+        # existing checkpoints still load.
+        if use_world_encoder_skip:
+            # CONSUMES NO RNG DRAWS. Building it last is not enough on its own: LatentStack
+            # constructs further modules AFTER this SplitEncoder, so an extra draw here still
+            # shifts their init and re-introduces the confound. nn.Linear draws a random
+            # weight that we immediately overwrite with zeros, so those draws cannot affect
+            # any value -- restoring the RNG state around the construction is therefore free,
+            # and it is what makes the flag EXACTLY inert rather than approximately so.
+            _rng_state = torch.random.get_rng_state()
+            try:
+                self.world_encoder_skip = nn.Linear(world_obs_dim, world_dim, bias=False)
+                nn.init.zeros_(self.world_encoder_skip.weight)
+            finally:
+                torch.random.set_rng_state(_rng_state)
+        else:
+            self.world_encoder_skip = None
+
     def forward(
         self,
         body_obs: torch.Tensor,
@@ -959,6 +1006,9 @@ class SplitEncoder(nn.Module):
         """
         z_self = self.self_encoder(body_obs)
         z_world = self.world_encoder(world_obs)
+        # SD-106: additive linear bypass (zero-initialised; no-op until trained).
+        if self.world_encoder_skip is not None:
+            z_world = z_world + self.world_encoder_skip(world_obs)
 
         if topdown is not None:
             if self.self_topdown is not None:
@@ -1098,6 +1148,7 @@ class LatentStack(nn.Module):
             use_resource_proximity_head=getattr(self.config, "use_resource_proximity_head", False),
             use_resource_field_head=getattr(self.config, "use_resource_field_head", False),
             resource_field_dim=int(getattr(self.config, "resource_field_dim", 25)),
+            use_world_encoder_skip=bool(getattr(self.config, "use_world_encoder_skip", False)),
         )
 
         # SD-007: optional ReafferencePredictor for perspective-shift correction.

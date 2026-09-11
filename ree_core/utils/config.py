@@ -240,6 +240,18 @@ class LatentStackConfig:
     # Width of resource_field_view in world_obs (5x5 agent-centred grid).
     resource_field_dim: int = 25
 
+    # SD-106: generic bottleneck variance preservation -- zero-initialised linear bypass
+    # around the world encoder's ReLU stack. V3-EXQ-1008's consumer-rung decomposition of
+    # the 0.1998 PCA-to-trained gap attributes -0.0779 to "what the encoder's nonlinear
+    # architecture costs at random init" (random orthonormal-32 0.7725 vs untrained encoder
+    # net 0.6946) -- i.e. the ReLU stack loses content a plain linear projection keeps. The
+    # bypass makes the encoder family CONTAIN the linear variance-preserving map instead of
+    # approximating it through the nonlinearity. Zero-initialised (ReZero, Bachlechner et al.
+    # 2021), so enabling it is a no-op at step 0 and only training moves it off zero.
+    # Default False: the module is never constructed, so forward output AND state_dict are
+    # bit-identical to before (a checkpoint saved without it still loads).
+    use_world_encoder_skip: bool = False
+
     # Q-007 / EXQ-051b: volatility (NE/LC) signal injection into beta_encoder.
     # When > 0, beta_encoder input becomes cat(z_self_init, z_world_init, volatility_signal)
     # where volatility_signal [batch, volatility_signal_dim] is a running estimate of E3's
@@ -7036,6 +7048,8 @@ class REEConfig:
         use_resource_field_head: bool = False,
         resource_field_weight: float = 0.5,
         resource_field_dim: int = 25,
+        # SD-106: zero-init linear bypass around the world encoder (default off)
+        use_world_encoder_skip: bool = False,
         use_harm_stream: bool = False,
         harm_obs_dim: int = 51,
         z_harm_dim: int = 32,
@@ -8337,6 +8351,8 @@ class REEConfig:
         config.latent.use_resource_field_head = use_resource_field_head
         config.latent.resource_field_weight = resource_field_weight
         config.latent.resource_field_dim = resource_field_dim
+        # SD-106: generic bottleneck variance preservation (encoder bypass)
+        config.latent.use_world_encoder_skip = use_world_encoder_skip
 
         # SD-010: dedicated harm stream
         config.latent.use_harm_stream = use_harm_stream

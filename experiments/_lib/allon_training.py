@@ -68,6 +68,7 @@ import torch
 
 from experiments._lib.capability_eval import RandomPolicy
 from experiments._lib.zworld_p0_warmup import run_zworld_p0
+from ree_core.latent.zworld_p0 import ZWorldP0Config  # SD-106: zworld_p0_config type
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
 
@@ -292,6 +293,7 @@ def _train_all_on_agent(
     zworld_p0_env: Optional[CausalGridWorldV2] = None,
     zworld_p0_dry_run: bool = False,
     zworld_p0_resource_field_weight: float = 0.0,
+    zworld_p0_config: Optional[ZWorldP0Config] = None,
 ) -> Dict[str, Any]:
     env = train_env
 
@@ -313,7 +315,13 @@ def _train_all_on_agent(
             agent, zworld_p0_env, seed, zworld_p0_episodes, steps_per_episode,
             policy=RandomPolicy(seed), label=f"ree_allon rung={rung_id}",
             dry_run=zworld_p0_dry_run,
-            resource_field_weight=float(zworld_p0_resource_field_weight),
+            # SD-106: `config=` lets a caller supply its own P0 objective weights (e.g.
+            # preservation_weight). `run_zworld_p0` REFUSES a config together with a non-zero
+            # resource_field_weight kwarg -- the config carries its own -- so pass the kwarg
+            # only on the legacy path. Default None = legacy construction = bit-identical to
+            # every pre-SD-106 caller.
+            **({"config": zworld_p0_config} if zworld_p0_config is not None
+               else {"resource_field_weight": float(zworld_p0_resource_field_weight)}),
         )
     has_ofc = getattr(agent, "ofc", None) is not None
     has_lpfc = getattr(agent, "lateral_pfc", None) is not None

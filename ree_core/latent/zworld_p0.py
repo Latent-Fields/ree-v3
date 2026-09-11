@@ -92,8 +92,57 @@ the two are not interchangeable. That is why the covariance weight defaults high
 than to VICReg's published ratio, which was measured here to be far too weak (w_cov=0.04
 gave PR 1.80; w_cov=50 gave PR 4.02 in the same sweep).
 
-BIT-IDENTICAL OFF BY CONSTRUCTION. This module adds no field to LatentStackConfig, no head
-to SplitEncoder, and no method to REEAgent. It operates on an existing LatentStack from the
+SD-106 EXTENSION (2026-09-11): GENERIC BOTTLENECK VARIANCE PRESERVATION
+-----------------------------------------------------------------------
+The recipe above fixes COLLAPSE (fault 2) but not PRESERVATION. V3-EXQ-1010 swept decoder
+capacity over ~77,000x in parameters against the frozen latent this recipe produces and
+found 0/3 seeds clearing a 0.80 held-out oracle-action agreement bar (best 0.6839/0.6846/
+0.6656), while a PCA-32 of the encoder's OWN 250-dim input at the encoder's OWN 32-dim
+width clears it 3/3 (0.8836/0.8729/0.8763) and the SAME architecture at RANDOM INIT scores
+at or ABOVE the trained latent on 3/3. Training contributes nothing positive at any reader
+capacity: the objective supplies no gradient toward decision-relevant content.
+
+Measured here, on the x724 rung, is WHY -- and it is a scale fault, not a missing term:
+
+    trained-state loss decomposition      variance hinge 17.79 (80.3%)
+                                          covariance      2.07 ( 9.3%)
+                                          4 grounding CE  2.11 ( 9.5%)
+                                          reconstruction  0.177( 0.80%)
+
+    linear-decodable world_obs content    untrained z_world   R^2 0.9029
+                                          TRAINED z_world     R^2 0.9652
+                                          PCA-32 (the anchor) R^2 0.9984
+
+VICReg anti-collapse is 90% of the objective and the reconstruction leg is 0.8% of it, so
+the trained latent discards ~22x more input variance than PCA-32 does. The leg is not
+under-weighted; it is on the wrong SCALE -- raw MSE against a sparse one-hot observation is
+~0.018 where the hinge and CE terms it competes with are O(1) by construction.
+
+The extension is therefore two default-off additions, not a rewrite:
+  `ZWorldP0Config.preservation_weight`   a SCALE-NORMALISED (1 - R^2) reconstruction term
+                                         with its own linear decoder. See that field.
+  `use_world_encoder_skip` (SplitEncoder) a zero-initialised linear bypass around the ReLU
+                                         stack, for the -0.0779 architecture term in
+                                         V3-EXQ-1008's decomposition. See stack.py.
+
+Measured together (2 seeds, world_obs R^2 / resource_field R^2; the resource field is the
+slice the 1010 autopsy reports decodes the oracle at 0.9735-0.9832 from raw):
+
+    shipped                   0.9432/0.9264   0.9493/0.9479
+    preservation 200 + skip   0.9974/0.9857   0.9978/0.9908
+    PCA-32 anchor             0.9983/0.9878   0.9984/0.9894
+
+i.e. PCA-32 parity on both proxies on 2/2 seeds, with SD-070's own gates intact
+(participation ratio 14.68 -> 13.86 against a >= 2.0 gate; mean grounding lift 0.5833 ->
+0.5672). SD-106 PROMOTES NOTHING on its own -- the acceptance target is >= 0.85 held-out
+oracle-action agreement at the consumer rung, measured by re-running
+experiments/v3_exq_1010_zworld_overcapacity_decoder_sweep.py UNCHANGED.
+
+BIT-IDENTICAL OFF BY CONSTRUCTION. At its defaults this module adds no head to SplitEncoder
+and no method to REEAgent; SD-106's `preservation_weight` defaults to 0.0 (no head built, no
+parameter in the optimiser) and its one LatentStackConfig field, `use_world_encoder_skip`,
+defaults to False (no module constructed, so state_dict is unchanged and existing
+checkpoints still load). It operates on an existing LatentStack from the
 outside, and the auxiliary heads belong to the trainer rather than to the substrate. Nothing
 runs unless an experiment explicitly constructs a ZWorldP0Trainer, so no existing experiment
 can change behaviour. There is no flag to leave in the wrong state.
@@ -309,6 +358,36 @@ class ZWorldP0Config:
     # Structural anti-collapse: reconstructing world_obs cannot be served by a 1-D code.
     # 0.0 disables the head entirely.
     reconstruction_weight: float = 10.0
+
+    # SD-106: GENERIC BOTTLENECK VARIANCE PRESERVATION. A SCALE-NORMALISED reconstruction
+    # term, added alongside (not replacing) `reconstruction_weight`.
+    #
+    # WHY A SECOND RECONSTRUCTION TERM RATHER THAN A BIGGER WEIGHT ON THE FIRST. The leg
+    # above is expressed as RAW MSE against world_obs, which is a sparse one-hot-dominated
+    # vector whose mean per-element variance is ~0.03. Measured on the x724 rung after a
+    # full run of this recipe, the shipped objective decomposes as:
+    #     variance hinge  17.79 (80.3%)   covariance 2.07 (9.3%)
+    #     4 grounding CE   2.11 ( 9.5%)   reconstruction 0.177 (0.80%)
+    # The reconstruction leg is numerically INERT -- not under-weighted, but on a scale
+    # three orders of magnitude below the hinge and CE terms it competes with, because
+    # those are O(1) by construction and raw MSE on this data is not. Dividing by the
+    # target's own mean per-element variance converts the term to FRACTION OF VARIANCE
+    # UNEXPLAINED (1 - R^2), which is O(1) and dataset-scale-free, so a weight here means
+    # what it appears to mean. Raising `reconstruction_weight` instead would silently
+    # change every existing P0 run; a separate default-0.0 term cannot.
+    #
+    # WHY THIS IS THE RIGHT PRESSURE. With a LINEAR decoder, MSE reconstruction has its
+    # global optimum at the principal subspace (Baldi & Hornik 1989) -- the same object the
+    # acceptance target names as its anchor. Measured effect on the linear-decodable
+    # content of the trained latent (2 seeds, world_obs R^2 / resource_field R^2):
+    #     shipped                    0.9432/0.9264   0.9493/0.9479
+    #     this term at 200 + skip    0.9974/0.9857   0.9978/0.9908
+    #     PCA-32 anchor              0.9983/0.9878   0.9984/0.9894
+    # SD-070's own gates survive: participation ratio 14.68 -> 13.86 (gate >= 2.0), mean
+    # grounding lift 0.5833 -> 0.5672.
+    #
+    # Default 0.0 = leg OFF = bit-identical to every pre-SD-106 P0 run.
+    preservation_weight: float = 0.0
     # Optimisation.
     learning_rate: float = 1e-3
     batch_size: int = 64
@@ -350,6 +429,7 @@ class ZWorldP0Trainer:
         self._prox: List[float] = []
         self._heads: Dict[str, nn.Module] = {}
         self._recon_head: Optional[nn.Module] = None
+        self._preserve_head: Optional[nn.Module] = None
 
     # -- buffer ------------------------------------------------------------------------
     def observe(
@@ -380,11 +460,22 @@ class ZWorldP0Trainer:
         counts as 'changed'."""
         se = self.split_encoder
         z = se.world_encoder(world_obs)
+        skip = getattr(se, "world_encoder_skip", None)
+        if skip is not None:
+            z = z + skip(world_obs)          # SD-106 bypass (zero-init; no-op until trained)
         return z * torch.sigmoid(se.world_precision_logit).unsqueeze(0)
 
     def world_path_parameters(self) -> List[torch.Tensor]:
         se = self.split_encoder
-        return list(se.world_encoder.parameters()) + [se.world_precision_logit]
+        params = list(se.world_encoder.parameters()) + [se.world_precision_logit]
+        # SD-106: the bypass is part of the world path and MUST be trained here. It is
+        # zero-initialised, so omitting it would leave it at zero forever -- the flag would
+        # read as enabled while the mechanism stayed inert. It is also exactly the kind of
+        # world-path tensor the V3-EXQ-783 weight-delta readiness check counts as changed.
+        skip = getattr(se, "world_encoder_skip", None)
+        if skip is not None:
+            params += list(skip.parameters())
+        return params
 
     # -- training ----------------------------------------------------------------------
     def train(self) -> Dict[str, Any]:
@@ -456,6 +547,29 @@ class ZWorldP0Trainer:
         else:
             self._recon_head = None
 
+        # SD-106: dedicated decoder for the scale-normalised preservation term. Deliberately
+        # NOT shared with `_recon_head`: a separate module keeps the preservation_weight=0.0
+        # path provably untouched (nothing is constructed, no parameter joins the optimiser),
+        # which is what makes the OFF arm bit-identical rather than merely intended to be.
+        # LINEAR on purpose -- with a linear decoder the MSE optimum IS the principal
+        # subspace (Baldi & Hornik 1989), which is the anchor the acceptance target names.
+        if cfg.preservation_weight > 0.0:
+            self._preserve_head = nn.Linear(self.world_dim, int(obs.shape[1])).to(device)
+            head_params += list(self._preserve_head.parameters())
+            # Normaliser: the TRAIN split's own mean per-element variance, held constant.
+            # Train-split rather than per-batch so the denominator does not add gradient
+            # noise, and so the term reads as a clean fraction-of-variance-unexplained.
+            preserve_denom = float(obs[tr_idx].var(dim=0, unbiased=False).mean())
+            if not (preserve_denom > 0.0):
+                raise ValueError(
+                    "ZWorldP0Trainer: preservation_weight > 0 but the buffered world_obs "
+                    "has zero variance over the train split, so the normalised "
+                    "preservation term is undefined. Roll out over more varied states."
+                )
+        else:
+            self._preserve_head = None
+            preserve_denom = 1.0
+
         class_w = {
             k: balanced_class_weights(targets[k][tr_idx], c) for k, c in n_classes.items()
         }
@@ -492,6 +606,11 @@ class ZWorldP0Trainer:
                 loss = loss + cfg.reconstruction_weight * F.mse_loss(
                     self._recon_head(z), obs[sel]
                 )
+            if self._preserve_head is not None:
+                # SD-106: fraction of world_obs variance the 32-dim code fails to preserve.
+                loss = loss + cfg.preservation_weight * (
+                    F.mse_loss(self._preserve_head(z), obs[sel]) / preserve_denom
+                )
             var_t, cov_t = variance_covariance_penalty(z, cfg.variance_gamma)
             loss = loss + cfg.variance_weight * var_t + cfg.covariance_weight * cov_t
             last = {"variance_term": float(var_t.detach()),
@@ -513,6 +632,9 @@ class ZWorldP0Trainer:
             "used_proximity_head": bool(use_prox),
             "used_resource_field_head": bool(use_field),
             "used_reconstruction_head": self._recon_head is not None,
+            "used_preservation_head": self._preserve_head is not None,   # SD-106
+            "used_world_encoder_skip": getattr(
+                self.split_encoder, "world_encoder_skip", None) is not None,   # SD-106
             "label_balance": {
                 k: (torch.bincount(targets[k], minlength=c).float() / float(n)).tolist()
                 for k, c in n_classes.items()
@@ -520,6 +642,23 @@ class ZWorldP0Trainer:
         }
         stats.update(last)
         stats["holdout"] = self._holdout_report(obs, targets, n_classes, te_idx)
+        if self._preserve_head is not None and int(te_idx.numel()) >= 8:
+            # SD-106 readout: held-out fraction of world_obs variance the code PRESERVES.
+            # Reported as R^2 against the train-split mean predictor so it is directly
+            # comparable with the PCA-32 anchor the acceptance target names. Without this a
+            # caller cannot tell a binding preservation term from an enabled-but-inert one.
+            with torch.no_grad():
+                z_te = self._z_world_path(obs[te_idx])
+                y_te = obs[te_idx]
+                mse = float(F.mse_loss(self._preserve_head(z_te), y_te))
+                base = float(F.mse_loss(
+                    obs[tr_idx].mean(dim=0, keepdim=True).expand_as(y_te), y_te))
+            stats["preservation_holdout"] = {
+                "mse": mse,
+                "mean_predictor_mse": base,
+                "r2": (1.0 - mse / base) if base > 0.0 else None,
+                "weight": float(cfg.preservation_weight),
+            }
         if use_field and int(te_idx.numel()) >= 8:
             # SD-018 amend readout: held-out field MSE vs the constant-mean predictor,
             # so a caller can tell a decodable directional field from a fitted mean.
