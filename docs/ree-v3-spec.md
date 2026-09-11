@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-09-08 (T01:15Z nightly)
+**Last updated:** 2026-09-11 (T20:15Z nightly)
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -218,6 +218,7 @@ at V3 launch, not current state. The authoritative session guide is `ree-v3/CLAU
 | SD-WAYPOINT-FIELD: directional waypoint proximity field observable | environment.waypoint_proximity_field -- IMPLEMENTED 2026-09-04. `CausalGridWorldV2` env-only kwargs `waypoint_proximity_field_enabled` (default False, bit-identical OFF -- `world_obs_dim` unchanged, obs key absent, zero env RNG draws, ON prefix byte-identical to OFF `world_state`) + `waypoint_field_decay` (0.25). Fixes: in `subgoal_mode` waypoints reach the agent ONLY via 5x5x7 local-view channel 6 (radius 2), so a waypoint > 2 cells away is absent from the observation entirely. Measured V3-EXQ-977 (INV-086, adjudicated `blocked_substrate` 2026-09-02): 3 waypoints on 12x12, 400 steps, `waypoint_visit_reward=0`, seeds 42/43/44 -- agent visited 0/0/1 waypoints and completed 0 sequences (random walk). Every navigation-dependent DV pinned at chance. Kernel `1/(1+decay*d)` with Manhattan-to-`self.waypoints[_next_waypoint_idx]`, torus-aware when `self.toroidal` (unlike `_compute_proximity_fields()` which uses plain Manhattan and would point the agent the long way round). Single source, self-normalises (exactly 1.0 on target, at decay 0.25 range 1.0 -> 0.154 diagonal on 12x12). Computed ON DEMAND in `_get_observation_dict()`, not cached (source MOVES: `_next_waypoint_idx` advances mid-step, `_respawn_waypoints()` relocates set). Sourced from `self.waypoints` NEVER `self.grid` (a grid-sourced field would inherit the SD-094 marker-erasure defect). Placement: appended LAST (+25 dims), after SD-065 arm; would break the `RESOURCE_FIELD_SLICE = slice(225,250)` prefix pinned by `test_sd018_resource_field_head.py::test_c4_slice_constants_agree_with_env_layout` otherwise. Preconditions raise `ValueError` (loud-not-silent): flag requires `use_proxy_fields` (channel rides world_state) AND `subgoal_mode` (`self.waypoints` otherwise never populated, channel would be identically zero); `waypoint_field_decay <= 0` rejected. Driver note: at-agent value NEVER reads 1.0 in normal play -- arrival + re-targeting happen same tick, so arrival step's observation already points at NEXT waypoint; use `transition_type` / `waypoint_field_target_idx` for arrival, the field for approach. Design doc `sd_waypoint_proximity_field.md`. | Substrate landed 2026-09-04 (ree-v3 `7719385`). 19 contracts (C1-C8: OFF inert + dim unchanged + knob-alone no-op; three preconditions raise; +25 exactly + trailing 25 dims + ON prefix == OFF world_state; kernel exact cell-by-cell + 1.0 on target + OOB cells 0.0; DIRECTIONALITY -- patch monotone toward target, at-agent series `0.5, 4/7, 2/3, 0.8` on approach, target far outside 5x5 discriminable where local view is identical; re-points on index advance + all-zero with no pending target + reset/reset_to tag semantics; RNG isolation over 60 steps; toroidal seam). Validation experiment NOT queued in landing session -- `/governance` held exact-file pause on `experiment_queue.json`, `substrate_queue.json`, `claims.yaml`. Drafted entry in `c3_deferred_writes_20260904.md`: diagnostic-purpose, arms = flag ON vs OFF at matched seeds, DV = waypoints visited / sequences completed by agent's OWN policy (no scripted walk), OFF-arm expectation the measured 0/0/1 visits and 0 completions. Unblocks INV-086 / MECH-428 (EXP-0390). |
 | SD-104: phasic burst refractory duty bound | phasic.burst_refractory_duty_bound -- IMPLEMENTED 2026-09-04. Leg (a) of `substrate_queue` entry `sd_phasic_burst_decay_and_warmup_headroom` (priority 1, severity DEGRADING) from confirmed `failure_autopsy_V3-EXQ-963a_2026-09-02`. Extends SD-069/SD-075 in `phasic_surprise_burst.py` (same file, SD-075 precedent). THE DEFECT: `tick()` re-arms envelope with `max(decayed, drive)` on EVERY firing tick, so on warmed agent (SD-074) with `signal_source="instantaneous_pe"`, `trigger_ratio=1.2`, `decay=0.5` a fresh event lands before previous decays and burst occupies 0.390-0.884 of E3 selections (963a seed 23 T1P1 fired on 1489 of 1684). A "transient" at 88% is quasi-sustained, so MECH-063 (ii) has no separable transient to measure. Config: `phasic_burst_refractory_ticks` (int, 0 = off) suppresses event FIRING for N ticks after an event while envelope keeps decaying (carry-mode decay); `phasic_burst_extinction_level` (float, 0.0 = off) snaps envelope to 0.0 below that level, making "active" a crisp regulator-side predicate. THE GUARANTEE: `A = 1 + floor(ln(extinction) / ln(1-decay))`, `duty <= min(1.0, A / (refractory_ticks + 1))`. `get_state()` reports `burst_duty_cycle_bound`, `realised_burst_duty_cycle`, `max_active_ticks_per_event`, `burst_duty_cycle_within_bound` (None, never True, when no finite bound exists). NEITHER KNOB ALONE SUFFICES -- refractory without extinction leaves a tail that never reaches zero (bound unprovable); extinction without refractory still re-arms on next tick. Refractory counter is LIFETIME and CARRIES ACROSS `reset()` (found via smoke test: cleared per episode, a refractory of 29 + extinction 0.05 produced realised duty 0.311 -- every boundary re-armed immediate firing, so duty became a function of episode LENGTH again -- the SD-075 confound on a new axis). Envelope IS still cleared at reset; only refractory owed carries. Deliberately NOT built: a duty-cycle TARGET with a controller tuning the refractory (closed-form bound is hard ceiling for assertion; a controller would make realised duty function of surprise stream again). | Substrate landed 2026-09-04 (ree-v3 `ba95c43`; design docs `sd_104_phasic_burst_refractory_duty_bound.md` + `sd_105_selection_entropy_headroom_floor.md`). Suggested operating point for warmed agent at `decay=0.5`, `EVENT_LEVEL_FLOOR=0.05`: `extinction_level=0.05`, `refractory_ticks=29` (A=5, bound 0.167). Measured on broad heavy-firing surprise stream (1000 ticks, uniform(0,10)): realised duty 0.788 OFF vs 0.109 ON. OFF reproduces 963a regime; ON lands inside 779a's healthy band (0.007-0.136). Contracts A1-A11 including A6 positive control (fails if OFF stops reproducing 963a). Validation experiment: **V3-EXQ-963b** queued (MECH-063 (ii) tonic/phasic dissociation retest, supersedes V3-EXQ-963a). Unblocks MECH-063 + SD-069 (both `pending_retest_after_substrate`). PROMOTES NOTHING. |
 | SD-105: selection-entropy headroom floor | control_plane.selection_entropy_headroom_floor -- IMPLEMENTED 2026-09-04. Leg (b) of same `substrate_queue` entry as SD-104. NEW `ree_core/regulators/selection_entropy_floor.py` (`SelectionEntropyFloor`). THE DEFECT: SD-074 warmup SUCCEEDS, and a confident policy has almost no selection entropy left to move -- 963a T0P0 baseline 0.0195-0.153 against 779a's 0.152-0.610, a 3-26x collapse on EVERY seed, pinning R5 at its 0.02 floor. Worse than gate failing: phasic lever SHARPENS, so a 0.0195 baseline leaves ~2% of readout's range for the manipulation. The autopsy left the choice open ("either warmup must leave headroom or R5 band must be re-derived; state which and why"). THIS TAKES THE FIRST BRANCH; re-deriving REJECTED because (1) it would let gate pass while dynamic-range condition it detects is untouched -- converting artifact into citable result, same failure the `dv-dynamic-range-precondition-class` gate catches from other end; (2) collapse is property of ANY sufficiently trained policy, not one warmup recipe, so a `probe_warmup` fix is a band-aid next lineage rediscovers. MECHANISM: ONE-SIDED integral controller in log-temperature. Reads realised normalized entropy of PREVIOUS tick's E3 pre-commit distribution (`e3.last_precommit_probs` -- previous because this temperature is INPUT to current tick's softmax; one tick lag, deliberately slow), smooths, raises `log_mult` while below target, relaxes (never below 0) above target + deadband, clamps to `[0, ln(max_temperature_ratio)]`, emits `multiplier = exp(log_mult) >= 1.0`. Config: `use_selection_entropy_floor` (False), `selection_entropy_floor_target` (0.15 -- inside R5 band AND inside 779a's healthy 0.152-0.610), `_gain` (0.5), `_max_temperature_ratio` (8.0), `_ema_decay` (0.2), `_deadband` (0.05). APPLIED ON TONIC SIDE: `temperature -> MECH-313 noise_floor -> [SD-105 multiplier] -> SD-069 phasic delta -> e3.select()`. Before phasic delta so phasic contribution stays ADDITIVE delta on lifted baseline; both arms of a tonic contrast lift together, so `dS_tonic` preserved rather than compressed. `noise_floor_temp` reports PRE-multiplier tonic value so MECH-313 readout stays uncontaminated; multiplier reported separately as `_last_control_vector["entropy_floor"]`. TWO LOAD-BEARING PROPERTIES: ONE-SIDEDNESS (never below 1.0 -- controller allowed below would destroy dynamic range this protects and silently cancel a tonic manipulation) + THE CAP REPORTS RATHER THAN HIDES (`saturated=True` with `headroom_met=False` means policy too confident for this readout at this budget -- declare cell UNINFORMATIVE). EMA and integrator SURVIVE `reset()` -- opposite of SD-069 default and deliberate: a set-point re-converging from cold each episode measures episode LENGTH (779b confound again). | Substrate landed 2026-09-04 (ree-v3 `ba95c43`, co-landed with SD-104). Contracts B1-B10. Validation experiment: **V3-EXQ-963b** (same as SD-104, MECH-063 (ii) retest -- BOTH legs must be shown fixed before 963b is admissible). Unblocks MECH-063 + SD-069. PROMOTES NOTHING. |
+| SD-106: encoder.generic_bottleneck_variance_preservation | encoder.generic_bottleneck_variance_preservation -- IMPLEMENTED 2026-09-11. Direct substrate build for the V3 binding constraint (observation->z_world) routed by confirmed `failure_autopsy_V3-EXQ-1010_2026-09-11` (H-F-content-discarded-at-encode CONFIRMED: training contributes nothing positive at any reader capacity; the 0.1998 PCA-to-trained gap splits as -0.0959 preservation lever / -0.0779 nonlinear-architecture cost at random init / -0.0260 objective cost). Supersedes SD-018 in shape (SD-018 supervises ONE named feature; V3-EXQ-978 returned it NULL). Two additions to the `ZWorldP0Config` P0 path, both no-op by default: (1) SCALE-NORMALISED PRESERVATION TERM -- `preservation_weight` (default 0.0) adds `preservation_weight * MSE(_preserve_head(z_world), world_obs) / var_bar` where `var_bar` is the TRAIN SPLIT's mean per-element variance (fraction-of-variance-unexplained, dataset-scale-free O(1)); `_preserve_head` is a dedicated `nn.Linear(world_dim, world_obs_dim)`, not shared with `_recon_head`. Existing `reconstruction_weight=10.0` measured at only 0.80% of the total objective (raw MSE against a sparse one-hot-dominated observation is ~0.018 while VICReg hinge and CE terms compete at O(1)) -- the leg was on the WRONG SCALE, not under-weighted. (2) WORLD-ENCODER SKIP: `use_world_encoder_skip=True` bypasses the nonlinear world_encoder in the preservation head only, addressing the -0.0779 architecture cost. RNG-neutral bypass construction (ree-v3 71dc25d72d) so a preservation-ON arm and preservation-OFF arm draw the same seeds at the same steps. | Substrate landed 2026-09-11 (ree-v3 main `71dc25d72d` + `616e713`; REE_assembly master `8153a6858a` design doc + `bcded8f42a` substrate_dependencies + `21b84e23ce` RNG-neutral bypass note; ratified by /governance gov-20260911). Validation experiment **V3-EXQ-1023** queued 2026-09-11 and CLAIMED on `ree-cloud-2` 2026-09-11T17:25:49Z (~400 min; SD-106's pre-set acceptance measurement per `/implement-substrate` Step 8; instrument IMPORTED FROM V3-EXQ-1010 unmodified plus a 4th track: encoder trained with `preservation_weight=200.0, use_world_encoder_skip=True`; ON vs OFF vs anchor vs raw). Acceptance target: >= 0.85 held-out oracle-action agreement at the consumer rung (x734.PPOPolicyNet at PPO_TRUNK_HIDDEN) on a seed majority, i.e. PCA-32 parity. Blocks SD-015 z_resource pipeline, ARC-030 benefit terrain, MECH-117 wanting/liking approach, EXQ-085h..o goal-directed cluster, MECH-457, ARC-065. SD-018 remains implemented and is not retired. PROMOTES NOTHING; V3-EXQ-1023 `experiment_purpose=diagnostic`. |
 
 SD-003 (two-pass counterfactual self-attribution) was **superseded 2026-04-18** after 28
 accumulated FAILs across its two-pass counterfactual architecture. The successor layer is:
@@ -236,6 +237,168 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 
 ### Experiment Status
 
+- **2026-09-11T20:15Z nightly attestation (scheduled `/update-docs`, bot
+  identity).** ~3.5d window since the 2026-09-08T01:15Z snapshot. Flat
+  `v3_exq_*` manifests on disk: **1005** (+14 vs 991 at 2026-09-08); nested
+  per-run manifests under `evidence/experiments/*/runs/`: **2945** (+20 vs
+  2925). **Currently queued (`experiment_queue.json` items[]): 1 item** --
+  V3-EXQ-1023 (`SD-106 validation: does generic bottleneck variance
+  preservation reach PCA-32 parity at the consumer rung?`, claim `SD-106`,
+  prio 8, ~400 min, `experiment_purpose=diagnostic`, CLAIMED on
+  `ree-cloud-2` 2026-09-11T17:25:49Z; SD-106's pre-set acceptance
+  measurement per `/implement-substrate` Step 8; instrument IMPORTED FROM
+  V3-EXQ-1010 unmodified plus a 4th track trained with
+  `preservation_weight=200.0, use_world_encoder_skip=True`; ON vs OFF vs
+  anchor vs raw at the x734.PPOPolicyNet consumer rung; acceptance target
+  >= 0.85 held-out oracle-action agreement on a seed majority = PCA-32
+  parity). **Pending review (`pending_review.md`, regenerated
+  2026-09-11T16:59:22Z): 0 items** -- "All experiments reviewed. Nothing
+  pending". Coordinator-DB 30-day rolling: **68 PASS / 60 FAIL / 3 ERROR,
+  ERROR rate 2.3%** (down from 74/74/4/2.6% at 2026-09-08; the rolling
+  window shifted, older PASS/FAIL/ERROR entries aged out).
+  (a) **ONE new substrate landing in the window, and it is directly on the
+  convergence root**: **SD-106 encoder.generic_bottleneck_variance_
+  preservation** landed 2026-09-11 (ree-v3 main `71dc25d72d` + `616e713`;
+  REE_assembly master `8153a6858a` design doc + `bcded8f42a`
+  substrate_dependencies + `21b84e23ce` RNG-neutral bypass note; ratified
+  by /governance gov-20260911). SD-106 is the DIRECT substrate build for
+  the V3 binding constraint (observation->z_world), routed by confirmed
+  `failure_autopsy_V3-EXQ-1010_2026-09-11` (H-F-content-discarded-at-encode
+  CONFIRMED, user-gated 2026-09-11: training contributes nothing positive
+  at any reader capacity; the 0.1998 PCA-to-trained gap splits as -0.0959
+  preservation lever / -0.0779 nonlinear-architecture cost at random init /
+  -0.0260 objective cost -- the single largest term is a preservation
+  pressure neither the architecture nor the objective contains). Two
+  additions to the `ZWorldP0Config` P0 path, both no-op by default:
+  (1) SCALE-NORMALISED PRESERVATION TERM `preservation_weight` (default
+  0.0) adds `preservation_weight * MSE(_preserve_head(z_world), world_obs)
+  / var_bar` -- fraction-of-variance-unexplained, dataset-scale-free O(1),
+  fixes the WRONG-SCALE reconstruction leg (measured at only 0.80% of the
+  total objective while VICReg hinge occupies 80.3%); (2) WORLD-ENCODER
+  SKIP `use_world_encoder_skip=True` bypasses the nonlinear world_encoder
+  in the preservation head only, RNG-neutral bypass construction. SD-106
+  supersedes SD-018 in shape (SD-018 supervises ONE named feature; V3-EXQ-
+  978 returned it NULL), but SD-018 remains implemented and is not retired.
+  Blocks SD-015 z_resource pipeline, ARC-030 benefit terrain, MECH-117
+  wanting/liking approach, the EXQ-085h..o goal-directed cluster, MECH-457,
+  ARC-065. (b) **New completions in the window (all diagnostic PASS, all
+  reviewed inline in the 2026-09-08 and 2026-09-11 governance cycles)**:
+  V3-EXQ-1019 (MECH-464 D1/D2 opponent-gain reorder-vs-straddle probe,
+  smoke PASS 2026-09-10, ree-v3 `50ea68e`), V3-EXQ-1020 (SD-082 learning-
+  signal probe: gradient persistence, return variance, advantage sign on
+  flips; smoke PASS 2026-09-11, ree-v3 `bd79a5e`, then autopsied `92751187b1`
+  CONFIRMED-inconclusive on both pre-registered legs with a four-leg fan-out
+  routed; `evidence_direction supports -> inconclusive` corrected in the
+  gov-20260911-1612 cycle), V3-EXQ-964a (MECH-482/SD-102 epistemic-deficit
+  multi-target readiness validation, smoke PASS 2026-09-11, ree-v3
+  `80e72da`; supersedes V3-EXQ-964), V3-EXQ-1025 (MECH-349 CandidateRuleField
+  churn/retirement leg FALSIFYING(3), smoke PASS 2026-09-11, ree-v3
+  `5760ba5`; red-team CONTESTED all fixed), and V3-EXQ-1018 (MECH-222 self-
+  attribution contamination probe: NOT QUEUED path, EXP-0893 -> `blocked_
+  substrate` because z_world carries no exogenous-event DV; ree-v3
+  `5cd2882`). (c) **Governance work in the window (heavy -- two full
+  cycles + one autopsy applied inline)**: `governance-20260908` (walk 6 ->
+  0 pending; V3-EXQ-1007 inline autopsy `non_contributory`; cluster
+  autopsies applied flat+pack for V3-EXQ-1008 / 1006 / 970a / 972a / 1009;
+  SD-070 standard+retest; INV-088/MECH-457 1008 stamps; MECH-535/536
+  notes; SD-069 963a citation; MECH-258 + ARC-113 parked
+  `ceiling_decision deferred`; SD-018 / contextmemory / SD-MECH267
+  substrate amends; 4 holds recorded; EXP-0035/0036 executed; GOV-DRY-1:
+  17 dry stamps neutralised + 4 artifacts metabolized 30 -> 0; REE_assembly
+  `2c4c8d0f04` for the walk + `beca7526d4` for the SD-070 retest note).
+  `governance gov-20260911-1612` (wave 1, `88217f2d82`, then wave 2
+  `0b567393cd`): 8 of 9 pending cleared -- V3-EXQ-1010 autopsy applied
+  (manifest flat+pack), **SD-018 amended + SD-106 minted**, V3-EXQ-1020
+  left pending (`vacuous_pass`) then adjudicated in wave 2, GOV-DIAG-1
+  1002->1008->1010 adjudicated CONVERGED (all three converge on
+  observation->z_world discarding decision content), ARC-037 GOV-APPLY-1
+  false positive recorded, MECH-536/535 re-posed C1 onto period-agnostic
+  confinement (GFLAG-0233); wave 2 resolved 4 flags including TWO
+  `substrate_queue` gates that were blocking work; GOV-APPLY-1 recognises
+  ratified overrides that postdate an autopsy (`overridden_disposition`);
+  10 hold decisions recorded. Confirmed `failure_autopsy_V3-EXQ-1010`
+  (`652ababa92`) is the routing autopsy for SD-106. Also inline: MECH-536/535
+  reanalysis answers the 2x2 from banked data (no run queued, GFLAG-0233
+  resolved); ARC-021 H1 unfreeze-dose spike (chip-20260911-arc021-h1-
+  unfreeze-dose-spike) -- design refusal at H1 (readout dies under encoder
+  unfreeze), NO workable dose found on the 320-cell sweep, routed to H2
+  which has NO substrate_queue entry (14737627ae correction); ARC-021 H2
+  leg `blocked_substrate` (074519df12); V3-EXQ-884a + V3-EXQ-997a
+  NOT QUEUED (design refusal records, W5-S2a items 1-2, `7a5d467fa6`);
+  V3-EXQ-642d NOT QUEUED (two of six mandatory repairs not instantiable,
+  W5-S2a item 4, `15cd0286db`); SD-056 confirmed ADJUDICATED DO-NOT-QUEUE
+  via GOV-CONFIRM-1 (W5-S4 item 1, IGW-20260908-244, `5819a55ae1`).
+  Unfailable-criterion class recommendation (MECH-428 decision-ready + a
+  systemic pass finding a third instance, `496d6f37ef`). INV-050 bisect
+  resolved: mover is ree-v3 6293b23 (MECH-091 `phase_reset`), not the prior
+  candidate 76cbf84 (`8e1216d2c3`) -- any fixed-seed comparison spanning
+  2026-08-17 is confounded; memory `reference-mech091-phase-reset-shifts-
+  fixedseed-rng` captures the general rule. **Thought-intake / claim
+  minting**: `recovery-without-restoration` -> ARC-140 + MECH-541
+  (`41396ac6a0`); `mutual-legibility trio` -> ARC-139, MECH-537/538/539/540,
+  INV-105 (`eed648e8f8`); `culture-as-distributed-precommit` -> ARC-141,
+  MECH-542/543/544 (`21f84fbac5`); `compute-economics telemetry` -> NO
+  NEW CLAIMS (tooling proposal, `04560417da`); the `representational drift
+  and predictive equivalence` intake produced GOV-EQUIV-1 + GOV-SHARPEN-1
+  (`c510f7d637` / `d1cae65a4c`); MECH-535 + MECH-536 minted as candidates
+  from the direction-blind reactive-ambitendency thought (`4c7a07319a`).
+  Many governance flags raised and resolved across GFLAG-0219..GFLAG-0272.
+  **Lit pulls landed in window**: MECH-012 6 entries (`ad04a9a4a3`;
+  contested against 3 supporting -- GFLAG-0272 flags two of three written
+  MECH-012 clauses have direct disconfirming evidence: Beyer 2017 mere-
+  presence and Haslam 2015 engaged followership); MECH-535 + MECH-536 12
+  entries with Q2 NULL + Girard 2003 Q3 highest-confidence support
+  (`d7b7fc7d6e`); ARC-139/MECH-537-540/INV-105 10 entries with all 9
+  cited sources verified (`67cc6fd288`); INV-063 5 entries (`ab559aa083`,
+  `9d483d292e` INV-104); INV-092 + INV-093 + INV-095 5 entries each;
+  ARC-020/031, ARC-034/043, ARC-044/047 7 entries; ARC-059 + ARC-061 6
+  entries (`127a49fa61`); ARC-027 3 records migrated schema keys into
+  summary.md per INTERFACE_CONTRACT (`0ae47c8679`; corpus 3 -> 0
+  failing); IMPL-027 citation corrected to Zhuge et al. 2026 arXiv:2604.
+  06425 (`1673ddb1f0`). (d) **Coordination-plane / infra work in the
+  window**: recording backfill closes 86-driver flat-scalar readout gap
+  (V3-EXQ-935 / 934 / 848b / 851 / 858 / 840b / 874b / 1009); coordinator
+  gains `/chip/amend-note` endpoint for RESOLVED chips (`63aa9f2`);
+  `pack_writer` flat dry-run manifests self-identify with top-level
+  `dry_run` (`5181e49`, GFLAG-0244); `interface_probe` P0 instrument +
+  `tost_equivalence` (`a83f2fb`, hippocampal assays A/B prerequisite);
+  criteria re-derivability checks are advisory in every mode (`ef2bcb2`,
+  GFLAG-0249); `regime_occupancy_gate` gradedness is a reproducibility
+  test not existential (`606aea2`); `runner_git_health` divergent findings
+  name EVERY origin candidate not just the first (`80495a48b4`); `serve.py`
+  `_auto_pull` names conflicting paths and records why recovery is not
+  ported (`b0d1f171a0`); wave-5 campaign programme + hold_lane regen (45
+  held, 32 stale entries dropped, `af65f2f9f9`); insights + dual-insights
+  2026-09-08 regen (`b5e2c5d1be`, md re-derivable by
+  `generate_current_front`, html renders); GOV-DRY-1 stamps three pack
+  siblings the 2026-09-08 pass missed (`c4b9dd3b9f`, clears ree-v3 trunk
+  red `test_eod_no_dry_pack_on_disk_depends_on_its_flat_sibling`);
+  hypothesis-space integrity advisory stale-`synthesis` detector (5th
+  reporting family, `1c7e41ec54`); EXT-002 stage 2 DV threshold
+  feasibility + revisit-volume risk from banked data (`dc63fe68eb`);
+  IGW-routine `land 34 stranded igw_routine_log.md appends`
+  (`01ae3929a8`); V3-EXQ-1025 script correct provenance + GFLAG-0268
+  scope-limit record (`4de3eca`); V3-EXQ-964a corrected reproducibility
+  limit to post-fix measurements (`87d3421`); dispatcher_pauses.json
+  `retired:true` on ree-cloud-4/5 (WORKSPACE_STATE 2026-09-11T19:58:46Z).
+  Live IGW workset holds **256 items / 31 ready / 0 in flight**.
+  **Bottleneck: the convergence root is now under DIRECT substrate
+  attack**. The H-observation-interface axis has shifted from "SD-018
+  AMEND landed 2026-09-02 with V3-EXQ-978 walked mixed" to "SD-106 landed
+  2026-09-11 with V3-EXQ-1023 in flight on `ree-cloud-2`" -- the first
+  substrate build in the V3-EXQ-1010 lineage that targets the encoder's
+  OBJECTIVE (where the H-F autopsy localised the defect) rather than a
+  named feature (SD-018 shape) or downstream consumer capacity (H-B).
+  V3-EXQ-1023 will either meet PCA-32 parity (SD-106 supports the H-F
+  reading and unblocks the six downstream claims listed above) or NULL,
+  in which case the shape-(b) side-channel routing past z_world becomes
+  the next build. Green-board target 2026-07-19 is now **54 days
+  overdue**. **ETHICS-PERIMETER Phase 0 datum** stays on the record
+  (Phases 1-3 deferred; NON-BLOCKING). Public-information-architecture
+  impact: reviewed against `docs/design/public_information_architecture.md`
+  -- no `/api/*` surface, generated visualization, or public export
+  changed; nightly snapshot + spec date bump + one new SD table row
+  (SD-106) only (same category as the 2026-09-08 attestation).
 - **2026-09-08T01:15Z nightly attestation (scheduled `/update-docs`, bot
   identity).** ~23h window since the 2026-09-07T02:12Z snapshot. Flat
   `v3_exq_*` manifests on disk: **991** (+5 vs 986 at 2026-09-07); nested
