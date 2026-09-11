@@ -123,10 +123,13 @@ before any scored compute.
 REPRODUCIBILITY LIMIT, MEASURED AND DECLARED. Per-arm RNG ownership makes the
 WITHIN-run yoking exact -- paired_control_divergence is 0.000000 on every
 observed run, so every paired argmax comparison is trustworthy. It does NOT
-make the run bit-reproducible ACROSS invocations: repeated dry-runs at the same
-seed gave max_n_targets 6 vs 7 and n_lp_reads 11 vs 18, i.e. the absolute
-trajectory and the E3 tick cadence both vary. Consequences, stated rather than
-left implicit:
+make the run bit-reproducible ACROSS invocations. Measured on this exact
+configuration, two dry-runs at the same seed: n_lp_reads was STABLE (17 both
+runs -- the E3 tick cadence is deterministic), while max_n_targets was 6 vs 7
+and max_lp_dev_range was 3.2e-4 vs 7.2e-3 (~22x). So it is the ACCUMULATOR
+GEOMETRY state that varies, not the selection schedule -- and those two varying
+quantities are exactly what C1 and C2 read, which is why the margins below
+matter. Consequences, stated rather than left implicit:
   * Every cell is stamped reuse-INELIGIBLE (extra_ineligible_reasons below). A
     cell that is not a pure function of (substrate, config, seed) can never be
     safely reused as a baseline mint, and silently minting one would corrupt a
@@ -134,8 +137,9 @@ left implicit:
   * No load-bearing criterion depends on cross-run reproducibility. C3 is a
     PAIRED within-run comparison whose instrument control is exactly 0. C1's
     observed values (6-7) sit far above its floor of 2, and C2's range is
-    non-zero on every observed run -- neither is a knife-edge call against the
-    variation measured here.
+    non-zero on every observed run (3.2e-4 to 7.2e-3, i.e. 8+ orders above its
+    1e-12 floor) -- neither is a knife-edge call against the variation measured
+    here. C3 is unaffected either way, being a within-run paired comparison.
   * The per-tick magnitude diagnostics (max_pert_over_margin, the reachability
     decomposition) DO vary run to run and are reported as per-run observations,
     never as stable constants of the substrate.
@@ -761,7 +765,7 @@ def run_experiment(episodes: int, steps: int, seeds: List[int],
                       script_path=Path(__file__),
                       config_slice_declared=True,
                       extra_ineligible_reasons=[
-                          "measured_non_reproducible_at_fixed_seed: repeated dry-runs at the same seed differ (n_targets 6 vs 7, n_lp_reads 11 vs 18), so a cell is NOT a pure function of (substrate, config, seed) and must never be reused as a baseline mint"],
+                          "measured_non_reproducible_at_fixed_seed: repeated dry-runs at the same seed differ (max_n_targets 6 vs 7, lp_dev_range ~22x), so a cell is NOT a pure function of (substrate, config, seed) and must never be reused as a baseline mint"],
                       include_driver_script_in_hash=False) as cell:
             pair = run_yoked_pair(seed, episodes, steps, zg)
             row = {
@@ -776,7 +780,7 @@ def run_experiment(episodes: int, steps: int, seeds: List[int],
                       script_path=Path(__file__),
                       config_slice_declared=True,
                       extra_ineligible_reasons=[
-                          "measured_non_reproducible_at_fixed_seed: repeated dry-runs at the same seed differ (n_targets 6 vs 7, n_lp_reads 11 vs 18), so a cell is NOT a pure function of (substrate, config, seed) and must never be reused as a baseline mint"],
+                          "measured_non_reproducible_at_fixed_seed: repeated dry-runs at the same seed differ (max_n_targets 6 vs 7, lp_dev_range ~22x), so a cell is NOT a pure function of (substrate, config, seed) and must never be reused as a baseline mint"],
                       include_driver_script_in_hash=False) as pcell:
             prow = {"arm_id": ARM_PRE, "seed": seed, **pair[ARM_PRE]}
             pcell.stamp(prow)
