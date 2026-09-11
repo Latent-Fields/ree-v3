@@ -1,0 +1,408 @@
+{
+ "doses": [
+  {
+   "dose_k": 0,
+   "control_gap_dense": 0.3387959069468726,
+   "control_gap_sparse": 0.3477869990256982,
+   "S1_nondegeneracy": true,
+   "S2_range": 0.7059401216446216,
+   "S2_met": true,
+   "S3_max_abs": 0.7844942557973232,
+   "S3_met": true,
+   "S4_auc_floor_headroom": 0.05342157138834136,
+   "S4_met": false,
+   "control_mean_auc": 0.6624681342469088,
+   "survives": false,
+   "MA_merged_fn_drift": 0.0,
+   "separated_fn_drift": 0.0,
+   "MB_cross_arm_fn_div": 0.0,
+   "interchannel_fn_div": 0.0,
+   "MC_merge_vs_channel_ratio": null,
+   "MA_met": false,
+   "MC_met": false,
+   "manipulation_real": false,
+   "xgrad_clip": {
+    "SEPARATED": {
+     "g_other_over_harm": 0.0,
+     "cos_other_harm": null,
+     "clip_active_frac_unfrozen": null
+    },
+    "MERGED": {
+     "g_other_over_harm": 0.06725556139420859,
+     "cos_other_harm": 0.2450447779847309,
+     "clip_active_frac_unfrozen": null
+    }
+   },
+   "contrast": {
+    "DENSE_calibration_gap": 0.035535621272168263,
+    "DENSE_attribution_auc": 0.03213571417316481,
+    "SPARSE_calibration_gap": 0.15836872569351734,
+    "SPARSE_attribution_auc": 0.10501646407467928
+   }
+  },
+  {
+   "dose_k": 2,
+   "control_gap_dense": 0.2615493255881879,
+   "control_gap_sparse": 0.2685686280591511,
+   "S1_nondegeneracy": true,
+   "S2_range": 0.7127826626922195,
+   "S2_met": true,
+   "S3_max_abs": 0.7135816803651597,
+   "S3_met": true,
+   "S4_auc_floor_headroom": 0.02488735567445788,
+   "S4_met": false,
+   "control_mean_auc": 0.6342873422089018,
+   "survives": false,
+   "MA_merged_fn_drift": 0.2753003368668212,
+   "separated_fn_drift": 0.27742888581386105,
+   "MB_cross_arm_fn_div": 0.3323988797025491,
+   "interchannel_fn_div": 0.44948704554750557,
+   "MC_merge_vs_channel_ratio": 0.7395071404063822,
+   "MA_met": true,
+   "MC_met": false,
+   "manipulation_real": false,
+   "xgrad_clip": {
+    "SEPARATED": {
+     "g_other_over_harm": 0.0,
+     "cos_other_harm": null,
+     "clip_active_frac_unfrozen": 0.12229952022813693
+    },
+    "MERGED": {
+     "g_other_over_harm": 0.06883712387031671,
+     "cos_other_harm": 0.32377455045934767,
+     "clip_active_frac_unfrozen": 0.15840554908487056
+    }
+   },
+   "contrast": {
+    "DENSE_calibration_gap": 0.06915453806279243,
+    "DENSE_attribution_auc": 0.04987561949802832,
+    "SPARSE_calibration_gap": 0.1938688285503808,
+    "SPARSE_attribution_auc": 0.10754757402192901
+   }
+  },
+  {
+   "dose_k": 5,
+   "control_gap_dense": 0.26350358167779686,
+   "control_gap_sparse": 0.2706722398943136,
+   "S1_nondegeneracy": true,
+   "S2_range": 0.620496684515736,
+   "S2_met": true,
+   "S3_max_abs": 0.6568027856515259,
+   "S3_met": true,
+   "S4_auc_floor_headroom": 0.051985356237679525,
+   "S4_met": false,
+   "control_mean_auc": 0.6322844693540863,
+   "survives": false,
+   "MA_merged_fn_drift": 0.30834915970014043,
+   "separated_fn_drift": 0.36254127767627775,
+   "MB_cross_arm_fn_div": 0.4081271150773209,
+   "interchannel_fn_div": 0.5082778780160933,
+   "MC_merge_vs_channel_ratio": 0.8029606101888987,
+   "MA_met": true,
+   "MC_met": false,
+   "manipulation_real": false,
+   "xgrad_clip": {
+    "SEPARATED": {
+     "g_other_over_harm": 0.0,
+     "cos_other_harm": null,
+     "clip_active_frac_unfrozen": 0.12124841969098882
+    },
+    "MERGED": {
+     "g_other_over_harm": 0.06737725663881092,
+     "cos_other_harm": 0.3481841925531626,
+     "clip_active_frac_unfrozen": 0.1533420954655081
+    }
+   },
+   "contrast": {
+    "DENSE_calibration_gap": 0.08547103140462785,
+    "DENSE_attribution_auc": 0.0641389527979647,
+    "SPARSE_calibration_gap": 0.18401551119819082,
+    "SPARSE_attribution_auc": 0.1112315935035963
+   }
+  },
+  {
+   "dose_k": 10,
+   "control_gap_dense": 0.21775362662540748,
+   "control_gap_sparse": 0.19906398896351318,
+   "S1_nondegeneracy": false,
+   "S2_range": 0.5220697967668226,
+   "S2_met": true,
+   "S3_max_abs": 0.5416432896142287,
+   "S3_met": true,
+   "S4_auc_floor_headroom": 0.03039284708532808,
+   "S4_met": false,
+   "control_mean_auc": 0.6313156493261269,
+   "survives": false,
+   "MA_merged_fn_drift": 0.35280070238969924,
+   "separated_fn_drift": 0.46375996778263634,
+   "MB_cross_arm_fn_div": 0.4461618773465491,
+   "interchannel_fn_div": 0.595861315309242,
+   "MC_merge_vs_channel_ratio": 0.7487679865825801,
+   "MA_met": true,
+   "MC_met": false,
+   "manipulation_real": false,
+   "xgrad_clip": {
+    "SEPARATED": {
+     "g_other_over_harm": 0.0,
+     "cos_other_harm": null,
+     "clip_active_frac_unfrozen": 0.12854872596212572
+    },
+    "MERGED": {
+     "g_other_over_harm": 0.07096770392256717,
+     "cos_other_harm": 0.3153311738278717,
+     "clip_active_frac_unfrozen": 0.15418669095819804
+    }
+   },
+   "contrast": {
+    "DENSE_calibration_gap": 0.08383797022501102,
+    "DENSE_attribution_auc": 0.07132106910211887,
+    "SPARSE_calibration_gap": 0.19660806894529173,
+    "SPARSE_attribution_auc": 0.11337105863089542
+   }
+  },
+  {
+   "dose_k": 15,
+   "control_gap_dense": 0.2029788147058595,
+   "control_gap_sparse": 0.2153433739222179,
+   "S1_nondegeneracy": true,
+   "S2_range": 0.5187232122656891,
+   "S2_met": true,
+   "S3_max_abs": 0.5161923537986804,
+   "S3_met": true,
+   "S4_auc_floor_headroom": 0.014693044212897743,
+   "S4_met": false,
+   "control_mean_auc": 0.6422598950814976,
+   "survives": false,
+   "MA_merged_fn_drift": 0.35160919326399614,
+   "separated_fn_drift": 0.4590784621298756,
+   "MB_cross_arm_fn_div": 0.4431893556316242,
+   "interchannel_fn_div": 0.5832275144820758,
+   "MC_merge_vs_channel_ratio": 0.7598910281610946,
+   "MA_met": true,
+   "MC_met": false,
+   "manipulation_real": false,
+   "xgrad_clip": {
+    "SEPARATED": {
+     "g_other_over_harm": 0.0,
+     "cos_other_harm": null,
+     "clip_active_frac_unfrozen": 0.13314827142704597
+    },
+    "MERGED": {
+     "g_other_over_harm": 0.06869478129484909,
+     "cos_other_harm": 0.35922042722813785,
+     "clip_active_frac_unfrozen": 0.14943138231257846
+    }
+   },
+   "contrast": {
+    "DENSE_calibration_gap": 0.09125801086672745,
+    "DENSE_attribution_auc": 0.07642236465358489,
+    "SPARSE_calibration_gap": 0.19334726629457122,
+    "SPARSE_attribution_auc": 0.11036923495270011
+   }
+  },
+  {
+   "dose_k": 20,
+   "control_gap_dense": 0.16819832724769063,
+   "control_gap_sparse": 0.1425683042811633,
+   "S1_nondegeneracy": false,
+   "S2_range": 0.4817529219982994,
+   "S2_met": true,
+   "S3_max_abs": 0.46629383353959064,
+   "S3_met": true,
+   "S4_auc_floor_headroom": -0.008138552520416786,
+   "S4_met": false,
+   "control_mean_auc": 0.6230580453453517,
+   "survives": false,
+   "MA_merged_fn_drift": 0.38444626793263376,
+   "separated_fn_drift": 0.55398394650252,
+   "MB_cross_arm_fn_div": 0.5033845188824334,
+   "interchannel_fn_div": 0.6979492498826204,
+   "MC_merge_vs_channel_ratio": 0.7212336985348026,
+   "MA_met": true,
+   "MC_met": false,
+   "manipulation_real": false,
+   "xgrad_clip": {
+    "SEPARATED": {
+     "g_other_over_harm": 0.0,
+     "cos_other_harm": null,
+     "clip_active_frac_unfrozen": 0.12934198112790585
+    },
+    "MERGED": {
+     "g_other_over_harm": 0.06556131247589589,
+     "cos_other_harm": 0.2931942146096844,
+     "clip_active_frac_unfrozen": 0.14640105925566682
+    }
+   },
+   "contrast": {
+    "DENSE_calibration_gap": 0.1284552213682963,
+    "DENSE_attribution_auc": 0.0964633899995999,
+    "SPARSE_calibration_gap": 0.21984928649351676,
+    "SPARSE_attribution_auc": 0.12138498401053066
+   }
+  },
+  {
+   "dose_k": 30,
+   "control_gap_dense": 0.14958211329851062,
+   "control_gap_sparse": 0.1380399487700409,
+   "S1_nondegeneracy": false,
+   "S2_range": 0.3266222988057086,
+   "S2_met": true,
+   "S3_max_abs": 0.3515751034216285,
+   "S3_met": false,
+   "S4_auc_floor_headroom": 0.01066600957476771,
+   "S4_met": false,
+   "control_mean_auc": 0.6208742305909418,
+   "survives": false,
+   "MA_merged_fn_drift": 0.4509493791950297,
+   "separated_fn_drift": 0.642806730409773,
+   "MB_cross_arm_fn_div": 0.5928344850184184,
+   "interchannel_fn_div": 0.7484544772678483,
+   "MC_merge_vs_channel_ratio": 0.7920782132034219,
+   "MA_met": true,
+   "MC_met": false,
+   "manipulation_real": false,
+   "xgrad_clip": {
+    "SEPARATED": {
+     "g_other_over_harm": 0.0,
+     "cos_other_harm": null,
+     "clip_active_frac_unfrozen": 0.12652143555396875
+    },
+    "MERGED": {
+     "g_other_over_harm": 0.07464667306426814,
+     "cos_other_harm": 0.2977272163843736,
+     "clip_active_frac_unfrozen": 0.14475246477398854
+    }
+   },
+   "contrast": {
+    "DENSE_calibration_gap": 0.15605182664009315,
+    "DENSE_attribution_auc": 0.08836794628099973,
+    "SPARSE_calibration_gap": 0.2076709636388996,
+    "SPARSE_attribution_auc": 0.1254729412184137
+   }
+  },
+  {
+   "dose_k": 40,
+   "control_gap_dense": 0.14044502082361268,
+   "control_gap_sparse": 0.13291347309427026,
+   "S1_nondegeneracy": false,
+   "S2_range": 0.37638937677584333,
+   "S2_met": true,
+   "S3_max_abs": 0.3872478845445436,
+   "S3_met": false,
+   "S4_auc_floor_headroom": 0.004167840045057769,
+   "S4_met": false,
+   "control_mean_auc": 0.6151109449752051,
+   "survives": false,
+   "MA_merged_fn_drift": 0.4817096584745794,
+   "separated_fn_drift": 0.6816635027901945,
+   "MB_cross_arm_fn_div": 0.6087328048061629,
+   "interchannel_fn_div": 0.7864882022079134,
+   "MC_merge_vs_channel_ratio": 0.7739884757295321,
+   "MA_met": true,
+   "MC_met": false,
+   "manipulation_real": false,
+   "xgrad_clip": {
+    "SEPARATED": {
+     "g_other_over_harm": 0.0,
+     "cos_other_harm": null,
+     "clip_active_frac_unfrozen": 0.12566174667356272
+    },
+    "MERGED": {
+     "g_other_over_harm": 0.07002164587100627,
+     "cos_other_harm": 0.24913689610548317,
+     "clip_active_frac_unfrozen": 0.14833872548237997
+    }
+   },
+   "contrast": {
+    "DENSE_calibration_gap": 0.17115806029016534,
+    "DENSE_attribution_auc": 0.10232597131241351,
+    "SPARSE_calibration_gap": 0.19410226923524493,
+    "SPARSE_attribution_auc": 0.11994205285957425
+   }
+  },
+  {
+   "dose_k": 60,
+   "control_gap_dense": 0.14047472446595372,
+   "control_gap_sparse": 0.13422344457979163,
+   "S1_nondegeneracy": false,
+   "S2_range": 0.3885641285789315,
+   "S2_met": true,
+   "S3_max_abs": 0.3808448740818611,
+   "S3_met": false,
+   "S4_auc_floor_headroom": 0.019719797240214,
+   "S4_met": false,
+   "control_mean_auc": 0.6250494908542786,
+   "survives": false,
+   "MA_merged_fn_drift": 0.5876122628318377,
+   "separated_fn_drift": 0.892863763710253,
+   "MB_cross_arm_fn_div": 0.8173430429521047,
+   "interchannel_fn_div": 1.0464395408954144,
+   "MC_merge_vs_channel_ratio": 0.7810704880787694,
+   "MA_met": true,
+   "MC_met": false,
+   "manipulation_real": false,
+   "xgrad_clip": {
+    "SEPARATED": {
+     "g_other_over_harm": 0.0,
+     "cos_other_harm": null,
+     "clip_active_frac_unfrozen": 0.12215716648652271
+    },
+    "MERGED": {
+     "g_other_over_harm": 0.08870039394535227,
+     "cos_other_harm": 0.27238900132942945,
+     "clip_active_frac_unfrozen": 0.16433526037200913
+    }
+   },
+   "contrast": {
+    "DENSE_calibration_gap": 0.12419144834149712,
+    "DENSE_attribution_auc": 0.08824258857148772,
+    "SPARSE_calibration_gap": 0.21124153690565303,
+    "SPARSE_attribution_auc": 0.09366736599618694
+   }
+  },
+  {
+   "dose_k": 80,
+   "control_gap_dense": 0.02143924148146163,
+   "control_gap_sparse": 0.014211558921816626,
+   "S1_nondegeneracy": false,
+   "S2_range": 0.09261914517490277,
+   "S2_met": false,
+   "S3_max_abs": 0.06268402127527589,
+   "S3_met": false,
+   "S4_auc_floor_headroom": -0.018572233173753894,
+   "S4_met": false,
+   "control_mean_auc": 0.5365614493583861,
+   "survives": false,
+   "MA_merged_fn_drift": 0.8986715857176304,
+   "separated_fn_drift": 2.421921910057799,
+   "MB_cross_arm_fn_div": 2.443781842370279,
+   "interchannel_fn_div": 2.767042582567336,
+   "MC_merge_vs_channel_ratio": 0.8831746420406992,
+   "MA_met": true,
+   "MC_met": false,
+   "manipulation_real": false,
+   "xgrad_clip": {
+    "SEPARATED": {
+     "g_other_over_harm": 0.0,
+     "cos_other_harm": null,
+     "clip_active_frac_unfrozen": 0.18603007227579893
+    },
+    "MERGED": {
+     "g_other_over_harm": 0.17484603696779666,
+     "cos_other_harm": 0.19916575867682695,
+     "clip_active_frac_unfrozen": 0.4424346460026218
+    }
+   },
+   "contrast": {
+    "DENSE_calibration_gap": 0.03695983862297572,
+    "DENSE_attribution_auc": 0.030195441954163668,
+    "SPARSE_calibration_gap": 0.12453988251753176,
+    "SPARSE_attribution_auc": 0.07514684544773012
+   }
+  }
+ ],
+ "n_cells": 320,
+ "surviving_doses": [],
+ "manipulation_real_doses": [],
+ "intersection": []
+}
