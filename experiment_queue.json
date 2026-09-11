@@ -25,22 +25,6 @@
       "episodes_per_run": 290,
       "experiment_type": "v3_exq_1023_sd106_bottleneck_preservation_validation",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-964a",
-      "title": "MECH-482/SD-102 epistemic-deficit accumulator: multi-target readiness validation (supersedes V3-EXQ-964)",
-      "script": "experiments/v3_exq_964a_mech482_epistemic_deficit_multitarget_readiness.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "estimated_minutes": 25,
-      "supersedes": "V3-EXQ-964",
-      "claim_id": "MECH-482",
-      "note": "Validates substrate_queue entry sd_epistemic_deficit_multitarget_readiness (implemented_pending_validation, severity degrading) -- the entry this run is the owed validation for. Owed residual of GFLAG-0215 (resolved; registry half landed in gov-flagbacklog-20260909). DESIGN: epistemic_deficit is ARMED ON BOTH ARMS (the V3-EXQ-964 defect was arming it on one arm only); the manipulation is the readiness GEOMETRY alone, all five levers incl. target_frame=predicted. 964's C2 was structurally unsatisfiable -- n_targets==1 made the readout candidate-constant, and a uniform constant cannot move an argmax, so its divergence of 0.0 was an arithmetic identity, not a measurement. C3 here is gated behind C1 (n_targets>=2), C2 (cross-candidate range > 0) and a MAGNITUDE gate measured post-F against E3.decisiveness_margin, so an unmet gate self-routes substrate_not_ready_requeue rather than any substrate verdict. GOV-REUSE-1 (Step 2.4): checked v3_exq_964_mech482_epistemic_deficit_validation_20260829T215030Z_v3 -- it carries the decisive readouts (n_targets_min 1, yoked_divergence_frac_max 0.0) but only for the PRE-readiness substrate; the readiness knobs post-date that substrate_hash, so the readiness question is not recoverable from it -> run required. The broadcast-vs-epistemic_deficit contrast is NOT re-run; 964 already records it. RED-TEAM (Step 4.5) model: Opus 5 (session model; the fable override returned a spend-limit error, skill-sanctioned fallback). Verdict BLOCKING -> fixed before queueing: (1) epistemic_deficit_target_frame, the FIFTH readiness lever, was omitted -- under the 'realized' default no radius can both separate targets and match candidates (config.py:4733 measured note); (2) the reachability figure double-multiplied by curiosity_learning_progress_weight, since _last_lp_dev_range is computed from the already-weighted lp_contrib (structured_curiosity.py:548) -- was 20x understated; (3) accumulator counters are cleared by reset() every episode even under persist=True (epistemic_deficit.py:616-633), so run-lifetime totals are now accumulated per-episode; (4) vacuous rate was denominated on non-refused reads only, since mark_vacuous_readout never increments _n_readouts -- now denominated on all attempts; (5) C4 (instrument control) promoted to load-bearing, as a non-zero self-yoked divergence on EITHER arm voids the paired DV. DISPOSITIONED, not fixed: the reviewer wanted a binding gate on matched-target count; declined with citation -- under readout_mode=rbf_weighted the returned vector is a distance-weighted sum over ALL targets and the `matched` mask is never consulted (epistemic_deficit.py readout(), rbf branch), so gating on it would manufacture a substrate_not_ready verdict from a readout that is in fact differentiating. Matched counts are recorded as diagnostics instead. KNOWN LIMITATIONS, declared: repeated runs at a fixed seed are NOT bit-reproducible (the predecessor is), so every cell is stamped reuse-INELIGIBLE and must never be used as a baseline mint; within-run yoking IS exact (paired control 0.000000 on every observed run) and no load-bearing criterion depends on cross-run reproducibility. Yoking is non-compounding only while the arms agree -- the env is stepped with the reference arm's action. 1-seed full-scale probe: max_n_targets 13 (vs 1 pre-readiness), lp_dev_range 0.0129, distinct-matched 0, pert/margin 0.111, divergence 0.0 -> would route 'mixed' / readout_differentiates_but_never_changes_committed_action, which is a genuine measurement rather than 964's arithmetic zero. Step 2.5c: the one open corrupting entry overlapping this driver (mode-governance-engagement) matches only at module level on agent.py; its defect is the mode-hysteresis path and this experiment sets no mode-governance config -> not a stop.",
-      "status": "pending",
-      "conditions": 1,
-      "episodes_per_run": 3,
-      "experiment_type": "v3_exq_964a_mech482_epistemic_deficit_multitarget_readiness",
-      "seeds": 3
     }
   ]
 }
