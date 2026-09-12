@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-09-11 (T20:15Z nightly)
+**Last updated:** 2026-09-12 (T01:15Z nightly)
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -237,6 +237,32 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 
 ### Experiment Status
 
+- **2026-09-12T01:15Z nightly attestation (scheduled `/update-docs`, bot
+  identity).** ~5h window since the 2026-09-11T20:15Z snapshot -- a
+  near-zero-delta band. Flat `v3_exq_*` manifests on disk: **1005**
+  (unchanged); nested per-run manifests under
+  `evidence/experiments/*/runs/`: **2945** (unchanged). **Currently
+  queued (`experiment_queue.json` items[]): 1 item** -- V3-EXQ-1023
+  still CLAIMED on `ree-cloud-2` since 2026-09-11T17:25:49Z (~7.8h into
+  a ~400 min budget; SD-106's pre-set acceptance validation, no result
+  manifest yet). **Pending review (`pending_review.md`, regenerated
+  2026-09-11T16:59:22Z): 0 items** -- "All experiments reviewed. Nothing
+  pending". Coordinator-DB 30-day rolling: **64 PASS / 57 FAIL /
+  3 ERROR, ERROR rate 2.4%** (from 68/60/3/2.3% at 2026-09-11T20:15Z as
+  the rolling window shifted and older PASS/FAIL entries aged out --
+  no new outcomes recorded in this ~5h band). NO new substrate
+  landings, NO new completions, NO new governance activity, NO new
+  claim minting since the 2026-09-11T20:15Z snapshot. **Bottleneck
+  unchanged: V3-EXQ-1023 SD-106 validation in flight is the direct
+  substrate attack on the H-observation-interface convergence root.**
+  Green-board target 2026-07-19 is now **55 days overdue**.
+  **ETHICS-PERIMETER Phase 0 datum** stays on the record (Phases 1-3
+  deferred; NON-BLOCKING). Public-information-architecture impact:
+  reviewed against `docs/design/public_information_architecture.md` --
+  no `/api/*` surface, generated visualization, or public export
+  changed; nightly snapshot + spec date bump only (no SD table rows
+  added or moved in this window; same category as the 2026-09-11
+  attestation).
 - **2026-09-11T20:15Z nightly attestation (scheduled `/update-docs`, bot
   identity).** ~3.5d window since the 2026-09-08T01:15Z snapshot. Flat
   `v3_exq_*` manifests on disk: **1005** (+14 vs 991 at 2026-09-08); nested
