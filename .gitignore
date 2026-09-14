@@ -28,3 +28,9 @@ coordinator/deploy/fleet_integrity_baseline.json
 # never commit. Untracked-and-not-ignored wedges phase3_queue_writer's
 # clean-tree refusal.
 coordinator/writer_health.json
+# /understand per-machine structural-fingerprints cache written by
+# scripts/mcp-tools/build-fingerprints.mjs at the end of Phase 7. Per-clone
+# scratch that churns on every regeneration; must NOT be tracked. See the
+# nightly-documentation-update scheduled task (Step 2, item 3). Sibling
+# knowledge-graph.json + meta.json ARE the consumable graph and stay tracked.
+.ua/fingerprints.json

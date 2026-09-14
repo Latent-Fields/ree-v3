@@ -1,11 +1,11 @@
 {
   "version": "1.0.0",
-  "gitCommitHash": "bad6467722e984bcace0055c1c9944ff0120ba2b",
-  "generatedAt": "2026-08-30T09:02:13.519Z",
+  "gitCommitHash": "fe63dd68f55dc8f9ab32d60f90f0db736825ccdc",
+  "generatedAt": "2026-09-12T01:19:28.732Z",
   "files": {
     "coordinator/app.py": {
       "filePath": "coordinator/app.py",
-      "contentHash": "b2889b40f84776574766f2c8da67c39203657af6d6984ac779fae5a0ce9907c3",
+      "contentHash": "c8c6e27c247711670ed625bb665103d97c1eba78d7fedd1d4cc69da3852fe3f3",
       "functions": [
         {
           "name": "_canon",
@@ -148,7 +148,7 @@
             "machine_tok"
           ],
           "exported": true,
-          "lineCount": 17
+          "lineCount": 20
         },
         {
           "name": "_chip_amend_prompt",
@@ -159,6 +159,16 @@
           ],
           "exported": true,
           "lineCount": 16
+        },
+        {
+          "name": "_chip_amend_note",
+          "params": [
+            "conn",
+            "body",
+            "machine_tok"
+          ],
+          "exported": true,
+          "lineCount": 24
         },
         {
           "name": "_ws_append",
@@ -179,6 +189,26 @@
           ],
           "exported": true,
           "lineCount": 22
+        },
+        {
+          "name": "_igw_log_append",
+          "params": [
+            "conn",
+            "body",
+            "machine_tok"
+          ],
+          "exported": true,
+          "lineCount": 25
+        },
+        {
+          "name": "_intent_replace",
+          "params": [
+            "conn",
+            "body",
+            "machine_tok"
+          ],
+          "exported": true,
+          "lineCount": 40
         },
         {
           "name": "_dispatcher_lease",
@@ -221,7 +251,7 @@
           ],
           "properties": [],
           "exported": true,
-          "lineCount": 960
+          "lineCount": 981
         }
       ],
       "imports": [
@@ -300,6 +330,12 @@
           ]
         },
         {
+          "source": "git_intent",
+          "specifiers": [
+            "git_intent"
+          ]
+        },
+        {
           "source": "manifest_spool",
           "specifiers": [
             "manifest_spool"
@@ -330,14 +366,17 @@
         "_chip_resolve",
         "_chip_attach",
         "_chip_amend_prompt",
+        "_chip_amend_note",
         "_ws_append",
         "_reclog_append",
+        "_igw_log_append",
+        "_intent_replace",
         "_dispatcher_lease",
         "_chip_episode",
         "Handler",
         "main"
       ],
-      "totalLines": 1579,
+      "totalLines": 1702,
       "hasStructuralAnalysis": true
     },
     "coordinator/backfill_committed_at.py": {
@@ -516,7 +555,7 @@
     },
     "coordinator/db.py": {
       "filePath": "coordinator/db.py",
-      "contentHash": "05086c169f8b4c162159e1208d7cd659dc76903d213e86c50adb65f4f0a20316",
+      "contentHash": "5ad96dc5d944066b4cab421db3f84c6f8ddc87993f6ceb6ccc5f459467ca4748",
       "functions": [
         {
           "name": "utcnow",
@@ -530,7 +569,7 @@
             "db_path"
           ],
           "exported": true,
-          "lineCount": 21
+          "lineCount": 23
         },
         {
           "name": "_migrate_experiments",
@@ -855,10 +894,11 @@
             "task_id",
             "attached_by_session_id",
             "attached_at",
-            "now"
+            "now",
+            "stale_hours"
           ],
           "exported": true,
-          "lineCount": 48
+          "lineCount": 71
         },
         {
           "name": "amend_chip_prompt",
@@ -870,7 +910,20 @@
             "now"
           ],
           "exported": true,
-          "lineCount": 40
+          "lineCount": 49
+        },
+        {
+          "name": "amend_chip_note",
+          "params": [
+            "conn",
+            "chip_ref",
+            "addendum",
+            "reason",
+            "now",
+            "session_id"
+          ],
+          "exported": true,
+          "lineCount": 83
         },
         {
           "name": "_migrate_workspace_state_table",
@@ -954,6 +1007,74 @@
           "lineCount": 23
         },
         {
+          "name": "_migrate_igw_log_table",
+          "params": [
+            "conn"
+          ],
+          "exported": true,
+          "lineCount": 30
+        },
+        {
+          "name": "submit_igw_log_entry",
+          "params": [
+            "conn",
+            "line",
+            "session_id",
+            "client_git_write",
+            "host",
+            "now"
+          ],
+          "exported": true,
+          "lineCount": 49
+        },
+        {
+          "name": "pending_igw_log_entries",
+          "params": [
+            "conn"
+          ],
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "mark_igw_log_entries_materialized",
+          "params": [
+            "conn",
+            "entry_ids",
+            "ref",
+            "now"
+          ],
+          "exported": true,
+          "lineCount": 22
+        },
+        {
+          "name": "_migrate_git_intent_log_table",
+          "params": [
+            "conn"
+          ],
+          "exported": true,
+          "lineCount": 32
+        },
+        {
+          "name": "record_git_intent",
+          "params": [
+            "conn",
+            "repo",
+            "path",
+            "base_sha",
+            "verdict",
+            "applied_sha",
+            "session_id",
+            "machine",
+            "message",
+            "shadow",
+            "size_before",
+            "size_after",
+            "now"
+          ],
+          "exported": true,
+          "lineCount": 20
+        },
+        {
           "name": "_migrate_dispatcher_leases_table",
           "params": [
             "conn"
@@ -998,7 +1119,7 @@
             "db_path"
           ],
           "exported": true,
-          "lineCount": 13
+          "lineCount": 15
         },
         {
           "name": "_affinity_ok",
@@ -1293,7 +1414,7 @@
             "payload_json"
           ],
           "exported": true,
-          "lineCount": 23
+          "lineCount": 24
         },
         {
           "name": "record_shutdown_notice",
@@ -1442,6 +1563,7 @@
         "resolve_chip",
         "attach_chip",
         "amend_chip_prompt",
+        "amend_chip_note",
         "_migrate_workspace_state_table",
         "submit_workspace_state_entry",
         "pending_workspace_state_entries",
@@ -1450,6 +1572,12 @@
         "submit_recommendation_log_entry",
         "pending_recommendation_log_entries",
         "mark_recommendation_log_entries_materialized",
+        "_migrate_igw_log_table",
+        "submit_igw_log_entry",
+        "pending_igw_log_entries",
+        "mark_igw_log_entries_materialized",
+        "_migrate_git_intent_log_table",
+        "record_git_intent",
         "_migrate_dispatcher_leases_table",
         "upsert_dispatcher_lease",
         "dispatcher_lease_rows",
@@ -1489,7 +1617,7 @@
         "fetch_pending_commands",
         "ack_command"
       ],
-      "totalLines": 3358,
+      "totalLines": 3652,
       "hasStructuralAnalysis": true
     },
     "coordinator/manifest_spool.py": {
@@ -1746,7 +1874,7 @@
     },
     "coordinator/OPERATOR_GUIDE.md": {
       "filePath": "coordinator/OPERATOR_GUIDE.md",
-      "contentHash": "ad4e5b24099c7786cea6195d7f8b7462b03f613252a0d7145b6c9453e1796b3d",
+      "contentHash": "5592356f608addedbcb76faaf7c62f8d46591f20a9737ce0bfe7b51bc222f10c",
       "functions": [],
       "classes": [],
       "imports": [],
@@ -1756,12 +1884,12 @@
     },
     "coordinator/PHASE3_CUTOVER.md": {
       "filePath": "coordinator/PHASE3_CUTOVER.md",
-      "contentHash": "31bd02b659d8723bf8a3603c2f59c0530f3e18d1b8dd81c349ca2824208ac826",
+      "contentHash": "3a09420967993f9e17743694933ac182a176a22aca26e7816aeceda63e999709",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 387,
+      "totalLines": 388,
       "hasStructuralAnalysis": true
     },
     "coordinator/phase3_git_probe.py": {
@@ -2084,7 +2212,7 @@
     },
     "coordinator/phase3_verify.py": {
       "filePath": "coordinator/phase3_verify.py",
-      "contentHash": "3825826b0662232a3369280370f9dc5ac46846c73060a0278d53e6848ccbefa4",
+      "contentHash": "e529cd280a0ba3bc0503053ac7856d710953d4fb1f5f0c6591ac0fc1d19d97bb",
       "functions": [
         {
           "name": "_classify_commits",
@@ -2223,18 +2351,6 @@
           "lineCount": 32
         },
         {
-          "name": "check_derived_heartbeats",
-          "params": [
-            "hub_ssh",
-            "ssh_user",
-            "ssh",
-            "lookback_sec",
-            "now"
-          ],
-          "exported": true,
-          "lineCount": 47
-        },
-        {
           "name": "_import_writer_state",
           "params": [],
           "exported": true,
@@ -2246,7 +2362,7 @@
             "cid"
           ],
           "exported": true,
-          "lineCount": 10
+          "lineCount": 8
         },
         {
           "name": "run_verify",
@@ -2258,7 +2374,7 @@
             "ssh_runner"
           ],
           "exported": true,
-          "lineCount": 158
+          "lineCount": 154
         },
         {
           "name": "_print_report",
@@ -2342,34 +2458,33 @@
         "check_heartbeat_git_retired",
         "check_results_drained",
         "check_queue_snapshot_fresh",
-        "check_derived_heartbeats",
         "_import_writer_state",
         "_stub_category",
         "run_verify",
         "_print_report",
         "main"
       ],
-      "totalLines": 682,
+      "totalLines": 626,
       "hasStructuralAnalysis": true
     },
     "coordinator/PLAN.md": {
       "filePath": "coordinator/PLAN.md",
-      "contentHash": "c8323c984b794d840c15035a85f39f439c43ae06f1aa78adea8b4fc88846cb96",
+      "contentHash": "af58c7af1674677633bc95c6eeb9d0afc0c7a6ff6f789f87eee654155c28ab5d",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 177,
+      "totalLines": 182,
       "hasStructuralAnalysis": true
     },
     "coordinator/schema.sql": {
       "filePath": "coordinator/schema.sql",
-      "contentHash": "4b15d6d37788312624d2b5ae254253298bc9c90e3a0ff0a3b1c9f15f4ce5f461",
+      "contentHash": "022f0108966eae907beeb5a225233d46fb66b93d936dd4b1abeaa992a08d3b40",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 342,
+      "totalLines": 386,
       "hasStructuralAnalysis": true
     },
     "coordinator/seed_from_queue.py": {
@@ -2434,7 +2549,7 @@
     },
     "coordinator/sync_daemon.py": {
       "filePath": "coordinator/sync_daemon.py",
-      "contentHash": "4c8a0831cdf025791b53873645b49848cf79756c9351cdb60faa377a1a9d3c75",
+      "contentHash": "0c8dd73dbd6b3c25688d392d2a99b04ea57daae578f2ad785ded282bbf17e5ad",
       "functions": [
         {
           "name": "_load_queue_json",
@@ -2725,7 +2840,7 @@
             "log_prefix"
           ],
           "exported": true,
-          "lineCount": 59
+          "lineCount": 62
         },
         {
           "name": "_hub_working_tree_clean",
@@ -2899,7 +3014,7 @@
             "branch"
           ],
           "exported": true,
-          "lineCount": 260
+          "lineCount": 265
         },
         {
           "name": "main",
@@ -3032,7 +3147,7 @@
         "phase3_heartbeat_writer",
         "main"
       ],
-      "totalLines": 3289,
+      "totalLines": 3311,
       "hasStructuralAnalysis": true
     },
     "coordinator/task_claim_chip_git_writer.py": {
@@ -3779,7 +3894,7 @@
     },
     "coordinator/test_cloud_scaler_orchestrator_veto.py": {
       "filePath": "coordinator/test_cloud_scaler_orchestrator_veto.py",
-      "contentHash": "1b6b514dbc76d4ea43d942282e938d24dcdaf775ca29941a8d17406bc7a9bfc8",
+      "contentHash": "d990c4f51d70785269bb9ed882efe4e838d26a57ed6b861335c086a3d56b16ac",
       "functions": [
         {
           "name": "_hb",
@@ -3833,7 +3948,7 @@
           ],
           "properties": [],
           "exported": true,
-          "lineCount": 83
+          "lineCount": 123
         },
         {
           "name": "FreshnessWindowCoversTheCommitCadenceTest",
@@ -3900,12 +4015,12 @@
         "VetoIsWiredIntoTheDecisionLoopTest",
         "FreshnessWindowCoversTheCommitCadenceTest"
       ],
-      "totalLines": 325,
+      "totalLines": 365,
       "hasStructuralAnalysis": true
     },
     "coordinator/test_cloud_scaler_transport_parity.py": {
       "filePath": "coordinator/test_cloud_scaler_transport_parity.py",
-      "contentHash": "0da2a781cbaa448600e5b4b1b2439bf4bbac6b5ad520b074c62fdec12899dd49",
+      "contentHash": "bdec8bfa74d142b3b1f8932f53c864ee3f4e50d4066ca6e27a5c0f0d9d7bc16a",
       "functions": [
         {
           "name": "_load_scaler_module",
@@ -3949,7 +4064,7 @@
           ],
           "properties": [],
           "exported": true,
-          "lineCount": 46
+          "lineCount": 79
         },
         {
           "name": "OrchestratorVetoParityTest",
@@ -4114,7 +4229,7 @@
         "BackstopShutdownExclusionTest",
         "DeliberateDivergenceTest"
       ],
-      "totalLines": 492,
+      "totalLines": 525,
       "hasStructuralAnalysis": true
     },
     "coordinator/test_heartbeat_log.py": {
@@ -6388,7 +6503,7 @@
     },
     "coordinator/test_phase3_runpack_materialize.py": {
       "filePath": "coordinator/test_phase3_runpack_materialize.py",
-      "contentHash": "1f5353ab1263075265a191718684ae55c5fd51871dc96c808a98944655787a35",
+      "contentHash": "70b79d16cce590831df6c16f02399e6c4f2c73debf0d2a8253ee4b709d23511d",
       "functions": [
         {
           "name": "_resolve_ree_assembly",
@@ -6450,11 +6565,16 @@
             "test_provenance_carried_into_pack",
             "test_absent_provenance_omitted_not_nulled",
             "test_aggregates_folded_when_no_top_level_metrics",
-            "test_top_level_metrics_win_over_aggregates"
+            "test_top_level_metrics_win_over_aggregates",
+            "test_readout_folded_when_no_other_metrics_spelling",
+            "test_readout_is_last_in_the_metrics_precedence_chain",
+            "test_always_core_carried_into_pack",
+            "test_absent_always_core_omitted_not_nulled",
+            "test_empty_always_core_values_are_carried_not_dropped"
           ],
           "properties": [],
           "exported": true,
-          "lineCount": 47
+          "lineCount": 121
         },
         {
           "name": "FlagDefault",
@@ -6531,7 +6651,7 @@
         "FieldMappingProvenance",
         "FlagDefault"
       ],
-      "totalLines": 296,
+      "totalLines": 370,
       "hasStructuralAnalysis": true
     },
     "coordinator/test_phase3_sidefile_sync.py": {
@@ -6842,7 +6962,7 @@
     },
     "coordinator/test_phase3_verify.py": {
       "filePath": "coordinator/test_phase3_verify.py",
-      "contentHash": "7d8858c62c6fe2bd108d4a23abad88ee3e6250b4958b26575e06f37ba96c04b0",
+      "contentHash": "40e8e0456664b1e267bf537a8b1696af62fa918cc1dad8b5a5f7203bd3df4c2a",
       "functions": [
         {
           "name": "test_classify_commits_writer_only",
@@ -7013,24 +7133,6 @@
           "lineCount": 5
         },
         {
-          "name": "test_derived_heartbeats_pass",
-          "params": [],
-          "exported": true,
-          "lineCount": 11
-        },
-        {
-          "name": "test_derived_heartbeats_fail_stale",
-          "params": [],
-          "exported": true,
-          "lineCount": 12
-        },
-        {
-          "name": "test_derived_heartbeats_fail_foreign_commit",
-          "params": [],
-          "exported": true,
-          "lineCount": 16
-        },
-        {
           "name": "test_help_exits_zero",
           "params": [],
           "exported": true,
@@ -7040,7 +7142,7 @@
           "name": "test_mock_json_structure_and_skip",
           "params": [],
           "exported": true,
-          "lineCount": 22
+          "lineCount": 21
         },
         {
           "name": "test_run_verify_expect_cutover_uses_ssh",
@@ -7123,14 +7225,11 @@
         "test_queue_snapshot_fresh_pass",
         "test_queue_snapshot_fresh_fail_drift",
         "test_queue_snapshot_fresh_fail_bad_json",
-        "test_derived_heartbeats_pass",
-        "test_derived_heartbeats_fail_stale",
-        "test_derived_heartbeats_fail_foreign_commit",
         "test_help_exits_zero",
         "test_mock_json_structure_and_skip",
         "test_run_verify_expect_cutover_uses_ssh"
       ],
-      "totalLines": 515,
+      "totalLines": 465,
       "hasStructuralAnalysis": true
     },
     "coordinator/test_phase3_writer_health_bootstrap.py": {
@@ -8501,7 +8600,7 @@
     },
     "coordinator/test_task_claim_chip_endpoints.py": {
       "filePath": "coordinator/test_task_claim_chip_endpoints.py",
-      "contentHash": "f78a5e630776e778a60d8bff95c60b1353aecaacf9a76df28601e66d05f78fea",
+      "contentHash": "62c8e1763d786824e85377602b03601c991e07d45dfe1ad5013bff76194d4d6f",
       "functions": [
         {
           "name": "_http",
@@ -8989,7 +9088,7 @@
     },
     "coordinator/test_task_claim_chip_mutations.py": {
       "filePath": "coordinator/test_task_claim_chip_mutations.py",
-      "contentHash": "ee58a4803c96fef0b7ce6771f70757366596b35a6133931e26698d361cc0a463",
+      "contentHash": "67dbe57cba6f76037f34a48f2787bad1c741156f88f71a9ce66a56bd31723fc9",
       "functions": [
         {
           "name": "_chip",
@@ -9077,6 +9176,13 @@
             "test_resolve_on_an_already_resolved_chip_reports_changed_false",
             "test_a_real_note_replaces_an_automated_one_at_equal_status",
             "test_a_human_note_is_never_overwritten_at_equal_status",
+            "test_amend_note_appends_to_a_resolved_human_note",
+            "test_amend_note_never_touches_status_or_resolver",
+            "test_amend_note_refuses_an_open_chip",
+            "test_amend_note_is_idempotent_on_the_same_addendum",
+            "test_amend_note_not_found",
+            "test_amend_note_works_on_a_withdrawn_chip_too",
+            "test_resolve_still_freezes_a_human_note_after_amend_exists",
             "test_a_different_terminal_status_refuses_without_force",
             "test_force_preserves_the_prior_terminal_resolution_in_history",
             "test_resolve_rejects_a_status_outside_the_terminal_set",
@@ -9085,15 +9191,19 @@
             "test_attach_sets_the_task_id_without_claiming",
             "test_attach_refuses_a_task_id_already_on_another_chip",
             "test_attach_is_idempotent_for_the_same_task_id",
+            "test_attaching_to_an_already_resolved_chip_is_refused",
+            "test_attaching_onto_someone_elses_live_claim_is_refused",
+            "test_attaching_onto_a_stale_claim_is_allowed",
             "test_amend_prompt_keeps_the_broken_original",
             "test_amend_prompt_still_requires_the_marker",
+            "test_amend_prompt_is_a_no_op_when_the_prompt_already_matches",
             "test_an_unmodelled_field_survives_a_mutation",
             "test_a_modelled_field_is_not_overwritten_by_the_stale_blob",
             "test_archived_fields_are_absent_not_null_in_entry_json"
           ],
           "properties": [],
           "exported": true,
-          "lineCount": 329
+          "lineCount": 462
         },
         {
           "name": "TestScopeGuards",
@@ -9176,7 +9286,7 @@
         "TestChips",
         "TestScopeGuards"
       ],
-      "totalLines": 777,
+      "totalLines": 910,
       "hasStructuralAnalysis": true
     },
     "coordinator/test_task_claim_chip_shadow_sync.py": {
@@ -10029,7 +10139,7 @@
     },
     "ree_core/affect/blocked_agency.py": {
       "filePath": "ree_core/affect/blocked_agency.py",
-      "contentHash": "45e469cee2d65fb413d83ff0b94d1bc7693a697c4305c7e7c91d96ef18bd4827",
+      "contentHash": "1af9147e9b035adf9a32a9ea6d3da1a3e29f1ba549f35af4f81d56ee6e79e741",
       "functions": [],
       "classes": [
         {
@@ -10057,7 +10167,7 @@
             "noop_class"
           ],
           "exported": true,
-          "lineCount": 103
+          "lineCount": 104
         },
         {
           "name": "BlockedAgencyOutput",
@@ -10090,7 +10200,7 @@
           ],
           "properties": [],
           "exported": true,
-          "lineCount": 311
+          "lineCount": 304
         }
       ],
       "imports": [
@@ -10112,7 +10222,7 @@
         "BlockedAgencyOutput",
         "BlockedAgency"
       ],
-      "totalLines": 489,
+      "totalLines": 483,
       "hasStructuralAnalysis": true
     },
     "ree_core/affect/harm_suffering_accumulator.py": {
@@ -10195,7 +10305,7 @@
     },
     "ree_core/agent.py": {
       "filePath": "ree_core/agent.py",
-      "contentHash": "23170fd04a837bf83e8cb881ff5d653c4278f93910fa2d38e0a4a5aa611d4339",
+      "contentHash": "42b570770435b7d5863d120a3d716f4ab39c8fecd99d045ba8a5a7774b8bb0d8",
       "functions": [
         {
           "name": "candidate_support_preflight",
@@ -10274,6 +10384,7 @@
             "_curiosity_per_candidate_uncertainty",
             "_curiosity_per_candidate_learning_progress",
             "_candidate_world_summaries",
+            "_proposer_post_action_summaries",
             "select_action",
             "_compute_rho_t",
             "notify_env_completion",
@@ -10301,6 +10412,7 @@
             "compute_benefit_eval_loss",
             "compute_event_contrastive_loss",
             "compute_resource_proximity_loss",
+            "compute_resource_field_loss",
             "compute_resource_encoder_loss",
             "compute_resource_identity_loss",
             "compute_harm_nonredundancy_loss",
@@ -10335,6 +10447,7 @@
             "run_sws_schema_pass",
             "run_rem_attribution_pass",
             "run_sleep_cycle",
+            "force_sleep_cycle_at_eval_boundary",
             "_assemble_control_vector",
             "get_state",
             "get_residue_statistics",
@@ -10342,7 +10455,7 @@
           ],
           "properties": [],
           "exported": true,
-          "lineCount": 12104
+          "lineCount": 12551
         }
       ],
       "imports": [
@@ -10459,7 +10572,8 @@
           "source": "ree_core.predictors.e3_selector",
           "specifiers": [
             "E3TrajectorySelector",
-            "project_channel_range"
+            "project_channel_range",
+            "compute_action_object_alignment_bias"
           ]
         },
         {
@@ -10744,10 +10858,13 @@
             "MECH295LikingBridgeConfig",
             "PhasicSurpriseBurst",
             "PhasicSurpriseBurstConfig",
+            "SelectionEntropyFloor",
+            "SelectionEntropyFloorConfig",
             "SimulationModeRuleGate",
             "SimulationModeRuleGateConfig",
             "SITE_GATED_POLICY",
-            "SITE_LATERAL_PFC"
+            "SITE_LATERAL_PFC",
+            "selection_normalized_entropy"
           ]
         },
         {
@@ -10798,7 +10915,7 @@
         "_resolve_chunk_deliberation_horizon",
         "REEAgent"
       ],
-      "totalLines": 12481,
+      "totalLines": 12935,
       "hasStructuralAnalysis": true
     },
     "ree_core/amygdala/__init__.py": {
@@ -12258,7 +12375,7 @@
     },
     "ree_core/environment/causal_grid_world.py": {
       "filePath": "ree_core/environment/causal_grid_world.py",
-      "contentHash": "b8a66a00582bb72c35913ee46effdf5c23536c39d5441ca5e2249f0eba291d6e",
+      "contentHash": "addd81391cad31046f0df860241285ad9279009c51ebe405f7c2ca737a862842",
       "functions": [
         {
           "name": "CausalGridWorldV2",
@@ -12344,7 +12461,7 @@
             "ENTITY_TYPES"
           ],
           "exported": true,
-          "lineCount": 5138
+          "lineCount": 5280
         }
       ],
       "imports": [
@@ -12374,7 +12491,7 @@
         "CausalGridWorld",
         "CausalGridWorldV2"
       ],
-      "totalLines": 5287,
+      "totalLines": 5429,
       "hasStructuralAnalysis": true
     },
     "ree_core/goal.py": {
@@ -13188,7 +13305,7 @@
     },
     "ree_core/hippocampal/module.py": {
       "filePath": "ree_core/hippocampal/module.py",
-      "contentHash": "e1ba36b82fe3c95184bd6f03d00fb064f32ae3394ef3e34c178f86d28e487889",
+      "contentHash": "04962548c69cd22f26ea6ab6332f433919507b0144e87c7d6e0e39a7602b7282",
       "functions": [],
       "classes": [
         {
@@ -13207,6 +13324,8 @@
             "_counts_from_tensor",
             "_summarize_action_tensor",
             "_summarize_trajectories",
+            "_trajectory_source",
+            "_summarize_trajectories_excluding_sources",
             "set_chunk_source",
             "set_decomposition_source",
             "_region_vs",
@@ -13266,7 +13385,7 @@
           ],
           "properties": [],
           "exported": true,
-          "lineCount": 3791
+          "lineCount": 3856
         }
       ],
       "imports": [
@@ -13385,7 +13504,7 @@
       "exports": [
         "HippocampalModule"
       ],
-      "totalLines": 3872,
+      "totalLines": 3971,
       "hasStructuralAnalysis": true
     },
     "ree_core/hippocampal/persistence_appraisal_compute.py": {
@@ -13780,7 +13899,7 @@
     },
     "ree_core/latent/stack.py": {
       "filePath": "ree_core/latent/stack.py",
-      "contentHash": "984a8a193444094f97a1aac3b90ec1e162c3b53c14cc1ab517925485dee32cd2",
+      "contentHash": "437d7408d0b04a89c193a1f745b969b8abc31e8c0aca1688921975eca460af7d",
       "functions": [],
       "classes": [
         {
@@ -13917,6 +14036,7 @@
             "z_world_raw",
             "event_logits",
             "resource_prox_pred",
+            "resource_field_pred",
             "z_resource",
             "resource_prox_pred_r",
             "identity_logits",
@@ -13928,7 +14048,7 @@
             "self_recurrence_diag"
           ],
           "exported": true,
-          "lineCount": 84
+          "lineCount": 86
         },
         {
           "name": "SplitEncoder",
@@ -13938,7 +14058,7 @@
           ],
           "properties": [],
           "exported": true,
-          "lineCount": 151
+          "lineCount": 231
         },
         {
           "name": "SharedDepthEncoder",
@@ -13965,7 +14085,7 @@
           ],
           "properties": [],
           "exported": true,
-          "lineCount": 669
+          "lineCount": 674
         }
       ],
       "imports": [
@@ -14039,7 +14159,7 @@
         "SharedDepthEncoder",
         "LatentStack"
       ],
-      "totalLines": 1680,
+      "totalLines": 1767,
       "hasStructuralAnalysis": true
     },
     "ree_core/latent/theta_buffer.py": {
@@ -14104,7 +14224,7 @@
     },
     "ree_core/latent/zworld_p0.py": {
       "filePath": "ree_core/latent/zworld_p0.py",
-      "contentHash": "cfeccd408757f71e4ec5254121ffb5c9158ca49d39488a268833e657a651a17f",
+      "contentHash": "e58f35f17870ed5bcebe11ce545c247494a0e034c71555fb114d74cf5687f83a",
       "functions": [
         {
           "name": "chebyshev_offsets",
@@ -14167,7 +14287,9 @@
             "distance_weight",
             "n_distance_buckets",
             "proximity_weight",
+            "resource_field_weight",
             "reconstruction_weight",
+            "preservation_weight",
             "learning_rate",
             "batch_size",
             "epochs",
@@ -14176,7 +14298,7 @@
             "holdout_fraction"
           ],
           "exported": true,
-          "lineCount": 31
+          "lineCount": 68
         },
         {
           "name": "ZWorldP0Trainer",
@@ -14191,7 +14313,7 @@
           ],
           "properties": [],
           "exported": true,
-          "lineCount": 228
+          "lineCount": 318
         }
       ],
       "imports": [
@@ -14240,7 +14362,7 @@
         "ZWorldP0Config",
         "ZWorldP0Trainer"
       ],
-      "totalLines": 540,
+      "totalLines": 719,
       "hasStructuralAnalysis": true
     },
     "ree_core/neuromodulation/__init__.py": {
@@ -14952,7 +15074,7 @@
     },
     "ree_core/pfc/lateral_pfc_analog.py": {
       "filePath": "ree_core/pfc/lateral_pfc_analog.py",
-      "contentHash": "2e88859c8ee4250e7b1b936a8ff76f7d1e88d3f22e2529cbaabbee0a8b2711d0",
+      "contentHash": "b653aa2168dc797a046484b21a0dcdf44f847143c59d33d2a708fe8b27903eb9",
       "functions": [],
       "classes": [
         {
@@ -14971,10 +15093,11 @@
             "use_candidate_rule_source",
             "rule_readout_consumer",
             "readout_init_scale",
-            "capture_head_diagnostics"
+            "capture_head_diagnostics",
+            "candidate_summary_degeneracy_floor"
           ],
           "exported": true,
-          "lineCount": 80
+          "lineCount": 92
         },
         {
           "name": "LateralPFCAnalog",
@@ -14988,7 +15111,7 @@
           ],
           "properties": [],
           "exported": true,
-          "lineCount": 315
+          "lineCount": 360
         }
       ],
       "imports": [
@@ -15021,7 +15144,7 @@
         "LateralPFCConfig",
         "LateralPFCAnalog"
       ],
-      "totalLines": 516,
+      "totalLines": 573,
       "hasStructuralAnalysis": true
     },
     "ree_core/pfc/ofc_analog.py": {
@@ -16530,7 +16653,7 @@
     },
     "ree_core/predictors/e1_deep.py": {
       "filePath": "ree_core/predictors/e1_deep.py",
-      "contentHash": "42f18e2dc21b5061442403735e454eaade85062210c5eb75662b649f90197e9f",
+      "contentHash": "1835e3d45fdc9eebd12f5b377b7947532e4b51ceb031656ccef739a6a49f8787",
       "functions": [],
       "classes": [
         {
@@ -16572,11 +16695,13 @@
             "shy_normalise",
             "update_from_observation",
             "integrate_experience",
+            "rollout_consistency_loss",
+            "rollout_sequence_divergence_loss",
             "forward"
           ],
           "properties": [],
           "exported": true,
-          "lineCount": 772
+          "lineCount": 1203
         }
       ],
       "imports": [
@@ -16630,7 +16755,7 @@
         "ContextMemory",
         "E1DeepPredictor"
       ],
-      "totalLines": 1312,
+      "totalLines": 1743,
       "hasStructuralAnalysis": true
     },
     "ree_core/predictors/e2_fast.py": {
@@ -17180,7 +17305,7 @@
     },
     "ree_core/predictors/e3_selector.py": {
       "filePath": "ree_core/predictors/e3_selector.py",
-      "contentHash": "42baf27e96ae106a2e9be405b18add79588a15df5252c66920e13ed2d5d2a59b",
+      "contentHash": "cbf92875e96a8497d88c84bae592e5cab3be1aeb785f86f5326631f07f081fe8",
       "functions": [
         {
           "name": "project_channel_range",
@@ -17220,6 +17345,17 @@
           "returnType": "float",
           "exported": true,
           "lineCount": 10
+        },
+        {
+          "name": "compute_action_object_alignment_bias",
+          "params": [
+            "candidates",
+            "action_bias",
+            "weight"
+          ],
+          "returnType": "Optional[torch.Tensor]",
+          "exported": true,
+          "lineCount": 74
         }
       ],
       "classes": [
@@ -17270,11 +17406,14 @@
             "compute_harm_forward_cost",
             "_pe_confidence_penalty",
             "_self_viability_penalty",
+            "_commensurability_scale",
+            "_update_channel_scale_estimates",
             "score_trajectory",
             "_arbitrate_dual_system",
             "_f_eligibility_envelope",
             "_go_nogo_eligibility_gate",
             "_gap_scaled_commit_pick",
+            "_precision_scaled_commit_pick",
             "_lateral_settle",
             "_soft_competitive_settle",
             "_loop_normalize",
@@ -17294,7 +17433,7 @@
           ],
           "properties": [],
           "exported": true,
-          "lineCount": 4105
+          "lineCount": 4350
         }
       ],
       "imports": [
@@ -17376,9 +17515,10 @@
         "authority_spread_ratio",
         "authority_ratio_is_competitive",
         "variance_commit_threshold",
+        "compute_action_object_alignment_bias",
         "E3TrajectorySelector"
       ],
-      "totalLines": 4382,
+      "totalLines": 4723,
       "hasStructuralAnalysis": true
     },
     "ree_core/preservation/__init__.py": {
@@ -17973,7 +18113,7 @@
     },
     "ree_core/regulators/__init__.py": {
       "filePath": "ree_core/regulators/__init__.py",
-      "contentHash": "7e11b6eaa5f98769e13432cbd5d949ee52ec3e41f34fcca92e3705307ce3550c",
+      "contentHash": "31c6837fd223d44b7e04f1ab329b86866badd0b03260423f22487d5c1a68d1b7",
       "functions": [],
       "classes": [],
       "imports": [
@@ -18023,6 +18163,14 @@
           ]
         },
         {
+          "source": "ree_core.regulators.selection_entropy_floor",
+          "specifiers": [
+            "SelectionEntropyFloor",
+            "SelectionEntropyFloorConfig",
+            "normalized_entropy"
+          ]
+        },
+        {
           "source": "ree_core.regulators.simulation_mode_rule_gate",
           "specifiers": [
             "SimulationModeRuleGate",
@@ -18035,7 +18183,7 @@
         }
       ],
       "exports": [],
-      "totalLines": 71,
+      "totalLines": 81,
       "hasStructuralAnalysis": true
     },
     "ree_core/regulators/broadcast_override.py": {
@@ -18474,7 +18622,7 @@
     },
     "ree_core/regulators/phasic_surprise_burst.py": {
       "filePath": "ree_core/regulators/phasic_surprise_burst.py",
-      "contentHash": "27efe2ea9c6282a24ce4fb0666951dceb300d68bcbfe15eaabe524274eaed698",
+      "contentHash": "40330514989b5ad20d5c19902cbff4c93647ff7fd4ca9ce964f6202e67b4d91b",
       "functions": [],
       "classes": [
         {
@@ -18490,16 +18638,21 @@
             "min_temperature",
             "excess_saturation",
             "baseline_continuity",
-            "warmup_ticks"
+            "warmup_ticks",
+            "refractory_ticks",
+            "extinction_level"
           ],
           "exported": true,
-          "lineCount": 53
+          "lineCount": 66
         },
         {
           "name": "PhasicSurpriseBurst",
           "methods": [
             "__init__",
             "tick",
+            "max_active_ticks_per_event",
+            "duty_cycle_bound",
+            "realised_burst_duty_cycle",
             "apply_to_temperature",
             "burst_level",
             "temperature_delta",
@@ -18509,7 +18662,7 @@
           ],
           "properties": [],
           "exported": true,
-          "lineCount": 263
+          "lineCount": 399
         }
       ],
       "imports": [
@@ -18537,7 +18690,7 @@
         "PhasicSurpriseBurstConfig",
         "PhasicSurpriseBurst"
       ],
-      "totalLines": 476,
+      "totalLines": 685,
       "hasStructuralAnalysis": true
     },
     "ree_core/regulators/simulation_mode_rule_gate.py": {
@@ -19714,7 +19867,7 @@
     },
     "ree_core/utils/config.py": {
       "filePath": "ree_core/utils/config.py",
-      "contentHash": "0dbb3b6d1f3ed8447356b3da565d2202f4b89065851c4c4c41a00eddc68e84c0",
+      "contentHash": "cffc10833b46ec7cd0cc465a6722793e9ccdc9c5eb82428da53d25f71510abb9",
       "functions": [
         {
           "name": "derive_stdlib_rng_seed",
@@ -19725,6 +19878,22 @@
           "returnType": "Optional[int]",
           "exported": true,
           "lineCount": 14
+        },
+        {
+          "name": "_observed_config_registry",
+          "params": [],
+          "returnType": "dict",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "_register_observed_config",
+          "params": [
+            "cfg"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 18
         }
       ],
       "classes": [
@@ -19764,6 +19933,10 @@
             "use_event_classifier",
             "use_resource_proximity_head",
             "resource_proximity_weight",
+            "use_resource_field_head",
+            "resource_field_weight",
+            "resource_field_dim",
+            "use_world_encoder_skip",
             "volatility_signal_dim",
             "unified_latent_mode",
             "use_iterative_inference",
@@ -19790,7 +19963,7 @@
             "activation"
           ],
           "exported": true,
-          "lineCount": 329
+          "lineCount": 361
         },
         {
           "name": "E1Config",
@@ -19806,6 +19979,16 @@
             "action_conditioned_transition",
             "action_dim",
             "action_cond_unzero_self_slot",
+            "output_proj_residual",
+            "e1_rollout_consistency_enabled",
+            "e1_rollout_consistency_weight",
+            "e1_rollout_consistency_horizon",
+            "e1_rollout_consistency_horizon_weights_decay",
+            "e1_rollout_sequence_divergence_enabled",
+            "e1_rollout_sequence_divergence_weight",
+            "e1_rollout_sequence_divergence_horizon",
+            "e1_rollout_sequence_divergence_temperature",
+            "e1_rollout_sequence_divergence_min_batch_classes",
             "sd016_enabled",
             "action_object_dim",
             "sd016_writepath_mode",
@@ -19832,7 +20015,7 @@
             "schema_wanting_enabled"
           ],
           "exported": true,
-          "lineCount": 315
+          "lineCount": 456
         },
         {
           "name": "E2Config",
@@ -19881,6 +20064,10 @@
             "rho_residue",
             "f_weight",
             "e3_include_untrained_fallback_scorers",
+            "use_e3_channel_commensurability",
+            "e3_commensurability_ema_alpha",
+            "e3_commensurability_warmup_ticks",
+            "e3_commensurability_floor",
             "commitment_threshold",
             "precision_ema_alpha",
             "precision_init",
@@ -19963,6 +20150,9 @@
             "use_gap_scaled_commit_temperature",
             "gap_scaled_commit_entropy_alpha",
             "gap_scaled_commit_harm_floor",
+            "use_precision_scaled_commit_temperature",
+            "precision_scaled_commit_entropy_alpha",
+            "precision_scaled_commit_harm_floor",
             "use_f_eligibility_demotion",
             "f_eligibility_envelope_floor",
             "f_eligibility_dn_sigma",
@@ -19999,10 +20189,12 @@
             "dualsystem_arbitration_bias",
             "dualsystem_uncertainty_ema_alpha",
             "dualsystem_habit_depth",
-            "use_post_arbitration_last_scores"
+            "use_post_arbitration_last_scores",
+            "use_action_object_bias_channel",
+            "action_object_bias_weight"
           ],
           "exported": true,
-          "lineCount": 1035
+          "lineCount": 1165
         },
         {
           "name": "EventSegmenterScaleConfig",
@@ -20501,6 +20693,14 @@
             "phasic_burst_signal_source",
             "phasic_burst_baseline_continuity",
             "phasic_burst_warmup_ticks",
+            "phasic_burst_refractory_ticks",
+            "phasic_burst_extinction_level",
+            "use_selection_entropy_floor",
+            "selection_entropy_floor_target",
+            "selection_entropy_floor_gain",
+            "selection_entropy_floor_max_temperature_ratio",
+            "selection_entropy_floor_ema_decay",
+            "selection_entropy_floor_deadband",
             "use_structured_curiosity",
             "use_curiosity_novelty",
             "use_curiosity_uncertainty",
@@ -20526,6 +20726,14 @@
             "epistemic_deficit_uncertainty_weight",
             "epistemic_deficit_disagreement_weight",
             "epistemic_deficit_persistent_pe_weight",
+            "epistemic_deficit_match_radius_mode",
+            "epistemic_deficit_match_radius_relative_frac",
+            "epistemic_deficit_center_update",
+            "epistemic_deficit_center_ema_beta",
+            "epistemic_deficit_persist_targets_across_episodes",
+            "epistemic_deficit_require_differentiated_readout",
+            "epistemic_deficit_target_frame",
+            "epistemic_deficit_readout_mode",
             "candidate_summary_source",
             "use_tonic_vigor",
             "tonic_vigor_half_life",
@@ -20970,10 +21178,16 @@
             "preserve_on_life_end_strict"
           ],
           "exported": true,
-          "lineCount": 6443
+          "lineCount": 6736
         }
       ],
       "imports": [
+        {
+          "source": "sys",
+          "specifiers": [
+            "sys"
+          ]
+        },
         {
           "source": "dataclasses",
           "specifiers": [
@@ -21020,9 +21234,11 @@
         "ResidueConfig",
         "HeartbeatConfig",
         "EnvironmentConfig",
+        "_observed_config_registry",
+        "_register_observed_config",
         "REEConfig"
       ],
-      "totalLines": 9434,
+      "totalLines": 10098,
       "hasStructuralAnalysis": true
     },
     "ree_core/utils/per_axis_drive.py": {
