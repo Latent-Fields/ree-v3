@@ -95,6 +95,24 @@ Falsification signatures (per sub-claim):
   retrieval boost produces the same behaviour (scalar-equivalent), the
   content-selective form has collapsed.
 
+  MECH-074b design note (2026-09-14, claim-synthesis residual R2 --
+  REE_assembly/evidence/planning/claim_synthesis_MECH-074b_2026-09-09.md):
+  the additive rule w_i = 1 + alpha*tag_i is always >= 1 at
+  retrieval_bias_compensation=0.0 (the default), so it can only ever raise
+  a trace's weight above the neutral (no-BLA) baseline of 1.0. It therefore
+  targets a RELATIVE central/gist advantage only, and structurally cannot
+  reproduce the ABSOLUTE peripheral-detail suppression Adolphs et al. 2001
+  found under amygdala lesion (the pull's highest-confidence entry, 0.75) --
+  a form Mather & Sutherland 2011 (0.68) says would require a competitive
+  normalisation step. This was decided, not overlooked: the one direct
+  behavioural test of the absolute-suppression prediction (Sutherland &
+  Mather 2012, 0.60) found low-salience recall UNCHANGED, not impaired
+  (albeit at a short-term/attentional timescale, not this claim's long-term
+  hippocampal one), so there is no evidence yet warranting the added
+  complexity of a normalising rule at this claim's retrieval-sampling
+  locus. `retrieval_bias_compensation` (below) is the already-wired lever
+  for absolute suppression, left at 0.0 pending that evidence.
+
   MECH-074d: if remap_signal fires on sub-threshold PE, OR perturbs
   untagged codes uniformly (attribution gate broken), OR amplitude is
   wholesale (>>33% of codes), the remap logic is mis-specified.
@@ -173,15 +191,23 @@ class BLAConfig:
 
     # -- Retrieval bias (MECH-074b) --
 
-    # Per-trace weight scaling: w_i = 1 + alpha * arousal_tag_i.
-    # Midpoint of 0.3-1.0 (LaBar & Cabeza 2006).
+    # Per-trace weight scaling: w_i = 1 + alpha * arousal_tag_i. Always
+    # >= 1 at retrieval_bias_compensation=0.0, so on its own this produces
+    # only a RELATIVE central/gist advantage, not absolute peripheral
+    # suppression -- see the MECH-074b design note in the module docstring
+    # above for why that is a decision, not a gap. Midpoint of 0.3-1.0
+    # (LaBar & Cabeza 2006).
     retrieval_bias_alpha: float = 0.6
 
     # Optional zero-sum compensation: untagged traces are suppressed
-    # by this fraction to compensate for elevated retrieval of tagged
-    # traces. Default 0.0 (simpler; enable 0.1-0.3 for the full
-    # zero-sum form). LaBar 2006 notes the effect is optional and
-    # sometimes omitted in simpler implementations.
+    # by this fraction (bias -> 1 - comp for untagged traces, i.e. BELOW
+    # the neutral no-BLA baseline), approximating the competitive/
+    # normalising step that absolute peripheral suppression would need.
+    # Default 0.0 (no absolute suppression -- matches Sutherland & Mather
+    # 2012's direct behavioural test, which found low-salience recall
+    # unchanged rather than impaired). Enable 0.1-0.3 only if future
+    # evidence supports absolute suppression at this claim's retrieval-
+    # sampling locus specifically (see module docstring design note).
     retrieval_bias_compensation: float = 0.0
 
     # Required-by-design: LaBar 2006 mandates that the arousal_tag be
