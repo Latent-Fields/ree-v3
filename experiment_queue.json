@@ -46,29 +46,6 @@
       "seeds": 30
     },
     {
-      "queue_id": "V3-EXQ-1037",
-      "title": "SD-075 phasic carry+gate validation: informative-cell rescue rate at warmup=40 (phasic-only, not a MECH-063 retest)",
-      "script": "experiments/v3_exq_1037_sd075_phasic_ema_episode_continuity_validation.py",
-      "priority": 30,
-      "machine_affinity": "any",
-      "estimated_minutes": 90,
-      "claim_id": "SD-075",
-      "backlog_id": "EVB-1661",
-      "note": "Claim-tagged validation of SD-075 (sd_phasic_ema_episode_continuity), phasic-only, NOT a MECH-063 retest -- no tonic axis, does not touch the braked 779/963 lineage (MECH-063 has 5 counted substrate_ceiling autopsies; SD-075 itself has 0, checked this session via /queue-experiment Step 2.5b against every failure_autopsy_*.json). GOV-REUSE-1 (Step 2.4): reanalysis_query.py --readout n_events_converged / min_warmed_n_events_converged over the full evidence/experiments corpus -- no manifest, including V3-EXQ-952's own, carries n_events_converged as a flat readout key; not recoverable, so this experiment runs. Step 2.5c substrate-path overlap: one OPEN degrading-severity entry (sd_phasic_burst_decay_and_warmup_headroom) names phasic_surprise_burst.py -- not blocking (degrading), but this driver does not merely note it: it defensively bounds the burst duty cycle via SD-104's own phasic_burst_refractory_ticks=29/extinction_level=0.05, which materially changes the criterion design (see red-team below). Reuses V3-EXQ-952's own measured-informative warmup dose (40 episodes; 952 measured n_converged_ticks 67/87/189 across seeds {23,11,29} at this exact READ_MAX_ENV_STEPS=600 budget) under a refractory-bounded regulator and a rate-based (not count-based) criterion -- materially different measurement from 952's unbounded, non-contributory diagnostic. red-team (fable), two passes: pass 1 BLOCKING -- the original absolute-count criterion (n_events_converged >= 10, inherited from 779b/952 which measured it under refractory_ticks=0) is arithmetically unreachable once refractory_ticks=29 caps possible events at floor((N-1)/30)+1 (needs N>=271 converged ticks; 952's own warmed cells only reached 67-189 at this budget) -- independently confirmed by direct simulation this session (an always-triggering stream saturated at exactly the predicted cap). FIXED: replaced with a refractory-ceiling-relative RATE criterion (MIN_EVENT_RATE = 0.5 * 1/(refractory_ticks+1)), reachable at any budget long enough to estimate a rate, and an informative-cell floor tied to the refractory span (60 ticks) rather than the EMA warmup span (30 ticks, which the red-team correctly flagged as never gating anything at real-run scale). pass 2 CONTESTED -- two named confirmers, both addressed: (1) row now records n_events_refractory_suppressed so a `weakens` verdict is distinguishable from refractory masking; (2) the originally-planned warmup=10 dose (no measured precedent at this budget) was dropped in favor of 952's measured-informative warmup=40. Full disposition in the script's module docstring RE-REVIEW section. Neither pass reached CLEAR; per policy (re-spawn exactly once on a causal-chain-changing BLOCKING finding, never iterate to CLEAR) no third pass was run -- the pass-2 CONTESTED findings were fixed and cited, not left open.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-09-14T19:13:23Z"
-      },
-      "claim_ids": [
-        "SD-075"
-      ],
-      "conditions": 2,
-      "episodes_per_run": 600,
-      "experiment_type": "v3_exq_1037_sd075_phasic_ema_episode_continuity_validation",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-1038",
       "title": "ARC-131 endogenous coalition-recruitment rate probe (diagnostic)",
       "script": "experiments/v3_exq_1038_arc131_coalition_endogenous_recruitment_rate_probe.py",
@@ -78,7 +55,11 @@
       "claim_id": "ARC-131",
       "backlog_id": "EVB-1242",
       "note": "Diagnostic (EXPERIMENT_PURPOSE=diagnostic, excluded from governance confidence/conflict scoring). ARC-131/EVB-1242: measures whether CoalitionController's endogenous request-generation (chip-20260902-arc131-coalition-endogenous-recruitment-driver, ree-v3 main 88c7c3332c) actually fires during a live run at the config-shipped DEFAULT margin_threshold=0.05 (never overridden), vs staying dormant the way ARC-120's four other default-off gates were found to (REE_assembly evidence/planning/claim_synthesis_ARC-120_2026-09-07.md). Deliberately NOT V3-EXQ-886 (the coalition 4-arm performance-recovery falsifier, still blocked on a goal-directed-competence harness prerequisite per that script's own STATUS block) -- recruitment RATE needs no trained/competent agent, only a direct read of REEAgent's own diagnostic counter (agent._endogenous_coalition_request_count). Step 2.4 GOV-REUSE-1: decisive readout (endogenous_coalition_request_count under a live full-loop run) checked against evidence/experiments/ via grep -- absent from every manifest (the driver landed 2026-09-14, same day) -> not recoverable, run. Step 2.5/2.5a: substrate confirmed IMPLEMENTED (ree_core/agent.py select_action, ree_core/utils/config.py) via source read; empirical premise probe (throwaway scratch script, 5 seeds x 60 ticks) confirmed a genuine non-degenerate signal at the default threshold (1 request fired total across 5 seeds -- rare but nonzero, neither trivially-always-true nor trivially-always-false). Step 2.5b re-derive brake: 0 genuinely-braking prior autopsies on ARC-131 -- not braked. Step 2.5c substrate-path overlap gate: no open corrupting-severity substrate_queue.json entry overlaps this driver's imports (ree_core.agent, causal_grid_world, ree_core.utils.config, ree_core.claustrum.coalition_controller -- checked live at authoring time, 2026-09-14); SD-MECH303-THRESHOLD-SOURCING and mode-governance-engagement touch agent.py/config.py broadly but are degrading/cosmetic severity and semantically unrelated to the endogenous-coalition-trigger code path. DV-symmetry: n/a (single condition, no cross-arm comparison; the DV is a direct counter read, not a derived contrast). Smoke (--dry-run, 2 seeds x 3 episodes x 100 ticks): clean, no crash; validate_experiments.py --strict: OK, 0 warnings (after fixing 3 advisories: precondition direction, anchor-reachability exempt, criteria-threshold measured/bar). red-team (fable): CONTESTED, 4 findings, all dispositioned by FIX (none dismissed): F1a manipulation-to-DV -- TICKS_PER_EPISODE=20 gave at most 1 eligible E3 evaluation/episode (e3_steps_per_tick=10 plus a required prior-tick result), collapsing 'rate' onto 'recruited-at-all' by construction -> bumped to 100 ticks (~9 eligible evaluations/episode). F1b/F2 criterion-can't-discriminate -- the 1e6 positive control proves the call+comparison machinery works but is scale-blind to whether 0.05 is calibrated against this untrained harness's actual E3-margin scale, so a 'dormant' finding could reflect random-init score scale rather than architectural dormancy -> now records the observed E3-margin distribution per seed (de-duplicated by object identity against the same latch hazard CLAUDE.md's Sample-size-integrity section documents for last_score_diagnostics) as diagnostic context alongside the counter. F3b verdict-mapping -- with a static untrained network per seed, episodes within a seed are correlated draws, not independent samples, so pooling to 210 episodes overstates precision -> the interpretation label now routes on frac_seeds_recruited (7 independent units), with the pooled per-episode figure kept as descriptive context only. Family 4 (gate certifying its own subject): nothing found -- control and main builds for a given seed are fully independent fresh REEAgent+env constructions. Causal chain unchanged by the fixes (same manipulation/DV; only measurement resolution and label-routing changed) -- one pass, no re-spawn.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-09-14T19:51:22Z"
+      },
       "conditions": 1,
       "episodes_per_run": 30,
       "experiment_type": "v3_exq_1038_arc131_coalition_endogenous_recruitment_rate_probe",
