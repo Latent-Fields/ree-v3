@@ -46,25 +46,6 @@
       "seeds": 30
     },
     {
-      "queue_id": "V3-EXQ-1027",
-      "title": "SD-082 fan-out leg 1 (H-replay-rule-state-mismatch): does scoring each replayed REINFORCE sample at its OWN action-time rule_state raise rule_bias_head step persistence vs the faithful 1020 path?",
-      "script": "experiments/v3_exq_1027_sd082_replay_own_rule_state_credit_assignment.py",
-      "priority": 7,
-      "machine_affinity": "any",
-      "estimated_minutes": 120,
-      "claim_id": "SD-082",
-      "note": "GOV-FANOUT-1 portfolio for qid sd082_candidate_discriminating_readout_locus, routed by CONFIRMED failure_autopsy_V3-EXQ-1020_2026-09-11 (REE_assembly 92751187b1), ratified gov-20260911-1612, legs user-selected at the autopsy Step 8 gate; hypotheses already pre-registered (not re-registered); chip chip-20260911-sd082-fanout-portfolio-v2. Portfolio = V3-EXQ-1027 (H-replay-rule-state-mismatch, credit-assignment) + V3-EXQ-1028 (H-learning-signal-sign measurement + H-learning-signal-noisy process, one extended-P1 run because both legs' manipulation is the same budget extension) + V3-EXQ-1029 (H-selection-authority-bounded, intrinsic-architecture); run in parallel. New EXQ numbers, NOT a further lettered iteration of 822/1020 (refused by the autopsy). DIAGNOSTIC, directions pinned unknown. | Step 2.5b brake: SD-082 counts 3 (822b/c/d), released by failure_autopsy_V3-EXQ-822f_2026-09-09's own record; diagnostic discriminating WHY -> Not braked. | Step 2.5c: module footprint = V3-EXQ-1020's (call-trace disposition carried forward; SD-082 substrate_paths emptied by governance 2026-09-09); no open corrupting entry executed on this path. | Ethics all-false/allow. | interpretation.criteria_aggregation declared (1020 autopsy sec 5.2 forward-only fix). LEG 1: arms REPLAY_FAITHFUL (1020/822f, index 4 None) vs REPLAY_OWN_RULE_STATE (post-select_action rule_state snapshot per tuple, live state saved/restored), 5 seeds x 70 updates, controls imported from 1020. PASS iff R1 synth control + R2 DIRECTION mismatch mean(1-cos) >= 0.10 + R3 >= 3 seeds with headroom AND byte-identical P1 buffers + C1 lift >= 0.25x(ceiling-floor) with summary-column persistence also rising on >= 3 eligible seeds. | DV-symmetry: persistence is invariant only under a global rotation/rescale of all steps; per-sample rule_state conditioning changes per-sample gradient direction -- not invariant in either arm. | Step 2.4 GOV-REUSE-1: decisive readout (persistence under per-sample rule_state replay) never recorded -- 1020/822f always replayed with index 4 None -> not recoverable, run. | Smoke: dry-run PASS (10 ep N/130-denominator lines, 10 verdict lines; tiny scale readiness red as expected); mid-scale probe seed 633 P0 60/P1 25: buffers byte-identical across arms, direction mismatch 0.674, persistence FAITHFUL 0.780 vs OWN 0.791 -- manipulation reaches the DV. | red-team (fable): CONTESTED -> 4 FIXED, 1 noted: F1 R2 norm-dominated -> direction mismatch gate; F2 C2 coin-flip sign -> margin + eligibility; F3 rule-column-only lift -> summary-column requirement; F4 returns-only pairing witness -> P1 buffer SHA-256 gate; F5 OWN rule_state_norm_at_update records last replayed sample (noted).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-09-14T12:30:38Z"
-      },
-      "conditions": 2,
-      "episodes_per_run": 130,
-      "experiment_type": "v3_exq_1027_sd082_replay_own_rule_state_credit_assignment",
-      "seeds": 5
-    },
-    {
       "queue_id": "V3-EXQ-1028",
       "title": "SD-082 fan-out legs 2+4 (H-learning-signal-sign / H-learning-signal-noisy): 1020 instrument at P1=500 with windowed persistence and episode-level init-head advantage-on-flip",
       "script": "experiments/v3_exq_1028_sd082_learning_signal_extended_budget.py",
@@ -93,7 +74,11 @@
       "estimated_minutes": 330,
       "claim_id": "SD-082",
       "note": "GOV-FANOUT-1 portfolio for qid sd082_candidate_discriminating_readout_locus, routed by CONFIRMED failure_autopsy_V3-EXQ-1020_2026-09-11 (REE_assembly 92751187b1), ratified gov-20260911-1612, legs user-selected at the autopsy Step 8 gate; hypotheses already pre-registered (not re-registered); chip chip-20260911-sd082-fanout-portfolio-v2. Portfolio = V3-EXQ-1027 (H-replay-rule-state-mismatch, credit-assignment) + V3-EXQ-1028 (H-learning-signal-sign measurement + H-learning-signal-noisy process, one extended-P1 run because both legs' manipulation is the same budget extension) + V3-EXQ-1029 (H-selection-authority-bounded, intrinsic-architecture); run in parallel. New EXQ numbers, NOT a further lettered iteration of 822/1020 (refused by the autopsy). DIAGNOSTIC, directions pinned unknown. | Step 2.5b brake: SD-082 counts 3 (822b/c/d), released by failure_autopsy_V3-EXQ-822f_2026-09-09's own record; diagnostic discriminating WHY -> Not braked. | Step 2.5c: module footprint = V3-EXQ-1020's (call-trace disposition carried forward; SD-082 substrate_paths emptied by governance 2026-09-09); no open corrupting entry executed on this path. | Ethics all-false/allow. | interpretation.criteria_aggregation declared (1020 autopsy sec 5.2 forward-only fix). LEG 3: per seed one yoked group of 8 agents on private torch/numpy/random streams (AUTH_OFF intact/ablated, AUTH_ON intact/ablated, MAG x50 intact/ablated, 2 self-yokes), 60 warmup + 60 scored episodes; ablation = compute_bias with rule_state zeroed for that call; untrained (init) head -- scoped. DV = argmin(last_scores) divergence on co-fresh RAW-IDENTICAL ticks (E3 never commits here -- probe committed_fraction 0.0 -- so argmin is the top preference; sampled-action divergence recorded). Readiness per seed: self-yokes 0, head-level rule flip >= 0.01, authority active >= 0.5, >= 50 raw-identical co-fresh ticks, authority_only argmin divergence >= 0.02. PASS iff >= 3 ready seeds AND C1 ON pair >= 0.02 AND C2 OFF pair <= 0.005 (<= 1 divergent tick of ~280) on >= 3; C4 MAG pair suffixes the label (magnitude_alone_suffices / insufficient / test_underpowered vs authority scale factor). | DV-symmetry: argmin is invariant only under a uniform additive shift; the ablation changes the bias non-uniformly through the head ReLU (readiness R2 measures it) in OFF, ON and MAG pairs; authority rescales by spread, which a uniform shift leaves unchanged -- not invariant; self-yokes identity. | Step 2.4 GOV-REUSE-1: 1020 had no ablation arm and never set authority; 949 measured authority on MECH-314b, not this readout -> not recoverable, run. | Smoke: dry-run PASS (5 verdict lines); mid-scale probe seed 611 (warmup 20, score 15): self-yokes 0/649, OFF pair argmin 0/71, ON pair 19/71, MAG pair 0/71, authority_only 60/71, raw-identical 100% of co-fresh. Runtime estimate from probe: ~60 min/seed. | red-team (fable): CONTESTED -> 6 FIXED, 1 scope: F1 multinomial commits -> argmin DV; F2 authority co-rescales gated_policy + scale-free -> MAG pair + narrowed PASS text; F3 bias ~0.02 in tanh linear region (scope: raw magnitude, not the bound); F4 post-divergence echo -> raw-identical ticks; F5 single-event thresholds -> 60 scored eps, zero-tolerance stated; F6 authority reach -> R5; F7 over-reaching label text removed.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-2",
+        "claimed_at": "2026-09-14T13:53:23Z"
+      },
       "conditions": 1,
       "episodes_per_run": 120,
       "experiment_type": "v3_exq_1029_sd082_selection_authority_readout_consequence",
