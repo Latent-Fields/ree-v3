@@ -764,33 +764,30 @@ def _propose(
     stats = diagnostics["action_object_decoder_raw_output_stats"]
     itd = diagnostics.get("cem_iteration_diagnostics") or []
 
-    # ---- injection-free centroid, and why the substrate's own stats are not used --
-    # _inject_support_preserving_candidates runs AFTER the CEM (module.py:2356), on
-    # the pool that `all_trajectories` (:2325) already points at, and final_summary
-    # (:2494) -- the source of action_object_decoder_raw_output_stats (:2552) -- is
-    # computed from it. Its synthetic scaffolds are one one-hot step followed by
-    # exact zeros (:1223-1230), so each one drags a whole action dimension's mean by
-    # ~1/(candidates*horizon) = 1/64 = 0.0156 -- an order of magnitude ABOVE the
-    # centroid displacement this spike measures. It also fires conditionally on the
-    # pool's first-action class count (:1461), which the ORACLE arm changes by
-    # construction, so it can fire ASYMMETRICALLY between the two arms of a pair and
-    # manufacture the very displacement being read.
-    # The trajectories it splices in are tagged source="support_preserving_cem_injected"
-    # (:1489), so they are filtered here and the centroid recomputed exactly as
-    # _summarize_action_tensor does (:748-750: reshape to [-1, action_dim], mean and
-    # population std over dim 0).
-    injected_flags = [
-        bool((getattr(t, "metadata", None) or {}).get("source")
-             == "support_preserving_cem_injected")
-        for t in trajectories
-    ]
-    kept = [t for t, inj in zip(trajectories, injected_flags) if not inj]
-    n_injected = sum(injected_flags)
-    if kept:
-        acts = torch.stack([t.actions for t in kept])          # [cand, batch, H, a]
-        flat = acts.detach().reshape(-1, acts.shape[-1])
-        mean_by_dim = flat.mean(dim=0).tolist()
-        std_by_dim = flat.std(dim=0, unbiased=False).tolist()
+    # ---- injection-free centroid, now read from the substrate directly --
+    # _inject_support_preserving_candidates (and the action-class scaffold, when
+    # enabled) splice synthetic one-hot-then-zeros rows into the pool AFTER the CEM
+    # (module.py:2356), tagged source="support_preserving_cem_injected" /
+    # "action_class_scaffold". action_object_decoder_raw_output_stats is computed
+    # over that pool, and each synthetic row drags a whole action dimension's mean
+    # by ~1/(candidates*horizon) = 1/64 = 0.0156 -- an order of magnitude ABOVE the
+    # centroid displacement this spike measures. Injection also fires conditionally
+    # on the pool's first-action class count (:1461), which the ORACLE arm changes
+    # by construction, so it can fire ASYMMETRICALLY between the two arms of a pair
+    # and manufacture the very displacement being read.
+    # This driver was the worked reference for the fix that landed those filtered
+    # stats into the substrate itself (ree-v3 41f5be9;
+    # REE_assembly/evidence/planning/ao_decoder_injection_contamination_manifest_audit_20260907.md
+    # section 4) -- action_object_decoder_raw_output_stats_excluding_synthetic is
+    # computed by exactly the filter this function used to apply locally (same
+    # reshape-to-[-1,action_dim], mean/std(unbiased=False), module.py:830-859), and
+    # additionally covers the action-class scaffold tag this local filter never
+    # did. Read it directly instead of re-deriving it from `trajectories`.
+    stats_excl_synthetic = diagnostics["action_object_decoder_raw_output_stats_excluding_synthetic"]
+    n_excl_synthetic = int(diagnostics["candidate_samples_excluding_synthetic"])
+    if n_excl_synthetic > 0:
+        mean_by_dim = list(stats_excl_synthetic["mean_by_action_dim"])
+        std_by_dim = list(stats_excl_synthetic["std_by_action_dim"])
     else:
         mean_by_dim = list(stats["mean_by_action_dim"])
         std_by_dim = list(stats["std_by_action_dim"])
@@ -800,9 +797,17 @@ def _propose(
         "std_by_action_dim": std_by_dim,
         "mean_by_action_dim_substrate_incl_injected": list(stats["mean_by_action_dim"]),
         "std_by_action_dim_substrate_incl_injected": list(stats["std_by_action_dim"]),
-        "n_injected_candidates": int(n_injected),
-        "n_candidates_scored": len(kept),
+        "n_injected_candidates": int(diagnostics.get("support_preserving_injected_candidates", 0)),
+        "n_candidates_scored": n_excl_synthetic,
         "elite_fn_calls": len(fired),
+        # Persisted per REE_assembly/evidence/planning/
+        # ao_decoder_injection_contamination_manifest_audit_20260907.md section 5
+        # ("owed to future drivers in this lineage") -- so whether injection fired
+        # is a re-read of the manifest, not a re-run of the experiment.
+        "support_preserving_active": bool(diagnostics.get("support_preserving_active", False)),
+        "action_class_scaffold_candidates_added": int(
+            diagnostics.get("action_class_scaffold_candidates_added", 0)
+        ),
         "ao_std_by_iteration": [
             {"iteration": int(d.get("iteration", i)),
              "ao_std_min": float(d.get("ao_std_min", float("nan"))),
@@ -1001,6 +1006,23 @@ def _run_cell(
                 ctrl[m]["n_injected_candidates"] == orc[m]["n_injected_candidates"]
                 for m in MODES
             ),
+            # Whether support-preserving injection actually FIRED (not merely
+            # eligible) and whether the action-class scaffold added candidates --
+            # see ao_decoder_injection_contamination_manifest_audit_20260907.md
+            # section 3a: none of the five prior MECH-267 manifests recorded this,
+            # which turned their re-audit into a required re-run.
+            "support_preserving_active_ctrl": [
+                ctrl[m]["support_preserving_active"] for m in MODES
+            ],
+            "support_preserving_active_oracle": [
+                orc[m]["support_preserving_active"] for m in MODES
+            ],
+            "action_class_scaffold_candidates_added_ctrl": [
+                ctrl[m]["action_class_scaffold_candidates_added"] for m in MODES
+            ],
+            "action_class_scaffold_candidates_added_oracle": [
+                orc[m]["action_class_scaffold_candidates_added"] for m in MODES
+            ],
             "across_candidate_ao_std_before": acs_before,
             "across_candidate_ao_std_after": acs_after,
             "across_candidate_ao_std_ratio": (
