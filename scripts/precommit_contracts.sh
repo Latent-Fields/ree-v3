@@ -226,6 +226,45 @@ if [ -n "$STAGED_EXPERIMENT_PY" ] && ! echo "$STAGED" | grep -qE '^(ree_core/|ex
     fi
 fi
 
+# Block 1d: staged ree_core/utils/config.py -> flag-registry currency check
+# (chip-20260907-flag-registry-commit-time-gate).
+#
+# A new/renamed `use_*`/`*_enabled` config flag that is not categorized into
+# PROBED / KNOWN_INERT / KNOWN_UNPROBED / KNOWN_UNPROBED_NESTED leaves
+# tests/test_flag_inertness.py::test_flag_registry_is_current red on trunk
+# until some LATER, unrelated session stumbles on it and has to re-diagnose it
+# as pre-existing -- confirmed three times: GFLAG-0051/MECH-151 (ree-v3
+# 84e211a), SD-e1 ITEM 2 (ree-v3 6447b45), SD-105 (ree-v3 ba95c43, red for
+# three days before ree-v3 59936e9446 registered it).
+#
+# Block 2 below does NOT already cover this gap: it runs `pytest
+# tests/contracts` only, and test_flag_inertness.py lives directly under
+# tests/, not tests/contracts/ -- so a config.py change that also touches
+# ree_core/ still would not exercise this test via Block 2.
+#
+# Deliberately a SINGLE fast introspection test (a dataclass-field scan of
+# ree_core/utils/config.py; no agent/model construction) run LOCALLY, the same
+# treatment as Block 1c -- not routed through Block 2's OOM-avoidance
+# machinery, which exists for the ~13min full suite, not a sub-second check.
+# All config dataclasses (including every nested one the flag scan walks) are
+# defined directly in this one file, so gating on it alone is complete.
+#
+# See tests/contracts/test_precommit_contracts_flag_registry_scope.py.
+STAGED_FLAG_CONFIG=$(echo "$STAGED" | grep -E '^ree_core/utils/config\.py$' || true)
+if [ -n "$STAGED_FLAG_CONFIG" ]; then
+    echo "[precommit_contracts] staged ree_core/utils/config.py -- checking flag registry currency" >&2
+    if ! (cd "$REPO" && "$PY" -m pytest -q --tb=short tests/test_flag_inertness.py::test_flag_registry_is_current) >&2; then
+        echo "[precommit_contracts] flag registry is stale -- blocking commit" >&2
+        echo "[precommit_contracts] add a behavioural probe to PROBED, or record the new/renamed flag in KNOWN_UNPROBED / KNOWN_UNPROBED_NESTED with a reason (tests/test_flag_inertness.py)" >&2
+        echo "[precommit_contracts] or run with --no-verify to bypass" >&2
+        if [ "$NO_BLOCK" = "1" ]; then
+            :
+        else
+            exit 2
+        fi
+    fi
+fi
+
 # Block 2: ree_core/** OR experiments/_lib/** -> contracts test suite.
 #
 # experiments/_lib/ was added to this trigger 2026-07-19. It holds the SHARED
