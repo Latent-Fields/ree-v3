@@ -715,7 +715,10 @@ def _autopsy_counts_toward_brake(target: dict, claim: "str | None" = None) -> bo
          artifacts count exactly as before.
       1. A GENUINE substrate_ceiling reading always counts (a category that merely
          negates a ceiling in prose does not qualify).
-      2. Otherwise an INSTRUMENT/MEASUREMENT category that owes NO build does not count.
+      2. Otherwise an INSTRUMENT/MEASUREMENT category that owes NO build does not count
+         -- checked against the category string, and (since the category for such a
+         defect is now the enum-compliant "standard") against
+         recommended_epistemic_category_note when the category IS "standard".
       3. Otherwise an EXPLICIT producer release does not count -- but only in the
          unambiguous form `fired: false` AND `literal_count_meets_threshold: true`,
          i.e. the producer saw the count meet the threshold and still chose to release.
@@ -770,8 +773,26 @@ def _autopsy_counts_toward_brake(target: dict, claim: "str | None" = None) -> bo
     owes_build = _autopsy_owes_substrate_build(target)
 
     # (2) Instrument / measurement defect that owes no build -- instrument repair.
+    # Since the 2026-08-09 enum-compliance fix, an instrument/measurement/test-design
+    # defect that owes no build is correctly stamped category "standard" (the only
+    # enum-compliant value for "no category applies" -- the eight claims.yaml values
+    # no longer include a free-text failure-mode label), with the failure-mode itself
+    # recorded in recommended_epistemic_category_note, not in the category string. A
+    # cat_low-only check therefore stopped matching every such autopsy filed after
+    # 2026-08-09, and they wrongly fell through to (4) and counted toward the brake
+    # (GOV-HELDOUT-1 chip chip-20260914-gov-heldout1-rederivebrake-instrument-mismatch;
+    # user-confirmed consequence: MECH-220, MECH-027, INV-044 drop below
+    # RE_DERIVE_BRAKE_THRESHOLD). So also search the note, but only when the category
+    # is the enum-compliant "standard" -- a category that is itself something else
+    # (e.g. a pre-2026-08-09 grandfathered free-text label) still matches on cat_low
+    # alone, unchanged.
+    note_low = (
+        str(target.get("recommended_epistemic_category_note") or "").lower()
+        if cat_low == "standard"
+        else ""
+    )
     if not owes_build and any(
-        m in cat_low for m in RE_DERIVE_INSTRUMENT_CATEGORY_MARKERS
+        m in cat_low or m in note_low for m in RE_DERIVE_INSTRUMENT_CATEGORY_MARKERS
     ):
         return False
 

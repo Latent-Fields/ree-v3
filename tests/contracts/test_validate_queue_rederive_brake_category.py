@@ -265,6 +265,83 @@ def test_standard_category_with_non_contributory_still_counts(tmp_path, monkeypa
 
 
 # ==================================================================
+# (D2) GOV-HELDOUT-1 chip chip-20260914-gov-heldout1-rederivebrake-instrument-mismatch:
+# post-2026-08-09 enum compliance stamps an instrument/measurement/test-design defect
+# owing no build as category "standard" (the only enum-compliant "no category applies"
+# value), with the failure-mode label in recommended_epistemic_category_note -- so the
+# exclusion must also read the note when the category IS "standard", not the category
+# string alone. See failure_autopsy_V3-EXQ-063a_2026-09-14.json target 0 / ARC-029 for
+# the real autopsy that surfaced this (that artifact is still awaiting_human_confirmation
+# so is not itself in the live corpus count below).
+# ==================================================================
+def test_standard_category_with_instrument_note_does_not_count(tmp_path, monkeypatch):
+    """The enum-compliant post-2026-08-09 shape: category 'standard', failure mode
+    named in the note. Must be excluded exactly like a pre-2026-08-09 free-text
+    'measurement_test_design_defect' category was."""
+    t = {
+        "recommended_epistemic_category": "standard",
+        "recommended_epistemic_category_note": (
+            "Failure mode is measurement_test_design_defect (instrument gap). "
+            "No substrate build is owed -- this is instrument repair."
+        ),
+        "recommended_evidence_direction": "non_contributory",
+        "claim_ids": ["MECH-901"],
+    }
+    _, brake_warnings = _run(tmp_path, monkeypatch, [t, dict(t)], claim="MECH-901")
+    assert brake_warnings == [], (
+        "an enum-compliant 'standard' category with an instrument-defect note must "
+        f"not brake -- got: {brake_warnings}"
+    )
+    assert validate_queue._autopsy_counts_toward_brake(t) is False
+
+
+def test_standard_category_with_non_instrument_note_still_counts(tmp_path, monkeypatch):
+    """Regression guard on the other direction: a 'standard' category whose note does
+    NOT name an instrument/measurement/test-design defect must still count via the
+    direction fallback -- the note check must not over-exclude every 'standard' target."""
+    t = {
+        "recommended_epistemic_category": "standard",
+        "recommended_epistemic_category_note": (
+            "No epistemic suppression asserted; this is a claim-neutral observational "
+            "diagnostic, not a failure-mode finding of any kind."
+        ),
+        "recommended_evidence_direction": "non_contributory",
+        "claim_ids": ["MECH-902"],
+    }
+    _, brake_warnings = _run(tmp_path, monkeypatch, [t, dict(t)], claim="MECH-902")
+    assert len(brake_warnings) == 1
+    assert validate_queue._autopsy_counts_toward_brake(t) is True
+
+
+def test_standard_category_instrument_note_owing_build_still_counts(tmp_path, monkeypatch):
+    """The owes_build guard applies identically whether the marker is found in the
+    category string or the note: a build still owed keeps it counting."""
+    t = {
+        "recommended_epistemic_category": "standard",
+        "recommended_epistemic_category_note": "Failure mode is measurement_gap.",
+        "recommended_evidence_direction": "non_contributory",
+        "claim_ids": ["MECH-903"],
+        "recommended_substrate_queue_entry": {"action": "create", "target_sd_id": "SD-AAA"},
+    }
+    assert validate_queue._autopsy_counts_toward_brake(t) is True
+
+
+def test_non_standard_category_note_is_not_consulted():
+    """The note is read ONLY when the category is the enum-compliant 'standard' --
+    a non-'standard', non-instrument category must not be rescued or excluded by
+    note text (the note field is deliberately ignored outside the 'standard' case,
+    matching the categorystring-only behaviour this predicate has always had for
+    every other category value)."""
+    t = {
+        "recommended_epistemic_category": "competence_implementation_gap",
+        "recommended_epistemic_category_note": "Failure mode is measurement_gap.",
+        "recommended_evidence_direction": "non_contributory",
+        "claim_ids": ["MECH-904"],
+    }
+    assert validate_queue._autopsy_counts_toward_brake(t) is True
+
+
+# ==================================================================
 # (C) owes_build guard -- instrument category that still owes a build KEEPS counting
 # ==================================================================
 @pytest.mark.parametrize("action", ["create", "amend"])
@@ -445,3 +522,24 @@ def test_real_corpus_mech448_released_and_mech457_still_braked():
     assert n457 >= validate_queue.RE_DERIVE_BRAKE_THRESHOLD, (
         f"MECH-457 dropped to {n457} -- OVER-CORRECTION; it must keep braking"
     )
+
+
+@pytest.mark.skipif(
+    _real_planning_dir() is None, reason="REE_assembly planning dir not present"
+)
+def test_real_corpus_instrument_note_fix_releases_the_confirmed_3_claims():
+    """GOV-HELDOUT-1 chip chip-20260914-gov-heldout1-rederivebrake-instrument-mismatch:
+    corpus-measured, user-confirmed consequence of the note-check fix. MECH-220,
+    MECH-027 and INV-044 were wrongly braked (category-string-only check missed their
+    enum-compliant 'standard' + instrument-defect-note shape) and must now read below
+    threshold. This does not assert on any OTHER claim's count -- the fix's blast
+    radius was measured (16 targets / 19 claims) and put to the user by name before
+    landing; asserting the whole set here would re-couple this test to that one-time
+    corpus snapshot rather than the fix's mechanism."""
+    counted = validate_queue._scan_substrate_ceiling_autopsies()
+    for claim in ("MECH-220", "MECH-027", "INV-044"):
+        n = len(counted.get(claim, []))
+        assert n < validate_queue.RE_DERIVE_BRAKE_THRESHOLD, (
+            f"{claim} still braked at {n} -- the standard+note instrument exclusion "
+            "regressed"
+        )
