@@ -111,6 +111,21 @@ _SYNTHETIC_CANDIDATE_SOURCES = (
     _ACTION_CLASS_SCAFFOLD_SOURCE,
 )
 
+# MECH-057b: source tags exempt from completion-verification promotion
+# suppression (see HippocampalModule.promote_candidates). Support-preserving,
+# scaffold, chunk, and ghost candidates exist to guarantee STRUCTURAL
+# properties of the pool (action-class coverage, crystallised-skill
+# availability, goal-directed probing) that are orthogonal to -- and would be
+# undermined by -- filtering on visitation-based completion confidence: a
+# scaffold's whole purpose is to cover an under-explored action class, which
+# is exactly where visitation confidence reads lowest. Reuses the same
+# source-tag convention as _SYNTHETIC_CANDIDATE_SOURCES / _trajectory_source.
+_PROMOTION_EXEMPT_SOURCES = _SYNTHETIC_CANDIDATE_SOURCES + (
+    "arc071_chunk",
+    "mech321_decomposed",
+    "mech293_ghost_probe",
+)
+
 
 class HippocampalModule(nn.Module):
     """
@@ -2666,6 +2681,18 @@ class HippocampalModule(nn.Module):
             **scaffold_diag,
         })
 
+        # MECH-057b: hippocampal sequence-completion verification gating
+        # trajectory promotion. Applied LAST, over the truly final pool
+        # (post ghost-mixing, support-preserving injection, scaffold and
+        # chunk splicing) -- "eligible for E3 selection" is the CEM ->
+        # E3 seam, and this is the last point candidates pass through
+        # before leaving HippocampalModule. No-op (returns all_trajectories
+        # unchanged) when use_completion_promotion_gate is False (default).
+        all_trajectories, completion_promotion_diag = self.promote_candidates(
+            all_trajectories
+        )
+        self._last_propose_diagnostics.update(completion_promotion_diag)
+
         return all_trajectories
 
     # ------------------------------------------------------------------ #
@@ -3177,6 +3204,183 @@ class HippocampalModule(nn.Module):
         signal = float(torch.sigmoid(torch.tensor(-best_score * 0.5)).item())
         self._last_completion_signal = signal
         return signal
+
+    # ------------------------------------------------------------------ #
+    # MECH-057b: hippocampal sequence-completion verification gating      #
+    # trajectory promotion (2026-09-14)                                    #
+    # ------------------------------------------------------------------ #
+
+    def verify_sequence_completion(self, trajectory: Trajectory) -> float:
+        """MECH-057b: sequence-completion verification confidence for one
+        candidate trajectory.
+
+        Biological basis: CA3 autoassociative pattern completion (Lisman &
+        Grace 2005; Pfeiffer & Foster 2013) retrieves a complete pattern from
+        a partial cue only where that pattern has previously been ENCODED --
+        completion confidence is a function of how well-encoded the region
+        being traversed already is, not of the region's residue/valence
+        quality. This is therefore a genuinely distinct substrate channel
+        from CEM elite-selection scoring: it reads
+        HippocampalModule.visitation_counter (VisitationCounter,
+        ree_core/hippocampal/visitation.py) -- the UNCONDITIONAL per-region
+        visit-COUNT tracker, previously read-only telemetry never consulted
+        by any scoring or selection path -- rather than the ResidueField
+        terrain/valence _score_trajectory reads (ARC-007 STRICT; see that
+        method's docstring). This is the fix for the V3-EXQ-672-series
+        finding (failure_autopsy_V3-EXQ-672-series_2026-06-15, CONFIRMED):
+        the harness gate under test there ranked directly on
+        hippocampal._score_trajectory and inherited the ARC-065 GAP-A
+        candidate-pool collapse (cross-candidate spread ~0.009) instead of
+        measuring completion at all -- "the gate has the symbol of
+        completion-verification... but not the functional role."
+
+        For each z_world waypoint along the trajectory's rolled-out
+        world-state sequence (batch dimension averaged into a single count
+        per waypoint before the confidence curve, matching this module's
+        other per-trajectory scalar reductions), the per-region visit count
+        is read via visitation_counter.query() -- read-only: no write, no
+        advance of the counter, so calling this for CEM scoring purposes
+        does not itself inflate familiarity -- and mapped through a
+        saturating confidence curve:
+            confidence(z) = count(z) / (count(z) + completion_verification_tau)
+        count=0 (never visited) -> confidence 0.0 (no stored pattern to
+        complete against). count=tau -> confidence 0.5.
+
+        The trajectory's completion-verification score is the MINIMUM
+        per-waypoint confidence over the sequence: an autoassociative
+        completion of a temporal SEQUENCE is only as reliable as its
+        least-encoded waypoint, not its average -- matching "sequence" in
+        "sequence completion" rather than reducing to a single point read.
+
+        Returns 0.0 (unverifiable) when the trajectory carries no
+        world_states (pre-SD-005 z_self-only wiring -- no z_world sequence
+        to verify against visitation memory).
+        """
+        world_seq = trajectory.get_world_state_sequence()  # [batch, steps, world_dim]
+        if world_seq is None:
+            return 0.0
+        tau = float(getattr(self.config, "completion_verification_tau", 1.0))
+        batch = int(world_seq.shape[0])
+        steps = int(world_seq.shape[1])
+        if batch == 0 or steps == 0:
+            return 0.0
+        waypoint_confidences: List[float] = []
+        for t in range(steps):
+            counts = [
+                self.visitation_counter.query(world_seq[b, t])
+                for b in range(batch)
+            ]
+            mean_count = float(sum(counts) / len(counts))
+            waypoint_confidences.append(mean_count / (mean_count + tau))
+        return float(min(waypoint_confidences))
+
+    def promote_candidates(
+        self, trajectories: List[Trajectory]
+    ) -> Tuple[List[Trajectory], Dict[str, Any]]:
+        """MECH-057b: promotion policy gating hippocampal candidates before
+        E3 eligibility.
+
+        "Hippocampal sequence completion must be verified before candidates
+        are eligible for E3 selection" (MECH-057b claim text). Applies
+        verify_sequence_completion() to each candidate and withholds
+        (does not promote) those below completion_promotion_verification_
+        floor, subject to two guards:
+
+        - Deadlock guard: always promotes at least
+          completion_promotion_min_candidates (the highest-confidence
+          ones), counting the whole pool -- this is expected and common
+          early in an episode or in training, when the visitation memory is
+          still sparse (every region reads count=0, confidence=0.0).
+          MECH-057b's claim requires a promotion POLICY, not that the
+          substrate deadlock E3 on an empty memory.
+        - Exempt sources: candidates tagged with a _PROMOTION_EXEMPT_SOURCES
+          provenance (support-preserving / scaffold / chunk / ghost) are
+          NEVER dropped and never counted against drop_fraction -- they
+          exist to guarantee structural pool properties (e.g. action-class
+          coverage) that visitation-based filtering would directly
+          undermine (see _PROMOTION_EXEMPT_SOURCES).
+        - completion_promotion_drop_fraction additionally caps how much of
+          the pool may be suppressed in one tick, mirroring V3-EXQ-672b's
+          relative-bar shape but applied ON TOP OF the absolute
+          verification floor rather than in place of it (a floor-only gate
+          with no cap could in principle suppress the entire eligible
+          pool).
+
+        No-op (returns trajectories unchanged, diagnostics report the gate
+        as disabled) when config.use_completion_promotion_gate is False
+        (default) or when the pool already has <= min_candidates members.
+
+        Returns:
+            (promoted_trajectories, diagnostics) -- diagnostics carries the
+            per-tick confidence spread/mean and filtered_fraction, readable
+            the same way V3-EXQ-672b's harness read
+            mean_candidate_score_spread / mean_filtered_fraction.
+        """
+        diag: Dict[str, Any] = {
+            "use_completion_promotion_gate": bool(
+                getattr(self.config, "use_completion_promotion_gate", False)
+            ),
+            "completion_promotion_filtered_fraction": 0.0,
+            "completion_promotion_confidence_spread": 0.0,
+            "completion_promotion_mean_confidence": 0.0,
+            "completion_promotion_candidates_scored": 0,
+        }
+        if not diag["use_completion_promotion_gate"] or not trajectories:
+            return trajectories, diag
+
+        n = len(trajectories)
+        min_candidates = max(
+            1, int(getattr(self.config, "completion_promotion_min_candidates", 2))
+        )
+        if n <= min_candidates:
+            return trajectories, diag
+
+        protected_idx = {
+            i for i, traj in enumerate(trajectories)
+            if self._trajectory_source(traj) in _PROMOTION_EXEMPT_SOURCES
+        }
+        eligible_idx = [i for i in range(n) if i not in protected_idx]
+        if not eligible_idx:
+            return trajectories, diag
+
+        confidences = {
+            i: self.verify_sequence_completion(trajectories[i])
+            for i in eligible_idx
+        }
+        conf_values = list(confidences.values())
+        diag["completion_promotion_candidates_scored"] = int(len(eligible_idx))
+        diag["completion_promotion_confidence_spread"] = float(
+            max(conf_values) - min(conf_values)
+        )
+        diag["completion_promotion_mean_confidence"] = float(
+            sum(conf_values) / len(conf_values)
+        )
+
+        floor = float(
+            getattr(self.config, "completion_promotion_verification_floor", 0.3)
+        )
+        drop_fraction = float(
+            getattr(self.config, "completion_promotion_drop_fraction", 0.4)
+        )
+        # Deadlock guard applies to the WHOLE pool -- protected candidates
+        # already count toward min_candidates, so the eligible subset may
+        # be drained down to (min_candidates - len(protected)) rather than
+        # to zero.
+        max_drop = max(0, n - min_candidates)
+        below_floor = sorted(
+            (i for i in eligible_idx if confidences[i] < floor),
+            key=lambda i: confidences[i],
+        )
+        n_drop = min(len(below_floor), max_drop, int(round(n * drop_fraction)))
+        if n_drop <= 0:
+            return trajectories, diag
+
+        drop_set = set(below_floor[:n_drop])
+        promoted = [
+            traj for i, traj in enumerate(trajectories) if i not in drop_set
+        ]
+        diag["completion_promotion_filtered_fraction"] = float(len(drop_set) / n)
+        return promoted, diag
 
     def compute_representational_density(
         self, z_world: torch.Tensor, bandwidth: Optional[float] = None

@@ -8235,6 +8235,13 @@ class REEConfig:
         use_offline_wanting_spread: bool = False,
         offline_wanting_spread_gamma: float = 0.9,
         offline_wanting_spread_gain: float = 0.1,
+        # MECH-057b: hippocampal sequence-completion verification gating
+        # trajectory promotion. No-op default; bit-identical OFF.
+        use_completion_promotion_gate: bool = False,
+        completion_verification_tau: float = 1.0,
+        completion_promotion_verification_floor: float = 0.3,
+        completion_promotion_drop_fraction: float = 0.4,
+        completion_promotion_min_candidates: int = 2,
         # Sleep-aggregation cluster GAP-3 unified master flag (resolves the
         # eight Phase A-E sub-flags True via enable_sleep_aggregation_cluster()
         # at the end of from_dims). Default False: bit-identical pre-GAP-3.
@@ -9813,6 +9820,20 @@ class REEConfig:
         config.hippocampal.use_offline_wanting_spread = use_offline_wanting_spread
         config.hippocampal.offline_wanting_spread_gamma = offline_wanting_spread_gamma
         config.hippocampal.offline_wanting_spread_gain = offline_wanting_spread_gain
+
+        # MECH-057b: hippocampal sequence-completion verification gating
+        # trajectory promotion
+        config.hippocampal.use_completion_promotion_gate = use_completion_promotion_gate
+        config.hippocampal.completion_verification_tau = completion_verification_tau
+        config.hippocampal.completion_promotion_verification_floor = (
+            completion_promotion_verification_floor
+        )
+        config.hippocampal.completion_promotion_drop_fraction = (
+            completion_promotion_drop_fraction
+        )
+        config.hippocampal.completion_promotion_min_candidates = (
+            completion_promotion_min_candidates
+        )
 
         # Sleep-aggregation cluster Phase A
         config.use_sleep_loop = use_sleep_loop

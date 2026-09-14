@@ -453,6 +453,7 @@ When started with `--remote-control`, the runner emits a per-machine heartbeat e
 - **MECH-027** — 2 records, ~2,443 tok total.
     - [precision-scaled commit temperature -- graded consumer for current_precision (2026-09-02)](docs/substrate/MECH-027-precision-scaled-commit-temperature.md) *(~1,159 tok)*
     - [Build 2: force_sleep_cycle_at_eval_boundary -- sleep-cycle interleave reachable inside an eval window (2026-09-02)](docs/substrate/MECH-027-build-2-force-sleep-cycle-at-eval.md) *(~1,283 tok)*
+- **[MECH-057b](docs/substrate/MECH-057b-hippocampal-completion-verification.md)** — agentic_extension.thought_loop_trajectory_promotion_gate: hippocampal sequence-completion verification gating trajectory promotion -- IMPLEMENTED (2026-09-14) *(~920 tok)*
 - **MECH-090** — 4 records, ~5,077 tok total.
     - [Layer 1 + MECH-091 Layer 2: Trajectory Stepping + Urgency Interrupt (2026-04-15)](docs/substrate/MECH-090-layer-1-mech-091-layer-2-trajectory.md) *(~610 tok)*
     - [Commit-Entry Predicate: R-c single-gate readiness conjunction (2026-05-28)](docs/substrate/MECH-090-commit-entry-predicate-r-c-single-gate.md) *(~1,483 tok)*

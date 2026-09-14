@@ -26,9 +26,25 @@ association within a fixed `bandwidth`, FIFO overwrite of a fixed-size anchor se
 when no anchor is close enough) because that shape is already tuned to the z_world
 scale (see HippocampalConfig.familiarity_bandwidth's V3-EXQ-786a sweep note), but
 records an exact per-anchor visit COUNT rather than an EMA, and is instantiated
-UNCONDITIONALLY -- no flag gates it. It carries no scoring role: query()/update()
-are read/write-only for telemetry and are never consulted by CEM trajectory scoring
-or action selection.
+UNCONDITIONALLY -- no flag gates it.
+
+UPDATE (2026-09-14, MECH-057b): query() gained a second, lawful consumer --
+HippocampalModule.verify_sequence_completion() reads it (read-only, same as the
+telemetry callers below) to score a candidate trajectory's sequence-completion
+confidence for the MECH-057b promotion gate, gated behind
+HippocampalConfig.use_completion_promotion_gate (default False -> the gate never
+calls query(), so this module's behaviour and every other caller stay unaffected).
+This is a deliberate, one-time exception to the invariant below, not a reopening
+of it -- update() (the write side) is still NEVER called from a scoring or
+selection path, and query() itself remains read-only. Do not add further scoring
+consumers without updating this note; a review sweep should treat a THIRD
+consumer as a signal the file's role has changed and needs re-describing, not
+silently extend the list here.
+
+Prior to that, and still true for every OTHER caller: it carries no scoring role
+-- query()/update() are read/write-only for telemetry and are never consulted by
+CEM trajectory scoring (HippocampalModule._score_trajectory, ARC-007 STRICT) or
+action selection (E3.select).
 """
 
 from __future__ import annotations
