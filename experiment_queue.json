@@ -25,21 +25,6 @@
       "episodes_per_run": 132,
       "experiment_type": "v3_exq_861i_inv050_mech091_commit_attribution_pinned_confirmation",
       "seeds": 1
-    },
-    {
-      "queue_id": "V3-EXQ-1026",
-      "title": "MECH-423 R3 sleep-INTEGRATED E2 (world-forward) consolidation validation (diagnostic)",
-      "script": "experiments/v3_exq_1026_mech423_sleep_integrated_e2_consolidation.py",
-      "priority": 5,
-      "machine_affinity": "any",
-      "estimated_minutes": 5,
-      "claim_id": "MECH-423",
-      "note": "Diagnostic substrate-readiness validation, not new MECH-423 evidence (that is V3-EXQ-680e, which validated the R3 consolidator via a DIRECT consolidate() call). This run exercises the SEPARATE sleep-INTEGRATED call site (SleepLoopManager.force_cycle -> phase_manager._run_cycle, ~lines 669-693) that had never been exercised in any landed manifest, and asserts a MEASURED nonzero E2 (world-forward) weight delta through a real sleep cycle, with an OFF-arm negative control (consolidator=None) asserting the SAME quantity is bit-identical. Closes the substrate gap blocking INV-063 leg B (across-sleep world-forward prediction-error improvement), which is structurally 0.0 until this hook is shown to fire. Step 2.4 existing-evidence check: grepped evidence/experiments/*.json for cross_module_consolidation_ 2026-09-08 -- the only hit used the direct-call driver (680e-family), no sleep-cycle-driven reading recorded; not recoverable, run. red-team (opus): CONTESTED, both findings fixed pre-queue (e2_loss_nonzero precondition + sleep_cycle_fired assertion added; see script docstring and interpretation.preconditions[]). Re-derive brake WARN (validate_queue.py): MECH-423 has 2 counted substrate_ceiling/non_contributory runs (680c/680d, both superseded by 680e PASS). EXEMPT: this is a diagnostic testing a DIFFERENT mechanism (the sleep-integration wiring/call-site) at a different granularity than 680c/680d's co-training/super-additivity question; it does not re-derive that ceiling.",
-      "status": "pending",
-      "conditions": 2,
-      "episodes_per_run": 3,
-      "experiment_type": "v3_exq_1026_mech423_sleep_integrated_e2_consolidation",
-      "seeds": 3
     }
   ]
 }
