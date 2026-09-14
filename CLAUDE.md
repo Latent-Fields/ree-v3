@@ -253,16 +253,16 @@ or goal types:
   and no separate implementation is needed.
 
 ## Experiment Queue Rules
-- Every queue entry **must** have `estimated_minutes` set (never omit it).
+- Every queue entry needs `estimated_minutes`; the runner's auto-calibration refines it.
 - Estimate from: total episodes × steps_per_episode, calibrated against known runtimes:
-  - **Mac (`DLAPTOP-4.local`)** — CPU, CausalGridWorldV2, typical REE agent:
+  - **Mac (`DLAPTOP`)** — CPU, CausalGridWorldV2, typical REE agent:
     - ~0.10 min/ep at 200 steps/ep
     - ~0.15 min/ep at 300 steps/ep
   - **Daniel-PC** — CPU preferred (GPU 3x slower at current model scale, batch=1):
     - ~0.50 min/ep at 200 steps/ep  (~5x slower than Mac)
     - ~0.72 min/ep at 300 steps/ep
     - Calibrated from onboarding smoke runs 2026-03-22: 7.0 steps/sec CPU, 2.1 steps/sec GPU
-    - GPU NEVER wins at current model scale (world_dim=32): EXQ-070 tested batch 1-512,
+    - GPU never wins at current model scale (world_dim=32): EXQ-070 tested batch 1-512,
       CPU always faster (200k vs 133k samples/s at batch=512). RTX 2060 Super overhead
       dominates for tiny networks. GPU becomes useful ONLY when world_dim >= 128 or
       networks are substantially deeper. Design experiments with larger networks to
@@ -272,19 +272,11 @@ or goal types:
     - ~0.35 min/ep at 300 steps/ep
     - Calibrated from onboarding smoke 2026-04-09: 14.2 steps/sec CPU, 1571.9 env steps/sec
     - Suitable for env-heavy and standard experiments. Not for GPU-dependent runs.
-  - **ree-cloud-2** — Hetzner CX22, CPU-only (second, nominally identical to cloud-1):
-    - Throughput pending -- onboarding smoke V3-ONBOARD-smoke-ree-cloud-2 queued.
-    - Estimate as for cloud-1 until its smoke calibrates. Shared-vCPU neighbour noise
-      may produce small per-instance divergence; check the smoke result before tight
-      runtime estimates.
-  - **EWIN-PC** — AMD Ryzen 7 8700F + RTX 5070 12GB (Eoin Golden's machine):
-    - Throughput not yet benchmarked (original smoke errored 2026-04-06, -b pending)
-    - Use `"EWIN-PC"` affinity string. GPU likely fast at larger world_dim.
+  - **ree-cloud-2 / EWIN-PC** — uncalibrated: estimate as cloud-1 until a smoke lands.
   - Add ~20% overhead for scripts with stratified replay buffers or event classification
 - Set `machine_affinity` to match compute profile: `"DLAPTOP"` (macbook, online stepping), `"Daniel-PC"` (replay/batch heavy or long overnight runs), `"ree-cloud-1"` / `"ree-cloud-2"` (CPU-only Hetzner CX22, standard/env-heavy), `"EWIN-PC"` (GPU-capable, Eoin's machine), `"any"` (indifferent -- any cloud worker that's already awake will typically claim first)
   - **IMPORTANT:** The runner matches affinity through `machine_identity.same_machine()` (see `machine_identity.py`'s module docstring), NOT raw `socket.gethostname()` equality — this closed a real bug where macOS LocalHostName suffix drift (`DLAPTOP-4.local` <-> `DLAPTOP-5.local`) silently split the Mac's identity in two. `"DLAPTOP"` is the canonical affinity string to use in new queue entries; `"DLAPTOP-4.local"`/`"DLAPTOP-5.local"` still match (they alias forward to `DLAPTOP`), but do NOT use `"macbook"` or any other unlisted string — only names in `validate_queue.py`'s `VALID_AFFINITIES` resolve to a real machine.
 - Always queue experiments immediately after writing the script.
-- Always include `estimated_minutes` — the runner's auto-calibration refines it over time.
 
 ## Experiment IDs and Versioning
 
@@ -293,7 +285,7 @@ V3 experiments: V3-EXQ-001 onward.
 **Labeling rule (see also REE_Working/CLAUDE.md "EXQ Versioning and Supersession Policy"):**
 - Bug fix / minor implementation tweak to same hypothesis: append next letter (EXQ-047a, 047b, ... 047j).
 - New hypothesis / major redesign: new number (EXQ-048).
-- NEVER re-use an ID that was previously run. The runner silently skips any queue_id already in `runner_status.json` completed list.
+- Never re-use an ID that was previously run (see "Troubleshooting Runner" below for the mechanism).
 
 **Supersession:** when a lettered iteration corrects a bug that invalidated the predecessor's evidence, add `"supersedes": "V3-EXQ-047i"` to the new queue entry. After the run completes, set `evidence_direction: "superseded"` on the old manifest and rebuild the index (governance pipeline). This prevents buggy experiments from continuing to weight claim confidence scores.
 
