@@ -183,22 +183,37 @@ from experiments.pack_writer import write_flat_manifest  # noqa: E402
 EXPERIMENT_TYPE = "v3_exq_834_arc071_mech323_budget_coupled_ceilings"
 EXPERIMENT_PURPOSE = "diagnostic"
 
-E3_HOLD_WEIGHTED_READOUT_EXEMPT = (
-    "The one per-step accumulation from select_action's return value is the "
-    "action_stream list, whose SOLE consumer is a SHA-1 EXACT-EQUALITY test across "
-    "arms at a fixed seed (C5). Hold weighting is not a contaminant there -- it is "
-    "the object of comparison: C5 asks whether the executed ENV-STEP sequence is "
-    "identical across arms, so the held repeats must be present in the compared "
-    "object, and an equality test on a hash is maximally threshold-invariant (the "
-    "SAFE class the lint itself names). It is not a margin against a floor and not a "
-    "distribution-shape statistic. Every DV that DOES bear on this experiment's "
-    "verdict -- the ceiling readouts, the growth counts, the gain-evaluability "
-    "counters -- is read once per note_outcome at an EPISODE boundary, never per env "
-    "step, so no hold duration can weight it. The lint's own suggested counters are "
-    "emitted anyway: n_fresh_select (= chunk_acc_n_steps, which record_step "
-    "increments only on the E3 deliberation path) and n_latched, so the fresh-vs-held "
-    "denominator is auditable from the manifest rather than inferred."
-)
+# The E3 hold-weighted-readout blanket opt-out marker that used to sit here was REMOVED
+# 2026-09-14 (chip-20260910-merge-e3eb inert-marker audit): confirmed INERT, not
+# load-bearing -- removing it changed neither E3 lint's verdict (both still return None
+# on this file). NOTE FOR ANY FUTURE EDIT: do not reintroduce the literal marker-constant
+# spelling anywhere in this file, even in a comment -- both E3 lints do a blanket
+# substring match on raw source (see validate_experiments.py's e3_exemption_backlog_lint
+# docstring), so naming the constant re-arms the exemption for real regardless of intent.
+#
+# Not discharged via any of the lints' sanctioned exemption predicates (no shared
+# fresh-select helper, no latch clear/guard/None-assign, no "e3_tick" constant, no direct
+# agent.e3.select() call) -- this file never had the driver-loop shape the lints' static
+# taint-tracker recognises in the first place. action_stream.append(...) below reads
+# `r.action` where `r` is a `for r in results:` LOOP TARGET over `results =
+# harness.run_episode(...)` (experiments._harness.StepHarness); the taint tracker's fixed
+# point only propagates through single-Name Assign/AnnAssign statements and a handful of
+# pure-wrapper calls (its own documented Rule 1/2) -- never through a for-loop target or
+# through an opaque helper call like run_episode() that wraps action selection internally
+# rather than calling it directly in this driver. So no variable here is ever recognised
+# as derived from the gated source, and the accumulation-shape scan finds nothing to flag,
+# independent of whether the marker is present.
+#
+# Original triage prose, kept for the record since the safety argument is still correct
+# even though the lint cannot see the pattern it argues about: the one per-step
+# accumulation from the agent's action-selection return value is the action_stream list,
+# whose sole consumer is a SHA-1 exact-equality test across arms at a fixed seed (C5).
+# Hold weighting is not a contaminant there -- it is the object of comparison: C5 asks
+# whether the executed env-step sequence is identical across arms, so the held repeats
+# must be present in the compared object, and an equality test on a hash is maximally
+# threshold-invariant. No DV bearing on this experiment's verdict (ceiling readouts,
+# growth counts, gain-evaluability counters) is read more than once per episode boundary.
+# n_fresh_select / n_latched are still emitted for auditability regardless.
 
 # ARC-071 owns the depth ceiling (ree-v3 7c201f7), MECH-323 the size ceiling
 # (ree-v3 c74434f). MECH-324 maintenance runs but is held CONSTANT across every arm

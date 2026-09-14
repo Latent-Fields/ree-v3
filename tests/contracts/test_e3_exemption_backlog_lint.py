@@ -33,6 +33,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[2]  # ree-v3/
 sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "experiments"))
@@ -176,18 +178,41 @@ def test_e3eb_699b_and_689i_are_clean():
 
 
 # ---- corpus fire-rate pin --------------------------------------------------------------
-# Pinned 2026-08-10 against the v3_exq_*.py corpus at the counter's own introduction.
-# This is a BACKLOG SIZE, not a target of zero -- the ten scripts below carry a marker
-# for reasons unrelated to the fresh_select migration (each still has a genuine driver
-# shape the corresponding E3 lint would otherwise flag). A NEW script that adds either
-# marker without discharging the pattern properly will move this count; fix the script
-# (or migrate it) rather than re-pinning, unless the change is a deliberate migration --
-# in which case re-pin down and say so in the commit message.
-_PINNED_CORPUS_FIRE_COUNT = 10
+# Pinned 2026-08-10 against the v3_exq_*.py corpus at the counter's own introduction (10),
+# RE-PINNED 2026-09-14 to 9 (chip-20260910-merge-e3eb inert-marker audit): one of the ten
+# original carriers, v3_exq_834_arc071_mech323_budget_coupled_ceilings.py, was confirmed
+# INERT -- its marker discharged via none of the lint's sanctioned exemption predicates;
+# the file never had the driver-loop shape the lint's static taint-tracker recognises in
+# the first place (see that file's own comment at the removed marker's former site for the
+# mechanism). The other nine carriers were probed the same way (AST-remove the marker
+# assignment, re-run both E3 lints on the variant) and confirmed LOAD-BEARING: each still
+# fires without its marker. This is a BACKLOG SIZE, not a target of zero -- the nine
+# scripts below carry a marker for reasons unrelated to the fresh_select migration (each
+# still has a genuine driver shape the corresponding E3 lint would otherwise flag). A NEW
+# script that adds either marker without discharging the pattern properly will move this
+# count; fix the script (or migrate it) rather than re-pinning, unless the change is a
+# deliberate migration -- in which case re-pin down and say so in the commit message.
+_PINNED_CORPUS_FIRE_COUNT = 9
 
 
 def test_e3eb_corpus_fire_rate_is_pinned(corpus_scan):
+    """Consumes the SHARED corpus walk (`tests/contracts/conftest.py`).
+
+    COMMITTED-ONLY (2026-09-14, chip-20260910-merge-e3eb): `corpus_scan` itself still
+    walks the WORKING TREE (conftest.py's own `scan_corpus()` -- deliberately unchanged
+    here, per the sibling fix's own rationale in test_config_slice_declaration_lint.py::
+    test_config_slice_corpus_fire_rate_is_pinned: it feeds ~20 other pinned corpus tests
+    across as many files, and re-scoping its walk is a change with a much larger blast
+    radius than this one pin needs). This test filters its OWN read of that shared result
+    down to `V.committed_driver_names()` instead, so another session's uncommitted draft
+    driver in this shared checkout cannot move THIS pin, without touching what any other
+    corpus test sees. Falls back to the unfiltered result, unchanged from before, when git
+    is unavailable.
+    """
     fired = corpus_scan["e3_exemption_backlog_lint"]
+    tracked = V.committed_driver_names()
+    if tracked is not None:
+        fired = [p for p in fired if p.name in tracked]
     assert len(fired) == _PINNED_CORPUS_FIRE_COUNT, (
         f"e3-exemption-backlog fire count moved: {len(fired)} vs pinned "
         f"{_PINNED_CORPUS_FIRE_COUNT}. If a NEW script is in this list because it added an "
@@ -195,3 +220,37 @@ def test_e3eb_corpus_fire_rate_is_pinned(corpus_scan):
         f"rather than re-pinning. If you deliberately migrated an EXISTING carrier off its "
         f"marker, re-pin down and say so in the commit message. "
         f"Fired: {[p.name for p in fired]}")
+
+
+def test_e3eb_corpus_pin_ignores_an_untracked_specimen():
+    """Regression for the filter the pin test above applies (`p.name in
+    V.committed_driver_names()`): an untracked driver dropped into
+    `experiments/` -- another session's in-progress draft, from this test's
+    point of view -- is excluded by it. Same shape as
+    test_config_slice_declaration_lint.py::
+    test_config_slice_corpus_pin_ignores_an_untracked_specimen.
+
+    Deliberately does NOT try to reconstruct a specimen that fires
+    `e3_exemption_backlog_lint` itself -- a specimen built to trigger it would test the
+    LINT, not the FILTER. What the pin test above actually depends on is that the filter
+    excludes an untracked name from whatever `corpus_scan` already found -- which is
+    exactly what this proves directly, without needing corpus_scan at all (it is
+    session-scoped and already computed; a file dropped in now would never be walked by
+    it either way).
+    """
+    if V.committed_driver_names() is None:
+        pytest.skip("no .git in this tree -- filter has nothing to prove here "
+                    "(see V.committed_driver_names()'s docstring)")
+    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False,
+                                     dir=str(EXPERIMENTS_DIR)) as f:
+        f.write("# untracked specimen for the e3eb corpus-pin filter regression\n")
+        specimen = Path(f.name)
+    try:
+        tracked = V.committed_driver_names()
+        assert specimen.name not in tracked, (
+            "specimen leaked into git's index -- fix the test, not the filter")
+        fabricated_fired = [specimen]
+        filtered = [p for p in fabricated_fired if p.name in tracked]
+        assert specimen not in filtered
+    finally:
+        specimen.unlink()
