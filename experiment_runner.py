@@ -4108,6 +4108,35 @@ def _read_sentinel(signal_dir: Path | None, queue_id: str) -> dict | None:
         return None
 
 
+def _heartbeat_state(pause_flag: list | None, drain_flag: list | None,
+                      default: str) -> str:
+    """Precedence for the remote-control heartbeat `state` field: paused beats
+    draining beats `default`. `pause_flag`/`drain_flag` are the SAME mutable
+    flag lists main() holds (_pause_flag / _drain_flag) -- non-empty means the
+    flag is set; None (not threaded through) is treated the same as empty.
+
+    ONE helper for BOTH heartbeat call sites (the mid-run heartbeat inside
+    run_experiment()'s `_push_remote_heartbeat`, and the between-pass tick in
+    main()) so they cannot drift apart again -- see chip-20260909-
+    runner-midrun-heartbeat-drain-state: before this helper existed, the
+    mid-run site hardcoded `state` to the literal "running" unconditionally, so a runner
+    draining or pausing mid-experiment (SIGTERM sets _drain_flag; the
+    remote-control `pause` command sets _pause_flag) kept reporting "running"
+    to the coordinator for the entire remainder of that run -- the coordinator
+    DB, `/shadow/status`, and the explorer `/machines` dashboard only saw the
+    real state once the process had already exited.
+
+    `default` differs by call site on purpose: the mid-run site passes
+    "running" (an experiment IS executing whenever neither flag is set here),
+    the between-pass site passes "idle" (nothing is executing between runs).
+    """
+    if pause_flag:
+        return "paused"
+    if drain_flag:
+        return "draining"
+    return default
+
+
 def run_experiment(item: dict, status: dict, status_path: Path, calibration: dict,
                    script_timing: dict | None = None,
                    proc_ref: list | None = None,
@@ -4378,7 +4407,15 @@ def run_experiment(item: dict, status: dict, status_path: Path, calibration: dic
                 return
             try:
                 hb_path = _rrc.write_heartbeat(
-                    ree_assembly_path, machine, state="running",
+                    ree_assembly_path, machine,
+                    # Computed, not literal -- see _heartbeat_state()'s
+                    # docstring before "simplifying" this back to a literal;
+                    # this call site's `state` means "this runner PROCESS'S
+                    # drain/pause/running status", not the coordinator's own
+                    # separate machine-shutdown "draining" verdict
+                    # (coordinator/db.py) -- do not conflate the two.
+                    state=_heartbeat_state(pause_flag, drain_flag,
+                                            default="running"),
                     current_exq=item["queue_id"],
                     current_exq_started_utc=started_at_utc,
                     current_title=item.get("title", ""),
@@ -4965,8 +5002,10 @@ def main():
     def _finalize_stopped_heartbeat() -> None:
         """Push a final heartbeat clearing current_exq before the runner exits.
 
-        During a run the heartbeat thread POSTs state="running" + current_exq=X
-        to the coordinator every tick. /shutdown_notify stamps last_shutdown_at
+        During a run the heartbeat thread POSTs state=<_heartbeat_state(...)>
+        (normally "running", or "paused"/"draining" once a mid-run pause/drain
+        is in flight -- see _heartbeat_state()) + current_exq=X to the
+        coordinator every tick. /shutdown_notify stamps last_shutdown_at
         but does NOT clear current_exq, so the /machines dashboard (which reads
         current_exq straight from the heartbeats row) keeps showing the last
         experiment as running after the runner stops. This pushes one final
@@ -5849,9 +5888,7 @@ def main():
             ]
             head_id = queue_pending[0]["queue_id"] if queue_pending else None
             recent = status.get("completed", [])[-5:]
-            hb_state = "paused" if _pause_flag else (
-                "draining" if _drain_flag else "idle"
-            )
+            hb_state = _heartbeat_state(_pause_flag, _drain_flag, default="idle")
             hb_path = _rrc.write_heartbeat(
                 ree_assembly_path, machine, state=hb_state,
                 queue_depth=len(queue_pending),
