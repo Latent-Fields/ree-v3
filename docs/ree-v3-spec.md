@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-09-13 (T09:07Z nightly)
+**Last updated:** 2026-09-14 (T03:37Z nightly)
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -237,6 +237,66 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 
 ### Experiment Status
 
+- **2026-09-14T03:37Z nightly attestation (scheduled `/update-docs`, bot
+  identity).** ~18.5h window since the 2026-09-13T09:07Z snapshot -- a
+  near-zero-delta band, brief attestation only. Flat `v3_exq_*` manifests
+  on disk: **1006** (unchanged vs 1006 at 2026-09-13T09:07Z); nested
+  per-run manifests under `evidence/experiments/*/runs/`: **2946**
+  (unchanged vs 2946). **Currently queued (`experiment_queue.json`
+  items[]): 0 items** (unchanged; no successor to V3-EXQ-1023 queued
+  yet). **Pending review (`pending_review.md`, regenerated
+  2026-09-11T16:59:22Z): 0 items** -- unchanged; the file still has not
+  been regenerated since the V3-EXQ-1023 FAIL landed 2026-09-12T04:53Z,
+  so the diagnostic self-route is still not surfaced there and will
+  appear at the next `generate_pending_review.py` run rather than in
+  this snapshot. Coordinator-DB 30-day rolling (per
+  `experiment_error_rate.py` against the hub, span
+  2026-08-15T00:58:54Z .. 2026-09-12T04:53:20Z): **55 PASS / 52 FAIL /
+  2 ERROR, ERROR rate 1.83% (2 / 109 classified runs)** -- down from
+  64/55/2/1.7% at 2026-09-13T09:07Z as the rolling window shifted
+  (older PASS/FAIL aged out); no new outcomes recorded in this
+  ~18.5h band. (a) **NO new substrate landings in the window** --
+  SD-106 (2026-09-11) remains the most recent; no substrate landings,
+  no ratified amends, no substrate_queue additions between
+  2026-09-13T09:07Z and this snapshot. (b) **NO new completions in the
+  window.** V3-EXQ-1023 is still the last completion on the coordinator
+  DB (2026-09-12T04:53Z FAIL, `sd106_below_pca32_parity`); no successor
+  has been queued and no other run has completed. The routing owed to
+  `/failure-autopsy` (shape-(b) side-channel routing past z_world,
+  and/or a `preservation_weight` sweep beyond 200.0) remains unlanded.
+  (c) **NO new `/governance` walks, no `/failure-autopsy` sessions, no
+  `/claim-synthesis` cycles, no thought-intake mints, no lit-pulls in
+  the window.** Automation activity only: the hourly `igw-ledger:
+  update` ticker landed 12 no-content commits between
+  2026-09-13T16:49Z and 2026-09-14T04:05Z, and one `igw-workset: regen`
+  landed at 2026-09-14T02:01Z reporting **250 items / 29 ready / 0 in
+  flight** (unchanged from the 2026-09-13T09:07Z read of the same
+  file). (d) **NO coordination-plane / infra work landed in the
+  window** -- no commits to `ree_commit.py`, `task_claim.py`,
+  `chip_ledger.py`, coordinator hub, `sync_daemon`, or fleet wrappers
+  between the two snapshots. This attestation is itself the only
+  content change: `docs/ree-v3-spec.md` §0 date bump + Experiment
+  Status entry, and the `docs/roadmap.md` snapshot. **Bottleneck:
+  unchanged from 2026-09-13T09:07Z -- convergence root remains the
+  H-observation-interface axis and the direct SD-106 substrate lever
+  has FAILED its own acceptance validation under
+  `preservation_weight=200.0` + world-encoder skip.** V3-EXQ-1023 is
+  IMPLEMENTED-and-partially-validated: the substrate primitive is
+  available but its 200.0-weight-at-P0 recipe is not yet a validated
+  parity path, and no successor has been designed or queued in this
+  window. Next scientific move (still owed to `/failure-autopsy`):
+  (i) shape-(b) side-channel routing past z_world into E1/E2/E3
+  consumers, (ii) a `preservation_weight` sweep beyond 200.0 with the
+  acceptance criterion re-derived from what SD-070's collapse floor
+  admits, or (iii) both as a portfolio. Green-board target 2026-07-19
+  is now **57 days overdue**. **ETHICS-PERIMETER Phase 0 datum**
+  stays on the record (Phases 1-3 deferred; NON-BLOCKING).
+  Public-information-architecture impact: reviewed against
+  `docs/design/public_information_architecture.md` -- no `/api/*`
+  surface, generated visualization, or public export changed;
+  nightly snapshot + spec date bump only (no SD table rows added,
+  moved, or restatused; same category as the 2026-09-12
+  attestation).
 - **2026-09-13T09:07Z nightly attestation (scheduled `/update-docs`, bot
   identity).** ~32h window since the 2026-09-12T01:15Z snapshot. Flat
   `v3_exq_*` manifests on disk: **1006** (+1 vs 1005); nested per-run
