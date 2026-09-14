@@ -46,26 +46,6 @@
       "seeds": 30
     },
     {
-      "queue_id": "V3-EXQ-1012a",
-      "title": "E3 channel-commensurability rung-3 SELECTION-LEVEL readiness re-pose (commit-flip rate under shadow OFF/ON scoring) -- MECH-439",
-      "script": "experiments/v3_exq_1012a_e3_commensurability_selection_level_regime_validation.py",
-      "priority": 8,
-      "machine_affinity": "any",
-      "estimated_minutes": 170,
-      "supersedes": "V3-EXQ-1012",
-      "claim_id": "MECH-439",
-      "note": "SELECTION-LEVEL re-pose of V3-EXQ-1012's acceptance instrument (parked, never queued: experiments/_scratch/v3_exq_1012_..._.py.blocked). V3-EXQ-1012's target ('>=2 E3 score channels above a 1e-3 relative cross-candidate share') was proven an arithmetic identity of the operator (Step 4.5 red-team fable BLOCKING, 2026-09-08; see evidence/planning/exq1012_blocked_readiness_target_tautological_20260908.md). Governance re-posed the target (GFLAG-0234, /governance option A, user-approved 2026-09-10, REE_assembly 5dc661badc, all 4 carrier docs already amended) onto a SELECTION-level DV: commit-flip rate under shadow OFF/ON scoring on the same tick and candidate set. Full build spec: evidence/planning/mech439_rung3_selection_level_repose_20260914.md. DESIGN: 2 arms (C_fed_operator_on, C_starved_operator_on), operator ALWAYS ON in both -- no separate OFF arm; the OFF/ON comparison is done INTRA-TICK by transparently capturing each genuine tick's score_trajectory calls and replaying them with the toggle flipped (class _ScoreCallCapture), plus a same-config self-check that must reproduce the live scores exactly. DV characterises the PRIMARY-score stage only (not a final-commit-level replay through the modulatory shortlist stage -- deliberate build-time scoping decision, design doc section 6a; a final-commit-level successor needs a small e3_selector.py refactor, not built here). | Step 2.4 GOV-REUSE-1: banked V3-EXQ-571c manifest and the 1012 smoke record only per-cell aggregates (shares, variances), never per-tick per-candidate raw scores a shadow OFF/ON comparison needs -> not recoverable, run. | Step 2.5b brake: MECH-439 carries >=2 counted substrate_ceiling autopsies but this is a diagnostic on the MEASUREMENT axis (does the operator have a selection-consequential effect), same determination the parked 1012 driver made for this substrate -> Not braked. | Substrate: SD-E3-CHANNEL-COMMENSURABILITY rung 3 IMPLEMENTED (ree-v3 c47b885, 2026-09-07); live-probed this session (use_e3_channel_commensurability toggle reaches agent.e3.config; EMA state confirmed unmutated by a bare score_trajectory replay). | Ethics: all-false/allow. | Smoke: dry-run PASS both cells, self_check_failures=0, z_goal_stream no writer defect, validate_experiments.py --strict OK. | red-team (fable): CONTESTED -> 4 findings, all fixed before queueing: (1) the non-forced-ness check (regimes_differ) was computed but never routed -- now a both-regimes-pass reading with regimes_differ False routes to a distinct flagged FAIL label instead of the clean both-regimes PASS; (2) the SD-scaled PASS bar conflated 'no effect' with 'heterogeneous effect' across the 4 seeds -- added a majority-of-seeds-clear-the-absolute-floor test (PASS iff EITHER test clears), and split the flip_rate_lift criterion's measured/threshold per regime instead of a cross-arm max/min pair; (3) the shadow-replay capture snapshotted _chan_scale_ema but not _chan_scale_n, which ALSO gates the commensurability-scale warmup no-op -- fixed to snapshot/restore both together (not schedule-reachable at full scale since the warmup crossing lands in unscored P0, but now correct rather than schedule-lucky); (4) added a shadow_scores_measurably_different precondition closing a residual gap where the tick-count-based operator_engaged gate could in principle read green while shadow and live scores stayed bit-identical, and loosened SELF_CHECK_TOLERANCE from an effectively bit-identity absolute check to a relative+floor one. Re-smoked clean after every fix. | MECH-439's direction does not move on this record.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-09-14T20:11:24Z"
-      },
-      "conditions": 2,
-      "episodes_per_run": 100,
-      "experiment_type": "v3_exq_1012a_e3_commensurability_selection_level_regime_validation",
-      "seeds": 4
-    },
-    {
       "queue_id": "V3-EXQ-1028",
       "title": "SD-082 fan-out legs 2+4 (H-learning-signal-sign / H-learning-signal-noisy): 1020 instrument at P1=500 with windowed persistence and episode-level init-head advantage-on-flip",
       "script": "experiments/v3_exq_1028_sd082_learning_signal_extended_budget.py",
