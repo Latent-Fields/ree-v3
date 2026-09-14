@@ -789,6 +789,30 @@ class REEAgent(nn.Module):
                 )
             )
 
+        # ARC-131/MECH-481: endogenous coalition-recruitment driver (SD-091
+        # step-7 prerequisite -- see select_action's "endogenous coalition
+        # trigger" comment for the full mechanism). Precompute + validate the
+        # target ControlDemandType once here (fail fast on a bad config
+        # string at construction, not deep in a tick); None whenever the
+        # driver is off, so the per-tick check in select_action is a single
+        # cheap `is not None`. Independent of use_coalition_controller in the
+        # config schema (matches the rest of this section's "declare the
+        # flag, gate the effect at the call site" convention) but has no
+        # effect unless self.coalition is also not None.
+        self._endogenous_coalition_demand_type: Optional[ControlDemandType] = None
+        if getattr(config, "use_endogenous_coalition_trigger", False):
+            self._endogenous_coalition_demand_type = ControlDemandType(
+                getattr(
+                    config, "endogenous_coalition_demand_type", "sensory_resample"
+                )
+            )
+        # Lifetime-until-reset diagnostic: how many times the driver actually
+        # requested a coalition (i.e. was not debounced by an already-active
+        # coalition of the same demand_type). This is the endogenous-vs-
+        # manual contrast ARC-131/EVB-1242 needs to measure -- 0 whenever the
+        # driver is off.
+        self._endogenous_coalition_request_count: int = 0
+
         # SD-032c: AIC-analog interoceptive-salience / urgency module.
         # Emits aic_salience -> salience coordinator and harm_s_gain ->
         # descending z_harm_s attenuation path (subsumes SD-021 raw beta_gate
@@ -3499,6 +3523,11 @@ class REEAgent(nn.Module):
         # SD-091/MECH-481: reset coalition controller on episode boundary.
         if self.coalition is not None:
             self.coalition.reset()
+        # ARC-131/MECH-481: per-episode endogenous-recruitment diagnostic
+        # counter (mirrors the BetaGate/CommitReadiness convention of
+        # clearing tick-level diagnostics per episode -- cross-episode
+        # accumulation would conflate distinct trials' recruitment rates).
+        self._endogenous_coalition_request_count = 0
 
         # SD-032c: reset AIC-analog interoceptive baseline.
         if self.aic is not None:
@@ -7662,6 +7691,70 @@ class REEAgent(nn.Module):
                 e3_gate = self.salience.write_gate("e3_policy")
                 dacc_score_bias = dacc_score_bias * float(e3_gate)
                 self._dacc_last_bias = dacc_score_bias.detach().clone()
+
+        # ARC-131/MECH-481: endogenous coalition-recruitment trigger. SD-091's
+        # own module docstring names the data flow as "upstream confidence/
+        # coherence signal (currently: test-harness / future MECH-481-battery
+        # driver) -> request_coalition(demand_type, tick)" -- this is that
+        # driver. Reads the E3 candidate-score margin (sorted[1] - sorted[0]
+        # over result.scores, REE lower-is-better -> argmin winner; the same
+        # Hanes & Schall 1996 decisiveness formula MECH-090's
+        # should_admit_elevation() readiness gate already computes) and
+        # requests a coalition when it is small (near-tied top candidates --
+        # the dACC-conflict-monitoring-style reading that upstream control
+        # should be recruited; Botvinick 2001 / Shenhav 2013 EVC, the same
+        # literature this module's neighbours already cite).
+        #
+        # MUST read self._last_e3_selection_result (the PREVIOUS tick's E3
+        # result), not this tick's -- self.e3.select() for THIS tick has not
+        # run yet at this point in select_action (it runs later, inside
+        # _e3_tick()/below), and the whole point of firing before
+        # coalition.tick() is that the 8 named consumer-site gates (E1/E2/
+        # hippocampal/BetaGate) must already reflect the new coalition when
+        # THIS tick's selection runs. A one-tick lag is the same shape as the
+        # conflict-adaptation (Gratton effect) literature: last trial's
+        # conflict recruits control for the next one.
+        #
+        # No-op (bit-identical) whenever: the driver is off
+        # (self._endogenous_coalition_demand_type is None, i.e.
+        # use_endogenous_coalition_trigger=False, the default); self.coalition
+        # is None; there is no prior-tick result yet (episode's first tick,
+        # or the prior tick's E3 selection was degenerate); or the margin
+        # does not clear the threshold. Also debounced -- skipped while a
+        # coalition of the target demand_type is already active -- because
+        # request_coalition() has no built-in dedup and
+        # CoalitionController.write_gate() composes multiplicatively across
+        # every active CoalitionState, so firing on every ambiguous tick
+        # would stack same-typed states and runaway-decay the gate toward 0
+        # rather than hold it at the template's steady-state value.
+        if (
+            self.coalition is not None
+            and self._endogenous_coalition_demand_type is not None
+            and self._last_e3_selection_result is not None
+        ):
+            try:
+                _ect_scores = self._last_e3_selection_result.scores.detach()
+                _ect_n_candidates = int(_ect_scores.numel())
+            except (AttributeError, RuntimeError, TypeError):
+                _ect_n_candidates = 0
+            if _ect_n_candidates >= 2:
+                _ect_sorted, _ = torch.sort(_ect_scores)
+                _ect_margin = float(_ect_sorted[1].item() - _ect_sorted[0].item())
+                _ect_threshold = float(
+                    getattr(
+                        self.config, "endogenous_coalition_margin_threshold", 0.05
+                    )
+                )
+                _ect_already_active = any(
+                    state.demand_type == self._endogenous_coalition_demand_type
+                    for state in self.coalition.active_coalitions
+                )
+                if _ect_margin < _ect_threshold and not _ect_already_active:
+                    self.coalition.request_coalition(
+                        self._endogenous_coalition_demand_type,
+                        int(self._step_count),
+                    )
+                    self._endogenous_coalition_request_count += 1
 
         # SD-091/MECH-481: advance the coalition controller's clock and
         # dissolve any coalition past its Gamma_t completion_condition /

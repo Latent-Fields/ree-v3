@@ -1,4 +1,4 @@
-## SD-091 / MECH-481: Coalition/Topology Control Substrate -- steps 1-6 of 7 IMPLEMENTED (2026-08-03)
+## SD-091 / MECH-481: Coalition/Topology Control Substrate -- steps 1-6 of 7 IMPLEMENTED (2026-08-03); ARC-131 endogenous-recruitment driver IMPLEMENTED (2026-09-14)
 - SD-091: control_plane.coalition_topology_control -- steps 1-3 (module) landed 2026-08-02
   (chip `chip-20260802-sd091-implement-mvp`); steps 4-5 (consumer-site wiring +
   `REEAgent.select_action` integration) and step 6 (live-tick smoke test) landed 2026-08-03
@@ -87,3 +87,79 @@
   See SD-091, MECH-481, `REE_assembly/docs/architecture/sd_091_coalition_topology_control.md`,
   ARC-005, MECH-004, MECH-261 (`ree_core/cingulate/salience_coordinator.py`, the pattern this
   wires alongside).
+
+- **ARC-131 endogenous-recruitment driver (2026-09-14, chip
+  `chip-20260902-arc131-coalition-endogenous-recruitment-driver`).** Everything above wires
+  the CONSUMER side of `request_coalition()`; nothing decided WHEN to call it -- the data-flow
+  line above still named the caller as "test-harness / future MECH-481-battery driver". That
+  left ARC-131 ("installability is a competence dissociable from isolated component-level
+  validation") with no endogenous-vs-manual contrast to measure via its own cited coalition-
+  control example (`REE_assembly/evidence/planning/experiment_proposals.v1.json` backlog_id
+  EVB-1242, status `blocked_substrate`; `REE_assembly/docs/thoughts/2026-08-24_causal_reach_
+  installability_and_when_a_mechanism_becomes_part_of_the_organism.md` lines 234-238). This
+  pass adds that caller: a minimal, default-off driver that reads an EXISTING signal (no new
+  computation) and calls `request_coalition()` itself.
+  Signal chosen: the E3 candidate-score margin (`sorted(result.scores)[1] - sorted(...)[0]`,
+  REE lower-is-better -> argmin winner) -- the same Hanes & Schall 1996 decisiveness formula
+  MECH-090's `should_admit_elevation()` readiness gate already computes from `result.scores`
+  (see the `e3_commitment_monitor`/`motor_commitment` consumer-site note above), so this reuses
+  an established in-codebase reading of "E3 selector ambiguity" rather than inventing a second
+  one. Considered and rejected: `BetaGate.is_elevated` (boolean, no graded threshold to sweep);
+  `SalienceCoordinator`'s own state (a mode-classification output, not a confidence/coherence
+  scalar itself -- the closest candidate, dACC `choice_difficulty` feeding its `dacc_difficulty`
+  input signal, is read one layer upstream instead, see below).
+  Because `self.coalition.tick()` and the 8 named consumer sites must already reflect a
+  newly-requested coalition's gates by the time THIS tick's `self.e3.select()` runs, and
+  `select()` itself is what produces the margin, the driver cannot use this tick's own margin
+  (chicken-and-egg) -- it reads `self._last_e3_selection_result.scores` (the PREVIOUS tick's
+  result, already cached on `self` for diagnostics since before this pass) and requests a
+  coalition for the CURRENT tick when last tick's margin was below threshold. One-tick-lagged
+  conflict -> control recruitment is the same shape as the conflict-adaptation / Gratton-effect
+  literature this module's neighbours already cite (Botvinick 2001, Shenhav 2013 EVC).
+  Config (3-site `REEConfig`/`from_dims()` pattern, independent of `use_coalition_controller`
+  in the schema but inert unless it is also `True`): `use_endogenous_coalition_trigger`
+  (default `False`, bit-identical off), `endogenous_coalition_demand_type` (default
+  `"sensory_resample"`, same enum-value-string convention as `coalition_types_enabled`),
+  `endogenous_coalition_margin_threshold` (default `0.05`, matching the established
+  `commit_readiness_floor` reference magnitude for this exact quantity).
+  `REEAgent.__init__`: precomputes + validates `self._endogenous_coalition_demand_type`
+  (`Optional[ControlDemandType]`, `None` when the driver is off) once, so the flag check at the
+  call site is a single cheap `is not None`; also inits
+  `self._endogenous_coalition_request_count` (per-episode diagnostic -- how many times the
+  driver actually fired, the endogenous-vs-manual readout ARC-131/EVB-1242 needs).
+  `REEAgent.reset()`: clears the per-episode request counter (mirrors the BetaGate/
+  CommitReadiness convention for tick-level diagnostics).
+  `REEAgent.select_action`: the trigger block sits immediately BEFORE the existing
+  `self.coalition.tick(...)` call (same site named in the data-flow line above). No-op whenever
+  the driver is off, `self.coalition` is `None`, there is no prior-tick result yet (episode's
+  first tick), or the margin does not clear the threshold. Debounced -- skipped while a
+  coalition of the target `demand_type` is already active -- because `request_coalition()` has
+  no built-in dedup and `write_gate()` composes MULTIPLICATIVELY across every active
+  `CoalitionState`; firing on every ambiguous tick without this guard would stack same-typed
+  states and runaway-decay the gate toward 0 instead of holding it at the template's
+  steady-state value (a correctness bug, not a tuning nicety -- caught in this pass's own
+  smoke test before it reached a contract).
+  Backward compatible: `use_endogenous_coalition_trigger=False` (default) ->
+  `self._endogenous_coalition_demand_type is None` -> the trigger block's outer guard is never
+  entered -> byte-for-byte identical to pre-2026-09-14, including when `use_coalition_controller`
+  is independently `True` (confirmed via the same live 8/10-tick `act_with_split_obs`
+  action-sequence-comparison method as W2, not just by inspecting the guard).
+  Contracts: `tests/contracts/test_sd091_coalition_controller_wiring.py` W9-W13 (appended this
+  pass) -- default-OFF never requests (W9); bit-identical to `use_coalition_controller=False`
+  under the new flag's own default (W10); fires within a few ticks under an unreachably high
+  margin threshold once a prior-tick result exists (W11); debounces against stacking multiple
+  same-typed coalitions while the trigger condition holds every eligible tick (W12); an
+  unreachable (negative) threshold never fires, since a sorted-score margin is never negative
+  (W13).
+  What this unblocks, not what it closes: this is a **prerequisite** for step 7, not step 7
+  itself. `V3-EXQ-886` (`experiments/v3_exq_886_mech481_coalition_4arm_falsifier.py`) is still
+  deliberately left unqueued for the reason its own header states -- the naive
+  `CausalGridWorldV2` harness gives the performance-recovery DV no clean signal because the
+  untrained agent has no online-adapting goal-directed competence for a coalition to protect
+  (see that script's `STATUS` block; a harness/falsifier redesign, not another lettered
+  iteration, is still owed before `/queue-experiment` step 7 itself). What this pass DOES
+  unblock: re-scoping `EVB-1242` from `blocked_substrate` now that an endogenous vs. manual
+  `request_coalition()` contrast actually exists to measure -- the manual arm calls
+  `coalition.request_coalition(...)` directly (as the existing W3-W8 contracts already do); the
+  endogenous arm sets `use_endogenous_coalition_trigger=True` and lets the agent recruit on its
+  own.

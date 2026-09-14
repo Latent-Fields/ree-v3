@@ -3043,6 +3043,59 @@ class HippocampalConfig:
     offline_wanting_spread_gamma: float = 0.9  # per-waypoint decay (MECH-217 spec)
     offline_wanting_spread_gain: float = 0.1   # stability guard on the write magnitude
 
+    # ------------------------------------------------------------------ #
+    # MECH-057b: hippocampal sequence-completion verification gating      #
+    # trajectory promotion (2026-09-14).                                  #
+    # ------------------------------------------------------------------ #
+    # Biological basis: CA3 autoassociative pattern completion (Lisman &
+    # Grace 2005; Pfeiffer & Foster 2013) -- a stored sequence is only
+    # "completed" with confidence where it has previously been encoded.
+    # HippocampalModule.verify_sequence_completion() reads the UNCONDITIONAL
+    # per-region VisitationCounter (visitation.py) along a candidate's
+    # rolled-out z_world sequence -- a channel deliberately DISTINCT from
+    # _score_trajectory's ARC-007 STRICT terrain/residue cost (used for CEM
+    # elite selection): completion confidence is about how well-ENCODED a
+    # region is, not how desirable its residue valence is. This is the fix
+    # for the V3-EXQ-672-series finding (failure_autopsy_V3-EXQ-672-series_
+    # 2026-06-15, CONFIRMED): the 672b harness gate ranked candidates on
+    # hippocampal._score_trajectory directly -- "the symbol of completion-
+    # verification... but not the functional role" -- which is why it
+    # inherited the ARC-065 GAP-A monostrategy candidate-pool collapse
+    # (cross-candidate spread ~0.009) instead of measuring completion at
+    # all. promote_candidates() applies the verification signal as a
+    # promotion POLICY at the tail of propose_trajectories(), gating which
+    # CEM candidates are eligible for E3 selection (MECH-057b's claim
+    # text), with a deadlock guard (always promote at least
+    # completion_promotion_min_candidates) since visitation memory starts
+    # empty (every region reads count=0, confidence=0.0) early in an
+    # episode or in training.
+    # use_completion_promotion_gate=False is the MASTER no-op: promote_
+    # candidates() returns its input trajectories unchanged, verify_
+    # sequence_completion() is never called from propose_trajectories(),
+    # and behaviour is bit-identical to every landed run.
+    use_completion_promotion_gate: bool = False
+    # Saturating half-life for the count -> confidence curve:
+    #   confidence(z) = count(z) / (count(z) + completion_verification_tau)
+    # count=0 -> confidence 0.0 regardless of tau (never-visited region has
+    # no stored pattern to complete). count=tau -> confidence 0.5.
+    completion_verification_tau: float = 1.0
+    # Absolute verification floor: a candidate is "verified" (eligible)
+    # when its sequence-completion confidence is >= this value. Below-floor
+    # candidates are withheld from E3, subject to the deadlock guard and
+    # drop_fraction cap below.
+    completion_promotion_verification_floor: float = 0.3
+    # Cap on how much of the pool the gate may suppress in one tick (same
+    # role as V3-EXQ-672b's DROP_FRACTION, now a first-class substrate
+    # parameter): at most this fraction of candidates is withheld, even if
+    # more fall below the verification floor.
+    completion_promotion_drop_fraction: float = 0.4
+    # Deadlock guard: promote_candidates() never reduces the pool below
+    # this many candidates (the highest-confidence ones survive), so E3
+    # always receives a usable candidate set even when the visitation
+    # memory is sparse (e.g. early training) and every candidate reads
+    # below the verification floor.
+    completion_promotion_min_candidates: int = 2
+
 
 @dataclass
 class ResidueConfig:
@@ -3848,6 +3901,35 @@ class REEConfig:
     # e3_candidate_count widening under SENSORY_RESAMPLE) at instantiation
     # time. 1.0 = template magnitudes unchanged.
     coalition_channel_gain_scale: float = 1.0
+    # ARC-131/MECH-481 step-7-prerequisite: endogenous coalition-recruitment
+    # driver. SD-091's own docstring names the data flow as "upstream
+    # confidence/coherence signal (currently: test-harness / future
+    # MECH-481-battery driver) -> request_coalition()" -- steps 1-6 wired
+    # everything downstream of request_coalition() but nothing yet decided
+    # WHEN to call it from the live agent loop, so ARC-131's installability
+    # claim had no endogenous-vs-manual contrast to measure (EVB-1242).
+    # Master switch -- when True (and use_coalition_controller is also
+    # True), REEAgent.select_action calls coalition.request_coalition()
+    # itself, off the PREVIOUS tick's E3 candidate-score margin (see
+    # REEAgent's endogenous-coalition-trigger comment for why it must be
+    # last-tick's margin, not this tick's). False = disabled (default,
+    # backward compatible) -> the driver never runs -> bit-identical to
+    # pre-ARC-131 behaviour.
+    use_endogenous_coalition_trigger: bool = False
+    # Which single ControlDemandType the driver requests when it fires.
+    # Same enum-value-string convention as coalition_types_enabled. Only
+    # takes effect if this value is also present in coalition_types_enabled
+    # -- request_coalition() safely no-ops (diagnostic counter, no crash)
+    # otherwise, per its own "unregistered type" contract.
+    endogenous_coalition_demand_type: str = "sensory_resample"
+    # E3 candidate-score margin (sorted[1] - sorted[0], REE lower-is-better
+    # -> winner = argmin; the SAME Hanes & Schall 1996 decisiveness formula
+    # MECH-090's should_admit_elevation() readiness gate already uses)
+    # BELOW which the previous tick counts as "ambiguous" and the driver
+    # requests a coalition. Matches the established 0.05 reference
+    # magnitude used elsewhere for this exact quantity (HeartbeatConfig.
+    # commit_readiness_floor).
+    endogenous_coalition_margin_threshold: float = 0.05
 
     # SD-032c: AIC-analog interoceptive-salience / urgency module.
     # Master switch -- when True, REEAgent instantiates an AICAnalog that
@@ -7308,6 +7390,10 @@ class REEConfig:
         coalition_types_enabled: tuple = ("sensory_resample", "provenance_check"),
         coalition_max_duration_ticks: int = 50,
         coalition_channel_gain_scale: float = 1.0,
+        # ARC-131/MECH-481: endogenous coalition-recruitment driver (no-op default).
+        use_endogenous_coalition_trigger: bool = False,
+        endogenous_coalition_demand_type: str = "sensory_resample",
+        endogenous_coalition_margin_threshold: float = 0.05,
         # SD-032c: AIC-analog interoceptive-salience / urgency
         use_aic_analog: bool = False,
         aic_baseline_alpha: float = 0.02,
@@ -8715,6 +8801,9 @@ class REEConfig:
         config.coalition_types_enabled = coalition_types_enabled
         config.coalition_max_duration_ticks = coalition_max_duration_ticks
         config.coalition_channel_gain_scale = coalition_channel_gain_scale
+        config.use_endogenous_coalition_trigger = use_endogenous_coalition_trigger
+        config.endogenous_coalition_demand_type = endogenous_coalition_demand_type
+        config.endogenous_coalition_margin_threshold = endogenous_coalition_margin_threshold
 
         # SD-032c: AIC-analog interoceptive-salience / urgency
         config.use_aic_analog = use_aic_analog

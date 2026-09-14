@@ -32,6 +32,31 @@ select_action and the named E1/E2/hippocampal/BetaGate consumer sites.
   W8  agent.coalition.tick() is called each act_with_split_obs() step (a
       coalition opened with max_duration_ticks=1 has dissolved by the next
       tick's read).
+
+ARC-131/MECH-481 endogenous-recruitment driver (chip-20260902-arc131-
+coalition-endogenous-recruitment-driver): step 7's prerequisite -- SD-091's
+own docstring named request_coalition()'s caller as "test-harness / future
+MECH-481-battery driver"; this is that driver, gated behind its own
+use_endogenous_coalition_trigger flag (default False, independent of
+use_coalition_controller).
+
+  W9  default-OFF: use_endogenous_coalition_trigger=False (the default)
+      leaves agent._endogenous_coalition_demand_type None and the driver
+      never calls request_coalition(), even across many ticks with
+      use_coalition_controller=True.
+  W10 bit-identical: W9's config produces IDENTICAL actions to
+      use_coalition_controller=False, per-step (restates W2 for the new
+      flag's own default).
+  W11 fires: with a very high margin threshold (guaranteed to exceed any
+      real E3 candidate-score margin) the driver requests a coalition of
+      the configured demand_type within a few ticks once a prior-tick E3
+      result exists.
+  W12 debounced: the driver does not stack multiple coalitions of the same
+      demand_type while one is already active -- request_count stays well
+      below the tick count even though the trigger condition holds on
+      every eligible tick.
+  W13 threshold gate: an unreachably low (negative) margin threshold never
+      fires (margin, a sorted-score difference, is never negative).
 """
 
 from __future__ import annotations
@@ -249,3 +274,106 @@ def test_w8_coalition_tick_dissolves_on_schedule():
             dissolved = True
             break
     assert dissolved, "coalition never dissolved within 30 raw steps (~3 E3 ticks)"
+
+
+# ----------------------------------------------------------------------
+# ARC-131/MECH-481 endogenous-recruitment driver: W9-W13.
+# ----------------------------------------------------------------------
+def _build_endo(
+    use_endo: bool,
+    margin_threshold: float = 0.05,
+    demand_type: str = "sensory_resample",
+    seed: int = 7,
+):
+    from ree_core.environment.causal_grid_world import CausalGridWorldV2
+
+    torch.manual_seed(seed)
+    env = CausalGridWorldV2(
+        seed=seed, size=5, num_hazards=1, num_resources=1, use_proxy_fields=True
+    )
+    cfg = REEConfig.from_dims(
+        body_obs_dim=env.body_obs_dim,
+        world_obs_dim=env.world_obs_dim,
+        action_dim=4,
+        self_dim=16,
+        world_dim=16,
+        use_coalition_controller=True,
+        use_endogenous_coalition_trigger=use_endo,
+        endogenous_coalition_margin_threshold=margin_threshold,
+        endogenous_coalition_demand_type=demand_type,
+    )
+    torch.manual_seed(123)
+    agent = REEAgent(cfg)
+    agent.reset()
+    _flat, od = env.reset()
+    b = od["body_state"]
+    w = od["world_state"]
+    if b.dim() == 1:
+        b = b.unsqueeze(0)
+    if w.dim() == 1:
+        w = w.unsqueeze(0)
+    return agent, b, w
+
+
+def test_w9_endogenous_trigger_default_off_never_requests():
+    agent, b, w = _build_endo(use_endo=False)
+    assert agent._endogenous_coalition_demand_type is None
+    for _ in range(15):
+        with torch.no_grad():
+            agent.act_with_split_obs(b, w)
+    assert agent._endogenous_coalition_request_count == 0
+    assert agent.coalition.active_coalitions == []
+
+
+def test_w10_endogenous_trigger_default_off_bit_identical():
+    agent_plain, b1, w1 = _build(use_coalition=False)
+    agent_endo_off, b2, w2 = _build_endo(use_endo=False)
+    for i in range(10):
+        torch.manual_seed(2000 + i)
+        with torch.no_grad():
+            a1 = agent_plain.act_with_split_obs(b1, w1)
+        torch.manual_seed(2000 + i)
+        with torch.no_grad():
+            a2 = agent_endo_off.act_with_split_obs(b2, w2)
+        assert torch.equal(a1, a2), f"action mismatch at step {i}"
+
+
+def test_w11_endogenous_trigger_fires_on_high_threshold():
+    # A margin threshold this large exceeds any real E3 candidate-score
+    # margin, so the driver fires as soon as a prior-tick E3 result exists
+    # (the episode's first tick never fires -- no prior result yet).
+    agent, b, w = _build_endo(use_endo=True, margin_threshold=1e6)
+    assert agent._endogenous_coalition_demand_type == ControlDemandType.SENSORY_RESAMPLE
+    fired = False
+    for _ in range(15):
+        with torch.no_grad():
+            agent.act_with_split_obs(b, w)
+        if agent._endogenous_coalition_request_count > 0:
+            fired = True
+            break
+    assert fired, "endogenous trigger never fired with an unreachably high threshold"
+    assert len(agent.coalition.active_coalitions) == 1
+
+
+def test_w12_endogenous_trigger_debounces_against_stacking():
+    agent, b, w = _build_endo(use_endo=True, margin_threshold=1e6)
+    n_ticks = 15
+    for _ in range(n_ticks):
+        with torch.no_grad():
+            agent.act_with_split_obs(b, w)
+    # The trigger condition (margin < 1e6) holds on essentially every
+    # eligible tick, but the "already active" debounce must keep the
+    # request count far below the tick count and active_coalitions at 1.
+    assert agent._endogenous_coalition_request_count < n_ticks
+    assert len(agent.coalition.active_coalitions) <= 1
+
+
+def test_w13_endogenous_trigger_never_fires_below_unreachable_threshold():
+    # margin = sorted[1] - sorted[0] over real scores is never negative, so
+    # a negative threshold can never be cleared.
+    agent, b, w = _build_endo(use_endo=True, margin_threshold=-1.0)
+    for _ in range(15):
+        with torch.no_grad():
+            agent.act_with_split_obs(b, w)
+    assert agent._endogenous_coalition_request_count == 0
+    assert agent.coalition.active_coalitions == []
