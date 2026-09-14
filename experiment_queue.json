@@ -25,25 +25,6 @@
       "episodes_per_run": 340,
       "experiment_type": "v3_exq_935a_mech266_margin_normalised_cap_rule",
       "seeds": 5
-    },
-    {
-      "queue_id": "V3-EXQ-861i",
-      "title": "INV-050 bisect confirmation: does ree_core 6293b23 (MECH-091 phase_reset triggers) carry the whole 861e seed-271 MEL collapse under the FULL protocol? 4 pinned cells f810969/5f64a53f/6293b23/17befb8c",
-      "script": "experiments/v3_exq_861i_inv050_mech091_commit_attribution_pinned_confirmation.py",
-      "priority": 7,
-      "machine_affinity": "any",
-      "estimated_minutes": 240,
-      "claim_id": "INV-050",
-      "note": "DIAGNOSTIC (non-voting; INV-050/MECH-180 directions pinned unknown). Closes the last gap in the INV-050 ree_core bisect (REE_assembly evidence/planning/inv050_reecore_bisect_20260911.md, origin/master 8e1216d2c3; chip chip-20260911-inv050-pinned-861e-confirmation-cell): the wake-only desk bisect localised the 861e seed-271 MEL divergence to 6293b23 (MECH-091 phase_reset triggers); this runs 861e's FULL decisive-cell protocol (seed 271, ARM_3_HIGH_ON, CALIB_DRAWS=10, argmin, no reseed; cell code sliced verbatim from 861g) on four pinned ree_core commits, one subprocess per pin: f810969 (anchor pre), 5f64a53f (=6293b23^), 6293b23, 17befb8c (anchor post). Anchors are in-run controls because substrate_pin pins ree_core only and the live harness has moved. Each pin verified three ways (structural, marker chain MultiArchive/phase_reset-line-count/authority_spread_ratio, full ree_core blob digest vs git ls-tree), all fatal. PASS iff P1 D(pre,post)>=0.01 AND C1 D(A,pre)<=1e-4 AND C2 D(B,post)<=1e-4, D=max reldiff over (mean_mel, mel_reference); PASS two-tiered by C4 (anchors reproduce recorded 861g/861e cells). 76cbf84 NOT re-opened. | DV-symmetry: the manipulation is a substrate code change and the DV is a raw per-cell measured MEL/reference pair; no broadcast/monotone/permutation symmetry of D annihilates a code change, and the smoke showed D(A,B)=0.209 with D(A,pre)=D(B,post)=0 bitwise. | Step 2.4 GOV-REUSE-1: decisive readout (full-protocol mean_mel/mel_reference at 5f64a53f and 6293b23) recorded in no manifest (861c/861g ran f810969; 861e/861f/861h ran 17befb8c; bisect was wake-only) -> not recoverable, run. | Step 2.5b brake: counter INV-050=7, MECH-180=5; released under the Not-braked clause (diagnostic discriminating WHICH commit moved a reading; tests no claim hypothesis), same release as 861f/861g/861h. | Step 2.5c: corrupting overlap contextmemory-write-path-addressing-degeneracy (e1_deep.py ContextMemory.write) disclosed, not blocking: cells execute historical pinned code whose output IS the object of study; 861h measured the defect as not load-bearing for this exact cell's mean_mel (refractory reproduced 861e to 4e-9 rel); repair knobs default-off and unset, identical across pins. Other open entries default-off/absent in these refs. | z_goal WRITER DEFECT in smoke is inherited deliberately (DEAD_Z_GOAL_STREAM_EXEMPT): wiring update_z_goal would change behaviour and break reproduction of 861e. | Smoke (Mac, dry-run, 4 cells): PASS; A==pre and B==post bitwise, A!=B (D 0.209); 8 ep N/132 lines, 4 verdict lines. | red-team (fable): CONTESTED -> 2 findings FIXED, 0 dismissed: F1 PASS-with-C4-unmet read as attribution of the recorded 0.884 -> two-tier reading + readout.outcome_pass_qualified_by_c4; F2 also_perturb FAIL labels conflated sub-effect perturbation with a share of the effect -> split at ANCHOR_DELTA_MIN. Causal chain unchanged, no re-spawn. | Runtime: predecessors ran 31-41 min per full-protocol cell on cloud; 4 cells + pin extraction -> 240 min estimate. machine_affinity any (cloud; Mac runner off).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-09-14T10:55:44Z"
-      },
-      "conditions": 4,
-      "episodes_per_run": 132,
-      "experiment_type": "v3_exq_861i_inv050_mech091_commit_attribution_pinned_confirmation",
-      "seeds": 1
     }
   ]
 }
