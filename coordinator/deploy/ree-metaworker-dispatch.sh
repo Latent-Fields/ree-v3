@@ -206,6 +206,36 @@ if [ -f "$REPO/scripts/audit_coordination_plane_dirt.py" ]; then
   fi
 fi
 
+# TASK_CHIPS.json staleness self-check (chip-20260914-dispatch-candidate-
+# order-staleness-selfcheck, root-caused by chip-20260914-taskchips-
+# materializer-week-stale-cloud5: a dispatch cycle on this class of box
+# silently acted on ~8-day-stale TASK_CHIPS.json for a week with zero
+# signal anywhere -- the autosync outage that caused it was real but only
+# 26.8h and had long since self-recovered by the time anyone noticed).
+# Surfaced HERE, independent of whether this cycle's `claude -p` session
+# ever gets as far as Step 3/4 (running dispatch_candidate_order.py
+# itself), so the log carries the signal even on a cycle that fails
+# earlier. Reuses dispatch_candidate_order.check_taskchips_staleness()
+# directly rather than re-implementing its two-condition (file mtime AND
+# max spawned_at) logic here. WARNING-only, never blocks: see that
+# function's own docstring for why a hard refusal in a fleet-wide dispatch
+# wrapper would be worse than the staleness hazard it exists to catch.
+if [ -f "$REPO/scripts/dispatch_candidate_order.py" ]; then
+  STALE_OUT="$(/opt/local/bin/python3 -c '
+import sys
+sys.path.insert(0, sys.argv[1])
+import dispatch_candidate_order as dco
+try:
+    chips = dco.load_open_work_chips(sys.argv[2])
+except Exception:
+    chips = []
+dco.check_taskchips_staleness(chips, sys.argv[2])
+' "$REPO/scripts" "$REPO/TASK_CHIPS.json" 2>&1)"
+  if [ -n "$STALE_OUT" ]; then
+    echo "[$(ts)] $STALE_OUT" >> "$LOG"
+  fi
+fi
+
 # Chip-backlog counts. Read the ledger JSON directly rather than screen-scraping
 # `chip_ledger.py list`. The previous `grep -c '^task_\|^chip_'` undercounted by
 # ~4x -- measured 2026-08-18 on this box: reported 26, actual 97 -- because a
