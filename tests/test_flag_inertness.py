@@ -3126,6 +3126,22 @@ KNOWN_UNPROBED = {
     # VALENCE-BOUND work; recorded here so the registry-drift guard is green
     # again rather than left red for an unrelated task to trip over.
     "use_defensive_orienting",
+    # ARC-131/MECH-481 endogenous coalition-recruitment driver (landed
+    # 88c7c33 2026-09-14, chip-20260902-arc131; registered here 2026-09-15 by
+    # chip-20260914-flag-registry-two-uncategorized-flags after the landing
+    # left this registry red -- the fourth instance of the gap the Block-1d
+    # pre-commit check in scripts/precommit_contracts.sh now closes). Master
+    # switch for REEAgent.select_action calling coalition.request_coalition()
+    # itself off the PREVIOUS tick's E3 candidate-score margin; requires
+    # use_coalition_controller (PROBED above) to be on as well. Not probed in
+    # this file because tests/contracts/test_sd091_coalition_controller_wiring
+    # .py W9-W13 already pin exactly the ON/OFF contrast a probe here would:
+    # W9/W10 default-OFF never requests + bit-identical actions to
+    # use_coalition_controller=False; W11 fires on a threshold guaranteed to
+    # exceed any real margin; W12 debounces against stacking; W13 never fires
+    # below an unreachable threshold. A duplicate full-agent probe would add
+    # no discrimination those pins do not already provide.
+    "use_endogenous_coalition_trigger",
 }
 
 # --------------------------------------------------------------------------- #
@@ -3216,6 +3232,25 @@ KNOWN_UNPROBED_NESTED = {
     # -> E3.select round trip -- out of scope for an unrelated chip fix.
     "use_cem_modulatory_authority",
     "use_cem_modulatory_throughput",
+    # MECH-057b hippocampal sequence-completion verification gating
+    # trajectory promotion (landed 7642cd1 2026-09-14; registered here
+    # 2026-09-15 by chip-20260914-flag-registry-two-uncategorized-flags after
+    # the landing left this registry red). Master no-op switch: OFF (default)
+    # -> HippocampalModule.promote_candidates() returns its input unchanged
+    # and verify_sequence_completion() is never called from
+    # propose_trajectories(); ON -> candidates whose VisitationCounter-derived
+    # completion confidence falls below completion_promotion_verification_
+    # floor are dropped from E3 eligibility, subject to a deadlock guard.
+    # Not probed in this file because tests/contracts/
+    # test_mech057b_completion_promotion.py already pins the ON/OFF contrast
+    # directly against the computation this flag switches:
+    # test_promote_candidates_noop_when_gate_disabled and
+    # test_propose_trajectories_bit_identical_when_gate_disabled (OFF ==
+    # pre-landing behaviour), test_promote_candidates_selectively_drops_low_
+    # confidence (ON changes the eligible pool), and test_propose_trajectories_
+    # gate_enabled_end_to_end_no_deadlock (ON through the live entry point).
+    # A duplicate module-level probe here would add no discrimination.
+    "use_completion_promotion_gate",
     # --- E3Config -------------------------------------------------------------#
     # chip-20260819-e3-last-scores-prearbitration-staleness: republishes the
     # eligible slice of e3.last_scores AFTER the shortlist-then-modulate /
