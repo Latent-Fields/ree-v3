@@ -272,7 +272,14 @@ or goal types:
     - ~0.35 min/ep at 300 steps/ep
     - Calibrated from onboarding smoke 2026-04-09: 14.2 steps/sec CPU, 1571.9 env steps/sec
     - Suitable for env-heavy and standard experiments. Not for GPU-dependent runs.
-  - **ree-cloud-2 / EWIN-PC** — uncalibrated: estimate as cloud-1 until a smoke lands.
+  - **ree-cloud-2** — Hetzner CX22, CPU-only, 2 shared vCPU (no dedicated onboarding
+    smoke landed): re-derived 2026-09-14 from 29 completed manifests since 2026-09-01
+    (`REE_assembly/evidence/experiments/*/runs/*/manifest.json`, `machine` field). ~0.03
+    min/ep at 200 steps/ep (n=4 runs with a directly comparable config; range
+    0.009-0.06 min/ep across those 4 -- real per-experiment compute-cost variance, not
+    measurement noise, so treat as a rough basis rather than a clean smoke figure).
+  - **EWIN-PC** — zero runs recorded anywhere in the evidence corpus as of 2026-09-14
+    (not just since 2026-09-01): estimate as cloud-1 until a smoke lands.
   - Add ~20% overhead for scripts with stratified replay buffers or event classification
 - Set `machine_affinity` to match compute profile: `"DLAPTOP"` (macbook, online stepping), `"Daniel-PC"` (replay/batch heavy or long overnight runs), `"ree-cloud-1"` / `"ree-cloud-2"` (CPU-only Hetzner CX22, standard/env-heavy), `"EWIN-PC"` (GPU-capable, Eoin's machine), `"any"` (indifferent -- any cloud worker that's already awake will typically claim first)
   - **IMPORTANT:** The runner matches affinity through `machine_identity.same_machine()` (see `machine_identity.py`'s module docstring), NOT raw `socket.gethostname()` equality — this closed a real bug where macOS LocalHostName suffix drift (`DLAPTOP-4.local` <-> `DLAPTOP-5.local`) silently split the Mac's identity in two. `"DLAPTOP"` is the canonical affinity string to use in new queue entries; `"DLAPTOP-4.local"`/`"DLAPTOP-5.local"` still match (they alias forward to `DLAPTOP`), but do NOT use `"macbook"` or any other unlisted string — only names in `validate_queue.py`'s `VALID_AFFINITIES` resolve to a real machine.
