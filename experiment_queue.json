@@ -48,6 +48,22 @@
       "episodes_per_run": 340,
       "experiment_type": "v3_exq_935a_mech266_margin_normalised_cap_rule",
       "seeds": 5
+    },
+    {
+      "queue_id": "V3-EXQ-1040",
+      "title": "SD-077 centered super-ordinal cue key: raw-key vs centered-key anchor differentiation",
+      "experiment_type": "v3_exq_1040_sd077_centered_super_ordinal_cue_key",
+      "script": "experiments/v3_exq_1040_sd077_centered_super_ordinal_cue_key.py",
+      "priority": 55,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 20,
+      "episodes_per_run": 12,
+      "seeds": 3,
+      "conditions": 2,
+      "backlog_id": "EVB-1662",
+      "claim_id": "SD-077",
+      "note": "EXP-1186 / EVB-1662. First live test of SD-077: two arms differing ONLY in super_ordinal_cue_centering (False vs True), matched seeds [42,43,44], on the 669b/669c Stage-0 forced-feed nursery. FALSIFIER: R1+R2 met (a common-mode offset is present and writes fire) but the centered arm fails to beat the raw arm by >=4 anchors on >=2/3 seeds, or the centered residual fails to spread the cue geometry by >=0.50 in frac(pairwise cos<0.8) -> SD-077 weakens. GOV-REUSE-1 (Step 2.4): decisive readout is anchor_count under raw vs centered key on ONE substrate. NOT recoverable -- zero manifests in the corpus tag SD-077; 669b holds an OFF reading (anchor_count=1) on a pre-SD-077 substrate at n_slots=16 and 669c an ON reading on substrate_hash 0e3072c5 at n_slots=64, so a cross-run delta confounds the manipulation with both a substrate change and a bank-size change. 669c held centering ON in all three arms as an enabler and carries no OFF cell. Step 2.5a probe CONFIRMED the knob wires through (som.centering follows the flag, baseline seeds lazily, writes fire). Step 2.5b re-derive brake: 0 counted autopsies on SD-077. Step 2.5c: three of four open corrupting substrate_queue entries (MECH-320 tonic_vigor, blocked_agency, SD-105 entropy floor) are NOT instantiated under this config (probed: all None); the fourth, contextmemory-write-path-addressing-degeneracy, IS on the E1 path, but the ADDRESSING half its substrate_paths names is validated-fixed by V3-EXQ-436g and the half still open is the z_world-entropy CONTENT half -- which this run MEASURES as its R1 premise rather than suffers as a confound, and which is identical in both arms so it cannot produce a cross-arm delta. n_slots=1024 because 669c saturated at 64 (anchor_count==n_slots); R3 records cap headroom and is scored against the NULL branch only, so censoring can never vacate a pass. RED-TEAM (Step 4.5, model fable, one pass): CONTESTED -> all findings dispositioned in the module docstring. Headline, fixed: the original load-bearing complexity criterion was a mean over ALL fired writes and DILUTES with run length (the post-salience no-write branch is unreachable at merge 0.8 / cthr 0.2, so allocations thin out as the bank fills); it crossed the margin in both directions between tick 40 and 140 while the anchor delta held at 5-14, i.e. a C1-pass/C3-fail run would have recorded 'weakens' for a denominator artifact. C3 was re-denominated to the length-invariant P0 geometry statistic SD-077 actually asserts; the old form is kept as reported-only C3R with per-write-kind splits so the dilution stays visible. Also fixed: the EMA baseline advances at up to 1-(1-a)^2 because observe() has two call sites (goal.py:514 write, :578 retrieve), so the P0 probe now measures both bounds and C3 routes on the worst; a raw arm that differentiates live with C1 false now routes unknown, not weakens; the centered arm's SECOND anchor is an arithmetic identity (post-lazy-seed residuals are exactly anti-parallel) and C1's margin of 4 is set above that free unit deliberately. Smoke PASS: raw=1 anchor vs centered=8, common_mode_ratio 0.9973 (SD-077's offline recompute measured 0.9949), min_frac_below_delta 0.743 vs a 0.50 bar. validate_recording --strict: complete."
     }
   ]
 }
