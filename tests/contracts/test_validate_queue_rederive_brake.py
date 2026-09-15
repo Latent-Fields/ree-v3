@@ -362,3 +362,88 @@ def test_brake_does_not_change_exit_code_when_queue_otherwise_valid(tmp_path, mo
     brake_warnings = [w for w in validate_queue._LAST_WARNINGS if BRAKE_MARK in w]
     assert len(brake_warnings) == 1  # brake fired
     assert errors == []  # but the queue is still valid -> exit 0
+
+
+# ------------------------------------------------------------------
+# (8) amend-overload fix (2026-09-15, V3-EXQ-1028 staging autopsy):
+#     step 3's explicit producer release now reaches an `amend` target once its
+#     own named substrate entry has already landed.
+# ------------------------------------------------------------------
+def _write_amend_release_autopsy(planning_dir: Path, slug: str, date: str, claim: str,
+                                  upstream: str) -> None:
+    """An `amend` target with an unambiguous explicit release
+    (fired: false + literal_count_meets_threshold: true) -- the exact shape the
+    V3-EXQ-1027/1029 cluster and V3-EXQ-1028 autopsies used and that step 3 could
+    not previously honour for any `amend` action."""
+    target = {
+        "recommended_epistemic_category": "standard",
+        "recommended_evidence_direction": "non_contributory",
+        "claim_ids": [claim],
+        "recommended_substrate_queue_entry": {"action": "amend", "target_sd_id": upstream},
+        "re_derive_brake": {"fired": False, "literal_count_meets_threshold": True},
+    }
+    fname = f"failure_autopsy_{slug}_{date}.json"
+    (planning_dir / fname).write_text(json.dumps({"targets": [target]}), encoding="utf-8")
+
+
+def test_amend_explicit_release_reaches_when_substrate_landed(tmp_path, monkeypatch):
+    # Two amend-action autopsies, both with an unambiguous explicit release, both
+    # naming a substrate that IS declared IMPLEMENTED on the CLAUDE.md fixture --
+    # before the fix, owes_build == True for every `amend` made step 3 unreachable
+    # and both would count (WARN, count 2 >= threshold). After the fix both release,
+    # dropping the count to 0 and clearing the warning entirely.
+    planning_dir = tmp_path / "planning"
+    planning_dir.mkdir(exist_ok=True)
+    _write_amend_release_autopsy(planning_dir, "first", "2026-06-01", "MECH-AMEND-REL", "SD-LANDED")
+    _write_amend_release_autopsy(planning_dir, "second", "2026-06-02", "MECH-AMEND-REL", "SD-LANDED")
+    _, brake_warnings = _run(
+        tmp_path, monkeypatch,
+        items=[_make_item(claim_ids=["MECH-AMEND-REL"])],
+        claude_md_text="- SD-LANDED the substrate -- IMPLEMENTED 2026-01-01.\n",
+    )
+    assert brake_warnings == []
+
+
+def test_amend_explicit_release_does_not_reach_when_substrate_not_landed(tmp_path, monkeypatch):
+    # Identical shape, but the named substrate is NOT declared built anywhere in
+    # CLAUDE.md. The release must NOT take effect -- both targets still count, and
+    # the claim still warns at the default threshold (2). Pins that the fix is
+    # gated on genuinely-landed status, not merely on the explicit-release fields.
+    planning_dir = tmp_path / "planning"
+    planning_dir.mkdir(exist_ok=True)
+    _write_amend_release_autopsy(planning_dir, "first", "2026-06-01", "MECH-AMEND-UNBUILT", "SD-UNBUILT")
+    _write_amend_release_autopsy(planning_dir, "second", "2026-06-02", "MECH-AMEND-UNBUILT", "SD-UNBUILT")
+    _, brake_warnings = _run(
+        tmp_path, monkeypatch,
+        items=[_make_item(claim_ids=["MECH-AMEND-UNBUILT"])],
+        claude_md_text="No substrate built here.\n",
+    )
+    assert len(brake_warnings) == 1
+    assert "MECH-AMEND-UNBUILT" in brake_warnings[0]
+
+
+def test_autopsy_counts_toward_brake_amend_release_direct(tmp_path):
+    # Same fix, pinned directly on the predicate (not through validate()'s WARN
+    # aggregation) -- the unit `_scan_substrate_ceiling_autopsies` actually calls,
+    # so a future change to the WARN loop cannot silently hide a predicate
+    # regression the way an end-to-end-only test could.
+    claude_md_landed = "- SD-LANDED the substrate -- IMPLEMENTED 2026-01-01.\n"
+    t = {
+        "recommended_epistemic_category": "standard",
+        "recommended_evidence_direction": "non_contributory",
+        "recommended_substrate_queue_entry": {"action": "amend", "target_sd_id": "SD-LANDED"},
+        "re_derive_brake": {"fired": False, "literal_count_meets_threshold": True},
+    }
+    # Pre-2026-09-15 behaviour preserved exactly when claude_md_text is omitted.
+    assert validate_queue._autopsy_counts_toward_brake(t, "MECH-X") is True
+    assert validate_queue._autopsy_counts_toward_brake(t, "MECH-X", "") is True
+    # The new behaviour: released once the named substrate has landed.
+    assert validate_queue._autopsy_counts_toward_brake(t, "MECH-X", claude_md_landed) is False
+    # `create` is unaffected in practice -- its sd_id_suggested cannot pre-date the
+    # autopsy that suggests it, but the SAME landed-check logic still applies
+    # (honoured "the same way" for both actions, per the fix's own framing): if the
+    # suggested id happens to already be built, the explicit release still reaches.
+    t_create = dict(t, recommended_substrate_queue_entry={
+        "action": "create", "sd_id_suggested": "SD-LANDED"})
+    assert validate_queue._autopsy_counts_toward_brake(t_create, "MECH-X", claude_md_landed) is False
+    assert validate_queue._autopsy_counts_toward_brake(t_create, "MECH-X", "") is True

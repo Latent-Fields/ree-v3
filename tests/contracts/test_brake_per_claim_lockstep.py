@@ -68,6 +68,16 @@ import pytest  # noqa: E402
 
 import validate_queue as VQ  # noqa: E402
 
+# Real ree-v3/CLAUDE.md text, read once at collection time. Needed from 2026-09-15
+# on: step 3's landed-substrate release (the `amend`-overload fix) is invisible to a
+# bare 2-argument `_autopsy_counts_toward_brake(t, claim)` call (claude_md_text
+# defaults to "", under which the release collapses to its pre-2026-09-15 form -- see
+# that function's docstring) -- the SKILL.md `counts()` mirrors do their OWN internal
+# read instead of taking a parameter (their extraction regex pins the literal
+# `def counts(t, claim):` signature), so a fixture/corpus comparison that wants to
+# actually exercise the new release must feed the SAME real text to the tool side.
+_REAL_CLAUDE_MD_TEXT = VQ._read_ree_v3_claude_md()
+
 # The umbrella checkout, where the two skills live. Not inside ree-v3.
 UMBRELLA = REPO_ROOT.parent
 SKILL_PATHS = (
@@ -79,7 +89,8 @@ SKILL_PATHS = (
 CLAIM = "MECH-342"
 
 
-def _target(*, blanket, direction, per_claim=None, action=None):
+def _target(*, blanket, direction, per_claim=None, action=None,
+            target_sd_id=None, re_derive_brake=None):
     t = {
         "claim_ids": [CLAIM, "MECH-999"],
         "recommended_epistemic_category": blanket,
@@ -89,6 +100,10 @@ def _target(*, blanket, direction, per_claim=None, action=None):
         t["recommended_epistemic_category_per_claim"] = per_claim
     if action is not None:
         t["recommended_substrate_queue_entry"] = {"action": action}
+    if target_sd_id is not None:
+        t.setdefault("recommended_substrate_queue_entry", {})["target_sd_id"] = target_sd_id
+    if re_derive_brake is not None:
+        t["re_derive_brake"] = re_derive_brake
     return t
 
 
@@ -161,9 +176,9 @@ def test_the_scanner_calls_the_predicate_once_per_claim(monkeypatch, tmp_path):
     seen = []
     real = VQ._autopsy_counts_toward_brake
 
-    def spy(target, claim=None):
+    def spy(target, claim=None, claude_md_text=""):
         seen.append(claim)
-        return real(target, claim)
+        return real(target, claim, claude_md_text)
 
     art = {"status": "confirmed", "targets": [
         _target(blanket="standard", direction="non_contributory",
@@ -221,6 +236,19 @@ _FIXTURES = [
     _target(blanket="not_substrate_ceiling", direction="non_contributory"),
     _target(blanket="measurement_degeneracy", direction="non_contributory"),
     _target(blanket="measurement_degeneracy", direction="non_contributory", action="create"),
+    # (2026-09-15, V3-EXQ-1028 staging autopsy) step 3's amend-overload fix: an
+    # explicit, unambiguous release on an `amend` target now reaches step 3 when the
+    # named substrate entry has already landed -- SD-082 genuinely is (see
+    # ree-v3/CLAUDE.md's substrate index), so this must release (False, not counted).
+    _target(blanket="standard", direction="non_contributory", action="amend",
+            target_sd_id="SD-082",
+            re_derive_brake={"fired": False, "literal_count_meets_threshold": True}),
+    # Negative control: same explicit release, same `amend` action, but naming a
+    # substrate id that is NOT built -- must still count (True). Proves the release
+    # is gated on genuinely-landed status, not merely on declaring a target_sd_id.
+    _target(blanket="standard", direction="non_contributory", action="amend",
+            target_sd_id="SD-NONEXISTENT-9999-FIXTURE-ONLY",
+            re_derive_brake={"fired": False, "literal_count_meets_threshold": True}),
 ]
 
 
@@ -228,9 +256,20 @@ _FIXTURES = [
 def test_the_skill_recipe_and_the_tool_agree_on_every_fixture(path):
     counts = _extract_recipe(path)
     for i, t in enumerate(_FIXTURES):
-        assert counts(t, CLAIM) is VQ._autopsy_counts_toward_brake(t, CLAIM), (
+        assert counts(t, CLAIM) is VQ._autopsy_counts_toward_brake(t, CLAIM, _REAL_CLAUDE_MD_TEXT), (
             f"predicate drift on fixture {i} between {path} and "
             "validate_queue._autopsy_counts_toward_brake")
+
+
+def test_the_amend_landed_release_fixture_actually_releases():
+    """Pin the DIRECTION, not just cross-side agreement: fixture 7 (landed SD-082)
+    must release, fixture 8 (unbuilt id, same shape otherwise) must still count. A
+    lockstep test that only checks both sides agree could pass by both being wrong."""
+    assert VQ._autopsy_counts_toward_brake(_FIXTURES[7], CLAIM, _REAL_CLAUDE_MD_TEXT) is False
+    assert VQ._autopsy_counts_toward_brake(_FIXTURES[8], CLAIM, _REAL_CLAUDE_MD_TEXT) is True
+    # And omitting claude_md_text (every pre-2026-09-15 caller) must NOT release --
+    # the landed check is opt-in via the new argument, never on by default.
+    assert VQ._autopsy_counts_toward_brake(_FIXTURES[7], CLAIM) is True
 
 
 @pytest.mark.parametrize("path", SKILL_PATHS[:2], ids=lambda p: str(p).split("REE_Working/")[-1])
@@ -257,8 +296,9 @@ def test_the_skill_recipe_and_the_tool_agree_across_the_LIVE_corpus(path):
                 if not isinstance(claim, str):
                     continue
                 n_compared += 1
-                assert counts(t, claim) is VQ._autopsy_counts_toward_brake(t, claim), (
-                    f"predicate drift on {f.name} / {claim}")
+                assert counts(t, claim) is VQ._autopsy_counts_toward_brake(
+                    t, claim, _REAL_CLAUDE_MD_TEXT
+                ), f"predicate drift on {f.name} / {claim}"
     assert n_compared > 500, f"only {n_compared} (target, claim) pairs compared"
 
 
@@ -344,7 +384,7 @@ def test_the_skill_SCAN_and_the_tool_agree_across_the_LIVE_corpus(path):
     if not path.exists():
         pytest.skip(f"{path} not reachable from this tree")
     files = _corpus_files()
-    impl = {c: len(v) for c, v in VQ._scan_substrate_ceiling_autopsies().items()}
+    impl = {c: len(v) for c, v in VQ._scan_substrate_ceiling_autopsies(_REAL_CLAUDE_MD_TEXT).items()}
     assert impl, "the scanner found nothing -- corpus or planning dir is wrong"
     mismatches = []
     for claim in sorted(impl):
@@ -365,7 +405,7 @@ def test_a_claim_the_tool_does_not_count_is_not_counted_by_the_skill_either(path
     if not path.exists():
         pytest.skip(f"{path} not reachable from this tree")
     files = _corpus_files()
-    impl = {c: len(v) for c, v in VQ._scan_substrate_ceiling_autopsies().items()}
+    impl = {c: len(v) for c, v in VQ._scan_substrate_ceiling_autopsies(_REAL_CLAUDE_MD_TEXT).items()}
     seen = set()
     for f in files:
         try:

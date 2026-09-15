@@ -723,7 +723,9 @@ def _autopsy_owes_substrate_build(target: dict) -> bool:
     return action in RE_DERIVE_BUILD_OWING_ACTIONS
 
 
-def _autopsy_counts_toward_brake(target: dict, claim: "str | None" = None) -> bool:
+def _autopsy_counts_toward_brake(
+    target: dict, claim: "str | None" = None, claude_md_text: str = ""
+) -> bool:
     """Does this autopsy target count toward the MOVE-3 re-derive brake?
 
     The brake exists to stop a claim being re-tested letter after letter against a
@@ -738,6 +740,12 @@ def _autopsy_counts_toward_brake(target: dict, claim: "str | None" = None) -> bo
     existing single-argument callers and contracts keep their exact meaning:
     without a claim there is no per-claim value to consult and the blanket
     category applies, which is what this function has always done.
+
+    `claude_md_text` is OPTIONAL and feeds step 3's landed-substrate check (see
+    below); it defaults to "" (== "unknown / not yet built"), so every existing
+    zero/two-argument caller keeps its EXACT prior behaviour -- step 3 with an
+    empty `claude_md_text` degrades to the pre-2026-09-15 `not owes_build` gate
+    alone, because `_substrate_is_built` fails soft to False on empty text.
 
     Order matters:
       0. A PER-CLAIM category, when the target declares one for `claim`, WINS over
@@ -762,6 +770,24 @@ def _autopsy_counts_toward_brake(target: dict, claim: "str | None" = None) -> bo
          honouring it blanket would drop 42 counted targets corpus-wide and gut the
          brake. Measured 2026-07-20: 42 counted targets carry `fired: false`, exactly
          ONE carries `literal_count_meets_threshold`.
+
+         This release is reachable when `not owes_build` (unchanged), OR when the
+         target's OWN named substrate entry -- resolved the SAME way for both
+         `action` values via `_upstream_substrate_from_target` (amend's
+         `target_sd_id`; create's `sd_id_suggested`) -- has ALREADY LANDED
+         (`_substrate_is_built`). Fixes the `action == "amend"` overload found by
+         the V3-EXQ-1028 staging autopsy (2026-09-15,
+         REE_assembly evidence/planning/failure_autopsy_V3-EXQ-1028_2026-09-15.md
+         section 7/11): `_autopsy_owes_substrate_build` returns True for EVERY
+         `amend`, whether the amend owes a real build or is bookkeeping-only
+         (append a failure record / disposition a prior one against an entry
+         that is already IMPLEMENTED/VALIDATED) -- so before this fix, an
+         artifact's own explicit `fired: false` + `literal_count_meets_threshold:
+         true` release could never take effect on an `amend` target, however
+         unambiguously the producer declared it. A `create` target's
+         `sd_id_suggested` names a substrate that, by definition, did not exist
+         before this autopsy, so it is never landed in practice and `create`
+         behaviour is unaffected by this branch.
       4. Otherwise fall back to the direction reading.
 
     THREE PREDICATES, ONE SEMANTICS -- keep them in lockstep, INCLUDING step 0.
@@ -785,6 +811,17 @@ def _autopsy_counts_toward_brake(target: dict, claim: "str | None" = None) -> bo
     MECH-135, MECH-303, MECH-342, MECH-428, MECH-449, Q-040. That is a real
     loosening and it was put to the user with those names before landing; it is
     not a silent side effect of a consistency fix.
+
+    STEP 3's landed-substrate branch (2026-09-15, V3-EXQ-1028 staging autopsy
+    infrastructure finding) is a FOURTH lockstep argument, not a fourth
+    predicate: the two `counts(t, claim)` recipes stay 2-argument (their
+    extraction regex in `tests/contracts/test_brake_per_claim_lockstep.py`
+    matches the literal `def counts(t, claim):` signature) and instead resolve
+    `ree-v3/CLAUDE.md` text for themselves, fail-soft to "" on any read error --
+    see both SKILL.md copies' Step 7 / Step 2.5b recipe preamble. A caller of
+    THIS function that omits `claude_md_text` (every caller before 2026-09-15,
+    and the lockstep contract's own fixture/corpus comparisons) gets `""`, under
+    which step 3 collapses to exactly its pre-2026-09-15 form.
     """
     per_claim = target.get("recommended_epistemic_category_per_claim")
     declared = ""
@@ -831,25 +868,41 @@ def _autopsy_counts_toward_brake(target: dict, claim: "str | None" = None) -> bo
     ):
         return False
 
-    # (3) Explicit, unambiguous producer release.
+    # (3) Explicit, unambiguous producer release. Reachable when the action does
+    # not own a build (unchanged), OR when the target's own named substrate entry
+    # -- resolved the same way for both `create` and `amend` -- has already
+    # landed (fixes the `amend` overload: a bookkeeping amend against an
+    # already-built entry owes no further build even though
+    # _autopsy_owes_substrate_build says True for every `amend`).
     rdb = target.get("re_derive_brake") or {}
-    if (
-        not owes_build
-        and isinstance(rdb, dict)
+    explicit_release = (
+        isinstance(rdb, dict)
         and rdb.get("fired") is False
         and rdb.get("literal_count_meets_threshold") is True
+    )
+    if explicit_release and (
+        not owes_build
+        or _substrate_is_built(_upstream_substrate_from_target(target), claude_md_text)
     ):
         return False
 
     return True
 
 
-def _scan_substrate_ceiling_autopsies() -> "dict[str, list[tuple[str, str, dict]]]":
+def _scan_substrate_ceiling_autopsies(
+    claude_md_text: str = "",
+) -> "dict[str, list[tuple[str, str, dict]]]":
     """Scan failure_autopsy_*.json for autopsies that count toward the re-derive brake.
 
     Counting predicate: `_autopsy_counts_toward_brake` (genuine substrate_ceiling, or a
     non_contributory reading that is neither an instrument/measurement defect owing no
     build nor an explicit producer release), evaluated PER CLAIM.
+
+    `claude_md_text` is OPTIONAL (default "") and passed straight through to the
+    predicate's step 3 landed-substrate check -- see
+    `_autopsy_counts_toward_brake`'s docstring. Every pre-2026-09-15 caller (this
+    module's own `validate()`, and every test) calls this with zero arguments and
+    is unaffected.
 
     SCAN SHAPE -- the R1/R2 counting convention, matching the /failure-autopsy Step 7
     and /queue-experiment Step 2.5b snippets. Reconciled with them 2026-09-07 by user
@@ -926,7 +979,8 @@ def _scan_substrate_ceiling_autopsies() -> "dict[str, list[tuple[str, str, dict]
                 if not isinstance(claim, str):
                     continue
                 occ.setdefault(claim, {}).setdefault(run_key, []).append(
-                    (recency, f.name, date_str, t, _autopsy_counts_toward_brake(t, claim))
+                    (recency, f.name, date_str, t,
+                     _autopsy_counts_toward_brake(t, claim, claude_md_text))
                 )
     out: "dict[str, list[tuple[str, str, dict]]]" = {}
     for claim, runs in occ.items():
@@ -1198,8 +1252,14 @@ def validate(queue_path: Path = QUEUE_FILE) -> list[str]:
         )
         for it in items
     )
-    _brake_autopsies = _scan_substrate_ceiling_autopsies() if _any_claim_tagged else {}
-    _brake_claude_md = _read_ree_v3_claude_md() if _brake_autopsies else ""
+    # Read ree-v3/CLAUDE.md BEFORE the scan (reordered 2026-09-15): the scan's own
+    # predicate now needs it too (step 3's landed-substrate release), not only the
+    # aggregate WARN check below. Still gated on _any_claim_tagged, same as before
+    # -- a claimless queue pays neither the scan nor this one extra file read.
+    _brake_claude_md = _read_ree_v3_claude_md() if _any_claim_tagged else ""
+    _brake_autopsies = (
+        _scan_substrate_ceiling_autopsies(_brake_claude_md) if _any_claim_tagged else {}
+    )
 
     for idx, item in enumerate(items):
         prefix = f"items[{idx}]"
