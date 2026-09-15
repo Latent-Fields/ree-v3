@@ -556,7 +556,12 @@ def run_yoked_pair(seed: int, episodes: int, steps: int,
     rdy = _Runner(build_config(readiness=True))
     reset_all_rng(seed)
 
-    env = CausalGridWorldV2()
+    # FIX (chip-20260915-unseeded-causalgridworld-drivers, 2026-09-15): env was
+    # constructed unseeded. reset_all_rng(seed) does not seed this env's own
+    # RNG (np.random.default_rng(seed) drawn at construction), so rollouts were
+    # not reproducible run-to-run at the same seed. See V3-EXQ-964b's docstring
+    # for the measured divergence and the fix pattern this follows.
+    env = CausalGridWorldV2(seed=seed)
     n_cmp = 0
     n_diff = 0
     per_episode: List[Dict[str, Any]] = []
@@ -608,7 +613,9 @@ def paired_control_divergence(seed: int, readiness: bool, episodes: int = 1,
     reset_all_rng(seed)
     b = _Runner(build_config(readiness))
     reset_all_rng(seed)
-    env = CausalGridWorldV2()
+    # FIX (chip-20260915-unseeded-causalgridworld-drivers, 2026-09-15): see the
+    # run_yoked_pair comment above -- env was constructed unseeded.
+    env = CausalGridWorldV2(seed=seed)
     n = d = 0
     for _ in range(episodes):
         _, obs = env.reset()
