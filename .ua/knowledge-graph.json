@@ -11,8 +11,8 @@
       "PyTorch"
     ],
     "description": "REE V3 is the active implementation substrate for the Reflective-Ethical Engine (REE), a research programme where architectural claims become experiments over predictive-context, self-relevant forward modelling, harm modelling, commitment and offline integration systems. Note: this project has over 100 source files; consider scoping analysis to a subdirectory for faster results.",
-    "analyzedAt": "2026-09-12T01:18:52Z",
-    "gitCommitHash": "fe63dd68f55dc8f9ab32d60f90f0db736825ccdc"
+    "analyzedAt": "2026-09-15T01:24:32Z",
+    "gitCommitHash": "43a0d7ff8b2afdaf0d69c1c1860cc5900efc38c2"
   },
   "nodes": [
     {
@@ -2411,22 +2411,6 @@
       "complexity": "moderate"
     },
     {
-      "id": "file:ree_core/amygdala/bla.py",
-      "type": "file",
-      "name": "bla.py",
-      "filePath": "ree_core/amygdala/bla.py",
-      "summary": "Basolateral-amygdala analogue (SD-035 / MECH-074a/b/d): a non-trainable arithmetic module that consumes the z_harm_a affective stream and emits arousal-dependent hippocampal encoding gain (inverted-U), a content-selective retrieval-bias vector, and a predictor-attribution-gated remap signal on harm prediction-error spikes.",
-      "tags": [
-        "amygdala",
-        "affective",
-        "memory-modulation",
-        "data-model",
-        "non-trainable"
-      ],
-      "complexity": "complex",
-      "languageNotes": "Pure-arithmetic PyTorch module (no gradient flow); maintains running mean/variance on harm-PE and a post-event decay window on encoding gain."
-    },
-    {
       "id": "file:ree_core/amygdala/cea.py",
       "type": "file",
       "name": "cea.py",
@@ -2441,43 +2425,6 @@
       ],
       "complexity": "complex",
       "languageNotes": "Pure-arithmetic scalar module; fast_prime pulse decays with a tau counter and can be overridden by cortical confirmation inside a bounded window."
-    },
-    {
-      "id": "class:ree_core/amygdala/bla.py:BLAConfig",
-      "type": "class",
-      "name": "BLAConfig",
-      "filePath": "ree_core/amygdala/bla.py",
-      "lineRange": [
-        130,
-        218
-      ],
-      "summary": "Dataclass of tunable BLA parameters: encoding-gain bounds and arousal thresholds, the post-event decay window, retrieval-bias alpha, and harm-PE remap thresholds (sigma, EMA alpha, code fraction, attribution gate).",
-      "tags": [
-        "config",
-        "data-model",
-        "amygdala",
-        "hyperparameters"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "class:ree_core/amygdala/bla.py:BLAAnalog",
-      "type": "class",
-      "name": "BLAAnalog",
-      "filePath": "ree_core/amygdala/bla.py",
-      "lineRange": [
-        234,
-        567
-      ],
-      "summary": "The BLA analogue engine: per-tick computes encoding gain, arousal tag, lazy retrieval-bias vector over hippocampal traces, and attribution-gated per-code remap amplitudes from harm prediction error, plus per-episode reset and diagnostics accessors.",
-      "tags": [
-        "amygdala",
-        "memory-modulation",
-        "affective",
-        "state-machine",
-        "non-trainable"
-      ],
-      "complexity": "complex"
     },
     {
       "id": "class:ree_core/amygdala/cea.py:CeAConfig",
@@ -10329,328 +10276,6 @@
       "complexity": "moderate"
     },
     {
-      "id": "file:ree_core/hippocampal/visitation.py",
-      "type": "file",
-      "name": "visitation.py",
-      "filePath": "ree_core/hippocampal/visitation.py",
-      "summary": "No summary available (file present in scan but not analyzed in this cycle).",
-      "tags": [
-        "untagged"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "file:ree_core/agent.py",
-      "type": "file",
-      "name": "agent.py",
-      "filePath": "ree_core/agent.py",
-      "summary": "Central REEAgent implementation that wires together predictors, PFC/PAG/hippocampal/claustrum modules, comparators, affect accumulators, latent stacks, and action-learning to run the full Reflective-Ethical Engine cognitive cycle (sense -> E1/E2/E3 predict -> select -> act) with actor-critic training and offline chunk replay.",
-      "tags": [
-        "entry-point",
-        "agent",
-        "core-substrate",
-        "cognitive-cycle",
-        "actor-critic"
-      ],
-      "complexity": "complex",
-      "languageNotes": "Monolithic 12k-line Python class (REEAgent, 104 methods) that composes ~46 sibling ree_core modules; effectively the substrate's top-level integration surface."
-    },
-    {
-      "id": "class:ree_core/agent.py:AgentState",
-      "type": "class",
-      "name": "AgentState",
-      "filePath": "ree_core/agent.py",
-      "lineRange": [
-        342,
-        353
-      ],
-      "summary": "Lightweight dataclass holding the per-tick observable agent state (nine properties, no behaviour) passed to instrumentation and comparators.",
-      "tags": [
-        "data-model",
-        "dataclass",
-        "state-container"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "class:ree_core/agent.py:REEAgent",
-      "type": "class",
-      "name": "REEAgent",
-      "filePath": "ree_core/agent.py",
-      "lineRange": [
-        384,
-        12934
-      ],
-      "summary": "The Reflective-Ethical Engine agent: composes and drives every substrate module (E1 deep world model, E2 fast/harm/world predictors, E3 selector, PFC analogs, hippocampal/claustrum/PAG/amygdala modules, latent stacks, residue field, blocked-agency and harm-suffering accumulators, scientist attribution, coalition control, actor-critic policy) across sense/select/act ticks, offline sleep replay, and chunk/policy-decomposition state.",
-      "tags": [
-        "agent",
-        "core-substrate",
-        "predictive-coding",
-        "actor-critic",
-        "integration"
-      ],
-      "complexity": "complex",
-      "languageNotes": "Extreme integration surface (104 methods); every V3 architectural mechanism eventually attaches here."
-    },
-    {
-      "id": "function:ree_core/agent.py:candidate_support_preflight",
-      "type": "function",
-      "name": "candidate_support_preflight",
-      "filePath": "ree_core/agent.py",
-      "lineRange": [
-        279,
-        338
-      ],
-      "summary": "Precomputes per-class support statistics (counts, entropy, absolute-value spread) over first-action candidates plus optional forced score biases, used to detect degenerate or collapsed candidate distributions before E3 scoring.",
-      "tags": [
-        "utility",
-        "preflight",
-        "diagnostic",
-        "candidate-support"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:ree_core/agent.py:_resolve_chunk_deliberation_horizon",
-      "type": "function",
-      "name": "_resolve_chunk_deliberation_horizon",
-      "filePath": "ree_core/agent.py",
-      "lineRange": [
-        356,
-        381
-      ],
-      "summary": "Resolves the effective per-chunk deliberation horizon from an REE config, applying default and clamp rules for downstream chunk-replay bookkeeping.",
-      "tags": [
-        "utility",
-        "config-resolution",
-        "chunking"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "function:ree_core/agent.py:REEAgent.__init__",
-      "type": "function",
-      "name": "REEAgent.__init__",
-      "filePath": "ree_core/agent.py",
-      "summary": "Constructs the REEAgent by instantiating and wiring every submodule (predictors, PFC analogs, hippocampal/claustrum modules, comparators, latent stacks, actor-critic head, buffers) from the resolved REEConfig.",
-      "tags": [
-        "constructor",
-        "wiring",
-        "initialization"
-      ],
-      "complexity": "complex"
-    },
-    {
-      "id": "function:ree_core/agent.py:REEAgent.from_config",
-      "type": "function",
-      "name": "REEAgent.from_config",
-      "filePath": "ree_core/agent.py",
-      "summary": "Class-method factory that builds an REEAgent from a raw config dict or REEConfig object, applying dimension inference and default resolution.",
-      "tags": [
-        "factory",
-        "config",
-        "constructor"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:ree_core/agent.py:REEAgent.reset",
-      "type": "function",
-      "name": "REEAgent.reset",
-      "filePath": "ree_core/agent.py",
-      "summary": "Clears per-episode state (buffers, latent stacks, comparator caches, exploration episodes) so the agent can begin a fresh environment episode without cross-contamination.",
-      "tags": [
-        "lifecycle",
-        "reset",
-        "episode-boundary"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:ree_core/agent.py:REEAgent.sense",
-      "type": "function",
-      "name": "REEAgent.sense",
-      "filePath": "ree_core/agent.py",
-      "summary": "Ingests a structured observation into the perceptual pipeline (object-file buffer, latent stack, hippocampal/amygdala inputs), refreshing z_world and downstream comparator inputs for the coming decision tick.",
-      "tags": [
-        "perception",
-        "sense",
-        "cognitive-cycle"
-      ],
-      "complexity": "complex"
-    },
-    {
-      "id": "function:ree_core/agent.py:REEAgent.sense_flat",
-      "type": "function",
-      "name": "REEAgent.sense_flat",
-      "filePath": "ree_core/agent.py",
-      "summary": "Convenience wrapper that accepts a flat observation tensor and routes it through the same sense pipeline used for structured observations.",
-      "tags": [
-        "perception",
-        "sense",
-        "adapter"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:ree_core/agent.py:REEAgent.generate_trajectories",
-      "type": "function",
-      "name": "REEAgent.generate_trajectories",
-      "filePath": "ree_core/agent.py",
-      "summary": "Rolls out candidate action trajectories through the E1/E2 forward models to seed E3 scoring and curiosity diagnostics for the current decision point.",
-      "tags": [
-        "planning",
-        "rollout",
-        "candidates",
-        "predictive-context"
-      ],
-      "complexity": "complex"
-    },
-    {
-      "id": "function:ree_core/agent.py:REEAgent.select_action",
-      "type": "function",
-      "name": "REEAgent.select_action",
-      "filePath": "ree_core/agent.py",
-      "summary": "Runs the E3 selector over candidate trajectories with claustrum coalition control, PFC gating, and coalition/persistence biases to choose the action for the current tick.",
-      "tags": [
-        "action-selection",
-        "e3",
-        "gating",
-        "policy"
-      ],
-      "complexity": "complex"
-    },
-    {
-      "id": "function:ree_core/agent.py:REEAgent.act",
-      "type": "function",
-      "name": "REEAgent.act",
-      "filePath": "ree_core/agent.py",
-      "summary": "Top-level convenience wrapper that runs the full sense -> predict -> select -> commit -> record cycle for one environment step and returns the chosen action plus diagnostics.",
-      "tags": [
-        "cognitive-cycle",
-        "step",
-        "top-level-api"
-      ],
-      "complexity": "complex"
-    },
-    {
-      "id": "function:ree_core/agent.py:REEAgent.actor_critic_step",
-      "type": "function",
-      "name": "REEAgent.actor_critic_step",
-      "filePath": "ree_core/agent.py",
-      "summary": "Performs one actor-critic training update over recent trajectories, backpropagating policy and value gradients through the E3 selector and encoder.",
-      "tags": [
-        "training",
-        "actor-critic",
-        "policy-gradient"
-      ],
-      "complexity": "complex"
-    },
-    {
-      "id": "function:ree_core/agent.py:REEAgent.actor_critic_reward",
-      "type": "function",
-      "name": "REEAgent.actor_critic_reward",
-      "filePath": "ree_core/agent.py",
-      "summary": "Ingests a scalar reward signal for the actor-critic head, buffering it against the pending decision for the next update.",
-      "tags": [
-        "training",
-        "reward-signal",
-        "actor-critic"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "function:ree_core/agent.py:REEAgent.notify_env_completion",
-      "type": "function",
-      "name": "REEAgent.notify_env_completion",
-      "filePath": "ree_core/agent.py",
-      "summary": "Signals an environment episode boundary so the agent can flush exploration episodes, close chunks, and trigger offline consolidation hooks.",
-      "tags": [
-        "lifecycle",
-        "episode-end",
-        "consolidation"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:ree_core/agent.py:REEAgent.notify_subgoal_attainment",
-      "type": "function",
-      "name": "REEAgent.notify_subgoal_attainment",
-      "filePath": "ree_core/agent.py",
-      "summary": "Informs the ghost-goal bank and PFC modules that a subgoal has been attained, updating goal-tracking state.",
-      "tags": [
-        "goals",
-        "subgoal",
-        "notification"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:ree_core/agent.py:REEAgent.update_object_file_buffer",
-      "type": "function",
-      "name": "REEAgent.update_object_file_buffer",
-      "filePath": "ree_core/agent.py",
-      "summary": "Refreshes the object-file buffer with the current observation's entities so downstream attention and comparator modules see up-to-date object identity information.",
-      "tags": [
-        "object-representation",
-        "buffer-update",
-        "entities"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:ree_core/agent.py:REEAgent.note_chunk_outcome",
-      "type": "function",
-      "name": "REEAgent.note_chunk_outcome",
-      "filePath": "ree_core/agent.py",
-      "summary": "Records the outcome of a closed policy chunk into the chunking bookkeeping used by policy decomposition and offline replay.",
-      "tags": [
-        "chunking",
-        "policy-decomposition",
-        "outcome-record"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:ree_core/agent.py:REEAgent.note_chunk_replay_sequence",
-      "type": "function",
-      "name": "REEAgent.note_chunk_replay_sequence",
-      "filePath": "ree_core/agent.py",
-      "summary": "Appends a replayed chunk sequence into the offline consolidation buffer for later sleep-phase integration.",
-      "tags": [
-        "chunking",
-        "replay",
-        "offline-integration"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:ree_core/agent.py:REEAgent.get_chunking_state",
-      "type": "function",
-      "name": "REEAgent.get_chunking_state",
-      "filePath": "ree_core/agent.py",
-      "summary": "Exposes the current chunking state (open chunks, deliberation horizon, recent outcomes) for instrumentation and experiment logging.",
-      "tags": [
-        "chunking",
-        "inspection",
-        "diagnostic"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "function:ree_core/agent.py:REEAgent.get_policy_decomposition_state",
-      "type": "function",
-      "name": "REEAgent.get_policy_decomposition_state",
-      "filePath": "ree_core/agent.py",
-      "summary": "Returns the current policy-decomposition tree/state used by chunking and offline consolidation for external inspection.",
-      "tags": [
-        "policy-decomposition",
-        "inspection",
-        "diagnostic"
-      ],
-      "complexity": "simple"
-    },
-    {
       "id": "file:ree_core/regulators/__init__.py",
       "type": "file",
       "name": "__init__.py",
@@ -11303,41 +10928,6 @@
         "sync-daemon",
         "cli",
         "lifecycle"
-      ],
-      "complexity": "complex"
-    },
-    {
-      "id": "file:ree_core/hippocampal/module.py",
-      "type": "file",
-      "name": "module.py",
-      "filePath": "ree_core/hippocampal/module.py",
-      "summary": "Hippocampal orchestrator that ties event segmentation, anchor sets, ghost goals, visitation, staleness, curiosity and residue signals into trajectory proposal, replay, and post-commit credit sweeps that feed the E2/E3 predictor stack.",
-      "tags": [
-        "hippocampal",
-        "orchestrator",
-        "trajectory-generation",
-        "replay",
-        "invalidation"
-      ],
-      "complexity": "complex",
-      "languageNotes": "Very large single-class module (~3600 non-empty lines) that composes seven sibling hippocampal helpers plus E2/E3 predictors; heavy use of torch tensors and stateful per-region/per-stream accumulators."
-    },
-    {
-      "id": "class:ree_core/hippocampal/module.py:HippocampalModule",
-      "type": "class",
-      "name": "HippocampalModule",
-      "filePath": "ree_core/hippocampal/module.py",
-      "lineRange": [
-        115,
-        3970
-      ],
-      "summary": "Central hippocampal state machine: proposes candidate trajectories via E2 rollouts biased by ghost goals and residue, runs replay/reverse-replay for backward credit assignment, and mediates invalidation broadcasts between event boundaries and downstream regions.",
-      "tags": [
-        "hippocampal",
-        "state-machine",
-        "trajectory-scoring",
-        "credit-assignment",
-        "invalidation"
       ],
       "complexity": "complex"
     },
@@ -13289,369 +12879,6 @@
       "complexity": "complex"
     },
     {
-      "id": "file:ree_core/utils/config.py",
-      "type": "file",
-      "name": "config.py",
-      "filePath": "ree_core/utils/config.py",
-      "summary": "Central configuration schema for REE-v3: defines 16 dataclass-based config classes (LatentStackConfig, E1/E2/E3Config, HippocampalConfig, ResidueConfig, HeartbeatConfig, REEConfig, etc.) that parameterize every module of the substrate, plus a stdlib RNG seed derivation utility. REEConfig is the aggregate root, ~6.7K lines wide, and is imported across the entire codebase.",
-      "tags": [
-        "configuration",
-        "data-model",
-        "type-definition",
-        "dataclasses",
-        "entry-point"
-      ],
-      "complexity": "complex",
-      "languageNotes": "Python dataclasses used as a strongly-typed configuration DSL: each class documents V2->V3 migration notes (SD-005 z_self/z_world split, SD-004 action objects, ARC-016 dynamic precision, SD-006 multi-rate clock) in its docstring. REEConfig's __post_init__ + class-method factories (from_dims, large, xlarge, enable_sleep_aggregation_cluster, enable_goal_stream) encode preset topologies and derived defaults."
-    },
-    {
-      "id": "function:ree_core/utils/config.py:derive_stdlib_rng_seed",
-      "type": "function",
-      "name": "derive_stdlib_rng_seed",
-      "filePath": "ree_core/utils/config.py",
-      "lineRange": [
-        29,
-        42
-      ],
-      "summary": "Derives a distinct reproducible per-consumer seed from a base seed and a stream id, so parallel stdlib-random consumers (hippocampal replay, self-model writeback) never draw correlated sequences. Returns None when base is None to preserve legacy process-global default.",
-      "tags": [
-        "utility",
-        "rng",
-        "reproducibility",
-        "seed-derivation"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "function:ree_core/utils/config.py:_observed_config_registry",
-      "type": "function",
-      "name": "_observed_config_registry",
-      "filePath": "ree_core/utils/config.py",
-      "lineRange": [
-        3333,
-        3338
-      ],
-      "summary": "Returns the module-level registry of observed configuration instances used for reflective introspection and audit of live REE substrate configurations.",
-      "tags": [
-        "registry",
-        "introspection",
-        "internal"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "function:ree_core/utils/config.py:_register_observed_config",
-      "type": "function",
-      "name": "_register_observed_config",
-      "filePath": "ree_core/utils/config.py",
-      "lineRange": [
-        3341,
-        3358
-      ],
-      "summary": "Registers a configuration instance in the module-level observed-config registry so downstream tooling can enumerate live REE configurations for validation, drift detection, and manifest capture.",
-      "tags": [
-        "registry",
-        "instrumentation",
-        "internal"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "class:ree_core/utils/config.py:LatentStackConfig",
-      "type": "class",
-      "name": "LatentStackConfig",
-      "filePath": "ree_core/utils/config.py",
-      "lineRange": [
-        46,
-        406
-      ],
-      "summary": "Configuration for the V3 latent stack (L-space): splits legacy z_gamma into z_self (proprioceptive/interoceptive, E2 domain) and z_world (exteroceptive, E3/Hippocampal/ResidueField domain) per SD-005, plus wiring for the full multi-level latent architecture.",
-      "tags": [
-        "data-model",
-        "latent-stack",
-        "sd-005",
-        "configuration"
-      ],
-      "complexity": "complex"
-    },
-    {
-      "id": "class:ree_core/utils/config.py:E1Config",
-      "type": "class",
-      "name": "E1Config",
-      "filePath": "ree_core/utils/config.py",
-      "lineRange": [
-        410,
-        865
-      ],
-      "summary": "Configuration for the E1 (sensory encoder) module: input dims, encoder head shapes, precision estimator settings, and downstream projection wiring into the latent stack.",
-      "tags": [
-        "data-model",
-        "sensory-encoder",
-        "e1",
-        "configuration"
-      ],
-      "complexity": "complex"
-    },
-    {
-      "id": "class:ree_core/utils/config.py:E2Config",
-      "type": "class",
-      "name": "E2Config",
-      "filePath": "ree_core/utils/config.py",
-      "lineRange": [
-        869,
-        954
-      ],
-      "summary": "Configuration for the E2 (self-model / proprioceptive) module, including SD-004 action_object_dim for the action-object representation subspace.",
-      "tags": [
-        "data-model",
-        "self-model",
-        "e2",
-        "sd-004",
-        "configuration"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "class:ree_core/utils/config.py:E3Config",
-      "type": "class",
-      "name": "E3Config",
-      "filePath": "ree_core/utils/config.py",
-      "lineRange": [
-        958,
-        2122
-      ],
-      "summary": "Configuration for the E3 (world-model / selector) module: dynamic precision via prediction-error variance (ARC-016), selector heads, action gating, and the large surface of behavioural knobs that govern policy formation in the world model.",
-      "tags": [
-        "data-model",
-        "world-model",
-        "e3",
-        "arc-016",
-        "selector",
-        "configuration"
-      ],
-      "complexity": "complex"
-    },
-    {
-      "id": "class:ree_core/utils/config.py:EventSegmenterScaleConfig",
-      "type": "class",
-      "name": "EventSegmenterScaleConfig",
-      "filePath": "ree_core/utils/config.py",
-      "lineRange": [
-        2126,
-        2152
-      ],
-      "summary": "Per-scale configuration for the multi-scale event segmenter: window sizes, thresholds, and scale-specific parameters used to detect event boundaries at one temporal grain.",
-      "tags": [
-        "data-model",
-        "event-segmentation",
-        "multi-scale",
-        "configuration"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "class:ree_core/utils/config.py:EventSegmenterConfig",
-      "type": "class",
-      "name": "EventSegmenterConfig",
-      "filePath": "ree_core/utils/config.py",
-      "lineRange": [
-        2156,
-        2193
-      ],
-      "summary": "Aggregate configuration for the event segmenter: collects a list of per-scale EventSegmenterScaleConfig entries and cross-scale coordination parameters.",
-      "tags": [
-        "data-model",
-        "event-segmentation",
-        "configuration"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "class:ree_core/utils/config.py:InvalidationTriggerConfig",
-      "type": "class",
-      "name": "InvalidationTriggerConfig",
-      "filePath": "ree_core/utils/config.py",
-      "lineRange": [
-        2197,
-        2227
-      ],
-      "summary": "Configuration for triggers that invalidate cached anchors/goals when world-model predictions diverge, driving re-anchoring in the hippocampal loop.",
-      "tags": [
-        "data-model",
-        "invalidation",
-        "anchoring",
-        "configuration"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "class:ree_core/utils/config.py:AnchorSetConfig",
-      "type": "class",
-      "name": "AnchorSetConfig",
-      "filePath": "ree_core/utils/config.py",
-      "lineRange": [
-        2231,
-        2315
-      ],
-      "summary": "Configuration for the anchor set: capacity, admission/eviction policy, similarity metric, and staleness parameters for the hippocampal anchor buffer.",
-      "tags": [
-        "data-model",
-        "anchors",
-        "hippocampal",
-        "configuration"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "class:ree_core/utils/config.py:StalenessAccumulatorConfig",
-      "type": "class",
-      "name": "StalenessAccumulatorConfig",
-      "filePath": "ree_core/utils/config.py",
-      "lineRange": [
-        2319,
-        2348
-      ],
-      "summary": "Configuration for the staleness accumulator that tracks how out-of-date each anchor is, gating replay and invalidation decisions.",
-      "tags": [
-        "data-model",
-        "staleness",
-        "anchors",
-        "configuration"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "class:ree_core/utils/config.py:GhostGoalBankConfig",
-      "type": "class",
-      "name": "GhostGoalBankConfig",
-      "filePath": "ree_core/utils/config.py",
-      "lineRange": [
-        2352,
-        2472
-      ],
-      "summary": "Configuration for the ghost goal bank: latent-space templates for potential goals used by the selector as counterfactual/ghost anchors during planning and evaluation.",
-      "tags": [
-        "data-model",
-        "goals",
-        "ghost-bank",
-        "planning",
-        "configuration"
-      ],
-      "complexity": "complex"
-    },
-    {
-      "id": "class:ree_core/utils/config.py:PersistenceAppraisalComputeConfig",
-      "type": "class",
-      "name": "PersistenceAppraisalComputeConfig",
-      "filePath": "ree_core/utils/config.py",
-      "lineRange": [
-        2476,
-        2483
-      ],
-      "summary": "Compute-side configuration knobs (batching, precision) for the persistence-appraisal pathway.",
-      "tags": [
-        "data-model",
-        "persistence-appraisal",
-        "compute",
-        "configuration"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "class:ree_core/utils/config.py:HippocampalConfig",
-      "type": "class",
-      "name": "HippocampalConfig",
-      "filePath": "ree_core/utils/config.py",
-      "lineRange": [
-        2487,
-        3044
-      ],
-      "summary": "Configuration for the hippocampal module: navigates action-object space O per SD-004, aggregates AnchorSetConfig / StalenessAccumulatorConfig / GhostGoalBankConfig, and parameterizes replay, invalidation, and anchor selection behaviour.",
-      "tags": [
-        "data-model",
-        "hippocampal",
-        "sd-004",
-        "replay",
-        "configuration"
-      ],
-      "complexity": "complex"
-    },
-    {
-      "id": "class:ree_core/utils/config.py:ResidueConfig",
-      "type": "class",
-      "name": "ResidueConfig",
-      "filePath": "ree_core/utils/config.py",
-      "lineRange": [
-        3048,
-        3186
-      ],
-      "summary": "Configuration for the ResidueField (INV-001 residue = care-marker): field topology, decay dynamics, and care-marker computation parameters used to distinguish care from simulation.",
-      "tags": [
-        "data-model",
-        "residue-field",
-        "inv-001",
-        "care-marker",
-        "configuration"
-      ],
-      "complexity": "complex"
-    },
-    {
-      "id": "class:ree_core/utils/config.py:HeartbeatConfig",
-      "type": "class",
-      "name": "HeartbeatConfig",
-      "filePath": "ree_core/utils/config.py",
-      "lineRange": [
-        3190,
-        3275
-      ],
-      "summary": "Configuration for the multi-rate clock / heartbeat scheduler (SD-006): tick rates and phase relationships that coordinate offline integration, action loops, and sleep aggregation across substrate modules.",
-      "tags": [
-        "data-model",
-        "heartbeat",
-        "clock",
-        "sd-006",
-        "configuration"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "class:ree_core/utils/config.py:EnvironmentConfig",
-      "type": "class",
-      "name": "EnvironmentConfig",
-      "filePath": "ree_core/utils/config.py",
-      "lineRange": [
-        3279,
-        3291
-      ],
-      "summary": "Minimal environment-side configuration container passed to experiment runners for environment identity and seeding.",
-      "tags": [
-        "data-model",
-        "environment",
-        "configuration"
-      ],
-      "complexity": "simple"
-    },
-    {
-      "id": "class:ree_core/utils/config.py:REEConfig",
-      "type": "class",
-      "name": "REEConfig",
-      "filePath": "ree_core/utils/config.py",
-      "lineRange": [
-        3362,
-        10097
-      ],
-      "summary": "Aggregate root configuration for a full REE-v3 substrate instance: composes latent, e1, e2, e3, hippocampal, residue, heartbeat, environment, goal, and serotonin sub-configs, plus top-level knobs (device, seed, offline_integration_frequency, action_loop_gate, theta-packet parameters) and preset factories (from_dims, large, xlarge, enable_sleep_aggregation_cluster, enable_goal_stream). This is the single object passed to every experiment runner and substrate constructor.",
-      "tags": [
-        "data-model",
-        "root-config",
-        "aggregate",
-        "factory",
-        "configuration"
-      ],
-      "complexity": "complex",
-      "languageNotes": "6.7K-line dataclass; from_dims silently swallows unknown kwargs (see memory reference-reeconfig_from_dims_silent_kwargs). A new knob added here needs 3 sites: the field, from_dims, and any preset factory it should surface in."
-    },
-    {
       "id": "file:coordinator/test_cloud_scaler_orchestrator_veto.py",
       "type": "file",
       "name": "test_cloud_scaler_orchestrator_veto.py",
@@ -13864,6 +13091,1761 @@
       ],
       "complexity": "complex",
       "languageNotes": "Trainer owns its own optimizer and per-task heads (constructed lazily inside train()); relies on the agent's SelfEncoder-like object providing world_encoder, world_precision_logit, and optional world_skip attributes."
+    },
+    {
+      "id": "file:ree_core/agent.py",
+      "type": "file",
+      "name": "agent.py",
+      "filePath": "ree_core/agent.py",
+      "summary": "The central hub of the REE-v3 substrate: defines REEAgent, a 12k-line nn.Module that wires every architectural component (LatentStack, E1/E2/E3 predictors, HippocampalModule, ResidueField, MultiRateClock, ThetaBuffer, BetaGate, PFC/amygdala/PAG analogs) into the multi-rate SENSE -> E1/E2/E3 tick -> SELECT -> ACT -> RESIDUE -> REPLAY -> OFFLINE loop. Also owns the offline sleep passes (SWS schema installation, REM attribution replay) and the training-loss surface experiments call into.",
+      "tags": [
+        "hub",
+        "agent-loop",
+        "entry-point",
+        "select-action",
+        "multi-rate",
+        "heartbeat"
+      ],
+      "complexity": "complex",
+      "languageNotes": "A single torch.nn.Module accumulating ~104 methods and a ~2,970-line __init__ that conditionally constructs dozens of optional subsystems behind REEConfig feature flags -- the substrate's god-object by design, since every experiment arm toggles behaviour here."
+    },
+    {
+      "id": "class:ree_core/agent.py:REEAgent",
+      "type": "class",
+      "name": "REEAgent",
+      "filePath": "ree_core/agent.py",
+      "lineRange": [
+        384,
+        13027
+      ],
+      "summary": "The Reflective-Ethical Engine V3 agent. A torch.nn.Module holding all latent streams, predictors, gates and regulators, and enforcing the V3 invariants (residue is persistent and tracks world-delta, E3 is the harm evaluator, E2 trains on motor-sensory error, all replay carries hypothesis_tag=True, precision is E3-derived).",
+      "tags": [
+        "agent",
+        "hub",
+        "torch-module",
+        "architecture-invariants",
+        "god-object"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:ree_core/agent.py:AgentState",
+      "type": "class",
+      "name": "AgentState",
+      "filePath": "ree_core/agent.py",
+      "lineRange": [
+        341,
+        353
+      ],
+      "summary": "Frozen dataclass snapshot of the agent at one timestep: latent state, E3 precision and running variance, step count, accumulated harm, commitment and beta-elevation flags, E3 steps-per-tick, and optional serotonergic state.",
+      "tags": [
+        "data-model",
+        "telemetry",
+        "dataclass",
+        "snapshot"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:ree_core/agent.py:candidate_support_preflight",
+      "type": "function",
+      "name": "candidate_support_preflight",
+      "filePath": "ree_core/agent.py",
+      "lineRange": [
+        279,
+        338
+      ],
+      "summary": "Diagnostic-only helper computing first-action support metrics (class counts and entropy) across a candidate trajectory set, so callers can decide whether a behavioural interpretation of a selection is admissible.",
+      "tags": [
+        "diagnostic",
+        "validation",
+        "utility",
+        "trajectory"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/agent.py:_resolve_chunk_deliberation_horizon",
+      "type": "function",
+      "name": "_resolve_chunk_deliberation_horizon",
+      "filePath": "ree_core/agent.py",
+      "lineRange": [
+        356,
+        381
+      ],
+      "summary": "Derives the MECH-323 growable chunk ceiling from the agent's rollout budget (HippocampalConfig.horizon), honouring REEConfig.chunk_deliberation_horizon only when explicitly set -- a sentinel default that keeps the knob live instead of silently dead.",
+      "tags": [
+        "config",
+        "derivation",
+        "utility",
+        "chunking"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:ree_core/agent.py:__init__",
+      "type": "function",
+      "name": "__init__",
+      "filePath": "ree_core/agent.py",
+      "lineRange": [
+        400,
+        3373
+      ],
+      "summary": "Constructs the entire agent: reads REEConfig and conditionally instantiates every latent stream, predictor, gate, regulator and analog module behind feature flags, then initialises all buffers, counters and telemetry state. Roughly 2,970 lines and the single place every experiment arm's configuration is realised.",
+      "tags": [
+        "constructor",
+        "configuration",
+        "wiring",
+        "feature-flags"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:ree_core/agent.py:from_config",
+      "type": "function",
+      "name": "from_config",
+      "filePath": "ree_core/agent.py",
+      "lineRange": [
+        3376,
+        3395
+      ],
+      "summary": "Classmethod convenience constructor that builds a REEConfig via REEConfig.from_dims from raw dimensionalities plus kwargs, then returns the agent.",
+      "tags": [
+        "factory",
+        "constructor",
+        "config"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:ree_core/agent.py:reset",
+      "type": "function",
+      "name": "reset",
+      "filePath": "ree_core/agent.py",
+      "lineRange": [
+        3457,
+        3877
+      ],
+      "summary": "Resets the agent for a new episode -- flushes the exploration episode buffer, notifies the SleepLoopManager (which may fire a sleep cycle every K episodes), and clears per-episode state. Deliberately does NOT reset the residue field, per the persistence invariant.",
+      "tags": [
+        "lifecycle",
+        "episode-reset",
+        "invariant",
+        "sleep"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:ree_core/agent.py:sense",
+      "type": "function",
+      "name": "sense",
+      "filePath": "ree_core/agent.py",
+      "lineRange": [
+        4721,
+        5796
+      ],
+      "summary": "SENSE step: encodes the split observation (body / world / nociceptive / affective-harm / harm-history channels) into the latent stack, updates z_self and z_world, and feeds the many downstream appraisal, salience and gate subsystems. The widest entry point in the loop.",
+      "tags": [
+        "sense",
+        "entry-point",
+        "encoding",
+        "latent-state"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:ree_core/agent.py:sense_flat",
+      "type": "function",
+      "name": "sense_flat",
+      "filePath": "ree_core/agent.py",
+      "lineRange": [
+        5798,
+        5810
+      ],
+      "summary": "Backward-compatible SENSE wrapper that splits a single flat observation tensor into body and world channels using configured dims and delegates to sense().",
+      "tags": [
+        "sense",
+        "compatibility",
+        "adapter"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:ree_core/agent.py:_e1_tick",
+      "type": "function",
+      "name": "_e1_tick",
+      "filePath": "ree_core/agent.py",
+      "lineRange": [
+        5831,
+        5989
+      ],
+      "summary": "E1 tick: refreshes per-stream staleness, optionally gates the latent through the V_s rollout gate, runs the E1 deep predictor and pushes z_self/z_world into the ThetaBuffer (MECH-089). Returns the E1 world-domain prior consumed by the hippocampal proposer.",
+      "tags": [
+        "e1",
+        "prediction",
+        "tick",
+        "theta-buffer"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:ree_core/agent.py:_e3_tick",
+      "type": "function",
+      "name": "_e3_tick",
+      "filePath": "ree_core/agent.py",
+      "lineRange": [
+        6034,
+        6204
+      ],
+      "summary": "E3 tick: proposes candidate trajectories via HippocampalModule from the theta-cycle summary (never raw z_world, MECH-089), records goal-proximity for the progress-velocity signal, and runs the persistence appraisal.",
+      "tags": [
+        "e3",
+        "tick",
+        "trajectory-proposal",
+        "goal"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:ree_core/agent.py:generate_trajectories",
+      "type": "function",
+      "name": "generate_trajectories",
+      "filePath": "ree_core/agent.py",
+      "lineRange": [
+        6206,
+        6236
+      ],
+      "summary": "GENERATE step: re-proposes candidate trajectories only when the E3 tick fires, otherwise returns the cached candidate set (the MECH-057a action-loop gate).",
+      "tags": [
+        "generate",
+        "multi-rate",
+        "caching",
+        "trajectory"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/agent.py:select_action",
+      "type": "function",
+      "name": "select_action",
+      "filePath": "ree_core/agent.py",
+      "lineRange": [
+        6514,
+        10253
+      ],
+      "summary": "SELECT step and the loop's decision core: counts z_goal stream liveness, applies REM precision broadcast recalibration, evaluates E3 scoring with urgency interrupts and commitment latching (MECH-090 trajectory stepping, MECH-091 urgency abort), and returns the action the BetaGate permits to propagate. The single largest method in the substrate.",
+      "tags": [
+        "select-action",
+        "decision",
+        "e3",
+        "beta-gate",
+        "commitment"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:ree_core/agent.py:actor_critic_step",
+      "type": "function",
+      "name": "actor_critic_step",
+      "filePath": "ree_core/agent.py",
+      "lineRange": [
+        10382,
+        10401
+      ],
+      "summary": "Runs one actor-critic decision over z_world, applying the co-shaping ablation lever (live z_world lets gradients reach the encoder; detached z_world reproduces the refuted frozen-latent arm). Returns the graph-connected ActorCriticStep the PPO update consumes.",
+      "tags": [
+        "actor-critic",
+        "policy",
+        "training-hook",
+        "ablation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/agent.py:act",
+      "type": "function",
+      "name": "act",
+      "filePath": "ree_core/agent.py",
+      "lineRange": [
+        10504,
+        10542
+      ],
+      "summary": "Complete V3 REE action loop over a flat observation: sense_flat -> clock advance -> E1 tick -> generate -> select -> optional quiescent-cycle replay, incrementing the step counter and returning the action tensor.",
+      "tags": [
+        "agent-loop",
+        "entry-point",
+        "act",
+        "orchestration"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/agent.py:act_with_log_prob",
+      "type": "function",
+      "name": "act_with_log_prob",
+      "filePath": "ree_core/agent.py",
+      "lineRange": [
+        10567,
+        10592
+      ],
+      "summary": "Action-loop variant that also returns the log-probability of the sampled action, for policy-gradient style drivers.",
+      "tags": [
+        "act",
+        "policy-gradient",
+        "log-prob"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:ree_core/agent.py:_do_replay",
+      "type": "function",
+      "name": "_do_replay",
+      "filePath": "ree_core/agent.py",
+      "lineRange": [
+        10594,
+        10655
+      ],
+      "summary": "MECH-092 sharp-wave-ripple-equivalent replay fired on quiescent E3 cycles. All replay content carries hypothesis_tag=True so it can never accumulate residue; when serotonin is enabled the drive state biases start-point selection.",
+      "tags": [
+        "replay",
+        "hippocampal",
+        "offline",
+        "invariant"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/agent.py:update_residue",
+      "type": "function",
+      "name": "update_residue",
+      "filePath": "ree_core/agent.py",
+      "lineRange": [
+        10657,
+        10853
+      ],
+      "summary": "RESIDUE step: accumulates ethical residue at the current z_world location scaled by the SD-003 world-delta attribution, blocked entirely by hypothesis_tag (MECH-094) or by harm that is not agent-owned.",
+      "tags": [
+        "residue",
+        "ethical-cost",
+        "invariant",
+        "attribution"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:ree_core/agent.py:record_transition",
+      "type": "function",
+      "name": "record_transition",
+      "filePath": "ree_core/agent.py",
+      "lineRange": [
+        10855,
+        10873
+      ],
+      "summary": "Records a detached (z_self_t, action, z_self_t+1) triple into the E2 transition buffer for motor-sensory forward-model training; detaching is required to keep E3's graph out of the E2 backward pass.",
+      "tags": [
+        "buffer",
+        "e2",
+        "training-data",
+        "transition"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:ree_core/agent.py:record_executed_action",
+      "type": "function",
+      "name": "record_executed_action",
+      "filePath": "ree_core/agent.py",
+      "lineRange": [
+        10939,
+        10963
+      ],
+      "summary": "Lets drivers that step the environment directly (bypassing select_action) tell the agent which action actually ran, so the E1 action-conditioning buffer is not silently filled with zero vectors -- the failure mode that makes an 'ON' ablation arm scientifically vacuous.",
+      "tags": [
+        "action-buffer",
+        "driver-api",
+        "e1",
+        "instrumentation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/agent.py:compute_prediction_loss",
+      "type": "function",
+      "name": "compute_prediction_loss",
+      "filePath": "ree_core/agent.py",
+      "lineRange": [
+        10984,
+        11088
+      ],
+      "summary": "E1 world-model prediction loss: samples a horizon-length window from the paired self/world experience buffers, builds the combined sequence, runs E1 and restores the saved hidden state afterwards.",
+      "tags": [
+        "loss",
+        "training",
+        "e1",
+        "prediction"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/agent.py:update_z_goal",
+      "type": "function",
+      "name": "update_z_goal",
+      "filePath": "ree_core/agent.py",
+      "lineRange": [
+        11571,
+        11839
+      ],
+      "summary": "MECH-112 wanting update: seeds and updates z_goal from the benefit signal, preferring z_resource (object-type latent) over z_world under SD-015, and under SD-057 sourcing the seed from the most-wanted object's stored embedding via the per-type incentive token bank.",
+      "tags": [
+        "z-goal",
+        "wanting",
+        "motivation",
+        "incentive"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:ree_core/agent.py:serotonin_step",
+      "type": "function",
+      "name": "serotonin_step",
+      "filePath": "ree_core/agent.py",
+      "lineRange": [
+        11921,
+        11943
+      ],
+      "summary": "MECH-203 tonic serotonin update: reads the z_harm_a norm from the current latent, advances tonic 5-HT, and writes the resulting seeding gain and wanting floor into GoalConfig so goal updates use dynamic serotonergic values.",
+      "tags": [
+        "neuromodulation",
+        "serotonin",
+        "goal-config"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:ree_core/agent.py:update_benefit_salience",
+      "type": "function",
+      "name": "update_benefit_salience",
+      "filePath": "ree_core/agent.py",
+      "lineRange": [
+        11945,
+        11992
+      ],
+      "summary": "MECH-203 SR-2: tags the current residue-field location with benefit salience via the SD-014 valence/wanting channel, routed through incentive-sensitized amplification when that lever is enabled.",
+      "tags": [
+        "salience",
+        "residue",
+        "valence",
+        "wanting"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/agent.py:update_harm_salience",
+      "type": "function",
+      "name": "update_harm_salience",
+      "filePath": "ree_core/agent.py",
+      "lineRange": [
+        11994,
+        12041
+      ],
+      "summary": "Harm-side counterpart to update_benefit_salience: writes harm salience into the residue field's valence vector at the current z_world position.",
+      "tags": [
+        "salience",
+        "residue",
+        "harm",
+        "valence"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/agent.py:compute_e2_loss",
+      "type": "function",
+      "name": "compute_e2_loss",
+      "filePath": "ree_core/agent.py",
+      "lineRange": [
+        12230,
+        12246
+      ],
+      "summary": "E2 motor-sensory forward-model loss in the z_self domain, sampled as a random minibatch from the transition buffer.",
+      "tags": [
+        "loss",
+        "training",
+        "e2",
+        "forward-model"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:ree_core/agent.py:offline_integration",
+      "type": "function",
+      "name": "offline_integration",
+      "filePath": "ree_core/agent.py",
+      "lineRange": [
+        12248,
+        12271
+      ],
+      "summary": "Offline integration pass: replays the feature-axis-concatenated self/world experience through E1 with the aligned action history, then integrates the residue field, returning merged metrics.",
+      "tags": [
+        "offline",
+        "integration",
+        "replay",
+        "metrics"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/agent.py:note_task_outcome",
+      "type": "function",
+      "name": "note_task_outcome",
+      "filePath": "ree_core/agent.py",
+      "lineRange": [
+        12307,
+        12319
+      ],
+      "summary": "Records a scalar task outcome into the agent's outcome tracking, feeding the readiness and appraisal signals that gate commitment.",
+      "tags": [
+        "outcome",
+        "feedback",
+        "telemetry"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:ree_core/agent.py:run_sws_schema_pass",
+      "type": "function",
+      "name": "run_sws_schema_pass",
+      "filePath": "ree_core/agent.py",
+      "lineRange": [
+        12357,
+        12604
+      ],
+      "summary": "SD-017 SWS-analog pass: installs differentiated context attractors in E1.ContextMemory by writing compressed z_world prototypes sampled from recent waking experience -- the MECH-166 slot-formation phase that REM slot-filling depends on.",
+      "tags": [
+        "sleep",
+        "sws",
+        "consolidation",
+        "schema"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:ree_core/agent.py:run_rem_attribution_pass",
+      "type": "function",
+      "name": "run_rem_attribution_pass",
+      "filePath": "ree_core/agent.py",
+      "lineRange": [
+        12606,
+        12720
+      ],
+      "summary": "SD-017 REM-analog pass: replays recent trajectory experience through the hippocampal module forwards and in reverse, evaluating residue terrain per segment with hypothesis_tag=True so no new residue accrues -- the MECH-166 slot-filling phase.",
+      "tags": [
+        "sleep",
+        "rem",
+        "attribution",
+        "replay"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:ree_core/agent.py:run_sleep_cycle",
+      "type": "function",
+      "name": "run_sleep_cycle",
+      "filePath": "ree_core/agent.py",
+      "lineRange": [
+        12722,
+        12757
+      ],
+      "summary": "Convenience driver for a complete SWS -> REM sleep cycle: enters each mode, runs its pass, exits, and returns merged metrics. No-op when both sws_enabled and rem_enabled are false.",
+      "tags": [
+        "sleep",
+        "orchestration",
+        "lifecycle"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/agent.py:_assemble_control_vector",
+      "type": "function",
+      "name": "_assemble_control_vector",
+      "filePath": "ree_core/agent.py",
+      "lineRange": [
+        12813,
+        13005
+      ],
+      "summary": "Assembles the read-only ControlVector telemetry for the current E3 tick -- V_outcome, C_effort (dACC EVC), C_time and G_vigor -- logging the shared MECH-320 v_t explicitly so the C_time/G_vigor collapse is computable from a manifest. Purely observational.",
+      "tags": [
+        "telemetry",
+        "control-vector",
+        "diagnostic",
+        "read-only"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:ree_core/agent.py:get_state",
+      "type": "function",
+      "name": "get_state",
+      "filePath": "ree_core/agent.py",
+      "lineRange": [
+        13007,
+        13021
+      ],
+      "summary": "Builds an AgentState snapshot from the live agent -- latent state, E3 precision and running variance, step count, episode harm, commitment and beta flags, clock rate, and serotonin state when enabled.",
+      "tags": [
+        "state",
+        "snapshot",
+        "telemetry",
+        "accessor"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:ree_core/agent.py:forward",
+      "type": "function",
+      "name": "forward",
+      "filePath": "ree_core/agent.py",
+      "lineRange": [
+        13026,
+        13027
+      ],
+      "summary": "nn.Module forward hook -- delegates straight to act(), so the agent can be called like any torch module.",
+      "tags": [
+        "torch-module",
+        "forward",
+        "adapter"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:ree_core/hippocampal/module.py",
+      "type": "file",
+      "name": "module.py",
+      "filePath": "ree_core/hippocampal/module.py",
+      "summary": "Implements HippocampalModule, the V3 CEM trajectory proposer that searches action-object space (SD-004) and emits value-flat candidate trajectories for E3 to weight (ARC-007 strict). Also hosts replay, reverse replay, novelty/visitation bookkeeping, anchor sets, staleness accumulation and ghost-goal ranking.",
+      "tags": [
+        "hippocampal",
+        "cem-selection",
+        "mode-conditioning",
+        "planning",
+        "neural-module"
+      ],
+      "complexity": "complex",
+      "languageNotes": "A single ~4100-line torch nn.Module class with 73 methods; most mechanism switches are read off HippocampalConfig rather than constructor arguments."
+    },
+    {
+      "id": "file:ree_core/hippocampal/visitation.py",
+      "type": "file",
+      "name": "visitation.py",
+      "filePath": "ree_core/hippocampal/visitation.py",
+      "summary": "Defines VisitationCounter, an unconditionally-allocated per-region visit-count tracker over a fixed-size FIFO anchor buffer in z_world. Deliberately distinct from FamiliarityTracker (an EMA) and the agent's raw visitation buffer, and kept out of scoring paths apart from one documented MECH-057b read.",
+      "tags": [
+        "hippocampal",
+        "telemetry",
+        "curiosity",
+        "neural-module",
+        "utility"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "Mirrors FamiliarityTracker's nearest-anchor kernel shape but stores exact counts; the module docstring records an explicit invariant about permitted consumers."
+    },
+    {
+      "id": "file:ree_core/utils/config.py",
+      "type": "file",
+      "name": "config.py",
+      "filePath": "ree_core/utils/config.py",
+      "summary": "Central configuration surface for the whole REE-v3 agent: sixteen per-subsystem dataclasses plus the master REEConfig, its master-flag resolvers and the from_dims factory that every experiment builds its agent from.",
+      "tags": [
+        "config",
+        "from-dims",
+        "data-model",
+        "type-definition",
+        "factory"
+      ],
+      "complexity": "complex",
+      "languageNotes": "Dataclass-based configuration with hundreds of default-off feature flags; __post_init__ acts as an OR-only master-flag resolver so a single switch can light a whole mechanism cluster."
+    },
+    {
+      "id": "class:ree_core/hippocampal/module.py:HippocampalModule",
+      "type": "class",
+      "name": "HippocampalModule",
+      "filePath": "ree_core/hippocampal/module.py",
+      "lineRange": [
+        130,
+        4174
+      ],
+      "summary": "The hippocampal planner: proposes candidate trajectories by CEM search over E2 action-object space, scores them value-flat, and exposes replay, credit-sweep, anchor-set and ghost-goal machinery to the agent loop.",
+      "tags": [
+        "hippocampal",
+        "cem-selection",
+        "planning",
+        "neural-module",
+        "mode-conditioning"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:ree_core/hippocampal/module.py:__init__",
+      "type": "function",
+      "name": "__init__",
+      "filePath": "ree_core/hippocampal/module.py",
+      "lineRange": [
+        145,
+        471
+      ],
+      "summary": "Builds the module from a HippocampalConfig plus the E2 predictor and residue field, allocating the terrain prior, familiarity and visitation trackers, event segmenter, anchor set and ghost-goal bank according to the configured flags.",
+      "tags": [
+        "hippocampal",
+        "config",
+        "initialization",
+        "neural-module"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:ree_core/hippocampal/module.py:propose_trajectories",
+      "type": "function",
+      "name": "propose_trajectories",
+      "filePath": "ree_core/hippocampal/module.py",
+      "lineRange": [
+        1944,
+        2696
+      ],
+      "summary": "Core CEM loop: samples action-object candidates around the terrain prior, rolls them out through E2, scores and re-fits an elite set, and returns value-flat trajectories together with diagnostics.",
+      "tags": [
+        "hippocampal",
+        "cem-selection",
+        "mode-conditioning",
+        "planning"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:ree_core/hippocampal/module.py:_score_trajectory",
+      "type": "function",
+      "name": "_score_trajectory",
+      "filePath": "ree_core/hippocampal/module.py",
+      "lineRange": [
+        1620,
+        1784
+      ],
+      "summary": "Scores one candidate trajectory from residue-field terrain, curiosity bonus and horizon terms, optionally returning the component breakdown for diagnostics.",
+      "tags": [
+        "hippocampal",
+        "cem-selection",
+        "scoring",
+        "planning"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:ree_core/hippocampal/module.py:_curiosity_bonus",
+      "type": "function",
+      "name": "_curiosity_bonus",
+      "filePath": "ree_core/hippocampal/module.py",
+      "lineRange": [
+        1786,
+        1812
+      ],
+      "summary": "Computes the SD-025 curiosity term for a rolled-out world sequence from the familiarity tracker, contributing a novelty-seeking component to the trajectory score.",
+      "tags": [
+        "hippocampal",
+        "curiosity",
+        "scoring"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:ree_core/hippocampal/module.py:compute_novelty_score",
+      "type": "function",
+      "name": "compute_novelty_score",
+      "filePath": "ree_core/hippocampal/module.py",
+      "lineRange": [
+        1815,
+        1847
+      ],
+      "summary": "Returns a novelty score for a z_world point as the complement of tracked familiarity, used as the curiosity signal and as telemetry.",
+      "tags": [
+        "hippocampal",
+        "curiosity",
+        "telemetry"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:ree_core/hippocampal/module.py:update_familiarity",
+      "type": "function",
+      "name": "update_familiarity",
+      "filePath": "ree_core/hippocampal/module.py",
+      "lineRange": [
+        1849,
+        1866
+      ],
+      "summary": "Writes a visited z_world point into the proximity-weighted familiarity EMA, gated on the waking phase so replay does not inflate familiarity.",
+      "tags": [
+        "hippocampal",
+        "curiosity",
+        "state-update"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:ree_core/hippocampal/module.py:record_visitation",
+      "type": "function",
+      "name": "record_visitation",
+      "filePath": "ree_core/hippocampal/module.py",
+      "lineRange": [
+        1868,
+        1894
+      ],
+      "summary": "Increments the unconditional VisitationCounter for a visited z_world region during waking steps, supplying exact visit counts to fishtank telemetry.",
+      "tags": [
+        "hippocampal",
+        "telemetry",
+        "state-update"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:ree_core/hippocampal/module.py:_compute_mode_noise_scale",
+      "type": "function",
+      "name": "_compute_mode_noise_scale",
+      "filePath": "ree_core/hippocampal/module.py",
+      "lineRange": [
+        1896,
+        1916
+      ],
+      "summary": "Maps the current operating mode onto a multiplier for CEM proposal noise, widening or narrowing the search distribution by mode.",
+      "tags": [
+        "hippocampal",
+        "mode-conditioning",
+        "cem-selection"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:ree_core/hippocampal/module.py:_compute_mode_horizon_scale",
+      "type": "function",
+      "name": "_compute_mode_horizon_scale",
+      "filePath": "ree_core/hippocampal/module.py",
+      "lineRange": [
+        1918,
+        1942
+      ],
+      "summary": "Maps the current operating mode onto a planning-horizon multiplier, so modes plan further ahead or shorter as configured.",
+      "tags": [
+        "hippocampal",
+        "mode-conditioning",
+        "planning"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:ree_core/hippocampal/module.py:_build_chunk_candidates",
+      "type": "function",
+      "name": "_build_chunk_candidates",
+      "filePath": "ree_core/hippocampal/module.py",
+      "lineRange": [
+        1223,
+        1288
+      ],
+      "summary": "Assembles candidate action chunks from the registered chunk source, seeding the CEM population with reusable multi-step fragments rather than only fresh samples.",
+      "tags": [
+        "hippocampal",
+        "cem-selection",
+        "planning"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/hippocampal/module.py:_apply_policy_decomposition",
+      "type": "function",
+      "name": "_apply_policy_decomposition",
+      "filePath": "ree_core/hippocampal/module.py",
+      "lineRange": [
+        1084,
+        1221
+      ],
+      "summary": "Applies the configured decomposition source to chunk candidates, expanding them into sub-goal tiles and applying the harm penalty before they re-enter the candidate pool.",
+      "tags": [
+        "hippocampal",
+        "planning",
+        "cem-selection",
+        "validation"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:ree_core/hippocampal/module.py:replay",
+      "type": "function",
+      "name": "replay",
+      "filePath": "ree_core/hippocampal/module.py",
+      "lineRange": [
+        2882,
+        2943
+      ],
+      "summary": "MECH-092 quiescent replay: re-runs recent theta-buffer content through the module during heartbeat downtime, tagged as hypothesis so it cannot produce residue.",
+      "tags": [
+        "hippocampal",
+        "replay",
+        "offline-consolidation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/hippocampal/module.py:reverse_replay",
+      "type": "function",
+      "name": "reverse_replay",
+      "filePath": "ree_core/hippocampal/module.py",
+      "lineRange": [
+        3017,
+        3044
+      ],
+      "summary": "Replays a committed trajectory backwards from its outcome, the substrate used for reverse-order credit assignment and wanting spread.",
+      "tags": [
+        "hippocampal",
+        "replay",
+        "credit-assignment"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/hippocampal/module.py:diverse_replay",
+      "type": "function",
+      "name": "diverse_replay",
+      "filePath": "ree_core/hippocampal/module.py",
+      "lineRange": [
+        3100,
+        3171
+      ],
+      "summary": "Mode- and bias-aware replay sampler that draws a spread of stored trajectories rather than the most recent ones, feeding the offline consolidation pathway.",
+      "tags": [
+        "hippocampal",
+        "replay",
+        "mode-conditioning",
+        "offline-consolidation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/hippocampal/module.py:compute_completion_signal",
+      "type": "function",
+      "name": "compute_completion_signal",
+      "filePath": "ree_core/hippocampal/module.py",
+      "lineRange": [
+        3173,
+        3206
+      ],
+      "summary": "Derives an aggregate action-loop completion signal across a set of candidate trajectories for the MECH-057 gate.",
+      "tags": [
+        "hippocampal",
+        "validation",
+        "scoring"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/hippocampal/module.py:verify_sequence_completion",
+      "type": "function",
+      "name": "verify_sequence_completion",
+      "filePath": "ree_core/hippocampal/module.py",
+      "lineRange": [
+        3213,
+        3275
+      ],
+      "summary": "Scores a candidate trajectory's sequence-completion confidence for the MECH-057b promotion gate, reading the visitation counter read-only when the gate flag is enabled.",
+      "tags": [
+        "hippocampal",
+        "validation",
+        "cem-selection"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/hippocampal/module.py:promote_candidates",
+      "type": "function",
+      "name": "promote_candidates",
+      "filePath": "ree_core/hippocampal/module.py",
+      "lineRange": [
+        3277,
+        3383
+      ],
+      "summary": "Filters and promotes scored candidate trajectories into the set handed onward for commitment, applying completion and support-preserving gates.",
+      "tags": [
+        "hippocampal",
+        "cem-selection",
+        "validation"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:ree_core/hippocampal/module.py:backward_credit_sweep",
+      "type": "function",
+      "name": "backward_credit_sweep",
+      "filePath": "ree_core/hippocampal/module.py",
+      "lineRange": [
+        3455,
+        3535
+      ],
+      "summary": "Propagates an outcome-quality signal backwards along the committed trajectory, assigning credit to the states and action objects that led to it.",
+      "tags": [
+        "hippocampal",
+        "credit-assignment",
+        "replay"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:ree_core/hippocampal/module.py:build_goal_payload",
+      "type": "function",
+      "name": "build_goal_payload",
+      "filePath": "ree_core/hippocampal/module.py",
+      "lineRange": [
+        3901,
+        4016
+      ],
+      "summary": "Packages the current latent, goal, residue and amygdala-derived state into the goal payload consumed downstream, respecting simulation mode.",
+      "tags": [
+        "hippocampal",
+        "serialization",
+        "goal-stream"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:ree_core/hippocampal/module.py:rank_ghost_goals",
+      "type": "function",
+      "name": "rank_ghost_goals",
+      "filePath": "ree_core/hippocampal/module.py",
+      "lineRange": [
+        4121,
+        4145
+      ],
+      "summary": "Ranks banked ghost goals against the current goal using the persistence appraisal, deciding which abandoned goal is most worth resuming.",
+      "tags": [
+        "hippocampal",
+        "goal-stream",
+        "scoring"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:ree_core/hippocampal/module.py:forward",
+      "type": "function",
+      "name": "forward",
+      "filePath": "ree_core/hippocampal/module.py",
+      "lineRange": [
+        4158,
+        4174
+      ],
+      "summary": "nn.Module entry point that delegates to propose_trajectories with the same mode-conditioned arguments.",
+      "tags": [
+        "hippocampal",
+        "entry-point",
+        "neural-module"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:ree_core/hippocampal/visitation.py:VisitationCounter",
+      "type": "class",
+      "name": "VisitationCounter",
+      "filePath": "ree_core/hippocampal/visitation.py",
+      "lineRange": [
+        56,
+        157
+      ],
+      "summary": "Proximity-bucketed visit counter over a fixed-size FIFO anchor buffer in z_world, allocated unconditionally so visit counts are always available as telemetry.",
+      "tags": [
+        "hippocampal",
+        "telemetry",
+        "curiosity",
+        "neural-module"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/hippocampal/visitation.py:__init__",
+      "type": "function",
+      "name": "__init__",
+      "filePath": "ree_core/hippocampal/visitation.py",
+      "lineRange": [
+        65,
+        80
+      ],
+      "summary": "Allocates the anchor buffer, per-anchor count vector and FIFO cursor for the configured world dimension, anchor count and kernel bandwidth.",
+      "tags": [
+        "hippocampal",
+        "initialization",
+        "telemetry"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:ree_core/hippocampal/visitation.py:_nearest_active",
+      "type": "function",
+      "name": "_nearest_active",
+      "filePath": "ree_core/hippocampal/visitation.py",
+      "lineRange": [
+        83,
+        94
+      ],
+      "summary": "Finds the nearest allocated anchor to a query point and its distance, the shared primitive behind both query and update.",
+      "tags": [
+        "hippocampal",
+        "utility",
+        "telemetry"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:ree_core/hippocampal/visitation.py:query",
+      "type": "function",
+      "name": "query",
+      "filePath": "ree_core/hippocampal/visitation.py",
+      "lineRange": [
+        97,
+        114
+      ],
+      "summary": "Returns the recorded visit count for the region containing a z_world point, or zero when no anchor lies within the bandwidth. Read-only.",
+      "tags": [
+        "hippocampal",
+        "telemetry",
+        "curiosity"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:ree_core/hippocampal/visitation.py:update",
+      "type": "function",
+      "name": "update",
+      "filePath": "ree_core/hippocampal/visitation.py",
+      "lineRange": [
+        117,
+        146
+      ],
+      "summary": "Increments the count for the nearest in-bandwidth anchor, allocating a fresh anchor (overwriting the oldest when full) on first visit to a region.",
+      "tags": [
+        "hippocampal",
+        "telemetry",
+        "state-update"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/hippocampal/visitation.py:reset",
+      "type": "function",
+      "name": "reset",
+      "filePath": "ree_core/hippocampal/visitation.py",
+      "lineRange": [
+        149,
+        157
+      ],
+      "summary": "Clears all anchors and counts back to the empty state, used between episodes or runs.",
+      "tags": [
+        "hippocampal",
+        "telemetry",
+        "state-update"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:ree_core/utils/config.py:derive_stdlib_rng_seed",
+      "type": "function",
+      "name": "derive_stdlib_rng_seed",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        29,
+        42
+      ],
+      "summary": "Derives a per-stream stdlib RNG seed from a base seed, so independent random streams stay reproducible and decorrelated.",
+      "tags": [
+        "config",
+        "utility",
+        "determinism"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:ree_core/utils/config.py:_observed_config_registry",
+      "type": "function",
+      "name": "_observed_config_registry",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        3386,
+        3391
+      ],
+      "summary": "Lazily creates and returns the process-wide registry of observed REEConfig instances stored on the sys module.",
+      "tags": [
+        "config",
+        "utility",
+        "singleton"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:ree_core/utils/config.py:_register_observed_config",
+      "type": "function",
+      "name": "_register_observed_config",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        3394,
+        3411
+      ],
+      "summary": "Announces a freshly-constructed REEConfig to the provenance registry, honouring a suppression flag and a hard cap, and never raising so config construction cannot break.",
+      "tags": [
+        "config",
+        "provenance",
+        "utility"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:ree_core/utils/config.py:REEConfig",
+      "type": "class",
+      "name": "REEConfig",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        3415,
+        10207
+      ],
+      "summary": "Master configuration dataclass composing every subsystem config plus device, seed and several hundred mechanism flags; its resolvers and factories are the single construction path for a V3 agent.",
+      "tags": [
+        "config",
+        "from-dims",
+        "data-model",
+        "factory"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:ree_core/utils/config.py:__post_init__",
+      "type": "function",
+      "name": "__post_init__",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        6990,
+        7022
+      ],
+      "summary": "Master-flag resolver: OR-only expansion of convenience flags (MECH-307 conjunction, sleep-aggregation cluster, MECH-090 readiness) into their sub-flags, then records the resolved config in the provenance registry.",
+      "tags": [
+        "config",
+        "resolver",
+        "validation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/utils/config.py:enable_sleep_aggregation_cluster",
+      "type": "function",
+      "name": "enable_sleep_aggregation_cluster",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        7024,
+        7052
+      ],
+      "summary": "Convenience preset (GAP-3) that flips the eight sleep-phase flags true so the offline consolidation pathway runs end to end from a single switch; OR-only and returns self for chaining.",
+      "tags": [
+        "config",
+        "resolver",
+        "offline-consolidation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:ree_core/utils/config.py:enable_goal_stream",
+      "type": "function",
+      "name": "enable_goal_stream",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        7054,
+        7111
+      ],
+      "summary": "Turns on the goal-stream cluster and sets its weighting parameters (goal weight, wanting weight, benefit threshold, drive weight) in one call.",
+      "tags": [
+        "config",
+        "resolver",
+        "goal-stream"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:ree_core/utils/config.py:from_dims",
+      "type": "function",
+      "name": "from_dims",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        7114,
+        10070
+      ],
+      "summary": "Primary factory: builds a fully wired REEConfig from observation/action/latent dimensions plus several hundred keyword feature switches, propagating each into the right subsystem config.",
+      "tags": [
+        "config",
+        "from-dims",
+        "factory",
+        "entry-point"
+      ],
+      "complexity": "complex",
+      "languageNotes": "Keyword-only feature flags default to off; unknown kwargs are not rejected here, so a new knob must be threaded through every call site explicitly."
+    },
+    {
+      "id": "function:ree_core/utils/config.py:goal_stream",
+      "type": "function",
+      "name": "goal_stream",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        10073,
+        10119
+      ],
+      "summary": "Named preset constructor producing a from_dims config with the goal-stream cluster already enabled.",
+      "tags": [
+        "config",
+        "from-dims",
+        "factory",
+        "goal-stream"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:ree_core/utils/config.py:large",
+      "type": "function",
+      "name": "large",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        10122,
+        10161
+      ],
+      "summary": "Named preset constructor producing a larger-capacity latent/predictor configuration from the same three base dimensions.",
+      "tags": [
+        "config",
+        "from-dims",
+        "factory",
+        "preset"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:ree_core/utils/config.py:xlarge",
+      "type": "function",
+      "name": "xlarge",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        10164,
+        10207
+      ],
+      "summary": "Named preset constructor for the largest standard capacity tier, scaling latent and predictor widths above the `large` preset.",
+      "tags": [
+        "config",
+        "from-dims",
+        "factory",
+        "preset"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:ree_core/utils/config.py:LatentStackConfig",
+      "type": "class",
+      "name": "LatentStackConfig",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        46,
+        406
+      ],
+      "summary": "Configuration for the latent stack: z_self / z_world / harm-stream dimensions, encoder options and the alpha mixing coefficients that govern latent updates.",
+      "tags": [
+        "config",
+        "data-model",
+        "latent-stack"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:ree_core/utils/config.py:E1Config",
+      "type": "class",
+      "name": "E1Config",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        410,
+        865
+      ],
+      "summary": "Configuration for the E1 world-domain prior predictor, including its heads, auxiliary losses and the resource/event options layered on top of it.",
+      "tags": [
+        "config",
+        "data-model",
+        "predictor"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:ree_core/utils/config.py:E2Config",
+      "type": "class",
+      "name": "E2Config",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        869,
+        954
+      ],
+      "summary": "Configuration for the E2 fast predictor and its action-object space, which the hippocampal CEM search rolls trajectories out through.",
+      "tags": [
+        "config",
+        "data-model",
+        "predictor"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:ree_core/utils/config.py:E3Config",
+      "type": "class",
+      "name": "E3Config",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        958,
+        2122
+      ],
+      "summary": "Configuration for the E3 selector, which applies all value weighting to hippocampal proposals; by far the largest subsystem config, carrying the selection, authority and modulatory-bias flags.",
+      "tags": [
+        "config",
+        "data-model",
+        "selection"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:ree_core/utils/config.py:EventSegmenterScaleConfig",
+      "type": "class",
+      "name": "EventSegmenterScaleConfig",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        2126,
+        2152
+      ],
+      "summary": "Per-scale parameters for one timescale of the event segmenter, such as its surprise threshold and boundary refractory behaviour.",
+      "tags": [
+        "config",
+        "data-model",
+        "event-segmentation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:ree_core/utils/config.py:EventSegmenterConfig",
+      "type": "class",
+      "name": "EventSegmenterConfig",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        2156,
+        2193
+      ],
+      "summary": "Configuration for the multi-scale event segmenter that emits boundary events consumed by the hippocampal module.",
+      "tags": [
+        "config",
+        "data-model",
+        "event-segmentation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:ree_core/utils/config.py:InvalidationTriggerConfig",
+      "type": "class",
+      "name": "InvalidationTriggerConfig",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        2197,
+        2227
+      ],
+      "summary": "Configuration for the invalidation trigger that marks regions of the hippocampal map stale when predictions break down.",
+      "tags": [
+        "config",
+        "data-model",
+        "invalidation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:ree_core/utils/config.py:AnchorSetConfig",
+      "type": "class",
+      "name": "AnchorSetConfig",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        2231,
+        2315
+      ],
+      "summary": "Configuration for the MECH-269 anchor set: how many anchors are held, how they are selected and ticked, and the thresholds governing their turnover.",
+      "tags": [
+        "config",
+        "data-model",
+        "hippocampal"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:ree_core/utils/config.py:StalenessAccumulatorConfig",
+      "type": "class",
+      "name": "StalenessAccumulatorConfig",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        2319,
+        2348
+      ],
+      "summary": "Configuration for the staleness accumulator that integrates per-region and per-stream staleness over time.",
+      "tags": [
+        "config",
+        "data-model",
+        "hippocampal"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:ree_core/utils/config.py:GhostGoalBankConfig",
+      "type": "class",
+      "name": "GhostGoalBankConfig",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        2352,
+        2472
+      ],
+      "summary": "Configuration for the ghost-goal bank: capacity, decay and ranking parameters for abandoned goals that may later be resumed.",
+      "tags": [
+        "config",
+        "data-model",
+        "goal-stream"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:ree_core/utils/config.py:PersistenceAppraisalComputeConfig",
+      "type": "class",
+      "name": "PersistenceAppraisalComputeConfig",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        2476,
+        2483
+      ],
+      "summary": "Small configuration bundle controlling how the persistence appraisal used in ghost-goal ranking is computed.",
+      "tags": [
+        "config",
+        "data-model",
+        "goal-stream"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:ree_core/utils/config.py:HippocampalConfig",
+      "type": "class",
+      "name": "HippocampalConfig",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        2487,
+        3097
+      ],
+      "summary": "Configuration consumed directly by HippocampalModule: CEM population and horizon, mode-conditioning scales, familiarity bandwidth, replay options and the promotion-gate flags.",
+      "tags": [
+        "config",
+        "data-model",
+        "hippocampal",
+        "cem-selection"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:ree_core/utils/config.py:ResidueConfig",
+      "type": "class",
+      "name": "ResidueConfig",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        3101,
+        3239
+      ],
+      "summary": "Configuration for the residue field whose curvature in z_world supplies the terrain the hippocampal search navigates.",
+      "tags": [
+        "config",
+        "data-model",
+        "residue"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:ree_core/utils/config.py:HeartbeatConfig",
+      "type": "class",
+      "name": "HeartbeatConfig",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        3243,
+        3328
+      ],
+      "summary": "Configuration for the E3 heartbeat cycle, including the quiescent intervals during which replay and offline consolidation run.",
+      "tags": [
+        "config",
+        "data-model",
+        "heartbeat"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:ree_core/utils/config.py:EnvironmentConfig",
+      "type": "class",
+      "name": "EnvironmentConfig",
+      "filePath": "ree_core/utils/config.py",
+      "lineRange": [
+        3332,
+        3344
+      ],
+      "summary": "Small configuration block describing the environment an agent is run against.",
+      "tags": [
+        "config",
+        "data-model",
+        "environment"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:ree_core/amygdala/bla.py",
+      "type": "file",
+      "name": "bla.py",
+      "filePath": "ree_core/amygdala/bla.py",
+      "summary": "SD-035 basolateral-amygdala analogue: converts the z_harm_a affective stream into arousal-dependent hippocampal encoding gain (MECH-074a inverted-U), a content-selective per-trace retrieval bias vector (MECH-074b), and a harm-prediction-error remap signal gated by predictor attribution (MECH-074d). Peer module to the low-latency CeA analogue, operating on the hippocampal map rather than scalar salience channels.",
+      "tags": [
+        "amygdala",
+        "bla",
+        "arousal",
+        "harm-encoder",
+        "neuromodulation"
+      ],
+      "complexity": "complex",
+      "languageNotes": "Self-contained dataclass-config + stateful analogue pattern: BLAConfig (tuning constants sourced from cited neuroscience literature), BLAOutput (per-tick result record), and BLAAnalog (the stepping module). No project-internal imports, so the module is a leaf in the dependency graph."
+    },
+    {
+      "id": "class:ree_core/amygdala/bla.py:BLAConfig",
+      "type": "class",
+      "name": "BLAConfig",
+      "filePath": "ree_core/amygdala/bla.py",
+      "lineRange": [
+        148,
+        244
+      ],
+      "summary": "Configuration record holding every BLA tuning constant: the inverted-U encoding-gain envelope (encoding_gain_max, encoding_gain_floor, arousal_threshold_on, arousal_peak), the post-event decay window, the retrieval-bias alpha and compensation terms, and the remap PE sigma threshold with its attribution gate.",
+      "tags": [
+        "configuration",
+        "amygdala",
+        "bla",
+        "arousal",
+        "data-model"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:ree_core/amygdala/bla.py:BLAOutput",
+      "type": "class",
+      "name": "BLAOutput",
+      "filePath": "ree_core/amygdala/bla.py",
+      "lineRange": [
+        248,
+        257
+      ],
+      "summary": "Per-tick result record emitted by BLAAnalog.tick, carrying encoding_gain, the encoding-time arousal_tag, the per-trace retrieval_bias vector, the remap_signal, and the harm-PE diagnostics (magnitude, running baseline std, remaining encoding-window steps).",
+      "tags": [
+        "data-model",
+        "amygdala",
+        "bla",
+        "harm-encoder",
+        "type-definition"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:ree_core/amygdala/bla.py:BLAAnalog",
+      "type": "class",
+      "name": "BLAAnalog",
+      "filePath": "ree_core/amygdala/bla.py",
+      "lineRange": [
+        260,
+        593
+      ],
+      "summary": "Stateful basolateral-amygdala analogue stepped once per agent.sense(). Tracks harm-PE running statistics, the post-event encoding window, and emits encoding gain, arousal tagging, retrieval bias and remap decisions consumed by the hippocampal write and readout paths.",
+      "tags": [
+        "amygdala",
+        "bla",
+        "arousal",
+        "harm-encoder",
+        "stateful-module"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:ree_core/amygdala/bla.py:__init__",
+      "type": "function",
+      "name": "BLAAnalog.__init__",
+      "filePath": "ree_core/amygdala/bla.py",
+      "lineRange": [
+        275,
+        299
+      ],
+      "summary": "Constructs the BLA analogue from an optional BLAConfig, validating and caching the arousal-threshold and inverted-U envelope parameters before delegating to reset for the mutable running state.",
+      "tags": [
+        "constructor",
+        "amygdala",
+        "bla",
+        "arousal",
+        "initialization"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:ree_core/amygdala/bla.py:reset",
+      "type": "function",
+      "name": "BLAAnalog.reset",
+      "filePath": "ree_core/amygdala/bla.py",
+      "lineRange": [
+        300,
+        315
+      ],
+      "summary": "Clears all mutable per-episode state: the harm-PE running mean and standard deviation, the last encoding gain and arousal tag, and the remaining post-event encoding-window step counter.",
+      "tags": [
+        "lifecycle",
+        "amygdala",
+        "bla",
+        "state-reset",
+        "utility"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:ree_core/amygdala/bla.py:tick",
+      "type": "function",
+      "name": "BLAAnalog.tick",
+      "filePath": "ree_core/amygdala/bla.py",
+      "lineRange": [
+        316,
+        566
+      ],
+      "summary": "Main per-step entry point: reads the z_harm_a affective stream and its one-step prediction, computes the inverted-U arousal-dependent encoding gain and its decay window, builds the content-selective per-trace retrieval bias vector from arousal tags, updates the harm-PE EMA baseline, and decides the attribution-gated remap signal before packaging everything into a BLAOutput.",
+      "tags": [
+        "amygdala",
+        "bla",
+        "arousal",
+        "harm-encoder",
+        "event-handler"
+      ],
+      "complexity": "complex",
+      "languageNotes": "Returns an early no-op BLAOutput (encoding_gain exactly 1.0) below arousal_threshold_on, which is the module's backward-compatibility contract when the feature flag is on but arousal is subthreshold."
+    },
+    {
+      "id": "function:ree_core/amygdala/bla.py:diagnostics",
+      "type": "function",
+      "name": "BLAAnalog.diagnostics",
+      "filePath": "ree_core/amygdala/bla.py",
+      "lineRange": [
+        588,
+        593
+      ],
+      "summary": "Returns the module's current internal counters (encoding-window steps remaining and related integer state) for experiment manifests and contract assertions.",
+      "tags": [
+        "diagnostics",
+        "amygdala",
+        "bla",
+        "instrumentation",
+        "utility"
+      ],
+      "complexity": "simple"
     }
   ],
   "edges": [
@@ -15193,34 +16175,6 @@
     {
       "source": "file:ree_core/sleep/sleep_onset_gate.py",
       "target": "function:ree_core/sleep/sleep_onset_gate.py:evaluate_sleep_onset_permit",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/amygdala/bla.py",
-      "target": "class:ree_core/amygdala/bla.py:BLAConfig",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:ree_core/amygdala/bla.py",
-      "target": "class:ree_core/amygdala/bla.py:BLAAnalog",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:ree_core/amygdala/bla.py",
-      "target": "class:ree_core/amygdala/bla.py:BLAConfig",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/amygdala/bla.py",
-      "target": "class:ree_core/amygdala/bla.py:BLAAnalog",
       "type": "exports",
       "direction": "forward",
       "weight": 0.8
@@ -16820,13 +17774,6 @@
       "type": "exports",
       "direction": "forward",
       "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/amygdala/__init__.py",
-      "target": "file:ree_core/amygdala/bla.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
     },
     {
       "source": "file:ree_core/amygdala/__init__.py",
@@ -20577,468 +21524,6 @@
       "weight": 0.7
     },
     {
-      "source": "file:ree_core/agent.py",
-      "target": "class:ree_core/agent.py:AgentState",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "class:ree_core/agent.py:REEAgent",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:candidate_support_preflight",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:_resolve_chunk_deliberation_horizon",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:REEAgent.__init__",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:REEAgent.from_config",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:REEAgent.reset",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:REEAgent.sense",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:REEAgent.sense_flat",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:REEAgent.generate_trajectories",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:REEAgent.select_action",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:REEAgent.act",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:REEAgent.actor_critic_step",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:REEAgent.actor_critic_reward",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:REEAgent.notify_env_completion",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:REEAgent.notify_subgoal_attainment",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:REEAgent.update_object_file_buffer",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:REEAgent.note_chunk_outcome",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:REEAgent.note_chunk_replay_sequence",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:REEAgent.get_chunking_state",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:REEAgent.get_policy_decomposition_state",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "class:ree_core/agent.py:AgentState",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "class:ree_core/agent.py:REEAgent",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "function:ree_core/agent.py:candidate_support_preflight",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/action_learning/__init__.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/affect/blocked_agency.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/affect/harm_suffering_accumulator.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/amygdala/__init__.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/attribution/scientist_attribution_buffer.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/cingulate/__init__.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/claustrum/coalition_controller.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/claustrum/control_demand.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/comparator/suffering_derivative_comparator.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/comparator/tpj_comparator.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/entities/object_file_buffer.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/goal.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/governance/__init__.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/heartbeat/beta_gate.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/heartbeat/clock.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/hippocampal/ghost_goal_bank.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/hippocampal/persistence_appraisal_compute.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/latent/multi_content_theta_packet.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/latent/theta_buffer.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/neuromodulation/serotonin.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/pag/__init__.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/pfc/__init__.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/pfc/e2_escape_affordance_linker.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/pfc/escape_affordance_bridge.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/pfc/frontopolar_analog.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/pfc/infralimbic_avoidance_gate.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/pfc/lateral_pfc_analog.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/pfc/ofc_analog.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/pfc/trainable_escape_affordance_learner.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/policy/__init__.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/policy/model_disagreement.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/predictors/e1_deep.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/predictors/e2_fast.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/predictors/e2_harm_a.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/predictors/e2_harm_s.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/predictors/e2_world_uncertainty.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/predictors/e2_world.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/predictors/e3_score_diversity.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/regulators/__init__.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/residue/field.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/safety/__init__.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/sleep/__init__.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
       "source": "file:ree_core/regulators/__init__.py",
       "target": "file:ree_core/regulators/broadcast_override.py",
       "type": "imports",
@@ -21404,20 +21889,6 @@
       "weight": 0.7
     },
     {
-      "source": "file:ree_core/hippocampal/module.py",
-      "target": "class:ree_core/hippocampal/module.py:HippocampalModule",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/hippocampal/module.py",
-      "target": "class:ree_core/hippocampal/module.py:HippocampalModule",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
       "source": "file:ree_core/predictors/e3_selector.py",
       "target": "class:ree_core/predictors/e3_selector.py:SelectionResult",
       "type": "contains",
@@ -21514,76 +21985,6 @@
       "type": "exports",
       "direction": "forward",
       "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/hippocampal/module.py",
-      "target": "file:ree_core/hippocampal/anchor_set.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/hippocampal/module.py",
-      "target": "file:ree_core/hippocampal/curiosity.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/hippocampal/module.py",
-      "target": "file:ree_core/hippocampal/event_segmenter.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/hippocampal/module.py",
-      "target": "file:ree_core/hippocampal/ghost_goal_bank.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/hippocampal/module.py",
-      "target": "file:ree_core/hippocampal/staleness_accumulator.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/hippocampal/module.py",
-      "target": "file:ree_core/hippocampal/visitation.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/hippocampal/module.py",
-      "target": "file:ree_core/predictors/e2_fast.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/hippocampal/module.py",
-      "target": "file:ree_core/predictors/e3_selector.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/hippocampal/module.py",
-      "target": "file:ree_core/regulators/invalidation_trigger.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/hippocampal/module.py",
-      "target": "file:ree_core/residue/field.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
     },
     {
       "source": "file:ree_core/predictors/e3_selector.py",
@@ -21612,20 +22013,6 @@
       "type": "imports",
       "direction": "forward",
       "weight": 0.7
-    },
-    {
-      "source": "class:ree_core/hippocampal/module.py:HippocampalModule",
-      "target": "class:ree_core/predictors/e3_selector.py:E3TrajectorySelector",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "class:ree_core/hippocampal/module.py:HippocampalModule",
-      "target": "class:ree_core/predictors/e2_fast.py:E2FastPredictor",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
     },
     {
       "source": "class:ree_core/predictors/e3_selector.py:E3TrajectorySelector",
@@ -22094,22 +22481,6 @@
     {
       "source": "file:coordinator/test_phase3_writer_smoke.py",
       "target": "file:coordinator/sync_daemon.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7,
-      "recoveredFromImportMap": true
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/hippocampal/module.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7,
-      "recoveredFromImportMap": true
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/predictors/e3_selector.py",
       "type": "imports",
       "direction": "forward",
       "weight": 0.7,
@@ -22950,13 +23321,6 @@
     },
     {
       "source": "file:ree_core/latent/stack.py",
-      "target": "file:ree_core/utils/config.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/latent/stack.py",
       "target": "class:ree_core/latent/stack.py:ReafferencePredictor",
       "type": "contains",
       "direction": "forward",
@@ -23248,293 +23612,6 @@
       "type": "depends_on",
       "direction": "forward",
       "weight": 0.6
-    },
-    {
-      "source": "class:ree_core/latent/stack.py:LatentStack",
-      "target": "file:ree_core/utils/config.py",
-      "type": "depends_on",
-      "direction": "forward",
-      "weight": 0.6
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "file:ree_core/goal.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "file:ree_core/neuromodulation/serotonin.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "function:ree_core/utils/config.py:derive_stdlib_rng_seed",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "function:ree_core/utils/config.py:_observed_config_registry",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "function:ree_core/utils/config.py:_register_observed_config",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:LatentStackConfig",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:E1Config",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:E2Config",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:E3Config",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:EventSegmenterScaleConfig",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:EventSegmenterConfig",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:InvalidationTriggerConfig",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:AnchorSetConfig",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:StalenessAccumulatorConfig",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:GhostGoalBankConfig",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:PersistenceAppraisalComputeConfig",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:HippocampalConfig",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:ResidueConfig",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:HeartbeatConfig",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:EnvironmentConfig",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:REEConfig",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1.0
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "function:ree_core/utils/config.py:derive_stdlib_rng_seed",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "function:ree_core/utils/config.py:_observed_config_registry",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "function:ree_core/utils/config.py:_register_observed_config",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:LatentStackConfig",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:E1Config",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:E2Config",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:E3Config",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:EventSegmenterScaleConfig",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:EventSegmenterConfig",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:InvalidationTriggerConfig",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:AnchorSetConfig",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:StalenessAccumulatorConfig",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:GhostGoalBankConfig",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:PersistenceAppraisalComputeConfig",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:HippocampalConfig",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:ResidueConfig",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:HeartbeatConfig",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:EnvironmentConfig",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "file:ree_core/utils/config.py",
-      "target": "class:ree_core/utils/config.py:REEConfig",
-      "type": "exports",
-      "direction": "forward",
-      "weight": 0.8
     },
     {
       "source": "file:coordinator/test_cloud_scaler_orchestrator_veto.py",
@@ -23893,54 +23970,6 @@
       "recoveredFromImportMap": true
     },
     {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/latent/stack.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7,
-      "recoveredFromImportMap": true
-    },
-    {
-      "source": "file:ree_core/agent.py",
-      "target": "file:ree_core/utils/config.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7,
-      "recoveredFromImportMap": true
-    },
-    {
-      "source": "file:ree_core/hippocampal/anchor_set.py",
-      "target": "file:ree_core/utils/config.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7,
-      "recoveredFromImportMap": true
-    },
-    {
-      "source": "file:ree_core/hippocampal/ghost_goal_bank.py",
-      "target": "file:ree_core/utils/config.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7,
-      "recoveredFromImportMap": true
-    },
-    {
-      "source": "file:ree_core/hippocampal/module.py",
-      "target": "file:ree_core/utils/config.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7,
-      "recoveredFromImportMap": true
-    },
-    {
-      "source": "file:ree_core/hippocampal/staleness_accumulator.py",
-      "target": "file:ree_core/utils/config.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7,
-      "recoveredFromImportMap": true
-    },
-    {
       "source": "file:ree_core/policy/model_disagreement.py",
       "target": "file:ree_core/latent/stack.py",
       "type": "imports",
@@ -23957,24 +23986,8 @@
       "recoveredFromImportMap": true
     },
     {
-      "source": "file:ree_core/predictors/e1_deep.py",
-      "target": "file:ree_core/utils/config.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7,
-      "recoveredFromImportMap": true
-    },
-    {
       "source": "file:ree_core/predictors/e2_fast.py",
       "target": "file:ree_core/latent/stack.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7,
-      "recoveredFromImportMap": true
-    },
-    {
-      "source": "file:ree_core/predictors/e2_fast.py",
-      "target": "file:ree_core/utils/config.py",
       "type": "imports",
       "direction": "forward",
       "weight": 0.7,
@@ -23999,6 +24012,1515 @@
     {
       "source": "file:ree_core/predictors/e2_world.py",
       "target": "file:ree_core/latent/stack.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "class:ree_core/agent.py:REEAgent",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "class:ree_core/agent.py:AgentState",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:candidate_support_preflight",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:_resolve_chunk_deliberation_horizon",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:__init__",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:from_config",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:reset",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:sense",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:sense_flat",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:_e1_tick",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:_e3_tick",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:generate_trajectories",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:select_action",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:actor_critic_step",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:act",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:act_with_log_prob",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:_do_replay",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:update_residue",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:record_transition",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:record_executed_action",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:compute_prediction_loss",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:update_z_goal",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:serotonin_step",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:update_benefit_salience",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:update_harm_salience",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:compute_e2_loss",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:offline_integration",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:note_task_outcome",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:run_sws_schema_pass",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:run_rem_attribution_pass",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:run_sleep_cycle",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:_assemble_control_vector",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:get_state",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:forward",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:candidate_support_preflight",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "function:ree_core/agent.py:_resolve_chunk_deliberation_horizon",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "class:ree_core/agent.py:REEAgent",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "class:ree_core/agent.py:AgentState",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/action_learning/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/affect/blocked_agency.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/affect/harm_suffering_accumulator.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/amygdala/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/attribution/scientist_attribution_buffer.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/cingulate/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/claustrum/coalition_controller.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/claustrum/control_demand.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/comparator/suffering_derivative_comparator.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/comparator/tpj_comparator.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/entities/object_file_buffer.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/goal.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/governance/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/heartbeat/beta_gate.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/heartbeat/clock.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/hippocampal/ghost_goal_bank.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/hippocampal/module.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/hippocampal/persistence_appraisal_compute.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/latent/multi_content_theta_packet.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/latent/stack.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/latent/theta_buffer.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/neuromodulation/serotonin.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/pag/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/pfc/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/pfc/e2_escape_affordance_linker.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/pfc/escape_affordance_bridge.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/pfc/frontopolar_analog.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/pfc/infralimbic_avoidance_gate.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/pfc/lateral_pfc_analog.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/pfc/ofc_analog.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/pfc/trainable_escape_affordance_learner.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/policy/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/policy/model_disagreement.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/predictors/e1_deep.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/predictors/e2_fast.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/predictors/e2_harm_a.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/predictors/e2_harm_s.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/predictors/e2_world.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/predictors/e2_world_uncertainty.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/predictors/e3_score_diversity.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/predictors/e3_selector.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/regulators/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/residue/field.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/safety/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/sleep/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/agent.py",
+      "target": "file:ree_core/utils/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:ree_core/hippocampal/module.py",
+      "target": "class:ree_core/hippocampal/module.py:HippocampalModule",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/hippocampal/module.py",
+      "target": "class:ree_core/hippocampal/module.py:HippocampalModule",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:ree_core/hippocampal/module.py:HippocampalModule",
+      "target": "function:ree_core/hippocampal/module.py:__init__",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "class:ree_core/hippocampal/module.py:HippocampalModule",
+      "target": "function:ree_core/hippocampal/module.py:propose_trajectories",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "class:ree_core/hippocampal/module.py:HippocampalModule",
+      "target": "function:ree_core/hippocampal/module.py:_score_trajectory",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "class:ree_core/hippocampal/module.py:HippocampalModule",
+      "target": "function:ree_core/hippocampal/module.py:_curiosity_bonus",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "class:ree_core/hippocampal/module.py:HippocampalModule",
+      "target": "function:ree_core/hippocampal/module.py:compute_novelty_score",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "class:ree_core/hippocampal/module.py:HippocampalModule",
+      "target": "function:ree_core/hippocampal/module.py:update_familiarity",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "class:ree_core/hippocampal/module.py:HippocampalModule",
+      "target": "function:ree_core/hippocampal/module.py:record_visitation",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "class:ree_core/hippocampal/module.py:HippocampalModule",
+      "target": "function:ree_core/hippocampal/module.py:_compute_mode_noise_scale",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "class:ree_core/hippocampal/module.py:HippocampalModule",
+      "target": "function:ree_core/hippocampal/module.py:_compute_mode_horizon_scale",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "class:ree_core/hippocampal/module.py:HippocampalModule",
+      "target": "function:ree_core/hippocampal/module.py:_build_chunk_candidates",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "class:ree_core/hippocampal/module.py:HippocampalModule",
+      "target": "function:ree_core/hippocampal/module.py:_apply_policy_decomposition",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "class:ree_core/hippocampal/module.py:HippocampalModule",
+      "target": "function:ree_core/hippocampal/module.py:replay",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "class:ree_core/hippocampal/module.py:HippocampalModule",
+      "target": "function:ree_core/hippocampal/module.py:reverse_replay",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "class:ree_core/hippocampal/module.py:HippocampalModule",
+      "target": "function:ree_core/hippocampal/module.py:diverse_replay",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "class:ree_core/hippocampal/module.py:HippocampalModule",
+      "target": "function:ree_core/hippocampal/module.py:compute_completion_signal",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "class:ree_core/hippocampal/module.py:HippocampalModule",
+      "target": "function:ree_core/hippocampal/module.py:verify_sequence_completion",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "class:ree_core/hippocampal/module.py:HippocampalModule",
+      "target": "function:ree_core/hippocampal/module.py:promote_candidates",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "class:ree_core/hippocampal/module.py:HippocampalModule",
+      "target": "function:ree_core/hippocampal/module.py:backward_credit_sweep",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "class:ree_core/hippocampal/module.py:HippocampalModule",
+      "target": "function:ree_core/hippocampal/module.py:build_goal_payload",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "class:ree_core/hippocampal/module.py:HippocampalModule",
+      "target": "function:ree_core/hippocampal/module.py:rank_ghost_goals",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "class:ree_core/hippocampal/module.py:HippocampalModule",
+      "target": "function:ree_core/hippocampal/module.py:forward",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "function:ree_core/hippocampal/module.py:forward",
+      "target": "function:ree_core/hippocampal/module.py:propose_trajectories",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:ree_core/hippocampal/module.py:propose_trajectories",
+      "target": "function:ree_core/hippocampal/module.py:_score_trajectory",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:ree_core/hippocampal/module.py:propose_trajectories",
+      "target": "function:ree_core/hippocampal/module.py:_compute_mode_noise_scale",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:ree_core/hippocampal/module.py:propose_trajectories",
+      "target": "function:ree_core/hippocampal/module.py:_compute_mode_horizon_scale",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:ree_core/hippocampal/module.py:propose_trajectories",
+      "target": "function:ree_core/hippocampal/module.py:_build_chunk_candidates",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:ree_core/hippocampal/module.py:_score_trajectory",
+      "target": "function:ree_core/hippocampal/module.py:_curiosity_bonus",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:ree_core/hippocampal/module.py:_curiosity_bonus",
+      "target": "function:ree_core/hippocampal/module.py:compute_novelty_score",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:ree_core/hippocampal/module.py:record_visitation",
+      "target": "function:ree_core/hippocampal/visitation.py:update",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:ree_core/hippocampal/module.py:verify_sequence_completion",
+      "target": "function:ree_core/hippocampal/visitation.py:query",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:ree_core/hippocampal/module.py:promote_candidates",
+      "target": "function:ree_core/hippocampal/module.py:verify_sequence_completion",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/hippocampal/module.py",
+      "target": "file:ree_core/hippocampal/visitation.py",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:ree_core/hippocampal/module.py",
+      "target": "file:ree_core/utils/config.py",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "class:ree_core/utils/config.py:HippocampalConfig",
+      "target": "class:ree_core/hippocampal/module.py:HippocampalModule",
+      "type": "configures",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:ree_core/hippocampal/visitation.py",
+      "target": "class:ree_core/hippocampal/visitation.py:VisitationCounter",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/hippocampal/visitation.py",
+      "target": "class:ree_core/hippocampal/visitation.py:VisitationCounter",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:ree_core/hippocampal/visitation.py:VisitationCounter",
+      "target": "function:ree_core/hippocampal/visitation.py:__init__",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "class:ree_core/hippocampal/visitation.py:VisitationCounter",
+      "target": "function:ree_core/hippocampal/visitation.py:_nearest_active",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "class:ree_core/hippocampal/visitation.py:VisitationCounter",
+      "target": "function:ree_core/hippocampal/visitation.py:query",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "class:ree_core/hippocampal/visitation.py:VisitationCounter",
+      "target": "function:ree_core/hippocampal/visitation.py:update",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "class:ree_core/hippocampal/visitation.py:VisitationCounter",
+      "target": "function:ree_core/hippocampal/visitation.py:reset",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "function:ree_core/hippocampal/visitation.py:query",
+      "target": "function:ree_core/hippocampal/visitation.py:_nearest_active",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:ree_core/hippocampal/visitation.py:update",
+      "target": "function:ree_core/hippocampal/visitation.py:_nearest_active",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "function:ree_core/utils/config.py:derive_stdlib_rng_seed",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "function:ree_core/utils/config.py:derive_stdlib_rng_seed",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "function:ree_core/utils/config.py:_observed_config_registry",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "function:ree_core/utils/config.py:_register_observed_config",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "function:ree_core/utils/config.py:_register_observed_config",
+      "target": "function:ree_core/utils/config.py:_observed_config_registry",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:REEConfig",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:REEConfig",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:ree_core/utils/config.py:REEConfig",
+      "target": "function:ree_core/utils/config.py:__post_init__",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "class:ree_core/utils/config.py:REEConfig",
+      "target": "function:ree_core/utils/config.py:enable_sleep_aggregation_cluster",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "class:ree_core/utils/config.py:REEConfig",
+      "target": "function:ree_core/utils/config.py:enable_goal_stream",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "class:ree_core/utils/config.py:REEConfig",
+      "target": "function:ree_core/utils/config.py:from_dims",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "class:ree_core/utils/config.py:REEConfig",
+      "target": "function:ree_core/utils/config.py:goal_stream",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "class:ree_core/utils/config.py:REEConfig",
+      "target": "function:ree_core/utils/config.py:large",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "class:ree_core/utils/config.py:REEConfig",
+      "target": "function:ree_core/utils/config.py:xlarge",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "function:ree_core/utils/config.py:__post_init__",
+      "target": "function:ree_core/utils/config.py:enable_sleep_aggregation_cluster",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:ree_core/utils/config.py:__post_init__",
+      "target": "function:ree_core/utils/config.py:_register_observed_config",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:ree_core/utils/config.py:from_dims",
+      "target": "function:ree_core/utils/config.py:enable_sleep_aggregation_cluster",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:ree_core/utils/config.py:goal_stream",
+      "target": "function:ree_core/utils/config.py:from_dims",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:ree_core/utils/config.py:large",
+      "target": "function:ree_core/utils/config.py:from_dims",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:ree_core/utils/config.py:xlarge",
+      "target": "function:ree_core/utils/config.py:from_dims",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:LatentStackConfig",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:LatentStackConfig",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:E1Config",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:E1Config",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:E2Config",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:E2Config",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:E3Config",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:E3Config",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:EventSegmenterScaleConfig",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:EventSegmenterScaleConfig",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:EventSegmenterConfig",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:EventSegmenterConfig",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:InvalidationTriggerConfig",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:InvalidationTriggerConfig",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:AnchorSetConfig",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:AnchorSetConfig",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:StalenessAccumulatorConfig",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:StalenessAccumulatorConfig",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:GhostGoalBankConfig",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:GhostGoalBankConfig",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:PersistenceAppraisalComputeConfig",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:PersistenceAppraisalComputeConfig",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:HippocampalConfig",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:HippocampalConfig",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:ResidueConfig",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:ResidueConfig",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:HeartbeatConfig",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:HeartbeatConfig",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:EnvironmentConfig",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "class:ree_core/utils/config.py:EnvironmentConfig",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/amygdala/bla.py",
+      "target": "class:ree_core/amygdala/bla.py:BLAConfig",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/amygdala/bla.py",
+      "target": "class:ree_core/amygdala/bla.py:BLAOutput",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/amygdala/bla.py",
+      "target": "class:ree_core/amygdala/bla.py:BLAAnalog",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/amygdala/bla.py",
+      "target": "function:ree_core/amygdala/bla.py:__init__",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/amygdala/bla.py",
+      "target": "function:ree_core/amygdala/bla.py:reset",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/amygdala/bla.py",
+      "target": "function:ree_core/amygdala/bla.py:tick",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/amygdala/bla.py",
+      "target": "function:ree_core/amygdala/bla.py:diagnostics",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:ree_core/amygdala/bla.py",
+      "target": "class:ree_core/amygdala/bla.py:BLAConfig",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/amygdala/bla.py",
+      "target": "class:ree_core/amygdala/bla.py:BLAOutput",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:ree_core/amygdala/bla.py",
+      "target": "class:ree_core/amygdala/bla.py:BLAAnalog",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:ree_core/amygdala/bla.py:BLAAnalog",
+      "target": "function:ree_core/amygdala/bla.py:__init__",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "class:ree_core/amygdala/bla.py:BLAAnalog",
+      "target": "function:ree_core/amygdala/bla.py:reset",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "class:ree_core/amygdala/bla.py:BLAAnalog",
+      "target": "function:ree_core/amygdala/bla.py:tick",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "class:ree_core/amygdala/bla.py:BLAAnalog",
+      "target": "function:ree_core/amygdala/bla.py:diagnostics",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "function:ree_core/amygdala/bla.py:__init__",
+      "target": "class:ree_core/amygdala/bla.py:BLAConfig",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "function:ree_core/amygdala/bla.py:tick",
+      "target": "class:ree_core/amygdala/bla.py:BLAOutput",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:ree_core/amygdala/__init__.py",
+      "target": "file:ree_core/amygdala/bla.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:ree_core/hippocampal/anchor_set.py",
+      "target": "file:ree_core/utils/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:ree_core/hippocampal/ghost_goal_bank.py",
+      "target": "file:ree_core/utils/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:ree_core/hippocampal/module.py",
+      "target": "file:ree_core/hippocampal/anchor_set.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:ree_core/hippocampal/module.py",
+      "target": "file:ree_core/hippocampal/curiosity.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:ree_core/hippocampal/module.py",
+      "target": "file:ree_core/hippocampal/event_segmenter.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:ree_core/hippocampal/module.py",
+      "target": "file:ree_core/hippocampal/ghost_goal_bank.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:ree_core/hippocampal/module.py",
+      "target": "file:ree_core/hippocampal/staleness_accumulator.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:ree_core/hippocampal/module.py",
+      "target": "file:ree_core/hippocampal/visitation.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:ree_core/hippocampal/module.py",
+      "target": "file:ree_core/predictors/e2_fast.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:ree_core/hippocampal/module.py",
+      "target": "file:ree_core/predictors/e3_selector.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:ree_core/hippocampal/module.py",
+      "target": "file:ree_core/regulators/invalidation_trigger.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:ree_core/hippocampal/module.py",
+      "target": "file:ree_core/residue/field.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:ree_core/hippocampal/module.py",
+      "target": "file:ree_core/utils/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:ree_core/hippocampal/staleness_accumulator.py",
+      "target": "file:ree_core/utils/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:ree_core/latent/stack.py",
+      "target": "file:ree_core/utils/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:ree_core/predictors/e1_deep.py",
+      "target": "file:ree_core/utils/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:ree_core/predictors/e2_fast.py",
+      "target": "file:ree_core/utils/config.py",
       "type": "imports",
       "direction": "forward",
       "weight": 0.7,
@@ -24031,6 +25553,22 @@
     {
       "source": "file:ree_core/utils/canonical_profile.py",
       "target": "file:ree_core/utils/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "file:ree_core/goal.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7,
+      "recoveredFromImportMap": true
+    },
+    {
+      "source": "file:ree_core/utils/config.py",
+      "target": "file:ree_core/neuromodulation/serotonin.py",
       "type": "imports",
       "direction": "forward",
       "weight": 0.7,
