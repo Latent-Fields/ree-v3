@@ -236,6 +236,7 @@ CREATE TABLE IF NOT EXISTS chip_ledger (
     urgency_history_json         TEXT,           -- JSON array
     resolution_note_history_json TEXT,           -- JSON array
     confirmer_verdict_json       TEXT,           -- JSON object
+    claim_note_history_json      TEXT,           -- JSON array (2026-09-15; additive migration in db.py)
     entry_json                   TEXT NOT NULL,
     updated_at                   TEXT NOT NULL
 );

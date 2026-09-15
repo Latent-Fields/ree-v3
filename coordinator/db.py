@@ -261,6 +261,7 @@ def _migrate_task_claim_chip_tables(conn):
             urgency_history_json         TEXT,
             resolution_note_history_json TEXT,
             confirmer_verdict_json       TEXT,
+            claim_note_history_json      TEXT,
             entry_json                   TEXT NOT NULL,
             last_rendered_json           TEXT,
             updated_at                   TEXT NOT NULL
@@ -322,6 +323,21 @@ def _migrate_task_claim_chip_tables(conn):
         if tcols and "last_rendered_json" not in tcols:
             conn.execute("ALTER TABLE %s ADD COLUMN last_rendered_json TEXT"
                          % table)
+    # Additive column (2026-09-15, chip-20260915-claimnote-history-
+    # coordinator-side): claim_note_history_json on chip_ledger. Same
+    # PRAGMA-guarded ALTER ADD COLUMN shape as last_rendered_json above --
+    # nullable, no rewrite, rows that predate it read as NULL (= no history),
+    # which is exactly what _chip_entry_from_row / the CLI's
+    # `claim_note_history` absent-key contract expect. The running
+    # ree-coordinator daemon is unaffected by the column appearing under it
+    # (its statements name their columns; SELECT * tolerates extras) -- only
+    # the history APPEND in try_claim_chip/unclaim_chip needs the restarted
+    # daemon, so the migration can land ahead of the restart safely.
+    ccols = {r[1] for r in conn.execute(
+        "PRAGMA table_info(chip_ledger)").fetchall()}
+    if ccols and "claim_note_history_json" not in ccols:
+        conn.execute("ALTER TABLE chip_ledger "
+                     "ADD COLUMN claim_note_history_json TEXT")
     cols = {r[1] for r in conn.execute(
         "PRAGMA table_info(task_claim_chip_drift_log)").fetchall()}
     if "n_claims_retired" not in cols:
@@ -520,7 +536,7 @@ def upsert_chip(conn, chip, now=None):
           resolved_at, resolved_by_session_id, resolution_note, resolution_note_auto,
           attached_by_session_id, attached_at, archived_json, prompt_history_json,
           urgency_history_json, resolution_note_history_json, confirmer_verdict_json,
-          entry_json, updated_at
+          claim_note_history_json, entry_json, updated_at
         ) VALUES (
           :chip_ref, :task_id, :session_id, :session_label, :title, :tldr, :prompt,
           :cwd, :origin, :kind, :urgency, :spawned_at, :origin_host, :origin_host_raw,
@@ -528,7 +544,7 @@ def upsert_chip(conn, chip, now=None):
           :resolved_at, :resolved_by_session_id, :resolution_note, :resolution_note_auto,
           :attached_by_session_id, :attached_at, :archived_json, :prompt_history_json,
           :urgency_history_json, :resolution_note_history_json, :confirmer_verdict_json,
-          :entry_json, :updated_at
+          :claim_note_history_json, :entry_json, :updated_at
         )
         ON CONFLICT(chip_ref) DO UPDATE SET
           task_id=excluded.task_id, session_id=excluded.session_id,
@@ -549,6 +565,7 @@ def upsert_chip(conn, chip, now=None):
           urgency_history_json=excluded.urgency_history_json,
           resolution_note_history_json=excluded.resolution_note_history_json,
           confirmer_verdict_json=excluded.confirmer_verdict_json,
+          claim_note_history_json=excluded.claim_note_history_json,
           entry_json=excluded.entry_json, updated_at=excluded.updated_at
         """,
         {
@@ -583,6 +600,7 @@ def upsert_chip(conn, chip, now=None):
             "urgency_history_json": _jd("urgency_history"),
             "resolution_note_history_json": _jd("resolution_note_history"),
             "confirmer_verdict_json": _jd("confirmer_verdict"),
+            "claim_note_history_json": _jd("claim_note_history"),
             "entry_json": entry_json,
             "updated_at": now,
         },
@@ -1404,6 +1422,7 @@ def _chip_entry_from_row(row):
     for col, key in (("prompt_history_json", "prompt_history"),
                      ("urgency_history_json", "urgency_history"),
                      ("resolution_note_history_json", "resolution_note_history"),
+                     ("claim_note_history_json", "claim_note_history"),
                      ("confirmer_verdict_json", "confirmer_verdict")):
         val = _jl(row[col])
         if val is not None:
@@ -1499,6 +1518,45 @@ def record_chip(conn, chip, now=None):
         return ("error", {})
 
 
+def _claim_note_history_after(row, new_note, superseded_at):
+    """The claim_note_history_json value to write alongside a claim_note
+    overwrite: the row's existing history plus ONE entry preserving the prior
+    note, appended iff that note is non-empty and would actually change.
+
+    PRESERVE, NEVER OVERWRITE SILENTLY (chip-20260910-claimnote-history-
+    preservation; server half chip-20260915-claimnote-history-coordinator-
+    side). claim_note is the CURRENT-claim field -- metaworker-dispatch Step
+    4a-bis reads it as a live discriminator, so its semantics do not move --
+    but until this helper a second claim, or an unclaim, replaced whatever
+    the previous holder wrote there with no trace. Measured 2026-09-10: 207
+    overwrites of notes >=80 chars in a 121-revision TASK_CHIPS.json sample,
+    48 erasing a real finding. The CLI's git path got the same fix on
+    2026-09-14 (REE_Working e0b4ef7a46), but under the coordinator-armed
+    default that git write is SUPPRESSED and this DB row is what the
+    materializer renders, so without this the common path still lost the
+    note. Entry shape is byte-for-byte the CLI's, so a history started on
+    either path continues on the other. Same load -> append -> dump idiom
+    as resolve_chip's resolution_note_history_json. Returns None when there
+    is still nothing to keep, so a never-overwritten chip never grows the
+    key (the CLI's absent-not-empty contract).
+    """
+    history = []
+    if row["claim_note_history_json"]:
+        try:
+            history = json.loads(row["claim_note_history_json"]) or []
+        except (TypeError, ValueError):
+            history = []
+    prior = row["claim_note"]
+    if prior and prior != new_note:
+        history.append({
+            "superseded_at": superseded_at,
+            "previous_note": prior,
+            "previous_claimed_by": row["claimed_by"],
+            "previous_claimed_at": row["claimed_at"],
+        })
+    return json.dumps(history) if history else None
+
+
 def try_claim_chip(conn, chip_ref=None, task_id=None, claimed_by=None,
                    claimed_host=None, note=None,
                    stale_hours=CHIP_CLAIM_STALE_HOURS_DEFAULT,
@@ -1548,11 +1606,16 @@ def try_claim_chip(conn, chip_ref=None, task_id=None, claimed_by=None,
         elif existing == claimed_by:
             note_prefix = "refreshed own claim -- "
         canon_host = canonical_machine_name(claimed_host) or claimed_host
+        new_note = note or ""
+        # Additive only: the mutex verdict above and claim_note's own
+        # semantics are untouched; see _claim_note_history_after.
+        history_json = _claim_note_history_after(row, new_note, stamp)
         conn.execute(
             "UPDATE chip_ledger SET claimed_by=?, claimed_at=?, claim_note=?, "
-            "claimed_host=?, claimed_host_raw=?, updated_at=? WHERE chip_ref=?",
-            (claimed_by, stamp, note or "", canon_host, claimed_host, now,
-             row["chip_ref"]))
+            "claimed_host=?, claimed_host_raw=?, claim_note_history_json=?, "
+            "updated_at=? WHERE chip_ref=?",
+            (claimed_by, stamp, new_note, canon_host, claimed_host,
+             history_json, now, row["chip_ref"]))
         entry = _reserialise_chip_row(conn, row["chip_ref"])
         conn.execute("COMMIT")
         return ("ok", {"chip_ref": row["chip_ref"], "claimed_at": stamp,
@@ -1577,11 +1640,16 @@ def unclaim_chip(conn, chip_ref=None, task_id=None, note=None, now=None):
             conn.execute("ROLLBACK")
             return ("not_found", {"chip_ref": chip_ref, "task_id": task_id})
         was = row["claimed_by"]
+        new_note = note or ""
+        # The OTHER call site that overwrote claim_note with no trace -- a
+        # dispatcher's release note commonly carries findings from the
+        # aborted attempt. See _claim_note_history_after.
+        history_json = _claim_note_history_after(row, new_note, now)
         conn.execute(
             "UPDATE chip_ledger SET claimed_by=NULL, claimed_at=NULL, "
             "claim_note=?, claimed_host=NULL, claimed_host_raw=NULL, "
-            "updated_at=? WHERE chip_ref=?",
-            (note or "", now, row["chip_ref"]))
+            "claim_note_history_json=?, updated_at=? WHERE chip_ref=?",
+            (new_note, history_json, now, row["chip_ref"]))
         entry = _reserialise_chip_row(conn, row["chip_ref"])
         conn.execute("COMMIT")
         return ("ok", {"chip_ref": row["chip_ref"], "was_claimed_by": was,

@@ -548,6 +548,207 @@ class TestChips(Base):
         self.assertEqual(verdict, "ok")
         self.assertIsNone(payload["was_claimed_by"])
 
+    # ---- claim_note_history: append, never silently overwrite (2026-09-15) --
+    # chip-20260910-claimnote-history-preservation gave the CLI's git path
+    # this on 2026-09-14 (REE_Working e0b4ef7a46, scripts/test_chip_ledger_
+    # claim.py); chip-20260915-claimnote-history-coordinator-side is this
+    # server half, because under the coordinator-armed default the git write
+    # is suppressed and THIS row is what the materializer renders. Same
+    # assertions as the client tests, applied to the DB verbs. claim_note
+    # stays the single CURRENT-claim field; the history is purely additive.
+
+    def test_second_claim_preserves_prior_note_in_history(self):
+        db.record_chip(self.conn, _chip("c1"), now=T0)
+        db.try_claim_chip(self.conn, chip_ref="c1", claimed_by="worker-a",
+                          claimed_host="DLAPTOP", claimed_at=T0, now=T0,
+                          note="first finding: the config knob does not exist")
+        verdict, payload = db.try_claim_chip(
+            self.conn, chip_ref="c1", claimed_by="worker-b",
+            claimed_host="ree-cloud-5", claimed_at=T_STALE, now=T_STALE,
+            note="second attempt")
+        self.assertEqual(verdict, "ok")
+        e = self.chip_entry("c1")
+        self.assertEqual(e["claim_note"], "second attempt")
+        history = e.get("claim_note_history")
+        self.assertIsNotNone(history, "the first claimant's note must be preserved")
+        self.assertEqual(len(history), 1)
+        self.assertEqual(history[0]["previous_note"],
+                         "first finding: the config knob does not exist")
+        self.assertEqual(history[0]["previous_claimed_by"], "worker-a")
+        self.assertEqual(history[0]["previous_claimed_at"], T0)
+        self.assertEqual(history[0]["superseded_at"], T_STALE)
+        # The ack's echoed entry is what the CLI trusts under suppression --
+        # it must carry the history too, exactly like resolution_note_history.
+        self.assertEqual(payload["entry"]["claim_note_history"], history)
+
+    def test_unclaim_preserves_prior_note_in_history(self):
+        db.record_chip(self.conn, _chip("c1"), now=T0)
+        db.try_claim_chip(self.conn, chip_ref="c1", claimed_by="worker-a",
+                          claimed_host="DLAPTOP", claimed_at=T0, now=T0,
+                          note="worktree X, pid 123 -- found the RED cause")
+        verdict, payload = db.unclaim_chip(self.conn, chip_ref="c1",
+                                           note="aborted", now=T1)
+        self.assertEqual(verdict, "ok")
+        e = self.chip_entry("c1")
+        self.assertEqual(e["claim_note"], "aborted")
+        self.assertIsNone(e["claimed_by"])
+        history = e.get("claim_note_history")
+        self.assertIsNotNone(history)
+        self.assertEqual(len(history), 1)
+        self.assertEqual(history[0]["previous_note"],
+                         "worktree X, pid 123 -- found the RED cause")
+        self.assertEqual(history[0]["previous_claimed_by"], "worker-a")
+        self.assertEqual(history[0]["previous_claimed_at"], T0)
+        self.assertEqual(history[0]["superseded_at"], T1)
+        self.assertEqual(payload["entry"]["claim_note_history"], history)
+
+    def test_first_claim_writes_no_history_entry(self):
+        """Nothing to preserve on a chip's first-ever claim -- no prior note,
+        so no history key at all (not even an empty list), and the column
+        stays NULL: the CLI's absent-not-empty contract."""
+        db.record_chip(self.conn, _chip("c1"), now=T0)
+        verdict, payload = db.try_claim_chip(
+            self.conn, chip_ref="c1", claimed_by="worker-a",
+            claimed_host="DLAPTOP", claimed_at=T0, now=T0, note="starting")
+        self.assertEqual(verdict, "ok")
+        self.assertNotIn("claim_note_history", self.chip_entry("c1"))
+        self.assertNotIn("claim_note_history", payload["entry"])
+        row = self.conn.execute(
+            "SELECT claim_note_history_json FROM chip_ledger "
+            "WHERE chip_ref='c1'").fetchone()
+        self.assertIsNone(row["claim_note_history_json"])
+
+    def test_reclaim_with_identical_note_does_not_grow_history(self):
+        """A retrying caller re-asserting the SAME note (a CAS retry, an
+        idempotent re-run) must not stack a redundant entry -- only an
+        actual CHANGE to claim_note is worth preserving."""
+        db.record_chip(self.conn, _chip("c1"), now=T0)
+        db.try_claim_chip(self.conn, chip_ref="c1", claimed_by="worker-a",
+                          claimed_host="DLAPTOP", claimed_at=T0, now=T0,
+                          note="same note")
+        verdict, _ = db.try_claim_chip(
+            self.conn, chip_ref="c1", claimed_by="worker-a",
+            claimed_host="DLAPTOP", claimed_at=T1, now=T1, note="same note")
+        self.assertEqual(verdict, "ok")
+        self.assertNotIn("claim_note_history", self.chip_entry("c1"))
+
+    def test_claim_note_history_accumulates_across_multiple_cycles(self):
+        """claim / unclaim / claim with distinct notes -> two preserved
+        entries, oldest first, nothing dropped, current note = the third."""
+        db.record_chip(self.conn, _chip("c1"), now=T0)
+        db.try_claim_chip(self.conn, chip_ref="c1", claimed_by="worker-a",
+                          claimed_host="DLAPTOP", claimed_at=T0, now=T0,
+                          note="note 1")
+        db.unclaim_chip(self.conn, chip_ref="c1", note="note 2", now=T1)
+        db.try_claim_chip(self.conn, chip_ref="c1", claimed_by="worker-b",
+                          claimed_host="DLAPTOP", claimed_at=T_STALE,
+                          now=T_STALE, note="note 3")
+        e = self.chip_entry("c1")
+        history = e["claim_note_history"]
+        self.assertEqual([h["previous_note"] for h in history],
+                         ["note 1", "note 2"])
+        self.assertEqual(history[0]["previous_claimed_by"], "worker-a")
+        self.assertIsNone(history[1]["previous_claimed_by"],
+                          "note 2 was written by the unclaim, held by nobody")
+        self.assertEqual(e["claim_note"], "note 3")
+
+    def test_a_refused_claim_leaves_the_history_untouched(self):
+        db.record_chip(self.conn, _chip("c1"), now=T0)
+        db.try_claim_chip(self.conn, chip_ref="c1", claimed_by="a",
+                          claimed_host="DLAPTOP", claimed_at=T0, now=T0,
+                          note="live finding")
+        verdict, _ = db.try_claim_chip(
+            self.conn, chip_ref="c1", claimed_by="b", claimed_host="DLAPTOP",
+            claimed_at=T1, now=T1, note="rival")
+        self.assertEqual(verdict, "already_claimed")
+        e = self.chip_entry("c1")
+        self.assertEqual(e["claim_note"], "live finding")
+        self.assertNotIn("claim_note_history", e)
+
+    def test_git_path_history_round_trips_and_continues_on_the_db_path(self):
+        """A degraded (unreachable-hub) session writes claim_note_history on
+        the git path; the shadow-sync ingests it. It must land in the column
+        (not merely ride along in entry_json as an unmodelled key) so a later
+        coordinator-path claim APPENDS to it rather than starting over."""
+        git_history = [{"superseded_at": T0, "previous_note": "from git",
+                        "previous_claimed_by": "git-sess",
+                        "previous_claimed_at": T0}]
+        entry = _chip("c1", claimed_by="git-sess-2", claimed_at=T0,
+                      claim_note="second on git",
+                      claim_note_history=git_history)
+        db.upsert_chip(self.conn, entry, now=T0)
+        row = self.conn.execute(
+            "SELECT claim_note_history_json FROM chip_ledger "
+            "WHERE chip_ref='c1'").fetchone()
+        self.assertEqual(json.loads(row["claim_note_history_json"]),
+                         git_history)
+        self.assertEqual(self.chip_entry("c1")["claim_note_history"],
+                         git_history)
+        db.try_claim_chip(self.conn, chip_ref="c1", claimed_by="db-sess",
+                          claimed_host="DLAPTOP", claimed_at=T_STALE,
+                          now=T_STALE, note="third on db")
+        history = self.chip_entry("c1")["claim_note_history"]
+        self.assertEqual([h["previous_note"] for h in history],
+                         ["from git", "second on git"])
+        self.assertEqual(history[1]["previous_claimed_by"], "git-sess-2")
+
+    def test_claim_note_history_column_is_migrated_onto_a_live_table(self):
+        """The hub's DB predates the column. connect() must ADD it (nullable,
+        no rewrite) and a pre-existing claimed row must keep every field and
+        then get its note preserved on the next overwrite -- the additive
+        migration contract of _migrate_task_claim_chip_tables."""
+        path = os.path.join(self.tmp, "premigration.db")
+        raw = sqlite3.connect(path)
+        raw.execute(
+            "CREATE TABLE chip_ledger ("
+            " chip_ref TEXT PRIMARY KEY, task_id TEXT,"
+            " session_id TEXT NOT NULL DEFAULT '',"
+            " session_label TEXT NOT NULL DEFAULT '',"
+            " title TEXT NOT NULL DEFAULT '', tldr TEXT NOT NULL DEFAULT '',"
+            " prompt TEXT, cwd TEXT NOT NULL DEFAULT '', origin TEXT, kind TEXT,"
+            " urgency INTEGER NOT NULL DEFAULT 0,"
+            " spawned_at TEXT NOT NULL DEFAULT '', origin_host TEXT,"
+            " origin_host_raw TEXT, status TEXT NOT NULL DEFAULT 'open',"
+            " claimed_by TEXT, claimed_at TEXT, claim_note TEXT,"
+            " claimed_host TEXT, claimed_host_raw TEXT, resolved_at TEXT,"
+            " resolved_by_session_id TEXT, resolution_note TEXT,"
+            " resolution_note_auto INTEGER NOT NULL DEFAULT 0,"
+            " attached_by_session_id TEXT, attached_at TEXT, archived_json TEXT,"
+            " prompt_history_json TEXT, urgency_history_json TEXT,"
+            " resolution_note_history_json TEXT, confirmer_verdict_json TEXT,"
+            " entry_json TEXT NOT NULL, last_rendered_json TEXT,"
+            " updated_at TEXT NOT NULL)")
+        old = _chip("c-old", claimed_by="old-sess", claimed_at=T0,
+                    claim_note="pre-migration finding")
+        raw.execute(
+            "INSERT INTO chip_ledger (chip_ref, prompt, spawned_at, status,"
+            " claimed_by, claimed_at, claim_note, entry_json, updated_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?)",
+            ("c-old", old["prompt"], T0, "open", "old-sess", T0,
+             "pre-migration finding", json.dumps(old), T0))
+        raw.commit()
+        raw.close()
+        conn = db.connect(path)
+        try:
+            cols = {r[1] for r in conn.execute(
+                "PRAGMA table_info(chip_ledger)").fetchall()}
+            self.assertIn("claim_note_history_json", cols)
+            row = conn.execute("SELECT * FROM chip_ledger WHERE chip_ref='c-old'"
+                               ).fetchone()
+            self.assertIsNone(row["claim_note_history_json"])
+            self.assertEqual(row["claim_note"], "pre-migration finding")
+            verdict, payload = db.try_claim_chip(
+                conn, chip_ref="c-old", claimed_by="new-sess",
+                claimed_host="DLAPTOP", claimed_at=T_STALE, now=T_STALE,
+                note="post-migration")
+            self.assertEqual(verdict, "ok")
+            history = payload["entry"]["claim_note_history"]
+            self.assertEqual(history[0]["previous_note"],
+                             "pre-migration finding")
+            self.assertEqual(history[0]["previous_claimed_by"], "old-sess")
+        finally:
+            conn.close()
+
     def test_resolve_marks_done(self):
         db.record_chip(self.conn, _chip("c1"), now=T0)
         verdict, payload = db.resolve_chip(
