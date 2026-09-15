@@ -1021,32 +1021,66 @@ def _upstream_ref(repo_path: Path) -> str:
     return ref if r.returncode == 0 and ref else "origin/master"
 
 
+# Fields governance review rewrites IN PLACE on an already-landed manifest --
+# same list as REE_assembly/scripts/runner_git_health.py's GOVERNANCE_OWNED_FIELDS
+# (that module explicitly claims this predicate is "the same predicate";
+# chip-20260903-prepull-grader-changed-field, 2026-09-15). Confirmed by mining
+# 347 governance/autopsy commits that modified (not just added) evidence/
+# experiments/ files: evidence_direction changes value 235x (flat)/174x
+# (pack) -- e.g. worker-self-routed "mixed" -> reviewed "non_contributory"
+# (the 2026-07-30 ree-cloud-4 case this docstring already cites) -- and its
+# siblings below change alongside it. Mirrors REE_assembly's
+# _FLAT_AUTHORITATIVE_FIELDS (direction-relevant subset; the provenance-only
+# entries there -- substrate_hash, label_balance, substrate_commit* -- are
+# deliberately NOT included, since this predicate has no evidence they ever
+# change value on a manifest). Every other key keeps strict equality: this
+# must not become a blanket tolerance for changed values.
+_GOVERNANCE_OWNED_FIELDS = frozenset((
+    "evidence_direction",
+    "evidence_direction_per_claim",
+    "evidence_direction_note",
+    "epistemic_category",
+    "non_degenerate",
+    "non_degenerate_per_claim",
+    "degeneracy_reason",
+    "superseded_by",
+    "superseded_by_substrate",
+    "superseded_by_substrate_per_claim",
+    "pending_retest_after_substrate",
+    "pending_retest_after_substrate_per_claim",
+))
+
+
 def _json_content_contained(inner: bytes, outer: bytes) -> bool:
     """True only when `outer` PROVABLY already carries everything in `inner`.
 
     Two ways to prove it, in order of strength:
       1. Byte-identical.
       2. Both sides parse as JSON objects and `outer` is a SUPERSET -- every
-         key present in `inner` is present in `outer` with an equal value.
-         This is the normal shape for a run manifest that the hub writer has
-         already committed: the landed copy adds `machine`,
+         key present in `inner` is present in `outer` with an equal value,
+         EXCEPT for _GOVERNANCE_OWNED_FIELDS, where a changed value is
+         tolerated. This is the normal shape for a run manifest that the hub
+         writer has already committed: the landed copy adds `machine`,
          `evidence_direction*`, `queue_id` etc. on top of what the worker
-         wrote.
+         wrote, and governance review changes `evidence_direction` etc. in
+         place on top of what the worker wrote.
 
-    Anything else -- unreadable, non-JSON and not byte-identical, or any key
-    whose value differs -- is NOT contained.
+    Anything else -- unreadable, non-JSON and not byte-identical, a key
+    `outer` lacks, or a non-governance-owned key whose value differs -- is
+    NOT contained.
 
     CONTAINMENT, NOT EQUALITY, is the right predicate, and the difference is
     load-bearing rather than a convenience. A run whose landed manifest has
     been through governance review carries a reviewer note, an
     `epistemic_category`, and often a CHANGED `evidence_direction` (observed
     2026-07-30 on ree-cloud-4: the worker self-routed "mixed", the reviewed
-    copy on origin says "non_contributory"). Under an equality test every
-    reviewed run's entry would be unretirable forever -- which is exactly the
-    permanent-backlog defect this predicate exists to end. Under containment
-    the reviewed copy is a strict superset and the entry retires cleanly,
-    while a stash holding a key or value the landed copy LACKS still fails,
-    which is the case that must never be auto-retired.
+    copy on origin says "non_contributory"). Under a plain equality test
+    every reviewed run's entry would be unretirable forever -- which is
+    exactly the permanent-backlog defect this predicate exists to end. Under
+    containment the reviewed copy is a strict superset (up to the governed
+    fields) and the entry retires cleanly, while a stash holding a key the
+    landed copy LACKS, or a non-governed value the landed copy disagrees
+    with, still fails -- which is the case that must never be auto-retired.
     """
     if inner == outer:
         return True
@@ -1058,7 +1092,9 @@ def _json_content_contained(inner: bytes, outer: bytes) -> bool:
     if not isinstance(inner_obj, dict) or not isinstance(outer_obj, dict):
         return False
     for k, v in inner_obj.items():
-        if k not in outer_obj or outer_obj[k] != v:
+        if k not in outer_obj:
+            return False
+        if outer_obj[k] != v and k not in _GOVERNANCE_OWNED_FIELDS:
             return False
     return True
 

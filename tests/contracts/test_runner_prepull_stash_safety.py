@@ -1005,6 +1005,56 @@ def test_c11_containment_predicate_is_directional_and_not_vacuous():
     assert not contained(j([1, 2]), j([1, 2, 3]))    # lists are not objects
 
 
+def test_c11_containment_tolerates_a_changed_governance_field(
+        origin_and_clone, capsys):
+    """chip-20260903-prepull-grader-changed-field: the confirmed false
+    positive. A governance-owned field (evidence_direction) CHANGES value
+    between the worker's write and the reviewed landed copy -- not merely
+    gains a sibling note -- and containment must still hold.
+
+    This is the exact V3-EXQ-571c shape: stash says "diagnostic", the
+    governance-reviewed origin copy says "non_contributory". Every other
+    key is unchanged. Before the fix, is_superset/_json_content_contained
+    required strict equality on this SHARED key and graded it at_risk
+    forever; after the fix it retires cleanly.
+    """
+    j = lambda d: (json.dumps(d)).encode()   # noqa: E731
+    contained = experiment_runner._json_content_contained
+
+    assert contained(
+        j({"a": 1, "evidence_direction": "diagnostic"}),
+        j({"a": 1, "evidence_direction": "non_contributory",
+           "queue_id": "V3-EXQ-571c",
+           "evidence_direction_note": "reviewed"}),
+    ), "a changed GOVERNANCE-OWNED field must not defeat containment"
+
+    # Negative control: an ORDINARY (non-governance) field that changes
+    # value must still be rejected -- this predicate must not become a
+    # blanket tolerance for any changed value.
+    assert not contained(
+        j({"a": 1, "evidence_direction": "diagnostic"}),
+        j({"a": 2, "evidence_direction": "non_contributory"}),
+    ), "a changed ORDINARY field must still defeat containment"
+
+    # Integration-level: the full stash-restore path retires this entry.
+    _, clone = origin_and_clone
+    rel = "evidence/experiments/v3_exq_927_changed_dir_20260730T000000Z_v3.json"
+    _stash_one(clone, rel, {"run_id": "v3_exq_927",
+                            "evidence_direction": "diagnostic"})
+    _relay(clone, rel, {"run_id": "v3_exq_927",
+                        "evidence_direction": "non_contributory",
+                        "queue_id": "V3-EXQ-927",
+                        "evidence_direction_note": "reviewed"})
+
+    experiment_runner._postpull_restore_prepull_stash(clone, "REE_assembly")
+    out = capsys.readouterr().out
+
+    assert _n_prepull(clone) == 0, (
+        f"a changed-governance-field entry must retire, not linger: {out}"
+    )
+    assert "retired redundant prepull stash" in out
+
+
 def test_c11_non_collision_failure_is_never_retired(origin_and_clone):
     """Only the collision shape is eligible; other failures keep the entry."""
     ok = subprocess.CompletedProcess(
