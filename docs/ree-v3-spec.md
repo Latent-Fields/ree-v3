@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-09-14 (T03:37Z nightly)
+**Last updated:** 2026-09-15 (T01:10Z nightly)
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -237,6 +237,139 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 
 ### Experiment Status
 
+- **2026-09-15T01:10Z nightly attestation (scheduled `/update-docs`, bot
+  identity).** ~21.5h window since the 2026-09-14T03:37Z snapshot -- a
+  substantive band (first non-brief nightly in three days). Flat
+  `v3_exq_*` manifests on disk: **1016** (+10 vs 1006 at
+  2026-09-14T03:37Z); nested per-run manifests under
+  `evidence/experiments/*/runs/`: **2956** (+10 vs 2946). **Currently
+  queued (`experiment_queue.json` items[]): 2 items** -- V3-EXQ-1039
+  (INV-086/MECH-428 waypoint-consumer-reach) and V3-EXQ-935a; drained
+  from 0 as two proposals landed in-window. **Pending review
+  (`pending_review.md`, regenerated 2026-09-14T23:45:13Z): 12 items**
+  (8 PASS, 4 FAIL) -- the "regenerate `pending_review.md`" carry-forward
+  from the last two nightlies has now been executed, and the surfaced
+  backlog includes 1 diagnostic self-route flagged for adjudication
+  and 8 diagnostic runs with no confirmed autopsy. Coordinator-DB
+  30-day rolling (per `experiment_error_rate.py` against the hub
+  `ree@91.98.130.117`, span 2026-08-16T22:29:00Z ..
+  2026-09-15T00:33:20Z): **62 PASS / 52 FAIL / 2 ERROR, ERROR rate 1.7%
+  (2 / 116 classified runs)** -- 7 new PASS in-window, no new FAIL or
+  ERROR outcomes. (a) **NO new substrate landings in the window** --
+  SD-106 (2026-09-11) remains the most recent substrate; no substrate
+  landings, no ratified amends, no `substrate_queue.json` additions
+  between 2026-09-14T03:37Z and this snapshot. (b) **7 new PASS
+  completions in the window**: v3_exq_1025 (MECH-349 CRF churn
+  retirement), v3_exq_1026 (MECH-423 sleep-integrated E2 consolidation,
+  diagnostic), v3_exq_861i (INV-050/MECH-180 commit attribution
+  pinned-confirmation, diagnostic), v3_exq_1029 (SD-082 selection
+  authority readout consequence), v3_exq_1037 (SD-075 phasic EMA
+  episode continuity validation), v3_exq_1038 (ARC-131 coalition
+  endogenous recruitment rate probe, diagnostic), v3_exq_1012a (MECH-439
+  E3 commensurability selection-level regime validation, diagnostic),
+  v3_exq_1028 (SD-082 learning signal extended budget). Two FAIL
+  completions: v3_exq_1030 (INV-086/MECH-428 waypoint-field z_world
+  decodability, diagnostic; self-route `substrate_not_ready_requeue`
+  is FLAGGED `precondition_unmet`) and v3_exq_1027 (SD-082 replay own
+  rule state credit assignment). (c) **THREE staging-mode
+  `/failure-autopsy` drafts landed** on `REE_assembly` master 2026-09-15
+  from `autopsy-staging-trio-20260914` (metaworker-orchestrator dispatch
+  2026-09-14T23:35Z): V3-EXQ-1030 (INV-086/MECH-428, `REE_assembly`
+  `6f8be51072` -- readiness R3 mis-specified; first quantified cost of
+  the SD-070 sense() pre-projection at +0.10 in 8/10 cells -> substrate
+  create recommendation; H2 stays alive), V3-EXQ-1038 (ARC-131,
+  `REE_assembly` `0b9821e643` -- only load-bearing criterion is the
+  guaranteed-fire readiness control, PASS unconditional; per-seed
+  median E3 margin spans 609x -> routing V3-EXQ-1038a + amend SD-091),
+  V3-EXQ-1012a (MECH-439, `REE_assembly` `53952045a4` -- RE-DERIVE
+  BRAKE FIRES (15 hits vs threshold 2), same-claim re-queue REFUSED;
+  `evidence_direction: "diagnostic"` re-inferred as `supports` in
+  `claim_evidence.v1.json`, protected only by `scoring_excluded` --
+  URGENT for governance). All three `status:
+  awaiting_human_confirmation`; routing NOT finalised; Step 8
+  interactive gate OWED on each; nothing marked reviewed;
+  `claims.yaml`, `substrate_queue.json`, `review_tracker.json`,
+  `experiment_queue.json`, `hypothesis_space_registry.v1.json`
+  untouched; no follow-on chips spawned (CLAUDE.md: an autopsy does
+  not chip its own routing). (d) **Science batch 1
+  (`orchestrate-20260914-2323`) landed 1 built experiment and refused 2
+  with measurements**: V3-EXQ-1040 (SD-077 centered super-ordinal cue
+  key, EXP-1186/EVB-1662) script complete + validated + smoke PASS +
+  red-team CONTESTED-and-dispositioned, but NOT LANDED (queue write
+  gated by governance-20260915 exact-file pause on
+  `experiment_queue.json` since 2026-09-14T23:38:23Z); V3-EXQ-1041
+  (MECH-465 P2 LLRR probe) REFUSED at red-team (pre-registered FAIL
+  disposition cannot discriminate at lineage-window ~1200 scored ticks;
+  sizing search showed the negative half needs ~13x the lineage window
+  and is still only ~70% reliable); ARC-046 infant z_goal reachability
+  probe REFUSED at Step 2.4/2.5 before ~27h of cloud compute (12-episode
+  measurement showed ecological benefit `ob[11]` maxes at 0.0382 <<
+  0.1 gate; ARC-046 is complicated (buildable) -> `/implement-substrate`,
+  not another experiment). EXP-1390 / ARC-057 NOT STARTED (batch stop
+  rule fired after 2 of 4 refusals). (e) **Bundle A-F session-close
+  work landed in the window** (all under `orchestrate-20260914-2323`):
+  bundleA umbrella-scripts (3 chips curated -- `chip-20260910-claimnote-history-preservation`
+  client half landed `REE_Working` `e0b4ef7a46`; server-side half
+  chipped as `chip-20260915-claimnote-history-coordinator-side`);
+  bundleB reev3-hygiene (3 chips -- committed_driver_names() filter
+  `ree-v3` `3f9af5d3c3`, mid-run heartbeat drain state helper `ree-v3`
+  `065a2c9ea1`, ree-cloud-2 calibration figures re-derived `ree-v3`
+  `187a63b80c`); bundleD assembly-tests (12/19 test reds fixed on
+  REE_assembly master `05962ac103` + `bb891ea291`; 7 evidence/**
+  reds chipped as `chip-20260914-ree-assembly-remaining-evidence-reds`);
+  bundleE planning-docs (CCI ledger reconcile `REE_assembly` `0981e20ea1`;
+  DEA-001 v3-channel exposure audit `REE_assembly` `633927e505`);
+  bundleF re-derive brake instrument-exclusion enum-mismatch fixed
+  (`ree-v3` `048ccfba32` + `REE_Working` `8712483f15`, GOV-HELDOUT-1
+  clean; MECH-220 / MECH-027 / INV-044 drop below the brake threshold
+  per user-confirmed consequence). (f) **Token-split baseline
+  double-count fix landed** (`REE_assembly` master `e785549c481` from
+  `cranky-mestorf-85a0e9`) -- excludes baseline-restating transcript
+  attachments from `C_i`; `context_budget_restructure_plan.md` 7.4
+  item (1) done. (g) **MECH-428 C1 build under the parked cloud-5
+  worker** (headless session `28329758-...`, dispatched via the
+  Orchestrator decision lane 2026-09-14T22:10Z user ratification):
+  V3-EXQ-884b (P0-conditioned content-DV redesign) built + calibrated
+  but REFUSED at `/queue-experiment` Step 4.5 red-team as BLOCKING (4
+  findings; C1' unpassable by construction, encoder-resolution limit
+  mis-attribution, G3 fails its own label-permutation null 96% of the
+  time, root cause F4 -- credited z_world sensed AFTER agent-position
+  marker overwrites waypoint cell). Landed: `ree-v3` `fc452333e2`
+  (driver parked to `experiments/_scratch/`), `REE_assembly`
+  `064df491da` (findings + two candidate fix directions). Chipped:
+  `chip-20260914-mech428-c1-redesign-v2-attained-signature`. Original
+  chip `chip-20260911-mech428-c1-build-post-ratification` resolved
+  done (build+review completed; queuing correctly refused, not
+  skipped). (h) **`/session-land` on `eloquent-jepsen-5f6242`** landed
+  `REE_assembly` master `7532b4282a` (ree-v3 nested_memory trigger
+  drop findings doc + `context_budget_restructure_plan` sec 7 pointer;
+  drop is a channel change, not a harness change). This attestation
+  itself is the last content change: `docs/ree-v3-spec.md` §0 date bump
+  + Experiment Status entry, and this `docs/roadmap.md` snapshot.
+  **Bottleneck: unchanged in location, sharpened by the three staging
+  autopsies** -- convergence root remains the H-observation-interface
+  axis; SD-106 stays IMPLEMENTED-and-partially-validated under
+  `preservation_weight=200.0` + world-encoder skip; V3-EXQ-1030's
+  autopsy adds a NEW SD-070 sense() pre-projection substrate lever
+  (+0.10 z_world decodability gain in 8/10 cells) that becomes an
+  independent create-recommendation. Next scientific move (still owed
+  to `/failure-autopsy` on V3-EXQ-1023 and to the Step 8 gate on the
+  three staging drafts): (i) shape-(b) side-channel routing past
+  z_world, (ii) `preservation_weight` sweep beyond 200.0, (iii)
+  SD-070 sense() pre-projection substrate as an orthogonal H-observation
+  lever, or (iv) portfolio. Green-board target 2026-07-19 is now
+  **58 days overdue**. **URGENT for governance (raised by the
+  V3-EXQ-1012a staging autopsy):** `evidence_direction: "diagnostic"`
+  is outside the indexer's allowed set and is re-inferred as
+  `supports` -- MECH-439 is currently recorded in
+  `claim_evidence.v1.json` as `supports/0.75/verified` from V3-EXQ-1012a,
+  protected only by `scoring_excluded`. **ETHICS-PERIMETER Phase 0
+  datum** stays on the record (Phases 1-3 deferred; NON-BLOCKING).
+  Public-information-architecture impact: reviewed against
+  `docs/design/public_information_architecture.md` -- no `/api/*`
+  surface, generated visualization, or public export changed; nightly
+  snapshot + spec date bump + Experiment Status entry only; no SD
+  table rows added, moved, or restatused.
 - **2026-09-14T03:37Z nightly attestation (scheduled `/update-docs`, bot
   identity).** ~18.5h window since the 2026-09-13T09:07Z snapshot -- a
   near-zero-delta band, brief attestation only. Flat `v3_exq_*` manifests
