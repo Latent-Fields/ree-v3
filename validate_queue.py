@@ -666,14 +666,49 @@ def _find_planning_dir() -> "Path | None":
     return None
 
 
-def _read_ree_v3_claude_md() -> str:
-    """Read ree-v3/CLAUDE.md text; '' (fail-soft) if it cannot be read."""
+def _ree_v3_claude_md_path() -> "Path | None":
+    """The first readable ree-v3/CLAUDE.md candidate, or None (fail-soft)."""
     for cand in _REE_V3_CLAUDE_MD_CANDIDATES:
         try:
             if cand.is_file():
-                return cand.read_text(encoding="utf-8", errors="ignore")
+                return cand
         except OSError:
             continue
+    return None
+
+
+def _read_ree_v3_claude_md() -> str:
+    """Read ree-v3/CLAUDE.md text; '' (fail-soft) if it cannot be read."""
+    cand = _ree_v3_claude_md_path()
+    if cand is None:
+        return ""
+    try:
+        return cand.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return ""
+
+
+# Per-feature substrate records live under ree-v3/docs/substrate/ since the
+# 2026-09-07 index reflow (89907e3e1c); only links into that directory are
+# followed by _substrate_is_built, and never a path that climbs out of it.
+_SUBSTRATE_DOC_PREFIX = "docs/substrate/"
+
+
+def _read_substrate_doc(rel_path: str) -> str:
+    """Read a per-feature substrate record linked from the CLAUDE.md index,
+    resolved against the directory of the CLAUDE.md that was read; '' (fail-soft)
+    when the link is not a docs/substrate/ path or the file cannot be read."""
+    if not rel_path.startswith(_SUBSTRATE_DOC_PREFIX) or ".." in rel_path.split("/"):
+        return ""
+    base = _ree_v3_claude_md_path()
+    if base is None:
+        return ""
+    try:
+        target = base.parent / rel_path
+        if target.is_file():
+            return target.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        pass
     return ""
 
 
@@ -921,22 +956,108 @@ def _upstream_substrate_from_target(target: dict) -> str:
     return ""
 
 
-def _substrate_is_built(substrate_id: str, claude_md_text: str) -> bool:
-    """True iff `substrate_id` appears on a SINGLE ree-v3/CLAUDE.md line that also
-    carries IMPLEMENTED or VALIDATED -- the brake-release condition.
+# The thin substrate feature index (ree-v3/CLAUDE.md "## Substrate feature index",
+# since 89907e3e1c 2026-09-07) has two entry shapes, both top-level bullets:
+#   - **[SD-078](docs/substrate/SD-078-....md)** -- <title> -- IMPLEMENTED (date)   (1 record)
+#   - **MECH-027** -- 2 records, ~2,443 tok total.                                 (N records)
+#       - [<record title>](docs/substrate/MECH-027-....md) *(~1,159 tok)*
+# The separator after the id is an em-dash in the generated file; the regex does
+# not depend on it. Group (1) is the id, whichever shape matched.
+_SUBSTRATE_INDEX_ENTRY_RE = re.compile(r"^- \*\*(?:\[([^\]\s]+)\]\([^)\s]*\)|([^*\s]+))\*\*")
+_SUBSTRATE_DOC_LINK_RE = re.compile(r"\]\((" + re.escape(_SUBSTRATE_DOC_PREFIX) + r"[^)\s]+)\)")
 
-    Same-line (not windowed) is deliberate: CLAUDE.md status declarations put the id
-    and its IMPLEMENTED/VALIDATED token on one physical line ('- SD-058 ... -- IMPLEMENTED'),
-    while a windowed match would falsely clear e.g. 'f_dominance_conversion_ceiling'
-    off a NEARBY but unrelated 'natural_commit_occupancy_release -- IMPLEMENTED' header.
-    The id is matched as a standalone token so 'MECH-448' does not match 'MECH-4480'."""
+
+def _substrate_index_entry(substrate_id: str, lines: "list[str]") -> "list[str] | None":
+    """The index entry for `substrate_id`: its header line plus the indented lines
+    that follow it (a group's record sub-bullets, or a wrapped single entry), up to
+    the next unindented line. None when the id has no entry of its own."""
+    for i, line in enumerate(lines):
+        m = _SUBSTRATE_INDEX_ENTRY_RE.match(line)
+        if m is None or (m.group(1) or m.group(2)) != substrate_id:
+            continue
+        block = [line]
+        j = i + 1
+        while j < len(lines) and lines[j][:1] in (" ", "\t"):
+            block.append(lines[j])
+            j += 1
+        return block
+    return None
+
+
+def _logical_lines(text: str) -> "list[str]":
+    """Markdown logical lines: a line followed by indented continuation lines is
+    one statement. A per-feature record's status bullet can wrap
+    ('- SD-022 ...: environment.scheduled_limb_damage_curriculum\n  -- IMPLEMENTED 2026-05-30.'),
+    and joining the continuation is bounded by markdown structure -- it is not a
+    proximity window over neighbouring, unrelated bullets."""
+    out: "list[str]" = []
+    for line in text.splitlines():
+        if out and line[:1] in (" ", "\t") and out[-1].strip():
+            out[-1] = out[-1] + " " + line.strip()
+        else:
+            out.append(line)
+    return out
+
+
+def _line_declares_built(line: str, id_pat: "re.Pattern[str]") -> bool:
+    return ("IMPLEMENTED" in line or "VALIDATED" in line) and id_pat.search(line) is not None
+
+
+def _substrate_is_built(
+    substrate_id: str,
+    claude_md_text: str,
+    doc_reader: "Callable[[str], str] | None" = None,
+) -> bool:
+    """True iff `substrate_id` is declared IMPLEMENTED or VALIDATED on a single
+    line of ITS OWN substrate record -- the brake-release condition.
+
+    Where the record lives depends on the CLAUDE.md shape:
+
+    * Thin index (since 89907e3e1c, 2026-09-07): the id has an entry in the
+      "## Substrate feature index" (see _SUBSTRATE_INDEX_ENTRY_RE). The entry is
+      the header line plus its indented sub-bullets, and the status tokens mostly
+      live in the linked docs/substrate/ per-feature records, so those are read
+      too (via `doc_reader`, default _read_substrate_doc). Built iff some
+      physical line of the entry, or some logical line (bullet + indented
+      continuation, _logical_lines) of a linked record, carries the id token AND
+      IMPLEMENTED/VALIDATED. A grouped multi-record entry counts as built when
+      any one of its records does -- the same "any declaring line" semantics the
+      flat file had. Nothing OUTSIDE the entry is consulted: a co-mention of the
+      id on another substrate's line ('... successor shape to SD-018) --
+      IMPLEMENTED', SD-106's entry) is that substrate's status, not this one's.
+      Confirmed 2026-09-15 against the real index: the reflow had flipped 83 of
+      156 ids from built to unbuilt (SD-011 among them); entry-scoped scanning
+      restores 81, and the two it does not (MECH-358, whose own record says
+      SCAFFOLDED and whose old hit was a co-mention on SD-059's line; SD-022
+      before the wrapped-bullet join) are decided by their own records.
+
+    * Flat file (pre-reflow, and the body lines the index does not cover): no
+      entry for the id, so fall back to the original rule -- the id and the
+      token on one physical line anywhere in the file. Same-line, not windowed,
+      is deliberate: a windowed match would falsely clear e.g.
+      'f_dominance_conversion_ceiling' off a NEARBY but unrelated
+      'natural_commit_occupancy_release -- IMPLEMENTED' header.
+
+    The id is matched as a standalone token so 'MECH-448' does not match
+    'MECH-4480', and 'SD-018' does not match the link path 'SD-018-amend-...'
+    (a trailing hyphen is a boundary violation on purpose: the path is followed,
+    not pattern-matched)."""
     if not substrate_id or not claude_md_text:
         return False
     id_pat = re.compile(r"(?<![\w-])" + re.escape(substrate_id) + r"(?![\w-])")
-    for line in claude_md_text.splitlines():
-        if ("IMPLEMENTED" in line or "VALIDATED" in line) and id_pat.search(line):
+    lines = claude_md_text.splitlines()
+    entry = _substrate_index_entry(substrate_id, lines)
+    if entry is not None:
+        if any(_line_declares_built(line, id_pat) for line in entry):
             return True
-    return False
+        read = doc_reader if doc_reader is not None else _read_substrate_doc
+        for line in entry:
+            for rel in _SUBSTRATE_DOC_LINK_RE.findall(line):
+                doc = read(rel)
+                if doc and any(_line_declares_built(l, id_pat) for l in _logical_lines(doc)):
+                    return True
+        return False
+    return any(_line_declares_built(line, id_pat) for line in lines)
 
 
 def _type_name(t) -> str:
