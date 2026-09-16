@@ -203,6 +203,39 @@ def test_evaluate_fleet_lifecycle_hub_runner_retired():
     assert "ree-cloud-3=stale" in msg
 
 
+def test_wake_fleet_needed_set_matches_lifecycle_peers():
+    """deploy/phase3_wake_fleet.sh polls /shadow/status until every machine
+    in its embedded `cloud_needed` set is `live`. That set is a second copy
+    of the cloud subset of EXPECTED_LIFECYCLE_PEERS and drifted once: the
+    retired hub runner (ree-cloud-1, 2026-08-30) was dropped from the peer
+    tuple on 2026-09-16 but stayed in the wake script, so a re-cutover wake
+    would have waited on it indefinitely. Pin the two lists together."""
+    import re
+    sys.path.insert(0, str(HERE))
+    try:
+        from phase3_preflight import EXPECTED_LIFECYCLE_PEERS  # noqa: E402
+    finally:
+        sys.path.pop(0)
+
+    wake = HERE / "deploy" / "phase3_wake_fleet.sh"
+    text = wake.read_text(encoding="utf-8")
+    matches = re.findall(r"^cloud_needed = \{([^}]*)\}\s*$", text, re.M)
+    assert len(matches) == 1, (
+        "expected exactly one `cloud_needed = {...}` line in %s, found %d"
+        % (wake, len(matches)))
+    needed = set(re.findall(r"'([^']+)'", matches[0]))
+    assert needed, "cloud_needed parsed as empty -- regex out of sync?"
+
+    expected = {p for p in EXPECTED_LIFECYCLE_PEERS
+                if p.startswith("ree-cloud-")}
+    assert needed == expected, (
+        "phase3_wake_fleet.sh cloud_needed %s != cloud subset of "
+        "EXPECTED_LIFECYCLE_PEERS %s -- keep the two in step"
+        % (sorted(needed), sorted(expected)))
+    assert "ree-cloud-1" not in needed, (
+        "ree-cloud-1 (the retired hub runner) must not be in cloud_needed")
+
+
 def test_local_modes_do_not_need_coordinator_env():
     """--mock and --dry-run must work on a host with no coordinator.env.
 
@@ -649,6 +682,7 @@ if __name__ == "__main__":
             test_cutover_window_implies_pre_cutover,
             test_post_cutover_pinned_catches_a_regressed_hub,
             test_fleet_lifecycle_stays_blocking_in_every_stage,
+            test_wake_fleet_needed_set_matches_lifecycle_peers,
             test_stage_falls_back_to_the_local_writer_flag_when_hub_unprobed,
             test_json_carries_stage_and_blocking_fields,
             test_cutover_window_and_post_cutover_are_rejected,

@@ -113,7 +113,7 @@ echo
 echo "=== Step 3: poll /shadow/status for lifecycle=live ==="
 if [[ "$DRY_RUN" -eq 1 ]]; then
   echo "DRY-RUN: would poll $COORDINATOR_URL/shadow/status every ${POLL_INTERVAL}s"
-  echo "         until ree-cloud-1..4 + the Mac (any DLAPTOP/DLAPTOP-N.local alias) show lifecycle_state=live"
+  echo "         until ree-cloud-2..4 + the Mac (any DLAPTOP/DLAPTOP-N.local alias) show lifecycle_state=live"
   echo "         (timeout ${TIMEOUT_SECONDS}s); skipping in dry-run"
   exit 0
 fi
@@ -145,7 +145,11 @@ while true; do
   if ! PENDING=$(echo "$SNAPSHOT" | "$PYTHON" -c "
 import json, sys
 d = json.load(sys.stdin)
-cloud_needed = {'ree-cloud-1','ree-cloud-2','ree-cloud-3','ree-cloud-4'}
+# ree-cloud-1 is the hub, and THE HUB RUNNER IS RETIRED (2026-08-30) -- it
+# never reports lifecycle_state=live, so waiting for it blocks forever.
+# Keep this set equal to the cloud subset of EXPECTED_LIFECYCLE_PEERS in
+# coordinator/phase3_preflight.py; test_phase3_preflight.py pins the two.
+cloud_needed = {'ree-cloud-2','ree-cloud-3','ree-cloud-4'}
 mac_aliases = {'DLAPTOP', 'DLAPTOP-4.local', 'DLAPTOP-5.local'}
 seen = {m['machine']: m.get('lifecycle_state','?') for m in d.get('machines', [])}
 pending = []
