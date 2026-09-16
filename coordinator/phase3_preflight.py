@@ -92,9 +92,19 @@ CLOUD_HOSTS = ("ree-cloud-1", "ree-cloud-2", "ree-cloud-3", "ree-cloud-4")
 # hostname alias the heartbeat happened to land under. ree-cloud-4 is in
 # shutdown-only mode by default and may legitimately be gracefully_offline
 # outside a cutover window -- the fleet_lifecycle check accepts that.
+#
+# ree-cloud-1 (the hub) is deliberately NOT a lifecycle peer here. THE HUB
+# RUNNER IS RETIRED (2026-08-30, user decision -- REE_Working/CLAUDE.md
+# "Closed on measurement" item 8): ree-cloud-1 hosts the coordinator +
+# sync_daemon but no longer runs experiments, so it never heartbeats a
+# runner lifecycle_state and would read permanently `stale` here -- masking
+# a real fleet failure behind a guaranteed, unfixable one (see this file's
+# own "DEPLOYMENT STAGE" docstring section on why an always-FAIL verdict
+# carries no signal). The coordinator SERVICE itself is still covered, by
+# the separate hub/hub_health check below. Do NOT re-add ree-cloud-1 here
+# to "restore" fleet coverage -- reversal is user-approved only.
 EXPECTED_LIFECYCLE_PEERS = (
     "DLAPTOP",
-    "ree-cloud-1",
     "ree-cloud-2",
     "ree-cloud-3",
     "ree-cloud-4",

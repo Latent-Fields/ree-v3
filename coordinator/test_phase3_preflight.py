@@ -156,11 +156,51 @@ def test_evaluate_fleet_lifecycle_pure():
 
     # Missing peer -> FAIL.
     missing = [{"machine": p, "lifecycle_state": "live"}
-               for p in EXPECTED_LIFECYCLE_PEERS if p != "ree-cloud-1"]
+               for p in EXPECTED_LIFECYCLE_PEERS if p != "ree-cloud-2"]
     status, msg, _ = _evaluate_fleet_lifecycle(
         missing, cutover_window=False)
     assert status == "FAIL"
-    assert "ree-cloud-1=missing" in msg
+    assert "ree-cloud-2=missing" in msg
+
+
+def test_evaluate_fleet_lifecycle_hub_runner_retired():
+    """THE HUB RUNNER IS RETIRED (2026-08-30) -- ree-cloud-1 must NOT be a
+    lifecycle peer, so its /shadow/status row being permanently `stale`
+    (it hosts the coordinator, not a runner) must not affect the verdict,
+    in either mode. A genuine worker going stale must still FAIL. Regression
+    guard for the 2026-09-15 measurement: fleet_lifecycle FAILed on every
+    run solely because of the retired hub's stale runner heartbeat."""
+    sys.path.insert(0, str(HERE))
+    try:
+        from phase3_preflight import (  # noqa: E402
+            _evaluate_fleet_lifecycle, EXPECTED_LIFECYCLE_PEERS)
+    finally:
+        sys.path.pop(0)
+
+    assert "ree-cloud-1" not in EXPECTED_LIFECYCLE_PEERS, (
+        "ree-cloud-1 (the retired hub runner) must not be a lifecycle peer")
+
+    # All real peers live, PLUS a stale ree-cloud-1 row (as the hub reports
+    # in steady state) -> PASS in both modes; the stale hub row is ignored
+    # because it is not in EXPECTED_LIFECYCLE_PEERS.
+    rows = [{"machine": p, "lifecycle_state": "live"}
+            for p in EXPECTED_LIFECYCLE_PEERS]
+    rows.append({"machine": "ree-cloud-1", "lifecycle_state": "stale"})
+    assert _evaluate_fleet_lifecycle(
+        rows, cutover_window=False)[0] == "PASS"
+    assert _evaluate_fleet_lifecycle(
+        rows, cutover_window=True)[0] == "PASS"
+
+    # A genuine worker (not the hub) going stale must still FAIL -- the hub
+    # exclusion must not widen into masking real fleet failures.
+    worker_stale = [{"machine": p,
+                      "lifecycle_state":
+                          "stale" if p == "ree-cloud-3" else "live"}
+                     for p in EXPECTED_LIFECYCLE_PEERS]
+    status, msg, _ = _evaluate_fleet_lifecycle(
+        worker_stale, cutover_window=False)
+    assert status == "FAIL"
+    assert "ree-cloud-3=stale" in msg
 
 
 def test_local_modes_do_not_need_coordinator_env():
