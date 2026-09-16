@@ -384,3 +384,25 @@ CREATE TABLE IF NOT EXISTS git_intent_log (
 );
 CREATE INDEX IF NOT EXISTS idx_git_intent_log_path
     ON git_intent_log(repo, path, created_at);
+
+-- 2026-09-16 (chip-20260916-campaign-ledger-coordinator): the dispatch
+-- CAMPAIGN LEDGER -- scripts/dispatch_campaigns.json in the umbrella repo,
+-- see scripts/dispatch_campaigns.py for the invariants. Same shape and
+-- doctrine as dispatcher_leases above: one row per campaign, entry_json is
+-- the LOSSLESS client entry (rendered verbatim by the registry
+-- materializer), git-side writes are INGESTED newest-wins (see
+-- db._campaign_version) so the git file remains the DEGRADED FALLBACK.
+-- record-launch -- the one cross-box write, two cloud dispatchers picking
+-- the same campaign -- is decided inside BEGIN IMMEDIATE here, the same
+-- atomic mutex chip_ledger claims get. See db._migrate_dispatch_campaigns_table.
+CREATE TABLE IF NOT EXISTS dispatch_campaigns (
+    campaign_id  TEXT PRIMARY KEY,
+    status       TEXT NOT NULL DEFAULT 'open',
+    created_at   TEXT NOT NULL DEFAULT '',
+    expires_at   TEXT NOT NULL DEFAULT '',
+    entry_json   TEXT NOT NULL,
+    updated_at   TEXT NOT NULL,
+    updated_via  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_dispatch_campaigns_status
+    ON dispatch_campaigns(status);

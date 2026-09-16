@@ -102,6 +102,10 @@ CHIPS_REL_PATH = "TASK_CHIPS.json"
 WORKSPACE_STATE_REL_PATH = "WORKSPACE_STATE.md"
 RECLOG_REL_PATH = "RECOMMENDATION_LOG.jsonl"
 DISPATCHER_CONTROL_REL_PATH = "dispatcher_control.json"
+# 2026-09-16 (chip-20260916-campaign-ledger-coordinator): the dispatch
+# campaign ledger rides the same tick as dispatcher_control.json above --
+# ingest-then-render, newest-wins, envelope preserved from origin.
+CAMPAIGNS_REL_PATH = "scripts/dispatch_campaigns.json"
 RETAIN_HOURS = float(os.environ.get("COORDINATOR_TASK_CLAIM_RETAIN_HOURS", "24"))
 COMMIT_PREFIX = "phase2b-registry:"
 
@@ -510,6 +514,60 @@ def render_dispatcher_control(conn, source_doc):
     return new_text, stats
 
 
+def ingest_dispatch_campaigns(conn, source_doc):
+    """Reconcile origin's scripts/dispatch_campaigns.json into
+    dispatch_campaigns, newest-wins per entry (db.upsert_campaign_ingest's
+    'stale' verdict keeps a newer endpoint write). Same role as
+    ingest_dispatcher_control: a campaign added, launched or closed git-side
+    while the hub was unreachable is adopted here, which is what makes the
+    git file a real DEGRADED FALLBACK rather than a fork."""
+    stats = {"n_seen": 0, "n_adopted": 0}
+    if not isinstance(source_doc, dict):
+        return stats
+    campaigns = source_doc.get("campaigns")
+    if not isinstance(campaigns, list):
+        return stats
+    for entry in campaigns:
+        if not isinstance(entry, dict):
+            continue
+        stats["n_seen"] += 1
+        verdict, _ = db.upsert_campaign_ingest(conn, entry, via="ingest")
+        if verdict == "ok":
+            stats["n_adopted"] += 1
+    return stats
+
+
+def render_dispatch_campaigns(conn, source_doc):
+    """Render scripts/dispatch_campaigns.json from the campaign rows: the
+    envelope (every top-level key except `campaigns` -- the _comment block
+    and schema_version) is preserved from origin's copy verbatim; the
+    campaigns list is the DB rows' lossless entry_json in rowid order.
+    Serialization matches scripts/dispatch_campaigns.py.save_doc (indent=2,
+    sort_keys, trailing newline) so an in-sync render is byte-identical to
+    a client write.
+
+    Returns (new_text, stats). new_text is None when there is nothing to
+    write: no source doc (never invent the envelope), or no DB rows yet
+    (pre-flip quiescence -- ingest-only)."""
+    stats = {"n_rows": 0, "differs": False}
+    if not isinstance(source_doc, dict):
+        return None, stats
+    rows = db.campaign_rows(conn)
+    stats["n_rows"] = len(rows)
+    if not rows:
+        return None, stats
+    doc = {k: v for k, v in source_doc.items() if k != "campaigns"}
+    campaigns = []
+    for r in rows:
+        try:
+            campaigns.append(json.loads(r["entry_json"]))
+        except ValueError:
+            continue
+    doc["campaigns"] = campaigns
+    new_text = json.dumps(doc, indent=2, sort_keys=True) + "\n"
+    return new_text, stats
+
+
 def ingest(conn, claims_doc, chips_doc):
     """Reconcile origin's current content into the DB, one transaction.
     Upsert-only (the reconcilers never delete), no drift-log row -- see
@@ -654,6 +712,20 @@ def materialize_once(conn, repo_path, branch=None, mode=None, now_iso=None,
         dc_match = dc_render is None or _texts_match(dc_text, dc_render)
         dc_stats["differs"] = not dc_match
 
+        # scripts/dispatch_campaigns.json (2026-09-16): same ingest-before-
+        # render discipline as dispatcher_control above.
+        camp_text = _show_text(repo_path, sha, CAMPAIGNS_REL_PATH, warn=False)
+        try:
+            camp_doc = json.loads(camp_text) if camp_text else None
+        except ValueError:
+            camp_doc = None
+        camp_ingest_stats = ingest_dispatch_campaigns(conn, camp_doc)
+        camp_render, camp_stats = render_dispatch_campaigns(conn, camp_doc)
+        camp_stats.update(camp_ingest_stats)
+        camp_match = (camp_render is None
+                      or _texts_match(camp_text, camp_render))
+        camp_stats["differs"] = not camp_match
+
         claims_match = _texts_match(claims_text, claims_render)
         chips_match = _texts_match(chips_text, chips_render)
         # Record the render base for any file whose render already matches
@@ -672,6 +744,7 @@ def materialize_once(conn, repo_path, branch=None, mode=None, now_iso=None,
             "workspace_state": ws_stats,
             "recommendation_log": reclog_stats,
             "dispatcher_control": dc_stats,
+            "dispatch_campaigns": camp_stats,
             "committed": False,
         }
         if not claims_match:
@@ -684,10 +757,12 @@ def materialize_once(conn, repo_path, branch=None, mode=None, now_iso=None,
         ws_needs_write = bool(ws_splice_ids)
         reclog_needs_write = bool(reclog_append_ids)
         dc_needs_write = not dc_match
+        camp_needs_write = not camp_match
         if mode != "write" or (claims_match and chips_match
                                and not ws_needs_write
                                and not reclog_needs_write
-                               and not dc_needs_write):
+                               and not dc_needs_write
+                               and not camp_needs_write):
             return result
 
         # -- write mode, something differs: materialize onto origin tip.
@@ -724,6 +799,12 @@ def materialize_once(conn, repo_path, branch=None, mode=None, now_iso=None,
                       "w", encoding="utf-8") as fh:
                 fh.write(dc_render)
             wrote.append(DISPATCHER_CONTROL_REL_PATH)
+        if camp_needs_write:
+            camp_path = os.path.join(repo_path, CAMPAIGNS_REL_PATH)
+            os.makedirs(os.path.dirname(camp_path), exist_ok=True)
+            with open(camp_path, "w", encoding="utf-8") as fh:
+                fh.write(camp_render)
+            wrote.append(CAMPAIGNS_REL_PATH)
         msg = ("%s materialize %s (claims %d kept/%d aged-out, chips %d"
                % (COMMIT_PREFIX, "+".join(wrote),
                   claims_stats["n_rendered"],
@@ -735,6 +816,8 @@ def materialize_once(conn, repo_path, branch=None, mode=None, now_iso=None,
             msg += ", reclog +%d" % len(reclog_append_ids)
         if dc_needs_write:
             msg += ", dispatcher_control"
+        if camp_needs_write:
+            msg += ", campaigns"
         msg += ")"
         try:
             _git(repo_path, "add", "--", *wrote)

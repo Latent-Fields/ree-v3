@@ -668,6 +668,99 @@ def _chip_episode(conn, body, machine_tok):
     return 200, out
 
 
+def _campaign_add(conn, body, machine_tok):
+    """POST /campaign/add (2026-09-16, chip-20260916-campaign-ledger-
+    coordinator). The orchestrator's curated CAMPAIGN-BUNDLE entry, lossless
+    passthrough (`entry` is exactly what scripts/dispatch_campaigns.py would
+    append to scripts/dispatch_campaigns.json). `now` is the client's own
+    stamp so a dual-writing client and the DB agree byte for byte. See
+    db.add_campaign for the verdicts."""
+    entry = body.get("entry")
+    if not isinstance(entry, dict):
+        return 400, {"error": "entry must be an object", "verdict": "bad_entry"}
+    verdict, payload = db.add_campaign(
+        conn, entry, via="endpoint:%s" % (machine_tok,), now=body.get("now"))
+    out = dict(payload)
+    out["verdict"] = verdict
+    if verdict == "bad_entry":
+        return 400, out
+    if verdict in ("exists", "member_overlap"):
+        return 409, out
+    if verdict == "error":
+        return 500, out
+    return 200, out
+
+
+def _campaign_record_launch(conn, body, machine_tok):
+    """POST /campaign/record-launch -- the dispatcher's one write and the
+    cross-box mutex (db.record_campaign_launch: BEGIN IMMEDIATE). The body
+    carries a full `launch` object (preferred) or the typed fields
+    box/session_uuid/worktree/launched_by/at."""
+    campaign_id = body.get("campaign_id")
+    if not isinstance(campaign_id, str) or not campaign_id.strip():
+        return 400, {"error": "campaign_id is required", "verdict": "bad_launch"}
+    launch = body.get("launch")
+    if launch is None:
+        launch = {}
+        for field in ("box", "session_uuid", "worktree", "launched_by", "at"):
+            if body.get(field) is not None:
+                launch[field] = body[field]
+    verdict, payload = db.record_campaign_launch(
+        conn, campaign_id.strip(), launch,
+        via="endpoint:%s" % (machine_tok,), now=body.get("now"))
+    out = dict(payload)
+    out["verdict"] = verdict
+    if verdict == "bad_launch":
+        return 400, out
+    if verdict == "not_found":
+        return 404, out
+    if verdict in ("not_live", "already_launched"):
+        return 409, out
+    if verdict == "error":
+        return 500, out
+    return 200, out
+
+
+def _campaign_status(conn, body, machine_tok):
+    """POST /campaign/status -- expire / withdraw / gc transitions
+    (db.set_campaign_status). `at` is the client's stamp for the
+    <status>_at field and the history row; `by` names the actor ("gc" for
+    the derived transitions)."""
+    campaign_id = body.get("campaign_id")
+    if not isinstance(campaign_id, str) or not campaign_id.strip():
+        return 400, {"error": "campaign_id is required", "verdict": "bad_status"}
+    verdict, payload = db.set_campaign_status(
+        conn, campaign_id.strip(), body.get("status"), body.get("by"),
+        note=body.get("note"), at=body.get("at"),
+        via="endpoint:%s" % (machine_tok,), now=body.get("now"))
+    out = dict(payload)
+    out["verdict"] = verdict
+    if verdict == "bad_status":
+        return 400, out
+    if verdict == "not_found":
+        return 404, out
+    if verdict == "closed":
+        return 409, out
+    if verdict == "error":
+        return 500, out
+    return 200, out
+
+
+def _campaign_list_payload(conn, qs):
+    """GET /campaign/list body: {"campaigns": [entry, ...]} in ledger order,
+    filtered by ?status= / ?live=1 (with ?now= as the client's clock) /
+    ?campaign_id=. Rendered exactly as scripts/dispatch_campaigns.json's
+    `campaigns` list carries them -- the orchestrator verbs read through
+    this so a suppressed write is visible before the materializer's tick."""
+    live_raw = (qs.get("live") or [""])[0]
+    live = live_raw.strip().lower() in ("1", "true", "yes", "on")
+    rows = db.list_campaigns(
+        conn, status=(qs.get("status") or [None])[0], live=live,
+        now=(qs.get("now") or [None])[0],
+        campaign_id=(qs.get("campaign_id") or [None])[0])
+    return {"campaigns": rows}
+
+
 # /chip/archive is DELIBERATELY ABSENT and must stay that way in Phase 2 --
 # plan doc D7. Its correctness gate is that the archive file has actually
 # reached ORIGIN (cmd_archive fetches and verifies at origin_ref() before
@@ -696,6 +789,11 @@ _TASK_CLAIM_CHIP_POST = {
     "/igw_log/append": _igw_log_append,
     "/intent/replace": _intent_replace,
     "/dispatcher/lease": _dispatcher_lease,
+    # 2026-09-16 (chip-20260916-campaign-ledger-coordinator): the dispatch
+    # campaign ledger, scripts/dispatch_campaigns.json.
+    "/campaign/add": _campaign_add,
+    "/campaign/record-launch": _campaign_record_launch,
+    "/campaign/status": _campaign_status,
 }
 
 
@@ -1085,6 +1183,17 @@ class Handler(BaseHTTPRequestHandler):
                 except ValueError:
                     continue
             self._send(200, {"dispatchers": dispatchers})
+            return
+        if path == "/campaign/list":
+            # 2026-09-16: the dispatch campaign ledger, read coordinator-
+            # primary by scripts/dispatch_campaigns.py's orchestrator verbs.
+            qs = parse_qs(urlparse(self.path).query)
+            conn = db.connect(DB_PATH)
+            try:
+                payload = _campaign_list_payload(conn, qs)
+            finally:
+                conn.close()
+            self._send(200, payload)
             return
         if path == "/recommendation_log/pending":
             # PHASE-4 observability, RECLOG sibling of the WS spool below.
@@ -1663,7 +1772,8 @@ class Handler(BaseHTTPRequestHandler):
                 or path.startswith("/recommendation_log/")
                 or path.startswith("/igw_log/")
                 or path.startswith("/intent/")
-                or path.startswith("/dispatcher/")):
+                or path.startswith("/dispatcher/")
+                or path.startswith("/campaign/")):
             if body is None:
                 self._send(400, {"error": "bad body"})
                 return

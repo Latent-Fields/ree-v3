@@ -9,6 +9,7 @@ All stdout/stderr text is ASCII-only (Windows cp1252 safety).
 
 import json
 import os
+import re
 import sqlite3
 import sys
 import time
@@ -48,6 +49,7 @@ def connect(db_path):
     _migrate_igw_log_table(conn)
     _migrate_git_intent_log_table(conn)
     _migrate_dispatcher_leases_table(conn)
+    _migrate_dispatch_campaigns_table(conn)
     return conn
 
 
@@ -2484,6 +2486,396 @@ def dispatcher_lease_rows(conn):
         "updated_via FROM dispatcher_leases ORDER BY dispatcher").fetchall()
 
 
+# ---------------------------------------------------------------------------
+# dispatch CAMPAIGN LEDGER (2026-09-16, chip-20260916-campaign-ledger-coordinator)
+# ---------------------------------------------------------------------------
+#
+# scripts/dispatch_campaigns.json in the umbrella repo -- the curation record
+# the cloud dispatcher consumes instead of the bare chip ledger (see
+# scripts/dispatch_campaigns.py's module docstring for the invariants). Same
+# doctrine as dispatcher_leases above: one row per campaign, entry_json is
+# the LOSSLESS client entry (rendered verbatim by task_claim_chip_git_writer),
+# git-side writes are INGESTED newest-wins so the git file stays the degraded
+# fallback. The one cross-box write -- record-launch, two cloud dispatchers
+# picking the same campaign -- is decided inside BEGIN IMMEDIATE here, the
+# same atomic mutex try_claim_chip gives chips.
+#
+# EVERY MUTATION BELOW PRODUCES THE BYTE-IDENTICAL ENTRY the client's own git
+# path writes (status / <status>_at / status_history / launches shapes --
+# pinned by scripts/test_dispatch_campaigns_coordinator_branch.py's parity
+# test against this module). That is what lets a dual-writing client (git
+# suppression not yet armed) and this DB agree without a churn commit: the
+# materializer ingests the client's git write, finds the blob identical, and
+# renders nothing new. Timestamps therefore come from the CLIENT (`now`/`at`
+# in the request body, the same `now` it stamps its git write with);
+# utcnow() is only the fallback for a caller that sent none.
+
+CAMPAIGN_LANE = "campaign-bundle"
+CAMPAIGN_LIVE_STATUSES = ("open", "launched")
+CAMPAIGN_CLOSED_STATUSES = ("resolved", "withdrawn")
+CAMPAIGN_VALID_STATUSES = ("open", "launched", "expired", "resolved", "withdrawn")
+#: The statuses POST /campaign/status may set. `open` is add's job, `launched`
+#: is record-launch's (it carries the launch record that makes it meaningful).
+CAMPAIGN_SETTABLE_STATUSES = ("expired", "resolved", "withdrawn")
+_CAMPAIGN_ID_RE = re.compile(r"^campaign-\d{8}-[a-z0-9][a-z0-9-]*$")
+
+
+def _migrate_dispatch_campaigns_table(conn):
+    """Create the campaign ledger table if missing. Same idempotent contract
+    as _migrate_dispatcher_leases_table (called from connect())."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS dispatch_campaigns (
+            campaign_id  TEXT PRIMARY KEY,
+            status       TEXT NOT NULL DEFAULT 'open',
+            created_at   TEXT NOT NULL DEFAULT '',
+            expires_at   TEXT NOT NULL DEFAULT '',
+            entry_json   TEXT NOT NULL,
+            updated_at   TEXT NOT NULL,
+            updated_via  TEXT
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_dispatch_campaigns_status "
+        "ON dispatch_campaigns(status)"
+    )
+
+
+def _campaign_blob(entry):
+    # sort_keys matches scripts/dispatch_campaigns.save_doc exactly.
+    return json.dumps(entry, sort_keys=True)
+
+
+def _campaign_iso(text):
+    """ISO-8601 Z stamp -> aware datetime, or None. Mirrors the client's
+    parse_iso so both sides agree on what counts as expired."""
+    if not isinstance(text, str) or not text:
+        return None
+    try:
+        dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _campaign_now(now):
+    """The caller's own ISO stamp when it sent a parseable one (so DB and
+    git entries carry identical timestamps under dual write), else utcnow()."""
+    if isinstance(now, str) and _campaign_iso(now) is not None:
+        return now
+    return utcnow()
+
+
+def campaign_is_expired(entry, now=None):
+    exp = _campaign_iso((entry or {}).get("expires_at"))
+    if exp is None:
+        return True
+    return _campaign_iso(_campaign_now(now)) >= exp
+
+
+def campaign_is_live(entry, now=None):
+    """open/launched, campaign-bundle lane, not past expiry -- the client's
+    is_live, restated here so the server-side verdicts use the same test."""
+    if not isinstance(entry, dict):
+        return False
+    if entry.get("lane", CAMPAIGN_LANE) != CAMPAIGN_LANE:
+        return False
+    if entry.get("status", "open") not in CAMPAIGN_LIVE_STATUSES:
+        return False
+    return not campaign_is_expired(entry, now)
+
+
+def _campaign_validate(entry):
+    """None when `entry` is a well-formed campaign, else the reason."""
+    if not isinstance(entry, dict):
+        return "entry must be an object"
+    cid = entry.get("campaign_id")
+    if not isinstance(cid, str) or not _CAMPAIGN_ID_RE.match(cid):
+        return "campaign_id must look like campaign-YYYYMMDD-<slug>"
+    if entry.get("status", "open") not in CAMPAIGN_VALID_STATUSES:
+        return "status must be one of %r" % (CAMPAIGN_VALID_STATUSES,)
+    members = entry.get("members")
+    if (not isinstance(members, list) or not members
+            or not all(isinstance(m, str) and m for m in members)):
+        return "members must be a non-empty list of chip_refs"
+    if _campaign_iso(entry.get("expires_at")) is None:
+        return "expires_at must be UTC ISO-8601"
+    return None
+
+
+def _campaign_version(entry):
+    """Ordering key for newest-wins ingest: (last status_history `at`,
+    history length, launch count). Every client write appends a
+    status_history row or a launch, so a strictly greater key means a
+    strictly later write; equal keys with different content keep the DB's
+    copy ('stale'), the same trade dispatcher_leases makes on requested_at."""
+    hist = entry.get("status_history") or []
+    last_at = ""
+    if hist and isinstance(hist[-1], dict):
+        last_at = str(hist[-1].get("at") or "")
+    if not last_at:
+        last_at = str(entry.get("created_at") or "")
+    return (last_at, len(hist), len(entry.get("launches") or []))
+
+
+def _campaign_row_write(conn, entry, via, now, insert):
+    blob = _campaign_blob(entry)
+    cid = entry["campaign_id"]
+    cols = (entry.get("status", "open"), str(entry.get("created_at") or ""),
+            str(entry.get("expires_at") or ""), blob, now, via)
+    if insert:
+        conn.execute(
+            "INSERT INTO dispatch_campaigns (campaign_id, status, created_at, "
+            "expires_at, entry_json, updated_at, updated_via) "
+            "VALUES (?,?,?,?,?,?,?)", (cid,) + cols)
+    else:
+        conn.execute(
+            "UPDATE dispatch_campaigns SET status=?, created_at=?, expires_at=?, "
+            "entry_json=?, updated_at=?, updated_via=? WHERE campaign_id=?",
+            cols + (cid,))
+    return blob
+
+
+def _campaign_row(conn, campaign_id):
+    return conn.execute("SELECT * FROM dispatch_campaigns WHERE campaign_id=?",
+                        (campaign_id,)).fetchone()
+
+
+def _campaign_entry(row):
+    try:
+        entry = json.loads(row["entry_json"])
+    except (TypeError, ValueError):
+        return None
+    return entry if isinstance(entry, dict) else None
+
+
+def campaign_rows(conn):
+    """All rows in rowid order (= the file's list order: first ingest
+    inserts in file order, later adds append)."""
+    return conn.execute(
+        "SELECT campaign_id, status, entry_json, updated_at, updated_via "
+        "FROM dispatch_campaigns ORDER BY rowid").fetchall()
+
+
+def find_campaign(conn, campaign_id):
+    row = _campaign_row(conn, campaign_id)
+    return _campaign_entry(row) if row is not None else None
+
+
+def list_campaigns(conn, status=None, live=None, now=None, campaign_id=None):
+    out = []
+    for r in campaign_rows(conn):
+        e = _campaign_entry(r)
+        if e is None:
+            continue
+        if campaign_id and e.get("campaign_id") != campaign_id:
+            continue
+        if status and e.get("status", "open") != status:
+            continue
+        if live and not campaign_is_live(e, now):
+            continue
+        out.append(e)
+    return out
+
+
+def _campaign_rollback(conn):
+    try:
+        conn.execute("ROLLBACK")
+    except sqlite3.Error:
+        pass
+
+
+def add_campaign(conn, entry, via, now=None):
+    """Insert one curated campaign (the orchestrator's `add`).
+
+    Verdicts: 'ok' | 'idempotent' (byte-identical entry already stored -- a
+    client retry) | 'exists' (same id, different content) | 'member_overlap'
+    (a member is already in another LIVE campaign -- the client's own
+    already-a-member check, made authoritative here) | 'bad_entry' | 'error'.
+    """
+    reason = _campaign_validate(entry)
+    if reason:
+        return ("bad_entry", {"reason": reason})
+    now = _campaign_now(now)
+    cid = entry["campaign_id"]
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = _campaign_row(conn, cid)
+        if row is not None:
+            conn.execute("ROLLBACK")
+            if row["entry_json"] == _campaign_blob(entry):
+                return ("idempotent", {"campaign_id": cid,
+                                       "entry": _campaign_entry(row)})
+            return ("exists", {"campaign_id": cid, "status": row["status"]})
+        members = set(entry["members"])
+        overlap = {}
+        for r in campaign_rows(conn):
+            e = _campaign_entry(r)
+            if e is None or not campaign_is_live(e, now):
+                continue
+            hit = members.intersection(
+                m for m in (e.get("members") or []) if isinstance(m, str))
+            if hit:
+                overlap[e["campaign_id"]] = sorted(hit)
+        if overlap:
+            conn.execute("ROLLBACK")
+            return ("member_overlap", {"campaign_id": cid, "overlap": overlap})
+        blob = _campaign_row_write(conn, entry, via, now, insert=True)
+        conn.execute("COMMIT")
+        return ("ok", {"campaign_id": cid, "entry": json.loads(blob)})
+    except sqlite3.Error:
+        _campaign_rollback(conn)
+        return ("error", {})
+
+
+def upsert_campaign_ingest(conn, entry, via="ingest", now=None):
+    """Adopt one campaign from origin's git file, NEWEST WINS (see
+    _campaign_version). Verdicts: 'ok' (inserted or replaced by a strictly
+    newer entry) | 'idempotent' | 'stale' (the stored row is as new or newer
+    with different content; nothing written) | 'bad_entry' | 'error'.
+    This is what keeps the git file a real degraded fallback: a status
+    change or launch written git-side during a hub outage is adopted the
+    moment the materializer can see origin again."""
+    reason = _campaign_validate(entry)
+    if reason:
+        return ("bad_entry", {"reason": reason})
+    now = _campaign_now(now)
+    cid = entry["campaign_id"]
+    blob = _campaign_blob(entry)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = _campaign_row(conn, cid)
+        if row is None:
+            _campaign_row_write(conn, entry, via, now, insert=True)
+            conn.execute("COMMIT")
+            return ("ok", {"campaign_id": cid})
+        if row["entry_json"] == blob:
+            conn.execute("ROLLBACK")
+            return ("idempotent", {"campaign_id": cid})
+        stored = _campaign_entry(row) or {}
+        if _campaign_version(entry) > _campaign_version(stored):
+            _campaign_row_write(conn, entry, via, now, insert=False)
+            conn.execute("COMMIT")
+            return ("ok", {"campaign_id": cid})
+        conn.execute("ROLLBACK")
+        return ("stale", {"campaign_id": cid,
+                          "stored_version": list(_campaign_version(stored))})
+    except sqlite3.Error:
+        _campaign_rollback(conn)
+        return ("error", {})
+
+
+def record_campaign_launch(conn, campaign_id, launch, via=None, now=None):
+    """Record a launch -- the dispatcher's ONE write, and the cross-box
+    MUTEX: SELECT and UPDATE inside one BEGIN IMMEDIATE, so of N dispatchers
+    racing for one campaign exactly one gets 'ok'.
+
+    Verdicts: 'ok' | 'idempotent' (this session_uuid already recorded -- a
+    retry after an ambiguous SSH timeout) | 'not_found' | 'not_live'
+    (expired / resolved / withdrawn) | 'already_launched' (a DIFFERENT
+    session_uuid holds it; payload names box/at/session_uuid) |
+    'bad_launch' | 'error'. The mutation is the client's record_launch,
+    byte for byte."""
+    if not isinstance(launch, dict):
+        return ("bad_launch", {"reason": "launch must be an object"})
+    for field in ("box", "session_uuid", "worktree", "launched_by"):
+        val = launch.get(field)
+        if not isinstance(val, str) or not val:
+            return ("bad_launch", {"reason": "launch.%s is required" % field})
+    now = _campaign_now(now)
+    at = launch.get("at") if _campaign_iso(launch.get("at")) else now
+    launch = {"box": launch["box"], "session_uuid": launch["session_uuid"],
+              "worktree": launch["worktree"], "at": at,
+              "launched_by": launch["launched_by"]}
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = _campaign_row(conn, campaign_id)
+        if row is None:
+            conn.execute("ROLLBACK")
+            return ("not_found", {"campaign_id": campaign_id})
+        entry = _campaign_entry(row)
+        if entry is None:
+            conn.execute("ROLLBACK")
+            return ("error", {"campaign_id": campaign_id,
+                              "reason": "stored entry_json is not an object"})
+        if not campaign_is_live(entry, now):
+            conn.execute("ROLLBACK")
+            return ("not_live", {"campaign_id": campaign_id,
+                                 "status": entry.get("status"),
+                                 "expires_at": entry.get("expires_at")})
+        for prev in entry.get("launches") or []:
+            if (isinstance(prev, dict)
+                    and prev.get("session_uuid") == launch["session_uuid"]):
+                conn.execute("ROLLBACK")
+                return ("idempotent", {"campaign_id": campaign_id,
+                                       "entry": entry})
+        if entry.get("status") == "launched" and (entry.get("launches") or []):
+            prev = entry["launches"][-1]
+            conn.execute("ROLLBACK")
+            return ("already_launched", {
+                "campaign_id": campaign_id,
+                "box": prev.get("box"), "at": prev.get("at"),
+                "session_uuid": prev.get("session_uuid")})
+        entry.setdefault("launches", []).append(launch)
+        entry["status"] = "launched"
+        entry.setdefault("status_history", []).append({
+            "status": "launched", "at": at, "by": launch["launched_by"],
+            "note": "launched on %s" % launch["box"]})
+        blob = _campaign_row_write(conn, entry, via, now, insert=False)
+        conn.execute("COMMIT")
+        return ("ok", {"campaign_id": campaign_id, "entry": json.loads(blob)})
+    except sqlite3.Error:
+        _campaign_rollback(conn)
+        return ("error", {})
+
+
+def set_campaign_status(conn, campaign_id, status, by, note=None, at=None,
+                        via=None, now=None):
+    """expire / withdraw / gc transitions. Verdicts: 'ok' | 'idempotent'
+    (already that status) | 'not_found' | 'closed' (resolved/withdrawn is
+    history -- re-curate) | 'bad_status' | 'error'. The mutation is the
+    client's _set_status / gc, byte for byte: status, <status>_at, one
+    status_history row {status, at, by, note}."""
+    if status not in CAMPAIGN_SETTABLE_STATUSES:
+        return ("bad_status", {"reason": "status must be one of %r"
+                               % (CAMPAIGN_SETTABLE_STATUSES,)})
+    if not isinstance(by, str) or not by:
+        return ("bad_status", {"reason": "by is required"})
+    now = _campaign_now(now)
+    at = at if _campaign_iso(at) else now
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = _campaign_row(conn, campaign_id)
+        if row is None:
+            conn.execute("ROLLBACK")
+            return ("not_found", {"campaign_id": campaign_id})
+        entry = _campaign_entry(row)
+        if entry is None:
+            conn.execute("ROLLBACK")
+            return ("error", {"campaign_id": campaign_id,
+                              "reason": "stored entry_json is not an object"})
+        if entry.get("status") == status:
+            conn.execute("ROLLBACK")
+            return ("idempotent", {"campaign_id": campaign_id, "entry": entry})
+        if entry.get("status") in CAMPAIGN_CLOSED_STATUSES:
+            conn.execute("ROLLBACK")
+            return ("closed", {"campaign_id": campaign_id,
+                               "status": entry.get("status")})
+        entry["status"] = status
+        entry["%s_at" % status] = at
+        entry.setdefault("status_history", []).append({
+            "status": status, "at": at, "by": by, "note": note or ""})
+        blob = _campaign_row_write(conn, entry, via, now, insert=False)
+        conn.execute("COMMIT")
+        return ("ok", {"campaign_id": campaign_id, "entry": json.loads(blob)})
+    except sqlite3.Error:
+        _campaign_rollback(conn)
+        return ("error", {})
+
+
 # Bounded-growth cap for a standing chip's episode list (W5a). Old episodes
 # are dropped OLDEST-first past this, with episodes_truncated counting the
 # drops -- a standing class chip lives for weeks and its per-episode
@@ -2591,6 +2983,7 @@ def init_db(db_path):
     _migrate_igw_log_table(conn)
     _migrate_git_intent_log_table(conn)
     _migrate_dispatcher_leases_table(conn)
+    _migrate_dispatch_campaigns_table(conn)
     conn.close()
 
 
