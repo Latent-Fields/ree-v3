@@ -60,6 +60,19 @@ functions compose into assays A and B lives in the spec document above, not
 here -- this module supplies the primitives; the assay scripts (a later
 `/queue-experiment` build, not this one) supply the wiring, the oracle labels,
 the consumer network, and the manifest.
+
+Conditioned rungs (added 2026-09-16)
+------------------------------------
+The original P0 ladder fits X -> Y UNCONDITIONALLY, which left two of the
+assay spec's own arms without an instrument: `A4_receiver_state_cond`
+(MECH-547's `T(A, B)`) and `A3_frame_cond` (MECH-555's reference-frame
+mediation). Section 5b below supplies both, plus the `frame` field on
+`CaptureRecord` that the frame arm needs in telemetry. Both follow the same
+discipline and it is the load-bearing part: a conditioned arm is compared only
+against a MATCHED-CAPACITY baseline, and the claim is carried not by the gain
+but by a PERMUTATION control that destroys it. A gain a permutation cannot
+touch is capacity, not conditioning -- and both functions report that outcome
+as a first-class verdict rather than as an error.
 """
 
 from __future__ import annotations
@@ -93,6 +106,16 @@ class CaptureRecord:
     its point of consumption -- not a convenient neighbouring tensor. This
     dataclass does not and cannot enforce that; it is the caller's obligation
     at the call site that builds each `capture(...)` record.
+
+    `frame` records the REFERENCE FRAME this row's content is indexed against
+    (MECH-555; `REE_assembly/docs/architecture/interface_reference_frames_and_temporal_gates.md`).
+    It is free-form and defaults to `{}` so every pre-existing call site stays
+    valid. The conventional key is `frame_id` (a hashable label, the thing
+    `frame_permutation_control` below permutes); anchors, origins or any other
+    frame parameters may be carried alongside it. It is recorded, never
+    interpreted, here: this module bakes in no task-specific frame semantics
+    (see the scope note in the module docstring), so the assay supplies both
+    the labels and their meaning.
     """
 
     run_id: str
@@ -114,6 +137,7 @@ class CaptureRecord:
     sender_weight_hash: Optional[str]
     receiver_weight_hash: Optional[str]
     active_gates: Dict[str, float]
+    frame: Dict[str, Any] = field(default_factory=dict)
 
 
 def hash_tensor_state(state: Union[Dict[str, torch.Tensor], "nn.Module"]) -> str:
@@ -161,6 +185,7 @@ def capture(
     sender_weight_hash: Optional[str] = None,
     receiver_weight_hash: Optional[str] = None,
     active_gates: Optional[Dict[str, float]] = None,
+    frame: Optional[Dict[str, Any]] = None,
 ) -> CaptureRecord:
     """Construct one `CaptureRecord`. Pure: validates and packages, writes nothing.
 
@@ -192,6 +217,7 @@ def capture(
         sender_weight_hash=sender_weight_hash,
         receiver_weight_hash=receiver_weight_hash,
         active_gates=dict(active_gates or {}),
+        frame=dict(frame or {}),
     )
 
 
@@ -711,6 +737,499 @@ def bridge_ladder(
 
 
 # ---------------------------------------------------------------------------
+# 5b. Conditioned bridge rungs -- receiver-state conditioning T(A, B)
+#     (MECH-547) and reference-frame mediation (MECH-555)
+#
+#     `bridge_ladder` above fits X -> Y UNCONDITIONALLY. Both claims below say
+#     the translation may take a SECOND argument -- the receiver's own state
+#     (MECH-547) or the frame the content is indexed against (MECH-555) -- and
+#     both are discriminated from "we simply gave the bridge more capacity" by
+#     a PERMUTATION control at MATCHED CAPACITY, never by a raw gain.
+#
+#     Design sources, read before changing anything here:
+#       REE_assembly/docs/architecture/receiver_conditioned_translation.md
+#         ("a sender-only matched-capacity baseline T(A)"; "a receiver-state
+#          permutation control (the discriminator: if permutation barely
+#          changes the gain, the gain is capacity, not conditioning)")
+#       REE_assembly/docs/architecture/interface_reference_frames_and_temporal_gates.md
+#         ("the discriminator is a content-preserving frame permutation";
+#          "intact ~= frame-permuted -> the frame is incidental at that interface")
+#       REE_assembly/evidence/planning/hippocampal_campaign_assay_specifications_20260910.md
+#         section 2.2 arms A3_frame_cond / A4_receiver_state_cond / A7_receiver_only,
+#         and section 2.7's falsifier: "A4's advantage survives receiver-state
+#         permutation intact" -- i.e. CAPACITY_NOT_CONDITIONING below is not an
+#         error path, it is the pre-registered way this claim dies.
+#
+#     Capacity matching is achieved STRUCTURALLY, not by post-hoc adjustment:
+#     every arm is fitted by the SAME `bridge_ladder` call at the SAME level
+#     over an input of the SAME width, so the arms differ only in what the
+#     conditioning block CONTAINS. `n_parameters` is then compared across arms
+#     and a mismatch REFUSES a verdict rather than reporting an adjusted one.
+# ---------------------------------------------------------------------------
+
+
+class ConditioningVerdict(str, enum.Enum):
+    """Outcome of `receiver_conditioned_bridge`."""
+
+    CONDITIONING_SUPPORTED = "receiver_conditioning_supported"
+    CAPACITY_NOT_CONDITIONING = "capacity_not_conditioning"
+    NO_CONDITIONING_GAIN = "no_conditioning_gain"
+    RECEIVER_STATE_LEAKS_TARGET = "receiver_state_leaks_target"
+    MATCHING_FAILED = "matching_failed"
+
+
+class FrameVerdict(str, enum.Enum):
+    """Outcome of `frame_permutation_control`."""
+
+    FRAME_LOAD_BEARING = "frame_load_bearing"
+    FRAME_INCIDENTAL = "frame_incidental"
+    CONTROL_INVALID = "control_invalid"
+    MATCHING_FAILED = "matching_failed"
+
+
+@dataclass(frozen=True)
+class ConditionedBridgeResult:
+    """Result of the MECH-547 receiver-conditioned bridge contrast.
+
+    `arms` holds the full per-arm `bridge_ladder` dict (so every capacity and
+    held-out number stays inspectable); `scores` is the single scalar each arm
+    was judged on. `verdict` is only meaningful when `capacity_matched` is
+    True -- see `ConditioningVerdict.MATCHING_FAILED`.
+    """
+
+    arms: Dict[str, Dict[str, Any]]
+    scores: Dict[str, float]
+    parameter_counts: Dict[str, int]
+    capacity_matched: bool
+    conditioning_gain: float
+    permuted_gain: float
+    permutation_destroyed_fraction: Optional[float]
+    verdict: str
+    notes: List[str]
+
+
+@dataclass(frozen=True)
+class FramePermutationResult:
+    """Result of the MECH-555 content-preserving frame-permutation contrast."""
+
+    arms: Dict[str, Dict[str, Any]]
+    scores: Dict[str, float]
+    parameter_counts: Dict[str, int]
+    capacity_matched: bool
+    content_preserved: bool
+    frame_gain: float
+    permuted_gain: float
+    permutation_destroyed_fraction: Optional[float]
+    n_frames: int
+    verdict: str
+    notes: List[str]
+
+
+def _moment_matched_random(block: torch.Tensor, seed: int) -> torch.Tensor:
+    """A random block with `block`'s per-column mean and std, and no
+    information about it. The matched-capacity filler for a baseline arm:
+    same shape, same first two moments, zero mutual information with the
+    quantity it stands in for (the "moment-matched random control" named in
+    receiver_conditioned_translation.md's assay arm 6).
+    """
+    g = torch.Generator().manual_seed(int(seed))
+    mean = block.mean(dim=0, keepdim=True)
+    std = block.std(dim=0, keepdim=True)
+    noise = torch.randn(block.shape, generator=g, dtype=block.dtype)
+    return noise * std + mean
+
+
+def _row_permutation(n: int, seed: int) -> torch.Tensor:
+    g = torch.Generator().manual_seed(int(seed))
+    return torch.randperm(int(n), generator=g)
+
+
+def _default_arm_score(arm: Dict[str, Any]) -> float:
+    return float(arm["heldout_r2"])
+
+
+def _fit_one_arm(name: str, x_tr: torch.Tensor, y_tr: torch.Tensor,
+                 x_te: torch.Tensor, y_te: torch.Tensor,
+                 *, level: BridgeLevel, seed: int,
+                 ladder_kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    """Every arm goes through the SAME `bridge_ladder` entry point at the SAME
+    level and seed. Routing all arms through one fitter is what makes the
+    capacity comparison meaningful -- do not "optimise" this into per-arm
+    bespoke fitting.
+
+    The arm's own name is stamped into the returned dict under `arm`, so a
+    record stays self-identifying once an assay serialises it into a manifest,
+    and so a caller-supplied `score_from_arm` can key on which arm it is
+    scoring (the consumer-use-gain path the assay spec's primary estimand
+    needs).
+    """
+    arm = dict(bridge_ladder(
+        x_tr, y_tr, x_te, y_te,
+        levels=[level], seed=seed, **ladder_kwargs
+    )[level.value])
+    arm["arm"] = str(name)
+    return arm
+
+
+def receiver_conditioned_bridge(
+    sender_train: torch.Tensor,
+    receiver_state_train: torch.Tensor,
+    y_train: torch.Tensor,
+    sender_test: torch.Tensor,
+    receiver_state_test: torch.Tensor,
+    y_test: torch.Tensor,
+    *,
+    level: BridgeLevel = BridgeLevel.L3_LOW_RANK_AFFINE,
+    score_from_arm: Optional[Callable[[Dict[str, Any]], float]] = None,
+    gain_threshold: float = 0.02,
+    permutation_destruction_frac: float = 0.5,
+    leak_frac: float = 0.9,
+    pad_baselines: bool = True,
+    seed: int = 0,
+    **ladder_kwargs: Any,
+) -> ConditionedBridgeResult:
+    """MECH-547's `T(A, B)` rung with its receiver-state permutation control.
+
+    Four arms, fitted identically and (by construction) at matched capacity:
+
+      `sender_only`        `concat(A, moment_matched_random(B))` -- the
+                           matched-capacity baseline `T(A)`. The conditioning
+                           block is present, so the parameter count matches,
+                           but it carries no information about the receiver.
+      `conditioned`        `concat(A, B)` -- `T(A, B)` itself.
+      `receiver_permuted`  `concat(A, B[perm])` -- THE DISCRIMINATOR. The
+                           receiver block keeps its exact marginal
+                           distribution and only its PAIRING with the sender
+                           is destroyed, so any gain that survives here was
+                           never conditioning.
+      `receiver_only`      `concat(moment_matched_random(A), B)` -- assay
+                           spec arm `A7_receiver_only`, the leakage guard: if
+                           the receiver state alone already predicts the
+                           target, the conditioned gain is uninterpretable
+                           because the bridge introduced rather than
+                           translated content.
+
+    `pad_baselines=False` replaces `sender_only` with the NATIVE, unpadded
+    `A -> Y` bridge. That is a legitimate thing to look at (it is the assay
+    spec's `A1_source_only`), but it is NOT capacity-matched, so this function
+    then reports `MATCHING_FAILED` and refuses a conditioning verdict rather
+    than quietly crediting the conditioned arm with a capacity advantage.
+
+    The verdict ladder, in the order it is evaluated:
+
+      1. capacity mismatch                     -> MATCHING_FAILED
+      2. receiver state alone predicts Y       -> RECEIVER_STATE_LEAKS_TARGET
+      3. conditioning gain below threshold     -> NO_CONDITIONING_GAIN
+      4. permutation preserves the gain        -> CAPACITY_NOT_CONDITIONING
+      5. permutation destroys the gain         -> CONDITIONING_SUPPORTED
+
+    Only (5) supports MECH-547. (4) is the assay spec's section 2.7 falsifier
+    and is a first-class outcome, not a failure of the instrument.
+
+    A property of the control worth recording, because it bears on how (4) is
+    read: a ROW permutation destroys every PER-ROW conditioning signal by
+    construction, so CAPACITY_NOT_CONDITIONING cannot be produced by any
+    designed per-row dependence of Y on B. When it fires on real data the gain
+    is coming from capacity or optimisation geometry (extra input width,
+    ridge conditioning, over-parameterised fitting), which is exactly the
+    reading the architecture doc gives it -- "extra capacity, not
+    conditioning". It is therefore not synthesisable in a contract test from
+    data alone; the verdict ladder is exercised there through the public
+    `score_from_arm` hook instead.
+
+    Pure: fits, scores and returns; writes nothing and holds no agent state.
+    """
+    score_fn = score_from_arm if score_from_arm is not None else _default_arm_score
+    notes: List[str] = []
+
+    if sender_train.shape[0] != receiver_state_train.shape[0]:
+        raise ValueError(
+            "sender_train and receiver_state_train must have the same number of rows, got %d vs %d"
+            % (sender_train.shape[0], receiver_state_train.shape[0])
+        )
+    if sender_test.shape[0] != receiver_state_test.shape[0]:
+        raise ValueError(
+            "sender_test and receiver_state_test must have the same number of rows, got %d vs %d"
+            % (sender_test.shape[0], receiver_state_test.shape[0])
+        )
+
+    perm_tr = _row_permutation(receiver_state_train.shape[0], seed + 101)
+    perm_te = _row_permutation(receiver_state_test.shape[0], seed + 102)
+    rand_b_tr = _moment_matched_random(receiver_state_train, seed + 201)
+    rand_b_te = _moment_matched_random(receiver_state_test, seed + 202)
+    rand_a_tr = _moment_matched_random(sender_train, seed + 301)
+    rand_a_te = _moment_matched_random(sender_test, seed + 302)
+
+    cat = lambda a, b: torch.cat([a, b], dim=1)
+
+    arm_inputs: Dict[str, Tuple[torch.Tensor, torch.Tensor]] = {
+        "conditioned": (cat(sender_train, receiver_state_train),
+                        cat(sender_test, receiver_state_test)),
+        "receiver_permuted": (cat(sender_train, receiver_state_train[perm_tr]),
+                              cat(sender_test, receiver_state_test[perm_te])),
+        "receiver_only": (cat(rand_a_tr, receiver_state_train),
+                          cat(rand_a_te, receiver_state_test)),
+    }
+    if pad_baselines:
+        arm_inputs["sender_only"] = (cat(sender_train, rand_b_tr),
+                                     cat(sender_test, rand_b_te))
+    else:
+        arm_inputs["sender_only"] = (sender_train, sender_test)
+        notes.append(
+            "pad_baselines=False: sender_only is the NATIVE unpadded A->Y bridge "
+            "(assay-spec A1_source_only), which is not capacity-matched to the "
+            "conditioned arm -- no conditioning verdict is issued."
+        )
+
+    arms: Dict[str, Dict[str, Any]] = {}
+    scores: Dict[str, float] = {}
+    parameter_counts: Dict[str, int] = {}
+    for name, (x_tr, x_te) in arm_inputs.items():
+        arm = _fit_one_arm(name, x_tr, y_train, x_te, y_test,
+                           level=level, seed=seed, ladder_kwargs=ladder_kwargs)
+        arms[name] = arm
+        scores[name] = float(score_fn(arm))
+        parameter_counts[name] = int(arm["n_parameters"])
+
+    distinct_counts = set(parameter_counts.values())
+    capacity_matched = len(distinct_counts) == 1
+    if not capacity_matched:
+        notes.append(
+            "capacity NOT matched across arms: %r" % (dict(parameter_counts),)
+        )
+
+    baseline = scores["sender_only"]
+    conditioning_gain = scores["conditioned"] - baseline
+    permuted_gain = scores["receiver_permuted"] - baseline
+    destroyed_fraction: Optional[float] = None
+    if conditioning_gain > 0.0:
+        destroyed_fraction = float(1.0 - (permuted_gain / conditioning_gain))
+
+    receiver_only_score = scores["receiver_only"]
+    leaks = (
+        receiver_only_score >= leak_frac * scores["conditioned"]
+        and receiver_only_score > baseline + gain_threshold
+    )
+
+    if not capacity_matched:
+        verdict = ConditioningVerdict.MATCHING_FAILED.value
+    elif leaks:
+        verdict = ConditioningVerdict.RECEIVER_STATE_LEAKS_TARGET.value
+        notes.append(
+            "receiver_only reaches %.4f vs conditioned %.4f -- the receiver state "
+            "alone carries the target; the bridge would be introducing content, "
+            "not translating it (assay spec 2.8 'A7_receiver_only high')."
+            % (receiver_only_score, scores["conditioned"])
+        )
+    elif conditioning_gain <= gain_threshold:
+        verdict = ConditioningVerdict.NO_CONDITIONING_GAIN.value
+    elif permuted_gain > permutation_destruction_frac * conditioning_gain:
+        verdict = ConditioningVerdict.CAPACITY_NOT_CONDITIONING.value
+        notes.append(
+            "permutation preserved %.0f%% of the gain -- an advantage a receiver-state "
+            "permutation cannot touch was never conditioned on state (assay spec 2.7)."
+            % (100.0 * (permuted_gain / conditioning_gain))
+        )
+    else:
+        verdict = ConditioningVerdict.CONDITIONING_SUPPORTED.value
+
+    return ConditionedBridgeResult(
+        arms=arms,
+        scores=scores,
+        parameter_counts=parameter_counts,
+        capacity_matched=capacity_matched,
+        conditioning_gain=float(conditioning_gain),
+        permuted_gain=float(permuted_gain),
+        permutation_destroyed_fraction=destroyed_fraction,
+        verdict=verdict,
+        notes=notes,
+    )
+
+
+def _one_hot(labels: Sequence[Any], vocab: Sequence[Any],
+             dtype: torch.dtype) -> torch.Tensor:
+    index = {lab: i for i, lab in enumerate(vocab)}
+    out = torch.zeros(len(labels), len(vocab), dtype=dtype)
+    for row, lab in enumerate(labels):
+        out[row, index[lab]] = 1.0
+    return out
+
+
+def frame_permutation_control(
+    x_train: torch.Tensor,
+    y_train: torch.Tensor,
+    x_test: torch.Tensor,
+    y_test: torch.Tensor,
+    *,
+    frame_train: Sequence[Any],
+    frame_test: Sequence[Any],
+    level: BridgeLevel = BridgeLevel.L3_LOW_RANK_AFFINE,
+    score_from_arm: Optional[Callable[[Dict[str, Any]], float]] = None,
+    gain_threshold: float = 0.02,
+    permutation_destruction_frac: float = 0.5,
+    frame_permutation_train: Optional[Sequence[Any]] = None,
+    frame_permutation_test: Optional[Sequence[Any]] = None,
+    seed: int = 0,
+    **ladder_kwargs: Any,
+) -> FramePermutationResult:
+    """MECH-555's content-preserving frame permutation (assay arm `A3_frame_cond`).
+
+    Three arms, all fitted at identical width and capacity, differing only in
+    what the frame channel carries:
+
+      `no_frame`          `concat(X, zeros)` -- the frame channel is present
+                          (so the parameter count matches) but empty.
+      `frame_conditioned` `concat(X, onehot(frame))` -- the intact frame.
+      `frame_permuted`    `concat(X, onehot(scrambled frame))` -- THE
+                          DISCRIMINATOR. The scramble is a ROW PERMUTATION of
+                          the frame label vector, so the marginal frame
+                          distribution is preserved exactly and only the
+                          frame-to-content correspondence is destroyed.
+
+    Why a row permutation and not a relabelling: a CONSISTENT relabelling of
+    the frame vocabulary (frame g -> sigma(g) for every row of g) permutes the
+    one-hot COLUMNS, and a linear or MLP fit is exactly invariant to that -- it
+    would be a degenerate control that can never fail. The row permutation is
+    the non-degenerate form, and it is content-preserving in the strict sense
+    the architecture doc requires: no element of `x_train`, `y_train`,
+    `x_test` or `y_test` is altered by any arm.
+
+    `content_preserved` additionally verifies that the scrambled label vector
+    is a genuine permutation of the intact one (same multiset). A caller that
+    overrides `frame_permutation_train` / `frame_permutation_test` with a
+    vector that is NOT a permutation (e.g. a constant) has changed the frame
+    MARGINAL as well as the correspondence, which confounds the contrast --
+    that is reported as `CONTROL_INVALID`, not silently scored.
+
+    Verdicts:
+      capacity mismatch or a non-permutation scramble -> MATCHING_FAILED / CONTROL_INVALID
+      intact gain over `no_frame` below threshold     -> FRAME_INCIDENTAL
+      permutation preserves the gain                  -> FRAME_INCIDENTAL
+      permutation destroys the gain                   -> FRAME_LOAD_BEARING
+
+    Note the asymmetry with `receiver_conditioned_bridge`: "intact ~= permuted"
+    and "no gain at all" are BOTH `FRAME_INCIDENTAL` here, because the
+    architecture doc's reading table gives them the same interpretation ("the
+    frame is incidental at that interface"); the `notes` field records which
+    of the two produced the verdict.
+
+    Pure: fits, scores and returns; writes nothing.
+    """
+    score_fn = score_from_arm if score_from_arm is not None else _default_arm_score
+    notes: List[str] = []
+
+    frame_train = list(frame_train)
+    frame_test = list(frame_test)
+    if len(frame_train) != x_train.shape[0]:
+        raise ValueError(
+            "frame_train has %d labels for %d training rows"
+            % (len(frame_train), x_train.shape[0])
+        )
+    if len(frame_test) != x_test.shape[0]:
+        raise ValueError(
+            "frame_test has %d labels for %d test rows"
+            % (len(frame_test), x_test.shape[0])
+        )
+
+    vocab = sorted(set(frame_train) | set(frame_test), key=repr)
+    n_frames = len(vocab)
+
+    if frame_permutation_train is None:
+        perm_tr = _row_permutation(len(frame_train), seed + 401)
+        scrambled_train = [frame_train[int(i)] for i in perm_tr]
+    else:
+        scrambled_train = list(frame_permutation_train)
+    if frame_permutation_test is None:
+        perm_te = _row_permutation(len(frame_test), seed + 402)
+        scrambled_test = [frame_test[int(i)] for i in perm_te]
+    else:
+        scrambled_test = list(frame_permutation_test)
+
+    content_preserved = (
+        sorted(map(repr, scrambled_train)) == sorted(map(repr, frame_train))
+        and sorted(map(repr, scrambled_test)) == sorted(map(repr, frame_test))
+    )
+    if not content_preserved:
+        notes.append(
+            "the supplied frame scramble is NOT a permutation of the intact label "
+            "vector -- it changes the frame marginal as well as the "
+            "frame-to-content correspondence, which confounds the contrast."
+        )
+        vocab = sorted(set(vocab) | set(scrambled_train) | set(scrambled_test), key=repr)
+        n_frames = len(vocab)
+
+    dtype = x_train.dtype
+    oh_tr = _one_hot(frame_train, vocab, dtype)
+    oh_te = _one_hot(frame_test, vocab, dtype)
+    oh_tr_perm = _one_hot(scrambled_train, vocab, dtype)
+    oh_te_perm = _one_hot(scrambled_test, vocab, dtype)
+    zeros_tr = torch.zeros(x_train.shape[0], n_frames, dtype=dtype)
+    zeros_te = torch.zeros(x_test.shape[0], n_frames, dtype=dtype)
+
+    cat = lambda a, b: torch.cat([a, b], dim=1)
+    arm_inputs: Dict[str, Tuple[torch.Tensor, torch.Tensor]] = {
+        "no_frame": (cat(x_train, zeros_tr), cat(x_test, zeros_te)),
+        "frame_conditioned": (cat(x_train, oh_tr), cat(x_test, oh_te)),
+        "frame_permuted": (cat(x_train, oh_tr_perm), cat(x_test, oh_te_perm)),
+    }
+
+    arms: Dict[str, Dict[str, Any]] = {}
+    scores: Dict[str, float] = {}
+    parameter_counts: Dict[str, int] = {}
+    for name, (x_tr, x_te) in arm_inputs.items():
+        arm = _fit_one_arm(name, x_tr, y_train, x_te, y_test,
+                           level=level, seed=seed, ladder_kwargs=ladder_kwargs)
+        arms[name] = arm
+        scores[name] = float(score_fn(arm))
+        parameter_counts[name] = int(arm["n_parameters"])
+
+    capacity_matched = len(set(parameter_counts.values())) == 1
+    if not capacity_matched:
+        notes.append("capacity NOT matched across arms: %r" % (dict(parameter_counts),))
+
+    baseline = scores["no_frame"]
+    frame_gain = scores["frame_conditioned"] - baseline
+    permuted_gain = scores["frame_permuted"] - baseline
+    destroyed_fraction: Optional[float] = None
+    if frame_gain > 0.0:
+        destroyed_fraction = float(1.0 - (permuted_gain / frame_gain))
+
+    if not capacity_matched:
+        verdict = FrameVerdict.MATCHING_FAILED.value
+    elif not content_preserved:
+        verdict = FrameVerdict.CONTROL_INVALID.value
+    elif frame_gain <= gain_threshold:
+        verdict = FrameVerdict.FRAME_INCIDENTAL.value
+        notes.append(
+            "no frame gain over the empty-frame baseline (%.4f <= %.4f): the frame "
+            "channel bought nothing at this interface." % (frame_gain, gain_threshold)
+        )
+    elif permuted_gain > permutation_destruction_frac * frame_gain:
+        verdict = FrameVerdict.FRAME_INCIDENTAL.value
+        notes.append(
+            "permutation preserved %.0f%% of the frame gain -- intact ~= frame-permuted, "
+            "so the frame is incidental at this interface."
+            % (100.0 * (permuted_gain / frame_gain))
+        )
+    else:
+        verdict = FrameVerdict.FRAME_LOAD_BEARING.value
+
+    return FramePermutationResult(
+        arms=arms,
+        scores=scores,
+        parameter_counts=parameter_counts,
+        capacity_matched=capacity_matched,
+        content_preserved=content_preserved,
+        frame_gain=float(frame_gain),
+        permuted_gain=float(permuted_gain),
+        permutation_destroyed_fraction=destroyed_fraction,
+        n_frames=int(n_frames),
+        verdict=verdict,
+        notes=notes,
+    )
+
+
+# ---------------------------------------------------------------------------
 # 6. causal_replacement -- pairing-specific causal audit
 # ---------------------------------------------------------------------------
 
@@ -1179,6 +1698,68 @@ def _run_selftest() -> bool:
         assert guard_off.mahalanobis_mean > guard_ok.mahalanobis_mean
 
     _cell("manifold_guard fires on a deliberately off-manifold map", _manifold_guard_fires)
+
+    # ---- 5b rungs: receiver conditioning (MECH-547) and frames (MECH-555) ----
+
+    def _receiver_conditioning() -> None:
+        gg = torch.Generator().manual_seed(4242)
+        a_tr = torch.randn(400, 8, generator=gg, dtype=torch.float64)
+        b_tr = torch.randn(400, 3, generator=gg, dtype=torch.float64)
+        a_te = torch.randn(200, 8, generator=gg, dtype=torch.float64)
+        b_te = torch.randn(200, 3, generator=gg, dtype=torch.float64)
+        w = torch.randn(8, 4, generator=gg, dtype=torch.float64)
+        v = torch.randn(3, 4, generator=gg, dtype=torch.float64) * 2.0
+        res = receiver_conditioned_bridge(
+            a_tr, b_tr, a_tr @ w + b_tr @ v,
+            a_te, b_te, a_te @ w + b_te @ v,
+            level=BridgeLevel.L2_AFFINE, seed=0,
+        )
+        assert res.capacity_matched, res.parameter_counts
+        assert res.verdict == ConditioningVerdict.CONDITIONING_SUPPORTED.value, res.verdict
+        assert res.permutation_destroyed_fraction is not None
+        assert res.permutation_destroyed_fraction > 0.5, res.permutation_destroyed_fraction
+        null = receiver_conditioned_bridge(
+            a_tr, b_tr, a_tr @ w, a_te, b_te, a_te @ w,
+            level=BridgeLevel.L2_AFFINE, seed=0,
+        )
+        assert null.verdict == ConditioningVerdict.NO_CONDITIONING_GAIN.value, null.verdict
+
+    _cell("receiver_conditioned_bridge: real conditioning survives, permutation destroys it",
+          _receiver_conditioning)
+
+    def _frame_mediation() -> None:
+        gg = torch.Generator().manual_seed(909)
+        x_tr = torch.randn(400, 8, generator=gg, dtype=torch.float64)
+        x_te = torch.randn(200, 8, generator=gg, dtype=torch.float64)
+        w = torch.randn(8, 4, generator=gg, dtype=torch.float64)
+        fv = torch.randn(3, 4, generator=gg, dtype=torch.float64) * 3.0
+        fr_tr = ["f%d" % (i % 3) for i in range(400)]
+        fr_te = ["f%d" % (i % 3) for i in range(200)]
+
+        def onehot(labels: Sequence[str]) -> torch.Tensor:
+            m = torch.zeros(len(labels), 3, dtype=torch.float64)
+            for i, lab in enumerate(labels):
+                m[i, int(lab[1])] = 1.0
+            return m
+
+        res = frame_permutation_control(
+            x_tr, x_tr @ w + onehot(fr_tr) @ fv,
+            x_te, x_te @ w + onehot(fr_te) @ fv,
+            frame_train=fr_tr, frame_test=fr_te,
+            level=BridgeLevel.L2_AFFINE, seed=0,
+        )
+        assert res.capacity_matched, res.parameter_counts
+        assert res.content_preserved
+        assert res.verdict == FrameVerdict.FRAME_LOAD_BEARING.value, res.verdict
+        incidental = frame_permutation_control(
+            x_tr, x_tr @ w, x_te, x_te @ w,
+            frame_train=fr_tr, frame_test=fr_te,
+            level=BridgeLevel.L2_AFFINE, seed=0,
+        )
+        assert incidental.verdict == FrameVerdict.FRAME_INCIDENTAL.value, incidental.verdict
+
+    _cell("frame_permutation_control: load-bearing frame survives, incidental frame does not",
+          _frame_mediation)
 
     print("\nPer-cell wall time (seconds):")
     total = 0.0

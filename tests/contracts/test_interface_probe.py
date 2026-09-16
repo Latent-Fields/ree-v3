@@ -28,9 +28,26 @@ Invariants asserted:
       False on a flat one, None on a single horizon.
   (9) per_code_drift(): drift confined to the declared subspace reports ~0
       out-of-subspace rate and the reverse for out-of-subspace-only drift.
+ (10) CaptureRecord.frame: defaults to {} (every pre-existing call site stays
+      valid), round-trips verbatim with no interpretation, defensively copied.
+ (11) receiver_conditioned_bridge() (MECH-547 `T(A, B)`): all four arms are
+      capacity-matched by construction; the control is a TRUE ROW PERMUTATION
+      of the receiver block; real per-row conditioning is SUPPORTED and its
+      gain dies under permutation; noise receiver state gives NO gain; a
+      target that is a function of the receiver state alone is caught as
+      LEAKAGE; an unmatched baseline (pad_baselines=False) REFUSES a verdict;
+      and the section-2.7 falsifier verdict is reachable.
+ (12) frame_permutation_control() (MECH-555): a load-bearing frame survives
+      and dies under permutation, an incidental one buys nothing, a scramble
+      that is not a permutation is rejected as CONTROL_INVALID, and the
+      "content-preserving" property is asserted mechanically -- X and Y are
+      bit-identical before and after.
 
 Design docs: REE_assembly/evidence/planning/hippocampal_campaign_assay_specifications_20260910.md
-section 4; REE_assembly/docs/thoughts/2026-09-07_mutual_legibility_implementation_assays.md.
+section 4 (and section 2.2 arms A3_frame_cond / A4_receiver_state_cond / A7_receiver_only,
+section 2.7 falsifier); REE_assembly/docs/thoughts/2026-09-07_mutual_legibility_implementation_assays.md;
+REE_assembly/docs/architecture/receiver_conditioned_translation.md (MECH-547);
+REE_assembly/docs/architecture/interface_reference_frames_and_temporal_gates.md (MECH-555).
 """
 import ast
 import sys
@@ -369,3 +386,311 @@ def test_per_code_drift_out_of_subspace_only():
     post = pre + drift_out_of_subspace
     result = ip.per_code_drift(pre, post, basis)
     assert result.out_subspace_drift_rate_per_dim > result.in_subspace_drift_rate_per_dim
+
+
+# ---- (10) frame field on CaptureRecord (MECH-555 telemetry gap) -------------
+
+def test_capture_frame_field_defaults_empty_and_round_trips():
+    """The frame gap RF doc records as "absent -- no frame field". It must
+    default to {} so every pre-existing call site stays valid, and must
+    round-trip a caller's frame verbatim without interpretation."""
+    bare = ip.capture(
+        run_id="r1", seed=0, episode=0, timestep=0,
+        sender=torch.zeros(3), receiver_input=torch.zeros(3),
+        committed_action=0, provenance="observed", phase="wake",
+    )
+    assert bare.frame == {}
+
+    framed = ip.capture(
+        run_id="r1", seed=0, episode=0, timestep=0,
+        sender=torch.zeros(3), receiver_input=torch.zeros(3),
+        committed_action=0, provenance="observed", phase="wake",
+        frame={"frame_id": "allocentric", "anchor": (1, 2)},
+    )
+    assert framed.frame == {"frame_id": "allocentric", "anchor": (1, 2)}
+    # recorded, not interpreted: no normalisation, no vocabulary enforcement
+    odd = ip.capture(
+        run_id="r1", seed=0, episode=0, timestep=0,
+        sender=torch.zeros(3), receiver_input=torch.zeros(3),
+        committed_action=0, provenance="observed", phase="wake",
+        frame={"anything": 7},
+    )
+    assert odd.frame == {"anything": 7}
+    # defensive copy: mutating the caller's dict must not reach the record
+    src = {"frame_id": "ego"}
+    rec = ip.capture(
+        run_id="r1", seed=0, episode=0, timestep=0,
+        sender=torch.zeros(3), receiver_input=torch.zeros(3),
+        committed_action=0, provenance="observed", phase="wake", frame=src,
+    )
+    src["frame_id"] = "mutated"
+    assert rec.frame == {"frame_id": "ego"}
+
+
+# ---- (11) receiver_conditioned_bridge -- MECH-547 T(A, B) ------------------
+
+def _cond_data(n_train=400, n_test=200, da=8, db=3, dy=4, seed=4242):
+    g = torch.Generator().manual_seed(seed)
+    a_tr = torch.randn(n_train, da, generator=g, dtype=torch.float64)
+    b_tr = torch.randn(n_train, db, generator=g, dtype=torch.float64)
+    a_te = torch.randn(n_test, da, generator=g, dtype=torch.float64)
+    b_te = torch.randn(n_test, db, generator=g, dtype=torch.float64)
+    w = torch.randn(da, dy, generator=g, dtype=torch.float64)
+    v = torch.randn(db, dy, generator=g, dtype=torch.float64) * 2.0
+    return a_tr, b_tr, a_te, b_te, w, v
+
+
+def test_receiver_conditioned_bridge_arms_are_capacity_matched():
+    """THE acceptance bar: the conditioned arm must not win on parameters.
+    All four arms are fitted at the same level over the same input width, so
+    n_parameters must be identical -- and `capacity_matched` must say so."""
+    a_tr, b_tr, a_te, b_te, w, v = _cond_data()
+    res = ip.receiver_conditioned_bridge(
+        a_tr, b_tr, a_tr @ w + b_tr @ v,
+        a_te, b_te, a_te @ w + b_te @ v,
+        level=ip.BridgeLevel.L2_AFFINE, seed=0,
+    )
+    assert set(res.arms) == {"sender_only", "conditioned", "receiver_permuted", "receiver_only"}
+    assert len(set(res.parameter_counts.values())) == 1, res.parameter_counts
+    assert res.capacity_matched is True
+    # every arm dict is self-identifying once serialised into a manifest
+    for name, arm in res.arms.items():
+        assert arm["arm"] == name
+        for key in ("bridge_class", "n_parameters", "heldout_mse", "heldout_r2"):
+            assert key in arm
+
+
+def test_receiver_conditioned_bridge_permutation_is_a_true_row_permutation():
+    """THE other acceptance bar: the discriminator is only a discriminator if
+    the permuted arm differs from the conditioned arm by a ROW PERMUTATION of
+    the receiver block and nothing else. If a future edit made it a resample,
+    a zeroing, or a moment-match, the control would silently become a
+    capacity test. Assert the multiset of receiver rows is preserved."""
+    a_tr, b_tr, a_te, b_te, w, v = _cond_data()
+    n_tr = b_tr.shape[0]
+    perm = ip._row_permutation(n_tr, 0 + 101)
+    assert sorted(perm.tolist()) == list(range(n_tr)), "not a permutation of the row index"
+    permuted = b_tr[perm]
+    assert permuted.shape == b_tr.shape
+    # same multiset of rows, different order (with n=400 an identity draw is
+    # not a realistic risk, but assert the reorder explicitly)
+    assert torch.allclose(permuted.sum(dim=0), b_tr.sum(dim=0))
+    assert not torch.equal(permuted, b_tr)
+    assert torch.equal(
+        torch.sort(permuted[:, 0]).values, torch.sort(b_tr[:, 0]).values
+    )
+
+
+def test_receiver_conditioned_bridge_supported_when_conditioning_is_real():
+    """Y = A@W + B@V: the receiver block genuinely carries per-row information
+    the sender does not. The conditioned arm must gain, and a receiver-state
+    permutation must destroy that gain (receiver_conditioned_translation.md's
+    reading table, row 1)."""
+    a_tr, b_tr, a_te, b_te, w, v = _cond_data()
+    res = ip.receiver_conditioned_bridge(
+        a_tr, b_tr, a_tr @ w + b_tr @ v,
+        a_te, b_te, a_te @ w + b_te @ v,
+        level=ip.BridgeLevel.L2_AFFINE, seed=0,
+    )
+    assert res.verdict == ip.ConditioningVerdict.CONDITIONING_SUPPORTED.value, res.notes
+    assert res.conditioning_gain > 0.02
+    assert res.permutation_destroyed_fraction is not None
+    assert res.permutation_destroyed_fraction > 0.5
+    assert res.scores["conditioned"] > res.scores["receiver_permuted"]
+
+
+def test_receiver_conditioned_bridge_no_gain_when_receiver_state_is_noise():
+    """Y = A@W only. The receiver block is pure noise, so there is nothing to
+    condition on and the instrument must not manufacture a gain from the
+    extra input width."""
+    a_tr, b_tr, a_te, b_te, w, _v = _cond_data()
+    res = ip.receiver_conditioned_bridge(
+        a_tr, b_tr, a_tr @ w, a_te, b_te, a_te @ w,
+        level=ip.BridgeLevel.L2_AFFINE, seed=0,
+    )
+    assert res.verdict == ip.ConditioningVerdict.NO_CONDITIONING_GAIN.value, res.notes
+    assert res.conditioning_gain <= 0.02
+
+
+def test_receiver_conditioned_bridge_detects_receiver_state_leakage():
+    """Y = B@V: the target is a function of the receiver state alone. A
+    conditioned bridge scores perfectly, but it INTRODUCED the content rather
+    than translating it (assay spec 2.8, `A7_receiver_only` high) -- the
+    instrument must refuse the conditioning reading."""
+    a_tr, b_tr, a_te, b_te, _w, v = _cond_data()
+    res = ip.receiver_conditioned_bridge(
+        a_tr, b_tr, b_tr @ v, a_te, b_te, b_te @ v,
+        level=ip.BridgeLevel.L2_AFFINE, seed=0,
+    )
+    assert res.verdict == ip.ConditioningVerdict.RECEIVER_STATE_LEAKS_TARGET.value, res.notes
+    assert res.scores["receiver_only"] > res.scores["sender_only"]
+    assert any("A7_receiver_only" in n for n in res.notes)
+
+
+def test_receiver_conditioned_bridge_refuses_verdict_when_capacity_unmatched():
+    """`pad_baselines=False` gives the native unpadded sender-only bridge --
+    a legitimate comparison (assay-spec A1_source_only) but NOT capacity
+    matched. The instrument must report MATCHING_FAILED rather than credit
+    the conditioned arm with its parameter advantage, even though the
+    underlying data supports conditioning."""
+    a_tr, b_tr, a_te, b_te, w, v = _cond_data()
+    res = ip.receiver_conditioned_bridge(
+        a_tr, b_tr, a_tr @ w + b_tr @ v,
+        a_te, b_te, a_te @ w + b_te @ v,
+        level=ip.BridgeLevel.L2_AFFINE, seed=0, pad_baselines=False,
+    )
+    assert res.capacity_matched is False
+    assert res.verdict == ip.ConditioningVerdict.MATCHING_FAILED.value
+    assert res.parameter_counts["sender_only"] < res.parameter_counts["conditioned"]
+    assert any("not capacity-matched" in n or "capacity NOT matched" in n for n in res.notes)
+
+
+def test_receiver_conditioned_bridge_capacity_not_conditioning_verdict():
+    """The assay spec's section 2.7 falsifier -- "A4's advantage survives
+    receiver-state permutation intact". A row permutation destroys every
+    per-row signal by construction, so this branch is not synthesisable from
+    data; it is driven here through the public `score_from_arm` hook (which
+    is also the consumer-use-gain path the spec's primary estimand needs)."""
+    a_tr, b_tr, a_te, b_te, w, v = _cond_data()
+    fixed = {"sender_only": 0.50, "conditioned": 0.80,
+             "receiver_permuted": 0.78, "receiver_only": 0.10}
+    res = ip.receiver_conditioned_bridge(
+        a_tr, b_tr, a_tr @ w + b_tr @ v,
+        a_te, b_te, a_te @ w + b_te @ v,
+        level=ip.BridgeLevel.L2_AFFINE, seed=0,
+        score_from_arm=lambda arm: fixed[arm["arm"]],
+    )
+    assert res.capacity_matched is True
+    assert res.verdict == ip.ConditioningVerdict.CAPACITY_NOT_CONDITIONING.value, res.notes
+    assert res.conditioning_gain == pytest.approx(0.30)
+    assert res.permuted_gain == pytest.approx(0.28)
+    assert any("never conditioned on state" in n for n in res.notes)
+
+
+def test_receiver_conditioned_bridge_rejects_misaligned_rows():
+    a_tr, b_tr, a_te, b_te, w, v = _cond_data()
+    with pytest.raises(ValueError):
+        ip.receiver_conditioned_bridge(
+            a_tr, b_tr[:-1], a_tr @ w, a_te, b_te, a_te @ w,
+            level=ip.BridgeLevel.L2_AFFINE,
+        )
+    with pytest.raises(ValueError):
+        ip.receiver_conditioned_bridge(
+            a_tr, b_tr, a_tr @ w, a_te, b_te[:-1], a_te @ w,
+            level=ip.BridgeLevel.L2_AFFINE,
+        )
+
+
+# ---- (12) frame_permutation_control -- MECH-555 ----------------------------
+
+def _frame_data(n_train=400, n_test=200, dx=8, dy=4, n_frames=3, seed=909):
+    g = torch.Generator().manual_seed(seed)
+    x_tr = torch.randn(n_train, dx, generator=g, dtype=torch.float64)
+    x_te = torch.randn(n_test, dx, generator=g, dtype=torch.float64)
+    w = torch.randn(dx, dy, generator=g, dtype=torch.float64)
+    fv = torch.randn(n_frames, dy, generator=g, dtype=torch.float64) * 3.0
+    fr_tr = ["f%d" % (i % n_frames) for i in range(n_train)]
+    fr_te = ["f%d" % (i % n_frames) for i in range(n_test)]
+
+    def onehot(labels):
+        m = torch.zeros(len(labels), n_frames, dtype=torch.float64)
+        for i, lab in enumerate(labels):
+            m[i, int(lab[1])] = 1.0
+        return m
+
+    return x_tr, x_te, w, fv, fr_tr, fr_te, onehot
+
+
+def test_frame_permutation_control_load_bearing_frame():
+    """Y = X@W + onehot(frame)@FV. The frame genuinely indexes the content, so
+    the intact arm must beat the empty-frame baseline and a content-preserving
+    row permutation of the frame labels must destroy that gain (RF doc:
+    "intact >> frame-permuted ... shared indexing is functionally
+    load-bearing")."""
+    x_tr, x_te, w, fv, fr_tr, fr_te, onehot = _frame_data()
+    res = ip.frame_permutation_control(
+        x_tr, x_tr @ w + onehot(fr_tr) @ fv,
+        x_te, x_te @ w + onehot(fr_te) @ fv,
+        frame_train=fr_tr, frame_test=fr_te,
+        level=ip.BridgeLevel.L2_AFFINE, seed=0,
+    )
+    assert res.verdict == ip.FrameVerdict.FRAME_LOAD_BEARING.value, res.notes
+    assert res.content_preserved is True
+    assert res.capacity_matched is True
+    assert res.n_frames == 3
+    assert res.frame_gain > 0.02
+    assert res.permutation_destroyed_fraction > 0.5
+    assert set(res.arms) == {"no_frame", "frame_conditioned", "frame_permuted"}
+    assert len(set(res.parameter_counts.values())) == 1, res.parameter_counts
+
+
+def test_frame_permutation_control_incidental_frame():
+    """Y = X@W: the frame indexes nothing at this interface, so the frame
+    channel must buy nothing ("intact ~= frame-permuted -> the frame is
+    incidental at that interface")."""
+    x_tr, x_te, w, _fv, fr_tr, fr_te, _onehot = _frame_data()
+    res = ip.frame_permutation_control(
+        x_tr, x_tr @ w, x_te, x_te @ w,
+        frame_train=fr_tr, frame_test=fr_te,
+        level=ip.BridgeLevel.L2_AFFINE, seed=0,
+    )
+    assert res.verdict == ip.FrameVerdict.FRAME_INCIDENTAL.value, res.notes
+    assert res.frame_gain <= 0.02
+
+
+def test_frame_permutation_control_rejects_non_permutation_scramble():
+    """A scramble that is not a permutation of the intact label vector changes
+    the frame MARGINAL as well as the frame-to-content correspondence, which
+    confounds the contrast. It must be reported as CONTROL_INVALID, never
+    scored as a frame result."""
+    x_tr, x_te, w, fv, fr_tr, fr_te, onehot = _frame_data()
+    res = ip.frame_permutation_control(
+        x_tr, x_tr @ w + onehot(fr_tr) @ fv,
+        x_te, x_te @ w + onehot(fr_te) @ fv,
+        frame_train=fr_tr, frame_test=fr_te,
+        level=ip.BridgeLevel.L2_AFFINE, seed=0,
+        frame_permutation_train=["f0"] * len(fr_tr),
+        frame_permutation_test=["f0"] * len(fr_te),
+    )
+    assert res.content_preserved is False
+    assert res.verdict == ip.FrameVerdict.CONTROL_INVALID.value
+    assert any("NOT a permutation" in n for n in res.notes)
+
+
+def test_frame_permutation_control_preserves_content_tensors_exactly():
+    """"Content-preserving" is asserted mechanically, not by inspection: the
+    default scramble must leave every element of X and Y untouched -- only the
+    frame index moves. A future edit that "helpfully" permuted rows of X or Y
+    would silently turn the discriminator into a content test."""
+    x_tr, x_te, w, fv, fr_tr, fr_te, onehot = _frame_data()
+    y_tr = x_tr @ w + onehot(fr_tr) @ fv
+    y_te = x_te @ w + onehot(fr_te) @ fv
+    x_tr_before = x_tr.clone()
+    y_tr_before = y_tr.clone()
+    x_te_before = x_te.clone()
+    y_te_before = y_te.clone()
+    ip.frame_permutation_control(
+        x_tr, y_tr, x_te, y_te,
+        frame_train=fr_tr, frame_test=fr_te,
+        level=ip.BridgeLevel.L2_AFFINE, seed=0,
+    )
+    assert torch.equal(x_tr, x_tr_before)
+    assert torch.equal(y_tr, y_tr_before)
+    assert torch.equal(x_te, x_te_before)
+    assert torch.equal(y_te, y_te_before)
+
+
+def test_frame_permutation_control_rejects_label_count_mismatch():
+    x_tr, x_te, w, _fv, fr_tr, fr_te, _onehot = _frame_data()
+    with pytest.raises(ValueError):
+        ip.frame_permutation_control(
+            x_tr, x_tr @ w, x_te, x_te @ w,
+            frame_train=fr_tr[:-1], frame_test=fr_te,
+            level=ip.BridgeLevel.L2_AFFINE,
+        )
+    with pytest.raises(ValueError):
+        ip.frame_permutation_control(
+            x_tr, x_tr @ w, x_te, x_te @ w,
+            frame_train=fr_tr, frame_test=fr_te[:-1],
+            level=ip.BridgeLevel.L2_AFFINE,
+        )
