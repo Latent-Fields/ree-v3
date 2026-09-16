@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-09-15 (T01:10Z nightly)
+**Last updated:** 2026-09-16 (T01:10Z nightly)
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -236,6 +236,90 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 `REE_assembly/docs/architecture/self_attribution_per_stream.md`.
 
 ### Experiment Status
+
+- **2026-09-16T01:10Z nightly attestation (scheduled `/update-docs`, bot
+  identity).** ~24h window since the 2026-09-15T01:10Z snapshot -- a
+  quiet band (governance/steward tick, no substrate landings). Flat
+  `v3_exq_*` manifests on disk: **1021** (+5 vs 1016 at
+  2026-09-15T01:10Z); nested per-run manifests under
+  `evidence/experiments/*/runs/`: **2961** (+5 vs 2956). **Currently
+  queued (`experiment_queue.json` items[]): 1 item** -- V3-EXQ-935a;
+  V3-EXQ-1039 (INV-086/MECH-428 waypoint-consumer drive signal)
+  drained in-window. **Pending review (`pending_review.md`,
+  regenerated 2026-09-15T01:21:58Z): 5 items** (3 PASS, 1 FAIL, 1
+  unclaimed manifest; 1 diagnostic self-route flagged for adjudication,
+  4 diagnostic runs with no confirmed autopsy) -- backlog worked down
+  from 12 as the 2026-09-15 nightly's staging-mode autopsies + the
+  V3-EXQ-1028 staging autopsy landed content that discharged the
+  intervening reviews. Coordinator-DB 30-day rolling (per
+  `experiment_error_rate.py` against the hub `ree@91.98.130.117`, span
+  2026-08-17T06:20:39Z .. 2026-09-15T21:52:21Z): **67 PASS / 51 FAIL /
+  2 ERROR, ERROR rate 1.7% (2 / 120 classified runs)** -- 5 new PASS
+  in-window, no new FAIL or ERROR outcomes (one FAIL slipped out of
+  the rolling window). (a) **NO new substrate landings in the window**
+  -- SD-106 (2026-09-11) remains the most recent substrate; no
+  substrate landings, no ratified amends, no `substrate_queue.json`
+  additions between 2026-09-15T01:10Z and this snapshot. (b) **One
+  staging-mode `/failure-autopsy` draft landed**: V3-EXQ-1028 (SD-082
+  extended-budget learning-signal run, `REE_assembly` `f010aa1650`,
+  2026-09-15T21:27Z) -- `status: awaiting_human_confirmation`; Step 8
+  interactive gate OWED; nothing marked reviewed;
+  `substrate_queue.json` / `claims.yaml` / `review_tracker.json`
+  untouched. Combined with the three staging drafts carried forward
+  from the 2026-09-15 nightly (V3-EXQ-1030, V3-EXQ-1038, V3-EXQ-1012a),
+  **four staging-mode autopsy drafts are now owed a Step 8 interactive
+  gate**. (c) **Four new smoke-PASS drivers built** but not yet in the
+  queue (all queue writes routed through `/queue-experiment` red-team +
+  smoke-test as the coordination-plane pause on
+  `experiment_queue.json` allowed): V3-EXQ-964b (MECH-482 corrected
+  reachability instrument + verify-lift authority ladder, ree-v3
+  `0ea1e7e`), V3-EXQ-1041 (SD-106 metric-mismatch vs step-budget vs
+  mechanism-defect diagnostic, ree-v3 `febce39`), V3-EXQ-784a (SD-074
+  probe-warmup de-saturation sweep, corrected re-run on fixed
+  non-destructive probe, ree-v3 `a375540`), V3-EXQ-1040 (SD-077
+  centered super-ordinal cue key, ree-v3 `d143254`; carry-forward
+  from the 2026-09-15 nightly's `orchestrate-20260914-2323` batch).
+  (d) **Lit-pull IGW-242 for MECH-003 tau-scoped precision** landed
+  5 literature entries (`REE_assembly` `c1160f28ff`) + governance
+  flag raised (`b3117fa371`, evidence_discrepancy) + reindex
+  (`e55cdb2a60`); IGW-235 for INV-095 spawned. (e) **Governance flags
+  raised** on MECH-482, MECH-314b (`REE_assembly` `5ef4dbe6b1`),
+  SD-106 (`b66728d5c0`), MECH-003 (`b3117fa371`) -- all
+  evidence_discrepancy class; a governance cycle will need to work
+  the bucket. (f) **Unseeded-CausalGridWorldV2 fix chip** landed
+  (`ree-v3` `bd83702`, seeded CausalGridWorldV2 in V3-EXQ-947/949/
+  964/964a drivers, `chip-20260915-unseeded-causalgridworld-drivers`).
+  (g) **Re-derive brake step (3) producer release** landed (`ree-v3`
+  `ad20d4e`) -- producer release now reachable when amend target has
+  landed. (h) **Coordinator: `claim_note_history_json` server half**
+  landed (`ree-v3` `61d8e24`) -- preserves chip claim_note on
+  claim/unclaim on the coordinator side; the client git-path half
+  landed on 2026-09-14 (`REE_Working` `e0b4ef7a46`); the paired chip
+  (`chip-20260915-claimnote-history-coordinator-side`) is now
+  discharged. (i) **Steward-sweep T0 repair** applied by the daily
+  sweep (`REE_assembly` `3b1e0852e7`, 1 repair). (j) **Thought
+  digestion** continued (waves 6 + 7, Families D/G,
+  `what_would_answer` on ARC-145, MECH-534/548/560/561/562, Q-103/
+  106/107, INV-105/109/110; EXP-1404 minted). This attestation itself
+  is the last content change: `docs/ree-v3-spec.md` §0 date bump +
+  Experiment Status entry, and this `docs/roadmap.md` snapshot.
+  **Bottleneck: unchanged** -- the four owed Step 8 gates from the
+  staging-mode autopsies (three from the 2026-09-15 nightly plus
+  V3-EXQ-1028) plus the URGENT-for-governance `evidence_direction:
+  "diagnostic"` -> re-inferred `supports` finding on MECH-439
+  (V3-EXQ-1012a) are the queue-clearing next moves; the convergence
+  root remains the H-observation-interface axis (SD-106
+  IMPLEMENTED-and-partially-validated under
+  `preservation_weight=200.0` + world-encoder skip; V3-EXQ-1030's
+  SD-070 sense() pre-projection substrate lever is still an
+  independent create-recommendation). Green-board target 2026-07-19
+  now **59 days overdue**. **ETHICS-PERIMETER Phase 0 datum** stays on
+  the record (Phases 1-3 deferred; NON-BLOCKING). Public-information-
+  architecture impact: reviewed against
+  `docs/design/public_information_architecture.md` -- no `/api/*`
+  surface, generated visualization, or public export changed; nightly
+  snapshot + spec date bump + Experiment Status entry only; no SD
+  table rows added, moved, or restatused.
 
 - **2026-09-15T01:10Z nightly attestation (scheduled `/update-docs`, bot
   identity).** ~21.5h window since the 2026-09-14T03:37Z snapshot -- a
