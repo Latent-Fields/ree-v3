@@ -16,7 +16,7 @@
   stop-gradient `z_world` with the encoder optimiser NOT stepped (EXQ-166b/c/d).
   MECH-094: not applicable -- trains an encoder on live observations and writes nothing to
   memory during any non-waking state.
-  Validation experiment: V3-EXQ-1015 queued (re-runs
+  Validation experiment: V3-EXQ-1023 (minted as V3-EXQ-1015, corrected 2026-09-16 per failure_autopsy_V3-EXQ-1023_2026-09-14) queued (re-runs
   `experiments/v3_exq_1010_zworld_overcapacity_decoder_sweep.py` UNCHANGED against an
   SD-106-ON warmup).
   See SD-018 (the superseded single-feature shape), SD-070 (the P0 recipe this extends),
