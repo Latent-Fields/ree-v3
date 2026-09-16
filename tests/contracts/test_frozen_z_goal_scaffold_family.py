@@ -153,6 +153,51 @@ exists to make, not repair it.
 
 The 28-landed-manifest evidence-direction breakdown above is again unchanged: 934 is a
 DIAGNOSTIC with no manifest yet (`claimed` by ree-cloud-3 as of this note).
+
+FAMILY GROWTH (2026-09-16). One new member: V3-EXQ-935a
+(`v3_exq_935a_mech266_margin_normalised_cap_rule.py`, ree-v3 `a8a61c2`, landed
+2026-09-14), the corrected re-test of V3-EXQ-935 that fixes the four measurement
+defects `failure_autopsy_V3-EXQ-935_2026-08-18.md` Section 5a found (missing H-KNIFE
+routing branch, a hardcoded/false `route_reason`, an unchecked cross-substrate R_STAR
+import, and a prose-only `ANCHOR_REACHABILITY_EXEMPT` claim) and re-earns the result on
+fresh, out-of-sample seeds (47-51, vs 935's 42-46). It arrived with `_FROZEN_FAMILY_SIZE`
+still at 32, so trunk's contract gate was red from `a8a61c2` until this note. VERDICT:
+a fixed goal is INTENDED -- no retrofit, pin 32 -> 33.
+
+Checked directly rather than assumed, same four questions as the 934/935 notes above.
+935a builds the curriculum ONCE per seed (its own `_run_seed`) and evaluates every cell
+-- the calibration cell, each cell of the extended r-sweep [2.25, 2.45, 2.65, 2.85,
+3.05], and the absolute-cap cell -- from a `_clone_for_arm()` copy of that single trained
+agent, which still carries `goal_state` across explicitly
+(`agent.goal_state.load_state_dict(trained_agent.goal_state.state_dict())`, unchanged
+from 935). So every cell of a seed enters measurement with a BIT-IDENTICAL frozen
+z_goal. Like 935, it sets neither `goal_weight` nor
+`residue.benefit_terrain_live_producer`, and calls neither `update_z_goal` nor
+`_set_goal_pipeline_frozen`. The freeze is therefore the deliberate inherited state,
+and per the family's own convention (recorded once here, never per-script) 935a carries
+no comment of its own about it.
+
+935a inherits 934/935's "one respect in which it is stronger" verbatim and for the same
+reason: it too sets `use_external_task_drive=True` (line 563), so the frozen goal sits
+on the causal path of its primary DV (external_task mode occupancy / the H-RULE vs
+H-IDIO vs H-KNIFE routing). Both containment arguments carry over unchanged -- (i) it is
+a fixed TARGET, not a frozen SIGNAL, since `goal_proximity` is recomputed per tick
+against the live `z_world`; and (ii) 935a's read is a WITHIN-seed comparison across the
+r-sweep (does occupancy grade at a single pre-registered r, simultaneously, across
+fresh seeds), and the goal state is identical across all cells of a seed, so it cannot
+produce a between-cell difference. 935a also keeps 935's direct goal-stream
+instrumentation (`ZGoalStreamAccumulator`, `_ZG.observe()` at the trained agent and at
+every evaluated cell, reported as `z_goal_stream_stats`) -- unchanged from 935, so the
+frozen value is recorded rather than left implicit here too.
+
+935a's own manifest landed 2026-09-16T09:58:09Z: `outcome=FAIL`,
+`evidence_direction=non_contributory` (R_STAR=2.45 did not clear the pre-registered bar
+on the fresh seeds; H-KNIFE routing -- newly wired by this run -- determines whether that
+is idiosyncrasy or a further-correctable rule, per the autopsy's routing). The frozen
+z_goal plays no role in that outcome for the same arm-symmetry reason as every other
+member of this family: whatever the goal freezes at, it is identical across every cell
+of a given seed, so it cannot explain a between-cell or between-seed difference in
+occupancy grading.
 """
 import ast
 import sys
@@ -588,7 +633,7 @@ def test_scaffold_hands_off_with_the_goal_consumers_unfrozen():
 # every calibration / ARM_NORM-sweep / ARM_ABS cell from a goal_state-carrying
 # _clone_for_arm copy). A fixed goal is INTENDED. Full derivation in the third FAMILY
 # GROWTH addendum in this file's docstring.
-_FROZEN_FAMILY_SIZE = 32
+_FROZEN_FAMILY_SIZE = 33
 
 
 def test_frozen_z_goal_family_size_is_pinned():
