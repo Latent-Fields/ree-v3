@@ -745,9 +745,92 @@ class BurnDetectorKnownTruthTest(unittest.TestCase):
         (PASS, per the 2026-08-30 nightly) in their re-add stints, so only
         956, whose id was already terminal, burned.
 
-        NOTED, NOT ACTED ON: the noise cap below is at 18 of 20. One or
-        two more burns and it fires, and someone has to decide whether
-        that is noise or growth.
+        PIN UPDATE 2026-09-17: V3-EXQ-1025 joined the LOST set, and it is a
+        NEW SUB-SHAPE -- it fits NEITHER half of the partition below, which
+        is the whole reason it is worth reading rather than just counting.
+        Like 895/929/956 its own number HAD ALREADY RUN before the burned
+        stint, so no science was lost; UNLIKE them the already_ran advisory
+        is SILENT, because the declared script was edited between the run
+        and the re-add and the advisory (correctly) demands byte-identity.
+
+        The mechanism is a REBASED-AWAY SHA, not a stale working tree, and
+        that is what makes it new. Timeline, all UTC, every leg verified:
+          17:53:10Z  the authoring session commits the entry + driver
+                     (author date of ree-v3 5760ba5).
+          18:04:51Z  that commit REACHES ORIGIN under a REBASED sha --
+                     5760ba5, whose committer date is 11m41s after its
+                     author date. The pre-rebase original stayed behind in
+                     the shared checkout.
+          18:05:45Z  phase3-queue snapshot 3d38fa24 (this is c9ccc57^, and
+                     it is the substrate_commit the run's manifest records
+                     -- the queue state in which 1025 was the live item).
+          18:11:00Z  ree-worker-3 writes the manifest. OUTCOME PASS,
+                     evidence_direction supports, elapsed 10.49s, full
+                     run-pack (manifest + metrics + summary + INDEX).
+          18:15:53Z  phase3-queue snapshot c9ccc57 sweeps it -- a NORMAL
+                     completion sweep. Stint 1 closes correctly.
+          18:27:29Z  ree-v3 4de3eca corrects the driver's docstring and
+                     drops a bogus RELATED_EXQ entry (see below).
+          19:02:29Z  ree-v3 e3bf76c RE-ADDS the entry, "land the queue entry
+                     stranded in the shared checkout", believing it had
+                     never landed and "would never have executed".  <-- BURN
+          19:06:05Z  phase3-queue snapshot a382a91 sweeps it 3.6 min later.
+
+        WHY THE RE-ADDING SESSION WAS WRONG, stated precisely because the
+        error is easy to repeat: it read the SHARED CHECKOUT's local main,
+        saw the entry sitting in commits whose shas are absent from origin,
+        and concluded the entry never landed. Those were the PRE-REBASE
+        ORIGINALS. Verified, not assumed: the commit it names as its source,
+        b497ca2, resolves in this repo and `git merge-base --is-ancestor
+        b497ca2 origin/main` is FALSE, while its content is on origin as the
+        rebased 4de3eca (identical subject). Its second observation was true
+        and also misleading -- /queue/active really did show only
+        V3-EXQ-1023, but because 1025 was already DONE and swept, not
+        because it had never arrived. A LOCAL SHA'S ABSENCE FROM ORIGIN IS
+        NOT EVIDENCE THE CONTENT NEVER LANDED.
+
+        WHY THE ADVISORY IS SILENT, AND WHY THAT IS CORRECT: the advisory
+        requires the declared script's blob to be byte-identical at the
+        earlier manifest's revision and at the burned stint's add commit.
+        4de3eca sits between them, so it is not. The delta was checked
+        rather than assumed -- ASTs compared with docstrings stripped, the
+        ONLY executable differences are (i) RELATED_EXQ losing the spurious
+        'V3-EXQ-1024' and (ii) prose inside one PreconditionSpec description.
+        Nothing readout-affecting; no threshold, criterion, arm, seed or
+        constant moved. So the run stands scientifically, and the advisory's
+        silence is the FP4 guard being conservative, exactly as designed --
+        not a miss to be fixed. Forensic cross-check that the PRE-correction
+        blob is what ran: the manifest's own related_exq is
+        ['V3-EXQ-1024', 'V3-EXQ-666c', 'V3-EXQ-806'], i.e. the list 4de3eca
+        later removed 1024 from.
+
+        Why each recovery route is silent -- checked, not assumed:
+          supersedes  nothing anywhere declares `supersedes: V3-EXQ-1025`
+                      (the queue's only supersedes is 1023a -> 1023);
+          same-stem   the stem's only manifest is 18:11:00Z, BEFORE the
+                      19:02:29Z burned stint, so ran_after is False;
+          renumber    the slug mech349_crf_churn_retirement exists under no
+                      other number, in experiments/ or in evidence/.
+        NO SCIENCE WAS LOST: the run happened 51 minutes before the burn,
+        PASSED, is run-packed and was reviewed inline (2026-09-11 nightly).
+        There was never a second run to lose. As for 895/929/956, the
+        disposition does NOT move to recovered: whether the re-add wanted a
+        RERUN is a human reading of intent, not a machine-visible property.
+
+        NOISE CAP, NOW ADJUDICATED RATHER THAN DEFERRED: it is at 20 of 20.
+        The 2026-08-30 note left the noise-vs-growth call to "someone"; this
+        is that call, and the answer is GROWTH, so the cap is NOT raised.
+        Both findings added since then were adjudicated individually and
+        both are genuine -- V3-EXQ-1025 (this entry) and V3-EXQ-964a, which
+        is RECOVERED by V3-EXQ-964b and so is not pinned. Zero false
+        positives were added, which is the only thing this cap is there to
+        catch. Two facts the next session should have in hand, because the
+        cap now fires on the NEXT finding of any kind: the cap has been 20
+        since it was introduced (2026-07-21, e0110ad) and has NEVER been
+        raised; and 964a's burn was added by 5760ba5 -- the very commit that
+        first queued 1025 -- so a single stale-tree push can contribute two
+        findings at once. Raising it is a real decision about what this
+        assertion is for; do not do it merely to get to green.
         """
         self.assertLessEqual(len(self.ids), 20,
                              "detector has started producing noise")
@@ -755,6 +838,11 @@ class BurnDetectorKnownTruthTest(unittest.TestCase):
         lost = sorted({f["queue_id"] for f in self.findings
                        if not f["evidence_recovered"]})
         self.assertEqual(lost, [
+            "V3-EXQ-1025",  # own number ran PASS at 18:11:00Z BEFORE the
+                            # 19:02:29Z stint, but the advisory is silent
+                            # because the driver was edited (prose-only) in
+                            # between. Re-added on a REBASED-AWAY-SHA
+                            # misreading -- see PIN UPDATE 2026-09-17.
             "V3-EXQ-569a",
             "V3-EXQ-683",
             "V3-EXQ-686",
@@ -788,14 +876,48 @@ class BurnDetectorKnownTruthTest(unittest.TestCase):
             "V4-EXQ-001": "2026-06-17T10:52:51Z",
         })
 
-        # The other half of the partition: these never ran under ANY number,
-        # which is why they are the real science loss.
-        for queue_id in ("V3-EXQ-569a", "V3-EXQ-683", "V3-EXQ-686"):
+        # BUCKET (a): these never ran under ANY number, which is why they
+        # are the real science loss.
+        never_ran = ("V3-EXQ-569a", "V3-EXQ-683", "V3-EXQ-686")
+        for queue_id in never_ran:
             with self.subTest(queue_id=queue_id):
                 self.assertNotIn(queue_id, already_ran,
                                  "%s never produced a manifest under any "
                                  "number -- an advisory here would be false"
                                  % queue_id)
+
+        # BUCKET (c), NEW 2026-09-17: ran under its OWN number, yet the
+        # advisory is legitimately silent -- the declared script was edited
+        # between the run and the burned stint, so the blob-identity test
+        # the advisory requires cannot pass. Asserted SEPARATELY from bucket
+        # (a) on purpose: 1025 satisfies the same assertNotIn, but (a)'s
+        # failure message ("never produced a manifest under any number")
+        # would be FALSE of it, and a pin whose message lies about why is
+        # worse than no pin. The manifest is asserted to exist so that this
+        # bucket cannot silently decay into (a) if the evidence goes missing.
+        advisory_silent_but_ran = ("V3-EXQ-1025",)
+        for queue_id in advisory_silent_but_ran:
+            with self.subTest(queue_id=queue_id):
+                self.assertNotIn(queue_id, already_ran,
+                                 "%s: the advisory must stay silent -- its "
+                                 "driver blob changed between the run and "
+                                 "the burned stint" % queue_id)
+                script = [f["script"] for f in self.findings
+                          if f["queue_id"] == queue_id][0]
+                stem = os.path.basename(script)[:-len(".py")]
+                self.assertTrue(
+                    audit.EvidenceIndex(str(EVIDENCE_DIR)).ran_ever(stem),
+                    "%s is pinned as 'ran under its own number'; if its "
+                    "manifest is gone that premise is dead and this entry "
+                    "belongs in bucket (a), not here" % queue_id)
+
+        # The partition must be EXHAUSTIVE over the LOST set -- otherwise a
+        # future entry could join `lost` above and be adjudicated by nobody.
+        self.assertEqual(
+            sorted(set(lost_already_ran) | set(never_ran)
+                   | set(advisory_silent_but_ran)),
+            lost,
+            "every LOST entry must sit in exactly one adjudicated bucket")
 
         # FP4, on the real corpus rather than a fixture. 728a's declared
         # script (the PARENT's) DID run before the burned stint, so the
