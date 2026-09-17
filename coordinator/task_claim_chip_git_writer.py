@@ -521,7 +521,7 @@ def ingest_dispatch_campaigns(conn, source_doc):
     ingest_dispatcher_control: a campaign added, launched or closed git-side
     while the hub was unreachable is adopted here, which is what makes the
     git file a real DEGRADED FALLBACK rather than a fork."""
-    stats = {"n_seen": 0, "n_adopted": 0}
+    stats = {"n_seen": 0, "n_adopted": 0, "n_rejected": 0}
     if not isinstance(source_doc, dict):
         return stats
     campaigns = source_doc.get("campaigns")
@@ -531,9 +531,18 @@ def ingest_dispatch_campaigns(conn, source_doc):
         if not isinstance(entry, dict):
             continue
         stats["n_seen"] += 1
-        verdict, _ = db.upsert_campaign_ingest(conn, entry, via="ingest")
+        verdict, payload = db.upsert_campaign_ingest(conn, entry, via="ingest")
         if verdict == "ok":
             stats["n_adopted"] += 1
+        elif verdict == "bad_entry":
+            # Surfaced rather than swallowed: a rejection here means the git
+            # file carries a shape this hub cannot represent, which is
+            # exactly the state render_dispatch_campaigns must not resolve by
+            # deleting. See its unknown-entry passthrough.
+            stats["n_rejected"] += 1
+            stats.setdefault("rejected", []).append(
+                {"campaign_id": entry.get("campaign_id"),
+                 "reason": payload.get("reason")})
     return stats
 
 
@@ -546,10 +555,20 @@ def render_dispatch_campaigns(conn, source_doc):
     sort_keys, trailing newline) so an in-sync render is byte-identical to
     a client write.
 
+    A source entry the DB does NOT hold is PRESERVED, appended after the DB
+    rows (2026-09-17). The DB never deletes a campaign row, so the only way
+    an entry can be in git and absent here is that ingest refused it --
+    and rendering without it turns that refusal into deletion of a curated
+    record. That is not hypothetical: when the client learned the `science`
+    lane before this hub did, /campaign/add answered bad_entry, the client
+    fell back to git as designed, and the next 2-minute tick deleted both
+    entries (REE_Working fd7730f70). The client leading the hub by a deploy
+    is the NORMAL order, so the fallback has to survive it.
+
     Returns (new_text, stats). new_text is None when there is nothing to
     write: no source doc (never invent the envelope), or no DB rows yet
     (pre-flip quiescence -- ingest-only)."""
-    stats = {"n_rows": 0, "differs": False}
+    stats = {"n_rows": 0, "n_preserved": 0, "differs": False}
     if not isinstance(source_doc, dict):
         return None, stats
     rows = db.campaign_rows(conn)
@@ -558,11 +577,23 @@ def render_dispatch_campaigns(conn, source_doc):
         return None, stats
     doc = {k: v for k, v in source_doc.items() if k != "campaigns"}
     campaigns = []
+    known = set()
     for r in rows:
         try:
-            campaigns.append(json.loads(r["entry_json"]))
+            entry = json.loads(r["entry_json"])
         except ValueError:
             continue
+        campaigns.append(entry)
+        known.add(r["campaign_id"])
+    for entry in source_doc.get("campaigns") or []:
+        if not isinstance(entry, dict):
+            continue
+        cid = entry.get("campaign_id")
+        if not isinstance(cid, str) or cid in known:
+            continue
+        campaigns.append(entry)
+        known.add(cid)
+        stats["n_preserved"] += 1
     doc["campaigns"] = campaigns
     new_text = json.dumps(doc, indent=2, sort_keys=True) + "\n"
     return new_text, stats

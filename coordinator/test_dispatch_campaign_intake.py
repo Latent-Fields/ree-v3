@@ -23,6 +23,15 @@ Pins, in descending order of damage-if-wrong:
      nothing, so landing this changes no git behaviour until something POSTs.
   5. ROUTE WIRING over real HTTP: the /campaign/ prefix reaches the handler
      table (a handler in the table but outside the prefix gate 404s silently).
+  6. THE SCIENCE LANE IS ACCEPTED, AND AN UNKNOWN LANE IS NOT DELETED
+     (2026-09-17). Until this date the id regex alone answered every science
+     entry `bad_entry`, campaign_is_live called the lane dead so
+     record-launch -- the cross-box mutex -- refused it, and the render then
+     DROPPED the git-side entries ingest had refused (REE_Working fd7730f70
+     deleted two curated science entries two minutes after they landed). The
+     client leading the hub by a deploy is the normal order, so both halves
+     are pinned: the lane is admitted with its invariants, and an entry this
+     hub cannot ingest survives the render regardless.
 
 Time-independent (every verdict takes the client's `now`). ASCII-only.
 """
@@ -78,6 +87,25 @@ def campaign(cid="campaign-20260916-gc", members=("chip-a", "chip-b"),
                             "note": "curated"}],
     }
     c.update(extra)
+    return c
+
+
+def science(cid="science-20260917-arc029-p1p3", members=("chip-sci-a",),
+            preflight_verdict="GREEN", **extra):
+    """A science-lane entry exactly as scripts/dispatch_campaigns.build_campaign
+    writes one: ONE member, bundle_basis kind `single` naming that member, and
+    the recorded read-only pre-flight riding ON the entry."""
+    c = campaign(cid=cid, members=members)
+    c["lane"] = "science"
+    c["title"] = "ARC-029 P1/P3 gradedness"
+    c["model"] = "claude-opus-5"
+    c["bundle_basis"] = {"kind": "single",
+                         "value": members[0] if members else ""}
+    if preflight_verdict is not None:
+        c["preflight"] = {"verdict": preflight_verdict, "at": NOW,
+                          "by": "preflight-sonnet", "source": "/tmp/pf.md",
+                          "findings": "premises hold; 2 of 2 reachable"}
+    c.update(extra)  # last, so a test can override `lane` itself
     return c
 
 
@@ -612,6 +640,165 @@ class TestIngestAndRender(_Writer):
         self.assertTrue(result["committed"])
         self.assertEqual(json.loads(self._origin_text())["campaigns"][0]
                          ["status"], "launched")
+
+
+class TestScienceLane(_Db):
+    """Lane 2 (2026-09-17). The gate here is STRUCTURAL -- it pins what every
+    later reader in this module depends on. `budget_category()` ("the member
+    must classify as science") is deliberately NOT mirrored server-side; see
+    db._campaign_validate for why a second copy of that heuristic would be
+    the same failure again."""
+
+    def test_add_accepts_a_science_entry(self):
+        v, p = db.add_campaign(self._conn, science(), via="t", now=NOW)
+        self.assertEqual(v, "ok")
+        self.assertEqual(p["entry"], science(),
+                         "lossless passthrough -- preflight and all")
+        self.assertEqual(db.find_campaign(self._conn,
+                                          "science-20260917-arc029-p1p3"),
+                         science())
+
+    def test_live_and_listed_alongside_bundles(self):
+        self.assertTrue(db.campaign_is_live(science(), NOW))
+        db.add_campaign(self._conn, science(), via="t", now=NOW)
+        db.add_campaign(self._conn, campaign(), via="t", now=NOW)
+        live = db.list_campaigns(self._conn, live=True, now=NOW)
+        self.assertEqual([c["campaign_id"] for c in live],
+                         ["science-20260917-arc029-p1p3",
+                          "campaign-20260916-gc"])
+
+    def test_record_launch_is_the_same_mutex_on_this_lane(self):
+        """The bug that mattered most: campaign_is_live refusing the lane made
+        record-launch -- the campaign-side claim-first -- answer `not_live`,
+        so a science launch fell back to git and lost the one-worker-per-entry
+        guarantee."""
+        db.add_campaign(self._conn, science(), via="t", now=NOW)
+        cid = "science-20260917-arc029-p1p3"
+        v, p = db.record_campaign_launch(self._conn, cid, launch(), now=LATER)
+        self.assertEqual(v, "ok")
+        self.assertEqual(p["entry"]["status"], "launched")
+        v, _ = db.record_campaign_launch(self._conn, cid, launch(), now=LATER)
+        self.assertEqual(v, "idempotent")
+        v, p = db.record_campaign_launch(self._conn, cid, launch("sess-2"),
+                                         now=LATER)
+        self.assertEqual(v, "already_launched")
+        self.assertEqual(p["session_uuid"], "sess-1")
+
+    def test_member_overlap_sees_a_live_science_entry(self):
+        db.add_campaign(self._conn, science(), via="t", now=NOW)
+        v, p = db.add_campaign(self._conn, campaign(
+            cid="campaign-20260917-bundle", members=("chip-sci-a", "chip-q")),
+            via="t", now=NOW)
+        self.assertEqual(v, "member_overlap")
+        self.assertEqual(p["overlap"],
+                         {"science-20260917-arc029-p1p3": ["chip-sci-a"]})
+
+    def test_status_transitions_work_on_this_lane(self):
+        db.add_campaign(self._conn, science(), via="t", now=NOW)
+        v, p = db.set_campaign_status(self._conn,
+                                      "science-20260917-arc029-p1p3",
+                                      "expired", by="gc", at=LATER, now=LATER)
+        self.assertEqual(v, "ok")
+        self.assertEqual(p["entry"]["expired_at"], LATER)
+
+    def test_refusals_keep_the_lane_invariants(self):
+        cases = {
+            "two members": science(members=("chip-a", "chip-b")),
+            "no preflight": science(preflight_verdict=None),
+            "RED preflight": science(preflight_verdict="RED"),
+            "unknown verdict": science(preflight_verdict="PURPLE"),
+            "bundle-shaped id": science(cid="campaign-20260917-sci"),
+            "unknown lane": campaign(cid="campaign-20260917-x", lane="quantum"),
+        }
+        for label, entry in cases.items():
+            v, _ = db.add_campaign(self._conn, entry, via="t", now=NOW)
+            self.assertEqual(v, "bad_entry", label)
+            self.assertIsNone(db.find_campaign(self._conn,
+                                               entry["campaign_id"]), label)
+
+    def test_a_science_id_on_the_bundle_lane_is_refused(self):
+        """The prefix is how every reader without the ledger beside it (a
+        worktree, a branch, a listing) tells the lanes apart, so it may not
+        disagree with `lane` in either direction."""
+        entry = science()
+        entry["lane"] = "campaign-bundle"
+        v, p = db.add_campaign(self._conn, entry, via="t", now=NOW)
+        self.assertEqual(v, "bad_entry")
+        self.assertIn("science-lane id", p["reason"])
+
+    def test_bundle_lane_rules_are_unchanged(self):
+        for bad in (campaign(cid="chip-20260916-x"), campaign(members=()),
+                    campaign(expires_at="tomorrow"),
+                    campaign(status="sprinting")):
+            v, _ = db.add_campaign(self._conn, bad, via="t", now=NOW)
+            self.assertEqual(v, "bad_entry", repr(bad)[:80])
+        # the bundle cap HAS an --allow-oversize escape on the client, so the
+        # server must not enforce one
+        v, _ = db.add_campaign(self._conn, campaign(
+            cid="campaign-20260916-big",
+            members=tuple("chip-%d" % i for i in range(9))), via="t", now=NOW)
+        self.assertEqual(v, "ok")
+
+    def test_lane_defaults_to_bundle_for_pre_2026_09_17_entries(self):
+        entry = campaign()
+        entry.pop("lane")
+        v, _ = db.add_campaign(self._conn, entry, via="t", now=NOW)
+        self.assertEqual(v, "ok")
+        self.assertTrue(db.campaign_is_live(entry, NOW))
+
+    def test_endpoint_and_ingest_accept_the_lane(self):
+        code, out = app._campaign_add(self._conn, {"entry": science(),
+                                                   "now": NOW}, "mac-tok")
+        self.assertEqual((code, out["verdict"]), (200, "ok"),
+                         "the HTTP 400 bad_entry that forced every science "
+                         "curation onto the git path")
+        code, out = app._campaign_add(self._conn, {
+            "entry": science(cid="science-20260917-red",
+                             members=("chip-sci-b",),
+                             preflight_verdict="RED"), "now": NOW}, "mac-tok")
+        self.assertEqual((code, out["verdict"]), (400, "bad_entry"))
+        v, _ = db.upsert_campaign_ingest(self._conn, science(
+            cid="science-20260917-other", members=("chip-sci-c",)))
+        self.assertEqual(v, "ok")
+
+
+class TestUnknownLaneSurvivesTheRender(_Writer):
+    """The second half of the 2026-09-17 fix. render_dispatch_campaigns
+    rebuilds `campaigns` from the DB rows, and the DB never deletes a row --
+    so an entry present in git and absent here can only be one ingest
+    REFUSED, and rendering without it is deletion of a curated record. That
+    is what fd7730f70 did to two science entries."""
+
+    CAMP_DOC = ledger_doc(campaign(), science(lane="science-fiction"))
+
+    def test_an_unrepresentable_entry_is_preserved_not_dropped(self):
+        result = self._tick(mode="write")
+        st = result["dispatch_campaigns"]
+        self.assertEqual((st["n_seen"], st["n_adopted"], st["n_rejected"]),
+                         (2, 1, 1))
+        self.assertEqual(st["rejected"][0]["campaign_id"],
+                         "science-20260917-arc029-p1p3")
+        self.assertEqual(st["n_preserved"], 1)
+        self.assertFalse(st["differs"], "preserving it is byte-stable -- the "
+                         "writer must not churn on an entry it cannot hold")
+        self.assertFalse(result["committed"])
+        self.assertEqual([c["campaign_id"]
+                          for c in json.loads(self._origin_text())["campaigns"]],
+                         ["campaign-20260916-gc",
+                          "science-20260917-arc029-p1p3"])
+
+    def test_it_survives_a_render_the_db_does_drive(self):
+        self._tick(mode="check")
+        app._campaign_record_launch(self._conn, {
+            "campaign_id": "campaign-20260916-gc", "launch": launch(),
+            "now": LATER}, "t")
+        result = self._tick(mode="write")
+        self.assertTrue(result["committed"])
+        doc = json.loads(self._origin_text())
+        self.assertEqual([c["campaign_id"] for c in doc["campaigns"]],
+                         ["campaign-20260916-gc",
+                          "science-20260917-arc029-p1p3"])
+        self.assertEqual(doc["campaigns"][0]["status"], "launched")
 
 
 class TestMissingFile(_Writer):

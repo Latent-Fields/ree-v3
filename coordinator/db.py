@@ -2510,14 +2510,51 @@ def dispatcher_lease_rows(conn):
 # in the request body, the same `now` it stamps its git write with);
 # utcnow() is only the fallback for a caller that sent none.
 
-CAMPAIGN_LANE = "campaign-bundle"
+#: The TWO curation lanes (scripts/dispatch_campaigns.py, "THE SCIENCE LANE,
+#: AND WHERE CONSENT LIVES"). `campaign-bundle` carries housekeeping, several
+#: chips per entry; `science` carries ONE science chip per entry with a
+#: recorded read-only pre-flight. The science lane was added client-side on
+#: 2026-09-17 and this module did not know it -- so /campaign/add answered
+#: every science entry `bad_entry` (the id regex alone was enough), the client
+#: fell through to its git path, and then the registry materializer -- which
+#: renders `campaigns` from the DB rows -- DELETED the git-side entries it had
+#: just refused to ingest (REE_Working fd7730f70 dropped
+#: science-20260917-arc029-p1p3 and -mech268-gradedness two minutes after they
+#: landed). A lane this module does not know is therefore not a degraded
+#: fallback, it is data loss; see render_dispatch_campaigns' unknown-entry
+#: passthrough for the second half of that fix.
+CAMPAIGN_LANE_BUNDLE = "campaign-bundle"
+CAMPAIGN_LANE_SCIENCE = "science"
+CAMPAIGN_VALID_LANES = (CAMPAIGN_LANE_BUNDLE, CAMPAIGN_LANE_SCIENCE)
+#: Back-compat alias: `CAMPAIGN_LANE` meant the bundle lane when it was the
+#: only one, and is the default for entries written before 2026-09-17.
+CAMPAIGN_LANE = CAMPAIGN_LANE_BUNDLE
+#: Lane 1 is "dispatch first, INDIVIDUALLY" -- bundling science is exactly
+#: what the lane forbids, so this cap has no oversize escape (the bundle
+#: lane's own MAX_MEMBERS cap does, via --allow-oversize, and is therefore
+#: NOT mirrored here: the client owns that judgement call).
+CAMPAIGN_MAX_MEMBERS_SCIENCE = 1
+#: Pre-flight verdicts a science entry may carry. RED is refused: the
+#: 2026-09-08 W5-S2a measurement (~535k tokens, ZERO runs, every item refused
+#: at red-team on stale premises) is why a science launch requires a recorded
+#: read-only pre-flight at all, and RED is that pre-flight saying the premises
+#: are already known bad.
+CAMPAIGN_PREFLIGHT_OK = ("GREEN", "AMBER")
+CAMPAIGN_PREFLIGHT_REFUSED = ("RED",)
+CAMPAIGN_VALID_PREFLIGHT = CAMPAIGN_PREFLIGHT_OK + CAMPAIGN_PREFLIGHT_REFUSED
 CAMPAIGN_LIVE_STATUSES = ("open", "launched")
 CAMPAIGN_CLOSED_STATUSES = ("resolved", "withdrawn")
 CAMPAIGN_VALID_STATUSES = ("open", "launched", "expired", "resolved", "withdrawn")
 #: The statuses POST /campaign/status may set. `open` is add's job, `launched`
 #: is record-launch's (it carries the launch record that makes it meaningful).
 CAMPAIGN_SETTABLE_STATUSES = ("expired", "resolved", "withdrawn")
-_CAMPAIGN_ID_RE = re.compile(r"^campaign-\d{8}-[a-z0-9][a-z0-9-]*$")
+#: `campaign-YYYYMMDD-<slug>` for a bundle, `science-YYYYMMDD-<slug>` for a
+#: science entry -- the prefix is not decoration, it is how every reader that
+#: sees an id WITHOUT the ledger beside it (worktree, branch, listing, and
+#: hygiene_routine_tick._campaign_id_of_worktree) tells the two apart. Both
+#: are matched here and _campaign_validate pins prefix against lane.
+_CAMPAIGN_ID_RE = re.compile(r"^(?:campaign|science)-\d{8}-[a-z0-9][a-z0-9-]*$")
+_CAMPAIGN_SCIENCE_ID_RE = re.compile(r"^science-\d{8}-[a-z0-9][a-z0-9-]*$")
 
 
 def _migrate_dispatch_campaigns_table(conn):
@@ -2577,11 +2614,19 @@ def campaign_is_expired(entry, now=None):
 
 
 def campaign_is_live(entry, now=None):
-    """open/launched, campaign-bundle lane, not past expiry -- the client's
-    is_live, restated here so the server-side verdicts use the same test."""
+    """open/launched, a KNOWN lane, not past expiry -- the client's is_live,
+    restated here so the server-side verdicts use the same test.
+
+    An entry whose lane this version does not recognise is NOT live, matching
+    the client exactly: an older reader must never treat as dispatchable a
+    lane written by a newer curator it cannot reason about. Note what that
+    costs when the unknown lane is real -- until 2026-09-17 `science` fell in
+    this branch, so a live science entry was invisible to add_campaign's
+    member-overlap scan and record_campaign_launch answered it `not_live`,
+    i.e. the ONE cross-box mutex refused the whole lane."""
     if not isinstance(entry, dict):
         return False
-    if entry.get("lane", CAMPAIGN_LANE) != CAMPAIGN_LANE:
+    if entry.get("lane", CAMPAIGN_LANE) not in CAMPAIGN_VALID_LANES:
         return False
     if entry.get("status", "open") not in CAMPAIGN_LIVE_STATUSES:
         return False
@@ -2589,18 +2634,65 @@ def campaign_is_live(entry, now=None):
 
 
 def _campaign_validate(entry):
-    """None when `entry` is a well-formed campaign, else the reason."""
+    """None when `entry` is a well-formed campaign, else the reason.
+
+    WHAT THIS CHECKS, AND WHAT IT DELIBERATELY DOES NOT. This is a STRUCTURAL
+    gate over a lossless passthrough, not a second copy of the client's
+    curation logic. It pins what the entry must be for every later reader
+    here to be correct -- a known lane, an id whose prefix agrees with that
+    lane, the science lane's one-chip rule, and a pre-flight that is present
+    and not RED on that lane -- because each of those is load-bearing for
+    campaign_is_live / the member-overlap scan / record_campaign_launch.
+
+    It does NOT mirror:
+      * `budget_category()` ("the member must classify as science / must not
+        classify as science"). That reads the chip's title/tldr/prompt through
+        scripts/dispatch_candidate_order.py, a Mac-side heuristic this repo
+        does not carry; a second copy would drift, and a drifted copy would
+        refuse a correctly-curated entry -- the failure this whole change is
+        undoing. The client refuses at `add` (INVARIANT 1) and that refusal
+        happens BEFORE anything is POSTed, so the classification never
+        reaches here unsatisfied.
+      * the bundle lane's MAX_MEMBERS cap, which has an --allow-oversize
+        escape the orchestrator takes deliberately. Enforcing it here would
+        reject entries the client was right to write.
+    """
     if not isinstance(entry, dict):
         return "entry must be an object"
     cid = entry.get("campaign_id")
     if not isinstance(cid, str) or not _CAMPAIGN_ID_RE.match(cid):
-        return "campaign_id must look like campaign-YYYYMMDD-<slug>"
+        return ("campaign_id must look like campaign-YYYYMMDD-<slug> or "
+                "science-YYYYMMDD-<slug>")
+    lane = entry.get("lane", CAMPAIGN_LANE)
+    if lane not in CAMPAIGN_VALID_LANES:
+        return "lane must be one of %r" % (CAMPAIGN_VALID_LANES,)
+    science = lane == CAMPAIGN_LANE_SCIENCE
+    if science and not _CAMPAIGN_SCIENCE_ID_RE.match(cid):
+        return "a science-lane entry must be named science-YYYYMMDD-<slug>"
+    if not science and _CAMPAIGN_SCIENCE_ID_RE.match(cid):
+        return "%r is a science-lane id but lane is %r" % (cid, lane)
     if entry.get("status", "open") not in CAMPAIGN_VALID_STATUSES:
         return "status must be one of %r" % (CAMPAIGN_VALID_STATUSES,)
     members = entry.get("members")
     if (not isinstance(members, list) or not members
             or not all(isinstance(m, str) and m for m in members)):
         return "members must be a non-empty list of chip_refs"
+    if science and len(members) > CAMPAIGN_MAX_MEMBERS_SCIENCE:
+        return ("a science entry carries exactly %d chip, got %d -- science is "
+                "curated INDIVIDUALLY (Step 1b lane 1)"
+                % (CAMPAIGN_MAX_MEMBERS_SCIENCE, len(members)))
+    if science:
+        preflight = entry.get("preflight")
+        if not isinstance(preflight, dict) or not preflight:
+            return ("a science entry requires a recorded read-only preflight "
+                    "(W5-S2a)")
+        verdict = preflight.get("verdict")
+        if verdict not in CAMPAIGN_VALID_PREFLIGHT:
+            return ("preflight.verdict must be one of %r"
+                    % (CAMPAIGN_VALID_PREFLIGHT,))
+        if verdict in CAMPAIGN_PREFLIGHT_REFUSED:
+            return ("preflight verdict %s -- the pre-flight already found the "
+                    "premises bad" % verdict)
     if _campaign_iso(entry.get("expires_at")) is None:
         return "expires_at must be UTC ISO-8601"
     return None

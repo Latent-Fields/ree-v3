@@ -670,11 +670,14 @@ def _chip_episode(conn, body, machine_tok):
 
 def _campaign_add(conn, body, machine_tok):
     """POST /campaign/add (2026-09-16, chip-20260916-campaign-ledger-
-    coordinator). The orchestrator's curated CAMPAIGN-BUNDLE entry, lossless
-    passthrough (`entry` is exactly what scripts/dispatch_campaigns.py would
-    append to scripts/dispatch_campaigns.json). `now` is the client's own
-    stamp so a dual-writing client and the DB agree byte for byte. See
-    db.add_campaign for the verdicts."""
+    coordinator). The orchestrator's curated entry on EITHER lane --
+    `campaign-bundle` housekeeping or a single `science` chip with its
+    recorded pre-flight (2026-09-17) -- lossless passthrough (`entry` is
+    exactly what scripts/dispatch_campaigns.py would append to
+    scripts/dispatch_campaigns.json). `now` is the client's own stamp so a
+    dual-writing client and the DB agree byte for byte. See db.add_campaign
+    for the verdicts and _campaign_validate for what the lane gate does and
+    does not check."""
     entry = body.get("entry")
     if not isinstance(entry, dict):
         return 400, {"error": "entry must be an object", "verdict": "bad_entry"}
