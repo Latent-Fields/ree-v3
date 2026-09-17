@@ -201,6 +201,191 @@ def _consumed_summaries(agent: REEAgent, candidates) -> Optional[torch.Tensor]:
 
 
 # ---------------------------------------------------------------------------
+# ABSORPTION / CONVERSION TELEMETRY (sd-allon-training-signal-absorption-telemetry)
+#
+# WHY THIS EXISTS. `_train_all_on_agent` returned tick and training-step counts only, so a
+# run whose MANIPULATION is on the reward / training-signal channel could produce a
+# flat-across-arms null that is indistinguishable between two very different worlds: the
+# manipulation was ABSORBED (it never reached a parameter) versus it COULD have converted
+# into different committed behaviour and did not. V3-EXQ-1039 is the confirmed case -- a
+# per-episode return 250-500x larger than its control reproduced that control bit-identically
+# on every recorded channel in all 3 seeds, and the readiness gate built to catch exactly
+# that (C0d) passed at 0.667. Nothing in the returned dict could tell the two apart.
+#
+# NO-OP BY CONSTRUCTION, NOT BY FLAG. Everything below is read-only accounting over values
+# the recipe already computes. No optimizer step, no parameter write, and -- the property
+# that matters most -- NO RNG DRAW: the two `np.random.choice` calls in the REINFORCE helpers
+# are untouched in count and in order, so every fixed-seed comparison that spans this commit
+# stays valid (cf. the MECH-091 phase_reset incident, where a shifted fixed-seed RNG stream
+# silently confounded every comparison across its boundary). The change is ADDITIVE KEYS in
+# the returned dict plus one optional-keyword accumulator on the two loss helpers.
+#
+# ABSENT IS None, NEVER 0.0 OR False. A silently-always-zero field is the exact defect class
+# this instrument exists to remove, so every statistic over an empty sample reports None with
+# its `_n` at 0, and every head-derived reading carries a `_present` / `_available` flag.
+# ---------------------------------------------------------------------------
+
+# E3 selection diagnostics averaged over P1 ticks for the CONVERSION half. All are written
+# by E3SelectorTrajectory.select() into `e3.last_score_diagnostics` on every tick, so this
+# is a READ of machinery that already exists (the substrate entry says so explicitly).
+_E3_CONVERSION_KEYS = (
+    "e3_raw_score_range_mean",
+    "e3_raw_score_std_mean",
+    "score_bias_abs_mean",
+    "score_bias_range_mean",
+    "score_bias_to_raw_range_ratio",
+    "modulatory_authority_active",
+    "modulatory_authority_scale_factor",
+    "modulatory_authority_ratio",
+    "modulatory_authority_ratio_competitive",
+    "modulatory_authority_range",
+)
+
+
+def _dist_stats(values: List[float], prefix: str) -> Dict[str, Any]:
+    """n / mean / sd (population, ddof=0) / min / max, flattened under `prefix`.
+
+    An EMPTY sample reports n=0 and None for every moment -- never 0.0, which would be
+    indistinguishable from a real measured zero.
+    """
+    n = len(values)
+    if n == 0:
+        return {
+            f"{prefix}_n": 0, f"{prefix}_mean": None, f"{prefix}_sd": None,
+            f"{prefix}_min": None, f"{prefix}_max": None,
+        }
+    mean = sum(values) / n
+    var = sum((v - mean) ** 2 for v in values) / n
+    return {
+        f"{prefix}_n": int(n),
+        f"{prefix}_mean": float(mean),
+        f"{prefix}_sd": float(math.sqrt(var)),
+        f"{prefix}_min": float(min(values)),
+        f"{prefix}_max": float(max(values)),
+    }
+
+
+def _new_adv_stats() -> Dict[str, float]:
+    """Accumulator for the `adv_stats` keyword of the two REINFORCE helpers.
+
+    A PASSED-IN ACCUMULATOR RATHER THAN A RETURNED TUPLE, on purpose: both helpers are
+    imported and called positionally by v3_exq_724 (and re-exported under their public
+    aliases), so widening the RETURN would break every existing call site, while an
+    optional trailing keyword defaulting to None leaves them all bit-identical.
+    """
+    return {
+        "n_sampled": 0,        # terms drawn from the outcome buffer
+        "n_adv_surviving": 0,  # ... that cleared abs(adv) >= ADV_MIN_THRESHOLD
+        "n_bias_skipped": 0,   # ... then dropped by the OFC head's own grad/shape guard
+        "adv_abs_sum": 0.0,
+        "adv_abs_max": 0.0,
+    }
+
+
+def _head_norm_snapshot(head: Optional[Any]) -> Optional[Dict[str, float]]:
+    """L2 norms of a bias head: the whole head, and its LAST Linear weight/bias.
+
+    Returns None when the head is absent, so a reader can separate "no head" from "a head
+    that did not move" -- a distinction the boolean `moved > 1e-9` readout used by
+    V3-EXQ-1039's C0d gate could not make, and which is why that gate passed on a head
+    whose output stayed at chance.
+    """
+    if head is None:
+        return None
+    try:
+        modules = list(head)
+    except TypeError:
+        return None
+    last_linear = None
+    for mod in reversed(modules):
+        if isinstance(mod, torch.nn.Linear):
+            last_linear = mod
+            break
+    with torch.no_grad():
+        sq = 0.0
+        for p in head.parameters():
+            sq += float((p.detach().float() ** 2).sum().item())
+        snap = {"head_weight_norm": float(math.sqrt(sq))}
+        if last_linear is not None:
+            snap["last_linear_weight_norm"] = float(
+                last_linear.weight.detach().norm().item()
+            )
+            snap["last_linear_bias_norm"] = (
+                float(last_linear.bias.detach().norm().item())
+                if last_linear.bias is not None else 0.0
+            )
+    return snap
+
+
+def _head_norm_delta(
+    before: Optional[Dict[str, float]],
+    after: Optional[Dict[str, float]],
+    label: str,
+) -> Dict[str, Any]:
+    """Signed post-minus-pre deltas as FLOATS (see `_head_norm_snapshot`'s docstring)."""
+    out: Dict[str, Any] = {}
+    if before is None or after is None:
+        out[f"{label}_present"] = False
+        for k in ("head_weight_norm", "last_linear_weight_norm", "last_linear_bias_norm"):
+            out[f"{label}_{k}_pre"] = None
+            out[f"{label}_{k}_post"] = None
+            out[f"{label}_{k}_delta"] = None
+        return out
+    out[f"{label}_present"] = True
+    for k, post in after.items():
+        pre = before.get(k)
+        out[f"{label}_{k}_pre"] = float(pre) if pre is not None else None
+        out[f"{label}_{k}_post"] = float(post)
+        out[f"{label}_{k}_delta"] = (
+            float(post - pre) if pre is not None else None
+        )
+    return out
+
+
+def _candidate_summary_spread(
+    summaries: Optional[torch.Tensor],
+) -> Optional[Tuple[float, float]]:
+    """(pre, post) mean row-L2 norms of the candidate summaries, around cross-candidate
+    centering. None when there is nothing to measure (< 2 candidates, or non-finite).
+
+    COMPUTED HERE ON PURPOSE -- never read back from
+    `lateral_pfc.get_state()["candidate_summary_degenerate"]`. That field is assigned only
+    inside `if self.config.rule_readout_consumer and k >= 2:` (lateral_pfc_analog.py), and
+    `rule_readout_consumer` defaults False (LateralPFCConfig, and REEConfig's
+    `lateral_pfc_rule_readout_consumer`) and is NOT set by the all-ON recipe. On this path
+    that field is therefore an __init__ constant False for every run, so a gate reading it
+    is VACUOUS rather than negative -- the same silently-always-false defect class this
+    instrument exists to remove. The formula below is the guard's own, applied to the same
+    tensor the head consumes, so the two agree whenever the consumer IS enabled.
+    """
+    if summaries is None or summaries.dim() != 2 or summaries.shape[0] < 2:
+        return None
+    with torch.no_grad():
+        centered = summaries - summaries.mean(dim=0, keepdim=True)
+        pre = float(summaries.norm(dim=-1).mean().item())
+        post = float(centered.norm(dim=-1).mean().item())
+    if not (math.isfinite(pre) and math.isfinite(post)):
+        return None
+    return pre, post
+
+
+def _distinct_first_action_classes(candidates) -> Optional[int]:
+    """How many DISTINCT first-action classes the candidate set offered this tick.
+
+    A selection layer cannot convert a bias into different committed behaviour when every
+    candidate commits the same first action, however large the bias is. Counted with the
+    same accessor pattern the P1 credit-assignment block already uses.
+    """
+    classes = set()
+    for c in candidates:
+        acts = getattr(c, "actions", None)
+        if acts is None or acts.shape[1] < 1:
+            continue
+        classes.add(int(acts[:, 0, :].argmax(-1).reshape(-1)[0].item()))
+    return len(classes) if classes else None
+
+
+# ---------------------------------------------------------------------------
 # P1 two-head REINFORCE (mirror V3-EXQ-719a; no-ops for minimal, heads absent)
 # ---------------------------------------------------------------------------
 def _lpfc_reinforce_loss(
@@ -208,7 +393,14 @@ def _lpfc_reinforce_loss(
     outcome_buf: List[Tuple[torch.Tensor, int, float]],
     baseline: float,
     device,
+    adv_stats: Optional[Dict[str, float]] = None,
 ) -> torch.Tensor:
+    """`adv_stats` (OPTIONAL, default None) is the absorption accumulator described on
+    `_new_adv_stats`. It is written to and never read, so passing it cannot change the
+    returned loss, the parameters, or the RNG stream: the `np.random.choice` draw below is
+    identical in count and in order whether it is supplied or not. Every pre-existing
+    (positional, 4-argument) call site keeps working unchanged.
+    """
     if getattr(agent, "lateral_pfc", None) is None or len(outcome_buf) < 2:
         return torch.zeros(1, device=device)
     n = len(outcome_buf)
@@ -217,8 +409,14 @@ def _lpfc_reinforce_loss(
     for i in idxs:
         cand_features, sel_idx, ep_return = outcome_buf[int(i)]
         adv = ep_return - baseline
+        if adv_stats is not None:
+            adv_stats["n_sampled"] += 1
+            adv_stats["adv_abs_sum"] += abs(adv)
+            adv_stats["adv_abs_max"] = max(adv_stats["adv_abs_max"], abs(adv))
         if abs(adv) < ADV_MIN_THRESHOLD:
             continue
+        if adv_stats is not None:
+            adv_stats["n_adv_surviving"] += 1
         bias = agent.lateral_pfc.compute_bias(cand_features.to(device))
         log_p = torch.log_softmax(-bias / POLICY_TEMPERATURE, dim=0)
         terms.append(-adv * log_p[min(sel_idx, bias.shape[0] - 1)])
@@ -232,7 +430,13 @@ def _ofc_deval_reinforce_loss(
     outcome_buf: List[Tuple[torch.Tensor, int, float]],
     baseline: float,
     device,
+    adv_stats: Optional[Dict[str, float]] = None,
 ) -> torch.Tensor:
+    """`adv_stats`: see `_lpfc_reinforce_loss`. Same write-only contract, same RNG
+    neutrality. This head has a SECOND skip route (its own grad/shape guard) counted
+    separately as `n_bias_skipped`, so a zero gradient here can be attributed to the
+    advantage threshold or to the head rather than left ambiguous.
+    """
     ofc = getattr(agent, "ofc", None)
     if ofc is None or len(outcome_buf) < 2:
         return torch.zeros(1, device=device)
@@ -242,10 +446,18 @@ def _ofc_deval_reinforce_loss(
     for i in idxs:
         cand_features, sel_idx, ep_return = outcome_buf[int(i)]
         adv = ep_return - baseline
+        if adv_stats is not None:
+            adv_stats["n_sampled"] += 1
+            adv_stats["adv_abs_sum"] += abs(adv)
+            adv_stats["adv_abs_max"] = max(adv_stats["adv_abs_max"], abs(adv))
         if abs(adv) < ADV_MIN_THRESHOLD:
             continue
+        if adv_stats is not None:
+            adv_stats["n_adv_surviving"] += 1
         bias = ofc.compute_devaluation_bias(cand_features.to(device))
         if not bias.requires_grad or bias.shape[0] < 2:
+            if adv_stats is not None:
+                adv_stats["n_bias_skipped"] += 1
             continue
         log_p = torch.log_softmax(-bias / POLICY_TEMPERATURE, dim=0)
         terms.append(-adv * log_p[min(sel_idx, bias.shape[0] - 1)])
@@ -349,6 +561,34 @@ def _train_all_on_agent(
     reinforce_baseline = 0.0
     outcome_buf: List[Tuple[torch.Tensor, int, float]] = []
 
+    # -- absorption/conversion telemetry state (read-only; see the section header above) --
+    _lpfc = getattr(agent, "lateral_pfc", None)
+    _lpfc_cfg = getattr(_lpfc, "config", None)
+    lpfc_head = getattr(_lpfc, "rule_bias_head", None)
+    ofc_head = getattr(getattr(agent, "ofc", None), "devaluation_bias_head", None)
+    lpfc_head_pre = _head_norm_snapshot(lpfc_head)
+    ofc_head_pre = _head_norm_snapshot(ofc_head)
+    # capture_head_diagnostics gates hidden_dead_relu_frac in lateral_pfc_analog; when it is
+    # OFF the attribute sits at its __init__ 0.0, which must be reported as UNAVAILABLE, not
+    # as a measured zero.
+    capture_head_diag = bool(getattr(_lpfc_cfg, "capture_head_diagnostics", False))
+    summary_degeneracy_floor = float(
+        getattr(_lpfc_cfg, "candidate_summary_degeneracy_floor", 1e-4)
+    )
+    p0_ep_returns: List[float] = []
+    p1_ep_returns: List[float] = []
+    p1_ep_advantages: List[float] = []
+    adv_stats_lpfc = _new_adv_stats()
+    adv_stats_ofc = _new_adv_stats()
+    summary_norm_ratios: List[float] = []
+    n_summary_degenerate = 0
+    distinct_action_classes: List[float] = []
+    dead_relu_fracs: List[float] = []
+    e3_diag_sums: Dict[str, float] = {}
+    e3_diag_counts: Dict[str, int] = {}
+    e3_normalize_basis: Optional[str] = None
+    n_p1_diag_ticks = 0
+
     for ep in range(total_train_eps):
         is_p1 = (ep >= p1_start)
         is_p0 = not is_p1
@@ -363,6 +603,10 @@ def _train_all_on_agent(
         tick_in_ep = 0
 
         ep_reward = 0.0
+        # Separate from ep_reward ON PURPOSE: ep_reward accumulates only under `is_p1`
+        # because it is the REINFORCE return, and touching it would change the recipe.
+        # ep_harm_sum accumulates in BOTH phases so a P0-only manipulation is also visible.
+        ep_harm_sum = 0.0
         ep_buf: List[Tuple[torch.Tensor, int]] = []
 
         for _step in range(steps_per_episode):
@@ -407,6 +651,14 @@ def _train_all_on_agent(
                 cs = _consumed_summaries(agent, candidates)
                 if cs is not None and torch.isfinite(cs).all():
                     p1_snap_summaries = cs.clone()
+                    _spread = _candidate_summary_spread(cs)
+                    if _spread is not None:
+                        _pre_n, _post_n = _spread
+                        summary_norm_ratios.append(
+                            float(_post_n / _pre_n) if _pre_n > 0.0 else 0.0
+                        )
+                        if _post_n <= summary_degeneracy_floor * _pre_n:
+                            n_summary_degenerate += 1
 
             action = agent.select_action(candidates, ticks)
             if action is None:
@@ -433,6 +685,35 @@ def _train_all_on_agent(
                 ep_buf.append((p1_snap_summaries, sel))
 
             if is_p1:
+                # CONVERSION half: what the selection layer had to work with this tick.
+                # All of it is already written by E3.select(); this only records it.
+                _diag = getattr(getattr(agent, "e3", None), "last_score_diagnostics", None)
+                if isinstance(_diag, dict) and _diag:
+                    n_p1_diag_ticks += 1
+                    for _key in _E3_CONVERSION_KEYS:
+                        _val = _diag.get(_key)
+                        if isinstance(_val, bool):
+                            _val = 1.0 if _val else 0.0
+                        elif not isinstance(_val, (int, float)):
+                            continue
+                        _val = float(_val)
+                        if not math.isfinite(_val):
+                            continue
+                        e3_diag_sums[_key] = e3_diag_sums.get(_key, 0.0) + _val
+                        e3_diag_counts[_key] = e3_diag_counts.get(_key, 0) + 1
+                    _basis = _diag.get("modulatory_authority_normalize_basis")
+                    if isinstance(_basis, str):
+                        e3_normalize_basis = _basis
+                if candidates:
+                    _ndc = _distinct_first_action_classes(candidates)
+                    if _ndc is not None:
+                        distinct_action_classes.append(float(_ndc))
+                if capture_head_diag and _lpfc is not None:
+                    _frac = getattr(_lpfc, "_last_hidden_dead_relu_frac", None)
+                    if isinstance(_frac, (int, float)) and math.isfinite(float(_frac)):
+                        dead_relu_fracs.append(float(_frac))
+
+            if is_p1:
                 n_p1_ticks += 1
             else:
                 n_p0_ticks += 1
@@ -451,6 +732,7 @@ def _train_all_on_agent(
 
             _flat, _harm_signal, done, info, obs_dict = env.step(action)
             harm_signal = float(_harm_signal)
+            ep_harm_sum += harm_signal
             if is_p1:
                 ep_reward += harm_signal
 
@@ -473,24 +755,38 @@ def _train_all_on_agent(
             if done:
                 break
 
+        if is_p1:
+            p1_ep_returns.append(float(ep_harm_sum))
+        else:
+            p0_ep_returns.append(float(ep_harm_sum))
+
         # P1 end-of-episode: TWO-head REINFORCE (lateral-PFC bias + OFC devaluation).
         if is_p1 and (has_lpfc or has_ofc):
             reinforce_baseline = (
                 EMA_DECAY * reinforce_baseline + (1.0 - EMA_DECAY) * ep_reward
             )
+            # The advantage THIS episode's own outcomes carry into the buffer, against the
+            # baseline the losses below are actually handed.
+            p1_ep_advantages.append(float(ep_reward - reinforce_baseline))
             for cand_features, sel in ep_buf:
                 outcome_buf.append((cand_features, sel, ep_reward))
             if len(outcome_buf) > OUTCOME_BUF_MAX:
                 outcome_buf = outcome_buf[-OUTCOME_BUF_MAX:]
             if has_lpfc and bias_opt is not None:
-                l_loss = _lpfc_reinforce_loss(agent, outcome_buf, reinforce_baseline, agent.device)
+                l_loss = _lpfc_reinforce_loss(
+                    agent, outcome_buf, reinforce_baseline, agent.device,
+                    adv_stats=adv_stats_lpfc,
+                )
                 if l_loss.requires_grad:
                     bias_opt.zero_grad()
                     l_loss.backward()
                     torch.nn.utils.clip_grad_norm_(agent.lateral_pfc.bias_head_parameters(), 1.0)
                     bias_opt.step()
             if has_ofc and ofc_deval_opt is not None:
-                ofc_loss = _ofc_deval_reinforce_loss(agent, outcome_buf, reinforce_baseline, agent.device)
+                ofc_loss = _ofc_deval_reinforce_loss(
+                    agent, outcome_buf, reinforce_baseline, agent.device,
+                    adv_stats=adv_stats_ofc,
+                )
                 if ofc_loss.requires_grad:
                     ofc_deval_opt.zero_grad()
                     ofc_loss.backward()
@@ -505,11 +801,75 @@ def _train_all_on_agent(
                 flush=True,
             )
 
+    # -- assemble the telemetry (ADDITIVE keys only; the four above are untouched) --------
+    absorption: Dict[str, Any] = {}
+    absorption.update(_dist_stats(p0_ep_returns, "p0_ep_return"))
+    absorption.update(_dist_stats(p1_ep_returns, "p1_ep_return"))
+    absorption.update(_dist_stats(p1_ep_advantages, "p1_ep_advantage"))
+    absorption["adv_min_threshold"] = float(ADV_MIN_THRESHOLD)
+    for _label, _st in (("lpfc", adv_stats_lpfc), ("ofc", adv_stats_ofc)):
+        _n = int(_st["n_sampled"])
+        absorption[f"{_label}_adv_n_sampled"] = _n
+        absorption[f"{_label}_adv_n_surviving"] = int(_st["n_adv_surviving"])
+        # THE KEY ABSORPTION NUMBER. ~0 here means the run received no gradient at all,
+        # whatever its reward was; None means no REINFORCE term was ever drawn.
+        absorption[f"{_label}_adv_surviving_frac"] = (
+            float(_st["n_adv_surviving"]) / _n if _n > 0 else None
+        )
+        absorption[f"{_label}_adv_abs_mean"] = (
+            float(_st["adv_abs_sum"]) / _n if _n > 0 else None
+        )
+        absorption[f"{_label}_adv_abs_max"] = float(_st["adv_abs_max"]) if _n > 0 else None
+    absorption["ofc_adv_n_bias_skipped"] = int(adv_stats_ofc["n_bias_skipped"])
+    absorption.update(
+        _head_norm_delta(lpfc_head_pre, _head_norm_snapshot(lpfc_head), "lpfc_bias_head")
+    )
+    absorption.update(
+        _head_norm_delta(ofc_head_pre, _head_norm_snapshot(ofc_head), "ofc_deval_head")
+    )
+    # UNAVAILABLE is not zero: with capture_head_diagnostics OFF the underlying attribute is
+    # an __init__ constant, so nothing is recorded and every moment stays None.
+    absorption["hidden_dead_relu_frac_available"] = bool(
+        capture_head_diag and _lpfc is not None
+    )
+    absorption.update(_dist_stats(dead_relu_fracs, "hidden_dead_relu_frac"))
+
+    conversion: Dict[str, Any] = {
+        "n_p1_diag_ticks": int(n_p1_diag_ticks),
+        "modulatory_authority_normalize_basis": e3_normalize_basis,
+    }
+    for _key in _E3_CONVERSION_KEYS:
+        _cnt = int(e3_diag_counts.get(_key, 0))
+        conversion[f"{_key}_n"] = _cnt
+        conversion[f"{_key}_mean"] = (
+            float(e3_diag_sums[_key]) / _cnt if _cnt > 0 else None
+        )
+    conversion.update(
+        _dist_stats(distinct_action_classes, "distinct_first_action_classes")
+    )
+    conversion.update(
+        _dist_stats(summary_norm_ratios, "candidate_summary_post_pre_norm_ratio")
+    )
+    _n_sr = len(summary_norm_ratios)
+    conversion["candidate_summary_degenerate_frac"] = (
+        float(n_summary_degenerate) / _n_sr if _n_sr > 0 else None
+    )
+    conversion["candidate_summary_degeneracy_floor"] = summary_degeneracy_floor
+    # Flag for a downstream gate: this verdict was COMPUTED from the summaries the head
+    # consumed, NOT read from lateral_pfc's own field (which is vacuous on this recipe --
+    # see `_candidate_summary_spread`).
+    conversion["candidate_summary_degenerate_computed"] = True
+
     return {
         "n_p0_ticks": int(n_p0_ticks),
         "n_p1_ticks": int(n_p1_ticks),
         "n_e2_train_steps": int(n_e2_train_steps),
         "zworld_p0": zworld_p0_stats,
+        # sd-allon-training-signal-absorption-telemetry: ADDITIVE, never read back by this
+        # recipe. A drive-axis null measured through this harness is interpretable only
+        # against these two blocks.
+        "absorption": absorption,
+        "conversion": conversion,
     }
 
 # Public aliases. The underscore names above are kept verbatim from the driver files so that
@@ -538,4 +898,8 @@ __all__ = [
     "MIN_CLASSES_FOR_TRAIN", "MAX_GRAD_NORM", "LR_LPFC_BIAS", "REINFORCE_BATCH_SIZE",
     "OUTCOME_BUF_MAX", "POLICY_TEMPERATURE", "ADV_MIN_THRESHOLD", "EMA_DECAY",
     "E2_TRAIN_IN_P1",
+    # sd-allon-training-signal-absorption-telemetry
+    "_dist_stats", "_new_adv_stats", "_head_norm_snapshot", "_head_norm_delta",
+    "_candidate_summary_spread", "_distinct_first_action_classes",
+    "_E3_CONVERSION_KEYS",
 ]
