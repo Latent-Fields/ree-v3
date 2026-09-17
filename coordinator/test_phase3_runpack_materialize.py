@@ -137,13 +137,56 @@ class GoldenByteShape(unittest.TestCase):
         on_disk_summary = (_EXQ633_RUN_DIR / "summary.md").read_text(
             encoding="utf-8")
 
-        self.assertEqual(manifest_doc, on_disk_manifest)
+        # `environment` is the ONE block deliberately excluded from the golden
+        # comparison (2026-09-17). Until that date both writers hardcoded a
+        # literal asserting env_id "ree.causal_grid_world_v3" / env_version
+        # "3.0.0" / tier "causal_grid_world_v3" for every pack, regardless of the
+        # environment the run used -- and no CausalGridWorldV3 has ever existed
+        # (ree_core.environment.causal_grid_world defines one class,
+        # CausalGridWorld; CausalGridWorldV2 is an alias factory). The converter
+        # now emits an honest all-"unknown" block instead, so it no longer
+        # reproduces the block in a pack written before that date.
+        #
+        # The on-disk pack is NOT regenerated to match: the 1752 packs carrying
+        # the old literal are not backfillable (the data was never recorded
+        # anywhere, and a pack is materialised from a flat that never had it
+        # either), and rewriting this single one would leave the evidence tree
+        # inconsistent for no gain. Existing packs are left as they are and
+        # REE_assembly scripts/generate_experiment_profile.py reports the literal
+        # as unreliable instead.
+        #
+        # Both halves are still asserted, just separately: the rest of the
+        # manifest must match the golden byte-for-byte, and the environment block
+        # must be the honest default.
+        honest_env = {k: "unknown" for k in (
+            "env_id", "env_version", "dynamics_hash", "reward_hash",
+            "observation_hash", "config_hash", "tier")}
+        self.assertEqual(
+            manifest_doc.get("environment"), honest_env,
+            "converter no longer emits the honest all-unknown environment default")
+        self.assertEqual(
+            on_disk_manifest.get("environment", {}).get("env_id"),
+            "ree.causal_grid_world_v3",
+            "the golden pack is expected to carry the pre-2026-09-17 fabricated "
+            "literal; if it no longer does, this exclusion can be removed")
+
+        # Substitute IN PLACE rather than popping, so the golden keeps its
+        # original key order and the byte comparison below still checks it.
+        expected_manifest = {
+            k: (honest_env if k == "environment" else v)
+            for k, v in on_disk_manifest.items()
+        }
+        self.assertEqual(manifest_doc, expected_manifest)
         self.assertEqual(metrics_doc, on_disk_metrics)
         self.assertEqual(summary, on_disk_summary)
 
-        # And the serialised bytes match what the writer would commit.
+        # And the serialised bytes match what the writer would commit: key order
+        # against the golden, and the golden's own on-disk formatting.
         self.assertEqual(
             json.dumps(manifest_doc, indent=2) + "\n",
+            json.dumps(expected_manifest, indent=2) + "\n")
+        self.assertEqual(
+            json.dumps(on_disk_manifest, indent=2) + "\n",
             (_EXQ633_RUN_DIR / "manifest.json").read_text(encoding="utf-8"))
 
 

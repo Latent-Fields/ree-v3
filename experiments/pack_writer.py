@@ -61,14 +61,44 @@ DEFAULT_PRODUCER_CAPABILITIES = {
     "sd004_action_objects": True,
     "sd006_multirate_clock": True,
 }
+# The environment block a pack carries when the DRIVER SUPPLIED NOTHING -- every
+# field "unknown", because when the driver supplies nothing that is the truth.
+#
+# Until 2026-09-17 this literal instead asserted env_id "ree.causal_grid_world_v3"
+# / env_version "3.0.0" / tier "causal_grid_world_v3" with the four content hashes
+# left "unknown". That was a fabrication in the strict sense: there is no
+# CausalGridWorldV3 and there never has been -- ree_core.environment.causal_grid_world
+# defines ONE class, CausalGridWorld, and CausalGridWorldV2 is an alias factory
+# setting use_proxy_fields=True. The "_v3" was the REPO generation leaking into a
+# field that is about the environment. Measured across the evidence tree on
+# 2026-09-17: 1752 of the 1826 packs carrying an environment block asserted exactly
+# this literal, including runs (V3-EXQ-1036 among them) whose config was in fact
+# CausalGridWorldV2. The V3-EXQ-1036 autopsy is what surfaced it.
+#
+# WHY "unknown" RATHER THAN A PLAUSIBLE NAME, and why the block is still EMITTED
+# rather than omitted -- two separate decisions:
+#
+#   (a) An asserted-but-wrong env_id is WORSE than an absent one, because it reads
+#       as recorded provenance and nothing downstream can tell it from a real one.
+#       Same rationale as source_repo.commit keeping "" when the flat has nothing
+#       (REE_assembly 4fd719d6d1): an honestly falsy value beats a truthy
+#       placeholder that silences the consumer's own gap report.
+#
+#   (b) The block stays PRESENT because REE_assembly scripts/generate_experiment_profile.py
+#       reports `environment.<field> == "unknown"` as a named provenance gap.
+#       Omitting the block would make that loop skip the run entirely -- the gap
+#       would go from reported to invisible, which is the opposite of the point.
+#
+# A driver that HAS an environment object should pass one: environment_for(env)
+# below turns any environment exposing environment_identity() into this block.
 DEFAULT_ENVIRONMENT = {
-    "env_id": "ree.causal_grid_world_v3",
-    "env_version": "3.0.0",
+    "env_id": "unknown",
+    "env_version": "unknown",
     "dynamics_hash": "unknown",
     "reward_hash": "unknown",
     "observation_hash": "unknown",
     "config_hash": "unknown",
-    "tier": "causal_grid_world_v3",
+    "tier": "unknown",
 }
 
 _SNAKE_CASE_RE = re.compile(r"^[a-z][a-z0-9_]*$")
@@ -441,6 +471,7 @@ def write_flat_manifest(
     elapsed_seconds: Optional[float] = None,
     started_at: Optional[float] = None,
     agent: Any = None,
+    env: Any = None,
     z_goal_stream_stats: Optional[Mapping[str, Any]] = None,
     episode_termination: Any = None,
     stamp: bool = True,
@@ -506,6 +537,13 @@ def write_flat_manifest(
     forces the stamper to overwrite already-present core fields. Returns the written
     Path (hand it to ``experiment_protocol.emit_outcome(manifest_path=...)``).
 
+    ``env`` (the environment object the run executed) stamps the ``environment``
+    identity block via ``environment_for``. PASS IT whenever the run has an
+    environment: without it the pack records no environment at all, and before
+    2026-09-17 both writers filled that silence with a hardcoded literal naming a
+    class that has never existed. Unlike the always-core stamp, a failure here
+    RAISES rather than degrading -- see the note at the stamp site.
+
     ``agent`` (one stepped REEAgent, or an iterable of them for a multi-arm run) and
     ``z_goal_stream_stats`` (precomputed counts, e.g. ``StepHarness.z_goal_stream_stats()``)
     are passed through for the ``z_goal_stream`` liveness block -- the runtime backstop
@@ -549,6 +587,23 @@ def write_flat_manifest(
             "'status' | 'overall_outcome' | 'outcome' (else the pack syncs to "
             "status 'UNKNOWN')"
         )
+
+    # Environment identity (2026-09-17). ``env=`` is the ONE-WORD way for a driver
+    # to record which environment its run actually executed; it is stamped here,
+    # at the harness chokepoint, rather than by each driver hand-rolling a block --
+    # which is how the writers' hardcoded default came to assert a non-existent
+    # environment class ("ree.causal_grid_world_v3") for 1752 packs. The flat
+    # manifest is the right carrier because it, not emit_pack, is what ~all packs
+    # are actually built from: the REE_assembly converter projects the flat, and it
+    # cannot construct the environment to ask it anything.
+    #
+    # UNLIKE the always-core stamp below, this does NOT swallow exceptions. A
+    # driver that passed env= is asserting "I know my environment"; answering a
+    # failed identification with silence would put the run straight back to an
+    # unrecorded environment, which is the bug. An explicit value already in the
+    # manifest wins -- a caller who set it deliberately is not overridden.
+    if env is not None and not manifest.get("environment"):
+        manifest["environment"] = environment_for(env)
 
     # Always-record core (standard 3b). Stamped AFTER the manifest (incl. any
     # arm_results) is assembled, so a multi-arm run hoists substrate_hash from the
@@ -951,6 +1006,62 @@ def _clean_producer_capabilities(
                 raise TypeError(f"producer capability '{key}' must be a boolean")
             clean[key] = value
     return clean
+
+
+def environment_for(env: Any) -> dict:
+    """The `environment` block for a live environment object.
+
+    The single sanctioned way for a driver to record WHICH environment its run
+    executed:
+
+        from experiments.pack_writer import emit_pack, environment_for
+
+        env = CausalGridWorldV2(seed=SEED, size=9)
+        ...
+        emit_pack(..., environment=environment_for(env))
+
+    and, on the flat-manifest path (which is how ~all packs are actually built --
+    the REE_assembly converter projects the flat, it does not re-run anything),
+    put the same dict in the manifest before handing it to write_flat_manifest:
+
+        manifest["environment"] = environment_for(env)
+
+    Delegates to the environment's own ``environment_identity()``; see
+    ree_core.environment.causal_grid_world for the reference implementation and
+    the hash contract (EQUAL HASH => SAME CODE, one-directional).
+
+    RAISES rather than falling back when the object cannot identify itself. That
+    is the whole point of this function: a silent fallback to a hardcoded default
+    is precisely how every pack came to assert a non-existent environment class
+    (see the DEFAULT_ENVIRONMENT note above). A driver calling this HAS an
+    environment and is asking what it is; answering with a guess would restore the
+    bug. A driver whose environment genuinely cannot identify itself should pass
+    no ``environment=`` at all and take the honest all-"unknown" default.
+    """
+    identify = getattr(env, "environment_identity", None)
+    if not callable(identify):
+        raise TypeError(
+            "environment_for(): %r exposes no environment_identity(); implement "
+            "it on the environment (see ree_core.environment.causal_grid_world) "
+            "or pass no environment= and take the honest 'unknown' default -- do "
+            "NOT hand-roll a block, which is how the hardcoded default got wrong"
+            % (type(env).__name__,)
+        )
+    identity = identify()
+    if not isinstance(identity, Mapping):
+        raise TypeError(
+            "environment_for(): %s.environment_identity() returned %r, expected a "
+            "mapping of the REQUIRED_ENVIRONMENT_FIELDS"
+            % (type(env).__name__, type(identity).__name__)
+        )
+    missing = [f for f in REQUIRED_ENVIRONMENT_FIELDS
+               if not str(identity.get(f, "")).strip()]
+    if missing:
+        raise ValueError(
+            "environment_for(): %s.environment_identity() omitted or blanked %s"
+            % (type(env).__name__, ", ".join(missing))
+        )
+    return _clean_environment(identity)
 
 
 def _clean_environment(environment: Optional[Mapping[str, Any]]) -> dict:

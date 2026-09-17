@@ -81,10 +81,144 @@ confirmed live-reproduced against V3-EXQ-884, both fixed opt-in only):
 Both flags are off by default so every existing script is bit-identical.
 """
 
-from typing import Dict, List, Optional, Tuple
+import hashlib
+import inspect
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
+
+
+# Environment identity (2026-09-17). The Experiment Pack manifest carries an
+# `environment` block -- {env_id, env_version, dynamics_hash, reward_hash,
+# observation_hash, config_hash, tier} -- whose purpose is to answer "did these
+# two runs execute the same environment?". Until now NOTHING produced it: both
+# writers (ree-v3 experiments/pack_writer.DEFAULT_ENVIRONMENT and the REE_assembly
+# converter sync_v3_results.build_runpack_docs) fell back to a hardcoded literal
+# asserting env_id "ree.causal_grid_world_v3" with all four hashes "unknown".
+# Measured across the evidence tree 2026-09-17: 1752 of 1826 packs carrying an
+# environment block asserted exactly that, including runs whose config was in
+# fact CausalGridWorldV2 -- and "ree.causal_grid_world_v3" names a class that has
+# never existed in this module (there is ONE class, CausalGridWorld, and
+# CausalGridWorldV2 is an alias factory setting use_proxy_fields=True).
+#
+# So the identity has to come from the environment itself, which is the only
+# object that knows it. environment_identity() below is that source; a driver
+# threads it into the pack with
+#     pack_writer.environment_for(env)
+# rather than hand-rolling a block per driver.
+#
+# ENV_ID names the CLASS, not the repo generation -- the "_v3" in the old literal
+# was the repo's generation leaking into a field that is about the environment.
+# Mode (proxy fields on/off, i.e. the CausalGridWorldV2 alias) is NOT encoded in
+# env_id: use_proxy_fields is a constructor parameter, so it is already captured
+# exactly by config_hash, and `tier` carries it in human-readable form.
+ENV_ID = "ree.causal_grid_world"
+ENV_VERSION = "causal_grid_world/v1"
+
+# Method groups behind the three CONTENT hashes. The contract each hash makes is
+# one-directional: EQUAL HASH => SAME CODE for that aspect. Over-inclusion
+# preserves that contract (it only makes two hashes co-vary more than ideal);
+# under-inclusion BREAKS it, by letting a real code change go unrecorded. So
+# where an aspect is not cleanly separable the shared method is listed in BOTH
+# groups on purpose.
+#
+# `step` is the canonical case: harm, benefit and energy accrue INLINE in the
+# transition (there is no isolated reward function in this module), so it is
+# listed under dynamics AND reward. That is a deliberate, documented
+# over-inclusion, not an oversight -- do not "tidy" it by dropping one.
+#
+# A name that does not resolve is hashed as an explicit "<absent>" marker rather
+# than skipped, so REMOVING a method still changes the hash.
+_DYNAMICS_MEMBERS = (
+    "ACTIONS", "CONSUME_ACTION", "ENTITY_TYPES", "NUM_ENTITY_TYPES",
+    "reset", "reset_to", "step",
+    "_maybe_shift_world_rule", "_reset_effort_state",
+    "_apply_effort_dissociation_layout",
+    "_drift_hazards", "_respawn_resource", "_spawn_transient_benefit",
+    "_respawn_waypoints", "_inject_external_hazard",
+    "_inject_scheduled_limb_damage", "_inject_counter_evidence",
+    "_step_weather_field", "_step_transient_events", "_step_background_drift",
+    "_place_random_landmarks", "_place_biased_near_resources",
+    "_place_reef_patches", "_place_reef_patches_bipartite",
+    "_build_microhabitat_zones", "_draw_microhabitat_zone_map",
+    "_count_surviving_base_zones", "_pop_zone_weighted",
+    "_build_bipartite_pools", "_init_multi_source_state",
+    "_is_in_reef_half", "_is_in_forage_half", "_is_in_agent_band",
+    "_interior_cells_spec",
+)
+_REWARD_MEMBERS = (
+    "step",  # deliberate: harm/benefit/energy accrue inline -- see note above
+    "_agent_on_resource_cell", "_consume_resource_at",
+    "_effort_cost_for_cell", "_effort_cost_by_action",
+    "_effort_corridor_at", "_effort_effective_depletion",
+    "_zone_resource_factor", "_zone_hazard_factor",
+)
+_OBSERVATION_MEMBERS = (
+    "body_obs_dim", "world_obs_dim", "observation_dim", "action_dim",
+    "_get_observation_dict", "_dict_to_flat", "_get_observation",
+    "_compute_proximity_fields", "_compute_landmark_field",
+    "_apply_interoceptive_noise",
+    "set_safety_cue", "get_subgoal_state",
+)
+
+# `seed` is EXCLUDED from config_hash on purpose. config_hash answers "is this
+# the same environment configuration?", which is what makes it useful for
+# deciding whether two arms or two seeds of one experiment are comparable; a
+# per-seed config_hash would answer "is this the same single run?", which the
+# run_id already answers. The seed is recorded separately by the manifest core.
+_CONFIG_HASH_EXCLUDED_PARAMS = frozenset({"seed"})
+
+_HASH_CHARS = 12
+
+
+def _member_source(owner: type, name: str) -> str:
+    """Source text (or a stable stand-in) for one hashed class member."""
+    member = getattr(owner, name, None)
+    if member is None:
+        return "<absent>"
+    target = member.fget if isinstance(member, property) else member
+    try:
+        return inspect.getsource(target)
+    except (OSError, TypeError):
+        # A class-level constant (ACTIONS, ENTITY_TYPES, ...) has no source.
+        # repr() is a faithful content identity for these and changes whenever
+        # the constant does.
+        return repr(member)
+
+
+def _group_hash(owner: type, names: Tuple[str, ...]) -> str:
+    digest = hashlib.sha256()
+    for name in names:
+        digest.update(name.encode("utf-8"))
+        digest.update(b"\x00")
+        digest.update(_member_source(owner, name).encode("utf-8"))
+        digest.update(b"\x00")
+    return digest.hexdigest()[:_HASH_CHARS]
+
+
+def _stable_repr(value: Any) -> str:
+    """Deterministic text for one constructor argument value.
+
+    Constructor arguments here are scalars, strings, bools, None and the
+    occasional tuple/list/dict of those, so repr() is stable -- except for dicts
+    and sets, whose repr order is not guaranteed across constructions. Those are
+    normalised by sorted key/element.
+    """
+    if isinstance(value, dict):
+        return "{" + ", ".join(
+            "%s: %s" % (_stable_repr(k), _stable_repr(value[k]))
+            for k in sorted(value, key=repr)
+        ) + "}"
+    if isinstance(value, (set, frozenset)):
+        return "{" + ", ".join(sorted((_stable_repr(v) for v in value))) + "}"
+    if isinstance(value, (list, tuple)):
+        inner = ", ".join(_stable_repr(v) for v in value)
+        return "[" + inner + "]" if isinstance(value, list) else "(" + inner + ")"
+    if isinstance(value, np.ndarray):
+        return "ndarray(%s,%s,%s)" % (
+            value.shape, value.dtype, hashlib.sha256(value.tobytes()).hexdigest()[:16])
+    return repr(value)
 
 
 class CausalGridWorld:
@@ -793,6 +927,20 @@ class CausalGridWorld:
         world_rule_shift_depth: int = 0,
         world_rule_shift_scope: str = "action_map",
     ):
+        # Constructor-argument capture for environment_identity().config_hash
+        # (2026-09-17). MUST stay the first statement in the body: locals() here
+        # is exactly the bound arguments, defaults included, before any local
+        # name or attribute mutation exists to pollute it. Capturing the RESOLVED
+        # arguments (rather than reading attributes back afterwards) is what
+        # makes the hash exact: several parameters are stored under a different
+        # attribute name or are post-processed at bind time (the SD-094
+        # contamination gate a few lines below rewrites self.contamination_spread),
+        # and a getattr()-based reconstruction would silently read a default for
+        # any of those -- equal hash, different environment, which is the one
+        # failure this field must not have. Every such derived value is a
+        # deterministic function of these arguments, so hashing the arguments
+        # fixes the derived state too.
+        self._ctor_params = {k: v for k, v in locals().items() if k != "self"}
         self.size = size
         self.num_hazards = num_hazards
         self.num_resources = num_resources
@@ -5335,6 +5483,64 @@ class CausalGridWorld:
     def get_resource_field(self) -> np.ndarray:
         """Return resource proximity field (proxy mode only)."""
         return self.resource_field.copy()
+
+    def environment_identity(self) -> Dict[str, str]:
+        """The Experiment Pack `environment` block for THIS instance.
+
+        Returns the seven fields the pack manifest declares
+        (pack_writer.REQUIRED_ENVIRONMENT_FIELDS), all as strings:
+
+            env_id            stable dotted id of the environment CLASS
+            env_version       declared semantic version of the block's shape
+            dynamics_hash     content hash of the transition code
+            reward_hash       content hash of the harm/benefit/energy code
+            observation_hash  content hash of the observation-construction code
+            config_hash       content hash of this instance's constructor args
+            tier              human-readable mode ("proxy_fields" | "base")
+
+        Contract, one-directional: EQUAL HASH => SAME CODE (or configuration) for
+        that aspect. The converse does not hold and is not claimed -- the source
+        hashes move on a comment edit. That asymmetry is the safe one: a spurious
+        difference prompts a look, a spurious MATCH would license comparing two
+        runs that did not execute the same environment.
+
+        Thread it into a pack via ``pack_writer.environment_for(env)``; do not
+        hand-roll the dict per driver, which is how the hardcoded default this
+        method replaces came to assert a non-existent class for 1752 packs.
+        """
+        cls = type(self)
+        if not hasattr(self, "_ctor_params"):
+            raise AttributeError(
+                "%s has no _ctor_params: its __init__ did not call "
+                "CausalGridWorld.__init__, so its configuration was never "
+                "captured and config_hash cannot be computed. Call super() or "
+                "override environment_identity()." % (cls.__name__,)
+            )
+        digest = hashlib.sha256()
+        for name in sorted(self._ctor_params):
+            if name in _CONFIG_HASH_EXCLUDED_PARAMS:
+                continue
+            digest.update(name.encode("utf-8"))
+            digest.update(b"\x00")
+            digest.update(_stable_repr(self._ctor_params[name]).encode("utf-8"))
+            digest.update(b"\x00")
+        # A SUBCLASS must not claim to be the base environment. Several drivers
+        # subclass this class to change the observation window (SmallViewEnv), so
+        # a bare ENV_ID would assert that a narrowed-view run and a default run
+        # used the same environment. The three content hashes already resolve
+        # overridden methods (they hash type(self), not CausalGridWorld), so this
+        # only has to make the NAME honest.
+        env_id = ENV_ID if cls is CausalGridWorld else "%s+%s.%s" % (
+            ENV_ID, cls.__module__, cls.__qualname__)
+        return {
+            "env_id": env_id,
+            "env_version": ENV_VERSION,
+            "dynamics_hash": _group_hash(cls, _DYNAMICS_MEMBERS),
+            "reward_hash": _group_hash(cls, _REWARD_MEMBERS),
+            "observation_hash": _group_hash(cls, _OBSERVATION_MEMBERS),
+            "config_hash": digest.hexdigest()[:_HASH_CHARS],
+            "tier": "proxy_fields" if self.use_proxy_fields else "base",
+        }
 
     def render(self, mode: str = "text") -> Optional[str]:
         if mode != "text":
