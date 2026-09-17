@@ -60,15 +60,26 @@ gave 93 hits, 85 of them benign):
 """
 
 import datetime as dt
+import importlib.util
 import os
-import sys
 import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
-import audit_burned_queue_entries as audit  # noqa: E402
+# Load by explicit path rather than sys.path.insert(0, ...) + import: the old
+# form put ree-v3/scripts on sys.path[0] for the WHOLE pytest process, which
+# collided (collection-order dependent) with
+# coordinator/test_phase3_runpack_materialize.py's identical insert for
+# REE_assembly/evidence/experiments/scripts -- see
+# tests/contracts/test_cross_repo_scripts_dir_collision.py for the mechanism
+# and the measured before/after counts (chip-20260917-cross-repo-scripts-dir-
+# collision-guard). audit_burned_queue_entries.py imports only stdlib, so
+# spec_from_file_location needs no sys.path change at all.
+_spec = importlib.util.spec_from_file_location(
+    "audit_burned_queue_entries", REPO_ROOT / "scripts" / "audit_burned_queue_entries.py")
+audit = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(audit)
 
 EVIDENCE_DIR = Path("/Users/dgolden/REE_Working/REE_assembly/"
                     "evidence/experiments")
