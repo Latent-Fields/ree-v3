@@ -69,6 +69,10 @@ from ree_core.hippocampal.ghost_goal_bank import (
     GhostGoalBankEntry,
     PersistenceAppraisal,
 )
+from ree_core.hippocampal.possibility_topology import (
+    PossibilityTopology,
+    PossibilityTopologyConfig,
+)
 from ree_core.hippocampal.staleness_accumulator import StalenessAccumulator
 
 
@@ -405,6 +409,30 @@ class HippocampalModule(nn.Module):
                 )
             self.staleness_accumulator = StalenessAccumulator(sa_cfg)
 
+        # SD-097: typed possibility topology over AnchorKeys. Constructed
+        # only when explicitly asked for; `use_possibility_topology` does
+        # not exist on HippocampalConfig yet (config.py was held by a
+        # concurrent session at build time), so this getattr resolves
+        # False and the block is inert until that knob lands -- the same
+        # pattern every flag above uses. attach_possibility_topology()
+        # is the interim wiring path for a driver or a test.
+        self.possibility_topology: Optional[PossibilityTopology] = None
+        if getattr(config, "use_possibility_topology", False):
+            if self.anchor_set is None:
+                raise ValueError(
+                    "HippocampalConfig.use_possibility_topology=True but "
+                    "use_anchor_sets=False; SD-097 keys its relations on "
+                    "AnchorKey and has nothing to relate without the "
+                    "MECH-269 anchor substrate."
+                )
+            topo_cfg = getattr(config, "possibility_topology_config", None)
+            if topo_cfg is None:
+                topo_cfg = PossibilityTopologyConfig(enabled=True)
+            self.possibility_topology = PossibilityTopology(config=topo_cfg)
+            self.anchor_set.attach_possibility_topology(
+                self.possibility_topology
+            )
+
         # MECH-292: ranked ghost-goal bank (derived view over the SD-039
         # dual-trace anchor pool). Pure-arithmetic, non-trainable;
         # consumes payloads written by the SD-039 population layer.
@@ -440,6 +468,7 @@ class HippocampalModule(nn.Module):
                 config=bank_cfg,
                 anchor_set=self.anchor_set,
                 staleness_accumulator=self.staleness_accumulator,
+                possibility_topology=self.possibility_topology,
             )
 
         # MECH-293: waking ghost-goal probe search precondition. Consumes
@@ -4117,6 +4146,34 @@ class HippocampalModule(nn.Module):
         """Per-episode reset of the MECH-284 staleness accumulator. No-op when disabled."""
         if self.staleness_accumulator is not None:
             self.staleness_accumulator.reset()
+
+    def attach_possibility_topology(
+        self,
+        topology: Optional[PossibilityTopology],
+    ) -> None:
+        """SD-097: wire a possibility topology into BOTH of its call sites.
+
+        The write side is AnchorSet (it records an `enables` edge on an
+        observed family remap) and the read side is GhostGoalBank (it
+        expands `enables` successors during rank()). Attaching to only
+        one of the two produces a store nothing writes or nothing reads,
+        so this does both, or raises.
+
+        This is the interim wiring path while HippocampalConfig has no
+        `use_possibility_topology` knob (config.py was owned by another
+        session at build time). Once that knob lands, __init__ does this
+        and callers should not need the method.
+        """
+        if topology is not None and self.anchor_set is None:
+            raise ValueError(
+                "attach_possibility_topology() requires use_anchor_sets=True; "
+                "SD-097 relations are keyed on AnchorKey."
+            )
+        self.possibility_topology = topology
+        if self.anchor_set is not None:
+            self.anchor_set.attach_possibility_topology(topology)
+        if self.ghost_goal_bank is not None:
+            self.ghost_goal_bank.possibility_topology = topology
 
     def rank_ghost_goals(
         self,

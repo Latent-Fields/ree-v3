@@ -210,6 +210,25 @@ class AnchorSet:
         # None until lazily seeded by the first waking observe_goal_cue(); stays
         # None forever when goal_cue_centering is False (no allocation OFF).
         self._goal_baseline: Optional[torch.Tensor] = None
+        # SD-097: optional typed possibility topology over AnchorKeys
+        # (ree_core/hippocampal/possibility_topology.py). None by default and
+        # attached only by a caller that asked for one, so the OFF path takes
+        # exactly the pre-SD-097 code path -- one `is None` test at the remap
+        # site and nothing else. Duck-typed (no module-level import) because
+        # possibility_topology imports AnchorKey FROM here.
+        self.possibility_topology: Optional[Any] = None
+
+    # ------------------------------------------------------------------ #
+    # SD-097: typed possibility topology attachment                       #
+    # ------------------------------------------------------------------ #
+    def attach_possibility_topology(self, topology: Optional[Any]) -> None:
+        """Attach (or detach with None) the SD-097 relation store.
+
+        Attaching alone changes nothing: the remap writer additionally
+        requires topology.config.enabled and .write_on_anchor_remap, and
+        note_transition() is itself a no-op while disabled.
+        """
+        self.possibility_topology = topology
 
     # ------------------------------------------------------------------ #
     # SD-079: common-mode baseline over the z_goal cue                    #
@@ -307,6 +326,18 @@ class AnchorSet:
             if goal_payload is not None:
                 prior_active.goal_payload = goal_payload
             self._mark_inactive_internal(prior_active)
+            # SD-097 write path: an OBSERVED succession on the waking
+            # stream -- anchor `prior_active` was this family's active
+            # anchor and `key` has just replaced it. Recorded as
+            # `prior_active enables key`. Not inferred from latent
+            # similarity: the event is the remap itself. MECH-094 holds by
+            # construction (write_anchor is only reached from
+            # HippocampalModule.tick_anchor_set on the waking path).
+            topo = self.possibility_topology
+            if topo is not None and getattr(
+                topo.config, "write_on_anchor_remap", False
+            ):
+                topo.note_transition(prior_active.key, key, tick=self._tick)
 
         z_snap = z_world.detach().clone()
         anchor = Anchor(
@@ -591,11 +622,23 @@ class AnchorSet:
         return scored
 
     def reset(self) -> None:
-        """Per-episode reset. Clears active + inactive anchors + tick."""
+        """Per-episode reset. Clears active + inactive anchors + tick.
+
+        SD-097: also clears an attached possibility topology when its
+        reset_with_anchor_set is True (the default). segment_ids are
+        per-episode "outer.inner" counters and are recycled, so retained
+        edges would alias a new episode's anchors onto an old episode's
+        relations.
+        """
         self._active.clear()
         self._all.clear()
         self._active_per_scale.clear()
         self._tick = 0
+        topo = self.possibility_topology
+        if topo is not None and getattr(
+            topo.config, "reset_with_anchor_set", False
+        ):
+            topo.reset()
 
     # ------------------------------------------------------------------ #
     # Internal helpers                                                   #

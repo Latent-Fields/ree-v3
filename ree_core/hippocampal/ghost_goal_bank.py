@@ -98,7 +98,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 
-from ree_core.hippocampal.anchor_set import Anchor, AnchorSet
+from ree_core.hippocampal.anchor_set import Anchor, AnchorKey, AnchorSet
+from ree_core.hippocampal.possibility_topology import PossibilityTopology
 from ree_core.hippocampal.staleness_accumulator import StalenessAccumulator
 from ree_core.utils.config import GhostGoalBankConfig
 
@@ -144,6 +145,12 @@ class GhostGoalBankEntry:
     anchor: Anchor
     ghost_priority: float
     components: Dict[str, float] = field(default_factory=dict)
+    # SD-097: set ONLY on an entry admitted through an `enables` edge
+    # rather than on its own goal_match. Carries {"relation", "parent_key",
+    # "edge_weight", "parent_goal_match"}. None on every entry when the
+    # topology is absent -- which is the default everywhere, so the OFF
+    # path's entries are identical to the pre-SD-097 ones.
+    relation_provenance: Optional[Dict[str, Any]] = None
 
 
 class GhostGoalBank:
@@ -172,10 +179,15 @@ class GhostGoalBank:
         config: GhostGoalBankConfig,
         anchor_set: AnchorSet,
         staleness_accumulator: Optional[StalenessAccumulator] = None,
+        possibility_topology: Optional[PossibilityTopology] = None,
     ) -> None:
         self.config = config
         self.anchor_set = anchor_set
         self.staleness_accumulator = staleness_accumulator
+        # SD-097: optional typed relation store over AnchorKeys. None by
+        # default; when None (or present-but-disabled) rank() takes exactly
+        # the pre-SD-097 code path.
+        self.possibility_topology = possibility_topology
         self._last_diagnostics: Dict[str, Any] = {}
 
     # ------------------------------------------------------------------ #
@@ -229,6 +241,16 @@ class GhostGoalBank:
         persistence_on = bool(cfg.use_persistence_efficacy_gate)
         persistence_license = self._persistence_license(persistence_appraisal)
 
+        # SD-097: one boolean resolved once. Everything the topology adds
+        # below is behind `topology_on`, so the OFF path allocates nothing
+        # extra and emits no extra keys.
+        topology = self.possibility_topology
+        topology_on = (
+            topology is not None and bool(topology.config.enabled)
+        )
+        by_key: Dict[AnchorKey, Anchor] = {}
+        admitted_directly: List[Tuple[AnchorKey, float]] = []
+
         scored: List[GhostGoalBankEntry] = []
         sums = {
             "wanting": 0.0,
@@ -238,6 +260,8 @@ class GhostGoalBank:
         }
         if composite_on:
             sums["context"] = 0.0
+        if topology_on:
+            sums["relation"] = 0.0
         n_below_floor = 0
         n_no_payload = 0
         n_below_persistence = 0
@@ -247,6 +271,13 @@ class GhostGoalBank:
             if payload is None:
                 n_no_payload += 1
                 continue
+
+            if topology_on:
+                # Index the payload-bearing pool by key so a relational
+                # successor can be resolved back to a real anchor. Built
+                # here (rather than in a second pass) because this loop
+                # already visits every anchor exactly once.
+                by_key[anchor.key] = anchor
 
             goal_match = anchor.goal_match(current_z_goal, baseline=goal_baseline)
             if goal_match < cfg.goal_match_floor:
@@ -303,6 +334,32 @@ class GhostGoalBank:
                 ghost_priority=float(priority),
                 components=components,
             ))
+            if topology_on:
+                admitted_directly.append((anchor.key, float(goal_match)))
+
+        # SD-097 READ PATH. An anchor that cleared the floor vouches for
+        # its `enables` successors: they are admitted WITH THE FLOOR
+        # WAIVED, because their relevance arrives through the relation
+        # rather than through a direct goal-match. They are scored on
+        # their own channels plus a relation channel and then sorted into
+        # the same list, so the downstream consumer
+        # (HippocampalModule._propose_ghost_seeded, which seeds its CEM
+        # probes from rank()[:n_ghost].anchor.z_world) probes regions it
+        # would otherwise never have reached. One hop; no closure.
+        relational_diag: Optional[Dict[str, Any]] = None
+        if topology_on:
+            relational_entries, relational_diag = self._admit_relational_successors(
+                topology=topology,
+                admitted_directly=admitted_directly,
+                by_key=by_key,
+                current_z_goal=current_z_goal,
+                goal_baseline=goal_baseline,
+                composite_on=composite_on,
+                persistence_on=persistence_on,
+                persistence_license=persistence_license,
+                sums=sums,
+            )
+            scored.extend(relational_entries)
 
         scored.sort(key=lambda e: e.ghost_priority, reverse=True)
         n_admitted = len(scored)
@@ -329,6 +386,8 @@ class GhostGoalBank:
             "component_sums": {k: float(v) for k, v in sums.items()},
             "reason": "ok",
         }
+        if relational_diag is not None:
+            self._last_diagnostics.update(relational_diag)
         return scored
 
     def get_diagnostics(self) -> Dict[str, Any]:
@@ -348,6 +407,164 @@ class GhostGoalBank:
     # ------------------------------------------------------------------ #
     # Internal helpers                                                   #
     # ------------------------------------------------------------------ #
+    def _admit_relational_successors(
+        self,
+        topology: PossibilityTopology,
+        admitted_directly: List[Tuple[AnchorKey, float]],
+        by_key: Dict[AnchorKey, Anchor],
+        current_z_goal: Optional[torch.Tensor],
+        goal_baseline: Optional[torch.Tensor],
+        composite_on: bool,
+        persistence_on: bool,
+        persistence_license: float,
+        sums: Dict[str, float],
+    ) -> Tuple[List[GhostGoalBankEntry], Dict[str, Any]]:
+        """SD-097: admit the `enables` successors of floor-clearing anchors.
+
+        Reached only when a topology is attached AND enabled. For each
+        anchor that cleared goal_match_floor on its own (in scan order),
+        the topology's outgoing edges of config.seed_relation are walked,
+        strongest first, up to max_successors_per_parent per parent and
+        max_relational_admits overall.
+
+        A successor is admitted when it is in THIS rank()'s scored pool
+        (same include_active / include_inactive / scale selection) and
+        carries an SD-039 payload. Two gates behave differently:
+
+          - goal_match_floor is WAIVED. That is the entire point: a
+            successor that already cleared the floor is a direct entry
+            and is skipped here as a duplicate, so the only successors
+            this can add are ones the floor excluded.
+          - the MECH-340 persistence license is NOT waived. It is a
+            global disengagement gate on pursuing ANY ghost goal; a
+            relation is not a reason to override it.
+
+        Scoring duplicates rank()'s term expressions rather than sharing
+        a refactored helper with the main loop, deliberately: the OFF
+        path's arithmetic must stay bit-identical (the SD-098 falsifier
+        reads that baseline), and the cheapest guarantee of that is to
+        leave the main loop untouched. The extra RELATION channel is
+
+            relation_term = relation_weight * edge.weight * parent_goal_match
+
+        -- credit proportional to how goal-relevant the ENABLER is
+        (computed at read time from the parent's cosine, never from any
+        stored node type), scaled by how well-confirmed the edge is.
+        """
+        cfg = self.config
+        tcfg = topology.config
+        relation = str(getattr(tcfg, "seed_relation", "enables"))
+        per_parent = max(0, int(getattr(tcfg, "max_successors_per_parent", 0)))
+        total_cap = max(0, int(getattr(tcfg, "max_relational_admits", 0)))
+        relation_weight = float(getattr(tcfg, "relation_weight", 0.0))
+
+        entries: List[GhostGoalBankEntry] = []
+        direct_keys = set(k for k, _ in admitted_directly)
+        taken: set = set()
+        n_edges_walked = 0
+        n_not_in_pool = 0
+        n_duplicate = 0
+        n_below_persistence = 0
+
+        for parent_key, parent_goal_match in admitted_directly:
+            if total_cap and len(entries) >= total_cap:
+                break
+            if per_parent <= 0:
+                break
+            n_from_this_parent = 0
+            for edge in topology.successors(parent_key, relation=relation):
+                if n_from_this_parent >= per_parent:
+                    break
+                if total_cap and len(entries) >= total_cap:
+                    break
+                n_edges_walked += 1
+                dst = edge.dst
+                if dst in direct_keys or dst in taken:
+                    n_duplicate += 1
+                    continue
+                anchor = by_key.get(dst)
+                if anchor is None:
+                    # Edge points outside this rank()'s pool: a different
+                    # scale, an active/inactive filter exclusion, a
+                    # payload-less anchor, or a key from a previous
+                    # episode. Counted, never invented.
+                    n_not_in_pool += 1
+                    continue
+                if persistence_on and persistence_license < cfg.persistence_floor:
+                    n_below_persistence += 1
+                    continue
+
+                payload = anchor.goal_payload
+                goal_match = anchor.goal_match(
+                    current_z_goal, baseline=goal_baseline
+                )
+                wanting = float(payload.wanting_strength)
+                staleness = self._staleness_for_anchor(anchor)
+                recoverability = self._recoverability_for_anchor(anchor)
+
+                w_term = cfg.wanting_weight * wanting
+                m_term = cfg.goal_match_weight * goal_match
+                s_term = cfg.staleness_weight * staleness
+                r_term = cfg.recoverability_weight * recoverability
+                rel_term = (
+                    relation_weight
+                    * float(edge.weight)
+                    * float(parent_goal_match)
+                )
+
+                priority = w_term + m_term + s_term + r_term
+                sums["wanting"] += w_term
+                sums["goal_match"] += m_term
+                sums["staleness"] += s_term
+                sums["recoverability"] += r_term
+
+                components = {
+                    "wanting": float(w_term),
+                    "goal_match": float(m_term),
+                    "staleness": float(s_term),
+                    "recoverability": float(r_term),
+                }
+                if composite_on:
+                    context_salience = self._context_salience_for_anchor(anchor)
+                    gate = self._outshine_gate(goal_match)
+                    c_term = cfg.context_weight * gate * context_salience
+                    priority += c_term
+                    sums["context"] += c_term
+                    components["context"] = float(c_term)
+                if persistence_on:
+                    components["persistence_license"] = float(persistence_license)
+
+                priority += rel_term
+                sums["relation"] = sums.get("relation", 0.0) + rel_term
+                components["relation"] = float(rel_term)
+
+                entries.append(GhostGoalBankEntry(
+                    anchor=anchor,
+                    ghost_priority=float(priority),
+                    components=components,
+                    relation_provenance={
+                        "relation": relation,
+                        "parent_key": parent_key,
+                        "edge_weight": float(edge.weight),
+                        "edge_observations": int(edge.observation_count),
+                        "parent_goal_match": float(parent_goal_match),
+                    },
+                ))
+                taken.add(dst)
+                n_from_this_parent += 1
+
+        diagnostics = {
+            "sd097_relation": relation,
+            "sd097_n_parents": int(len(admitted_directly)),
+            "sd097_n_edges_walked": int(n_edges_walked),
+            "sd097_n_relational_admitted": int(len(entries)),
+            "sd097_n_successor_not_in_pool": int(n_not_in_pool),
+            "sd097_n_successor_duplicate": int(n_duplicate),
+            "sd097_n_successor_below_persistence": int(n_below_persistence),
+            "sd097_topology_edges": int(topology.edge_count()),
+        }
+        return entries, diagnostics
+
     def _pool_for_config(self) -> List[Anchor]:
         """Anchor pool to score, per include_active / include_inactive / scale."""
         cfg = self.config
