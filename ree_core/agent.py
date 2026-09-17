@@ -3089,6 +3089,11 @@ class REEAgent(nn.Module):
                 cross_module_consolidation_batch=int(
                     getattr(config, "cross_module_consolidation_batch", 16)
                 ),
+                sleep_world_forward_consolidation=bool(
+                    getattr(
+                        config, "use_sleep_world_forward_consolidation", False
+                    )
+                ),
                 # SD-MEL-CONSUMER (GAP-5b): adaptive sleep-cadence MEL consumer.
                 mel_consumer=self.mel_consumer,
                 # sleep_substrate:GAP-9 within-life sleep trigger (v1:
@@ -12250,6 +12255,97 @@ class REEAgent(nn.Module):
 
         z_t1_pred = self.e2.predict_next_self(z_t, acts)
         return F.mse_loss(z_t1_pred, z_t1)
+
+    def compute_e2_world_loss(self, batch_size: int = 16) -> torch.Tensor:
+        """E2 world-forward replay loss (z_world domain).
+
+        THE GAP THIS CLOSES. compute_e2_loss above calls ONLY
+        e2.predict_next_self, i.e. the z_self-domain motor-sensory head. E2's
+        world-domain heads -- world_transition and world_action_encoder
+        (e2_fast.py), which are UNCONDITIONAL modules -- are handed to the
+        sleep consolidation optimiser in module_params["e2"] but no loss term
+        ever reaches them, so they take zero gradient on every sleep cycle.
+        That is the recorded "delta == 0.0 on every seed".
+
+        Objective is the SD-056 InfoNCE term that ~6 waking drivers already
+        use (E2FastPredictor.world_forward_contrastive_loss), called with a
+        replay batch of K DISTINCT transitions as z_world_0 [K, world_dim] --
+        the in-batch-negatives form the helper already supports.
+
+        ALIGNMENT. _e1_action_one_hot() encodes the action that led INTO the
+        state being appended, so the action carrying state_i -> state_{i+1} is
+        the buffer entry recorded ALONGSIDE state_{i+1}. The training triple
+        at replay index i is therefore
+
+            (world[i], action[i + 1], world[i + 1])
+
+        -- the same +1 offset compute_prediction_loss documents and
+        tests/contracts/test_e1_action_conditioned_transition.py pins. The
+        off-by-one is indistinguishable at the shape level and would train the
+        world head on the action that led into the input state.
+
+        The batch is K DISTINCT transitions, not K sibling candidates off one
+        state, so the helper's first-action-class floor is overridden to 1 --
+        see the call site for why inheriting it would make this trainer
+        silently inert under monostrategy.
+
+        Returns an exactly-zero, graph-anchored sentinel when there is no
+        usable replay content, which is the closure contract
+        CrossModuleConsolidator.consolidate() documents: such a step does NOT
+        count as touching the module.
+
+        Args:
+            batch_size: maximum number of replay triples to draw (without
+                replacement). K < 2 cannot form InfoNCE negatives.
+        """
+        zero_loss = next(self.e2.world_transition.parameters()).sum() * 0.0
+        wbuf = self._world_experience_buffer
+        abuf = self._action_experience_buffer
+        n_pairs = min(len(wbuf), len(abuf)) - 1
+        if n_pairs < 2:
+            return zero_loss
+        n = min(int(batch_size), n_pairs)
+        if n < 2:
+            return zero_loss
+
+        idx = torch.randperm(n_pairs)[:n].tolist()
+        z0 = torch.cat([wbuf[i].reshape(1, -1) for i in idx], dim=0)
+        z1 = torch.cat([wbuf[i + 1].reshape(1, -1) for i in idx], dim=0)
+        acts = torch.cat(
+            [abuf[i + 1].reshape(1, -1) for i in idx], dim=0
+        ).to(device=z0.device, dtype=z0.dtype)
+
+        # min_batch_classes=1 IS DELIBERATE AND IS NOT A RELAXATION. The
+        # helper's default floor of 2 distinct first-action classes exists for
+        # its WAKING callers, whose batch is K sibling CEM candidates sharing
+        # ONE z_world_0 and differing only in first action -- there, a
+        # single-class batch really is degenerate, because the negatives are
+        # then identical to the positive.
+        #
+        # A REPLAY batch is the other shape: K DISTINCT transitions, so the
+        # negatives are other STATES and stay informative however little the
+        # action varies. The floor must not be inherited here, because REE
+        # agents are monostrategy in long stretches (measured: 14 consecutive
+        # ticks on CausalGridWorldV2 gave ONE action class), so a floor of 2
+        # would make this trainer SILENTLY INERT exactly when sleep has the
+        # most to consolidate -- the dead-flag failure mode
+        # tests/test_flag_inertness.py exists to catch. Measured on a real
+        # 19-transition single-class replay batch: floor 2 -> loss 0.0, no
+        # gradient; floor 1 -> loss 2.94, max |grad| 0.16.
+        loss = self.e2.world_forward_contrastive_loss(
+            z_world_0=z0,
+            actions=acts,
+            z_world_1_targets=z1,
+            min_batch_classes=1,
+            simulation_mode=False,
+        )
+        # The helper's degenerate-batch guards (K < 2, too few distinct
+        # first-action classes) return a DETACHED torch.zeros(()). Normalise
+        # that to the graph-anchored sentinel so "no replay content" has one
+        # shape rather than two.
+        if not torch.is_tensor(loss) or not loss.requires_grad:
+            return zero_loss
+        return loss
 
     def offline_integration(self) -> Dict[str, float]:
         """Offline integration (residue contextualisation + E1 replay)."""

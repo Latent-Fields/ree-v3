@@ -123,6 +123,7 @@ class SleepLoopManager:
         cross_module_consolidation_schedule: str = "interleaved",
         cross_module_consolidation_lr: float = 1e-3,
         cross_module_consolidation_batch: int = 16,
+        sleep_world_forward_consolidation: bool = False,
         mel_consumer: Optional["MELConsumer"] = None,
         within_life_trigger: bool = False,
         within_life_step_ceiling: int = 1000,
@@ -170,6 +171,13 @@ class SleepLoopManager:
         )
         self.cross_module_consolidation_lr = float(cross_module_consolidation_lr)
         self.cross_module_consolidation_batch = int(cross_module_consolidation_batch)
+        # E2 world-forward sleep trainer lever. False (default) = the
+        # "e2_world" module is structurally ABSENT from the consolidation
+        # dicts -- no closure is built and no RNG is consumed -- so existing
+        # arms are bit-identical. See _run_cycle for why that matters.
+        self.sleep_world_forward_consolidation = bool(
+            sleep_world_forward_consolidation
+        )
         # SD-MEL-CONSUMER (GAP-5b): adaptive sleep-cadence MEL consumer. None ->
         # the K-episode-deterministic scheduler + fixed-duration cycle are
         # bit-identical to the pre-SD substrate.
@@ -673,17 +681,46 @@ class SleepLoopManager:
             and getattr(agent, "e2", None) is not None
         ):
             _batch = self.cross_module_consolidation_batch
+            _cmc_losses = {
+                # E1 world-model replay loss (over _world_experience_buffer).
+                "e1": lambda: agent.compute_prediction_loss(),
+                # E2 forward-model replay loss (over _e2_transition_buffer).
+                "e2": lambda: agent.compute_e2_loss(batch_size=_batch),
+            }
+            _cmc_params = {
+                "e1": list(agent.e1.parameters()),
+                "e2": list(agent.e2.parameters()),
+            }
+            # E2 WORLD-FORWARD SLEEP TRAINER (lever:
+            # use_sleep_world_forward_consolidation, default False).
+            #
+            # "e2" above trains ONLY e2.predict_next_self (z_self domain), so
+            # e2.world_transition / e2.world_action_encoder sit in the "e2"
+            # optimiser's parameter list and receive NO gradient -- the
+            # recorded "delta == 0.0 on every seed". This third entry supplies
+            # the missing world-domain objective, SCOPED to the two world-head
+            # modules so it cannot double-step the z_self head "e2" owns.
+            #
+            # The lever is REQUIRED, not cosmetic: under the "interleaved"
+            # schedule consolidate() steps EVERY named module per trace, so a
+            # third name changes cross_module_replay_share for existing arms
+            # AND consumes global-RNG draws between the e1 and e2 draws, which
+            # shifts the batches those two sample. OFF is therefore structural
+            # absence -- no key, no closure, no RNG -- not a zero weight.
+            if self.sleep_world_forward_consolidation:
+                _world_params = []
+                for _mod_name in ("world_transition", "world_action_encoder"):
+                    _mod = getattr(agent.e2, _mod_name, None)
+                    if _mod is not None:
+                        _world_params.extend(_mod.parameters())
+                if _world_params and hasattr(agent, "compute_e2_world_loss"):
+                    _cmc_losses["e2_world"] = (
+                        lambda: agent.compute_e2_world_loss(batch_size=_batch)
+                    )
+                    _cmc_params["e2_world"] = _world_params
             cmc_metrics = self.cross_module_consolidator.consolidate(
-                module_losses={
-                    # E1 world-model replay loss (over _world_experience_buffer).
-                    "e1": lambda: agent.compute_prediction_loss(),
-                    # E2 forward-model replay loss (over _e2_transition_buffer).
-                    "e2": lambda: agent.compute_e2_loss(batch_size=_batch),
-                },
-                module_params={
-                    "e1": list(agent.e1.parameters()),
-                    "e2": list(agent.e2.parameters()),
-                },
+                module_losses=_cmc_losses,
+                module_params=_cmc_params,
                 n_steps=self.cross_module_consolidation_steps,
                 schedule=self.cross_module_consolidation_schedule,
                 lr=self.cross_module_consolidation_lr,

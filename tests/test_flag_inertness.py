@@ -3087,7 +3087,19 @@ KNOWN_UNPROBED = {
     "use_salience_coordinator",
     "use_sd049_per_axis_consumer_cascade",
     "use_shared_harm_trunk", "use_simulation_mode_rule_gate",
-    "use_sleep_aggregation_cluster", "use_sleep_loop", "use_structured_curiosity",
+    "use_sleep_aggregation_cluster", "use_sleep_loop",
+    # E2 world-forward sleep trainer (2026-09-17). Gates whether a THIRD
+    # module "e2_world" joins the cross-module consolidation pass, supplying
+    # the world-domain objective that e2.world_transition /
+    # e2.world_action_encoder never received (they sat in the "e2" optimiser's
+    # param list with no loss reaching them -- "delta == 0.0 on every seed").
+    # Registered here rather than probed at this file's level because the
+    # ON-vs-OFF contrast is a WEIGHT delta on two specific submodules across a
+    # sleep cycle, which is pinned directly, together with the OFF path's
+    # structural absence from the consolidate() call, in tests/contracts/
+    # test_e2_world_forward_sleep_trainer.py (W1-W7).
+    "use_sleep_world_forward_consolidation",
+    "use_structured_curiosity",
     "use_suffering_derivative_comparator", "use_tonic_vigor", "use_tpj_comparator",
     "use_trainable_relief_critic", "use_trainable_safety_predictor",
     # sleep_substrate:GAP-9 within-life sleep trigger master switch (REEConfig

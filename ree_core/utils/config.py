@@ -6934,6 +6934,22 @@ class REEConfig:
     cross_module_consolidation_steps: int = 0  # offline gradient steps per cycle (0 == none)
     cross_module_consolidation_lr: float = 1e-3
     cross_module_consolidation_batch: int = 16
+    # E2 WORLD-FORWARD SLEEP TRAINER (2026-09-17 substrate build).
+    # The cross-module consolidation pass passes module_losses["e2"] =
+    # agent.compute_e2_loss, which calls ONLY e2.predict_next_self (z_self
+    # domain). E2's world-domain heads (world_transition,
+    # world_action_encoder) are unconditional modules that sit in the "e2"
+    # optimiser's parameter list and receive NO gradient, so they do not move
+    # on any sleep cycle ("delta == 0.0 on every seed"). When True, a THIRD
+    # module "e2_world" is added to the pass, running
+    # agent.compute_e2_world_loss (the SD-056 world_forward InfoNCE term over
+    # the aligned z_world / action replay buffers) scoped to those two heads
+    # only.
+    # Default False is BIT-IDENTICAL by structural absence: adding a third
+    # module to the interleaved schedule would change
+    # cross_module_replay_share denominators AND consume global-RNG draws
+    # between the e1 and e2 replay draws, shifting every existing arm.
+    use_sleep_world_forward_consolidation: bool = False
 
     # MECH-457: first-class RPE-driven actor-critic action-learning substrate
     # (sd_actor_critic_action_learning). A dorsal-striatal-analog actor + value
@@ -10085,6 +10101,9 @@ class REEConfig:
         )
         config.cross_module_consolidation_lr = float(
             kwargs.pop("cross_module_consolidation_lr", 1e-3)
+        )
+        config.use_sleep_world_forward_consolidation = bool(
+            kwargs.pop("use_sleep_world_forward_consolidation", False)
         )
         config.cross_module_consolidation_batch = int(
             kwargs.pop("cross_module_consolidation_batch", 16)
