@@ -24,6 +24,11 @@ Pins:
   6. SOURCE-ORDER FIDELITY: a client-side file reorder (merge machinery)
      does not produce a spurious rewrite -- the render follows the FILE's
      row order for rows the file carries.
+  7. KEYLESS PRESERVATION: a source entry the reconciler cannot key is
+     preserved at its source position rather than deleted by the render,
+     byte-stably, without resurrecting a D14 retention drop -- the third
+     instance of the ingest-refuses/render-deletes generator. See the
+     block comment above TestKeylessEntrySurvivesTheRender.
 
 ASCII-only.
 """
@@ -384,3 +389,177 @@ class TestSourceOrderFidelity(_Fixture):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------------------------------------------------------------------------
+# KEYLESS PRESERVATION (2026-09-17)
+#
+# The third instance of the generator fixed for dispatch_campaigns.json
+# (ree-v3 2e2bd598af, AFTER it deleted two curated campaigns -- REE_Working
+# fd7730f70) and dispatcher_control.json (6347ea3b6c, found by inspection):
+# ingest silently skips an entry it cannot represent, the render rebuilds the
+# collection wholly from DB rows, and the entry is therefore DELETED on the
+# next 2-minute tick -- the opposite of the degraded-fallback doctrine the
+# ingest-before-render pairing exists to implement.
+#
+# Here the refusal is on KEY ABSENCE (a falsy session_id/claimed_at, or a
+# falsy chip_ref) rather than on a value validator, which makes the twins'
+# key-union impossible to mirror literally -- but it also makes the fix
+# STRONGER rather than harder: key absence is the reconcilers' ONLY skip
+# reason and no row can carry a falsy key, so a keyless source entry is
+# UNCONDITIONALLY DB-absent and needs no de-duplication key at all. It is
+# preserved at its source index, which is what keeps the render byte-stable.
+#
+# Reachability is genuinely lower than the twins': task_claim.py dies on an
+# empty --session-id and generates claimed_at itself, chip_ledger.py requires
+# chip_ref (and `record` refuses an entry whose stored prompt lacks the
+# marker), the union merge driver refuses rather than mangles, and a non-dict
+# entry raises in the reconciler and fails the tick LOUDLY. A hand-edit or an
+# out-of-band writer is the realistic route -- and the hand-edit guard is a
+# Mac-side gitignored PreToolUse hook that does not exist on the workers.
+# ---------------------------------------------------------------------------
+
+KEYLESS_CLAIM = {
+    "session_id": "",
+    "session_label": "hand-edited",
+    "claimed_at": "2026-08-28T09:30:00Z",
+    "task": "an entry no reconciler can key",
+    "resources": ["r/x.json"],
+    "status": "active",
+}
+
+KEYLESS_CHIP = {
+    "task_id": "task_orphan",
+    "origin": "headless",
+    "title": "a chip with no chip_ref",
+    "tldr": "td",
+    "prompt": "body with no marker",
+    "status": "open",
+}
+
+
+class TestKeylessEntrySurvivesTheRender(_Fixture):
+    """A source entry the reconciler cannot key must survive materialization.
+
+    Damage if wrong: the entry is deleted from git within two minutes, with
+    no error anywhere -- the exact shape that cost two curated campaign
+    entries on 2026-09-17."""
+
+    CLAIMS = _claims_doc([_claim("s-active", "2026-08-28T10:00:00Z"),
+                          KEYLESS_CLAIM])
+    CHIPS = _chips_doc([_chip("chip-a"), KEYLESS_CHIP])
+
+    def test_a_keyless_entry_is_preserved_not_dropped(self):
+        # ASSERTION ORDER IS LOAD-BEARING. The stats keys are new in the same
+        # commit as the preservation, so asserting them first would make this
+        # test fail on baseline with a KeyError -- i.e. it would also "fail"
+        # against a counting-only change that still DELETED the entry, and
+        # would prove nothing about the deletion. The deletion assertions come
+        # first so a baseline run fails on the thing that matters.
+        result = self._tick(mode="write")
+        claims = json.loads(self._origin_text(writer.CLAIMS_REL_PATH))["claims"]
+        self.assertEqual([c["session_id"] for c in claims], ["s-active", ""],
+                         "the keyless claim must still be in git")
+        self.assertEqual(claims[1], KEYLESS_CLAIM,
+                         "preserved VERBATIM, at its source position")
+        chips = json.loads(self._origin_text(writer.CHIPS_REL_PATH))["chips"]
+        self.assertEqual(len(chips), 2, "the keyless chip must still be in git")
+        self.assertEqual(chips[1], KEYLESS_CHIP)
+        self.assertTrue(result["claims_match"])
+        self.assertTrue(result["chips_match"])
+        self.assertFalse(
+            result["committed"],
+            "preserving it is byte-stable -- the writer must not churn a "
+            "10 MB file every tick over an entry it cannot hold")
+        self.assertEqual(result["claims"]["n_preserved"], 1)
+        self.assertEqual(result["chips"]["n_preserved"], 1)
+
+    def test_the_drop_is_named_not_merely_derivable(self):
+        """Option A of the chip: the count must be reported, not left to be
+        inferred from n_git exceeding n_new+n_updated+n_unchanged in a return
+        value materialize_once used to throw away."""
+        result = self._tick()
+        self.assertEqual(
+            [e["index"] for e in result["claims"]["keyless"]], [1])
+        self.assertEqual(result["claims"]["keyless"][0]["session_id"], "")
+        self.assertEqual(
+            [e["index"] for e in result["chips"]["keyless"]], [1])
+
+    def test_it_survives_a_render_the_db_does_drive(self):
+        """A DB-driven rewrite must not sweep the preserved entry out."""
+        self._tick()
+        db.upsert_task_claim(self._conn, _claim(
+            "s-new", "2026-08-28T11:30:00Z"))
+        result = self._tick(mode="write")
+        self.assertTrue(result["committed"])
+        claims = json.loads(self._origin_text(writer.CLAIMS_REL_PATH))["claims"]
+        self.assertEqual([c["session_id"] for c in claims],
+                         ["s-active", "", "s-new"],
+                         "preserved entry keeps its source position; the new "
+                         "DB-only row appends after every source row")
+
+    def test_retention_still_drops_an_aged_out_done_claim(self):
+        """Preservation keys on SOURCE-KEY ABSENCE, never on absence from the
+        rendered output -- a D14 retention drop has a perfectly good key, so
+        it must stay dropped or the pruner's work is undone every tick."""
+        aged = _claim("s-old", "2026-08-01T10:00:00Z", status="done",
+                      closed_at="2026-08-01T11:00:00Z",
+                      completion_note="aged out")
+        doc = _claims_doc([aged, _claim("s-active", "2026-08-28T10:00:00Z"),
+                           KEYLESS_CLAIM])
+        writer.ingest(self._conn, doc, _chips_doc([]))
+        text, stats, _snaps = writer.render_task_claims(
+            self._conn, doc, now_iso=NOW)
+        self.assertEqual(
+            [c["session_id"] for c in json.loads(text)["claims"]],
+            ["s-active", ""],
+            "keyless kept, aged-out done claim NOT resurrected by it")
+        self.assertEqual(stats["n_retention_dropped"], 1)
+        self.assertEqual(stats["n_preserved"], 1)
+
+    def test_the_render_converges_in_one_tick(self):
+        """Feeding the render back as source is a fixed point -- no oscillation
+        between the DB-driven and preserved halves."""
+        first = self._tick(mode="write")
+        self.assertFalse(first["committed"])
+        second = self._tick(mode="write")
+        self.assertFalse(second["committed"])
+        self.assertEqual(second["claims"]["n_preserved"], 1)
+
+
+class TestNothingIsPreservedWhenTheDbHoldsEverything(_Fixture):
+    """Non-degeneracy guard for the class above: on a healthy file the
+    preservation path must be completely inert. Without this, a render that
+    simply echoed the source would pass every assertion over there."""
+
+    def test_healthy_file_preserves_nothing_and_stays_byte_stable(self):
+        result = self._tick(mode="write")
+        self.assertTrue(result["claims_match"])
+        self.assertTrue(result["chips_match"])
+        self.assertFalse(result["committed"])
+        self.assertEqual(result["claims"]["n_keyless"], 0)
+        self.assertEqual(result["chips"]["n_keyless"], 0)
+        self.assertEqual(result["claims"]["n_preserved"], 0)
+        self.assertEqual(result["chips"]["n_preserved"], 0)
+
+    def test_the_render_is_db_driven_not_a_source_echo(self):
+        """The real non-degeneracy test: a row the DB holds and the source
+        does NOT must still appear, and a source row the DB drops (D14
+        retention) must still disappear. A pass-through render fails both."""
+        self._tick()
+        db.upsert_task_claim(self._conn, _claim(
+            "s-db-only", "2026-08-28T11:00:00Z"))
+        result = self._tick(mode="write")
+        self.assertTrue(result["committed"])
+        claims = json.loads(self._origin_text(writer.CLAIMS_REL_PATH))["claims"]
+        self.assertIn("s-db-only", [c["session_id"] for c in claims])
+
+        aged = _claim("s-old", "2026-08-01T10:00:00Z", status="done",
+                      closed_at="2026-08-01T11:00:00Z", completion_note="x")
+        doc = _claims_doc([aged])
+        writer.ingest(self._conn, doc, _chips_doc([]))
+        text, stats, _s = writer.render_task_claims(
+            self._conn, doc, now_iso=NOW)
+        self.assertNotIn(
+            "s-old", [c["session_id"] for c in json.loads(text)["claims"]])
+        self.assertEqual(stats["n_preserved"], 0)

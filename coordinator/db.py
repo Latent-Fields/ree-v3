@@ -620,6 +620,14 @@ def reconcile_task_claims(conn, claims, now=None):
     active claim disappearing from git is either a bug in this reconciler or
     an out-of-band mutation, and is the loss direction that actually matters.
 
+    `n_keyless` / `keyless`: source entries skipped because they carry no
+    usable identity (a falsy session_id or claimed_at). The DB cannot
+    represent them, so they never reach a row -- which means a render that
+    rebuilds the file from rows alone would DELETE them. They are counted
+    and described here so that drop is NAMED rather than merely derivable
+    from n_git exceeding n_new+n_updated+n_unchanged; the render preserves
+    them (see task_claim_chip_git_writer.render_task_claims).
+
     `retired`: the same absence for a `done` entry. EXPECTED, not drift --
     `scripts/prune_task_claims_done.py` removes done entries older than 24h at
     every `/session-land` close. Counted and reported so the mirror's growth
@@ -629,10 +637,17 @@ def reconcile_task_claims(conn, claims, now=None):
     now = now or utcnow()
     seen = set()
     n_new = n_updated = n_unchanged = 0
-    for c in claims:
+    keyless = []
+    for i, c in enumerate(claims):
         session_id = c.get("session_id")
         claimed_at = c.get("claimed_at")
         if not session_id or not claimed_at:
+            # Not representable: (session_id, claimed_at) IS the row key.
+            # Recorded, not swallowed -- the render must preserve what this
+            # refuses, and a silent `continue` is how that obligation went
+            # unnoticed on the campaign ledger (REE_Working fd7730f70).
+            keyless.append({"index": i, "session_id": session_id,
+                            "claimed_at": claimed_at})
             continue
         seen.add((session_id, claimed_at))
         created, changed = upsert_task_claim(conn, c, now=now)
@@ -685,6 +700,8 @@ def reconcile_task_claims(conn, claims, now=None):
         "n_unchanged": n_unchanged,
         "orphans": orphans,
         "retired": retired,
+        "n_keyless": len(keyless),
+        "keyless": keyless[:50],
     }
 
 
@@ -694,13 +711,19 @@ def reconcile_chips(conn, chips, now=None):
     mean a chip_ref present in the DB but no longer in the git file --
     archiving strips fields but keeps the row (D5), so this should also
     always be empty on a healthy mirror.
+
+    `n_keyless` / `keyless`: source entries with no usable chip_ref -- see
+    reconcile_task_claims for why they are counted rather than skipped
+    silently, and render_chips for what preserves them.
     """
     now = now or utcnow()
     seen = set()
     n_new = n_updated = n_unchanged = 0
-    for c in chips:
+    keyless = []
+    for i, c in enumerate(chips):
         chip_ref = c.get("chip_ref")
         if not chip_ref:
+            keyless.append({"index": i, "chip_ref": chip_ref})
             continue
         seen.add(chip_ref)
         created, changed = upsert_chip(conn, c, now=now)
@@ -734,6 +757,8 @@ def reconcile_chips(conn, chips, now=None):
         "n_unchanged": n_unchanged,
         "orphans": orphans,
         "retired": [],
+        "n_keyless": len(keyless),
+        "keyless": keyless[:50],
     }
 
 
@@ -752,6 +777,13 @@ def log_task_claim_chip_drift(conn, source_ref, claim_stats, chip_stats, now=Non
         # Reported so a pruned entry stays auditable, but see `diverged` below.
         "claim_retired": claim_retired[:50],
         "chip_retired": chip_retired[:50],
+        # Git-side entries the DB cannot key. Reported for audit; NOT part of
+        # `diverged` below, for the same reason `retired` is not -- `diverged`
+        # means "the DB holds something git lost", and this is the opposite
+        # direction. The render preserves these, so they are a data-quality
+        # signal, not a loss.
+        "claim_keyless": (claim_stats.get("keyless") or [])[:50],
+        "chip_keyless": (chip_stats.get("keyless") or [])[:50],
     })
     # `retired` is DELIBERATELY not part of this. A pruned `done` claim is
     # expected, routine and correct; counting it as drift is what made the

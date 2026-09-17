@@ -194,6 +194,19 @@ def main():
             chip_stats["n_updated"], len(chip_stats["orphans"]),
             diverged,
         ))
+    # Conditional suffix: entries neither reconciler could key. NOT part of
+    # `diverged` (that means "the DB holds what git lost"; this is the other
+    # direction, and folding it in would make the soak's zero-diverged exit
+    # criterion unmeetable the same way `retired` did). The registry writer's
+    # render preserves them; this line is what makes them visible.
+    n_keyless = (claim_stats.get("n_keyless", 0)
+                 + chip_stats.get("n_keyless", 0))
+    if n_keyless:
+        sys.stdout.write(
+            "[task-claim-chip-sync] WARN keyless: claims=%d chips=%d -- "
+            "source entries with no usable key, not mirrored\n"
+            % (claim_stats.get("n_keyless", 0),
+               chip_stats.get("n_keyless", 0)))
     sys.stdout.flush()
     return 0
 

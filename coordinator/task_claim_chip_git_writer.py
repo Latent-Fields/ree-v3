@@ -11,7 +11,13 @@ task_claim_chip_shadow_sync.py). Each tick:
 
   1. INGEST  -- fetch origin, read both files at origin/<branch>, and
      reconcile them into the DB via db.reconcile_task_claims /
-     db.reconcile_chips (upsert-only; the reconciler never deletes).
+     db.reconcile_chips (upsert-only; the RECONCILERS never delete).
+     That is a statement about the reconcilers ALONE and settles
+     nothing about step 2: the render rebuilds each collection from
+     DB rows, so anything ingest could not represent would be dropped
+     BY THE RENDER even though no reconciler deleted it. See
+     render_task_claims/render_chips for the preservation that closes
+     that gap, and reconcile_*'s `n_keyless` for the count.
      This is NOT redundant with the shadow-sync timer: it closes the
      fallback-commit race. A session whose coordinator is unreachable
      falls back to today's git-mutate-and-commit path (plan doc 5.3), and
@@ -35,6 +41,37 @@ task_claim_chip_shadow_sync.py). Each tick:
          the source document rather than re-invented;
        * the client serialisation format exactly:
          json.dumps(doc, indent=2) + "\\n".
+
+     KEYLESS SOURCE ENTRIES -- DECIDED 2026-09-17, do not re-litigate.
+     An entry with a falsy session_id/claimed_at (or chip_ref) is the
+     ONLY thing ingest refuses here, and it is refused on KEY ABSENCE
+     rather than on a value validator -- unlike the two twins of this
+     defect already fixed (dispatch_campaigns.json, ree-v3 2e2bd598af,
+     after it deleted two curated campaigns; dispatcher_control.json,
+     6347ea3b6c, found by inspection). Reachability is correspondingly
+     lower: measured 2026-09-17, task_claim.py dies on an empty
+     --session-id and generates claimed_at itself, chip_ledger.py
+     requires chip_ref and `record` refuses an entry whose stored prompt
+     lacks the marker, the union merge driver refuses rather than
+     mangles, and a non-dict entry raises in the reconciler and fails
+     the tick loudly -- so a hand-edit or an out-of-band writer is the
+     realistic route, and the hand-edit guard is a Mac-side gitignored
+     PreToolUse hook that does not exist on the workers.
+
+     The decision was nonetheless to PRESERVE (not merely to warn, and
+     not to argue the case away), because the twins' objection -- "a key
+     union needs a key, and a keyless entry has none" -- does not apply:
+     key absence is the reconcilers' only skip reason and no row can
+     carry a falsy key, so a keyless source entry is UNCONDITIONALLY
+     DB-absent and needs no de-duplication key. Preserving it at its
+     SOURCE INDEX costs no new mechanism, keeps the render byte-stable
+     (with no keyless entry the index base is unchanged), and leaves D14
+     retention untouched because it keys on source-key absence, never on
+     absence from the rendered output. It is preserved AND counted:
+     reconcile_*'s `n_keyless` and the renders' `n_preserved` name the
+     condition, since a keyless entry is a git-side data defect worth
+     fixing even though nothing is being lost. Contracts:
+     test_task_claim_chip_git_writer.py pin 7.
 
      RETENTION (D14): the mirror is a SUPERSET of the claims file --
      prune_task_claims_done.py removes done entries older than 24h, the
@@ -203,6 +240,20 @@ def render_task_claims(conn, source_doc=None, now_iso=None):
     (the file as read from origin this tick) so the materializer never
     invents values; defaults cover a missing/first-run source.
 
+    KEYLESS PRESERVATION (2026-09-17, the third instance of the generator
+    fixed for dispatch_campaigns.json and dispatcher_control.json): a
+    source entry with a falsy session_id or claimed_at is PRESERVED at its
+    source index, because db.reconcile_task_claims cannot key it and skips
+    it, and rendering from rows alone would then DELETE it -- the same
+    ingest-refused-so-render-deletes shape that cost two curated campaign
+    entries (REE_Working fd7730f70). The twins de-duplicate a preserved
+    entry by key; here no key is needed, and the guarantee is STRONGER: key
+    absence is the reconciler's ONLY skip reason and no row can carry a
+    falsy key, so a keyless source entry is unconditionally DB-absent.
+    This keys on SOURCE-KEY ABSENCE, never on absence from the rendered
+    output -- a D14 retention drop has a perfectly good key and must stay
+    dropped, or the pruner's work would be undone every tick.
+
     Returns (text, stats, snapshots) where snapshots is a list of
     (session_id, claimed_at, entry_json) for every RENDERED row, with
     entry_json captured VERBATIM from the row (never re-serialised --
@@ -216,9 +267,16 @@ def render_task_claims(conn, source_doc=None, now_iso=None):
     """
     now_epoch = _now_epoch(now_iso)
     cutoff = now_epoch - RETAIN_HOURS * 3600.0
+    source_claims = (source_doc or {}).get("claims") or []
     order = _source_order(
         source_doc, "claims",
         lambda e: (e.get("session_id"), e.get("claimed_at")))
+    # DB-only rows sort after every SOURCE position. len(order) would be too
+    # small the moment the source carries a keyless or duplicate-keyed entry
+    # (those consume a source index without adding a distinct order key), and
+    # with neither present len(order) == len(source_claims) exactly -- so this
+    # is byte-identical on a healthy file and strictly safer otherwise.
+    db_only_base = len(source_claims)
     kept = []
     n_dropped = 0
     rows = conn.execute(
@@ -237,12 +295,26 @@ def render_task_claims(conn, source_doc=None, now_iso=None):
                              "for claim row; skipping\n")
             continue
         key = (row["session_id"], row["claimed_at"])
-        kept.append((order.get(key, len(order) + row["rowid"]), entry,
+        kept.append((order.get(key, db_only_base + row["rowid"]), entry,
                      (row["session_id"], row["claimed_at"],
                       row["entry_json"])))
+    n_preserved = 0
+    for i, entry in enumerate(source_claims):
+        if not isinstance(entry, dict):
+            # Unreachable in practice: reconcile_task_claims does entry.get()
+            # and raises on a non-dict, so the tick fails LOUDLY before any
+            # render. Guarded anyway -- this loop must never be the thing
+            # that turns a loud failure into a quiet one.
+            continue
+        if entry.get("session_id") and entry.get("claimed_at"):
+            continue
+        # No snapshot: there is no row, so there is no last_rendered_json
+        # merge base to record for it.
+        kept.append((i, entry, None))
+        n_preserved += 1
     kept.sort(key=lambda triple: triple[0])
     entries = [entry for _, entry, _snap in kept]
-    snapshots = [snap for _, _entry, snap in kept]
+    snapshots = [snap for _, _entry, snap in kept if snap is not None]
     source_doc = source_doc or {}
     doc = {
         "claims": entries,
@@ -251,7 +323,8 @@ def render_task_claims(conn, source_doc=None, now_iso=None):
     }
     return json.dumps(doc, indent=2) + "\n", {
         "n_rendered": len(entries),
-        "n_retention_dropped": n_dropped}, snapshots
+        "n_retention_dropped": n_dropped,
+        "n_preserved": n_preserved}, snapshots
 
 
 def render_chips(conn, source_doc=None):
@@ -259,10 +332,19 @@ def render_chips(conn, source_doc=None):
     -- chips are never deleted (D5); archiving strips fields in place and
     the stripped state is already reflected in entry_json.
 
+    A source entry with no usable chip_ref is PRESERVED at its source index
+    -- db.reconcile_chips cannot key it, so it is unconditionally DB-absent
+    and a rows-only render would delete it. See render_task_claims for the
+    full reasoning; chips have no retention rule, so the argument is simpler
+    here.
+
     Returns (text, stats, snapshots); snapshots is [(chip_ref, entry_json)]
-    for every rendered row, verbatim -- same 3-way-merge-base contract as
-    render_task_claims (see its docstring)."""
+    for every rendered ROW, verbatim -- same 3-way-merge-base contract as
+    render_task_claims (see its docstring). A preserved keyless entry
+    contributes none: it has no row, hence no merge base."""
+    source_chips = (source_doc or {}).get("chips") or []
     order = _source_order(source_doc, "chips", lambda e: e.get("chip_ref"))
+    db_only_base = len(source_chips)  # see render_task_claims
     kept = []
     rows = conn.execute(
         "SELECT rowid, chip_ref, entry_json FROM chip_ledger "
@@ -274,18 +356,25 @@ def render_chips(conn, source_doc=None):
             sys.stderr.write("[registry-writer] WARN unparseable entry_json "
                              "for chip row; skipping\n")
             continue
-        kept.append((order.get(row["chip_ref"], len(order) + row["rowid"]),
+        kept.append((order.get(row["chip_ref"], db_only_base + row["rowid"]),
                      entry, (row["chip_ref"], row["entry_json"])))
+    n_preserved = 0
+    for i, entry in enumerate(source_chips):
+        if not isinstance(entry, dict) or entry.get("chip_ref"):
+            continue
+        kept.append((i, entry, None))
+        n_preserved += 1
     kept.sort(key=lambda triple: triple[0])
     entries = [entry for _, entry, _snap in kept]
-    snapshots = [snap for _, _entry, snap in kept]
+    snapshots = [snap for _, _entry, snap in kept if snap is not None]
     source_doc = source_doc or {}
     doc = {
         "schema_version": source_doc.get("schema_version", "task_chips/v1"),
         "chips": entries,
     }
     return (json.dumps(doc, indent=2) + "\n",
-            {"n_rendered": len(entries)}, snapshots)
+            {"n_rendered": len(entries),
+             "n_preserved": n_preserved}, snapshots)
 
 
 def _ws_format_entry(ts, text):
@@ -634,8 +723,13 @@ def render_dispatch_campaigns(conn, source_doc):
 
 def ingest(conn, claims_doc, chips_doc):
     """Reconcile origin's current content into the DB, one transaction.
-    Upsert-only (the reconcilers never delete), no drift-log row -- see
-    the module docstring for both whys."""
+    Upsert-only (the RECONCILERS never delete), no drift-log row -- see
+    the module docstring for both whys, including why "the reconcilers
+    never delete" says nothing about whether the RENDER does.
+
+    Returns (claim_stats, chip_stats). The caller USES them: `n_keyless`
+    is the count of source entries neither reconciler could key, which is
+    the only place that number is observable."""
     claims = (claims_doc or {}).get("claims", []) if claims_doc else []
     chips = (chips_doc or {}).get("chips", []) if chips_doc else []
     conn.execute("BEGIN IMMEDIATE")
@@ -733,7 +827,8 @@ def materialize_once(conn, repo_path, branch=None, mode=None, now_iso=None,
         except ValueError:
             chips_doc = None
 
-        ingest(conn, claims_doc, chips_doc)
+        claim_ingest_stats, chip_ingest_stats = ingest(
+            conn, claims_doc, chips_doc)
         claims_render, claims_stats, claims_snaps = render_task_claims(
             conn, source_doc=claims_doc, now_iso=now_iso)
         chips_render, chips_stats, chips_snaps = render_chips(
@@ -789,6 +884,16 @@ def materialize_once(conn, repo_path, branch=None, mode=None, now_iso=None,
         camp_match = (camp_render is None
                       or _texts_match(camp_text, camp_render))
         camp_stats["differs"] = not camp_match
+
+        # n_keyless / keyless: entries ingest could not represent. Folded in
+        # (same shape as dc_stats.update above) so the tick NAMES them --
+        # previously the only trace was n_git exceeding n_new+n_updated+
+        # n_unchanged in a return value this function threw away.
+        for stats, ing in ((claims_stats, claim_ingest_stats),
+                           (chips_stats, chip_ingest_stats)):
+            stats["n_keyless"] = ing.get("n_keyless", 0)
+            if stats["n_keyless"]:
+                stats["keyless"] = ing.get("keyless") or []
 
         claims_match = _texts_match(claims_text, claims_render)
         chips_match = _texts_match(chips_text, chips_render)
@@ -980,6 +1085,20 @@ def main():
             sys.stdout.write("[registry-writer]   %s: +%d -%d vs source\n"
                              % (side, result[side]["added"],
                                 result[side]["dropped"]))
+    # Conditional, so a healthy tick stays one line: a keyless entry is a
+    # git-side data defect (no writer this fleet has produces one -- see
+    # render_task_claims' KEYLESS PRESERVATION note), and a permanent
+    # every-2-minutes WARN on a healthy file is the noise that gets a signal
+    # ignored. The render preserves them, so this is "fix the file", not
+    # "work is being lost".
+    for side in ("claims", "chips"):
+        n = (result.get(side) or {}).get("n_keyless", 0)
+        if n:
+            sys.stdout.write(
+                "[registry-writer]   WARN %s: %d source entry(ies) have no "
+                "usable key -- not mirrored into the DB, preserved verbatim "
+                "in the render: %s\n"
+                % (side, n, json.dumps(result[side].get("keyless") or [])))
     sys.stdout.flush()
     return 0
 
