@@ -1972,6 +1972,12 @@ class REEAgent(nn.Module):
                 form=config.tonic_vigor_form,
                 noop_class=config.tonic_vigor_noop_class,
                 v_t_floor=getattr(config, "tonic_vigor_v_t_floor", 0.0),
+                baseline_mode=getattr(
+                    config, "tonic_vigor_baseline_mode", "none"
+                ),
+                baseline_half_life=getattr(
+                    config, "tonic_vigor_baseline_half_life", 500.0
+                ),
             )
             self.tonic_vigor = TonicVigor(config=tv_cfg)
 

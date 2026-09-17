@@ -4900,6 +4900,22 @@ class REEConfig:
     # candidate bias computation. Default 0.0 = standard behaviour. Set > 0
     # to force a minimum positive tonic-vigor scalar for actuator tests.
     tonic_vigor_v_t_floor: float = 0.0
+    # MECH-320 v_raw baseline selector (2026-09-17 substrate build). The
+    # original reward_signal = -score made the vigor EWMA a pure NEGATIVE
+    # accumulator (REE scores are lower-is-better costs), so max(0, v_raw)
+    # was identically zero and v_t was pinned at tonic_vigor_v_t_floor
+    # before any gate was read -- V3-EXQ-951c measured v_raw max EXACTLY
+    # 0.0. "ewma" centres the reward signal on a slow running EWMA of the
+    # score stream so v_raw is an ADVANTAGE and can go positive.
+    #   "none" (default) : reward_signal = -score        [pre-2026-09-17]
+    #   "ewma"           : reward_signal = baseline - score
+    # Bit-identical to prior behaviour at "none". Validated at TonicVigor
+    # construction. See ree_core/policy/tonic_vigor.py.
+    tonic_vigor_baseline_mode: str = "none"
+    # Half-life in ticks of the score-baseline EWMA read when
+    # tonic_vigor_baseline_mode="ewma". Deliberately slower than
+    # tonic_vigor_half_life so the baseline is a long-run reference level.
+    tonic_vigor_baseline_half_life: float = 500.0
 
     # ----------------------------------------------------------------
     # MECH-341: e3_scoring_preserves_trajectory_class_diversity. Layer-B
@@ -7608,6 +7624,11 @@ class REEConfig:
         # V3-EXQ-563: forced floor on v_t; bypasses sign/scale gate for
         # actuator tests. Default 0.0 = standard behaviour.
         tonic_vigor_v_t_floor: float = 0.0,
+        # MECH-320 v_raw baseline: "none" (default, pre-2026-09-17
+        # bit-identical) or "ewma" (centre reward_signal on a slow score
+        # baseline so v_raw can go positive).
+        tonic_vigor_baseline_mode: str = "none",
+        tonic_vigor_baseline_half_life: float = 500.0,
         # SD-058 / MECH-357: instrumental-avoidance acquisition (ilPFC-analog
         # freeze-suppression + avoidance action pathway + efficacy learning).
         use_instrumental_avoidance: bool = False,
@@ -9055,6 +9076,8 @@ class REEConfig:
         config.tonic_vigor_form = tonic_vigor_form
         config.tonic_vigor_noop_class = tonic_vigor_noop_class
         config.tonic_vigor_v_t_floor = tonic_vigor_v_t_floor
+        config.tonic_vigor_baseline_mode = tonic_vigor_baseline_mode
+        config.tonic_vigor_baseline_half_life = tonic_vigor_baseline_half_life
 
         # SD-058 / MECH-357: instrumental-avoidance acquisition
         config.use_instrumental_avoidance = use_instrumental_avoidance

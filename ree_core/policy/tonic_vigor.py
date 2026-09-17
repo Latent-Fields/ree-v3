@@ -16,11 +16,19 @@ ARCHITECTURE
   Two methods:
 
     update_score_receipt(score, simulation_mode):
-        v_raw <- (1-alpha) * v_raw + alpha * (-score)
-        # Note: REE convention is lower-score-is-better. We negate so that
-        # a reward-rich history (low scores) drives the EWMA UP. v_t
-        # therefore tracks "average reward rate" with the standard
-        # high-is-good sign.
+        v_raw <- (1-alpha) * v_raw + alpha * reward_signal
+        # baseline_mode="none" (default, pre-2026-09-17 behaviour):
+        #     reward_signal = -score
+        # baseline_mode="ewma":
+        #     reward_signal = score_baseline - score
+        #     score_baseline <- EWMA(score) at baseline_half_life
+        # Note: REE convention is lower-score-is-better. The "none" branch
+        # negates so that a reward-rich history (low scores) drives the EWMA
+        # UP -- but REE scores are positive costs, so under "none" v_raw is a
+        # pure NEGATIVE accumulator and max(0, v_raw) is identically zero
+        # (measured by V3-EXQ-951c). The "ewma" branch centres the signal on
+        # a slow running baseline so v_raw is an advantage and can go
+        # positive. See TonicVigorConfig.baseline_mode.
 
     compute_score_bias(per_candidate_scores, action_classes, energy, drive,
                        recent_pe, simulation_mode):
@@ -141,6 +149,11 @@ FORM_ADDITIVE = "additive"
 FORM_MULTIPLICATIVE = "multiplicative"
 _VALID_FORMS = (FORM_ADDITIVE, FORM_MULTIPLICATIVE)
 
+# v_raw baseline-mode selector tokens (see TonicVigorConfig.baseline_mode).
+BASELINE_NONE = "none"
+BASELINE_EWMA = "ewma"
+_VALID_BASELINE_MODES = (BASELINE_NONE, BASELINE_EWMA)
+
 
 @dataclass
 class TonicVigorConfig:
@@ -194,6 +207,25 @@ class TonicVigorConfig:
     # independently of the sign/scale failure on v_raw. Bit-identical to
     # prior behaviour when left at 0.0.
     v_t_floor: float = 0.0
+    # v_raw baseline (2026-09-17 substrate build). The original formulation
+    # set reward_signal = -score. REE scores are lower-is-better COSTS, so
+    # that EWMA is a pure negative accumulator: _v_raw can never exceed 0,
+    # max(0.0, _v_raw) is identically zero, and v_t is pinned at v_t_floor
+    # before any gate is read. V3-EXQ-951c measured exactly that -- v_raw
+    # max EXACTLY 0.0, means -14.26 / -22.97 -- i.e. the mechanism's own
+    # scalar was dead whenever v_t_floor was left at its 0.0 default.
+    # "ewma" centres the reward signal on a slow running EWMA of the score
+    # stream, so v_raw becomes an ADVANTAGE (how much better than the recent
+    # typical score this tick was) and CAN go positive.
+    #   "none" (default) : reward_signal = -score            [pre-2026-09-17]
+    #   "ewma"           : reward_signal = baseline - score
+    # Bit-identical to prior behaviour when left at "none".
+    baseline_mode: str = BASELINE_NONE
+    # Half-life in ticks of the score-baseline EWMA used when
+    # baseline_mode="ewma". Must be > 0. Deliberately SLOWER than half_life
+    # (the vigor EWMA) so the baseline is a long-run reference level and
+    # v_raw tracks deviation from it rather than cancelling it out.
+    baseline_half_life: float = 500.0
 
 
 @dataclass
@@ -267,11 +299,27 @@ class TonicVigor:
                 f"form must be one of {_VALID_FORMS}. Got "
                 f"{self.config.form!r}."
             )
+        if self.config.baseline_mode not in _VALID_BASELINE_MODES:
+            raise ValueError(
+                f"baseline_mode must be one of {_VALID_BASELINE_MODES}. Got "
+                f"{self.config.baseline_mode!r}."
+            )
+        if self.config.baseline_half_life <= 0.0:
+            raise ValueError(
+                "baseline_half_life must be > 0 (EWMA half-life is strictly "
+                f"positive). Got {self.config.baseline_half_life}."
+            )
         # Derived: alpha = 1 - 0.5**(1/half_life). For half_life=100 ->
         # alpha ~ 0.00693.
         self._alpha: float = 1.0 - math.pow(0.5, 1.0 / float(self.config.half_life))
+        # Derived: baseline EWMA rate (only read when baseline_mode="ewma").
+        self._baseline_alpha: float = 1.0 - math.pow(
+            0.5, 1.0 / float(self.config.baseline_half_life)
+        )
         # State.
         self._v_raw: float = 0.0
+        self._score_baseline: float = 0.0
+        self._baseline_initialised: bool = False
         self._last_v_t: float = 0.0
         self._last_output: TonicVigorOutput = TonicVigorOutput()
         self._n_waking_score_updates: int = 0
@@ -303,9 +351,26 @@ class TonicVigor:
         if simulation_mode:
             self._n_simulation_score_skips += 1
             return
-        # Convert REE-low-is-better to high-is-good before EWMA so v_raw
-        # has the standard sign.
-        reward_signal = -float(score)
+        score_f = float(score)
+        if self.config.baseline_mode == BASELINE_EWMA:
+            # Centre on the PRIOR baseline (the regime the agent has already
+            # seen), then advance the baseline. The first receipt seeds the
+            # baseline with its own score, so the first advantage is exactly
+            # 0.0 rather than an artefact of the 0.0 initialisation.
+            if not self._baseline_initialised:
+                self._score_baseline = score_f
+                self._baseline_initialised = True
+            reward_signal = self._score_baseline - score_f
+            self._score_baseline = (
+                (1.0 - self._baseline_alpha) * self._score_baseline
+                + self._baseline_alpha * score_f
+            )
+        else:
+            # Convert REE-low-is-better to high-is-good before EWMA so v_raw
+            # has the standard sign. NOTE: raw REE scores are positive costs,
+            # so this branch can only ever drive v_raw negative -- see
+            # TonicVigorConfig.baseline_mode.
+            reward_signal = -score_f
         self._v_raw = (1.0 - self._alpha) * self._v_raw + self._alpha * reward_signal
         self._n_waking_score_updates += 1
 
@@ -502,6 +567,8 @@ class TonicVigor:
         Called from REEAgent.reset() at episode boundaries.
         """
         self._v_raw = 0.0
+        self._score_baseline = 0.0
+        self._baseline_initialised = False
         self._last_v_t = 0.0
         self._last_output = TonicVigorOutput()
         self._n_waking_score_updates = 0
@@ -526,4 +593,8 @@ class TonicVigor:
             "n_simulation_bias_skips": self._n_simulation_bias_skips,
             "alpha_derived": self._alpha,
             "form": self.config.form,
+            "baseline_mode": self.config.baseline_mode,
+            "score_baseline": self._score_baseline,
+            "baseline_initialised": self._baseline_initialised,
+            "baseline_alpha_derived": self._baseline_alpha,
         }
