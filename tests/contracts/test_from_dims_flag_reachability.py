@@ -119,6 +119,31 @@ nothing on the tree at all, on 10 files (the v3_exq_610 INV-074 family).
 Neither check can do the other's job: the field sweep cannot see a name that
 names no field, and the usage check cannot find a field nobody has ever tried
 to set (that is `NO_CONFIRMED_CALLER`'s question, and it stays field-driven).
+
+A THIRD CLASS OF CALL SITE EXISTS, AND IT IS NEITHER OF THE TWO ABOVE: a file
+that passes a flag into `from_dims` in order to ASSERT THAT from_dims DOES NOT
+ACCEPT IT. The usage walk is deliberately literal -- it records every
+`name=value` handed to a forwarder and leaves classification downstream -- so a
+guard of that shape is indistinguishable, by name and path alone, from a driver
+losing a value. It is the exact opposite finding: the call site exists BECAUSE
+the swallow is real, and it fails the moment the swallow stops. Registering one
+as a drop site would record a defect against a file that is provably correct,
+and would evict the flag from `REACHABLE_BY_ALTERNATIVE_IDIOM` (those two are
+mutually exclusive by `test_alternative_idiom_flags_are_not_reported_as_
+defects`) even though the alternative idiom is exactly what the driver uses for
+its live arm. `NEGATIVE_CONTROL_FROM_DIMS_CALL_SITES` is that third bucket.
+
+IT IS AN EARNED EXEMPTION, NOT A SUPPRESSION LIST. A registry that only
+subtracted paths would be a way to silence this gate by editing a dict, which
+is the failure mode the whole file is built against. So every entry is VERIFIED
+against the registered file's own AST by
+`test_negative_control_call_sites_really_are_negative_controls`: the file must
+(i) contain an explicit assertion that a `getattr(..., "<flag>", ...)` read of
+the from_dims result is NOT the value passed, and (ii) set the flag by the
+working idiom (attribute assignment) somewhere in the same file, so its live arm
+is armed by the path that works. Lose either property -- rewrite the self-test,
+or start relying on from_dims for the real arm -- and the exemption fails and
+the call site is re-adjudicated. Measured 2026-09-17: one entry, one path.
 """
 
 from __future__ import annotations
@@ -395,6 +420,39 @@ KNOWN_FROM_DIMS_DROP_SITES = {
             "experiments/v3_exq_966_mech143_144_hippocampal_value_sensitivity_causal.py",
             "experiments/v3_exq_967_mech144_shuffle_inertness_confirmer.py",
             "experiments/v3_exq_997_mech162_zresource_zworld_planning_reconvergence.py",
+        },
+    },
+}
+
+# DELIBERATE NEGATIVE CONTROLS: a call site that passes the flag into
+# `from_dims` precisely in order to ASSERT that from_dims does not accept it.
+# See the module docstring paragraph "A THIRD CLASS OF CALL SITE EXISTS". These
+# are subtracted from `drop_sites` -- but only after
+# `test_negative_control_call_sites_really_are_negative_controls` has verified
+# the claim against the file's own AST, so this dict cannot be used to silence a
+# real drop by hand.
+NEGATIVE_CONTROL_FROM_DIMS_CALL_SITES = {
+    "use_e3_channel_commensurability": {
+        "reason": (
+            "V3-EXQ-1038a's self-test (`_run_self_test`) builds a config with "
+            "`REEConfig.from_dims(..., use_e3_channel_commensurability=True)` and "
+            "immediately asserts the value did NOT arrive: 'from_dims now ACCEPTS "
+            "use_e3_channel_commensurability -- the docstring's silent-swallow "
+            "warning has gone stale'. It is a tripwire on this very hazard, not a "
+            "use of it. The driver's LIVE arm uses the working idiom -- "
+            "`cfg.e3.use_e3_channel_commensurability = bool(commensurability)` -- "
+            "and then refuses to run unless the flag reached "
+            "`agent.e3.config`, so the ON arm provably differs from OFF. Verified "
+            "by AST, not grep: the other textual hits in that file are all inside "
+            "its module docstring, which is where the swallow is documented. "
+            "Registered 2026-09-17 (chip-20260916-fromdims-scanner-false-positive) "
+            "after the two tests below went RED ON TRUNK when 1038a landed "
+            "(ree-v3 b544b10). Do NOT move this to KNOWN_FROM_DIMS_DROP_SITES: "
+            "the flag stays in REACHABLE_BY_ALTERNATIVE_IDIOM, which is the "
+            "accurate finding, and no evidence of 1038a's is in question."
+        ),
+        "paths": {
+            "experiments/v3_exq_1038a_arc131_coalition_recruitment_commensurability_probe.py"
         },
     },
 }
@@ -753,9 +811,21 @@ def _drop_sites(usage_map, sweep_result):
     PARTIAL counts as well as UNREACHABLE -- see the wanting_weight entry.
     Filters the shared `usage_map` down to names the FIELD-driven sweep above
     actually saw as at-risk; it does not walk the corpus itself.
+
+    Verified negative-control call sites are subtracted -- see the module
+    docstring paragraph "A THIRD CLASS OF CALL SITE EXISTS". A name whose only
+    at-risk call site is a negative control drops out of this map entirely,
+    which is correct: nothing is losing a value.
     """
     at_risk = {n for n, (st, _l, _m) in sweep_result.items() if st in ("UNREACHABLE", "PARTIAL")}
-    return {n: paths for n, paths in usage_map.items() if n in at_risk}
+    out = {}
+    for name, paths in usage_map.items():
+        if name not in at_risk:
+            continue
+        real = paths - NEGATIVE_CONTROL_FROM_DIMS_CALL_SITES.get(name, {}).get("paths", set())
+        if real:
+            out[name] = real
+    return out
 
 
 @pytest.fixture(scope="module")
@@ -792,6 +862,144 @@ def test_drop_site_registry_has_no_phantom_paths(drop_sites):
         f"KNOWN_FROM_DIMS_DROP_SITES lists path(s) that no longer pass the "
         f"flag into from_dims: {stale}. Prune them -- if a flag's whole path "
         "set is empty, the defect is fixed and the entry should go."
+    )
+
+
+# ---------------------------------------------------------------------------
+# the negative-control contract -- an exemption must be EARNED by the file
+# ---------------------------------------------------------------------------
+
+def _file_ast(relpath):
+    """Parse a registered call site out of the repo. Small, exact, uncached.
+
+    Deliberately NOT routed through `conftest.corpus_scan`: the shared walk
+    answers "which kwargs appear anywhere", and this needs the STRUCTURE of one
+    named file. The registry is single-digit in size, so the cost is one parse
+    per entry, not a corpus walk.
+    """
+    path = REPO_ROOT / relpath
+    return ast.parse(path.read_text(errors="ignore"), str(path))
+
+
+def _is_getattr_of(node, name):
+    """`getattr(<obj>, "<name>", ...)` -- the read a landed-check is written as."""
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "getattr"
+        and len(node.args) >= 2
+        and isinstance(node.args[1], ast.Constant)
+        and node.args[1].value == name
+    )
+
+
+def _asserts_flag_not_carried(tree, name):
+    """True if the file asserts a `getattr(..., "<name>", ...)` read is NOT the
+    value that was passed -- `is not True` / `!= X` / `not getattr(...)`.
+
+    This is the property that distinguishes a tripwire from a defect. A file
+    that merely READS the flag back (every driver does, to confirm its arm
+    armed) does not match; the comparison has to be a NEGATIVE one.
+    """
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Compare)
+            and node.ops
+            and isinstance(node.ops[0], (ast.IsNot, ast.NotEq))
+            and _is_getattr_of(node.left, name)
+        ):
+            return True
+        if (
+            isinstance(node, ast.UnaryOp)
+            and isinstance(node.op, ast.Not)
+            and _is_getattr_of(node.operand, name)
+        ):
+            return True
+    return False
+
+
+def _sets_by_attribute_assignment(tree, name):
+    """True if the file contains `<something>.<name> = <value>` anywhere.
+
+    The working idiom for every flag in `REACHABLE_BY_ALTERNATIVE_IDIOM`. Its
+    presence is what says the file's LIVE arm is armed by a path that works,
+    rather than by the from_dims call the negative control is about.
+    """
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+            targets = [node.target]
+        else:
+            continue
+        for target in targets:
+            if isinstance(target, ast.Attribute) and target.attr == name:
+                return True
+    return False
+
+
+def test_negative_control_call_sites_really_are_negative_controls():
+    """The exemption is verified against the file, never taken on the registry's word.
+
+    Without this, `NEGATIVE_CONTROL_FROM_DIMS_CALL_SITES` would be a way to
+    silence this gate by editing a dict -- the exact failure mode the rest of
+    this file is built against. Both properties are required: the tripwire
+    assertion (this call is a probe) AND the working idiom (the live arm is
+    armed some other way).
+    """
+    for name, entry in NEGATIVE_CONTROL_FROM_DIMS_CALL_SITES.items():
+        overlap = sorted(
+            entry["paths"] & KNOWN_FROM_DIMS_DROP_SITES.get(name, {}).get("paths", set())
+        )
+        assert not overlap, (
+            f"{name} is registered at {overlap} as BOTH a negative control and a "
+            "live drop site; one file cannot be both, pick one"
+        )
+        for rel in sorted(entry["paths"]):
+            assert (REPO_ROOT / rel).exists(), (
+                f"{rel} is registered as a {name} negative control but no longer "
+                "exists; prune the entry"
+            )
+            tree = _file_ast(rel)
+            assert _asserts_flag_not_carried(tree, name), (
+                f"{rel} is registered as a NEGATIVE CONTROL for {name}, but it no "
+                "longer asserts that the from_dims result does NOT carry the "
+                "flag (expected a `getattr(cfg, \"" + name + "\", ...) is not "
+                "<value>`-shaped check). Either the self-test was rewritten -- "
+                "restore the assertion or drop the exemption -- or this really is "
+                "a live drop site now and belongs in KNOWN_FROM_DIMS_DROP_SITES."
+            )
+            assert _sets_by_attribute_assignment(tree, name), (
+                f"{rel} is registered as a NEGATIVE CONTROL for {name}, but it no "
+                "longer sets the flag by attribute assignment, so its live arm "
+                "may now depend on the from_dims call that this registry exempts "
+                "-- which would make the arm identical to its control. Re-adjudicate."
+            )
+
+
+def test_negative_control_registry_is_not_stale(usage, sweep):
+    """A negative control for a flag from_dims now plumbs, or at a path that no
+    longer passes it, must be pruned -- same contract as every other registry
+    here. A stale exemption is worse than a stale drop-site entry: it subtracts
+    from `drop_sites`, so it can HIDE the next real defect on that flag."""
+    at_risk = {n for n, (st, _l, _m) in sweep.items() if st in ("UNREACHABLE", "PARTIAL")}
+    now_landing = sorted(
+        n for n in NEGATIVE_CONTROL_FROM_DIMS_CALL_SITES if n in sweep and n not in at_risk
+    )
+    assert not now_landing, (
+        f"Negative-control registry lists flag(s) from_dims now plumbs through: "
+        f"{now_landing}. The swallow they were guarding is gone -- remove the "
+        "entry (the registered self-test will be failing too, and is the real "
+        "signal to act on)."
+    )
+    stale = {
+        name: sorted(entry["paths"] - usage.get(name, set()))
+        for name, entry in NEGATIVE_CONTROL_FROM_DIMS_CALL_SITES.items()
+    }
+    stale = {k: v for k, v in stale.items() if v}
+    assert not stale, (
+        f"NEGATIVE_CONTROL_FROM_DIMS_CALL_SITES lists path(s) that no longer pass "
+        f"the flag into from_dims: {stale}. Prune them."
     )
 
 
