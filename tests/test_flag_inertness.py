@@ -3194,6 +3194,19 @@ KNOWN_UNPROBED = {
 # auditing one of these five should confirm which CLASS's field is meant.     #
 KNOWN_UNPROBED_NESTED = {
     # --- HippocampalConfig ----------------------------------------------------#
+    # SD-097 typed possibility topology over AnchorKeys. Gates whether
+    # HippocampalModule constructs a PossibilityTopology and attaches it to the
+    # anchor set (relation store + ghost-probe consumer). Registered here rather
+    # than probed at this file's level because ON-vs-OFF is a structural
+    # question -- whether the topology object exists and whether the ghost probe
+    # expands through it -- which is pinned directly, against the module itself,
+    # in tests/contracts/test_sd_097_possibility_topology.py. Note the flag also
+    # REQUIRES use_anchor_sets=True (HippocampalModule raises otherwise), so a
+    # naive ON/OFF probe at this level would exercise the raise, not the
+    # mechanism. The from_dims path was wired 2026-09-17 (it was previously
+    # swallowed, making the flag unreachable through the normal config path);
+    # reachability is pinned by tests/contracts/test_from_dims_flag_reachability.py.
+    "use_possibility_topology",
     # SD-055: replaces the legacy argsort-elite CEM refit with a
     # softmax-weighted mean over ALL candidates so gradient can flow to
     # cue_action_proj. Investigated 2026-08-11 (flaginertness-probe-writing

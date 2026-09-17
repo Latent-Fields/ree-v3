@@ -813,6 +813,58 @@ class REEAgent(nn.Module):
         # driver is off.
         self._endogenous_coalition_request_count: int = 0
 
+        # SD-091: scale-relative recruitment threshold.
+        #
+        # The shipped endogenous_coalition_margin_threshold is an ABSOLUTE
+        # 0.05 on the E3 candidate-score margin, and E3 score magnitude is not
+        # commensurable across seeds. V3-EXQ-1038a measured the consequence:
+        # even with the commensurability operator ON (which pulls the margin
+        # MAGNITUDE spread from 783.8x to 4.7x), the fixed gate leaves
+        # cross-seed recruitment at CV 0.449 / spread 5.48x -- one seed
+        # recruits on 14.7% of ticks, another on 2.7%. Its pre-registered
+        # post-hoc showed a threshold expressed RELATIVE to the channel's own
+        # margin scale collapses that to CV 0.124 / spread 1.45x.
+        #
+        #   "absolute" (DEFAULT)  threshold = endogenous_coalition_margin_threshold
+        #   "scale_relative"      threshold = endogenous_coalition_margin_threshold
+        #                                     * (running_scale / reference)
+        #
+        # running_scale is the median of the last `scale_window` margins, read
+        # only once `scale_warmup` of them exist (absolute until then).
+        # `reference` is a fixed CALIBRATION constant, not a cross-seed
+        # runtime quantity: the post-hoc's cell_median/pooled_median is
+        # algebraically (0.05 / pooled_median) * cell_median, and the pooled
+        # term is one constant shared by every cell. So the whole post-hoc is
+        # reproducible from a single stream.
+        _ect_mode = str(
+            getattr(config, "endogenous_coalition_threshold_mode", "absolute")
+        )
+        if _ect_mode not in ("absolute", "scale_relative"):
+            raise ValueError(
+                "endogenous_coalition_threshold_mode must be 'absolute' or "
+                f"'scale_relative'. Got {_ect_mode!r}."
+            )
+        self._endogenous_coalition_threshold_mode: str = _ect_mode
+        _ect_window_size = int(
+            getattr(config, "endogenous_coalition_scale_window", 200)
+        )
+        if _ect_window_size < 1:
+            raise ValueError(
+                "endogenous_coalition_scale_window must be >= 1. Got "
+                f"{_ect_window_size}."
+            )
+        # NOT cleared by reset(): the margin scale is a slow property of the
+        # agent/environment pairing, not of an episode, and the post-hoc this
+        # reproduces pooled all 20 episodes of a cell. See reset().
+        self._endogenous_coalition_margin_window: deque = deque(
+            maxlen=_ect_window_size
+        )
+        self._endogenous_coalition_scale_relative_ticks: int = 0
+        self._endogenous_coalition_last_threshold: float = float(
+            getattr(config, "endogenous_coalition_margin_threshold", 0.05)
+        )
+        self._endogenous_coalition_last_scale: float = 0.0
+
         # SD-032c: AIC-analog interoceptive-salience / urgency module.
         # Emits aic_salience -> salience coordinator and harm_s_gain ->
         # descending z_harm_s attenuation path (subsumes SD-021 raw beta_gate
@@ -3539,6 +3591,15 @@ class REEAgent(nn.Module):
         # clearing tick-level diagnostics per episode -- cross-episode
         # accumulation would conflate distinct trials' recruitment rates).
         self._endogenous_coalition_request_count = 0
+        # SD-091: _endogenous_coalition_margin_window is DELIBERATELY NOT
+        # cleared here. The counter above is a per-trial recruitment rate, so
+        # cross-episode accumulation would conflate trials; the margin-scale
+        # estimator is the opposite -- it estimates a slow property of the
+        # agent/environment pairing, and the V3-EXQ-1038a post-hoc it
+        # reproduces took its cell_median over all 20 episodes of a cell.
+        # Clearing it per episode would re-run the warmup every episode and
+        # would not reproduce the measured collapse. Pinned by
+        # tests/contracts/test_sd091_scale_relative_recruitment_threshold.py.
 
         # SD-032c: reset AIC-analog interoceptive baseline.
         if self.aic is not None:
@@ -7751,10 +7812,12 @@ class REEAgent(nn.Module):
             if _ect_n_candidates >= 2:
                 _ect_sorted, _ = torch.sort(_ect_scores)
                 _ect_margin = float(_ect_sorted[1].item() - _ect_sorted[0].item())
-                _ect_threshold = float(
-                    getattr(
-                        self.config, "endogenous_coalition_margin_threshold", 0.05
-                    )
+                # SD-091: "absolute" (default) returns the config constant
+                # unchanged and touches no state, so the pre-2026-09-17 path
+                # is bit-identical; "scale_relative" divides through by the
+                # channel's own running margin scale. See the helper.
+                _ect_threshold = self._endogenous_coalition_effective_threshold(
+                    _ect_margin
                 )
                 _ect_already_active = any(
                     state.demand_type == self._endogenous_coalition_demand_type
@@ -10918,6 +10981,60 @@ class REEAgent(nn.Module):
             return None
         binder.observe(z_self, z_world)
         return binder.learn_step()
+
+    def _endogenous_coalition_effective_threshold(self, margin: float) -> float:
+        """SD-091: the recruitment threshold to apply to THIS tick's margin.
+
+        Returns endogenous_coalition_margin_threshold unchanged in "absolute"
+        mode (the default) -- and in "scale_relative" mode before the running
+        estimator has warmed up, or when either the running scale or the
+        reference constant is non-positive.
+
+        In "scale_relative" mode the returned threshold is
+
+            endogenous_coalition_margin_threshold
+                * (median(last `scale_window` margins) / scale_reference)
+
+        The decision is taken against strictly PRIOR margins -- `margin` is
+        appended AFTER the threshold is computed -- so the gate can never be
+        influenced by the sample it is judging.
+
+        Side effect: advances the running window (scale_relative mode only)
+        and the `_endogenous_coalition_last_*` diagnostics.
+        """
+        threshold = float(
+            getattr(self.config, "endogenous_coalition_margin_threshold", 0.05)
+        )
+        if self._endogenous_coalition_threshold_mode != "scale_relative":
+            self._endogenous_coalition_last_threshold = threshold
+            return threshold
+
+        window = self._endogenous_coalition_margin_window
+        warmup = max(
+            1, int(getattr(self.config, "endogenous_coalition_scale_warmup", 100))
+        )
+        if len(window) >= warmup:
+            ordered = sorted(window)
+            n = len(ordered)
+            if n % 2:
+                scale = float(ordered[n // 2])
+            else:
+                scale = 0.5 * float(ordered[n // 2 - 1] + ordered[n // 2])
+            reference = float(
+                getattr(
+                    self.config,
+                    "endogenous_coalition_scale_reference",
+                    0.44036865234375,
+                )
+            )
+            if reference > 0.0 and scale > 0.0:
+                threshold = threshold * (scale / reference)
+                self._endogenous_coalition_scale_relative_ticks += 1
+                self._endogenous_coalition_last_scale = scale
+
+        window.append(float(margin))
+        self._endogenous_coalition_last_threshold = threshold
+        return threshold
 
     def _e1_action_one_hot(self) -> torch.Tensor:
         """

@@ -290,6 +290,13 @@ NO_CONFIRMED_CALLER = {
     "preserve_on_life_end": "REEConfig",
     "preserve_on_life_end_strict": "REEConfig",
     "subscribe_to_boundary_events": "hippocampal.anchor_set",
+    # SD-097 (wired 2026-09-17). HippocampalModule reads this via getattr with
+    # a True default when it assembles PossibilityTopologyConfig. It was given
+    # a dataclass field but deliberately NO from_dims parameter -- unlike its
+    # four siblings -- and no caller sets it anywhere today. Registered here
+    # rather than given a signature entry, per this file's own rule that mass-
+    # adding signature entries is a convention change, not a repair.
+    "possibility_topology_write_on_anchor_remap": "hippocampal",
     "use_arbitration_aware_decisiveness_margin": "REEConfig",
 }
 

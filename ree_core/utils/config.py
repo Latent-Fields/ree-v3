@@ -2991,6 +2991,21 @@ class HippocampalConfig:
     mech293_min_ghost_candidates: int = 1
     mech293_max_ghost_candidates: int = 8
     mech293_replace_lowest_ranked: bool = True
+    # SD-097: typed possibility topology over AnchorKeys
+    # (ree_core/hippocampal/possibility_topology.py). Relation store +
+    # ghost-probe consumer. Requires use_anchor_sets=True (HippocampalModule
+    # raises otherwise); the consumer additionally needs
+    # use_mech292_ghost_bank=True to have anything to expand. Default OFF ->
+    # no topology is constructed and every path is bit-identical.
+    # FLAT scalars on purpose: config.py cannot import
+    # PossibilityTopologyConfig (that module imports anchor_set, which
+    # imports config); HippocampalModule assembles the dataclass.
+    use_possibility_topology: bool = False
+    possibility_topology_seed_relation: str = "enables"
+    possibility_topology_relation_weight: float = 0.5
+    possibility_topology_max_successors_per_parent: int = 2
+    possibility_topology_max_relational_admits: int = 8
+    possibility_topology_write_on_anchor_remap: bool = True
 
     # MECH-290: backward trajectory credit sweep at goal arrival.
     # Biological basis: Foster & Wilson 2006 (Nature) -- reverse replay
@@ -3930,6 +3945,38 @@ class REEConfig:
     # magnitude used elsewhere for this exact quantity (HeartbeatConfig.
     # commit_readiness_floor).
     endogenous_coalition_margin_threshold: float = 0.05
+    # SD-091 (2026-09-17 substrate build): how the threshold above is applied.
+    # The absolute 0.05 is SCALE-SENSITIVE -- E3 score magnitude is not
+    # commensurable across seeds. V3-EXQ-1038a: even with the commensurability
+    # operator ON (margin-magnitude spread 783.8x -> 4.7x), the fixed gate
+    # leaves cross-seed recruitment at CV 0.449 / spread 5.48x. Its
+    # pre-registered post-hoc showed a scale-relative threshold collapses that
+    # to CV 0.124 / spread 1.45x.
+    #   "absolute" (DEFAULT) : threshold = endogenous_coalition_margin_threshold
+    #                          -- bit-identical to pre-2026-09-17 behaviour.
+    #   "scale_relative"     : threshold = endogenous_coalition_margin_threshold
+    #                          * (running_scale / endogenous_coalition_scale_reference)
+    # (The whole trigger already sits behind use_endogenous_coalition_trigger,
+    # which is itself False by default.)
+    endogenous_coalition_threshold_mode: str = "absolute"
+    # Sliding-window size for the running margin-scale estimator (the median
+    # of the last N margins). Every window from 25 to 500 reproduced the
+    # post-hoc collapse on the banked V3-EXQ-1038a samples; 200 is chosen as
+    # mid-range rather than as the best-performing point.
+    endogenous_coalition_scale_window: int = 200
+    # Margins required before the scale-relative threshold engages. Below
+    # this the absolute threshold applies, so a cold agent is never gated on
+    # a two-sample scale estimate.
+    endogenous_coalition_scale_warmup: int = 100
+    # Calibration constant: the margin scale at which "scale_relative"
+    # reduces exactly to "absolute". Default is V3-EXQ-1038a's pooled ON-arm
+    # median margin (0.44036865234375), which is the `pooled_median` term of
+    # that run's pre-registered post-hoc. It is a fixed reference, NOT a
+    # cross-seed runtime quantity -- see REEAgent's SD-091 comment. It sets
+    # the OPERATING POINT (mean eligibility), not whether the spread
+    # collapses: a 2x error in it still leaves the spread far below the
+    # fixed-threshold baseline.
+    endogenous_coalition_scale_reference: float = 0.44036865234375
 
     # SD-032c: AIC-analog interoceptive-salience / urgency module.
     # Master switch -- when True, REEAgent instantiates an AICAnalog that
@@ -7426,6 +7473,11 @@ class REEConfig:
         use_endogenous_coalition_trigger: bool = False,
         endogenous_coalition_demand_type: str = "sensory_resample",
         endogenous_coalition_margin_threshold: float = 0.05,
+        # SD-091: "absolute" (default, bit-identical) | "scale_relative".
+        endogenous_coalition_threshold_mode: str = "absolute",
+        endogenous_coalition_scale_window: int = 200,
+        endogenous_coalition_scale_warmup: int = 100,
+        endogenous_coalition_scale_reference: float = 0.44036865234375,
         # SD-032c: AIC-analog interoceptive-salience / urgency
         use_aic_analog: bool = False,
         aic_baseline_alpha: float = 0.02,
@@ -8091,6 +8143,11 @@ class REEConfig:
         mech293_min_ghost_candidates: int = 1,
         mech293_max_ghost_candidates: int = 8,
         mech293_replace_lowest_ranked: bool = True,
+        # SD-097: typed possibility topology (enables + ghost-probe consumer).
+        use_possibility_topology: bool = False,
+        possibility_topology_relation_weight: float = 0.5,
+        possibility_topology_max_successors_per_parent: int = 2,
+        possibility_topology_max_relational_admits: int = 8,
         # V3-EXQ-553 proposer-fix substrate: orthogonal CEM-candidate seeding.
         # When True, the CEM inner-loop noise is replaced with an orthogonal
         # basis (QR-decomposed) so that the n candidates per iteration are
@@ -8848,6 +8905,12 @@ class REEConfig:
         config.use_endogenous_coalition_trigger = use_endogenous_coalition_trigger
         config.endogenous_coalition_demand_type = endogenous_coalition_demand_type
         config.endogenous_coalition_margin_threshold = endogenous_coalition_margin_threshold
+        config.endogenous_coalition_threshold_mode = endogenous_coalition_threshold_mode
+        config.endogenous_coalition_scale_window = endogenous_coalition_scale_window
+        config.endogenous_coalition_scale_warmup = endogenous_coalition_scale_warmup
+        config.endogenous_coalition_scale_reference = (
+            endogenous_coalition_scale_reference
+        )
 
         # SD-032c: AIC-analog interoceptive-salience / urgency
         config.use_aic_analog = use_aic_analog
@@ -9632,6 +9695,11 @@ class REEConfig:
         config.hippocampal.mech293_min_ghost_candidates = mech293_min_ghost_candidates
         config.hippocampal.mech293_max_ghost_candidates = mech293_max_ghost_candidates
         config.hippocampal.mech293_replace_lowest_ranked = mech293_replace_lowest_ranked
+        # SD-097: typed possibility topology
+        config.hippocampal.use_possibility_topology = use_possibility_topology
+        config.hippocampal.possibility_topology_relation_weight = possibility_topology_relation_weight
+        config.hippocampal.possibility_topology_max_successors_per_parent = possibility_topology_max_successors_per_parent
+        config.hippocampal.possibility_topology_max_relational_admits = possibility_topology_max_relational_admits
 
         # V3-EXQ-553 proposer-fix substrate: orthogonal CEM seeding
         config.hippocampal.use_orthogonal_cem_seeding = use_orthogonal_cem_seeding
