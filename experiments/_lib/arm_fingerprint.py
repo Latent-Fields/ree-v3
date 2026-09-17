@@ -776,6 +776,32 @@ class _ArmCell:
     construct with `do_reset=False` and the fingerprint is flagged
     `reuse_eligible=False`. Extra ineligibility reasons (shared optimiser/buffer
     across arms, etc.) pass through to keep the cell out of any future cache.
+
+    STAMP-TIME BYPASS GUARD (2026-09-17, chip-20260917-armcell-bypass-guard).
+    `.stamp()` REFUSES (raises `RuntimeError`) if this instance still has
+    `_rng_reset=False` while `do_reset` was never set to `False` -- i.e. the
+    caller constructed `arm_cell(...)` but never actually entered it via
+    `with`, so `reset_all_rng` never ran and `.stamp()` was reached anyway
+    (calling `.stamp()` outside the `with` block on the same object). This
+    distinguishes an ACCIDENTAL bypass (do_reset still True, the default --
+    the caller never opted out, so the missing reset is a bug) from the
+    DELIBERATE `do_reset=False` opt-out (which still emits, flagged
+    `reuse_eligible=False`, exactly as before).
+
+    THIS GUARD DOES NOT CATCH EVERY BYPASS SHAPE. If a driver's per-cell
+    compute function (e.g. `run_cell(arm, seed)`) does not itself construct
+    an `_ArmCell` -- i.e. the `with arm_cell(...):` wrapping lives in the
+    CALLER (typically `main()`'s loop), not inside the per-cell function --
+    then calling that per-cell function directly, outside the loop that
+    wraps it, never touches this module at all: no `_ArmCell` is ever
+    constructed, so there is nothing here to refuse. This is exactly what
+    invalidated every full-scale figure taken for V3-EXQ-1048 by calling
+    `run_cell(...)` directly instead of running `main()`: `reset_all_rng`
+    never ran and the resulting numbers were off-contract with no error at
+    all. See "arm_cell()" below and the /queue-experiment skill's Arm
+    fingerprint section -- there is no way to detect that shape from inside
+    this module; it can only be prevented by never calling a driver's
+    per-cell function directly outside the loop that wraps it in `arm_cell`.
     """
 
     def __init__(
@@ -812,7 +838,26 @@ class _ArmCell:
         return self
 
     def stamp(self, row: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Compute the fingerprint; if `row` is given, set row['arm_fingerprint']."""
+        """Compute the fingerprint; if `row` is given, set row['arm_fingerprint'].
+
+        Refuses (raises RuntimeError) on the accidental-bypass shape: `do_reset`
+        is still True (the caller never opted out) but `_rng_reset` is False,
+        meaning `__enter__` never ran -- this object was constructed via
+        `arm_cell(...)` but `.stamp()` is being called without ever entering
+        the `with` block, so `reset_all_rng` never executed. A deliberate
+        `do_reset=False` opt-out is unaffected: it still stamps, flagged
+        `reuse_eligible=False`, exactly as before this guard was added.
+        """
+        if self._do_reset and not self._rng_reset:
+            raise RuntimeError(
+                "_ArmCell.stamp() called without entering the context manager -- "
+                "reset_all_rng(seed) never ran, so this fingerprint would silently "
+                "describe an off-contract cell. Use `with arm_cell(...) as cell:` "
+                "so __enter__ performs the reset before you compute anything, or, "
+                "if this cell genuinely cannot reset (shared state across arms), "
+                "construct with do_reset=False to declare that explicitly instead "
+                "of hitting this refusal by accident."
+            )
         self.fingerprint = compute_arm_fingerprint(
             config_slice=self._config_slice,
             seed=self.seed,
@@ -850,9 +895,23 @@ def arm_cell(
 
     See `_ArmCell` for the usage pattern. This is the recommended path for new
     multi-arm experiments -- it discharges BOTH per-cell obligations (complete RNG
-    reset + fingerprint emission) so an author cannot accidentally do one without
-    the other. The low-level `reset_all_rng` + `compute_arm_fingerprint` pair
-    remains available for scripts that need finer control.
+    reset + fingerprint emission) for any code that goes through this object.
+    `.stamp()` also refuses (see `_ArmCell.stamp()`) the narrower bypass where a
+    caller constructs this object but never enters it. The low-level
+    `reset_all_rng` + `compute_arm_fingerprint` pair remains available for
+    scripts that need finer control.
+
+    WHAT THIS DOES NOT PROTECT AGAINST (2026-09-17, chip-20260917-armcell-bypass-
+    guard): it cannot stop you from never constructing this object at all. If a
+    driver's per-cell compute function does not itself call `arm_cell(...)` --
+    i.e. the `with arm_cell(...):` wrapping lives in the caller's loop, not in
+    the per-cell function -- then invoking that per-cell function directly,
+    outside the loop that wraps it, skips this module entirely: no reset, no
+    fingerprint, and no error. This invalidated every full-scale figure taken
+    for V3-EXQ-1048 by calling its `run_cell(...)` directly. Never call a
+    driver's per-cell function outside the loop (normally `main()`) that wraps
+    it in `arm_cell` -- see the /queue-experiment skill's Arm fingerprint
+    section.
 
     `substrate_scope` (plan section 11): pass an author-declared dependency scope to
     hash only the cell's closure instead of the whole substrate tree. DEFAULT None =
