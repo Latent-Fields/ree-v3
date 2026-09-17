@@ -502,6 +502,88 @@ def test_r4_reset_follows_the_anchor_pool_by_default():
 
 
 # ================================================================== #
+# Config wiring (pre-verifies the pending config.py patch)           #
+# ================================================================== #
+
+def test_w1_flat_config_knobs_construct_and_attach_the_topology():
+    """HippocampalModule builds the topology from FLAT HippocampalConfig
+    knobs and attaches it to BOTH call sites.
+
+    The knobs do not exist on HippocampalConfig yet (config.py was held by
+    a concurrent session at build time), so they are set here the way the
+    pending patch will set them. This test therefore verifies the wiring
+    NOW and keeps verifying it once the fields land -- setattr on a
+    dataclass instance and a real field are indistinguishable to the
+    getattr reads in __init__. They are FLAT scalars on purpose:
+    config.py cannot import PossibilityTopologyConfig (that module imports
+    anchor_set, which imports config).
+    """
+    from ree_core.hippocampal.module import HippocampalModule
+    from ree_core.predictors.e2_fast import E2FastPredictor, E2Config
+    from ree_core.residue.field import ResidueField, ResidueConfig
+    from ree_core.utils.config import (
+        AnchorSetConfig, GhostGoalBankConfig, HippocampalConfig,
+    )
+
+    cfg = HippocampalConfig(
+        world_dim=8, action_dim=4, action_object_dim=8, hidden_dim=32,
+        horizon=4, num_candidates=8, num_cem_iterations=1,
+        elite_fraction=0.25,
+        use_anchor_sets=True,
+        anchor_set=AnchorSetConfig(use_sd039_anchor_payload=True),
+        use_mech292_ghost_bank=True,
+        ghost_goal_bank_config=GhostGoalBankConfig(goal_match_floor=0.05),
+    )
+    cfg.use_possibility_topology = True
+    cfg.possibility_topology_relation_weight = 0.25
+    cfg.possibility_topology_max_successors_per_parent = 3
+    cfg.possibility_topology_max_relational_admits = 5
+
+    e2 = E2FastPredictor(E2Config(
+        self_dim=8, world_dim=8, action_dim=4,
+        action_object_dim=8, hidden_dim=32,
+    ))
+    rf = ResidueField(ResidueConfig(
+        world_dim=8, hidden_dim=32, num_basis_functions=8,
+    ))
+    module = HippocampalModule(cfg, e2=e2, residue_field=rf)
+
+    topo = module.possibility_topology
+    assert topo is not None
+    assert topo.config.enabled is True
+    assert topo.config.relation_weight == 0.25
+    assert topo.config.max_successors_per_parent == 3
+    assert topo.config.max_relational_admits == 5
+    assert topo.config.seed_relation == RELATION_ENABLES
+    # Both call sites, not just one.
+    assert module.anchor_set.possibility_topology is topo
+    assert module.ghost_goal_bank.possibility_topology is topo
+
+
+def test_w2_config_knob_without_anchor_sets_raises():
+    from ree_core.hippocampal.module import HippocampalModule
+    from ree_core.predictors.e2_fast import E2FastPredictor, E2Config
+    from ree_core.residue.field import ResidueField, ResidueConfig
+    from ree_core.utils.config import HippocampalConfig
+
+    cfg = HippocampalConfig(
+        world_dim=8, action_dim=4, action_object_dim=8, hidden_dim=32,
+        horizon=4, num_candidates=8, num_cem_iterations=1,
+        elite_fraction=0.25, use_anchor_sets=False,
+    )
+    cfg.use_possibility_topology = True
+    e2 = E2FastPredictor(E2Config(
+        self_dim=8, world_dim=8, action_dim=4,
+        action_object_dim=8, hidden_dim=32,
+    ))
+    rf = ResidueField(ResidueConfig(
+        world_dim=8, hidden_dim=32, num_basis_functions=8,
+    ))
+    with pytest.raises(ValueError):
+        HippocampalModule(cfg, e2=e2, residue_field=rf)
+
+
+# ================================================================== #
 # SD-098 guard                                                       #
 # ================================================================== #
 

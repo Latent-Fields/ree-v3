@@ -425,9 +425,36 @@ class HippocampalModule(nn.Module):
                     "AnchorKey and has nothing to relate without the "
                     "MECH-269 anchor substrate."
                 )
-            topo_cfg = getattr(config, "possibility_topology_config", None)
-            if topo_cfg is None:
-                topo_cfg = PossibilityTopologyConfig(enabled=True)
+            # Built from FLAT HippocampalConfig knobs, not from a nested
+            # PossibilityTopologyConfig field: config.py cannot import that
+            # dataclass (possibility_topology -> anchor_set -> config is a
+            # cycle), so the knobs config.py grows are plain scalars and the
+            # dataclass is assembled here. getattr defaults keep this
+            # working before those knobs land.
+            topo_defaults = PossibilityTopologyConfig()
+            topo_cfg = PossibilityTopologyConfig(
+                enabled=True,
+                seed_relation=str(getattr(
+                    config, "possibility_topology_seed_relation",
+                    topo_defaults.seed_relation,
+                )),
+                relation_weight=float(getattr(
+                    config, "possibility_topology_relation_weight",
+                    topo_defaults.relation_weight,
+                )),
+                max_successors_per_parent=int(getattr(
+                    config, "possibility_topology_max_successors_per_parent",
+                    topo_defaults.max_successors_per_parent,
+                )),
+                max_relational_admits=int(getattr(
+                    config, "possibility_topology_max_relational_admits",
+                    topo_defaults.max_relational_admits,
+                )),
+                write_on_anchor_remap=bool(getattr(
+                    config, "possibility_topology_write_on_anchor_remap",
+                    topo_defaults.write_on_anchor_remap,
+                )),
+            )
             self.possibility_topology = PossibilityTopology(config=topo_cfg)
             self.anchor_set.attach_possibility_topology(
                 self.possibility_topology
