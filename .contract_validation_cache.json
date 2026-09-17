@@ -23,8 +23,8 @@
     "80dc2963bf4cc767570a520e9837e6b551fcdfd75f2a5284a83621786fa85567": {
       "machine_class": "darwin-arm64-py3.13-torch2.12.0",
       "n_files": 207,
-      "recorded_at": "2026-09-17T12:12:51Z",
-      "recorded_by_commit": "10f3a17725d1081c02df7f05870950be90652bb3",
+      "recorded_at": "2026-09-17T12:22:52Z",
+      "recorded_by_commit": "04dc55fe63c0f332c623d5e09ef4ee381109fe1f",
       "recorded_by_session_id": null,
       "relevant_hash": "576c7c06648bc0044469244aca22f9c88011a04af6443e6eacbb4be7d9ee8c2d",
       "result": "pass",
