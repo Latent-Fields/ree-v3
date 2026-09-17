@@ -50,6 +50,16 @@ ENTRY_STOP_NEWER = {"requested_state": "stop", "requested_at":
                     "2026-08-29T11:00:00Z", "requested_by": "operator-ssh",
                     "note": "emergency stop, git fallback"}
 
+# A shape this hub cannot represent: db.upsert_dispatcher_lease parses
+# requested_at with a literal %Y-%m-%dT%H:%M:%SZ, so a client that learns a
+# UTC OFFSET spelling before the hub is redeployed gets `bad_entry` -- the
+# same client-leads-hub ordering that cost two curated campaign entries on
+# 2026-09-17 (REE_Working fd7730f70).
+ENTRY_UNREPRESENTABLE = {"requested_state": "stop",
+                         "requested_at": "2026-08-29T09:00:00+00:00",
+                         "requested_by": "orch-future",
+                         "note": "written by a newer client"}
+
 SEED_DOC = {
     "_comment": ["doctrine block line one", "line two"],
     "dispatchers": {"ree-cloud-4": ENTRY_STOP_OLD},
@@ -233,6 +243,99 @@ class TestIngestAndRender(_Fixture):
             ENTRY_STOP_NEWER)
         rows = db.dispatcher_lease_rows(self._conn)
         self.assertEqual(json.loads(rows[0]["entry_json"]), ENTRY_STOP_NEWER)
+
+
+class TestUnrepresentableEntrySurvivesTheRender(_Fixture):
+    """The dispatcher twin of test_dispatch_campaign_intake's
+    TestUnknownLaneSurvivesTheRender. render_dispatcher_control rebuilds
+    `dispatchers` from the lease rows, and db.upsert_dispatcher_lease never
+    deletes a row -- so a name present in git and absent from the DB can only
+    be one ingest REFUSED, and rendering without it deletes that dispatcher's
+    run/stop LEASE. Found by inspection while fixing the campaign twin; never
+    observed firing, but it is the same latent generator and the trigger
+    (client redeployed before the hub) is the NORMAL deployment order."""
+
+    DC_DOC = {
+        "_comment": ["doctrine block line one", "line two"],
+        "dispatchers": {"ree-cloud-4": ENTRY_STOP_OLD,
+                        "ree-cloud-5": ENTRY_UNREPRESENTABLE},
+    }
+
+    def test_a_refused_entry_is_preserved_not_dropped(self):
+        result = self._tick(mode="write")
+        dc = result["dispatcher_control"]
+        self.assertEqual((dc["n_seen"], dc["n_adopted"], dc["n_rejected"]),
+                         (2, 1, 1))
+        self.assertEqual(dc["rejected"][0]["dispatcher"], "ree-cloud-5")
+        self.assertEqual(dc["rejected"][0]["reason"],
+                         "requested_at must be UTC ISO-8601")
+        self.assertEqual(dc["n_preserved"], 1)
+        self.assertFalse(dc["differs"],
+                         "preserving it is byte-stable -- the writer must not "
+                         "churn on an entry it cannot hold")
+        self.assertFalse(result["committed"])
+        doc = self._origin_dc()
+        self.assertEqual(sorted(doc["dispatchers"]), ["ree-cloud-4",
+                                                      "ree-cloud-5"])
+        self.assertEqual(doc["dispatchers"]["ree-cloud-5"],
+                         ENTRY_UNREPRESENTABLE,
+                         "preserved VERBATIM -- the lease is the payload")
+
+    def test_it_survives_a_render_the_db_does_drive(self):
+        self._tick(mode="check")
+        code, out = app._dispatcher_lease(self._conn, {
+            "dispatcher": "ree-cloud-4", "entry": ENTRY_RUN_NEW}, "mac-tok")
+        self.assertEqual(out["verdict"], "ok")
+        result = self._tick(mode="write")
+        self.assertTrue(result["committed"])
+        doc = self._origin_dc()
+        self.assertEqual(doc["dispatchers"]["ree-cloud-4"], ENTRY_RUN_NEW)
+        self.assertEqual(doc["dispatchers"]["ree-cloud-5"],
+                         ENTRY_UNREPRESENTABLE,
+                         "a DB-driven write must not sweep the preserved "
+                         "entry out with it")
+        self.assertEqual(doc["_comment"], self.DC_DOC["_comment"])
+        raw = _git(self._repo, "show", "origin/master:%s"
+                   % writer.DISPATCHER_CONTROL_REL_PATH).stdout
+        self.assertEqual(raw, _doc_text(doc),
+                         "still byte-identical to the client's serializer")
+
+    def test_the_hub_catching_up_takes_ownership_without_churn(self):
+        """Once the hub CAN represent the entry (a redeploy, or the client
+        rewriting it in a spelling the hub parses), the DB adopts it and the
+        preservation path goes quiet -- it must not double-count or fight."""
+        self._tick(mode="check")
+        fixed = dict(ENTRY_UNREPRESENTABLE,
+                     requested_at="2026-08-29T09:00:00Z")
+        doc = dict(self.DC_DOC)
+        doc["dispatchers"] = {"ree-cloud-4": ENTRY_STOP_OLD,
+                              "ree-cloud-5": fixed}
+        path = self._repo / writer.DISPATCHER_CONTROL_REL_PATH
+        path.write_text(_doc_text(doc), encoding="utf-8")
+        _git(self._repo, "add", writer.DISPATCHER_CONTROL_REL_PATH)
+        _git(self._repo, "commit", "-q", "-m", "client rewrites in UTC Z")
+        _git(self._repo, "push", "-q", "origin", "master")
+        result = self._tick(mode="write")
+        dc = result["dispatcher_control"]
+        self.assertEqual((dc["n_adopted"], dc["n_rejected"],
+                          dc["n_preserved"]), (1, 0, 0))
+        self.assertFalse(dc["differs"])
+        self.assertEqual(self._origin_dc()["dispatchers"]["ree-cloud-5"],
+                         fixed)
+
+
+class TestRenderStaysByteStableWhenNothingIsRefused(_Fixture):
+    """Non-degeneracy guard for the preservation union: with every source
+    name held by the DB it must contribute nothing, so the in-sync render
+    stays byte-identical and the 2-minute timer never churns a commit."""
+
+    def test_no_preservation_when_the_db_holds_everything(self):
+        result = self._tick(mode="write")
+        dc = result["dispatcher_control"]
+        self.assertEqual((dc["n_seen"], dc["n_adopted"], dc["n_rejected"],
+                          dc["n_preserved"]), (1, 1, 0, 0))
+        self.assertFalse(dc["differs"])
+        self.assertFalse(result["committed"])
 
 
 class TestMissingFile(_Fixture):

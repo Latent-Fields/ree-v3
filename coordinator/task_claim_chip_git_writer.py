@@ -469,7 +469,7 @@ def ingest_dispatcher_control(conn, source_doc):
     keeps endpoint-written newer state). This is what keeps the git file a
     real DEGRADED FALLBACK: a stop written git-side during a hub outage is
     adopted here the moment the hub can see origin again."""
-    stats = {"n_seen": 0, "n_adopted": 0}
+    stats = {"n_seen": 0, "n_adopted": 0, "n_rejected": 0}
     if not isinstance(source_doc, dict):
         return stats
     dispatchers = source_doc.get("dispatchers")
@@ -477,10 +477,19 @@ def ingest_dispatcher_control(conn, source_doc):
         return stats
     for name, entry in sorted(dispatchers.items()):
         stats["n_seen"] += 1
-        verdict, _ = db.upsert_dispatcher_lease(conn, name, entry,
-                                                via="ingest")
+        verdict, payload = db.upsert_dispatcher_lease(conn, name, entry,
+                                                      via="ingest")
         if verdict == "ok":
             stats["n_adopted"] += 1
+        elif verdict == "bad_entry":
+            # Surfaced rather than swallowed, exactly as
+            # ingest_dispatch_campaigns does: a rejection means the git file
+            # carries a shape this hub cannot represent, which is precisely
+            # the state render_dispatcher_control must not resolve by
+            # deleting. See its unknown-entry passthrough.
+            stats["n_rejected"] += 1
+            stats.setdefault("rejected", []).append(
+                {"dispatcher": name, "reason": payload.get("reason")})
     return stats
 
 
@@ -492,10 +501,24 @@ def render_dispatcher_control(conn, source_doc):
     scripts/dispatcher_control.py._save (indent=2, sort_keys, trailing
     newline) so an in-sync render is byte-identical to a client write.
 
+    A source dispatcher the DB does NOT hold is PRESERVED (2026-09-17,
+    mirroring render_dispatch_campaigns). db.upsert_dispatcher_lease never
+    deletes a lease row, so the only way a name can be in git and absent
+    here is that ingest refused it -- and rendering without it turns that
+    refusal into deletion of a dispatcher's run/stop LEASE, the opposite of
+    the degraded-fallback doctrine this pair exists to implement. The twin
+    defect on the campaign ledger was not hypothetical: when the client
+    learned the `science` lane before this hub did, /campaign/add answered
+    bad_entry, the client fell back to git as designed, and the next
+    2-minute tick deleted both curated entries (REE_Working fd7730f70). The
+    client leading the hub by a deploy is the NORMAL order, so the fallback
+    has to survive it. `dispatchers` is a MAP, so this is a key union and
+    sort_keys already fixes the order -- an in-sync render stays byte-stable.
+
     Returns (new_text, stats). new_text is None when there is nothing to
     write: no source doc (unreadable/missing file -- never invent the
     envelope), or no DB rows yet (pre-flip quiescence -- ingest-only)."""
-    stats = {"n_rows": 0, "differs": False}
+    stats = {"n_rows": 0, "n_preserved": 0, "differs": False}
     if not isinstance(source_doc, dict):
         return None, stats
     rows = db.dispatcher_lease_rows(conn)
@@ -508,7 +531,17 @@ def render_dispatcher_control(conn, source_doc):
         try:
             dispatchers[r["dispatcher"]] = json.loads(r["entry_json"])
         except ValueError:
+            # An unparseable row is not a held row: leaving the name out of
+            # `dispatchers` lets the source copy below stand in for it,
+            # rather than dropping the dispatcher entirely.
             continue
+    source_dispatchers = source_doc.get("dispatchers")
+    if isinstance(source_dispatchers, dict):
+        for name, entry in source_dispatchers.items():
+            if not isinstance(name, str) or name in dispatchers:
+                continue
+            dispatchers[name] = entry
+            stats["n_preserved"] += 1
     doc["dispatchers"] = dispatchers
     new_text = json.dumps(doc, indent=2, sort_keys=True) + "\n"
     return new_text, stats
