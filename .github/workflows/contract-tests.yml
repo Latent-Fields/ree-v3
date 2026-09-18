@@ -140,11 +140,13 @@ jobs:
     # per consumer showed the parse was already shared and the TRAVERSAL was the
     # cost: 21 corpus lints each re-walking the one shared tree. Memoising that
     # walk took the fixture 186.11s -> 82.57s on an idle hub, with every lint's
-    # fire list identical. Because the cost is O(corpus x lints) rather than
-    # O(tests), it does NOT come back with test growth the way the ~12-17 s/day
-    # above does -- but a new corpus-wide lint does add to it, so it stays worth
-    # watching in `--durations`. The sharding/xdist decision below is deferred,
-    # not cancelled.
+    # fire list identical. Against the ~17 s/day above that is about six days of
+    # growth, and it is NOT re-spent by test growth: the cost is O(corpus x
+    # corpus-lints), not O(tests). A new corpus-wide lint does add to it, so it
+    # stays worth watching in `--durations`. Both numbers are hub numbers; this
+    # runner measures ~0.43 s/test against the hub's rate, so the line here will
+    # be larger in absolute seconds both before and after. The sharding/xdist
+    # decision above is deferred by six days, not cancelled.
     #
     # DO NOT buy time by narrowing the collected set. A suite that is not run
     # is not a gate. (This job already runs only `tests/`, while
