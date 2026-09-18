@@ -1812,6 +1812,40 @@ class REEAgent(nn.Module):
                     combine_mode=getattr(config, "stuck_combine_mode", "mean"),
                 )
             )
+            # SD-061 (a), 2026-09-18 / GFLAG-0352: COUPLE THE TEMPERATURE HALF
+            # TO ITS CONSUMER. The temperature_gain computed below scales
+            # self.hippocampal.config.differentiable_cem_temperature at the
+            # _e3_tick call site -- and that value is read at exactly ONE place,
+            # hippocampal/module.py's CEM refit, inside SD-055's
+            # `if use_differentiable_cem` (default False). With SD-055 off the
+            # mutation writes a value nothing reads, so SD-061's effective
+            # manipulation is CANDIDATE-COUNT WIDENING ONLY. V3-EXQ-694 never
+            # set it, which is why its C2 "regulator load-bearing" PASS
+            # certified the count half alone while SD-061's what_would_answer
+            # reads as certifying a temperature lift.
+            #
+            # Done HERE rather than in from_dims so it covers every construction
+            # path (a hand-built REEConfig too), and written to
+            # self.hippocampal.config because that is the object the consumer
+            # reads. Safe post-construction: use_differentiable_cem is read only
+            # at call time (a runtime getattr in the refit), never captured into
+            # derived state at HippocampalModule.__init__ -- and
+            # self.hippocampal.config IS config.hippocampal (same object), so
+            # the two views cannot diverge.
+            if getattr(config, "dgpe_enable_differentiable_cem", False):
+                _dgpe_hip_cfg = getattr(self.hippocampal, "config", None)
+                if _dgpe_hip_cfg is not None:
+                    _dgpe_hip_cfg.use_differentiable_cem = True
+            # DIAGNOSTIC ONLY -- participates in no arithmetic. Recorded so the
+            # regulator's get_state() (and therefore any manifest carrying it)
+            # says whether the temperature half actually acted this run.
+            _dgpe_temp_consumer_live = bool(
+                getattr(
+                    getattr(self.hippocampal, "config", None),
+                    "use_differentiable_cem",
+                    False,
+                )
+            )
             self.difficulty_gated_proposal_entropy = DifficultyGatedProposalEntropy(
                 config=DifficultyGatedProposalEntropyConfig(
                     use_difficulty_gated_proposal_entropy=True,
@@ -1821,6 +1855,7 @@ class REEAgent(nn.Module):
                     temperature_gain_max=getattr(
                         config, "dgpe_temperature_gain_max", 1.0
                     ),
+                    temperature_lever_consumer_live=_dgpe_temp_consumer_live,
                 )
             )
 

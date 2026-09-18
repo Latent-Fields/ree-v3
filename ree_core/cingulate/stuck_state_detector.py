@@ -54,6 +54,48 @@ deficit (higher = more stuck-evidence):
       -- SMALL spread = HARD (ambiguous) choice. deficit =
       clip((diff_ref - choice_difficulty)/diff_ref, 0, 1) (inverted).
 
+WHICH AXES ACTUALLY ARRIVE (measured 2026-09-18, GFLAG-0352)
+------------------------------------------------------------
+Two of the four declared axes are absent under ordinary configurations, and the
+combine below is a mean over PRESENT axes only -- so WHICH axes exist sets the
+attainable maximum of ``stuck_score``, not just its value. Measured over an
+ecological loop (``REEConfig.goal_stream`` + ``CausalGridWorldV2``, agent
+selecting its own actions): ``goal_proximity`` 100/100 ticks, ``goal_salience``
+100/100, ``score_margin`` 99/100, ``committed_action_class`` **0/100**,
+``choice_difficulty`` **0/100**. With the progress axis saturated at 1.0 and the
+margin axis at 0.0 the evidence is exactly ``mean(1.0, 0.0) = 0.5`` -- identical
+to the default ``stuck_threshold``, approached from below by the EMA, so
+``is_stuck`` never fires.
+
+``choice_difficulty`` (the SD-032b dACC axis) needs FOUR conditions, not one.
+``REEAgent.select_action`` writes ``_dacc_last_bundle`` only inside
+``if self.dacc is not None and z_harm_a is not None:`` (``agent.py:7549``), so:
+
+  1. ``use_dacc=True``            -- constructs ``agent.dacc``;
+  2. ``use_affective_harm_stream=True`` -- constructs the ``AffectiveHarmEncoder``
+     that produces ``z_harm_a`` (``latent/stack.py:1217``);
+  3. the environment must emit ``harm_obs_a`` (``CausalGridWorldV2`` does);
+  4. **the driver must forward it** -- ``agent.sense(..., obs_harm_a=...)``.
+     ``act_with_split_obs`` calls ``sense(obs_body, obs_world)`` with no harm
+     channel, so a driver using that convenience interface can NEVER populate
+     the axis, at any config. ``experiments/_harness.py``,
+     ``experiments/_lib/allon_training.py`` and the ``_lib/baselines/*`` modules
+     all forward it correctly; a hand-rolled ``act_with_split_obs`` loop does not.
+
+``committed_action_class`` needs a commitment to have occurred
+(``e3._committed_trajectory``), i.e. a beta elevation -- which runs into
+MECH-342's registered open failure ("no natural commit when score margins are
+flat", V3-EXQ-629).
+
+Neither condition is a defect in THIS module; both are recorded here because
+MECH-343's ``what_would_answer`` MANDATES reporting the SD-032b contribution to
+``stuck_score`` separately, and that is impossible on a run where the axis never
+arrives. ``get_state()``'s ``sd061_n_present_*`` counters are what make the
+difference legible in a manifest. What the detector SHOULD do when axes are
+absent -- mask, require a minimum count, or recalibrate the threshold -- is an
+open design decision, deliberately NOT taken here: see the decision chip cited
+in ``REE_assembly/evidence/planning/exq1056_mech343_q056_upstream_leg_design_refusal_20260918.md``.
+
 The present-axis deficits are combined by ``mean`` (default) or ``max``
 (``combine_mode``). The combined impasse evidence is GATED by goal salience:
 when goal_salient is False (no active goal / drive), the tick contributes 0 --
@@ -203,6 +245,22 @@ class StuckStateDetector:
         self._n_ticks: int = 0
         self._n_stuck_ticks: int = 0
         self._n_simulation_skips: int = 0
+        # AXIS-PRESENCE diagnostics (added 2026-09-18, GFLAG-0352). The
+        # _last_deficit_* fields above are 0.0 for BOTH "axis absent this tick"
+        # and "axis present and measuring zero deficit", so they cannot
+        # distinguish the two -- and the combine below is a mean over PRESENT
+        # axes only, so WHICH axes exist sets the attainable maximum of
+        # stuck_score. Without these counters a null is unattributable between
+        # "the agent was not stuck" and "the axes that would have said so never
+        # arrived". Pure diagnostics: nothing here feeds update()'s arithmetic.
+        self._last_present_progress: bool = False
+        self._last_present_margin: bool = False
+        self._last_present_diversity: bool = False
+        self._last_present_difficulty: bool = False
+        self._n_present_progress: int = 0
+        self._n_present_margin: int = 0
+        self._n_present_diversity: int = 0
+        self._n_present_difficulty: int = 0
 
     # ------------------------------------------------------------------
     # Per-axis deficits
@@ -321,6 +379,18 @@ class StuckStateDetector:
         self._last_deficit_diversity = d_div if d_div is not None else 0.0
         self._last_deficit_difficulty = d_diff if d_diff is not None else 0.0
 
+        # AXIS-PRESENCE diagnostics -- see __init__. The four assignments above
+        # collapse "absent" onto 0.0; these keep the distinction. Counters only,
+        # read by get_state(); they feed nothing below.
+        self._last_present_progress = d_prog is not None
+        self._last_present_margin = d_marg is not None
+        self._last_present_diversity = d_div is not None
+        self._last_present_difficulty = d_diff is not None
+        self._n_present_progress += int(self._last_present_progress)
+        self._n_present_margin += int(self._last_present_margin)
+        self._n_present_diversity += int(self._last_present_diversity)
+        self._n_present_difficulty += int(self._last_present_difficulty)
+
         present = [d for d in (d_prog, d_marg, d_div, d_diff) if d is not None]
         if present:
             if self.config.combine_mode == "max":
@@ -380,6 +450,14 @@ class StuckStateDetector:
         self._n_ticks = 0
         self._n_stuck_ticks = 0
         self._n_simulation_skips = 0
+        self._last_present_progress = False
+        self._last_present_margin = False
+        self._last_present_diversity = False
+        self._last_present_difficulty = False
+        self._n_present_progress = 0
+        self._n_present_margin = 0
+        self._n_present_diversity = 0
+        self._n_present_difficulty = 0
 
     def get_state(self) -> dict:
         """Diagnostic snapshot for experiment manifests."""
@@ -395,4 +473,22 @@ class StuckStateDetector:
             "sd061_n_ticks": self._n_ticks,
             "sd061_n_stuck_ticks": self._n_stuck_ticks,
             "sd061_n_simulation_skips": self._n_simulation_skips,
+            # AXIS PRESENCE (see __init__). last_deficit_* is 0.0 for BOTH an
+            # absent axis and a present-but-zero one; these separate them, and
+            # n_axes_present_last is what sets the attainable maximum of
+            # stuck_score under combine_mode="mean" (a mean over PRESENT axes).
+            "sd061_last_present_progress": self._last_present_progress,
+            "sd061_last_present_margin": self._last_present_margin,
+            "sd061_last_present_diversity": self._last_present_diversity,
+            "sd061_last_present_difficulty": self._last_present_difficulty,
+            "sd061_n_present_progress": self._n_present_progress,
+            "sd061_n_present_margin": self._n_present_margin,
+            "sd061_n_present_diversity": self._n_present_diversity,
+            "sd061_n_present_difficulty": self._n_present_difficulty,
+            "sd061_n_axes_present_last": int(
+                self._last_present_progress
+                + self._last_present_margin
+                + self._last_present_diversity
+                + self._last_present_difficulty
+            ),
         }

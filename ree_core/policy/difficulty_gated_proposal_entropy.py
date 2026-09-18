@@ -35,6 +35,35 @@ for the duration of the proposal, restoring it afterward. With s = 0 (not
 stuck) the gain is identity (0 extra candidates, 1.0x temperature) ->
 bit-identical to the un-regulated proposal.
 
+THE TEMPERATURE HALF IS INERT UNLESS SD-055 IS ON (recorded 2026-09-18)
+----------------------------------------------------------------------
+``differentiable_cem_temperature`` has exactly ONE consumer in ``ree_core``:
+``HippocampalModule``'s CEM refit at ``hippocampal/module.py:2416``, which sits
+inside ``if getattr(self.config, "use_differentiable_cem", False):`` -- SD-055
+substrate, default ``False``. So with SD-055 off, ``REEAgent._e3_tick``'s
+temperature mutation writes a value nothing reads, and the regulator's effective
+manipulation is CANDIDATE-COUNT WIDENING ONLY.
+
+That was recorded nowhere until 2026-09-18, and it had already misled the
+record: V3-EXQ-694 (the SD-061 readiness diagnostic) never set
+``use_differentiable_cem``, so its C2 "regulator load-bearing" PASS certified the
+COUNT half only -- while SD-061's own ``what_would_answer`` criterion (2) reads
+as certifying that the regulator "lifts differentiable_cem_temperature
+transiently". See GFLAG-0352 and
+``REE_assembly/evidence/planning/exq1056_mech343_q056_upstream_leg_design_refusal_20260918.md``.
+
+Two things close that gap, both default-off and bit-identical when off:
+
+  * ``REEConfig.dgpe_enable_differentiable_cem`` (default False) -- when True
+    alongside the SD-061 master flag, ``REEAgent.__init__`` turns SD-055's
+    consumer on so the temperature half actually acts.
+  * ``temperature_lever_consumer_live`` below -- DIAGNOSTIC ONLY, set by
+    ``REEAgent`` from the live hippocampal config. It changes no arithmetic; it
+    exists so ``get_state()`` -- and therefore any manifest that records it --
+    says whether the temperature half was live. A run reporting
+    ``sd061_temperature_half_inert: True`` measured count-widening, whatever its
+    docstring claims.
+
 MECH-094
 --------
 ``compute_proposal_gain(simulation_mode=True)`` returns the identity gain
@@ -65,11 +94,20 @@ class DifficultyGatedProposalEntropyConfig:
             sampling temperature at full stuck_score. temperature_gain =
             1 + temperature_gain_max * s. 0.0 disables the temperature lever
             (candidate-widening only).
+        temperature_lever_consumer_live : DIAGNOSTIC ONLY -- does the lifted
+            ``differentiable_cem_temperature`` have a live consumer this run
+            (i.e. is SD-055's ``hippocampal.use_differentiable_cem`` True)?
+            REEAgent sets it from the live hippocampal config. It participates
+            in NO arithmetic; ``compute_proposal_gain`` is bit-identical with it
+            True or False. It exists only so ``get_state()`` can report whether
+            the temperature half of the gain actually acted. See the module
+            docstring section "THE TEMPERATURE HALF IS INERT UNLESS SD-055 IS ON".
     """
 
     use_difficulty_gated_proposal_entropy: bool = False
     candidate_widen_max: int = 8
     temperature_gain_max: float = 1.0
+    temperature_lever_consumer_live: bool = False
 
 
 class DifficultyGatedProposalEntropy:
@@ -165,4 +203,15 @@ class DifficultyGatedProposalEntropy:
             "sd061_dgpe_n_calls": self._n_calls,
             "sd061_dgpe_n_active": self._n_active,
             "sd061_dgpe_n_simulation_skips": self._n_simulation_skips,
+            # Was the temperature half of the gain actually consumed this run?
+            # See the module docstring: the lifted differentiable_cem_temperature
+            # is read ONLY by SD-055's CEM refit, so with SD-055 off the
+            # regulator's effective manipulation is count-widening alone.
+            "sd061_temperature_lever_consumer_live": bool(
+                self.config.temperature_lever_consumer_live
+            ),
+            "sd061_temperature_half_inert": bool(
+                float(self.config.temperature_gain_max) > 0.0
+                and not self.config.temperature_lever_consumer_live
+            ),
         }

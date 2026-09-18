@@ -5225,6 +5225,20 @@ class REEConfig:
     # Difficulty-gated proposal-entropy regulator knobs.
     dgpe_candidate_widen_max: int = 8
     dgpe_temperature_gain_max: float = 1.0
+    # SD-061 (a), 2026-09-18 / GFLAG-0352: COUPLE THE TEMPERATURE HALF TO ITS
+    # CONSUMER. The regulator's temperature_gain scales
+    # hippocampal.differentiable_cem_temperature, which is read at exactly ONE
+    # place -- hippocampal/module.py:2416, inside SD-055's
+    # `if use_differentiable_cem` -- which defaults False. So with SD-055 off,
+    # SD-061's temperature lever writes a value nothing reads and the
+    # regulator's effective manipulation is CANDIDATE-COUNT WIDENING ONLY.
+    # (V3-EXQ-694 never set it, so its C2 "regulator load-bearing" PASS
+    # certified the count half alone.) When this is True AND the SD-061 master
+    # flag is on, REEAgent.__init__ turns hippocampal.use_differentiable_cem on
+    # so the temperature half actually acts. Default False -> bit-identical, and
+    # V3-EXQ-694 still reproduces exactly. Whether the half was live is recorded
+    # either way as sd061_temperature_half_inert in the regulator's get_state().
+    dgpe_enable_differentiable_cem: bool = False
 
     use_maintenance_release: bool = False
     # Decisiveness (score_margin) floor: at/below this the within-tick
@@ -7899,6 +7913,7 @@ class REEConfig:
         stuck_combine_mode: str = "mean",
         dgpe_candidate_widen_max: int = 8,
         dgpe_temperature_gain_max: float = 1.0,
+        dgpe_enable_differentiable_cem: bool = False,
         # MECH-342: maintenance-time readiness-driven commitment release
         # (B3b). The release-side complement to the MECH-090 admission
         # conjunction. See ree_core/policy/commit_maintenance_release.py.
@@ -9421,6 +9436,7 @@ class REEConfig:
         config.stuck_combine_mode = stuck_combine_mode
         config.dgpe_candidate_widen_max = dgpe_candidate_widen_max
         config.dgpe_temperature_gain_max = dgpe_temperature_gain_max
+        config.dgpe_enable_differentiable_cem = dgpe_enable_differentiable_cem
 
         # MECH-342: maintenance-time readiness-driven commitment release.
         config.use_maintenance_release = use_maintenance_release
