@@ -154,7 +154,20 @@ PREREQUISITE CAVEATS (respected, not lifted)
     NEITHER MECH-120 NOR MECH-121. An instrument-validity claim asserts only that a
     readout here is a content-contingent measurement (it clears the C1 null-slope
     ceiling); it asserts nothing about sleep biology or consolidation BEHAVIOUR,
-    which is why such a run cannot bear on MECH-121 even incidentally. THIS IS AN
+    which is why such a run cannot MOVE MECH-121's status. NARROWED 2026-09-18
+    (GFLAG-0351) -- the two CONDITIONS above are UNCHANGED, only this rationale
+    sentence is: it previously read "cannot bear on MECH-121 even incidentally",
+    which is stronger than the source supports for the NREM leg. That leg's readout
+    is computed through ree_core/sleep/cross_module_consolidation.py's
+    CrossModuleConsolidator -- whose module header names it the MECH-121
+    consolidation cluster -- stepping with torch.optim.Adam (:162); Adam's
+    per-parameter step normalisation is non-linear, and under a LINEAR consolidator
+    the nrem injected and null error series would differ by a sigma-independent
+    constant, i.e. ratio 1.0 by arithmetic. So that leg's content-contingency is not
+    wholly independent of the operator's update rule. The carve-out is unaffected --
+    its conditions are about TAGGING, and a qualifying run tags neither MECH-120 nor
+    MECH-121 and cannot move MECH-121's status under any outcome -- but do not read a
+    qualifying run as fully operator-agnostic for the nrem leg. THIS IS AN
     ENUMERATION, NOT A CATEGORY: adding an id to it is a fresh governance decision,
     and SD-071's presence is NOT precedent for a claim that merely resembles it
     (measured 2026-09-18: MECH-170 does NOT qualify -- it is a behavioural
