@@ -95,19 +95,30 @@ on:
 jobs:
   contracts:
     runs-on: ubuntu-latest
-    # 60, raised from 30 on 2026-09-18. WHAT THIS BUYS, stated so the next
-    # session does not have to re-derive it: the suite took 1626.80s (27m07s)
-    # for 5240 tests on run 35280511927, i.e. ~0.31 s/test, and THREE of the
-    # eight runs before this change were `cancelled` at ~30m18s -- a cancelled
-    # run is indistinguishable at a glance from one that never mattered, so
-    # the gate was already failing open. Measured growth in tests/ (count of
-    # `def test_` at dated commits on origin/main): 3686 -> 4736 over the 30
-    # days to 2026-09-18 = ~35 defs/day, ~49/day over the 60-day window.
-    # At ~1.11 collected tests per def that is ~12-17 s of added runtime per
-    # day, so the 33 minutes of new headroom is ~4-5 months (117-163 days).
+    # 60, raised from 30 on 2026-09-18, because THREE of the eight runs before
+    # this change were `cancelled` at ~30m18s -- and a cancelled run is
+    # indistinguishable at a glance from one that never mattered, so the gate
+    # was already failing open.
+    #
+    # WHAT THIS BUYS, stated so the next session does not re-derive it -- and
+    # budget against the SLOW case, because a timeout has to survive the worst
+    # run, not the median. RUNNER SPEED VARIES FAR MORE THAN THE SUITE GROWS:
+    #   run 35280511927  5240 tests  1626.80s (27m07s)  ~0.31 s/test
+    #   run 35338932137  5254 tests  2244.13s (37m24s)  ~0.43 s/test
+    # Fourteen more tests, 38% more wall clock, hours apart on ubuntu-24.04
+    # 4-vCPU runners. So the first figure is not a baseline, it is the lucky
+    # end of a wide distribution -- do not quote it on its own.
+    #
+    # At the SLOW rate the suite already eats 62% of this 60-minute budget.
+    # Measured growth in tests/ (count of `def test_` at dated commits on
+    # origin/main): 3686 -> 4736 over the 30 days to 2026-09-18 = ~35 defs/day,
+    # ~49/day over the 60-day window; at ~1.11 collected tests per def and
+    # ~0.43 s/test that is ~17 s of added runtime per day. Remaining headroom
+    # is therefore ~1300s, i.e. roughly 2.5-3 months (~78 days), NOT the 4-5
+    # an 0.31 s/test baseline suggests.
     #
     # THIS IS A DEADLINE, NOT A FIX -- any fixed number is. It runs out around
-    # 2027-01/02. The structural options, in preference order, are (a) shard
+    # 2026-12. The structural options, in preference order, are (a) shard
     # the job across a matrix of runners, or (b) pytest-xdist `-n auto
     # --dist loadfile` within the job (public repo => 4-vCPU runners, so ~2.5-3x
     # is available). Both were deliberately NOT taken here: this change is on
