@@ -324,17 +324,25 @@ def _prune_expired(data: dict, floor_minutes: float = PRUNE_AFTER_MINUTES) -> in
 # check
 # ---------------------------------------------------------------------------
 
-def lookup(cache_path: Path, repo_root, tier: str, ttl_minutes: float) -> tuple:
+def lookup(cache_path: Path, repo_root, tier: str, ttl_minutes: float,
+           hash_root=None) -> tuple:
     """Returns (hit: bool, info: dict). NEVER raises -- any internal error
     resolves to a miss with the exception recorded in info['error']. This is
-    the fail-open invariant applied to the read path."""
+    the fail-open invariant applied to the read path.
+
+    `hash_root` is the tree whose CONTENT is hashed into the key; it defaults to
+    `repo_root` and is separate from it only because the caller may test a tree
+    other than the checkout the cache FILE lives in. See the --hash-root help
+    below for why that separation is load-bearing rather than cosmetic.
+    """
     info = {}
     try:
-        rel = compute_relevant_hash(repo_root)
+        rel = compute_relevant_hash(hash_root if hash_root is not None else repo_root)
         mc = compute_machine_class()
         key = cache_key_for(tier, rel["relevant_hash"], mc)
         info.update(tier=tier, relevant_hash=rel["relevant_hash"], n_files=rel["n_files"],
                     machine_class=mc, cache_key=key, cache_path=str(cache_path),
+                    hash_root=str(hash_root if hash_root is not None else repo_root),
                     ttl_minutes=ttl_minutes)
         data = load_cache(cache_path)
         record = data.get("records", {}).get(key)
@@ -363,7 +371,8 @@ def lookup(cache_path: Path, repo_root, tier: str, ttl_minutes: float) -> tuple:
 def cmd_check(args) -> int:
     cache_path = Path(args.cache_path) if args.cache_path else \
         Path(args.repo_root).resolve() / DEFAULT_CACHE_REL
-    hit, info = lookup(cache_path, args.repo_root, args.tier, args.ttl_minutes)
+    hit, info = lookup(cache_path, args.repo_root, args.tier, args.ttl_minutes,
+                       hash_root=args.hash_root)
     if hit:
         log("HIT -- key=%s tier=%s machine_class=%s" % (info["cache_key"][:16], info["tier"], info["machine_class"]))
         log("  relevant_hash=%s (%d files)" % (info["relevant_hash"][:16], info["n_files"]))
@@ -386,7 +395,7 @@ def cmd_check(args) -> int:
 
 def _write_and_commit_pass(cache_path: Path, repo_root, tier: str, session_id, push: bool,
                            bot: bool, ree_commit_path: Path,
-                           remote_tip: bool = True) -> str:
+                           remote_tip: bool = True, hash_root=None) -> str:
     """Upsert one cache_key entry after a PASSING run, then commit via
     ree_commit.py. Narrow structural update (load, upsert one key, write) --
     not a whole-file rewrite -- and re-read happens immediately before write on
@@ -451,7 +460,7 @@ def _write_and_commit_pass(cache_path: Path, repo_root, tier: str, session_id, p
     last_error = None
     for attempt in range(1, MAX_COMMIT_ATTEMPTS + 1):
         try:
-            rel = compute_relevant_hash(repo_root)
+            rel = compute_relevant_hash(hash_root if hash_root is not None else repo_root)
             mc = compute_machine_class()
             key = cache_key_for(tier, rel["relevant_hash"], mc)
             data = load_cache(cache_path)  # re-read immediately before write
@@ -515,7 +524,7 @@ def cmd_record(args) -> int:
         status = _write_and_commit_pass(
             cache_path, args.repo_root, args.tier, session_id, args.push,
             not args.no_bot, Path(args.ree_commit_path) if args.ree_commit_path else REE_COMMIT_DEFAULT,
-            remote_tip=not args.no_remote_tip,
+            remote_tip=not args.no_remote_tip, hash_root=args.hash_root,
         )
     except Exception as exc:  # belt-and-braces: record must NEVER raise out to the caller
         status = "record: FAILED (%s: %s) -- cache not updated, suite result unaffected" \
@@ -535,7 +544,20 @@ def build_parser():
     sub = p.add_subparsers(dest="cmd", required=True)
 
     common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--repo-root", required=True, help="ree-v3 checkout root to hash")
+    common.add_argument("--repo-root", required=True,
+                        help="the MAIN ree-v3 checkout: where the cache file lives and "
+                             "is committed. Also the default --hash-root.")
+    common.add_argument("--hash-root", default=None,
+                        help="the tree whose ree_core/ + experiments/_lib/ CONTENT is "
+                             "hashed into the cache key (default: --repo-root). These "
+                             "differ when the caller validates a tree other than the "
+                             "checkout -- precommit_contracts.sh tests a throwaway "
+                             "worktree holding exactly the commit's content, so the key "
+                             "must describe THAT tree. Keying a pass on the ambient "
+                             "working tree while validating a different one would let a "
+                             "later commit with different staged content HIT and skip "
+                             "the suite: a false hit, the one direction this cache must "
+                             "never have.")
     common.add_argument("--tier", required=True, help="validation tier name")
     common.add_argument("--cache-path", default=None,
                         help="override the cache file path (default: <repo-root>/%s)"

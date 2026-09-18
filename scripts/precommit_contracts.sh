@@ -117,7 +117,15 @@ fi
 
 # Pick a python with torch. /opt/local/bin/python3 is the project default;
 # fall back to PATH.
-PY="/opt/local/bin/python3"
+#
+# REE_PRECOMMIT_CONTRACTS_PYTHON overrides the first choice. This is not only a
+# test knob: the fallback picks whatever `python3` is first on PATH, which is not
+# guaranteed to have pytest -- on the hub it resolves to /usr/bin/python3 and
+# `-m pytest` dies with "No module named pytest" while the real interpreter is a
+# venv elsewhere. The blocks below then report "corpus-lint subset failed" and
+# BLOCK, which is the safe direction but names the wrong cause. Point this at the
+# interpreter that actually carries pytest when the default is absent.
+PY="${REE_PRECOMMIT_CONTRACTS_PYTHON:-/opt/local/bin/python3}"
 if [ ! -x "$PY" ]; then
     PY="$(command -v python3 || true)"
 fi
@@ -125,6 +133,189 @@ if [ -z "$PY" ]; then
     echo "[precommit_contracts] python3 not found; skipping contracts" >&2
     exit 3
 fi
+
+# ---------------------------------------------------------------------------
+# COMMIT-CONTENT STAGING (2026-09-18, chip-20260917-precommit-gate-shared-tree)
+#
+# THE GATE MUST TEST WHAT IT CERTIFIES, AND UNTIL NOW IT DID NOT.
+#
+# Every block below used to run against $REPO -- the ambient WORKING TREE. In
+# the shared checkout at /Users/dgolden/REE_Working/ree-v3 that tree is not this
+# commit: it is HEAD, plus this session's staged paths, plus this session's
+# UNSTAGED edits, plus every concurrent session's uncommitted edits, plus every
+# untracked file anyone has dropped in it. ree_commit.py meanwhile commits
+# exactly the paths it was given, from a private index seeded `read-tree HEAD`.
+# So the tree that was tested and the tree that gets committed are different
+# trees, and the gap is everyone else's work in progress.
+#
+# That single fact produced BOTH failure directions, and the second is the one
+# that matters:
+#
+#  * FALSE FAIL (measured 2026-09-17, three sessions in one afternoon). A
+#    contract test file written for a build whose implementation is deliberately
+#    not applied yet fails, and takes down whatever OTHER session happens to be
+#    gating. Session substrate-build-20260917-triad: 16 failed / 5081 passed,
+#    all 16 in ONE foreign file belonging to a different session's unlanded
+#    build, zero in its own paths. Session substrate-build-20260917-allon: four
+#    attempts over ~100 minutes, runs 2 and 3 blocked by 26 then 16 failures
+#    located ENTIRELY in two foreign untracked test files, zero in its own
+#    paths. Its verdict: "with four sessions in one checkout this gate is close
+#    to structurally unsatisfiable from the shared tree."
+#
+#  * FALSE PASS -- the dangerous direction, and not hypothetical. A foreign (or
+#    your own unstaged) file can SATISFY a dependency your commit introduces,
+#    so the gate goes green on a combination that will never exist on trunk.
+#    Demonstrated live on 2026-09-18 against the checkout as it then stood:
+#    ree_core/hippocampal/ghost_goal_bank.py (tracked, modified) carries a
+#    module-scope `from ree_core.hippocampal.possibility_topology import
+#    PossibilityTopology`, while possibility_topology.py was UNTRACKED -- not in
+#    HEAD. Committing ghost_goal_bank.py alone:
+#        ambient working tree  -> import OK      -> gate GREEN -> trunk broken
+#        isolated commit tree  -> ModuleNotFoundError -> gate RED (correct)
+#    This is exactly CLAUDE.md's "(a2) coupled set" hazard -- an implementation
+#    and its pinned contract, each individually complete -- and the gate was on
+#    the wrong side of it.
+#
+# THE FIX IS THE KNOWN-GOOD WORKAROUND, MOVED FROM THE OPERATOR INTO THE GATE.
+# Two sessions went green on 2026-09-17 by hand-rolling a throwaway worktree at
+# origin/main containing only their own files; remote_pytest.sh's own header
+# already recommends a throwaway worktree for any run that must not see the
+# shared tree. This does the same thing automatically, and exactly rather than
+# approximately: `git write-tree` against the index the hook was handed IS the
+# tree this commit will carry (ree_commit.py's private index is HEAD + the
+# declared paths; a plain `git commit` stages the same way), so the worktree is
+# materialised from that tree via a throwaway commit-tree object. No guessing
+# about which paths to copy.
+#
+# DOES THIS WEAKEN THE GATE? Argued explicitly, because it is the one question
+# that matters and "it's faster" is not an answer.
+#
+#  * Coverage of the COMMITTED content is unchanged -- same suite, same tests,
+#    same trigger scope. Only the tree moves, and it moves ONTO the thing being
+#    certified. Both failure directions above are removed by the same change.
+#  * What is genuinely LOST: another session's UNCOMMITTED work is no longer
+#    co-tested with yours. So two mutually-incompatible changes that are both
+#    uncommitted AT THE SAME MOMENT can now both pass in isolation.
+#  * Why that loss is small and bounded. The shared checkout means a landed
+#    commit moves HEAD for everyone, and the isolated tree is HEAD + your paths
+#    -- so whoever commits SECOND still tests the combination. The residual is
+#    only the window where two gates overlap in flight.
+#  * Why the loss was largely notional anyway. The old "coverage" was a
+#    coincidence of timing, not a guarantee (it caught the pair only if the
+#    other session happened to have its edit on disk right then), and it was
+#    MISATTRIBUTED when it did fire -- the failing session correctly concluded
+#    "not my change" and retried, so the signal converted into hours of lost
+#    wall clock and pressure toward --no-verify, not into a fix.
+#  * And there IS a net underneath. .github/workflows/contract-tests.yml runs
+#    `pytest tests/ -q` on a FRESH CLONE for every push to main touching the
+#    code plane -- i.e. against the real merged trunk content, which is strictly
+#    better evidence about a combination than the shared tree's accident. (That
+#    workflow is currently red on one environment-sensitive file and is brushing
+#    its 30-minute timeout; that is worth fixing on its own account, and does
+#    not change which tree THIS gate should test.)
+#
+# FAIL-SAFE, in the direction CLAUDE.md requires: every failure to build the
+# stage falls back to the OLD ambient-tree behaviour, loudly. A gate that runs
+# on a contaminated tree is bad; a gate that does not run is worse. Isolation is
+# never a reason to skip.
+#
+# Env:
+#   REE_PRECOMMIT_CONTRACTS_ISOLATE  1 (default) | 0 -> test the ambient tree
+#   REE_PRECOMMIT_CONTRACTS_STAGE_DIR  test-only: where to build the stage
+# ---------------------------------------------------------------------------
+RUN_ROOT="$REPO"      # the tree the gate actually tests -- $REPO until staged
+STAGE_WT=""
+STAGE_PARENT=""
+STAGE_PARENT_OWNED=""   # 1 only when WE mktemp'd it, i.e. only then may we rm -rf it
+
+cleanup_stage() {
+    [ -n "$STAGE_WT" ] || return 0
+    env -u GIT_INDEX_FILE -u GIT_DIR git -C "$REPO" worktree remove --force "$STAGE_WT" >/dev/null 2>&1
+    env -u GIT_INDEX_FILE -u GIT_DIR git -C "$REPO" worktree prune >/dev/null 2>&1
+    # rm -rf ONLY a directory this script created with mktemp. An operator- or
+    # test-supplied REE_PRECOMMIT_CONTRACTS_STAGE_DIR is never deleted: it may be
+    # a real directory with other contents, and a recursive delete of a path we
+    # did not make is not ours to do.
+    if [ "$STAGE_PARENT_OWNED" = "1" ] && [ -n "$STAGE_PARENT" ]; then
+        rm -rf "$STAGE_PARENT" >/dev/null 2>&1
+    fi
+    STAGE_WT=""
+    STAGE_PARENT=""
+    STAGE_PARENT_OWNED=""
+    return 0
+}
+
+# stage_commit_tree: materialise THIS COMMIT's tree into a throwaway worktree
+# and point RUN_ROOT at it. Idempotent; returns 1 (and leaves RUN_ROOT at $REPO)
+# on any failure, which is the documented fall-back-to-ambient path.
+#
+# NOTE ON `local`: the assignments below deliberately do NOT use it. `local x=$(cmd)`
+# makes `$?` the status of `local`, not of `cmd`, so every `|| { fall back; }`
+# here would become unreachable and a failed write-tree/commit-tree would sail
+# on with an empty variable. Do not "tidy" these into locals.
+#
+# LEAK NOTE: a session killed with SIGKILL (or OOM-killed, the very case Block 2
+# routes to avoid) never runs its EXIT trap, so its stage survives in TMPDIR and
+# in `git worktree list`. No reaper is built for this on purpose -- one would
+# have to distinguish a dead session's stage from a live concurrent session's,
+# and removing the wrong one kills a running gate. The stage is named
+# `ree_precommit_stage.*/ree-v3` so it is recognisable; `dev-doctor.sh` reports
+# dead worktrees, and macOS reaps /var/folders on its own schedule.
+stage_commit_tree() {
+    [ -z "$STAGE_WT" ] || return 0
+    if [ "${REE_PRECOMMIT_CONTRACTS_ISOLATE:-1}" != "1" ]; then
+        echo "[precommit_contracts] isolation OFF (REE_PRECOMMIT_CONTRACTS_ISOLATE=0) -- testing the ambient working tree" >&2
+        return 1
+    fi
+
+    # The index the hook was handed. Under ree_commit.py that is the PRIVATE
+    # index (GIT_INDEX_FILE), which is exactly HEAD + the declared paths; under
+    # a plain `git commit` it is the repo index. Either way write-tree yields
+    # the tree the commit will carry. Unmerged paths make write-tree fail --
+    # correctly, and we fall back rather than guessing.
+    _stage_tree=$(git -C "$REPO" write-tree 2>/dev/null) || {
+        echo "[precommit_contracts] write-tree failed (unmerged paths?) -- FALLING BACK to the ambient working tree" >&2
+        return 1
+    }
+    # A throwaway commit so `worktree add` has something to check out. It is
+    # never referenced by any ref, so it is unreachable and gc-able; it is NOT a
+    # branch move, so the reference-transaction ref-move guard (which gates on
+    # refs/heads/*) does not and must not see it.
+    _stage_commit=$(env -u GIT_INDEX_FILE git -C "$REPO" commit-tree "$_stage_tree" -p HEAD \
+                        -m "precommit gate staging (throwaway, unreferenced)" 2>/dev/null) || {
+        echo "[precommit_contracts] commit-tree failed -- FALLING BACK to the ambient working tree" >&2
+        return 1
+    }
+    _stage_parent="${REE_PRECOMMIT_CONTRACTS_STAGE_DIR:-}"
+    _stage_owned=""
+    if [ -z "$_stage_parent" ]; then
+        _stage_parent=$(mktemp -d "${TMPDIR:-/tmp}/ree_precommit_stage.XXXXXX") || {
+            echo "[precommit_contracts] mktemp failed -- FALLING BACK to the ambient working tree" >&2
+            return 1
+        }
+        _stage_owned=1
+    fi
+    # Named ree-v3 and one level deep on purpose: tests/contracts/test_arm_reuse.py
+    # resolves REE_Working via `git rev-parse --git-common-dir`, which from a
+    # worktree points back at the MAIN checkout's .git and therefore still finds
+    # the real REE_assembly sibling. remote_pytest.sh reads REE_assembly from a
+    # fixed absolute path, so the remote route is unaffected either way.
+    _stage_wt="$_stage_parent/ree-v3"
+    if ! env -u GIT_INDEX_FILE -u GIT_DIR git -C "$REPO" worktree add --detach \
+             "$_stage_wt" "$_stage_commit" >/dev/null 2>&1; then
+        echo "[precommit_contracts] worktree add failed -- FALLING BACK to the ambient working tree" >&2
+        [ "$_stage_owned" = "1" ] && rm -rf "$_stage_parent" >/dev/null 2>&1
+        return 1
+    fi
+    STAGE_PARENT="$_stage_parent"
+    STAGE_PARENT_OWNED="$_stage_owned"
+    STAGE_WT="$_stage_wt"
+    RUN_ROOT="$_stage_wt"
+    trap cleanup_stage EXIT
+    echo "[precommit_contracts] testing the COMMIT's content, isolated from the shared checkout" >&2
+    echo "[precommit_contracts]   stage: $_stage_wt (tree $_stage_tree)" >&2
+    return 0
+}
 
 STAGED=$(git -C "$REPO" diff --cached --name-only 2>/dev/null || true)
 
@@ -136,8 +327,9 @@ STAGED=$(git -C "$REPO" diff --cached --name-only 2>/dev/null || true)
 STAGED_EXPERIMENTS=$(echo "$STAGED" | grep -E '^experiments/v3_exq_.*\.py$' || true)
 if [ -n "$STAGED_EXPERIMENTS" ] && [ -f "$REPO/validate_experiments.py" ]; then
     echo "[precommit_contracts] staged experiment script(s) -- running validate_experiments.py --strict" >&2
+    stage_commit_tree || :
     # shellcheck disable=SC2086
-    if ! (cd "$REPO" && "$PY" validate_experiments.py --strict --quiet --paths $STAGED_EXPERIMENTS) >&2; then
+    if ! (cd "$RUN_ROOT" && "$PY" validate_experiments.py --strict --quiet --paths $STAGED_EXPERIMENTS) >&2; then
         echo "[precommit_contracts] non-conforming experiment script(s) -- blocking commit" >&2
         echo "[precommit_contracts] each staged experiment must import experiment_protocol and call emit_outcome(...) in __main__" >&2
         echo "[precommit_contracts] retrofit with: /opt/local/bin/python3 scripts/retrofit_experiments.py --apply --paths <script>" >&2
@@ -167,8 +359,9 @@ fi
 STAGED_V3=$(git -C "$REPO" diff --cached --name-only --diff-filter=ACM -- 'experiments/v3_*.py' 2>/dev/null || true)
 if [ -n "$STAGED_V3" ] && [ -f "$REPO/validate_experiments.py" ]; then
     echo "[precommit_contracts] staged v3 experiment script(s) -- manifest-writer chokepoint gate" >&2
+    stage_commit_tree || :
     # shellcheck disable=SC2086
-    if ! (cd "$REPO" && "$PY" validate_experiments.py --strict --quiet --checks manifest_writer --paths $STAGED_V3) >&2; then
+    if ! (cd "$RUN_ROOT" && "$PY" validate_experiments.py --strict --quiet --checks manifest_writer --paths $STAGED_V3) >&2; then
         echo "[precommit_contracts] staged experiment hand-rolls a flat-manifest json.dump -- blocking commit" >&2
         echo "[precommit_contracts] route the write through experiments/pack_writer.write_flat_manifest(...)" >&2
         echo "[precommit_contracts] or (if deliberately outside the standard) add MANIFEST_WRITER_EXEMPT = \"<reason>\"" >&2
@@ -210,11 +403,12 @@ fi
 # See tests/contracts/test_precommit_contracts_experiment_lint_scope.py.
 STAGED_EXPERIMENT_PY=$(echo "$STAGED" | grep -E '^experiments/.*\.py$' | grep -v '^experiments/_lib/' || true)
 if [ -n "$STAGED_EXPERIMENT_PY" ] && ! echo "$STAGED" | grep -qE '^(ree_core/|experiments/_lib/)'; then
-    LINT_FILES=$(cd "$REPO" && ls tests/contracts/test_*_lint.py 2>/dev/null || true)
+    stage_commit_tree || :
+    LINT_FILES=$(cd "$RUN_ROOT" && ls tests/contracts/test_*_lint.py 2>/dev/null || true)
     if [ -n "$LINT_FILES" ]; then
         echo "[precommit_contracts] staged experiment script(s) outside _lib/ -- running corpus-lint subset" >&2
         # shellcheck disable=SC2086
-        if ! (cd "$REPO" && "$PY" -m pytest -q --tb=line $LINT_FILES) >&2; then
+        if ! (cd "$RUN_ROOT" && "$PY" -m pytest -q --tb=line $LINT_FILES) >&2; then
             echo "[precommit_contracts] corpus-lint subset failed -- blocking commit" >&2
             echo "[precommit_contracts] fix the failing lint(s) or run with --no-verify to bypass" >&2
             if [ "$NO_BLOCK" = "1" ]; then
@@ -253,7 +447,8 @@ fi
 STAGED_FLAG_CONFIG=$(echo "$STAGED" | grep -E '^ree_core/utils/config\.py$' || true)
 if [ -n "$STAGED_FLAG_CONFIG" ]; then
     echo "[precommit_contracts] staged ree_core/utils/config.py -- checking flag registry currency" >&2
-    if ! (cd "$REPO" && "$PY" -m pytest -q --tb=short tests/test_flag_inertness.py::test_flag_registry_is_current) >&2; then
+    stage_commit_tree || :
+    if ! (cd "$RUN_ROOT" && "$PY" -m pytest -q --tb=short tests/test_flag_inertness.py::test_flag_registry_is_current) >&2; then
         echo "[precommit_contracts] flag registry is stale -- blocking commit" >&2
         echo "[precommit_contracts] add a behavioural probe to PROBED, or record the new/renamed flag in KNOWN_UNPROBED / KNOWN_UNPROBED_NESTED with a reason (tests/test_flag_inertness.py)" >&2
         echo "[precommit_contracts] or run with --no-verify to bypass" >&2
@@ -290,6 +485,10 @@ if ! echo "$STAGED" | grep -qE '^(ree_core/|experiments/_lib/)'; then
     exit 0
 fi
 
+# Stage before the cache block: the cache key must describe the tree this run
+# will actually exercise (see --hash-root below), not the ambient one.
+stage_commit_tree || :
+
 # ---------------------------------------------------------------------------
 # Block 2 VALIDATION CACHE (2026-08-10): a HIT means this exact ree_core/ +
 # experiments/_lib/ content was already validated on this machine class /
@@ -320,7 +519,23 @@ VALIDATION_CACHE_TTL_MIN="${REE_PRECOMMIT_VALIDATION_CACHE_TTL_MIN:-45}"
 # (bash 3.2+, no bash-4 associative-array/mapfile builtins -- CLAUDE.md Shell
 # Portability) so the check and record call sites can never drift apart on
 # the key, and paths with spaces survive intact (unlike a printf+word-split).
-VALIDATION_CACHE_ARGS=(--repo-root "$REPO" --tier "$VALIDATION_CACHE_TIER"
+#
+# --repo-root and --hash-root are DELIBERATELY DIFFERENT when the run is
+# isolated. --repo-root is the MAIN checkout: it is where the cache FILE lives
+# and where validation_cache.py commits it, and pointing it at the throwaway
+# stage would try to commit into a detached worktree that is about to be
+# deleted. --hash-root is what gets CONTENT-HASHED, and that must be the tree
+# the suite actually runs against -- otherwise a PASS would be recorded under
+# the ambient tree's key and a later commit with different staged content could
+# HIT on it and skip the suite entirely. They collapse to the same path when
+# staging fell back, which is exactly the pre-2026-09-18 behaviour.
+#
+# Side benefit worth naming, since it was raised as a blocker: keyed on the
+# COMMIT's content, the key no longer moves every time another session edits
+# ree_core/ in the shared checkout, so a 13-minute suite can now certify a key
+# that still exists when a retry runs.
+VALIDATION_CACHE_ARGS=(--repo-root "$REPO" --hash-root "$RUN_ROOT"
+                       --tier "$VALIDATION_CACHE_TIER"
                        --ttl-minutes "$VALIDATION_CACHE_TTL_MIN")
 if [ -n "${REE_PRECOMMIT_VALIDATION_CACHE_PATH:-}" ]; then
     VALIDATION_CACHE_ARGS+=(--cache-path "$REE_PRECOMMIT_VALIDATION_CACHE_PATH")
@@ -477,10 +692,16 @@ echo "[precommit_contracts] ree_core/ or experiments/_lib/ change staged -- runn
 
 run_local_pytest() {
     # Testable indirection, same shape as REMOTE_PYTEST above.
+    #
+    # BOTH branches cd to RUN_ROOT. The stub branch used to run in the gate's own
+    # cwd, which made the indirection UNFAITHFUL in exactly the dimension the
+    # 2026-09-18 isolation change turns on: a stub could not observe which tree
+    # the real pytest would have run against, so a test asserting "the suite runs
+    # against the commit's tree" passed vacuously against the shared checkout.
     if [ -n "${REE_PRECOMMIT_CONTRACTS_LOCAL_PYTEST:-}" ]; then
-        "$REE_PRECOMMIT_CONTRACTS_LOCAL_PYTEST"
+        (cd "$RUN_ROOT" && "$REE_PRECOMMIT_CONTRACTS_LOCAL_PYTEST")
     else
-        (cd "$REPO" && "$PY" -m pytest -q --tb=line tests/contracts)
+        (cd "$RUN_ROOT" && "$PY" -m pytest -q --tb=line tests/contracts)
     fi
 }
 
@@ -565,6 +786,9 @@ if [ "$TARGET" = "remote" ]; then
         [ -n "$LOCAL_PID" ] && kill "$LOCAL_PID" >/dev/null 2>&1
         [ -n "$LOCAL_LOCK_HELD" ] && rmdir "$RACE_LOCK_DIR" >/dev/null 2>&1
         rm -rf "$WORKDIR" >/dev/null 2>&1
+        # This trap REPLACES the one stage_commit_tree installed, so it must do
+        # that job too or the staging worktree leaks into `git worktree list`.
+        cleanup_stage
     }
     trap cleanup_race EXIT
 
@@ -573,7 +797,7 @@ if [ "$TARGET" = "remote" ]; then
     # when it re-runs this hook) so the router's own git calls see the
     # normal repo; it tests on-disk content, which is exactly what
     # ree_commit commits.
-    ( cd "$REPO" && env -u GIT_INDEX_FILE -u GIT_DIR "$REMOTE_PYTEST" tests/contracts -q --tb=line >"$REMOTE_LOG" 2>&1
+    ( cd "$RUN_ROOT" && env -u GIT_INDEX_FILE -u GIT_DIR "$REMOTE_PYTEST" tests/contracts -q --tb=line >"$REMOTE_LOG" 2>&1
       echo $? >"$REMOTE_RC" ) &
     REMOTE_PID=$!
 
@@ -613,6 +837,79 @@ if [ "$TARGET" = "remote" ]; then
         WINNER="remote"; WINNER_RC="$(cat "$REMOTE_RC")"; cat "$REMOTE_LOG" >&2
     fi
     echo "[precommit_contracts] race winner: $WINNER (rc=$WINNER_RC)" >&2
+
+    # -----------------------------------------------------------------------
+    # A ROUTING CONDITION IS NOT A RED SUITE (2026-09-18,
+    # chip-20260917-precommit-gate-shared-tree defect 2).
+    #
+    # remote_pytest.sh's exit codes are documented in two OVERLAPPING bands:
+    # "0-5 pytest's own result" and "2-8 this wrapper's PRE-RUN failures".
+    # pytest really does return 2/3/4/5 (interrupted / internal error / usage
+    # error / no tests collected), so rc=4 alone cannot distinguish "pytest
+    # usage error" from "no box could be acquired". This gate used to treat any
+    # non-zero as a contract failure and block the commit. Measured 2026-09-17:
+    # session substrate-build-20260917-sd097 lost two rejected commit attempts
+    # and then a 42-minute starved LOCAL run (aborted at 73%, zero failures, on
+    # a Mac carrying ~17 other sessions' pytest processes) to that misreading.
+    #
+    # The distinction is now authoritative rather than inferred: remote_pytest.sh
+    # prints "remote-pytest: NO RESULT (infra exit=<rc>)" on every path where no
+    # suite verdict exists -- pre-run refusals and post-run infrastructure
+    # failures alike -- and on no other path. We match that, never the number.
+    #
+    # FAIL CLOSED, deliberately: a non-zero rc WITHOUT the sentinel stays a red
+    # suite and blocks. An old remote_pytest.sh, a truncated log, a lost capture
+    # -- all of them land in the blocking branch. A gate that silently passes
+    # when it did not run is far worse than one that blocks.
+    #
+    # WHAT WE DO WITH A NO-RESULT is the policy the user already set on
+    # 2026-09-08 for the structurally identical "remote chosen but the router is
+    # missing" case, applied to "remote chosen but the router could not acquire
+    # a box": re-check the memory floor, and
+    #   * at/above it -> run the suite LOCALLY. Coverage is unchanged; this is
+    #     routing, not a subset, and the gate still runs in full.
+    #   * below it    -> BLOCK, saying plainly that the gate DID NOT RUN and
+    #     giving the operator the two commands that fix it. Blocking is still
+    #     the safe direction; what changes is that we no longer claim the tests
+    #     failed, and we no longer burn ~40 minutes discovering it.
+    # -----------------------------------------------------------------------
+    if [ "$WINNER" = "remote" ] && [ "$WINNER_RC" != "0" ] \
+       && grep -q 'remote-pytest: NO RESULT (infra exit=' "$REMOTE_LOG" 2>/dev/null; then
+        echo "[precommit_contracts] the ROUTER could not run the suite (rc=$WINNER_RC)." >&2
+        echo "[precommit_contracts] THIS IS NOT A TEST FAILURE -- no suite verdict exists yet." >&2
+        if [ -n "$LOCAL_PID" ]; then
+            echo "[precommit_contracts] a local race is already in flight -- waiting for it rather than starting another" >&2
+            wait "$LOCAL_PID" >/dev/null 2>&1
+            if [ -f "$LOCAL_RC" ]; then
+                WINNER="local"; WINNER_RC="$(cat "$LOCAL_RC")"; cat "$LOCAL_LOG" >&2
+                echo "[precommit_contracts] local race resolved it: rc=$WINNER_RC" >&2
+            fi
+        else
+            NO_RESULT_AVAIL=$(mac_available_mb)
+            if [ "${NO_RESULT_AVAIL:-0}" -ge "$FLOOR_MB" ] 2>/dev/null; then
+                echo "[precommit_contracts] re-routing to a LOCAL run (mac_available=${NO_RESULT_AVAIL}MB >= ${FLOOR_MB}MB) -- coverage unchanged" >&2
+                if run_local_pytest >&2; then
+                    WINNER="local"; WINNER_RC=0
+                else
+                    WINNER="local"; WINNER_RC=1
+                fi
+            else
+                echo "[precommit_contracts] BLOCKING COMMIT: the contract gate DID NOT RUN." >&2
+                echo "[precommit_contracts]   The fleet had no box available, and this Mac is below the" >&2
+                echo "[precommit_contracts]   memory floor to run it here (mac_available=${NO_RESULT_AVAIL}MB < ${FLOOR_MB}MB)." >&2
+                echo "[precommit_contracts]   Nothing is known to be broken -- the tests were never run." >&2
+                echo "[precommit_contracts]   remedy 1: wait for a box, then retry the commit --" >&2
+                echo "[precommit_contracts]     scripts/remote_pytest.sh tests/contracts -q   (from the main checkout)" >&2
+                echo "[precommit_contracts]   remedy 2: free memory on this Mac (close idle sessions) and retry." >&2
+                echo "[precommit_contracts]   Do NOT reach for --no-verify: the gate has not cleared this commit." >&2
+                if [ "$NO_BLOCK" = "1" ]; then
+                    exit 0
+                fi
+                exit 2
+            fi
+        fi
+    fi
+
     if [ "$WINNER_RC" = "0" ]; then
         record_validation_cache_result pass
         exit 0
