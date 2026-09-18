@@ -256,7 +256,55 @@ and are load-bearing for this run too:
      `main()` applies and a direct `run_cell(...)` call does NOT. Any figure taken
      off-wrapper is off-contract. No off-wrapper figure is quoted in this docstring.
 
-THIS RUN'S OWN RED-TEAM: see the queue entry note.
+THIS RUN'S OWN RED-TEAM (Step 4.5, model: fable -- model diversity from this
+session's Opus 5): VERDICT **CONTESTED**, four findings, ALL verified against source,
+three FIXED and one instrumented-not-gated with reason. None dismissed silently.
+  F1 (Family 3, CONFIRMED, FIXED) -- `cells_ok` was inherited verbatim from
+     V3-EXQ-1048 as `a_rows + b_rows + c_rows` and so EXCLUDED the new arm. `cell_ok`
+     is computed for D but was never consulted, and the miss is not benign: `nan <= y`
+     and `inf <= y` are both False, so a non-finite D cell counts as "D worse than B"
+     in C4 and routes to a CLAIM VERDICT (`weakens`) rather than to
+     substrate_not_ready_requeue; the non-degeneracy self-check cannot catch it either,
+     since NaNs are distinct set members so its `> 1` test still passes. ARM_D takes
+     2 x CMC_STEPS, the most gradient of any arm, so it is the arm most likely to
+     diverge. Fixed to range over all four arms.
+  F2 (Family 3/2, CONFIRMED, FIXED) -- ARM_D's LAST weight-moving pass before the
+     probes is the recent-window one, byte-identical in window, lr and fresh-Adam
+     construction to ARM_B's only pass. If it overwrites the whole-buffer pass
+     (last writer wins) D collapses onto B behaviourally, C4 degenerates into B-vs-B,
+     and a trivial PASS would be recorded as "the recency cost was a reallocation
+     artefact" when replay was in fact added and then erased. The dry-run smoke ALREADY
+     showed that signature at toy scale: D early-probe MSE 1.45e-4 against B 1.43e-4 and
+     A 1.13e-4, i.e. D retained NONE of A's early gain. Fixed with the
+     `additive_arm_retains_replay_gain` PRECONDITION -- V3-EXQ-1048's C1 form with ARM_D
+     substituted for ARM_A, same comparator arm and same seed-majority constant, no new
+     threshold -- so a D that is not doing replay routes to substrate_not_ready_requeue
+     instead of to a MECH-017 verdict. DECLARED RISK: this gate may well fire at full
+     scale. That is the intended behaviour and a real finding ("the additive dose or the
+     pass order does not preserve replay's benefit"), not a reason to weaken the gate.
+  F3 (Family 4, CONFIRMED, FIXED) -- C4's premise (that a matched-budget recency deficit
+     EXISTS to be explained) is re-measured in-run as C2 but was gated nowhere, and it is
+     not guaranteed: V3-EXQ-1048's recorded metrics.json has n_seeds_a_not_worse_late =
+     1.0, so C2 was 1/5 and not 0/5 -- on one seed A's excess (+9.25%) sat under
+     LATE_TOL. The two-way grid would have emitted "supports" for a run in which
+     reallocation produced no artefact. Fixed by giving the premise-absent state its own
+     branch and `mixed` direction, exactly as 1048's own Finding 1 required for its
+     trade-off state. The pre-registered load-bearing criterion is untouched -- C4 alone
+     still sets PASS/FAIL; only the label and evidence_direction move. The reviewer also
+     caught a factual error in this docstring ("C2 0/5"), corrected above.
+  F4 (Family 4, CONFIRMED, NOT GATED -- instrumented, with reason) -- the
+     persistence-skill gate ranges over A and B on the EARLY probes, while C4 compares D
+     and B on the LATE probes; `e1_skill_over_persistence_late` is computed and read by
+     nothing. The finding is accurate, but it is an INHERITED gap, not one this run
+     introduced: V3-EXQ-1048's C2 was load-bearing on the same late leg with no late-skill
+     gate, and late-probe skill has therefore never been measured on ANY run of this
+     harness -- so there is no evidence base from which to choose a floor, and inventing
+     one would both make this run stricter than the design it must be comparable to and
+     add an unpre-registered numeric threshold. Disposition: MEASURE it now (per-arm late
+     skill, and the per-seed best over the compared pair D/B, are added to the readout),
+     and let a floor be set by a successor once there is a distribution to set it from.
+     Widening the EXISTING early gate to include D was considered and REJECTED: a max over
+     three arms is strictly WEAKER than the gate 1048 passed.
 
 THE PRIOR, FROM RECORDED EVIDENCE
 ----------------------------------
@@ -265,8 +313,11 @@ SAME arms, and their landing zone is already a RECORDED, citable manifest --
 evidence/experiments/v3_exq_1048_mech017_reality_consolidation_replay_vs_budget_matched/
 runs/..._20260917T102244Z_v3/ (outcome FAIL, evidence_direction `mixed`, autopsied
 and CONFIRMED). From it: C1 5/5, C3 mean relative gain 0.4542 (floor 0.05), C2 0/5
-with A worse than B on the late probes by +9.25% to +95.13% (mean +41.4%), all 12
-preconditions green, 96 consolidator updates per cell. So C1/C2/C3 here are a
+with A worse than B on the late probes by +9.25% to +95.13% (mean +41.4%; C2 counted
+1/5 not 0/5 -- see below), all 12
+preconditions green, 96 consolidator updates per cell. NOTE the recorded C2 count
+is 1/5, not 0/5: A was worse than B on all five seeds, but on one the excess
+(+9.25%) sat UNDER LATE_TOL, so that seed scored as 'not worse'. So C1/C2/C3 here are a
 REPLICATION with a known expected outcome, which is exactly why they are not
 load-bearing.
 
@@ -1072,6 +1123,22 @@ def main(dry_run: bool = False):
     }
     min_best_skill_ab = min(per_seed_best_skill.values())
     worst_skill_seed = min(per_seed_best_skill, key=per_seed_best_skill.get)
+    # RED-TEAM F2 (CONFIRMED, FIXED). ARM_D's LAST weight-moving pass before the probes
+    # is the recent-window one -- byte-identical in window, lr and fresh-Adam construction
+    # to ARM_B's only pass. If it simply overwrites the whole-buffer pass ("last writer
+    # wins"), D collapses onto B behaviourally, C4 degenerates into B-vs-B, and a PASS
+    # would be recorded as "the recency cost was a reallocation artefact" when in truth
+    # replay was added and then erased. The dry-run smoke already showed that signature at
+    # toy scale (D early MSE 1.45e-4 vs B 1.43e-4 vs A 1.13e-4: D retained none of A's
+    # early-probe gain). This gate is V3-EXQ-1048's C1 form with ARM_D substituted for
+    # ARM_A -- same DV, same comparator arm B, same SIGN_CONSISTENCY_REQUIRED, no new
+    # constant -- used as a PRECONDITION rather than a criterion, because a D that is not
+    # doing replay cannot answer the reallocation question either way.
+    n_seeds_d_retains_replay_gain = sum(
+        1 for s_ in seeds
+        if rows[(ARM_D, s_)]["e1_holdout_mse_early"]
+        < rows[(ARM_B, s_)]["e1_holdout_mse_early"]
+    )
     n_seeds_additive_dv_moved = sum(
         1 for s_ in seeds
         if rows[(ARM_D, s_)]["e1_holdout_mse_late"]
@@ -1137,6 +1204,23 @@ def main(dry_run: bool = False):
                         "exactly A+B the dose of the manipulation is not what was pre-registered, "
                         "which is an INSTRUMENT failure, not evidence about the reallocation "
                         f"question. Measured: D={budget_d:.0f}, A={budget_a:.0f}, B={budget_b:.0f}."},
+            {"name": "additive_arm_retains_replay_gain",
+             "measured": float(n_seeds_d_retains_replay_gain),
+             "threshold": float(SIGN_CONSISTENCY_REQUIRED), "direction": "lower",
+             "control": "seeds with e1_holdout_mse_early(ARM_D) < e1_holdout_mse_early(ARM_B) -- "
+                        "V3-EXQ-1048's C1 form with ARM_D substituted for ARM_A, same comparator "
+                        "arm and same seed-majority constant. ARM_D is only an ADDITIVE-BUDGET "
+                        "arm if it is still doing the REPLAY the budget was added for. Its second "
+                        "pass is byte-identical to ARM_B's single pass (same window, same lr, same "
+                        "fresh per-module Adam) and runs LAST, immediately before the probes, so a "
+                        "last-writer-wins overwrite would leave D behaving as B -- making C4 a "
+                        "B-vs-B comparison that passes trivially and would be recorded as "
+                        "'the recency cost was a reallocation artefact'. Below this floor the "
+                        "additive manipulation did not hold and the run routes to "
+                        "substrate_not_ready_requeue instead of to a MECH-017 verdict.",
+             "arm_d_mean_early": _mean([r["e1_holdout_mse_early"] for r in d_rows]),
+             "arm_b_mean_early": _mean([r["e1_holdout_mse_early"] for r in b_rows]),
+             "arm_a_mean_early": _mean([r["e1_holdout_mse_early"] for r in a_rows])},
             {"name": "additive_manipulation_reaches_dv",
              "measured": float(n_seeds_additive_dv_moved),
              "threshold": float(len(seeds)), "direction": "lower",
@@ -1185,7 +1269,15 @@ def main(dry_run: bool = False):
         preconditions = e.preconditions
         gate_ok = False
 
-    cells_ok = all(r["cell_ok"] for r in a_rows + b_rows + c_rows)
+    # RED-TEAM F1 (CONFIRMED, FIXED): this read a_rows + b_rows + c_rows -- inherited
+    # verbatim from V3-EXQ-1048, where there was no ARM_D. cell_ok IS computed for D
+    # but was never consulted, and a non-finite D cell routes to a CLAIM VERDICT rather
+    # than to instrument-not-ready: nan <= y and inf <= y are both False, so such a seed
+    # silently counts as "D worse than B" in C4, and the non-degeneracy self-check does
+    # not catch it either (NaNs are distinct set members, so the `> 1` test still holds).
+    # ARM_D takes 2 x CMC_STEPS with the most gradient of any arm, so it is the arm most
+    # likely to diverge -- i.e. exactly the arm this gate must cover.
+    cells_ok = all(r["cell_ok"] for r in all_rows)
 
     base_manifest = {
         "schema_version": "v1",
@@ -1407,12 +1499,31 @@ def main(dry_run: bool = False):
     # A-vs-B legs above are replication diagnostics and deliberately cannot move it:
     # C2 already failed 5/5 on V3-EXQ-1048, so leaving it load-bearing would pin this
     # run to FAIL no matter what the reallocation question answers.
-    if all_pass:
-        label = "recency_cost_is_reallocation_artefact_not_intrinsic"
-        direction = "supports"
+    # RED-TEAM F3 (CONFIRMED, FIXED). C4 asks whether the matched-budget recency DEFICIT
+    # disappears under additive budget -- a question that only exists if the deficit is
+    # there. That premise is re-measured in-run as C2, and it is NOT guaranteed to
+    # replicate: V3-EXQ-1048's recorded metrics.json has n_seeds_a_not_worse_late = 1.0,
+    # i.e. C2 was 1/5 and not 0/5 (on one seed A's excess, +9.25%, sat under LATE_TOL).
+    # Two more such seeds and C2 passes in-run, C4 becomes vacuous, and the two-way grid
+    # would still emit "supports" for a run in which reallocation produced no artefact --
+    # or "weakens" for one in which A showed no cost to begin with, which is incoherent.
+    # So the premise-absent state gets its OWN branch rather than being absorbed, exactly
+    # as V3-EXQ-1048's red-team Finding 1 required for its trade-off state. The
+    # pre-registered load-bearing criterion is untouched: C4 alone still sets PASS/FAIL.
+    # This branch moves only the LABEL and evidence_direction, which is what governance
+    # weights, so a vacuous PASS can never be read as support.
+    if not c2:
+        premise_replicated = True
+        if all_pass:
+            label = "recency_cost_is_reallocation_artefact_not_intrinsic"
+            direction = "supports"
+        else:
+            label = "recency_cost_intrinsic_to_replay_survives_additive_budget"
+            direction = "weakens"
     else:
-        label = "recency_cost_intrinsic_to_replay_survives_additive_budget"
-        direction = "weakens"
+        premise_replicated = False
+        label = "matched_budget_recency_deficit_did_not_replicate_c4_vacuous"
+        direction = "mixed"
 
     note = (
         f"MECH-017 RECENCY-COST conjunct ONLY, asked at ADDITIVE rather than reallocated "
@@ -1430,6 +1541,11 @@ def main(dry_run: bool = False):
         f"The matched-budget legs C1/C2/C3 are re-run unchanged as NON-load-bearing "
         f"replication of 1048 (C1 {n_a_better_early}/{len(seeds)}, C2 "
         f"{n_a_not_worse_late}/{len(seeds)}, C3 rel gain {rel_gain_early:.4f}). "
+        f"PREMISE: the matched-budget deficit this run exists to explain "
+        f"{'REPLICATED' if premise_replicated else 'DID NOT REPLICATE'} in-run "
+        f"(C2 {n_a_not_worse_late}/{len(seeds)}, threshold {SIGN_CONSISTENCY_REQUIRED}); "
+        f"ARM_D retained replay's early-probe gain over B on "
+        f"{n_seeds_d_retains_replay_gain}/{len(seeds)} seeds. "
         f"Control (ARM_C, no extra training) forgetting ratio early/late = "
         f"{forgetting_ratio:.3f}. E2 numbers in this manifest are SELF-forward, NOT the "
         f"world_forward readout MECH-017 names -- that head has no trainer in ree_core "
@@ -1496,6 +1612,19 @@ def main(dry_run: bool = False):
             "mean_replay_early_share_whole_buffer_pass_d": _mean(
                 [r["replay_early_regime_share_whole_buffer_pass"] for r in d_rows]),
             "c4_pass": c4,
+            "premise_matched_budget_deficit_replicated": premise_replicated,
+            "n_seeds_d_retains_replay_gain": float(n_seeds_d_retains_replay_gain),
+            # RED-TEAM F4 (CONFIRMED, NOT GATED -- instrumented instead; see docstring).
+            "min_e1_skill_over_persistence_late_b": min(
+                r["e1_skill_over_persistence_late"] for r in b_rows),
+            "min_e1_skill_over_persistence_late_d": min(
+                r["e1_skill_over_persistence_late"] for r in d_rows),
+            "min_per_seed_best_skill_late_db": min(
+                max(rows[(ARM_D, s_)]["e1_skill_over_persistence_late"],
+                    rows[(ARM_B, s_)]["e1_skill_over_persistence_late"])
+                for s_ in seeds),
+            "mean_e1_skill_over_persistence_late_a": _mean(
+                [r["e1_skill_over_persistence_late"] for r in a_rows]),
             "min_early_late_jaccard_distance": min_jaccard,
             "min_updates_e1_a": min_updates_e1_a,
             "min_updates_e2_a": min_updates_e2_a,
