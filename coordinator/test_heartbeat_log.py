@@ -31,6 +31,17 @@ sys.path.insert(0, str(HERE))
 import db  # noqa: E402
 
 
+def _trim_is_due():
+    """A `_last_heartbeat_log_trim` value that reads as DUE on any host.
+
+    Expressed relative to time.monotonic(), never as an absolute like 0.0.
+    monotonic() is seconds since BOOT, so 0.0 does not mean "due" -- it means
+    "due iff this host has been up longer than the trim interval".
+    """
+    return db.time.monotonic() - db.HEARTBEAT_LOG_TRIM_INTERVAL_SECONDS - 1.0
+
+
+
 class _Fixture(unittest.TestCase):
 
     def setUp(self):
@@ -39,8 +50,15 @@ class _Fixture(unittest.TestCase):
         db.init_db(self._dbpath)
         self._conn = db.connect(self._dbpath)
         # Isolate the module-global trim throttle between tests.
+        #
+        # NOT 0.0 -- see _trim_is_due(). The throttle compares against
+        # time.monotonic() (seconds since BOOT), so 0.0 reads as "due" on the
+        # Mac and on the long-lived fleet boxes, and as "NEVER due" on a fresh
+        # CI runner whose uptime is under the 3600s interval. That asymmetry is
+        # why this file went red the first time it ever ran in CI, under the
+        # six-root widening -- it had nothing to do with xdist.
         self._orig_last_trim = db._last_heartbeat_log_trim[0]
-        db._last_heartbeat_log_trim[0] = 0.0
+        db._last_heartbeat_log_trim[0] = _trim_is_due()
 
     def tearDown(self):
         db._last_heartbeat_log_trim[0] = self._orig_last_trim
@@ -177,7 +195,7 @@ class TestRetentionTrim(_Fixture):
                             "V3-EXQ-001", {}, {})
         self._conn.execute(
             "UPDATE heartbeat_log SET observed_at='2020-01-01T00:00:00Z'")
-        db._last_heartbeat_log_trim[0] = 0.0
+        db._last_heartbeat_log_trim[0] = _trim_is_due()
         # Any subsequent heartbeat (even a no-op repeat) is a trim chance.
         db.upsert_heartbeat(self._conn, "ree-cloud-2", "running",
                             "V3-EXQ-001", {}, {})
@@ -186,6 +204,40 @@ class TestRetentionTrim(_Fixture):
         ).fetchall()
         self.assertEqual(len(rows), 0,
                          "the stale row must be gone once trim is due")
+
+
+    def test_maybe_trim_from_upsert_is_uptime_independent(self):
+        """Regression guard for the 2026-09-18 CI red (run 35345586544).
+
+        The sibling test above passes on any host up LONGER than
+        HEARTBEAT_LOG_TRIM_INTERVAL_SECONDS, because time.monotonic() is seconds
+        since BOOT and the throttle reset used to be an absolute 0.0. This Mac
+        (4.2 days) and the long-lived fleet boxes satisfy that; a GitHub runner
+        at ~25 min does not -- which is why the six-root widening turned this
+        file red the first time it had ever run in CI. It was never an xdist or
+        concurrency effect. Pin it at a fresh-runner clock so the absolute-reset
+        form cannot return silently.
+        """
+        fresh_runner_uptime = 1510.0   # run 35345586544: started 12:36:40Z,
+                                       # assert fired 13:01:50Z
+        with mock.patch.object(db.time, "monotonic",
+                               lambda: fresh_runner_uptime):
+            db._last_heartbeat_log_trim[0] = _trim_is_due()
+            db.upsert_heartbeat(self._conn, "ree-cloud-2", "running",
+                                "V3-EXQ-001", {}, {})
+            self._conn.execute(
+                "UPDATE heartbeat_log SET observed_at='2020-01-01T00:00:00Z'")
+            db._last_heartbeat_log_trim[0] = _trim_is_due()
+            db.upsert_heartbeat(self._conn, "ree-cloud-2", "running",
+                                "V3-EXQ-001", {}, {})
+            rows = self._conn.execute(
+                "SELECT * FROM heartbeat_log "
+                "WHERE observed_at='2020-01-01T00:00:00Z'").fetchall()
+        self.assertEqual(
+            len(rows), 0,
+            "the trim must fire on a host whose UPTIME is below the trim "
+            "interval -- i.e. on a fresh CI runner, not only on a box that "
+            "has been up for hours")
 
 
 class TestTableProvisioning(_Fixture):
