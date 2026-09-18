@@ -10848,6 +10848,26 @@ class REEAgent(nn.Module):
             ):
                 self.sleep_loop.notify_waking_step(self)
 
+            # MECH-204 F1 cold-start guard: record one WAKING tick for the
+            # serotonin persistent-zero-point guard. Same waking-only
+            # (hypothesis_tag=False) position as the GAP-9 trigger above, and
+            # for the same reason -- this is the one per-tick call the
+            # canonical StepHarness contract guarantees, so it is the only
+            # producer that works on a driver which never calls
+            # agent.serotonin_step(). Gated on the guard's own flag, so with
+            # the default (False) NO new call is made and the path is
+            # byte-identical.
+            if (
+                not hypothesis_tag
+                and getattr(self, "serotonin", None) is not None
+                and getattr(
+                    getattr(self.config, "serotonin", None),
+                    "precision_zero_point_require_waking",
+                    False,
+                )
+            ):
+                self.serotonin.note_waking_tick()
+
             # ARC-108 JOB-2 (d): HABENULA negative-RPE de-commit. post_action_update
             # surfaced the signed RPE delta_t (= R_t - V-hat_t, the SAME signal JOB-1
             # uses) as e3_metrics["habenula_delta_t"] when use_habenula_decommit is on.

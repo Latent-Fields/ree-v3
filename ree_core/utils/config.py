@@ -7350,6 +7350,8 @@ class REEConfig:
         tonic_5ht_enabled: bool = False,
         # MECH-204 F1: cross-cycle persistent zero-point EMA alpha
         precision_zero_point_ema_alpha: float = 0.1,
+        # MECH-204 F1 cold-start guard (default off -> bit-identical)
+        precision_zero_point_require_waking: bool = False,
         # MECH-205: surprise-gated replay
         surprise_gated_replay: bool = False,
         pe_ema_alpha: float = 0.02,
@@ -8761,6 +8763,13 @@ class REEConfig:
         config.serotonin.tonic_5ht_enabled = tonic_5ht_enabled
         # MECH-204 F1: cross-cycle persistent zero-point EMA tracking
         config.serotonin.precision_zero_point_ema_alpha = precision_zero_point_ema_alpha
+        # MECH-204 F1 cold-start guard: do not seed/EMA the persistent
+        # zero-point on a sleep cycle with no waking ticks since the last
+        # capture. from_dims SWALLOWS unknown kwargs, so a knob added only to
+        # the dataclass is a silent no-op -- this re-apply is mandatory.
+        config.serotonin.precision_zero_point_require_waking = (
+            precision_zero_point_require_waking
+        )
 
         # MECH-205: surprise-gated replay
         config.surprise_gated_replay = surprise_gated_replay

@@ -77,6 +77,36 @@ class SerotoninConfig:
     # setpoint drift. Tunable per experiment.
     precision_zero_point_ema_alpha: float = 0.1
 
+    # MECH-204 F1 cold-start guard. Default False -> bit-identical OFF.
+    # The canonical driver start pattern (env.reset(); agent.reset() before any
+    # waking tick -- also StepHarness.run_episode) lets SleepLoopManager fire a
+    # sleep cycle with ZERO waking ticks. enter_rem() then anchors
+    # _persistent_zero_point on E3 precision_init (rv=0.5 -> precision 2.0),
+    # which reflects no experience at all, and the F1 EMA carries that sentinel
+    # for ~30+ cycles. Measured IGW-20260915-243 (real StepHarness loop,
+    # CausalGridWorldV2 size 8, K=1, recal step 0.25): realized z_world PE
+    # variance ~0.0039 and waking rv tracks it within ~20 ticks (precision
+    # ~255), but the F1 target climbs 2.0 -> 27 -> 49 -> 69 -> 88 across
+    # cycles, so WRITEBACK recalibration pushes an already-calibrated rv AWAY
+    # from calibration (0.0039 -> 0.0121). V3-EXQ-541c shows the same seed
+    # (cycle-1 target 2.148).
+    # When True, a REM entry with no waking tick since the last capture does
+    # NOT touch _persistent_zero_point. _precision_at_rem_entry is still
+    # captured (diagnostic continuity), and on a first-ever cycle
+    # compute_recalibration_target() keeps returning its EXISTING 0.0
+    # "no target available" sentinel -- which the WRITEBACK consumer
+    # (sleep/phase_manager.py `if target > 0.0:`) already skips on, emitting
+    # mech204_recalibration_fired=0.0 and no target key, so no consumer change
+    # is needed.
+    #
+    # Direction NOT taken (recorded 2026-09-18): "exclude the precision_init
+    # sentinel from the first capture" by value. Rejected -- it needs float
+    # equality against 1.0/rv_init, and a genuinely-converged agent that
+    # happens to sit at precision_init would be silently skipped. A value test
+    # cannot distinguish "no experience" from "experience that landed on the
+    # sentinel"; the tick counter tests the actual predicate.
+    precision_zero_point_require_waking: bool = False
+
 
 class SerotoninModule:
     """
@@ -109,6 +139,15 @@ class SerotoninModule:
         # across episodes within a session. Cleared only by hard_reset()
         # (i.e. agent reconstruction).
         self._persistent_zero_point: float | None = None
+
+        # MECH-204 F1 cold-start guard: waking ticks since the last capture
+        # into _persistent_zero_point. Incremented by note_waking_tick(),
+        # which is driven from REEAgent.update_residue()'s waking
+        # (hypothesis_tag=False) branch -- the one per-tick call the canonical
+        # StepHarness contract guarantees -- and also from serotonin_step()
+        # for drivers that call it. Zeroed on capture and by reset(). Read
+        # ONLY when config.precision_zero_point_require_waking is True.
+        self._waking_ticks_since_capture: int = 0
 
     @property
     def enabled(self) -> bool:
@@ -186,6 +225,34 @@ class SerotoninModule:
 
         # Clamp
         self._tonic_5ht = max(0.0, min(1.0, self._tonic_5ht))
+
+        # MECH-204 F1 cold-start guard. Below the enabled/phase guard at the
+        # top of this method, so only genuine waking ticks count.
+        self._waking_ticks_since_capture += 1
+
+    def note_waking_tick(self) -> None:
+        """MECH-204 F1 cold-start guard: record one waking tick.
+
+        Driven from REEAgent.update_residue()'s waking (hypothesis_tag=False)
+        branch, which the canonical StepHarness per-tick contract calls exactly
+        once per env step. That is the load-bearing producer: serotonin_step()
+        is called by experiment DRIVERS, not from inside ree_core, and
+        StepHarness never calls it -- so a counter fed only by serotonin_step()
+        would stay at 0 forever on the canonical loop and turn the guard into a
+        permanent kill switch for MECH-204 recalibration rather than a
+        cold-start guard.
+
+        serotonin_step() increments too. Double-counting is harmless by
+        construction: the guard's predicate is only ever
+        `_waking_ticks_since_capture == 0`, so over-counting cannot change a
+        decision, while under-counting silently suppresses every capture.
+        Two independent producers make the dangerous direction unlikely.
+
+        No-op when disabled or outside the waking phase.
+        """
+        if not self.config.tonic_5ht_enabled or self._phase != "wake":
+            return
+        self._waking_ticks_since_capture += 1
 
     # -- Benefit-salience tagging (SR-2) --
 
@@ -309,14 +376,26 @@ class SerotoninModule:
             return
         self._tonic_5ht = 0.0
         self._precision_at_rem_entry = float(current_precision)
-        alpha = float(self.config.precision_zero_point_ema_alpha)
-        if self._persistent_zero_point is None:
-            self._persistent_zero_point = float(current_precision)
-        else:
-            self._persistent_zero_point = (
-                (1.0 - alpha) * self._persistent_zero_point
-                + alpha * float(current_precision)
-            )
+        # MECH-204 F1 cold-start guard (default off -> `skip` is always False
+        # and this method is bit-identical to the pre-guard version). When on,
+        # a REM entry with no waking experience since the last capture carries
+        # no new information: current_precision is the E3 precision_init
+        # sentinel (first cycle) or an unchanged re-read of the previous
+        # capture (later cycles). Skip rather than anchor on / double-count it.
+        skip = (
+            self.config.precision_zero_point_require_waking
+            and self._waking_ticks_since_capture == 0
+        )
+        if not skip:
+            alpha = float(self.config.precision_zero_point_ema_alpha)
+            if self._persistent_zero_point is None:
+                self._persistent_zero_point = float(current_precision)
+            else:
+                self._persistent_zero_point = (
+                    (1.0 - alpha) * self._persistent_zero_point
+                    + alpha * float(current_precision)
+                )
+            self._waking_ticks_since_capture = 0
         self._phase = "rem"
 
     def exit_sleep(self) -> None:
@@ -342,6 +421,12 @@ class SerotoninModule:
         self._phase = "wake"
         self._pre_sleep_5ht = self.config.tonic_5ht_baseline
         self._precision_at_rem_entry = 0.0
+        # MECH-204 F1 cold-start guard: a new episode starts with no waking
+        # experience, so a sleep cycle fired before this episode's first tick
+        # must not capture either. (_persistent_zero_point itself deliberately
+        # survives reset(); see this method's docstring. hard_reset() needs no
+        # change -- it calls reset() first.)
+        self._waking_ticks_since_capture = 0
 
     def hard_reset(self) -> None:
         """Reset including cross-episode state (MECH-204 _persistent_zero_point).
@@ -360,6 +445,7 @@ class SerotoninModule:
             "pre_sleep_5ht": self._pre_sleep_5ht,
             "precision_at_rem_entry": self._precision_at_rem_entry,
             "persistent_zero_point": self._persistent_zero_point,
+            "waking_ticks_since_capture": self._waking_ticks_since_capture,
         }
 
     def load_state(self, state: dict) -> None:
@@ -371,3 +457,10 @@ class SerotoninModule:
         # MECH-204 F1: tolerate older state dicts that lack persistent_zero_point.
         if "persistent_zero_point" in state:
             self._persistent_zero_point = state["persistent_zero_point"]
+        # MECH-204 F1 cold-start guard: tolerate state dicts predating it.
+        # Defaulting to 0 is the CONSERVATIVE direction -- a resume that lands
+        # exactly on a REM entry before any tick skips one capture rather than
+        # anchoring on a stale value. Inert under the default-off flag.
+        self._waking_ticks_since_capture = int(
+            state.get("waking_ticks_since_capture", 0)
+        )
