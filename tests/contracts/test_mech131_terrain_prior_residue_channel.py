@@ -218,7 +218,7 @@ def test_c6_scope_cem_terrain_score_is_not_gated_by_this_knob():
     )
     assert trajs, "no candidates proposed -- probe is vacuous"
 
-    scores = [float(agent.hippocampal._score_trajectory(t)) for t in trajs]
+    scores = [float(agent.hippocampal._score_trajectory(t).detach()) for t in trajs]
     # Default HippocampalConfig has wanting_weight=0.0, curiosity_weight=0.0 and
     # an empty mode_value_weight, so _score_trajectory IS the residue terrain
     # score and nothing else.
