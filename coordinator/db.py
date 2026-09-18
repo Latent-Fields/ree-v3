@@ -200,6 +200,13 @@ def _migrate_task_claim_chip_tables(conn):
             status                       TEXT NOT NULL DEFAULT 'active',
             closed_at                    TEXT,
             completion_note              TEXT,
+            -- The Claude session that OPENED this claim (CLAUDE_CODE_SESSION_ID).
+            -- `session_id` above is free text the agent picks and shares no id
+            -- space with real sessions, so without this a claim names an owner
+            -- that cannot be reached. See upsert_task_claim for why it is
+            -- write-once. Empty string = opened before 2026-09-18, or by a
+            -- client that had no session id to send.
+            claude_session_id            TEXT NOT NULL DEFAULT '',
             completion_note_history_json TEXT,
             spawned_by                   TEXT,
             entry_json                   TEXT NOT NULL,
@@ -213,6 +220,15 @@ def _migrate_task_claim_chip_tables(conn):
         "CREATE INDEX IF NOT EXISTS idx_task_claims_status "
         "ON task_claims(status)"
     )
+    # ADDITIVE MIGRATION. CREATE TABLE IF NOT EXISTS above is a no-op against
+    # the live DB, so the column has to be added explicitly or every existing
+    # deployment silently keeps the old shape and the writers' new field is
+    # dropped at the SQL layer. Mirrors _migrate_heartbeats.
+    claim_cols = {row[1] for row in conn.execute("PRAGMA table_info(task_claims)")}
+    if "claude_session_id" not in claim_cols:
+        conn.execute(
+            "ALTER TABLE task_claims ADD COLUMN claude_session_id "
+            "TEXT NOT NULL DEFAULT ''")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS task_claim_resources (
@@ -436,11 +452,11 @@ def upsert_task_claim(conn, claim, now=None):
         INSERT INTO task_claims
           (session_id, claimed_at, session_label, task, status, closed_at,
            completion_note, completion_note_history_json, spawned_by,
-           entry_json, updated_at)
+           claude_session_id, entry_json, updated_at)
         VALUES
           (:session_id, :claimed_at, :session_label, :task, :status,
            :closed_at, :completion_note, :completion_note_history_json,
-           :spawned_by, :entry_json, :updated_at)
+           :spawned_by, :claude_session_id, :entry_json, :updated_at)
         ON CONFLICT(session_id, claimed_at) DO UPDATE SET
            session_label=excluded.session_label,
            task=excluded.task,
@@ -449,6 +465,17 @@ def upsert_task_claim(conn, claim, now=None):
            completion_note=excluded.completion_note,
            completion_note_history_json=excluded.completion_note_history_json,
            spawned_by=excluded.spawned_by,
+           -- WRITE-ONCE, deliberately unlike every other column here. This
+           -- records WHO OPENED the claim. A later close/amend legitimately
+           -- arrives from a DIFFERENT session (a /session-land sweep, an audit
+           -- reaper, the materializer re-upserting from git with no session id
+           -- at all), and plain excluded.* would let any of those overwrite the
+           -- opener with themselves or with ''. Existing non-empty value wins;
+           -- '' is fillable, so a backfill still works.
+           claude_session_id=CASE
+               WHEN task_claims.claude_session_id != ''
+               THEN task_claims.claude_session_id
+               ELSE excluded.claude_session_id END,
            entry_json=excluded.entry_json,
            updated_at=excluded.updated_at
         """,
@@ -463,6 +490,7 @@ def upsert_task_claim(conn, claim, now=None):
             "completion_note_history_json": (
                 json.dumps(history) if history is not None else None),
             "spawned_by": claim.get("spawned_by"),
+            "claude_session_id": claim.get("claude_session_id") or "",
             "entry_json": entry_json,
             "updated_at": now,
         },
@@ -939,7 +967,8 @@ def _is_scope_resource(resource):
 
 def _claim_entry_json(session_id, claimed_at, session_label, task, resources,
                       status="active", spawned_by=None, closed_at=None,
-                      completion_note=None, completion_note_history=None):
+                      completion_note=None, completion_note_history=None,
+                      claude_session_id=None):
     """The lossless entry_json for a task_claims row.
 
     Field ORDER and field SET both matter: this is what the (not-yet-built)
@@ -957,6 +986,14 @@ def _claim_entry_json(session_id, claimed_at, session_label, task, resources,
         "resources": list(resources or []),
         "status": status,
     }
+    # APPENDED ONLY WHEN NON-EMPTY, exactly like the closure fields below and
+    # for the same reason: this dict is compared field-set-for-field-set by the
+    # PHASE-1 reconciler to decide `diverged`. Emitting claude_session_id=""
+    # unconditionally would change the shape of all 121 pre-2026-09-18 claims
+    # at once and read as a fleet-wide divergence. task_claim.py's git-path
+    # entry dict applies the identical rule -- the two MUST agree.
+    if claude_session_id:
+        entry["claude_session_id"] = claude_session_id
     if closed_at is not None:
         entry["closed_at"] = closed_at
     if completion_note is not None:
@@ -1052,7 +1089,8 @@ def _reserialise_claim_row(conn, session_id, claimed_at):
 
 def try_open_task_claim(conn, session_id, session_label, task, resources,
                         allow_overlap=False, spawned_by=None, claimed_at=None,
-                        stale_hours=TASK_CLAIM_STALE_HOURS_DEFAULT, now=None):
+                        stale_hours=TASK_CLAIM_STALE_HOURS_DEFAULT, now=None,
+                        claude_session_id=None):
     """Atomic claim-open with resource arbitration.
 
     Returns (verdict, payload):
@@ -1129,13 +1167,15 @@ def try_open_task_claim(conn, session_id, session_label, task, resources,
                 "downgraded to a note" % len(rivals))
 
         entry = _claim_entry_json(session_id, stamp, session_label, task,
-                                  resources, spawned_by=spawned_by)
+                                  resources, spawned_by=spawned_by,
+                                  claude_session_id=claude_session_id)
         conn.execute(
             "INSERT INTO task_claims (session_id, claimed_at, session_label, "
-            " task, status, spawned_by, entry_json, updated_at) "
-            "VALUES (?,?,?,?, 'active', ?, ?, ?)",
+            " task, status, spawned_by, claude_session_id, entry_json, "
+            " updated_at) "
+            "VALUES (?,?,?,?, 'active', ?, ?, ?, ?)",
             (session_id, stamp, session_label or "", task or "", spawned_by,
-             json.dumps(entry), now),
+             claude_session_id or "", json.dumps(entry), now),
         )
         conn.executemany(
             "INSERT OR IGNORE INTO task_claim_resources "

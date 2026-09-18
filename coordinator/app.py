@@ -248,6 +248,10 @@ def _tc_open(conn, body, machine_tok):
         resources=resources,
         allow_overlap=bool(body.get("allow_overlap")),
         spawned_by=body.get("spawned_by"),
+        # The Claude session that opened this claim. Absent from older clients
+        # and from any box with no session id to send; stored as '' then, and
+        # the column is write-once so a later close cannot overwrite it.
+        claude_session_id=body.get("claude_session_id"),
         claimed_at=body.get("claimed_at"),
         stale_hours=float(body.get("stale_after_hours")
                           or db.TASK_CLAIM_STALE_HOURS_DEFAULT),
