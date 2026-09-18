@@ -145,6 +145,22 @@ PREREQUISITE CAVEATS (respected, not lifted)
     NOT MECH-121 behavioural validation. Any run built on it MUST be
     EXPERIMENT_PURPOSE="diagnostic" and MUST NOT tag MECH-121 as promotion
     evidence. The NREM leg is a substrate-plumbing-fidelity readout only.
+    ONE NARROW ENUMERATED EXCEPTION to the diagnostic-only half, granted by user
+    decision 2026-09-18T19:47:16Z (Orchestrator decision lane
+    orchestrate-20260918-1840-cloud4; GFLAG-0319): a run MAY be
+    EXPERIMENT_PURPOSE="evidence" if and only if (i) its claim_ids are SOLELY
+    instrument-validity claims about this harness's own readouts -- as of this
+    amendment the enumerated set is {SD-071} and nothing else -- AND (ii) it tags
+    NEITHER MECH-120 NOR MECH-121. An instrument-validity claim asserts only that a
+    readout here is a content-contingent measurement (it clears the C1 null-slope
+    ceiling); it asserts nothing about sleep biology or consolidation BEHAVIOUR,
+    which is why such a run cannot bear on MECH-121 even incidentally. THIS IS AN
+    ENUMERATION, NOT A CATEGORY: adding an id to it is a fresh governance decision,
+    and SD-071's presence is NOT precedent for a claim that merely resembles it
+    (measured 2026-09-18: MECH-170 does NOT qualify -- it is a behavioural
+    dissociation prediction that depends_on MECH-120 and MECH-121 directly). The
+    MUST-NOT-tag-MECH-121 half above is unconditional and the carve-out does not
+    touch it; condition (ii) is what keeps that automatic.
   * The 120/121/123 <-> substrate mapping is not a clean 1:1 feed-forward chain in
     code (SWS = schema write + SHY; the "NREM slot-filling" content is realised by
     the replay/offline-gradient path; REM = attribution replay + precision nudge).
