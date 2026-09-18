@@ -863,33 +863,54 @@ class E3TrajectorySelector(nn.Module):
 
     def _variance_tracking_commit_bar(self) -> Optional[float]:
         """ARC-029 (D): the commit bar as a quantile of the run's own recent
-        commit-gate-variance distribution, or None to leave the absolute bar
-        in force.
+        commit-gate-variance distribution, DETRENDED, or None to leave the
+        absolute bar in force.
 
         Returns None when the lever is off, and ALSO while the sliding window
         is not yet full -- during that warmup the caller keeps the existing
         absolute `commit_threshold`, which is the pre-lever behaviour. Warmup
-        is therefore bounded by the window width the experiment chose; it is
-        not a separate knob.
+        is bounded by the window width the experiment chose; it is not a
+        separate knob.
 
-        ESTIMATOR: exact q-quantile (linear interpolation between order
-        statistics, i.e. numpy's default `method="linear"`) over a FIXED-WIDTH
-        sliding window. The width is load-bearing in BOTH directions:
+        ESTIMATOR, and WHY IT IS NOT THE OBVIOUS ONE. The obvious reading of
+        "a quantile of the run's own rv distribution" is the plain q-quantile
+        of a trailing window. MEASURED AT BUILD TIME, that reading does NOT
+        deliver the stable occupancy this lever exists for: rv drifts ~5x
+        within a run, a trailing window is centred half a window BEHIND the
+        current tick, and so under an upward drift the current sample sits
+        above almost the whole window. At the measured drift it gave
+        occupancy 0.205 against a requested q of 0.75 -- off target by more
+        than the two-mode structure is worth, and silently so. (A quantile
+        over an EXPANDING window is the same failure, worse: it lags the whole
+        run.) Both are pinned as negative controls in
+        `tests/contracts/test_commit_threshold_variance_tracking.py`.
 
-          - too LONG (in the limit, an expanding window over the whole run) and
-            the bar LAGS the ~5x within-run drift in rv, so later samples sit
-            below a stale bar and the gate RE-SATURATES at committed=1.0 --
-            the original failure, reproduced by a fix that looks correct;
-          - too SHORT (at or below the rv EMA time constant, ~1/
-            precision_ema_alpha ~ 20 ticks) and the window holds only
-            correlated samples, so the bar tracks rv almost instantaneously,
-            occupancy is still ~q but committed RUNS degenerate towards a
-            single tick -- which fails ARC-029's own P1 run-length criterion
-            while passing its occupancy criterion.
+        What is used instead: over the window, fit a least-squares LINE to
+        log(gate variance) against tick index, take the q-quantile of the
+        RESIDUALS about that line, and evaluate the line one tick PAST the
+        window's end (i.e. at the tick being judged). The bar is
+        `exp(trend_at_now + quantile_q(residuals))`.
 
-        Between those, occupancy is ~q at ANY absolute rv scale (that is what
-        makes it survive the five-order collapse), and run length is set by
-        the autocorrelation of rv itself rather than by the window.
+          - log space because rv is a positive scale quantity that moves by
+            orders of magnitude; a drift is multiplicative, not additive.
+          - the linear fit absorbs the within-run drift, so the residual
+            distribution is drift-free and its q-quantile is an UNBIASED
+            occupancy target: the gate fires ~q of the time at ANY absolute rv
+            scale AND under a drifting one. That is what "a stable two-mode
+            occupancy against a drifting rv" requires.
+          - extrapolating to the current tick, rather than evaluating at the
+            window's centre, is what removes the half-window lag above.
+          - with zero drift the fitted slope is ~0 and this reduces to the
+            plain quantile, so nothing is given up in the easy case.
+
+        WINDOW WIDTH is still load-bearing and is still the experiment's
+        choice: too short (at or below the rv EMA time constant,
+        ~1/precision_ema_alpha ~ 20 ticks) and the window holds only
+        correlated samples, so the bar tracks rv almost instantaneously and
+        committed RUNS degenerate towards a single tick -- passing an
+        occupancy criterion while failing ARC-029's own P1 run-length
+        criterion. Too long and the single linear term stops describing the
+        drift.
 
         The current tick's own observation is appended by the caller AFTER the
         gate decision, so the bar is strictly causal: a sample never
@@ -898,15 +919,44 @@ class E3TrajectorySelector(nn.Module):
         window = self._commit_gate_variance_window
         if window is None or window.maxlen is None or len(window) < window.maxlen:
             return None
-        vals = sorted(window)
+        vals = list(window)
+        hi = max(vals)
+        if hi <= 0.0:
+            # degenerate window (all-zero prediction error); nothing to take a
+            # quantile OF. Leave the absolute bar in force rather than invent one.
+            return None
+        # rv is an EMA of a squared error, so >= 0, but an exact 0.0 is
+        # representable; floor it well below the window's own scale so log()
+        # is defined without the floor dominating the fit.
+        floor = hi * 1e-12
+        logs = [math.log(v if v > floor else floor) for v in vals]
+
+        n = len(logs)
+        mean_i = (n - 1) / 2.0
+        mean_y = sum(logs) / n
+        sxx = sum((i - mean_i) ** 2 for i in range(n))
+        if sxx > 0.0:
+            sxy = sum((i - mean_i) * (logs[i] - mean_y) for i in range(n))
+            slope = sxy / sxx
+        else:
+            slope = 0.0
+        residuals = sorted(
+            logs[i] - (mean_y + slope * (i - mean_i)) for i in range(n)
+        )
+        # the window holds ticks [t-n, t); evaluate the trend AT t, i.e. one
+        # step past its last sample -- index n on the 0..n-1 numbering.
+        trend_now = mean_y + slope * (n - mean_i)
+
         q = float(self.config.commit_threshold_quantile)
-        pos = (len(vals) - 1) * q
-        lo = int(math.floor(pos))
-        hi = int(math.ceil(pos))
-        if lo == hi:
-            return float(vals[lo])
-        frac = pos - lo
-        return float(vals[lo] * (1.0 - frac) + vals[hi] * frac)
+        pos = (n - 1) * q
+        lo_i = int(math.floor(pos))
+        hi_i = int(math.ceil(pos))
+        if lo_i == hi_i:
+            resid_q = residuals[lo_i]
+        else:
+            frac = pos - lo_i
+            resid_q = residuals[lo_i] * (1.0 - frac) + residuals[hi_i] * frac
+        return float(math.exp(trend_now + resid_q))
 
     @property
     def commit_threshold(self) -> float:

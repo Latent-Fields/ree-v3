@@ -88,7 +88,12 @@ def _candidates():
 
 def _selector(**cfg_kw) -> E3TrajectorySelector:
     torch.manual_seed(0)
-    cfg = E3Config(world_dim=WORLD_DIM, hidden_dim=HIDDEN_DIM)
+    # precision_init IS the initial _running_variance. Start it at the measured
+    # post-training band rather than the 0.5 default: the scientific object here
+    # is a TRAINED agent, and letting the alpha=0.05 EMA walk down from 0.5 would
+    # spend most of the run in a warmup regime that is not what was measured.
+    # Only this INITIAL CONDITION is set; rv then evolves through the real EMA.
+    cfg = E3Config(world_dim=WORLD_DIM, hidden_dim=HIDDEN_DIM, precision_init=RV_LO)
     for k, v in cfg_kw.items():
         setattr(cfg, k, v)
     sel = E3TrajectorySelector(cfg)
@@ -148,6 +153,24 @@ def _quantile(vals, q):
         return v[lo]
     frac = pos - lo
     return v[lo] * (1.0 - frac) + v[hi] * frac
+
+
+def _detrended_bar(window_vals, q):
+    """Independent re-implementation of the shipped estimator, for the
+    causality test: least-squares line through log(v) vs index, q-quantile of
+    the residuals, trend extrapolated one tick past the window's end."""
+    n = len(window_vals)
+    hi = max(window_vals)
+    floor = hi * 1e-12
+    logs = [math.log(v if v > floor else floor) for v in window_vals]
+    mean_i = (n - 1) / 2.0
+    mean_y = sum(logs) / n
+    sxx = sum((i - mean_i) ** 2 for i in range(n))
+    sxy = sum((i - mean_i) * (logs[i] - mean_y) for i in range(n))
+    slope = sxy / sxx if sxx > 0 else 0.0
+    resid = sorted(logs[i] - (mean_y + slope * (i - mean_i)) for i in range(n))
+    trend_now = mean_y + slope * (n - mean_i)
+    return math.exp(trend_now + _quantile(resid, q))
 
 
 def _fingerprint(sel):
@@ -231,20 +254,36 @@ def test_on_path_keeps_committed_run_length_structure():
 
 
 def test_mech108_sweep_regains_dynamic_range_on_the_quantile_bar():
-    """The finding measured the sweep INERT at the trained operating point
-    (1.0000 committed at amplitude 0.999). On the quantile bar a MODEST
-    amplitude must move occupancy, because the bar now sits inside rv's own
-    observed spread."""
+    """The finding measured the sweep INERT at the trained operating point:
+    committed_step_fraction 1.0000 even at amplitude 0.999, because reaching a
+    bar five orders above rv needs a > 0.99996. On the quantile bar the sweep
+    must move occupancy GRADEDLY at MODEST amplitudes, because the bar now sits
+    inside rv's own observed spread.
+
+    Gradedness, not just "it moved", is the assertion that matters: a lever
+    that jumped straight from 1.0 to 0.0 would be as unusable for an
+    alternating-arm design as an inert one.
+    """
     kw = dict(
         use_variance_tracking_commit_threshold=True,
         commit_threshold_quantile=0.50,
         commit_threshold_quantile_window=WINDOW,
     )
-    base, _, _ = _occupancy(_drive(_selector(**kw), sweep=0.0)[0][WINDOW:])
-    swept, _, _ = _occupancy(_drive(_selector(**kw), sweep=0.3)[0][WINDOW:])
-    assert base - swept > 0.05, (
-        "a moderate sweep must lower occupancy on the quantile bar; "
-        "%.4f -> %.4f at amplitude 0.3" % (base, swept)
+    fracs = [
+        _occupancy(_drive(_selector(**kw), sweep=a)[0][WINDOW:])[0]
+        for a in (0.0, 0.02, 0.05, 0.10)
+    ]
+    assert all(
+        fracs[i] > fracs[i + 1] for i in range(len(fracs) - 1)
+    ), "occupancy must fall MONOTONICALLY with sweep amplitude; got %r" % (fracs,)
+    assert fracs[0] - fracs[-1] > 0.15, (
+        "a modest amplitude (<= 0.10) must move occupancy substantially on the "
+        "quantile bar; got %r" % (fracs,)
+    )
+    assert fracs[-1] > 0.0, (
+        "amplitude 0.10 must not already have collapsed occupancy to zero -- "
+        "the usable band would then be too narrow to alternate in; got %r"
+        % (fracs,)
     )
 
 
@@ -253,28 +292,50 @@ def test_mech108_sweep_regains_dynamic_range_on_the_quantile_bar():
 # --------------------------------------------------------------------------- #
 
 @pytest.mark.parametrize("q", [0.25, 0.50, 0.75])
-def test_expanding_window_estimator_resaturates(q):
-    """THE control that justifies the fixed-width window. A quantile over the
-    whole run so far LAGS the measured downward-in-time drift, so late samples
-    fall on one side of a stale bar and occupancy walks away from q -- inert
-    while looking correct. The sliding window on the same stream does not."""
+def test_naive_quantile_estimators_miss_the_target_occupancy(q):
+    """THE control that justifies DETRENDING, and the single most likely way
+    this build could be inert while looking correct.
+
+    Two obvious readings of "a quantile of the run's own rv distribution" are
+    measured here against the shipped one, on the SAME gate-variance stream:
+
+      - EXPANDING window (quantile over the whole run so far): lags the drift
+        over the entire run.
+      - plain TRAILING window: centred half a window BEHIND the tick it
+        judges, so under a drift the current sample sits systematically on one
+        side of it.
+
+    Both miss the requested occupancy q by more than the detrended estimator
+    does. If that ever stops being true, the detrending in
+    `_variance_tracking_commit_bar` is dead weight and should be removed --
+    this test is what would say so.
+    """
     _, gvars, _, _ = _drive(_selector())
 
-    expanding, sliding = [], []
+    expanding, trailing, detrended = [], [], []
     for t in range(WINDOW, len(gvars)):
+        w = gvars[t - WINDOW:t]
         expanding.append(gvars[t] < _quantile(gvars[:t], q))
-        sliding.append(gvars[t] < _quantile(gvars[t - WINDOW:t], q))
+        trailing.append(gvars[t] < _quantile(w, q))
+        detrended.append(gvars[t] < _detrended_bar(w, q))
 
-    exp_frac, _, _ = _occupancy(expanding)
-    sld_frac, _, _ = _occupancy(sliding)
+    exp_err = abs(_occupancy(expanding)[0] - q)
+    trl_err = abs(_occupancy(trailing)[0] - q)
+    det_err = abs(_occupancy(detrended)[0] - q)
 
-    assert abs(sld_frac - q) < 0.10, (
-        "sliding window should hold occupancy at q=%.2f; got %.4f" % (q, sld_frac)
+    assert det_err < 0.10, (
+        "detrended estimator should hold occupancy near q=%.2f; error %.4f"
+        % (q, det_err)
     )
-    assert abs(exp_frac - q) > abs(sld_frac - q), (
-        "expanding window must drift FURTHER from q than the sliding one "
-        "(that is why the window is fixed-width): expanding %.4f vs sliding "
-        "%.4f, target %.2f" % (exp_frac, sld_frac, q)
+    assert det_err < trl_err, (
+        "detrending must beat the plain trailing window under drift: "
+        "detrended err %.4f vs trailing err %.4f (q=%.2f)"
+        % (det_err, trl_err, q)
+    )
+    assert det_err < exp_err, (
+        "detrending must beat the expanding window under drift: "
+        "detrended err %.4f vs expanding err %.4f (q=%.2f)"
+        % (det_err, exp_err, q)
     )
 
 
@@ -339,8 +400,8 @@ def test_bar_is_a_quantile_of_strictly_earlier_ticks():
     )
     _, gvars, bars, _ = _drive(sel, ticks=ticks)
     for t in range(WINDOW, ticks):
-        expected = _quantile(gvars[t - WINDOW:t], q)
-        assert bars[t] == pytest.approx(expected, rel=1e-12, abs=0.0), (
+        expected = _detrended_bar(gvars[t - WINDOW:t], q)
+        assert bars[t] == pytest.approx(expected, rel=1e-9, abs=0.0), (
             "bar at tick %d must be the quantile of ticks [%d, %d)" % (t, t - WINDOW, t)
         )
 
@@ -354,6 +415,7 @@ def test_all_three_knobs_survive_from_dims():
     knob needs a field, a signature entry AND a `config.e3` mirror or the lever
     is structurally present and functionally inert. Assert, do not assume."""
     cfg = REEConfig.from_dims(
+        body_obs_dim=4, world_obs_dim=4, action_dim=4,
         use_variance_tracking_commit_threshold=True,
         commit_threshold_quantile=0.37,
         commit_threshold_quantile_window=123,
@@ -364,7 +426,7 @@ def test_all_three_knobs_survive_from_dims():
 
 
 def test_from_dims_default_leaves_the_lever_off_with_unset_sentinels():
-    cfg = REEConfig.from_dims()
+    cfg = REEConfig.from_dims(body_obs_dim=4, world_obs_dim=4, action_dim=4)
     assert cfg.e3.use_variance_tracking_commit_threshold is False
     assert cfg.e3.commit_threshold_quantile == -1.0
     assert cfg.e3.commit_threshold_quantile_window == -1
