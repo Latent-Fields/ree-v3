@@ -2917,7 +2917,19 @@ PROBED = {
     "use_loop_segregation",             # test_use_loop_segregation_changes_the_committed_index
     "use_named_channel_routing",        # test_use_named_channel_routing_substitutes_the_routed_representation
     "use_d1_d2_population_split",       # test_use_d1_d2_population_split_is_bit_identical_at_da_zero_then_diverges
-    "use_loop_local_eligibility_traces",  # test_use_loop_local_eligibility_traces_excludes_the_losing_loops_channel
+    # MECH-131 anticipatory-residue lesion instrument (HippocampalConfig).
+    # Gates the residue_val channel into terrain_prior, which biases the INITIAL
+    # action-object proposal mean. Probed in
+    # tests/contracts/test_mech131_terrain_prior_residue_channel.py rather than
+    # here because the meaningful ON/OFF quantity is the proposal mean produced
+    # by a real rollout with residue actually accumulated at visited locations
+    # (test_c3_liveness_lesion_moves_the_proposal_mean: measured max|delta|
+    # 0.449, ON absmean 0.1288 vs OFF 0.0528), and that file also pins the
+    # complements this flag must NOT disturb -- storage (C4) and the post-hoc
+    # scorer (C5) -- plus the SCOPE fact that it gates only ONE of the two live
+    # anticipatory reads (C6). A bare ON/OFF diff here would show the flag moves
+    # numbers without recording either property.
+    "terrain_prior_residue_channel_enabled",
 } | set(FLAGS_WITH_DEFAULT_BEHAVIOURAL_DELTA) | set(FLAGS_WITH_LOUD_PRECONDITION)
 
 # Audit-confirmed inert / mis-wired flags (finding id -> reason). Documented here

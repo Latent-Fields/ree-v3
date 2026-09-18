@@ -461,6 +461,7 @@ When started with `--remote-control`, the runner emits a per-machine heartbeat e
 - **[MECH-091](docs/substrate/MECH-091-mech091-salient-event-trigger-wiring.md)** — MECH091-SALIENT-EVENT-TRIGGER-WIRING / MECH-091: Salient-Event Trigger Wiring -- IMPLEMENTED (2026-08-17) *(~843 tok)*
 - **[MECH-120](docs/substrate/MECH-120-shy-synaptic-homeostasis-wiring.md)** — SHY Synaptic Homeostasis Wiring (2026-04-08) *(~290 tok)*
 - **[MECH-122](docs/substrate/MECH-122-mech122-content-packaging-spindle-selection.md)** — MECH122-CONTENT-PACKAGING-SPINDLE-SELECTION (MECH-122 content-packaging half; V3 proxy) -- IMPLEMENTED (2026-08-02) *(~1,345 tok)*
+- **[MECH-131](docs/substrate/MECH-131-terrain-prior-anticipatory-residue-channel-lesion.md)** — terrain_prior anticipatory-residue channel lesion knob (`terrain_prior_residue_channel_enabled`; gates ONE of the TWO anticipatory reads -- read the SCOPE table before designing against it) (2026-09-18) *(~700 tok)*
 - **[MECH-140](docs/substrate/MECH-140-x-mech-450-disinhibitory-soft.md)** — x MECH-450: disinhibitory soft-competitive settling (parameter-free) (2026-07-02) *(~1,295 tok)*
 - **[MECH-189](docs/substrate/MECH-189-super-ordinal-goal-anchor-contextmemory.md)** — Super-ordinal goal-anchor ContextMemory writes substrate (infant_substrate:GAP-11) (2026-06-09) *(~2,080 tok)*
 - **[MECH-204](docs/substrate/MECH-204-phase-7-option-b-sleep-accuracy-anchored.md)** — Phase 7 / Option B: sleep.accuracy_anchored_broadcast_recalibration -- IMPLEMENTED (2026-07-20) *(~773 tok)*
