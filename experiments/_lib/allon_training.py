@@ -68,6 +68,7 @@ import torch
 
 from experiments._lib.capability_eval import RandomPolicy
 from experiments._lib.zworld_p0_warmup import run_zworld_p0
+from experiments._lib.zharm_a_p0_warmup import ZHarmAP0Config, run_zharm_a_p0
 from ree_core.latent.zworld_p0 import ZWorldP0Config  # SD-106: zworld_p0_config type
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
@@ -506,6 +507,10 @@ def _train_all_on_agent(
     zworld_p0_dry_run: bool = False,
     zworld_p0_resource_field_weight: float = 0.0,
     zworld_p0_config: Optional[ZWorldP0Config] = None,
+    zharm_a_p0_episodes: int = 0,
+    zharm_a_p0_env: Optional[CausalGridWorldV2] = None,
+    zharm_a_p0_dry_run: bool = False,
+    zharm_a_p0_config: Optional[ZHarmAP0Config] = None,
 ) -> Dict[str, Any]:
     env = train_env
 
@@ -535,6 +540,32 @@ def _train_all_on_agent(
             **({"config": zworld_p0_config} if zworld_p0_config is not None
                else {"resource_field_weight": float(zworld_p0_resource_field_weight)}),
         )
+    # -- P0h: SD-011 affective harm encoder warmup (opt-in; see the header note) -----------
+    # Same defect as P0a above, on the OTHER encoder: the three optimizer groups built below
+    # cover none of the 4 AffectiveHarmEncoder tensors either, so z_harm_a is a frozen random
+    # projection on this path too (measured 2026-09-18; see experiments/_lib/zharm_a_p0_warmup.py
+    # and sd086_zharma_readout_precondition_staged_20260918.md sec 4b). DEFAULT 0 = bit-identical
+    # prior behaviour: no optimizer, no tensor, no RNG draw.
+    #
+    # ORDERING: after P0a, before the P0b e2 warmup. z_harm_a feeds E3 commit gating on every
+    # tick of P0b and P1, so training it later would leave every selection decision in those
+    # phases taken against the random projection -- the same defect one phase later.
+    zharm_a_p0_stats: Dict[str, Any] = {"p0h_recipe": "sd011_harm_accum", "p0h_ran": False}
+    if zharm_a_p0_episodes > 0:
+        if zharm_a_p0_env is None:
+            raise ValueError(
+                "zharm_a_p0_episodes=%d requires zharm_a_p0_env: the warmup rollout consumes "
+                "env RNG, so reusing train_env would shift the layout sequence P0b/P1 then "
+                "see. Build a dedicated env with the same seed, kwargs AND harm_history_len."
+                % (zharm_a_p0_episodes,)
+            )
+        zharm_a_p0_stats = run_zharm_a_p0(
+            agent, zharm_a_p0_env, seed, zharm_a_p0_episodes, steps_per_episode,
+            policy=RandomPolicy(seed), label=f"ree_allon rung={rung_id}",
+            dry_run=zharm_a_p0_dry_run,
+            config=zharm_a_p0_config,
+        )
+
     has_ofc = getattr(agent, "ofc", None) is not None
     has_lpfc = getattr(agent, "lateral_pfc", None) is not None
 
@@ -865,6 +896,7 @@ def _train_all_on_agent(
         "n_p1_ticks": int(n_p1_ticks),
         "n_e2_train_steps": int(n_e2_train_steps),
         "zworld_p0": zworld_p0_stats,
+        "zharm_a_p0": zharm_a_p0_stats,
         # sd-allon-training-signal-absorption-telemetry: ADDITIVE, never read back by this
         # recipe. A drive-axis null measured through this harness is interpretable only
         # against these two blocks.

@@ -1,0 +1,418 @@
+"""SD-011 affective-harm-encoder (z_harm_a) P0h warmup for the `_train_all_on_agent` family.
+
+WHY THIS EXISTS. The P0/P1 warmup shared by the x728/x734/x737/x742 drivers builds three
+optimizer groups -- e2, the lateral-PFC bias head, and the OFC devaluation head -- and none of
+them covers a single `AffectiveHarmEncoder` parameter. So `latent_stack.affective_harm_encoder`
+is never stepped and `z_harm_a` stays a FROZEN RANDOM PROJECTION for the whole run, with no
+error and no warning. Measured 2026-09-18 by parameter-identity intersection against the
+optimizers built at `allon_training.py:541-548`:
+
+    latent_stack param tensors             : 53
+    affective_harm_encoder param tensors   : 4
+    affective encoder params COVERED       : 0
+    AFFECTIVE ENCODER REACHABLE BY TRAINER : False
+
+This is the exact sibling of the V3-EXQ-780 `z_world` defect that `allon_training.py:475-476`
+already records for the world stream, and it is remedied here the same way the z_world one was:
+an OPT-IN, default-OFF P0 stage that owns its own optimizer group. Diagnosis:
+`REE_assembly/evidence/planning/sd086_zharma_readout_precondition_staged_20260918.md` sec 4b.
+
+WHAT SIGNAL THIS TRAINS ON, AND WHY IT IS NOT A FREE CHOICE. The architecture already
+specifies it, in two places that agree:
+
+  * `LatentStackConfig.harm_history_len` / `z_harm_a_aux_loss_weight` (SD-011 "second source"):
+    when `harm_history_len > 0` the encoder gains a `harm_accum_head` whose job is to predict
+    accumulated harm exposure from `z_harm_a`, "forcing the affective encoder to integrate
+    temporal harm information that z_harm_s does not receive" (`agent.compute_harm_accum_loss`).
+  * `ree_core/predictors/e2_harm_a.py`, "Phased training required", names the missing stage by
+    name: "P0: AffectiveHarmEncoder warmup (z_harm_a encoder trains on accumulated-harm /
+    harm-surprise supervision per SD-020)".
+
+So this module does NOT pick a new objective. It calls `agent.compute_harm_accum_loss`
+unchanged -- which is also where SD-020's precision-weighted prediction-error target lives,
+behind the caller's existing `REEConfig.harm_surprise_pe_enabled` flag. The SD-011 EMA target
+and the SD-020 surprise target are therefore the SAME loss under a config the caller already
+owns, not two rival recipes this module would have had to arbitrate between. The one existing
+call site of that loss (`_lib/baselines/exq610_inv074_crystallization_baseline.py:538`) is the
+precedent for the optimizer shape used here (Adam, lr 5e-4, grad-norm clip 1.0).
+
+ORDERING: P0h runs AFTER the SD-070 z_world P0a and BEFORE the P0b e2 contrastive warmup. The
+two encoder stages are independent (z_harm_a bypasses the world path entirely), but P0b and P1
+both drive the FULL agent loop, and `z_harm_a` feeds E3 commit gating and ARC-016 harm-variance
+gating on every tick of it. Training the affective encoder afterwards would leave every
+selection decision in P0b/P1 taken against the random projection -- the same defect one phase
+later, which is the mistake the z_world ordering note already warns about.
+
+DEFAULT `zharm_a_p0_episodes=0` IS EXACTLY THE PRIOR BEHAVIOUR, bit-identical: no optimizer, no
+extra tensor, and no RNG draw. Every existing caller is unaffected until it opts in.
+
+RNG NEUTRALITY IS LOAD-BEARING, NOT HYGIENE. The warmup rollout consumes the global numpy
+stream through the policy, so leaving it unguarded would shift every subsequent draw in P0b and
+P1 -- an ON-vs-OFF comparison would then confound "the encoder is now trained" (the effect under
+test) with "the RNG stream moved" (pure noise). This module reuses `zworld_p0_warmup._rng_neutral`
+ITSELF rather than copying it, so the two stages cannot drift on the property that makes those
+comparisons valid, and rolls out on a CALLER-SUPPLIED warmup env so the training env's own layout
+sequence is untouched. `agent._harm_obs_ema` (the SD-020 expected-harm tracker, which
+`compute_harm_accum_loss` mutates) is snapshotted and restored for the same reason.
+
+WHAT IT REFUSES, LOUDLY, RATHER THAN NO-OPPING. `compute_harm_accum_loss` returns a zero loss
+when `harm_history_len <= 0` or when the aux head did not run -- correct for its existing
+per-tick callers, and silently fatal for a warmup, which would report having trained while
+stepping on a zero gradient. Every such condition is checked up front and recorded in
+`p0h_reason` with `p0h_ran: False`.
+
+ML/AI engineering note (Layer 7). Training online at batch=1 over a temporally correlated
+rollout is the standard correlated-update hazard, and the in-corpus precedent to respect is
+SD-070: the prescribed z_world P0 collapsed the code to participation ratio ~1.06 exactly that
+way. Three things keep it bounded here and none of them is an assumption: the objective is a
+1-d regression through a 2-layer head (not a contrastive objective over a 32-d code, which is
+what collapsed); gradients are norm-clipped at 1.0 per step; and the last `holdout_episode_frac`
+of EPISODES are held out of training entirely and scored before and after, so a model that fit
+the training order rather than the signal shows up as a held-out loss that did not fall. The
+holdout is by episode, not by tick, because adjacent ticks share an EMA and a tick-level split
+would leak.
+
+MECH-094: not applicable. Trains on live observations; writes nothing to memory in any
+non-waking state.
+
+See `REE_assembly/docs/architecture/sd_011_dual_nociceptive_streams.md`,
+`REE_assembly/docs/architecture/sd_020_harm_surprise_pe.md`,
+`experiments/_lib/zworld_p0_warmup.py` (the z_world sibling this mirrors),
+`REE_assembly/evidence/planning/substrate_queue.json` -> `sd_zharm_a_warmup_optimizer_group`.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple
+
+import torch
+
+# Deliberately the SAME context manager object as the z_world stage uses, not a copy: the two
+# P0 stages must not be able to drift on RNG neutrality, which is what makes every fixed-seed
+# ON/OFF comparison across either of them valid. Pinned by
+# tests/contracts/test_zharm_a_p0_warmup.py::test_rng_neutral_is_shared_with_zworld_stage.
+from experiments._lib.zworld_p0_warmup import _rng_neutral
+from ree_core.latent.stack import LatentState
+
+__all__ = [
+    "ZHarmAP0Config",
+    "run_zharm_a_p0",
+    "affective_encoder_parameters",
+    "encoder_weight_snapshot",
+    "encoder_weight_delta",
+]
+
+
+@dataclass
+class ZHarmAP0Config:
+    """Objective/optimiser settings for the P0h affective-encoder warmup.
+
+    Defaults follow the one existing `compute_harm_accum_loss` call site
+    (`exq610_inv074_crystallization_baseline.py`: Adam at LR_ENC_AUX=5e-4, grad-norm clip 1.0)
+    so this stage is not a new recipe with new hyper-parameters, only a new place that recipe
+    is reached from. `epochs` and `holdout_episode_frac` have no precedent there because that
+    driver trains online inside its own episode loop and never holds anything out; they are
+    this module's own, and both are reported in the returned block.
+    """
+
+    seed: int = 0
+    lr: float = 5e-4
+    epochs: int = 4
+    max_grad_norm: float = 1.0
+    holdout_episode_frac: float = 0.2
+    loss_weight_note: str = "weight is LatentStackConfig.z_harm_a_aux_loss_weight (agent-side)"
+
+
+def affective_encoder_parameters(agent: Any) -> List[torch.nn.Parameter]:
+    """Every parameter the P0h optimizer group covers, in a stable order.
+
+    This is `affective_harm_encoder.parameters()` -- the encoder MLP plus, when
+    `harm_history_len > 0`, the `harm_accum_head` that supplies the gradient. Returns an empty
+    list when the affective stream is off, which the caller reads as a refusal rather than as
+    an empty-but-fine optimizer.
+    """
+    enc = getattr(getattr(agent, "latent_stack", None), "affective_harm_encoder", None)
+    if enc is None:
+        return []
+    return [p for p in enc.parameters()]
+
+
+def encoder_weight_snapshot(agent: Any) -> List[torch.Tensor]:
+    """Detached clones of the affective-encoder parameters, for the weight-delta readiness
+    readout. The readout this feeds is the direct analog of `zworld_encoder_guard`'s
+    world-path weight delta: it is what distinguishes "the stage ran" from "the stage moved
+    the parameters an experiment's DV depends on"."""
+    return [p.detach().clone() for p in affective_encoder_parameters(agent)]
+
+
+def encoder_weight_delta(
+    before: List[torch.Tensor], after: List[torch.Tensor],
+) -> Tuple[int, float]:
+    """(n_tensors_changed, max_abs_delta) between two snapshots. Length mismatch is a
+    programming error, not a measurement, so it raises rather than reporting a zero delta --
+    a silent zero here reads identically to the defect this module exists to fix."""
+    if len(before) != len(after):
+        raise ValueError(
+            "encoder_weight_delta: snapshot length mismatch (%d vs %d)"
+            % (len(before), len(after))
+        )
+    n_changed = 0
+    max_abs = 0.0
+    for b, a in zip(before, after):
+        d = (a - b).abs()
+        m = float(d.max().item()) if d.numel() else 0.0
+        if m > 0.0:
+            n_changed += 1
+        max_abs = max(max_abs, m)
+    return n_changed, max_abs
+
+
+def _loss_state(harm_accum_pred: torch.Tensor, device: torch.device) -> LatentState:
+    """A LatentState carrying ONLY `harm_accum_pred`.
+
+    `compute_harm_accum_loss` reads exactly that one field off the state; everything else it
+    needs it takes from the agent. Building a minimal state lets this stage reuse the canonical
+    loss (SD-020 target switch included) WITHOUT calling `agent.sense()`, which would advance
+    residue / goal / clock state before the real P0 begins -- the same reason the z_world stage
+    does not drive the agent either.
+
+    `harm_accum_pred` is safe to compute from the encoder directly: `LatentStack.encode`
+    produces it from the UNBLENDED encoder output and never applies the SD-036 harm-decay blend
+    to it (see the blend's own note in `latent/stack.py`), so this value is identical to the one
+    a full `sense()` would have returned.
+    """
+    z = torch.zeros(1, 1, device=device)
+    return LatentState(
+        z_self=z, z_world=z, z_beta=z, z_theta=z, z_delta=z,
+        precision={},
+        harm_accum_pred=harm_accum_pred,
+    )
+
+
+def _refuse(reason: str, label: str, seed: int, cfg: Optional[ZHarmAP0Config] = None,
+            ) -> Dict[str, Any]:
+    out: Dict[str, Any] = {"p0h_recipe": "sd011_harm_accum", "p0h_ran": False,
+                           "p0h_reason": reason}
+    if cfg is not None:
+        out["p0h_config"] = dataclasses.asdict(cfg)
+    print(
+        "  [P0h-REFUSAL] %s seed=%d: %s" % (label or "zharm_a_p0", int(seed), reason),
+        flush=True,
+    )
+    return out
+
+
+def run_zharm_a_p0(
+    agent: Any,
+    warmup_env: Any,
+    seed: int,
+    episodes: int,
+    steps_per_episode: int,
+    policy: Any,
+    label: str = "",
+    dry_run: bool = False,
+    config: Optional[ZHarmAP0Config] = None,
+) -> Dict[str, Any]:
+    """Run the SD-011 P0h affective-harm-encoder warmup against `agent.latent_stack`.
+
+    `warmup_env` MUST be a dedicated env instance, not the caller's training env: the rollout
+    consumes env RNG, and reusing the training env would shift the layout sequence P0b/P1 then
+    see. Build it the same way, with the same seed AND the same `harm_history_len`, as the
+    training env, so the warmup sees the matched state distribution and the same input width.
+
+    `policy` is any `_lib.capability_eval.Policy` -- typically `RandomPolicy(seed)`. The agent
+    is deliberately NOT driven here (see `_loss_state`).
+
+    Trains exactly `latent_stack.affective_harm_encoder` -- the 4-tensor parameter set the
+    2026-09-18 coverage measurement found in no optimizer group on this path.
+
+    Returns a diagnostic block for the manifest. `p0h_encoder_tensors_changed` /
+    `p0h_encoder_max_abs_delta` are the ground truth that the stage MOVED the encoder, not
+    merely that it was asked to: a caller that half-configured the agent reads a refusal or a
+    zero delta here rather than assuming its ON arm was manipulated.
+    """
+    cfg = config if config is not None else ZHarmAP0Config(seed=int(seed))
+    cfg = dataclasses.replace(cfg, seed=int(seed))
+    if dry_run:
+        cfg = dataclasses.replace(cfg, epochs=1)
+
+    if int(episodes) <= 0:
+        return {"p0h_recipe": "sd011_harm_accum", "p0h_ran": False, "p0h_reason": "episodes<=0"}
+
+    # -- refusals: each of these would otherwise produce a confident-looking zero-gradient run --
+    params = affective_encoder_parameters(agent)
+    if not params:
+        return _refuse(
+            "affective_harm_encoder absent -- needs use_affective_harm_stream=True on the "
+            "agent's LatentStackConfig", label, seed, cfg,
+        )
+    enc = agent.latent_stack.affective_harm_encoder
+    if getattr(enc, "harm_accum_head", None) is None:
+        return _refuse(
+            "harm_accum_head absent -- needs LatentStackConfig.harm_history_len > 0; without "
+            "it compute_harm_accum_loss returns a zero loss and the encoder would not move",
+            label, seed, cfg,
+        )
+    if int(getattr(getattr(agent.config, "latent", None), "harm_history_len", 0)) <= 0:
+        return _refuse(
+            "agent.config.latent.harm_history_len <= 0 -- compute_harm_accum_loss short-"
+            "circuits to a zero loss", label, seed, cfg,
+        )
+    if int(getattr(warmup_env, "harm_history_len", 0)) <= 0:
+        return _refuse(
+            "warmup_env.harm_history_len <= 0 -- the env emits no harm_history/accumulated_harm, "
+            "so there is nothing to supervise on", label, seed, cfg,
+        )
+
+    device = next(iter(params)).device
+    out: Dict[str, Any] = {"p0h_recipe": "sd011_harm_accum", "p0h_ran": True}
+    out["p0h_config"] = dataclasses.asdict(cfg)
+    out["p0h_n_encoder_tensors"] = len(params)
+    out["p0h_harm_surprise_pe_enabled"] = bool(
+        getattr(agent.config, "harm_surprise_pe_enabled", False)
+    )
+    out["p0h_target"] = (
+        "sd020_precision_weighted_pe" if out["p0h_harm_surprise_pe_enabled"]
+        else "sd011_accumulated_harm_ema"
+    )
+
+    before = encoder_weight_snapshot(agent)
+    # The SD-020 expected-harm tracker is agent state that compute_harm_accum_loss MUTATES.
+    # Restored below for the same reason the RNG streams are: a warmup on a separate env must
+    # not leak its own history into the training phases that follow.
+    harm_obs_ema_pre = getattr(agent, "_harm_obs_ema", None)
+
+    # (harm_obs_a, harm_history, accumulated_harm) per tick, plus the episode index so the
+    # holdout can be cut on an EPISODE boundary (adjacent ticks share an EMA; a tick-level
+    # split would leak the target across it).
+    buf: List[Tuple[torch.Tensor, Optional[torch.Tensor], float, int]] = []
+
+    with _rng_neutral():
+        for ep in range(int(episodes)):
+            _flat0, obs_dict = warmup_env.reset()
+            policy.reset(warmup_env)
+
+            for _step in range(int(steps_per_episode)):
+                hoa = obs_dict.get("harm_obs_a")
+                hh = obs_dict.get("harm_history")
+                accum = obs_dict.get("accumulated_harm")
+                if hoa is not None and accum is not None:
+                    buf.append((
+                        hoa.float().unsqueeze(0).to(device),
+                        None if hh is None else hh.float().unsqueeze(0).to(device),
+                        float(accum),
+                        ep,
+                    ))
+
+                action = policy.act(warmup_env, obs_dict)
+                with torch.no_grad():
+                    _flat, _harm, done, _info, obs_dict = warmup_env.step(action)
+                if done:
+                    break
+
+            cur = ep + 1
+            if cur == 1 or cur % 50 == 0 or cur == int(episodes):
+                print(
+                    "  [train] %s seed=%d phase=P0h ep %d/%d (SD-011 affective harm encoder)"
+                    % (label or "zharm_a_p0", int(seed), cur, int(episodes)),
+                    flush=True,
+                )
+
+        out["p0h_n_buffered"] = len(buf)
+        if not buf:
+            out["p0h_ran"] = False
+            out["p0h_reason"] = (
+                "no supervised samples buffered -- env emitted no harm_obs_a/accumulated_harm"
+            )
+            print(
+                "  [P0h-REFUSAL] %s seed=%d: %s"
+                % (label or "zharm_a_p0", int(seed), out["p0h_reason"]), flush=True,
+            )
+            return out
+
+        n_eps_seen = buf[-1][3] + 1
+        n_holdout_eps = int(n_eps_seen * float(cfg.holdout_episode_frac))
+        # A holdout is only meaningful if something is left to train on. Below 2 episodes it is
+        # reported as absent rather than silently taking the whole buffer.
+        if n_eps_seen < 2 or n_holdout_eps < 1:
+            n_holdout_eps = 0
+        first_holdout_ep = n_eps_seen - n_holdout_eps
+        train = [s for s in buf if s[3] < first_holdout_ep]
+        holdout = [s for s in buf if s[3] >= first_holdout_ep]
+        out["p0h_n_train"] = len(train)
+        out["p0h_n_holdout"] = len(holdout)
+        out["p0h_n_holdout_episodes"] = n_holdout_eps
+
+        def _pred(sample) -> torch.Tensor:
+            hoa, hh, _t, _e = sample
+            _z, pred = enc(hoa, hh)
+            return pred
+
+        def _eval(samples) -> Optional[float]:
+            if not samples:
+                return None
+            ema0 = getattr(agent, "_harm_obs_ema", None)
+            total = 0.0
+            with torch.no_grad():
+                for s in samples:
+                    loss = agent.compute_harm_accum_loss(s[2], _loss_state(_pred(s), device))
+                    total += float(loss.item())
+            if ema0 is not None:
+                agent._harm_obs_ema = ema0
+            return total / float(len(samples))
+
+        out["p0h_holdout_loss_pre"] = _eval(holdout)
+
+        opt = torch.optim.Adam(params, lr=float(cfg.lr))
+        n_steps = 0
+        epoch_losses: List[float] = []
+        for _epoch in range(int(cfg.epochs)):
+            # Restore the SD-020 tracker at each epoch boundary so every epoch replays the
+            # SAME temporal sequence. Without this the target under harm_surprise_pe_enabled
+            # would depend on how many epochs had already run, which is not a property of the
+            # data.
+            if harm_obs_ema_pre is not None:
+                agent._harm_obs_ema = harm_obs_ema_pre
+            ep_total = 0.0
+            for s in train:
+                loss = agent.compute_harm_accum_loss(s[2], _loss_state(_pred(s), device))
+                if not loss.requires_grad:
+                    continue
+                opt.zero_grad()
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(params, float(cfg.max_grad_norm))
+                opt.step()
+                n_steps += 1
+                ep_total += float(loss.item())
+            if train:
+                epoch_losses.append(ep_total / float(len(train)))
+
+        out["p0h_n_steps"] = n_steps
+        out["p0h_epoch_mean_losses"] = epoch_losses
+        out["p0h_first_epoch_mean_loss"] = epoch_losses[0] if epoch_losses else None
+        out["p0h_final_epoch_mean_loss"] = epoch_losses[-1] if epoch_losses else None
+        out["p0h_holdout_loss_post"] = _eval(holdout)
+
+    if harm_obs_ema_pre is not None:
+        agent._harm_obs_ema = harm_obs_ema_pre
+
+    n_changed, max_abs = encoder_weight_delta(before, encoder_weight_snapshot(agent))
+    out["p0h_encoder_tensors_changed"] = n_changed
+    out["p0h_encoder_max_abs_delta"] = max_abs
+    pre, post = out.get("p0h_holdout_loss_pre"), out.get("p0h_holdout_loss_post")
+    # The generalisation readout, recorded because the weight delta can be satisfied VACUOUSLY:
+    # an encoder can move a long way and fit only the training order. Positive = the held-out
+    # episodes got better. None = no holdout was cut, which is NOT the same as zero.
+    out["p0h_holdout_loss_drop"] = (
+        (pre - post) if (pre is not None and post is not None) else None
+    )
+    if n_steps > 0 and n_changed == 0:
+        print(
+            "  [P0h-WARN] %s seed=%d: %d optimizer steps moved NO encoder tensor -- the "
+            "gradient path is not reaching the encoder"
+            % (label or "zharm_a_p0", int(seed), n_steps),
+            flush=True,
+        )
+    return out
