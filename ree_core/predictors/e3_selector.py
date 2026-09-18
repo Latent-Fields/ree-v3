@@ -509,6 +509,51 @@ class E3TrajectorySelector(nn.Module):
         self._rv_history: deque = deque(maxlen=100)
         self._volatility_estimate: float = 0.0
 
+        # ARC-029 (D) 2026-09-18: VARIANCE-TRACKING COMMITMENT BAR.
+        # Sliding window of the scalar the commit gate ACTUALLY compared
+        # against effective_threshold (rv in world-variance mode, the harm
+        # score variance in harm-variance mode), from which the bar is taken
+        # as a quantile. None when the lever is off -- the gate's OFF path is
+        # then a single `is None` identity check and cannot touch behaviour.
+        #
+        # NOT cleared on episode reset, deliberately and consistently with
+        # _rv_history above: the bar is a quantile of the RUN's distribution,
+        # and re-warming it every episode would re-impose exactly the
+        # absolute-bar saturation this lever exists to remove.
+        #
+        # VALIDATED HERE, AT CONSTRUCTION, rather than at first use: if
+        # REEConfig.from_dims silently swallowed either parameter (it swallows
+        # unknown kwargs -- see its own comment) the sentinel survives and this
+        # RAISES immediately, instead of the lever running on a nonsense bar or
+        # sitting structurally-present-but-inert.
+        self._commit_gate_variance_window: Optional[deque] = None
+        if getattr(self.config, "use_variance_tracking_commit_threshold", False):
+            _q = float(getattr(self.config, "commit_threshold_quantile", -1.0))
+            _w = int(getattr(self.config, "commit_threshold_quantile_window", -1))
+            if not (0.0 < _q < 1.0):
+                raise ValueError(
+                    "use_variance_tracking_commit_threshold is armed but "
+                    "commit_threshold_quantile is "
+                    f"{_q!r}; it must be set explicitly in (0.0, 1.0). There is "
+                    "no default on purpose: the quantile IS the target "
+                    "commitment occupancy and belongs to the experiment's "
+                    "pre-registration, not to the substrate. (If you did set "
+                    "it, it did not arrive -- check all three config wiring "
+                    "sites; from_dims silently swallows unknown kwargs.)"
+                )
+            if _w < 2:
+                raise ValueError(
+                    "use_variance_tracking_commit_threshold is armed but "
+                    "commit_threshold_quantile_window is "
+                    f"{_w!r}; it must be set explicitly to >= 2. No default on "
+                    "purpose -- window width decides whether committed runs "
+                    "have length structure at all, and an over-long window "
+                    "lags the ~5x within-run rv drift and re-saturates the "
+                    "gate. (If you did set it, it did not arrive -- check all "
+                    "three config wiring sites.)"
+                )
+            self._commit_gate_variance_window = deque(maxlen=_w)
+
         # Commitment state
         self._committed_trajectory: Optional[Trajectory] = None
         # Closure-plane commit-ENTRY primitive (rung-6 amend; commitment_closure:GAP-4;
@@ -815,6 +860,53 @@ class E3TrajectorySelector(nn.Module):
     def current_precision(self) -> float:
         """Current precision estimate (inverse of running variance)."""
         return 1.0 / (self._running_variance + 1e-6)
+
+    def _variance_tracking_commit_bar(self) -> Optional[float]:
+        """ARC-029 (D): the commit bar as a quantile of the run's own recent
+        commit-gate-variance distribution, or None to leave the absolute bar
+        in force.
+
+        Returns None when the lever is off, and ALSO while the sliding window
+        is not yet full -- during that warmup the caller keeps the existing
+        absolute `commit_threshold`, which is the pre-lever behaviour. Warmup
+        is therefore bounded by the window width the experiment chose; it is
+        not a separate knob.
+
+        ESTIMATOR: exact q-quantile (linear interpolation between order
+        statistics, i.e. numpy's default `method="linear"`) over a FIXED-WIDTH
+        sliding window. The width is load-bearing in BOTH directions:
+
+          - too LONG (in the limit, an expanding window over the whole run) and
+            the bar LAGS the ~5x within-run drift in rv, so later samples sit
+            below a stale bar and the gate RE-SATURATES at committed=1.0 --
+            the original failure, reproduced by a fix that looks correct;
+          - too SHORT (at or below the rv EMA time constant, ~1/
+            precision_ema_alpha ~ 20 ticks) and the window holds only
+            correlated samples, so the bar tracks rv almost instantaneously,
+            occupancy is still ~q but committed RUNS degenerate towards a
+            single tick -- which fails ARC-029's own P1 run-length criterion
+            while passing its occupancy criterion.
+
+        Between those, occupancy is ~q at ANY absolute rv scale (that is what
+        makes it survive the five-order collapse), and run length is set by
+        the autocorrelation of rv itself rather than by the window.
+
+        The current tick's own observation is appended by the caller AFTER the
+        gate decision, so the bar is strictly causal: a sample never
+        contributes to the bar it is judged against.
+        """
+        window = self._commit_gate_variance_window
+        if window is None or window.maxlen is None or len(window) < window.maxlen:
+            return None
+        vals = sorted(window)
+        q = float(self.config.commit_threshold_quantile)
+        pos = (len(vals) - 1) * q
+        lo = int(math.floor(pos))
+        hi = int(math.ceil(pos))
+        if lo == hi:
+            return float(vals[lo])
+        frac = pos - lo
+        return float(vals[lo] * (1.0 - frac) + vals[hi] * frac)
 
     @property
     def commit_threshold(self) -> float:
@@ -3768,6 +3860,24 @@ class E3TrajectorySelector(nn.Module):
         # periodic uncommitted windows even after training converges variance below
         # base threshold. Without this, the agent becomes permanently committed.
         effective_threshold = self.commit_threshold
+        # ARC-029 (D) 2026-09-18: replace the ABSOLUTE base bar with a quantile
+        # of the run's own commit-gate-variance distribution, when armed. This
+        # is deliberately the BASE, evaluated BEFORE every existing modulation
+        # below, so the MECH-108 sweep / SD-011 urgency / SD-093 velocity terms
+        # all keep multiplying it with unchanged semantics -- and the sweep in
+        # particular regains real dynamic range, because it now moves the bar
+        # within rv's OBSERVED spread instead of needing a > 0.99996 to reach a
+        # bar five orders above rv. Returns None (leaving the absolute bar in
+        # force, bit-identically) when the lever is off or the window is still
+        # warming. See _variance_tracking_commit_bar for the estimator and its
+        # drift behaviour.
+        _vt_commit_bar = (
+            self._variance_tracking_commit_bar()
+            if self._commit_gate_variance_window is not None
+            else None
+        )
+        if _vt_commit_bar is not None:
+            effective_threshold = _vt_commit_bar
         if sweep_threshold_reduction > 0.0:
             effective_threshold = effective_threshold * (1.0 - sweep_threshold_reduction)
 
@@ -3832,6 +3942,7 @@ class E3TrajectorySelector(nn.Module):
             ])
             harm_score_variance = harm_scores.var().item()
             committed = harm_score_variance < effective_threshold
+            _vt_gate_observed = float(harm_score_variance)
         else:
             # SD-063: conditional predictive-precision commit gate. When enabled
             # AND a per-input predictive variance is supplied (from the
@@ -3845,6 +3956,7 @@ class E3TrajectorySelector(nn.Module):
                     and conditional_predictive_variance is not None):
                 commit_variance = float(conditional_predictive_variance)
             committed = commit_variance < effective_threshold
+            _vt_gate_observed = float(commit_variance)
             # MECH-027: normalized precision margin -- 0 at the threshold (barely
             # committed), 1 as commit_variance -> 0 (maximally confident). The
             # graded consumer for use_precision_scaled_commit_temperature below
@@ -3859,6 +3971,15 @@ class E3TrajectorySelector(nn.Module):
                 self.last_score_diagnostics["precision_margin_norm"] = float(
                     _precision_margin_norm
                 )
+
+        # ARC-029 (D): append the scalar the gate ACTUALLY compared, AFTER the
+        # decision -- so the bar a tick is judged against is a quantile of
+        # STRICTLY EARLIER ticks and no sample ever helps set its own bar.
+        # Ungated by e3_score_decomp_enabled on purpose: this feeds the gate,
+        # it is not a diagnostic. No-op (attribute is None) when the lever is
+        # off, so the OFF path executes one identity check and nothing else.
+        if self._commit_gate_variance_window is not None:
+            self._commit_gate_variance_window.append(_vt_gate_observed)
 
         # MECH-463: surface the commit-gate scalars. urgency_applied escapes only
         # as SelectionResult.urgency (:3151) and effective_threshold /
@@ -3878,6 +3999,17 @@ class E3TrajectorySelector(nn.Module):
                 "harm_score_variance" if _harm_var_mode else "world_variance"
             )
             self.last_score_diagnostics["committed"] = bool(committed)
+            # ARC-029 (D): which bar was actually in force this tick, and how
+            # full the window is -- so a falsifier can tell a genuine two-mode
+            # occupancy from a still-warming (and therefore still absolute-bar,
+            # still saturated) prefix. None/0 when the lever is off.
+            self.last_score_diagnostics["variance_tracking_commit_bar"] = (
+                None if _vt_commit_bar is None else float(_vt_commit_bar)
+            )
+            self.last_score_diagnostics["commit_gate_window_fill"] = (
+                0 if self._commit_gate_variance_window is None
+                else len(self._commit_gate_variance_window)
+            )
         # CONVERSION amend (b) -- shortlist-then-modulate (569g/682, 2026-06-15).
         # The pre-registered architectural fallback: F (raw primary scores) filters
         # to a near-tie set (candidates within modulatory_shortlist_margin *
