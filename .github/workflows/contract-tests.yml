@@ -175,6 +175,27 @@ jobs:
     # re-pays (hub 186.11s -> 82.57s), which is worth 4x more under xdist than
     # it was serially. Re-read `--durations` after any change to either.
     #
+    # OUTCOME, MEASURED END TO END (2026-09-18, runs 35338932137 serial vs
+    # 35348191881 parallel, same workflow, same runner size):
+    #             serial            parallel + 6 roots
+    #   collected 5291              6328   (+1037: the widening below)
+    #   wall      2244.13s 37m24s   734.80s 12m14s
+    #   per test  0.424s            0.116s
+    #   budget    62% of 60min      20%
+    # 3.05x faster while running 1037 MORE tests -- the two halves of this
+    # change pay for each other rather than trading off, which is why they
+    # were done together.
+    #
+    # RE-DERIVED HEADROOM, on the same growth figures as above (~35 def/day,
+    # ~1.11 collected per def) but at the new 0.116 s/test: ~4.5s of added
+    # runtime per day against ~2865s of remaining budget, i.e. of the order of
+    # 18-21 months rather than 78 days. Budget against a SLOW runner as the
+    # paragraph above insists (that distribution is ~38% wide and has not gone
+    # away -- parallelism does not narrow it) and it is still well over a year.
+    # That is a fix rather than a deadline, but it is not a permanent one, and
+    # the honest next lever is no longer parallelism: at 4 workers on 4 vCPUs
+    # this box is fully used. The next one is the ~127s x 4 corpus_scan floor.
+    #
     # DO NOT buy time by narrowing the collected set. A suite that is not run
     # is not a gate.
     #
