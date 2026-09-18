@@ -241,6 +241,23 @@ jobs:
           # exact path to add when a test lands somewhere new. Enumerating the
           # tree is the point: a hardcoded list of roots-known-today reproduces
           # the 2026-07-27 defect the moment the next root appears.
+          # ONE THREAD PER WORKER. `-n auto` starts one xdist worker per vCPU,
+          # and torch/OpenMP each default to grabbing ALL vCPUs for intra-op
+          # parallelism -- so 4 workers x 4 threads oversubscribes a 4-vCPU
+          # runner 4:1 and the suite spends its time context-switching. This
+          # was MEASURED, not assumed: the same test's `call` time inflated
+          # with concurrent load while the machine stayed the same size --
+          #   tests/contracts/test_sd081_dualsystem_arbitration.py
+          #   ::test_sd081_on_changes_selection_and_records_the_paired_series
+          #     40.23s serial | 105.17s xdist(tests/) | 132.61s xdist(6 roots)
+          # -- i.e. 3.3x per-test inflation, which is what capped the whole
+          # lever at 2.12x instead of the ~3x a 4-vCPU box should give.
+          # Pinning to 1 also removes a nondeterminism source rather than
+          # adding one, which matters in a repo that pins exact tensor values.
+          OMP_NUM_THREADS: "1"
+          MKL_NUM_THREADS: "1"
+          OPENBLAS_NUM_THREADS: "1"
+          NUMEXPR_NUM_THREADS: "1"
           PYTEST_ROOTS: "tests/ coordinator/ dispatch/ test_runner_reclassify_cmd.py test_validate_recording.py experiments/test_infant_curriculum_phase3.py"
         run: |
           nproc
