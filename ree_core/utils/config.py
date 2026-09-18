@@ -2578,6 +2578,25 @@ class HippocampalConfig:
     # MAIN-PATH DEFAULT (2026-05-17): 0.2 (V3-EXQ-567 ARM_1 value). Legacy
     # opt-out: set 0.0.
     support_preserving_ao_std_floor: float = 0.2
+    # MECH-131 lesion instrument: the ANTICIPATORY residue channel into
+    # terrain_prior (hippocampal/module.py _get_terrain_action_object_mean).
+    # When False, residue_val is zeroed OUT-OF-PLACE before the torch.cat, so
+    # the terrain_prior input WIDTH is unchanged (the width is structural --
+    # see terrain_input_dim in HippocampalModule.__init__) and only the
+    # channel's VALUE is ablated.
+    #
+    # This is the "stored but not activated" arm MECH-131 asserts: residue
+    # accumulation (ResidueField.accumulate, driven from e3_selector under the
+    # commitment + harm_occurred gate) and the POST-HOC scorer
+    # (E3.compute_residue_cost, scaled by rho_residue) are both untouched --
+    # only the pre-candidate-generation read is removed.
+    #
+    # SCOPE, stated because it is easy to over-read: this gates ONE of the TWO
+    # live anticipatory reads. The other is the CEM elite-selection terrain
+    # score (_score_trajectory -> residue_field.evaluate_trajectory), which
+    # this knob does NOT touch and which remains active when this is False.
+    # Default True = current behaviour, bit-identical.
+    terrain_prior_residue_channel_enabled: bool = True
     # VALENCE_WANTING gradient: when > 0, trajectories toward high-wanting
     # (resource-proximal) regions score better during CEM selection.
     # Subtracted from terrain score (lower score = better in CEM).
@@ -8191,6 +8210,10 @@ class REEConfig:
         support_preserving_stratified_elites: bool = True,
         support_preserving_per_class_quota: int = 0,
         support_preserving_ao_std_floor: float = 0.2,
+        # MECH-131 anticipatory-residue lesion instrument (default True =
+        # current behaviour). Must match the HippocampalConfig dataclass
+        # default -- it is assigned unconditionally below.
+        terrain_prior_residue_channel_enabled: bool = True,
         # V3-EXQ-563c: score/bias scale normalisation
         normalize_score_bias_to_e3_range: bool = False,
         use_modulatory_selection_authority: bool = False,
@@ -9749,6 +9772,9 @@ class REEConfig:
         )
         config.hippocampal.support_preserving_ao_std_floor = (
             support_preserving_ao_std_floor
+        )
+        config.hippocampal.terrain_prior_residue_channel_enabled = (
+            terrain_prior_residue_channel_enabled
         )
         # SD-055: differentiable CEM selection approximation
         config.hippocampal.use_differentiable_cem = use_differentiable_cem

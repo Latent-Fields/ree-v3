@@ -579,6 +579,21 @@ class HippocampalModule(nn.Module):
         """
         with torch.no_grad():
             residue_val = self.residue_field.evaluate(z_world).unsqueeze(-1)  # [batch, 1]
+            # MECH-131 lesion instrument: ablate the ANTICIPATORY residue read
+            # while leaving STORAGE (ResidueField.accumulate) and the POST-HOC
+            # scorer (E3.compute_residue_cost * rho_residue) fully intact --
+            # the "stored but not activated" arm the claim asserts.
+            #
+            # Zeroed OUT-OF-PLACE, never .zero_(): residue_field.evaluate may
+            # return a tensor that is a view of, or shares storage with, field
+            # state, and an in-place write would corrupt the field itself
+            # rather than just this read. Keeping the tensor (rather than
+            # dropping the channel) preserves terrain_prior's structural input
+            # width -- see terrain_input_dim in __init__.
+            if not getattr(
+                self.config, "terrain_prior_residue_channel_enabled", True
+            ):
+                residue_val = torch.zeros_like(residue_val)
 
         if e1_prior is None:
             e1_prior = torch.zeros_like(z_world)
