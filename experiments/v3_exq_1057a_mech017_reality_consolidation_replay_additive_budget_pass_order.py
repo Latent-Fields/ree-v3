@@ -190,6 +190,25 @@ TWO SUBSTRATE LIMITS, DECLARED UP FRONT (not worked around)
    function is therefore never called. A precondition asserts the mode is "off"
    at runtime rather than trusting the default.
 
+3. PROBE-TIME LSTM DROPOUT IS LIVE -- declared, measured, and deliberately NOT changed
+   here. `ree_core/predictors/e1_deep.py:648` builds the transition LSTM with
+   `dropout=0.1 if self.config.num_layers > 1 else 0`, and `num_layers` defaults to 3
+   (`ree_core/utils/config.py:430`). Nothing in this driver or in `agent.py` calls
+   `.eval()`, and `torch.no_grad()` (which `_e1_probe_mse` does use) does NOT disable
+   dropout. So the held-out probe evaluation samples a dropout mask, and because the
+   arms consume different amounts of global RNG (the additive arms take twice the
+   consolidation draws), the mask differs per arm. Measured by this run's red-team:
+   max relative spread 0.03% on untrained synthetic latents, 0.81% on a toy-scale
+   trained ARM_A agent; bit-stable after `e1.eval()`.
+   NOT FIXED HERE, on purpose: calling `.eval()` would change the DV's distribution
+   relative to V3-EXQ-1048 and V3-EXQ-1057, whose recorded manifests this design reads
+   as its prior and whose A/B/C cells it reproduces bit-identically. Breaking that
+   comparability to remove a 0.8% term would cost more than it buys, and the decision
+   belongs to a substrate change, not to a successor experiment. What this run does
+   instead is make sure no gate or criterion is decided INSIDE that band: C4's
+   tolerance is 10% and the replay-gain floor is 5%, ~6x the measured noise. Worth a
+   substrate_queue entry; flagged, not silently absorbed.
+
 WHY THE ENCODER IS FROZEN (deliberate, and load-bearing for the design)
 ------------------------------------------------------------------------
 Nothing in this driver trains `agent.latent_stack`: `CrossModuleConsolidator`
@@ -369,6 +388,51 @@ three FIXED and one instrumented-not-gated with reason. None dismissed silently.
      and let a floor be set by a successor once there is a distribution to set it from.
      Widening the EXISTING early gate to include D was considered and REJECTED: a max over
      three arms is strictly WEAKER than the gate 1048 passed.
+
+
+THIS RUN'S OWN RED-TEAM (Step 4.5, model: fable -- model diversity from this session's
+Opus 5): VERDICT **CONTESTED**, four findings, ALL verified against source, three FIXED
+and one declared-not-fixed with reason. None dismissed silently.
+  G1 (Family 2/3, CONFIRMED, FIXED) -- THE IMPORTANT ONE. The design guarded only one
+     collapse direction. The replay-gain gate certifies ARM_D2 is not ARM_B; NOTHING
+     certified it is not ARM_A -- and for D2 that is the LIKELY collapse, because its
+     whole-buffer pass runs LAST and each consolidate() call builds a fresh Adam, so the
+     two passes are two overwrites rather than one optimisation. V3-EXQ-1057's recorded
+     numbers show precisely that dominance-by-last-pass: its D1 arm (recent LAST) had
+     late/B of 0.95-1.11, tracking B, while A's late/B ran 1.09-1.95. By symmetry D2
+     should track A on BOTH legs, clearing the replay-gain gate trivially and then
+     FAILING C4 -- and the run would have recorded "the recency cost is INTRINSIC to
+     replay" / `weakens` when the true mechanism is an instrument property ("the last
+     pass wins, in either order"). A false `weakens` actively moves a claim, so this was
+     the most consequential finding in either pass. FIXED with the symmetric gate
+     `additive_arm_retains_recency_benefit_d2` (e1_late(D2) < e1_late(A), same sign-count
+     form and same seed-majority constant, other leg and other comparator). Verified
+     non-circular: it asks only D2 < A while C4 asks D2 <= 1.1 x B, and A sits 1.09x-1.95x
+     above B on that leg, so C4 stays fully falsifiable. Together the two gates certify
+     D2 is a genuine COMBINATION rather than a collapse onto either parent.
+  G2 (Family 4/2, CONFIRMED, FIXED) -- the replay-gain gate was a strict sign count with
+     NO effect-size margin, while the gain it certifies is ~40-50% in ARM_A and the
+     criterion it protects has a 10% tolerance. A D2 that merely equals B plus noise
+     passes it on 4/5 seeds by chance and then passes C4 trivially, recording
+     "reallocation artefact" for an arm that is simply B -- the exact collapse
+     V3-EXQ-1057's F2 gate was written to exclude, leaking back through the margin. The
+     dry-run smoke sat at D2/B early = 1.0015, inside that band. FIXED by transcribing
+     this script's OWN pre-registered floor, MIN_REL_GAIN_EARLY = 0.05 -- the one
+     V3-EXQ-1048 pairs with C1 as C3, for this same reason -- as
+     `additive_replay_gain_clears_floor_d2`. No new constant.
+  G3 (Family 1, CONFIRMED, DECLARED NOT FIXED) -- probe-time LSTM dropout is live, so the
+     DV carries ~0.8% arm-correlated sampling noise. Full statement, measurement and the
+     reason for not changing it: DECLARED SUBSTRATE LIMIT 3 above. The G2 floor (5%)
+     clears it by ~6x, and C4's tolerance (10%) by ~12x, so no gate or criterion in this
+     run is decided inside the noise band.
+  G4 (Family 3, CONFIRMED, WORDING FIXED) -- C1/C2/C3 were described as "replication" of
+     V3-EXQ-1048. They are not: all 15 A/B/C cells of V3-EXQ-1057 came back BIT-IDENTICAL
+     to 1048's on the same machine_class (verified directly against both manifests). On a
+     fixed class they are a deterministic re-read of a known value, so they add no
+     independent confirmation and the premise branch is effectively pinned. Corrected
+     wherever it appeared -- the criteria details, the premise-branch comment, and the
+     prior section -- and the legs are kept for what they genuinely do: pin the harness
+     against drift and supply the in-run comparator C4 needs.
 
 THE PRIOR, FROM RECORDED EVIDENCE (two runs now, both citable)
 ----------------------------------------------------------------
@@ -1233,6 +1297,48 @@ def main(dry_run: bool = False):
     # CONTROL, and reproducing 0/5 is a result), D2's GATES (the verdict rests on it).
     n_seeds_d1_retains_replay_gain = _retains_replay_gain(ARM_D1)
     n_seeds_d2_retains_replay_gain = _retains_replay_gain(ARM_D2)
+
+    # RED-TEAM F1 (CONFIRMED, FIXED) -- THE SYMMETRIC HALF, and the one this design
+    # was missing. The gate above certifies D2 is not B. NOTHING certified that D2 is
+    # not A, and for D2 that is the LIKELY collapse: its whole-buffer pass runs LAST,
+    # and each consolidate() call builds a fresh Adam, so the two passes are not one
+    # optimisation but two overwrites. V3-EXQ-1057's recorded numbers show the last
+    # pass dominating the late leg exactly this way -- D1 (recent LAST) had late/B of
+    # 0.95-1.11, i.e. it tracked B, while A's late/B was 1.09-1.95. By symmetry D2
+    # (whole-buffer LAST) should track A on BOTH legs: it would pass the replay-gain
+    # gate trivially (A beats B on early by 40-50%) and then FAIL C4, and the run
+    # would record "the recency cost is INTRINSIC to replay" / `weakens` when the
+    # true mechanism is "sequential fresh-Adam passes do not integrate; the last one
+    # wins, in either order" -- an instrument property, not a fact about MECH-017.
+    # So D2 must also retain the RECENCY benefit its recent-window pass contributed:
+    # the same sign-count form and the same seed-majority constant, with the other
+    # leg and the other comparator. Together the two gates say D2 is a genuine
+    # COMBINATION of A and B rather than a collapse onto either parent.
+    # NOT circular with C4: this gate asks only e1_late(D2) < e1_late(A), while C4
+    # asks e1_late(D2) <= 1.1 * e1_late(B), and A's late sits 1.09x-1.95x above B's
+    # -- so passing this gate leaves C4 fully falsifiable.
+    def _retains_recency_benefit(arm_name: str) -> int:
+        return sum(
+            1 for s_ in seeds
+            if rows[(arm_name, s_)]["e1_holdout_mse_late"]
+            < rows[(ARM_A, s_)]["e1_holdout_mse_late"]
+        )
+
+    n_seeds_d1_retains_recency = _retains_recency_benefit(ARM_D1)
+    n_seeds_d2_retains_recency = _retains_recency_benefit(ARM_D2)
+
+    # Effect sizes for the same two comparisons, hoisted above the precondition gate
+    # because `additive_replay_gain_clears_floor_d2` reads one of them.
+    def _rel_gain_early(arm_name: str) -> float:
+        return _mean([
+            (rows[(ARM_B, s_)]["e1_holdout_mse_early"]
+             - rows[(arm_name, s_)]["e1_holdout_mse_early"])
+            / max(rows[(ARM_B, s_)]["e1_holdout_mse_early"], EPS)
+            for s_ in seeds
+        ])
+
+    rel_gain_early_d1 = _rel_gain_early(ARM_D1)
+    rel_gain_early_d2 = _rel_gain_early(ARM_D2)
     def _dv_moved(arm_name: str) -> int:
         return sum(
             1 for s_ in seeds
@@ -1331,6 +1437,37 @@ def main(dry_run: bool = False):
              "arm_d2_mean_early": _mean([r["e1_holdout_mse_early"] for r in d2_rows]),
              "arm_b_mean_early": _mean([r["e1_holdout_mse_early"] for r in b_rows]),
              "arm_a_mean_early": _mean([r["e1_holdout_mse_early"] for r in a_rows])},
+            {"name": "additive_arm_retains_recency_benefit_d2",
+             "measured": float(n_seeds_d2_retains_recency),
+             "threshold": float(SIGN_CONSISTENCY_REQUIRED), "direction": "lower",
+             "control": "seeds with e1_holdout_mse_late(ARM_D2) < e1_holdout_mse_late(ARM_A) -- "
+                        "the SYMMETRIC twin of the replay-gain gate above, on the other leg and "
+                        "against the other parent. ARM_D2 runs its whole-buffer (replay) pass "
+                        "LAST, and each consolidate() call builds a fresh Adam, so the likely "
+                        "degenerate mode is D2 collapsing onto ARM_A: it would clear the "
+                        "replay-gain gate trivially and then fail C4, and the run would record "
+                        "'the recency cost is INTRINSIC to replay' when the real mechanism is "
+                        "'the last pass overwrites the first, in either order' -- an instrument "
+                        "property V3-EXQ-1057's own D1 arm demonstrates (D1 late/B 0.95-1.11, "
+                        "tracking its last pass B, against A late/B 1.09-1.95). Below this floor "
+                        "D2 is not a COMBINATION of the two passes and cannot answer the "
+                        "reallocation question in either direction. Reported for D1 too, never "
+                        "gated on it, for the same reason as the replay-gain gate.",
+             "arm_d1_reported_not_gated": float(n_seeds_d1_retains_recency)},
+            {"name": "additive_replay_gain_clears_floor_d2",
+             "measured": rel_gain_early_d2, "threshold": MIN_REL_GAIN_EARLY,
+             "direction": "lower", "comparator": ">",
+             "control": "mean over seeds of (early_B - early_D2)/early_B, against "
+                        f"MIN_REL_GAIN_EARLY = {MIN_REL_GAIN_EARLY} -- this script's OWN "
+                        "pre-registered effect-size floor, the one V3-EXQ-1048 pairs with C1 as "
+                        "C3. The sign-count gate above is a strict inequality with NO margin, so "
+                        "a D2 that merely equals B plus noise passes it on 4/5 seeds by chance "
+                        "and then passes C4 trivially -- recording 'reallocation artefact' for an "
+                        "arm that is simply B. (The dry-run smoke sat at D2/B early = 1.0015, "
+                        "inside that noise band.) The probe path also carries ~0.8% arm-correlated "
+                        "sampling noise (see DECLARED SUBSTRATE LIMIT 3), which this 5% floor "
+                        "clears by ~6x. No new constant: MIN_REL_GAIN_EARLY is already defined "
+                        "and already load-bearing for C3."},
             {"name": "pass_order_separates_the_arms",
              "measured": float(n_seeds_order_separates),
              "threshold": float(len(seeds)), "direction": "lower",
@@ -1572,8 +1709,7 @@ def main(dry_run: bool = False):
     rel_cost_late_d2 = _mean([(x - y) / max(y, EPS) for x, y in zip(late_d2, late_b)])
     rel_cost_late_d1 = _mean([(x - y) / max(y, EPS) for x, y in zip(late_d1, late_b)])
     rel_cost_late_a = _mean([(x - y) / max(y, EPS) for x, y in zip(late_a, late_b)])
-    rel_gain_early_d2 = _mean([(y - x) / max(y, EPS) for x, y in zip(early_d2, early_b)])
-    rel_gain_early_d1 = _mean([(y - x) / max(y, EPS) for x, y in zip(early_d1, early_b)])
+    # rel_gain_early_d1 / rel_gain_early_d2 are computed above the precondition gate.
 
     criteria = [
         {"name": "C4_additive_budget_no_cost_on_late_probes", "load_bearing": True,
@@ -1595,10 +1731,14 @@ def main(dry_run: bool = False):
         {"name": "C1_replay_beats_budget_matched_on_early_probes", "load_bearing": False,
          "passed": c1, "measured": float(n_a_better_early),
          "threshold": float(SIGN_CONSISTENCY_REQUIRED), "comparator": ">=",
-         "detail": "REPLICATION of V3-EXQ-1048 C1 (A vs B at matched budget), NOT load-bearing "
-                   "here: seeds with e1_holdout_mse_early(A) < e1_holdout_mse_early(B). Carried "
-                   "because the A and B arms are re-run unchanged and the comparison is free; it "
-                   "is a corroboration channel for 1048, not this run's verdict."},
+         "detail": "DETERMINISTIC RE-DERIVATION of V3-EXQ-1048 C1 (A vs B at matched budget), "
+                   "NOT load-bearing and NOT an independent replication: seeds with "
+                   "e1_holdout_mse_early(A) < e1_holdout_mse_early(B). Red-team F4 (CONFIRMED): "
+                   "all 15 A/B/C cells of V3-EXQ-1057 came back BIT-IDENTICAL to V3-EXQ-1048's on "
+                   "the same machine_class, so on that class these legs are a re-read of a known "
+                   "value, not new evidence. Carried because it is free, it pins the harness "
+                   "against drift, and it supplies the in-run comparator C4 needs -- but it adds "
+                   "no independent confirmation and must not be cited as if it did."},
         {"name": "C2_no_cost_on_late_probes", "load_bearing": False,
          "passed": c2, "measured": float(n_a_not_worse_late),
          "threshold": float(SIGN_CONSISTENCY_REQUIRED), "comparator": ">=",
@@ -1646,11 +1786,16 @@ def main(dry_run: bool = False):
     # RED-TEAM F3 (CONFIRMED, FIXED). C4 asks whether the matched-budget recency DEFICIT
     # disappears under additive budget -- a question that only exists if the deficit is
     # there. That premise is re-measured in-run as C2, and it is NOT guaranteed to
-    # replicate: V3-EXQ-1048's recorded metrics.json has n_seeds_a_not_worse_late = 1.0,
-    # i.e. C2 was 1/5 and not 0/5 (on one seed A's excess, +9.25%, sat under LATE_TOL).
-    # Two more such seeds and C2 passes in-run, C4 becomes vacuous, and the two-way grid
-    # would still emit "supports" for a run in which reallocation produced no artefact --
-    # or "weakens" for one in which A showed no cost to begin with, which is incoherent.
+    # replicate ACROSS MACHINE CLASSES: V3-EXQ-1048's recorded metrics.json has
+    # n_seeds_a_not_worse_late = 1.0, i.e. C2 was 1/5 and not 0/5 (on one seed A's excess,
+    # +9.25%, sat under LATE_TOL). Two more such seeds and C2 passes in-run, C4 becomes
+    # vacuous, and a two-way grid would still emit "supports" for a run in which
+    # reallocation produced no artefact. Red-team F4 (CONFIRMED) narrows WHEN this can
+    # fire: the A/B/C cells are bit-reproducible on a fixed machine_class -- V3-EXQ-1057
+    # matched V3-EXQ-1048 on all 15 of them -- so on
+    # linux-x86_64-py3.10-torch2.12.0+cpu this branch is effectively pinned to
+    # "replicated". It stays because the fleet is not single-class, and a class change is
+    # exactly when the premise could silently vanish.
     # So the premise-absent state gets its OWN branch rather than being absorbed, exactly
     # as V3-EXQ-1048's red-team Finding 1 required for its trade-off state. The
     # pre-registered load-bearing criterion is untouched: C4 alone still sets PASS/FAIL.
@@ -1781,6 +1926,26 @@ def main(dry_run: bool = False):
             "premise_matched_budget_deficit_replicated": premise_replicated,
             "n_seeds_d1_retains_replay_gain": float(n_seeds_d1_retains_replay_gain),
             "n_seeds_d2_retains_replay_gain": float(n_seeds_d2_retains_replay_gain),
+            "n_seeds_d1_retains_recency_benefit": float(n_seeds_d1_retains_recency),
+            "n_seeds_d2_retains_recency_benefit": float(n_seeds_d2_retains_recency),
+            # RED-TEAM F1 confirmers: how close each additive arm sits to each PARENT.
+            # If D2 tracks A on both legs the passes did not integrate (last pass won).
+            "mean_abs_rel_dist_d2_to_a_late": _mean([
+                abs(rows[(ARM_D2, s_)]["e1_holdout_mse_late"]
+                    - rows[(ARM_A, s_)]["e1_holdout_mse_late"])
+                / max(rows[(ARM_A, s_)]["e1_holdout_mse_late"], EPS) for s_ in seeds]),
+            "mean_abs_rel_dist_d2_to_b_late": _mean([
+                abs(rows[(ARM_D2, s_)]["e1_holdout_mse_late"]
+                    - rows[(ARM_B, s_)]["e1_holdout_mse_late"])
+                / max(rows[(ARM_B, s_)]["e1_holdout_mse_late"], EPS) for s_ in seeds]),
+            "mean_abs_rel_dist_d1_to_b_late": _mean([
+                abs(rows[(ARM_D1, s_)]["e1_holdout_mse_late"]
+                    - rows[(ARM_B, s_)]["e1_holdout_mse_late"])
+                / max(rows[(ARM_B, s_)]["e1_holdout_mse_late"], EPS) for s_ in seeds]),
+            "mean_abs_rel_dist_d2_to_a_early": _mean([
+                abs(rows[(ARM_D2, s_)]["e1_holdout_mse_early"]
+                    - rows[(ARM_A, s_)]["e1_holdout_mse_early"])
+                / max(rows[(ARM_A, s_)]["e1_holdout_mse_early"], EPS) for s_ in seeds]),
             # RED-TEAM F4 (CONFIRMED, NOT GATED -- instrumented instead; see docstring).
             "min_e1_skill_over_persistence_late_b": min(
                 r["e1_skill_over_persistence_late"] for r in b_rows),
