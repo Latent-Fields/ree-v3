@@ -4850,6 +4850,29 @@ class REEAgent(nn.Module):
         Returns:
             Updated LatentState
         """
+        # MECH-204 F1 cold-start guard: record one WAKING tick for the
+        # serotonin persistent-zero-point guard (see SerotoninConfig.
+        # precision_zero_point_require_waking). sense() is the producer
+        # because it is the ONE call every waking tick makes on every driver
+        # -- StepHarness, act_with_split_obs, and the hand-rolled per-tick
+        # loops (e.g. v3_exq_541c) alike. agent.serotonin_step() is NOT a
+        # usable producer: it is called by experiment DRIVERS, never from
+        # inside ree_core, and StepHarness never calls it -- a counter fed
+        # only from there would stay at 0 forever on the canonical loop and
+        # turn this guard into a permanent kill switch for MECH-204
+        # recalibration instead of a cold-start guard. No sleep pass calls
+        # sense() (the only internal callers are the waking wrappers
+        # sense_flat() and act_with_split_obs()), and note_waking_tick()
+        # additionally no-ops unless SerotoninModule._phase == "wake", so
+        # replay / REM ticks cannot satisfy the guard. Gated on the flag, so
+        # with the default (False) NO new call is made -> byte-identical.
+        if getattr(self, "serotonin", None) is not None and getattr(
+            getattr(self.config, "serotonin", None),
+            "precision_zero_point_require_waking",
+            False,
+        ):
+            self.serotonin.note_waking_tick()
+
         if obs_body.dim() == 1:
             obs_body  = obs_body.unsqueeze(0)
             obs_world = obs_world.unsqueeze(0)
@@ -10848,25 +10871,6 @@ class REEAgent(nn.Module):
             ):
                 self.sleep_loop.notify_waking_step(self)
 
-            # MECH-204 F1 cold-start guard: record one WAKING tick for the
-            # serotonin persistent-zero-point guard. Same waking-only
-            # (hypothesis_tag=False) position as the GAP-9 trigger above, and
-            # for the same reason -- this is the one per-tick call the
-            # canonical StepHarness contract guarantees, so it is the only
-            # producer that works on a driver which never calls
-            # agent.serotonin_step(). Gated on the guard's own flag, so with
-            # the default (False) NO new call is made and the path is
-            # byte-identical.
-            if (
-                not hypothesis_tag
-                and getattr(self, "serotonin", None) is not None
-                and getattr(
-                    getattr(self.config, "serotonin", None),
-                    "precision_zero_point_require_waking",
-                    False,
-                )
-            ):
-                self.serotonin.note_waking_tick()
 
             # ARC-108 JOB-2 (d): HABENULA negative-RPE de-commit. post_action_update
             # surfaced the signed RPE delta_t (= R_t - V-hat_t, the SAME signal JOB-1
