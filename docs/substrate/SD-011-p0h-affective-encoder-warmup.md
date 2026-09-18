@@ -91,3 +91,79 @@ invalidate the banked arms of a live PASS run -- the documented DO-NOT-COLLAPSE 
 `sd_zworld_warmup_optimizer_group`. Wiring P0h there is owed only if a driver on that copy needs
 to opt in. No driver opts in anywhere yet, so no existing or future run is affected until one
 does.
+
+---
+
+## Option B re-measure: the SD-020 PE target does NOT clear either (2026-09-18)
+
+User decision 2026-09-18T22:54Z, on decision chip
+`chip-20260918-zharm-a-training-signal-degenerate-target`: enable `harm_surprise_pe_enabled` and
+re-measure readiness against the SD-011 baseline. No queue entry, no new recipe, env untouched.
+No new config flag was needed either -- the target is already selected by the existing
+default-off `REEConfig.harm_surprise_pe_enabled`.
+
+One instrument change was needed and is the reason this is a measurement rather than a
+tautology: the first cut returned `lift: None` whenever `harm_surprise_pe_enabled` was set,
+which made `p0h_readiness_met` False **by construction** on exactly the path under test.
+`recover_effective_target` now recovers the scalar `compute_harm_accum_loss` is actually
+regressing, from the agent's own loss (force `harm_accum_pred` to zero: the loss is
+`weight * target**2`, so `target = sqrt(loss/weight)`; exact because both targets are
+non-negative by construction). Both targets are therefore scored on the same footing -- same
+estimator, same split, same constant-mean baseline -- differing only in what the head was asked
+to predict. Pinned by contracts C3h/C3i/C3j.
+
+### Result: 3 seeds, 12 warmup episodes x 25 steps
+
+| target | tensors moved | max_abs_delta | holdout target mean / std | head MSE | const MSE | lift per seed | readiness |
+|---|---|---|---|---|---|---|---|
+| SD-011 `accumulated_harm` EMA | 6 / 6 | 6.7e-02 .. 8.7e-02 | 0.0279 .. 0.0343 / 2.4e-04 .. 4.2e-04 | 7.8e-04 .. 1.2e-03 | 2.9e-07 .. 2.3e-05 | -2896.8, -377.2, -51.2 | False, False, False |
+| SD-020 precision-weighted PE | 6 / 6 | 1.04e-01 .. 1.22e-01 | ~2e-06 / ~1e-06 | 3.6e-11 .. 6.7e-11 | 3.2e-11 .. 5.3e-11 | -0.278, +0.164, -0.107 | False, True, False |
+
+**Verdict: the PE target does not clear the constant-mean baseline.** Mean lift -0.074, and the
+per-seed values STRADDLE zero on a target whose absolute scale is ~1e-6 -- so the single
+`readiness_met=True` at seed 1 is numerical noise, not a signal, and must not be read as a
+one-in-three pass. It is a large improvement on SD-011's lift (-0.07 vs -1108 mean), but
+"catastrophically worse than a constant" becoming "indistinguishable from a constant" is not
+clearing it.
+
+### Why each target fails -- two DIFFERENT, individually fixable reasons
+
+Decomposition over 1200 ticks / 65 episodes (seed 0), measuring the two factors separately:
+
+```
+env harm_exposure (raw)          : mean +0.023856  std 0.016942  frac>0 0.9275
+accumulated_harm (SD-011 target) : mean  0.028167  std 0.002394  -> CV 0.085
+|accum - ema|  (PE, pre-scale)   : mean  0.00034820 std 0.00129691 -> CV 3.72
+e3.current_precision             : 1.999996      (= 1/(running_variance 0.5 + 1e-6))
+precision_norm                   : 0.00399999    (= min(current_precision/500, 3.0))
+PE * precision_norm (SD-020 tgt) : mean 1.3928e-06 std 5.1876e-06
+```
+
+1. **SD-011 is structurally flat.** `accumulated_harm` is a *cumulative episode mean* of a
+   clipped-at-zero exposure scalar (`causal_grid_world.py:4170`), so it converges and flattens by
+   construction: CV 0.085. A regressor has almost nothing to fit beyond the offset. This is
+   independent of precision and would not be fixed by any scaling.
+
+2. **SD-020's dispersion is FINE; its SCALE is crushed.** The PE's coefficient of variation is
+   3.72 -- **44x** the SD-011 target's -- so the signal is there. What removes it is
+   `precision_norm = min(current_precision/500, 3.0)`, which at P0h equals **0.004**, because
+   `current_precision` is sitting at its INIT value of 2.0. The `/500` divisor presupposes
+   precision on the order of hundreds; `e3_selector.py`'s own comments reference "precision space
+   (~100)" and "current_precision ~95", which are TRAINED-agent values. That is a ~250x
+   attenuation at warmup time.
+
+   **This is a phase-ordering contradiction in the architecture, not a tuning miss.** SD-020's
+   target is precision-coupled by design (ARC-016), but the P0 warmup that `e2_harm_a.py`'s
+   "Phased training required" block says must train this encoder runs BEFORE the agent has any
+   precision to couple to -- so at P0 the coupling necessarily multiplies by its floor.
+
+### The methodological point worth keeping
+
+**A scale-crushed target is invisible to a weight-delta check, because Adam is scale-invariant.**
+The PE arm moved the encoder *more* than the SD-011 arm (max_abs_delta 1.0-1.2e-01 vs
+6.7-8.7e-02) while regressing a target of magnitude ~1e-06: Adam divides by `sqrt(v)`, so a
+gradient 250x too small still produces full-size steps -- it just takes them toward numerical
+noise. Every "did the encoder train?" check built on weight movement alone would have passed
+this arm. The constant-mean lift is what does not.
+
+Raised for decision as `chip-20260918-sd011-sd020-harm-target-respecification`.
