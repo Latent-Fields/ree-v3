@@ -370,5 +370,45 @@ class TestSharedSessionIdGuard(unittest.TestCase):
         self.assertTrue(payload["rivals"])
 
 
+class TestLiveFleetPatternsStillWork(unittest.TestCase):
+    """Negative controls drawn from claims LIVE on the fleet 2026-09-18.
+
+    Raised by the orchestrator session while this was being built: a guard
+    that fires on correct current usage gets disabled, which is worse than no
+    guard. These are the real shapes it must stay silent on.
+    """
+
+    def test_suffixed_sibling_ids_from_one_session_all_open(self):
+        """The SANCTIONED pattern -- and the one this guard's own CLI message
+        recommends as the remedy. One session legitimately holds several
+        claims under DISTINCT ids (live: eloquent-jepsen-5f6242 alongside
+        -coord and -tests; metaworker-science-...-p1p3 alongside
+        ...-p1p3-exq-1056). Same csid, different session_id, different
+        resources: every one must be 'ok'. The guard keys on an EXACT
+        session_id match, so it is never even reached here."""
+        conn, _ = _fresh_db()
+        for sid, res in (("sess", "ree-v3/one.py"),
+                         ("sess-coord", "ree-v3/two.py"),
+                         ("sess-tests", "ree-v3/three.py")):
+            verdict, _ = db.try_open_task_claim(
+                conn, session_id=sid, session_label="L", task="T",
+                resources=[res], claude_session_id=UUID_A)
+            self.assertEqual(verdict, "ok", "%s must open" % sid)
+
+    def test_suffixed_sibling_ids_from_DIFFERENT_sessions_also_open(self):
+        """Two sessions cooperating on one campaign under distinct ids is
+        also correct usage -- the ids differ, so there is no collision to
+        find. Only a genuine resource overlap may refuse them, and that is
+        the pre-existing owned_by_other path, untouched here."""
+        conn, _ = _fresh_db()
+        db.try_open_task_claim(
+            conn, session_id="camp-hub", session_label="A", task="T",
+            resources=["ree-v3/a.py"], claude_session_id=UUID_A)
+        verdict, _ = db.try_open_task_claim(
+            conn, session_id="camp-transport", session_label="B", task="T",
+            resources=["ree-v3/b.py"], claude_session_id=UUID_B)
+        self.assertEqual(verdict, "ok")
+
+
 if __name__ == "__main__":
     unittest.main()
