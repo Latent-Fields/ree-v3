@@ -176,11 +176,22 @@ jobs:
     # it was serially. Re-read `--durations` after any change to either.
     #
     # DO NOT buy time by narrowing the collected set. A suite that is not run
-    # is not a gate. (This job already runs only `tests/`, while
-    # scripts/remote_pytest.sh --selftest pins SIX collection roots --
-    # coordinator/, dispatch/ and three loose test_*.py files are NOT covered
-    # here. Widening it is owed work, and it costs runtime, so it needs the
-    # sharding decision above first.)
+    # is not a gate.
+    #
+    # THAT OWED WIDENING IS DONE (2026-09-18). This job ran `tests/` alone while
+    # scripts/remote_pytest.sh --selftest pins SIX collection roots, so 1026
+    # tests had NO post-merge check at all -- 919 of them coordinator/, i.e.
+    # precisely the phase3 writers whose breakage wedges the coordination-data
+    # plane. ree-v3 declares no pytest `testpaths` (no pytest.ini, pyproject,
+    # setup.cfg or tox.ini anywhere in the tree), so collection is purely by
+    # path and an unnamed root is simply never run. All six are named below.
+    #
+    # `experiments/` is deliberately NOT a bare directory arg; the one real test
+    # file is named instead. pytest's default python_files matches `*_test.py`
+    # as well as `test_*.py`, and experiments/ holds experiment DRIVERS ending
+    # `..._test.py` by convention -- passing the directory makes pytest IMPORT
+    # each of them at collection time, and /queue-experiment mints new ones
+    # routinely. Same reasoning, same shape, as remote_pytest.sh's default.
     timeout-minutes: 60
     steps:
       # actions/checkout's `path` input refuses to resolve outside
@@ -223,10 +234,22 @@ jobs:
 
       - name: Run contract test suite
         working-directory: ree-v3
+        env:
+          # SINGLE SOURCE OF TRUTH for what this gate collects. Kept on ONE line
+          # and pinned against an enumeration of the tree by
+          # tests/contracts/test_ci_workflow_test_roots.py, which fails with the
+          # exact path to add when a test lands somewhere new. Enumerating the
+          # tree is the point: a hardcoded list of roots-known-today reproduces
+          # the 2026-07-27 defect the moment the next root appears.
+          PYTEST_ROOTS: "tests/ coordinator/ dispatch/ test_runner_reclassify_cmd.py test_validate_recording.py experiments/test_infant_curriculum_phase3.py"
         run: |
           nproc
           # --durations=25 is instrumentation, not decoration: it is what turns
           # "the suite is getting slow" into a ranked list of where the time
           # actually goes, and it is the input to the shard-vs-xdist decision
           # recorded on timeout-minutes above. It costs nothing.
-          python3 -m pytest tests/ -q -n auto --dist loadfile --durations=25
+          # $PYTEST_ROOTS is intentionally UNQUOTED: word-splitting into six
+          # separate path args is the behaviour wanted, and GitHub runs this
+          # step under `bash -e`. (Do not "fix" this from a Mac zsh prompt,
+          # where the same line would not split.)
+          python3 -m pytest $PYTEST_ROOTS -q -n auto --dist loadfile --durations=25
