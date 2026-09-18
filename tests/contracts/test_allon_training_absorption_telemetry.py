@@ -287,9 +287,14 @@ def test_c4_legacy_keys_survive_and_the_two_telemetry_blocks_are_added():
     for k in ("n_p0_ticks", "n_p1_ticks", "n_e2_train_steps"):
         assert isinstance(out[k], int)
     assert isinstance(out["zworld_p0"], dict)
-    assert set(out) == set(LEGACY_KEYS) | {"absorption", "conversion"}, (
+    # The exact-set form is deliberate (it catches silent key CHURN, not only key loss), so a
+    # genuinely new block has to be added here by hand rather than slipping in. `zharm_a_p0` is
+    # the SD-011 P0h affective-harm-encoder warmup block, added 2026-09-18 -- the sibling of
+    # `zworld_p0` for the other harm stream; see experiments/_lib/zharm_a_p0_warmup.py.
+    assert set(out) == set(LEGACY_KEYS) | {"absorption", "conversion", "zharm_a_p0"}, (
         "the change must be ADDITIVE KEYS only"
     )
+    assert isinstance(out["zharm_a_p0"], dict)
 
 
 def test_c4_two_identical_seed_runs_agree_on_the_legacy_keys():

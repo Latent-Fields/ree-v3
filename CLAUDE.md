@@ -318,11 +318,12 @@ When started with `--remote-control`, the runner emits a per-machine heartbeat e
 
 ## Substrate feature index
 
-256 per-feature records, 156 feature IDs, in `docs/substrate/`. Read the
+257 per-feature records, 156 feature IDs, in `docs/substrate/`. Read the
 "when to follow a pointer" rule at the top of this file before deciding to skip one.
-- **SD-011** — 2 records, ~780 tok total.
+- **SD-011** — 3 records, ~2,341 tok total.
     - [Second Source: Harm History Input (2026-04-08)](docs/substrate/SD-011-second-source-harm-history-input.md) *(~455 tok)*
     - [SD-012 E3 Integration (2026-04-05)](docs/substrate/SD-011-sd-012-e3-integration.md) *(~325 tok)*
+    - [P0h Affective-Harm-Encoder Warmup (2026-09-18)](docs/substrate/SD-011-p0h-affective-encoder-warmup.md) *(~1,561 tok)*
 - **[SD-013](docs/substrate/SD-013-mech-090-sd-015-sd-019-sd-020-sd-021.md)** — MECH-090, SD-015, SD-019, SD-020, SD-021: Harm Stream + Gate Implementations (2026-04-10) *(~2,513 tok)*
 - **SD-016** — 4 records, ~5,839 tok total.
     - [Frontal Cue-Indexed Integration (2026-04-16)](docs/substrate/SD-016-frontal-cue-indexed-integration.md) *(~2,583 tok)*
@@ -461,7 +462,6 @@ When started with `--remote-control`, the runner emits a per-machine heartbeat e
 - **[MECH-091](docs/substrate/MECH-091-mech091-salient-event-trigger-wiring.md)** — MECH091-SALIENT-EVENT-TRIGGER-WIRING / MECH-091: Salient-Event Trigger Wiring -- IMPLEMENTED (2026-08-17) *(~843 tok)*
 - **[MECH-120](docs/substrate/MECH-120-shy-synaptic-homeostasis-wiring.md)** — SHY Synaptic Homeostasis Wiring (2026-04-08) *(~290 tok)*
 - **[MECH-122](docs/substrate/MECH-122-mech122-content-packaging-spindle-selection.md)** — MECH122-CONTENT-PACKAGING-SPINDLE-SELECTION (MECH-122 content-packaging half; V3 proxy) -- IMPLEMENTED (2026-08-02) *(~1,345 tok)*
-- **[MECH-131](docs/substrate/MECH-131-terrain-prior-anticipatory-residue-channel-lesion.md)** — terrain_prior anticipatory-residue channel lesion knob (`terrain_prior_residue_channel_enabled`; gates ONE of the TWO anticipatory reads -- read the SCOPE table before designing against it) (2026-09-18) *(~700 tok)*
 - **[MECH-140](docs/substrate/MECH-140-x-mech-450-disinhibitory-soft.md)** — x MECH-450: disinhibitory soft-competitive settling (parameter-free) (2026-07-02) *(~1,295 tok)*
 - **[MECH-189](docs/substrate/MECH-189-super-ordinal-goal-anchor-contextmemory.md)** — Super-ordinal goal-anchor ContextMemory writes substrate (infant_substrate:GAP-11) (2026-06-09) *(~2,080 tok)*
 - **[MECH-204](docs/substrate/MECH-204-phase-7-option-b-sleep-accuracy-anchored.md)** — Phase 7 / Option B: sleep.accuracy_anchored_broadcast_recalibration -- IMPLEMENTED (2026-07-20) *(~773 tok)*
