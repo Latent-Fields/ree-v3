@@ -1773,6 +1773,20 @@ class HippocampalModule(nn.Module):
                     # +1: keep the initial state plus max_horizon steps.
                     world_seq = world_seq[:, : max_horizon + 1, :]
                 terrain_score = self.residue_field.evaluate_trajectory(world_seq).sum()
+                # MECH-131 lesion instrument, channel 2 (see
+                # score_trajectory_residue_terrain_enabled in config.py). Zeroes
+                # the ANTICIPATORY residue contribution to CEM elite selection
+                # while leaving storage and the post-hoc scorer intact. Applied
+                # BEFORE the terrain/modulatory decomposition below so the
+                # `score == terrain + modulatory` invariant still holds exactly:
+                # the lesion makes the terrain contribution genuinely zero
+                # rather than hiding it from the accounting.
+                # Out-of-place (never .zero_()): this tensor is on the autograd
+                # path the SD-055 differentiable-CEM route reads.
+                if not getattr(
+                    self.config, "score_trajectory_residue_terrain_enabled", True
+                ):
+                    terrain_score = torch.zeros_like(terrain_score)
                 # AMEND (2026-08-19): explicit modulatory accumulator. Carried
                 # alongside terrain_score rather than recovered by subtraction
                 # afterwards -- see the return_components note in the docstring
@@ -1852,6 +1866,14 @@ class HippocampalModule(nn.Module):
         if max_horizon is not None:
             states = states[:, : max_horizon + 1, :]
         _fallback = self.residue_field.evaluate_trajectory(states).sum()
+        # MECH-131 channel-2 lesion on the fallback path too. Gating only the
+        # z_world branch above would leave residue still driving elite selection
+        # for any trajectory that carries no world_states -- a partial lesion
+        # with no signature in the config.
+        if not getattr(
+            self.config, "score_trajectory_residue_terrain_enabled", True
+        ):
+            _fallback = torch.zeros_like(_fallback)
         return _ret(_fallback, _fallback, torch.zeros_like(_fallback))
 
     def _curiosity_bonus(self, world_seq: torch.Tensor) -> torch.Tensor:

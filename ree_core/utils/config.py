@@ -2597,6 +2597,27 @@ class HippocampalConfig:
     # this knob does NOT touch and which remains active when this is False.
     # Default True = current behaviour, bit-identical.
     terrain_prior_residue_channel_enabled: bool = True
+    # MECH-131 lesion instrument, SECOND channel (user decision OPTION C,
+    # 2026-09-18). The other anticipatory residue read: _score_trajectory's
+    # terrain score, which scores every CEM sample and drives the elite
+    # argsort + distribution refit. When False, the residue terrain score is
+    # zeroed OUT-OF-PLACE (both the z_world path and the pre-SD-005 z_self
+    # fallback), leaving residue accumulation and the POST-HOC scorer
+    # (E3.compute_residue_cost * rho_residue) untouched.
+    #
+    # This is the DOMINANT anticipatory channel: at default weights
+    # (wanting_weight=0.0, curiosity_weight=0.0, mode_value_weight={})
+    # _score_trajectory IS the residue terrain score and nothing else, so
+    # zeroing it removes exactly the residue contribution and no other signal
+    # -- CEM still refits, just toward an unranked elite subset. Measured with
+    # the terrain_prior channel alone off, the CEM score still spanned
+    # 20.83-21.72 over 32 candidates (spread 0.892), which is why a
+    # single-channel lesion is not a complete one.
+    #
+    # Set BOTH this and terrain_prior_residue_channel_enabled to False for the
+    # complete anticipatory lesion MECH-131 predicts about.
+    # Default True = current behaviour, bit-identical.
+    score_trajectory_residue_terrain_enabled: bool = True
     # VALENCE_WANTING gradient: when > 0, trajectories toward high-wanting
     # (resource-proximal) regions score better during CEM selection.
     # Subtracted from terrain score (lower score = better in CEM).
@@ -8229,6 +8250,9 @@ class REEConfig:
         # current behaviour). Must match the HippocampalConfig dataclass
         # default -- it is assigned unconditionally below.
         terrain_prior_residue_channel_enabled: bool = True,
+        # MECH-131 second anticipatory channel (OPTION C). Must match the
+        # HippocampalConfig dataclass default -- assigned unconditionally below.
+        score_trajectory_residue_terrain_enabled: bool = True,
         # V3-EXQ-563c: score/bias scale normalisation
         normalize_score_bias_to_e3_range: bool = False,
         use_modulatory_selection_authority: bool = False,
@@ -9791,6 +9815,9 @@ class REEConfig:
         )
         config.hippocampal.terrain_prior_residue_channel_enabled = (
             terrain_prior_residue_channel_enabled
+        )
+        config.hippocampal.score_trajectory_residue_terrain_enabled = (
+            score_trajectory_residue_terrain_enabled
         )
         # SD-055: differentiable CEM selection approximation
         config.hippocampal.use_differentiable_cem = use_differentiable_cem

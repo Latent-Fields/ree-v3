@@ -2931,6 +2931,16 @@ PROBED = {
     # anticipatory reads (C6). A bare ON/OFF diff here would show the flag moves
     # numbers without recording either property.
     "terrain_prior_residue_channel_enabled",
+    # MECH-131 lesion instrument, channel 2 (user decision OPTION C, 2026-09-18).
+    # Gates _score_trajectory's residue terrain score -- the CEM elite-selection
+    # channel, and the dominant anticipatory one. Probed in the same contract
+    # file as its channel-1 sibling
+    # (tests/contracts/test_mech131_terrain_prior_residue_channel.py:
+    # test_c7_ch2_lesion_flattens_the_cem_terrain_score measures the score spread
+    # collapsing 0.892 -> 0.0, and test_c8 pins the COMPLETE two-channel lesion),
+    # because the meaningful quantity is the cross-candidate score SPREAD over a
+    # real proposed pool, which a bare ON/OFF diff here would not capture.
+    "score_trajectory_residue_terrain_enabled",
 } | set(FLAGS_WITH_DEFAULT_BEHAVIOURAL_DELTA) | set(FLAGS_WITH_LOUD_PRECONDITION)
 
 # Audit-confirmed inert / mis-wired flags (finding id -> reason). Documented here
