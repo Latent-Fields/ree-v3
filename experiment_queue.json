@@ -6,25 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-1055",
-      "title": "SD-098 read-time goal-ness: ghost-goal-bank re-ranking under a mid-episode destination shift with reversal",
-      "script": "experiments/v3_exq_1055_sd098_ghost_goal_readtime_rerank.py",
-      "priority": 40,
-      "machine_affinity": "any",
-      "estimated_minutes": 15,
-      "claim_id": "SD-098",
-      "note": "USER DECISION 2026-09-17 (Orchestrator decision lane orchestrate-20260917-1532): falsify SD-098 against the EXISTING ghost-goal bank; do NOT build SD-097 typed topology, and no stored-node-type comparison arm. A-B-A reversal (phase A at D1, B at D2, C returns to D1 in RETURN / stays at D2 in STAY); DV = AUC(older group A beats newer group B) over rank gains within the A-union-B subset, under the phase-C cue. Recency/displacement predicts AUC<=0.5 in BOTH arms; SD-098 predicts group A is reinstated when the destination returns -- non-monotone in write time, which is what makes it attributable. DV-symmetry: the manipulation changes goal_match by snapshot-dependent, NON-uniform amounts (delta range 0.46 vs mean_abs 0.05), so the rank DV is not invariant under it; STAY is the scored control, not scoped out. GOV-REUSE-1: decisive readout is the cross-cue rank-order change over ONE pool; checked V3-EXQ-868 (substrate_hash 6cb1cdca30a9..., PASS, paired ghost_priority at a SINGLE cue across TWO agents), 496, 823, 807 -- none records a second cue over the same pool nor per-anchor provenance, so not recoverable -> run. red-team pass 1 (opus): BLOCKING on a superseded forward-only design (cue displacement collinear with content change; sham shared 4/6 cells with baseline) -- design replaced, not patched. red-team pass 2 (opus): CONTESTED, all 7 findings dispositioned in-source: F1 dv_headroom floor raised 0.03->0.10 so it cannot sit below the criterion it protects; F2 consistency clause recorded as pinned when RETURN saturates; F3 gate swapped from cue_return (circular with the DV) to ENV-level phase-C occupancy; F4/F6a asymmetry + group-size diagnostics surfaced; F6b DV now ranked within A-union-B so group-C cannot crowd either group (this moved the STAY control onto the exact 0.500 null); F7 stale threshold text fixed. F5 ACCEPTED NOT FIXED and recorded as a scope limit: because the policy seeks the destination, destination privilege is NOT separated from sensory-context reinstatement -- the separating condition is measurably too weak to run (paired cue_return +0.003, 4/7). SCOPE: tests SD-098 half (i) only (re-classification with no write, asserted per cell by payload fingerprint); half (ii) needs the stored-node-type arm, deliberately not built. A PASS is PARTIAL support and does NOT close SD-098. Substrate gate: SD-082 (corrupting, e3_selector.py) is OPEN -- driver uses a scripted policy, never calls select_action, asserted per cell (e3_never_entered). top_k uncapped (default 32 truncated the A/B groups away). Tuning seeds 0-6, EVAL seeds 102-116 disjoint (100/101 observed in readiness checks and excluded); tuning: AUC_stay ~0.50 (the recency null), AUC_return ~0.99, contrast +0.470 sd 0.019, 7/7 positive.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-09-18T18:20:37Z"
-      },
-      "conditions": 2,
-      "episodes_per_run": 2160,
-      "experiment_type": "sd098_ghost_goal_readtime_rerank",
-      "seeds": 15
-    }
-  ]
+  "items": []
 }
