@@ -49,6 +49,29 @@ name: Contract Test Suite
 # no-identity failure host-independently. Every currently-live production
 # host was checked directly and has identity configured, so this had not
 # fired in production.
+#
+# RESOLVED (2026-09-18): tests/contracts/test_runner_git_pull_ephemeral_
+# conflict_recovery.py failed C1/C2/C3/C4/C6/C7 here while green on
+# darwin-arm64 and on every production box. TWO independent causes behind
+# those six, which is why they needed separating rather than one root cause:
+# C1/C2/C3/C4/C6 were TEST drift (the file asserted on git's prose), while
+# C7 alone was a REAL production bug -- same shape as the 2026-07-27 case
+# above, and again not a runner quirk. ubuntu-24.04
+# ships git 2.55.0; the Mac has 2.51.2 and the hub/workers 2.34.1. git
+# REWORDED its autostash-pop-conflict message somewhere in between --
+#   2.51.2: "Applying autostash resulted in conflicts."
+#   2.55.0: "Your local changes are stashed, however applying them"
+#           "resulted in conflicts.  You can either ..."
+# -- and experiment_runner.git_pull gated its ephemeral-conflict recovery on
+# the literal substring "autostash resulted in conflicts", which does not
+# occur in the new text at all (the line break falls between "them" and
+# "resulted"). On a new enough git the recovery therefore never fired and the
+# 2026-05-31 cloud-3 wedge re-armed silently. Only THIS workflow was on a git
+# new enough to see it. Fixed by deciding on git STATE
+# (_list_unmerged_paths) instead of message wording -- which every other
+# branch of git_pull already did -- plus contract C10, which mutes the
+# conflict prose out of git's output entirely so the pin holds on any git
+# version, old or future.
 
 on:
   push:
@@ -72,7 +95,36 @@ on:
 jobs:
   contracts:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 60, raised from 30 on 2026-09-18. WHAT THIS BUYS, stated so the next
+    # session does not have to re-derive it: the suite took 1626.80s (27m07s)
+    # for 5240 tests on run 35280511927, i.e. ~0.31 s/test, and THREE of the
+    # eight runs before this change were `cancelled` at ~30m18s -- a cancelled
+    # run is indistinguishable at a glance from one that never mattered, so
+    # the gate was already failing open. Measured growth in tests/ (count of
+    # `def test_` at dated commits on origin/main): 3686 -> 4736 over the 30
+    # days to 2026-09-18 = ~35 defs/day, ~49/day over the 60-day window.
+    # At ~1.11 collected tests per def that is ~12-17 s of added runtime per
+    # day, so the 33 minutes of new headroom is ~4-5 months (117-163 days).
+    #
+    # THIS IS A DEADLINE, NOT A FIX -- any fixed number is. It runs out around
+    # 2027-01/02. The structural options, in preference order, are (a) shard
+    # the job across a matrix of runners, or (b) pytest-xdist `-n auto
+    # --dist loadfile` within the job (public repo => 4-vCPU runners, so ~2.5-3x
+    # is available). Both were deliberately NOT taken here: this change is on
+    # the critical path of getting the gate green again, and an untested
+    # parallelism change to the ONE post-merge check for the code plane risks
+    # introducing flakiness -- a gate that is green because it became unreliable
+    # is the same failure as one that is green because it stopped checking.
+    # `--durations=25` below is the standing instrumentation for making that
+    # choice on data instead of guesswork.
+    #
+    # DO NOT buy time by narrowing the collected set. A suite that is not run
+    # is not a gate. (This job already runs only `tests/`, while
+    # scripts/remote_pytest.sh --selftest pins SIX collection roots --
+    # coordinator/, dispatch/ and three loose test_*.py files are NOT covered
+    # here. Widening it is owed work, and it costs runtime, so it needs the
+    # sharding decision above first.)
+    timeout-minutes: 60
     steps:
       # actions/checkout's `path` input refuses to resolve outside
       # $GITHUB_WORKSPACE (a security guard -- `../REE_assembly` errors
@@ -111,4 +163,9 @@ jobs:
       - name: Run contract test suite
         working-directory: ree-v3
         run: |
-          python3 -m pytest tests/ -q
+          nproc
+          # --durations=25 is instrumentation, not decoration: it is what turns
+          # "the suite is getting slow" into a ranked list of where the time
+          # actually goes, and it is the input to the shard-vs-xdist decision
+          # recorded on timeout-minutes above. It costs nothing.
+          python3 -m pytest tests/ -q --durations=25

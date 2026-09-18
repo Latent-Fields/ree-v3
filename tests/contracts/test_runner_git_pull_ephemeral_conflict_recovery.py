@@ -41,6 +41,9 @@ Contracts:
   C5. _path_is_ephemeral_worker_owned predicate covers the queue file +
       the three heartbeat / status / commands dir prefixes and rejects
       other evidence/experiments/ paths.
+  C10. Detection of the pop conflict is driven by git STATE, never by the
+      wording of git's message -- git reworded it between 2.51.2 and
+      2.55.0 and silently disarmed the recovery. See C10's own header.
 """
 
 from __future__ import annotations
@@ -166,13 +169,19 @@ def _build_cloud_3_wedge(local: Path, other: Path) -> None:
     # that wedged cloud-3. Verify the wedge signature.
     pr = _run(["git", "pull", "--rebase", "--autostash",
                "origin", "master"], local)
-    assert "autostash resulted in conflicts" in (pr.stdout + pr.stderr), (
-        f"expected autostash pop conflict line; got:\n"
-        f"stdout: {pr.stdout}\nstderr: {pr.stderr}"
-    )
+    # ASSERT ON GIT STATE, NOT ON GIT'S PROSE (2026-09-18). This used to
+    # require the literal substring "autostash resulted in conflicts" in the
+    # pull output. git reworded that message between 2.51.2 ("Applying
+    # autostash resulted in conflicts.") and 2.55.0 ("Your local changes are
+    # stashed, however applying them\nresulted in conflicts."), so the
+    # assertion failed on ubuntu-24.04 CI while the wedge it is meant to
+    # detect had formed perfectly well. The UU markers below ARE the wedge
+    # signature; the wording is decoration. Keep the pull output in the
+    # failure message so a genuine no-wedge regression is still debuggable.
     uu = _porcelain_uu(local)
     assert "experiment_queue.json" in uu, (
-        f"expected UU on experiment_queue.json; got {uu}"
+        f"expected UU on experiment_queue.json; got {uu}\n"
+        f"pull stdout: {pr.stdout}\npull stderr: {pr.stderr}"
     )
     # Confirm the conflict markers actually landed on disk.
     contents = (local / "experiment_queue.json").read_text()
@@ -247,9 +256,12 @@ def test_c3_non_ephemeral_conflict_preserved(tmp_path, capsys):
 
     pr = _run(["git", "pull", "--rebase", "--autostash",
                "origin", "master"], local)
-    assert "autostash resulted in conflicts" in (pr.stdout + pr.stderr), (
-        pr.stdout + pr.stderr)
-    assert "README.md" in _porcelain_uu(local)
+    # State, not wording -- see _build_cloud_3_wedge.
+    assert "README.md" in _porcelain_uu(local), (
+        f"expected the autostash pop to conflict on README.md; got "
+        f"{_porcelain_uu(local)}\npull stdout: {pr.stdout}\n"
+        f"pull stderr: {pr.stderr}"
+    )
 
     # Recovery must refuse to touch the non-ephemeral conflict.
     ok = experiment_runner._recover_ephemeral_pull_conflict(local, "ree-v3")
@@ -313,11 +325,11 @@ def test_c6_mixed_conflict_refused(tmp_path):
 
     pr = _run(["git", "pull", "--rebase", "--autostash",
                "origin", "master"], local)
-    assert "autostash resulted in conflicts" in (pr.stdout + pr.stderr), (
-        pr.stdout + pr.stderr)
+    # State, not wording -- see _build_cloud_3_wedge.
     uu = set(_porcelain_uu(local))
-    assert "experiment_queue.json" in uu
-    assert "README.md" in uu
+    _diag = (f"\npull stdout: {pr.stdout}\npull stderr: {pr.stderr}")
+    assert "experiment_queue.json" in uu, f"got {uu}{_diag}"
+    assert "README.md" in uu, f"got {uu}{_diag}"
 
     ok = experiment_runner._recover_ephemeral_pull_conflict(local, "ree-v3")
     assert not ok, (
@@ -334,20 +346,18 @@ def test_c6_mixed_conflict_refused(tmp_path):
 # ---------------------------------------------------------------------------
 # C7: REE_assembly-side heartbeat dirty-tree stall recovers via git_pull
 # ---------------------------------------------------------------------------
-def test_c7_ree_assembly_heartbeat_stall_recovers(tmp_path):
-    """REE_assembly serve.py auto-pull historically used `pull --ff-only`
-    which refuses on any local modification to a tracked file, including
-    runner_heartbeats/<host>.json files the runner subprocess writes
-    every minute (2026-05-31 cloud-1 stall signature: "Your local changes
-    to the following files would be overwritten by merge. Aborting.").
+_HEARTBEAT_REL = "evidence/experiments/runner_heartbeats/cloud-1.json"
 
-    serve.py now imports experiment_runner.git_pull, which does
-    `pull --rebase --autostash` plus ephemeral-path UU recovery. With a
-    divergent-content heartbeat file on both sides (worker mid-write
-    vs. hub writer publishing the canonical snapshot), git_pull must
-    leave the working tree clean of UU markers and land origin's bytes
-    for the heartbeat path (the hub writer is authoritative under
-    Phase 3).
+
+def _build_heartbeat_divergence(tmp_path: Path) -> tuple[Path, str]:
+    """Seed the cloud-1 stall surface: a heartbeat file dirty in the worker's
+    tree and divergent on origin, with NO pre-existing UU markers.
+
+    Returns (local_repo, heartbeat_relpath). The no-UU part is load-bearing:
+    it forces git_pull down its `returncode == 0` branch (the pull itself
+    produces the pop conflict) rather than the pre-existing-UU branch it
+    checks before pulling. That branch is the one the 2026-09-18 git-2.55
+    rewording silently disarmed, so both C7 and C10 must enter through it.
     """
     root = tmp_path
     root.mkdir(parents=True, exist_ok=True)
@@ -359,7 +369,7 @@ def test_c7_ree_assembly_heartbeat_stall_recovers(tmp_path):
         subprocess.run(["git", "clone", "remote.git", d.name],
                        cwd=str(root), check=True, capture_output=True)
     # Seed: a heartbeat file under the canonical REE_assembly path.
-    heartbeat_rel = "evidence/experiments/runner_heartbeats/cloud-1.json"
+    heartbeat_rel = _HEARTBEAT_REL
     seed_dir = local / "evidence" / "experiments" / "runner_heartbeats"
     seed_dir.mkdir(parents=True, exist_ok=True)
     (local / heartbeat_rel).write_text(
@@ -387,6 +397,28 @@ def test_c7_ree_assembly_heartbeat_stall_recovers(tmp_path):
     _run(["git", "commit", "-m", "phase3-heartbeats: cloud-1 publish"], other)
     push = _run(["git", "push", "origin", "HEAD:master"], other)
     assert push.returncode == 0, push.stderr
+    assert _porcelain_uu(local) == [], (
+        f"setup must leave NO pre-existing UU; got {_porcelain_uu(local)}"
+    )
+    return local, heartbeat_rel
+
+
+def test_c7_ree_assembly_heartbeat_stall_recovers(tmp_path):
+    """REE_assembly serve.py auto-pull historically used `pull --ff-only`
+    which refuses on any local modification to a tracked file, including
+    runner_heartbeats/<host>.json files the runner subprocess writes
+    every minute (2026-05-31 cloud-1 stall signature: "Your local changes
+    to the following files would be overwritten by merge. Aborting.").
+
+    serve.py now imports experiment_runner.git_pull, which does
+    `pull --rebase --autostash` plus ephemeral-path UU recovery. With a
+    divergent-content heartbeat file on both sides (worker mid-write
+    vs. hub writer publishing the canonical snapshot), git_pull must
+    leave the working tree clean of UU markers and land origin's bytes
+    for the heartbeat path (the hub writer is authoritative under
+    Phase 3).
+    """
+    local, heartbeat_rel = _build_heartbeat_divergence(tmp_path)
 
     # Confirm the stall signature: plain ff-only pull refuses to proceed.
     ff = _run(["git", "pull", "--ff-only"], local)
@@ -414,6 +446,71 @@ def test_c7_ree_assembly_heartbeat_stall_recovers(tmp_path):
     # Subsequent pulls must continue to succeed (no wedge across ticks).
     experiment_runner.git_pull(local, "REE_assembly")
     assert _porcelain_uu(local) == []
+
+
+# ---------------------------------------------------------------------------
+# C10: pop-conflict detection must NOT depend on git's message WORDING
+#
+# Incident (2026-09-18, CI run 35280511927): git_pull's `returncode == 0`
+# branch -- the one the cloud-3 wedge actually takes, because `git pull
+# --rebase --autostash` exits 0 even when the pop left UU markers -- gated
+# recovery on the literal substring "autostash resulted in conflicts". git
+# reworded that message:
+#
+#   git 2.51.2:  "Applying autostash resulted in conflicts."
+#   git 2.55.0:  "Your local changes are stashed, however applying them"
+#                "resulted in conflicts.  You can either resolve ..."
+#
+# The old substring does not occur in the new text at all -- the line break
+# falls between "them" and "resulted". So on a box with a new enough git the
+# match silently failed, no recovery ran, and the 2026-05-31 cloud-3 wedge
+# re-armed. It was invisible on the Mac (git 2.51.2, green) and on the hub
+# and workers (git 2.34.1, green); only ubuntu-24.04 CI (git 2.55.0) was new
+# enough to surface it, as C7's "git_pull left UU markers" failure.
+#
+# C7 is the functional test, but it can only catch this on a git that emits
+# the new wording -- it passed on every production box while the bug was
+# live. C10 is the host-independent pin: it MUTES the conflict prose out of
+# git's captured output entirely, simulating a git whose wording we do not
+# recognise (including any future rewording), and requires recovery to
+# happen anyway. It fails on the pre-fix code at every git version.
+# ---------------------------------------------------------------------------
+def test_c10_pop_conflict_detected_without_message_match(tmp_path, monkeypatch):
+    local, heartbeat_rel = _build_heartbeat_divergence(tmp_path)
+
+    real_git_run = experiment_runner._git_run
+    seen = {"pulls": 0}
+
+    def _muted_git_run(*popenargs, **kwargs):
+        r = real_git_run(*popenargs, **kwargs)
+        cmd = popenargs[0] if popenargs else kwargs.get("args", [])
+        if isinstance(cmd, (list, tuple)) and list(cmd[:2]) == ["git", "pull"]:
+            seen["pulls"] += 1
+            # Strip every line that could betray a stash/conflict, so no
+            # message-matching heuristic of any wording can succeed. The
+            # underlying git state is untouched.
+            for attr in ("stdout", "stderr"):
+                val = getattr(r, attr, None)
+                if isinstance(val, str):
+                    kept = [ln for ln in val.splitlines()
+                            if "conflict" not in ln.lower()
+                            and "stash" not in ln.lower()]
+                    setattr(r, attr, "\n".join(kept) + ("\n" if kept else ""))
+        return r
+
+    monkeypatch.setattr(experiment_runner, "_git_run", _muted_git_run)
+
+    experiment_runner.git_pull(local, "REE_assembly")
+
+    assert seen["pulls"] >= 1, "git_pull never ran a pull -- test setup wrong"
+    assert _porcelain_uu(local) == [], (
+        "git_pull must detect the autostash pop conflict from git STATE, not "
+        f"from git's prose; left UU markers: {_porcelain_uu(local)}"
+    )
+    landed = json.loads((local / heartbeat_rel).read_text())
+    assert landed.get("state") == "draining", (
+        f"expected origin's heartbeat content after recovery; got {landed}"
+    )
 
 
 # ---------------------------------------------------------------------------

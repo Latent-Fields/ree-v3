@@ -1999,15 +1999,46 @@ def git_pull(repo_path: Path, label: str) -> None:
                 if r.returncode == 0:
                     # Git returns 0 even when the rebase fast-forwarded
                     # cleanly but the autostash pop produced UU markers --
-                    # the wedge surface that bit cloud-3. Check stdout for
-                    # the telltale "Applying autostash resulted in conflicts"
-                    # line OR scan porcelain status; either way, trigger
-                    # the ephemeral-conflict recovery before returning so
-                    # the next tick doesn't bail with "Pulling is not possible
-                    # because you have unmerged files."
+                    # the wedge surface that bit cloud-3. Trigger the
+                    # ephemeral-conflict recovery before returning so the next
+                    # tick doesn't bail with "Pulling is not possible because
+                    # you have unmerged files."
+                    #
+                    # DETECT BY STATE, NOT BY MESSAGE WORDING (2026-09-18).
+                    # This branch used to gate solely on the literal substring
+                    # "autostash resulted in conflicts". git REWORDED that
+                    # message: 2.51.2 still emits "Applying autostash resulted
+                    # in conflicts.", while 2.55.0 emits "Your local changes
+                    # are stashed, however applying them\nresulted in
+                    # conflicts." -- the old substring does not occur in the
+                    # new text at all (the line break falls between "them" and
+                    # "resulted"). So on a box with a new enough git the match
+                    # silently failed, no recovery ran, and the cloud-3 wedge
+                    # re-armed exactly as it did on 2026-05-31. Measured on CI
+                    # run 35280511927 (ubuntu-24.04, git 2.55.0): six contracts
+                    # in that file failed, but only C7 failed on THIS defect
+                    # ("git_pull left UU markers"). C1/C2/C3/C4/C6 failed
+                    # earlier, on the test file's own assertion about the
+                    # message wording, without ever reaching production code --
+                    # a separate, test-only drift fixed in the same commit. C7
+                    # is the only one that exercises this branch, because it is
+                    # the only one whose tree is dirty-but-not-yet-UU when
+                    # git_pull is called. Every OTHER branch of this function already
+                    # decides on _list_unmerged_paths; only this one -- the one
+                    # the wedge actually takes, because git exits 0 -- did not.
+                    #
+                    # The porcelain read is the authority. The message match is
+                    # kept only as a fallback for when `git status` itself
+                    # cannot be read (_list_unmerged_paths -> None), and uses
+                    # the version-agnostic fragment common to both wordings.
                     msg = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else "ok"
                     combined = (r.stdout or "") + "\n" + (r.stderr or "")
-                    if "autostash resulted in conflicts" in combined:
+                    split0 = _list_unmerged_paths(repo_path)
+                    if split0 is not None:
+                        conflicted = bool(split0[0] or split0[1])
+                    else:
+                        conflicted = "resulted in conflicts" in combined
+                    if conflicted:
                         print(f"[runner] git pull {label}: rebase ok but "
                               f"autostash pop conflicted, resolving...",
                               flush=True)
