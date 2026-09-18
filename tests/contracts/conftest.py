@@ -35,6 +35,20 @@ applying every lint to each file as it is parsed keeps only ONE tree alive at a
 time (`_LastParseCache`, below, holds exactly one), so peak memory is unchanged
 from the old behaviour while the parse is still paid once.
 
+THE PARSE STOPPED BEING THE COST, AND THE TRAVERSAL TOOK OVER (2026-09-18).
+Everything above is about `ast.parse`. Once it was paid once, what remained was
+21 lints each WALKING that one shared tree -- several of them more than once --
+and the corpus grew from 1162 drivers to 1482. A full-suite `--durations` run put
+this fixture's setup at 200.47s, the largest single line in the suite by a factor
+of six. Profiled per consumer on the idle hub at `49f2e613`: `read_text` 0.10s,
+the three rglob-scoped consumers 16.0s, and the 21 path lints 173.00s -- a LONG
+FLAT TAIL (33.9s, 15.9, 13.4, 12.7, 11.9, 11.2, 10.8, 10.4, 10.3, 8.4, ...), so
+there was no one lint to fix. The shared answer is `_LastParseCache.walk` below:
+memoise the BFS node list of the tree the cache holds, so the 2nd..Nth walk of it
+is a list replay rather than another traversal. **189s -> 84s, verdicts
+byte-identical.** Same rule as the parse cache -- nothing is sampled, capped or
+skipped; every lint still sees every node of every file it saw before.
+
 WHY THE PARSE CACHE RATHER THAN A `tree=` PARAMETER ON EACH LINT. Threading a
 pre-parsed tree through would mean changing every production lint signature in
 `validate_experiments.py` / `validate_queue.py`. Caching the parse instead keeps
@@ -339,11 +353,17 @@ class _LastParseCache:
         self._exc: Optional[BaseException] = None
         self.hits = 0
         self.misses = 0
+        # Materialised BFS node list for `self._tree` -- see `walk` below.
+        self._walk_nodes: Optional[List] = None
+        self.walk_materialised = 0
+        self.walk_replays = 0
+        self.walk_passthrough = 0
         # A real module, so `shim.Name` etc. stay C-level dict lookups. See the
         # class docstring for why a __getattr__ proxy is not an option here.
         shim = types.ModuleType(getattr(real_ast, "__name__", "ast"))
         shim.__dict__.update(real_ast.__dict__)
         shim.parse = self.parse
+        shim.walk = self.walk
         self.module = shim
 
     def parse(self, source, filename="<unknown>", *args, **kwargs):
@@ -356,6 +376,9 @@ class _LastParseCache:
             self.misses += 1
             self._key = source
             self._tree, self._exc = None, None
+            # The tree this list described is being replaced -- drop it, or the
+            # next `walk` of the NEW tree would replay the OLD one's nodes.
+            self._walk_nodes = None
             try:
                 self._tree = self._real.parse(source, filename)
             except (SyntaxError, ValueError) as exc:
@@ -366,6 +389,77 @@ class _LastParseCache:
         if self._exc is not None:
             raise self._exc
         return self._tree
+
+    def walk(self, node):
+        """`ast.walk`, replaying a materialised node list for the CACHED tree.
+
+        THE SECOND HALF OF THE SHARING, AND BY 2026-09-18 THE BIGGER ONE. The
+        parse cache above removed the duplicated `ast.parse`; what it left behind
+        is that each of the 21 `path_lints` then WALKS that one shared tree, most
+        of them several times (`e3_hold_weighted_readout_lint` five, the
+        `config_slice` lint thirteen). Measured on the idle hub at `49f2e613`:
+        345,712 `ast.walk` calls over the corpus, of which 50,369 are a re-walk
+        of the very tree the previous consumer just traversed. `ast.walk` is a
+        Python-level BFS -- a `deque` plus `iter_child_nodes` -> `iter_fields` ->
+        `getattr` per field per node -- so each of those repeats re-derives an
+        identical node sequence the hard way.
+
+        So: when asked to walk the tree currently in the cache, materialise the
+        BFS order ONCE and hand out `iter(list)` afterwards. Order is exactly
+        `list(ast.walk(node))`, so every consumer sees the same nodes in the same
+        sequence, and `iter()` gives each caller an independent cursor just as a
+        fresh generator did -- nested and overlapping walks are unaffected.
+
+        BOUNDED THE SAME WAY THE PARSE CACHE IS: exactly one list, for exactly the
+        one tree the cache holds, dropped the moment that tree is replaced. Peak
+        is one list of node REFERENCES for the largest corpus file (measured max
+        19,185 entries, ~150 KiB of pointers) on top of the tree itself -- the
+        886 MiB whole-corpus shape the class docstring rejects is not reintroduced.
+
+        ANY OTHER NODE FALLS STRAIGHT THROUGH to the real `ast.walk`. A lint
+        walking a sub-tree (one `FunctionDef`, say) is not memoised: the win is
+        concentrated in the whole-module walks, and per-node memoisation would
+        reintroduce an unbounded cache. Those passthrough calls pay one extra
+        Python frame each (~0.04s over the whole corpus, measured), which the
+        replays repay ~2500x.
+
+        SOUND ONLY BECAUSE NO CONSUMER MUTATES THE TREE -- the same precondition
+        the shared parse already rests on, verified over both validators (see the
+        module docstring's SAFETY OF SHARING ONE TREE section). A lint that
+        started rewriting nodes would break this exactly as it would break the
+        parse cache. `test_corpus_scan_is_transparent` re-runs every lint through
+        the REAL `ast` and is the standing differential.
+
+        A/B, idle hub `ree@91.98.130.117` (2 vCPU), four back-to-back
+        `scan_corpus()` calls in ONE process at `49f2e613` -- ordered
+        plain, plain, memo, memo so the warm-cache effect is measured rather
+        than assumed:
+
+            plain #1 (cold)  187.80s
+            plain #2 (warm)  186.11s   <- warm-up is worth 1.7s (0.9%), i.e. nothing
+            memo  #1          82.57s   (-103.54s, -55.6% vs plain #2)
+            memo  #2          84.78s   (-101.33s, -54.4%)
+
+        The plain/plain pair is there because the FIRST attempt at this number ran
+        plain-then-memo in one process and was not admissible: the lints hold their
+        own stat-keyed resolver caches, so a second scan is warm and the memo half
+        would have been flattered by whatever that is worth. Measuring it rather
+        than arguing about it costs one extra scan, and the answer is 1.7s.
+
+        Verdict signatures (every lint's fire list, the escape findings, the
+        from_dims usage map and both file counts) were compared between the plain
+        and memo scans and are IDENTICAL -- this removes duplicated traversal, not
+        coverage.
+        """
+        if node is not None and node is self._tree:
+            if self._walk_nodes is None:
+                self.walk_materialised += 1
+                self._walk_nodes = list(self._real.walk(node))
+            else:
+                self.walk_replays += 1
+            return iter(self._walk_nodes)
+        self.walk_passthrough += 1
+        return self._real.walk(node)
 
 
 # The compiler's own wording, stable across the categories it has been raised
@@ -452,6 +546,7 @@ class CorpusScan:
     __slots__ = (
         "fires", "n_glob_files", "n_rglob_files", "parse_hits", "parse_misses",
         "invalid_escapes", "lint_parse_misses", "from_dims_usage",
+        "walk_replays", "walk_materialised", "walk_passthrough",
     )
 
     def __init__(self) -> None:
@@ -460,6 +555,16 @@ class CorpusScan:
         self.n_rglob_files = 0
         self.parse_hits = 0
         self.parse_misses = 0
+        # `_LastParseCache.walk` counters. `walk_replays` is what makes the
+        # traversal sharing OBSERVABLE rather than merely intended -- see
+        # `test_shared_scan_replays_the_whole_module_walk`. A change that
+        # silently stops the memo engaging (rebinding `shim.walk` to the real
+        # one, or handing lints a tree the cache does not hold) leaves every
+        # verdict correct and the suite ~105s slower, which nothing else
+        # notices.
+        self.walk_replays = 0
+        self.walk_materialised = 0
+        self.walk_passthrough = 0
         # Invalid escape sequences over the whole rglob set. Not in `fires`: it is
         # not a `path_lints` entry (see the module docstring for why it cannot be),
         # and `test_every_path_lint_is_covered_by_this_files_differential` treats
@@ -615,6 +720,9 @@ def scan_corpus() -> CorpusScan:
         V.ast, VQ.ast = v_ast_saved, vq_ast_saved
 
     scan.parse_hits, scan.parse_misses = cache.hits, cache.misses
+    scan.walk_replays = cache.walk_replays
+    scan.walk_materialised = cache.walk_materialised
+    scan.walk_passthrough = cache.walk_passthrough
     return scan
 
 

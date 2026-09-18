@@ -6,6 +6,15 @@ WHAT THIS GUARDS. Six corpus-wide lint contracts used to enumerate and parse
 it is parsed, sharing the parse via a one-entry cache installed onto
 `validate_experiments.ast` / `validate_queue.ast`.
 
+THE SAME CACHE NOW ALSO SHARES THE TRAVERSAL (2026-09-18). With the parse paid
+once, what was left was 21 lints each re-walking that one tree -- 50,369 repeat
+walks of an already-traversed module over the corpus. `_LastParseCache.walk`
+materialises the cached tree's BFS node list once and replays it, which took
+`scan_corpus` from 189s to 84s with byte-identical verdicts. It is the same kind
+of change as the parse cache and carries the same risk profile, so it is guarded
+the same way: direct semantics tests in section (1), an engagement check in
+section (2), and the existing uncached differential in section (3).
+
 That is a performance change that must be BEHAVIOURALLY INVISIBLE. The primary
 evidence is the five exact-count pins themselves (150 / 63 / 12 / 0 / 0) plus the
 pre-registration hit list, which are full-corpus assertions and would move if the
@@ -142,15 +151,84 @@ def test_cache_replays_syntax_error_to_every_consumer(last_parse_cache_cls):
 
 def test_shim_exposes_everything_else_as_the_real_ast(last_parse_cache_cls):
     """The lints call ast.walk/ast.Name/isinstance through the same module global,
-    so the installed shim must be indistinguishable from `ast` for non-parse access."""
+    so the installed shim must be indistinguishable from `ast` for non-parse access.
+
+    `parse` and `walk` are the two DELIBERATE exceptions -- both are the cache's
+    own, and their transparency is pinned by the differential tests around this
+    one rather than by identity (stated without a COUNT on purpose: this file
+    already carries two notes about exactly that kind of number going stale).
+    Everything else must still be the real attribute.
+    """
     cache = last_parse_cache_cls(ast)
     shim = cache.module
     assert shim.Name is ast.Name
-    assert shim.walk is ast.walk
     assert shim.FunctionDef is ast.FunctionDef
     assert shim.parse is not ast.parse, "parse must be the cached one"
+    assert shim.walk is not ast.walk, "walk must be the replaying one"
     tree = shim.parse("v = 1\n")
     assert any(isinstance(n, shim.Name) for n in shim.walk(tree))
+
+
+def test_walk_replays_the_cached_tree_in_real_ast_order(last_parse_cache_cls):
+    """A repeat walk of the CACHED tree must yield the same nodes, in the same order.
+
+    This is the whole correctness claim of the memo: `list(ast.walk(t))` is what
+    the lints would have seen, so identity of the node objects AND of their BFS
+    order is what has to hold -- not merely the same set.
+    """
+    src = "def f(a, b):\n    return [a + b for _ in range(3)]\n\nclass C:\n    x = {1: 2}\n"
+    cache = last_parse_cache_cls(ast)
+    tree = cache.parse(src)
+    expected = list(ast.walk(tree))
+    for _ in range(3):
+        got = list(cache.walk(tree))
+        assert len(got) == len(expected)
+        assert all(a is b for a, b in zip(got, expected)), "BFS order or identity moved"
+    assert cache.walk_materialised == 1, "the list must be built once, not per call"
+    assert cache.walk_replays == 2, "first call materialises, the other two replay"
+
+
+def test_walk_hands_each_caller_an_independent_cursor(last_parse_cache_cls):
+    """Two overlapping walks of the same tree must not consume one another.
+
+    `ast.walk` returns a fresh generator per call, and several lints walk while a
+    caller is mid-walk. `iter(list)` has to reproduce that, or a nested traversal
+    would silently see a truncated tree.
+    """
+    cache = last_parse_cache_cls(ast)
+    tree = cache.parse("a = 1\nb = 2\nc = 3\n")
+    outer = cache.walk(tree)
+    first = next(outer)
+    inner = list(cache.walk(tree))
+    assert inner[0] is first, "the second walk must restart from the root"
+    assert len(list(outer)) == len(inner) - 1, "the first cursor must not have moved"
+
+
+def test_walk_memo_is_dropped_when_the_cached_tree_is_replaced(last_parse_cache_cls):
+    """REGRESSION GUARD -- the one way this memo could return WRONG nodes.
+
+    The list describes exactly the tree the cache holds. If a later parse replaces
+    that tree and the list survives, a walk of the NEW tree replays the OLD one's
+    nodes -- every lint downstream then lints the previous file. Cheap to get
+    wrong (it is one `= None` in the miss branch) and invisible in any count-shaped
+    check, so it is pinned directly.
+    """
+    cache = last_parse_cache_cls(ast)
+    first = cache.parse("alpha = 1\n")
+    assert [n.id for n in cache.walk(first) if isinstance(n, ast.Name)] == ["alpha"]
+    second = cache.parse("beta = 2\nGAMMA = 3\n")
+    assert second is not first
+    assert [n.id for n in cache.walk(second) if isinstance(n, ast.Name)] == ["beta", "GAMMA"]
+
+
+def test_walk_passes_through_for_a_node_that_is_not_the_cached_tree(last_parse_cache_cls):
+    """Sub-tree walks are deliberately NOT memoised -- they must reach the real one."""
+    cache = last_parse_cache_cls(ast)
+    tree = cache.parse("def f():\n    return 1\n")
+    fn = tree.body[0]
+    before = cache.walk_passthrough
+    assert [type(n) for n in cache.walk(fn)] == [type(n) for n in ast.walk(fn)]
+    assert cache.walk_passthrough == before + 1
 
 
 def test_shim_is_a_real_module_not_a_getattr_proxy(last_parse_cache_cls):
@@ -320,6 +398,35 @@ def test_shared_scan_parses_each_file_once(corpus_scan):
         f"({corpus_scan.n_rglob_files}) + residue budget ({residue_budget}) -- the "
         f"cache is not being hit. Per-lint charges: "
         f"{ {n: corpus_scan.lint_parse_misses[n] for n, _ in _PATH_LINTS} }")
+
+
+def test_shared_scan_replays_the_whole_module_walk(corpus_scan):
+    """The traversal sharing must still be ENGAGED, not merely implemented.
+
+    Sibling of `test_shared_scan_parses_each_file_once`, and needed for the same
+    reason: the parse cache and the walk memo are both invisible when they stop
+    working. Every verdict stays correct -- the real `ast.walk` gives the same
+    nodes -- and the only symptom is that `scan_corpus` goes back to ~189s from
+    ~84s (measured on the idle hub at `49f2e613`; see `_LastParseCache.walk`).
+    Nothing else in the suite would notice.
+
+    The floor is deliberately loose. The exact figure when this landed was 50,369
+    replays against 1,632 materialisations over `n_rglob_files`, i.e. ~31 re-walks
+    of each module tree, but that number moves with every new corpus lint and
+    pinning it would make this a maintenance tax rather than a guard. What it has
+    to separate is "engaged" from "not engaged at all", and the failure mode is a
+    collapse to ZERO, not a drift of a few thousand. One replay per rglob file is
+    far below today's ~31 and far above anything a disengaged memo could produce.
+    """
+    assert corpus_scan.walk_materialised > 0, (
+        "no module tree was ever materialised -- the memo is not installed at all "
+        "(check that `shim.walk` is still the cache's own in `_LastParseCache.__init__`)")
+    assert corpus_scan.walk_replays >= corpus_scan.n_rglob_files, (
+        f"walk replays ({corpus_scan.walk_replays}) fell below one per rglob file "
+        f"({corpus_scan.n_rglob_files}) -- the lints have stopped re-walking the SHARED "
+        f"tree. Either something hands them a tree the parse cache does not hold (each "
+        f"such walk falls through to the real ast.walk), or the memo is being dropped "
+        f"between consumers. Verdicts are unaffected; the scan is ~2x slower.")
 
 
 def test_every_path_lint_is_covered_by_this_files_differential(corpus_scan):

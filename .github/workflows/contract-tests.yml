@@ -129,6 +129,23 @@ jobs:
     # `--durations=25` below is the standing instrumentation for making that
     # choice on data instead of guesswork.
     #
+    # ~103s OF THAT DEADLINE WAS BOUGHT BACK THE SAME DAY, WITHOUT PARALLELISM
+    # AND WITHOUT NARROWING ANYTHING. `--durations=25` did its job: the largest
+    # single line in the suite was
+    #   200.47s setup tests/contracts/test_agent_construction_seed_order_lint.py::
+    #                 test_corpus_fire_rate_is_pinned
+    # -- ~11% of wall clock, six times the next entry. That is not one test: it
+    # is the session-scoped `corpus_scan` fixture (tests/contracts/conftest.py),
+    # attributed to whichever consumer happens to trigger it first. Profiling it
+    # per consumer showed the parse was already shared and the TRAVERSAL was the
+    # cost: 21 corpus lints each re-walking the one shared tree. Memoising that
+    # walk took the fixture 186.11s -> 82.57s on an idle hub, with every lint's
+    # fire list identical. Because the cost is O(corpus x lints) rather than
+    # O(tests), it does NOT come back with test growth the way the ~12-17 s/day
+    # above does -- but a new corpus-wide lint does add to it, so it stays worth
+    # watching in `--durations`. The sharding/xdist decision below is deferred,
+    # not cancelled.
+    #
     # DO NOT buy time by narrowing the collected set. A suite that is not run
     # is not a gate. (This job already runs only `tests/`, while
     # scripts/remote_pytest.sh --selftest pins SIX collection roots --
