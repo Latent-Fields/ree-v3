@@ -99,6 +99,21 @@ measures and would make 1039a a different experiment rather than a repair of thi
   * the substrate entry stays severity `degrading` (not carved into a narrow `corrupting`
     sub-class).
 
+AND ONE FURTHER RATIFIED AMENDMENT, 2026-09-18 (AskUserQuestion, option B), raised by this
+driver's own Step 4.5 red-team and decided by the user before queuing:
+
+  * **precondition A2 is quantified over `A2_GATED_ARMS` (`shaped_rl`), not over every
+    treatment cell as the autopsy's section 14 item 1 literally said.** The unshaped arms'
+    surviving-advantage fractions are RECORDED as telemetry rather than gated. Full
+    reasoning at `A2_GATED_ARMS`; in one line: a BLOCKED `sparse_rl` legitimately shows no
+    surviving advantage (the EMA baseline decays below the threshold in a reward-free
+    stretch), so the original quantifier would have self-routed the single most likely
+    H1-negative result to `substrate_not_ready_requeue` -- an instrument label on the
+    manipulation's own control regime.
+  * `lpfc_bias_saturated_frac` stays RECORDED, NOT GATED (option C declined), and
+    `e3.e3_score_decomp_enabled` stays OFF (option D declined, deferred to its own
+    `/implement-substrate` pass).
+
 === THE FIVE READINESS PRECONDITION SETS, AND WHAT EACH CAN FAIL ON ===
 
 ABSORPTION -- "did the manipulation reach a parameter?" (autopsy item 1)
@@ -269,8 +284,12 @@ sparse control, whose surviving-advantage fraction legitimately tends to 0 in ex
 H1-favourable world, self-routing that result to substrate_not_ready_requeue) and the
 GATE half of F1, and F3 (autopsy item 3's lPFC SHARE of the summed modulatory accumulator
 needs e3.e3_score_decomp_enabled, whose ~24 gated sites are not verifiably
-behaviour-neutral), all amend a gate set ratified at a user gate, so they are RAISED AS A
-DECISION rather than decided here. See the queue entry note and the staged artifact.
+behaviour-neutral) all amend a gate set ratified at a user gate, so they were RAISED AS A
+DECISION rather than decided by the session. RESOLVED 2026-09-18 by the user (option B):
+F2 FIXED by narrowing A2 to A2_GATED_ARMS; the F1 gate half and F3 DECLINED -- the
+saturation statistic stays recorded-not-gated and e3_score_decomp_enabled stays off. Full
+findings, measurements and option table:
+REE_assembly evidence/planning/exq1039a_absorption_gate_redteam_staged_20260918.md.
 """
 
 from __future__ import annotations
@@ -391,6 +410,38 @@ RETURN_SEPARATION_CAP = 1000.0
 # have converted through. 5% is a floor well clear of that degenerate case and still far
 # below any level at which it would function as a learning-capability bar.
 ADV_SURVIVING_FRAC_FLOOR = 0.05
+# WHICH ARMS A2 GATES ON -- a USER-RATIFIED AMENDMENT of the autopsy's wording, decided by
+# AskUserQuestion on 2026-09-18 (option B) after this driver's own Step 4.5 red-team pass.
+#
+# THE AUTOPSY SAID "in every treatment cell" (section 14 item 1). The red-team showed that
+# quantifier is unmeetable in exactly the world the hypothesis predicts: the REINFORCE
+# advantage is `ep_return - EMA_baseline` with EMA_DECAY 0.9 (`allon_training.py:412,
+# 796-797`), so after one 0.2 waypoint visit the baseline decays below ADV_MIN_THRESHOLD
+# within ~14 reward-free episodes and a BLOCKED sparse_rl's terms are skipped by
+# construction. V3-EXQ-1039 recorded sparse_rl@seed44 at 0.0 visits/ep, and this driver's
+# own dry run reproduced the shape (sparse and demo at 0.0, shaped at 1.0). Under the
+# original quantifier the result "the sparse signal produced no gradient, the dense one
+# did, and behaviour still did not move" -- a genuine H1-negative finding, and the single
+# most likely outcome -- would self-route to `substrate_not_ready_requeue`: an instrument
+# label pinned on the manipulation's own CONTROL regime, from a requeue that cannot clear
+# by re-running.
+#
+# WHY NARROWING DOES NOT WEAKEN THE GATE. A2 exists so a FLAT NULL between arms is not read
+# as "reward density does not matter" when in fact no arm received a gradient (the chip's
+# own framing: "before any flat null is admissible"). That failure is fully detected by
+# gating the arm whose manipulation IS the training signal: if shaped_rl -- the arm carrying
+# the denser signal -- shows no surviving advantage, nothing in this design could have
+# converted and the run is genuinely not ready. A blocked sparse_rl showing none is the
+# EXPECTED reading of a working control, not an instrument failure.
+#
+# demo_warmstart is excluded for a different and structural reason: it trains on the SAME
+# unshaped env as sparse_rl, so its P1 returns match sparse's by construction and its
+# absorption evidence is precondition A3 (phase-A CE falling below chance), not A2.
+#
+# NOT EXEMPT FROM SCRUTINY, ONLY FROM THE GATE: both ungated arms' surviving fractions are
+# recorded per cell under the precondition's `ungated_arms_surviving_frac`, so an autopsy
+# reads them without re-running anything.
+A2_GATED_ARMS: Tuple[str, ...] = ("shaped_rl",)
 # A3. demo_warmstart's phase-A CE must fall to at most this fraction of chance
 # (ln(mean n_candidates)) over the final tenth of its updates. 1039 measured exactly
 # 1.0 x chance (3.465736 = ln(32)); 0.9 is the weakest bar that excludes that reading.
@@ -1451,22 +1502,44 @@ def _score(per_seed: Dict[str, List[Dict[str, Any]]], seeds: List[int]) -> Dict[
     }
 
     # ---- A2: non-skipped advantage fraction (autopsy item 1, THE key absorption number) -
+    # USER-RATIFIED AMENDMENT, 2026-09-18 (AskUserQuestion, option B). The autopsy's literal
+    # wording is "in every treatment cell"; this gate now quantifies over A2_GATED_ARMS
+    # (shaped_rl only) and records the other arms as TELEMETRY. See A2_GATED_ARMS for the
+    # reasoning and for why the unshaped arms are not exempted from scrutiny, only from the
+    # gate.
+    a2_cells = [c for c in cells if c[0] in A2_GATED_ARMS]
     a2_measured, a2_cell = _worst(
-        cells, lambda r: _num(r.get("p1abs_lpfc_adv_surviving_frac")), "min", 0.0,
+        a2_cells, lambda r: _num(r.get("p1abs_lpfc_adv_surviving_frac")), "min", 0.0,
     )
+    a2_ungated = {}
+    for _arm, _seed, _row in cells:
+        if _arm in A2_GATED_ARMS:
+            continue
+        a2_ungated[f"{_arm}@seed{_seed}"] = _num(
+            _row.get("p1abs_lpfc_adv_surviving_frac")
+        )
     a2 = {
         "name": "adv_surviving_frac_clears_floor", "kind": "readiness",
         "description": (
             "Fraction of sampled REINFORCE outcome-buffer terms clearing "
             "abs(adv) >= ADV_MIN_THRESHOLD (0.005) on the lateral-PFC head, in the WORST "
-            "treatment cell. ~0 means the cell received no usable gradient at all whatever "
-            "its reward was -- the absorption failure V3-EXQ-1039 could not see. A cell "
-            "that drew no REINFORCE term at all reports None and is scored 0.0 (fails)."
+            "cell of the arms whose MANIPULATION IS THE TRAINING SIGNAL (A2_GATED_ARMS = "
+            "shaped_rl). ~0 there means the dense signal produced no usable gradient at "
+            "all whatever its reward was -- the absorption failure V3-EXQ-1039 could not "
+            "see. A cell that drew no REINFORCE term reports None and is scored 0.0 "
+            "(fails). sparse_rl and demo_warmstart are recorded under "
+            "`ungated_arms_surviving_frac` and deliberately NOT gated: see A2_GATED_ARMS."
         ),
         "control": "allon_training absorption block, lpfc_adv_surviving_frac, P1 phase",
         "measured": round(float(a2_measured), 6),
         "threshold": float(ADV_SURVIVING_FRAC_FLOOR),
         "direction": "lower", "offending_cell": a2_cell,
+        "gated_arms": list(A2_GATED_ARMS),
+        "ungated_arms_surviving_frac": a2_ungated,
+        "scope_amendment": (
+            "user-ratified 2026-09-18 (option B); the autopsy's own wording was "
+            "'in every treatment cell'"
+        ),
         "met": bool(a2_measured >= ADV_SURVIVING_FRAC_FLOOR),
     }
 
