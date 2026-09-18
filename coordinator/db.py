@@ -1103,6 +1103,12 @@ def try_open_task_claim(conn, session_id, session_label, task, resources,
       'owned_by_other' -- a live rival owns at least one named FILE resource;
                           nothing written. payload['rivals'] carries the owner
                           rows so the CLI can render today's exit-3 text.
+      'id_collision'   -- a DIFFERENT Claude session already holds an active
+                          claim under this session_id; nothing written. Only
+                          ever returned when both sides' claude_session_id are
+                          known and differ -- otherwise the case is
+                          indistinguishable from a re-run and returns
+                          'idempotent'. See the guard comment below.
       'error'          -- sqlite failure; nothing written.
 
     `claimed_at` is CLIENT-SUPPLIED and optional. The plan's original
@@ -1125,13 +1131,44 @@ def try_open_task_claim(conn, session_id, session_label, task, resources,
     try:
         conn.execute("BEGIN IMMEDIATE")
         existing = conn.execute(
-            "SELECT claimed_at FROM task_claims "
+            "SELECT claimed_at, claude_session_id, session_label, task "
+            "FROM task_claims "
             "WHERE session_id=? AND status='active' ORDER BY claimed_at",
             (session_id,),
         ).fetchone()
         if existing is not None:
             conn.execute("ROLLBACK")
-            return ("idempotent", {"claimed_at": existing["claimed_at"]})
+            # SHARED-session_id GUARD (2026-09-18). Two sessions that derive
+            # the SAME --session-id both land here -- canonically from one
+            # chip_ref, but a REUSED WORKTREE SLUG does it too. Arbitration
+            # cannot save them: this branch returns before the rival scan
+            # below, and that scan excludes `c.session_id<>?` anyway. So the
+            # second caller read the first's row back as its own and carried
+            # on, while its OWN --resources were never recorded nor
+            # arbitrated ANYWHERE. Measured live 2026-09-18: two opens, one
+            # id, different task/resources -> one row, caller A's fields
+            # intact, caller B's resource absent from the DB entirely.
+            #
+            # claude_session_id is the only field that separates a genuine
+            # same-session re-run -- the documented idempotent path, which
+            # MUST NOT regress, since the git path retries routinely under
+            # contention -- from two distinct sessions sharing an id.
+            #
+            # BOTH must be known and differ before we refuse. An empty on
+            # either side (pre-migration rows, a degraded client, any
+            # non-Claude caller) falls through to the old behaviour rather
+            # than inventing a refusal out of missing data.
+            held_csid = existing["claude_session_id"] or ""
+            mine_csid = claude_session_id or ""
+            payload = {
+                "claimed_at": existing["claimed_at"],
+                "holder_claude_session_id": held_csid,
+                "holder_session_label": existing["session_label"] or "",
+                "holder_task": existing["task"] or "",
+            }
+            if held_csid and mine_csid and held_csid != mine_csid:
+                return ("id_collision", payload)
+            return ("idempotent", payload)
 
         rivals = []
         notes = []

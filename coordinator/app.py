@@ -258,7 +258,12 @@ def _tc_open(conn, body, machine_tok):
     )
     out = dict(payload)
     out["verdict"] = verdict
-    if verdict == "owned_by_other":
+    if verdict in ("owned_by_other", "id_collision"):
+        # 409 for both: each is "someone else holds this", and an OLDER client
+        # that does not know 'id_collision' reads the status, degrades to its
+        # git path and says so, rather than silently treating a refusal as
+        # agreement. It does not GAIN the guard that way -- the client half
+        # ships alongside -- but it cannot misread one either.
         return 409, out
     if verdict == "error":
         return 500, out

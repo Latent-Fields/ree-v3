@@ -234,5 +234,141 @@ class TestWriteOnce(unittest.TestCase):
         self.assertEqual(_stored(conn, "s2"), UUID_B)
 
 
+class TestSharedSessionIdGuard(unittest.TestCase):
+    """The id_collision verdict: two DISTINCT Claude sessions, one session_id.
+
+    MEASURED 2026-09-18 against the live hub, before this guard existed: two
+    `open` calls under one session_id carrying DIFFERENT --task and
+    --resources produced ONE row with caller A's fields intact and caller B's
+    resource absent from the DB entirely. B was told "claim already active --
+    nothing to do" and proceeded, believing the row was its own.
+
+    Two mechanisms conspire and BOTH are pinned below: the early-return
+    idempotent branch fires before the rival scan, and the rival scan itself
+    excludes `c.session_id<>?`. So B's resources are arbitrated against
+    NOBODY -- not merely against A. test_colliding_resources_are_not_recorded
+    is the one that would have caught the incident.
+    """
+
+    def _held_by_a(self, conn):
+        verdict, _ = db.try_open_task_claim(
+            conn, session_id="shared-id", session_label="A",
+            task="A's task", resources=["ree-v3/a.py"],
+            claude_session_id=UUID_A)
+        self.assertEqual(verdict, "ok")
+
+    def test_same_session_rerunning_is_still_idempotent(self):
+        """THE REGRESSION GUARD. The git path retries `open` routinely under
+        contention; turning that into a refusal would break the documented
+        per-session_id idempotency (plan doc D8)."""
+        conn, _ = _fresh_db()
+        self._held_by_a(conn)
+        verdict, payload = db.try_open_task_claim(
+            conn, session_id="shared-id", session_label="A",
+            task="A's task", resources=["ree-v3/a.py"],
+            claude_session_id=UUID_A)
+        self.assertEqual(verdict, "idempotent")
+        self.assertTrue(payload["claimed_at"])
+
+    def test_different_session_same_id_is_refused(self):
+        conn, _ = _fresh_db()
+        self._held_by_a(conn)
+        verdict, payload = db.try_open_task_claim(
+            conn, session_id="shared-id", session_label="B",
+            task="B's DIFFERENT task", resources=["ree-v3/b.py"],
+            claude_session_id=UUID_B)
+        self.assertEqual(verdict, "id_collision")
+        self.assertEqual(payload["holder_claude_session_id"], UUID_A)
+        self.assertEqual(payload["holder_session_label"], "A")
+        self.assertEqual(payload["holder_task"], "A's task")
+
+    def test_colliding_resources_are_not_recorded(self):
+        """The harm itself: B's declared scope must not silently vanish into
+        a success. Pinned as a property of the REFUSAL -- B is told to re-run
+        under its own id, which is what gets its resources arbitrated."""
+        conn, _ = _fresh_db()
+        self._held_by_a(conn)
+        db.try_open_task_claim(
+            conn, session_id="shared-id", session_label="B",
+            task="B's task", resources=["ree-v3/b.py"],
+            claude_session_id=UUID_B)
+        rows = conn.execute(
+            "SELECT resource FROM task_claim_resources").fetchall()
+        self.assertEqual(sorted(r["resource"] for r in rows), ["ree-v3/a.py"])
+        self.assertEqual(
+            conn.execute("SELECT COUNT(*) c FROM task_claims").fetchone()["c"],
+            1)
+
+    def test_holder_fields_are_never_overwritten(self):
+        """Negative control for the mechanism the chip originally alleged: an
+        ON CONFLICT field overwrite. There is none on this path -- the branch
+        ROLLBACKs -- and this pins that it stays that way."""
+        conn, _ = _fresh_db()
+        self._held_by_a(conn)
+        db.try_open_task_claim(
+            conn, session_id="shared-id", session_label="B OVERWRITE?",
+            task="B's task", resources=["ree-v3/b.py"],
+            claude_session_id=UUID_B)
+        row = conn.execute(
+            "SELECT session_label, task FROM task_claims "
+            "WHERE session_id='shared-id'").fetchone()
+        self.assertEqual(row["session_label"], "A")
+        self.assertEqual(row["task"], "A's task")
+
+    def test_unknown_caller_id_falls_back_to_idempotent(self):
+        """FAIL-SAFE. A degraded client or non-Claude caller sends nothing;
+        refusing on missing data would invent a stop out of ignorance."""
+        conn, _ = _fresh_db()
+        self._held_by_a(conn)
+        for mine in (None, ""):
+            verdict, _ = db.try_open_task_claim(
+                conn, session_id="shared-id", session_label="B",
+                task="T", resources=["ree-v3/b.py"], claude_session_id=mine)
+            self.assertEqual(verdict, "idempotent")
+
+    def test_unknown_holder_id_falls_back_to_idempotent(self):
+        """The pre-migration shape: the row predates the column, so '' is
+        'unrecorded', not 'a different session'."""
+        conn, _ = _fresh_db()
+        db.try_open_task_claim(
+            conn, session_id="legacy-id", session_label="A", task="T",
+            resources=["ree-v3/a.py"])
+        verdict, _ = db.try_open_task_claim(
+            conn, session_id="legacy-id", session_label="B", task="T2",
+            resources=["ree-v3/b.py"], claude_session_id=UUID_B)
+        self.assertEqual(verdict, "idempotent")
+
+    def test_a_closed_claim_does_not_collide(self):
+        """Only an ACTIVE row holds the id. Worktree slugs are reused across
+        sessions for days (measured: one slug, 12 claims, distinct sessions);
+        that must stay free once the previous claim is closed."""
+        conn, _ = _fresh_db()
+        self._held_by_a(conn)
+        conn.execute("UPDATE task_claims SET status='done' "
+                     "WHERE session_id='shared-id'")
+        # Explicit claimed_at: the reopen would otherwise collide with the
+        # closed row on the (session_id, claimed_at) PRIMARY KEY whenever both
+        # opens land in the same second, and surface as verdict 'error'.
+        # Pre-existing behaviour of the INSERT, not of this guard -- pinning
+        # it here would test the clock.
+        verdict, _ = db.try_open_task_claim(
+            conn, session_id="shared-id", session_label="B", task="T",
+            resources=["ree-v3/b.py"], claude_session_id=UUID_B,
+            claimed_at="2030-01-01T00:00:00Z")
+        self.assertEqual(verdict, "ok")
+
+    def test_a_real_rival_still_outranks_the_id_check(self):
+        """Ordering: a DIFFERENT session_id contending for the same file is
+        still 'owned_by_other'. The two refusals must not be confused --
+        their remedies differ (stop, vs re-run under your own id)."""
+        conn, _ = _fresh_db()
+        self._held_by_a(conn)
+        verdict, payload = db.try_open_task_claim(
+            conn, session_id="other-id", session_label="C", task="T",
+            resources=["ree-v3/a.py"], claude_session_id=UUID_B)
+        self.assertEqual(verdict, "owned_by_other")
+        self.assertTrue(payload["rivals"])
+
+
 if __name__ == "__main__":
     unittest.main()
