@@ -2917,6 +2917,7 @@ PROBED = {
     "use_loop_segregation",             # test_use_loop_segregation_changes_the_committed_index
     "use_named_channel_routing",        # test_use_named_channel_routing_substitutes_the_routed_representation
     "use_d1_d2_population_split",       # test_use_d1_d2_population_split_is_bit_identical_at_da_zero_then_diverges
+    "use_loop_local_eligibility_traces",  # test_use_loop_local_eligibility_traces_excludes_the_losing_loops_channel
     # MECH-131 anticipatory-residue lesion instrument (HippocampalConfig).
     # Gates the residue_val channel into terrain_prior, which biases the INITIAL
     # action-object proposal mean. Probed in
