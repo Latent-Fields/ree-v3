@@ -29,15 +29,28 @@ whichever class is current, i.e. of the functional form, and the form is a
 separate open question. The referent fix buys the TRANSITION case, not
 monotonicity.
 
-A SECOND, INDEPENDENT REASON MECH-268 DOES NOT DIFFERENTIATE LIVE, measured
-2026-09-18 and pinned by `test_l5_*`: with the default
-`contextual_safety_harm_threshold` (0.05) the live `z_harm_a` norm on
-CausalGridWorldV2 runs 0.354-0.890 -- it never crosses -- so the recorded class
-is constant, `n_rec` pins at the window size, and `sat_factor` pins at its floor
-(0.3571 at window 8 / grace 2 / strength 0.3) from the 8th dACC read onward.
-f_sat is then a fixed gain on pe, not a history-conditioned signal. Both
-referents agree there, which is exactly why the referent fix is a no-op in that
-regime. Calibration of the class boundary, not the referent and not the form.
+THE CLASS IS NEAR-CONSTANT LIVE, WHICH BOUNDS WHAT THIS FIX CAN BUY. With the
+default `contextual_safety_harm_threshold` (0.05) the live `z_harm_a` norm on
+CausalGridWorldV2 runs 0.354-0.890 and never crosses it, so the recorded class
+does not flip (measured 2026-09-18). That agrees with the independent 2026-09-17
+measurement recorded on `chip-20260917-mech268-closure-cadence-dose`:
+`harm_class_fraction` 0.946-1.000 regardless of the threshold, i.e. the
+threshold lever is INERT. Since both referents agree whenever the class is
+constant, the corrected referent bites only on the minority off-class ticks and
+at genuine transitions -- it is a spec-conformance fix with a small expected
+ecological yield, not a differentiator.
+
+DO NOT READ `test_l5_*` AS "f_sat IS PINNED AT ITS FLOOR LIVE" -- an earlier
+draft of this file said that and it was WRONG. It holds only with SD-034 closure
+OFF, which is the case in this file's fixture (`use_closure_operator` defaults
+False, so no ClosureOperator is built and nothing ever clears the FIFO). On a
+TRAINED agent with closure ON (`closure_reset_outcome_history` defaults True),
+`ClosureOperator._fire()` calls `dacc.reset_outcome_history()`, `n_rec` re-ramps
+from 0 and sweeps the full 0..8 range -- interior occupancy 0.911-0.946,
+measured 2026-09-17 (REE_assembly e64d57908f). So the ecological driver of
+graded saturation is CLOSURE CADENCE, not harm density, and f_sat is richly
+exercised live. `test_l5_*` pins the closure-OFF mechanism only, and exists to
+guard `test_l3_*`'s no-transition premise.
 
 LEVER. `dacc_saturation_thread_current_class`, default False = the fallback
 stands and behaviour is bit-identical (`test_l1_*`, `test_l3_*`).
@@ -339,18 +352,29 @@ def test_l4_lever_ON_MOVES_the_live_downstream_quantities_at_a_transition():
     assert ev_off != ev_on, "mode_ev -- the actual consumer -- did not move"
 
 
-def test_l5_default_threshold_pins_f_sat_at_its_FLOOR_under_both_referents():
-    """The second, independent blocker -- and NOT one this change fixes.
+def test_l5_with_closure_OFF_a_constant_class_pins_f_sat_at_its_floor():
+    """SCOPED DELIBERATELY: closure-OFF only. Not a claim about the live regime.
 
-    The live z_harm_a norm never approaches the default 0.05 boundary, so the
-    class is constant, n_rec pins at the window, and f_sat degenerates to a
-    fixed gain. Recorded here so it is not rediscovered as a referent problem.
+    Two things, and conflating them is the error an earlier draft of this file
+    made. (1) The class really is constant here -- the live z_harm_a norm never
+    approaches the default 0.05 boundary -- and that generalises: the 2026-09-17
+    measurement puts harm_class_fraction at 0.946-1.000 with the threshold lever
+    inert. (2) f_sat nonetheless pinning at its floor does NOT generalise: it
+    follows from this fixture having no ClosureOperator (use_closure_operator
+    defaults False), so nothing ever calls reset_outcome_history(). With closure
+    ON, n_rec re-ramps from 0 on every rule completion and sweeps 0..8 (interior
+    occupancy 0.911-0.946). This test pins the closure-OFF mechanism, and is
+    what makes test_l3's no-transition premise auditable rather than assumed.
     """
     _agent, cfg, trace = _live(thread=True)
     thr = float(cfg.contextual_safety_harm_threshold)
     norms = [r["norm"] for r in trace if r["norm"] is not None]
     assert norms
     assert min(norms) > thr, "the class boundary is no longer degenerate -- requeue"
+    assert _agent.closure_operator is None, (
+        "premise broken: a ClosureOperator exists, so the FIFO can be reset and "
+        "the floor assertion below no longer isolates the closure-OFF mechanism"
+    )
     assert {r["cls_arg"] for r in trace} == {1}
 
     floor = _expected(WINDOW)
