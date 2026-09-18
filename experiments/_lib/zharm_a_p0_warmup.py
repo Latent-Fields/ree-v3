@@ -102,6 +102,7 @@ __all__ = [
     "affective_encoder_parameters",
     "encoder_weight_snapshot",
     "encoder_weight_delta",
+    "recover_effective_target",
 ]
 
 
@@ -167,6 +168,45 @@ def encoder_weight_delta(
             n_changed += 1
         max_abs = max(max_abs, m)
     return n_changed, max_abs
+
+
+def recover_effective_target(agent: Any, accumulated_harm_target: float,
+                             device: Optional[torch.device] = None) -> Optional[float]:
+    """The scalar `compute_harm_accum_loss` is ACTUALLY regressing for this sample.
+
+    Recovered from the agent's own loss rather than re-derived here, which is the point: with
+    `harm_accum_pred` forced to ZERO the loss is `weight * mse(0, target) = weight * target**2`,
+    so `target = sqrt(loss / weight)`. Both target paths are non-negative by construction --
+    SD-011's `accumulated_harm` is clipped to [0, 1] by the env, SD-020's is
+    `abs(actual - expected) * precision_norm` -- so the square root is exact, not an absolute
+    value standing in for a signed quantity.
+
+    WHY NOT read the buffered `accumulated_harm` directly: under SD-020
+    (`harm_surprise_pe_enabled`) the head regresses a precision-weighted prediction error, not
+    that scalar, and scoring it against the latter would compare it with a quantity it was never
+    trained on. Going through the agent is the only way to score BOTH targets on the same
+    footing without duplicating the derivation here and letting the copy drift.
+
+    SIDE EFFECT, and it is the caller's to manage: under SD-020 this ADVANCES
+    `agent._harm_obs_ema`, exactly as a real training call would -- which is why a readout must
+    walk its samples in TEMPORAL order from a defined starting EMA, and restore it afterwards.
+
+    Returns None when the aux-loss weight is non-positive (nothing is being regressed).
+    Pinned by contracts C3h (SD-011: recovery reproduces the buffered scalar exactly) and C3i
+    (SD-020: recovery reproduces |actual - expected| * precision_norm).
+    """
+    w = float(getattr(getattr(agent.config, "latent", None),
+                      "z_harm_a_aux_loss_weight", 0.1))
+    if w <= 0.0:
+        return None
+    if device is None:
+        params = affective_encoder_parameters(agent)
+        device = params[0].device if params else torch.device("cpu")
+    with torch.no_grad():
+        loss = float(agent.compute_harm_accum_loss(
+            accumulated_harm_target, _loss_state(torch.zeros(1, 1, device=device), device),
+        ))
+    return float((max(loss, 0.0) / w) ** 0.5)
 
 
 def _loss_state(harm_accum_pred: torch.Tensor, device: torch.device) -> LatentState:
@@ -363,50 +403,89 @@ def run_zharm_a_p0(
                 agent._harm_obs_ema = ema0
             return total / float(len(samples))
 
-        def _head_vs_constant(samples, train_samples) -> Dict[str, Any]:
+        def _effective_targets(samples) -> List[float]:
+            """The target `compute_harm_accum_loss` is ACTUALLY regressing, per sample.
+
+            One `recover_effective_target` call per sample -- see that function for how and why
+            the target is recovered through the agent instead of re-derived here.
+
+            TEMPORAL ORDER IS LOAD-BEARING: the SD-020 target depends on `agent._harm_obs_ema`,
+            which `compute_harm_accum_loss` advances on every call. The walk therefore starts
+            from the pre-warmup EMA and runs the WHOLE buffer in order, exactly as a live run
+            would, and restores the tracker afterwards.
+            """
+            if not samples:
+                return []
+            ema0 = getattr(agent, "_harm_obs_ema", None)
+            if harm_obs_ema_pre is not None:
+                agent._harm_obs_ema = harm_obs_ema_pre
+            targets: List[float] = []
+            for s in samples:
+                t = recover_effective_target(agent, s[2], device)
+                if t is None:
+                    if ema0 is not None:
+                        agent._harm_obs_ema = ema0
+                    return []
+                targets.append(t)
+            if ema0 is not None:
+                agent._harm_obs_ema = ema0
+            return targets
+
+        def _head_vs_constant(samples, train_samples, all_samples) -> Dict[str, Any]:
             """Held-out MSE of the aux head against a CONSTANT-MEAN predictor.
 
             THIS IS THE READOUT THAT MATTERS, and the loss curve is not a substitute for it.
             `harm_accum_head` ends in a Sigmoid, so it starts near 0.5; if the target sits near
             a small constant the loss falls steeply while the encoder learns only that offset.
             Every other number in this block (falling epoch loss, falling held-out loss, moved
-            weights) is satisfied by that vacuous fit. `p0h_holdout_lift = 1 - mse_head/mse_const`
-            is what separates it: > 0 means the head beats the constant, <= 0 means it did not,
-            i.e. the stage moved the encoder without teaching it anything discriminative.
+            weights) is satisfied by that vacuous fit. `lift = 1 - mse_head/mse_const` is what
+            separates it: > 0 means the head beats the constant, <= 0 means it did not, i.e. the
+            stage moved the encoder without teaching it anything discriminative.
 
-            Basis note: the head nominally predicts the SD-011 `accumulated_harm` scalar, which
-            is what the buffer holds. Under SD-020 (`harm_surprise_pe_enabled`) the loss targets
-            a precision-weighted PE instead, so the lift against `accumulated_harm` would be
-            comparing against the wrong quantity -- it is reported as None there rather than as
-            a misleading number.
+            Scored against the EFFECTIVE target (see `_effective_targets`), so the SD-011 EMA
+            target and the SD-020 precision-weighted PE target are directly comparable: same
+            estimator, same split, same baseline, differing only in what the head was asked to
+            predict. Before 2026-09-18 this reported `lift: None` on the SD-020 path, which made
+            `p0h_readiness_met` False BY CONSTRUCTION there rather than by measurement.
             """
             blk: Dict[str, Any] = {"basis": None, "lift": None, "head_mse": None,
                                    "const_mse": None, "target_mean": None, "target_std": None}
             if not samples:
                 return blk
-            tgt = torch.tensor([float(s[2]) for s in samples], dtype=torch.float32)
+            blk["basis"] = ("sd020_precision_weighted_pe"
+                            if out["p0h_harm_surprise_pe_enabled"]
+                            else "sd011_accumulated_harm")
+            eff = _effective_targets(all_samples)
+            if len(eff) != len(all_samples):
+                blk["basis"] = "unavailable_zero_aux_loss_weight"
+                return blk
+            n_train = len(train_samples)
+            eff_train = eff[:n_train]
+            eff_hold = eff[n_train:]
+            if len(eff_hold) != len(samples):
+                blk["basis"] = "unavailable_split_mismatch"
+                return blk
+            tgt = torch.tensor(eff_hold, dtype=torch.float32)
             blk["target_mean"] = float(tgt.mean().item())
             blk["target_std"] = float(tgt.std(unbiased=False).item())
-            if out["p0h_harm_surprise_pe_enabled"]:
-                blk["basis"] = "sd020_pe_not_comparable_to_accumulated_harm"
-                return blk
-            blk["basis"] = "sd011_accumulated_harm"
             with torch.no_grad():
                 pred = torch.tensor([float(_pred(s).reshape(-1)[0].item()) for s in samples])
             # The constant is fitted on the TRAIN split, not on the holdout: a mean fitted on
             # the holdout itself would be a baseline with information the head never had.
-            if train_samples:
-                const = float(
-                    torch.tensor([float(s[2]) for s in train_samples]).mean().item()
-                )
-            else:
-                const = blk["target_mean"]
+            const = (float(torch.tensor(eff_train).mean().item()) if eff_train
+                     else blk["target_mean"])
             blk["const_predictor"] = const
             mse_head = float(((pred - tgt) ** 2).mean().item())
             mse_const = float(((tgt - const) ** 2).mean().item())
             blk["head_mse"] = mse_head
             blk["const_mse"] = mse_const
             blk["lift"] = (1.0 - mse_head / mse_const) if mse_const > 0.0 else None
+            blk["train_target_mean"] = (float(torch.tensor(eff_train).mean().item())
+                                        if eff_train else None)
+            blk["train_target_std"] = (
+                float(torch.tensor(eff_train).std(unbiased=False).item())
+                if len(eff_train) > 1 else None
+            )
             return blk
 
         out["p0h_holdout_loss_pre"] = _eval(holdout)
@@ -440,7 +519,7 @@ def run_zharm_a_p0(
         out["p0h_first_epoch_mean_loss"] = epoch_losses[0] if epoch_losses else None
         out["p0h_final_epoch_mean_loss"] = epoch_losses[-1] if epoch_losses else None
         out["p0h_holdout_loss_post"] = _eval(holdout)
-        out["p0h_holdout_vs_constant"] = _head_vs_constant(holdout, train)
+        out["p0h_holdout_vs_constant"] = _head_vs_constant(holdout, train, buf)
 
     if harm_obs_ema_pre is not None:
         agent._harm_obs_ema = harm_obs_ema_pre

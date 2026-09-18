@@ -240,6 +240,64 @@ def test_c3f_holdout_is_scored_against_a_constant_mean_predictor(on_run):
     assert blk["target_std"] is not None and blk["target_mean"] is not None
 
 
+def test_c3h_effective_target_recovery_is_exact_on_the_sd011_path():
+    """`recover_effective_target` inverts the agent's own loss (pred forced to 0, so
+    loss = weight * target**2). On the SD-011 path the target is the buffered
+    `accumulated_harm` scalar, so the recovery must reproduce it EXACTLY.
+
+    This is what makes the recovery safe to use as a scoring basis instead of re-deriving the
+    target here: if a future change makes either target SIGNED, or alters the loss shape away
+    from `weight * mse`, the square root silently starts returning magnitudes -- and this fails
+    rather than the readout quietly becoming wrong."""
+    agent = _make_agent(0)
+    assert bool(getattr(agent.config, "harm_surprise_pe_enabled", False)) is False
+    for value in (0.0, 0.0137, 0.25, 0.9):
+        got = zh.recover_effective_target(agent, value)
+        assert got == pytest.approx(value, abs=1e-6), (
+            "SD-011 recovery %r != buffered target %r" % (got, value)
+        )
+
+
+def test_c3i_effective_target_recovery_tracks_the_sd020_pe_formula():
+    """On the SD-020 path the head regresses `|actual - expected| * precision_norm`, NOT the
+    buffered scalar -- so the recovery must reproduce THAT, walking the expected-harm EMA in
+    temporal order exactly as `compute_harm_accum_loss` advances it.
+
+    Pinned independently of C3h because the two paths fail differently: C3h would still pass if
+    the PE branch were broken, and this is the branch the 2026-09-18 option-B measurement reads.
+    """
+    agent = _make_agent(0)
+    agent.config.harm_surprise_pe_enabled = True
+    alpha = float(getattr(agent.config, "harm_obs_ema_alpha", 0.1))
+    prec_norm = min(float(agent.e3.current_precision) / 500.0, 3.0)
+
+    ema = float(getattr(agent, "_harm_obs_ema", 0.0))
+    for value in (0.05, 0.05, 0.4, 0.4, 0.0):
+        ema = (1.0 - alpha) * ema + alpha * value      # advanced BEFORE the PE, per the agent
+        expected = abs(value - ema) * prec_norm
+        got = zh.recover_effective_target(agent, value)
+        assert got == pytest.approx(expected, abs=1e-9, rel=1e-5), (
+            "SD-020 recovery %r != |actual-expected|*precision_norm %r" % (got, expected)
+        )
+
+
+def test_c3j_the_pe_path_is_SCORED_not_reported_as_unavailable():
+    """REGRESSION PIN for the 2026-09-18 option-B fix. The first cut returned `lift: None` on
+    the SD-020 path, which made `p0h_readiness_met` False BY CONSTRUCTION there rather than by
+    measurement -- i.e. the instrument could not answer the question it was built to answer."""
+    agent = _make_agent(0)
+    agent.config.harm_surprise_pe_enabled = True
+    out = zh.run_zharm_a_p0(agent, _make_env(0), seed=0, episodes=6,
+                            steps_per_episode=STEPS, policy=RandomPolicy(0), label="c3j")
+    assert out["p0h_ran"] is True, out.get("p0h_reason")
+    assert out["p0h_target"] == "sd020_precision_weighted_pe"
+    blk = out["p0h_holdout_vs_constant"]
+    assert blk["basis"] == "sd020_precision_weighted_pe"
+    assert blk["lift"] is not None, "the PE path must be SCORED, not reported as unavailable"
+    assert blk["head_mse"] is not None and blk["const_mse"] is not None
+    assert isinstance(out["p0h_readiness_met"], bool)
+
+
 def test_c3g_readiness_is_the_conjunction_of_both_halves(on_run):
     """Readiness requires the gradient path to have REACHED the encoder (weight delta) AND the
     result to beat a constant (lift). Either alone is satisfiable by a failure mode: a zero
