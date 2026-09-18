@@ -264,7 +264,13 @@ recorded in the queue entry `note` and, in full, in the manifest `interpretation
   computes it (changing the pass rule would change a criterion the claim itself fixes),
   so outcome=PASS with direction=weakens is diagnostic of exactly this case; it is named
   in `interpretation.outcome_vs_direction_note` and carries non_degenerate=false, which
-  excludes it from confidence scoring.
+  excludes it from confidence scoring. ONE VARIANT FURTHER DOWN, from the same reviewer's
+  detail and fixed the same way: a SATURATED-CONSTANT null series (ratio exactly 0.0)
+  would give CI [0,0], hence ci95_high_below_ceiling True, hence direction "supports" on
+  a non-measurement. `supports` now REQUIRES non_degenerate, and every
+  nothing-was-measured state (saturated null, unavailable null control, uncomputable CI)
+  routes to "unknown" -- while a CONFOUNDED leg still routes to "weakens", which is why
+  that branch is tested first.
 
   Two further facts the reviewer surfaced, recorded rather than acted on: C2's requeue
   branch is effectively unreachable (its 1e-6 floor is 4-5 orders below where C1 already
@@ -881,6 +887,15 @@ def run_experiment(*, dry_run: bool = False) -> Dict[str, Any]:
               "C1 is cohort-level)", flush=True)
 
     n = len(seed_scores)
+    # SD-071's falsifier is stated at n>=8 ('a re-run at n>=8'), and `need_seeds` below
+    # reports the REALIZED n. Assert the INTENDED floor so a future edit that shrinks
+    # SEEDS cannot silently produce a result the claim's own criterion does not cover
+    # (red-team finding F4(d); cannot fire as shipped -- len(SEEDS) == 8).
+    assert dry_run or n >= 8, (
+        "SD-071's pre-registered criterion is stated at n>=8; this run has n=%d. "
+        "Restore SEEDS to at least 8 seeds, or the result does not answer the claim."
+        % n
+    )
 
     # ---- C1: COHORT-LEVEL, per gated leg -------------------------------------------
     # `subgroup_ratio_stats` is the harness's own shared helper (:1446) -- the same one
@@ -1063,7 +1078,19 @@ def run_experiment(*, dry_run: bool = False) -> Dict[str, Any]:
     if not readiness_ok:
         direction = "unknown"
     elif any(leg_stats[leg]["ci95_low_above_ceiling"] for leg in GATED_PHASES):
+        # Kept AHEAD of the non-degeneracy branch below on purpose: a confounded leg also
+        # sets non_degenerate False, and `weakens` -- not `unknown` -- is its right reading.
         direction = "weakens"
+    elif not non_degenerate:
+        # NOTHING WAS MEASURED, so no direction is warranted -- not even a weak one.
+        # Reaches here for a saturated-CONSTANT null series (ratio exactly 0.0, which
+        # would otherwise give CI [0,0], `ci95_high_below_ceiling` True and therefore
+        # `supports` on a non-measurement -- the same overstatement as red-team F3, one
+        # variant further down), an unavailable null control, or an uncomputable CI
+        # (subgroup_n < 2, e.g. under --dry-run). `supports` now REQUIRES
+        # non_degenerate; the absence of a measurement can never read as evidence for
+        # the claim.
+        direction = "unknown"
     elif overall_pass and all(
         leg_stats[leg]["ci95_high_below_ceiling"] for leg in GATED_PHASES
     ):
