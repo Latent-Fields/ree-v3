@@ -3760,6 +3760,24 @@ class REEConfig:
     dacc_saturation_window: int = 8
     dacc_saturation_strength: float = 0.3
     dacc_saturation_grace: int = 2
+    # MECH-268 f_sat referent fix. The saturation spec (DACCConfig, and
+    # dacc._saturation_factor) defines n_rec as the count of the CURRENT
+    # outcome class in the recent window, but REEAgent's live dACC call
+    # never tagged the class, so _saturation_factor took its
+    # class-is-None fallback on EVERY waking tick and habituated against
+    # the PREVIOUS tick's class instead. Consequence: a novel outcome
+    # arriving after a long run of the other class is scored against the
+    # OLD class's recurrence count and therefore maximally attenuated --
+    # the opposite of habituation, which should leave a novel outcome
+    # un-attenuated. True threads the same harm-vs-no-harm binary the
+    # FIFO writer records (agent.py record_outcome site), making the live
+    # path match the written spec and the 463/468 harnesses, which pass
+    # current_outcome_class explicitly. Default False = bit-identical
+    # (the class is not computed and not passed; the fallback stands).
+    # NOTE: this fixes the REFERENT only. It does not change the
+    # functional form (reciprocal / integer excess / grace / window),
+    # which is a separate live question.
+    dacc_saturation_thread_current_class: bool = False
     # Precision normalisation scale (matches SD-020 pattern).
     # precision_norm = min(e3.current_precision / dacc_precision_scale, 3.0).
     # Higher scale -> more modest precision weighting.
@@ -7442,6 +7460,7 @@ class REEConfig:
         dacc_saturation_window: int = 8,
         dacc_saturation_strength: float = 0.3,
         dacc_saturation_grace: int = 2,
+        dacc_saturation_thread_current_class: bool = False,
         # SD-032a: salience-network coordinator
         use_salience_coordinator: bool = False,
         salience_switch_threshold: float = 1.0,
@@ -8873,6 +8892,9 @@ class REEConfig:
         config.dacc_saturation_window = dacc_saturation_window
         config.dacc_saturation_strength = dacc_saturation_strength
         config.dacc_saturation_grace = dacc_saturation_grace
+        config.dacc_saturation_thread_current_class = (
+            dacc_saturation_thread_current_class
+        )
 
         # SD-032a: salience-network coordinator
         config.use_salience_coordinator = use_salience_coordinator

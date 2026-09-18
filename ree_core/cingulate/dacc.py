@@ -197,10 +197,12 @@ class DACCAdaptiveControl(nn.Module):
             pe_saturated  = pe_capped * sat_factor(history, class) # MECH-268
 
         sat_factor is computed against the outcome-history FIFO at the time
-        of this call. When current_outcome_class is None (caller did not
-        tag the outcome yet, e.g. first tick of an episode), saturation
-        falls back to using the most-recent buffered class; if the buffer
-        is empty saturation is 1.0 (no attenuation).
+        of this call. When current_outcome_class is None, saturation falls
+        back to the most-recent buffered class -- i.e. it habituates to the
+        PREVIOUS outcome, not the current one; if the buffer is empty
+        saturation is 1.0 (no attenuation). See _saturation_factor for why
+        that fallback is a degraded mode rather than a first-tick case, and
+        for the lever that avoids it.
 
         Diagnostic side effects: self._last_pe_unsaturated stores the
         post-cap value; self._last_saturation_factor stores the factor
@@ -233,6 +235,33 @@ class DACCAdaptiveControl(nn.Module):
 
         Returns 1.0 when saturation is disabled, when no class can be
         determined, or when n_recurrences is below the grace count.
+
+        THE REFERENT. n_rec counts the recurrences of ONE class in the
+        recent window, and which class that is decides what the factor
+        means. The spec (DACCConfig, MECH-268) says the CURRENT outcome
+        class, and callers that tag it -- the 463/468 harnesses, and
+        REEAgent once dacc_saturation_thread_current_class is on -- get
+        that. An untagged caller falls back to self._outcome_history[-1],
+        the PREVIOUS class.
+
+        The fallback is a degraded mode, not a first-tick case. Until
+        2026-09-18 REEAgent's only live dACC call left the class None, so
+        the fallback ran on EVERY waking tick, and this docstring's earlier
+        "e.g. first tick of an episode" described a path production never
+        took. It matters because the two referents diverge exactly at a
+        class TRANSITION: with history [0]*8 (window 8, grace 2, strength
+        0.3) and a first harm tick, the current-class referent counts 0
+        recurrences -> sat 1.0 (full PE for a novel outcome), while the
+        fallback counts 8 -> sat 0.357. Habituation should spare the novel
+        outcome; the fallback attenuates it ~2.8x.
+
+        What the referent does NOT fix: E[sat_factor] is symmetric-unimodal
+        in outcome-class density under EITHER referent (an all-0 stream and
+        an all-1 stream both saturate maximally; a mixed stream saturates
+        least), because that is a property of counting recurrences of
+        whichever class is current. Monotonicity in a distinguished class
+        would require changing the functional form, which is a separate
+        open question -- do not conflate the two.
         """
         if not self.config.dacc_saturation_enabled:
             return 1.0, 0

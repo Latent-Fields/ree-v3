@@ -7613,8 +7613,58 @@ class REEAgent(nn.Module):
                         _gp_range = _dacc_goal_prox.max() - _gp_min
                         if _gp_range > 1e-9:
                             _dacc_goal_prox = (_dacc_goal_prox - _gp_min) / _gp_range
+            # MECH-268 f_sat referent fix. dacc._saturation_factor's spec is
+            # n_rec = count(CURRENT outcome class in the recent window), but
+            # this -- the agent's only live dACC call -- never tagged the
+            # class, so _saturation_factor took its class-is-None fallback on
+            # EVERY waking tick (not just the first, as its docstring claimed)
+            # and habituated against self._outcome_history[-1], i.e. the
+            # PREVIOUS tick's class. That mis-scores exactly the case
+            # habituation exists to spare: a novel outcome after a long run of
+            # the other class counts the OLD class's recurrences and is
+            # maximally attenuated, when it should pass through un-attenuated.
+            #
+            # The class IS available here. The FIFO writer at the
+            # record_outcome() site later in this same select_action() derives
+            # it from self._current_latent.z_harm_a thresholded against
+            # contextual_safety_harm_threshold, and self._current_latent is
+            # assigned only in __init__ and the observe path -- never inside
+            # select_action -- so it is the SAME quantity, read at a point
+            # where it is already settled. Deliberately reads the latent
+            # attribute directly rather than the local z_harm_a above: SD-019a
+            # may have redirected that local to z_harm_un, which is a
+            # different channel from the one the FIFO records.
+            #
+            # Default-off: when the lever is False the class is neither
+            # computed nor passed, so the fallback stands and behaviour is
+            # bit-identical. Exception-silent like the record_outcome site, and
+            # a failure degrades to today's fallback rather than the tick.
+            _dacc_outcome_cls: Optional[int] = None
+            if getattr(
+                self.config, "dacc_saturation_thread_current_class", False
+            ):
+                try:
+                    _cls_zha = (
+                        self._current_latent.z_harm_a
+                        if self._current_latent is not None
+                        else None
+                    )
+                    # Mirrors the record_outcome() derivation EXACTLY, including
+                    # its absent-latent case: no z_harm_a means no harm evidence,
+                    # which that site records as class 0 rather than skipping. The
+                    # referent and the FIFO must agree in every case or the count
+                    # is taken against a class the writer never writes.
+                    _harm_now = (
+                        _cls_zha is not None
+                        and float(_cls_zha.detach().norm().item())
+                        > float(self.config.contextual_safety_harm_threshold)
+                    )
+                    _dacc_outcome_cls = 1 if _harm_now else 0
+                except Exception:
+                    _dacc_outcome_cls = None
             bundle = self.dacc(
                 z_harm_a=z_harm_a.squeeze(0) if z_harm_a.dim() > 1 else z_harm_a,
+                current_outcome_class=_dacc_outcome_cls,  # MECH-268 f_sat referent
                 z_harm_a_pred=self._harm_a_pred_prev,
                 candidate_payoffs=payoffs,
                 candidate_effort=effort,
