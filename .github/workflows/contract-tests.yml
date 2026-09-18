@@ -148,6 +148,33 @@ jobs:
     # be larger in absolute seconds both before and after. The sharding/xdist
     # decision above is deferred by six days, not cancelled.
     #
+    # AND THEN TAKEN ANYWAY, SAME DAY (b), pytest-xdist -- superseding the
+    # "deliberately NOT taken" paragraph above, which was a critical-path
+    # deferral, not a verdict. Six days of headroom is not a fix either.
+    #
+    # Chose (b) over the nominally-preferred (a) on an argument that only
+    # appears once you try to do BOTH halves of the owed work: a matrix
+    # partition has to be exhaustive BY CONSTRUCTION or a whole directory goes
+    # silently unchecked, and that obligation RE-OPENS every time a collection
+    # root is added -- which the widening below does immediately. xdist has no
+    # partition to get wrong: pytest collects, xdist distributes, and new roots
+    # are free. A by-root matrix is useless here anyway (tests/contracts is
+    # ~97% of the suite), so the split that matters is INSIDE contracts, which
+    # is exactly where the exhaustiveness trap bites hardest.
+    # `--dist loadfile` (not the default `load`) keeps every test in a file on
+    # ONE worker: preserves module/class-scoped fixtures, and keeps the
+    # contracts that shell out to git in tmp_path off each other's backs --
+    # those are known flaky under concurrency.
+    #
+    # The floor this lever cannot go below, stated so nobody expects N-fold:
+    # `corpus_scan` is scope="session" and each xdist worker is its own process
+    # with its own session, so EVERY worker re-pays it -- 25 files / 48 tests
+    # consume it, so with 4 workers all 4 do. It is paid concurrently, one
+    # worker per vCPU, so wall clock absorbs it once. The two changes therefore
+    # COMPOUND rather than overlap: the memoisation above cut what each worker
+    # re-pays (hub 186.11s -> 82.57s), which is worth 4x more under xdist than
+    # it was serially. Re-read `--durations` after any change to either.
+    #
     # DO NOT buy time by narrowing the collected set. A suite that is not run
     # is not a gate. (This job already runs only `tests/`, while
     # scripts/remote_pytest.sh --selftest pins SIX collection roots --
@@ -187,7 +214,11 @@ jobs:
         working-directory: ree-v3
         run: |
           python3 -m pip install --upgrade pip
-          pip install numpy pytest
+          # pytest-xdist is CI-ONLY and deliberately NOT in requirements.txt:
+          # that file is the canonical fleet build and machine_class() is keyed
+          # on it, so adding a test-only plugin there would re-key every arm
+          # fingerprint for nothing. See requirements.txt's own header.
+          pip install numpy pytest pytest-xdist
           pip install "torch==2.12.0" --index-url https://download.pytorch.org/whl/cpu
 
       - name: Run contract test suite
@@ -198,4 +229,4 @@ jobs:
           # "the suite is getting slow" into a ranked list of where the time
           # actually goes, and it is the input to the shard-vs-xdist decision
           # recorded on timeout-minutes above. It costs nothing.
-          python3 -m pytest tests/ -q --durations=25
+          python3 -m pytest tests/ -q -n auto --dist loadfile --durations=25
