@@ -42,6 +42,28 @@ measured live on 2026-08-22 (session `igw-232-mech091-driver-successor`:
 trigger was structurally unreachable and that session's first probe measured a
 dead completion path). This file therefore sweeps EVERY bool on the tree.
 
+STR KNOBS: SWEPT SINCE 2026-09-18, AND THE OLD REASON FOR SKIPPING THEM WAS
+WRONG. `_probe_values` used to return None for every str, with the comment "str
+fields are enum-validated; an arbitrary probe raises". Measured against all 54
+str fields on the tree, that is true of exactly ONE: 46 accept a sentinel and
+land it, 7 accept it and silently drop it, 1 validates and rejects. So the
+skip was not protecting the sweep from validators -- it was hiding 7 genuine
+silent-swallow defects, `possibility_topology_seed_relation` (SD-097) among
+them. That knob is the case that exposed the gap: its bool sibling
+`possibility_topology_write_on_anchor_remap` was caught and registered the day
+it landed, while the str beside it could not be seen at all.
+
+A str knob that RAISES on the sentinel is REACHABLE, not unmeasurable: a
+validator cannot reject a value that never arrived. `_sweep_one_str` treats a
+unanimous rejection as LANDS for that reason, and returns None only on a mixed
+result it cannot defend.
+
+NUMERIC KNOBS ARE SWEPT BUT NOT REGISTRY-ENFORCED, DELIBERATELY. Under the same
+UNREACHABLE rule, 114 int/float fields read unreachable and 111 of them have no
+registry entry. Requiring one each is the mass-addition this file refuses on
+principle, and it would bury the 7 str findings. Numeric coverage needs its own
+triage pass, not a widened assertion here.
+
 THE WALK IS RECURSIVE ON PURPOSE. `scripts/authority_trace_probe._config_objects`
 -- whose `flag_map` contract this reuses -- descends exactly one level from
 `REEConfig`. Six live config objects sit two deep under `hippocampal`
@@ -275,6 +297,26 @@ REACHABLE_BY_ALTERNATIVE_IDIOM = {
         "it into from_dims anymore."
     ),
     "use_waking_confidence_inflation": "e3; 7 drivers + 1 test",
+    # --- str knobs, surfaced 2026-09-18 when the sweep learned to probe str ---
+    "waking_confidence_rv_floor_mode": (
+        "e3; attribute assignment `cfg.e3.waking_confidence_rv_floor_mode = ...` "
+        "in v3_exq_794a / 850 (x2) / 860 / 864 / 864a plus "
+        "tests/contracts/test_sd076_rv_floor_headroom.py"
+    ),
+    "attribution_mode": (
+        "hippocampal.staleness_accumulator; BOTH idioms -- direct sub-config "
+        "construction StalenessAccumulatorConfig(attribution_mode=mode) in "
+        "v3_exq_758, and attribute assignment in v3_exq_480"
+    ),
+    "scale_id_format": (
+        "hippocampal.event_segmenter; passed straight to the EventSegmenter "
+        "constructor (v3_exq_814), and read back off the config to do so in "
+        "v3_exq_757 -- the component, not from_dims, is the configuration point"
+    ),
+    "slow_scale_name": (
+        "hippocampal.event_segmenter; same EventSegmenter constructor idiom as "
+        "scale_id_format (v3_exq_814, v3_exq_757)"
+    ),
     "valence_bounding_enabled": "residue; 1 test",
     "valence_enabled": "residue; 27 drivers + 2 lib + 2 tests",
 }
@@ -296,7 +338,21 @@ NO_CONFIRMED_CALLER = {
     # four siblings -- and no caller sets it anywhere today. Registered here
     # rather than given a signature entry, per this file's own rule that mass-
     # adding signature entries is a convention change, not a repair.
+    # SD-097 (surfaced 2026-09-18). The str sibling of the bool directly below,
+    # and the knob that exposed this whole gap: the bool was caught and
+    # registered the day it landed, while the str beside it was structurally
+    # invisible because _probe_values returned None for every str. Same
+    # disposition as its sibling -- HippocampalModule reads it via getattr with
+    # a "enables" default when it assembles PossibilityTopologyConfig, and no
+    # caller sets it anywhere.
+    "possibility_topology_seed_relation": "hippocampal",
     "possibility_topology_write_on_anchor_remap": "hippocampal",
+    # str knobs, surfaced 2026-09-18 alongside the SD-097 one. Neither has a
+    # single call site anywhere in the repo -- not drivers, not tests, not
+    # ree_core -- so "unreachable" is a latent defect, not a live one.
+    "activation": "latent; MLP activation name, defaults 'relu'",
+    "device": "REEConfig; defaults 'cpu'. Every `device=` hit in the repo is a "
+              "local variable or torch.Generator(device=...), never this field",
     "use_arbitration_aware_decisiveness_margin": "REEConfig",
 }
 
@@ -590,6 +646,13 @@ USAGE_DRIVEN_UNRECEIVABLE_NAMES = {
 
 SCALARS = (bool, int, float, str)
 
+# Probe values for str knobs. Two of them, for the same reason the numeric
+# probes come in pairs: a single value can coincide with the field's own
+# default and read as "landed" when nothing was assigned. They are deliberately
+# not valid members of any enum on the tree -- see _sweep_one_str for why a
+# REJECTION is a positive reachability result rather than a skip.
+STR_SENTINELS = ("ree_probe_sentinel_alpha", "ree_probe_sentinel_beta")
+
 
 def _config_objects(cfg, seen=None, path=""):
     """Every live `*Config` object reachable from `cfg`, keyed by dotted path.
@@ -659,7 +722,46 @@ def _probe_values(value):
         return (value + 7, value + 13)
     if type(value) is float:
         return (value + 0.3721, value + 0.8419)
-    return None  # str fields are enum-validated; an arbitrary probe raises
+    if type(value) is str:
+        return STR_SENTINELS
+    return None
+
+
+def _sweep_one_str(name, paths):
+    """Reachability verdict for one str knob, or None to leave it unswept.
+
+    Three outcomes, and the middle one is the reason this cannot reuse the
+    numeric path's blanket `except Exception: continue`:
+
+      * every sentinel RAISES -> from_dims received the value and its
+        validator rejected it. The knob is REACHABLE; a validator cannot
+        reject what was never delivered. Reported as LANDS.
+      * no sentinel raises and every sentinel is readable back on every
+        path -> LANDS, the ordinary case.
+      * no sentinel raises and none arrives anywhere -> UNREACHABLE: the
+        value was accepted by `**kwargs` and dropped on the floor. This is
+        the silent-swallow hazard, and for str knobs it was invisible until
+        2026-09-18.
+
+    A MIXED result (some sentinels raise, some do not) is not a verdict this
+    can defend, so it returns None and the knob stays unswept rather than
+    being guessed at.
+    """
+    per_target, n_raised = {}, 0
+    for target in STR_SENTINELS:
+        try:
+            per_target[target] = _read_at(_build(**{name: target}), paths, name)
+        except Exception:
+            n_raised += 1
+    if n_raised == len(STR_SENTINELS):
+        return ("LANDS", list(paths), [])
+    if n_raised:
+        return None
+    lands = [p for p in paths
+             if all(per_target[t].get(p) == t for t in STR_SENTINELS)]
+    misses = [p for p in paths if p not in lands]
+    status = "LANDS" if not misses else ("UNREACHABLE" if not lands else "PARTIAL")
+    return (status, lands, misses)
 
 
 @pytest.fixture(scope="module")
@@ -676,6 +778,18 @@ def sweep():
         if targets is None:
             continue
         paths = sorted(base_values)
+        if type(next(iter(base_values.values()))) is str:
+            # STR KNOBS ARE PROBED PER-TARGET, AND A REJECTION IS A RESULT.
+            # A validated str knob RAISES on a sentinel -- but raising proves
+            # from_dims RECEIVED the value, which is exactly the property this
+            # file measures. Lumping that in with the blanket `except: continue`
+            # below would silently drop it from the sweep, which is how str
+            # knobs came to be unmeasured in the first place. See the module
+            # docstring's "STR KNOBS" section for the measurement.
+            verdict = _sweep_one_str(name, paths)
+            if verdict is not None:
+                result[name] = verdict
+            continue
         try:
             # Read back only the paths this name lives on, rather than rebuilding
             # the whole `_scalar_map`. Same answer; it turns two full 17-object
@@ -689,6 +803,14 @@ def sweep():
         status = "LANDS" if not misses else ("UNREACHABLE" if not lands else "PARTIAL")
         result[name] = (status, lands, misses)
     return result
+
+
+def _str_names(sweep_result):
+    base_map = _scalar_map(_build())
+    return {
+        n for n in sweep_result
+        if all(type(v) is str for v in base_map.get(n, {}).values()) and base_map.get(n)
+    }
 
 
 def _bool_names(sweep_result):
@@ -758,6 +880,61 @@ def test_every_unreachable_bool_flag_is_registered(sweep):
         "passes it into from_dims and loses it -> KNOWN_FROM_DIMS_DROP_SITES "
         "with the measured blast radius. Do NOT reflexively add a from_dims "
         "signature entry -- that is a convention change, not a repair."
+    )
+
+
+def test_every_unreachable_str_knob_is_registered(sweep):
+    """The str-typed half of the contract above.
+
+    Kept as its own test rather than folded into the bool one because the two
+    have different histories and a combined failure message would not tell you
+    which convention you had just broken. `possibility_topology_seed_relation`
+    is the case that exposed the gap: its sibling
+    `possibility_topology_write_on_anchor_remap` is a bool and was caught and
+    registered on sight, while the str beside it was structurally invisible.
+
+    NOT WIDENED TO int/float, and that is a measurement, not an oversight.
+    Under the same rule 114 numeric knobs read UNREACHABLE, 111 of them
+    unregistered. Demanding a registry entry for each is precisely the
+    mass-addition this file refuses elsewhere, and it would bury the 7 real
+    str findings in noise. If someone wants numeric coverage it needs its own
+    triage pass, not a one-word change here.
+    """
+    registered = (
+        set(REACHABLE_BY_ALTERNATIVE_IDIOM)
+        | set(NO_CONFIRMED_CALLER)
+        | set(KNOWN_FROM_DIMS_DROP_SITES)
+    )
+    unreachable = {
+        n for n in _str_names(sweep) if sweep[n][0] == "UNREACHABLE"
+    }
+    unregistered = sorted(unreachable - registered)
+    assert not unregistered, (
+        "str config knob(s) that REEConfig.from_dims() SILENTLY DROPS and that "
+        f"no registry in this file accounts for: {unregistered}. Same decision "
+        "as the bool contract above -- (a) REACHABLE_BY_ALTERNATIVE_IDIOM with "
+        "the call sites that prove it, (b) NO_CONFIRMED_CALLER if nothing sets "
+        "it anywhere, or (c) KNOWN_FROM_DIMS_DROP_SITES with the measured blast "
+        "radius. Do NOT reflexively add a from_dims signature entry."
+    )
+
+
+def test_str_probe_is_not_vacuous(sweep):
+    """POSITIVE CONTROL for the str path specifically.
+
+    If STR_SENTINELS ever became valid enum members, or _sweep_one_str started
+    returning None for everything, every str knob would quietly read LANDS and
+    the contract above would pass while measuring nothing.
+    """
+    str_names = _str_names(sweep)
+    assert len(str_names) >= 40, (
+        f"str sweep collapsed to {len(str_names)} fields -- _sweep_one_str is "
+        "returning None too often, or _probe_values stopped handling str"
+    )
+    assert any(sweep[n][0] == "UNREACHABLE" for n in str_names), (
+        "no str knob reads UNREACHABLE. Either every one was genuinely repaired "
+        "(then delete this assertion deliberately) or the str probe has gone "
+        "blind -- as it silently was until 2026-09-18"
     )
 
 
