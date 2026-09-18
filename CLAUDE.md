@@ -464,6 +464,7 @@ When started with `--remote-control`, the runner emits a per-machine heartbeat e
 - **[MECH-140](docs/substrate/MECH-140-x-mech-450-disinhibitory-soft.md)** — x MECH-450: disinhibitory soft-competitive settling (parameter-free) (2026-07-02) *(~1,295 tok)*
 - **[MECH-189](docs/substrate/MECH-189-super-ordinal-goal-anchor-contextmemory.md)** — Super-ordinal goal-anchor ContextMemory writes substrate (infant_substrate:GAP-11) (2026-06-09) *(~2,080 tok)*
 - **[MECH-204](docs/substrate/MECH-204-phase-7-option-b-sleep-accuracy-anchored.md)** — Phase 7 / Option B: sleep.accuracy_anchored_broadcast_recalibration -- IMPLEMENTED (2026-07-20) *(~773 tok)*
+- **[MECH-204](docs/substrate/MECH-204-f1-coldstart-guard.md)** — F1 cold-start guard: neuromodulation.serotonin.precision_zero_point_require_waking -- IMPLEMENTED (2026-09-18) *(~1,150 tok)*
 - **[MECH-205](docs/substrate/MECH-205-surprise-gated-replay-write-path-fix.md)** — Surprise-Gated Replay Write Path Fix (2026-04-09) *(~350 tok)*
 - **[MECH-216](docs/substrate/MECH-216-e1-predictive-wanting-schema-readout.md)** — E1 Predictive Wanting / Schema Readout (2026-04-09) *(~358 tok)*
 - **[MECH-219](docs/substrate/MECH-219-sd-019b-affective-harm-hysteretic.md)** — (SD-019b): affective-harm hysteretic integrator (z_harm_suffering) (2026-06-10) *(~1,797 tok)*
