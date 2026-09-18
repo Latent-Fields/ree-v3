@@ -255,6 +255,35 @@ class TestChipIngestAuthority(IngestAuthorityBase):
         row = self._chip_row("chip-t6c")
         self.assertEqual(row["status"], "withdrawn")
 
+    def test_t6d_stale_git_cannot_reopen_when_db_matches_base(self):
+        """statusregress 70f6849fab: DB row == last render base (the
+        'only git moved -> adopt git' branch) must still never be moved
+        terminal -> open by a stale git copy."""
+        entry = _chip("chip-t6d")
+        db.reconcile_chips(self.conn, [entry], now=NOW)
+        verdict, _p = db.resolve_chip(
+            self.conn, "done", chip_ref="chip-t6d", note="landed")
+        self.assertEqual(verdict, "ok")
+        self._render_and_writeback(chips_doc=_chips_doc([entry]))
+        row = self._chip_row("chip-t6d")
+        self.assertEqual(row["entry_json"], row["last_rendered_json"])
+        created, changed = db.upsert_chip(self.conn, entry, now=NOW)
+        self.assertEqual((created, changed), (False, False))
+        self.assertEqual(self._chip_row("chip-t6d")["status"], "done")
+
+    def test_t6e_ingest_never_drops_archived_marker(self):
+        """A git copy without the `archived` block (prompt restored inline)
+        must not overwrite a DB row that carries one."""
+        entry = _chip("chip-t6e")
+        db.reconcile_chips(self.conn, [entry], now=NOW)
+        self.conn.execute(
+            "UPDATE chip_ledger SET archived_json=? WHERE chip_ref=?",
+            (json.dumps({"fields": ["prompt"]}), "chip-t6e"))
+        created, changed = db.upsert_chip(
+            self.conn, dict(entry, tldr="restored inline"), now=NOW)
+        self.assertEqual((created, changed), (False, False))
+        self.assertIsNotNone(self._chip_row("chip-t6e")["archived_json"])
+
 
 class TestMigrationAndWriteback(IngestAuthorityBase):
     def test_migration_adds_column_to_existing_tables(self):

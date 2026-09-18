@@ -532,8 +532,8 @@ def upsert_chip(conn, chip, now=None):
     # Verbatim key order -- see upsert_task_claim for why (D15 byte-equality).
     entry_json = json.dumps(chip)
     existing = conn.execute(
-        "SELECT entry_json, last_rendered_json, status FROM chip_ledger "
-        "WHERE chip_ref=?", (chip_ref,)
+        "SELECT entry_json, last_rendered_json, status, archived_json "
+        "FROM chip_ledger WHERE chip_ref=?", (chip_ref,)
     ).fetchone()
     created = existing is None
     changed = created or existing["entry_json"] != entry_json
@@ -542,14 +542,20 @@ def upsert_chip(conn, chip, now=None):
         if base is not None and entry_json == base:
             # git unchanged since our render; the DB moved. Preserve it.
             return (False, False)
-        if base is not None and existing["entry_json"] == base:
-            pass  # only git moved -> adopt git below.
-        else:
-            db_status = existing["status"] or "open"
-            git_status = chip.get("status") or "open"
-            if (db_status in CHIP_TERMINAL_STATUSES
-                    and git_status not in CHIP_TERMINAL_STATUSES):
-                return (False, False)
+        # MONOTONE GUARDS, applied on EVERY branch below (statusregress
+        # 70f6849fab, 2026-09-18: the "only git moved -> adopt git" branch
+        # bypassed them, so a stale git copy reopened 22 terminal chips and
+        # dropped the `archived` marker on 1178). Ingest never moves a chip
+        # terminal -> non-terminal (explicit resolve goes through
+        # resolve_chip, which does not use this path) and never drops an
+        # `archived` block the DB already carries.
+        db_status = existing["status"] or "open"
+        git_status = chip.get("status") or "open"
+        if (db_status in CHIP_TERMINAL_STATUSES
+                and git_status not in CHIP_TERMINAL_STATUSES):
+            return (False, False)
+        if existing["archived_json"] is not None and "archived" not in chip:
+            return (False, False)
 
     def _jd(key):
         val = chip.get(key)
