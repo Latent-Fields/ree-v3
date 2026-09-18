@@ -373,9 +373,31 @@ def test_r13_disable_race_never_starts_local(tmp_path):
 def test_r14_stale_lock_is_stolen_not_wedged_forever(tmp_path):
     """A lock left behind by a session that died without its EXIT trap
     running (SIGKILL / OOM) must not permanently disable racing for every
-    future session."""
+    future session.
+
+    R14's SUBJECT is the steal and the racing it re-enables, not which side
+    of the race happens to finish first -- that outcome is R9's subject, and
+    R9 pins it. The first two assertions below are therefore the load-bearing
+    ones, and both are deterministic: the gate emits "stealing stale race
+    lock" from steal_stale_race_lock() and "starting a local race" from the
+    branch immediately after the mkdir that the steal made possible, so
+    neither depends on the race clock at all.
+
+    REMOTE'S SLEEP IS A BUFFER, NOT A DURATION (2026-09-18,
+    chip-20260918-r14-race-lock-flake-v2). It was 0.5s, which gave local's
+    fork+exec a ~0.4s window to write LOCAL_RC; under load the local spawn
+    missed it, the poll loop broke on REMOTE_RC first, and "race winner:
+    local" failed WHILE the steal line and local_marker were both present --
+    i.e. every behaviour R14 names had worked and only the incidental winner
+    line lost. Measured 1 failure in 8 interleaved runs on the 8GB Mac before
+    this change. This is R8's flake in mirror image (R8 needed a window big
+    enough for REMOTE's spawn latency; R14 needs one big enough for LOCAL's),
+    and it takes R8's fix: a real buffer. 2.0s is the same margin R9/R12
+    already carry, measured to absorb ~1.7s of extra local-side latency
+    against the ~0.4s R14 had.
+    """
     repo = _fake_repo(tmp_path, "experiments/_lib/x.py")
-    remote, remote_marker = _stub_sleeper(tmp_path, "remote", 0, sleep_sec=0.5)
+    remote, remote_marker = _stub_sleeper(tmp_path, "remote", 0, sleep_sec=2.0)
     local, local_marker = _stub_sleeper(tmp_path, "local", 0, sleep_sec=0.0)
     lock_dir = tmp_path / "race.lock"
     lock_dir.mkdir()
@@ -386,6 +408,9 @@ def test_r14_stale_lock_is_stolen_not_wedged_forever(tmp_path):
     p = _run(repo, env, decide_only=False)
     assert p.returncode == 0, p.stderr
     assert "stealing stale race lock" in p.stderr, p.stderr
+    assert "starting a local race" in p.stderr, \
+        "the steal must have re-enabled racing -- this is R14's subject, and " \
+        "unlike the winner line below it does not depend on the race clock"
     assert local_marker.exists(), "the stale lock must have been stolen so local could race"
     assert "race winner: local" in p.stderr, p.stderr
 
