@@ -363,6 +363,52 @@ def run_zharm_a_p0(
                 agent._harm_obs_ema = ema0
             return total / float(len(samples))
 
+        def _head_vs_constant(samples, train_samples) -> Dict[str, Any]:
+            """Held-out MSE of the aux head against a CONSTANT-MEAN predictor.
+
+            THIS IS THE READOUT THAT MATTERS, and the loss curve is not a substitute for it.
+            `harm_accum_head` ends in a Sigmoid, so it starts near 0.5; if the target sits near
+            a small constant the loss falls steeply while the encoder learns only that offset.
+            Every other number in this block (falling epoch loss, falling held-out loss, moved
+            weights) is satisfied by that vacuous fit. `p0h_holdout_lift = 1 - mse_head/mse_const`
+            is what separates it: > 0 means the head beats the constant, <= 0 means it did not,
+            i.e. the stage moved the encoder without teaching it anything discriminative.
+
+            Basis note: the head nominally predicts the SD-011 `accumulated_harm` scalar, which
+            is what the buffer holds. Under SD-020 (`harm_surprise_pe_enabled`) the loss targets
+            a precision-weighted PE instead, so the lift against `accumulated_harm` would be
+            comparing against the wrong quantity -- it is reported as None there rather than as
+            a misleading number.
+            """
+            blk: Dict[str, Any] = {"basis": None, "lift": None, "head_mse": None,
+                                   "const_mse": None, "target_mean": None, "target_std": None}
+            if not samples:
+                return blk
+            tgt = torch.tensor([float(s[2]) for s in samples], dtype=torch.float32)
+            blk["target_mean"] = float(tgt.mean().item())
+            blk["target_std"] = float(tgt.std(unbiased=False).item())
+            if out["p0h_harm_surprise_pe_enabled"]:
+                blk["basis"] = "sd020_pe_not_comparable_to_accumulated_harm"
+                return blk
+            blk["basis"] = "sd011_accumulated_harm"
+            with torch.no_grad():
+                pred = torch.tensor([float(_pred(s).reshape(-1)[0].item()) for s in samples])
+            # The constant is fitted on the TRAIN split, not on the holdout: a mean fitted on
+            # the holdout itself would be a baseline with information the head never had.
+            if train_samples:
+                const = float(
+                    torch.tensor([float(s[2]) for s in train_samples]).mean().item()
+                )
+            else:
+                const = blk["target_mean"]
+            blk["const_predictor"] = const
+            mse_head = float(((pred - tgt) ** 2).mean().item())
+            mse_const = float(((tgt - const) ** 2).mean().item())
+            blk["head_mse"] = mse_head
+            blk["const_mse"] = mse_const
+            blk["lift"] = (1.0 - mse_head / mse_const) if mse_const > 0.0 else None
+            return blk
+
         out["p0h_holdout_loss_pre"] = _eval(holdout)
 
         opt = torch.optim.Adam(params, lr=float(cfg.lr))
@@ -394,6 +440,7 @@ def run_zharm_a_p0(
         out["p0h_first_epoch_mean_loss"] = epoch_losses[0] if epoch_losses else None
         out["p0h_final_epoch_mean_loss"] = epoch_losses[-1] if epoch_losses else None
         out["p0h_holdout_loss_post"] = _eval(holdout)
+        out["p0h_holdout_vs_constant"] = _head_vs_constant(holdout, train)
 
     if harm_obs_ema_pre is not None:
         agent._harm_obs_ema = harm_obs_ema_pre
@@ -408,11 +455,30 @@ def run_zharm_a_p0(
     out["p0h_holdout_loss_drop"] = (
         (pre - post) if (pre is not None and post is not None) else None
     )
+    # THE READINESS VERDICT. Both halves are required and they fail for different reasons:
+    # a zero weight delta means the gradient path never reached the encoder (the defect this
+    # module fixes); a non-positive holdout lift means it did reach it and taught it a
+    # constant. Only the pair licenses reading `z_harm_a` as carrying trained signal.
+    lift_blk = out.get("p0h_holdout_vs_constant") or {}
+    lift = lift_blk.get("lift")
+    out["p0h_readiness_met"] = bool(n_changed > 0 and lift is not None and lift > 0.0)
+    out["p0h_readiness_basis"] = (
+        "encoder_tensors_changed>0 AND holdout_lift_over_constant_mean>0"
+    )
     if n_steps > 0 and n_changed == 0:
         print(
             "  [P0h-WARN] %s seed=%d: %d optimizer steps moved NO encoder tensor -- the "
             "gradient path is not reaching the encoder"
             % (label or "zharm_a_p0", int(seed), n_steps),
+            flush=True,
+        )
+    elif lift is not None and lift <= 0.0:
+        print(
+            "  [P0h-WARN] %s seed=%d: encoder MOVED but held-out lift over a constant-mean "
+            "predictor is %.4f (<= 0) -- target mean %.6f std %.6f. The stage trained the "
+            "encoder to a CONSTANT, not to the signal; do not read z_harm_a as trained."
+            % (label or "zharm_a_p0", int(seed), lift,
+               lift_blk.get("target_mean") or 0.0, lift_blk.get("target_std") or 0.0),
             flush=True,
         )
     return out

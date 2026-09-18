@@ -1,0 +1,330 @@
+"""Contracts for the SD-011 P0h affective-harm-encoder warmup (experiments/_lib/zharm_a_p0_warmup.py).
+
+WHAT THIS DEFENDS. The defect being fixed is silent by construction, exactly like its z_world
+sibling: the three optimizer groups `_train_all_on_agent` builds (e2, lPFC bias head, OFC
+devaluation head) cover no AffectiveHarmEncoder parameter, so `z_harm_a` is a frozen random
+projection for the whole run with no error and no warning. An experiment whose DV reads
+`z_harm_a` on that path has been measuring a random projection. Measured 2026-09-18; see
+`REE_assembly/evidence/planning/sd086_zharma_readout_precondition_staged_20260918.md` sec 4b.
+
+The three properties the chip that commissioned this build named, and where they are pinned:
+
+    "params covered when ON"                 -> C1
+    "bit-identical behaviour when OFF"       -> C2 (fixed seed, RNG + params + result block)
+    "encoder weights change after N steps"   -> C3
+
+C0 pins the DEFECT ITSELF rather than the fix: it asserts the affective encoder is still
+disjoint from the three legacy optimizer groups. That is deliberate -- if someone later covers
+the encoder from one of those groups instead, this test fails and forces the substrate_queue
+record to be updated rather than silently becoming wrong.
+
+C4 pins that every half-configured shape REFUSES loudly instead of running a zero-gradient
+warmup and reporting success -- `compute_harm_accum_loss` returns a zero loss whenever
+`harm_history_len <= 0`, which is correct for its per-tick callers and silently fatal here.
+
+C6 pins RNG neutrality as a SHARED object with the z_world stage. That is not style: an
+unguarded warmup shifts every subsequent draw in P0b/P1, so an ON-vs-OFF contrast would
+confound "the encoder is now trained" with "the RNG stream moved".
+
+Assertions are on losses, weight deltas and RNG state -- never on a sampled action
+(`torch.multinomial` is not portable across machine classes; CLAUDE.md "Running the test suite").
+
+ASCII-only (repo rule).
+"""
+
+import numpy as np
+import pytest
+import torch
+
+import experiments._lib.allon_training as allon
+import experiments._lib.zharm_a_p0_warmup as zh
+import experiments._lib.zworld_p0_warmup as zw
+from experiments._lib.capability_eval import RandomPolicy
+from ree_core.agent import REEAgent
+from ree_core.environment.causal_grid_world import CausalGridWorldV2
+from ree_core.utils.config import REEConfig
+
+HARM_HISTORY_LEN = 8
+STEPS = 20
+
+
+def _make_env(seed: int, harm_history_len: int = HARM_HISTORY_LEN) -> CausalGridWorldV2:
+    return CausalGridWorldV2(
+        seed=seed, use_proxy_fields=True, harm_history_len=harm_history_len,
+    )
+
+
+def _make_agent(seed: int, harm_history_len: int = HARM_HISTORY_LEN,
+                affective: bool = True) -> REEAgent:
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    env = _make_env(seed, harm_history_len)
+    _flat, obs = env.reset()
+    cfg = REEConfig.from_dims(
+        body_obs_dim=obs["body_state"].shape[-1],
+        world_obs_dim=obs["world_state"].shape[-1],
+        action_dim=env.action_dim,
+    )
+    cfg.latent.use_affective_harm_stream = bool(affective)
+    cfg.latent.harm_history_len = int(harm_history_len)
+    if obs.get("harm_obs_a") is not None:
+        cfg.latent.harm_obs_a_dim = obs["harm_obs_a"].shape[-1]
+    return REEAgent(cfg)
+
+
+def _rng_fingerprint():
+    return (
+        torch.get_rng_state().clone(),
+        np.random.get_state()[1].copy(),
+    )
+
+
+def _rng_equal(a, b) -> bool:
+    return bool(torch.equal(a[0], b[0])) and bool(np.array_equal(a[1], b[1]))
+
+
+# --------------------------------------------------------------------------------------
+# C0 -- the defect itself, still true.
+# --------------------------------------------------------------------------------------
+
+def test_c0_legacy_optimizer_groups_cover_no_affective_encoder_param():
+    """The e2 / lPFC-bias / OFC-devaluation groups `_train_all_on_agent` builds are DISJOINT
+    from the affective encoder. This is the 2026-09-18 measurement, pinned so that a later
+    change which covers the encoder from one of those groups cannot silently invalidate the
+    substrate_queue record without failing a test."""
+    agent = _make_agent(0)
+    legacy = set()
+    legacy |= {id(p) for p in agent.e2.parameters()}
+    if getattr(agent, "lateral_pfc", None) is not None:
+        legacy |= {id(p) for p in agent.lateral_pfc.bias_head_parameters()}
+    if getattr(agent, "ofc", None) is not None:
+        legacy |= {id(p) for p in agent.ofc.devaluation_bias_head_parameters()}
+
+    affective = zh.affective_encoder_parameters(agent)
+    assert affective, "affective encoder should exist in this fixture"
+    covered = [p for p in affective if id(p) in legacy]
+    assert covered == [], (
+        "an affective-encoder parameter is now covered by a legacy optimizer group; the "
+        "sd_zharm_a_warmup_optimizer_group substrate_queue entry must be re-derived"
+    )
+
+
+# --------------------------------------------------------------------------------------
+# C1 -- params covered when ON.
+# --------------------------------------------------------------------------------------
+
+def test_c1_optimizer_group_covers_encoder_and_aux_head():
+    agent = _make_agent(0)
+    enc = agent.latent_stack.affective_harm_encoder
+    expected = {id(p) for p in enc.parameters()}
+    got = {id(p) for p in zh.affective_encoder_parameters(agent)}
+    assert got == expected and got, "P0h group must be exactly affective_harm_encoder.parameters()"
+    # The aux head is the ONLY gradient source: without it the loss short-circuits to zero.
+    assert enc.harm_accum_head is not None
+    head_ids = {id(p) for p in enc.harm_accum_head.parameters()}
+    assert head_ids and head_ids <= got, "harm_accum_head params must be in the P0h group"
+
+
+# --------------------------------------------------------------------------------------
+# C2 -- OFF is bit-identical at a fixed seed.
+# --------------------------------------------------------------------------------------
+
+def test_c2_off_makes_no_rng_draw_and_moves_no_parameter():
+    agent = _make_agent(0)
+    before = zh.encoder_weight_snapshot(agent)
+    all_before = [p.detach().clone() for p in agent.parameters()]
+    rng_before = _rng_fingerprint()
+
+    out = zh.run_zharm_a_p0(agent, _make_env(0), seed=0, episodes=0,
+                            steps_per_episode=STEPS, policy=RandomPolicy(0), label="c2")
+
+    assert out["p0h_ran"] is False and out["p0h_reason"] == "episodes<=0"
+    assert _rng_equal(rng_before, _rng_fingerprint()), "OFF must draw no RNG"
+    assert zh.encoder_weight_delta(before, zh.encoder_weight_snapshot(agent)) == (0, 0.0)
+    for b, p in zip(all_before, agent.parameters()):
+        assert torch.equal(b, p), "OFF must move no agent parameter at all"
+
+
+def test_c2b_train_all_on_agent_default_is_off():
+    """The wiring default is 0, so every existing caller stays on the prior path."""
+    import inspect
+    sig = inspect.signature(allon._train_all_on_agent)
+    assert sig.parameters["zharm_a_p0_episodes"].default == 0
+    assert sig.parameters["zharm_a_p0_env"].default is None
+    assert sig.parameters["zharm_a_p0_config"].default is None
+
+
+def test_c2c_train_all_on_agent_refuses_opt_in_without_a_dedicated_env():
+    """Reusing train_env would shift the layout sequence P0b/P1 then see, which is the
+    confound the dedicated-env rule exists to prevent -- so it raises rather than warns."""
+    agent = _make_agent(0)
+    with pytest.raises(ValueError, match="requires zharm_a_p0_env"):
+        allon._train_all_on_agent(
+            agent, _make_env(0), seed=0, p0_episodes=0, p1_episodes=0,
+            steps_per_episode=1, rung_id="c2c", total_denominator=1,
+            zharm_a_p0_episodes=4,
+        )
+
+
+# --------------------------------------------------------------------------------------
+# C3 -- ON moves the encoder, restores the RNG, and generalises.
+# --------------------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def on_run():
+    agent = _make_agent(0)
+    before = zh.encoder_weight_snapshot(agent)
+    ema_before = getattr(agent, "_harm_obs_ema", None)
+    rng_before = _rng_fingerprint()
+    out = zh.run_zharm_a_p0(agent, _make_env(0), seed=0, episodes=6,
+                            steps_per_episode=STEPS, policy=RandomPolicy(0), label="c3")
+    return agent, before, ema_before, rng_before, out
+
+
+def test_c3_on_moves_the_encoder_weights(on_run):
+    agent, before, _ema, _rng, out = on_run
+    assert out["p0h_ran"] is True, out.get("p0h_reason")
+    assert out["p0h_n_steps"] > 0
+    n_changed, max_abs = zh.encoder_weight_delta(before, zh.encoder_weight_snapshot(agent))
+    assert n_changed == out["p0h_n_encoder_tensors"], (
+        "every affective-encoder tensor must move; %d of %d did"
+        % (n_changed, out["p0h_n_encoder_tensors"])
+    )
+    assert max_abs > 0.0
+    assert out["p0h_encoder_tensors_changed"] == n_changed
+    assert out["p0h_encoder_max_abs_delta"] == pytest.approx(max_abs)
+
+
+def test_c3b_on_restores_the_global_rng_streams(on_run):
+    _agent, _before, _ema, rng_before, _out = on_run
+    assert _rng_equal(rng_before, _rng_fingerprint()), (
+        "P0h must be RNG-neutral; otherwise an ON/OFF contrast confounds 'encoder trained' "
+        "with 'RNG stream moved'"
+    )
+
+
+def test_c3c_on_restores_the_sd020_expected_harm_tracker(on_run):
+    agent, _before, ema_before, _rng, _out = on_run
+    if ema_before is None:
+        pytest.skip("agent has no _harm_obs_ema attribute")
+    assert getattr(agent, "_harm_obs_ema") == ema_before
+
+
+def test_c3d_training_loss_falls_and_the_holdout_follows(on_run):
+    """The weight delta alone can be satisfied vacuously (an encoder can move a long way and
+    fit only the training order). The held-out EPISODES are what say the signal generalises."""
+    _agent, _before, _ema, _rng, out = on_run
+    assert out["p0h_final_epoch_mean_loss"] < out["p0h_first_epoch_mean_loss"]
+    assert out["p0h_n_holdout"] > 0 and out["p0h_n_holdout_episodes"] > 0
+    assert out["p0h_holdout_loss_post"] < out["p0h_holdout_loss_pre"]
+    assert out["p0h_holdout_loss_drop"] > 0.0
+
+
+def test_c3f_holdout_is_scored_against_a_constant_mean_predictor(on_run):
+    """A falling loss curve is NOT evidence the encoder learned the signal.
+
+    `harm_accum_head` ends in a Sigmoid and starts near 0.5, so if the target sits near a small
+    constant every other readout in the block (epoch loss down, held-out loss down, all tensors
+    moved) is satisfied by a model that learned only the offset. Measured on this substrate
+    2026-09-18: `accumulated_harm` has mean ~0.028 and std ~0.004 over a 600-tick random
+    rollout, and the trained head scores WORSE than a constant-mean predictor on held-out
+    episodes. The lift is what makes that visible, so it must always be reported."""
+    _agent, _before, _ema, _rng, out = on_run
+    blk = out["p0h_holdout_vs_constant"]
+    assert blk["basis"] == "sd011_accumulated_harm"
+    assert blk["lift"] is not None
+    assert blk["head_mse"] is not None and blk["const_mse"] is not None
+    # The target's own dispersion has to be on the record: a near-zero std IS the explanation
+    # for a negative lift, and without it a reader cannot tell a weak encoder from a
+    # near-degenerate target.
+    assert blk["target_std"] is not None and blk["target_mean"] is not None
+
+
+def test_c3g_readiness_is_the_conjunction_of_both_halves(on_run):
+    """Readiness requires the gradient path to have REACHED the encoder (weight delta) AND the
+    result to beat a constant (lift). Either alone is satisfiable by a failure mode: a zero
+    delta is the defect this module fixes; a non-positive lift is a constant-fit."""
+    _agent, _before, _ema, _rng, out = on_run
+    lift = out["p0h_holdout_vs_constant"]["lift"]
+    expected = bool(out["p0h_encoder_tensors_changed"] > 0 and lift is not None and lift > 0.0)
+    assert out["p0h_readiness_met"] is expected
+    assert "holdout_lift_over_constant_mean" in out["p0h_readiness_basis"]
+
+
+def test_c3e_target_name_reports_which_supervision_actually_ran(on_run):
+    """SD-011 EMA vs SD-020 precision-weighted PE is the caller's existing
+    `harm_surprise_pe_enabled` flag, not a choice this stage makes -- but the manifest must
+    say which one ran, or a reader cannot tell what was trained."""
+    _agent, _before, _ema, _rng, out = on_run
+    assert out["p0h_target"] == "sd011_accumulated_harm_ema"
+    assert out["p0h_harm_surprise_pe_enabled"] is False
+
+
+# --------------------------------------------------------------------------------------
+# C4 -- half-configured shapes refuse loudly rather than training on a zero gradient.
+# --------------------------------------------------------------------------------------
+
+def test_c4a_refuses_when_the_affective_stream_is_off():
+    agent = _make_agent(0, affective=False)
+    out = zh.run_zharm_a_p0(agent, _make_env(0), seed=0, episodes=2,
+                            steps_per_episode=5, policy=RandomPolicy(0), label="c4a")
+    assert out["p0h_ran"] is False
+    assert "affective_harm_encoder absent" in out["p0h_reason"]
+
+
+def test_c4b_refuses_when_harm_history_is_disabled_on_the_agent():
+    """With harm_history_len=0 there is no harm_accum_head, compute_harm_accum_loss returns a
+    zero loss, and a naive stage would report a clean run having stepped on nothing."""
+    agent = _make_agent(0, harm_history_len=0)
+    out = zh.run_zharm_a_p0(agent, _make_env(0), seed=0, episodes=2,
+                            steps_per_episode=5, policy=RandomPolicy(0), label="c4b")
+    assert out["p0h_ran"] is False
+    assert "harm_accum_head absent" in out["p0h_reason"]
+
+
+def test_c4c_refuses_when_the_env_emits_no_harm_history():
+    agent = _make_agent(0)
+    out = zh.run_zharm_a_p0(agent, _make_env(0, harm_history_len=0), seed=0, episodes=2,
+                            steps_per_episode=5, policy=RandomPolicy(0), label="c4c")
+    assert out["p0h_ran"] is False
+    assert "warmup_env.harm_history_len" in out["p0h_reason"]
+
+
+def test_c4d_weight_delta_raises_on_a_snapshot_mismatch():
+    """A silent zero here would read identically to the defect this module exists to fix."""
+    with pytest.raises(ValueError, match="snapshot length mismatch"):
+        zh.encoder_weight_delta([torch.zeros(2)], [])
+
+
+# --------------------------------------------------------------------------------------
+# C5/C6 -- wiring and shared RNG neutrality.
+# --------------------------------------------------------------------------------------
+
+def test_c5_stage_is_wired_into_the_shared_trainer_and_reported():
+    src = allon._train_all_on_agent.__doc__ or ""
+    del src  # the docstring is not the contract; the call site and the result key are.
+    import inspect
+    body = inspect.getsource(allon._train_all_on_agent)
+    assert "run_zharm_a_p0(" in body, "P0h stage must be called by the shared trainer"
+    assert '"zharm_a_p0": zharm_a_p0_stats' in body, (
+        "the stage's diagnostic block must reach the returned dict, or a manifest cannot say "
+        "whether the encoder was trained"
+    )
+    # ORDERING: P0h must run BEFORE the P0b e2 warmup optimizers are built, because z_harm_a
+    # feeds E3 commit gating on every tick of P0b and P1.
+    assert body.index("run_zharm_a_p0(") < body.index("e2_opt = torch.optim.Adam")
+
+
+def test_c6_rng_neutrality_is_the_same_object_as_the_zworld_stage():
+    assert zh._rng_neutral is zw._rng_neutral, (
+        "the two P0 stages must not be able to drift on RNG neutrality"
+    )
+
+
+def test_c7_module_output_is_ascii_only():
+    import pathlib
+    path = pathlib.Path(zh.__file__)
+    text = path.read_text(encoding="utf-8")
+    bad = [i + 1 for i, line in enumerate(text.splitlines())
+           if any(ord(c) > 127 for c in line)]
+    assert bad == [], "non-ASCII on lines %r (repo rule: ASCII-only)" % (bad,)
