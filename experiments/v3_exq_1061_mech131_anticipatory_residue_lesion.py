@@ -224,6 +224,10 @@ MAIN_LR            = 1e-3         # 042's `lr` default, for the harm_eval optimi
 HARM_BUF_MAX       = 1000         # 042's MAIN_HARM_BUF
 HARM_TRAIN_EVERY   = 8            # 042 trains harm_eval every 8 steps
 HARM_MIN_BUF       = 8            # 042's floor on each class before training
+WF_LR              = 1e-3         # 042's wf_optimizer lr
+WF_BUF_MAX         = 2000         # 042's MAX_WF_BUF
+WF_TRAIN_EVERY     = 4            # 042 trains world_forward every 4 steps
+WF_MIN_BUF         = 16           # 042's floor before wf training
 # 042's positive-class transition types for the harm_eval label.
 APPROACH_TTYPES    = {"hazard_approach"}
 CONTACT_TTYPES     = {"agent_caused_hazard", "env_caused_hazard"}
@@ -377,6 +381,24 @@ def warmup_train(agent, env, seed: int, episodes: int, steps_per_episode: int
         f"never train and the probe would be vacuous"
     )
     main_optimizer = optim.Adam(main_params, lr=MAIN_LR)
+    # 042's THIRD training component. Measured 2026-09-19 to be the BINDING
+    # constraint on this experiment: with world_forward at random init, the E2
+    # rollout is action-insensitive, so a 59% shift in the terrain_prior proposal
+    # mean (0.1288 -> 0.0528 under the CH1 lesion) produced candidate action
+    # objects, actions AND world states identical to 4+ decimal places -- the
+    # lesion could not reach the DV through the rollout, whatever the DV was.
+    # Signature: world-state range across candidates 42.5 against a mean magnitude
+    # of 1.97, i.e. wild action-independent dynamics.
+    wf_optimizer = optim.Adam(
+        list(agent.e2.world_transition.parameters())
+        + list(agent.e2.world_action_encoder.parameters()),
+        lr=WF_LR,
+    )
+    wf_buf: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = []
+    wf_losses: List[float] = []
+    wf_train_steps = 0
+    z_world_prev: Optional[torch.Tensor] = None
+    action_prev: Optional[torch.Tensor] = None
     harm_buf_pos: List[torch.Tensor] = []
     harm_buf_neg: List[torch.Tensor] = []
     harm_losses: List[float] = []
@@ -450,6 +472,33 @@ def warmup_train(agent, env, seed: int, episodes: int, steps_per_episode: int
                 harm_buf_neg.append(tz)
                 harm_buf_neg[:] = harm_buf_neg[-HARM_BUF_MAX:]
 
+            # ---- world_forward transition buffer + training (042's block) ----
+            z_world_curr = latent.z_world.detach()
+            act_onehot = torch.zeros(1, ACTION_DIM, device=agent.device)
+            act_onehot[0, act_idx] = 1.0
+            if z_world_prev is not None and action_prev is not None:
+                wf_buf.append((z_world_prev, action_prev, z_world_curr))
+                wf_buf[:] = wf_buf[-WF_BUF_MAX:]
+            z_world_prev = z_world_curr
+            action_prev = act_onehot
+
+            if len(wf_buf) >= WF_MIN_BUF and _step % WF_TRAIN_EVERY == 0:
+                k = min(32, len(wf_buf))
+                idxs = torch.randperm(len(wf_buf))[:k].tolist()
+                zw_t = torch.cat([wf_buf[i][0] for i in idxs]).to(agent.device)
+                a_t = torch.cat([wf_buf[i][1] for i in idxs]).to(agent.device)
+                zw_t1 = torch.cat([wf_buf[i][2] for i in idxs]).to(agent.device)
+                wf_loss = F.mse_loss(agent.e2.world_forward(zw_t, a_t), zw_t1)
+                if wf_loss.requires_grad:
+                    wf_optimizer.zero_grad()
+                    wf_loss.backward()
+                    torch.nn.utils.clip_grad_norm_(
+                        list(agent.e2.world_transition.parameters())
+                        + list(agent.e2.world_action_encoder.parameters()), 1.0)
+                    wf_optimizer.step()
+                    wf_losses.append(float(wf_loss.item()))
+                    wf_train_steps += 1
+
             if (len(harm_buf_pos) >= HARM_MIN_BUF and len(harm_buf_neg) >= HARM_MIN_BUF
                     and _step % HARM_TRAIN_EVERY == 0):
                 k = min(16, len(harm_buf_pos), len(harm_buf_neg))
@@ -486,6 +535,8 @@ def warmup_train(agent, env, seed: int, episodes: int, steps_per_episode: int
         "terrain_loss_early": _mean(losses_early),
         "terrain_loss_late": _mean(losses_late),
         "harm_train_steps": harm_train_steps,
+        "wf_train_steps": wf_train_steps,
+        "wf_loss_mean": _mean(wf_losses),
         "harm_loss_mean": _mean(harm_losses),
         "n_harm_pos_labels": len(harm_buf_pos),
         "n_harm_neg_labels": len(harm_buf_neg),
@@ -792,8 +843,11 @@ def main(dry_run: bool = False, warmup_episodes: int = WARMUP_EPISODES,
             cell.stamp(row)
         seed_rows.append(row)
         g = row["readiness"]
-        print(f"    readiness hippo_quality_gap={g['hippo_quality_gap']:.6g} "
-              f"(clears={g['gap_clears']})", flush=True)
+        _hg = g["harm_eval_gap"]
+        print(f"    readiness harm_eval_gap="
+              f"{('%.6g' % _hg) if _hg is not None else 'None'} "
+              f"(clears={g['gap_clears']})  [diag 042 gap="
+              f"{g['diagnostic_hippo_quality_gap_042']:.4g}]", flush=True)
 
     arm_results = [a for r in seed_rows for a in r["arms"]]
 
@@ -947,6 +1001,8 @@ def main(dry_run: bool = False, warmup_episodes: int = WARMUP_EPISODES,
         "terrain_loss_late_mean": _loss_mean(seed_rows, "terrain_loss_late"),
         "harm_loss_mean": _loss_mean(seed_rows, "harm_loss_mean"),
         "harm_train_steps_mean": _loss_mean(seed_rows, "harm_train_steps"),
+        "wf_loss_mean": _loss_mean(seed_rows, "wf_loss_mean"),
+        "wf_train_steps_mean": _loss_mean(seed_rows, "wf_train_steps"),
         "warmup_episodes": warmup_episodes,
         "steps_per_episode": steps_per_episode,
         "n_seeds": len(SEEDS),
