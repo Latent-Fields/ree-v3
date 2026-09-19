@@ -1104,23 +1104,6 @@ class E3Config:
     # reducing z_world's inherent variance and sharpening the stable/perturbed gap.
     # (Prior value 0.003 was 25,000× below actual running_variance → never committed.
     # EXQ-048/049 confirmed: beta gate never elevated, MECH-057b/090 could not be tested.)
-    #
-    # STALE AS OF 2026-09-18 -- "trained agents commit (variance ~0.33)" above
-    # IS NO LONGER TRUE, and EXQ-038's ~0.33 predates the current world-forward
-    # training recipe. MEASURED: once the world-forward model is actually
-    # trained, rv collapses to ~1e-6..1.6e-5 -- FIVE ORDERS below this 0.40 bar
-    # -- under both phased and joint training and at alpha_world 0.3 and 0.9.
-    # The consequence is not "trained agents commit" but "trained agents can
-    # never STOP committing": committed_step_fraction is 1.0000 even at
-    # MECH-108 sweep_amplitude 0.999, i.e. commitment is an absorbing STATE
-    # rather than one of two MODES. The 0.40 default is LEFT UNCHANGED here
-    # (re-homing it would silently re-scope every existing run, and reaches an
-    # identical effective threshold anyway); the remedy is the opt-in
-    # variance-tracking bar below (use_variance_tracking_commit_threshold),
-    # which makes the bar relative to the run's own rv distribution instead of
-    # absolute. Measurement: REE_assembly/evidence/planning/
-    # arc029_p1_lever_calibration_finding_20260918.md (REE_assembly 67520bc08d);
-    # GFLAG-0346.
     commitment_threshold: float = 0.40    # variance-space threshold
     precision_ema_alpha: float = 0.05     # EMA decay for running variance estimate
     precision_init: float = 0.5          # initial running variance (starts uncommitted)
@@ -1214,99 +1197,6 @@ class E3Config:
     # MECH-059 confidence channel. 0/None -> falls back to the EMA path
     # (byte-identical OFF). Does not affect the harm-variance-commit path.
     use_conditional_precision_gate: bool = False
-
-    # ARC-029 (D) 2026-09-18: VARIANCE-TRACKING COMMITMENT BAR.
-    #
-    # WHY. `committed` is `commit_variance < effective_threshold` with
-    # `commit_variance == _running_variance` (the EMA of world-forward
-    # prediction error) and an ABSOLUTE bar (commitment_threshold, 0.40).
-    # Training collapses rv to ~1e-6..1.6e-5 -- FIVE ORDERS below 0.40 --
-    # measured under both phased and joint training at alpha_world 0.3 and
-    # 0.9, so a trained agent is PERMANENTLY committed: committed_step_fraction
-    # 1.0000 even at MECH-108 sweep_amplitude 0.999. Commitment is then an
-    # absorbing STATE, not a MODE, and ARC-029 (which asserts two operating
-    # modes) has no bar the agent can be on both sides of. Measurement:
-    # REE_assembly/evidence/planning/arc029_p1_lever_calibration_finding_20260918.md
-    # (67520bc08d); GFLAG-0346; user decision 2026-09-18 chose this build
-    # (option D) over re-homing the absolute bar, which reaches an IDENTICAL
-    # effective threshold and is a re-parameterisation, not a fix.
-    #
-    # MECHANISM. When armed, the BASE bar becomes the q-quantile of the run's
-    # own recent commit-gate-variance distribution (a fixed-width sliding
-    # window), instead of `commitment_threshold`. Occupancy is then ~q by
-    # construction at ANY absolute rv scale. Every existing modulation --
-    # MECH-108 sweep, SD-011 urgency, SD-093/MECH-426 velocity -- still
-    # multiplies this base unchanged, so the sweep regains real dynamic range
-    # (it now moves the bar WITHIN rv's observed spread rather than needing
-    # a > 0.99996 to reach it).
-    #
-    # DRIFT. rv drifts ~5x WITHIN a single run. A sliding window TRACKS that
-    # drift, which is the point -- occupancy stays ~q as the scale moves. The
-    # failure mode is the opposite estimator: an EXPANDING window (or any
-    # slow streaming quantile) LAGS a monotone drift, so late samples fall
-    # below a stale bar and the gate RE-SATURATES at 1.0 while looking
-    # correct. Window width is therefore load-bearing and is an explicit
-    # science parameter below, not an implementation detail.
-    use_variance_tracking_commit_threshold: bool = False
-
-    # NO SCIENCE-BEARING DEFAULT, DELIBERATELY. -1.0 / -1 are UNSET sentinels
-    # and E3Selector.__init__ RAISES on them when the lever above is armed.
-    # Reasons, both load-bearing:
-    #   (1) WHICH quantile and WHAT window decide what a later ARC-029
-    #       experiment MEASURES (the target occupancy, and whether committed
-    #       runs have length structure at all). That is the experiment's
-    #       choice to pre-register, not this build's to smuggle in as a
-    #       default.
-    #   (2) `from_dims` SILENTLY SWALLOWS unknown kwargs (see its own comment).
-    #       A sentinel that raises converts that silent-swallow into a LOUD
-    #       failure at construction -- the "structurally present but
-    #       functionally inert" failure this codebase keeps producing.
-    # WHAT THE WINDOW ACTUALLY CONTROLS (measured 2026-09-18; an earlier draft
-    # of this comment asserted it controls committed-RUN LENGTH and that was
-    # MEASURED FALSE -- at the agent's default cadence run length moves only
-    # ~3.2 -> ~3.4 ticks across a 40x window range, saturating by W~50):
-    #   - the WARMUP: the bar does not take force until the window is full, and
-    #     the count is in SELECT CALLS, not env ticks. The agent calls
-    #     update_running_variance every env tick but select() only on E3 ticks
-    #     (e3_steps_per_tick, default 10), so a window of 200 is ~2000 env ticks.
-    #   - how much within-run drift the single linear detrend term must describe.
-    # THE RUN-LENGTH LEVERS ARE ELSEWHERE, and a pre-registration should reach
-    # for these instead: precision_ema_alpha (measured mean committed-run length
-    # ~2.0 / ~3.4 / ~14.1 ticks at alpha 0.5 / 0.05 (default) / 0.001) and
-    # e3_steps_per_tick (measured ~10.4 / ~6.1 / ~3.4 / ~2.6 ticks at a
-    # variance-update : select ratio of 1 / 3 / 10 (agent default) / 20).
-    # CONSEQUENCE FOR ARC-029's P1, stated because it is easy to miss: at the
-    # AGENT's 10:1 cadence, mean committed-run length at q=0.25 measured 2.22 --
-    # BELOW P1's >= 3-tick criterion. The occupancy criterion is met at every
-    # (q, W) cell; the run-length criterion is NOT, and needs alpha or the E3
-    # cadence moved. Measured surface: REE_assembly/evidence/planning/
-    # arc029_variance_tracking_commit_bar_build_20260918.md.
-    #
-    # TWO CONSEQUENCES FOR OTHER MECHANISMS WHEN THIS LEVER IS ARMED -- neither
-    # is a defect in them, but both change what they mean, and a run that arms
-    # both must say so:
-    #   1. precision_margin_norm (1 - commit_variance/effective_threshold) is
-    #      ~1 by construction under the ABSOLUTE bar and ~0 by construction
-    #      under a quantile bar, because the bar now sits AT a quantile of the
-    #      same scalar. Measured mean 0.999986 -> 0.032963. It is a live
-    #      selection input via MECH-027
-    #      use_precision_scaled_commit_temperature, and the DV of
-    #      V3-EXQ-981/981a.
-    #   2. Every MULTIPLICATIVE modulation of the bar (MECH-108 sweep, SD-011
-    #      urgency, SD-093 velocity) now shifts the LOG bar by log(1-a) against
-    #      a residual spread that is an uncontrolled property of the run, so
-    #      its usable range is MUCH smaller and is not known a priori.
-    #      Measured at q=0.50: occupancy 0.469 / 0.388 / 0.294 / 0.119 / 0.003
-    #      at sweep amplitude 0 / 0.02 / 0.05 / 0.10 / 0.20, i.e. collapsed by
-    #      0.25 -- which is breath_sweep_amplitude's own DEFAULT. SD-011
-    #      urgency runs the other way (occupancy 0.974 at urgency_applied ~0.2).
-    #      ARC-029's worked 'a > 0.18' is stale in this direction too; the
-    #      workable band is a ~ 0.02-0.10. A scale-free alternative (modulate
-    #      the QUANTILE, q -> q - delta, rather than the bar) was identified and
-    #      deliberately NOT built here: it changes what the manipulation IS,
-    #      which is the experiment's call, not this build's.
-    commit_threshold_quantile: float = -1.0
-    commit_threshold_quantile_window: int = -1
 
     # ARC-030 / MECH-112: Go channel — benefit evaluation head.
     # benefit_eval_head maps z_world -> [0,1] (resource/goal proximity score).
@@ -5377,16 +5267,6 @@ class REEConfig:
     stuck_ema_alpha_fall: float = 0.05
     stuck_threshold: float = 0.5
     stuck_combine_mode: str = "mean"
-    # SD-061 (c), user decision 2026-09-19: the AXIS MASK. None (default)
-    # = legacy mean-over-PRESENT axes, bit-identical. A list/tuple naming a
-    # non-empty subset of ("progress", "margin", "diversity", "difficulty")
-    # = this run DECLARES its trigger: the combination is taken over exactly
-    # that set (an undeclared axis is ignored even when present), and a
-    # declared axis whose INPUT is absent raises StuckStateAxisUnavailable
-    # rather than silently rescaling. Threshold recalibration was considered
-    # and REJECTED: it would let is_stuck fire without making the trigger
-    # attributable. See ree_core/cingulate/stuck_state_detector.py.
-    stuck_declared_axes: Optional[List[str]] = None
     # Difficulty-gated proposal-entropy regulator knobs.
     dgpe_candidate_widen_max: int = 8
     dgpe_temperature_gain_max: float = 1.0
@@ -8098,7 +7978,6 @@ class REEConfig:
         stuck_ema_alpha_fall: float = 0.05,
         stuck_threshold: float = 0.5,
         stuck_combine_mode: str = "mean",
-        stuck_declared_axes: Optional[List[str]] = None,
         dgpe_candidate_widen_max: int = 8,
         dgpe_temperature_gain_max: float = 1.0,
         dgpe_enable_differentiable_cem: bool = False,
@@ -8643,7 +8522,19 @@ class REEConfig:
         # MECH-018: residue offline-integration gradient step + sleep call site.
         # All three default to the no-op values; see the REEConfig/ResidueConfig
         # field comments for why OFF is the default rather than the fix.
-        residue_use_offline_integration_gradient_step: bool = False,
+        #
+        # The gradient-step kwarg is deliberately spelled EXACTLY as the nested
+        # ResidueConfig field (no `residue_` prefix, unlike residue_ewc_lambda),
+        # so the natural spelling a driver would reach for actually LANDS. The
+        # prefix convention exists to disambiguate a short nested field name;
+        # this name is unique, and prefixing it would leave
+        # from_dims(use_offline_integration_gradient_step=True) silently
+        # swallowed by **kwargs -- the MECH-307 hazard exactly. Same treatment
+        # as HippocampalConfig.use_possibility_topology (wired unprefixed
+        # 2026-09-17). Pinned by tests/contracts/
+        # test_from_dims_flag_reachability.py and by C1 of
+        # test_mech018_residue_integrate_gradient.py.
+        use_offline_integration_gradient_step: bool = False,
         use_sleep_residue_integration: bool = False,
         sleep_residue_integration_steps: int = 10,
         # Default 0.25 (was 0.1 pre-2026-05-09); see field comment in REEConfig
@@ -8755,17 +8646,6 @@ class REEConfig:
         cem_modulatory_authority_min_spread_floor: float = 1e-6,
         use_cem_modulatory_throughput: bool = False,
         authority_competitive_ratio_floor: float = 0.1,
-        # ARC-029 (D): variance-tracking commitment bar. Lives on E3Config
-        # (E3Selector.config IS the E3Config), so it needs all THREE wiring
-        # sites -- field, this signature entry, and the config.e3 mirror in
-        # the body -- or from_dims silently swallows it and the lever is
-        # inert. The two parameters have UNSET sentinels on purpose;
-        # E3Selector raises if the lever is armed and they did not arrive.
-        # Placed immediately before **kwargs so no existing positional
-        # argument index moves (the convention documented above).
-        use_variance_tracking_commit_threshold: bool = False,
-        commit_threshold_quantile: float = -1.0,
-        commit_threshold_quantile_window: int = -1,
         **kwargs,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
@@ -9642,7 +9522,6 @@ class REEConfig:
         config.stuck_ema_alpha_fall = stuck_ema_alpha_fall
         config.stuck_threshold = stuck_threshold
         config.stuck_combine_mode = stuck_combine_mode
-        config.stuck_declared_axes = stuck_declared_axes
         config.dgpe_candidate_widen_max = dgpe_candidate_widen_max
         config.dgpe_temperature_gain_max = dgpe_temperature_gain_max
         config.dgpe_enable_differentiable_cem = dgpe_enable_differentiable_cem
@@ -10199,13 +10078,6 @@ class REEConfig:
         # E3-last-scores-pre-arbitration-staleness repair (2026-08-20).
         config.e3.use_post_arbitration_last_scores = use_post_arbitration_last_scores
 
-        # ARC-029 (D) 2026-09-18: variance-tracking commitment bar (default-off).
-        config.e3.use_variance_tracking_commit_threshold = (
-            use_variance_tracking_commit_threshold
-        )
-        config.e3.commit_threshold_quantile = commit_threshold_quantile
-        config.e3.commit_threshold_quantile_window = commit_threshold_quantile_window
-
         # GFLAG-0051 / MECH-151 action-object ranking channel (2026-09-01).
         config.e3.use_action_object_bias_channel = use_action_object_bias_channel
         config.e3.action_object_bias_weight = action_object_bias_weight
@@ -10300,7 +10172,7 @@ class REEConfig:
         # never written back is exactly the MECH-307 failure mode (84 drivers
         # passed a flag into the canonical factory and silently ran with it OFF).
         config.residue.use_offline_integration_gradient_step = bool(
-            residue_use_offline_integration_gradient_step
+            use_offline_integration_gradient_step
         )
         config.use_sleep_residue_integration = bool(use_sleep_residue_integration)
         config.sleep_residue_integration_steps = int(

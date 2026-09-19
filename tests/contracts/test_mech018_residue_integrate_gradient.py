@@ -92,7 +92,7 @@ def test_c1_flag_surface_and_from_dims_reachability():
         body_obs_dim=12,
         world_obs_dim=250,
         action_dim=4,
-        residue_use_offline_integration_gradient_step=True,
+        use_offline_integration_gradient_step=True,
         use_sleep_residue_integration=True,
         sleep_residue_integration_steps=4,
     )
@@ -296,7 +296,7 @@ def test_c7_writeback_call_site_and_agent_wiring():
         use_sleep_loop=True,
         use_sleep_residue_integration=True,
         sleep_residue_integration_steps=5,
-        residue_use_offline_integration_gradient_step=True,
+        use_offline_integration_gradient_step=True,
     )
     agent = REEAgent(cfg)
     assert agent.sleep_loop.residue_integration is True
