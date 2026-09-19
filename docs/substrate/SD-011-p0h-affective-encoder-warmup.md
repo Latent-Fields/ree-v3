@@ -242,3 +242,59 @@ that coupling is correct as a RUNTIME property and wrong as a TRAINING-TIME one,
 necessarily runs before the agent has any precision to couple to. Amending SD-020 to say so is a
 claim-level change and was NOT made here; raised as
 `chip-20260919-sd020-precision-coupling-runtime-property`.
+
+---
+
+## OPTION I adopted: precision_norm floor 0.1 is now the stage default (2026-09-19)
+
+User decision 2026-09-19T02:31Z on `chip-20260919-sd020-precision-coupling-runtime-property`:
+amend SD-020 so the ARC-016 precision coupling is a RUNTIME property rather than a training-time
+one, **and** adopt a P0 floor as the P0h stage DEFAULT at `precision_norm >= ~0.1`. Landed as
+ree-v3 `78397036`.
+
+### What changed
+
+`ZHarmAP0Config.p0_precision_norm_floor`, **default 0.1** (was: no floor). 0.1 is mid-plateau on
+the measured pin sweep -- clear of the 0.004 -> 0.02 cliff below and of the mild decay above --
+so it is chosen for the flatness around it, not as an optimum.
+
+**A FLOOR, NOT A PIN, and the distinction is the finding itself.** The applied value is
+`max(agent's own precision_norm, floor)`, so an agent already above it is never dragged DOWN. A
+pin would discard a genuine trained-agent precision, which is the exact opposite of "correct at
+runtime, wrong at P0". `resolve_p0_precision_norm()` holds the precedence: an explicit
+`p0_precision_norm` pin wins outright; otherwise the floor applies only when the agent is below
+it; otherwise there is no mutation at all.
+
+Scope, stated so it is not over-read:
+
+- The **stage is still default-OFF** -- `zharm_a_p0_episodes=0` remains bit-identical, so nothing
+  changes for a caller who does not opt into P0h.
+- This *is* the one setting that changes behaviour for a caller who **does** opt in.
+- `p0_precision_norm_floor=None` restores the pre-2026-09-19 path exactly (contract C3q).
+- The floor is **inert on the SD-011 branch** -- only SD-020's PE target reads precision -- and
+  the returned block reports it as inert rather than letting it look applied (C3m).
+
+### Confirmed through the DEFAULT path, not only the resolver
+
+| seed | source | applied | lift | readiness |
+|---|---|---|---|---|
+| 0 | floor | 0.1000 | +0.9937 | True |
+| 1 | floor | 0.1000 | +0.9820 | True |
+| 2 | floor | 0.1000 | +0.8149 | True |
+
+Mean lift **+0.9302, readiness 3/3** on a default-config PE run -- i.e. what a caller now
+actually gets, rather than what the earlier sweep got via an explicit pin.
+
+Contracts 26 -> 29. C3k updated for the new default; C3o pins floor-not-pin semantics in both
+directions (below -> lifted, above -> untouched, pin -> wins either way); C3p pins that the
+default reaches the stage end-to-end and still restores E3's running variance; C3q pins the
+disable path.
+
+### What was deliberately NOT done here
+
+`claims.yaml` was not edited. Per the same user decision, the SD-020 wording goes through
+`governance_flag.py raise` carrying the exact proposed text, for `/governance` to apply.
+
+**SD-086 option C (vector-vs-norm on an E-trained encoder) is now UNBLOCKED but is NOT
+authorised** -- it is a separate later decision. The rank-2 ceiling on `harm_obs_a` still bounds
+what it can find.

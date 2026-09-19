@@ -320,10 +320,10 @@ When started with `--remote-control`, the runner emits a per-machine heartbeat e
 
 257 per-feature records, 156 feature IDs, in `docs/substrate/`. Read the
 "when to follow a pointer" rule at the top of this file before deciding to skip one.
-- **SD-011** — 3 records, ~4,735 tok total.
+- **SD-011** — 3 records, ~5,449 tok total.
     - [Second Source: Harm History Input (2026-04-08)](docs/substrate/SD-011-second-source-harm-history-input.md) *(~455 tok)*
     - [SD-012 E3 Integration (2026-04-05)](docs/substrate/SD-011-sd-012-e3-integration.md) *(~325 tok)*
-    - [P0h Affective-Harm-Encoder Warmup (2026-09-18)](docs/substrate/SD-011-p0h-affective-encoder-warmup.md) *(~3,955 tok)*
+    - [P0h Affective-Harm-Encoder Warmup (2026-09-18)](docs/substrate/SD-011-p0h-affective-encoder-warmup.md) *(~4,669 tok)*
 - **[SD-013](docs/substrate/SD-013-mech-090-sd-015-sd-019-sd-020-sd-021.md)** — MECH-090, SD-015, SD-019, SD-020, SD-021: Harm Stream + Gate Implementations (2026-04-10) *(~2,513 tok)*
 - **SD-016** — 4 records, ~5,839 tok total.
     - [Frontal Cue-Indexed Integration (2026-04-16)](docs/substrate/SD-016-frontal-cue-indexed-integration.md) *(~2,583 tok)*
