@@ -163,3 +163,67 @@
 - Config added: `dgpe_enable_differentiable_cem` (False). Contracts: C9-C16 added to
   `tests/contracts/test_sd_061_difficulty_gated_proposal_entropy.py` (17 pass).
   Status stays `implemented_pending_validation`.
+
+### 2026-09-19 AMENDMENT (c): the DECLARED AXIS MASK (user decision, option 1)
+
+- **AMENDED 2026-09-19** (ree-v3 `f372ce4207`). Substrate only; **PROMOTES
+  NOTHING**. MECH-343 stays candidate / substrate_conditional / v3_pending, and
+  **Q-056 is still NOT queued.**
+
+- **WHAT WAS DECIDED.** A run DECLARES which detector axes are in scope. The
+  combination is taken over exactly the **declared** set -- an undeclared axis is
+  ignored even when its input arrives, so the denominator is fixed by the
+  declaration and cannot drift with instrumentation. A declared axis that is not
+  wired **REFUSES** the run (`StuckStateAxisUnavailable`) rather than silently
+  rescaling. **Threshold recalibration was considered and REJECTED**: it would let
+  `is_stuck` fire without making the trigger attributable, redefining "stuck" as
+  a function of instrumentation rather than of the agent's state.
+
+- **CONFIG.** `StuckStateDetectorConfig.declared_axes` (default `None` = legacy
+  mean-over-PRESENT, **bit-identical**, so nothing already recorded changes
+  meaning) and `declared_axis_grace_ticks` (8). Surfaced as
+  `REEConfig.stuck_declared_axes` (`from_dims` plumbed); `REEAgent` normalises it
+  to a tuple so the caller's list cannot mutate the declaration afterwards.
+  Axis names: `progress`, `margin`, `diversity`, `difficulty`.
+
+- **THE GRACE WINDOW, and why it is not a fudge.** The first implementation
+  refused on any tick where a declared axis's input was `None`, and the
+  ecological probe immediately caught the flaw: `score_margin` is `None` on the
+  **first tick only** (`select_action` leaves it `None` until `e3.last_scores`
+  exists, i.e. until the first E3 selection -- 99/100 ticks thereafter), so
+  `margin` became undeclarable by **any** driver. "Absent" has two causes needing
+  different answers -- NOT WIRED (refuse) vs NOT YET (warm up) -- and a single
+  tick's inputs cannot tell them apart, but the run can:
+    * unseen inside the window -> **UNDETERMINED**: no advance, and critically
+      **no partial combination is formed**, so the anti-rescale guarantee holds
+      absolutely from the very first tick;
+    * still unseen after the window -> **REFUSE** (not wired);
+    * seen earlier and now missing -> **REFUSE at once** (wiring broke mid-run).
+  The knob can only change WHEN a mis-wired run is told, never any measured
+  quantity -- contract `C26` pins that a correctly-wired run is bit-identical
+  across grace settings.
+
+- **MEASURED ON THE REAL LOOP** (`experiments/_scratch/exq1056_probe7.py`, same
+  seed and ecology as the 2026-09-18 baseline):
+
+  | declared_axes | stuck_score range | duty(`is_stuck`) | note |
+  |---|---|---|---|
+  | `None` (legacy) | 0.0000 - 0.5000 | 0.000 | baseline reproduced exactly |
+  | `("progress",)` | 0.0000 - 1.0000 | 0.980 | peak at the LAST tick; no decay |
+  | `("progress","margin")` | 0.0000 - 0.5000 | 0.000 | = the axes that arrive |
+  | `("progress","difficulty")` | -- | -- | REFUSED after 9 ticks |
+
+- **THE RESULT THAT MATTERS FOR Q-056, stated plainly: neither declarable axis
+  set gives a usable TRIGGER, and for opposite reasons.** `("progress","margin")`
+  never fires (G9 pole A). `("progress",)` fires 98% of ticks, peaks on the last
+  tick and never decays (G9 pole B). MECH-343 requires a peak that exceeds
+  threshold **and then decays**; a pinned-high score turns every arm contrast
+  into a DOSE contrast rather than a TIMING one. So the mask makes the trigger
+  *declarable and attributable* -- which is what the decision asked for -- but it
+  does **not** by itself yield a non-vacuous Q-056. **Which axes Q-056 declares
+  is a live scientific choice and is NOT settled here**; it is the subject of a
+  separate decision chip, together with the finding that the coupled temperature
+  lever does not move the registered first-action-class DV.
+
+- Contracts `C17`-`C26` added (28 pass). Status stays
+  `implemented_pending_validation`.
