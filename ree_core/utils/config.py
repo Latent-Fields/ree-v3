@@ -5243,6 +5243,16 @@ class REEConfig:
     stuck_ema_alpha_fall: float = 0.05
     stuck_threshold: float = 0.5
     stuck_combine_mode: str = "mean"
+    # SD-061 (c), user decision 2026-09-19: the AXIS MASK. None (default)
+    # = legacy mean-over-PRESENT axes, bit-identical. A list/tuple naming a
+    # non-empty subset of ("progress", "margin", "diversity", "difficulty")
+    # = this run DECLARES its trigger: the combination is taken over exactly
+    # that set (an undeclared axis is ignored even when present), and a
+    # declared axis whose INPUT is absent raises StuckStateAxisUnavailable
+    # rather than silently rescaling. Threshold recalibration was considered
+    # and REJECTED: it would let is_stuck fire without making the trigger
+    # attributable. See ree_core/cingulate/stuck_state_detector.py.
+    stuck_declared_axes: Optional[List[str]] = None
     # Difficulty-gated proposal-entropy regulator knobs.
     dgpe_candidate_widen_max: int = 8
     dgpe_temperature_gain_max: float = 1.0
@@ -7932,6 +7942,7 @@ class REEConfig:
         stuck_ema_alpha_fall: float = 0.05,
         stuck_threshold: float = 0.5,
         stuck_combine_mode: str = "mean",
+        stuck_declared_axes: Optional[List[str]] = None,
         dgpe_candidate_widen_max: int = 8,
         dgpe_temperature_gain_max: float = 1.0,
         dgpe_enable_differentiable_cem: bool = False,
@@ -9458,6 +9469,7 @@ class REEConfig:
         config.stuck_ema_alpha_fall = stuck_ema_alpha_fall
         config.stuck_threshold = stuck_threshold
         config.stuck_combine_mode = stuck_combine_mode
+        config.stuck_declared_axes = stuck_declared_axes
         config.dgpe_candidate_widen_max = dgpe_candidate_widen_max
         config.dgpe_temperature_gain_max = dgpe_temperature_gain_max
         config.dgpe_enable_differentiable_cem = dgpe_enable_differentiable_cem

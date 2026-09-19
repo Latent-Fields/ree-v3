@@ -1784,6 +1784,15 @@ class REEAgent(nn.Module):
         ] = None
         self._last_stuck_score: float = 0.0
         if getattr(config, "use_difficulty_gated_proposal_entropy", False):
+            # SD-061 (c) AXIS MASK. None (default) keeps the legacy
+            # mean-over-PRESENT behaviour bit-identical; a declared set fixes
+            # the combination's denominator and turns a declared-but-unwired
+            # axis into a refusal at the first waking tick rather than a silent
+            # rescale. Normalised to a tuple so the declaration cannot be
+            # mutated afterwards through the caller's list.
+            _ssd_declared = getattr(config, "stuck_declared_axes", None)
+            if _ssd_declared is not None:
+                _ssd_declared = tuple(_ssd_declared)
             self.stuck_state_detector = StuckStateDetector(
                 config=StuckStateDetectorConfig(
                     use_stuck_state_detector=True,
@@ -1810,6 +1819,7 @@ class REEAgent(nn.Module):
                     ema_alpha_fall=getattr(config, "stuck_ema_alpha_fall", 0.05),
                     stuck_threshold=getattr(config, "stuck_threshold", 0.5),
                     combine_mode=getattr(config, "stuck_combine_mode", "mean"),
+                    declared_axes=_ssd_declared,
                 )
             )
             # SD-061 (a), 2026-09-18 / GFLAG-0352: COUPLE THE TEMPERATURE HALF

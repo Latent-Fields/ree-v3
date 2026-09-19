@@ -12,10 +12,12 @@ from __future__ import annotations
 import random
 
 import numpy as np
+import pytest
 import torch
 
 from ree_core.agent import REEAgent
 from ree_core.cingulate.stuck_state_detector import (
+    StuckStateAxisUnavailable,
     StuckStateDetector,
     StuckStateDetectorConfig,
 )
@@ -500,3 +502,245 @@ def test_c16_presence_diagnostics_do_not_change_the_score():
     # EMA toward 0.5 from 0.0 at alpha 0.5, three advancing ticks: 0.5*(1-0.5^3)
     assert 0.0 < s < 0.5
     assert d.is_stuck() is False
+
+
+# --------------------------------------------------------------------------
+# C17-C24 (2026-09-19): SD-061 (c) -- the DECLARED AXIS MASK.
+#
+# User decision 2026-09-19 (option 1 of the (c) chip): each run declares which
+# detector axes are in scope; the combination is taken over the DECLARED set;
+# a declared-but-absent axis is an ERROR, never a silent rescale. Threshold
+# recalibration was explicitly REJECTED.
+# --------------------------------------------------------------------------
+def test_c17_declared_axes_none_is_the_legacy_behaviour_bit_identical():
+    """Default-preserving: declared_axes=None must reproduce mean-over-present."""
+    legacy = _detector()
+    masked_off = _detector(declared_axes=None)
+    out_l, out_m = [], []
+    for i in range(6):
+        kw = dict(goal_proximity=0.3 + 0.001 * i, goal_salience=0.9,
+                  score_margin=0.02, n_candidates=4)
+        out_l.append(legacy.update(**kw))
+        out_m.append(masked_off.update(**kw))
+    assert out_l == out_m
+    assert legacy.get_state()["sd061_declared_axes"] is None
+    assert masked_off.get_state()["sd061_declared_axes"] is None
+    # ...and the agent path defaults to None too.
+    cfg = REEConfig.from_dims(use_difficulty_gated_proposal_entropy=True, **DIMS)
+    assert cfg.stuck_declared_axes is None
+    agent = REEAgent(cfg)
+    assert agent.stuck_state_detector.config.declared_axes is None
+
+
+def test_c18_declared_but_unwired_axis_raises_rather_than_rescaling():
+    """The load-bearing contract of decision (c).
+
+    An axis that NEVER arrives is a mis-declared run and must refuse. The
+    refusal waits out declared_axis_grace_ticks first, because some axes are
+    legitimately absent on the opening tick(s) (see C25); inside that window the
+    detector is UNDETERMINED -- it never forms a partial combination, so the
+    anti-rescale guarantee holds from the very first tick regardless.
+    """
+    d = _detector(declared_axes=("progress", "difficulty"),
+                  declared_axis_grace_ticks=2)
+    # 'difficulty' is exactly the axis that never arrives in practice.
+    # Inside the grace window: no advance, no partial combine, no raise.
+    for _ in range(2):
+        assert d.update(goal_proximity=0.3, goal_salience=0.9) == 0.0
+    st = d.get_state()
+    assert st["sd061_n_ticks"] == 0            # never advanced
+    assert st["sd061_n_undetermined_ticks"] == 2
+    assert st["last_combined_deficit"] == 0.0  # no partial combination formed
+    # Past the window: refuse.
+    with pytest.raises(StuckStateAxisUnavailable) as ei:
+        d.update(goal_proximity=0.3, goal_salience=0.9)
+    msg = str(ei.value)
+    assert "difficulty" in msg and "never arrived" in msg
+    # The message must be actionable, not just a name.
+    assert "use_dacc" in msg or "docstring" in msg
+    # A REFUSED tick leaves the detector untouched -- the raise happens before
+    # any window append or counter bump.
+    st2 = d.get_state()
+    assert st2["sd061_n_ticks"] == 0
+    assert st2["stuck_score"] == 0.0
+
+
+def test_c18b_axis_that_arrives_then_stops_refuses_immediately():
+    """Wiring breaking mid-run is not warmup -- no grace applies to it."""
+    d = _detector(declared_axes=("difficulty",), declared_axis_grace_ticks=99)
+    d.update(goal_proximity=0.3, goal_salience=0.9, choice_difficulty=0.01)
+    assert d.get_state()["sd061_axes_ever_seen"] == ["difficulty"]
+    with pytest.raises(StuckStateAxisUnavailable, match="has now stopped"):
+        d.update(goal_proximity=0.3, goal_salience=0.9)
+
+
+def test_c19_combination_is_over_the_declared_set_not_the_present_set():
+    """An UNDECLARED axis is ignored even when its input arrives.
+
+    This is what fixes the drifting denominator: with mean-over-present, an
+    extra axis showing up silently changes the attainable MAXIMUM of
+    stuck_score. Run at the SHIPPED ema_alpha_rise (0.3), because that is the
+    configuration the 2026-09-18 ecological measurement behind GFLAG-0352 was
+    taken in -- and the asymptotic approach is part of why the legacy path
+    never fires (mean(1.0, 0.0) = 0.5 is reached only in the limit).
+    """
+    # Declare progress only. Feed BOTH progress and margin.
+    only_prog = _detector(declared_axes=("progress",))
+    legacy = _detector()
+    s_masked = s_legacy = 0.0
+    for _ in range(6):
+        kw = dict(goal_proximity=0.3, goal_salience=0.9,
+                  score_margin=0.99, n_candidates=4)   # margin deficit 0.0
+        s_masked = only_prog.update(**kw)
+        s_legacy = legacy.update(**kw)
+    # progress deficit saturates at 1.0; margin deficit is 0.0.
+    assert only_prog.get_state()["last_deficit_progress"] == 1.0
+    assert only_prog.get_state()["last_deficit_margin"] == 0.0
+    # Declared-progress-only combines over {1.0}: the evidence is 1.0, so the
+    # score climbs past the threshold and the gate FIRES.
+    assert only_prog.get_state()["last_combined_deficit"] == 1.0
+    assert s_masked > 0.5
+    assert only_prog.is_stuck() is True
+    # Legacy combines over {1.0, 0.0} -> evidence 0.5, which the EMA can only
+    # approach from below, so the gate NEVER fires. This is the exact failure
+    # GFLAG-0352 recorded (measured duty cycle 0.000 in every arm).
+    assert legacy.get_state()["last_combined_deficit"] == 0.5
+    assert s_legacy < 0.5
+    assert legacy.is_stuck() is False
+    # ...and the separation is the mask's doing, not a threshold change: both
+    # detectors ran at the same stuck_threshold.
+    assert only_prog.config.stuck_threshold == legacy.config.stuck_threshold
+
+
+def test_c20_declared_axes_validated_at_construction():
+    with pytest.raises(ValueError, match="unknown axis"):
+        _detector(declared_axes=("progres",))          # typo
+    with pytest.raises(ValueError, match="at least one axis"):
+        _detector(declared_axes=())
+    with pytest.raises(ValueError, match="must not repeat"):
+        _detector(declared_axes=("progress", "progress"))
+    # Declaration order does not matter -- canonicalised to AXIS_NAMES order.
+    a = _detector(declared_axes=("difficulty", "progress"))
+    b = _detector(declared_axes=("progress", "difficulty"))
+    assert a.get_state()["sd061_declared_axes"] == b.get_state()["sd061_declared_axes"]
+    assert a.get_state()["sd061_declared_axes"] == ["progress", "difficulty"]
+
+
+def test_c21_undetermined_tick_does_not_advance_and_does_not_partially_combine():
+    """Warmup is NOT a refusal and NOT a rescale -- the EMA simply does not move.
+
+    A declared axis whose INPUT is wired but whose deficit needs history (the
+    progress window needs two samples) must not produce a partial combination.
+    """
+    d = _detector(declared_axes=("progress", "margin"), ema_alpha_rise=1.0)
+    # Tick 1: progress has its input but only one sample -> undetermined.
+    s1 = d.update(goal_proximity=0.3, goal_salience=0.9,
+                  score_margin=0.0, n_candidates=4)
+    st = d.get_state()
+    assert s1 == 0.0                       # no advance
+    assert st["sd061_n_undetermined_ticks"] == 1
+    assert st["sd061_last_undetermined"] is True
+    assert st["sd061_last_undetermined_axes"] == ["progress"]
+    assert st["sd061_n_ticks"] == 0        # the tick was not counted as advanced
+    # Tick 2: both determinable -> it advances.
+    s2 = d.update(goal_proximity=0.3, goal_salience=0.9,
+                  score_margin=0.0, n_candidates=4)
+    st = d.get_state()
+    assert s2 > 0.0
+    assert st["sd061_n_undetermined_ticks"] == 1
+    assert st["sd061_last_undetermined"] is False
+    assert st["sd061_n_ticks"] == 1
+
+
+def test_c22_mask_reaches_the_detector_through_from_dims_and_the_agent():
+    cfg = REEConfig.from_dims(
+        use_difficulty_gated_proposal_entropy=True,
+        stuck_declared_axes=["margin", "progress"],
+        **DIMS,
+    )
+    assert cfg.stuck_declared_axes == ["margin", "progress"]
+    agent = REEAgent(cfg)
+    # Normalised to a tuple so the caller's list cannot mutate it afterwards.
+    assert agent.stuck_state_detector.config.declared_axes == ("margin", "progress")
+    cfg.stuck_declared_axes.append("difficulty")
+    assert agent.stuck_state_detector.config.declared_axes == ("margin", "progress")
+    assert agent.stuck_state_detector.get_state()["sd061_declared_axes"] == [
+        "progress", "margin"
+    ]
+
+
+def test_c23_reset_clears_the_mask_counters_but_not_the_declaration():
+    d = _detector(declared_axes=("progress",))
+    d.update(goal_proximity=0.3, goal_salience=0.9)   # undetermined (warmup)
+    assert d.get_state()["sd061_n_undetermined_ticks"] == 1
+    d.reset()
+    st = d.get_state()
+    assert st["sd061_n_undetermined_ticks"] == 0
+    assert st["sd061_last_undetermined"] is False
+    assert st["sd061_last_undetermined_axes"] == []
+    # The DECLARATION survives reset -- it is configuration, not episode state.
+    assert st["sd061_declared_axes"] == ["progress"]
+
+
+def test_c24_mask_refusal_propagates_through_the_agent_tick():
+    """End-to-end: a mis-declared run FAILS rather than returning a number.
+
+    The agent's select_action feeds the detector; a declared axis the driver
+    cannot wire must surface as an error there, which the runner records as
+    ERROR -- not as a plausible-looking null. 40 ticks comfortably exceeds the
+    default 8-tick grace window.
+    """
+    torch.manual_seed(0)
+    np.random.seed(0)
+    random.seed(0)
+    cfg = REEConfig.from_dims(
+        use_difficulty_gated_proposal_entropy=True,
+        stuck_declared_axes=["difficulty"],   # unreachable via act_with_split_obs
+        **DIMS,
+    )
+    agent = REEAgent(cfg)
+    agent.reset()
+    with pytest.raises(StuckStateAxisUnavailable):
+        for _ in range(40):
+            agent.act_with_split_obs(torch.randn(1, 4), torch.randn(1, 8))
+
+
+def test_c25_an_axis_absent_only_at_the_start_is_declarable():
+    """The regression the ecological probe caught in the first implementation.
+
+    `score_margin` is None until the first E3 selection has happened -- measured
+    99/100 ticks present, absent on the first only. A refusal keyed to a single
+    tick's inputs made `margin` undeclarable by ANY driver, which is not what
+    the decision asks for. Warmup absence must be survivable; only a
+    never-arriving axis refuses.
+    """
+    d = _detector(declared_axes=("margin",), declared_axis_grace_ticks=8)
+    # Tick 1: no selection yet -> input absent, but inside the window.
+    assert d.update(goal_proximity=0.3, goal_salience=0.9) == 0.0
+    assert d.get_state()["sd061_n_undetermined_ticks"] == 1
+    # Ticks 2+: the margin arrives and the detector advances normally.
+    for _ in range(4):
+        d.update(goal_proximity=0.3, goal_salience=0.9,
+                 score_margin=0.0, n_candidates=4)
+    st = d.get_state()
+    assert st["sd061_n_ticks"] == 4
+    assert st["sd061_axes_ever_seen"] == ["margin"]
+    assert d.get_stuck_score() > 0.0
+
+
+def test_c26_grace_window_cannot_change_a_measured_quantity():
+    """The grace knob decides only WHEN a mis-wired run is told.
+
+    A correctly-wired run must be bit-identical across grace settings, because
+    it never reaches either the refusal or the undetermined branch after warmup.
+    """
+    def _series(grace):
+        d = _detector(declared_axes=("progress", "margin"),
+                      declared_axis_grace_ticks=grace)
+        out = []
+        for i in range(8):
+            out.append(d.update(goal_proximity=0.3 + 0.001 * i, goal_salience=0.9,
+                                score_margin=0.01, n_candidates=4))
+        return out
+
+    assert _series(0) == _series(8) == _series(64)

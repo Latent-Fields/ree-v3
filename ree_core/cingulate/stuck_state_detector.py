@@ -91,12 +91,29 @@ Neither condition is a defect in THIS module; both are recorded here because
 MECH-343's ``what_would_answer`` MANDATES reporting the SD-032b contribution to
 ``stuck_score`` separately, and that is impossible on a run where the axis never
 arrives. ``get_state()``'s ``sd061_n_present_*`` counters are what make the
-difference legible in a manifest. What the detector SHOULD do when axes are
-absent -- mask, require a minimum count, or recalibrate the threshold -- is an
-open design decision, deliberately NOT taken here: see the decision chip cited
-in ``REE_assembly/evidence/planning/exq1056_mech343_q056_upstream_leg_design_refusal_20260918.md``.
+difference legible in a manifest.
 
-The present-axis deficits are combined by ``mean`` (default) or ``max``
+RESOLVED 2026-09-19 (user decision) -- THE AXIS MASK. What the detector should
+do when axes are absent was an open design decision; it is now settled as
+``declared_axes`` (see ``StuckStateDetectorConfig``). A run DECLARES its trigger;
+the combination is taken over exactly the declared set; a declared axis that is
+not wired REFUSES the run rather than silently rescaling. Threshold
+recalibration was considered and REJECTED -- it would let ``is_stuck`` fire
+without making the trigger attributable, redefining "stuck" as a function of
+instrumentation rather than of the agent's state.
+``declared_axes=None`` (the default) keeps the legacy mean-over-present
+behaviour bit-identical, so nothing already recorded changes meaning.
+
+Measured effect of the mask on the very loop above (2026-09-19, same seed):
+legacy ``declared_axes=None`` reproduces the baseline exactly -- score pinned at
+0.5000, duty 0.000. Declaring ``("progress",)`` alone lifts the score to 1.0000
+with duty 0.980. **Both are unusable as a TRIGGER and for opposite reasons**: the
+first never fires (G9 pole A), the second never stops firing and never decays
+(G9 pole B), and MECH-343 requires a peak that exceeds threshold AND THEN
+DECAYS. Which axes Q-056 should declare is therefore a live scientific question
+and NOT settled by this build -- it is the subject of a separate decision chip.
+
+The combined deficits are combined by ``mean`` (default) or ``max``
 (``combine_mode``). The combined impasse evidence is GATED by goal salience:
 when goal_salient is False (no active goal / drive), the tick contributes 0 --
 absence of progress without a goal is not impasse, it is rest. The gated
@@ -119,7 +136,37 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
-from typing import Deque, Optional
+from typing import Deque, Optional, Tuple
+
+# SD-061 (c): the axis names a run may DECLARE. Order is the canonical report
+# order; membership is what `declared_axes` is validated against.
+AXIS_NAMES: Tuple[str, ...] = ("progress", "margin", "diversity", "difficulty")
+
+
+class StuckStateAxisUnavailable(RuntimeError):
+    """A DECLARED detector axis received no input on a waking tick.
+
+    SD-061 (c), user decision 2026-09-19. Raised -- never swallowed, never
+    silently rescaled around -- because the alternative is the failure this
+    decision exists to end: `combine_mode="mean"` over whichever axes happen to
+    be present silently changes the attainable MAXIMUM of stuck_score, so a
+    null cannot be attributed between "the agent was not stuck" and "the axis
+    that would have said so never arrived".
+
+    If you are seeing this for `difficulty`, the SD-032b dACC axis needs FOUR
+    conditions and `use_dacc=True` is only the first:
+      1. `use_dacc=True`                     -- constructs `agent.dacc`;
+      2. `use_affective_harm_stream=True`    -- constructs the
+         `AffectiveHarmEncoder` that produces `z_harm_a`;
+      3. an environment that emits `harm_obs_a` (`CausalGridWorldV2` does);
+      4. a driver that FORWARDS it: `agent.sense(..., obs_harm_a=...)`.
+         `act_with_split_obs` calls `sense(obs_body, obs_world)` with no harm
+         channel, so a driver on that convenience interface can never populate
+         this axis at any config.
+    If you are seeing it for `diversity`, the axis needs a commitment to have
+    occurred (`e3._committed_trajectory`), which runs into MECH-342's open
+    failure (V3-EXQ-629, "no natural commit when score margins are flat").
+    """
 
 
 @dataclass
@@ -153,7 +200,40 @@ class StuckStateDetectorConfig:
             the hysteretic "stuck persists briefly after relief" behaviour and
             implements the entropy DECAY half of MECH-343.
         stuck_threshold : stuck_score at/above this sets is_stuck=True.
-        combine_mode : "mean" (default) or "max" over the present-axis deficits.
+        combine_mode : "mean" (default) or "max" over the combined axis set --
+            the PRESENT axes when declared_axes is None, the DECLARED axes
+            otherwise (see below).
+        declared_axes : SD-061 (c), user decision 2026-09-19 -- the AXIS MASK.
+            None (default) = legacy behaviour, bit-identical: combine over
+            whichever axes happen to be present this tick.
+            A tuple of axis names (any non-empty subset of
+            ("progress", "margin", "diversity", "difficulty"), no duplicates)
+            = this run DECLARES its trigger. Then:
+              * the combination is taken over exactly the DECLARED axes -- an
+                undeclared axis is IGNORED even when its input arrives, so the
+                denominator is fixed by the declaration and cannot drift;
+              * a declared axis whose INPUT is absent is an ERROR
+                (``StuckStateAxisUnavailable``), never a silent rescale. That
+                is the whole point of the decision: with mean-over-present,
+                a missing axis silently changes the attainable MAXIMUM of
+                stuck_score, and a null becomes unattributable between "not
+                stuck" and "the axis that would have said so never arrived".
+            WHY A MASK AND NOT A RECALIBRATED THRESHOLD: rescaling the
+            threshold by the present-axis count would let is_stuck fire again
+            without making the trigger attributable, and would redefine "stuck"
+            as a function of instrumentation rather than of the agent's state.
+            Rejected by the user, 2026-09-19.
+        declared_axis_grace_ticks : how many waking ticks a DECLARED axis
+            may go unseen before the detector concludes it is NOT WIRED
+            and refuses. Inert when declared_axes is None. Exists because
+            some axes are legitimately absent on the first tick(s) --
+            `score_margin` is None until the first E3 selection has
+            happened -- and refusing those would make the axis
+            undeclarable. Inside the window a missing axis is
+            UNDETERMINED (no advance, no partial combination), so this
+            knob can only change WHEN a mis-wired run is told, never any
+            measured quantity: a correctly-wired run never reaches
+            either branch.
     """
 
     use_stuck_state_detector: bool = False
@@ -168,6 +248,8 @@ class StuckStateDetectorConfig:
     ema_alpha_fall: float = 0.05
     stuck_threshold: float = 0.5
     combine_mode: str = "mean"
+    declared_axes: Optional[Tuple[str, ...]] = None
+    declared_axis_grace_ticks: int = 8
 
 
 class StuckStateDetector:
@@ -230,6 +312,35 @@ class StuckStateDetector:
             raise ValueError(
                 f"combine_mode must be 'mean' or 'max'. Got {c.combine_mode!r}."
             )
+        # SD-061 (c): validate the declared axis set at CONSTRUCTION, so a
+        # typo'd or empty declaration fails before any compute is spent rather
+        # than mid-run. None = legacy mean-over-present (bit-identical).
+        self._declared: Optional[Tuple[str, ...]] = None
+        if c.declared_axes is not None:
+            declared = tuple(c.declared_axes)
+            if not declared:
+                raise ValueError(
+                    "declared_axes must name at least one axis (or be None for "
+                    f"the legacy mean-over-present behaviour). Got {declared!r}."
+                )
+            unknown = [a for a in declared if a not in AXIS_NAMES]
+            if unknown:
+                raise ValueError(
+                    f"declared_axes contains unknown axis name(s) {unknown!r}. "
+                    f"Valid names are {list(AXIS_NAMES)}."
+                )
+            if len(set(declared)) != len(declared):
+                raise ValueError(
+                    f"declared_axes must not repeat an axis. Got {declared!r}."
+                )
+            # Canonicalise to AXIS_NAMES order so the recorded declaration and
+            # the combination order do not depend on how the caller spelled it.
+            self._declared = tuple(a for a in AXIS_NAMES if a in set(declared))
+            if c.declared_axis_grace_ticks < 0:
+                raise ValueError(
+                    "declared_axis_grace_ticks must be >= 0. Got "
+                    f"{c.declared_axis_grace_ticks}."
+                )
         self._progress: Deque[float] = deque(maxlen=int(c.progress_window))
         self._committed_classes: Deque[int] = deque(
             maxlen=int(c.committed_diversity_window)
@@ -261,6 +372,19 @@ class StuckStateDetector:
         self._n_present_margin: int = 0
         self._n_present_diversity: int = 0
         self._n_present_difficulty: int = 0
+        # SD-061 (c) mask diagnostics. A tick on which a DECLARED axis has its
+        # input but cannot yet form a deficit (the progress window needs two
+        # samples; the margin needs a pool of >= 2) is UNDETERMINED: the
+        # detector does not advance. That is neither a refusal (the driver is
+        # wiring the axis correctly) nor a rescale (no partial combination is
+        # formed) -- it is "the declared combination is not computable yet",
+        # the same no-advance shape as the MECH-094 simulation_mode path.
+        self._n_undetermined_ticks: int = 0
+        self._last_undetermined: bool = False
+        self._last_undetermined_axes: Tuple[str, ...] = ()
+        # Wiring-detection state for the declared-axis grace window.
+        self._n_waking_calls: int = 0
+        self._axis_seen = {a: False for a in AXIS_NAMES}
 
     # ------------------------------------------------------------------
     # Per-axis deficits
@@ -370,6 +494,70 @@ class StuckStateDetector:
             self._n_simulation_skips += 1
             return self._stuck_score
 
+        # SD-061 (c) AXIS MASK -- decide BEFORE any state advances, so a refused
+        # tick leaves the detector exactly as it was (this runs ahead of
+        # _progress_deficit / _diversity_deficit appending to their windows).
+        #
+        # A declared axis whose INPUT is absent must never be silently combined
+        # around. But "absent" has two causes and they need different answers:
+        #
+        #   NOT WIRED   -- the driver or config never supplies it (the
+        #                  `difficulty` case: act_with_split_obs has no harm
+        #                  channel at all). This is a mis-declared run and is a
+        #                  REFUSAL.
+        #   NOT YET     -- correctly wired, but this tick is too early. Measured
+        #                  2026-09-19: `score_margin` is None on the FIRST tick
+        #                  only, because agent.select_action leaves it None until
+        #                  e3.last_scores exists, i.e. until the first E3
+        #                  selection -- 99/100 ticks thereafter. Refusing that
+        #                  would make `margin` undeclarable by any driver, which
+        #                  is plainly not the decision's intent.
+        #
+        # A single tick's inputs cannot tell those apart; the RUN can. So:
+        # an axis not yet seen inside the grace window is UNDETERMINED (no
+        # advance, no partial combination -- the anti-rescale guarantee holds
+        # absolutely); still unseen at the end of it is NOT WIRED and refuses;
+        # and an axis that HAS been seen and then goes missing refuses at once,
+        # because that is wiring breaking mid-run rather than warming up.
+        #
+        # declared_axis_grace_ticks only decides WHEN a mis-wired run is told;
+        # it cannot affect any measured quantity, because a correctly-wired run
+        # never reaches either branch.
+        if self._declared is not None:
+            _inputs = {
+                "progress": goal_proximity,
+                "margin": score_margin,
+                "diversity": committed_action_class,
+                "difficulty": choice_difficulty,
+            }
+            self._n_waking_calls += 1
+            grace = int(self.config.declared_axis_grace_ticks)
+            refuse: list = []
+            for a in self._declared:
+                if _inputs[a] is not None:
+                    self._axis_seen[a] = True
+                    continue
+                if self._axis_seen[a]:
+                    refuse.append((a, "arrived earlier in this run and has now stopped"))
+                elif self._n_waking_calls > grace:
+                    refuse.append(
+                        (a, f"has never arrived in {self._n_waking_calls} waking ticks")
+                    )
+            if refuse:
+                detail = "; ".join(f"{a} ({why})" for a, why in refuse)
+                raise StuckStateAxisUnavailable(
+                    f"SD-061 declared axis/axes {[a for a, _ in refuse]} "
+                    f"unavailable: {detail}. "
+                    f"Declared set: {list(self._declared)}; "
+                    f"grace window: {grace} waking ticks. "
+                    "Either wire the axis (see this exception's class docstring "
+                    "-- 'difficulty' needs four conditions, of which use_dacc is "
+                    "only the first) or do not declare it. The detector "
+                    "deliberately does NOT fall back to a mean over the axes "
+                    "that did arrive: that would silently change the attainable "
+                    "maximum of stuck_score and make a null unattributable."
+                )
+
         d_prog = self._progress_deficit(goal_proximity)
         d_marg = self._margin_deficit(score_margin, n_candidates)
         d_div = self._diversity_deficit(committed_action_class)
@@ -391,14 +579,46 @@ class StuckStateDetector:
         self._n_present_diversity += int(self._last_present_diversity)
         self._n_present_difficulty += int(self._last_present_difficulty)
 
-        present = [d for d in (d_prog, d_marg, d_div, d_diff) if d is not None]
-        if present:
+        if self._declared is not None:
+            # SD-061 (c): combine over exactly the DECLARED set. An undeclared
+            # axis is ignored even when present, so the denominator is fixed by
+            # the declaration and cannot drift with instrumentation.
+            _deficits = {
+                "progress": d_prog,
+                "margin": d_marg,
+                "diversity": d_div,
+                "difficulty": d_diff,
+            }
+            undetermined = tuple(
+                a for a in self._declared if _deficits[a] is None
+            )
+            self._last_undetermined = bool(undetermined)
+            self._last_undetermined_axes = undetermined
+            if undetermined:
+                # The inputs ARE wired (the refusal above already proved that);
+                # the declared combination simply is not computable yet -- the
+                # progress window needs two samples, the margin needs a pool of
+                # >= 2. Do NOT form a partial combination (that is the rescale
+                # this decision forbids) and do NOT advance the EMA. The tick is
+                # recorded and skipped, exactly like the simulation_mode path.
+                self._n_undetermined_ticks += 1
+                return self._stuck_score
+            declared_deficits = [_deficits[a] for a in self._declared]
             if self.config.combine_mode == "max":
-                combined = max(present)
+                combined = max(declared_deficits)
             else:
-                combined = sum(present) / float(len(present))
+                combined = sum(declared_deficits) / float(len(declared_deficits))
         else:
-            combined = 0.0
+            self._last_undetermined = False
+            self._last_undetermined_axes = ()
+            present = [d for d in (d_prog, d_marg, d_div, d_diff) if d is not None]
+            if present:
+                if self.config.combine_mode == "max":
+                    combined = max(present)
+                else:
+                    combined = sum(present) / float(len(present))
+            else:
+                combined = 0.0
 
         # Goal-salience guard: impasse only counts while a goal is pursued.
         salient = (
@@ -458,6 +678,11 @@ class StuckStateDetector:
         self._n_present_margin = 0
         self._n_present_diversity = 0
         self._n_present_difficulty = 0
+        self._n_undetermined_ticks = 0
+        self._last_undetermined = False
+        self._last_undetermined_axes = ()
+        self._n_waking_calls = 0
+        self._axis_seen = {a: False for a in AXIS_NAMES}
 
     def get_state(self) -> dict:
         """Diagnostic snapshot for experiment manifests."""
@@ -491,4 +716,20 @@ class StuckStateDetector:
                 + self._last_present_diversity
                 + self._last_present_difficulty
             ),
+            # SD-061 (c) AXIS MASK. declared_axes is None on a legacy
+            # mean-over-present run; a list names this run's declared trigger,
+            # which is what makes a null attributable to a named axis set.
+            # n_undetermined_ticks counts ticks on which the declared
+            # combination was not yet computable and the EMA did NOT advance --
+            # a large value means the run is measuring far fewer ticks than it
+            # appears to, and should be read before any verdict.
+            "sd061_declared_axes": (
+                list(self._declared) if self._declared is not None else None
+            ),
+            "sd061_n_undetermined_ticks": self._n_undetermined_ticks,
+            "sd061_last_undetermined": self._last_undetermined,
+            "sd061_last_undetermined_axes": list(self._last_undetermined_axes),
+            "sd061_axes_ever_seen": [
+                a for a in AXIS_NAMES if self._axis_seen[a]
+            ],
         }
