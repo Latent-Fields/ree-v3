@@ -110,6 +110,32 @@ arms, the decoder protocol and the premise route are all V3-EXQ-1043 verbatim.
      Do NOT promote C4a to the scored conjunct -- autopsy-forbidden, retention-confounded by
      the driver's own stated design decision. It stays recorded, with its confound stated.
 
+     STATED LIMITATION OF THIS ANCHOR, recorded rather than smoothed, because it is the one
+     thing a later autopsy should check first if C4b comes back UNREACHABLE. Write the three
+     quantities out:
+         measured = (||b_fit|| / ||a_fit||) x (|J(u_out_fit)| / |J(u_in_fit)|)
+         I        = (||b_fit|| / ||a_fit||)
+         F        = (||b_jac|| / ||a_jac||) x (|J(u_out_jac)| / |J(u_in_jac)|)
+     `measured` and `I` share a decomposition, so that pair is clean and retention-matched --
+     which is exactly what makes I a sound no-routing reference and what disqualified C4a's
+     random-subspace null. F does NOT share it: it is computed on the Jacobian-aligned
+     subspace, so it mixes the SENSITIVITY factor (which the alignment minimises -- the
+     intended effect) with a GEOMETRY factor ||b_jac||/||a_jac|| this construction does not
+     control. If geometry dominates, F can exceed I and the interval [F, I] does not exist.
+     The `--dry-run` smoke hit exactly that at its degenerate rank 1 (80 rows, ladder
+     row-capped): measured 4.4625, F 4.4526, I 4.3328 -- all three within 3% of each other,
+     i.e. geometry dominated and the sensitivity factor was ~1.0, and the ceiling came back
+     NaN. Rank 1 settles nothing about ranks 8-10 where this run actually scores, and the
+     mid-scale probe that would have settled it did not complete in the dispatching session
+     (preserved at REE_assembly evidence/planning/
+     v3_exq_1043a_mech537_design_staged_20260918.md section A7).
+     THE FAILURE MODE IS SAFE, WHICH IS WHY THIS RUNS ANYWAY: `_c4b_ceiling` returns NaN
+     when F is not strictly below I, the seed is scored UNREACHABLE and EXCLUDED rather than
+     failed, and a seed majority of unreachable seeds makes C4b unscoreable and routes the
+     run to `undetermined`. So the worst case is a run that declines to adjudicate C4b and
+     REPORTS F and I per seed -- which is itself the measurement the autopsy asked for, and
+     is strictly more than V3-EXQ-1043 knew. It is not a route to a false verdict.
+
 (R4) n IS RAISED TO 6 AND `SEED_MAJORITY` IS RE-SPECIFIED PROPORTIONALLY TO 4.
      Autopsy: "IF n IS RAISED, RE-SPECIFY SEED_MAJORITY PROPORTIONALLY in the pre-registration
      (it is a fixed constant 2, inherited from x1002). Otherwise the seed-majority clause
@@ -516,7 +542,16 @@ INSENSITIVITY_NULL_MARGIN = 0.15   # C4a: null_ratio - measured_ratio, paired pe
 #   F = `jacobian_aligned_floor_ratio`  -- the attainable best-case routing reference
 #   I = `isotropic_reference_ratio`     -- the no-routing reference from retention geometry
 # The RULE is fixed here, before execution, and is not tunable after seeing data.
+# RATIFIED BY THE USER 2026-09-19T02:31:55Z (decision chip
+# `chip-20260919-mech537-c4b-floor-to-ceiling-rule`, RULE 1 of three put to them):
+#     ceiling(seed) = (F + I) / 2
+# The two earlier-recorded alternatives, both declined, so a later reader does not have to
+# reconstruct what was on the table: RULE 2 the geometric midpoint sqrt(F*I) (parameter-free
+# too, and stricter, on the argument that a ratio's natural scale is logarithmic); RULE 3
+# keep V3-EXQ-1043's hand-set 0.50 and use F only as a reachability gate.
 C4B_CEILING_RULE = "arithmetic_midpoint_of_measured_floor_and_isotropic"
+C4B_CEILING_RULE_RATIFIED_UTC = "2026-09-19T02:31:55Z"
+C4B_CEILING_RULE_AUTHORITY = "chip-20260919-mech537-c4b-floor-to-ceiling-rule (RULE 1)"
 INSENSITIVITY_RATIO_MAX_LEGACY_1043 = 0.50   # recorded for comparability; NOT scored
 # ---- R1: the within-run permutation null for C2 -----------------------------------------
 # N_PERMUTATIONS drives cost linearly (one RRR refit + one decoder fit per replicate), so it
