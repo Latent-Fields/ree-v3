@@ -619,7 +619,15 @@ ARM_FULL = "ws250_full"
 ARM_COMM = "ws250_comm"
 ARM_PERP = "ws250_perp"
 ARM_RAND = "ws250_randrank"
+# R2: the SAME three subspace arms re-instantiated at the PARSIMONIOUS rank. `ws250_full` is
+# rank-independent and is fitted once, so there is no `_p` twin for it.
+ARM_COMM_P = "ws250_comm_parsrank"
+ARM_PERP_P = "ws250_perp_parsrank"
+ARM_RAND_P = "ws250_randrank_parsrank"
+# The permutation-null arm: the comm arm refit on within-episode-shuffled pairing (R1).
+ARM_COMM_PERM = "ws250_comm_parsrank_permuted"
 ARM_IDS = [ARM_FULL, ARM_COMM, ARM_PERP, ARM_RAND]
+ARM_IDS_PARS = [ARM_COMM_P, ARM_PERP_P, ARM_RAND_P]
 
 _ZG = ZGoalStreamAccumulator()
 
@@ -958,8 +966,14 @@ def _decision_sensitivity(agent, obs_rows: List[Dict[str, Any]], basis_std: torc
 def _run_seed(seed: int, action_dim: int, env_kwargs: Dict[str, Any],
               cfg_slice: Dict[str, Any], zworld_p0: int, p0: int, p1: int, steps: int,
               bc_eps: int, bc_rand: int, passes: int, n_sens_states: int,
-              n_sens_dirs: int, dry_run: bool) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
-    """One seed: collect, warm up ONCE, freeze, estimate P_comm, run the four arms + legs."""
+              n_sens_dirs: int, n_perms: int, n_jac_states: int,
+              dry_run: bool) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+    """One seed: collect, warm up ONCE, freeze, estimate P_comm, run every arm + leg.
+
+    1043a adds, after V3-EXQ-1043's four arms: the parsimonious-rank re-read (R2), the
+    within-episode permutation null for C2 (R1), and the Jacobian-aligned attainable-floor
+    probe that anchors C4b (R3).
+    """
     print("Seed %d Condition %s:comm_subspace_routing" % (seed, RUNG_ID), flush=True)
 
     # ---- dataset (shared by every arm, step-for-step) -------------------------------------
@@ -1071,40 +1085,63 @@ def _run_seed(seed: int, action_dim: int, env_kwargs: Dict[str, Any],
     }
     arm_rows: List[Dict[str, Any]] = []
     agreements: Dict[str, float] = {}
+
+    def _fit_arm(arm_id: str, f_tr: torch.Tensor, f_te: torch.Tensor,
+                 arm_rank: Optional[int], record: bool = True) -> float:
+        """Train ONE arm's decoder and return its held-out oracle agreement.
+
+        Extracted from V3-EXQ-1043's inline loop without changing it, so the parsimonious-rank
+        arms (R2) and the permutation-null refits (R1) go through the IDENTICAL protocol --
+        same trainer, same passes, same seed, same rows. A null built by a second, subtly
+        different training path would not be a null of this instrument.
+
+        `record=False` is used ONLY for the permutation replicates: there are N_PERMUTATIONS of
+        them per seed and stamping an arm_fingerprint cell for each would add hundreds of rows
+        per seed that no reader will ever open. Their agreements are recorded in aggregate, as
+        the null distribution, which is the object of interest.
+        """
+        if record:
+            with arm_cell(seed, config_slice=dict(cfg_slice, arm_id=arm_id,
+                                                  arm_selected_rank=arm_rank),
+                          script_path=Path(__file__), config_slice_declared=True,
+                          include_driver_script_in_hash=False,
+                          extra_ineligible_reasons=[
+                              "frozen_agent_and_fitted_subspace_shared_across_arms_within_seed"]
+                          ) as cell:
+                net, train_stats = x1002._train_adapter(f_tr, y_tr, action_dim, passes, seed,
+                                                        arm_id)
+                agree_te = x1002._agreement(net, f_te, y_te)
+                agree_tr = x1002._agreement(net, f_tr, y_tr)
+                strongest = trivial["strongest_trivial_agreement"]
+                row = {
+                    "cell_id": "%s|seed%d" % (arm_id, seed),
+                    "arm_id": arm_id,
+                    "seed": int(seed),
+                    "feature_dim": int(f_tr.shape[1]),
+                    "subspace_rank": arm_rank,
+                    "oracle_action_agreement": agree_te,
+                    "train_agreement_capacity_witness": agree_tr,
+                    "agreement_elevation": (None if (agree_te is None or strongest is None)
+                                            else float(agree_te - strongest)),
+                    "adapter_training": train_stats,
+                    "capacity_match": x1002._capacity_report(net, int(f_tr.shape[1]), action_dim),
+                    "heldout_steps": int(f_te.shape[0]),
+                }
+                cell.stamp(row)
+            arm_rows.append(row)
+            print("  [arm] seed=%d %s heldout_agreement=%.4f (train %.4f)"
+                  % (seed, arm_id, (agree_te if agree_te is not None else float("nan")),
+                     (agree_tr or float("nan"))), flush=True)
+        else:
+            net, _ts = x1002._train_adapter(f_tr, y_tr, action_dim, passes, seed, arm_id)
+            agree_te = x1002._agreement(net, f_te, y_te)
+        return float(agree_te) if agree_te is not None else float("nan")
+
     for arm_id in ARM_IDS:
         f_tr, f_te = feats[arm_id]
-        with arm_cell(seed, config_slice=dict(cfg_slice, arm_id=arm_id,
-                                              arm_selected_rank=(rank if arm_id in
-                                                                 (ARM_COMM, ARM_PERP, ARM_RAND)
-                                                                 else None)),
-                      script_path=Path(__file__), config_slice_declared=True,
-                      include_driver_script_in_hash=False,
-                      extra_ineligible_reasons=[
-                          "frozen_agent_and_fitted_subspace_shared_across_arms_within_seed"]
-                      ) as cell:
-            net, train_stats = x1002._train_adapter(f_tr, y_tr, action_dim, passes, seed, arm_id)
-            agree_te = x1002._agreement(net, f_te, y_te)
-            agree_tr = x1002._agreement(net, f_tr, y_tr)
-            strongest = trivial["strongest_trivial_agreement"]
-            row = {
-                "cell_id": "%s|seed%d" % (arm_id, seed),
-                "arm_id": arm_id,
-                "seed": int(seed),
-                "feature_dim": int(f_tr.shape[1]),
-                "subspace_rank": (rank if arm_id in (ARM_COMM, ARM_PERP, ARM_RAND) else None),
-                "oracle_action_agreement": agree_te,
-                "train_agreement_capacity_witness": agree_tr,
-                "agreement_elevation": (None if (agree_te is None or strongest is None)
-                                        else float(agree_te - strongest)),
-                "adapter_training": train_stats,
-                "capacity_match": x1002._capacity_report(net, int(f_tr.shape[1]), action_dim),
-                "heldout_steps": int(f_te.shape[0]),
-            }
-            cell.stamp(row)
-        agreements[arm_id] = float(agree_te) if agree_te is not None else float("nan")
-        arm_rows.append(row)
-        print("  [arm] seed=%d %s heldout_agreement=%.4f (train %.4f)"
-              % (seed, arm_id, agreements[arm_id], (agree_tr or float("nan"))), flush=True)
+        agreements[arm_id] = _fit_arm(
+            arm_id, f_tr, f_te,
+            (rank if arm_id in (ARM_COMM, ARM_PERP, ARM_RAND) else None))
 
     # ---- corroborating variance routing (diagnostic, never a criterion) --------------------
     r2 = {
@@ -1186,6 +1223,145 @@ def _run_seed(seed: int, action_dim: int, env_kwargs: Dict[str, Any],
           % (seed, dec_sens["sensitivity_ratio"], dec_sens["null_sensitivity_ratio"],
              sens["sensitivity_ratio"], sens["null_sensitivity_ratio"]), flush=True)
 
+    # ======================================================================================
+    # 1043a (R2): THE PARSIMONIOUS-RANK RE-READ -- and the SCORED configuration
+    # ======================================================================================
+    # WHICH RANK THE CRITERIA READ, and why the whole scored set moves rather than C2 alone.
+    # The autopsy names C2 ("read it at the PARSIMONIOUS rank"). C4b, however, splits each
+    # oracle decision coordinate BY THE SAME SUBSPACE, and C5 asks whether THAT subspace is
+    # stable -- so scoring C2 at one rank and C4b/C5 at another would make the confirming
+    # conjunction a statement about two different subspaces, which is not a coherent
+    # alternative but a defect. The SCORED configuration is therefore the parsimonious rank
+    # throughout; the CV-selected-rank configuration (V3-EXQ-1043's exact one) is computed and
+    # RECORDED in full alongside it, so the comparison to 1043 stays direct and a later
+    # autopsy can contest this call against the numbers rather than against an absence.
+    # ROAD NOT TAKEN, recorded: score C2 at the parsimonious rank and leave C1/C3/C4/C5 at the
+    # CV-selected rank, i.e. 1043's configuration for everything the autopsy did not name.
+    r_pars = _parsimonious_rank(css.heldout_r2_by_rank)
+    css_p = communication_subspace(xs_tr[:, keep], z_tr, [r_pars], groups=g_tr,
+                                   n_folds=RRR_FOLDS, ridge=ridge_tr, seed=seed)
+    b_std_p = _embed_basis(css_p.basis.float(), keep, WORLD_STATE_DIM)
+    # Same live-dimension support as the fitted basis, for the same F6 reason as at the
+    # CV-selected rank; a distinct seed offset so this is an independent draw, not a nested
+    # sub-basis of the rank-`rank` control.
+    b_rand_p = _embed_basis(_random_orthonormal(int(keep.numel()), r_pars, seed=seed * 7919 + 131),
+                            keep, WORLD_STATE_DIM)
+    print("  [rrr] seed=%d parsimonious_rank=%d (tol=%.0e) heldout_r2=%.6f vs ladder_max=%.6f"
+          % (seed, r_pars, PARSIMONIOUS_R2_TOL, css_p.selected_heldout_r2,
+             max(css.heldout_r2_by_rank.values())), flush=True)
+
+    feats_p = {
+        ARM_COMM_P: (_project(xs_tr, b_std_p), _project(xs_te, b_std_p)),
+        ARM_PERP_P: (xs_tr - _project(xs_tr, b_std_p), xs_te - _project(xs_te, b_std_p)),
+        ARM_RAND_P: (_project(xs_tr, b_rand_p), _project(xs_te, b_rand_p)),
+    }
+    for arm_id in ARM_IDS_PARS:
+        f_tr, f_te = feats_p[arm_id]
+        agreements[arm_id] = _fit_arm(arm_id, f_tr, f_te, r_pars)
+
+    # cross-stratum stability AT THE SCORED RANK (C5's input)
+    css_rd_p = communication_subspace(xs_rd[:, keep], z_rd, [r_pars], groups=g_rd,
+                                      n_folds=RRR_FOLDS, ridge=_rrr_ridge_abs(xs_rd[:, keep]),
+                                      seed=seed)
+    stratum_p = principal_angles(b_std_p, _embed_basis(css_rd_p.basis.float(), keep,
+                                                       WORLD_STATE_DIM))
+    span_overlap_p = principal_angles(_top_pcs(xs_tr[:, keep], r_pars),
+                                      _top_pcs(xs_rd[:, keep], r_pars))
+    _chance_p = _mean([
+        float(principal_angles(
+            _random_orthonormal(int(keep.numel()), r_pars, seed=seed * 13 + 1000 * t + 500),
+            _random_orthonormal(int(keep.numel()), r_pars, seed=seed * 13 + 1000 * t + 507)
+        )["mean_squared_cosine_overlap"]) for t in range(3)])
+
+    geom_p = {"comm_subspace": _retained(b_std_p), "randrank_control": _retained(b_rand_p)}
+
+    # ======================================================================================
+    # 1043a (R1): THE WITHIN-EPISODE PERMUTATION NULL FOR C2
+    # ======================================================================================
+    # C2_obs   = D_randrank(r_pars) - D_comm(r_pars)
+    # C2_null^b= D_randrank(r_pars) - D_comm_perm^b(r_pars)   <- SAME randrank draw, held fixed
+    # so the common term cancels and the test is paired (docstring R1). Every replicate goes
+    # through _fit_arm, i.e. the identical decoder protocol, on the identical rows.
+    perm_gen = np.random.default_rng(int(seed) * 104729 + 1)
+    perm_comm_agreements: List[float] = []
+    for b in range(int(n_perms)):
+        idx = _permute_within_groups(g_tr, perm_gen)
+        z_perm = z_tr[torch.as_tensor(idx, dtype=torch.long)]
+        css_perm = communication_subspace(xs_tr[:, keep], z_perm, [r_pars], groups=g_tr,
+                                          n_folds=RRR_FOLDS, ridge=ridge_tr, seed=seed)
+        b_perm = _embed_basis(css_perm.basis.float(), keep, WORLD_STATE_DIM)
+        a_perm = _fit_arm(ARM_COMM_PERM, _project(xs_tr, b_perm), _project(xs_te, b_perm),
+                          r_pars, record=False)
+        perm_comm_agreements.append(float(a_perm))
+        if (b + 1) % 25 == 0 or (b + 1) == int(n_perms):
+            print("  [perm] seed=%d replicate %d of %d D_comm_perm=%.4f"
+                  % (seed, b + 1, int(n_perms), float(a_perm)), flush=True)
+    c2_obs_p = float(agreements[ARM_RAND_P] - agreements[ARM_COMM_P])
+    c2_null_p = [float(agreements[ARM_RAND_P] - a) for a in perm_comm_agreements]
+    c2_perm_p_value = _permutation_p_value(c2_obs_p, c2_null_p)
+    print("  [perm] seed=%d C2_obs=%.4f null_mean=%.4f null_sd=%.4f p=%.4f (n=%d)"
+          % (seed, c2_obs_p, _mean(c2_null_p), _sd(c2_null_p), c2_perm_p_value,
+             len(c2_null_p)), flush=True)
+
+    # ======================================================================================
+    # 1043a (R3): THE ATTAINABLE-FLOOR PROBE THAT ANCHORS C4b
+    # ======================================================================================
+    jac_obs = probe_obs[:max(1, int(n_jac_states))]
+    jac_eps = float(JACOBIAN_EPS_FRAC) * base_norm
+    jac_gram = _jacobian_std_gram(agent, jac_obs, std_vec, keep, jac_eps)
+    b_jac_p = _jacobian_aligned_basis(jac_gram, keep, WORLD_STATE_DIM, r_pars)
+    b_jac = _jacobian_aligned_basis(jac_gram, keep, WORLD_STATE_DIM, rank)
+
+    # The DECISION-TARGETED probe at the scored rank, plus its two references. Identical
+    # machinery for all three -- only the splitting subspace differs.
+    dec_sens_p: Dict[str, Any] = {"by_eps": {}}
+    for frac in SENSITIVITY_EPS_FRACS:
+        eps_abs = float(frac) * base_norm
+        dec_sens_p["by_eps"][("%.3f" % frac)] = {
+            "eps_frac": float(frac), "eps_abs": eps_abs,
+            "measured": _decision_sensitivity(agent, probe_obs, b_std_p, std_vec, eps_abs),
+            "null_control": _decision_sensitivity(agent, probe_obs, b_rand_p, std_vec, eps_abs),
+            "jacobian_aligned_floor": _decision_sensitivity(agent, probe_obs, b_jac_p,
+                                                            std_vec, eps_abs),
+        }
+    pk = "%.3f" % SENSITIVITY_EPS_FRACS[-1]
+    dec_sens_p["sensitivity_ratio"] = \
+        dec_sens_p["by_eps"][pk]["measured"]["sensitivity_ratio"]
+    dec_sens_p["null_sensitivity_ratio"] = \
+        dec_sens_p["by_eps"][pk]["null_control"]["sensitivity_ratio"]
+    dec_sens_p["jacobian_aligned_floor_ratio"] = \
+        dec_sens_p["by_eps"][pk]["jacobian_aligned_floor"]["sensitivity_ratio"]
+    # I -- the ISOTROPIC / no-routing reference, from the FITTED decomposition's OWN component
+    # norms. Retention-MATCHED by construction: it uses this subspace's own a / b weights, not
+    # a random subspace's, which is precisely the confound that disqualified C4a.
+    _m = dec_sens_p["by_eps"][pk]["measured"]
+    _a = float(_m.get("mean_raw_norm_comm_component", float("nan")))
+    _b = float(_m.get("mean_raw_norm_complement_component", float("nan")))
+    dec_sens_p["isotropic_reference_ratio"] = (float(_b / _a) if (np.isfinite(_a)
+                                                                  and abs(_a) > 1e-12)
+                                               else float("nan"))
+    dec_sens_p["c4b_ceiling"] = _c4b_ceiling(dec_sens_p["jacobian_aligned_floor_ratio"],
+                                             dec_sens_p["isotropic_reference_ratio"])
+    dec_sens_p["c4b_ceiling_rule"] = C4B_CEILING_RULE
+    # The same anchor at the CV-selected rank, recorded so the 1043 configuration also carries
+    # its measured ceiling rather than only the withdrawn 0.50.
+    dec_sens["jacobian_aligned_floor_ratio"] = _decision_sensitivity(
+        agent, probe_obs, b_jac, std_vec, float(SENSITIVITY_EPS_FRACS[-1]) * base_norm
+    )["sensitivity_ratio"]
+    _ms = dec_sens["by_eps"][pk]["measured"]
+    _as = float(_ms.get("mean_raw_norm_comm_component", float("nan")))
+    _bs = float(_ms.get("mean_raw_norm_complement_component", float("nan")))
+    dec_sens["isotropic_reference_ratio"] = (float(_bs / _as) if (np.isfinite(_as)
+                                                                  and abs(_as) > 1e-12)
+                                             else float("nan"))
+    dec_sens["c4b_ceiling"] = _c4b_ceiling(dec_sens["jacobian_aligned_floor_ratio"],
+                                           dec_sens["isotropic_reference_ratio"])
+    print("  [c4b] seed=%d SCORED rank=%d ratio=%.4f floor(F)=%.4f isotropic(I)=%.4f "
+          "ceiling=%.4f" % (seed, r_pars, dec_sens_p["sensitivity_ratio"],
+                            dec_sens_p["jacobian_aligned_floor_ratio"],
+                            dec_sens_p["isotropic_reference_ratio"],
+                            dec_sens_p["c4b_ceiling"]), flush=True)
+
     seed_row = {
         "seed": int(seed),
         "selected_rank": rank,
@@ -1216,7 +1392,43 @@ def _run_seed(seed: int, action_dim: int, env_kwargs: Dict[str, Any],
         "delta_randrank_minus_comm": float(agreements[ARM_RAND] - agreements[ARM_COMM]),
         "delta_perp_minus_comm": float(agreements[ARM_PERP] - agreements[ARM_COMM]),
         "delta_full_minus_perp": float(agreements[ARM_FULL] - agreements[ARM_PERP]),
+        # ---- 1043a additions -------------------------------------------------------
+        "parsimonious_rank": int(r_pars),
+        "parsimonious_r2_tol": float(PARSIMONIOUS_R2_TOL),
+        "parsimonious_rank_heldout_r2": float(css_p.selected_heldout_r2),
+        "ladder_max_heldout_r2": float(max(css.heldout_r2_by_rank.values())),
+        "scored_rank": int(r_pars),
+        "decision_coordinate_retention_parsrank": geom_p,
+        "sensitivity_decision_targeted_parsrank": dec_sens_p,
+        "cross_stratum_subspace_parsrank": stratum_p,
+        "cross_stratum_data_span_overlap_parsrank":
+            float(span_overlap_p["mean_squared_cosine_overlap"]),
+        "subspace_overlap_chance_level_parsrank": float(_chance_p),
+        "cross_stratum_selected_rank_parsrank": int(css_rd_p.selected_rank),
+        "delta_full_minus_comm_parsrank":
+            float(agreements[ARM_FULL] - agreements[ARM_COMM_P]),
+        "delta_randrank_minus_comm_parsrank": c2_obs_p,
+        "delta_full_minus_perp_parsrank":
+            float(agreements[ARM_FULL] - agreements[ARM_PERP_P]),
+        "delta_perp_minus_comm_parsrank":
+            float(agreements[ARM_PERP_P] - agreements[ARM_COMM_P]),
+        "c2_permutation_null": {
+            "n_permutations": int(len(c2_null_p)),
+            "shuffle_scope": "within_episode_group",
+            "comparator": "randrank draw HELD FIXED across replicates (paired)",
+            "observed": c2_obs_p,
+            "null_mean": _mean(c2_null_p),
+            "null_sd": _sd(c2_null_p),
+            "null_max": (float(max(c2_null_p)) if c2_null_p else float("nan")),
+            "p_value_one_sided": float(c2_perm_p_value),
+            "alpha": float(PERMUTATION_ALPHA),
+            "min_attainable_p": (1.0 / (1.0 + len(c2_null_p)) if c2_null_p
+                                 else float("nan")),
+            "per_replicate_d_comm_perm": [float(v) for v in perm_comm_agreements],
+            "null_distribution": [float(v) for v in c2_null_p],
+        },
         "basis_std": b_std,   # stripped before the manifest write; used for cross-seed angles
+        "basis_std_parsrank": b_std_p,   # stripped likewise
     }
     verdict = bool(np.isfinite(agreements[ARM_FULL]) and agreements[ARM_FULL] >= AGREEMENT_BAR)
     print("verdict: %s" % ("PASS" if verdict else "FAIL"), flush=True)
@@ -1573,6 +1785,8 @@ def run_experiment(seeds: List[int], dry_run: bool = False) -> Dict[str, Any]:
     passes = DRY_RUN_ADAPTER_PASSES if dry_run else ADAPTER_PASSES
     n_sens_states = DRY_RUN_SENS_STATES if dry_run else N_SENSITIVITY_STATES
     n_sens_dirs = DRY_RUN_SENS_DIRECTIONS if dry_run else N_SENSITIVITY_DIRECTIONS
+    n_perms = DRY_RUN_PERMUTATIONS if dry_run else N_PERMUTATIONS
+    n_jac_states = DRY_RUN_JACOBIAN_STATES if dry_run else N_JACOBIAN_STATES
 
     # ---- ANCHOR REACHABILITY, asserted BEFORE any compute is spent -----------------------
     # Each shipped predicate is scored against the frozen 1008 positive control. A gate the
@@ -1615,7 +1829,8 @@ def run_experiment(seeds: List[int], dry_run: bool = False) -> Dict[str, Any]:
     arm_results: List[Dict[str, Any]] = []
     for seed in seeds:
         srow, arows = _run_seed(seed, action_dim, env_kwargs, cfg, zworld_p0, p0, p1, steps,
-                                bc_eps, bc_rand, passes, n_sens_states, n_sens_dirs, dry_run)
+                                bc_eps, bc_rand, passes, n_sens_states, n_sens_dirs,
+                                n_perms, n_jac_states, dry_run)
         seed_rows.append(srow)
         arm_results.extend(arows)
 
@@ -1625,7 +1840,10 @@ def run_experiment(seeds: List[int], dry_run: bool = False) -> Dict[str, Any]:
     cross_seed: List[Dict[str, Any]] = []
     for i in range(len(seed_rows)):
         for j in range(i + 1, len(seed_rows)):
-            pa = principal_angles(seed_rows[i]["basis_std"], seed_rows[j]["basis_std"])
+            # AT THE SCORED RANK -- the cross-seed diagnostic must describe the subspace the
+            # criteria actually read, not the CV-argmax one 1043 used.
+            pa = principal_angles(seed_rows[i]["basis_std_parsrank"],
+                                  seed_rows[j]["basis_std_parsrank"])
             cross_seed.append({"pair": "seed%d|seed%d" % (seed_rows[i]["seed"],
                                                           seed_rows[j]["seed"]),
                                "mean_squared_cosine_overlap":
@@ -1636,16 +1854,25 @@ def run_experiment(seeds: List[int], dry_run: bool = False) -> Dict[str, Any]:
                               for r in seed_rows]
     for r in seed_rows:
         r.pop("basis_std", None)   # tensors never reach the manifest
+        r.pop("basis_std_parsrank", None)
 
     # ---- PRE-REGISTERED PRECONDITIONS ------------------------------------------------------
     full_ag = [r["agreements"][ARM_FULL] for r in seed_rows]
     elevations = [float(r["agreements"][ARM_FULL]
                         - (r["trivial_predictors"]["strongest_trivial_agreement"] or 0.0))
                   for r in seed_rows]
-    rand_over_trivial = [float(r["agreements"][ARM_RAND]
+    # AT THE SCORED RANK. This assert exists to show C2's COMPARATOR can move, so it must
+    # report the arm C2 actually routes on -- which is now the parsimonious-rank randrank
+    # arm (R2), not the CV-argmax one. Reading the wrong arm here would leave the
+    # load-bearing criterion with no readiness cover at all.
+    rand_over_trivial = [float(r["agreements"][ARM_RAND_P]
                                - (r["trivial_predictors"]["strongest_trivial_agreement"] or 0.0))
                          for r in seed_rows]
     rrr_r2 = [r["rrr_heldout_r2"] for r in seed_rows]
+    # The RRR r2 precondition stays on the LADDER MAXIMUM (self-anchoring, see its control
+    # text); the scored-rank r2 is recorded separately and is within PARSIMONIOUS_R2_TOL of
+    # it by construction, so no separate floor is needed.
+    rrr_r2_scored = [r["parsimonious_rank_heldout_r2"] for r in seed_rows]
     held = [float(r["heldout_steps"]) for r in seed_rows]
     # KEY NAME VERIFIED against zworld_encoder_guard.latent_stack_weight_delta's own return
     # dict: it emits `world_encoder_max_abs_delta`. A wrong key here would read 0.0 and fail
@@ -1768,28 +1995,55 @@ def run_experiment(seeds: List[int], dry_run: bool = False) -> Dict[str, Any]:
         gate_payload = e.preconditions
 
     # ---- CONTRASTS + CRITERIA ---------------------------------------------------------------
-    d_full_comm = _paired_positive([r["delta_full_minus_comm"] for r in seed_rows],
+    # EVERY SCORED CONTRAST IS AT THE PARSIMONIOUS RANK (R2). The CV-selected-rank twins are
+    # computed identically and recorded under the un-suffixed names, so V3-EXQ-1043's exact
+    # configuration is reproducible from this manifest.
+    d_full_comm = _paired_positive([r["delta_full_minus_comm_parsrank"] for r in seed_rows],
                                    ROUTING_DROP_MIN)
-    d_rand_comm = _paired_positive([r["delta_randrank_minus_comm"] for r in seed_rows],
-                                   ORIENTATION_MARGIN)
-    perp_losses = [float(r["delta_full_minus_perp"]) for r in seed_rows]
+    perp_losses = [float(r["delta_full_minus_perp_parsrank"]) for r in seed_rows]
     n_perp_retains = sum(1 for v in perp_losses
                          if np.isfinite(v) and v <= COMPLEMENT_RETENTION_TOL)
-    # C4 scores the DECISION-TARGETED probe (F1). The generic whole-subspace probe is kept as
-    # a recorded diagnostic and is deliberately NOT a criterion.
-    sens_ratios = [float(r["sensitivity_decision_targeted"]["sensitivity_ratio"])
+
+    # ---- C2 (R1): the WITHIN-RUN PERMUTATION NULL replaces the hand-set floor --------------
+    c2_obs_per_seed = [float(r["delta_randrank_minus_comm_parsrank"]) for r in seed_rows]
+    c2_p_values = [float(r["c2_permutation_null"]["p_value_one_sided"]) for r in seed_rows]
+    n_c2_significant = sum(1 for p in c2_p_values
+                           if np.isfinite(p) and p <= float(PERMUTATION_ALPHA))
+    # RECORDED, NOT SCORED: what the withdrawn V3-EXQ-1043 predicate would have said on these
+    # same numbers, so the two runs are comparable without re-deriving anything.
+    d_rand_comm_legacy = _paired_positive(c2_obs_per_seed, ORIENTATION_MARGIN_RECORDED_ONLY)
+
+    # ---- C4 (R3): the DECISION-TARGETED probe at the scored rank ---------------------------
+    # The generic whole-subspace probe remains a recorded diagnostic and is NOT a criterion.
+    sens_ratios = [float(r["sensitivity_decision_targeted_parsrank"]["sensitivity_ratio"])
                    for r in seed_rows]
-    null_ratios = [float(r["sensitivity_decision_targeted"]["null_sensitivity_ratio"])
+    null_ratios = [float(r["sensitivity_decision_targeted_parsrank"]["null_sensitivity_ratio"])
                    for r in seed_rows]
+    floor_ratios = [float(r["sensitivity_decision_targeted_parsrank"]
+                          ["jacobian_aligned_floor_ratio"]) for r in seed_rows]
+    isotropic_ratios = [float(r["sensitivity_decision_targeted_parsrank"]
+                              ["isotropic_reference_ratio"]) for r in seed_rows]
+    c4b_ceilings = [float(r["sensitivity_decision_targeted_parsrank"]["c4b_ceiling"])
+                    for r in seed_rows]
     generic_ratios = [float(r["sensitivity_generic_diagnostic"]["sensitivity_ratio"])
                       for r in seed_rows]
     null_margins = [float(n - m) for n, m in zip(null_ratios, sens_ratios)]
+    # RECORDED, NEVER SCORED -- autopsy-forbidden (retention-confounded). Kept so C4a stays on
+    # the record with its confound stated, exactly as V3-EXQ-1043 did.
     d_null_margin = _paired_positive(null_margins, INSENSITIVITY_NULL_MARGIN)
-    n_insensitive = sum(1 for v in sens_ratios
-                        if np.isfinite(v) and v <= INSENSITIVITY_RATIO_MAX)
+    # A seed whose ceiling is NaN is UNREACHABLE (see `_c4b_ceiling`): F did not come in
+    # strictly below I, so no ceiling drawn between them means anything on that encoder. Those
+    # seeds are excluded from the denominator rather than counted as failures -- an
+    # un-anchorable criterion must not print a verdict, which is the whole point of R3.
+    c4b_reachable = [i for i, c in enumerate(c4b_ceilings) if np.isfinite(c)]
+    n_c4b_unreachable = len(c4b_ceilings) - len(c4b_reachable)
+    n_insensitive = sum(1 for i in c4b_reachable
+                        if np.isfinite(sens_ratios[i]) and sens_ratios[i] <= c4b_ceilings[i])
+    c4b_margins = [float(c4b_ceilings[i] - sens_ratios[i]) for i in c4b_reachable
+                   if np.isfinite(sens_ratios[i])]
 
     n_equivalent = sum(1 for r in seed_rows
-                       if abs(float(r["delta_full_minus_comm"])) <= EQUIVALENCE_BAND)
+                       if abs(float(r["delta_full_minus_comm_parsrank"])) <= EQUIVALENCE_BAND)
 
     # CROSS-SEED OVERLAP IS A DIAGNOSTIC, NOT A PREMISE INPUT. Each seed warms up its OWN
     # agent (`_run_seed` builds a fresh one and trains it), so the per-seed bases belong to
@@ -1807,7 +2061,7 @@ def run_experiment(seeds: List[int], dry_run: bool = False) -> Dict[str, Any]:
     # (F7): a ridge RRR basis lies in the row space of the visited data, so strata that visit
     # different regions produce different bases for an identical encoder, and reading that as
     # receiver-state dependence would be a mis-attribution.
-    span_overlaps = [float(r["cross_stratum_data_span_overlap"]) for r in seed_rows]
+    span_overlaps = [float(r["cross_stratum_data_span_overlap_parsrank"]) for r in seed_rows]
     informative_stratum = [ov for ov, sp in zip(cross_stratum_overlaps, span_overlaps)
                            if np.isfinite(ov) and np.isfinite(sp)
                            and sp >= SPAN_OVERLAP_MIN]
@@ -1818,14 +2072,21 @@ def run_experiment(seeds: List[int], dry_run: bool = False) -> Dict[str, Any]:
     # independent rank-r subspaces in this sender's live dimensions rather than an absolute
     # bar: chance overlap falls as 1/rank-ish (r=32 -> ~0.24, r=8 -> ~0.06 at 136 live dims),
     # so a fixed absolute threshold silently changes meaning with the CV-selected rank.
-    chance_overlaps = [float(r["subspace_overlap_chance_level"]) for r in seed_rows]
+    chance_overlaps = [float(r["subspace_overlap_chance_level_parsrank"]) for r in seed_rows]
     chance_mean = _mean(chance_overlaps)
     stability_required = float(chance_mean + STABILITY_MARGIN_OVER_CHANCE)
     stability_min = cross_stratum_min_informative
     premise_ok = bool((not np.isfinite(stability_min))
                       or stability_min >= stability_required)
     c1 = bool(d_full_comm["passed"])
-    c2 = bool(d_rand_comm["passed"])
+    # C2 (R1): a SEED MAJORITY whose within-run permutation p clears alpha. The three-way
+    # conjunction V3-EXQ-1043 used (absolute floor AND mean >= 2*sd AND seed majority) is
+    # gone: the autopsy showed all three clauses fail together on one noisy signal, and only
+    # one of them responds to n. A per-seed permutation p already contains the
+    # noise-vs-effect comparison the 2*sd clause was reaching for, measured inside the seed
+    # instead of across seeds -- which is why the across-seed population sd (ddof=0, so not
+    # a standard error, so it does not shrink with n) is no longer load-bearing anywhere.
+    c2 = bool(n_c2_significant >= SEED_MAJORITY)
     c3 = bool(n_perp_retains >= SEED_MAJORITY)
     # C4 is the ABSOLUTE, un-normalised ratio and nothing else. The null-margin leg is
     # RECORDED but is NOT a conjunct: once the component weights are inside the measurement
@@ -1835,7 +2096,13 @@ def run_experiment(seeds: List[int], dry_run: bool = False) -> Dict[str, Any]:
     # deflates the measured ratio for a retention reason, not a coupling one. A confounded
     # conjunct in the confirm path would be one fewer independent leg than the verdict text
     # implies, so it is reported instead of scored.
-    c4 = bool(n_insensitive >= SEED_MAJORITY)
+    # C4b (R3): the ceiling is now MEASURED per seed by `_c4b_ceiling` from that seed's own
+    # attainable floor F and isotropic reference I. A seed whose anchor is unreachable is
+    # excluded, never counted as a fail; if a MAJORITY of seeds are unreachable the criterion
+    # cannot be scored at all and C4 is False with `c4b_unreachable` recorded, which routes
+    # to `undetermined` rather than to a falsification.
+    c4b_scoreable = bool(len(c4b_reachable) >= SEED_MAJORITY)
+    c4 = bool(c4b_scoreable and n_insensitive >= SEED_MAJORITY)
     equivalent = bool(n_equivalent >= SEED_MAJORITY)
 
     criteria = [
@@ -1844,22 +2111,56 @@ def run_experiment(seeds: List[int], dry_run: bool = False) -> Dict[str, Any]:
          "passed": c1, "measured": d_full_comm["mean"], "threshold": float(ROUTING_DROP_MIN),
          "sd": d_full_comm["sd"], "n_seeds": d_full_comm["n_seeds_clearing"],
          "seeds_required": int(SEED_MAJORITY), "per_seed": d_full_comm["per_seed"],
-         "detail": "D_full - D_comm, paired per seed."},
+         "detail": "D_full - D_comm, paired per seed, AT THE PARSIMONIOUS RANK (R2). "
+                   "Rank-confounded and not load-bearing, as in V3-EXQ-1043: the full "
+                   "sender and a rank-r subspace differ in dimensionality, so this is the "
+                   "PHENOTYPE, never the orientation reading."},
         {"name": "C2_drop_is_orientation_not_rank", "load_bearing": True,
-         "passed": c2, "measured": d_rand_comm["mean"], "threshold": float(ORIENTATION_MARGIN),
-         "sd": d_rand_comm["sd"], "n_seeds": d_rand_comm["n_seeds_clearing"],
-         "seeds_required": int(SEED_MAJORITY), "per_seed": d_rand_comm["per_seed"],
-         "detail": "D_randrank - D_comm at the SAME rank. THE load-bearing criterion: a "
+         "reference": "within_run_permutation_null",
+         "passed": c2, "measured": _mean(c2_p_values), "threshold": float(PERMUTATION_ALPHA),
+         "direction": "upper",
+         "n_seeds": int(n_c2_significant), "seeds_required": int(SEED_MAJORITY),
+         "per_seed": c2_p_values,
+         "per_seed_contrast": c2_obs_per_seed,
+         "per_seed_null_mean": [float(r["c2_permutation_null"]["null_mean"])
+                                for r in seed_rows],
+         "per_seed_null_sd": [float(r["c2_permutation_null"]["null_sd"]) for r in seed_rows],
+         "scored_rank_per_seed": [int(r["parsimonious_rank"]) for r in seed_rows],
+         "n_permutations": int(N_PERMUTATIONS if not dry_run else DRY_RUN_PERMUTATIONS),
+         "legacy_1043_predicate_recomputed": {
+             "note": "What V3-EXQ-1043's withdrawn three-way conjunction (floor 0.05 AND "
+                     "mean >= 2*sd AND seed majority) would have said on THESE numbers. "
+                     "RECORDED ONLY -- it is not this run's criterion.",
+             "passed": bool(d_rand_comm_legacy["passed"]),
+             "mean": d_rand_comm_legacy["mean"], "sd": d_rand_comm_legacy["sd"],
+             "n_seeds_clearing": d_rand_comm_legacy["n_seeds_clearing"],
+             "floor": float(ORIENTATION_MARGIN_RECORDED_ONLY)},
+         "detail": "D_randrank - D_comm at the SAME rank, read AT THE PARSIMONIOUS RANK and "
+                   "judged against a WITHIN-RUN PERMUTATION NULL (the confirmed V3-EXQ-1043 "
+                   "autopsy's required_changes: 'refit the RRR on shuffled sender-receiver "
+                   "pairing ... so the orientation contrast is judged against the "
+                   "instrument's own noise rather than a hand-set 0.05 floor'). THE "
+                   "load-bearing criterion, and still the only rank-matched contrast: a "
                    "rank-r projection loses information whatever its orientation, so only "
-                   "decoding WORSE than a random subspace of equal rank shows the "
-                   "communication subspace is oriented away from the decision directions."},
+                   "decoding WORSE than a same-rank subspace shows the communication subspace "
+                   "is oriented away from the decision directions. `measured` is the MEAN "
+                   "one-sided permutation p across seeds and `per_seed` is the per-seed p; "
+                   "the criterion is a SEED MAJORITY with p <= alpha, not a test on the mean "
+                   "p. The null refits the SAME estimator on receiver rows shuffled WITHIN "
+                   "episode group -- across-group shuffling would leak through the grouped "
+                   "k-fold and inflate the null -- and holds the randrank comparator FIXED so "
+                   "the contrast is paired. Read at the parsimonious rank because at "
+                   "rank = dy the RRR constraint is inactive, the fit is unconstrained OLS, "
+                   "and the low-rank premise the biology supplies is not instantiated there "
+                   "at all."},
         {"name": "C3_complement_retains_the_decodability", "load_bearing": False,
          "expected_to_pass_by_dimensionality": True,
          "passed": c3, "measured": _mean(perp_losses),
          "threshold": float(COMPLEMENT_RETENTION_TOL), "direction": "upper",
          "n_seeds": int(n_perp_retains), "seeds_required": int(SEED_MAJORITY),
          "per_seed": perp_losses,
-         "detail": "D_full - D_perp, an UPPER bound: deleting the communication subspace from "
+         "detail": "AT THE PARSIMONIOUS RANK. D_full - D_perp, an UPPER bound: deleting the "
+                   "communication subspace from "
                    "the sender must cost essentially nothing, which is the claim's own 'no "
                    "information having been destroyed'. Stated against the FULL sender rather "
                    "than against D_comm because the complement's rank is (live - r) against "
@@ -1894,11 +2195,40 @@ def run_experiment(seeds: List[int], dry_run: bool = False) -> Dict[str, Any]:
                    "encoder by this machinery and cannot be unmeetable by construction."},
         {"name": "C4b_decision_complement_coupling_below_absolute_ceiling",
          "load_bearing": True, "scored_as_conjunct": True,
-         "passed": bool(n_insensitive >= SEED_MAJORITY), "measured": _mean(sens_ratios),
-         "threshold": float(INSENSITIVITY_RATIO_MAX), "direction": "upper",
+         "ceiling_anchor": "measured_in_run",
+         "ceiling_rule": C4B_CEILING_RULE,
+         "passed": c4, "measured": _mean(sens_ratios),
+         "threshold": _mean([c for c in c4b_ceilings if np.isfinite(c)]),
+         "direction": "upper",
          "n_seeds": int(n_insensitive), "seeds_required": int(SEED_MAJORITY),
-         "per_seed": sens_ratios, "null_control_per_seed": null_ratios,
-         "detail": "THE C4 CONJUNCT. Ratio of mean||dz_world|| along the COMPLEMENT COMPONENT "
+         "per_seed": sens_ratios,
+         "per_seed_ceiling": c4b_ceilings,
+         "per_seed_jacobian_aligned_floor": floor_ratios,
+         "per_seed_isotropic_reference": isotropic_ratios,
+         "per_seed_margin_below_ceiling": c4b_margins,
+         "n_seeds_unreachable_anchor": int(n_c4b_unreachable),
+         "scoreable": bool(c4b_scoreable),
+         "legacy_1043_ceiling_recorded_only": float(INSENSITIVITY_RATIO_MAX_LEGACY_1043),
+         "null_control_per_seed": null_ratios,
+         "detail": "THE C4 CONJUNCT, with its ceiling MEASURED IN-RUN rather than hand-set "
+                   "(the confirmed autopsy's required_changes: 'ANCHOR C4b's ABSOLUTE 0.5 "
+                   "CEILING from a measured reference'). There was no reference to import: "
+                   "V3-EXQ-1002 / 1008 / 1010 never measured this statistic, and nothing "
+                   "measured anywhere in the corpus sat at or below 0.50 on this aimed probe "
+                   "(lowest observed 0.8318), so the old ceiling had no demonstrated "
+                   "reachability at all. It is therefore measured here, per seed, from that "
+                   "seed's own encoder: F = the ratio through the rank-r subspace the encoder "
+                   "is MOST SENSITIVE TO (top-r eigenvectors of the state-averaged "
+                   "finite-difference J_std^T J_std, run through the IDENTICAL probe) -- the "
+                   "attainable best-case ROUTING reference, and an attainable one rather than "
+                   "a certified infimum; and I = the NO-ROUTING reference from the FITTED "
+                   "decomposition's own component norms, retention-MATCHED by construction "
+                   "and so free of the confound that bars C4a from the conjunct. The rule "
+                   "mapping them to the ceiling is fixed before execution in `_c4b_ceiling` "
+                   "and is not tunable after seeing data. A seed whose F is not strictly "
+                   "below I has no measurable headroom at that rank, is scored UNREACHABLE "
+                   "and is EXCLUDED rather than failed. "
+                   "Ratio of mean||dz_world|| along the COMPLEMENT COMPONENT "
                    "of each oracle decision coordinate to that along its COMMUNICATION-SUBSPACE "
                    "COMPONENT, components taken UN-NORMALISED so their weights in e_j stay "
                    "inside the measurement -- it is therefore the share of the consumer's "
@@ -1929,7 +2259,7 @@ def run_experiment(seeds: List[int], dry_run: bool = False) -> Dict[str, Any]:
     ]
 
     outcome, label, direction, hypothesis_verdict = _adjudicate(
-        premise_ok, c1, c2, c3, c4, equivalent, _c2_falsified(d_rand_comm["per_seed"]))
+        premise_ok, c1, c2, c3, c4, equivalent, _c2_falsified(c2_obs_per_seed))
     if not gate_green:
         outcome = "FAIL"
         label = "substrate_not_ready_requeue"
@@ -1939,7 +2269,7 @@ def run_experiment(seeds: List[int], dry_run: bool = False) -> Dict[str, Any]:
                               "record, not a verdict about MECH-537.")
 
     degeneracy = check_degeneracy({
-        "C2_drop_is_orientation_not_rank": d_rand_comm["per_seed"],
+        "C2_drop_is_orientation_not_rank": c2_obs_per_seed,
         "C3_complement_retains_the_decodability": perp_losses,
         "C4_receiver_insensitive_to_decision_complement":
             [v for v in sens_ratios if np.isfinite(v)],
@@ -1961,7 +2291,13 @@ def run_experiment(seeds: List[int], dry_run: bool = False) -> Dict[str, Any]:
         ("d_perp_mean", _mean([r["agreements"][ARM_PERP] for r in seed_rows])),
         ("d_randrank_mean", _mean([r["agreements"][ARM_RAND] for r in seed_rows])),
         ("delta_full_minus_comm_mean", d_full_comm["mean"]),
-        ("delta_randrank_minus_comm_mean", d_rand_comm["mean"]),
+        ("delta_randrank_minus_comm_mean", _mean(c2_obs_per_seed)),
+        ("c2_permutation_p_mean", _mean(c2_p_values)),
+        ("c2_seeds_significant", float(n_c2_significant)),
+        ("scored_rank_mean", _mean([float(r["parsimonious_rank"]) for r in seed_rows])),
+        ("c4b_ceiling_mean", _mean([c for c in c4b_ceilings if np.isfinite(c)])),
+        ("c4b_jacobian_aligned_floor_mean", _mean(floor_ratios)),
+        ("c4b_isotropic_reference_mean", _mean(isotropic_ratios)),
         ("delta_perp_minus_comm_mean",
          _mean([r["delta_perp_minus_comm"] for r in seed_rows])),
         ("delta_full_minus_perp_mean", _mean(perp_losses)),
@@ -2002,8 +2338,12 @@ def run_experiment(seeds: List[int], dry_run: bool = False) -> Dict[str, Any]:
             "where the two strata's data spans overlap >= %.2f; CROSS-SEED overlap is a "
             "diagnostic and NOT a premise input, because each seed trains its own encoder) -> "
             "single_subspace_premise_fails (non_contributory, routes MECH-547/MECH-555). Else "
+            "ALL SCORED CONTRASTS ARE READ AT THE PARSIMONIOUS RANK. "
             "FALSIFY iff |D_full - D_comm| <= %.2f on >= %d seeds (weakens). Else CONFIRM iff "
-            "C1 AND C2 AND C3 AND C4 (supports), where C4 is C4b alone -- C4a is recorded but "
+            "C1 AND C2 AND C3 AND C4 (supports), where C2 is a SEED MAJORITY whose WITHIN-RUN "
+            "PERMUTATION p clears alpha (not a hand-set floor) and C4 is C4b alone against a "
+            "ceiling MEASURED per seed from that encoder's own attainable floor and isotropic "
+            "reference -- C4a is recorded but "
             "retention-confounded and not scored. Else FALSIFY iff C1 AND the C2 contrast is "
             "genuinely NON-POSITIVE (mean <= 0 and a seed majority <= 0, never merely `not "
             "C2`) (weakens: the drop is rank, not orientation). Else undetermined (mixed). C2 "
@@ -2012,7 +2352,20 @@ def run_experiment(seeds: List[int], dry_run: bool = False) -> Dict[str, Any]:
             "substrate_not_ready_requeue."
             % (SPAN_OVERLAP_MIN, EQUIVALENCE_BAND, SEED_MAJORITY)),
         "contrasts": {"full_minus_comm": d_full_comm,
-                      "randrank_minus_comm": d_rand_comm,
+                      "randrank_minus_comm_permutation_referenced": {
+                          "per_seed_contrast": c2_obs_per_seed,
+                          "per_seed_p_value": c2_p_values,
+                          "alpha": float(PERMUTATION_ALPHA),
+                          "n_seeds_significant": int(n_c2_significant),
+                          "seeds_required": int(SEED_MAJORITY),
+                          "legacy_1043_predicate_recomputed": d_rand_comm_legacy},
+                      "c4b_measured_ceiling": {
+                          "rule": C4B_CEILING_RULE,
+                          "per_seed_ceiling": c4b_ceilings,
+                          "per_seed_jacobian_aligned_floor": floor_ratios,
+                          "per_seed_isotropic_reference": isotropic_ratios,
+                          "n_seeds_unreachable_anchor": int(n_c4b_unreachable),
+                          "scoreable": bool(c4b_scoreable)},
                       "full_minus_perp_per_seed": perp_losses,
                       "n_seeds_complement_retains": int(n_perp_retains),
                       "n_seeds_equivalent_within_band": int(n_equivalent),
@@ -2029,11 +2382,21 @@ def run_experiment(seeds: List[int], dry_run: bool = False) -> Dict[str, Any]:
             "rrr_r2_floor": float(RRR_R2_FLOOR),
             "randrank_control_margin": float(RANDRANK_CONTROL_MARGIN),
             "routing_drop_min": float(ROUTING_DROP_MIN),
-            "orientation_margin": float(ORIENTATION_MARGIN),
+            "orientation_margin_recorded_only": float(ORIENTATION_MARGIN_RECORDED_ONLY),
+            "permutation_alpha": float(PERMUTATION_ALPHA),
+            "n_permutations": int(DRY_RUN_PERMUTATIONS if dry_run else N_PERMUTATIONS),
+            "permutation_shuffle_scope": "within_episode_group",
+            "parsimonious_r2_tol": float(PARSIMONIOUS_R2_TOL),
+            "c4b_ceiling_rule": C4B_CEILING_RULE,
+            "jacobian_eps_frac": float(JACOBIAN_EPS_FRAC),
+            "n_jacobian_states": int(DRY_RUN_JACOBIAN_STATES if dry_run
+                                     else N_JACOBIAN_STATES),
+            "seed_majority_inherited_rule": SEED_MAJORITY_INHERITED_RULE,
             "complement_retention_tol": float(COMPLEMENT_RETENTION_TOL),
             "equivalence_band": float(EQUIVALENCE_BAND),
             "insensitivity_null_margin": float(INSENSITIVITY_NULL_MARGIN),
-            "insensitivity_ratio_max": float(INSENSITIVITY_RATIO_MAX),
+            "insensitivity_ratio_max_legacy_1043_recorded_only":
+                float(INSENSITIVITY_RATIO_MAX_LEGACY_1043),
             "span_overlap_min": float(SPAN_OVERLAP_MIN),
             "stability_margin_over_chance": float(STABILITY_MARGIN_OVER_CHANCE),
             "delta_sd_multiple": float(DELTA_SD_MULTIPLE),
@@ -2050,14 +2413,13 @@ def run_experiment(seeds: List[int], dry_run: bool = False) -> Dict[str, Any]:
                 # to one class on every arm) -- that is a vacuous pass, not a null result.
                 "C1_target_drops_inside_comm_subspace": _contrast_discriminated(
                     d_full_comm["per_seed"]),
-                "C2_drop_is_orientation_not_rank": _contrast_discriminated(
-                    d_rand_comm["per_seed"]),
+                "C2_drop_is_orientation_not_rank": _contrast_discriminated(c2_obs_per_seed),
                 "C3_complement_retains_the_decodability": _contrast_discriminated(perp_losses),
                 # The ratio is meaningless if the COMM perturbations themselves moved z_world
                 # by nothing -- then the denominator is noise and so is the ratio.
                 "C4_receiver_insensitive_to_decision_complement": bool(
                     [v for v in sens_ratios if np.isfinite(v)]
-                    and all(float(r["sensitivity_decision_targeted"]["by_eps"][
+                    and all(float(r["sensitivity_decision_targeted_parsrank"]["by_eps"][
                         "%.3f" % SENSITIVITY_EPS_FRACS[-1]]["measured"]["mean_dz_inside"])
                         > 1e-9 for r in seed_rows)),
                 "C5_single_subspace_premise_holds": bool(np.isfinite(stability_min)),
@@ -2102,16 +2464,18 @@ def _run_self_test() -> int:
         (o, d) == ("FAIL", "mixed"))
     # The exact shape the second red-team pass found: positive on every seed, but failing the
     # 2*SD consistency clause. It must NOT read as "rank explains it".
-    noisy = [0.10, 0.30, 0.02]
-    chk("noisy-but-positive C2 contrast is not `passed`",
-        not _paired_positive(noisy, ORIENTATION_MARGIN)["passed"])
+    # n = 6 now, so these fixtures are 6-long: SEED_MAJORITY is 4 and a 3-long fixture could
+    # never clear it, which would make the assertion pass for the wrong reason.
+    noisy = [0.10, 0.30, 0.02, 0.09, 0.28, 0.03]
+    chk("noisy-but-positive C2 contrast is not `passed` (legacy predicate)",
+        not _paired_positive(noisy, ORIENTATION_MARGIN_RECORDED_ONLY)["passed"])
     chk("noisy-but-positive C2 contrast is NOT falsified either", not _c2_falsified(noisy))
     o, lab, d, _h = _adjudicate(True, True, False, True, True, False,
                                 _c2_falsified(noisy))
     chk("...so it routes to undetermined, not to a rank-explains-it weakens",
         lab == "routing_signature_incomplete_undetermined")
     chk("genuinely non-positive C2 contrast IS falsified",
-        _c2_falsified([-0.04, 0.0, -0.11]))
+        _c2_falsified([-0.04, 0.0, -0.11, -0.02, -0.07, 0.0]))
     o, lab, d, _h = _adjudicate(True, True, True, True, False, False, False)
     chk("C4 false -> undetermined, never premise-fail and never supports",
         lab == "routing_signature_incomplete_undetermined")
@@ -2126,12 +2490,78 @@ def _run_self_test() -> int:
     chk("grid reaches supports AND weakens AND non_contributory AND mixed",
         labels == {"supports", "weakens", "non_contributory", "mixed"})
 
-    pp = _paired_positive([0.20, 0.21, 0.19], 0.05)
+    pp = _paired_positive([0.20, 0.21, 0.19, 0.20, 0.22, 0.18], 0.05)
     chk("paired_positive: consistent large deltas pass", pp["passed"])
-    pp = _paired_positive([0.20, -0.18, 0.21], 0.05)
+    pp = _paired_positive([0.20, -0.18, 0.21, -0.20, 0.19, -0.17], 0.05)
     chk("paired_positive: seed-disagreeing deltas fail", not pp["passed"])
-    pp = _paired_positive([0.02, 0.02, 0.02], 0.05)
+    pp = _paired_positive([0.02] * 6, 0.05)
     chk("paired_positive: below the absolute floor fails", not pp["passed"])
+    chk("SEED_MAJORITY is the PROPORTIONAL re-specification of the inherited 2 of 3",
+        int(SEED_MAJORITY) == 4 and len(SEEDS) == 6
+        and int(SEED_MAJORITY) != int(x1002.SEED_MAJORITY))
+
+    # ---- R2: the parsimonious-rank rule, replayed on V3-EXQ-1043's LANDED ladder --------
+    # Not a synthetic fixture: these are the real `rrr_heldout_r2_by_rank` values from
+    # v3_exq_1043_..._20260916T111630Z_v3.json, and the autopsy states the answer is
+    # 8 / 10 / 10. If this ever stops reproducing, the rule has drifted from what was
+    # ratified, which is exactly the regression worth catching without a multi-hour run.
+    lad42 = {1: 0.98310, 4: 0.99420, 6: 0.99620, 8: 0.99727, 9: 0.99750, 10: 0.99770,
+             12: 0.99790, 16: 0.99810, 24: 0.99820, 32: 0.99820}
+    chk("parsimonious_rank reproduces the autopsy's seed-42 answer of 8",
+        _parsimonious_rank(lad42, 1.0e-3) == 8)
+    chk("parsimonious_rank at a LOOSER tol picks a smaller rank",
+        _parsimonious_rank(lad42, 1.0e-2) <= 8)
+    chk("parsimonious_rank at tol 0 picks the ladder argmax",
+        _parsimonious_rank(lad42, 0.0) == 24)
+
+    # ---- R1: the permutation must stay INSIDE the episode group ------------------------
+    grp = np.array([0] * 5 + [1] * 5 + [2] * 5)
+    gen = np.random.default_rng(0)
+    idx = _permute_within_groups(grp, gen)
+    chk("within-group permutation is a permutation",
+        sorted(idx.tolist()) == list(range(15)))
+    chk("within-group permutation NEVER moves a row across episodes -- the leak this "
+        "null would otherwise have", bool((grp[idx] == grp).all()))
+    chk("within-group permutation actually shuffles",
+        any(_permute_within_groups(grp, np.random.default_rng(k)).tolist()
+            != list(range(15)) for k in range(5)))
+    chk("a singleton group is left alone",
+        _permute_within_groups(np.array([7]), gen).tolist() == [0])
+
+    chk("permutation p: observed above every null hits the 1/(N+1) floor",
+        abs(_permutation_p_value(1.0, [0.0] * 99) - 1.0 / 100.0) < 1e-12)
+    chk("permutation p: observed below every null is 1.0",
+        abs(_permutation_p_value(0.0, [1.0] * 99) - 1.0) < 1e-12)
+    chk("permutation p is NaN with no usable null", not np.isfinite(
+        _permutation_p_value(0.5, [])))
+
+    # ---- R3: the floor -> ceiling rule, and its reachability guard ---------------------
+    chk("c4b ceiling is the arithmetic midpoint of the measured floor and isotropic",
+        abs(_c4b_ceiling(0.20, 1.04) - 0.62) < 1e-12)
+    chk("c4b ceiling lies strictly between the two measured landmarks",
+        0.20 < _c4b_ceiling(0.20, 1.04) < 1.04)
+    chk("c4b ceiling is UNREACHABLE (NaN) when the floor is not below the isotropic",
+        not np.isfinite(_c4b_ceiling(1.10, 1.04)))
+    chk("c4b ceiling is UNREACHABLE (NaN) on a non-finite input",
+        not np.isfinite(_c4b_ceiling(float("nan"), 1.04)))
+    chk("c4b ceiling rejects a negative floor rather than inventing one",
+        not np.isfinite(_c4b_ceiling(-0.01, 1.04)))
+    chk("the V3-EXQ-1043 observed ratios would FAIL a ceiling built from a low floor",
+        all(r > _c4b_ceiling(0.20, 1.04) for r in (0.8368, 0.8318, 0.8718)))
+    chk("...and would PASS one built from a high floor -- so the verdict is genuinely "
+        "undetermined in advance, which is what a pre-registration should look like",
+        all(r < _c4b_ceiling(0.75, 1.04) for r in (0.8368, 0.8318)))
+
+    # ---- the jacobian-aligned basis --------------------------------------------------
+    g = torch.diag(torch.tensor([9.0, 4.0, 1.0, 0.25], dtype=torch.float64))
+    kb = torch.tensor([0, 2, 4, 6])
+    jb = _jacobian_aligned_basis(g, kb, 10, 2)
+    chk("jacobian-aligned basis is orthonormal",
+        bool(torch.allclose(jb.T @ jb, torch.eye(2), atol=1e-4)))
+    chk("jacobian-aligned basis picks the LARGEST-eigenvalue directions",
+        float(jb[0].abs().max()) > 0.9 and float(jb[2].abs().max()) > 0.9)
+    chk("jacobian-aligned basis is zero off the kept dimensions",
+        float(jb[[i for i in range(10) if i not in set(kb.tolist())]].abs().max()) == 0.0)
 
     sub_b = _random_orthonormal(40, 5, seed=3)
     keep_idx = torch.arange(0, 200, 5)[:40]
