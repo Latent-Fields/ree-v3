@@ -24,6 +24,39 @@ run reports THAT rather than a claim-negative.
 So: do not reduce the warmup, and do not remove the readiness gate. They are what
 make a null here interpretable.
 
+STILL NOT QUEUEABLE -- THE RATIFIED GATE CANNOT CLEAR ON THIS SUBSTRATE (2026-09-19).
+The warmup above is implemented and works mechanically. Measured on the hub at
+20 episodes x 100 steps x 3 seeds (9m36s, ~10.4 steps/s, so 042's full 600x200x3
+would be ~9.6 h):
+
+    hippo_quality_gap  seed 11 -2.946 | seed 23 -4.355 | seed 37 -9.232   (must be > 0)
+    effect_over_noise  0.035  (was ~0.01 untrained; parity needs ~1.0)
+
+The gap is not merely short of zero, it is strongly NEGATIVE: hippocampal proposals
+carry MORE residue than random ones. Undertraining alone would put the gap near 0,
+not far below it. Root cause found in 042's own recorded manifest
+(v3_exq_042_..._20260319T090529Z.json):
+
+    hippo_mean_residue = 0.0   random_mean_residue = 0.392646   gap = +0.392646
+
+042's positive gap was ENTIRELY "hippocampal proposals evaluate to exactly zero
+residue". It ran 2026-03-19, two months before the 2026-05-17 support-preserving-CEM
+defaults (use_support_preserving_cem / stratified elites /
+support_preserving_ao_std_floor = 0.2, whose comment says the floor exists "so the
+sampling distribution cannot collapse to a point"). That collapse is what put 042's
+proposals off the residue support, and it was deliberately retired as degenerate --
+CLAUDE.md records it as the monostrategy that left SD-029 / ARC-062 Rung 2 /
+goal_pipeline / self_attribution non_contributory.
+
+So on today's non-collapsing CEM, proposals stay on the visited manifold where residue
+actually lives, and random action-objects fling the state OFF that manifold into
+never-visited (hence zero-residue) space. The gap therefore inverts for a structural
+reason, and no amount of warmup fixes it: 042's gate measures "did the proposals leave
+the residue support", which the current substrate is specifically built not to do.
+
+Reported rather than queued, per the user's instruction. Decision chip:
+chip-20260919-mech131-readiness-gate-inverts.
+
 V3-EXQ-1061 -- MECH-131: is stored aversive residue ACTIVATED as an anticipatory
 forward-biasing signal before candidate generation?
 
@@ -219,7 +252,8 @@ def _obs(obs_dict) -> Tuple[torch.Tensor, torch.Tensor]:
     return body, world
 
 
-def _config_slice(ch1: bool, ch2: bool, seed: int) -> Dict[str, Any]:
+def _config_slice(ch1: bool, ch2: bool, seed: int, warmup_episodes: int,
+                  steps_per_episode: int) -> Dict[str, Any]:
     """Declared config slice for the arm fingerprint (config_slice_declared=True)."""
     return {
         "terrain_prior_residue_channel_enabled": ch1,
@@ -230,7 +264,9 @@ def _config_slice(ch1: bool, ch2: bool, seed: int) -> Dict[str, Any]:
         "num_resources": NUM_RESOURCES,
         "self_dim": SELF_DIM,
         "world_dim": WORLD_DIM,
-        "charge_steps": CHARGE_STEPS,
+        "warmup_episodes": warmup_episodes,
+        "steps_per_episode": steps_per_episode,
+        "terrain_lr": TERRAIN_LR,
         "n_probe_states": N_PROBE_STATES,
     }
 
@@ -527,6 +563,61 @@ def measure_arm(agent, env, obs_dict, arm: str, ch1: bool, ch2: bool,
     }
 
 
+def _spearman(xs: List[float], ys: List[float]) -> Optional[float]:
+    """Spearman rank correlation. None when undefined (n < 3, or no variance)."""
+    n = len(xs)
+    if n < 3 or len(ys) != n:
+        return None
+
+    def ranks(v: List[float]) -> List[float]:
+        order = sorted(range(n), key=lambda i: v[i])
+        r = [0.0] * n
+        i = 0
+        while i < n:
+            j = i
+            while j + 1 < n and v[order[j + 1]] == v[order[i]]:
+                j += 1
+            avg = (i + j) / 2.0 + 1.0
+            for k in range(i, j + 1):
+                r[order[k]] = avg
+            i = j + 1
+        return r
+
+    rx, ry = ranks(xs), ranks(ys)
+    mx, my = sum(rx) / n, sum(ry) / n
+    num = sum((rx[i] - mx) * (ry[i] - my) for i in range(n))
+    dx = sum((rx[i] - mx) ** 2 for i in range(n))
+    dy = sum((ry[i] - my) ** 2 for i in range(n))
+    if dx <= 0 or dy <= 0:
+        return None
+    return num / ((dx * dy) ** 0.5)
+
+
+def gradedness_rho(intact: Dict[str, Any],
+                   reference: Dict[str, Any]) -> Optional[float]:
+    """DV2 <- prediction (3): is suppression GRADED by residue magnitude?
+
+    x = candidate residue in the residue-blind reference arm (ARM_3) -- how
+        harm-associated that region is, measured by an arm that is not steering.
+    y = suppression = reference residue - intact residue, at matched candidate rank.
+    Positive rho means higher-residue candidates were suppressed more, which is what
+    the claim predicts. The SIGN is the finding; no magnitude floor is applied.
+    """
+    xs: List[float] = []
+    ys: List[float] = []
+    ref_by_idx = {p["probe_index"]: p for p in reference["per_probe_state"]}
+    for p in intact["per_probe_state"]:
+        r = ref_by_idx.get(p["probe_index"])
+        if r is None:
+            continue
+        a = sorted(r["candidate_residues"])
+        b = sorted(p["candidate_residues"])
+        for i in range(min(len(a), len(b))):
+            xs.append(a[i])
+            ys.append(a[i] - b[i])
+    return _spearman(xs, ys)
+
+
 def run_seed(seed: int, dry_run: bool, warmup_episodes: int,
              steps_per_episode: int) -> Dict[str, Any]:
     """Train ONE intact agent, gate it, then read all three arms off it."""
@@ -571,7 +662,8 @@ def main(dry_run: bool = False, warmup_episodes: int = WARMUP_EPISODES,
               f"{steps_per_episode}", flush=True)
         with arm_cell(
             seed,
-            config_slice=_config_slice(True, True, seed),
+            config_slice=_config_slice(True, True, seed, warmup_episodes,
+                                       steps_per_episode),
             script_path=Path(__file__),
             config_slice_declared=True,
         ) as cell:
