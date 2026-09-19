@@ -319,6 +319,76 @@ def test_c3e_target_name_reports_which_supervision_actually_ran(on_run):
 
 
 # --------------------------------------------------------------------------------------
+# C3k-C3n -- the 2026-09-19 two-arm re-specification levers (user decision OPTION H).
+# Both default to the prior behaviour; each isolates one measured cause of the readiness
+# failure. These pin the LEVERS, not the scientific result -- the measurement itself lives in
+# docs/substrate/SD-011-p0h-affective-encoder-warmup.md and the substrate_queue entry.
+# --------------------------------------------------------------------------------------
+
+def test_c3k_arm_levers_default_to_the_prior_behaviour():
+    cfg = zh.ZHarmAP0Config()
+    assert cfg.target_source == "accumulated_harm", "arm F must be OFF by default"
+    assert cfg.p0_precision_norm is None, "arm E must be OFF by default"
+
+
+def test_c3l_arm_e_pins_precision_norm_and_restores_it():
+    """Arm E pins the ARC-016 factor FOR THE STAGE ONLY. The restore is the load-bearing half:
+    an unrestored pin would silently change E3's running variance for every phase that follows,
+    turning a P0 diagnostic into a whole-run manipulation."""
+    agent = _make_agent(0)
+    agent.config.harm_surprise_pe_enabled = True
+    before_var = agent.e3._running_variance
+    before_norm = zh.current_precision_norm(agent)
+    assert before_norm == pytest.approx(min(2.0 / 500.0, 3.0), rel=1e-3)
+
+    out = zh.run_zharm_a_p0(agent, _make_env(0), seed=0, episodes=6, steps_per_episode=STEPS,
+                            policy=RandomPolicy(0), label="c3l",
+                            config=zh.ZHarmAP0Config(seed=0, p0_precision_norm=1.0))
+    assert out["p0h_ran"] is True, out.get("p0h_reason")
+    assert out["p0h_precision_norm_requested"] == 1.0
+    assert out["p0h_precision_norm_applied"] == pytest.approx(1.0, rel=1e-6)
+    assert out["p0h_precision_norm_baseline"] == pytest.approx(before_norm, rel=1e-9)
+    assert agent.e3._running_variance == before_var, "the pin LEAKED out of the stage"
+    assert zh.current_precision_norm(agent) == pytest.approx(before_norm, rel=1e-9)
+
+
+def test_c3m_arm_e_is_reported_inert_when_the_pe_branch_is_off():
+    """Only the SD-020 branch reads precision, so a pin with PE off changes nothing. It must
+    read as INERT rather than looking applied -- a caller that half-configured its arm should
+    see a False here, not assume it was manipulated."""
+    agent = _make_agent(0)
+    assert bool(getattr(agent.config, "harm_surprise_pe_enabled", False)) is False
+    out = zh.run_zharm_a_p0(agent, _make_env(0), seed=0, episodes=4, steps_per_episode=STEPS,
+                            policy=RandomPolicy(0), label="c3m",
+                            config=zh.ZHarmAP0Config(seed=0, p0_precision_norm=1.0))
+    assert out["p0h_precision_override_inert"] is True
+
+
+def test_c3n_arm_f_reads_the_per_tick_scalar_and_rejects_an_unknown_source():
+    """Arm F swaps the supervision scalar for the PER-TICK `harm_exposure` the env already
+    emits at `harm_obs[-1]` -- no env change, no new channel. An unknown source raises rather
+    than silently falling back, because a silent fallback here would train one arm on the other
+    arm's target and report the wrong label."""
+    env = _make_env(0)
+    _flat, obs = env.reset()
+    assert zh._target_scalar(obs, "accumulated_harm") == pytest.approx(
+        float(obs["accumulated_harm"]))
+    assert zh._target_scalar(obs, "harm_exposure") == pytest.approx(
+        float(obs["harm_obs"].reshape(-1)[-1].item()))
+    with pytest.raises(ValueError, match="unknown target_source"):
+        zh._target_scalar(obs, "not_a_channel")
+
+    agent = _make_agent(0)
+    out = zh.run_zharm_a_p0(agent, _make_env(0), seed=0, episodes=6, steps_per_episode=STEPS,
+                            policy=RandomPolicy(0), label="c3n",
+                            config=zh.ZHarmAP0Config(seed=0, target_source="harm_exposure"))
+    assert out["p0h_ran"] is True, out.get("p0h_reason")
+    assert out["p0h_target_source"] == "harm_exposure"
+    assert out["p0h_target"] == "sd011_per_tick_harm_exposure"
+    assert out["p0h_holdout_vs_constant"]["lift"] is not None
+
+
+# --------------------------------------------------------------------------------------
 # C4 -- half-configured shapes refuse loudly rather than training on a zero gradient.
 # --------------------------------------------------------------------------------------
 

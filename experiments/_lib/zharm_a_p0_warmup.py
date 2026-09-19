@@ -83,6 +83,7 @@ See `REE_assembly/docs/architecture/sd_011_dual_nociceptive_streams.md`,
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
@@ -103,6 +104,7 @@ __all__ = [
     "encoder_weight_snapshot",
     "encoder_weight_delta",
     "recover_effective_target",
+    "current_precision_norm",
 ]
 
 
@@ -124,6 +126,31 @@ class ZHarmAP0Config:
     max_grad_norm: float = 1.0
     holdout_episode_frac: float = 0.2
     loss_weight_note: str = "weight is LatentStackConfig.z_harm_a_aux_loss_weight (agent-side)"
+
+    # --- 2026-09-19 two-arm re-specification diagnostic (user decision OPTION H) ---------
+    # Both default to EXACTLY the prior behaviour. Neither is a new recipe: each isolates one
+    # of the two measured causes of the 2026-09-18 readiness failure, so the diagnostic can
+    # say which one (if either) is what actually blocks training.
+    #
+    # ARM F -- `target_source`. "accumulated_harm" (default) is SD-011 as specified: the env's
+    # CUMULATIVE EPISODE MEAN, which converges by construction and measured CV 0.076.
+    # "harm_exposure" is the PER-TICK scalar the same env emits at `harm_obs[-1]`, measured CV
+    # 0.694 -- ~9x the relative dispersion. Changing this changes what z_harm_a MEANS (SD-011's
+    # whole point is that the affective stream integrates ACCUMULATED harm, which is what
+    # distinguishes it from z_harm_s), so it is a DIAGNOSTIC lever, not a default to flip.
+    #
+    # ARM E -- `p0_precision_norm`. SD-020's target is scaled by
+    # `min(e3.current_precision/500, 3.0)` (ARC-016). At P0 that is 0.004, because
+    # `current_precision` sits at its INIT 2.0 while the /500 divisor presupposes the ~95-100
+    # of a TRAINED agent -- a ~250x attenuation, and a PHASE-ORDERING contradiction rather than
+    # a tuning miss, since P0 runs before the agent has any precision to couple to. Setting
+    # this pins the coupling to a chosen value FOR THE DURATION OF THIS STAGE ONLY (the
+    # underlying E3 running-variance is snapshotted and restored), which is what "decouple the
+    # P0 target from precision" means operationally. None (default) = untouched.
+    # Inert unless `harm_surprise_pe_enabled` is on -- that is the only branch reading precision
+    # -- and the returned block says so rather than letting a caller assume its arm was applied.
+    target_source: str = "accumulated_harm"
+    p0_precision_norm: Optional[float] = None
 
 
 def affective_encoder_parameters(agent: Any) -> List[torch.nn.Parameter]:
@@ -170,6 +197,80 @@ def encoder_weight_delta(
     return n_changed, max_abs
 
 
+def current_precision_norm(agent: Any) -> Optional[float]:
+    """The ARC-016 factor SD-020's target is multiplied by: `min(current_precision/500, 3.0)`.
+
+    Read back from the agent rather than assumed, because the whole point of arm E is that this
+    number is NOT what SD-020's `/500` divisor presupposes: measured 0.004 at P0 (precision at
+    its init 2.0) against the ~0.19-1.0 a trained agent's ~95-500 would give.
+    """
+    e3 = getattr(agent, "e3", None)
+    if e3 is None:
+        return None
+    try:
+        return min(float(e3.current_precision) / 500.0, 3.0)
+    except Exception:
+        return None
+
+
+@contextlib.contextmanager
+def _pinned_precision_norm(agent: Any, target_norm: Optional[float]):
+    """Pin `precision_norm` to `target_norm` for the duration of this stage ONLY.
+
+    `current_precision` is a read-only property over E3's running variance
+    (`1/(running_variance + 1e-6)`), so pinning the norm means solving for that variance:
+    `running_variance = 1/(500 * target_norm) - 1e-6`. The prior value is snapshotted and
+    restored on exit, which is what makes this "during P0 only" by construction rather than by
+    convention -- the same discipline the RNG streams and `_harm_obs_ema` already get here.
+
+    Safe precisely because the warmup does NOT drive the agent: E3 is never stepped during P0h,
+    so nothing else reads the variance while it is pinned. It would NOT be safe in a stage that
+    called `select_action`.
+
+    `target_norm=None` (default) yields without touching anything.
+    """
+    e3 = getattr(agent, "e3", None)
+    if target_norm is None or e3 is None or not hasattr(e3, "_running_variance"):
+        yield None
+        return
+    tn = float(target_norm)
+    if tn <= 0.0:
+        raise ValueError("p0_precision_norm must be > 0 (got %r)" % (target_norm,))
+    prev = e3._running_variance
+    e3._running_variance = 1.0 / (500.0 * tn) - 1e-6
+    try:
+        yield current_precision_norm(agent)
+    finally:
+        e3._running_variance = prev
+
+
+def _target_scalar(obs_dict: Dict[str, Any], target_source: str) -> Optional[float]:
+    """The per-tick supervision scalar this arm regresses, read from the env's own obs.
+
+    "accumulated_harm" -- SD-011 as specified: the env's cumulative episode mean.
+    "harm_exposure"    -- the PER-TICK scalar, taken from `harm_obs[-1]`, which is where
+                          CausalGridWorldV2 writes it (harm_obs layout = hazard_field[25] +
+                          resource_field[25] + harm_exposure[1]). Read from the SAME obs the
+                          stage already consumes, so no env change and no new channel.
+
+    Returns None when the channel is absent, which the caller treats as an unlabelled step
+    rather than as a zero -- a false "no harm" label is exactly the kind of quiet corruption
+    this whole line of work exists to surface.
+    """
+    if target_source == "accumulated_harm":
+        v = obs_dict.get("accumulated_harm")
+        return None if v is None else float(v)
+    if target_source == "harm_exposure":
+        ho = obs_dict.get("harm_obs")
+        if ho is None or ho.reshape(-1).numel() < 1:
+            return None
+        return float(ho.reshape(-1)[-1].item())
+    raise ValueError(
+        "unknown target_source %r -- expected 'accumulated_harm' or 'harm_exposure'"
+        % (target_source,)
+    )
+
+
 def recover_effective_target(agent: Any, accumulated_harm_target: float,
                              device: Optional[torch.device] = None) -> Optional[float]:
     """The scalar `compute_harm_accum_loss` is ACTUALLY regressing for this sample.
@@ -199,6 +300,13 @@ def recover_effective_target(agent: Any, accumulated_harm_target: float,
                       "z_harm_a_aux_loss_weight", 0.1))
     if w <= 0.0:
         return None
+    if not bool(getattr(agent.config, "harm_surprise_pe_enabled", False)):
+        # Non-PE path: `compute_harm_accum_loss` regresses the scalar it was handed, verbatim
+        # (`target_val = accumulated_harm_target`). Returning it directly is exact AND avoids a
+        # sign hazard the inversion below cannot: sqrt(loss/weight) recovers |target|, so any
+        # target_source that could go negative would be silently rectified. Contract C3h pins
+        # the two against each other on the path where both are valid.
+        return float(accumulated_harm_target)
     if device is None:
         params = affective_encoder_parameters(agent)
         device = params[0].device if params else torch.device("cpu")
@@ -315,7 +423,16 @@ def run_zharm_a_p0(
     )
     out["p0h_target"] = (
         "sd020_precision_weighted_pe" if out["p0h_harm_surprise_pe_enabled"]
-        else "sd011_accumulated_harm_ema"
+        else ("sd011_accumulated_harm_ema" if cfg.target_source == "accumulated_harm"
+              else "sd011_per_tick_harm_exposure")
+    )
+    out["p0h_target_source"] = str(cfg.target_source)
+    out["p0h_precision_norm_requested"] = cfg.p0_precision_norm
+    out["p0h_precision_norm_baseline"] = current_precision_norm(agent)
+    # An override that cannot bite is reported as INERT rather than left to look applied: only
+    # the SD-020 branch reads precision at all.
+    out["p0h_precision_override_inert"] = bool(
+        cfg.p0_precision_norm is not None and not out["p0h_harm_surprise_pe_enabled"]
     )
 
     before = encoder_weight_snapshot(agent)
@@ -329,7 +446,10 @@ def run_zharm_a_p0(
     # split would leak the target across it).
     buf: List[Tuple[torch.Tensor, Optional[torch.Tensor], float, int]] = []
 
-    with _rng_neutral():
+    with _rng_neutral(), _pinned_precision_norm(agent, cfg.p0_precision_norm) as achieved:
+        out["p0h_precision_norm_applied"] = (
+            achieved if achieved is not None else out["p0h_precision_norm_baseline"]
+        )
         for ep in range(int(episodes)):
             _flat0, obs_dict = warmup_env.reset()
             policy.reset(warmup_env)
@@ -337,7 +457,7 @@ def run_zharm_a_p0(
             for _step in range(int(steps_per_episode)):
                 hoa = obs_dict.get("harm_obs_a")
                 hh = obs_dict.get("harm_history")
-                accum = obs_dict.get("accumulated_harm")
+                accum = _target_scalar(obs_dict, cfg.target_source)
                 if hoa is not None and accum is not None:
                     buf.append((
                         hoa.float().unsqueeze(0).to(device),
