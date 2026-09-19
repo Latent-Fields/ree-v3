@@ -87,7 +87,8 @@
   sweep should import is `experiments/_lib/regime_occupancy_gate.py`. A validation
   run remains BLOCKED on the sigma decision above.
 
-  Contracts: `tests/contracts/test_salience_affinity_bound_operator.py` (14 tests --
+  Contracts: `tests/contracts/test_salience_affinity_bound_operator.py` (10 tests --
+  the landing commit's message says 14, which is wrong; this file is the correct count --
   C1 bit-identical default, C2 bounded strictly inside (-cap, cap), C3 odd /
   sign-preserving, C4 strictly monotone, C5 derivative continuous across the old
   clamp boundary where the clamp's jumps 1 -> 0, C6 sigma required and undefaulted,
