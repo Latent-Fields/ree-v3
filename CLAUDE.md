@@ -450,6 +450,7 @@ When started with `--remote-control`, the runner emits a per-machine heartbeat e
     - [ABSOLUTE-VS-RESIDUAL BRANCH: e1.rollout.output_proj_residual -- IMPLEMENTED (2026-09-01)](docs/substrate/SD-e1-rollout-consistency-training-absolute-vs-residual-branch-e1-rollout-output.md) *(~1,319 tok)*
     - [ITEM 2: e1.transition.rollout_consistency -- IMPLEMENTED (2026-09-01)](docs/substrate/SD-e1-rollout-consistency-training-item-2-e1-transition-rollout-consistency.md) *(~1,613 tok)*
 - **[SD-hazard-aware-policy-decomposition](docs/substrate/SD-hazard-aware-policy-decomposition-policy-decomposition-via-event.md)** — policy.decomposition_via_event_segmenter.harm_aware_selection -- IMPLEMENTED 2026-08-01 *(~1,330 tok)*
+- **[MECH-018](docs/substrate/MECH-018-residue-integrate-gradient-step.md)** — Residue integration: the gradient step + the sleep WRITEBACK call site (2026-09-19) *(~1,750 tok)*
 - **MECH-027** — 2 records, ~2,443 tok total.
     - [precision-scaled commit temperature -- graded consumer for current_precision (2026-09-02)](docs/substrate/MECH-027-precision-scaled-commit-temperature.md) *(~1,159 tok)*
     - [Build 2: force_sleep_cycle_at_eval_boundary -- sleep-cycle interleave reachable inside an eval window (2026-09-02)](docs/substrate/MECH-027-build-2-force-sleep-cycle-at-eval.md) *(~1,283 tok)*
