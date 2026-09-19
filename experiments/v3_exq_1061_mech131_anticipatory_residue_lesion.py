@@ -24,37 +24,59 @@ run reports THAT rather than a claim-negative.
 So: do not reduce the warmup, and do not remove the readiness gate. They are what
 make a null here interpretable.
 
-STILL NOT QUEUEABLE -- THE RATIFIED GATE CANNOT CLEAR ON THIS SUBSTRATE (2026-09-19).
-The warmup above is implemented and works mechanically. Measured on the hub at
-20 episodes x 100 steps x 3 seeds (9m36s, ~10.4 steps/s, so 042's full 600x200x3
-would be ~9.6 h):
+OPTION B STATUS (2026-09-19): requirement (1) SATISFIED, requirement (2) FAILED.
+NOT QUEUED. The DV was not the problem, and neither was training.
 
-    hippo_quality_gap  seed 11 -2.946 | seed 23 -4.355 | seed 37 -9.232   (must be > 0)
-    effect_over_noise  0.035  (was ~0.01 untrained; parity needs ~1.0)
+(1) READOUT CHOICE AND LIVENESS -- ESTABLISHED.
+    Uses E3.harm_eval(z_world) (harm_eval_head), NOT harm_eval_z_harm. The
+    z_harm_a frozen-random-projection and harm_obs_a rank-2 hazards belong to the
+    AFFECTIVE stream (SD-086 / zharm_a_p0_warmup), which this driver never touches.
+    harm_eval is a random sigmoid head at init, so 042's BCE training is mirrored
+    here; harm_eval_head's optimizer coverage is ASSERTED at runtime, not assumed.
+    Measured: harm_eval_gap (mean on harm-labelled states minus mean on non-harm)
+    = 0.315 / 0.447 / 0.379 across seeds at only 20 warmup episodes, from ~250 BCE
+    steps per seed. A constant predictor scores exactly 0.0, so the readout
+    demonstrably beats a constant baseline and the readiness gate CLEARS.
 
-The gap is not merely short of zero, it is strongly NEGATIVE: hippocampal proposals
-carry MORE residue than random ones. Undertraining alone would put the gap near 0,
-not far below it. Root cause found in 042's own recorded manifest
-(v3_exq_042_..._20260319T090529Z.json):
+(2) LESION EFFECT vs BETWEEN-CANDIDATE NOISE -- FAILS, with all three of 042's
+    training components verified live (terrain BC; harm_eval BCE; world_forward MSE
+    at wf_loss 1.1e-4 over 496 steps):
 
-    hippo_mean_residue = 0.0   random_mean_residue = 0.392646   gap = +0.392646
+        effect_over_noise   seed 11 +0.0163 | seed 23 +0.0142 | seed 37 -0.0696
+        effect |ARM_3-ARM_1|  ~1e-4      between-candidate SD  ~0.009
+        C1 clears 2/3 seeds, and seed 37's effect is NEGATIVE.
 
-042's positive gap was ENTIRELY "hippocampal proposals evaluate to exactly zero
-residue". It ran 2026-03-19, two months before the 2026-05-17 support-preserving-CEM
-defaults (use_support_preserving_cem / stratified elites /
-support_preserving_ao_std_floor = 0.2, whose comment says the floor exists "so the
-sampling distribution cannot collapse to a point"). That collapse is what put 042's
-proposals off the residue support, and it was deliberately retired as degenerate --
-CLAUDE.md records it as the monostrategy that left SD-029 / ARC-062 Rung 2 /
-goal_pipeline / self_attribution non_contributory.
+    So the lesion moves the DV by ~1.5% of the noise it must exceed, with an
+    inconsistent sign. (The residue DV this replaced measured 0.035; adding
+    world_forward training moved the harm DV from 0.0025 to 0.013. Neither is close
+    to the ~1.0 a resolvable DV needs.)
 
-So on today's non-collapsing CEM, proposals stay on the visited manifold where residue
-actually lives, and random action-objects fling the state OFF that manifold into
-never-visited (hence zero-residue) space. The gap therefore inverts for a structural
-reason, and no amount of warmup fixes it: 042's gate measures "did the proposals leave
-the residue support", which the current substrate is specifically built not to do.
+WHY -- a measured attenuation chain, not an implementation defect:
+  * CEM's mandated exploration noise SWAMPS the channel. Measured:
+    support_preserving_ao_std_floor = 0.2 against a terrain_prior proposal-mean
+    magnitude of 0.1288 -- the floor is 1.55x the entire signal the anticipatory
+    channel contributes. That floor exists (2026-05-17) precisely to stop the CEM
+    distribution collapsing to a point, so it is load-bearing and not a bug.
+  * What survives is attenuated again downstream. The CH1 lesion shifts the
+    proposal mean a LOT (absmean 0.128819 -> 0.052828, a 59% drop; contract C3
+    records max|delta| 0.449), yet the resulting candidate action objects
+    (SD 0.011096 vs 0.011101), decoded actions (0.044267 vs 0.044271) and world
+    states (0.060645 vs 0.060672) are identical to 4+ decimal places.
+
+  The honest reading: on this substrate, at default CEM exploration settings, the
+  anticipatory residue channels do not have enough AUTHORITY over the proposed
+  candidate set for a lesion to be detectable through any candidate-set DV. That is
+  a finding about the substrate's wiring, and it bears on whether MECH-131 is
+  testable as stated -- it is not a statement about the claim being false.
+
+SMALLEST DESIGN, measured rather than assumed: the readiness gate clears at 20
+warmup episodes, and 20 eps x 100 steps x 3 seeds runs in ~10 min wall with all
+three trainers live. 042's 600 x 200 (~15.7 h extrapolated) is therefore ~30x more
+warmup than this design needs. Any successor should size warmup off the gate, not
+off 042's constant.
 
 Reported rather than queued, per the user's instruction. Decision chip:
+chip-20260919-mech131-channel-authority.
 chip-20260919-mech131-readiness-gate-inverts.
 
 V3-EXQ-1061 -- MECH-131: is stored aversive residue ACTIVATED as an anticipatory
