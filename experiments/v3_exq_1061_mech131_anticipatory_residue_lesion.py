@@ -1,34 +1,28 @@
 """
 V3-EXQ-1061 -- MECH-131
 
-!! NOT QUEUEABLE AS WRITTEN -- MEASURED BLOCKER, 2026-09-19. READ THIS FIRST. !!
+WARMUP IS LOAD-BEARING -- read before changing anything about it (2026-09-19).
 
-This driver is complete and its dry-run passes end to end (9/9 cells, all
-preconditions met, C1 and C2 met). It must NOT be queued yet, because the DV was
-measured on the hub and CANNOT DETECT ITS OWN MANIPULATION on an untrained
-substrate:
+An earlier revision of this driver measured an UNTRAINED agent and could not detect
+its own manipulation: the intact-vs-complete-lesion effect was ~100x SMALLER than the
+between-candidate residue SD (0.002% vs 0.18% of the pool mean), scale-invariantly
+(measured on the hub at 60 and 200 residue-charge steps). Root cause is the
+codebase's own documented expectation -- V3-EXQ-042: "if terrain_prior is random,
+proposals are uninformed (equivalent to random candidates)". Residue avoidance is a
+LEARNED competence here, so lesioning an untrained channel removes a capability the
+substrate never had, and the resulting null would mean "an untrained generate-rollout
+loop cannot express residue avoidance", NOT "MECH-131 is false".
 
-    between-candidate residue SD        0.18%  of the pool mean
-    intact vs complete-lesion effect   0.002% of the pool mean   (~100x smaller)
+Fix, per user decision OPTION A (2026-09-19T02:32Z): train terrain_prior FIRST using
+V3-EXQ-042's existing protocol -- E3 behavioural cloning,
+MSE(terrain_prior_ao_mean, selected_trajectory_ao_sequence.detach()), Adam(lr=5e-4),
+600 warmup episodes x 200 steps (042's own numbers, not new ones) -- and gate on
+042's hippo_quality_gap (hippocampal vs RANDOM proposal residue) before any arm is
+lesioned. If the gate does not clear, the generator never acquired avoidance and the
+run reports THAT rather than a claim-negative.
 
-and the ratio is scale-invariant -- it does not improve with more accumulated
-residue (measured at 60 and 200 charge steps: 31.40 +/- 0.056 with a 0.0005
-lesion effect; 99.48 +/- 0.181 with a 0.0018 effect). All 32 candidates land in
-essentially the same residue region, so residue-based selection has nothing to
-exploit and C1's per-seed ordinal test would be deciding on differences ~100x
-below candidate-level noise: a coin flip wearing a criterion's clothes.
-
-ROOT CAUSE, and it is the codebase's own documented expectation rather than a new
-finding -- V3-EXQ-042 (hippocampal terrain training) says it outright:
-"if terrain_prior is random, proposals are uninformed (equivalent to random
-candidates)". Residue avoidance is a LEARNED competence here; this driver runs an
-UNTRAINED agent, so lesioning the anticipatory channel removes a capability the
-substrate never had. V3-EXQ-042's own eval metric is this driver's DV1 almost
-verbatim ("hippo_quality_gap = mean_residue_random - mean_residue_hippo").
-
-Adding a training phase changes what gets measured (trained vs untrained
-substrate) and is not in the ratified design, so it was NOT done unilaterally.
-Raised as a decision chip; see the design of record below.
+So: do not reduce the warmup, and do not remove the readiness gate. They are what
+make a null here interpretable.
 
 V3-EXQ-1061 -- MECH-131: is stored aversive residue ACTIVATED as an anticipatory
 forward-biasing signal before candidate generation?
@@ -71,6 +65,19 @@ structural fact (its CEM score spread is exactly 0.0, contract C7/C8), not an
 assumption. So no fourth control arm is needed. ARM_2 partitions the effect
 between the two channels and records whether the originally-proposed single-knob
 design could have detected anything at all.
+
+LESION AT EVALUATION, ON ONE TRAINED AGENT PER SEED -- not three trainings.
+The user's OPTION A wording is explicit that the readiness gate must clear "before
+any arm is lesioned", which fixes the design: warm up an INTACT agent (both channels
+on), gate it, then read the three arms off THAT SAME agent by toggling the two read
+gates at evaluation time. Weights are therefore identical across arms and the arms
+differ only by the lesion -- a within-subject lesion, which is both the cleaner
+comparison and a third of the compute. It is also the biologically apt framing: the
+capability is acquired first, then the anticipatory read is removed.
+
+This is only possible because both knobs are read LIVE off HippocampalConfig on every
+call (getattr in _get_terrain_action_object_mean / _score_trajectory) rather than
+cached at construction. Do not "optimise" them into cached attributes.
 
 DVs, each mapped to one of MECH-131's three recorded predictions (claims.yaml notes)
   DV1 <- prediction (1) "...failing to shift trajectory distribution away from them
@@ -141,7 +148,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import math
+
 import torch
+import torch.nn.functional as F
+import torch.optim as optim
 
 from ree_core.agent import REEAgent
 from ree_core.environment.causal_grid_world import CausalGridWorldV2
@@ -169,8 +180,15 @@ SELF_DIM       = 16
 WORLD_DIM      = 16
 ACTION_DIM     = 4
 
-CHARGE_STEPS   = 60               # rollout ticks that lay down residue
-N_PROBE_STATES = 12               # probe states per cell (proposal pools measured)
+# V3-EXQ-042's own numbers -- mirrored, not re-chosen (user decision OPTION A).
+WARMUP_EPISODES    = 600
+STEPS_PER_EPISODE  = 200
+TERRAIN_LR         = 5e-4
+N_RANDOM_COMPARE   = 8            # 042's hippo-vs-random candidate count
+CANDIDATE_HORIZON  = 5            # 042's random-candidate horizon
+GAP_SAMPLE_EVERY   = 10           # 042 samples the quality gap every 10 steps
+
+N_PROBE_STATES = 12               # probe states per arm (proposal pools measured)
 
 # (arm_name, CH1 terrain_prior channel, CH2 score_trajectory terrain score)
 ARMS: List[Tuple[str, bool, bool]] = [
@@ -272,263 +290,409 @@ def build_agent(ch1: bool, ch2: bool, seed: int):
     return agent, env, cfg
 
 
-def charge_residue(agent, env, steps: int) -> Tuple[torch.Tensor, torch.Tensor, int]:
-    """Lay residue down at REAL visited z_world locations via a real rollout.
+def warmup_train(agent, env, seed: int, episodes: int, steps_per_episode: int
+                 ) -> Dict[str, Any]:
+    """V3-EXQ-042's terrain_prior warmup, mirrored -- E3 behavioural cloning.
 
-    Not a hand-built favourable batch: the locations are wherever the agent
-    actually went. Returns the final obs plus the number of accumulate calls.
+    terrain_prior learns to predict the action-object sequence E3 actually selected:
+        MSE(terrain_prior_ao_mean, selected_trajectory_ao_sequence.detach())
+    E3 prefers low-residue trajectories (compute_residue_cost * rho_residue), so over
+    episodes the PROPOSALS become residue-avoidant. That acquired avoidance is the
+    capability MECH-131's lesion is supposed to remove -- without it there is nothing
+    to lesion, which is exactly what the pre-warmup revision of this driver measured.
+
+    Residue accumulates at locations where the environment ACTUALLY reports harm, so
+    the terrain the generator learns to avoid is the real hazard landscape rather than
+    an injected one.
+
+    Trains with BOTH channels intact (the lesion is applied later, at evaluation).
     """
-    _flat, obs_dict = env.reset()
-    body, world = _obs(obs_dict)
-    writes = 0
-    for _ in range(steps):
-        latent = agent.sense(body, world)
-        agent.residue_field.accumulate(latent.z_world.detach(), harm_magnitude=1.0)
-        writes += 1
-        action = int(torch.randint(0, ACTION_DIM, (1,)).item())
-        _flat, _harm, done, _info, obs_dict = env.step(action)
-        body, world = _obs(obs_dict)
-        if done:
-            _flat, obs_dict = env.reset()
+    terrain_optimizer = optim.Adam(
+        list(agent.hippocampal.terrain_prior.parameters())
+        + list(agent.hippocampal.action_object_decoder.parameters()),
+        lr=TERRAIN_LR,
+    )
+    agent.train()
+    losses_early: List[float] = []
+    losses_late: List[float] = []
+    e3_ticks = 0
+    harm_events = 0
+    late_from = max(0, episodes - 100)
+
+    for ep in range(episodes):
+        _flat, obs_dict = env.reset()
+        agent.reset()
+        for _step in range(steps_per_episode):
             body, world = _obs(obs_dict)
-    return body, world, writes
+            latent = agent.sense(body, world)
+            ticks = agent.clock.advance()
+            e1_prior = (agent._e1_tick(latent) if ticks["e1_tick"]
+                        else torch.zeros(1, WORLD_DIM, device=agent.device))
+            candidates = agent.generate_trajectories(latent, e1_prior, ticks)
+            theta_z = agent.theta_buffer.summary()
 
+            action = None
+            if ticks.get("e3_tick", False) and candidates:
+                e3_ticks += 1
+                result = agent.e3.select(candidates, temperature=1.0)
+                action = result.selected_action.detach()
+                agent._last_action = action
+                selected_ao = result.selected_trajectory.get_action_object_sequence()
+                if selected_ao is not None:
+                    ao_mean_pred = agent.hippocampal._get_terrain_action_object_mean(
+                        theta_z, e1_prior=e1_prior.detach()
+                    )
+                    terrain_loss = F.mse_loss(ao_mean_pred, selected_ao.detach())
+                    terrain_optimizer.zero_grad()
+                    terrain_loss.backward()
+                    torch.nn.utils.clip_grad_norm_(
+                        list(agent.hippocampal.terrain_prior.parameters())
+                        + list(agent.hippocampal.action_object_decoder.parameters()),
+                        1.0,
+                    )
+                    terrain_optimizer.step()
+                    lv = float(terrain_loss.item())
+                    if ep < 100:
+                        losses_early.append(lv)
+                    if ep >= late_from:
+                        losses_late.append(lv)
+            if action is None:
+                action = getattr(agent, "_last_action", None)
+            act_idx = (int(torch.argmax(action).item()) if action is not None
+                       else int(torch.randint(0, ACTION_DIM, (1,)).item()))
 
-def measure_pool(agent, env, body, world, seed: int, n_states: int) -> Dict[str, Any]:
-    """Propose candidates from n_states probe states; measure the DVs on the pool.
+            _flat, harm, done, _info, obs_dict = env.step(act_idx)
+            # Residue marks REAL harm contacts, not injected ones.
+            if float(harm) > 0.0:
+                agent.residue_field.accumulate(
+                    latent.z_world.detach(), harm_magnitude=1.0
+                )
+                harm_events += 1
+            if done:
+                _flat, obs_dict = env.reset()
+                agent.reset()
 
-    residue_avoidance is the mean residue of the PROPOSED trajectories -- what E3
-    is handed. Lower = the generator steered away from harm-associated regions.
-    """
-    rf = agent.residue_field
-    per_state: List[Dict[str, Any]] = []
-    for s in range(n_states):
-        latent = agent.sense(body, world)
-        z_world = latent.z_world.detach()
-        z_self = latent.z_self.detach()
-        # Same sampling noise across arms at matched (seed, probe index): the arms
-        # must differ by the lesion, not by their random draws.
-        torch.manual_seed(seed * 1000 + s)
-        trajs = agent.hippocampal.propose_trajectories(z_world, z_self=z_self)
-        if not trajs:
-            continue
-        residues = [float(rf.evaluate_trajectory(t.get_world_state_sequence()).detach().sum())
-                    for t in trajs if t.get_world_state_sequence() is not None]
-        scores = [float(agent.hippocampal._score_trajectory(t).detach()) for t in trajs]
-        post_hoc = float(agent.e3.compute_residue_cost(trajs[0]).detach().sum())
-        if residues:
-            per_state.append({
-                "probe_index": s,
-                "n_candidates": len(trajs),
-                "mean_candidate_residue": sum(residues) / len(residues),
-                "min_candidate_residue": min(residues),
-                "cem_score_spread": max(scores) - min(scores),
-                "post_hoc_residue_cost": post_hoc,
-                "candidate_residues": residues,
-            })
-        # advance the world so probe states are not all identical
-        action = int(torch.randint(0, ACTION_DIM, (1,)).item())
-        _flat, _harm, done, _info, obs_dict = env.step(action)
-        body, world = _obs(obs_dict)
-        if done:
-            _flat, obs_dict = env.reset()
-            body, world = _obs(obs_dict)
+    agent.eval()
 
-    assert per_state, "no candidates proposed at any probe state -- probe is vacuous"
-    n = len(per_state)
+    def _mean(v: List[float]) -> Optional[float]:
+        return (sum(v) / len(v)) if v else None
+
     return {
-        "n_probe_states_scored": n,
-        "residue_avoidance": sum(p["mean_candidate_residue"] for p in per_state) / n,
-        "mean_min_candidate_residue": sum(p["min_candidate_residue"] for p in per_state) / n,
-        "cem_score_spread": sum(p["cem_score_spread"] for p in per_state) / n,
-        "cem_score_spread_max": max(p["cem_score_spread"] for p in per_state),
-        "post_hoc_residue_cost": sum(p["post_hoc_residue_cost"] for p in per_state) / n,
-        "post_hoc_residue_cost_min_abs": min(abs(p["post_hoc_residue_cost"]) for p in per_state),
-        "per_probe_state": per_state,
+        "warmup_episodes": episodes,
+        "steps_per_episode": steps_per_episode,
+        "e3_ticks": e3_ticks,
+        "harm_events_during_warmup": harm_events,
+        "terrain_loss_early": _mean(losses_early),
+        "terrain_loss_late": _mean(losses_late),
+        "final_obs": obs_dict,
     }
 
 
-def _spearman(xs: List[float], ys: List[float]) -> Optional[float]:
-    """Spearman rank correlation. None when undefined (n < 3, or no variance)."""
-    n = len(xs)
-    if n < 3 or len(ys) != n:
-        return None
-
-    def ranks(v: List[float]) -> Optional[List[float]]:
-        order = sorted(range(n), key=lambda i: v[i])
-        r = [0.0] * n
-        i = 0
-        while i < n:
-            j = i
-            while j + 1 < n and v[order[j + 1]] == v[order[i]]:
-                j += 1
-            avg = (i + j) / 2.0 + 1.0
-            for k in range(i, j + 1):
-                r[order[k]] = avg
-            i = j + 1
-        return r
-
-    rx, ry = ranks(xs), ranks(ys)
-    mx = sum(rx) / n
-    my = sum(ry) / n
-    num = sum((rx[i] - mx) * (ry[i] - my) for i in range(n))
-    dx = sum((rx[i] - mx) ** 2 for i in range(n))
-    dy = sum((ry[i] - my) ** 2 for i in range(n))
-    if dx <= 0 or dy <= 0:
-        return None
-    return num / ((dx * dy) ** 0.5)
+def _mean_residue_042(agent, trajs) -> float:
+    """042's own mean_residue: per-trajectory MEAN over the state sequence."""
+    vals = []
+    for t in trajs:
+        ws = t.get_world_state_sequence()
+        if ws is not None and not torch.isnan(ws).any():
+            v = float(agent.residue_field.evaluate_trajectory(ws).detach().mean().item())
+            if not math.isnan(v):
+                vals.append(v)
+    return float(sum(vals) / len(vals)) if vals else 0.0
 
 
-def gradedness_rho(intact: Dict[str, Any], reference: Dict[str, Any]) -> Optional[float]:
-    """DV2 <- prediction (3): is suppression GRADED by residue magnitude?
+def readiness_gate(agent, env, obs_dict, seed: int, n_samples: int) -> Dict[str, Any]:
+    """042's hippo_quality_gap -- the gate that must clear BEFORE any arm is lesioned.
 
-    x = candidate residue in the residue-blind reference arm (ARM_3), i.e. how
-        harm-associated that region is, measured by an arm that is not steering.
-    y = suppression = reference residue - intact residue, per matched candidate
-        rank position.
-    A positive rho means higher-residue candidates were suppressed more, which is
-    what the claim predicts. Sign is the finding; no magnitude floor is applied.
+    gap = mean_residue(random proposals) - mean_residue(hippocampal proposals)
+    Positive = the trained generator navigates to LOWER-residue regions than chance,
+    i.e. it actually acquired residue avoidance. A non-positive gap means there is no
+    avoidance to lesion, so the whole probe would be vacuous -- and this driver reports
+    that as a readiness failure rather than as evidence about MECH-131.
+
+    Measured with BOTH channels intact (the lesion has not been applied yet).
     """
-    xs: List[float] = []
-    ys: List[float] = []
-    ref_by_idx = {p["probe_index"]: p for p in reference["per_probe_state"]}
-    for p in intact["per_probe_state"]:
-        r = ref_by_idx.get(p["probe_index"])
-        if r is None:
-            continue
-        a = sorted(r["candidate_residues"])
-        b = sorted(p["candidate_residues"])
-        for i in range(min(len(a), len(b))):
-            xs.append(a[i])
-            ys.append(a[i] - b[i])
-    return _spearman(xs, ys)
+    hippo: List[float] = []
+    rand: List[float] = []
+    for i in range(n_samples):
+        body, world = _obs(obs_dict)
+        latent = agent.sense(body, world)
+        theta_z = agent.theta_buffer.summary()
+        z_self = latent.z_self.detach()
+        torch.manual_seed(seed * 7919 + i)
+        h = agent.hippocampal.propose_trajectories(
+            z_world=theta_z, z_self=z_self, num_candidates=N_RANDOM_COMPARE,
+        )
+        torch.manual_seed(seed * 7919 + i)
+        r = agent.e2.generate_candidates_random(
+            initial_z_self=z_self, initial_z_world=theta_z,
+            num_candidates=N_RANDOM_COMPARE, horizon=CANDIDATE_HORIZON,
+            compute_action_objects=False,
+        )
+        hippo.append(_mean_residue_042(agent, h))
+        rand.append(_mean_residue_042(agent, r))
+        _flat, _harm, done, _info, obs_dict = env.step(
+            int(torch.randint(0, ACTION_DIM, (1,)).item())
+        )
+        if done:
+            _flat, obs_dict = env.reset()
+    mh = sum(hippo) / len(hippo)
+    mr = sum(rand) / len(rand)
+    return {
+        "hippo_mean_residue": mh,
+        "random_mean_residue": mr,
+        "hippo_quality_gap": mr - mh,
+        "gap_clears": int((mr - mh) > 0.0),
+        "n_gap_samples": len(hippo),
+        "final_obs": obs_dict,
+    }
 
 
-def run_cell(arm: str, ch1: bool, ch2: bool, seed: int, dry_run: bool) -> Dict[str, Any]:
-    steps = 8 if dry_run else CHARGE_STEPS
-    n_states = 3 if dry_run else N_PROBE_STATES
-    agent, env, cfg = build_agent(ch1, ch2, seed)
-    defect_flags = assert_defect_paths_inert(agent, cfg)
-    body, world, writes = charge_residue(agent, env, steps)
+def measure_arm(agent, env, obs_dict, arm: str, ch1: bool, ch2: bool,
+                seed: int, n_states: int) -> Dict[str, Any]:
+    """Read one arm off the ALREADY-TRAINED agent by toggling the live read gates.
+
+    Weights are untouched -- only the two config flags move, and both are read live
+    per call, so this is the same network with the anticipatory read removed.
+    """
+    hc = agent.hippocampal.config
+    hc.terrain_prior_residue_channel_enabled = ch1
+    hc.score_trajectory_residue_terrain_enabled = ch2
+    assert hc.terrain_prior_residue_channel_enabled is ch1
+    assert hc.score_trajectory_residue_terrain_enabled is ch2
+
     rf = agent.residue_field
-    pool = measure_pool(agent, env, body, world, seed, n_states)
-    row: Dict[str, Any] = {
+    per_state: List[Dict[str, Any]] = []
+    for s in range(n_states):
+        body, world = _obs(obs_dict)
+        latent = agent.sense(body, world)
+        theta_z = agent.theta_buffer.summary()
+        z_self = latent.z_self.detach()
+        # Identical sampling noise across arms at matched (seed, probe index): the
+        # arms must differ by the lesion, not by their random draws.
+        torch.manual_seed(seed * 1000 + s)
+        trajs = agent.hippocampal.propose_trajectories(theta_z, z_self=z_self)
+        if trajs:
+            sums, means = [], []
+            for t in trajs:
+                ws = t.get_world_state_sequence()
+                if ws is None or torch.isnan(ws).any():
+                    continue
+                ev = rf.evaluate_trajectory(ws).detach()
+                sums.append(float(ev.sum()))
+                means.append(float(ev.mean()))
+            scores = [float(agent.hippocampal._score_trajectory(t).detach())
+                      for t in trajs]
+            post_hoc = float(agent.e3.compute_residue_cost(trajs[0]).detach().sum())
+            if sums:
+                n = len(sums)
+                mu = sum(sums) / n
+                var = sum((x - mu) ** 2 for x in sums) / n
+                per_state.append({
+                    "probe_index": s,
+                    "n_candidates": len(trajs),
+                    "mean_candidate_residue": mu,
+                    "mean_candidate_residue_normed": sum(means) / len(means),
+                    # between-candidate SD: the noise the lesion effect must exceed
+                    "between_candidate_sd": var ** 0.5,
+                    "min_candidate_residue": min(sums),
+                    "cem_score_spread": max(scores) - min(scores),
+                    "post_hoc_residue_cost": post_hoc,
+                    "candidate_residues": sums,
+                })
+        _flat, _harm, done, _info, obs_dict = env.step(
+            int(torch.randint(0, ACTION_DIM, (1,)).item())
+        )
+        if done:
+            _flat, obs_dict = env.reset()
+
+    assert per_state, f"{arm}: no candidates proposed at any probe state -- vacuous"
+    n = len(per_state)
+    return {
         "arm": arm,
         "seed": seed,
         "ch1_terrain_prior_residue_channel_enabled": bool(ch1),
         "ch2_score_trajectory_residue_terrain_enabled": bool(ch2),
-        "accumulate_calls": writes,
-        "total_residue": float(rf.total_residue),
-        "num_harm_events": float(rf.num_harm_events),
-        "defect_flags_observed": defect_flags,
+        "n_probe_states_scored": n,
+        "residue_avoidance": sum(p["mean_candidate_residue"] for p in per_state) / n,
+        "residue_avoidance_normed":
+            sum(p["mean_candidate_residue_normed"] for p in per_state) / n,
+        "between_candidate_sd": sum(p["between_candidate_sd"] for p in per_state) / n,
+        "cem_score_spread": sum(p["cem_score_spread"] for p in per_state) / n,
+        "cem_score_spread_max": max(p["cem_score_spread"] for p in per_state),
+        "post_hoc_residue_cost": sum(p["post_hoc_residue_cost"] for p in per_state) / n,
+        "post_hoc_residue_cost_min_abs":
+            min(abs(p["post_hoc_residue_cost"]) for p in per_state),
+        "per_probe_state": per_state,
+        "final_obs": obs_dict,
     }
-    row.update({k: v for k, v in pool.items()})
-    row["agent"] = agent
-    return row
+
+
+def run_seed(seed: int, dry_run: bool, warmup_episodes: int,
+             steps_per_episode: int) -> Dict[str, Any]:
+    """Train ONE intact agent, gate it, then read all three arms off it."""
+    n_states = 3 if dry_run else N_PROBE_STATES
+    n_gap = 3 if dry_run else 12
+    agent, env, cfg = build_agent(True, True, seed)   # trained INTACT
+    defect_flags = assert_defect_paths_inert(agent, cfg)
+
+    warm = warmup_train(agent, env, seed, warmup_episodes, steps_per_episode)
+    obs_dict = warm.pop("final_obs")
+
+    gate = readiness_gate(agent, env, obs_dict, seed, n_gap)
+    obs_dict = gate.pop("final_obs")
+
+    arms: List[Dict[str, Any]] = []
+    for arm, ch1, ch2 in ARMS:
+        row = measure_arm(agent, env, obs_dict, arm, ch1, ch2, seed, n_states)
+        obs_dict = row.pop("final_obs")
+        row["total_residue"] = float(agent.residue_field.total_residue)
+        row["num_harm_events"] = float(agent.residue_field.num_harm_events)
+        row["defect_flags_observed"] = defect_flags
+        arms.append(row)
+
+    return {"seed": seed, "warmup": warm, "readiness": gate, "arms": arms,
+            "agent": agent}
 
 
 # ----------------------------------------------------------------------
-def main(dry_run: bool = False):
+def main(dry_run: bool = False, warmup_episodes: int = WARMUP_EPISODES,
+         steps_per_episode: int = STEPS_PER_EPISODE):
     t0 = time.time()
     ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
     run_id = f"{EXPERIMENT_TYPE}_{ts}_v3"
 
-    arm_results: List[Dict[str, Any]] = []
+    if dry_run:
+        warmup_episodes, steps_per_episode = 3, 20
+
+    seed_rows: List[Dict[str, Any]] = []
     all_agents: List[Any] = []
-    total_cells = len(ARMS) * len(SEEDS)
-    cell_num = 0
+    for i, seed in enumerate(SEEDS):
+        print(f"[seed {i+1}/{len(SEEDS)}] seed={seed} warmup={warmup_episodes}x"
+              f"{steps_per_episode}", flush=True)
+        with arm_cell(
+            seed,
+            config_slice=_config_slice(True, True, seed),
+            script_path=Path(__file__),
+            config_slice_declared=True,
+        ) as cell:
+            row = run_seed(seed, dry_run, warmup_episodes, steps_per_episode)
+            all_agents.append(row.pop("agent"))
+            cell.stamp(row)
+        seed_rows.append(row)
+        g = row["readiness"]
+        print(f"    readiness hippo_quality_gap={g['hippo_quality_gap']:.6g} "
+              f"(clears={g['gap_clears']})", flush=True)
 
-    for arm, ch1, ch2 in ARMS:
-        for seed in SEEDS:
-            cell_num += 1
-            print(f"[cell {cell_num}/{total_cells}] arm={arm} seed={seed} "
-                  f"ch1={ch1} ch2={ch2}", flush=True)
-            with arm_cell(
-                seed,
-                config_slice=_config_slice(ch1, ch2, seed),
-                script_path=Path(__file__),
-                config_slice_declared=True,
-            ) as cell:
-                row = run_cell(arm, ch1, ch2, seed, dry_run=dry_run)
-                all_agents.append(row.pop("agent"))
-                cell.stamp(row)
-            arm_results.append(row)
+    arm_results = [a for r in seed_rows for a in r["arms"]]
 
-    def _cell(arm: str, seed: int) -> Dict[str, Any]:
-        return next(r for r in arm_results if r["arm"] == arm and r["seed"] == seed)
+    def _arm(arm: str, seed: int) -> Dict[str, Any]:
+        return next(a for a in arm_results if a["arm"] == arm and a["seed"] == seed)
 
-    # ---- Preconditions -------------------------------------------------
-    p1_harm = all(r["num_harm_events"] > 0 for r in arm_results)
+    # ---- READINESS GATE (must clear before any arm is lesioned) --------
+    gate_clears = all(r["readiness"]["gap_clears"] == 1 for r in seed_rows)
+    gaps = [r["readiness"]["hippo_quality_gap"] for r in seed_rows]
+
+    # ---- Preconditions --------------------------------------------------
+    p1_harm = all(a["num_harm_events"] > 0 for a in arm_results)
     p2_storage = all(
-        _cell("ARM_1_intact", s)["total_residue"]
-        == _cell("ARM_2_ch1_lesion", s)["total_residue"]
-        == _cell("ARM_3_complete_lesion", s)["total_residue"]
+        _arm("ARM_1_intact", s)["total_residue"]
+        == _arm("ARM_2_ch1_lesion", s)["total_residue"]
+        == _arm("ARM_3_complete_lesion", s)["total_residue"]
         for s in SEEDS
-    )
-    p3_post_hoc = all(r["post_hoc_residue_cost_min_abs"] > 0.0 for r in arm_results)
+    )   # one trained agent per seed, so this is exact by construction -- asserted anyway
+    p3_post_hoc = all(a["post_hoc_residue_cost_min_abs"] > 0.0 for a in arm_results)
     p4_spread = (
-        all(_cell(a, s)["cem_score_spread_max"] > 0.0
+        all(_arm(a, s)["cem_score_spread_max"] > 0.0
             for a in ("ARM_1_intact", "ARM_2_ch1_lesion") for s in SEEDS)
-        and all(_cell("ARM_3_complete_lesion", s)["cem_score_spread_max"] == 0.0
+        and all(_arm("ARM_3_complete_lesion", s)["cem_score_spread_max"] == 0.0
                 for s in SEEDS)
     )
     preconditions_met = bool(p1_harm and p2_storage and p3_post_hoc and p4_spread)
 
-    # ---- C1: DV1 ordinal ordering, PER SEED ----------------------------
+    # ---- C1: DV1 ordinal ordering, PER SEED -----------------------------
     per_seed: List[Dict[str, Any]] = []
     for s in SEEDS:
-        a1 = _cell("ARM_1_intact", s)["residue_avoidance"]
-        a2 = _cell("ARM_2_ch1_lesion", s)["residue_avoidance"]
-        a3 = _cell("ARM_3_complete_lesion", s)["residue_avoidance"]
+        r1, r2, r3 = (_arm("ARM_1_intact", s), _arm("ARM_2_ch1_lesion", s),
+                      _arm("ARM_3_complete_lesion", s))
+        a1, a2, a3 = (r1["residue_avoidance"], r2["residue_avoidance"],
+                      r3["residue_avoidance"])
+        noise = max(r1["between_candidate_sd"], r3["between_candidate_sd"])
+        eff = a3 - a1
         per_seed.append({
             "seed": s,
             "residue_avoidance_arm1_intact": a1,
             "residue_avoidance_arm2_ch1_lesion": a2,
             "residue_avoidance_arm3_complete_lesion": a3,
-            # effect sizes are REPORTED, never thresholded (user decision)
-            "effect_arm3_minus_arm1": a3 - a1,
+            "effect_arm3_minus_arm1": eff,
             "effect_arm3_minus_arm2": a3 - a2,
             "effect_arm2_minus_arm1": a2 - a1,
-            "relative_effect_arm3_vs_arm1": ((a3 - a1) / abs(a3)) if a3 else None,
+            "relative_effect_arm3_vs_arm1": (eff / abs(a3)) if a3 else None,
+            "between_candidate_sd": noise,
+            # The diagnosis that stopped the pre-warmup revision, now a recorded
+            # readout rather than a one-off measurement.
+            "effect_over_noise": (eff / noise) if noise else None,
+            "hippo_quality_gap": _seed_gap(seed_rows, s),
             "c1_arm1_below_arm3": int(a1 < a3),
             "arm2_below_arm3": int(a2 < a3),
         })
     c1_met = all(p["c1_arm1_below_arm3"] == 1 for p in per_seed)
     c1_seeds_clearing = sum(p["c1_arm1_below_arm3"] for p in per_seed)
 
-    # ---- C2: DV3 ordering dissociation, per seed -----------------------
-    c2_flags = []
-    for s in SEEDS:
-        r3 = _cell("ARM_3_complete_lesion", s)
-        c2_flags.append(int(r3["cem_score_spread_max"] == 0.0
-                            and r3["post_hoc_residue_cost_min_abs"] > 0.0))
+    # ---- C2: DV3 ordering dissociation ---------------------------------
+    c2_flags = [int(_arm("ARM_3_complete_lesion", s)["cem_score_spread_max"] == 0.0
+                    and _arm("ARM_3_complete_lesion", s)["post_hoc_residue_cost_min_abs"] > 0.0)
+                for s in SEEDS]
     c2_met = all(f == 1 for f in c2_flags)
 
-    # ---- DV2: gradedness, reported with its sign -----------------------
-    rhos: List[Dict[str, Any]] = []
-    for s in SEEDS:
-        rho = gradedness_rho(_cell("ARM_1_intact", s), _cell("ARM_3_complete_lesion", s))
-        rhos.append({"seed": s, "gradedness_rho": rho})
+    # ---- DV2: gradedness, reported with its sign ------------------------
+    rhos = [{"seed": s,
+             "gradedness_rho": gradedness_rho(_arm("ARM_1_intact", s),
+                                              _arm("ARM_3_complete_lesion", s))}
+            for s in SEEDS]
     rho_vals = [r["gradedness_rho"] for r in rhos if r["gradedness_rho"] is not None]
     rho_mean = (sum(rho_vals) / len(rho_vals)) if rho_vals else None
     rho_positive_seeds = sum(1 for v in rho_vals if v > 0)
 
-    outcome = "PASS" if (preconditions_met and c1_met and c2_met) else "FAIL"
+    eon = [p["effect_over_noise"] for p in per_seed if p["effect_over_noise"] is not None]
+    eon_mean = (sum(eon) / len(eon)) if eon else None
+
+    # A readiness failure is NOT a claim-negative: it means the generator never
+    # acquired the avoidance the lesion is supposed to remove.
+    if not gate_clears:
+        outcome = "FAIL"
+        verdict_reason = "readiness_gate_failed"
+    elif not preconditions_met:
+        outcome = "FAIL"
+        verdict_reason = "preconditions_failed"
+    else:
+        outcome = "PASS" if (c1_met and c2_met) else "FAIL"
+        verdict_reason = "criteria" if outcome == "PASS" else "criteria_not_met"
 
     interpretation = (
         "DIAGNOSTIC -- excluded from governance confidence scoring; does not move "
         "MECH-131's status. Purpose: supply the measured quantities governance needs "
         "to author MECH-131's missing what_would_answer. "
-        f"C1 (residue_avoidance ARM_1 < ARM_3 per seed): {c1_seeds_clearing}/{len(SEEDS)} seeds. "
-        f"C2 (ARM_3 generation residue-blind while post-hoc live): {'met' if c2_met else 'NOT met'}. "
-        f"Gradedness rho mean {rho_mean} ({rho_positive_seeds}/{len(rho_vals)} seeds positive) "
-        "-- reported, not gated. "
+        f"Readiness (042 hippo_quality_gap, hippocampal vs random proposal residue): "
+        f"{gaps} -- {'CLEARS' if gate_clears else 'DOES NOT CLEAR'}. "
+        f"C1 (residue_avoidance ARM_1 < ARM_3 per seed): {c1_seeds_clearing}/{len(SEEDS)}. "
+        f"C2 (ARM_3 generation residue-blind while post-hoc live): "
+        f"{'met' if c2_met else 'NOT met'}. "
+        f"Effect/noise (|ARM_3-ARM_1| over between-candidate SD) mean {eon_mean} -- "
+        "the pre-warmup revision of this driver measured ~0.01 here, which is why the "
+        "warmup exists; a value below ~1 means the DV still cannot resolve its own "
+        "manipulation and the verdict should not be read as being about MECH-131. "
+        f"Gradedness rho mean {rho_mean} ({rho_positive_seeds}/{len(rho_vals)} seeds "
+        "positive) -- reported, not gated. "
+        f"Verdict reason: {verdict_reason}. "
         "Stochastic replication: 3 seeds. World-family replication: 1 family -- "
         "ECOLOGICAL TRANSFER UNTESTED (GOV-ECOL-1); seeds alone do not license "
         "'general' or 'robust'."
     )
 
     readout = flat_readout({
+        "readiness_gate_clears_all_seeds": int(gate_clears),
+        "hippo_quality_gap_mean": sum(gaps) / len(gaps),
+        "hippo_quality_gap_min": min(gaps),
         "c1_arm1_below_arm3_all_seeds": int(c1_met),
         "c1_seeds_clearing": c1_seeds_clearing,
         "c1_seeds_required": len(SEEDS),
@@ -548,9 +712,16 @@ def main(dry_run: bool = False):
             sum(p["effect_arm3_minus_arm1"] for p in per_seed) / len(per_seed),
         "effect_arm2_minus_arm1_mean":
             sum(p["effect_arm2_minus_arm1"] for p in per_seed) / len(per_seed),
+        "between_candidate_sd_mean":
+            sum(p["between_candidate_sd"] for p in per_seed) / len(per_seed),
+        "effect_over_noise_mean": eon_mean if eon_mean is not None else 0.0,
         "gradedness_rho_mean": rho_mean if rho_mean is not None else 0.0,
         "gradedness_rho_seeds_positive": rho_positive_seeds,
         "gradedness_rho_seeds_defined": len(rho_vals),
+        "terrain_loss_early_mean": _loss_mean(seed_rows, "terrain_loss_early"),
+        "terrain_loss_late_mean": _loss_mean(seed_rows, "terrain_loss_late"),
+        "warmup_episodes": warmup_episodes,
+        "steps_per_episode": steps_per_episode,
         "n_seeds": len(SEEDS),
         "n_world_families": 1,
         "n_arms": len(ARMS),
@@ -568,8 +739,15 @@ def main(dry_run: bool = False):
         "evidence_direction": "unknown",
         "outcome": outcome,
         "status": outcome,
+        "verdict_reason": verdict_reason,
         "readout": readout,
         "criteria": {
+            "READINESS_hippo_quality_gap_per_seed": {
+                "measured": min(gaps), "threshold": 0.0, "met": int(gate_clears),
+                "note": "042's hippo-vs-random proposal residue; must clear BEFORE any "
+                        "arm is lesioned. A failure here is a readiness result, NOT "
+                        "evidence about MECH-131.",
+            },
             "C1_dv1_ordinal_arm1_below_arm3_per_seed": {
                 "measured": c1_seeds_clearing, "threshold": len(SEEDS),
                 "met": int(c1_met),
@@ -586,21 +764,33 @@ def main(dry_run: bool = False):
                 "measured_rho": rho_mean, "threshold": None,
                 "note": "REPORTED with its sign; no magnitude floor (user decision)",
             },
+            "DIAGNOSTIC_effect_over_noise": {
+                "measured": eon_mean, "threshold": None,
+                "note": "|ARM_3-ARM_1| / between-candidate SD. Reported, not gated. "
+                        "Pre-warmup revision measured ~0.01; below ~1 the DV cannot "
+                        "resolve its own manipulation.",
+            },
         },
         "replication": {
-            "stochastic_seeds": len(SEEDS),
-            "world_families": 1,
+            "stochastic_seeds": len(SEEDS), "world_families": 1,
             "ecological_transfer": "untested",
         },
         "per_seed": per_seed,
         "gradedness": rhos,
+        "warmup": [{"seed": r["seed"], **r["warmup"]} for r in seed_rows],
+        "readiness": [{"seed": r["seed"], **r["readiness"]} for r in seed_rows],
         "arm_results": arm_results,
         "params": {
             "seeds": SEEDS, "arms": [a[0] for a in ARMS],
             "grid_size": GRID_SIZE, "num_hazards": NUM_HAZARDS,
             "num_resources": NUM_RESOURCES, "self_dim": SELF_DIM,
             "world_dim": WORLD_DIM, "action_dim": ACTION_DIM,
-            "charge_steps": CHARGE_STEPS, "n_probe_states": N_PROBE_STATES,
+            "warmup_episodes": warmup_episodes,
+            "steps_per_episode": steps_per_episode,
+            "terrain_lr": TERRAIN_LR,
+            "n_random_compare": N_RANDOM_COMPARE,
+            "candidate_horizon": CANDIDATE_HORIZON,
+            "n_probe_states": N_PROBE_STATES,
             "dry_run": bool(dry_run),
         },
         "interpretation": interpretation,
@@ -612,19 +802,23 @@ def main(dry_run: bool = False):
 
     out_dir = resolve_evidence_experiments_dir(Path(__file__))
     out_path = write_flat_manifest(
-        manifest,
-        out_dir,
-        dry_run=dry_run,
-        config=manifest["params"],
-        seeds=SEEDS,
-        script_path=Path(__file__),
-        started_at=t0,
-        agent=all_agents,
+        manifest, out_dir, dry_run=dry_run, config=manifest["params"],
+        seeds=SEEDS, script_path=Path(__file__), started_at=t0, agent=all_agents,
     )
-    print(f"Outcome: {outcome}", flush=True)
+    print(f"Outcome: {outcome} ({verdict_reason})", flush=True)
     print(f"wrote: {out_path}", flush=True)
     manifest["_manifest_path"] = str(out_path)
     return manifest, out_path
+
+
+def _seed_gap(seed_rows: List[Dict[str, Any]], seed: int) -> float:
+    return next(r["readiness"]["hippo_quality_gap"] for r in seed_rows
+                if r["seed"] == seed)
+
+
+def _loss_mean(seed_rows: List[Dict[str, Any]], key: str) -> float:
+    vals = [r["warmup"][key] for r in seed_rows if r["warmup"].get(key) is not None]
+    return (sum(vals) / len(vals)) if vals else 0.0
 
 
 if __name__ == "__main__":
@@ -633,10 +827,15 @@ if __name__ == "__main__":
                     "(intact / CH1-lesion / CH1+CH2-lesion) -- DIAGNOSTIC"
     )
     parser.add_argument("--dry-run", action="store_true",
-                        help="Minimal cells (8 charge steps, 3 probe states) to verify wiring")
+                        help="Minimal wiring check (3 warmup episodes x 20 steps)")
+    parser.add_argument("--warmup-episodes", type=int, default=WARMUP_EPISODES,
+                        help="042's number by default; lower ONLY for a scale probe")
+    parser.add_argument("--steps-per-episode", type=int, default=STEPS_PER_EPISODE)
     args = parser.parse_args()
 
-    manifest, out_path = main(dry_run=args.dry_run)
+    manifest, out_path = main(dry_run=args.dry_run,
+                              warmup_episodes=args.warmup_episodes,
+                              steps_per_episode=args.steps_per_episode)
 
     _outcome_raw = str(manifest["outcome"]).upper()
     emit_outcome(
