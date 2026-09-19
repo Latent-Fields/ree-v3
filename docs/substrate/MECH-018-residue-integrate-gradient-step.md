@@ -77,7 +77,7 @@ Two further hazards, recorded so they are not "simplified" away:
 - `sample_points` is rebuilt **every iteration** from detached history. Do not hoist it out
   of the loop to save compute -- that turns `num_steps` independent graphs into one
   accumulated graph.
-- MECH-094 does **not** apply to the WRITEBACK call: `integrate()` writes no residue. It
+- Note: MECH-094 does **not** apply to the WRITEBACK call: `integrate()` writes no residue. It
   never calls `accumulate()`, never touches `rbf_field.weights` or `active_mask`, and only
   trains the approximator toward the already-recorded field. Sleep content cannot become
   residue through this path. It is deliberately a *separate* gated step rather than an
