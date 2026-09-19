@@ -1158,7 +1158,7 @@ class ResidueField(nn.Module):
 
         Args:
             num_steps: Number of integration iterations.
-            train: Override the ResidueConfig.offline_integration_trains gate.
+            train: Override the ResidueConfig.use_offline_integration_gradient_step gate.
                 None (default) -> use the config flag. When the gate is off the
                 loop is bit-identical to the pre-MECH-018 behaviour, including
                 RNG consumption (the per-step `randn_like` draw is taken in both
@@ -1176,7 +1176,7 @@ class ResidueField(nn.Module):
             return {"integration_loss": 0.0, "steps": 0}
 
         do_train = (
-            bool(self.config.offline_integration_trains)
+            bool(self.config.use_offline_integration_gradient_step)
             if train is None
             else bool(train)
         )

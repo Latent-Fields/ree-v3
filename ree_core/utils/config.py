@@ -3194,7 +3194,7 @@ class ResidueConfig:
     # is bit-identical including RNG draws (the randn_like per step is consumed
     # in BOTH branches) and the returned dict keeps exactly its original three
     # keys. An experiment that WANTS the mechanism sets this True.
-    offline_integration_trains: bool = False
+    use_offline_integration_gradient_step: bool = False
     # ARC-030 / MECH-117: benefit terrain (liking -- separate from z_goal wanting)
     benefit_terrain_enabled: bool = False
     # SD-024 live-path producer (2026-07-20). benefit_terrain_enabled builds the
@@ -6825,7 +6825,7 @@ class REEConfig:
     # therefore not become residue through this path.
     #
     # Bit-identical OFF: no call is made, no RNG is consumed, no metric key is
-    # added. Pairs with ResidueConfig.offline_integration_trains -- turning THIS
+    # added. Pairs with ResidueConfig.use_offline_integration_gradient_step -- turning THIS
     # on while that stays off fires an inert call, which is exactly the
     # false-falsification shape MECH-018 is exposed to, so the call site always
     # emits mech018_residue_trains (1.0/0.0) to make that visible in the manifest.
@@ -8533,7 +8533,7 @@ class REEConfig:
         # MECH-018: residue offline-integration gradient step + sleep call site.
         # All three default to the no-op values; see the REEConfig/ResidueConfig
         # field comments for why OFF is the default rather than the fix.
-        residue_offline_integration_trains: bool = False,
+        residue_use_offline_integration_gradient_step: bool = False,
         use_sleep_residue_integration: bool = False,
         sleep_residue_integration_steps: int = 10,
         # Default 0.25 (was 0.1 pre-2026-05-09); see field comment in REEConfig
@@ -10171,8 +10171,8 @@ class REEConfig:
         # it needs this explicit re-apply after cls() -- a from_dims kwarg that is
         # never written back is exactly the MECH-307 failure mode (84 drivers
         # passed a flag into the canonical factory and silently ran with it OFF).
-        config.residue.offline_integration_trains = bool(
-            residue_offline_integration_trains
+        config.residue.use_offline_integration_gradient_step = bool(
+            residue_use_offline_integration_gradient_step
         )
         config.use_sleep_residue_integration = bool(use_sleep_residue_integration)
         config.sleep_residue_integration_steps = int(

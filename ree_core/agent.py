@@ -3167,7 +3167,7 @@ class REEAgent(nn.Module):
                 ),
                 # MECH-018: residue offline integration in the WRITEBACK phase.
                 # Gated separately from the gradient step itself
-                # (ResidueConfig.offline_integration_trains) -- see the pairing
+                # (ResidueConfig.use_offline_integration_gradient_step) -- see the pairing
                 # note at the call site in phase_manager._run_cycle.
                 residue_integration=bool(
                     getattr(config, "use_sleep_residue_integration", False)

@@ -34,7 +34,7 @@ assertion falsifiable), the MIN_FLOOR clamp MUST be re-applied after every step(
 decision to be made deliberately.
 
 Contracts:
-  C1. Flag surface: ResidueConfig.offline_integration_trains defaults False;
+  C1. Flag surface: ResidueConfig.use_offline_integration_gradient_step defaults False;
       REEConfig.use_sleep_residue_integration defaults False; and BOTH are
       reachable through REEConfig.from_dims (the MECH-307 trap: a from_dims
       kwarg never written back to the nested config runs silently OFF).
@@ -69,7 +69,7 @@ from ree_core.utils.config import REEConfig, ResidueConfig
 
 def _field(trains: bool, seed: int = 7, n_harm: int = 6) -> ResidueField:
     torch.manual_seed(seed)
-    rf = ResidueField(ResidueConfig(world_dim=8, offline_integration_trains=trains))
+    rf = ResidueField(ResidueConfig(world_dim=8, use_offline_integration_gradient_step=trains))
     torch.manual_seed(seed + 1)
     for _ in range(n_harm):
         rf.accumulate(torch.randn(1, 8), harm_magnitude=1.0)
@@ -79,7 +79,7 @@ def _field(trains: bool, seed: int = 7, n_harm: int = 6) -> ResidueField:
 # ---------------------------------------------------------------- C1
 
 def test_c1_flag_surface_and_from_dims_reachability():
-    assert ResidueConfig().offline_integration_trains is False
+    assert ResidueConfig().use_offline_integration_gradient_step is False
     cfg = REEConfig()
     assert cfg.use_sleep_residue_integration is False
     assert cfg.sleep_residue_integration_steps == 10
@@ -92,16 +92,16 @@ def test_c1_flag_surface_and_from_dims_reachability():
         body_obs_dim=12,
         world_obs_dim=250,
         action_dim=4,
-        residue_offline_integration_trains=True,
+        residue_use_offline_integration_gradient_step=True,
         use_sleep_residue_integration=True,
         sleep_residue_integration_steps=4,
     )
-    assert on.residue.offline_integration_trains is True
+    assert on.residue.use_offline_integration_gradient_step is True
     assert on.use_sleep_residue_integration is True
     assert on.sleep_residue_integration_steps == 4
 
     off = REEConfig.from_dims(body_obs_dim=12, world_obs_dim=250, action_dim=4)
-    assert off.residue.offline_integration_trains is False
+    assert off.residue.use_offline_integration_gradient_step is False
     assert off.use_sleep_residue_integration is False
 
 
@@ -296,12 +296,12 @@ def test_c7_writeback_call_site_and_agent_wiring():
         use_sleep_loop=True,
         use_sleep_residue_integration=True,
         sleep_residue_integration_steps=5,
-        residue_offline_integration_trains=True,
+        residue_use_offline_integration_gradient_step=True,
     )
     agent = REEAgent(cfg)
     assert agent.sleep_loop.residue_integration is True
     assert agent.sleep_loop.residue_integration_steps == 5
-    assert agent.residue_field.config.offline_integration_trains is True
+    assert agent.residue_field.config.use_offline_integration_gradient_step is True
 
 
 # ---------------------------------------------------------------- C8

@@ -4,7 +4,7 @@
   `ree_core/residue/field.py` (`ResidueField.integrate`),
   `ree_core/sleep/phase_manager.py` (`SleepLoopManager._run_cycle`, WRITEBACK phase),
   `ree_core/agent.py` (wiring), `ree_core/utils/config.py` (flags).
-  Config: `ResidueConfig.offline_integration_trains` (default `False`; set `True` to
+  Config: `ResidueConfig.use_offline_integration_gradient_step` (default `False`; set `True` to
   enable the gradient step) and `REEConfig.use_sleep_residue_integration` (default
   `False`; set `True` to add the sleep call site), with
   `REEConfig.sleep_residue_integration_steps` (default 10). All three are reachable

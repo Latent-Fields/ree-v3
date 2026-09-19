@@ -3216,6 +3216,43 @@ KNOWN_UNPROBED = {
 # categorized once above (top-level) and is not re-listed below; a reader     #
 # auditing one of these five should confirm which CLASS's field is meant.     #
 KNOWN_UNPROBED_NESTED = {
+    # --- ResidueConfig (MECH-018) ---------------------------------------------#
+    # chip-20260917-residue-integrate-no-gradient-step. THIS FLAG IS THE REPAIR
+    # OF A CONFIRMED INSTANCE OF EXACTLY THE FAILURE MODE THIS FILE GUARDS.
+    # ResidueField.integrate() computed F.mse_loss(neural_field(pts),
+    # rbf_field(pts)) in a num_steps loop and accumulated .item() -- but never
+    # called loss.backward(), and the module declared no optimizer in its 1259
+    # lines. It was a METRIC loop wearing the shape of a training loop: the
+    # "integration_loss" it returned read as training progress while nothing
+    # trained (runtime probe, 6 harm events / num_steps=25: params unchanged,
+    # no .grad anywhere; independently recorded by V3-EXQ-996's confirmed
+    # autopsy ISEF-005, 2026-09-04). MECH-018 lists "the operation is
+    # geometrically inert" as an explicit FALSIFYING outcome, so every MECH-018
+    # run made before this landed would have returned a CONFIDENT FALSE
+    # FALSIFICATION -- a plausible-looking null weighting claim confidence,
+    # which is this file's opening paragraph almost verbatim.
+    #
+    # ON now constructs Adam over self.neural_field.parameters() ONLY and runs
+    # zero_grad/backward/step per iteration. Default OFF is deliberate rather
+    # than timid: integrate() has live experiment callers (v3_exq_214, 240,
+    # 240a, 246) and evaluate() reads rbf_value + neural_value * 0.1, so an
+    # unconditional gradient step would silently change those runs' numerics on
+    # re-run and invalidate their recorded evidence. OFF is bit-identical
+    # including RNG consumption.
+    #
+    # Registered here rather than probed at this file's level because the
+    # observable is a parameter delta and a no-erasure invariant, not an action
+    # stream, and both are pinned directly against the module in
+    # tests/contracts/test_mech018_residue_integrate_gradient.py: C3 asserts the
+    # params MOVE ON and do NOT move OFF and that the loss actually falls; C2
+    # asserts the optimizer's param set is EXACTLY neural_field's with no
+    # rbf_field parameter (the isolation that makes the no-erasure claim true by
+    # construction -- stated as a test precisely because, written the obvious
+    # way, "rbf weights stay above the floor" is an arithmetic identity over
+    # disjoint submodules and can never fail); C5 asserts the MIN_FLOOR = 1e-6
+    # sign-preserving clamp on discharge_domain, the one path where erasure IS
+    # reachable. A full-agent probe would add no discrimination over those.
+    "use_offline_integration_gradient_step",
     # --- HippocampalConfig ----------------------------------------------------#
     # SD-097 typed possibility topology over AnchorKeys. Gates whether
     # HippocampalModule constructs a PossibilityTopology and attaches it to the
@@ -3316,6 +3353,29 @@ KNOWN_UNPROBED_NESTED = {
     # test_e3_last_scores_post_arbitration.py. A full-agent probe would add no
     # discrimination the direct pins do not already provide.
     "use_post_arbitration_last_scores",
+    # --- REEConfig (MECH-018) -------------------------------------------------#
+    # chip-20260917-residue-integrate-no-gradient-step: adds ONE flag-gated call
+    # to ResidueField.integrate() in SleepLoopManager._run_cycle's WRITEBACK
+    # phase, so "residue integration during sleep" (MECH-018) fires inside the
+    # cycle rather than only from experiment drivers. Registered here rather
+    # than probed at this file's level because ON-vs-OFF is not an
+    # action-stream question at all: integrate() writes NO residue (it never
+    # calls accumulate(), never touches rbf_field.weights or active_mask) and
+    # only trains the neural approximator, so a full-agent action-stream probe
+    # would be measuring the wrong observable. The three things that DO change
+    # -- the call fires, the emitted mech018_* metric keys, and the
+    # neural_field parameter delta -- are pinned directly, end-to-end through a
+    # real force_cycle, in
+    # tests/contracts/test_mech018_residue_integrate_gradient.py (C7, C8).
+    #
+    # NOTE THE PAIRING, it is the whole reason this flag is interesting to a
+    # dead-flag registry: this knob supplies only the CALL. Whether the call
+    # does anything is ResidueConfig.use_offline_integration_gradient_step
+    # (registered in KNOWN_UNPROBED_NESTED below). ON with that OFF is an
+    # INERT integration -- exactly this file's failure mode -- which is why the
+    # call site always emits mech018_residue_trains (1.0/0.0) so such a run is
+    # identifiable from the manifest and not scored against MECH-018.
+    "use_sleep_residue_integration",
 }
 
 

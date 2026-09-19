@@ -671,7 +671,7 @@ class SleepLoopManager:
         #
         # THE PAIRING TRAP, made visible on purpose: this flag only supplies the
         # CALL. Whether the call does anything is ResidueConfig.
-        # offline_integration_trains. On with that off is an inert call -- which
+        # use_offline_integration_gradient_step. On with that off is an inert call -- which
         # is precisely MECH-018's own FALSIFYING branch arriving for a substrate
         # reason rather than a scientific one -- so mech018_residue_trains is
         # always emitted (1.0/0.0) and a run that reads 0.0 must not be scored
@@ -691,7 +691,7 @@ class SleepLoopManager:
                 bool(
                     getattr(
                         getattr(agent.residue_field, "config", None),
-                        "offline_integration_trains",
+                        "use_offline_integration_gradient_step",
                         False,
                     )
                 )
