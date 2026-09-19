@@ -167,3 +167,78 @@ noise. Every "did the encoder train?" check built on weight movement alone would
 this arm. The constant-mean lift is what does not.
 
 Raised for decision as `chip-20260918-sd011-sd020-harm-target-respecification`.
+
+---
+
+## Option H two-arm diagnostic: arm E clears, arm F does not (2026-09-19)
+
+User decision 2026-09-19T00:49Z, on `chip-20260918-sd011-sd020-harm-target-respecification`:
+run E and F as ONE short two-arm diagnostic and let the measurement choose. Both arms landed as
+default-off `ZHarmAP0Config` levers (contracts C3k-C3n); no queue entry, no env change.
+
+- **Arm E** -- `p0_precision_norm`: pin SD-020's ARC-016 factor `min(current_precision/500, 3.0)`
+  for the duration of the P0h stage only (solve for E3's running variance, restore on exit).
+- **Arm F** -- `target_source="harm_exposure"`: regress the PER-TICK scalar the env already emits
+  at `harm_obs[-1]` instead of SD-011's cumulative episode mean.
+
+### Four arms x 3 seeds, same env / seeds / episodes / optimiser
+
+| arm | target | precision_norm | holdout target mean | holdout target CV | lift per seed | mean lift | readiness |
+|---|---|---|---|---|---|---|---|
+| B1 SD-011 baseline | `accumulated_harm` | 0.004 | 2.9e-02 .. 3.4e-02 | 0.008 .. 0.013 | -2896.8, -377.2, -51.2 | -1108.4 | 0/3 |
+| B2 SD-020 baseline | PE | 0.004 | 5.7e-07 .. 2.3e-06 | 0.505 .. 0.928 | -0.278, +0.164, -0.107 | -0.074 | 1/3 |
+| **E** SD-020 decoupled | PE | **1.000** | 1.4e-04 .. 5.7e-04 | 0.505 .. 0.928 | **+0.990, +0.973, +0.777** | **+0.913** | **3/3** |
+| F SD-011 re-specified | `harm_exposure` | 0.004 | 2.2e-02 .. 2.8e-02 | 0.558 .. 0.850 | -3.121, -1.559, -1.364 | -2.015 | 0/3 |
+
+B1 and B2 reproduce the 2026-09-18 numbers exactly, which is what licenses reading E and F
+against them.
+
+**ARM E CLEARS the constant-mean baseline on every seed. ARM F DOES NOT.**
+
+### Why E is a single-cause result, not a lucky knob
+
+E and B2 have **identical holdout target CVs** (0.505 / 0.928 / 0.640) -- as they must, because
+pinning `precision_norm` is a pure rescale and a rescale cannot change a coefficient of
+variation. The information content of the target is therefore provably unchanged between the two
+arms. The only thing that differs is absolute scale (target mean 5.7e-07 -> 1.4e-04, 250x), and
+the lift moves from -0.074 to +0.913. So the SD-020 PE signal was learnable all along, and what
+destroyed it was the ARC-016 scaling at P0 -- exactly the phase-ordering hypothesis, now
+confirmed rather than inferred.
+
+A sweep over the pin makes the threshold concrete (3 seeds each; CV constant at 0.691 throughout,
+so every difference below is scale):
+
+| pin | 0.004 | 0.020 | 0.040 | 0.100 | 0.400 | 1.000 | 3.000 |
+|---|---|---|---|---|---|---|---|
+| target mean | 1.29e-06 | 6.43e-06 | 1.29e-05 | 3.22e-05 | 1.29e-04 | 3.22e-04 | 9.65e-04 |
+| mean lift | -0.074 | +0.958 | +0.950 | +0.930 | +0.916 | +0.913 | +0.912 |
+| readiness | 1/3 | 3/3 | 3/3 | 3/3 | 3/3 | 3/3 | 3/3 |
+
+There is a **cliff between 0.004 and 0.02** -- a single 5x rescale -- and a flat plateau
+(~+0.92) for two further orders of magnitude above it. That is the signature of a numerical
+FLOOR, not of a tuned optimum: the failing target has magnitude ~1e-06, so its gradients are
+comparable to Adam's `eps` (1e-8) and the update direction is dominated by epsilon rather than
+by the loss. It also means the repair does not need `precision_norm = 1.0` specifically; **any
+pin at or above ~0.02 clears**, and the plateau's mild downward slope says larger is not better.
+
+### Arm F: better target, still no lift -- and the reason is informative
+
+Arm F's target has far more relative dispersion than SD-011's as specified (CV 0.558-0.850 vs
+0.008-0.013), and it improves the lift enormously (-2.0 vs -1108). It still does not beat its own
+mean. The likely reason is structural rather than a tuning miss: the encoder's input `harm_obs_a`
+is an **EMA** of the harm field, so it carries the smoothed signal; asking it to predict the
+INSTANTANEOUS scalar is asking a low-pass-filtered input to recover what the filter removed.
+
+This is the good outcome for SD-011's claim text: because F did not carry, the claim-level cost
+that option F would have incurred -- changing what `z_harm_a` MEANS, collapsing the
+accumulated-vs-instantaneous distinction from `z_harm_s` and re-opening the EXQ-241 D3 redundancy
+the second source was built to fix -- **is not incurred**. SD-011's target quantity does not need
+re-specifying.
+
+### What this implies for the claims (NOT applied here -- raised for decision)
+
+SD-020 as written couples the affective-PE target to precision at ALL times. The measurement says
+that coupling is correct as a RUNTIME property and wrong as a TRAINING-TIME one, because P0
+necessarily runs before the agent has any precision to couple to. Amending SD-020 to say so is a
+claim-level change and was NOT made here; raised as
+`chip-20260919-sd020-precision-coupling-runtime-property`.
