@@ -2553,6 +2553,20 @@ PROBED = {
     # ON lets it override the EMA in BOTH directions (veto a low-EMA commit,
     # rescue a high-EMA non-commit) on the same `_running_variance` state.
     "use_conditional_precision_gate",
+    # ARC-029 (D) variance-tracking commitment bar (E3Config, nested). Probed by
+    # tests/contracts/test_commit_threshold_variance_tracking.py, not by a probe
+    # in this file. OFF: test_arming_the_lever_while_warming_is_bit_identical
+    # pins scores, committed flags, the parameter fingerprint and the torch RNG
+    # state identical to default across 300 ticks WITH THE LEVER ARMED (window
+    # wider than the run), i.e. identity where the new code RUNS, not only where
+    # it is skipped; a cross-revision hash against pristine origin/main was run
+    # at build time and matched. ON: the same rv stream that saturates the fixed
+    # 0.40 bar at committed_step_fraction 1.0000 gives 0.2730 / 0.4690 / 0.6890
+    # at q = 0.25 / 0.50 / 0.75, with mean committed-run length 7.0-12.5 -- i.e.
+    # the gate leaves an absorbing state for a two-mode occupancy, which is the
+    # whole point of the lever. Two naive estimators are pinned as negative
+    # controls so a future inert reimplementation cannot pass.
+    "use_variance_tracking_commit_threshold",
     # ARC-108 learned channel gating. Probed by
     # test_arc108_learned_channel_gating.py C2/C3: ON-at-init is bit-identical
     # to OFF (exact score/selected_index equality); under a non-flat
