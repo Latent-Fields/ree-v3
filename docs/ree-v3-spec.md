@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-09-16 (T01:10Z nightly)
+**Last updated:** 2026-09-19 (T01:10Z nightly)
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -236,6 +236,86 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 `REE_assembly/docs/architecture/self_attribution_per_stream.md`.
 
 ### Experiment Status
+
+- **2026-09-19T01:10Z nightly attestation (scheduled `/update-docs`, bot
+  identity).** ~72h window since the 2026-09-16T01:10Z snapshot --
+  nightlies for 2026-09-17 and 2026-09-18 did not run (nothing was
+  committed to `docs/roadmap.md` or `docs/ree-v3-spec.md` in that
+  band). Flat `v3_exq_*` manifests on disk: **1033** (+12 vs 1021 at
+  2026-09-16T01:10Z); nested per-run manifests under
+  `evidence/experiments/*/runs/`: **2968** (+7 vs 2961). **Currently
+  queued (`experiment_queue.json` items[]): 1 item** -- V3-EXQ-1039a
+  (INV-086/MECH-428 absorption-gated waypoint_field_consumer_reach H1
+  re-run; ree-v3 `80dae9b`, red-team CONTESTED -> dispositions applied,
+  A2 narrowing user-ratified 2026-09-18). **Pending review
+  (`pending_review.md`, regenerated 2026-09-18T19:04:01Z): 0 items**
+  -- the four owed staging-mode Step 8 gates plus the diagnostic
+  backlog carried forward from the 2026-09-16 nightly have all cleared
+  in-window. Coordinator-DB 30-day rolling (per
+  `experiment_error_rate.py` against the hub `ree@91.98.130.117`,
+  span 2026-08-20T07:32:46Z .. 2026-09-18T23:49:47Z): **66 PASS / 55
+  FAIL / 2 ERROR, ERROR rate 1.6% (2 / 123 classified runs)**.
+  (a) **NO new substrate landings in the window** -- SD-106
+  (2026-09-11) remains the most recent substrate; no substrate
+  landings, no ratified amends, no `substrate_queue.json` additions.
+  (b) **SD-061 amendment (a)+(b)+(c) landed** across three commits:
+  (a)+(b) coupled the differentiable-CEM temperature half to its
+  consumer + declared axis-presence diagnostics (ree-v3 `6ba3eb9`,
+  substrate record `2e6ab0b`; REE_assembly design-doc/queue-amend
+  `cdec7803ede`, GFLAG-0352); (c) the declared-axis mask on
+  StuckStateDetector with the axis-absence -> refusal failure mode
+  (ree-v3 `f372ce4`, record `2ebec8f`; REE_assembly `ab5968b6816`;
+  user OPTION-D decision 2026-09-19). Q-056 still BLOCKED and NOT
+  queued. (c) **MECH-131 OPTION C landed** (ree-v3 `b2645f0` +
+  `95b3e18`): `HippocampalConfig.score_trajectory_residue_terrain_enabled`
+  as the second (CH2) call-site lesion knob; CH1+CH2 collapses the
+  CEM score spread to exactly 0.0 with post-hoc scorer live. Three-arm
+  anticipatory-residue lesion design STAGED for review (REE_assembly
+  `c961eca1720`; addendum `5b743b6e6c7`); NOT queued -- MECH-131 has
+  no `what_would_answer` and decision chip
+  `chip-20260918-mech131-evidential-bar` was raised. (d) **ARC-029
+  (D) variance-tracking commitment bar landed** (REE_assembly
+  `663aa08c3b9`); governance flag raised (stale_note class,
+  REE_assembly `f41b2073d96`). (e) **SD-011 P0h option-H work
+  landed in-flight** (ree-v3 `d5e8a7d`, `26b996a`; REE_assembly
+  `e58921ed21c`): two re-specification arms added as default-off
+  levers, option-H measurement recorded (arm E clears on 3 seeds,
+  arm F does not). Further SD-011/SD-020 harm-target work is under
+  active rival-claim iteration by
+  `metaworker-science-20260919-sd011-harm-target-arms-EF`. (f)
+  **EVB-1410 (MECH-050) blocked_substrate red-team finding landed**
+  (REE_assembly `ea6aa0aa606`); IGW-246 + IGW-237 spawned; lit-pulls
+  landed on MECH-050 functional-locality vs columnar geometry (5
+  entries, REE_assembly `6491ae5c7ba`) and salience-gain vs divisive
+  normalisation for the SD-032a affinity input (6 entries, REE_assembly
+  `7626241b57a`). (g) **Staged D3-decision records** for MECH-170 and
+  sd068-staged-restoration-mode (REE_assembly `968ddd71624`,
+  `04bbcd3a763`) -- costing basis withdrawn where flawed. (h)
+  **Coordination-plane background** stable: phase2b materializer
+  ticks (`REE_Working` `dff6475b5`, `2b1005af0`); IGW auto-tick reaper
+  (`REE_Working` `15b44c98d`); dispatch-budget ticks; V3-EXQ-1039a
+  staged-artifact record (REE_assembly `8335f06a2fb`, GFLAG-0353).
+  This attestation itself is the last content change: `docs/ree-v3-spec.md`
+  §0 date bump + Experiment Status entry, and the paired `docs/roadmap.md`
+  snapshot. **Bottleneck: unchanged** -- SD-011/SD-020 harm-target
+  consumer arm F still not clearing under active rival-claim
+  iteration; MECH-131 evidential-bar decision owed; SD-061 axis mask
+  landed but Q-056 still BLOCKED on a pre-registered evidential bar;
+  the H-observation-interface convergence axis remains open (SD-106
+  IMPLEMENTED-and-partially-validated under
+  `preservation_weight=200.0` + world-encoder skip). Green-board
+  target 2026-07-19 now **62 days overdue**. **ETHICS-PERIMETER
+  Phase 0 datum** stays on the record (Phases 1-3 deferred;
+  NON-BLOCKING). Public-information-architecture impact: reviewed
+  against `docs/design/public_information_architecture.md` -- no
+  `/api/*` surface, generated visualization, or public export
+  changed; nightly snapshot + spec date bump + Experiment Status
+  entry only; no SD table rows added, moved, or restatused. **Note
+  on Step 4 (ree-v3/CLAUDE.md SD-section sync) SKIPPED**:
+  `ree-v3/CLAUDE.md` is under an active rival claim
+  (`metaworker-science-20260919-sd011-harm-target-arms-EF` opened
+  2026-09-19T00:50:30Z, currently editing) -- this scheduled task
+  deferred to it per CLAUDE.md concurrency rules.
 
 - **2026-09-16T01:10Z nightly attestation (scheduled `/update-docs`, bot
   identity).** ~24h window since the 2026-09-15T01:10Z snapshot -- a
