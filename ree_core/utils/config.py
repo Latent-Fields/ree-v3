@@ -1261,12 +1261,50 @@ class E3Config:
     #       A sentinel that raises converts that silent-swallow into a LOUD
     #       failure at construction -- the "structurally present but
     #       functionally inert" failure this codebase keeps producing.
-    # Guidance for choosing the window (NOT a default): the gate variance is
-    # an EMA with time constant ~1/precision_ema_alpha (~20 ticks at the 0.05
-    # default). A window of that order contains only correlated samples, so
-    # the bar tracks rv almost instantaneously and committed runs degenerate
-    # to ~1 tick; several multiples of it (hundreds of ticks) give both drift
-    # tracking and run-length structure. Measured surface: see the finding doc.
+    # WHAT THE WINDOW ACTUALLY CONTROLS (measured 2026-09-18; an earlier draft
+    # of this comment asserted it controls committed-RUN LENGTH and that was
+    # MEASURED FALSE -- at the agent's default cadence run length moves only
+    # ~3.2 -> ~3.4 ticks across a 40x window range, saturating by W~50):
+    #   - the WARMUP: the bar does not take force until the window is full, and
+    #     the count is in SELECT CALLS, not env ticks. The agent calls
+    #     update_running_variance every env tick but select() only on E3 ticks
+    #     (e3_steps_per_tick, default 10), so a window of 200 is ~2000 env ticks.
+    #   - how much within-run drift the single linear detrend term must describe.
+    # THE RUN-LENGTH LEVERS ARE ELSEWHERE, and a pre-registration should reach
+    # for these instead: precision_ema_alpha (measured mean committed-run length
+    # ~2.0 / ~3.4 / ~14.1 ticks at alpha 0.5 / 0.05 (default) / 0.001) and
+    # e3_steps_per_tick (measured ~10.4 / ~6.1 / ~3.4 / ~2.6 ticks at a
+    # variance-update : select ratio of 1 / 3 / 10 (agent default) / 20).
+    # CONSEQUENCE FOR ARC-029's P1, stated because it is easy to miss: at the
+    # AGENT's 10:1 cadence, mean committed-run length at q=0.25 measured 2.22 --
+    # BELOW P1's >= 3-tick criterion. The occupancy criterion is met at every
+    # (q, W) cell; the run-length criterion is NOT, and needs alpha or the E3
+    # cadence moved. Measured surface: REE_assembly/evidence/planning/
+    # arc029_variance_tracking_commit_bar_build_20260918.md.
+    #
+    # TWO CONSEQUENCES FOR OTHER MECHANISMS WHEN THIS LEVER IS ARMED -- neither
+    # is a defect in them, but both change what they mean, and a run that arms
+    # both must say so:
+    #   1. precision_margin_norm (1 - commit_variance/effective_threshold) is
+    #      ~1 by construction under the ABSOLUTE bar and ~0 by construction
+    #      under a quantile bar, because the bar now sits AT a quantile of the
+    #      same scalar. Measured mean 0.999986 -> 0.032963. It is a live
+    #      selection input via MECH-027
+    #      use_precision_scaled_commit_temperature, and the DV of
+    #      V3-EXQ-981/981a.
+    #   2. Every MULTIPLICATIVE modulation of the bar (MECH-108 sweep, SD-011
+    #      urgency, SD-093 velocity) now shifts the LOG bar by log(1-a) against
+    #      a residual spread that is an uncontrolled property of the run, so
+    #      its usable range is MUCH smaller and is not known a priori.
+    #      Measured at q=0.50: occupancy 0.469 / 0.388 / 0.294 / 0.119 / 0.003
+    #      at sweep amplitude 0 / 0.02 / 0.05 / 0.10 / 0.20, i.e. collapsed by
+    #      0.25 -- which is breath_sweep_amplitude's own DEFAULT. SD-011
+    #      urgency runs the other way (occupancy 0.974 at urgency_applied ~0.2).
+    #      ARC-029's worked 'a > 0.18' is stale in this direction too; the
+    #      workable band is a ~ 0.02-0.10. A scale-free alternative (modulate
+    #      the QUANTILE, q -> q - delta, rather than the bar) was identified and
+    #      deliberately NOT built here: it changes what the manipulation IS,
+    #      which is the experiment's call, not this build's.
     commit_threshold_quantile: float = -1.0
     commit_threshold_quantile_window: int = -1
 
@@ -8529,15 +8567,6 @@ class REEConfig:
         # E3-last-scores-pre-arbitration-staleness repair (2026-08-20). No-op
         # default; bit-identical OFF.
         use_post_arbitration_last_scores: bool = False,
-        # ARC-029 (D): variance-tracking commitment bar. Lives on E3Config
-        # (E3Selector.config IS the E3Config), so it needs all THREE wiring
-        # sites -- field, this signature entry, and the config.e3 mirror
-        # below -- or from_dims silently swallows it and the lever is inert.
-        # The two parameters have UNSET sentinels on purpose; E3Selector
-        # raises if the lever is armed and they did not arrive.
-        use_variance_tracking_commit_threshold: bool = False,
-        commit_threshold_quantile: float = -1.0,
-        commit_threshold_quantile_window: int = -1,
         # GFLAG-0051 / MECH-151 action-object ranking channel (2026-09-01).
         # No-op default; bit-identical OFF.
         use_action_object_bias_channel: bool = False,
@@ -8726,6 +8755,17 @@ class REEConfig:
         cem_modulatory_authority_min_spread_floor: float = 1e-6,
         use_cem_modulatory_throughput: bool = False,
         authority_competitive_ratio_floor: float = 0.1,
+        # ARC-029 (D): variance-tracking commitment bar. Lives on E3Config
+        # (E3Selector.config IS the E3Config), so it needs all THREE wiring
+        # sites -- field, this signature entry, and the config.e3 mirror in
+        # the body -- or from_dims silently swallows it and the lever is
+        # inert. The two parameters have UNSET sentinels on purpose;
+        # E3Selector raises if the lever is armed and they did not arrive.
+        # Placed immediately before **kwargs so no existing positional
+        # argument index moves (the convention documented above).
+        use_variance_tracking_commit_threshold: bool = False,
+        commit_threshold_quantile: float = -1.0,
+        commit_threshold_quantile_window: int = -1,
         **kwargs,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""

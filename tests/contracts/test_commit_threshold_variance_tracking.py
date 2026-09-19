@@ -453,3 +453,161 @@ def test_arming_without_an_explicit_operating_point_raises(kw):
     also converts a from_dims silent-swallow into a loud construction error."""
     with pytest.raises(ValueError):
         _selector(use_variance_tracking_commit_threshold=True, **kw)
+
+
+# --------------------------------------------------------------------------- #
+# 8. Degenerate-window and robustness guards (red-team 2026-09-18)             #
+# --------------------------------------------------------------------------- #
+
+def test_constant_window_falls_back_to_the_absolute_bar():
+    """A CONSTANT gate variance makes the quantile equal the value itself, so
+    `v < bar` reduces to `v < v` decided by a 1-ulp exp(log(v)) round-trip --
+    independent of q, and absorbing in whichever direction it lands. Left
+    unguarded that silently replaces "permanently committed" with "permanently
+    UNcommitted". It is reachable: a driver that never calls
+    post_action_update leaves rv pinned at precision_init forever (V3-EXQ-925a
+    documents exactly that), which is the E3-level harness shape ARC-029 uses.
+    """
+    W = 20
+    for pinned in (0.5, 1e-5, 1.2e-6, 3.0):
+        sel = _selector(
+            use_variance_tracking_commit_threshold=True,
+            commit_threshold_quantile=0.5,
+            commit_threshold_quantile_window=W,
+        )
+        sel._running_variance = pinned
+        cands = _candidates()
+        flags, bars = [], []
+        for _ in range(W * 3):
+            sel._running_variance = pinned      # pinned: never updated
+            sel.select(cands)
+            d = sel.last_score_diagnostics
+            flags.append(bool(d["committed"]))
+            bars.append(d.get("variance_tracking_commit_bar"))
+        assert all(b is None for b in bars), (
+            "a constant window must yield NO quantile bar (pinned=%r)" % pinned
+        )
+        # the absolute bar stays in force, so behaviour is the pre-lever one
+        assert all(f == (pinned < 0.40) for f in flags), (
+            "with no quantile bar the absolute 0.40 bar must decide (pinned=%r)"
+            % pinned
+        )
+        # and it is distinguishable from warmup: the window IS full
+        assert len(sel._commit_gate_variance_window) == W
+
+
+def test_non_finite_gate_samples_are_dropped_not_appended():
+    """One NaN would otherwise corrupt the bar for a whole window width: NaN is
+    ignored by max() and then coerced to the tiny log floor, dragging the bar
+    orders down. Under the absolute bar a bad sample cost exactly one tick."""
+    W = 10
+    sel = _selector(
+        use_variance_tracking_commit_threshold=True,
+        commit_threshold_quantile=0.5,
+        commit_threshold_quantile_window=W,
+    )
+    cands = _candidates()
+    pes = _pe_stream(W * 4)
+    for t in range(W * 4):
+        sel.update_running_variance(pes[t])
+        if t == W:
+            sel._running_variance = float("nan")
+        elif t == W + 1:
+            sel._running_variance = float("inf")
+        sel.select(cands)
+    assert all(
+        math.isfinite(v) for v in sel._commit_gate_variance_window
+    ), "no non-finite sample may enter the window"
+
+
+def test_simulation_mode_ticks_do_not_pollute_the_window():
+    """A replay / DMN tick is counterfactual. Every other accumulator in
+    select() is gated on simulation_mode; this one must be too, or the bar is
+    taken over a distribution the real gate was never judged against."""
+    W = 50
+    sel = _selector(
+        use_variance_tracking_commit_threshold=True,
+        commit_threshold_quantile=0.5,
+        commit_threshold_quantile_window=W,
+    )
+    cands = _candidates()
+    pes = _pe_stream(40)
+    for t in range(40):
+        sel.update_running_variance(pes[t])
+        sel.select(cands)
+    n_real = len(sel._commit_gate_variance_window)
+    for _ in range(25):
+        sel.select(cands, simulation_mode=True)
+    assert len(sel._commit_gate_variance_window) == n_real, (
+        "simulation_mode ticks must not enter the gate-variance window"
+    )
+
+
+def test_arming_after_construction_is_not_silently_inert():
+    """`agent.config.e3.<field> = ...` post-construction is an existing idiom in
+    the experiment corpus. Used for this lever it must WORK, not sit inert --
+    otherwise the sentinel defence covers only the from_dims swallow."""
+    sel = _selector()
+    assert sel._commit_gate_variance_window is None
+    sel.config.use_variance_tracking_commit_threshold = True
+    sel.config.commit_threshold_quantile = 0.5
+    sel.config.commit_threshold_quantile_window = 30
+    cands = _candidates()
+    pes = _pe_stream(80)
+    for t in range(80):
+        sel.update_running_variance(pes[t])
+        sel.select(cands)
+    assert sel._commit_gate_variance_window is not None
+    assert sel.last_score_diagnostics.get("variance_tracking_commit_bar") is not None
+
+
+def test_arming_after_construction_without_an_operating_point_still_raises():
+    sel = _selector()
+    sel.config.use_variance_tracking_commit_threshold = True   # q/window unset
+    with pytest.raises(ValueError):
+        sel.select(_candidates())
+
+
+def test_get_commitment_state_reports_the_bar_the_gate_actually_used():
+    """Without this, arming the lever leaves a SECOND, disagreeing notion of
+    commitment (measured 53.7% disagreement at q=0.50) -- and it is not merely
+    telemetry: REEAgent feeds `committed_now` into
+    compute_agent_persistence_appraisal, and several drivers instrument
+    commitment through this dict. They would have recorded the lever as inert.
+    """
+    sel = _selector(
+        use_variance_tracking_commit_threshold=True,
+        commit_threshold_quantile=0.5,
+        commit_threshold_quantile_window=WINDOW,
+    )
+    cands = _candidates()
+    pes = _pe_stream(TICKS)
+    agree = 0
+    checked = 0
+    for t in range(TICKS):
+        sel.update_running_variance(pes[t])
+        sel.select(cands)
+        if sel.last_score_diagnostics.get("variance_tracking_commit_bar") is None:
+            continue
+        st = sel.get_commitment_state()
+        checked += 1
+        if bool(st["committed_now"]) == bool(sel.last_score_diagnostics["committed"]):
+            agree += 1
+    assert checked > 100
+    assert agree == checked, (
+        "get_commitment_state must agree with the select() gate once the bar is "
+        "in force; %d/%d agreed" % (agree, checked)
+    )
+    assert st["commit_threshold"] != st["commit_threshold_absolute"]
+
+
+def test_get_commitment_state_is_unchanged_when_the_lever_is_off():
+    sel = _selector()
+    pes = _pe_stream(30)
+    for t in range(30):
+        sel.update_running_variance(pes[t])
+        sel.select(_candidates())
+    st = sel.get_commitment_state()
+    assert st["commit_threshold"] == sel.commit_threshold
+    assert st["commit_threshold_absolute"] == sel.commit_threshold
+    assert bool(st["committed_now"]) == (sel._running_variance < sel.commit_threshold)
