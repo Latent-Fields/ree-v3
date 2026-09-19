@@ -4,6 +4,11 @@
 # --strict on staged experiments/v3_exq_*.py paths. Both checks self-gate: if
 # no relevant paths are staged, the corresponding block is a no-op.
 #
+# Narrow author-side blocks sit between those two (1b manifest-writer, 1c
+# corpus-lint subset, 1d flag registry, 1e substrate-docs index integrity),
+# each keyed on the one path class that can break the check it runs. 1e is the
+# only block keyed on docs: staged docs/substrate/*.md or CLAUDE.md.
+#
 # The contract SUITE (Block 2) is ROUTED to a free machine (2026-07-29): a
 # free-memory-gated choice between the local Mac (only when it has a real
 # margin) and the cloud fleet via remote_pytest.sh. Coverage is unchanged --
@@ -451,6 +456,47 @@ if [ -n "$STAGED_FLAG_CONFIG" ]; then
     if ! (cd "$RUN_ROOT" && "$PY" -m pytest -q --tb=short tests/test_flag_inertness.py::test_flag_registry_is_current) >&2; then
         echo "[precommit_contracts] flag registry is stale -- blocking commit" >&2
         echo "[precommit_contracts] add a behavioural probe to PROBED, or record the new/renamed flag in KNOWN_UNPROBED / KNOWN_UNPROBED_NESTED with a reason (tests/test_flag_inertness.py)" >&2
+        echo "[precommit_contracts] or run with --no-verify to bypass" >&2
+        if [ "$NO_BLOCK" = "1" ]; then
+            :
+        else
+            exit 2
+        fi
+    fi
+fi
+
+# Block 1e: staged docs/substrate/*.md or CLAUDE.md -> substrate-index integrity
+# (chip-20260919-wi1-index-contract-prose-false-positive).
+#
+# tests/docs_integrity/test_wi1_substrate_split_index_integrity.py is a pure
+# text lint over docs/substrate/*.md and CLAUDE.md's "Substrate feature index".
+# It used to live in tests/contracts/, i.e. under Block 2 -- which keys on
+# ree_core/** and experiments/_lib/**, never on docs. So a docs commit that
+# broke it was checked by NOTHING, and the red then blocked every UNRELATED
+# ree_core commit fleet-wide until someone tripped over it (2026-09-19: ree-v3
+# 65c1f72 landed one prose bullet opening with a foreign id; ~6.5h wedge, two
+# ~28min remote gate runs burned by a bystander session).
+#
+# This block puts the check on the commit that can actually break it, and the
+# move out of tests/contracts/ takes it off the commits that cannot. A DOCS
+# lint must not be able to block a CODE commit.
+#
+# Run LOCALLY, same treatment as Blocks 1c/1d: no torch, no agent, no fleet --
+# a glob and a few regexes, sub-second. CLAUDE.md is keyed as well as the
+# substrate files because the index <-> file bijection reads both sides.
+#
+# Boxes with no commit guards (the cloud workers, where 65c1f72 was authored)
+# are covered post-push by .github/workflows/docs-integrity.yml instead.
+#
+# See tests/contracts/test_precommit_contracts_docs_integrity_scope.py.
+STAGED_SUBSTRATE_DOCS=$(echo "$STAGED" | grep -E '^(docs/substrate/[^/]+\.md|CLAUDE\.md)$' || true)
+if [ -n "$STAGED_SUBSTRATE_DOCS" ]; then
+    echo "[precommit_contracts] staged substrate docs -- checking substrate index integrity" >&2
+    stage_commit_tree || :
+    if ! (cd "$RUN_ROOT" && "$PY" -m pytest -q --tb=short tests/docs_integrity/test_wi1_substrate_split_index_integrity.py) >&2; then
+        echo "[precommit_contracts] substrate index integrity failed -- blocking commit" >&2
+        echo "[precommit_contracts] a bullet opening with an id its file's heading does not own: lead with a word (e.g. 'Note: ') if it is prose, or give the record its own docs/substrate file + CLAUDE.md index entry" >&2
+        echo "[precommit_contracts] an unlinked/broken/duplicated index entry: fix CLAUDE.md's 'Substrate feature index' section" >&2
         echo "[precommit_contracts] or run with --no-verify to bypass" >&2
         if [ "$NO_BLOCK" = "1" ]; then
             :

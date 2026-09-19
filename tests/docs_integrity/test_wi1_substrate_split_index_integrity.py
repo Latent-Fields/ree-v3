@@ -35,6 +35,62 @@ Two independent checks, matching the chip's own framing:
       documented in CLAUDE.md's index as "grep here first when no single file
       owns an sd_id") is BY DESIGN a many-ids-one-file bundle and is not the
       shape this check is for.
+
+WHERE THIS FILE LIVES, AND WHY THE PREDICATE IS STILL STRICT (decided
+2026-09-19, chip-20260919-wi1-index-contract-prose-false-positive).
+
+Check (2) cannot tell an id DECLARATION from ordinary PROSE that happens to
+open with an id. On 2026-09-19 ree-v3 65c1f72 landed the prose bullet
+`- MECH-094 does **not** apply to the WRITEBACK call: ...` under MECH-018's
+heading. This file then lived in tests/contracts/, which
+scripts/precommit_contracts.sh Block 2 runs on every staged ree_core/** change,
+so that one red blocked EVERY ree_core commit fleet-wide for ~6.5h (cleared by
+ree-v3 1b4c78caaf, which prefixed the bullet with `Note: `).
+
+The defect was the gate's POSITION, not its predicate. Measured: nothing that
+ran this check fired on the commit able to break it. Block 2 keys on
+ree_core/** and experiments/_lib/**; contract-tests.yml's `paths:` filter
+excludes docs/** and CLAUDE.md. A docs-only commit (65c1f72's exact shape:
+CLAUDE.md + one docs/substrate file, authored on a cloud worker, where the
+commit guards are deliberately not installed) was checked by nobody, and the
+first person to find out was whoever committed ree_core next. So:
+
+  * MOVED out of tests/contracts/ into tests/docs_integrity/. A pure-text
+    markdown lint must not be able to block a CODE commit. It is still
+    collected by every `tests/`-rooted run (contract-tests.yml,
+    remote_pytest.sh's default six roots, the integration-branch merge gate).
+  * precommit_contracts.sh Block 1e runs it, locally and sub-second, when
+    docs/substrate/*.md or CLAUDE.md is STAGED -- the block lands on the
+    author, at the moment the fix costs one word. Pinned by
+    tests/contracts/test_precommit_contracts_docs_integrity_scope.py.
+  * .github/workflows/docs-integrity.yml runs it on any push touching those
+    paths, so a commit from a box with no commit guards (the actual incident)
+    still goes red ON THE PUSHED COMMIT ITSELF, within seconds, torch-free.
+
+The predicate was deliberately NOT narrowed (the chip's option (b): require
+`<id>:` or `<id> --` before calling a bullet a declaration). Two measurements:
+
+  * Against the 35 true WI-1 defects at dedcc2ce24^ that wording catches 23
+    and MISSES 12 -- `- ARC-071 / MECH-324: ...`, `- SD-070 ADOPTION in ...`,
+    `- SD-e1-rollout-consistency-training ITEM 1: ...`, `- MECH-204 Phase 7 /
+    Option B: ...`, `- SD-SLEEP-ENTRY-PRESSURE (sleep_substrate:GAP-9 ...`.
+    SD-WAYPOINT-FIELD itself is among the 23, so the regression pin named
+    below would have stayed green while a third of the gate's strength went.
+    Nor is "prose starts lowercase" usable: legitimate record bullets read
+    `- MECH-341 amend -- IMPLEMENTED`, `- MECH-091 names THREE salient ...`.
+  * GOV-HELDOUT-1 (held-out check, REE_Working CLAUDE.md). Running the OLD
+    predicate at all 24 commits that touch docs/substrate/ yields exactly ONE
+    case where old and any prose-tolerant wording disagree -- the motivating
+    incident. Three were required; one exists. Outcome recorded: the narrowing
+    is scoped to its own incident and was NOT shipped.
+
+With the block on the author a false positive costs a one-word reword, while a
+false negative is a silently buried feature record -- the defect that took a
+55-record recovery. That asymmetry is why the predicate stays strict. House
+style for docs/substrate/ follows from it: do not OPEN a top-level bullet with
+an SD-/MECH-/ARC- id the file's heading does not own. Lead with a word
+(`Note: MECH-094 does not ...`) or reword. If the bullet really IS a feature
+record, it needs its own file, its own `## ` heading, and its own index entry.
 """
 
 import glob
@@ -150,7 +206,13 @@ def test_no_bullet_declares_an_id_foreign_to_its_own_heading():
 
     assert offenders == [], (
         f"{len(offenders)} bullet(s) name an id foreign to their file's own "
-        f"heading (file, heading, foreign id): {offenders}")
+        f"heading (file, heading, foreign id): {offenders}\n"
+        "FIX, one of: (a) the bullet is PROSE that merely opens with an id -- "
+        "lead with a word instead (`- Note: MECH-094 does not ...`) or reword; "
+        "this check cannot tell prose from a declaration and is strict on "
+        "purpose (module docstring). (b) the bullet IS a feature record -- "
+        "give it its own docs/substrate file with its own `## ` heading and "
+        "its own entry in CLAUDE.md's Substrate feature index.")
 
 
 def test_negative_control_a_genuinely_shared_heading_is_not_flagged():

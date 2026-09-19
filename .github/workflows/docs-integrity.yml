@@ -1,0 +1,60 @@
+name: docs-integrity
+
+# Post-push check for the substrate docs, on the pushed commit ITSELF.
+#
+# contract-tests.yml's `paths:` filter excludes docs/** and CLAUDE.md, and
+# scripts/precommit_contracts.sh Block 2 keys on ree_core/** -- so until
+# 2026-09-19 a docs-only push was checked by nothing, and a docs defect surfaced
+# hours later as a red blocking somebody else's UNRELATED ree_core commit
+# (ree-v3 65c1f72: one prose bullet opening with a foreign id, ~6.5h fleet-wide
+# wedge). Block 1e of precommit_contracts.sh now stops the author at commit
+# time on boxes that have the commit guards. The cloud workers deliberately do
+# not (REE_Working CLAUDE.md, "Closed on measurement"), and 65c1f72 was authored
+# on one -- this job is their cover.
+#
+# Deliberately NOT folded into contract-tests.yml by widening its `paths:`:
+# that would spend a ~27-minute torch suite on every docs edit. This lint is
+# pure text -- no torch, no numpy, no REE_assembly sibling -- and runs in
+# seconds. It ALSO still runs inside contract-tests.yml (it sits under tests/),
+# so nothing here is the only place it is collected.
+#
+# Pinned by tests/contracts/test_precommit_contracts_docs_integrity_scope.py.
+
+on:
+  push:
+    branches:
+      - main
+      - 'integration/**'
+    paths:
+      - 'docs/substrate/**'
+      - 'CLAUDE.md'
+      - 'tests/docs_integrity/**'
+      - '.github/workflows/docs-integrity.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'docs/substrate/**'
+      - 'CLAUDE.md'
+      - 'tests/docs_integrity/**'
+  workflow_dispatch: {}
+
+jobs:
+  substrate-index:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout ree-v3
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install pytest (the lint needs nothing else)
+        run: python3 -m pip install pytest
+
+      - name: Substrate index integrity
+        run: python3 -m pytest -q --tb=short tests/docs_integrity/test_wi1_substrate_split_index_integrity.py
