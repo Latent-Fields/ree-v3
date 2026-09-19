@@ -34,21 +34,66 @@ is what sleep ADDED, not how hard the waking period was)". The asserted directio
 is therefore POSITIVE: sleep reduces held-out world-forward prediction error.
 delta = pre - post, and "moves in the direction INV-063 asserts" means delta > 0.
 
-THE MECHANISM UNDER TEST, which is an INSTRUMENT question, not a claim question
+TWO COMPETING EXPLANATIONS, BOTH RECORDED -- this run does NOT assert either
 -------------------------------------------------------------------------------
-V3-EXQ-1060's own docstring states it verbatim:
+V3-EXQ-1060's docstring, and the staged refusal doc that quoted it, offer this
+mechanism for why the two readouts could disagree:
 
   "compute_e2_world_loss minimises the SD-056 InfoNCE CONTRASTIVE loss, while the
    701b frozen-probe DV is per-element MSE RECONSTRUCTION error. InfoNCE is
    insensitive to a global scale/shift of the prediction, so it can improve while
    frozen-battery MSE does not move."
 
-1060 measured that gap on an UNCONVERGED head, where both fall together (MSE rel
-improvement 0.2504, InfoNCE rel improvement 0.0023 -- already a 100x divergence, in
-favour of the readout an untrained head improves for free). Nobody had measured it
-PAST convergence, where the two objectives no longer share a descent direction. That
-is the gap this run closes, and it is why BOTH readouts are recorded on the SAME
-frozen battery rather than one being picked at authoring time.
+THE SECOND SENTENCE IS FALSE FOR THIS IMPLEMENTATION, and this script does not
+repeat it. world_forward_contrastive_loss builds its logits from SQUARED L2
+DISTANCES, -||pred_j - target_i||^2 / tau at tau=0.1 (e2_fast.py:359, :396-403), not
+from a dot product or cosine. A global SCALE on the prediction changes every
+distance; a global SHIFT c leaves a cross term 2c.(pred_j - target_i) that varies
+with j and does not cancel in the softmax. So the invariance the sentence appeals to
+does not hold here. It is recorded as a correction owed to /governance rather than
+silently dropped, because a landed artifact asserts it.
+
+The explanation this run CAN discriminate, and the one it must not be read as having
+assumed, is a magnitude argument:
+
+  (E1) OBJECTIVE MISMATCH. The sleep trainer descends InfoNCE; the DV is MSE; past
+       convergence they share no descent direction, so optimising one moves the
+       other off its optimum.
+  (E2) STEP SIZE vs RESIDUAL. cross_module_consolidation.py:155-162 builds a FRESH
+       Adam per cycle, so its first steps are bias-corrected to ~ lr*sign(g) and 8
+       steps move each weight by at most 8*CMC_LR = 0.008 REGARDLESS of gradient
+       magnitude. V3-EXQ-1060's landed min world-head max|delta| is 0.007899 --
+       98.7% of that bound, i.e. set by the optimiser, not by the loss. A converged
+       head whose residual battery MSE is ~5e-6 is therefore perturbed by far more
+       than its own residual, and MSE must rise, whatever objective drove it.
+
+E1 and E2 make the SAME prediction for the converged arm, and this design does not
+separate them. It is not built to: it was commissioned to establish WHICH READOUT
+MOVES WHICH WAY AND AT WHAT BASE CONVERGENCE -- a descriptive question that has an
+answer either way. What the design owes, and discharges, is that the reader can see
+E2 rather than having it hidden: every cell records world_head_max_abs_delta
+alongside the pre-registered constant 8*CMC_LR, the battery's residual MSE, and an
+IDENTITY-PREDICTOR reference MSE (the "do nothing" baseline, mean((z1-z0)^2)), so
+the perturbation-vs-residual crossover is legible in the manifest. Any later reader
+attributing the result to E1 must first rule out E2 from those numbers, and this
+script's own note says so.
+
+THE INFONCE READOUT IS EXPECTED TO BE PINNED AT CHANCE, AND THAT IS PRE-REGISTERED
+-----------------------------------------------------------------------------------
+On a K-way contrastive readout the chance value is ln(K). V3-EXQ-1060's LANDED
+infonce_pre_on is 4.15921 against ln(64) = 4.15888 -- ABOVE chance -- and its entire
+measured movement, 0.00942, is 0.23% of ln(K), while the MSE moved 25% over the same
+cycle. A sign test on a statistic pinned at its chance ceiling reads noise.
+
+So D2/D4 carry a PRE-REGISTERED NON-DEGENERACY CONDITION: the InfoNCE headroom
+ln(n_battery) - infonce_pre must exceed INFONCE_HEADROOM_FLOOR_FRAC * ln(n_battery)
+in every cell of the owning arm, else that D is recorded non_degenerate=False and
+must not be cited in either direction. Crucially this marks the INFONCE criteria
+only -- it does NOT vacate D1/D3 and does NOT fail the run
+(failure_autopsy_V3-EXQ-785_2026-07-19 sections 2a/8: a red channel never vacates a
+green one). "The InfoNCE readout is pinned at chance and cannot be read" is itself a
+decisive answer to the standing question of whether leg B's DV should be re-pointed
+onto it.
 
 FOUR ARMS (2 levers x 2 base regimes), seed-matched, >= 3 seeds
 ----------------------------------------------------------------
@@ -100,9 +145,13 @@ This is a DIAGNOSTIC whose job is to MEASURE a direction, not to assert one. So:
   the likeliest outcome, and reading it as a FAIL would be exactly the confusion
   this split exists to prevent.
 
-If any validity criterion or any readiness precondition is unmet the run self-routes
-to substrate_not_ready_requeue and NO direction label is emitted -- a direction read
-off an invalid measurement is worth less than no reading.
+TWO DISTINCT FAIL ROUTES -- they are not the same and the manifest says which fired:
+  (a) any per-cell READINESS PRECONDITION unmet, or a cell that did not complete all
+      its cycles, or a non-finite parameter -> outcome FAIL, label
+      substrate_not_ready_requeue, and NO direction label is emitted at all.
+  (b) all cells ready but a VALIDITY criterion C1..C6 failed -> outcome FAIL, label
+      legb_dv_direction_measurement_invalid, and again no direction label.
+Either way a direction read off an invalid measurement is worth less than no reading.
 
 NO CLAIM VERDICT. claim_ids=["INV-063"] is for traceability; experiment_purpose is
 "diagnostic" (excluded from governance confidence/conflict scoring) and
@@ -152,10 +201,14 @@ WHAT THIS RUN CANNOT SETTLE
   question and it is deliberately not posed.
 - It says nothing about P1's MEL-ladder monotonicity on a converged base;
   V3-EXQ-798a's landed 3/3 stands and is not re-litigated here.
-- "At what base convergence" is answered at the resolution this design affords: two
-  levels, plus the per-cell P0 convergence TRAJECTORY recorded as ungated telemetry
-  (battery MSE and InfoNCE at 0 / 900 / 1800 / 2700 / 3600 P0 steps), which is what
-  lets a later reader locate a crossover between them without another run.
+- "At what base convergence" is answered at TWO levels and no more. The per-cell P0
+  trajectory (battery MSE and InfoNCE at each P0_TRAJECTORY_AT step) records how the
+  BASE converges; it does NOT sample the across-sleep DV at intermediate
+  convergence, because no sleep cycle runs inside P0 -- force_cycle is called only in
+  the measurement phase. So the trajectory locates where the base's residual crosses
+  the perturbation scale, which is what makes E1-vs-E2 legible, but a reader wanting
+  the DV itself at an intermediate convergence needs another run with P0_STEPS set
+  between these two points.
 
 PRIOR-ART POINTERS the reader will want
 -----------------------------------------
@@ -168,6 +221,44 @@ PRIOR-ART POINTERS the reader will want
   merged-cycle keys are sws_n_writes / rem_n_rollouts, which C6 asserts here.
 - GFLAG-0355: leg B's E1 -> E2 label correction, open with /governance. This script
   takes leg B to be E2.world_forward throughout, per 1060's documented chain.
+
+RED-TEAM (Step 4.5, fable 5.1, one pass): CONTESTED -- 6 findings, all disposed.
+
+  F1 ACKNOWLEDGED + INSTRUMENTED. A negative D1 on the converged arm is predicted by
+     step-size arithmetic alone (E2 above), and this design does not separate it from
+     the objective mismatch (E1). VERIFIED independently of the reviewer against
+     LANDED data: V3-EXQ-1060's min world-head max|delta| is 0.007899 against
+     8*CMC_LR = 0.008, i.e. 98.7% of the bound, and
+     cross_module_consolidation.py:155-162 does build a fresh Adam per call. Not
+     fixable without changing the arms, which the user's commission fixes; so the
+     confound is RECORDED instead -- adam_step_bound_8x_lr,
+     min_identity_predictor_mse and min_converged_battery_mse_after_p0 are in the
+     flat readout and competing_explanations_note says a reader must rule out E2
+     before attributing to E1.
+  F2 FIXED. The InfoNCE readout is pinned at its chance value ln(K), so D2/D4 as
+     first written took the sign of noise. VERIFIED from landed data: 1060's
+     infonce_pre_on 4.15921 is ABOVE ln(64) = 4.15888 and its whole movement is
+     0.23% of ln(K) against MSE's 25%. D2/D4 now carry a pre-registered headroom
+     non-degeneracy condition (INFONCE_HEADROOM_FLOOR_FRAC), scoped so it marks ONLY
+     those two unciteable and does NOT vacate D1/D3 or fail the run.
+  F3 FIXED (reporting). "InfoNCE is insensitive to a global scale/shift" is FALSE for
+     this implementation (squared-L2-distance logits, e2_fast.py:359/:396-403). The
+     sentence is not repeated; the correction is recorded in infonce_readout_note and
+     is owed to /governance, since V3-EXQ-1060's landed docstring asserts it.
+  F4 FIXED (reporting). The P0 trajectory records how the BASE converges; it does NOT
+     sample the across-sleep DV at intermediate convergence (no force_cycle inside
+     P0). The over-claim is removed from both the docstring and the manifest note.
+  F5 FIXED. conv_rel_drop is normalised by the RANDOM-INIT battery MSE, so it cannot
+     by itself distinguish "predicts transitions" from "learned to output ~no
+     change". identity_predictor_mse = mean((z1-z0)^2) is now recorded per cell as
+     the copy-the-input reference.
+  F6 FIXED (reporting). The docstring claimed one FAIL route; the code has two. Both
+     are now named, in the docstring and in combination_rule.
+
+  DROPPED by the reviewer after checking source, recorded so they are not re-derived:
+  encoder drift (the latent stack is never handed to an optimiser on this path),
+  action-encoding train/test mismatch (one-hot on both sides), C4 non-degeneracy key
+  names, and gate comparator strictness.
 
 Run with:
   /opt/local/bin/python3 experiments/v3_exq_1063_inv063_legb_dv_direction.py --dry-run
@@ -310,6 +401,11 @@ ANCHOR_REACHABILITY_EXEMPT = (
 MIN_CONV_REL_DROP = 0.90        # C1: a CONVERGED arm must have converged
 MAX_UNCONV_REL_DROP = 0.02      # C2: an UNCONVERGED arm must not have
 SEEDS_REQUIRED_FOR_DIRECTION = 2  # D1..D4: >= 2 of 3 seeds
+# D2/D4 non-degeneracy. A K-way contrastive readout is at chance at ln(K); a sign
+# test on a statistic pinned there reads noise. V3-EXQ-1060's LANDED infonce_pre_on
+# is 4.15921 against ln(64) = 4.15888 -- ABOVE chance -- with total movement 0.23% of
+# ln(K) while MSE moved 25%. Required headroom, as a fraction of ln(K):
+INFONCE_HEADROOM_FLOOR_FRAC = 0.05
 EPS = 1e-12
 
 WORLD_HEAD_MODULES = ("world_transition", "world_action_encoder")
@@ -588,6 +684,21 @@ def _battery_tensors(battery: List[Tuple[torch.Tensor, torch.Tensor, torch.Tenso
     return z0, acts, z1
 
 
+def _identity_predictor_mse(
+        tensors: Optional[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]
+) -> float:
+    """mean((z1 - z0)^2) on the battery: what a predictor that simply COPIES its
+    input scores. conv_rel_drop is normalised by the RANDOM-INIT battery MSE, so a
+    high conv_rel_drop alone does not establish that the head predicts transitions
+    rather than having learned to output ~no change. Recording this reference is
+    what lets a reader check that (red-team F5)."""
+    if tensors is None:
+        return float("nan")
+    z0, _acts, z1 = tensors
+    with torch.no_grad():
+        return float((z1 - z0).pow(2).mean().item())
+
+
 def _battery_readouts(agent: REEAgent,
                       tensors: Optional[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]
                       ) -> Dict[str, float]:
@@ -716,6 +827,8 @@ def run_cell(arm: str, seed: int, p0_steps: int, n_cycles: int,
     battery = _sample_probe_battery(agent, seed, battery_size)
     battery_tensors = _battery_tensors(battery, device)
     n_battery = float(len(battery))
+    identity_mse = _identity_predictor_mse(battery_tensors)
+    infonce_chance = math.log(n_battery) if n_battery > 1 else float("nan")
     agent.reset()
     agent.e1.reset_hidden_state()
 
@@ -857,6 +970,18 @@ def run_cell(arm: str, seed: int, p0_steps: int, n_cycles: int,
     except (AttributeError, RuntimeError, ValueError):
         action_nonzero_fraction = float("nan")
 
+    # InfoNCE headroom, measured on the FIRST cycle's pre-sleep readout -- the
+    # state the D findings' sign test is taken against.
+    infonce_pre_first = (per_cycle[0]["infonce_pre"] if per_cycle else float("nan"))
+    infonce_headroom = (
+        (infonce_chance - infonce_pre_first)
+        if (_finite_or_none(infonce_chance) is not None
+            and _finite_or_none(infonce_pre_first) is not None) else float("nan"))
+    infonce_not_pinned = bool(
+        _finite_or_none(infonce_headroom) is not None
+        and _finite_or_none(infonce_chance) is not None
+        and infonce_headroom > INFONCE_HEADROOM_FLOOR_FRAC * infonce_chance)
+
     mse_deltas = [c["mse_delta"] for c in per_cycle]
     infonce_deltas = [c["infonce_delta"] for c in per_cycle]
     mse_delta_sum = sum(d for d in mse_deltas if _finite_or_none(d) is not None)
@@ -903,7 +1028,9 @@ def run_cell(arm: str, seed: int, p0_steps: int, n_cycles: int,
         f"cycles={cycles_fired}/{n_cycles} n_pairs={n_pairs:.0f} "
         f"act_nonzero={action_nonzero_fraction:.3g} "
         f"world_delta={world_delta_total:.6g} wenc_delta={wenc_delta_total:.6g} "
-        f"sws_writes={_mean(sws_writes):.3g} rem_rollouts={_mean(rem_rollouts):.3g}",
+        f"sws_writes={_mean(sws_writes):.3g} rem_rollouts={_mean(rem_rollouts):.3g} "
+        f"identity_mse={identity_mse:.6g} infonce_headroom={infonce_headroom:.6g} "
+        f"infonce_readable={int(infonce_not_pinned)}",
         flush=True)
     print(
         f"  {arm} seed={seed} [DV, routes no PASS/FAIL] "
@@ -932,6 +1059,14 @@ def run_cell(arm: str, seed: int, p0_steps: int, n_cycles: int,
         "p0_n_train_steps": p0["p0_n_train_steps"],
         "n_battery": n_battery,
         "n_pairs": n_pairs,
+        # E2-vs-E1 reference scales (red-team F1/F5). Recorded per cell so the
+        # perturbation-vs-residual crossover is legible without another run.
+        "identity_predictor_mse": identity_mse,
+        "adam_step_bound_8x_lr": float(CMC_STEPS * CMC_LR),
+        "infonce_chance_ln_k": infonce_chance,
+        "infonce_pre_first_cycle": infonce_pre_first,
+        "infonce_headroom": infonce_headroom,
+        "infonce_not_pinned": infonce_not_pinned,
         "world_loss_probe": world_loss_probe,
         "world_grad_probe": world_grad_probe,
         "action_buffer_nonzero_fraction": action_nonzero_fraction,
@@ -1235,7 +1370,12 @@ def main(dry_run: bool = False) -> Tuple[str, Optional[str]]:
         {"name": "D2_converged_base_infonce_improves", "load_bearing": False,
          "passed": d2, "measured": float(n_d2), "threshold": float(req),
          "comparator": ">=", "routes_verdict": False, "per_seed": v_d2,
-         "mean": _finite_or_none(_mean(v_d2)), "sd": _finite_or_none(_sd(v_d2))},
+         "mean": _finite_or_none(_mean(v_d2)), "sd": _finite_or_none(_sd(v_d2)),
+         "infonce_headroom_min": _finite_or_none(
+             min(r["infonce_headroom"] for r in by_arm[ARM_CONV_ON])),
+         "infonce_headroom_required": _finite_or_none(
+             INFONCE_HEADROOM_FLOOR_FRAC
+             * _mean([r["infonce_chance_ln_k"] for r in by_arm[ARM_CONV_ON]]))},
         {"name": "D3_unconverged_base_mse_improves", "load_bearing": False,
          "passed": d3, "measured": float(n_d3), "threshold": float(req),
          "comparator": ">=", "routes_verdict": False, "per_seed": v_d3,
@@ -1243,7 +1383,12 @@ def main(dry_run: bool = False) -> Tuple[str, Optional[str]]:
         {"name": "D4_unconverged_base_infonce_improves", "load_bearing": False,
          "passed": d4, "measured": float(n_d4), "threshold": float(req),
          "comparator": ">=", "routes_verdict": False, "per_seed": v_d4,
-         "mean": _finite_or_none(_mean(v_d4)), "sd": _finite_or_none(_sd(v_d4))},
+         "mean": _finite_or_none(_mean(v_d4)), "sd": _finite_or_none(_sd(v_d4)),
+         "infonce_headroom_min": _finite_or_none(
+             min(r["infonce_headroom"] for r in by_arm[ARM_FRESH_ON])),
+         "infonce_headroom_required": _finite_or_none(
+             INFONCE_HEADROOM_FLOOR_FRAC
+             * _mean([r["infonce_chance_ln_k"] for r in by_arm[ARM_FRESH_ON]]))},
     ]
 
     validity_pass = all(c["passed"] for c in criteria)
@@ -1265,6 +1410,13 @@ def main(dry_run: bool = False) -> Tuple[str, Optional[str]]:
     def _arm_all_green(arm: str) -> bool:
         return all(r["gate"]["gate_green"] for r in by_arm[arm])
 
+    def _arm_infonce_readable(arm: str) -> bool:
+        """D2/D4 only. A K-way contrastive readout pinned at its chance value
+        ln(K) cannot carry a sign test. This marks the INFONCE criteria degenerate
+        and NOTHING else -- it does not vacate D1/D3 and does not fail the run
+        (failure_autopsy_V3-EXQ-785_2026-07-19 sections 2a/8)."""
+        return all(bool(r["infonce_not_pinned"]) for r in by_arm[arm])
+
     criteria_non_degenerate = {
         "C1_converged_arms_converged": bool(
             c1 and all(r["p0_n_train_steps"] > 0 for r in conv_rows)),
@@ -1278,9 +1430,11 @@ def main(dry_run: bool = False) -> Tuple[str, Optional[str]]:
         "C5_battery_populated_and_readouts_finite": bool(c5),
         "C6_sleep_did_work_in_every_cell": bool(c6),
         "D1_converged_base_mse_improves": _arm_all_green(ARM_CONV_ON),
-        "D2_converged_base_infonce_improves": _arm_all_green(ARM_CONV_ON),
+        "D2_converged_base_infonce_improves": bool(
+            _arm_all_green(ARM_CONV_ON) and _arm_infonce_readable(ARM_CONV_ON)),
         "D3_unconverged_base_mse_improves": _arm_all_green(ARM_FRESH_ON),
-        "D4_unconverged_base_infonce_improves": _arm_all_green(ARM_FRESH_ON),
+        "D4_unconverged_base_infonce_improves": bool(
+            _arm_all_green(ARM_FRESH_ON) and _arm_infonce_readable(ARM_FRESH_ON)),
     }
 
     note = (
@@ -1333,6 +1487,19 @@ def main(dry_run: bool = False) -> Tuple[str, Optional[str]]:
         "d3_fresh_mse_seeds_positive": float(n_d3),
         "d4_fresh_infonce_seeds_positive": float(n_d4),
         "d_seeds_required": float(req),
+        # Red-team F1/F5 reference scales. A reader attributing a negative D1 to
+        # the objective mismatch (E1) must first rule out the step-size argument
+        # (E2) from these three numbers.
+        "adam_step_bound_8x_lr": float(CMC_STEPS * CMC_LR),
+        "min_identity_predictor_mse": float(
+            min(r["identity_predictor_mse"] for r in all_rows)),
+        "min_converged_battery_mse_after_p0": float(
+            min(r["p0_battery_mse_after"] for r in conv_rows)),
+        "min_infonce_headroom_on_arms": float(
+            min(r["infonce_headroom"] for r in on_rows)),
+        "infonce_headroom_required_frac": float(INFONCE_HEADROOM_FLOOR_FRAC),
+        "infonce_readable_conv_on": int(_arm_infonce_readable(ARM_CONV_ON)),
+        "infonce_readable_fresh_on": int(_arm_infonce_readable(ARM_FRESH_ON)),
     }
     for key, vals in (
         ("conv_on_mse_delta", v_d1), ("conv_on_infonce_delta", v_d2),
@@ -1355,11 +1522,19 @@ def main(dry_run: bool = False) -> Tuple[str, Optional[str]]:
             "and at what base convergence, so that the four-arm intake-ladder "
             "falsifier's go/no-go can be taken to the user with numbers. "
         ) + note,
-        "non_degenerate": bool(all(criteria_non_degenerate.values())),
+        "non_degenerate": bool(all(
+            criteria_non_degenerate[c["name"]] for c in criteria)),
         "degeneracy_reason": (
             None if all(criteria_non_degenerate.values())
-            else "degenerate criteria: " + ", ".join(
-                k for k, v in criteria_non_degenerate.items() if not v)),
+            else (
+                "PARTIAL: "
+                + ", ".join(k for k, v in criteria_non_degenerate.items() if not v)
+                + " are degenerate and must NOT be cited in either direction. "
+                "non_degenerate tracks the VERDICT-ROUTING criteria C1..C6 only: a "
+                "degenerate D finding does NOT vacate the others or the run "
+                "(failure_autopsy_V3-EXQ-785_2026-07-19 sections 2a/8). The usual "
+                "case is D2/D4 with the InfoNCE readout pinned at ln(K) -- see "
+                "direction_findings.infonce_readout_note.")),
         "interpretation": {
             "label": label,
             "criteria": criteria + directions,
@@ -1369,9 +1544,14 @@ def main(dry_run: bool = False) -> Tuple[str, Optional[str]]:
                 "DIRECTION findings: they carry routes_verdict=false, they route NO "
                 "PASS/FAIL, and they select interpretation.label. A NEGATIVE D is a "
                 "RESULT, not a failure -- it is the measurement this run exists to "
-                "make. If any validity criterion or readiness precondition is unmet "
-                "the run self-routes substrate_not_ready_requeue and emits no "
-                "direction label at all."
+                "make. TWO DISTINCT FAIL ROUTES: (a) a per-cell readiness "
+                "precondition unmet, a cell short of its cycles, or a non-finite "
+                "parameter -> label substrate_not_ready_requeue; (b) all cells ready "
+                "but a C1..C6 failure -> label "
+                "legb_dv_direction_measurement_invalid. Neither emits a direction "
+                "label. D2/D4 additionally carry an InfoNCE-headroom non-degeneracy "
+                "condition which, when unmet, marks ONLY those two unciteable and "
+                "does not vacate D1/D3 or the run."
             ),
             "criteria_non_degenerate": criteria_non_degenerate,
             "preconditions": aggregate["adjudication_preconditions"],
@@ -1406,19 +1586,48 @@ def main(dry_run: bool = False) -> Tuple[str, Optional[str]]:
                 "the SAME captured battery tensors are re-evaluated -- so pre and "
                 "post are bitwise identical. Do NOT read it as a measured null "
                 "effect, and do NOT use it as a difference-in-differences baseline."),
-            "infonce_invariance_note": (
-                "The InfoNCE readout is invariant to a global scale/shift of the "
-                "prediction (SD-056 contrastive) while the MSE readout is not. A "
-                "manipulation that only rescaled or shifted predictions would be "
-                "invisible to D2/D4 and visible to D1/D3. The manipulation here is a "
-                "binary code-path gate, not a value transform, so it is not such a "
-                "manipulation -- but any reader comparing D1 against D2 must hold "
-                "this asymmetry in mind. It is the reason both readouts are carried."),
+            "infonce_readout_note": (
+                "CORRECTION, recorded because a landed artifact asserts otherwise. "
+                "V3-EXQ-1060's docstring (and the staged refusal doc quoting it) say "
+                "'InfoNCE is insensitive to a global scale/shift of the prediction'. "
+                "That is FALSE for this implementation: world_forward_contrastive_loss "
+                "builds logits from squared L2 DISTANCES, -||pred_j - target_i||^2/tau "
+                "at tau=0.1 (e2_fast.py:359, :396-403), so a global scale changes every "
+                "distance and a global shift leaves a non-cancelling cross term. What "
+                "IS true, and is measured here per cell, is that the readout sits at "
+                "its CHANCE value ln(n_battery): 1060's landed infonce_pre_on 4.15921 "
+                "is ABOVE ln(64)=4.15888, with total movement 0.23% of ln(K) against "
+                "MSE's 25%. D2/D4 therefore carry a pre-registered headroom "
+                "non-degeneracy condition (infonce_headroom_required_frac) that marks "
+                "them unciteable when pinned, WITHOUT vacating D1/D3 or the run."),
+            "competing_explanations_note": (
+                "E1 objective mismatch (sleep descends InfoNCE, the DV is MSE) and E2 "
+                "step size vs residual (cross_module_consolidation.py:155-162 builds a "
+                "FRESH Adam per cycle, so 8 steps move each weight by at most "
+                "8*CMC_LR=0.008 regardless of gradient -- 1060's landed world-head "
+                "delta 0.007899 is 98.7% of that bound) make the SAME prediction for "
+                "the converged arm, and this design does NOT separate them. It was "
+                "commissioned to establish which readout moves which way at what base "
+                "convergence, which has an answer either way. adam_step_bound_8x_lr, "
+                "min_identity_predictor_mse and min_converged_battery_mse_after_p0 are "
+                "recorded so a reader attributing a negative D1 to E1 must first rule "
+                "out E2 from the numbers."),
             "p0_convergence_trajectory_note": (
                 "Each cell records the frozen-battery MSE and InfoNCE at P0 steps "
                 f"{list(P0_TRAJECTORY_AT)} (arm_results[].p0_convergence_trajectory). "
-                "That is what answers 'at what base convergence' at finer resolution "
-                "than the two-level contrast, without another run."),
+                "This records how the BASE converges; it does NOT sample the "
+                "across-sleep DV at intermediate convergence, because no sleep cycle "
+                "runs inside P0 (force_cycle is called only in the measurement "
+                "phase). It locates where the base's residual crosses the "
+                "perturbation scale -- which is what makes E1-vs-E2 legible -- but a "
+                "reader wanting the DV itself at an intermediate convergence needs "
+                "another run with P0_STEPS set between these two points."),
+            "identity_predictor_note": (
+                "conv_rel_drop is normalised by the RANDOM-INIT battery MSE, so a "
+                "high value alone does not establish that the head predicts "
+                "transitions rather than having learned to output ~no change. "
+                "identity_predictor_mse = mean((z1-z0)^2) is the copy-the-input "
+                "reference a reader should compare p0_battery_mse_after against."),
         },
         "config": run_config,
         "elapsed_seconds": elapsed,
