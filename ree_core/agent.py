@@ -749,6 +749,16 @@ class REEAgent(nn.Module):
                 affinity_input_cap=getattr(
                     config, "salience_affinity_input_cap", None
                 ),
+                # mode-governance-engagement item (1) 2026-09-19: WHICH
+                # bounding operator the cap applies. "clamp" (default) keeps
+                # the legacy box clamp, so this wiring is bit-identical unless
+                # a driver opts into "squash" AND supplies sigma.
+                affinity_bound_mode=getattr(
+                    config, "salience_affinity_bound_mode", "clamp"
+                ),
+                affinity_squash_sigma=getattr(
+                    config, "salience_affinity_squash_sigma", None
+                ),
             )
             sal_cfg.salience_weights = {
                 "dacc_pe": config.salience_dacc_pe_weight,

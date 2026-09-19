@@ -62,7 +62,7 @@ REE_assembly/docs/architecture/sd_032_cingulate_integration_substrate.md
 
 from dataclasses import dataclass, field
 from math import exp, log
-from typing import Dict, List, Optional, Sequence, Union
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import torch
@@ -78,6 +78,110 @@ DEFAULT_MODE_NAMES: List[str] = [
     "internal_replay",
     "offline_consolidation",
 ]
+
+
+# mode-governance-engagement item (1): affinity-input BOUNDING OPERATOR mode.
+# Selector over how an affinity_weights input signal's raw value is bounded
+# before its per-mode weight is applied. Only consulted when
+# affinity_input_cap is not None -- with no cap there is no bound at all and
+# the selector is inert whatever it says.
+#
+#   "clamp"  -- the pre-2026-09-19 hard symmetric box clamp,
+#               max(-cap, min(cap, x)). DEFAULT, so every landed V3-EXQ-934 /
+#               935 / 935a arm stays bit-identically reproducible.
+#   "squash" -- per-signal, sign-preserving SATURATING squash,
+#               cap * x / (sigma + |x|)  (user decision 2026-09-19T04:18:29Z).
+#
+# WHY the squash exists (V3-EXQ-935a, failure_autopsy_V3-EXQ-935a_2026-09-16):
+# a box clamp maps EVERY input above the cap to the identical output, so on
+# seeds whose external-task probability is near-constant ext_margin_mean came
+# out LINEAR in cap at R^2 0.9996-0.9999 -- the signature of an input sitting
+# permanently AT the cap, where the cap value and not the signal is what the
+# softmax sees. That degeneracy destroys the graded magnitude MECH-259's
+# threshold test needs. The squash is bounded in the OPEN interval
+# (-cap, +cap), so two large-but-different dacc_pe values still produce two
+# different logits.
+#
+# WHY this form and not divisive normalisation: the commissioned lit pull
+# (REE_assembly/evidence/literature/targeted_review_salience_gain_normalisation,
+# 6 entries) licenses "saturating beats truncating" as the operator FAMILY
+# (Carandini & Heeger 2012: nothing biology reaches for here is a truncation)
+# but explicitly declines to license the POOLED divisive form for this site:
+# a pooled operator makes each mode's probability depend on the magnitudes
+# arguing for the other modes (Louie/Khaw/Glimcher 2013), which would silently
+# shift all four modes the moment MECH-261's fifth mode lands, and Cohen 2019
+# identifies input-circuit ASYMMETRY -- which SD-032a's affinity_weights map
+# has by construction -- as exactly the configuration where normalisation
+# turns pathological. A dynamic/leaky normalisation (Louie 2014) was also
+# rejected: it reaches into MECH-266's two-threshold form.
+#
+# SIGMA IS DELIBERATELY UNDEFAULTED. Neither the substrate_queue entry
+# mode-governance-engagement nor the lit pull fixes sigma or its relation to
+# cap; Carandini & Heeger record that the biological semi-saturation constant
+# is itself ADAPTIVE, and that "a fixed saturating operator with a fixed sigma
+# discards the adaptation the biology shows and may reintroduce the same range
+# problem at a different operating point". Choosing it is therefore a
+# governance decision, not an implementation detail: selecting "squash"
+# without an explicit affinity_squash_sigma raises. See the open decision chip
+# on the substrate_queue entry.
+AFFINITY_BOUND_CLAMP: str = "clamp"
+AFFINITY_BOUND_SQUASH: str = "squash"
+AFFINITY_BOUND_MODES: Tuple[str, ...] = (AFFINITY_BOUND_CLAMP, AFFINITY_BOUND_SQUASH)
+
+
+def bound_affinity_input(
+    value: float,
+    cap: float,
+    mode: str = AFFINITY_BOUND_CLAMP,
+    sigma: Optional[float] = None,
+) -> float:
+    """Bound one affinity-input signal's raw value to the cap.
+
+    Module-level so a contract test (and a diagnostic driver) can exercise the
+    operator directly without standing up a coordinator.
+
+    mode "clamp"  -> max(-cap, min(cap, value))  -- the legacy box clamp.
+    mode "squash" -> cap * value / (sigma + abs(value)).
+
+    Properties of the squash, all pinned by
+    tests/contracts/test_salience_affinity_bound_operator.py:
+      - bounded strictly INSIDE (-cap, +cap) for every finite input;
+      - odd / sign-preserving: f(-x) == -f(x), sign(f(x)) == sign(x);
+      - strictly monotone increasing;
+      - derivative cap*sigma/(sigma+|x|)^2 is continuous everywhere, and in
+        particular ACROSS x = +/-cap where the box clamp's derivative jumps
+        from 1 to 0 -- the discontinuity the substrate_queue entry names as
+        the cause of the <= 1-grid-step crossing width.
+
+    Raises ValueError when mode is "squash" and sigma is missing or not
+    strictly positive (sigma is an undefaulted governance parameter -- see the
+    AFFINITY_BOUND_* block above), or when mode is unrecognised.
+    """
+    if mode == AFFINITY_BOUND_CLAMP:
+        return max(-cap, min(cap, value))
+    if mode == AFFINITY_BOUND_SQUASH:
+        if sigma is None:
+            raise ValueError(
+                "affinity_bound_mode='squash' requires an explicit "
+                "affinity_squash_sigma: it has no default because neither the "
+                "mode-governance-engagement substrate_queue entry nor the "
+                "targeted_review_salience_gain_normalisation lit pull fixes "
+                "sigma or its relation to cap (see the AFFINITY_BOUND_* note "
+                "in salience_coordinator.py)"
+            )
+        sigma_f = float(sigma)
+        if not sigma_f > 0.0:
+            raise ValueError(
+                "affinity_squash_sigma must be strictly positive, got "
+                + repr(sigma)
+            )
+        return float(cap) * value / (sigma_f + abs(value))
+    raise ValueError(
+        "unknown affinity_bound_mode "
+        + repr(mode)
+        + "; expected one of "
+        + repr(AFFINITY_BOUND_MODES)
+    )
 
 
 # MECH-261 default per-target gate weights. Replicates the table in
@@ -291,6 +395,21 @@ class SalienceCoordinatorConfig:
     # "how loud is the alarm" vs "which mode does this argue for").
     affinity_input_cap: Optional[float] = None
 
+    # mode-governance-engagement item (1), 2026-09-19: WHICH bounding operator
+    # affinity_input_cap applies. Default "clamp" = the box clamp above,
+    # bit-identical to every landed V3-EXQ-934/935/935a arm (the entry's own
+    # "keep the existing clamp reachable so the V3-EXQ-934 baseline stays
+    # reproducible" requirement). "squash" selects the sign-preserving
+    # saturating operator cap * x / (sigma + |x|). Inert either way when
+    # affinity_input_cap is None. See the AFFINITY_BOUND_* block at module
+    # level for the operator, the literature and why sigma has no default.
+    affinity_bound_mode: str = AFFINITY_BOUND_CLAMP
+
+    # Semi-saturation constant for affinity_bound_mode="squash". NO DEFAULT BY
+    # DESIGN -- required (and must be > 0) whenever the squash is selected
+    # with a cap set; a missing value raises rather than silently picking one.
+    affinity_squash_sigma: Optional[float] = None
+
 
 class SalienceCoordinator:
     """SD-032a salience-network coordinator.
@@ -453,6 +572,26 @@ class SalienceCoordinator:
         logits: Dict[str, float] = {m: 0.0 for m in self.mode_names}
         logits["external_task"] += self.config.external_task_bias
         affinity_cap = self.config.affinity_input_cap
+        # mode-governance-engagement item (1) 2026-09-19: resolve the bounding
+        # operator ONCE per tick (and validate sigma eagerly, so a misconfigured
+        # squash raises on the first tick rather than silently per-signal).
+        # Read via getattr so a config object pickled before this field existed
+        # still ticks -- the fallback is the legacy clamp, i.e. bit-identical.
+        affinity_bound_mode = AFFINITY_BOUND_CLAMP
+        affinity_squash_sigma: Optional[float] = None
+        if affinity_cap is not None:
+            affinity_bound_mode = getattr(
+                self.config, "affinity_bound_mode", AFFINITY_BOUND_CLAMP
+            )
+            affinity_squash_sigma = getattr(
+                self.config, "affinity_squash_sigma", None
+            )
+            if affinity_bound_mode != AFFINITY_BOUND_CLAMP:
+                # Validates mode + sigma; result discarded (0.0 is a fixed
+                # point of every operator here, so this cannot mask anything).
+                bound_affinity_input(
+                    0.0, affinity_cap, affinity_bound_mode, affinity_squash_sigma
+                )
         for signal_name, mode_map in self.config.affinity_weights.items():
             value = self._input_signals.get(signal_name, 0.0)
             if value == 0.0:
@@ -462,7 +601,16 @@ class SalienceCoordinator:
             # the signal itself or its salience_aggregate contribution below.
             # No-op when affinity_input_cap is None (bit-identical default).
             if affinity_cap is not None:
-                value = max(-affinity_cap, min(affinity_cap, value))
+                if affinity_bound_mode == AFFINITY_BOUND_CLAMP:
+                    # Legacy box clamp -- the literal pre-2026-09-19 expression.
+                    value = max(-affinity_cap, min(affinity_cap, value))
+                else:
+                    value = bound_affinity_input(
+                        value,
+                        affinity_cap,
+                        affinity_bound_mode,
+                        affinity_squash_sigma,
+                    )
             for mode, weight in mode_map.items():
                 if mode in logits:
                     logits[mode] += value * weight

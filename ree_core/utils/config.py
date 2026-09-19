@@ -4045,6 +4045,22 @@ class REEConfig:
     # signal added later inherits the same protection. Does NOT touch
     # salience_weights / salience_aggregate.
     salience_affinity_input_cap: Optional[float] = None
+    # mode-governance-engagement item (1), 2026-09-19 (user decision
+    # 2026-09-19T04:18:29Z): WHICH bounding operator salience_affinity_input_cap
+    # applies. "clamp" (default) = the box clamp described above, bit-identical
+    # to every landed V3-EXQ-934/935/935a arm. "squash" = the sign-preserving
+    # saturating operator cap * x / (sigma + |x|), which unlike the clamp keeps
+    # two large-but-different inputs distinguishable (the V3-EXQ-935a at-cap
+    # degeneracy: ext_margin_mean LINEAR in cap at R^2 0.9996-0.9999). Both are
+    # inert when salience_affinity_input_cap is None.
+    salience_affinity_bound_mode: str = "clamp"
+    # Semi-saturation constant for salience_affinity_bound_mode="squash". NO
+    # DEFAULT BY DESIGN: neither the mode-governance-engagement substrate_queue
+    # entry nor the targeted_review_salience_gain_normalisation lit pull fixes
+    # sigma or its relation to cap (Carandini & Heeger 2012 record that the
+    # biological semi-saturation constant is ADAPTIVE), so selecting the squash
+    # without an explicit positive sigma raises rather than picking one.
+    salience_affinity_squash_sigma: Optional[float] = None
     # When True, the e3_policy write-gate value scales the dACC score_bias
     # before E3.select() (so that during internal_replay, dACC influence on
     # action selection is suppressed near zero). Default False = backward
@@ -7697,6 +7713,10 @@ class REEConfig:
         salience_dacc_pe_weight: float = 1.0,
         salience_dacc_foraging_weight: float = 0.5,
         salience_affinity_input_cap: Optional[float] = None,
+        # mode-governance-engagement item (1): bounding-operator selector +
+        # its undefaulted semi-saturation constant (see the dataclass fields).
+        salience_affinity_bound_mode: str = "clamp",
+        salience_affinity_squash_sigma: Optional[float] = None,
         salience_apply_to_dacc_bias: bool = False,
         # mode-governance-engagement: external_task salience source (no-op default).
         use_external_task_drive: bool = False,
@@ -9177,6 +9197,9 @@ class REEConfig:
         config.salience_dacc_pe_weight = salience_dacc_pe_weight
         config.salience_dacc_foraging_weight = salience_dacc_foraging_weight
         config.salience_affinity_input_cap = salience_affinity_input_cap
+        # mode-governance-engagement item (1): the third reachability site.
+        config.salience_affinity_bound_mode = salience_affinity_bound_mode
+        config.salience_affinity_squash_sigma = salience_affinity_squash_sigma
         config.salience_apply_to_dacc_bias = salience_apply_to_dacc_bias
         # mode-governance-engagement: external_task salience source.
         config.use_external_task_drive = use_external_task_drive
