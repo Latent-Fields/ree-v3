@@ -115,15 +115,30 @@ DEFAULT_MODE_NAMES: List[str] = [
 # turns pathological. A dynamic/leaky normalisation (Louie 2014) was also
 # rejected: it reaches into MECH-266's two-threshold form.
 #
-# SIGMA IS DELIBERATELY UNDEFAULTED. Neither the substrate_queue entry
-# mode-governance-engagement nor the lit pull fixes sigma or its relation to
-# cap; Carandini & Heeger record that the biological semi-saturation constant
-# is itself ADAPTIVE, and that "a fixed saturating operator with a fixed sigma
-# discards the adaptation the biology shows and may reintroduce the same range
-# problem at a different operating point". Choosing it is therefore a
-# governance decision, not an implementation detail: selecting "squash"
-# without an explicit affinity_squash_sigma raises. See the open decision chip
-# on the substrate_queue entry.
+# SIGMA DEFAULTS TO THE CONFIGURED CAP (user decision 2026-09-19T09:45Z,
+# Orchestrator orchestrate-20260918-1840-cloud4, answering
+# chip-20260919-sd032a-squash-sigma-choice -- OPTION 1). sigma = cap makes the
+# derivative at the origin exactly 1 (d/dx [cap*x/(sigma+|x|)] at 0 is
+# cap/sigma), so every SUB-cap signal passes through exactly as it does under
+# the legacy box clamp and the ONLY behavioural change is at the top end,
+# where the clamp was degenerate. That is the property that lets a validation
+# sweep attribute any effect to the operator change rather than to a
+# simultaneous small-signal gain change; it is also the property the queue
+# entry's own example operator (cap*tanh(x/cap)) has.
+#
+# An explicit positive affinity_squash_sigma still OVERRIDES the default, so a
+# sweep can vary it. sigma <= 0 still raises.
+#
+# What was considered and NOT taken: OPTION 3, a sigma tied to the signal's own
+# running scale (an EMA of |x|) -- the ADAPTIVE form the biology actually
+# shows. Carandini & Heeger warn that "a fixed saturating operator with a fixed
+# sigma discards the adaptation the biology shows and may reintroduce the same
+# range problem at a different operating point", so that warning is ACCEPTED
+# rather than answered by this default. Doing it properly adds a fitted time
+# constant to a coordinator whose occupancy behaviour is itself under
+# investigation (and Louie 2014 notes REE's tick has no principled timescale to
+# inherit), so it is a NEW substrate_queue item if it is ever wanted -- not a
+# parameter change here.
 AFFINITY_BOUND_CLAMP: str = "clamp"
 AFFINITY_BOUND_SQUASH: str = "squash"
 AFFINITY_BOUND_MODES: Tuple[str, ...] = (AFFINITY_BOUND_CLAMP, AFFINITY_BOUND_SQUASH)
@@ -143,6 +158,10 @@ def bound_affinity_input(
     mode "clamp"  -> max(-cap, min(cap, value))  -- the legacy box clamp.
     mode "squash" -> cap * value / (sigma + abs(value)).
 
+    sigma=None selects the DEFAULT sigma = cap (user decision
+    2026-09-19T09:45Z; see the AFFINITY_BOUND_* block above for why). Pass an
+    explicit positive sigma to override it, e.g. in a calibration sweep.
+
     Properties of the squash, all pinned by
     tests/contracts/test_salience_affinity_bound_operator.py:
       - bounded strictly INSIDE (-cap, +cap) for every finite input;
@@ -151,29 +170,27 @@ def bound_affinity_input(
       - derivative cap*sigma/(sigma+|x|)^2 is continuous everywhere, and in
         particular ACROSS x = +/-cap where the box clamp's derivative jumps
         from 1 to 0 -- the discontinuity the substrate_queue entry names as
-        the cause of the <= 1-grid-step crossing width.
+        the cause of the <= 1-grid-step crossing width;
+      - at the DEFAULT sigma = cap that derivative is exactly 1 at the origin,
+        so sub-cap signals are treated as the legacy clamp treats them.
 
-    Raises ValueError when mode is "squash" and sigma is missing or not
-    strictly positive (sigma is an undefaulted governance parameter -- see the
-    AFFINITY_BOUND_* block above), or when mode is unrecognised.
+    Raises ValueError when mode is "squash" and an explicitly supplied sigma is
+    not strictly positive, or when mode is unrecognised.
     """
     if mode == AFFINITY_BOUND_CLAMP:
         return max(-cap, min(cap, value))
     if mode == AFFINITY_BOUND_SQUASH:
-        if sigma is None:
-            raise ValueError(
-                "affinity_bound_mode='squash' requires an explicit "
-                "affinity_squash_sigma: it has no default because neither the "
-                "mode-governance-engagement substrate_queue entry nor the "
-                "targeted_review_salience_gain_normalisation lit pull fixes "
-                "sigma or its relation to cap (see the AFFINITY_BOUND_* note "
-                "in salience_coordinator.py)"
-            )
-        sigma_f = float(sigma)
+        # sigma defaults to the configured cap -- slope 1 at the origin.
+        sigma_f = float(cap) if sigma is None else float(sigma)
         if not sigma_f > 0.0:
             raise ValueError(
                 "affinity_squash_sigma must be strictly positive, got "
-                + repr(sigma)
+                + repr(sigma_f)
+                + (
+                    " (defaulted from affinity_input_cap=" + repr(cap) + ")"
+                    if sigma is None
+                    else ""
+                )
             )
         return float(cap) * value / (sigma_f + abs(value))
     raise ValueError(
@@ -402,12 +419,15 @@ class SalienceCoordinatorConfig:
     # reproducible" requirement). "squash" selects the sign-preserving
     # saturating operator cap * x / (sigma + |x|). Inert either way when
     # affinity_input_cap is None. See the AFFINITY_BOUND_* block at module
-    # level for the operator, the literature and why sigma has no default.
+    # level for the operator, the literature, and why sigma defaults to cap.
     affinity_bound_mode: str = AFFINITY_BOUND_CLAMP
 
-    # Semi-saturation constant for affinity_bound_mode="squash". NO DEFAULT BY
-    # DESIGN -- required (and must be > 0) whenever the squash is selected
-    # with a cap set; a missing value raises rather than silently picking one.
+    # Semi-saturation constant for affinity_bound_mode="squash". None (the
+    # default) means sigma = affinity_input_cap (user decision
+    # 2026-09-19T09:45Z), which puts slope 1 at the origin so sub-cap signals
+    # behave exactly as under the legacy clamp. Set an explicit positive value
+    # to override -- that is the knob a calibration sweep varies. A non-positive
+    # explicit value raises.
     affinity_squash_sigma: Optional[float] = None
 
 
@@ -573,8 +593,10 @@ class SalienceCoordinator:
         logits["external_task"] += self.config.external_task_bias
         affinity_cap = self.config.affinity_input_cap
         # mode-governance-engagement item (1) 2026-09-19: resolve the bounding
-        # operator ONCE per tick (and validate sigma eagerly, so a misconfigured
-        # squash raises on the first tick rather than silently per-signal).
+        # operator ONCE per tick (and validate the mode + any EXPLICIT sigma
+        # eagerly, so a misconfigured squash raises on the first tick rather
+        # than per-signal). A sigma of None is not an error -- it selects the
+        # sigma = cap default.
         # Read via getattr so a config object pickled before this field existed
         # still ticks -- the fallback is the legacy clamp, i.e. bit-identical.
         affinity_bound_mode = AFFINITY_BOUND_CLAMP

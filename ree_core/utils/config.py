@@ -4054,12 +4054,19 @@ class REEConfig:
     # degeneracy: ext_margin_mean LINEAR in cap at R^2 0.9996-0.9999). Both are
     # inert when salience_affinity_input_cap is None.
     salience_affinity_bound_mode: str = "clamp"
-    # Semi-saturation constant for salience_affinity_bound_mode="squash". NO
-    # DEFAULT BY DESIGN: neither the mode-governance-engagement substrate_queue
-    # entry nor the targeted_review_salience_gain_normalisation lit pull fixes
-    # sigma or its relation to cap (Carandini & Heeger 2012 record that the
-    # biological semi-saturation constant is ADAPTIVE), so selecting the squash
-    # without an explicit positive sigma raises rather than picking one.
+    # Semi-saturation constant for salience_affinity_bound_mode="squash".
+    # None (default) = sigma is the configured salience_affinity_input_cap
+    # (user decision 2026-09-19T09:45Z, OPTION 1). sigma = cap puts the
+    # operator's derivative at the origin at exactly 1 (it is cap/sigma), so
+    # every SUB-cap signal passes through as the legacy box clamp passes it and
+    # the only behavioural change is at the top end, where the clamp was
+    # degenerate. Set an explicit positive value to override -- that is the knob
+    # a calibration sweep varies; a non-positive explicit value raises.
+    # NOT taken: a sigma tied to the signal's own running scale (the ADAPTIVE
+    # form Carandini & Heeger 2012 document). Their warning that a FIXED sigma
+    # "may reintroduce the same range problem at a different operating point" is
+    # accepted rather than answered here; the adaptive form would add a fitted
+    # time constant and is a NEW substrate_queue item, not a value change.
     salience_affinity_squash_sigma: Optional[float] = None
     # When True, the e3_policy write-gate value scales the dACC score_bias
     # before E3.select() (so that during internal_replay, dACC influence on
@@ -7714,7 +7721,8 @@ class REEConfig:
         salience_dacc_foraging_weight: float = 0.5,
         salience_affinity_input_cap: Optional[float] = None,
         # mode-governance-engagement item (1): bounding-operator selector +
-        # its undefaulted semi-saturation constant (see the dataclass fields).
+        # its semi-saturation constant, which defaults to the cap when left
+        # None (see the dataclass fields).
         salience_affinity_bound_mode: str = "clamp",
         salience_affinity_squash_sigma: Optional[float] = None,
         salience_apply_to_dacc_bias: bool = False,

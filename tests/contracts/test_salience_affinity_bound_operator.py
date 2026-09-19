@@ -19,8 +19,11 @@ Interface-level guarantees, independent of tuning:
       matches from the left and the right of x = +/-cap (and at x = 0), where
       the box clamp's slope jumps 1 -> 0. This discontinuity is what the
       substrate_queue entry names as the cause of the <= 1-grid-step crossing.
-  C6  SIGMA IS REQUIRED AND UNDEFAULTED. Selecting the squash without an
-      explicit positive sigma raises, at the operator AND through a live tick.
+  C6  SIGMA DEFAULTS TO THE CAP, AND AN EXPLICIT SIGMA OVERRIDES IT. sigma=None
+      means sigma = affinity_input_cap (user decision 2026-09-19T09:45Z), which
+      puts slope exactly 1 at the origin so sub-cap signals are treated as the
+      legacy clamp treats them and the ONLY change is at the top end. A
+      non-positive EXPLICIT sigma still raises.
   C7  THE AT-CAP DEGENERACY IS GONE. Two large-but-DIFFERENT inputs produce
       IDENTICAL clamped logits (the V3-EXQ-935a signature: ext_margin_mean
       linear in cap at R^2 0.9996-0.9999) but DIFFERENT squashed ones.
@@ -28,11 +31,10 @@ Interface-level guarantees, independent of tuning:
       signature, post-cls re-apply) carry both new knobs, and they reach the
       live coordinator -- the MECH-307 from_dims-swallows-unknown-kwargs trap.
 
-Deliberately NOT asserted here: any particular sigma. sigma has no default and
-no value is endorsed by the substrate_queue entry or by the commissioned lit
-pull (targeted_review_salience_gain_normalisation); the values below are test
-fixtures, not a production recommendation. The production default and the
-commitment-term grading are items (2)/(3) of the queue entry and remain open.
+SIGMA_EXPLICIT below is an OVERRIDE fixture used to prove the override path and
+to exercise a sigma != cap; it is not a recommended operating point. The
+production default of the whole lineage (salience_affinity_input_cap itself) and
+the commitment-term grading are items (3)/(2) of the queue entry and remain open.
 """
 
 import pytest
@@ -50,7 +52,13 @@ from ree_core.environment.causal_grid_world import CausalGridWorldV2
 from ree_core.utils.config import REEConfig
 
 CAP = 2.0
-SIGMA = 1.0  # test fixture ONLY -- see the module docstring.
+# The DEFAULT sigma is the cap itself. SIGMA is kept as the value the tests pass
+# explicitly wherever an explicit sigma is what is under test; it deliberately
+# equals CAP so that "explicit" and "defaulted" must agree numerically.
+SIGMA = CAP
+# A deliberately DIFFERENT explicit sigma, used only to prove the override path
+# actually changes the operator. Not a recommended operating point.
+SIGMA_EXPLICIT = 1.0
 
 
 def _coord(**kw):
@@ -153,12 +161,57 @@ def test_c5_derivative_is_continuous_across_the_old_clamp_boundary():
     assert clamp_slope(CAP + 10 * h) == pytest.approx(0.0, abs=1e-6)
 
 
-# -- C6 sigma is required and undefaulted ---------------------------------
+# -- C6 sigma defaults to the cap; an explicit sigma overrides -------------
 
 
-def test_c6_squash_without_sigma_raises_at_the_operator():
-    with pytest.raises(ValueError, match="requires an explicit"):
-        bound_affinity_input(1.0, CAP, AFFINITY_BOUND_SQUASH, None)
+def test_c6_sigma_defaults_to_the_cap_at_the_operator():
+    """sigma=None is not an error -- it selects sigma = cap."""
+    for x in (0.1, 1.0, CAP, 16.0, 17.0, 1e6):
+        defaulted = bound_affinity_input(x, CAP, AFFINITY_BOUND_SQUASH, None)
+        spelled = bound_affinity_input(x, CAP, AFFINITY_BOUND_SQUASH, CAP)
+        assert defaulted == spelled, x
+        assert defaulted == pytest.approx(CAP * x / (CAP + abs(x)), rel=1e-15)
+
+
+def test_c6_default_sigma_gives_slope_exactly_one_at_the_origin():
+    """The point of sigma = cap: d/dx at 0 is cap/sigma == 1, so every SUB-cap
+    signal is treated as the legacy box clamp treats it and the ONLY change is
+    at the top end. This is what lets a sweep attribute an effect to the
+    operator rather than to a simultaneous small-signal gain change."""
+    h = 1e-7
+    a = bound_affinity_input(-h, CAP, AFFINITY_BOUND_SQUASH, None)
+    b = bound_affinity_input(h, CAP, AFFINITY_BOUND_SQUASH, None)
+    assert (b - a) / (2.0 * h) == pytest.approx(1.0, rel=1e-6)
+
+    # A small signal therefore tracks the clamp closely, while a large one
+    # does not -- both halves matter, so assert both.
+    small = 1e-3
+    assert bound_affinity_input(
+        small, CAP, AFFINITY_BOUND_SQUASH, None
+    ) == pytest.approx(bound_affinity_input(small, CAP), rel=1e-3)
+    assert bound_affinity_input(17.0, CAP, AFFINITY_BOUND_SQUASH, None) < CAP
+
+
+def test_c6_explicit_sigma_overrides_the_default():
+    assert SIGMA_EXPLICIT != CAP, "fixture must differ from the default"
+    defaulted = bound_affinity_input(17.0, CAP, AFFINITY_BOUND_SQUASH, None)
+    overridden = bound_affinity_input(
+        17.0, CAP, AFFINITY_BOUND_SQUASH, SIGMA_EXPLICIT
+    )
+    assert overridden != defaulted
+    assert overridden == pytest.approx(
+        CAP * 17.0 / (SIGMA_EXPLICIT + 17.0), rel=1e-15
+    )
+    # Slope at the origin moves with it: cap/sigma, not 1.
+    h = 1e-7
+    slope = (
+        bound_affinity_input(h, CAP, AFFINITY_BOUND_SQUASH, SIGMA_EXPLICIT)
+        - bound_affinity_input(-h, CAP, AFFINITY_BOUND_SQUASH, SIGMA_EXPLICIT)
+    ) / (2.0 * h)
+    assert slope == pytest.approx(CAP / SIGMA_EXPLICIT, rel=1e-6)
+
+
+def test_c6_bad_explicit_sigma_and_bad_mode_still_raise():
     for bad in (0.0, -1.0):
         with pytest.raises(ValueError, match="strictly positive"):
             bound_affinity_input(1.0, CAP, AFFINITY_BOUND_SQUASH, bad)
@@ -166,15 +219,52 @@ def test_c6_squash_without_sigma_raises_at_the_operator():
         bound_affinity_input(1.0, CAP, "divisive_pool", SIGMA)
 
 
-def test_c6_squash_without_sigma_raises_on_a_live_tick():
-    coord = _coord(
-        affinity_input_cap=CAP, affinity_bound_mode=AFFINITY_BOUND_SQUASH
+def test_c6_live_tick_defaults_sigma_to_the_cap_and_honours_an_override():
+    """Through the coordinator, not just the operator."""
+    defaulted = _tick(
+        _coord(
+            affinity_input_cap=CAP, affinity_bound_mode=AFFINITY_BOUND_SQUASH
+        ),
+        17.0,
+    )["operating_mode"]
+    spelled = _tick(
+        _coord(
+            affinity_input_cap=CAP,
+            affinity_bound_mode=AFFINITY_BOUND_SQUASH,
+            affinity_squash_sigma=CAP,
+        ),
+        17.0,
+    )["operating_mode"]
+    assert defaulted == spelled
+
+    overridden = _tick(
+        _coord(
+            affinity_input_cap=CAP,
+            affinity_bound_mode=AFFINITY_BOUND_SQUASH,
+            affinity_squash_sigma=SIGMA_EXPLICIT,
+        ),
+        17.0,
+    )["operating_mode"]
+    assert overridden != defaulted
+
+    # A bad EXPLICIT sigma still raises on the first tick.
+    with pytest.raises(ValueError, match="strictly positive"):
+        _tick(
+            _coord(
+                affinity_input_cap=CAP,
+                affinity_bound_mode=AFFINITY_BOUND_SQUASH,
+                affinity_squash_sigma=-1.0,
+            ),
+            17.0,
+        )
+    # ... and with no cap the squash stays inert whatever sigma says (C1).
+    _tick(
+        _coord(
+            affinity_bound_mode=AFFINITY_BOUND_SQUASH,
+            affinity_squash_sigma=-1.0,
+        ),
+        17.0,
     )
-    with pytest.raises(ValueError, match="requires an explicit"):
-        _tick(coord, 17.0)
-    # ... and the SAME misconfiguration with no cap stays inert (C1).
-    inert = _coord(affinity_bound_mode=AFFINITY_BOUND_SQUASH)
-    _tick(inert, 17.0)
 
 
 # -- C7 the at-cap degeneracy is gone --------------------------------------
