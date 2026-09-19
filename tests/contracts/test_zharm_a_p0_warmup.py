@@ -325,10 +325,67 @@ def test_c3e_target_name_reports_which_supervision_actually_ran(on_run):
 # docs/substrate/SD-011-p0h-affective-encoder-warmup.md and the substrate_queue entry.
 # --------------------------------------------------------------------------------------
 
-def test_c3k_arm_levers_default_to_the_prior_behaviour():
+def test_c3k_lever_defaults():
+    """Arm F stays OFF by default. Arm E's explicit PIN also stays off -- but since
+    2026-09-19 (user decision OPTION I) a default FLOOR of 0.1 is ON, which is the one
+    setting here that changes behaviour for a caller who opts into P0h."""
     cfg = zh.ZHarmAP0Config()
     assert cfg.target_source == "accumulated_harm", "arm F must be OFF by default"
-    assert cfg.p0_precision_norm is None, "arm E must be OFF by default"
+    assert cfg.p0_precision_norm is None, "the explicit PIN must stay off by default"
+    assert cfg.p0_precision_norm_floor == pytest.approx(0.1), (
+        "the P0 precision floor is the adopted default (OPTION I, mid-plateau on the pin sweep)"
+    )
+
+
+def test_c3o_the_floor_is_a_floor_not_a_pin():
+    """A FLOOR only lifts an agent that is BELOW it; it never drags a higher one down.
+
+    This is the whole point of the SD-020 finding: the ARC-016 coupling is correct at RUNTIME
+    and wrong at P0. A pin would discard a genuine trained-agent precision; a floor rescues
+    only the P0 case, where precision has not yet had a chance to exist."""
+    r = zh.resolve_p0_precision_norm
+    # below the floor -> lifted
+    assert r(0.004, None, 0.1) == pytest.approx(0.1)
+    # already above it -> untouched (None = no mutation at all)
+    assert r(0.19, None, 0.1) is None
+    assert r(3.0, None, 0.1) is None
+    # exactly at it -> untouched
+    assert r(0.1, None, 0.1) is None
+    # an explicit pin wins outright, in BOTH directions
+    assert r(0.004, 1.0, 0.1) == pytest.approx(1.0)
+    assert r(3.0, 0.02, 0.1) == pytest.approx(0.02)
+    # floor disabled -> pre-2026-09-19 behaviour exactly
+    assert r(0.004, None, None) is None
+
+
+def test_c3p_the_default_floor_actually_reaches_the_stage():
+    """End-to-end, not just the resolver: a default-config PE run must report the floor as the
+    source and apply it, and must still restore E3's running variance afterwards."""
+    agent = _make_agent(0)
+    agent.config.harm_surprise_pe_enabled = True
+    before_var = agent.e3._running_variance
+    baseline = zh.current_precision_norm(agent)
+    assert baseline < 0.1, "fixture assumption: an untrained agent sits below the floor"
+
+    out = zh.run_zharm_a_p0(agent, _make_env(0), seed=0, episodes=6, steps_per_episode=STEPS,
+                            policy=RandomPolicy(0), label="c3p")
+    assert out["p0h_ran"] is True, out.get("p0h_reason")
+    assert out["p0h_precision_norm_requested"] is None
+    assert out["p0h_precision_norm_floor"] == pytest.approx(0.1)
+    assert out["p0h_precision_norm_source"] == "floor"
+    assert out["p0h_precision_norm_applied"] == pytest.approx(0.1, rel=1e-6)
+    assert agent.e3._running_variance == before_var, "the floor LEAKED out of the stage"
+
+
+def test_c3q_disabling_the_floor_restores_the_pre_option_i_path():
+    agent = _make_agent(0)
+    agent.config.harm_surprise_pe_enabled = True
+    baseline = zh.current_precision_norm(agent)
+    out = zh.run_zharm_a_p0(agent, _make_env(0), seed=0, episodes=4, steps_per_episode=STEPS,
+                            policy=RandomPolicy(0), label="c3q",
+                            config=zh.ZHarmAP0Config(seed=0, p0_precision_norm_floor=None))
+    assert out["p0h_precision_norm_source"] == "agent_untouched"
+    assert out["p0h_precision_norm_applied"] == pytest.approx(baseline, rel=1e-9)
 
 
 def test_c3l_arm_e_pins_precision_norm_and_restores_it():
@@ -362,6 +419,12 @@ def test_c3m_arm_e_is_reported_inert_when_the_pe_branch_is_off():
                             policy=RandomPolicy(0), label="c3m",
                             config=zh.ZHarmAP0Config(seed=0, p0_precision_norm=1.0))
     assert out["p0h_precision_override_inert"] is True
+    # The DEFAULT floor is inert on this path for the same reason, and must say so rather than
+    # look applied -- otherwise the OPTION I default reads as active on every SD-011 run.
+    out2 = zh.run_zharm_a_p0(agent, _make_env(0), seed=0, episodes=4, steps_per_episode=STEPS,
+                             policy=RandomPolicy(0), label="c3m2")
+    assert out2["p0h_precision_norm_source"] == "floor"
+    assert out2["p0h_precision_override_inert"] is True
 
 
 def test_c3n_arm_f_reads_the_per_tick_scalar_and_rejects_an_unknown_source():

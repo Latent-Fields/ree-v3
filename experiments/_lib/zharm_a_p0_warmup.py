@@ -105,6 +105,7 @@ __all__ = [
     "encoder_weight_delta",
     "recover_effective_target",
     "current_precision_norm",
+    "resolve_p0_precision_norm",
 ]
 
 
@@ -151,6 +152,18 @@ class ZHarmAP0Config:
     # -- and the returned block says so rather than letting a caller assume its arm was applied.
     target_source: str = "accumulated_harm"
     p0_precision_norm: Optional[float] = None
+    # DEFAULT-ON FLOOR (user decision OPTION I, 2026-09-19T02:31Z), and the one setting here
+    # that changes behaviour for a caller who opts into P0h. 0.1 is mid-plateau on the measured
+    # pin sweep -- clear of the 0.004->0.02 cliff below and of the mild decay above -- so it is
+    # chosen for the flatness around it, not as an optimum.
+    #
+    # A FLOOR, NOT A PIN: the applied value is max(agent's own precision_norm, this), so an
+    # agent that already sits above it is never dragged DOWN. That matters because the whole
+    # finding is that ARC-016's coupling is right at RUNTIME and wrong at P0 -- a pin would
+    # discard a genuine trained-agent precision, whereas a floor only rescues the P0 case where
+    # precision has not yet had a chance to exist. `p0_precision_norm` (an explicit pin) still
+    # overrides it; set this to None to restore the pre-2026-09-19 behaviour exactly.
+    p0_precision_norm_floor: Optional[float] = 0.1
 
 
 def affective_encoder_parameters(agent: Any) -> List[torch.nn.Parameter]:
@@ -211,6 +224,25 @@ def current_precision_norm(agent: Any) -> Optional[float]:
         return min(float(e3.current_precision) / 500.0, 3.0)
     except Exception:
         return None
+
+
+def resolve_p0_precision_norm(
+    baseline: Optional[float], pin: Optional[float], floor: Optional[float],
+) -> Optional[float]:
+    """The precision_norm the P0h stage should run at, or None to leave the agent untouched.
+
+    Precedence, and each clause earns its place:
+      * an explicit `pin` wins outright -- that is what a diagnostic arm sets;
+      * otherwise a `floor` applies only when the agent is BELOW it, so a trained agent's own
+        higher precision is never dragged down (a pin would do exactly that, and discarding a
+        genuine runtime precision is the opposite of what the SD-020 finding says);
+      * otherwise None -- no mutation at all, which keeps the no-op path free of float noise.
+    """
+    if pin is not None:
+        return float(pin)
+    if floor is None or baseline is None:
+        return None
+    return float(floor) if float(baseline) < float(floor) else None
 
 
 @contextlib.contextmanager
@@ -428,11 +460,19 @@ def run_zharm_a_p0(
     )
     out["p0h_target_source"] = str(cfg.target_source)
     out["p0h_precision_norm_requested"] = cfg.p0_precision_norm
+    out["p0h_precision_norm_floor"] = cfg.p0_precision_norm_floor
     out["p0h_precision_norm_baseline"] = current_precision_norm(agent)
+    _resolved_pnorm = resolve_p0_precision_norm(
+        out["p0h_precision_norm_baseline"], cfg.p0_precision_norm, cfg.p0_precision_norm_floor,
+    )
+    out["p0h_precision_norm_source"] = (
+        "explicit_pin" if cfg.p0_precision_norm is not None
+        else ("floor" if _resolved_pnorm is not None else "agent_untouched")
+    )
     # An override that cannot bite is reported as INERT rather than left to look applied: only
     # the SD-020 branch reads precision at all.
     out["p0h_precision_override_inert"] = bool(
-        cfg.p0_precision_norm is not None and not out["p0h_harm_surprise_pe_enabled"]
+        _resolved_pnorm is not None and not out["p0h_harm_surprise_pe_enabled"]
     )
 
     before = encoder_weight_snapshot(agent)
@@ -446,7 +486,7 @@ def run_zharm_a_p0(
     # split would leak the target across it).
     buf: List[Tuple[torch.Tensor, Optional[torch.Tensor], float, int]] = []
 
-    with _rng_neutral(), _pinned_precision_norm(agent, cfg.p0_precision_norm) as achieved:
+    with _rng_neutral(), _pinned_precision_norm(agent, _resolved_pnorm) as achieved:
         out["p0h_precision_norm_applied"] = (
             achieved if achieved is not None else out["p0h_precision_norm_baseline"]
         )
