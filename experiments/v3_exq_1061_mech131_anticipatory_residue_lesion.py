@@ -1,4 +1,35 @@
 """
+V3-EXQ-1061 -- MECH-131
+
+!! NOT QUEUEABLE AS WRITTEN -- MEASURED BLOCKER, 2026-09-19. READ THIS FIRST. !!
+
+This driver is complete and its dry-run passes end to end (9/9 cells, all
+preconditions met, C1 and C2 met). It must NOT be queued yet, because the DV was
+measured on the hub and CANNOT DETECT ITS OWN MANIPULATION on an untrained
+substrate:
+
+    between-candidate residue SD        0.18%  of the pool mean
+    intact vs complete-lesion effect   0.002% of the pool mean   (~100x smaller)
+
+and the ratio is scale-invariant -- it does not improve with more accumulated
+residue (measured at 60 and 200 charge steps: 31.40 +/- 0.056 with a 0.0005
+lesion effect; 99.48 +/- 0.181 with a 0.0018 effect). All 32 candidates land in
+essentially the same residue region, so residue-based selection has nothing to
+exploit and C1's per-seed ordinal test would be deciding on differences ~100x
+below candidate-level noise: a coin flip wearing a criterion's clothes.
+
+ROOT CAUSE, and it is the codebase's own documented expectation rather than a new
+finding -- V3-EXQ-042 (hippocampal terrain training) says it outright:
+"if terrain_prior is random, proposals are uninformed (equivalent to random
+candidates)". Residue avoidance is a LEARNED competence here; this driver runs an
+UNTRAINED agent, so lesioning the anticipatory channel removes a capability the
+substrate never had. V3-EXQ-042's own eval metric is this driver's DV1 almost
+verbatim ("hippo_quality_gap = mean_residue_random - mean_residue_hippo").
+
+Adding a training phase changes what gets measured (trained vs untrained
+substrate) and is not in the ratified design, so it was NOT done unilaterally.
+Raised as a decision chip; see the design of record below.
+
 V3-EXQ-1061 -- MECH-131: is stored aversive residue ACTIVATED as an anticipatory
 forward-biasing signal before candidate generation?
 
@@ -281,7 +312,7 @@ def measure_pool(agent, env, body, world, seed: int, n_states: int) -> Dict[str,
         trajs = agent.hippocampal.propose_trajectories(z_world, z_self=z_self)
         if not trajs:
             continue
-        residues = [float(rf.evaluate_trajectory(t.get_world_state_sequence()).sum())
+        residues = [float(rf.evaluate_trajectory(t.get_world_state_sequence()).detach().sum())
                     for t in trajs if t.get_world_state_sequence() is not None]
         scores = [float(agent.hippocampal._score_trajectory(t).detach()) for t in trajs]
         post_hoc = float(agent.e3.compute_residue_cost(trajs[0]).detach().sum())
