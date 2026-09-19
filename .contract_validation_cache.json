@@ -1,5 +1,15 @@
 {
   "records": {
+    "3618e7874f6f5b12223fe6e437e10baa962efa58948953730e5821a0441b745a": {
+      "machine_class": "darwin-arm64-py3.13-torch2.12.0",
+      "n_files": 209,
+      "recorded_at": "2026-09-19T14:03:18Z",
+      "recorded_by_commit": "65ead3c2ffe41375cb52b4f4a19582bd616c4e51",
+      "recorded_by_session_id": null,
+      "relevant_hash": "e975332aa5accc075205222652c963379ce2bae504e96ea7ca1ad088135c9feb",
+      "result": "pass",
+      "tier": "ree-v3-contracts-full-suite"
+    },
     "77e62f7190ef7d4506b9281edcc2d648665d1575c4d24f27907fef6c7516a108": {
       "machine_class": "darwin-arm64-py3.13-torch2.12.0",
       "n_files": 209,
@@ -7,16 +17,6 @@
       "recorded_by_commit": "1b4c78caaf64af7b85bd1b47ede91b8ff334019c",
       "recorded_by_session_id": null,
       "relevant_hash": "8e1eea74ac10f1ae0f77e8b4839edc3d893dbffdeff783f31f875a46155769a1",
-      "result": "pass",
-      "tier": "ree-v3-contracts-full-suite"
-    },
-    "a0c72d7a3818442326b90eb0ebc236bec90b801aecd44c9307eff546e9c46010": {
-      "machine_class": "darwin-arm64-py3.13-torch2.12.0",
-      "n_files": 208,
-      "recorded_at": "2026-09-18T13:18:38Z",
-      "recorded_by_commit": "f2b70bbe91aef55de1452091fd803de7406216a1",
-      "recorded_by_session_id": null,
-      "relevant_hash": "4321f9a9d9d94b3e95dad90c8be3207e519e7d8317dcf60f45caa5023d2d76b1",
       "result": "pass",
       "tier": "ree-v3-contracts-full-suite"
     }
