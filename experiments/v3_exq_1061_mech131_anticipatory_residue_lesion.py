@@ -254,7 +254,37 @@ WF_MIN_BUF         = 16           # 042's floor before wf training
 APPROACH_TTYPES    = {"hazard_approach"}
 CONTACT_TTYPES     = {"agent_caused_hazard", "env_caused_hazard"}
 
-N_PROBE_STATES = 12               # probe states per arm (proposal pools measured)
+# Probe states per arm. Raised from 12 to 40 when the entropy guard landed: the
+# guard compares a selected-action entropy estimate against 0.254 nats, and 12
+# samples over 4 action classes is too thin a basis for that. Note the bias
+# direction is SAFE -- a small sample under-estimates entropy, so a thin estimate
+# errs toward REFUSING the run, never toward passing a collapsed one.
+N_PROBE_STATES = 40
+
+# CHANNEL-AUTHORITY AXIS (user decision OPTION A, 2026-09-19T09:25Z).
+# support_preserving_ao_std_floor is the CEM exploration-noise floor. At the
+# production value 0.2 it is 1.55x the terrain_prior proposal-mean magnitude
+# (measured 0.1288), so the anticipatory residue channel is SUB-DOMINANT to
+# mandated exploration noise and no candidate-set DV can resolve its lesion.
+# The lowered level gives the channel authority; the production level is kept as a
+# level so the contrast is VISIBLE in the same manifest rather than inferred.
+# Declared as a config_slice axis (config_slice_declared=True).
+AO_STD_FLOORS      = [0.2, 0.05]  # [production, lowered]
+PRODUCTION_FLOOR   = 0.2
+
+# MANDATORY MONOSTRATEGY GUARD. The floor exists (2026-05-17) to stop the CEM
+# sampling distribution collapsing to a point -- the monostrategy that left
+# SD-029 / ARC-062 Rung 2 / goal_pipeline / self_attribution non_contributory.
+# Lowering it therefore re-opens exactly that risk, so this run REFUSES (self-
+# routes, emits no verdict about MECH-131) if selected-action entropy collapses.
+# THRESHOLD, pre-registered: no already-written rule fixes it, so per the user's
+# instruction it is the MIDPOINT of V3-EXQ-567's two recorded values --
+# 0.0124 (collapsed, pre-SP-CEM) and 0.4965 (healthy, ARM_1) -- in nats over
+# selected-action-class counts, the same units and estimator as
+# experiments/_lib/baselines/exq643_modulatory_authority_baseline.py.
+ENTROPY_COLLAPSED_REF = 0.0124
+ENTROPY_HEALTHY_REF   = 0.4965
+ENTROPY_REFUSAL_FLOOR = (ENTROPY_COLLAPSED_REF + ENTROPY_HEALTHY_REF) / 2.0  # 0.25445
 
 # (arm_name, CH1 terrain_prior channel, CH2 score_trajectory terrain score)
 ARMS: List[Tuple[str, bool, bool]] = [
@@ -286,7 +316,7 @@ def _obs(obs_dict) -> Tuple[torch.Tensor, torch.Tensor]:
 
 
 def _config_slice(ch1: bool, ch2: bool, seed: int, warmup_episodes: int,
-                  steps_per_episode: int) -> Dict[str, Any]:
+                  steps_per_episode: int, ao_std_floor: float) -> Dict[str, Any]:
     """Declared config slice for the arm fingerprint (config_slice_declared=True)."""
     return {
         "terrain_prior_residue_channel_enabled": ch1,
@@ -301,6 +331,8 @@ def _config_slice(ch1: bool, ch2: bool, seed: int, warmup_episodes: int,
         "steps_per_episode": steps_per_episode,
         "terrain_lr": TERRAIN_LR,
         "n_probe_states": N_PROBE_STATES,
+        # the channel-authority axis
+        "support_preserving_ao_std_floor": ao_std_floor,
     }
 
 
@@ -330,7 +362,8 @@ def assert_defect_paths_inert(agent: REEAgent, cfg: REEConfig) -> Dict[str, Any]
     return observed
 
 
-def build_agent(ch1: bool, ch2: bool, seed: int):
+def build_agent(ch1: bool, ch2: bool, seed: int,
+                ao_std_floor: float = PRODUCTION_FLOOR):
     torch.manual_seed(seed)
     env = CausalGridWorldV2(
         seed=seed, size=GRID_SIZE, num_hazards=NUM_HAZARDS,
@@ -354,6 +387,10 @@ def build_agent(ch1: bool, ch2: bool, seed: int):
     assert cfg.hippocampal.score_trajectory_residue_terrain_enabled is ch2, (
         "from_dims did not route score_trajectory_residue_terrain_enabled"
     )
+    # Channel-authority axis. Set on the nested HippocampalConfig (not a from_dims
+    # kwarg), BEFORE REEAgent.__init__ reads it, and asserted rather than assumed.
+    cfg.hippocampal.support_preserving_ao_std_floor = float(ao_std_floor)
+    assert cfg.hippocampal.support_preserving_ao_std_floor == float(ao_std_floor)
     agent = REEAgent(cfg)
     agent.reset()
     return agent, env, cfg
@@ -671,6 +708,7 @@ def measure_arm(agent, env, obs_dict, arm: str, ch1: bool, ch2: bool,
 
     rf = agent.residue_field
     per_state: List[Dict[str, Any]] = []
+    action_counts: Dict[int, int] = {}
     for s in range(n_states):
         body, world = _obs(obs_dict)
         latent = agent.sense(body, world)
@@ -699,6 +737,15 @@ def measure_arm(agent, env, obs_dict, arm: str, ch1: bool, ch2: bool,
             scores = [float(agent.hippocampal._score_trajectory(t).detach())
                       for t in trajs]
             post_hoc = float(agent.e3.compute_residue_cost(trajs[0]).detach().sum())
+            # Monostrategy guard input: which action E3 actually commits to from
+            # this candidate pool. Counted over probe states, then turned into
+            # Shannon entropy (nats) exactly as the V3-EXQ-567 reference does.
+            try:
+                _sel = agent.e3.select(trajs, temperature=1.0)
+                _ai = int(torch.argmax(_sel.selected_action.detach()).item())
+                action_counts[_ai] = action_counts.get(_ai, 0) + 1
+            except Exception:
+                pass
             if sums and harms:
                 n = len(sums)
                 mu = sum(sums) / n
@@ -749,9 +796,32 @@ def measure_arm(agent, env, obs_dict, arm: str, ch1: bool, ch2: bool,
         "post_hoc_residue_cost": sum(p["post_hoc_residue_cost"] for p in per_state) / n,
         "post_hoc_residue_cost_min_abs":
             min(abs(p["post_hoc_residue_cost"]) for p in per_state),
+        "selected_action_entropy": _entropy_from_counts(action_counts),
+        "selected_action_counts": dict(sorted(action_counts.items())),
+        "selected_actions_n_unique": len(action_counts),
         "per_probe_state": per_state,
         "final_obs": obs_dict,
     }
+
+
+def _entropy_from_counts(counts: Dict[int, int]) -> float:
+    """Shannon entropy (nats) over selected-action-class counts.
+
+    Same estimator and units as
+    experiments/_lib/baselines/exq643_modulatory_authority_baseline.py, so the
+    V3-EXQ-567 reference values (0.0124 collapsed / 0.4965 healthy) are directly
+    comparable.
+    """
+    n = sum(counts.values())
+    if n <= 0:
+        return 0.0
+    h = 0.0
+    for c in counts.values():
+        if c <= 0:
+            continue
+        pr = c / n
+        h -= pr * math.log(pr)
+    return float(h)
 
 
 def _spearman(xs: List[float], ys: List[float]) -> Optional[float]:
@@ -810,11 +880,11 @@ def gradedness_rho(intact: Dict[str, Any],
 
 
 def run_seed(seed: int, dry_run: bool, warmup_episodes: int,
-             steps_per_episode: int) -> Dict[str, Any]:
-    """Train ONE intact agent, gate it, then read all three arms off it."""
+             steps_per_episode: int, ao_std_floor: float) -> Dict[str, Any]:
+    """Train ONE intact agent at this ao_std floor, gate it, then read all arms."""
     n_states = 3 if dry_run else N_PROBE_STATES
     n_gap = 3 if dry_run else 12
-    agent, env, cfg = build_agent(True, True, seed)   # trained INTACT
+    agent, env, cfg = build_agent(True, True, seed, ao_std_floor)  # trained INTACT
     defect_flags = assert_defect_paths_inert(agent, cfg)
 
     warm = warmup_train(agent, env, seed, warmup_episodes, steps_per_episode)
@@ -832,10 +902,11 @@ def run_seed(seed: int, dry_run: bool, warmup_episodes: int,
         row["total_residue"] = float(agent.residue_field.total_residue)
         row["num_harm_events"] = float(agent.residue_field.num_harm_events)
         row["defect_flags_observed"] = defect_flags
+        row["ao_std_floor"] = float(ao_std_floor)
         arms.append(row)
 
-    return {"seed": seed, "warmup": warm, "readiness": gate, "arms": arms,
-            "agent": agent}
+    return {"seed": seed, "ao_std_floor": float(ao_std_floor), "warmup": warm,
+            "readiness": gate, "arms": arms, "agent": agent}
 
 
 # ----------------------------------------------------------------------
@@ -850,33 +921,54 @@ def main(dry_run: bool = False, warmup_episodes: int = WARMUP_EPISODES,
 
     seed_rows: List[Dict[str, Any]] = []
     all_agents: List[Any] = []
-    for i, seed in enumerate(SEEDS):
-        print(f"[seed {i+1}/{len(SEEDS)}] seed={seed} warmup={warmup_episodes}x"
-              f"{steps_per_episode}", flush=True)
-        with arm_cell(
-            seed,
-            config_slice=_config_slice(True, True, seed, warmup_episodes,
-                                       steps_per_episode),
-            script_path=Path(__file__),
-            config_slice_declared=True,
-        ) as cell:
-            row = run_seed(seed, dry_run, warmup_episodes, steps_per_episode)
-            all_agents.append(row.pop("agent"))
-            cell.stamp(row)
-        seed_rows.append(row)
-        g = row["readiness"]
-        _hg = g["harm_eval_gap"]
-        print(f"    readiness harm_eval_gap="
-              f"{('%.6g' % _hg) if _hg is not None else 'None'} "
-              f"(clears={g['gap_clears']})  [diag 042 gap="
-              f"{g['diagnostic_hippo_quality_gap_042']:.4g}]", flush=True)
+    total = len(AO_STD_FLOORS) * len(SEEDS)
+    n = 0
+    for floor in AO_STD_FLOORS:
+        for seed in SEEDS:
+            n += 1
+            print(f"[cell {n}/{total}] ao_std_floor={floor} seed={seed} "
+                  f"warmup={warmup_episodes}x{steps_per_episode}", flush=True)
+            with arm_cell(
+                seed,
+                config_slice=_config_slice(True, True, seed, warmup_episodes,
+                                           steps_per_episode, floor),
+                script_path=Path(__file__),
+                config_slice_declared=True,
+            ) as cell:
+                row = run_seed(seed, dry_run, warmup_episodes,
+                               steps_per_episode, floor)
+                all_agents.append(row.pop("agent"))
+                cell.stamp(row)
+            seed_rows.append(row)
+            g = row["readiness"]
+            _hg = g["harm_eval_gap"]
+            _ent = min(a["selected_action_entropy"] for a in row["arms"])
+            print(f"    harm_eval_gap="
+                  f"{('%.4g' % _hg) if _hg is not None else 'None'} "
+                  f"(clears={g['gap_clears']})  min_action_entropy={_ent:.4g}",
+                  flush=True)
 
     arm_results = [a for r in seed_rows for a in r["arms"]]
 
-    def _arm(arm: str, seed: int) -> Dict[str, Any]:
-        return next(a for a in arm_results if a["arm"] == arm and a["seed"] == seed)
+    def _arm(arm: str, seed: int, floor: float) -> Dict[str, Any]:
+        return next(a for a in arm_results if a["arm"] == arm
+                    and a["seed"] == seed and a["ao_std_floor"] == float(floor))
+
+    LOWERED = [f for f in AO_STD_FLOORS if f != PRODUCTION_FLOOR]
+    AUTHORITY_FLOOR = LOWERED[0] if LOWERED else PRODUCTION_FLOOR
 
     # ---- READINESS GATE (must clear before any arm is lesioned) --------
+    # MANDATORY MONOSTRATEGY GUARD -- evaluated before any verdict is formed.
+    entropies = [a["selected_action_entropy"] for a in arm_results]
+    min_entropy = min(entropies) if entropies else 0.0
+    collapsed_cells = [
+        {"arm": a["arm"], "seed": a["seed"], "ao_std_floor": a["ao_std_floor"],
+         "selected_action_entropy": a["selected_action_entropy"]}
+        for a in arm_results
+        if a["selected_action_entropy"] < ENTROPY_REFUSAL_FLOOR
+    ]
+    entropy_ok = len(collapsed_cells) == 0
+
     gate_clears = all(r["readiness"]["gap_clears"] == 1 for r in seed_rows)
     gaps = [r["readiness"]["harm_eval_gap"] for r in seed_rows]
     gaps = [(g if g is not None else 0.0) for g in gaps]
@@ -885,25 +977,27 @@ def main(dry_run: bool = False, warmup_episodes: int = WARMUP_EPISODES,
     # ---- Preconditions --------------------------------------------------
     p1_harm = all(a["num_harm_events"] > 0 for a in arm_results)
     p2_storage = all(
-        _arm("ARM_1_intact", s)["total_residue"]
-        == _arm("ARM_2_ch1_lesion", s)["total_residue"]
-        == _arm("ARM_3_complete_lesion", s)["total_residue"]
-        for s in SEEDS
-    )   # one trained agent per seed, so this is exact by construction -- asserted anyway
+        _arm("ARM_1_intact", s, f)["total_residue"]
+        == _arm("ARM_2_ch1_lesion", s, f)["total_residue"]
+        == _arm("ARM_3_complete_lesion", s, f)["total_residue"]
+        for s in SEEDS for f in AO_STD_FLOORS
+    )   # one trained agent per (floor, seed), so exact by construction -- asserted anyway
     p3_post_hoc = all(a["post_hoc_residue_cost_min_abs"] > 0.0 for a in arm_results)
     p4_spread = (
-        all(_arm(a, s)["cem_score_spread_max"] > 0.0
-            for a in ("ARM_1_intact", "ARM_2_ch1_lesion") for s in SEEDS)
-        and all(_arm("ARM_3_complete_lesion", s)["cem_score_spread_max"] == 0.0
-                for s in SEEDS)
+        all(_arm(a, s, f)["cem_score_spread_max"] > 0.0
+            for a in ("ARM_1_intact", "ARM_2_ch1_lesion")
+            for s in SEEDS for f in AO_STD_FLOORS)
+        and all(_arm("ARM_3_complete_lesion", s, f)["cem_score_spread_max"] == 0.0
+                for s in SEEDS for f in AO_STD_FLOORS)
     )
     preconditions_met = bool(p1_harm and p2_storage and p3_post_hoc and p4_spread)
 
     # ---- C1: DV1 ordinal ordering, PER SEED -----------------------------
     per_seed: List[Dict[str, Any]] = []
-    for s in SEEDS:
-        r1, r2, r3 = (_arm("ARM_1_intact", s), _arm("ARM_2_ch1_lesion", s),
-                      _arm("ARM_3_complete_lesion", s))
+    for f in AO_STD_FLOORS:
+      for s in SEEDS:
+        r1, r2, r3 = (_arm("ARM_1_intact", s, f), _arm("ARM_2_ch1_lesion", s, f),
+                      _arm("ARM_3_complete_lesion", s, f))
         # PRIMARY DV (OPTION B): harm prediction, not residue magnitude.
         a1, a2, a3 = (r1["harm_avoidance"], r2["harm_avoidance"],
                       r3["harm_avoidance"])
@@ -911,6 +1005,11 @@ def main(dry_run: bool = False, warmup_episodes: int = WARMUP_EPISODES,
         eff = a3 - a1
         per_seed.append({
             "seed": s,
+            "ao_std_floor": float(f),
+            "is_authority_floor": int(float(f) == float(AUTHORITY_FLOOR)),
+            "selected_action_entropy_min":
+                min(r1["selected_action_entropy"], r2["selected_action_entropy"],
+                    r3["selected_action_entropy"]),
             "harm_avoidance_arm1_intact": a1,
             "harm_avoidance_arm2_ch1_lesion": a2,
             "harm_avoidance_arm3_complete_lesion": a3,
@@ -925,34 +1024,50 @@ def main(dry_run: bool = False, warmup_episodes: int = WARMUP_EPISODES,
             # The diagnosis that stopped the pre-warmup revision, now a recorded
             # readout rather than a one-off measurement.
             "effect_over_noise": (eff / noise) if noise else None,
-            "harm_eval_gap": _seed_gap(seed_rows, s),
+            "harm_eval_gap": _seed_gap(seed_rows, s, f),
             "c1_arm1_below_arm3": int(a1 < a3),
             "arm2_below_arm3": int(a2 < a3),
         })
-    c1_met = all(p["c1_arm1_below_arm3"] == 1 for p in per_seed)
-    c1_seeds_clearing = sum(p["c1_arm1_below_arm3"] for p in per_seed)
+    # C1 is judged AT THE AUTHORITY FLOOR -- that is the arm where the channel is
+    # not sub-dominant, so it is where MECH-131 is actually under test. The
+    # production-floor rows are retained as the visible contrast.
+    auth_rows = [p for p in per_seed if p["is_authority_floor"] == 1]
+    prod_rows = [p for p in per_seed if p["is_authority_floor"] == 0]
+    c1_met = bool(auth_rows) and all(p["c1_arm1_below_arm3"] == 1 for p in auth_rows)
+    c1_seeds_clearing = sum(p["c1_arm1_below_arm3"] for p in auth_rows)
 
     # ---- C2: DV3 ordering dissociation ---------------------------------
-    c2_flags = [int(_arm("ARM_3_complete_lesion", s)["cem_score_spread_max"] == 0.0
-                    and _arm("ARM_3_complete_lesion", s)["post_hoc_residue_cost_min_abs"] > 0.0)
-                for s in SEEDS]
+    c2_flags = [int(_arm("ARM_3_complete_lesion", s, f)["cem_score_spread_max"] == 0.0
+                    and _arm("ARM_3_complete_lesion", s, f)["post_hoc_residue_cost_min_abs"] > 0.0)
+                for f in AO_STD_FLOORS for s in SEEDS]
     c2_met = all(f == 1 for f in c2_flags)
 
     # ---- DV2: gradedness, reported with its sign ------------------------
-    rhos = [{"seed": s,
-             "gradedness_rho": gradedness_rho(_arm("ARM_1_intact", s),
-                                              _arm("ARM_3_complete_lesion", s))}
-            for s in SEEDS]
+    rhos = [{"seed": s, "ao_std_floor": float(f),
+             "gradedness_rho": gradedness_rho(_arm("ARM_1_intact", s, f),
+                                              _arm("ARM_3_complete_lesion", s, f))}
+            for f in AO_STD_FLOORS for s in SEEDS
+            if float(f) == float(AUTHORITY_FLOOR)]
     rho_vals = [r["gradedness_rho"] for r in rhos if r["gradedness_rho"] is not None]
     rho_mean = (sum(rho_vals) / len(rho_vals)) if rho_vals else None
     rho_positive_seeds = sum(1 for v in rho_vals if v > 0)
 
-    eon = [p["effect_over_noise"] for p in per_seed if p["effect_over_noise"] is not None]
+    eon = [p["effect_over_noise"] for p in auth_rows
+           if p["effect_over_noise"] is not None]
     eon_mean = (sum(eon) / len(eon)) if eon else None
+    eon_prod = [p["effect_over_noise"] for p in prod_rows
+                if p["effect_over_noise"] is not None]
+    eon_prod_mean = (sum(eon_prod) / len(eon_prod)) if eon_prod else None
 
     # A readiness failure is NOT a claim-negative: it means the generator never
     # acquired the avoidance the lesion is supposed to remove.
-    if not gate_clears:
+    if not entropy_ok:
+        # SELF-ROUTE. Lowering the exploration floor re-opened the monostrategy the
+        # floor exists to prevent, so the candidate pools are not a valid sample of
+        # the policy and NOTHING here may be read as evidence about MECH-131.
+        outcome = "FAIL"
+        verdict_reason = "monostrategy_collapse_refused"
+    elif not gate_clears:
         outcome = "FAIL"
         verdict_reason = "readiness_gate_failed"
     elif not preconditions_met:
@@ -966,6 +1081,12 @@ def main(dry_run: bool = False, warmup_episodes: int = WARMUP_EPISODES,
         "DIAGNOSTIC -- excluded from governance confidence scoring; does not move "
         "MECH-131's status. Purpose: supply the measured quantities governance needs "
         "to author MECH-131's missing what_would_answer. "
+        f"CHANNEL-AUTHORITY ARM (OPTION A): ao_std_floor levels {AO_STD_FLOORS}; C1 is "
+        f"judged at {AUTHORITY_FLOOR}, with {PRODUCTION_FLOOR} retained as the visible "
+        f"contrast (effect/noise there: {eon_prod_mean}). "
+        f"Monostrategy guard: min selected-action entropy {min_entropy:.4f} vs refusal "
+        f"floor {ENTROPY_REFUSAL_FLOOR:.4f} (midpoint of V3-EXQ-567's 0.0124/0.4965) -- "
+        f"{'OK' if entropy_ok else 'BREACHED, run SELF-ROUTES with no verdict'}. "
         f"DV = harm PREDICTION (E3.harm_eval on z_world), not residue magnitude "
         f"(OPTION B). Readiness (harm_eval beats a constant baseline, gap > 0): "
         f"{gaps} -- {'CLEARS' if gate_clears else 'DOES NOT CLEAR'}. "
@@ -986,6 +1107,18 @@ def main(dry_run: bool = False, warmup_episodes: int = WARMUP_EPISODES,
     )
 
     readout = flat_readout({
+        # --- monostrategy guard (mandatory; refusal is self-routing) ---
+        "entropy_guard_ok": int(entropy_ok),
+        "selected_action_entropy_min": min_entropy,
+        "entropy_refusal_floor": ENTROPY_REFUSAL_FLOOR,
+        "entropy_collapsed_ref_exq567": ENTROPY_COLLAPSED_REF,
+        "entropy_healthy_ref_exq567": ENTROPY_HEALTHY_REF,
+        "n_collapsed_cells": len(collapsed_cells),
+        # --- channel-authority axis ---
+        "ao_std_floor_production": PRODUCTION_FLOOR,
+        "ao_std_floor_authority": AUTHORITY_FLOOR,
+        "effect_over_noise_production_floor_mean":
+            eon_prod_mean if eon_prod_mean is not None else 0.0,
         "readiness_gate_clears_all_seeds": int(gate_clears),
         "harm_eval_gap_mean": sum(gaps) / len(gaps),
         "harm_eval_gap_min": min(gaps),
@@ -1030,6 +1163,8 @@ def main(dry_run: bool = False, warmup_episodes: int = WARMUP_EPISODES,
         "n_seeds": len(SEEDS),
         "n_world_families": 1,
         "n_arms": len(ARMS),
+        "n_ao_std_floors": len(AO_STD_FLOORS),
+        "n_cells": len(arm_results),
     })
 
     manifest: Dict[str, Any] = {
@@ -1047,6 +1182,16 @@ def main(dry_run: bool = False, warmup_episodes: int = WARMUP_EPISODES,
         "verdict_reason": verdict_reason,
         "readout": readout,
         "criteria": {
+            "GUARD_no_monostrategy_collapse": {
+                "measured": min_entropy, "threshold": ENTROPY_REFUSAL_FLOOR,
+                "met": int(entropy_ok),
+                "note": "selected-action entropy (nats) in every arm x seed x floor "
+                        "cell. Threshold is the MIDPOINT of V3-EXQ-567's recorded "
+                        "0.0124 (collapsed) and 0.4965 (healthy) -- stated as the "
+                        "midpoint because no already-written rule fixes it. A breach "
+                        "SELF-ROUTES: the run emits no verdict about MECH-131, because "
+                        "a collapsed pool is not a valid sample of the policy.",
+            },
             "READINESS_harm_eval_beats_constant_baseline_per_seed": {
                 "measured": min(gaps), "threshold": 0.0, "met": int(gate_clears),
                 "note": "harm_eval_gap = mean(harm_eval|harm states) - "
@@ -1059,7 +1204,11 @@ def main(dry_run: bool = False, warmup_episodes: int = WARMUP_EPISODES,
             "C1_dv1_harm_avoidance_ordinal_arm1_below_arm3_per_seed": {
                 "measured": c1_seeds_clearing, "threshold": len(SEEDS),
                 "met": int(c1_met),
-                "note": "ordinal; effect sizes reported, no invented floor",
+                "note": f"ordinal; effect sizes reported, no invented floor. Judged AT "
+                        f"THE AUTHORITY FLOOR (ao_std_floor={AUTHORITY_FLOOR}), where "
+                        f"the anticipatory channel is not sub-dominant to exploration "
+                        f"noise; the production floor ({PRODUCTION_FLOOR}) rows are the "
+                        f"visible contrast, not the test.",
             },
             "C2_dv3_ordering_dissociation_per_seed": {
                 "measured": sum(c2_flags), "threshold": len(SEEDS), "met": int(c2_met),
@@ -1084,6 +1233,30 @@ def main(dry_run: bool = False, warmup_episodes: int = WARMUP_EPISODES,
             "stochastic_seeds": len(SEEDS), "world_families": 1,
             "ecological_transfer": "untested",
         },
+        "channel_authority": {
+            "ao_std_floors": AO_STD_FLOORS,
+            "production_floor": PRODUCTION_FLOOR,
+            "authority_floor": AUTHORITY_FLOOR,
+            "terrain_prior_proposal_mean_magnitude_measured_20260919": 0.1288,
+            "rationale": (
+                "At the production floor 0.2 the mandated CEM exploration noise is "
+                "1.55x the terrain_prior proposal-mean magnitude (0.1288, measured "
+                "2026-09-19), so the anticipatory residue channel is sub-dominant and "
+                "no candidate-set DV can resolve its lesion. Lowering the floor gives "
+                "the channel authority; the production level is retained so the "
+                "contrast is visible in this manifest."
+            ),
+        },
+        "monostrategy_guard": {
+            "selected_action_entropy_min": min_entropy,
+            "refusal_floor": ENTROPY_REFUSAL_FLOOR,
+            "refusal_floor_derivation": (
+                "midpoint of V3-EXQ-567's recorded 0.0124 (collapsed) and 0.4965 "
+                "(healthy); no already-written rule fixes this threshold"
+            ),
+            "collapsed_cells": collapsed_cells,
+            "ok": int(entropy_ok),
+        },
         "per_seed": per_seed,
         "gradedness": rhos,
         "warmup": [{"seed": r["seed"], **r["warmup"]} for r in seed_rows],
@@ -1100,6 +1273,8 @@ def main(dry_run: bool = False, warmup_episodes: int = WARMUP_EPISODES,
             "n_random_compare": N_RANDOM_COMPARE,
             "candidate_horizon": CANDIDATE_HORIZON,
             "n_probe_states": N_PROBE_STATES,
+            "ao_std_floors": AO_STD_FLOORS,
+            "entropy_refusal_floor": ENTROPY_REFUSAL_FLOOR,
             "dry_run": bool(dry_run),
         },
         "interpretation": interpretation,
@@ -1120,9 +1295,9 @@ def main(dry_run: bool = False, warmup_episodes: int = WARMUP_EPISODES,
     return manifest, out_path
 
 
-def _seed_gap(seed_rows: List[Dict[str, Any]], seed: int):
+def _seed_gap(seed_rows: List[Dict[str, Any]], seed: int, floor: float):
     return next(r["readiness"]["harm_eval_gap"] for r in seed_rows
-                if r["seed"] == seed)
+                if r["seed"] == seed and r["ao_std_floor"] == float(floor))
 
 
 def _loss_mean(seed_rows: List[Dict[str, Any]], key: str) -> float:
