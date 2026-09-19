@@ -220,6 +220,13 @@ TERRAIN_LR         = 5e-4
 N_RANDOM_COMPARE   = 8            # 042's hippo-vs-random candidate count
 CANDIDATE_HORIZON  = 5            # 042's random-candidate horizon
 GAP_SAMPLE_EVERY   = 10           # 042 samples the quality gap every 10 steps
+MAIN_LR            = 1e-3         # 042's `lr` default, for the harm_eval optimizer
+HARM_BUF_MAX       = 1000         # 042's MAIN_HARM_BUF
+HARM_TRAIN_EVERY   = 8            # 042 trains harm_eval every 8 steps
+HARM_MIN_BUF       = 8            # 042's floor on each class before training
+# 042's positive-class transition types for the harm_eval label.
+APPROACH_TTYPES    = {"hazard_approach"}
+CONTACT_TTYPES     = {"agent_caused_hazard", "env_caused_hazard"}
 
 N_PROBE_STATES = 12               # probe states per arm (proposal pools measured)
 
@@ -343,11 +350,37 @@ def warmup_train(agent, env, seed: int, episodes: int, steps_per_episode: int
 
     Trains with BOTH channels intact (the lesion is applied later, at evaluation).
     """
+    terrain_ids = set(id(q) for q in (
+        list(agent.hippocampal.terrain_prior.parameters())
+        + list(agent.hippocampal.action_object_decoder.parameters())))
+    wf_ids = set(id(q) for q in (
+        list(agent.e2.world_transition.parameters())
+        + list(agent.e2.world_action_encoder.parameters())))
+    main_params = [q for q in agent.parameters()
+                   if id(q) not in terrain_ids and id(q) not in wf_ids]
     terrain_optimizer = optim.Adam(
         list(agent.hippocampal.terrain_prior.parameters())
         + list(agent.hippocampal.action_object_decoder.parameters()),
         lr=TERRAIN_LR,
     )
+    # OPTION B: harm_eval is the new DV's readout, and at init it is a random
+    # sigmoid head -- i.e. near-constant, which is exactly the "beats a constant
+    # baseline" failure the readiness check now tests for. 042's own BCE training
+    # is what makes it live, so it is mirrored here rather than invented.
+    # harm_eval_head lives on agent.e3, so it IS inside main_params -- asserted
+    # below rather than assumed (optimizer-coverage check, requirement (1)).
+    harm_param_ids = set(id(q) for q in agent.e3.harm_eval_head.parameters())
+    covered = sum(1 for q in main_params if id(q) in harm_param_ids)
+    assert covered == len(harm_param_ids), (
+        f"harm_eval_head is NOT fully covered by the optimizer "
+        f"({covered}/{len(harm_param_ids)} params) -- the new DV's readout would "
+        f"never train and the probe would be vacuous"
+    )
+    main_optimizer = optim.Adam(main_params, lr=MAIN_LR)
+    harm_buf_pos: List[torch.Tensor] = []
+    harm_buf_neg: List[torch.Tensor] = []
+    harm_losses: List[float] = []
+    harm_train_steps = 0
     agent.train()
     losses_early: List[float] = []
     losses_late: List[float] = []
@@ -397,13 +430,45 @@ def warmup_train(agent, env, seed: int, episodes: int, steps_per_episode: int
             act_idx = (int(torch.argmax(action).item()) if action is not None
                        else int(torch.randint(0, ACTION_DIM, (1,)).item()))
 
-            _flat, harm, done, _info, obs_dict = env.step(act_idx)
-            # Residue marks REAL harm contacts, not injected ones.
+            _flat, harm, done, info, obs_dict = env.step(act_idx)
+            # Residue marks REAL harm contacts, not injected ones. Residue stays
+            # purely the STORED quantity the two lesion knobs gate -- under
+            # OPTION B it is no longer the DV.
             if float(harm) > 0.0:
                 agent.residue_field.accumulate(
                     latent.z_world.detach(), harm_magnitude=1.0
                 )
                 harm_events += 1
+
+            # ---- harm_eval label + BCE training (042's block) ----
+            ttype = info.get("transition_type", "none") if isinstance(info, dict) else "none"
+            tz = theta_z.detach().squeeze(0)
+            if ttype in (APPROACH_TTYPES | CONTACT_TTYPES):
+                harm_buf_pos.append(tz)
+                harm_buf_pos[:] = harm_buf_pos[-HARM_BUF_MAX:]
+            else:
+                harm_buf_neg.append(tz)
+                harm_buf_neg[:] = harm_buf_neg[-HARM_BUF_MAX:]
+
+            if (len(harm_buf_pos) >= HARM_MIN_BUF and len(harm_buf_neg) >= HARM_MIN_BUF
+                    and _step % HARM_TRAIN_EVERY == 0):
+                k = min(16, len(harm_buf_pos), len(harm_buf_neg))
+                pi = torch.randperm(len(harm_buf_pos))[:k].tolist()
+                ni = torch.randperm(len(harm_buf_neg))[:k].tolist()
+                z_batch = torch.cat([
+                    torch.stack([harm_buf_pos[i] for i in pi]),
+                    torch.stack([harm_buf_neg[i] for i in ni]),
+                ], dim=0).to(agent.device)
+                labels = torch.cat([torch.ones(k, 1), torch.zeros(k, 1)],
+                                   dim=0).to(agent.device)
+                harm_loss = F.binary_cross_entropy(agent.e3.harm_eval(z_batch), labels)
+                if harm_loss.requires_grad:
+                    main_optimizer.zero_grad()
+                    harm_loss.backward()
+                    torch.nn.utils.clip_grad_norm_(main_params, 1.0)
+                    main_optimizer.step()
+                    harm_losses.append(float(harm_loss.item()))
+                    harm_train_steps += 1
             if done:
                 _flat, obs_dict = env.reset()
                 agent.reset()
@@ -420,7 +485,13 @@ def warmup_train(agent, env, seed: int, episodes: int, steps_per_episode: int
         "harm_events_during_warmup": harm_events,
         "terrain_loss_early": _mean(losses_early),
         "terrain_loss_late": _mean(losses_late),
+        "harm_train_steps": harm_train_steps,
+        "harm_loss_mean": _mean(harm_losses),
+        "n_harm_pos_labels": len(harm_buf_pos),
+        "n_harm_neg_labels": len(harm_buf_neg),
         "final_obs": obs_dict,
+        "_harm_pos": harm_buf_pos,
+        "_harm_neg": harm_buf_neg,
     }
 
 
@@ -436,17 +507,40 @@ def _mean_residue_042(agent, trajs) -> float:
     return float(sum(vals) / len(vals)) if vals else 0.0
 
 
-def readiness_gate(agent, env, obs_dict, seed: int, n_samples: int) -> Dict[str, Any]:
-    """042's hippo_quality_gap -- the gate that must clear BEFORE any arm is lesioned.
+def readiness_gate(agent, env, obs_dict, seed: int, n_samples: int,
+                   harm_pos: List[torch.Tensor],
+                   harm_neg: List[torch.Tensor]) -> Dict[str, Any]:
+    """OPTION B readiness check: does harm_eval BEAT A CONSTANT BASELINE?
 
-    gap = mean_residue(random proposals) - mean_residue(hippocampal proposals)
-    Positive = the trained generator navigates to LOWER-residue regions than chance,
-    i.e. it actually acquired residue avoidance. A non-positive gap means there is no
-    avoidance to lesion, so the whole probe would be vacuous -- and this driver reports
-    that as a readiness failure rather than as evidence about MECH-131.
+    The DV is now a harm-PREDICTION readout, so the thing that must be live is
+    harm_eval's ability to DISCRIMINATE. At init it is a random sigmoid head --
+    near-constant, so a lesion measured through it would move nothing. This gate
+    is 042's own calibration-gap criterion in the form that fits this design:
 
-    Measured with BOTH channels intact (the lesion has not been applied yet).
+        harm_eval_gap = mean(harm_eval | harm-labelled states)
+                      - mean(harm_eval | non-harm-labelled states)
+
+    A CONSTANT predictor scores exactly 0.0 here, whatever constant it emits, so
+    "gap > 0" is literally "beats a constant baseline". Ordinal, threshold-free --
+    the magnitude is reported, no floor is invented (consistent with the ratified
+    no-invented-floor rule).
+
+    042's inverted hippo_quality_gap is still COMPUTED and reported, because it is
+    the diagnostic that explains why the residue DV was abandoned -- but it is no
+    longer the gate. See the docstring at the top of this file.
     """
+    # --- the gate proper: harm_eval discrimination on the warmup's own labels ---
+    gap = None
+    pos_mean = neg_mean = None
+    if harm_pos and harm_neg:
+        with torch.no_grad():
+            pz = torch.stack(harm_pos).to(agent.device)
+            nz = torch.stack(harm_neg).to(agent.device)
+            pos_mean = float(agent.e3.harm_eval(pz).mean())
+            neg_mean = float(agent.e3.harm_eval(nz).mean())
+        gap = pos_mean - neg_mean
+
+    # --- retained diagnostic: 042's hippo-vs-random residue gap ---
     hippo: List[float] = []
     rand: List[float] = []
     for i in range(n_samples):
@@ -474,10 +568,16 @@ def readiness_gate(agent, env, obs_dict, seed: int, n_samples: int) -> Dict[str,
     mh = sum(hippo) / len(hippo)
     mr = sum(rand) / len(rand)
     return {
-        "hippo_mean_residue": mh,
-        "random_mean_residue": mr,
-        "hippo_quality_gap": mr - mh,
-        "gap_clears": int((mr - mh) > 0.0),
+        "harm_eval_pos_mean": pos_mean,
+        "harm_eval_neg_mean": neg_mean,
+        "harm_eval_gap": gap,
+        "gap_clears": int(gap is not None and gap > 0.0),
+        "n_harm_pos": len(harm_pos),
+        "n_harm_neg": len(harm_neg),
+        # retained diagnostic only -- NOT the gate (see docstring)
+        "diagnostic_hippo_mean_residue": mh,
+        "diagnostic_random_mean_residue": mr,
+        "diagnostic_hippo_quality_gap_042": mr - mh,
         "n_gap_samples": len(hippo),
         "final_obs": obs_dict,
     }
@@ -508,7 +608,7 @@ def measure_arm(agent, env, obs_dict, arm: str, ch1: bool, ch2: bool,
         torch.manual_seed(seed * 1000 + s)
         trajs = agent.hippocampal.propose_trajectories(theta_z, z_self=z_self)
         if trajs:
-            sums, means = [], []
+            sums, means, harms = [], [], []
             for t in trajs:
                 ws = t.get_world_state_sequence()
                 if ws is None or torch.isnan(ws).any():
@@ -516,19 +616,33 @@ def measure_arm(agent, env, obs_dict, arm: str, ch1: bool, ch2: bool,
                 ev = rf.evaluate_trajectory(ws).detach()
                 sums.append(float(ev.sum()))
                 means.append(float(ev.mean()))
+                # OPTION B PRIMARY DV: harm PREDICTION over the candidate's world
+                # states, not residue-field magnitude. harm_eval is a trained head
+                # on z_world, so it does not confound "low harm" with "off the
+                # visited manifold" the way an RBF-over-visited-states field does.
+                with torch.no_grad():
+                    flat = ws.reshape(-1, ws.shape[-1])
+                    harms.append(float(agent.e3.harm_eval(flat).mean()))
             scores = [float(agent.hippocampal._score_trajectory(t).detach())
                       for t in trajs]
             post_hoc = float(agent.e3.compute_residue_cost(trajs[0]).detach().sum())
-            if sums:
+            if sums and harms:
                 n = len(sums)
                 mu = sum(sums) / n
                 var = sum((x - mu) ** 2 for x in sums) / n
+                hmu = sum(harms) / len(harms)
+                hvar = sum((x - hmu) ** 2 for x in harms) / len(harms)
                 per_state.append({
                     "probe_index": s,
                     "n_candidates": len(trajs),
+                    # --- PRIMARY DV (OPTION B) ---
+                    "mean_candidate_harm": hmu,
+                    "between_candidate_sd_harm": hvar ** 0.5,
+                    "min_candidate_harm": min(harms),
+                    "candidate_harms": harms,
+                    # --- secondary, retained for continuity with the residue DV ---
                     "mean_candidate_residue": mu,
                     "mean_candidate_residue_normed": sum(means) / len(means),
-                    # between-candidate SD: the noise the lesion effect must exceed
                     "between_candidate_sd": var ** 0.5,
                     "min_candidate_residue": min(sums),
                     "cem_score_spread": max(scores) - min(scores),
@@ -549,6 +663,10 @@ def measure_arm(agent, env, obs_dict, arm: str, ch1: bool, ch2: bool,
         "ch1_terrain_prior_residue_channel_enabled": bool(ch1),
         "ch2_score_trajectory_residue_terrain_enabled": bool(ch2),
         "n_probe_states_scored": n,
+        # PRIMARY DV: lower = generator proposes less harm-predicted trajectories
+        "harm_avoidance": sum(p["mean_candidate_harm"] for p in per_state) / n,
+        "between_candidate_sd_harm":
+            sum(p["between_candidate_sd_harm"] for p in per_state) / n,
         "residue_avoidance": sum(p["mean_candidate_residue"] for p in per_state) / n,
         "residue_avoidance_normed":
             sum(p["mean_candidate_residue_normed"] for p in per_state) / n,
@@ -610,8 +728,8 @@ def gradedness_rho(intact: Dict[str, Any],
         r = ref_by_idx.get(p["probe_index"])
         if r is None:
             continue
-        a = sorted(r["candidate_residues"])
-        b = sorted(p["candidate_residues"])
+        a = sorted(r["candidate_harms"])
+        b = sorted(p["candidate_harms"])
         for i in range(min(len(a), len(b))):
             xs.append(a[i])
             ys.append(a[i] - b[i])
@@ -628,8 +746,10 @@ def run_seed(seed: int, dry_run: bool, warmup_episodes: int,
 
     warm = warmup_train(agent, env, seed, warmup_episodes, steps_per_episode)
     obs_dict = warm.pop("final_obs")
+    harm_pos = warm.pop("_harm_pos")
+    harm_neg = warm.pop("_harm_neg")
 
-    gate = readiness_gate(agent, env, obs_dict, seed, n_gap)
+    gate = readiness_gate(agent, env, obs_dict, seed, n_gap, harm_pos, harm_neg)
     obs_dict = gate.pop("final_obs")
 
     arms: List[Dict[str, Any]] = []
@@ -682,7 +802,9 @@ def main(dry_run: bool = False, warmup_episodes: int = WARMUP_EPISODES,
 
     # ---- READINESS GATE (must clear before any arm is lesioned) --------
     gate_clears = all(r["readiness"]["gap_clears"] == 1 for r in seed_rows)
-    gaps = [r["readiness"]["hippo_quality_gap"] for r in seed_rows]
+    gaps = [r["readiness"]["harm_eval_gap"] for r in seed_rows]
+    gaps = [(g if g is not None else 0.0) for g in gaps]
+    diag_042 = [r["readiness"]["diagnostic_hippo_quality_gap_042"] for r in seed_rows]
 
     # ---- Preconditions --------------------------------------------------
     p1_harm = all(a["num_harm_events"] > 0 for a in arm_results)
@@ -706,24 +828,28 @@ def main(dry_run: bool = False, warmup_episodes: int = WARMUP_EPISODES,
     for s in SEEDS:
         r1, r2, r3 = (_arm("ARM_1_intact", s), _arm("ARM_2_ch1_lesion", s),
                       _arm("ARM_3_complete_lesion", s))
-        a1, a2, a3 = (r1["residue_avoidance"], r2["residue_avoidance"],
-                      r3["residue_avoidance"])
-        noise = max(r1["between_candidate_sd"], r3["between_candidate_sd"])
+        # PRIMARY DV (OPTION B): harm prediction, not residue magnitude.
+        a1, a2, a3 = (r1["harm_avoidance"], r2["harm_avoidance"],
+                      r3["harm_avoidance"])
+        noise = max(r1["between_candidate_sd_harm"], r3["between_candidate_sd_harm"])
         eff = a3 - a1
         per_seed.append({
             "seed": s,
-            "residue_avoidance_arm1_intact": a1,
-            "residue_avoidance_arm2_ch1_lesion": a2,
-            "residue_avoidance_arm3_complete_lesion": a3,
+            "harm_avoidance_arm1_intact": a1,
+            "harm_avoidance_arm2_ch1_lesion": a2,
+            "harm_avoidance_arm3_complete_lesion": a3,
+            "residue_avoidance_arm1_intact": r1["residue_avoidance"],
+            "residue_avoidance_arm2_ch1_lesion": r2["residue_avoidance"],
+            "residue_avoidance_arm3_complete_lesion": r3["residue_avoidance"],
             "effect_arm3_minus_arm1": eff,
             "effect_arm3_minus_arm2": a3 - a2,
             "effect_arm2_minus_arm1": a2 - a1,
             "relative_effect_arm3_vs_arm1": (eff / abs(a3)) if a3 else None,
-            "between_candidate_sd": noise,
+            "between_candidate_sd_harm": noise,
             # The diagnosis that stopped the pre-warmup revision, now a recorded
             # readout rather than a one-off measurement.
             "effect_over_noise": (eff / noise) if noise else None,
-            "hippo_quality_gap": _seed_gap(seed_rows, s),
+            "harm_eval_gap": _seed_gap(seed_rows, s),
             "c1_arm1_below_arm3": int(a1 < a3),
             "arm2_below_arm3": int(a2 < a3),
         })
@@ -764,15 +890,17 @@ def main(dry_run: bool = False, warmup_episodes: int = WARMUP_EPISODES,
         "DIAGNOSTIC -- excluded from governance confidence scoring; does not move "
         "MECH-131's status. Purpose: supply the measured quantities governance needs "
         "to author MECH-131's missing what_would_answer. "
-        f"Readiness (042 hippo_quality_gap, hippocampal vs random proposal residue): "
+        f"DV = harm PREDICTION (E3.harm_eval on z_world), not residue magnitude "
+        f"(OPTION B). Readiness (harm_eval beats a constant baseline, gap > 0): "
         f"{gaps} -- {'CLEARS' if gate_clears else 'DOES NOT CLEAR'}. "
-        f"C1 (residue_avoidance ARM_1 < ARM_3 per seed): {c1_seeds_clearing}/{len(SEEDS)}. "
+        f"Retained diagnostic, 042's inverted hippo_quality_gap: {diag_042}. "
+        f"C1 (harm_avoidance ARM_1 < ARM_3 per seed): {c1_seeds_clearing}/{len(SEEDS)}. "
         f"C2 (ARM_3 generation residue-blind while post-hoc live): "
         f"{'met' if c2_met else 'NOT met'}. "
-        f"Effect/noise (|ARM_3-ARM_1| over between-candidate SD) mean {eon_mean} -- "
-        "the pre-warmup revision of this driver measured ~0.01 here, which is why the "
-        "warmup exists; a value below ~1 means the DV still cannot resolve its own "
-        "manipulation and the verdict should not be read as being about MECH-131. "
+        f"Effect/noise on the harm DV (|ARM_3-ARM_1| over between-candidate SD) mean "
+        f"{eon_mean} -- the residue DV this replaced measured 0.01 untrained and 0.035 "
+        "warmed; a value below ~1 means the DV cannot resolve its own manipulation and "
+        "the verdict should not be read as being about MECH-131. "
         f"Gradedness rho mean {rho_mean} ({rho_positive_seeds}/{len(rho_vals)} seeds "
         "positive) -- reported, not gated. "
         f"Verdict reason: {verdict_reason}. "
@@ -783,8 +911,9 @@ def main(dry_run: bool = False, warmup_episodes: int = WARMUP_EPISODES,
 
     readout = flat_readout({
         "readiness_gate_clears_all_seeds": int(gate_clears),
-        "hippo_quality_gap_mean": sum(gaps) / len(gaps),
-        "hippo_quality_gap_min": min(gaps),
+        "harm_eval_gap_mean": sum(gaps) / len(gaps),
+        "harm_eval_gap_min": min(gaps),
+        "diagnostic_hippo_quality_gap_042_mean": sum(diag_042) / len(diag_042),
         "c1_arm1_below_arm3_all_seeds": int(c1_met),
         "c1_seeds_clearing": c1_seeds_clearing,
         "c1_seeds_required": len(SEEDS),
@@ -794,24 +923,30 @@ def main(dry_run: bool = False, warmup_episodes: int = WARMUP_EPISODES,
         "p2_storage_identical_across_arms": int(p2_storage),
         "p3_post_hoc_scorer_live": int(p3_post_hoc),
         "p4_spread_signature": int(p4_spread),
+        "harm_avoidance_arm1_intact_mean":
+            sum(p["harm_avoidance_arm1_intact"] for p in per_seed) / len(per_seed),
+        "harm_avoidance_arm2_ch1_lesion_mean":
+            sum(p["harm_avoidance_arm2_ch1_lesion"] for p in per_seed) / len(per_seed),
+        "harm_avoidance_arm3_complete_lesion_mean":
+            sum(p["harm_avoidance_arm3_complete_lesion"] for p in per_seed) / len(per_seed),
         "residue_avoidance_arm1_intact_mean":
             sum(p["residue_avoidance_arm1_intact"] for p in per_seed) / len(per_seed),
-        "residue_avoidance_arm2_ch1_lesion_mean":
-            sum(p["residue_avoidance_arm2_ch1_lesion"] for p in per_seed) / len(per_seed),
         "residue_avoidance_arm3_complete_lesion_mean":
             sum(p["residue_avoidance_arm3_complete_lesion"] for p in per_seed) / len(per_seed),
         "effect_arm3_minus_arm1_mean":
             sum(p["effect_arm3_minus_arm1"] for p in per_seed) / len(per_seed),
         "effect_arm2_minus_arm1_mean":
             sum(p["effect_arm2_minus_arm1"] for p in per_seed) / len(per_seed),
-        "between_candidate_sd_mean":
-            sum(p["between_candidate_sd"] for p in per_seed) / len(per_seed),
+        "between_candidate_sd_harm_mean":
+            sum(p["between_candidate_sd_harm"] for p in per_seed) / len(per_seed),
         "effect_over_noise_mean": eon_mean if eon_mean is not None else 0.0,
         "gradedness_rho_mean": rho_mean if rho_mean is not None else 0.0,
         "gradedness_rho_seeds_positive": rho_positive_seeds,
         "gradedness_rho_seeds_defined": len(rho_vals),
         "terrain_loss_early_mean": _loss_mean(seed_rows, "terrain_loss_early"),
         "terrain_loss_late_mean": _loss_mean(seed_rows, "terrain_loss_late"),
+        "harm_loss_mean": _loss_mean(seed_rows, "harm_loss_mean"),
+        "harm_train_steps_mean": _loss_mean(seed_rows, "harm_train_steps"),
         "warmup_episodes": warmup_episodes,
         "steps_per_episode": steps_per_episode,
         "n_seeds": len(SEEDS),
@@ -834,13 +969,16 @@ def main(dry_run: bool = False, warmup_episodes: int = WARMUP_EPISODES,
         "verdict_reason": verdict_reason,
         "readout": readout,
         "criteria": {
-            "READINESS_hippo_quality_gap_per_seed": {
+            "READINESS_harm_eval_beats_constant_baseline_per_seed": {
                 "measured": min(gaps), "threshold": 0.0, "met": int(gate_clears),
-                "note": "042's hippo-vs-random proposal residue; must clear BEFORE any "
-                        "arm is lesioned. A failure here is a readiness result, NOT "
-                        "evidence about MECH-131.",
+                "note": "harm_eval_gap = mean(harm_eval|harm states) - "
+                        "mean(harm_eval|non-harm states). A CONSTANT predictor scores "
+                        "exactly 0.0 whatever constant it emits, so >0 is literally "
+                        "'beats a constant baseline'. Ordinal, no invented floor. Must "
+                        "clear BEFORE any arm is lesioned; a failure here is a readiness "
+                        "result, NOT evidence about MECH-131.",
             },
-            "C1_dv1_ordinal_arm1_below_arm3_per_seed": {
+            "C1_dv1_harm_avoidance_ordinal_arm1_below_arm3_per_seed": {
                 "measured": c1_seeds_clearing, "threshold": len(SEEDS),
                 "met": int(c1_met),
                 "note": "ordinal; effect sizes reported, no invented floor",
@@ -858,9 +996,10 @@ def main(dry_run: bool = False, warmup_episodes: int = WARMUP_EPISODES,
             },
             "DIAGNOSTIC_effect_over_noise": {
                 "measured": eon_mean, "threshold": None,
-                "note": "|ARM_3-ARM_1| / between-candidate SD. Reported, not gated. "
-                        "Pre-warmup revision measured ~0.01; below ~1 the DV cannot "
-                        "resolve its own manipulation.",
+                "note": "|ARM_3-ARM_1| / between-candidate SD, on the HARM DV. "
+                        "Reported, not gated. The residue DV this replaced measured "
+                        "0.01 untrained / 0.035 warmed; below ~1 a DV cannot resolve "
+                        "its own manipulation.",
             },
         },
         "replication": {
@@ -903,8 +1042,8 @@ def main(dry_run: bool = False, warmup_episodes: int = WARMUP_EPISODES,
     return manifest, out_path
 
 
-def _seed_gap(seed_rows: List[Dict[str, Any]], seed: int) -> float:
-    return next(r["readiness"]["hippo_quality_gap"] for r in seed_rows
+def _seed_gap(seed_rows: List[Dict[str, Any]], seed: int):
+    return next(r["readiness"]["harm_eval_gap"] for r in seed_rows
                 if r["seed"] == seed)
 
 
