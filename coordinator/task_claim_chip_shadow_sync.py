@@ -53,9 +53,9 @@ def _resolve_and_fetch(repo_path, ref):
     """`git fetch origin` then resolve `ref` to a commit sha, all read-only
     (never touches the working tree, mirrors sync_daemon._load_queue_json).
     Returns the sha, or None if git is unavailable / repo_path is not a git
-    checkout -- callers degrade to a local-file read at that point and must
-    say so, since a degraded read may be stale (same contract
-    _load_queue_json documents for the queue file)."""
+    checkout / the fetch failed or timed out -- the caller then SKIPS the
+    tick. It does not degrade to a local-file read (see
+    load_source_documents for why that fallback was removed)."""
     try:
         subprocess.run(
             ["git", "-C", repo_path, "fetch", "--quiet", "origin"],
@@ -64,7 +64,7 @@ def _resolve_and_fetch(repo_path, ref):
             ["git", "-C", repo_path, "rev-parse", ref],
             check=True, capture_output=True, timeout=15)
         return out.stdout.decode("utf-8").strip()
-    except Exception as exc:  # noqa: BLE001 -- degrade, never crash
+    except Exception as exc:  # noqa: BLE001 -- skip the tick, never crash
         sys.stderr.write(
             "[task-claim-chip-sync] WARN git fetch/resolve failed for "
             "repo_path=%r ref=%r: %r\n" % (repo_path, ref, exc))
@@ -89,36 +89,36 @@ def _show_json(repo_path, rev, rel_path):
         return None
 
 
-def _load_local_json(repo_path, rel_path):
-    """Degrade path when git is unavailable: read the working-tree copy
-    directly. May be stale (this box's last pull), same caveat
-    _load_queue_json documents for the experiment queue."""
-    path = os.path.join(repo_path, rel_path)
-    try:
-        with open(path, "r", encoding="utf-8") as fh:
-            return json.load(fh)
-    except (OSError, ValueError) as exc:
-        sys.stderr.write(
-            "[task-claim-chip-sync] WARN no local fallback for %s: %r\n"
-            % (path, exc))
-        return None
-
-
 def load_source_documents(repo_path, ref):
     """Read TASK_CLAIMS.json and TASK_CHIPS.json at `ref`. Returns
     (claims_doc, chips_doc, source_ref) where source_ref is the resolved
-    commit sha (git path) or the literal `ref` string with a "-stale-local"
-    suffix (degrade path), so the drift log always records which source the
-    tick actually read.
+    commit sha, or (None, None, None) when the ref could not be fetched and
+    resolved -- reconcile_once then skips the tick.
+
+    NO WORKING-TREE FALLBACK (removed 2026-09-19, statusregress 70f6849fab).
+    This function used to degrade to reading repo_path's working-tree copy
+    and label the source "<ref>-stale-local". That was harmless while the
+    mirror was a shadow nothing depended on. Since the 2026-08-28 cutover
+    these tables are the AUTHORITY, and this module only ever fetches and
+    shows -- it never checks anything out -- so the mirror clone's working
+    tree is frozen at the commit it was provisioned from. On
+    2026-09-18T12:52:35Z a single 30 s `git fetch` timeout made one tick
+    read the hub mirror's 2026-08-26T20:23Z working-tree files (1707 chips,
+    6923 commits behind origin) and upsert them through upsert_chip's "only
+    git moved -> adopt git" branch: 22 terminal chips reopened, 1178 lost
+    their `archived` marker, and open chips regained three-week-old claims,
+    prompts and claim notes and lost handoff_pending trackers. The terminal
+    and archived halves are now refused in upsert_chip (7f51dff); the rest
+    of the damage has no row-level signature a guard could test, so the
+    stale source itself must never be read. A skipped tick costs nothing:
+    the registry writer ingests origin every 2 minutes on its own fetch.
     """
     sha = _resolve_and_fetch(repo_path, ref)
-    if sha is not None:
-        claims_doc = _show_json(repo_path, sha, CLAIMS_REL_PATH)
-        chips_doc = _show_json(repo_path, sha, CHIPS_REL_PATH)
-        return claims_doc, chips_doc, sha
-    claims_doc = _load_local_json(repo_path, CLAIMS_REL_PATH)
-    chips_doc = _load_local_json(repo_path, CHIPS_REL_PATH)
-    return claims_doc, chips_doc, "%s-stale-local" % ref
+    if sha is None:
+        return None, None, None
+    claims_doc = _show_json(repo_path, sha, CLAIMS_REL_PATH)
+    chips_doc = _show_json(repo_path, sha, CHIPS_REL_PATH)
+    return claims_doc, chips_doc, sha
 
 
 def reconcile_once(conn, repo_path, ref=None):

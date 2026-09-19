@@ -14,8 +14,10 @@ Pins:
   4. Structural incapability: no git-mutating command is ever invoked by
      this module -- the tick must not touch the working tree, stage, or
      commit anything in the source repo, regardless of outcome.
-  5. Degrade path when git is unavailable (no working git repo) falls back
-     to a local-file read and labels the source_ref as stale, never raises.
+  5. When the ref cannot be fetched and resolved, the tick is SKIPPED -- it
+     never falls back to repo_path's working-tree copy, and never raises
+     (statusregress 70f6849fab: that fallback ingested a three-week-old
+     working tree into the authoritative tables).
   6. Neither source file present anywhere returns None (nothing to log),
      not a misleading all-zero drift row.
 
@@ -199,7 +201,10 @@ class TestStructuralIncapability(_Fixture):
 
 class TestDegradePath(_Fixture):
 
-    def test_no_git_repo_at_all_falls_back_to_local_file_and_labels_stale(self):
+    def test_no_git_repo_with_local_files_present_skips_the_tick(self):
+        """Working-tree copies exist but there is no resolvable git ref: the
+        tick is skipped, nothing is ingested (was: fell back to the files
+        and labelled the source '<ref>-stale-local')."""
         plain_dir = pathlib.Path(self._tmp) / "plain"
         plain_dir.mkdir()
         (plain_dir / "TASK_CLAIMS.json").write_text(
@@ -208,10 +213,61 @@ class TestDegradePath(_Fixture):
             json.dumps(CHIPS_DOC_V1) + "\n")
         result = sync.reconcile_once(self._conn, str(plain_dir),
                                      ref="origin/master")
-        self.assertIsNotNone(result)
-        claim_stats, chip_stats, source_ref, diverged = result
-        self.assertEqual(claim_stats["n_new"], 1)
-        self.assertIn("stale-local", source_ref)
+        self.assertIsNone(result)
+        self.assertEqual(
+            self._conn.execute("SELECT COUNT(*) FROM chip_ledger").fetchone()[0],
+            0, "a working-tree file must never be ingested")
+        self.assertEqual(
+            db.task_claim_chip_drift_summary(self._conn)["total_ticks"], 0)
+
+    def test_fetch_failure_never_ingests_the_frozen_working_tree(self):
+        """The 70f6849fab shape end to end. This module never checks
+        anything out, so the mirror clone's working tree stays frozen at
+        its provisioning commit while origin and the DB move on. A fetch
+        failure must skip the tick, NOT read that frozen file: the old
+        fallback reverted a since-changed OPEN chip's claim fields -- damage
+        the monotone terminal/archived guards in upsert_chip cannot see."""
+        # Tick 1 (healthy): DB mirrors origin; record the render base the
+        # way the registry writer does, so the row sits in the steady state
+        # (entry_json == last_rendered_json) where "adopt git" applies.
+        self.assertIsNotNone(sync.reconcile_once(self._conn, str(self._repo)))
+        # Origin and the DB move on: the chip gets claimed. The mirror's
+        # WORKING TREE is left at the seed content, as on the hub.
+        newer = json.loads(json.dumps(CHIPS_DOC_V1))
+        newer["chips"][0].update(
+            claimed_by="worker-9", claimed_at="2026-09-18T12:00:00Z",
+            claim_note="started work", claimed_host="ree-cloud-5")
+        other = pathlib.Path(self._tmp) / "other_clone"
+        subprocess.run(["git", "clone", "-q", str(self._remote), str(other)],
+                        check=True)
+        _git(other, "config", "user.email", "test@example")
+        _git(other, "config", "user.name", "test")
+        (other / "TASK_CHIPS.json").write_text(
+            json.dumps(newer, indent=2) + "\n")
+        _git(other, "commit", "-q", "-am", "claim")
+        _git(other, "push", "-q", "origin", "master")
+        self.assertIsNotNone(sync.reconcile_once(self._conn, str(self._repo)))
+        self._conn.execute(
+            "UPDATE chip_ledger SET last_rendered_json = entry_json")
+        self._conn.commit()
+        before = self._conn.execute(
+            "SELECT entry_json FROM chip_ledger WHERE chip_ref='chip-1'"
+        ).fetchone()[0]
+        self.assertEqual(json.loads(before)["claimed_by"], "worker-9")
+        on_disk = json.loads((self._repo / "TASK_CHIPS.json").read_text())
+        self.assertIsNone(on_disk["chips"][0]["claimed_by"],
+                          "fixture: the working tree must still be the "
+                          "frozen seed for this test to mean anything")
+        # The fetch now fails (origin unreachable).
+        _git(self._repo, "remote", "set-url", "origin",
+             str(pathlib.Path(self._tmp) / "no_such_remote.git"))
+        result = sync.reconcile_once(self._conn, str(self._repo))
+        self.assertIsNone(result, "a failed fetch must skip the tick")
+        after = self._conn.execute(
+            "SELECT entry_json FROM chip_ledger WHERE chip_ref='chip-1'"
+        ).fetchone()[0]
+        self.assertEqual(after, before,
+                         "the frozen working tree was ingested")
 
     def test_neither_source_readable_returns_none(self):
         empty_dir = pathlib.Path(self._tmp) / "empty"

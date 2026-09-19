@@ -437,15 +437,19 @@ def upsert_task_claim(conn, claim, now=None):
         if base is not None and entry_json == base:
             # git unchanged since our render; the DB moved. Preserve it.
             return (False, False)
-        if base is not None and existing["entry_json"] == base:
-            pass  # only git moved -> adopt git below.
-        else:
-            # base unknown (pre-migration) or both sides moved: never
-            # downgrade a terminal DB row to a non-terminal git one.
-            db_status = existing["status"] or "active"
-            git_status = claim.get("status") or "active"
-            if db_status == "done" and git_status != "done":
-                return (False, False)
+        # MONOTONE GUARD, applied on EVERY branch below -- the mirror of
+        # upsert_chip's (statusregress 70f6849fab, 2026-09-18). It used to
+        # sit only in the "base unknown / both sides moved" else-branch, so
+        # the steady-state "only git moved -> adopt git" branch would let a
+        # STALE git copy reopen a done claim. Ingest never moves a claim
+        # done -> not-done: no verb does that (a re-open is a NEW
+        # (session_id, claimed_at) row), so a git copy saying so is older
+        # than the DB, not newer. A reopened claim re-arms arbitration
+        # against whoever legitimately holds those resources now.
+        db_status = existing["status"] or "active"
+        git_status = claim.get("status") or "active"
+        if db_status == "done" and git_status != "done":
+            return (False, False)
     history = claim.get("completion_note_history")
     conn.execute(
         """

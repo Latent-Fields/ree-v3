@@ -170,6 +170,25 @@ class TestClaimIngestAuthority(IngestAuthorityBase):
         self.assertEqual(row["status"], "done")
         self.assertEqual(row["completion_note"], "closed pre-migration")
 
+    def test_t3c_stale_git_cannot_reopen_when_db_matches_base(self):
+        """statusregress 70f6849fab, claim side: DB row == last render base
+        (the 'only git moved -> adopt git' branch) must still never be moved
+        done -> active by a stale git copy. Mirror of chip t6d."""
+        entry = _claim("s3c")
+        db.reconcile_task_claims(self.conn, [entry], now=NOW)
+        verdict, _payload = db.close_task_claim(
+            self.conn, "s3c", T_CLOSE, "landed", claimed_at=T_OPEN)
+        self.assertEqual(verdict, "ok")
+        closed = json.loads(self._claim_row("s3c")["entry_json"])
+        self._render_and_writeback(claims_doc=_claims_doc([closed]))
+        row = self._claim_row("s3c")
+        self.assertEqual(row["entry_json"], row["last_rendered_json"])
+        created, changed = db.upsert_task_claim(self.conn, entry, now=NOW)
+        self.assertEqual((created, changed), (False, False))
+        row = self._claim_row("s3c")
+        self.assertEqual(row["status"], "done")
+        self.assertEqual(row["completion_note"], "landed")
+
     def test_t3b_pre_migration_nonterminal_still_adopts_git(self):
         """The guard is NARROW: without a base, a non-terminal difference
         still adopts git (renew/amend drift heals from git as before)."""
