@@ -1331,6 +1331,30 @@ def _run_seed(seed: int, action_dim: int, env_kwargs: Dict[str, Any],
         if (b + 1) % 25 == 0 or (b + 1) == int(n_perms):
             print("  [perm] seed=%d replicate %d of %d D_comm_perm=%.4f"
                   % (seed, b + 1, int(n_perms), float(a_perm)), flush=True)
+    # M3 diagnostic (see `_permute_within_groups`): the between-episode reference. The SAME
+    # estimator on EPISODE MEANS only -- one row per train episode -- so the fitted subspace
+    # IS the between-episode structure that within-episode shuffling leaves intact. Decoding
+    # through it says how much of the permutation null is that coarse term. Diagnostic only.
+    between_ep_agreement = float("nan")
+    try:
+        _g = np.asarray(g_tr)
+        _uniq = list(np.unique(_g))
+        if len(_uniq) >= 3:
+            _rows = [torch.as_tensor(np.nonzero(_g == u)[0], dtype=torch.long)
+                     for u in _uniq]
+            _xm = torch.stack([xs_tr[r][:, keep].mean(dim=0) for r in _rows])
+            _zm = torch.stack([z_tr[r].mean(dim=0) for r in _rows])
+            _rk = max(1, min(int(r_pars), int(_xm.shape[0]) - 1, int(_zm.shape[1])))
+            _css_be = communication_subspace(_xm, _zm, [_rk], groups=list(range(len(_uniq))),
+                                             n_folds=min(RRR_FOLDS, len(_uniq)),
+                                             ridge=_rrr_ridge_abs(_xm), seed=seed)
+            _b_be = _embed_basis(_css_be.basis.float(), keep, WORLD_STATE_DIM)
+            between_ep_agreement = _fit_arm("ws250_comm_between_episode_diagnostic",
+                                            _project(xs_tr, _b_be), _project(xs_te, _b_be),
+                                            _rk, record=False)
+    except Exception as _e:   # diagnostic only -- never fail the run for it
+        print("  [perm] seed=%d between-episode reference unavailable: %s"
+              % (seed, _e), flush=True)
     c2_obs_p = float(agreements[ARM_RAND_P] - agreements[ARM_COMM_P])
     c2_null_p = [float(agreements[ARM_RAND_P] - a) for a in perm_comm_agreements]
     c2_perm_p_value = _permutation_p_value(c2_obs_p, c2_null_p)
@@ -1459,6 +1483,12 @@ def _run_seed(seed: int, action_dim: int, env_kwargs: Dict[str, Any],
             "alpha": float(PERMUTATION_ALPHA),
             "min_attainable_p": (1.0 / (1.0 + len(c2_null_p)) if c2_null_p
                                  else float("nan")),
+            "between_episode_reference_d_comm": between_ep_agreement,
+            "between_episode_reference_note":
+                "DIAGNOSTIC, never scored. Same estimator fitted on EPISODE MEANS only, so "
+                "the subspace IS the between-episode structure the within-episode shuffle "
+                "leaves intact. Near null_mean -> the null is between-episode-dominated; "
+                "well below -> the shuffle is doing the work it claims.",
             "per_replicate_d_comm_perm": [float(v) for v in perm_comm_agreements],
             "null_distribution": [float(v) for v in c2_null_p],
         },
@@ -1501,18 +1531,34 @@ def _parsimonious_rank(heldout_r2_by_rank: Dict[Any, float],
 def _permute_within_groups(groups: Sequence[Any], gen: np.random.Generator) -> np.ndarray:
     """R1: a row permutation that shuffles ONLY WITHIN each episode group.
 
-    THE WITHIN/ACROSS DISTINCTION IS THE WHOLE POINT, not a detail. `_kfold_indices` builds a
-    GROUPED k-fold in which every row of an episode lands entirely in one fold. A permutation
-    that moved receiver rows ACROSS episodes would pair a test episode's sender rows with a
-    training episode's receiver rows, so a test row's target would also literally be a
-    training target: the permuted fit becomes optimistic, the null inflates, and the test is
-    biased toward declaring the OBSERVED contrast unremarkable -- i.e. biased against the
-    claim in a way no reader could see from the manifest.
+    CORRECTED AFTER THE STEP 4.5 RED-TEAM (M3, accepted). An earlier draft of this docstring
+    justified the within-group scope by a train/test LEAK through the grouped k-fold. THAT
+    JUSTIFICATION WAS WRONG and is withdrawn rather than quietly edited: the basis this run
+    uses comes from `full_fit`, refit on ALL train rows at a single rank
+    (interface_probe.py `communication_subspace`), and the decoder is scored on `te_eps`,
+    episodes that never enter any RRR at all -- so no fold boundary is load-bearing for
+    anything SCORED, and an across-episode shuffle could not leak into it.
 
-    Permuting within the group keeps each row's group label AND its partner's group label
-    identical, so the fold structure is bit-identical to the observed fit's, while the
-    timestep-level sender-receiver correspondence -- which is where the routing signal lives
-    -- is destroyed. That is the null this design wants.
+    THE REAL PROPERTY, stated so H0 is legible. Within-episode shuffling leaves the
+    BETWEEN-episode part of the sender-receiver covariance exactly intact (the episode-mean
+    outer products survive; only the within-episode deviation term is randomised). So the
+    null subspace is "the between-episode structure, plus noise where the within-episode
+    signal was", not a pure instrument-noise fit. That is the conservative choice for THIS
+    question -- the routing signal MECH-537 is about lives in the timestep-level
+    correspondence between an observation and the receiver state it produces, which is
+    exactly what this destroys, while the coarser episode-level structure that any subspace
+    estimator would find is left in the null rather than being credited to the fitted
+    subspace.
+
+    RECORDED, NOT ASSUMED, and cheaply: `between_episode_reference` fits the SAME estimator on
+    EPISODE MEANS only (one row per train episode), decodes through it, and records the
+    result. That subspace IS the between-episode structure the within-episode shuffle leaves
+    standing, so its decode agreement is a direct read of how much of the null's content is
+    the coarse episode-level term. One extra fit per seed rather than a second N-replicate
+    loop. If it sits near `null_mean`, the null is between-episode-dominated and a reader can
+    see that in the manifest instead of re-deriving it; if it sits well below, the shuffle is
+    doing the work it claims. Diagnostic only -- it is NOT a criterion and nothing routes on
+    it. The SCORED null is the within-episode one, pre-registered here.
     """
     g = np.asarray(groups)
     idx = np.arange(int(g.shape[0]))
@@ -2044,6 +2090,19 @@ def run_experiment(seeds: List[int], dry_run: bool = False) -> Dict[str, Any]:
     c2_p_values = [float(r["c2_permutation_null"]["p_value_one_sided"]) for r in seed_rows]
     n_c2_significant = sum(1 for p in c2_p_values
                            if np.isfinite(p) and p <= float(PERMUTATION_ALPHA))
+    # STEP 4.5 RED-TEAM M1 (cross-model, CONTESTED, accepted and applied). The permutation p
+    # alone does NOT test C2's definition. `c2_obs = R - C` and every `c2_null[b] = R - C_b`
+    # share the same fixed `R = D_randrank`, so R cancels in the comparison and the p is
+    # exactly P(D_comm_perm <= D_comm) -- it never inspects the SIGN of `R - C`. Scored on the
+    # p alone, a seed set with D_comm ABOVE D_randrank on every seed (the claim's own
+    # FALSIFYING direction: the fitted subspace decoding BETTER than a same-rank random one)
+    # could still satisfy C2 and print `communication_subspace_routing_failure_confirmed`,
+    # whose text asserts the opposite of the measured sign -- while `_c2_falsified`, which DOES
+    # read the sign, would be blocked by `not c2`. Confirm and falsify would be reading
+    # different contrasts. The autopsy changed C2's REFERENCE, not its DEFINITION
+    # ("D_randrank - D_comm at the SAME rank"), so the sign clause is restored as a conjunct.
+    # A repair of an implementation slip, NOT a new criterion.
+    n_c2_positive = sum(1 for v in c2_obs_per_seed if np.isfinite(v) and v > 0.0)
     # RECORDED, NOT SCORED: what the withdrawn V3-EXQ-1043 predicate would have said on these
     # same numbers, so the two runs are comparable without re-deriving anything.
     d_rand_comm_legacy = _paired_positive(c2_obs_per_seed, ORIENTATION_MARGIN_RECORDED_ONLY)
@@ -2076,6 +2135,26 @@ def run_experiment(seeds: List[int], dry_run: bool = False) -> Dict[str, Any]:
                         if np.isfinite(sens_ratios[i]) and sens_ratios[i] <= c4b_ceilings[i])
     c4b_margins = [float(c4b_ceilings[i] - sens_ratios[i]) for i in c4b_reachable
                    if np.isfinite(sens_ratios[i])]
+    # STEP 4.5 RED-TEAM M2 (accepted as a RECORDING fix; the RULE is user-ratified and is NOT
+    # altered here). Because the probe perturbs by the UN-NORMALISED components,
+    #     measured = (b / a) x (S_out / S_in)   and   I = (b / a),
+    # so `measured <= (F + I)/2` is exactly `S_out / S_in <= (F/I + 1)/2`. The quantity the
+    # rule actually constrains is the PER-UNIT ratio S_out/S_in, and the effective bar RISES
+    # toward 1.0 as F approaches I -- the criterion gets WEAKER the less the encoder's
+    # most-sensitive rank-r subspace concentrates its response, and at F -> I a PASS means
+    # only "no more coupled than isotropy predicts". That is a real weakness of the ratified
+    # rule. It is RECORDED per seed here rather than left for a reader to derive, so an
+    # autopsy can see exactly how much headroom each seed's ceiling actually had.
+    per_unit_ratios = [float(r["sensitivity_decision_targeted_parsrank"]["by_eps"][
+        "%.3f" % SENSITIVITY_EPS_FRACS[-1]]["measured"].get(
+        "per_unit_sensitivity_ratio_diagnostic", float("nan"))) for r in seed_rows]
+    c4b_effective_bars = [(float((f / i + 1.0) / 2.0)
+                           if (np.isfinite(f) and np.isfinite(i) and abs(i) > 1e-12)
+                           else float("nan"))
+                          for f, i in zip(floor_ratios, isotropic_ratios)]
+    c4b_headroom = [(float((i - f) / i) if (np.isfinite(f) and np.isfinite(i)
+                                            and abs(i) > 1e-12) else float("nan"))
+                    for f, i in zip(floor_ratios, isotropic_ratios)]
 
     n_equivalent = sum(1 for r in seed_rows
                        if abs(float(r["delta_full_minus_comm_parsrank"])) <= EQUIVALENCE_BAND)
@@ -2121,7 +2200,7 @@ def run_experiment(seeds: List[int], dry_run: bool = False) -> Dict[str, Any]:
     # noise-vs-effect comparison the 2*sd clause was reaching for, measured inside the seed
     # instead of across seeds -- which is why the across-seed population sd (ddof=0, so not
     # a standard error, so it does not shrink with n) is no longer load-bearing anywhere.
-    c2 = bool(n_c2_significant >= SEED_MAJORITY)
+    c2 = bool(n_c2_significant >= SEED_MAJORITY and n_c2_positive >= SEED_MAJORITY)
     c3 = bool(n_perp_retains >= SEED_MAJORITY)
     # C4 is the ABSOLUTE, un-normalised ratio and nothing else. The null-margin leg is
     # RECORDED but is NOT a conjunct: once the component weights are inside the measurement
@@ -2154,7 +2233,12 @@ def run_experiment(seeds: List[int], dry_run: bool = False) -> Dict[str, Any]:
          "reference": "within_run_permutation_null",
          "passed": c2, "measured": _mean(c2_p_values), "threshold": float(PERMUTATION_ALPHA),
          "direction": "upper",
-         "n_seeds": int(n_c2_significant), "seeds_required": int(SEED_MAJORITY),
+         "n_seeds": int(min(n_c2_significant, n_c2_positive)),
+         "seeds_required": int(SEED_MAJORITY),
+         "n_seeds_permutation_significant": int(n_c2_significant),
+         "n_seeds_contrast_positive": int(n_c2_positive),
+         "conjunction": "seed majority with permutation p <= alpha AND seed majority with "
+                        "(D_randrank - D_comm) > 0",
          "per_seed": c2_p_values,
          "per_seed_contrast": c2_obs_per_seed,
          "per_seed_null_mean": [float(r["c2_permutation_null"]["null_mean"])
@@ -2187,7 +2271,13 @@ def run_experiment(seeds: List[int], dry_run: bool = False) -> Dict[str, Any]:
                    "the contrast is paired. Read at the parsimonious rank because at "
                    "rank = dy the RRR constraint is inactive, the fit is unconstrained OLS, "
                    "and the low-rank premise the biology supplies is not instantiated there "
-                   "at all."},
+                   "at all. TWO CONJUNCTS, and the second is not redundant: the fixed "
+                   "randrank comparator CANCELS inside the permutation p (the observed "
+                   "statistic and every null replicate carry the same D_randrank), so the p "
+                   "tests only P(D_comm_perm <= D_comm) and is blind to the SIGN of "
+                   "D_randrank - D_comm. The sign clause is what keeps this criterion the "
+                   "contrast the claim names, and keeps the confirm branch and the "
+                   "_c2_falsified branch reading the SAME contrast."},
         {"name": "C3_complement_retains_the_decodability", "load_bearing": False,
          "expected_to_pass_by_dimensionality": True,
          "passed": c3, "measured": _mean(perp_losses),
@@ -2241,6 +2331,9 @@ def run_experiment(seeds: List[int], dry_run: bool = False) -> Dict[str, Any]:
          "per_seed_jacobian_aligned_floor": floor_ratios,
          "per_seed_isotropic_reference": isotropic_ratios,
          "per_seed_margin_below_ceiling": c4b_margins,
+         "per_seed_per_unit_sensitivity_ratio": per_unit_ratios,
+         "per_seed_effective_per_unit_bar": c4b_effective_bars,
+         "per_seed_anchor_headroom_frac": c4b_headroom,
          "n_seeds_unreachable_anchor": int(n_c4b_unreachable),
          "scoreable": bool(c4b_scoreable),
          "legacy_1043_ceiling_recorded_only": float(INSENSITIVITY_RATIO_MAX_LEGACY_1043),
