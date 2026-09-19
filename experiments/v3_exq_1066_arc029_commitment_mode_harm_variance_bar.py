@@ -261,6 +261,53 @@ INSTRUMENTATION -- three traps this driver is written around
    actually IN FORCE rather than trusting that.
 
 SLEEP DRIVER: not applicable (no sleep flag is set by this driver).
+
+=============================================================================
+STATUS 2026-09-19: **NOT QUEUED. DO NOT QUEUE AS-IS.** No live `V3-EXQ-1066`;
+the reserved slot claim was closed --not-landed and the id is FREE. The driver is
+committed so a successor starts from it rather than from 063a's vehicle.
+
+BLOCKED at /queue-experiment Step 4 (operating-point measurement), not by the
+red-team pass -- which was not run, because the design the user would have to
+re-specify is upstream of anything it could find.
+
+WHAT WAS MEASURED, on ree-cloud-4, on a TRAINED agent (SD-070 z_world warmup on,
+rv 5.0e-01 -> 9.0e-03). Full record, with the tables:
+REE_assembly/evidence/planning/arc029_exq1066_prereg_derivation_20260919.md
+(addendum, REE_assembly c1f576c709).
+
+  1. Episodes terminate on `done_cause: health_depleted` in 4-9 ENV STEPS at this
+     lineage's own env kwargs (mean 9.4 / 6.2 / 4.4 at num_hazards 3 / 5 / 7) --
+     4.9 to 7.3 SELECT CALLS per episode on the trained agent.
+  2. So the 200-select-call commit-gate window NEVER FILLS.
+     `bar_in_force = 0.000` and `committed_step_fraction = 1.0000` with ONE
+     committed run, in EVERY cell, at q in {0.25, 0.50, 0.75, 0.90} and sweep
+     amplitude in {0.0, 0.02, 0.10}. That is the V3-EXQ-063a saturation defect
+     reproduced with the new lever armed -- the absolute 0.40 bar stayed in force
+     against rv ~ 0.008 because the estimator returns None until the window fills.
+  3. Filling it would pool rv across ~35 EPISODE BOUNDARIES, so the bar would not
+     be the WITHIN-RUN quantile the estimator is specified against.
+  4. P1 needs `f * E >= 3` select calls; at E = 4.9-7.3 that holds only in the
+     UPPER part of its own [0.15, 0.85] band, with ~one committed run per episode
+     -- an episode-phase contrast, not two within-run operating modes.
+  5. `e3_steps_per_tick` does NOT set the effective cadence: configured 3,
+     MEASURED 1.0-3.6 env steps per select (MECH-091 phase_reset forces E3 ticks
+     on salient events, and this env gives a negative reward nearly every step).
+     So NEITHER named run-length lever behaves as the build record describes.
+  6. Mean reward/step is -0.12 to -0.29 -- 20-100x ABOVE the recalibrated band P3
+     worries about. THE BIND: softening the env lengthens episodes (P1) and pushes
+     the DV toward the floor (P3); keeping it keeps the DV off the floor and
+     leaves episodes too short for P1. No q / W / alpha / cadence / amplitude /
+     G1 / G2 value resolves it. It is an ENVIRONMENT decision, which is the user's.
+
+ONE INSTRUMENTATION FACT worth salvaging regardless of how the decision goes:
+`last_score_diagnostics` is populated only under `if self.e3_score_decomp_enabled:`
+(e3_selector.py:4098), an INSTANCE attribute defaulting to False (:639) -- NOT a
+config field. Without `agent.e3.e3_score_decomp_enabled = True` a driver reading
+`committed` from it measures ZERO selections and reports occupancy 0.0, silently.
+
+Raised as a kind:decision chip; governance flag raised against ARC-029.
+=============================================================================
 """
 
 import argparse
