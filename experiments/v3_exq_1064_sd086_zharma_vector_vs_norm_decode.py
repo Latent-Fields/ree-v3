@@ -1,6 +1,31 @@
 """V3-EXQ-1064 -- SD-086 option C: does the 16-d z_harm_a VECTOR carry more than its NORM?
 
-RED-TEAM (Step 4.5): see the queue entry note for the verdict and the model that ran it.
+!!  REFUSED AT DESIGN 2026-09-19 -- **NOT QUEUED**. DO NOT QUEUE THIS AS-IS.  !!
+
+RED-TEAM (Step 4.5, model: fable): **BLOCKING**. Confirmed independently by this session at the
+real eval budget, 3 seeds, with and without the P0h stage:
+
+    UNTRAINED (frozen random projection)  vector_r2 0.983-0.9995  mean margin +0.577  C1 T C2 T  PASS
+    TRAINED   (P0h stage ON)              vector_r2 0.999-1.0000  mean margin +0.552  C1 T C2 T  PASS
+
+THE DESIGN PASSES ON AN UNTRAINED ENCODER. Root cause: the scored decode targets
+`hazard_at_agent` / `resource_at_agent` ARE two coordinates of the encoder's own INPUT
+(`causal_grid_world.py` ~3037-3038 writes them into `harm_obs_a`, which this driver reads back at
+`_collect`), and `AffectiveHarmEncoder` is a near-linear 58->64->16 map over a tiny input range,
+so its 16-d output linearly reconstructs its own input for ANY weights. `vector_r2` is therefore
+pinned at ~1.0, the scored margin collapses to `1 - norm_r2`, and BOTH pre-registered criteria are
+decided by the norm alone -- nothing the P0h training does can reach the DV. The headroom
+precondition `min(1 - norm_r2) > 0.10` then IMPLIES C2 `mean margin > 0.10`, so C2 cannot fail on
+any run that is scored at all.
+
+What it would actually measure: "16 dims beat 1 dim at reconstructing a rank-2 input" -- a
+statement about RANK, true of a random projection, not about what training put into z_harm_a, and
+not about the readout FORM that SD-086 is a claim about.
+
+This file is kept because the harness, precondition machinery and telemetry are sound and a
+re-specified successor should start from it -- NOT because the design is runnable. Full diagnosis
+and the confirming numbers:
+`REE_assembly/evidence/planning/sd086_optc_refused_at_design_staged_20260919.md`.
 
 THE QUESTION, and why it is posed this way. SD-086 asserts that z_harm_a's functional readout
 must be a calibrated scalar head rather than the latent NORM, because "the norm conflates a large
