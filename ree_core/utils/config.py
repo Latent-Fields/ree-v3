@@ -3171,6 +3171,30 @@ class ResidueConfig:
     num_basis_functions: int = 32
     kernel_bandwidth: float = 1.0
     integration_rate: float = 0.01
+    # MECH-018 (2026-09-19): make ResidueField.integrate() actually OPTIMISE.
+    # Until this flag existed, integrate() computed
+    # F.mse_loss(neural_field(sample_points), rbf_field(sample_points)) in a
+    # num_steps loop and accumulated .item() -- but never called
+    # loss.backward(), and the module declared no optimizer anywhere. It was a
+    # METRIC loop wearing the shape of a training loop: "integration_loss" read
+    # as training progress while nothing trained (confirmed by runtime probe,
+    # 6 harm events / num_steps=25: neural_field params unchanged, no param had
+    # .grad; and independently by V3-EXQ-996's confirmed autopsy ISEF-005).
+    #
+    # Consequence for MECH-018: "the operation is geometrically inert" is one of
+    # that claim's own explicit FALSIFYING outcomes, so any MECH-018 run made
+    # before this flag existed returned a CONFIDENT FALSE FALSIFICATION by
+    # construction. See EXP-0755 / EVB-1391 release_condition part (1).
+    #
+    # DEFAULT False ON PURPOSE -- NOT timidity. residue_field.integrate() has
+    # LIVE experiment callers today (v3_exq_214, v3_exq_240, v3_exq_240a,
+    # v3_exq_246) and evaluate() reads rbf_value + neural_value * 0.1, so an
+    # unconditional gradient step would silently change the numerics of every
+    # one of those runs on re-run and invalidate their recorded evidence. OFF
+    # is bit-identical including RNG draws (the randn_like per step is consumed
+    # in BOTH branches) and the returned dict keeps exactly its original three
+    # keys. An experiment that WANTS the mechanism sets this True.
+    offline_integration_trains: bool = False
     # ARC-030 / MECH-117: benefit terrain (liking -- separate from z_goal wanting)
     benefit_terrain_enabled: bool = False
     # SD-024 live-path producer (2026-07-20). benefit_terrain_enabled builds the
@@ -6786,6 +6810,28 @@ class REEConfig:
     # Q-042 verdict, the broadcast read-site (Option B) is deferred to
     # Phase 7. Bit-identical OFF preserved.
     use_rem_precision_recalibration: bool = False
+    # MECH-018 (2026-09-19): flag-gated residue offline-integration call site in
+    # SleepLoopManager._run_cycle's WRITEBACK phase. Before this, phase_manager.py
+    # contained no residue reference in CODE at all (only comments about the
+    # WAKING update_residue path), and the only wrapper --
+    # REEAgent.offline_integration() -- was called by NOTHING in ree_core/; every
+    # live caller was an experiment driver. So the operation MECH-018 is about
+    # ("residue integration during sleep") never fired inside a sleep cycle.
+    #
+    # MECH-094 note: this call is NOT subject to the hypothesis_tag constraint.
+    # integrate() writes no residue -- it does not call accumulate(), does not
+    # touch rbf_field.weights or active_mask, and only trains the neural
+    # approximator TOWARD the already-recorded rbf field. Sleep content can
+    # therefore not become residue through this path.
+    #
+    # Bit-identical OFF: no call is made, no RNG is consumed, no metric key is
+    # added. Pairs with ResidueConfig.offline_integration_trains -- turning THIS
+    # on while that stays off fires an inert call, which is exactly the
+    # false-falsification shape MECH-018 is exposed to, so the call site always
+    # emits mech018_residue_trains (1.0/0.0) to make that visible in the manifest.
+    use_sleep_residue_integration: bool = False
+    # num_steps passed to ResidueField.integrate() at the WRITEBACK call site.
+    sleep_residue_integration_steps: int = 10
     # Step size for the linear interpolation toward target_variance:
     #   new_rv = (1 - step) * rv + step * (1.0 / target_precision)
     # Default 0.25 (high end of biologically defensible band per Q-042 Option A).
@@ -8484,6 +8530,12 @@ class REEConfig:
         use_mech273_self_model: bool = False,
         # MECH-204 Option A: precision recalibration consumer in WRITEBACK
         use_rem_precision_recalibration: bool = False,
+        # MECH-018: residue offline-integration gradient step + sleep call site.
+        # All three default to the no-op values; see the REEConfig/ResidueConfig
+        # field comments for why OFF is the default rather than the fix.
+        residue_offline_integration_trains: bool = False,
+        use_sleep_residue_integration: bool = False,
+        sleep_residue_integration_steps: int = 10,
         # Default 0.25 (was 0.1 pre-2026-05-09); see field comment in REEConfig
         # dataclass for V3-EXQ-541c rationale + the biologically-defensible
         # band {0.05, 0.10, 0.25} per Q-042 Option A verdict.
@@ -10115,6 +10167,17 @@ class REEConfig:
         # MECH-204 Option A: precision recalibration consumer
         config.use_rem_precision_recalibration = use_rem_precision_recalibration
         config.rem_precision_recalibration_step = rem_precision_recalibration_step
+        # MECH-018: the gradient-step lever lives on the NESTED ResidueConfig, so
+        # it needs this explicit re-apply after cls() -- a from_dims kwarg that is
+        # never written back is exactly the MECH-307 failure mode (84 drivers
+        # passed a flag into the canonical factory and silently ran with it OFF).
+        config.residue.offline_integration_trains = bool(
+            residue_offline_integration_trains
+        )
+        config.use_sleep_residue_integration = bool(use_sleep_residue_integration)
+        config.sleep_residue_integration_steps = int(
+            sleep_residue_integration_steps
+        )
         config.use_rem_precision_broadcast = use_rem_precision_broadcast
         config.rem_precision_broadcast_gain = rem_precision_broadcast_gain
         config.mech273_offline_lr_scale = mech273_offline_lr_scale

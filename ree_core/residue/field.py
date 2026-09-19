@@ -1119,30 +1119,143 @@ class ResidueField(nn.Module):
 
         return int(in_domain_global.numel())
 
-    def integrate(self, num_steps: int = 10) -> Dict[str, float]:
+    def integrate(
+        self,
+        num_steps: int = 10,
+        train: Optional[bool] = None,
+    ) -> Dict[str, float]:
         """
         Offline integration of residue (contextualisation, no erasure).
+
+        Trains the neural_field to approximate the rbf_field around jittered
+        copies of the recorded harm locations. This is the "contextualisation"
+        half of MECH-018: the approximator learns the harm geometry the RBF
+        centres already hold, so the same field can be expressed at fewer
+        parameters without the recorded centres themselves being touched.
+
+        MECH-018 (2026-09-19) -- THE GRADIENT STEP. Until this landed, the loop
+        below computed the MSE and accumulated `.item()` but never called
+        `loss.backward()`, and the module declared no optimizer anywhere in its
+        1259 lines: a metric loop wearing the shape of a training loop. The
+        returned "integration_loss" read as training progress while nothing
+        trained, which guaranteed MECH-018's own explicit FALSIFYING outcome
+        ("the operation is geometrically inert") with probability 1. See
+        EXP-0755 / EVB-1391 release_condition part (1) and GFLAG-0306.
+
+        NO ERASURE, STRUCTURALLY. The optimizer is constructed over
+        `self.neural_field.parameters()` ONLY. `self.rbf_field` is a disjoint
+        submodule (constructed separately in __init__), and `targets` is
+        computed under `torch.no_grad()`, so no gradient path to the recorded
+        residue weights exists at all -- the "cannot be erased" invariant is
+        preserved by CONSTRUCTION here, not by a clamp. The place erasure IS
+        possible is the multiplicative decay path (`discharge_domain`), which
+        enforces the MIN_FLOOR = 1e-6 sign-preserving clamp via an in-place
+        `.data` write; that clamp is where the no-erasure floor is actually
+        tested (tests/contracts/test_mech018_residue_integrate_gradient.py).
+        If a future change ever widens this optimizer to reach
+        `rbf_field.weights`, that MIN_FLOOR clamp MUST be re-applied after every
+        `step()` -- autograd writes bypass the `.data` clamp entirely.
+
+        Args:
+            num_steps: Number of integration iterations.
+            train: Override the ResidueConfig.offline_integration_trains gate.
+                None (default) -> use the config flag. When the gate is off the
+                loop is bit-identical to the pre-MECH-018 behaviour, including
+                RNG consumption (the per-step `randn_like` draw is taken in both
+                branches) and the returned dict's three original keys.
+
+        Returns:
+            Metrics dict. Always carries integration_loss / steps /
+            history_size. When training is active it additionally carries
+            `trained`, the first/last per-step losses, the L2 norm the
+            neural_field parameters actually MOVED, and the rbf-side
+            no-erasure witnesses (`rbf_weight_abs_sum_delta`,
+            `active_centers`), which are exactly 0.0 / unchanged by design.
         """
         if not self._harm_history:
             return {"integration_loss": 0.0, "steps": 0}
 
+        do_train = (
+            bool(self.config.offline_integration_trains)
+            if train is None
+            else bool(train)
+        )
+
         harm_locations = torch.stack(self._harm_history[-100:])
         total_loss = 0.0
 
+        optimizer = None
+        params_before = None
+        rbf_abs_sum_before = None
+        first_loss = None
+        last_loss = None
+        if do_train:
+            # Constructed locally per call, matching the precedent in
+            # SelfModelAggregator.offline_gradient_pass (which builds its
+            # optimiser over e2_harm_s.parameters() inside the call). Adam over
+            # the neural_field ONLY -- see the no-erasure note above.
+            neural_params = list(self.neural_field.parameters())
+            optimizer = torch.optim.Adam(
+                neural_params, lr=float(self.config.integration_rate)
+            )
+            params_before = [p.detach().clone() for p in neural_params]
+            with torch.no_grad():
+                rbf_abs_sum_before = float(
+                    self.rbf_field.weights.detach().abs().sum().item()
+                )
+
         for _ in range(num_steps):
+            # Rebuilt EVERY iteration from detached history (see the
+            # `_harm_history.append(z_world.detach().clone())` producer). Do NOT
+            # hoist this out of the loop to "save compute": that would turn
+            # num_steps independent graphs into one accumulated graph.
             noise = torch.randn_like(harm_locations) * self.config.kernel_bandwidth
             sample_points = harm_locations + noise
             with torch.no_grad():
                 targets = self.rbf_field(sample_points)
             predictions = self.neural_field(sample_points).squeeze(-1)
             loss = F.mse_loss(predictions, targets)
-            total_loss += loss.item()
+            step_loss = loss.item()
+            total_loss += step_loss
+            if first_loss is None:
+                first_loss = step_loss
+            last_loss = step_loss
+            if optimizer is not None:
+                optimizer.zero_grad(set_to_none=True)
+                loss.backward()
+                optimizer.step()
 
-        return {
+        metrics = {
             "integration_loss": total_loss / num_steps,
             "steps": num_steps,
             "history_size": len(self._harm_history),
         }
+        if do_train:
+            with torch.no_grad():
+                delta_sq = 0.0
+                for before, after in zip(
+                    params_before, self.neural_field.parameters()
+                ):
+                    delta_sq += float(
+                        (after.detach() - before).pow(2).sum().item()
+                    )
+                rbf_abs_sum_after = float(
+                    self.rbf_field.weights.detach().abs().sum().item()
+                )
+            metrics["trained"] = 1.0
+            metrics["integration_loss_first"] = float(first_loss)
+            metrics["integration_loss_last"] = float(last_loss)
+            metrics["neural_param_delta_norm"] = float(delta_sq ** 0.5)
+            # No-erasure witnesses: both are invariant under this call by
+            # construction, and are emitted so a run RECORDS that rather than
+            # assuming it.
+            metrics["rbf_weight_abs_sum_delta"] = float(
+                rbf_abs_sum_after - rbf_abs_sum_before
+            )
+            metrics["active_centers"] = float(
+                self.rbf_field.active_mask.sum().item()
+            )
+        return metrics
 
     def get_statistics(self) -> Dict[str, torch.Tensor]:
         return {

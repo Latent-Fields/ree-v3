@@ -3165,6 +3165,16 @@ class REEAgent(nn.Module):
                 rem_precision_recalibration_step=float(
                     getattr(config, "rem_precision_recalibration_step", 0.1)
                 ),
+                # MECH-018: residue offline integration in the WRITEBACK phase.
+                # Gated separately from the gradient step itself
+                # (ResidueConfig.offline_integration_trains) -- see the pairing
+                # note at the call site in phase_manager._run_cycle.
+                residue_integration=bool(
+                    getattr(config, "use_sleep_residue_integration", False)
+                ),
+                residue_integration_steps=int(
+                    getattr(config, "sleep_residue_integration_steps", 10)
+                ),
                 use_mech272_routing_consumer=bool(
                     getattr(config, "use_mech272_routing_consumer", False)
                 ),

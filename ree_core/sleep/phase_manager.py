@@ -117,6 +117,8 @@ class SleepLoopManager:
         self_model_domain: str = "self",
         use_rem_precision_recalibration: bool = False,
         rem_precision_recalibration_step: float = 0.1,
+        residue_integration: bool = False,
+        residue_integration_steps: int = 10,
         use_mech272_routing_consumer: bool = False,
         cross_module_consolidator: Optional["CrossModuleConsolidator"] = None,
         cross_module_consolidation_steps: int = 0,
@@ -162,6 +164,20 @@ class SleepLoopManager:
                 f"got {rem_precision_recalibration_step}"
             )
         self.rem_precision_recalibration_step = float(rem_precision_recalibration_step)
+        # MECH-018: residue offline-integration sibling step in WRITEBACK. Before
+        # this landed, this file had no residue reference in CODE at all (only
+        # comments about the WAKING update_residue path), so the operation
+        # MECH-018 names -- "residue integration during sleep" -- never fired
+        # inside a sleep cycle; every live caller of integrate() was an
+        # experiment driver. False -> no call, no RNG consumed, no metric key
+        # added (bit-identical OFF).
+        if int(residue_integration_steps) < 1:
+            raise ValueError(
+                "residue_integration_steps must be >= 1; "
+                f"got {residue_integration_steps}"
+            )
+        self.residue_integration = bool(residue_integration)
+        self.residue_integration_steps = int(residue_integration_steps)
         self.use_mech272_routing_consumer = bool(use_mech272_routing_consumer)
         # MECH-423 R3: module-tagged interleaved cross-module consolidation.
         self.cross_module_consolidator = cross_module_consolidator
@@ -640,6 +656,46 @@ class SleepLoopManager:
                 writeback_metrics["mech204_recalibration_fired"] = 1.0
             else:
                 writeback_metrics["mech204_recalibration_fired"] = 0.0
+
+        # MECH-018: residue offline integration -- a third, SEPARATELY GATED
+        # sibling step in WRITEBACK, alongside the MECH-273 self-model pass and
+        # the MECH-204 recalibration. Deliberately NOT folded into the
+        # cross-module consolidator, whose contract is explicitly "no residue /
+        # memory writes".
+        #
+        # MECH-094: not subject to the hypothesis_tag constraint. integrate()
+        # writes NO residue -- it never calls accumulate(), never touches
+        # rbf_field.weights or active_mask, and only trains the neural
+        # approximator toward the already-recorded rbf field. Sleep content
+        # cannot become residue through this path.
+        #
+        # THE PAIRING TRAP, made visible on purpose: this flag only supplies the
+        # CALL. Whether the call does anything is ResidueConfig.
+        # offline_integration_trains. On with that off is an inert call -- which
+        # is precisely MECH-018's own FALSIFYING branch arriving for a substrate
+        # reason rather than a scientific one -- so mech018_residue_trains is
+        # always emitted (1.0/0.0) and a run that reads 0.0 must not be scored
+        # against MECH-018.
+        if (
+            self.residue_integration
+            and getattr(agent, "residue_field", None) is not None
+        ):
+            self.state.phase = SleepPhase.WRITEBACK
+            residue_metrics = agent.residue_field.integrate(
+                num_steps=self.residue_integration_steps
+            )
+            for key, value in residue_metrics.items():
+                writeback_metrics[f"mech018_residue_{key}"] = float(value)
+            writeback_metrics["mech018_residue_integration_fired"] = 1.0
+            writeback_metrics["mech018_residue_trains"] = float(
+                bool(
+                    getattr(
+                        getattr(agent.residue_field, "config", None),
+                        "offline_integration_trains",
+                        False,
+                    )
+                )
+            )
 
         merged = dict(metrics)
         if getattr(agent.config, "use_mech286_sleep_onset_gate", False):
