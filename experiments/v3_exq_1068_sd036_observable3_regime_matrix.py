@@ -38,6 +38,56 @@ DV-shopping. z_harm and z_harm_a stay on sustain_ratio with the monotonicity bar
 The readiness tape now also carries a decay-OFF reference, so the gate scores the
 SAME quantity C1 routes on rather than a V-shaped vs-tone-1.0 proxy.
 
+red-team pass 2 (fable, 2026-09-20), on the OPTION-B design: **BLOCKING AGAIN.**
+OPTION B WORKS FOR ITS TARGET -- z_beta's substituted DV scores rho = -1.00 on
+3/3 seeds against V3-EXQ-854's landed trained data, so the z_beta artifact is
+genuinely fixed. But pass 2 found the SAME class of artifact sitting on z_harm,
+by a different mechanism, and the symmetric rule does not catch it.
+
+  [FIXED] The readiness gate was NON-REPRODUCIBLE. Every `_replay_tape_streams`
+      call builds a fresh REEAgent with randomly-initialised encoders and nothing
+      seeded torch, so the six replays making up one readiness sweep each used a
+      DIFFERENT encoder -- and the substitution decision was therefore an RNG
+      draw. Measured before the fix: two back-to-back `readiness_control(42)`
+      calls in ONE process gave z_harm sustain_rho -0.2 then -0.8. Now seeded on
+      (seed, tone, use_decay); verified reproducible.
+
+  [FIXED] SD-011 could be recorded `weakens` on an INSTRUMENT LIMIT. `per_claim`
+      mapped a C2 failure straight to `weakens` without consulting ARM_OFF, the
+      validated-regime positive control, even though `_fit_forward_r2`'s own
+      docstring says that if neither regime clears the band the fitter is the
+      limit. Now gated on `sd011_instrument_control_ok`: if the OFF arm cannot
+      clear the same bands, SD-011 records "unknown", not "weakens".
+
+  [BLOCKING -- NOT FIXED, USER DECISION OWED] z_harm fails on BOTH DVs, at full
+      scale, on every seed, so the cluster would record `SD-036: weakens` driven
+      entirely by a stream whose DV cannot express the manipulation either way.
+      Recomputed from V3-EXQ-854's landed trained trajectories:
+        sustain_ratio        rho = +0.10 / +0.70 / -0.50  (seeds 42/43/44)
+        shape_deviation(neg) rho = +1.00 / +0.80 / +0.30
+      The shape_deviation sign is an INITIALISATION artifact: z_harm is
+      zero-initialised (stack.py:1290) and blended against zeros (stack.py:1655),
+      so the ON arm starts at ~0.5*e0*f while OFF starts at e0, and the max of
+      the peak-normalised difference lands at t=0 (argmax per tone: [0,0,0,10,194]
+      seed 42; [0,0,0,0,0] seed 43). Since peak_on falls with tone, the deviation
+      FALLS with tone -- the opposite of the mechanism.
+      And the symmetric sign-inversion rule does NOT rescue it: z_harm's tape
+      sustain_rho is NOISY (-0.10 measured post-determinism-fix), not >= +0.9, so
+      it is never substituted -- and substituting it would not help, because its
+      shape_deviation rho is +0.60 to +1.00 anyway. There is no "both DVs
+      sign-wrong -> exclude this stream" branch, so z_harm is scored, fails, and
+      carries C1 down.
+      Pass 2 additionally measured that z_harm's TRUE tone effect is tiny --
+      holding observations and weights fixed, its sustain-ratio sweep spread is
+      1.9e-4 / 6.4e-3 / 5.4e-3, i.e. at or below READINESS_SPREAD_FLOOR -- while
+      the 4.8e-2 to 1.5e-1 spread actually recorded in 854 is closed-loop
+      observation divergence between independent per-tone rollouts, not the
+      manipulation. So z_harm clears the readiness gate BECAUSE the gate is
+      measuring noise.
+      Resolving this changes which streams are scoreable and therefore whether
+      SD-036 can be falsified, so under the consent rule it is a user decision
+      and was NOT made here.
+
   [RECORDED, emit-only] `pag_n_commits` is pinned at ~0 in both PAG arms.
       `duration_input_threshold = 0.4` (freeze_gate.py:67) but V3-EXQ-854's
       trained z_harm_a peaks at tone 1.0 are 0.3617 / 0.4106 / 0.3074 with
@@ -458,6 +508,18 @@ def _replay_tape_streams(
     quantity C1 actually routes on. Measuring the gate and the criterion on the
     SAME reference is what stops the gate certifying a different subject.
     """
+    # DETERMINISM (red-team pass-2 finding 2, CONFIRMED by measurement): every
+    # call here builds a FRESH agent, and REEAgent's encoders are randomly
+    # initialised. Without an explicit seed the six replays that make up one
+    # readiness sweep each get a DIFFERENT encoder, so the gate's rho / spread --
+    # and therefore which stream the substitution rule fires on -- vary run to
+    # run. Measured before this fix: two back-to-back readiness_control(42) calls
+    # in one process gave z_harm sustain_rho -0.2 then -0.8. Seeding on
+    # (seed, tone, use_decay) makes each replay reproducible while keeping the
+    # tones genuinely distinct.
+    _rng_key = (int(seed) * 1_000_003) + int(round(float(tone) * 1000)) * 7 + int(use_decay)
+    torch.manual_seed(_rng_key)
+    np.random.seed(_rng_key % (2 ** 31 - 1))
     env = B.make_env(seed)
     _, od0 = env.reset()
     agent = B.make_agent(env, od0, use_gabaergic_decay=use_decay, gaba_tone=tone)
@@ -1182,13 +1244,38 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         degeneracy_reason = ""
         direction = "supports" if c1["passed"] else "weakens"
 
+    # Is SD-011's instrument working AT ALL? The OFF arm is the validated-regime
+    # positive control; if it cannot clear the same bands, C2's failure in the ON
+    # arm is uninformative about the decay regime.
+    _off_refs = [
+        (r.get("sd011_dvs") or {})
+        for r in arm_results
+        if r["arm_id"] == ARM_OFF
+    ]
+    _sd011_control_ok = any(
+        d.get("harm_fwd_r2") is not None
+        and np.isfinite(d.get("harm_fwd_r2"))
+        and d["harm_fwd_r2"] >= C2_HARM_FWD_R2_MIN
+        and d.get("autocorr_gap") is not None
+        and d["autocorr_gap"] >= C2_AUTOCORR_GAP_MIN
+        for d in _off_refs
+    )
+
     per_claim = {
         "SD-036": direction,
         # SD-011's leg is scored by C2 only when the regime assertions held --
         # and they are asserted at start, so a run that gets here is non-vacuous
         # for SD-011 by construction.
+        # INSTRUMENT-LIMIT GATE (red-team pass-2 finding 4). C2 failing is only a
+        # `weakens` for SD-011 if the dissociation was MEASURABLE in the first
+        # place. ARM_OFF is the validated-regime positive control: if the OFF arm
+        # ALSO fails the same bands, the fitter/instrument is the limit, not the
+        # decay regime, and the honest record is "unknown" -- exactly what
+        # `_fit_forward_r2`'s own docstring already promises. Without this gate
+        # an unreachable harm_fwd_r2 band silently becomes evidence against
+        # SD-011.
         "SD-011": (
-            "unknown" if direction == "non_contributory"
+            "unknown" if (direction == "non_contributory" or not _sd011_control_ok)
             else ("supports" if acc["C2_sd011_dissociation_under_decay"]["passed"]
                   else "weakens")
         ),
@@ -1216,6 +1303,7 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         "arm_results": arm_results,
         "readiness_control": readiness,
         "sd011_regime_declaration": regime,
+        "sd011_instrument_control_ok": bool(_sd011_control_ok),
         "registered_taus": dict(REGISTERED_TAUS),
         # PRE-REGISTERED per-stream DV substitution (user OPTION B,
         # 2026-09-20T03:47:20Z). Declared before the run, applied by rule, and
