@@ -153,38 +153,94 @@ suggest.
 
 THE PREDICTION THIS DESIGN MAKES (so a null is not a shrug)
 -------------------------------------------------------------
-Under the last-writer reading: the ORDER_WR early curve RISES with k (toward the
-untrained control, as the recent-window pass increasingly erases the whole-buffer
-pass) while the ORDER_RW early curve stays roughly FLAT and low (its last pass is
-the whole-buffer one, which is the pass that preserves early fidelity). That
-asymmetry between the two orders is itself a discriminating observable, and it is
-reported as `order_asymmetry_*` whether or not the load-bearing criterion fires.
-No threshold in this script was chosen with any knowledge of the intermediate
-k values; only k=24 has ever been measured, and only as a whole-life dose.
+CORRECTED after this run's red-team (finding F1); the first draft of this section
+was WRONG and the error is recorded rather than quietly replaced, because it also
+had a defect in the classifier behind it.
+
+THE KEY STRUCTURAL FACT: at k = 0 the dosed pass DOES NOT RUN, so each order's k=0
+rung sits in ITS MIRROR'S last-writer state --
+
+    ORDER_WR at k=0: only whole-buffer(24) runs at the final point
+                     -> last writer is the WHOLE BUFFER   (a D2-like state)
+    ORDER_WR at k=24: whole-buffer(24) then recent-window(24)
+                     -> last writer is the RECENT WINDOW  (its own, D1)
+    ORDER_RW at k=0: only recent-window(24) runs at the final point
+                     -> last writer is the RECENT WINDOW  (a D1-like state)
+    ORDER_RW at k=24: recent-window(24) then whole-buffer(24)
+                     -> last writer is the WHOLE BUFFER   (its own, D2)
+
+So each ladder sweeps FROM the mirror's last-writer state TO its own, in opposite
+directions. Under the last-writer reading the two orders' curves must therefore
+move in OPPOSITE directions: ORDER_WR's early curve RISES with k (toward the
+untrained control, as the recent-window pass increasingly takes the last word)
+while ORDER_RW's early curve FALLS with k (toward the preserved D2 value, as the
+whole-buffer pass takes it). The first draft predicted ORDER_RW would be roughly
+FLAT, which is false -- it is the swap, not flatness, that the construction
+implies. The smoke corroborates the corrected reading: ARM_D2's early curve falls
+steeply with k (1.071e-04 -> 8.267e-05).
+
+A pure total-budget mechanism CANNOT produce that inversion: k adds steps in both
+orders, so a budget effect moves both curves the same way. Opposite-sign movement
+is therefore the sharpest discriminator this design has, and it is now the
+classifier's strongest branch (it was, in the first draft, falling through to
+"unclassified" -- see THIS RUN'S OWN RED-TEAM below).
+
+No threshold in this script was chosen with any knowledge of the intermediate k
+values; only k=24 has ever been measured, and only as a whole-life dose.
 
 WHAT THE LADDER BUYS EACH HYPOTHESIS (the Step 2.5b design audit of the leg's null)
 ------------------------------------------------------------------------------------
-  H-schedule     -- a non-flat curve in ONE order and a flat curve in the MIRROR is
-                    the schedule signature: the dose matters only through which
-                    window is written last. SUPPORTED by asymmetry.
-  H-reallocation -- if the cost is budget being spent away from the recent window,
-                    both curves move with k in the SAME direction (more total steps
-                    of the non-recent window = more recency cost), since k adds
-                    budget rather than moving it. SUPPORTED by symmetric movement.
-  H-intrinsic    -- if the cost is intrinsic to touching remote traces at all, the
-                    LATE curve degrades with k in ORDER_RW (where k IS whole-buffer
-                    steps) and is insensitive to k in ORDER_WR (where k is
-                    recent-window steps). SUPPORTED by a late-leg order asymmetry
-                    opposite to the early-leg one.
-  ALL THREE FLAT -- the null. It is NOT vacuous: it falsifies the last-writer
-                    reading of the 1057/1057a cluster and says the displacement is
-                    a property of the whole four-point schedule, not of its last
-                    writer. That routes the next question to the schedule as a
-                    whole (or to D3), which is a real routing decision.
-  VERDICT ALIASING, checked: "curve flat because the dose does nothing" and "curve
-                    flat because the DV is pinned" are separated by the
-                    `dose_reaches_dv` precondition (below), which requires the k=0
-                    and k=24 cells to differ AT ALL, and by `probe_target_variance`.
+REWRITTEN after red-team findings F2 and F3, which caught the first draft's
+hypothesis map contradicting its own verdict grid and over-claiming against a
+confound. The map below is now identical to what the code records.
+
+  A DECLARED CONFOUND, FIRST, because it limits every row: ORDER and WHICH WINDOW
+  IS DOSED are PERFECTLY CONFOUNDED. In ORDER_WR the dosed pass is the recent
+  window; in ORDER_RW it is the whole buffer. That coupling is forced by the
+  ratified sketch and cannot be removed without abandoning the design governance
+  approved. A whole-buffer draw is early-regime with probability ~0.57-0.73 and a
+  recent-window draw with probability 0.0, so the two dosed passes are not equally
+  potent per step. Consequently an order-dependent response is evidence for
+  last-writer POSITION only up to that confound -- and this run therefore FAVOURS
+  H-schedule where warranted but never DISFAVOURS H-reallocation / H-intrinsic on
+  the strength of an order effect. Separating position from potency is exactly
+  what the OWED interleaved arm D3 is for.
+
+  OPPOSITE-SIGN on a stratum (both orders non-flat, moving apart)
+      -> H-schedule FAVOURED, strongest form. A budget mechanism cannot invert
+         between orders (k adds steps in both), so the inversion is positional.
+         H-reallocation / H-intrinsic: NOT SEPARATED (the confound above).
+  SINGLE-ORDER (exactly one order non-flat)
+      -> H-schedule WEAKLY favoured. Order dependence points away from a pure
+         budget mechanism, but the confound admits a potency explanation.
+         H-reallocation / H-intrinsic: UNDETERMINED.
+  SAME-SIGN on a stratum (both orders non-flat, moving together)
+      -> H-schedule DISFAVOURED; H-reallocation and H-intrinsic JOINTLY FAVOURED
+         and NOT SEPARATED FROM EACH OTHER. The two orders dose DIFFERENT windows,
+         so a shared direction points at the AMOUNT of extra consolidation rather
+         than at its position. D3 is what separates the remaining two.
+  ALL FLAT -- the null. H-schedule DISFAVOURED AS A FINAL-PASS EFFECT; the other
+         two undetermined. It is not vacuous: it says the 1057-vs-1057a swing is
+         not attributable to the final pass AT THIS DOSE, which removes the
+         cheapest mechanism for the cluster's structural property. It does NOT
+         establish that the displacement is "a property of the whole four-point
+         schedule" -- the manipulated share is one point of four, so a sub-band
+         effect here is still consistent with the last pass mattering at
+         whole-life dose (red-team F7).
+  VERDICT ALIASING -- what IS and IS NOT covered, corrected per red-team F5.
+         "Flat because the dose was never applied" is caught by
+         `ladder_budget_is_pre_registered_dose` (the consolidator's own updates_e1
+         counter must equal the pre-registered dose). "Flat because the DV is
+         structurally pinned" is caught by `probe_target_variance`. "Flat because
+         the effect is below the DV's resolution" is BOUNDED by the new
+         `flat_band_exceeds_in_run_probe_noise` gate, which measures the paired
+         probe-time dropout noise IN-RUN. `dose_reaches_dv` is retained but is
+         WEAKER than the first draft claimed: the k=0 and k=24 cells consume
+         different amounts of global RNG, so with dropout live their masks differ
+         and the gate passes whatever the weights did -- it catches the
+         bit-identical shape and nothing more. The residual -- a real effect
+         smaller than FLAT_BAND -- reads as a flat null, which is the CONSERVATIVE
+         direction and is stated in the null branch's own reading.
 
 D3 IS OWED, NOT DONE -- AND IT IS NOT BUILDABLE AS SKETCHED
 -------------------------------------------------------------
@@ -465,7 +521,14 @@ NEW, and specific to this design:
        UNITS: it reads `updates_e1`, not `n_updates` -- the latter counts one
        update per MODULE per step (e1 and e2) and is therefore 2x the step count.
        The first smoke of this script failed on exactly that confusion.
- (vi)  `dose_reaches_dv` -- in BOTH orders and on EVERY seed, the k=0 and k=24
+ (vi)  `flat_band_exceeds_in_run_probe_noise` -- ADDED after this run's red-team
+       (F5/F6). Worst cell over every cell of the relative spread between TWO
+       draws of the held-out E1 MSE on the SAME weights and SAME probes, i.e. the
+       live probe-time dropout noise (LIMIT 3), measured IN-RUN at full scale
+       rather than quoted from 1057a's toy-scale 0.81%. Must sit BELOW FLAT_BAND,
+       or "flat" and "non-flat" are not distinguishable and the ladder is
+       unreadable. Recorded evidence says it clears with ~12x headroom.
+ (vii) `dose_reaches_dv` -- in BOTH orders and on EVERY seed, the k=0 and k=24
        cells must produce DIFFERENT early-probe E1 MSE. A bit-identical pair is a
        dead manipulation, and would otherwise be scored as a clean "flat in k"
        null on no manipulation at all. Same form and same threshold as
@@ -476,7 +539,92 @@ Any unmet precondition routes the whole run to `substrate_not_ready_requeue` wit
 
 THIS RUN'S OWN RED-TEAM (Step 4.5)
 ------------------------------------
-RED_TEAM_PLACEHOLDER
+VERDICT **CONTESTED** (model: fable -- cross-model diversity from this session's
+Opus 5). Seven findings, ALL verified against source before acting; six FIXED, one
+declared-not-fixable-here with its reason. None dismissed silently. The reviewer
+was given the script, the draft queue entry, the criteria and the smoke output,
+and NOT the Step 3.5 checklist or any of this session's conclusions.
+
+  F1 (Family 3, CONFIRMED, FIXED) -- THE DESIGN'S OWN PREDICTED OUTCOME WAS
+     UNATTRIBUTABLE. At k=0 the dosed pass does not run, so each order's k=0 rung
+     sits in its MIRROR's last-writer state (ORDER_WR's last writer at k=0 is the
+     whole buffer, ORDER_RW's is the recent window). Each ladder therefore sweeps
+     from the mirror's state to its own, and under the last-writer reading the two
+     curves must move in OPPOSITE directions. The first classifier had branches for
+     "exactly one non-flat" (asymmetric) and "both non-flat, same sign"
+     (symmetric) only, so both-non-flat-opposite-sign fell to the `else` and
+     recorded H-schedule as `undetermined` -- on the STRONGEST possible
+     confirmation of H-schedule. The reviewer reconstructed the likely full-scale
+     values from 1057a's per-seed rows and found all four legs non-flat with
+     exactly that opposite-sign pattern, i.e. the defect would have fired. FIXED:
+     opposite-sign is now its own branch and the strongest signature; the
+     docstring's THE PREDICTION section, which contained the same error, is
+     rewritten and the error recorded rather than quietly replaced.
+  F2 (Family 3, CONFIRMED, FIXED) -- the docstring's hypothesis map said H-intrinsic
+     is SUPPORTED by a late-leg order asymmetry while the verdict grid recorded
+     exactly that outcome as H-intrinsic DISFAVOURED. A direct contradiction
+     between the prose and the machine-readable block. FIXED: the map is rewritten
+     to be identical to what the code records, row by row.
+  F3 (Family 3, CONFIRMED, DECLARED -- the confound cannot be removed here) --
+     ORDER and WHICH WINDOW IS DOSED are perfectly confounded (ORDER_WR doses the
+     recent window, ORDER_RW the whole buffer), and the asymmetric branch asserted
+     "identical total budget and identical windows", which is false on BOTH counts:
+     k adds budget, and the dosed windows differ. A one-order-only response is
+     equally explained by the per-step potency of the dosed window (early-regime
+     draw probability ~0.57-0.73 vs 0.0) as by last-writer position. The coupling
+     is FORCED by the ratified sketch and removing it would abandon the approved
+     design, so it is DECLARED, not fixed: the false claim is deleted, the confound
+     is recorded in the docstring, in `hypothesis_verdict.confound_declared` and in
+     every branch's reading, and the classifier no longer DISFAVOURS
+     H-reallocation / H-intrinsic on the strength of an order effect.
+  F4 (Family 2, CONFIRMED, FIXED) -- the non-flatness test used the ENDPOINTS only,
+     so a step-then-recover curve would certify "flat" while its interior moved,
+     and the null branch would then state a falsehood about data sitting in the
+     same manifest. Plausible mechanism, not hypothetical: each consolidate() call
+     builds a fresh Adam whose bias-corrected first steps move ~lr regardless of
+     gradient scale, and the whole buffer CONTAINS the recent window, so a long
+     dosed pass can partly re-fit what its first steps displaced. The smoke already
+     showed the interior exceeding the endpoint (D1_early k0->k2 -8.9% against an
+     endpoint contrast of -7.3%). FIXED: every rung is now tested against k_lo and
+     the leg is non-flat if ANY rung clears the band with a sign-consistent seed
+     majority. No new constant -- same FLAT_BAND, same majority -- and it is the
+     MORE faithful reading of the ratified null, which says "flat in k" of a CURVE,
+     not of its two ends. The endpoint contrast is still reported.
+  F5 (Family 4, CONFIRMED, FIXED) -- `dose_reaches_dv` was advertised as the
+     verdict-aliasing guard but is vacuous for that purpose: the k=0 and k=24 cells
+     consume different amounts of global RNG, probe-time dropout is live, so their
+     masks differ and the gate passes whatever the weights did. FIXED three ways:
+     the overclaim is deleted and the gate's real coverage (the bit-identical shape
+     only) stated; the aliasing coverage is re-attributed to the gates that
+     actually provide it; and a NEW gate
+     `flat_band_exceeds_in_run_probe_noise` bounds the residual by re-evaluating
+     the SAME probes on the SAME weights and requiring the paired spread to sit
+     below FLAT_BAND.
+  F6 (Family 2, CONFIRMED, FIXED for the measurable half) -- the 0.8% noise band
+     FLAT_BAND is set against was measured on a TOY-SCALE agent by 1057a's
+     red-team, and no in-run estimate existed; the only cross-config number
+     available is a 3.2% CROSS-BOX spread, which is not the in-run paired quantity
+     this test uses. FIXED by the same new gate as F5, which measures the paired
+     noise in-run, at full scale, per cell, and reports worst-cell and mean. The
+     other half of the finding -- that a seed sitting inside the band can flip a
+     leg at the 4-of-5 boundary -- is inherent to a 5-seed design at a
+     pre-registered majority and is NOT papered over: every per-seed, per-rung
+     rel_delta is in the manifest so a marginal leg is visible as marginal.
+  F7 (Family 3, CONFIRMED, FIXED) -- the null branch claimed a flat result shows
+     the displacement is "a property of the whole four-point blocked schedule".
+     Overstated: the manipulated share is one point of four, so a sub-band effect
+     here is consistent with the last pass mattering at whole-life dose. FIXED: the
+     branch now claims only that the displacement is not attributable to the final
+     pass AT THIS DOSE, and the label was renamed to match.
+
+  The reviewer also independently checked Family 1 (can the manipulation reach the
+  DV) and found it CLEAN: the final point is identified correctly, the k=0 skip is
+  recorded rather than silently absent, each pass restores the buffers before the
+  next, `arm_cell` resets all RNG at cell entry so each cell is a pure function of
+  (arm, seed), the arm-fingerprint path is emit-only so no cache can collapse the
+  rungs, and nothing weight-moving runs between the dosed pass and the late-probe
+  capture. It also sanity-checked the queue entry's 60-minute estimate as adequate
+  for 65 cells at 1057a's measured rate.
 
 Run with:
   /opt/local/bin/python3 experiments/v3_exq_1057b_mech017_additive_budget_dose_ladder.py --dry-run
@@ -1172,6 +1320,28 @@ def run_cell(
     e2_early = _e2_probe_mse(agent, early_probes)
     e2_late = _e2_probe_mse(agent, late_probes)
 
+    # RED-TEAM F5/F6 (CONFIRMED, FIXED) -- IN-RUN PAIRED PROBE NOISE.
+    # Probe-time LSTM dropout is live (LIMIT 3), so the held-out MSE is a random
+    # variable even at FIXED weights. Two consequences the reviewer is right about:
+    # (a) `dose_reaches_dv` tests float inequality between the k=0 and k=24 cells,
+    #     which consume DIFFERENT amounts of global RNG, so their dropout masks
+    #     differ and the gate passes whatever the weights did -- it cannot, on its
+    #     own, separate "the dose moved the weights" from "the dose consumed RNG";
+    # (b) the 0.8% band FLAT_BAND is set against was measured by V3-EXQ-1057a's
+    #     red-team on a TOY-SCALE agent, and no in-run estimate existed.
+    # Both are answered by re-evaluating the SAME probes on the SAME weights: the
+    # spread between the two draws IS the paired noise, measured in-run, at full
+    # scale, per cell. Costs one extra forward pass and moves nothing.
+    # PLACED LAST, AFTER every other readout, on purpose: the extra RNG draws must
+    # not shift any quantity computed above, or ARM_A/ARM_B/ARM_C would stop being
+    # bit-reproducible against the recorded V3-EXQ-1048/1057/1057a cells -- which is
+    # this run's harness-drift check.
+    e1_early_repeat, _, _ = _e1_probe_mse(agent, early_probes)
+    e1_late_repeat, _, _ = _e1_probe_mse(agent, late_probes)
+    probe_noise_rel_early = abs(e1_early_repeat - e1_early) / max(abs(e1_early), EPS)
+    probe_noise_rel_late = abs(e1_late_repeat - e1_late) / max(abs(e1_late), EPS)
+    probe_noise_rel = max(probe_noise_rel_early, probe_noise_rel_late)
+
     late_points = [r for r in cmc_records if r["block"] == "late" and not r["skipped"]]
     replay_early_share = (
         _mean([r["early_regime_share"] for r in late_points]) if late_points else 0.0
@@ -1260,6 +1430,11 @@ def run_cell(
         "e1_skill_over_persistence_early": skill_early,
         "e1_skill_over_persistence_late": skill_late,
         "e1_holdout_mse_early_at_capture": e1_early_at_capture,
+        "e1_holdout_mse_early_repeat_draw": e1_early_repeat,
+        "e1_holdout_mse_late_repeat_draw": e1_late_repeat,
+        "probe_noise_rel_early": probe_noise_rel_early,
+        "probe_noise_rel_late": probe_noise_rel_late,
+        "probe_noise_rel": probe_noise_rel,
         "within_stratum_forgetting_ratio": forgetting_ratio,
         "recent_window_steps": recent_window,
         "total_extra_gradient_steps": total_extra_steps,
@@ -1434,17 +1609,46 @@ def main(dry_run: bool = False):
             leg = f"{ORDER_TAG[order]}_{stratum}"
             per_k_mean = {k: _mean(_cells(order, k, key)) for k in k_ladder}
             lo_vals, hi_vals = _cells(order, k_lo, key), _cells(order, k_hi, key)
-            # Per-seed relative endpoint contrast. Seed-paired: the same seed's
+            # Per-seed relative ENDPOINT contrast. Seed-paired: the same seed's
             # k_lo and k_hi cells share env, action stream and probe set exactly,
-            # so this differences out everything except the dose.
+            # so this differences out everything except the dose. Reported for
+            # continuity, but NOT the non-flatness test -- see below.
             rel_delta = [(hi - lo) / max(abs(lo), EPS)
                          for lo, hi in zip(lo_vals, hi_vals)]
-            # SIGN-CONSISTENT counts, not a count of |rel_delta| > band: symmetric
-            # seed noise must not read as a dose response.
+            # RED-TEAM F4 (CONFIRMED, FIXED). An ENDPOINT-ONLY test certifies
+            # "flat" on a curve whose INTERIOR moved -- a step-then-recover shape
+            # is entirely plausible here (each consolidate() call builds a fresh
+            # Adam, whose bias-corrected first steps move ~lr regardless of
+            # gradient scale, and the whole buffer CONTAINS the recent window, so
+            # a long dosed pass can partly re-fit what its first steps displaced).
+            # The smoke already showed the interior exceeding the endpoint:
+            # D1_early k0->k2 was -8.9% against an endpoint contrast of -7.3%.
+            # The autopsy's null is "flat in k" -- a statement about the CURVE, not
+            # its two ends -- so the faithful operationalisation tests EVERY rung
+            # against k_lo and takes the strongest. No new constant: same
+            # FLAT_BAND, same seed-majority, applied per rung.
+            per_rung = {}
+            for k in k_ladder[1:]:
+                vals_k = _cells(order, k, key)
+                rd = [(v - lo) / max(abs(lo), EPS) for lo, v in zip(lo_vals, vals_k)]
+                up = sum(1 for d in rd if d > FLAT_BAND)
+                dn = sum(1 for d in rd if d < -FLAT_BAND)
+                per_rung[k] = {"rel_delta_per_seed": rd, "mean_rel_delta": _mean(rd),
+                               "n_seeds_up": float(up), "n_seeds_down": float(dn),
+                               "n_seeds_sign_consistent": float(max(up, dn)),
+                               "nonflat": bool(max(up, dn) >= SIGN_CONSISTENCY_REQUIRED)}
+            nonflat_rungs = [k for k, r in per_rung.items() if r["nonflat"]]
+            nonflat = bool(nonflat_rungs)
+            n_consistent = max((r["n_seeds_sign_consistent"] for r in per_rung.values()),
+                               default=0.0)
             n_up = sum(1 for d in rel_delta if d > FLAT_BAND)
             n_down = sum(1 for d in rel_delta if d < -FLAT_BAND)
-            n_consistent = max(n_up, n_down)
-            nonflat = bool(n_consistent >= SIGN_CONSISTENCY_REQUIRED)
+            # DOMINANT rung = the one with the largest |mean rel_delta|. Its SIGN is
+            # what the hypothesis classifier reads, so the direction is taken from
+            # the strongest evidence in the leg rather than from the endpoint alone.
+            dom_k = max(per_rung, key=lambda k: abs(per_rung[k]["mean_rel_delta"])) \
+                if per_rung else k_hi
+            dom_mean = per_rung[dom_k]["mean_rel_delta"] if per_rung else 0.0
             # SHAPE -- reported, never gated (no prior distribution exists to set
             # a monotonicity floor from; see the docstring).
             rhos = [_spearman(list(k_ladder), [rows[(_ladder_arm(order, k), s)][key]
@@ -1464,7 +1668,13 @@ def main(dry_run: bool = False):
                 "per_k_values": {k: _cells(order, k, key) for k in k_ladder},
                 "rel_delta_per_seed": rel_delta,
                 "mean_rel_delta": _mean(rel_delta),
-                "n_seeds_up": float(n_up), "n_seeds_down": float(n_down),
+                "endpoint_n_seeds_up": float(n_up), "endpoint_n_seeds_down": float(n_down),
+                "endpoint_nonflat": bool(max(n_up, n_down) >= SIGN_CONSISTENCY_REQUIRED),
+                "per_rung": per_rung,
+                "nonflat_rungs": nonflat_rungs,
+                "dominant_rung": dom_k,
+                "dominant_mean_rel_delta": dom_mean,
+                "dominant_sign": (1.0 if dom_mean > 0 else (-1.0 if dom_mean < 0 else 0.0)),
                 "n_seeds_sign_consistent": float(n_consistent),
                 "nonflat": nonflat,
                 "spearman_rho_per_seed": rhos,
@@ -1476,14 +1686,6 @@ def main(dry_run: bool = False):
 
     nonflat_legs = [name for name, leg in legs.items() if leg["nonflat"]]
     n_nonflat_legs = len(nonflat_legs)
-
-    # ORDER ASYMMETRY -- the H-schedule observable. Reported whether or not the
-    # load-bearing criterion fires: a leg non-flat in ONE order and flat in the
-    # MIRROR on the same stratum is the last-writer signature.
-    order_asymmetry = {
-        stratum: bool(legs[f"D1_{stratum}"]["nonflat"] != legs[f"D2_{stratum}"]["nonflat"])
-        for stratum, _key in STRATA
-    }
 
     # ---------------- retention gates: COMPUTED, REPORTED, NEVER GATING ------
     # See WHY THE RETENTION GATES ARE REPORTED HERE AND NEVER GATE. Both are kept
@@ -1573,6 +1775,13 @@ def main(dry_run: bool = False):
 
     n_seeds_dose_moved = min(_dose_moved(o) for o in orders_seen)
 
+    # RED-TEAM F5/F6: the in-run paired probe noise, WORST CELL (not the mean --
+    # `met` is a worst-case claim, so the reported statistic is the extremum and
+    # the offending cell is named alongside it).
+    worst_probe_noise = max(r["probe_noise_rel"] for r in all_rows)
+    mean_probe_noise = _mean([r["probe_noise_rel"] for r in all_rows])
+    worst_noise_cell = max(all_rows, key=lambda r: r["probe_noise_rel"])
+
     # Persistence-skill gate, carried verbatim from 1057a (its red-team F2 fix):
     # per-seed MAX over the two COMPARED reference arms, never a min over every
     # arm -- ARM_C below persistence is the phenomenon, not a defect.
@@ -1621,14 +1830,38 @@ def main(dry_run: bool = False):
              "offending_cell": (f"{worst_budget_cell['arm']}/seed{worst_budget_cell['seed']}"
                                 if worst_budget_cell is not None else "none"),
              "reference_budget_a": budget_a, "reference_budget_b": budget_b},
+            {"name": "flat_band_exceeds_in_run_probe_noise",
+             "measured": worst_probe_noise, "threshold": FLAT_BAND, "direction": "upper",
+             "control": "NEW, added after this run's red-team (F5/F6). WORST CELL over "
+                        "every cell of the relative spread between TWO draws of the "
+                        "held-out E1 MSE on the SAME weights and the SAME probes -- i.e. "
+                        "the probe-time LSTM dropout noise (LIMIT 3), measured IN-RUN at "
+                        "full scale rather than quoted from V3-EXQ-1057a's toy-scale "
+                        "0.81%. If that noise is not comfortably below FLAT_BAND then "
+                        "'flat' and 'non-flat' are not distinguishable and the whole "
+                        "ladder is unreadable -- an INSTRUMENT failure, not evidence "
+                        "about MECH-017. Recorded evidence says this clears with ~12x "
+                        "headroom, so it is reachable, not a trap.",
+             "offending_cell": f"{worst_noise_cell['arm']}/seed{worst_noise_cell['seed']}",
+             "mean_over_cells": mean_probe_noise},
             {"name": "dose_reaches_dv", "measured": float(n_seeds_dose_moved),
              "threshold": float(len(seeds)), "direction": "lower",
              "control": "NEW for the ladder. WORSE of the two orders of the number of seeds on "
                         f"which the k={k_lo} and k={k_hi} cells produced DIFFERENT early-probe "
                         "E1 MSE. A bit-identical endpoint pair is a DEAD MANIPULATION and would "
-                        "otherwise be scored as a clean 'flat in k' null -- the one verdict "
-                        "aliasing this design is exposed to. Same form and same threshold as "
-                        "manipulation_reaches_dv, re-pointed at the ladder endpoints.",
+                        "otherwise be scored as a clean 'flat in k' null. Same form and same "
+                        "threshold as manipulation_reaches_dv, re-pointed at the ladder "
+                        "endpoints. LIMIT, per this run's red-team F5 (CONFIRMED): the two "
+                        "cells consume DIFFERENT amounts of global RNG, so with probe-time "
+                        "dropout live their masks differ and this gate passes whatever the "
+                        "weights did. It therefore catches only the BIT-IDENTICAL shape, and "
+                        "is NOT by itself the verdict-aliasing guard an earlier draft claimed. "
+                        "The real coverage is split: "
+                        "ladder_budget_is_pre_registered_dose catches 'the steps were never "
+                        "taken', and flat_band_exceeds_in_run_probe_noise bounds 'the weight "
+                        "change is below the DV's resolution'. The residual -- a real but "
+                        "sub-band effect -- reads as a flat null, which is the CONSERVATIVE "
+                        "direction and is stated in the null branch's own reading.",
              "per_order": {ORDER_TAG[o]: float(_dose_moved(o)) for o in orders_seen}},
             {"name": "replay_window_separation", "measured": min_window_separation,
              "threshold": MIN_WINDOW_SEPARATION, "direction": "lower",
@@ -1943,6 +2176,8 @@ def main(dry_run: bool = False):
                 "n_seeds_dv_moved": float(n_seeds_dv_moved),
                 "n_seeds_dose_moved": float(n_seeds_dose_moved),
                 "worst_ladder_budget_error": worst_ladder_budget_error,
+                "in_run_probe_noise_rel_worst_cell": worst_probe_noise,
+                "in_run_probe_noise_rel_mean": mean_probe_noise,
                 "min_per_seed_best_skill_ab": min_best_skill_ab,
                 "min_skill_ab": min_skill_ab,
                 "min_skill_c": min_skill_c,
@@ -1986,12 +2221,17 @@ def main(dry_run: bool = False):
          "comparator": ">=",
          "detail": (
              f"Number of the FOUR ladder legs (2 orders x {{early, late}} probe stratum) that "
-             f"are NON-FLAT in k. A leg is non-flat iff the per-seed relative endpoint contrast "
-             f"(mse[k={k_hi}] - mse[k={k_lo}]) / |mse[k={k_lo}]| exceeds FLAT_BAND={FLAT_BAND} "
-             f"in magnitude WITH A CONSISTENT SIGN on at least {SIGN_CONSISTENCY_REQUIRED} of "
-             f"{len(seeds)} seeds (the sign-consistent count is max(n_up, n_down), NOT the "
-             f"count of |rel_delta| > band -- symmetric seed noise must not read as a dose "
-             f"response). PASS = the autopsy's 'both curves flat in k' null is REJECTED: the "
+             f"are NON-FLAT in k. A leg is non-flat iff, at ANY rung k in {list(k_ladder[1:])}, "
+             f"the per-seed relative contrast (mse[k] - mse[k={k_lo}]) / |mse[k={k_lo}]| "
+             f"exceeds FLAT_BAND={FLAT_BAND} in magnitude WITH A CONSISTENT SIGN on at least "
+             f"{SIGN_CONSISTENCY_REQUIRED} of {len(seeds)} seeds. TWO deliberate choices: "
+             f"(a) EVERY RUNG, not just the endpoint -- red-team F4 (CONFIRMED): an "
+             f"endpoint-only test certifies 'flat' on a step-then-recover curve whose interior "
+             f"moved, and the autopsy's null is 'flat in k' of a CURVE, not of its two ends. "
+             f"The endpoint contrast is still reported as leg_*_mean_rel_delta / "
+             f"leg_*_endpoint_nonflat. (b) the sign-consistent count is max(n_up, n_down), NOT "
+             f"the count of |rel_delta| > band -- symmetric seed noise must not read as a dose "
+             f"response. PASS = the autopsy's 'both curves flat in k' null is REJECTED: the "
              f"step count of the FINAL consolidation pass moves held-out E1 fidelity. "
              f"FAIL = the null HOLDS, which is informative and not a shrug -- it falsifies the "
              f"last-writer reading that the V3-EXQ-1057/1057a pass-order swing suggests, and "
@@ -2119,62 +2359,116 @@ def main(dry_run: bool = False):
     # `hypothesis_verdict` block, which is what routes the next decision (build D3
     # via /implement-substrate, or accept V3-EXQ-1048's mixed reading as the
     # record, per the autopsy's own stop rule).
-    d1_early_nf = legs["D1_early"]["nonflat"]
-    d2_early_nf = legs["D2_early"]["nonflat"]
-    d1_late_nf = legs["D1_late"]["nonflat"]
-    d2_late_nf = legs["D2_late"]["nonflat"]
-    # Same-sign test over the two orders, per stratum: a shared direction is the
-    # budget/intrinsic signature; opposite or single-order movement is the
-    # schedule signature.
-    def _same_sign(leg_a: str, leg_b: str) -> bool:
-        a, b = legs[leg_a]["mean_rel_delta"], legs[leg_b]["mean_rel_delta"]
-        return bool(a * b > 0.0)
+    # RED-TEAM F1 (CONFIRMED, FIXED) -- THE DEFECT THAT WOULD HAVE MADE THIS RUN'S
+    # OWN PREDICTED OUTCOME UNATTRIBUTABLE. At k=0 the dosed pass does not run, so
+    # each order's k=0 rung sits in its MIRROR's last-writer state: ORDER_WR's last
+    # writer at k=0 is the WHOLE-BUFFER pass (D2-like) and ORDER_RW's is the
+    # RECENT-WINDOW pass (D1-like). Each ladder therefore sweeps FROM the mirror's
+    # last-writer state TO its own. Under the last-writer reading the two orders'
+    # curves must consequently move in OPPOSITE directions -- and the first version
+    # of this classifier had no branch for "both non-flat, opposite signs": it fell
+    # to the unclassified `else` and recorded H-schedule as `undetermined` on the
+    # STRONGEST possible confirmation of H-schedule. Opposite-sign is now its own
+    # branch and is read as the strongest signature, not the weakest.
+    # The smoke corroborates the swap: ARM_D2's early curve falls steeply with k
+    # (1.071e-04 -> 8.267e-05), i.e. from a D1-like high toward a D2-like low.
+    def _classify(stratum: str) -> str:
+        a, b = legs[f"D1_{stratum}"], legs[f"D2_{stratum}"]
+        if a["nonflat"] and b["nonflat"]:
+            prod = a["dominant_sign"] * b["dominant_sign"]
+            if prod < 0:
+                return "opposite"      # last-writer signature, strongest form
+            if prod > 0:
+                return "symmetric"     # shared direction despite dosing DIFFERENT
+                                       # windows -> a budget/total-dose effect
+            return "unclassified"
+        if a["nonflat"] != b["nonflat"]:
+            return "single_order"      # order-dependent, weaker schedule signature
+        return "flat"
 
-    early_symmetric = bool(d1_early_nf and d2_early_nf and _same_sign("D1_early", "D2_early"))
-    late_symmetric = bool(d1_late_nf and d2_late_nf and _same_sign("D1_late", "D2_late"))
-    early_asymmetric = bool(d1_early_nf != d2_early_nf)
-    late_asymmetric = bool(d1_late_nf != d2_late_nf)
+    pattern = {stratum: _classify(stratum) for stratum, _key in STRATA}
+    order_asymmetry = {st: bool(pattern[st] in ("opposite", "single_order"))
+                       for st in pattern}
+
+    # RED-TEAM F3 (CONFIRMED, DECLARED NOT FIXABLE HERE). ORDER and WHICH WINDOW IS
+    # DOSED are PERFECTLY CONFOUNDED by construction: in ORDER_WR the dosed pass is
+    # the recent window, in ORDER_RW it is the whole buffer. That coupling is forced
+    # by the ratified sketch (dose the pass that follows a fixed pass, in both
+    # orders) and cannot be removed without abandoning the design governance
+    # approved. So a one-order-only or opposite-sign response is equally explained
+    # by the per-step POTENCY of the dosed window (a whole-buffer draw is
+    # early-regime with p ~ 0.57-0.73; a recent-window draw with p = 0.0) as by
+    # last-writer POSITION. The classifier therefore favours H-schedule but does
+    # NOT disfavour the other two -- an earlier draft claimed "identical total
+    # budget and identical windows", which is false on both counts (k ADDS budget,
+    # and the dosed windows differ between the orders). Separating position from
+    # potency needs the OWED interleaved arm D3.
+    _CONFOUND = ("order is perfectly confounded with which window is dosed "
+                 "(ORDER_WR doses the recent window, ORDER_RW the whole buffer), so "
+                 "last-writer POSITION and dosed-window POTENCY are not separable by "
+                 "this run; the OWED interleaved arm D3 is what separates them")
 
     if not c1:
-        label = "final_pass_dose_flat_displacement_not_attributable_to_last_writer"
+        label = "final_pass_dose_flat_not_attributable_to_the_final_pass_at_this_dose"
         hypothesis_verdict = {
-            "H-schedule": "disfavoured_as_last_writer_effect",
+            "H-schedule": "disfavoured_as_a_final_pass_effect",
             "H-reallocation": "undetermined",
             "H-intrinsic": "undetermined",
             "reading": (
-                "All four legs flat. Titrating the FINAL consolidation pass does not move "
-                "held-out E1 fidelity, so the V3-EXQ-1057-vs-1057a pass-order swing is NOT "
-                "produced by the last writer alone; it is a property of the whole four-point "
-                "blocked schedule. This is an informative null: it removes the cheapest "
-                "mechanism for the cluster's structural property and routes the next question "
-                "to the schedule as a whole."),
+                "No leg is non-flat at any rung. Titrating the FINAL consolidation pass "
+                "does not move held-out E1 fidelity at this dose, so the "
+                "V3-EXQ-1057-vs-1057a pass-order swing is NOT attributable to the final "
+                "pass alone. RED-TEAM F7 (CONFIRMED, FIXED): this deliberately does NOT "
+                "say the displacement is 'a property of the whole four-point schedule'. "
+                "The manipulated share is one of four points, so a sub-FLAT_BAND effect "
+                "here is still consistent with the last pass mattering at whole-life "
+                "dose; what is established is only that it is not attributable to the "
+                "final pass AT THIS DOSE. Informative either way: it removes the "
+                "cheapest mechanism for the cluster's structural property."),
         }
-    elif early_asymmetric or late_asymmetric:
-        label = "final_pass_dose_response_order_asymmetric_schedule_signature"
+    elif "opposite" in pattern.values():
+        label = "final_pass_dose_response_opposite_sign_across_orders_last_writer_signature"
         hypothesis_verdict = {
-            "H-schedule": "favoured",
-            "H-reallocation": "disfavoured",
-            "H-intrinsic": "disfavoured",
+            "H-schedule": "favoured_strongest_form",
+            "H-reallocation": "not_separated",
+            "H-intrinsic": "not_separated",
             "reading": (
-                "The dose moves the DV in ONE order and not in its MIRROR, at identical total "
-                "budget and identical windows. A cost that depends on WHICH window is written "
-                "last, and not on how much budget went where, is a schedule artefact. This "
-                "UNDERMINES the prior reading that the recency cost is a fact about replay, "
-                "without SUPPORTING MECH-017's recency conjunct -- which is why the direction "
-                "below is non_contributory and not `supports`."),
+                "On at least one stratum both orders are non-flat and move in OPPOSITE "
+                "directions. This is the last-writer signature in its strongest form, "
+                "and it is what the design predicts: because the dosed pass does not run "
+                "at k=0, each order's ladder sweeps FROM its mirror's last-writer state "
+                "TO its own, so a position-driven effect MUST invert between them. A "
+                "pure total-budget effect cannot produce it -- k adds steps in both "
+                "orders, so a budget mechanism moves both curves the same way. "
+                "H-reallocation and H-intrinsic are recorded as NOT SEPARATED rather "
+                "than disfavoured because " + _CONFOUND + "."),
         }
-    elif early_symmetric or late_symmetric:
-        label = "final_pass_dose_response_order_symmetric_budget_signature"
+    elif "single_order" in pattern.values():
+        label = "final_pass_dose_response_single_order_only_order_dependent"
+        hypothesis_verdict = {
+            "H-schedule": "weakly_favoured",
+            "H-reallocation": "undetermined",
+            "H-intrinsic": "undetermined",
+            "reading": (
+                "The dose moves the DV in ONE order and not in its mirror. Order "
+                "dependence points away from a pure total-budget mechanism, but only "
+                "weakly: " + _CONFOUND + ". Weaker than the opposite-sign branch, which "
+                "a budget mechanism cannot produce at all."),
+        }
+    elif "symmetric" in pattern.values():
+        label = "final_pass_dose_response_same_sign_across_orders_budget_signature"
         hypothesis_verdict = {
             "H-schedule": "disfavoured",
-            "H-reallocation": "favoured" if late_symmetric else "undetermined",
-            "H-intrinsic": "favoured" if late_symmetric else "undetermined",
+            "H-reallocation": "favoured_not_separated_from_intrinsic",
+            "H-intrinsic": "favoured_not_separated_from_reallocation",
             "reading": (
-                "Both orders move with k in the SAME direction. k ADDS steps rather than "
-                "moving them, so a shared dose response points at the amount of non-recent "
-                "training rather than at its position in the schedule. H-reallocation and "
-                "H-intrinsic are not separated by this run -- separating them is exactly what "
-                "the OWED interleaved arm D3 is for."),
+                "Both orders move with k in the SAME direction on at least one stratum, "
+                "even though they dose DIFFERENT windows. A position-driven mechanism "
+                "would invert between them (see the opposite-sign branch), so a shared "
+                "direction points at the AMOUNT of extra consolidation rather than at "
+                "where it sits in the schedule. H-reallocation and H-intrinsic are "
+                "jointly favoured and NOT separated from each other -- separating them "
+                "is exactly what the OWED interleaved arm D3 is for."),
         }
     else:
         label = "final_pass_dose_response_detected_pattern_unclassified"
@@ -2183,12 +2477,13 @@ def main(dry_run: bool = False):
             "H-reallocation": "undetermined",
             "H-intrinsic": "undetermined",
             "reading": (
-                "At least one leg is non-flat but the pattern matches neither the "
-                "order-asymmetric (schedule) nor the order-symmetric (budget) signature -- "
-                "e.g. both orders move in OPPOSITE directions on the same stratum, or only a "
-                "cross-stratum subset fires. Recorded as unclassified rather than forced into "
-                "a hypothesis; read the per-leg curves."),
+                "At least one leg is non-flat but the per-stratum pattern matches none "
+                "of the three signatures (e.g. a leg whose dominant rung has mean "
+                "rel_delta exactly 0). Recorded as unclassified rather than forced into "
+                "a hypothesis; read the per-leg, per-rung curves."),
         }
+    hypothesis_verdict["pattern_by_stratum"] = pattern
+    hypothesis_verdict["confound_declared"] = _CONFOUND
     direction = "non_contributory"
 
     note = (
@@ -2284,7 +2579,8 @@ def main(dry_run: bool = False):
                 "`ladder_legs`, so no reader has to trust the OR. Each leg's own test is a "
                 "SIGN-CONSISTENT seed majority (max(n_up, n_down) >= "
                 "SIGN_CONSISTENCY_REQUIRED), not a count of |rel_delta| > band, so symmetric "
-                "seed noise cannot make a leg fire. "
+                "seed noise cannot make a leg fire, and each leg's test ranges over EVERY "
+                "rung rather than the endpoints alone (red-team F4). "
                 "C2 (shape/monotonicity) and C3 (retention dose-response) are "
                 "load_bearing:false and carry threshold_not_applicable with their reasons: C2 "
                 "because no prior distribution exists from which to set a monotonicity floor, "
@@ -2331,8 +2627,27 @@ def main(dry_run: bool = False):
             # --- order asymmetry (the H-schedule observable) -----------------
             "order_asymmetry_early": order_asymmetry["early"],
             "order_asymmetry_late": order_asymmetry["late"],
-            "early_symmetric_same_sign": early_symmetric,
-            "late_symmetric_same_sign": late_symmetric,
+            # Pattern per stratum, as a stable integer code so it survives
+            # _flat_scalar: 0 flat, 1 single_order, 2 symmetric (budget),
+            # 3 opposite (last-writer), 4 unclassified.
+            **{f"pattern_code_{st}": float(
+                {"flat": 0, "single_order": 1, "symmetric": 2,
+                 "opposite": 3, "unclassified": 4}[pattern[st]])
+               for st in pattern},
+            **{f"leg_{name}_endpoint_nonflat": leg["endpoint_nonflat"]
+               for name, leg in legs.items()},
+            **{f"leg_{name}_dominant_rung": float(leg["dominant_rung"])
+               for name, leg in legs.items()},
+            **{f"leg_{name}_dominant_mean_rel_delta": leg["dominant_mean_rel_delta"]
+               for name, leg in legs.items()},
+            # In-run paired probe noise (red-team F5/F6): the SAME weights
+            # re-evaluated under a fresh dropout mask. This is the band
+            # FLAT_BAND must clear, measured in-run rather than quoted from a
+            # toy-scale predecessor measurement.
+            "in_run_probe_noise_rel_worst_cell": worst_probe_noise,
+            "in_run_probe_noise_rel_mean": mean_probe_noise,
+            "flat_band_over_measured_noise": (
+                FLAT_BAND / worst_probe_noise if worst_probe_noise > 0 else float("inf")),
             # --- reference arms ----------------------------------------------
             "mean_e1_holdout_mse_early_a": _mean(early_a),
             "mean_e1_holdout_mse_early_b": _mean(early_b),
